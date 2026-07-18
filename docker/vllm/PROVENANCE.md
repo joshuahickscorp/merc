@@ -114,11 +114,17 @@ source code; it records upstream identity and invokes the separately supplied
 runtime. If code is later copied or modified, retain the license, source
 attribution, and prominent modification notices for each copied file.
 
-## Vendored CX patches (forks retired)
+## CX vLLM deltas (provenance only)
 
-The former `joshuahickscorp/vllm` and `joshuahickscorp/vllm-metal` forks are
-retired. Their CX-unique deltas are vendored under
-[`patches/`](patches/README.md) as diffs on top of the pinned **upstream**
-commits, so the speculative-decoding lane rebuilds from upstream vLLM + a local
-patch with no private fork. See `patches/README.md` for the exact upstream base
-commits and `git apply` recipe.
+The `joshuahickscorp/vllm` and `joshuahickscorp/vllm-metal` forks are retired.
+Their CX-unique deltas are NOT maintained in the active tree (the vLLM lane is an
+unsupported CUDA/Metal design slot, not a routed runtime). Recoverable identity:
+
+- `vllm-project/vllm` @ `ee0da84ab9e04ac7610e28580af62c365e898389` (v0.24.0) +
+  the full-context custom-proposer seam.
+- `vllm-project/vllm-metal` @ `4c18ee0e6e3ce2b594ab114d0a53ca24eafb1d58` +
+  the CX spec-decode parity gate / fixtures / C1 divergence repros.
+
+The full patches were vendored in cx commit `60e20df` and remain recoverable from
+git history there; reintroduce only if the vLLM lane is promoted to a supported
+runtime.
