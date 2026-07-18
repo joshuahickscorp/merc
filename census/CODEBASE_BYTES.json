@@ -2,13 +2,13 @@
   "bytes_by_language": {
     "binary": 18276901,
     "config": 35834,
-    "documentation": 958521,
+    "documentation": 960696,
     "go": 3408064,
     "javascript": 1450305,
-    "json": 594311,
+    "json": 595724,
     "lockfile": 237628,
     "other": 52422,
-    "patch": 22301,
+    "patch": 307981,
     "python": 1078535,
     "rust": 2244250,
     "shader": 609891,
@@ -85,11 +85,11 @@
       "bytes": 507523
     },
     {
-      "path": "web/assets/knob-off@3x.png",
+      "path": "web/assets/site/knob-off@3x.png",
       "bytes": 504757
     },
     {
-      "path": "web/assets/site/knob-off@3x.png",
+      "path": "web/assets/knob-off@3x.png",
       "bytes": 504757
     },
     {
@@ -123,6 +123,10 @@
     {
       "path": "web/assets/site/oracles-pair@1x.png",
       "bytes": 315086
+    },
+    {
+      "path": "docker/vllm/patches/vllm-metal-spec-decode.patch",
+      "bytes": 271164
     },
     {
       "path": "web/assets/site/mac-studio@1x.png",
@@ -175,12 +179,8 @@
     {
       "path": "render/build_scene.py",
       "bytes": 114229
-    },
-    {
-      "path": "web/assets/site/vendor/addons/loaders/GLTFLoader.js",
-      "bytes": 108522
     }
   ],
   "note": "tracked-only (git ls-files). Excludes .git, model weights, dep caches, untracked artifacts.",
-  "tracked_bytes": 30375982
+  "tracked_bytes": 30665250
 }

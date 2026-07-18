@@ -1,13 +1,13 @@
 {
   "active_product_LOC": 138108,
-  "active_repository_LOC": 175056,
+  "active_repository_LOC": 181882,
   "agent_LOC": 43736,
   "control_LOC": 65464,
-  "documentation_LOC": 11999,
+  "documentation_LOC": 12048,
   "generated_LOC": 9855,
   "go_LOC": 80440,
   "historical_LOC": 25699,
-  "hydrated_owned_LOC": 205875,
+  "hydrated_owned_LOC": 212701,
   "interface_LOC": 9334,
   "javascript_LOC": 59786,
   "kernel_LOC": 91550,
@@ -24,7 +24,7 @@
   "sql_LOC": 2720,
   "swift_LOC": 4739,
   "test_LOC": 40570,
-  "total_loc": 291037,
+  "total_loc": 297863,
   "vendored_LOC": 85162,
   "verification_LOC": 10935
 }
