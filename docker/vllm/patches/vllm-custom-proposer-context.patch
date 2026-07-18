@@ -1,0 +1,367 @@
+diff --git a/docs/features/speculative_decoding/README.md b/docs/features/speculative_decoding/README.md
+index 65f396e04a3d..9081d2084148 100644
+--- a/docs/features/speculative_decoding/README.md
++++ b/docs/features/speculative_decoding/README.md
+@@ -43,7 +43,21 @@ or the [benchmark CLI guide](../../benchmarking/cli.md).
+ ## Custom Proposer Backend (Experimental)
+ 
+ You can plug in your own custom proposer class for speculative decoding by setting the method to `custom_class` and providing the full module path to your class.
+-Your custom class must accept a `VllmConfig` upon instantiation and implement a `propose` method.
++Your custom class must accept a `VllmConfig` upon instantiation and implement
++either the legacy `propose` method or `propose_with_context`.
++
++`propose_with_context` receives a
++`vllm.v1.spec_decode.custom_class_proposer.CustomProposerContext`. The
++versioned context exposes request IDs and per-request speculation budgets,
++CPU token history, GPU-resident sampled tokens, target hidden states, sampling
++and verifier metadata, scheduler output, and KV slot mappings. These objects
++are borrowed from the model runner for the duration of the call; custom
++proposers must not mutate or retain them. Check `context.api_version` before
++using version-specific fields.
++
++The legacy `propose(sampled_token_ids, num_tokens_no_spec, token_ids_cpu,
++slot_mappings=...)` form remains supported. It runs after CPU bookkeeping and
++does not receive target-side GPU tensors.
+ 
+ **Example configuration:**
+ 
+diff --git a/tests/spec_decode/test_custom_proposer_context.py b/tests/spec_decode/test_custom_proposer_context.py
+new file mode 100644
+index 000000000000..0700b656b9b3
+--- /dev/null
++++ b/tests/spec_decode/test_custom_proposer_context.py
+@@ -0,0 +1,128 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++import sys
++from types import ModuleType, SimpleNamespace
++from typing import Any
++
++import pytest
++
++from vllm.v1.spec_decode.custom_class_proposer import (
++    CUSTOM_PROPOSER_CONTEXT_API_VERSION,
++    CustomProposerContext,
++    create_custom_proposer,
++    invoke_custom_proposer,
++    supports_context_api,
++)
++
++
++def make_context(*, sampled_token_ids: Any) -> CustomProposerContext:
++    return CustomProposerContext(
++        request_ids=("request-0",),
++        num_spec_tokens_to_schedule=(3,),
++        sampled_token_ids=sampled_token_ids,
++        num_tokens_no_spec=(4,),
++        token_ids_cpu=((1, 2, 3, 4),),
++        scheduler_output=object(),
++        sampling_metadata=object(),
++        hidden_states=object(),
++        sample_hidden_states=object(),
++        aux_hidden_states=object(),
++        spec_decode_metadata=object(),
++        common_attn_metadata=object(),
++        slot_mappings=object(),
++    )
++
++
++def test_context_proposer_receives_full_versioned_context() -> None:
++    class ContextProposer:
++        def __init__(self) -> None:
++            self.received: CustomProposerContext | None = None
++
++        def propose_with_context(
++            self, context: CustomProposerContext
++        ) -> list[list[int]]:
++            self.received = context
++            return [[17, 18, 19]]
++
++    proposer = ContextProposer()
++    context = make_context(sampled_token_ids=object())
++
++    assert supports_context_api(proposer)
++    assert invoke_custom_proposer(proposer, context) == [[17, 18, 19]]
++    assert proposer.received is context
++    assert context.api_version == CUSTOM_PROPOSER_CONTEXT_API_VERSION
++
++
++def test_loader_accepts_context_only_proposer(monkeypatch: pytest.MonkeyPatch) -> None:
++    module = ModuleType("context_only_proposer")
++
++    class ContextOnlyProposer:
++        def __init__(self, vllm_config: Any) -> None:
++            self.vllm_config = vllm_config
++
++        def propose_with_context(
++            self, context: CustomProposerContext
++        ) -> list[list[int]]:
++            return [[context.api_version]]
++
++    module.ContextOnlyProposer = ContextOnlyProposer  # type: ignore[attr-defined]
++    monkeypatch.setitem(sys.modules, module.__name__, module)
++    config = SimpleNamespace(
++        speculative_config=SimpleNamespace(
++            model="context_only_proposer.ContextOnlyProposer",
++            num_speculative_tokens=3,
++        )
++    )
++
++    proposer = create_custom_proposer(config)
++
++    assert isinstance(proposer, ContextOnlyProposer)
++    assert proposer.vllm_config is config
++
++
++def test_legacy_proposer_keeps_original_call_shape() -> None:
++    class LegacyProposer:
++        def __init__(self) -> None:
++            self.received: tuple[Any, ...] | None = None
++
++        def propose(
++            self,
++            sampled_token_ids: list[list[int]],
++            num_tokens_no_spec: Any,
++            token_ids_cpu: Any,
++            *,
++            slot_mappings: Any,
++        ) -> list[list[int]]:
++            self.received = (
++                sampled_token_ids,
++                num_tokens_no_spec,
++                token_ids_cpu,
++                slot_mappings,
++            )
++            return [[7]]
++
++    proposer = LegacyProposer()
++    samples = [[5]]
++    context = make_context(sampled_token_ids=samples)
++
++    assert not supports_context_api(proposer)
++    assert invoke_custom_proposer(proposer, context) == [[7]]
++    assert proposer.received == (
++        samples,
++        context.num_tokens_no_spec,
++        context.token_ids_cpu,
++        context.slot_mappings,
++    )
++
++
++def test_legacy_proposer_rejects_gpu_resident_samples() -> None:
++    class LegacyProposer:
++        def propose(self, *args: Any, **kwargs: Any) -> list[list[int]]:
++            raise AssertionError("legacy proposer must not be called")
++
++    with pytest.raises(TypeError, match="propose_with_context"):
++        invoke_custom_proposer(
++            LegacyProposer(),
++            make_context(sampled_token_ids=object()),
++        )
+diff --git a/vllm/v1/spec_decode/custom_class_proposer.py b/vllm/v1/spec_decode/custom_class_proposer.py
+index 64a17087f3e5..34cff8aef42d 100755
+--- a/vllm/v1/spec_decode/custom_class_proposer.py
++++ b/vllm/v1/spec_decode/custom_class_proposer.py
+@@ -2,6 +2,8 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+ import importlib
++from dataclasses import dataclass
++from typing import Any, ClassVar
+ 
+ from vllm.config import VllmConfig
+ from vllm.logger import init_logger
+@@ -9,6 +11,69 @@
+ logger = init_logger(__name__)
+ 
+ 
++CUSTOM_PROPOSER_CONTEXT_API_VERSION = 1
++
++
++@dataclass(frozen=True, slots=True)
++class CustomProposerContext:
++    """Ephemeral, read-only view of one speculative proposal step.
++
++    The legacy custom proposer API only receives CPU token history and KV slot
++    mappings.  Context-aware proposers additionally need target-side tensors,
++    sampling state, and scheduler budgets to avoid reconstructing or copying
++    state that the model runner already owns.
++
++    Tensor and metadata objects are borrowed from the runner for the duration
++    of ``propose_with_context``. Implementations must not mutate or retain
++    them after the call. The ``api_version`` class attribute is the stable
++    compatibility discriminator for out-of-tree proposers.
++    """
++
++    api_version: ClassVar[int] = CUSTOM_PROPOSER_CONTEXT_API_VERSION
++
++    request_ids: tuple[str, ...]
++    num_spec_tokens_to_schedule: Any
++    sampled_token_ids: Any
++    num_tokens_no_spec: Any
++    token_ids_cpu: Any
++    scheduler_output: Any
++    sampling_metadata: Any
++    hidden_states: Any
++    sample_hidden_states: Any
++    aux_hidden_states: Any
++    spec_decode_metadata: Any
++    common_attn_metadata: Any
++    slot_mappings: Any
++
++
++def supports_context_api(proposer: Any) -> bool:
++    """Return whether a custom proposer implements the v1 context API."""
++
++    return callable(getattr(proposer, "propose_with_context", None))
++
++
++def invoke_custom_proposer(
++    proposer: Any,
++    context: CustomProposerContext,
++):
++    """Invoke a context-aware proposer, falling back to the legacy API."""
++
++    if supports_context_api(proposer):
++        return proposer.propose_with_context(context)
++
++    if not isinstance(context.sampled_token_ids, list):
++        raise TypeError(
++            "Legacy custom proposers require CPU sampled_token_ids; implement "
++            "propose_with_context(context) to receive GPU-resident samples."
++        )
++    return proposer.propose(
++        context.sampled_token_ids,
++        context.num_tokens_no_spec,
++        context.token_ids_cpu,
++        slot_mappings=context.slot_mappings,
++    )
++
++
+ def create_custom_proposer(vllm_config: VllmConfig):
+     """Load and instantiate a user-provided proposer class.
+ 
+@@ -17,7 +82,8 @@ def create_custom_proposer(vllm_config: VllmConfig):
+     imported, instantiated with *vllm_config*, and returned
+     directly so the caller can use it without any wrapper.
+ 
+-    The returned object must expose a callable ``propose`` method.
++    The returned object must expose either the legacy callable ``propose``
++    method or ``propose_with_context`` for the versioned full-context API.
+     """
+     assert vllm_config.speculative_config is not None
+     spec_config = vllm_config.speculative_config
+@@ -54,20 +120,30 @@ def create_custom_proposer(vllm_config: VllmConfig):
+             "The class constructor must accept VllmConfig as argument."
+         ) from e
+ 
+-    if not hasattr(instance, "propose"):
++    legacy_propose = getattr(instance, "propose", None)
++    context_propose = getattr(instance, "propose_with_context", None)
++    if legacy_propose is None and context_propose is None:
+         raise AttributeError(
+-            f"Custom proposer class '{backend}' must have a 'propose' method."
++            f"Custom proposer class '{backend}' must have a 'propose' or "
++            "'propose_with_context' method."
+         )
+-    if not callable(instance.propose):
++    if legacy_propose is not None and not callable(legacy_propose):
+         raise AttributeError(
+             f"Custom proposer class '{backend}' has a 'propose' attribute "
+             "but it is not callable."
+         )
++    if context_propose is not None and not callable(context_propose):
++        raise AttributeError(
++            f"Custom proposer class '{backend}' has a 'propose_with_context' "
++            "attribute but it is not callable."
++        )
+ 
+     logger.info(
+-        "Loaded custom proposer class '%s' with num_speculative_tokens=%d",
++        "Loaded custom proposer class '%s' with num_speculative_tokens=%d "
++        "(context_api=%s)",
+         backend,
+         spec_config.num_speculative_tokens,
++        supports_context_api(instance),
+     )
+ 
+     return instance
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index 74938a823d9f..b9b113ae1421 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -176,7 +176,12 @@
+ from vllm.v1.sample.metadata import SamplingMetadata
+ from vllm.v1.sample.rejection_sampler import RejectionSampler
+ from vllm.v1.sample.sampler import Sampler
+-from vllm.v1.spec_decode.custom_class_proposer import create_custom_proposer
++from vllm.v1.spec_decode.custom_class_proposer import (
++    CustomProposerContext,
++    create_custom_proposer,
++    invoke_custom_proposer,
++    supports_context_api,
++)
+ from vllm.v1.spec_decode.dflash import DFlashProposer
+ from vllm.v1.spec_decode.draft_model import DraftModelProposer
+ from vllm.v1.spec_decode.eagle import EagleProposer
+@@ -4517,18 +4522,23 @@ def propose_draft_token_ids(sampled_token_ids):
+                 spec_config.use_eagle()
+                 or spec_config.uses_draft_model()
+                 or spec_config.uses_extract_hidden_states()
++                or (
++                    spec_config.method == "custom_class"
++                    and supports_context_api(self.drafter)
++                )
+             ) and not spec_config.disable_padded_drafter_batch
+             if use_gpu_toks:
+                 # EAGLE/DraftModel speculative decoding can use the GPU sampled tokens
+                 # as inputs, and does not need to wait for bookkeeping to finish.
+-                assert isinstance(
+-                    self.drafter,
+-                    EagleProposer
+-                    | DFlashProposer
+-                    | DraftModelProposer
+-                    | ExtractHiddenStatesProposer
+-                    | Gemma4Proposer,
+-                )
++                if spec_config.method != "custom_class":
++                    assert isinstance(
++                        self.drafter,
++                        EagleProposer
++                        | DFlashProposer
++                        | DraftModelProposer
++                        | ExtractHiddenStatesProposer
++                        | Gemma4Proposer,
++                    )
+                 sampled_token_ids = sampler_output.sampled_token_ids
+                 if input_fits_in_drafter:
+                     propose_draft_token_ids(sampled_token_ids)
+@@ -4892,13 +4902,22 @@ def propose_draft_token_ids(
+                 slot_mappings=slot_mappings,
+             )
+         elif spec_config.method == "custom_class":
+-            assert isinstance(sampled_token_ids, list)
+-            draft_token_ids = cast(Any, self.drafter).propose(
+-                sampled_token_ids,
+-                self.input_batch.num_tokens_no_spec,
+-                self.input_batch.token_ids_cpu,
++            context = CustomProposerContext(
++                request_ids=tuple(self.input_batch.req_ids),
++                num_spec_tokens_to_schedule=num_spec_tokens_to_schedule,
++                sampled_token_ids=sampled_token_ids,
++                num_tokens_no_spec=self.input_batch.num_tokens_no_spec,
++                token_ids_cpu=self.input_batch.token_ids_cpu,
++                scheduler_output=scheduler_output,
++                sampling_metadata=sampling_metadata,
++                hidden_states=hidden_states,
++                sample_hidden_states=sample_hidden_states,
++                aux_hidden_states=aux_hidden_states,
++                spec_decode_metadata=spec_decode_metadata,
++                common_attn_metadata=common_attn_metadata,
+                 slot_mappings=slot_mappings,
+             )
++            draft_token_ids = invoke_custom_proposer(self.drafter, context)
+         elif spec_config.use_ngram_gpu():
+             assert isinstance(self.drafter, NgramProposerGPU)
+             (
