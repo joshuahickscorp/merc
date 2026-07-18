@@ -159,10 +159,6 @@
       "required_marker": "CLAIM-SCOPE: internal-engineering-non-authoritative"
     },
     {
-      "path": "renderer/README.md",
-      "required_marker": "CLAIM-SCOPE: internal-engineering-non-authoritative"
-    },
-    {
       "path": "scripts/spec-lab/README.md",
       "required_marker": "CLAIM-SCOPE: internal-engineering-non-authoritative"
     },

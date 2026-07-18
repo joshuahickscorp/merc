@@ -11,10 +11,6 @@
     {
       "crate": "token-spec-poc/Cargo.toml",
       "direct_deps": 8
-    },
-    {
-      "crate": "renderer/Cargo.toml",
-      "direct_deps": 3
     }
   ],
   "go_modules": [
