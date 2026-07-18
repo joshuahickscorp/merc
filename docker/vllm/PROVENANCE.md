@@ -113,3 +113,12 @@ The upstream commit has no root `NOTICE` file. This anchor vendors no vLLM
 source code; it records upstream identity and invokes the separately supplied
 runtime. If code is later copied or modified, retain the license, source
 attribution, and prominent modification notices for each copied file.
+
+## Vendored CX patches (forks retired)
+
+The former `joshuahickscorp/vllm` and `joshuahickscorp/vllm-metal` forks are
+retired. Their CX-unique deltas are vendored under
+[`patches/`](patches/README.md) as diffs on top of the pinned **upstream**
+commits, so the speculative-decoding lane rebuilds from upstream vLLM + a local
+patch with no private fork. See `patches/README.md` for the exact upstream base
+commits and `git apply` recipe.
