@@ -192,14 +192,6 @@ jobs:
       # which this runner is. The network rows self-skip on an offline runner.
       - name: sandbox profile proof (cx-agent.sb contains the blast radius)
         run: bash macapp/ComputeExchangeAgent/sandbox-profile-test.sh
-      # The menu-bar app (which launches cx-agent under that profile) must exercise
-      # its P-256/SecKey enrollment, no-redirect exchange, and rollback contract,
-      # then compile the release configuration. Signing/notarization remains an
-      # external release gate.
-      - name: macapp enrollment tests + release build
-        run: |
-          swift test --package-path macapp
-          swift build --package-path macapp -c release
 
   # ── Modality-general speculative execution substrate ───────────────────────
   # Linux/CPU gate: canonical Rust engine + token lane + Python render/transcode

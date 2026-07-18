@@ -15,7 +15,7 @@ DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
 .PHONY: up down dev-up dev-down migrate seed control agent-run agent-bench \
         prove-local bench-local metrics build fmt test spec-test loc audit docker-build \
-        install uninstall backup macapp
+        install uninstall backup
 
 # ── Full stack (containerized control plane + deps) ──────────────────────────
 # Brings up Postgres, MinIO, the bucket+schema one-shots, and the Go control
@@ -159,11 +159,6 @@ uninstall:
 # The `disaster-recovery` check in prove-local proves the dump is restorable.
 backup:
 	bash scripts/backup.sh
-
-# Compile the menu-bar app (signing/notarization is external — macapp/README.md).
-macapp:
-	@command -v swift >/dev/null || { echo "ERROR: swift not found (install Xcode / Command Line Tools)"; exit 1; }
-	swift build --package-path macapp
 
 # Render the two site oracles (Mac Studio + DGX Spark) in the product's Cycles rig,
 # then generate the 1x/2x srcset downsizes and the og:image composite. Headless

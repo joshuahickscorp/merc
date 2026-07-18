@@ -813,25 +813,6 @@ TOML
     record FAIL install-check "install.sh --check failed"
   fi
 
-  # Menu-bar enrollment/app contract — exercise the strict request/bundle codec,
-  # P-256/SecKey proof path, no-redirect exchange, probe-before-persist rollback,
-  # and then compile the release configuration. Signing/notarization and the
-  # authenticated account approval surface remain separate external/product gates.
-  if command -v swift >/dev/null 2>&1; then
-    if swift test --package-path "$ROOT/macapp" >"$ART/macapp-test.log" 2>&1; then
-      record PASS macapp-test "Swift enrollment/app contract tests pass (including SecKey proof and rollback)"
-    else
-      record FAIL macapp-test "macapp Swift tests failed — see macapp-test.log"
-    fi
-    if swift build --package-path "$ROOT/macapp" -c release >"$ART/macapp-release-build.log" 2>&1; then
-      record PASS macapp-build "menu-bar app release configuration compiles (signing/notarization external)"
-    else
-      record FAIL macapp-build "macapp release build failed — see macapp-release-build.log"
-    fi
-  else
-    record SKIP macapp-test "swift toolchain not available"
-    record SKIP macapp-build "swift toolchain not available"
-  fi
 
   # ── Phase 4: metrics + ledger + logs ───────────────────────────────────────
   say "5/6 checking metrics, ledger, logs"

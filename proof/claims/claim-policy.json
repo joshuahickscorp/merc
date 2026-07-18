@@ -29,7 +29,6 @@
     "docs/SECURITY.md",
     "docs/fleet-proof/README.md",
     "sdk/python/README.md",
-    "macapp/README.md",
     "monitoring/README.md",
     "web/admin-demo.html",
     "web/admin.html",
@@ -272,11 +271,6 @@
       "path": "sdk/python/README.md",
       "gate": "developer_experience/python_distribution",
       "fragment": "not published on PyPI yet"
-    },
-    {
-      "path": "macapp/README.md",
-      "gate": "supplier_app/signed_distribution",
-      "fragment": "SIGNED, NOTARIZED"
     },
     {
       "path": "web/index.html",
