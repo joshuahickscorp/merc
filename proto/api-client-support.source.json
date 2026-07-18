@@ -5,7 +5,7 @@
   "authorities": {
     "http_routes": "control/api.go",
     "python_client": "sdk/python/computeexchange/__init__.py",
-    "cli_client": "cli/main.go",
+    "cli_client": "control/buyer.go",
     "openai_batch_adapter": "control/openai.go",
     "runtime_matrix": "proto/runtime-matrix.source.json"
   },
@@ -62,7 +62,7 @@
     {
       "id": "openai_batch_embeddings_db",
       "kind": "database_integration_subset",
-      "command": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestOpenAIBatchInlineEmbeddings",
+      "command": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestOpenAIBatchInlineEmbeddings",
       "scope": "When accepted by a terminal current-source proof ledger, this proves inline embeddings batch creation and batch status read; it does not cover chat batches, multipart file upload, output download, cancellation, sync, or streaming."
     },
     {

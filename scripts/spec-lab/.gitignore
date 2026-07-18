@@ -1,2 +1,0 @@
-# Local pod-tracking state (never commit; it's machine-local money-safety state).
-.tracked_pods.json

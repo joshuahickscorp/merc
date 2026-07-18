@@ -3,7 +3,7 @@
 
 # Build artifacts (never copy host-built binaries into the image).
 agent/target/
-control/control
+control/cx
 control/**/*.test
 **/*.out
 coverage.out

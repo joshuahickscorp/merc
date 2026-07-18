@@ -174,6 +174,17 @@ func main() {
 		return
 	}
 
+	// Buyer/operator + evidence subcommands of the one cx binary (submit, quote,
+	// status, ..., version, audit, source-id, verify) are pure HTTP clients or
+	// local git tools. They must run WITHOUT DATABASE_URL and must NOT boot the
+	// control plane, so dispatch them HERE, before the mandatory DB gate below.
+	// No-arg and `serve` (and any unrecognized arg) fall through to the server.
+	if len(os.Args) > 1 && os.Args[1] != "serve" {
+		if dispatchBuyer(os.Args[1], os.Args[2:]) {
+			return
+		}
+	}
+
 	// DATABASE_URL is mandatory. BLACKHOLE doctrine: surface every failure —
 	// a missing DSN is a fatal misconfiguration, never a fallback to nothing.
 	dsn := os.Getenv("DATABASE_URL")

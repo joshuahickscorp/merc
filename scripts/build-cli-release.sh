@@ -40,7 +40,7 @@ for target in "${TARGETS[@]}"; do
   STAGE="$WORK/$NAME"
   mkdir -p "$STAGE"
   (
-    cd "$ROOT/cli"
+    cd "$ROOT/control"
     CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
       go build -trimpath -ldflags "$LDFLAGS" -o "$STAGE/cx" .
   )

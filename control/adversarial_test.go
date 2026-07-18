@@ -275,26 +275,6 @@ func isHoneypotDispatch(t *testing.T, ctx context.Context, disp TaskDispatch) bo
 	return taskIsHoneypot(t, ctx, disp.TaskID)
 }
 
-func containsSubstr(s, substr string) bool {
-	return len(substr) == 0 || (len(s) >= len(substr) && stringsIndex(s, substr) >= 0)
-}
-
-// stringsIndex is a tiny local indexOf so this file needs no extra import
-// beyond what integration_test.go already brings in for "strings" elsewhere —
-// kept local + trivial to avoid any ambiguity about behavior.
-func stringsIndex(s, substr string) int {
-	n, m := len(s), len(substr)
-	if m == 0 {
-		return 0
-	}
-	for i := 0; i+m <= n; i++ {
-		if s[i:i+m] == substr {
-			return i
-		}
-	}
-	return -1
-}
-
 // driveAdversarialJob submits ONE real 3-task job (1 primary + 1 redundancy +
 // 1 honeypot), has the ADVERSARY claim and answer tasks according to cheatFn,
 // and has TWO independent, distinct-supplier honest peers claim and correctly

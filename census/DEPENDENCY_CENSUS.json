@@ -1,0 +1,31 @@
+{
+  "cargo_crates": [
+    {
+      "crate": "agent/Cargo.toml",
+      "direct_deps": 29
+    },
+    {
+      "crate": "spec-engine/Cargo.toml",
+      "direct_deps": 2
+    },
+    {
+      "crate": "token-spec-poc/Cargo.toml",
+      "direct_deps": 8
+    },
+    {
+      "crate": "renderer/Cargo.toml",
+      "direct_deps": 3
+    }
+  ],
+  "go_modules": [
+    {
+      "direct_requires": 6,
+      "module": "control/go.mod"
+    }
+  ],
+  "note": "direct dependencies parsed from manifests; transitive counts from lockfiles.",
+  "python": {
+    "note": "see sdk/python + docker/vllm",
+    "sdk": "dependency-free (stdlib only)"
+  }
+}

@@ -1,0 +1,186 @@
+{
+  "bytes_by_language": {
+    "binary": 18276901,
+    "config": 35834,
+    "documentation": 958521,
+    "go": 3408064,
+    "javascript": 1450305,
+    "json": 594311,
+    "lockfile": 237628,
+    "other": 52422,
+    "patch": 22301,
+    "python": 1078535,
+    "rust": 2244250,
+    "shader": 609891,
+    "shell": 331719,
+    "sql": 169236,
+    "swift": 195329,
+    "toml": 18529,
+    "web": 617410,
+    "yaml": 74796
+  },
+  "largest_tracked_40": [
+    {
+      "path": "web/assets/site/oracles-pair@3x.png",
+      "bytes": 2313625
+    },
+    {
+      "path": "web/assets/site/mac-studio@3x.png",
+      "bytes": 1651459
+    },
+    {
+      "path": "web/assets/btn-add-payment-shell@3x.png",
+      "bytes": 1448440
+    },
+    {
+      "path": "web/assets/site/vendor/three.module.js",
+      "bytes": 1272972
+    },
+    {
+      "path": "web/assets/site/oracles-pair@2x.png",
+      "bytes": 1177044
+    },
+    {
+      "path": "web/assets/site/oracles.glb",
+      "bytes": 1066164
+    },
+    {
+      "path": "web/assets/site/dgx-spark@3x.png",
+      "bytes": 905813
+    },
+    {
+      "path": "web/assets/btn-launch-shell@3x.png",
+      "bytes": 900273
+    },
+    {
+      "path": "web/assets/site/mac-studio@2x.png",
+      "bytes": 818719
+    },
+    {
+      "path": "logo/cx_logo.png",
+      "bytes": 790855
+    },
+    {
+      "path": "agent/src/runners.rs",
+      "bytes": 637003
+    },
+    {
+      "path": "web/assets/knob-pressed@3x.png",
+      "bytes": 601320
+    },
+    {
+      "path": "web/assets/knob-on@3x.png",
+      "bytes": 588538
+    },
+    {
+      "path": "web/assets/knob-gold@3x.png",
+      "bytes": 587220
+    },
+    {
+      "path": "web/assets/knob-red@3x.png",
+      "bytes": 577025
+    },
+    {
+      "path": "web/assets/site/dgx-spark@2x.png",
+      "bytes": 507523
+    },
+    {
+      "path": "web/assets/knob-off@3x.png",
+      "bytes": 504757
+    },
+    {
+      "path": "web/assets/site/knob-off@3x.png",
+      "bytes": 504757
+    },
+    {
+      "path": "web/admin.html",
+      "bytes": 466897
+    },
+    {
+      "path": "web/assets/site/tex/foam-normal.png",
+      "bytes": 441398
+    },
+    {
+      "path": "docs/internal/CREED_AND_PATH_TO_TEN.md",
+      "bytes": 428610
+    },
+    {
+      "path": "docs/screenshots/site-1440.png",
+      "bytes": 384607
+    },
+    {
+      "path": "control/store.go",
+      "bytes": 373718
+    },
+    {
+      "path": "control/integration_test.go",
+      "bytes": 358086
+    },
+    {
+      "path": "agent/vendor/candle-metal-kernels/src/metal_src/quantized.metal",
+      "bytes": 336777
+    },
+    {
+      "path": "web/assets/site/oracles-pair@1x.png",
+      "bytes": 315086
+    },
+    {
+      "path": "web/assets/site/mac-studio@1x.png",
+      "bytes": 208364
+    },
+    {
+      "path": "web/assets/site/vendor/three.module.js.br",
+      "bytes": 200866
+    },
+    {
+      "path": "control/api.go",
+      "bytes": 193496
+    },
+    {
+      "path": "web/assets/site/og-image.png",
+      "bytes": 181154
+    },
+    {
+      "path": "db/schema.sql",
+      "bytes": 169236
+    },
+    {
+      "path": "logo/Geist-VariableFont_wght.ttf",
+      "bytes": 168804
+    },
+    {
+      "path": "web/assets/site/dgx-spark@1x.png",
+      "bytes": 159226
+    },
+    {
+      "path": "agent/src/main.rs",
+      "bytes": 154796
+    },
+    {
+      "path": "web/assets/cx-metal-on@3x.png",
+      "bytes": 149174
+    },
+    {
+      "path": "web/assets/site/tex/foam-ao.png",
+      "bytes": 133410
+    },
+    {
+      "path": "web/assets/cx-metal@3x.png",
+      "bytes": 127267
+    },
+    {
+      "path": "agent/src/quantized_llama_batched.rs",
+      "bytes": 126861
+    },
+    {
+      "path": "render/build_scene.py",
+      "bytes": 114229
+    },
+    {
+      "path": "web/assets/site/vendor/addons/loaders/GLTFLoader.js",
+      "bytes": 108522
+    }
+  ],
+  "note": "tracked-only (git ls-files). Excludes .git, model weights, dep caches, untracked artifacts.",
+  "tracked_bytes": 30375982
+}

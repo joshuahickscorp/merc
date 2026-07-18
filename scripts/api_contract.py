@@ -554,18 +554,26 @@ def parse_go_client_routes(body: str) -> set[str]:
 
 def parse_cli(cli_text: str) -> dict[str, Any]:
     functions = extract_go_functions(cli_text)
-    main = functions.get("main")
-    if main is None:
-        raise ContractValidationError("CLI has no main function")
+    # After the cli+control merge, the buyer/operator dispatch lives in
+    # dispatchBuyer() (control/buyer.go); the binary's main() is in main.go.
+    dispatch = functions.get("dispatchBuyer")
+    if dispatch is None:
+        raise ContractValidationError("CLI has no dispatchBuyer function")
+    # Evidence/operator subcommands of the unified cx binary (audit, prove,
+    # source-id, verify) are local tools, not buyer-API-client commands, so they
+    # are out of scope for the api-client-support contract.
+    non_api_commands = {"audit", "prove", "source-id", "verify"}
     command_to_symbol: dict[str, str] = {}
     for match in re.finditer(
-        r'case\s+"([^\"]+)"\s*:\s*\n\s*([A-Za-z_]\w*)\(args\)', main
+        r'case\s+"([^\"]+)"\s*:\s*\n\s*([A-Za-z_]\w*)\(args\)', dispatch
     ):
         command, symbol = match.group(1), match.group(2)
+        if command in non_api_commands:
+            continue
         if command in command_to_symbol:
             raise ContractValidationError(f"duplicate CLI command {command}")
         command_to_symbol[command] = symbol
-    help_match = re.search(r"case\s+([^:]+):\s*\n\s*usage\(\)", main)
+    help_match = re.search(r"case\s+([^:]+):\s*\n\s*usage\(\)", dispatch)
     help_aliases = sorted(re.findall(r'"([^\"]+)"', help_match.group(1))) if help_match else []
     return {
         "commands": command_to_symbol,

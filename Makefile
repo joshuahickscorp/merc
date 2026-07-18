@@ -14,7 +14,7 @@ endif
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
 .PHONY: up down dev-up dev-down migrate seed control agent-run agent-bench \
-        prove-local bench-local metrics build fmt test spec-test loc docker-build \
+        prove-local bench-local metrics build fmt test spec-test loc audit docker-build \
         install uninstall backup macapp
 
 # ── Full stack (containerized control plane + deps) ──────────────────────────
@@ -128,9 +128,17 @@ spec-test:
 	sed -n '1p' /tmp/cx-token-spec-receipts.jsonl > /tmp/cx-token-spec-first.jsonl
 	cargo run --quiet --manifest-path spec-engine/Cargo.toml --example validate_receipts < /tmp/cx-token-spec-first.jsonl
 
-# Line counts per BLACKHOLE (targets: agent <2000, control <3000, total <6000).
-loc:
-	find agent/src control -name '*.rs' -o -name '*.go' | xargs wc -l
+# Authoritative codebase census — RETIRES the old selective `find | wc -l`.
+# `cx audit codebase` walks the whole git-tracked set and classifies every file
+# by language, subsystem, layer, ship/generated/vendored/pack status, writing the
+# census/ artifacts (CODEBASE_CENSUS.{json,md}, CODEBASE_LOC.json, CODEBASE_BYTES.json,
+# PYTHON_RECLAMATION.json, DEPENDENCY_CENSUS.json, CONDENSATION_CANDIDATES.json).
+# Deterministic for a fixed commit. This is the headline measurement now.
+loc: audit
+audit:
+	cd control && go run . audit codebase --out census
+	@echo "— census/ written (relative to repo root). Headline numbers:"
+	@sed -n '3p' census/CODEBASE_CENSUS.md
 
 # Build the control-plane image standalone (CI / registry push).
 docker-build:

@@ -28,13 +28,13 @@ engineering or evidence step is not accepted as “direction.”
 Run the current report:
 
 ```bash
-python3 scripts/five-by-five.py
+cx prove
 ```
 
 Run every proof command currently attached to a gate and write a JSONL ledger:
 
 ```bash
-python3 scripts/five-by-five.py --run
+cx prove --run
 ```
 
 Each attached-gate run now writes an atomic terminal `source.json` beside the ledger.

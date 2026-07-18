@@ -243,10 +243,10 @@ fi
 # Schema + demo creds (idempotent — schema.sql is IF NOT EXISTS, seed re-confirms).
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema.sql >/dev/null || die "schema apply failed"
 say "building + starting the control plane (for the quote benchmark)"
-(cd control && go build -o "$ART/control" .) || die "control build failed"
-(cd control && "$ART/control" seed) >/dev/null 2>&1 || (cd control && go run . seed) >/dev/null 2>&1 \
+(cd control && go build -o "$ART/cx" .) || die "control build failed"
+(cd control && "$ART/cx" seed) >/dev/null 2>&1 || (cd control && go run . seed) >/dev/null 2>&1 \
   || die "seed failed (demo buyer api_key)"
-( "$ART/control" ) >"$CONTROL_LOG" 2>&1 &
+( "$ART/cx" ) >"$CONTROL_LOG" 2>&1 &
 CONTROL_PID=$!
 wait_for 30 "control healthz" bash -c "kill -0 $CONTROL_PID 2>/dev/null && curl -fsS '$CONTROL_URL/healthz'" \
   || die "control plane never became healthy"
@@ -310,7 +310,7 @@ say "(b) seeding realistic queue ($SYNTH_TASKS tasks / $SYNTH_WORKERS workers / 
 # 1. Print the literal production SQL from the real binary. Fails loudly if
 #    the binary or the subcommand ever disappears — never silently falls back
 #    to a hand-written copy.
-CLAIM_SQL_BODY="$("$ART/control" print-claim-sql)"
+CLAIM_SQL_BODY="$("$ART/cx" print-claim-sql)"
 [ -n "$CLAIM_SQL_BODY" ] || die "control print-claim-sql produced no output"
 MATRIX_SHA256="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["matrix_sha256"])' "$ROOT/proof/runtime-matrix.generated.json")"
 [ "${#MATRIX_SHA256}" -eq 64 ] || die "runtime matrix artifact has no valid matrix_sha256"

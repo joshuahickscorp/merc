@@ -240,9 +240,9 @@ if [ "$MODE" != "attached" ]; then
 
   say "applying schema + seeding demo buyer/worker"
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema.sql >/dev/null 2>&1 || die "schema apply failed"
-  (cd control && go build -o "$ART/control" .) || die "control build failed"
-  "$ART/control" seed >/dev/null 2>&1 || die "seed failed"
-  ( "$ART/control" ) >"$CONTROL_LOG" 2>&1 &
+  (cd control && go build -o "$ART/cx" .) || die "control build failed"
+  "$ART/cx" seed >/dev/null 2>&1 || die "seed failed"
+  ( "$ART/cx" ) >"$CONTROL_LOG" 2>&1 &
   CONTROL_PID=$!
   wait_for 30 bash -c "kill -0 $CONTROL_PID 2>/dev/null && curl -fsS '$CONTROL_URL/healthz'" \
     || die "control plane never became healthy"
@@ -276,8 +276,8 @@ fi
 
 # ── Build the cx CLI once (the CLI lane needs the real binary) ────────────────
 CX_BIN="$ART/cx"
-say "building the real cx CLI (cli/) to exercise the documented CLI lane"
-(cd cli && go build -o "$CX_BIN" .) || die "cx CLI build failed"
+say "building the real cx CLI (control/) to exercise the documented CLI lane"
+(cd control && go build -o "$CX_BIN" .) || die "cx CLI build failed"
 
 # ── Rewrite doc placeholders → the local stack ───────────────────────────────
 # The doc points at the deliberately non-routable https://cx.example.invalid with
@@ -377,7 +377,7 @@ ROWS_BLOCK="$(extract_block 'cx CLI' '' 2)"   # the unlabelled fence: rows.jsonl
 printf '%s\n' "$ROWS_BLOCK" >"$WORK/rows.jsonl"
 # Turn the documented env exports + submit line into a runnable script. We take the
 # documented `export …` lines and `cx …` commands verbatim (only host+key localized),
-# and rewrite the bare `cx` prefix to the real binary we built from cli/ — the FLAGS
+# and rewrite the bare `cx` prefix to the real binary we built from control/ — the FLAGS
 # and SUBCOMMAND the doc shows are executed exactly as written, so a dropped/renamed
 # flag or subcommand fails here. Run from $WORK so the doc's relative `rows.jsonl`
 # resolves.

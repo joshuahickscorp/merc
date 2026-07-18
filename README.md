@@ -154,10 +154,10 @@ make prove-local            # physical local mode; models/toolchains may make th
 Validate rather than trusting a pasted count:
 
 ```bash
-python3 scripts/verify_proof_ledger.py \
+cx verify \
   --ledger .artifacts/prove-local/proof-ledger.txt \
   --current-source --mode full_local
-python3 scripts/five-by-five.py
+cx prove
 ```
 
 The second command prints prerequisites separately from outcomes and gives the

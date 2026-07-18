@@ -29,7 +29,7 @@
           "state": "proven",
           "acceptance": "An idempotent per-job projection preserves unknowns as null and derives liability, refunds, billed amount, actual processor fee allocation, and contribution margin only from persisted facts.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestBuildJobEconomicFactKeepsUnknownsNull --require-pass matrix:TestBuildJobEconomicFactDoesNotGuessMultiJobBatchFee --require-pass matrix:TestEconomicFactsRecomputePersistsExactMoneySemanticsIdempotently"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestBuildJobEconomicFactKeepsUnknownsNull --require-pass matrix:TestBuildJobEconomicFactDoesNotGuessMultiJobBatchFee --require-pass matrix:TestEconomicFactsRecomputePersistsExactMoneySemanticsIdempotently"
         },
         {
           "id": "economic_fact_capture",
@@ -38,7 +38,7 @@
           "state": "proven",
           "acceptance": "Submit and merge persist exact input/output units; execution and verification work are sourced; multi-job processor fees allocate exactly and idempotently with no guessed remainder.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestEconomicFactsPersistExactStreamingInputAndMergedOutputUnits --require-pass matrix:TestEconomicFactsAllocatesMultiJobBatchFeeWithExactRemainderIdempotently"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestEconomicFactsPersistExactStreamingInputAndMergedOutputUnits --require-pass matrix:TestEconomicFactsAllocatesMultiJobBatchFeeWithExactRemainderIdempotently"
         },
         {
           "id": "margin_guard_contract",
@@ -47,7 +47,7 @@
           "state": "proven",
           "acceptance": "A versioned frozen plan fails closed, separates supplier payout from buyer safety fees and SLA premium, prices partial completion and bounded extra accepted work, persists atomically, resists tampering, and permits only one primary/hedge money winner.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestEconomicPlanAndTaskAmountsPersistAtomicallyAndStayImmutable --require-pass matrix:TestEconomicReserveConcurrentTiebreakIsBoundedAndIdempotent --require-pass matrix:TestConcurrentPrimaryAndHedgeSettlementHasOneMoneyWinner --require-pass matrix:TestSLAPremiumIsOnceOnlyBuyerRevenueAndNeverSupplierPayout --require-pass matrix:TestQuoteSubmitEconomicParityAndTamperRejection --require-pass matrix:TestBuildEconomicPlanOneTaskPartialCoversWholeFixedFee --require-pass matrix:TestQuoteFailsClosedWhenEconomicScheduleIsMissing"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestEconomicPlanAndTaskAmountsPersistAtomicallyAndStayImmutable --require-pass matrix:TestEconomicReserveConcurrentTiebreakIsBoundedAndIdempotent --require-pass matrix:TestConcurrentPrimaryAndHedgeSettlementHasOneMoneyWinner --require-pass matrix:TestSLAPremiumIsOnceOnlyBuyerRevenueAndNeverSupplierPayout --require-pass matrix:TestQuoteSubmitEconomicParityAndTamperRejection --require-pass matrix:TestBuildEconomicPlanOneTaskPartialCoversWholeFixedFee --require-pass matrix:TestQuoteFailsClosedWhenEconomicScheduleIsMissing"
         },
         {
           "id": "cash_boundary_safety",
@@ -56,7 +56,7 @@
           "state": "proven",
           "acceptance": "A historical collection fact is admitted only from an exact succeeded PaymentIntent and recorded once and immutably across standalone-job and batch sources; every supplier provider call has an immutable integer-cent reservation against that causal fact or a finite operator-declared subsidy pool. Unfunded debt leaves the bounded due page as awaiting_funding and only an exact cash fact or subsidy re-arms it. Definitely-unsent failures become ready, while ambiguous or stale calls remain sticky outcome_unknown, retry only the same key inside a conservative idempotency window, cannot be admin-rearmed, and become or remain reversal_required through clawback. Admin owed/cash views require a durable cash_moved operation; manual export is synced but non-cash; and a server-owned payout-hold floor applies. This call-side theorem does not prove that collections remain unrefunded or uncharged-back, provider lookup/reversal recovery, or that processor cash is currently available.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestAdminMoneyAuthorityBodiesAreStrictAndBounded --require-pass matrix:TestChargePaymentIntentRequiresExactTerminalCashFact --require-pass matrix:TestChargePaymentIntentResponseLossKeepsIdempotencyKey --require-pass matrix:TestPayoutFundingGateAdversarialCases --require-pass matrix:TestPayoutFundingBatchPoolCannotBeOverallocated --require-pass matrix:TestPayoutFundingSubsidyPoolConcurrentAuthorizationsCannotOverallocate --require-pass matrix:TestPayoutHoldToReadyAndBlocked --require-pass matrix:TestPayoutReleaseAtEnforcesServerFloor --require-pass matrix:TestPayoutCrossedBoundaryClawbackCannotBecomeReleasedOrRecovered --require-pass matrix:TestMarkPayoutRefusesReleasedWithoutRef --require-pass matrix:TestManualExportPayout --require-pass matrix:TestUnfundedPayoutsCannotStarveFundedLiability --require-pass matrix:TestAwaitingFundingRearmsOnlyOnExactCashOrSubsidy --require-pass matrix:TestAmbiguousPayoutOutcomeCannotBecomeSafeReadyOrClawedBack --require-pass matrix:TestAdminMoneyTruthRequiresCashMovedOperation"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestAdminMoneyAuthorityBodiesAreStrictAndBounded --require-pass matrix:TestChargePaymentIntentRequiresExactTerminalCashFact --require-pass matrix:TestChargePaymentIntentResponseLossKeepsIdempotencyKey --require-pass matrix:TestPayoutFundingGateAdversarialCases --require-pass matrix:TestPayoutFundingBatchPoolCannotBeOverallocated --require-pass matrix:TestPayoutFundingSubsidyPoolConcurrentAuthorizationsCannotOverallocate --require-pass matrix:TestPayoutHoldToReadyAndBlocked --require-pass matrix:TestPayoutReleaseAtEnforcesServerFloor --require-pass matrix:TestPayoutCrossedBoundaryClawbackCannotBecomeReleasedOrRecovered --require-pass matrix:TestMarkPayoutRefusesReleasedWithoutRef --require-pass matrix:TestManualExportPayout --require-pass matrix:TestUnfundedPayoutsCannotStarveFundedLiability --require-pass matrix:TestAwaitingFundingRearmsOnlyOnExactCashOrSubsidy --require-pass matrix:TestAmbiguousPayoutOutcomeCannotBecomeSafeReadyOrClawedBack --require-pass matrix:TestAdminMoneyTruthRequiresCashMovedOperation"
         },
         {
           "id": "minor_unit_supplier_settlement",
@@ -65,7 +65,7 @@
           "state": "proven",
           "acceptance": "Every six-decimal supplier liability has one explicit deterministic minor-unit settlement policy: sub-cent value is carried without silent loss, each cash-proved released liability reconciles exactly to cash sent plus durable remainder, provider rounding is reflected in admission-margin reserves, and zero, sub-cent, unfunded, retry, concurrency, or ambiguous-response rows cannot abort a sweep, starve later payable liabilities, or erase owed value.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestSplitSupplierLiabilityMicrosFloorsCashAndCarriesExactly --require-pass matrix:TestBuildEconomicPlanReservesFullLiabilityUnderFloorCentCarryPolicy --require-pass matrix:TestMinorUnitSettlementCarriesDustWithoutStarvingPayableLiability --require-pass matrix:TestMinorUnitSettlementCrashRetryConcurrencyAndRepeatedMicros --require-pass matrix:TestMinorUnitPayoutSendingLeaseIsBounded --require-pass matrix:TestPayoutCrossedBoundaryClawbackCannotBecomeReleasedOrRecovered --require-pass matrix:TestUnfundedPayoutsCannotStarveFundedLiability --require-pass matrix:TestAwaitingFundingRearmsOnlyOnExactCashOrSubsidy --require-pass matrix:TestAmbiguousPayoutOutcomeCannotBecomeSafeReadyOrClawedBack --require-pass matrix:TestAdminMoneyTruthRequiresCashMovedOperation"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestSplitSupplierLiabilityMicrosFloorsCashAndCarriesExactly --require-pass matrix:TestBuildEconomicPlanReservesFullLiabilityUnderFloorCentCarryPolicy --require-pass matrix:TestMinorUnitSettlementCarriesDustWithoutStarvingPayableLiability --require-pass matrix:TestMinorUnitSettlementCrashRetryConcurrencyAndRepeatedMicros --require-pass matrix:TestMinorUnitPayoutSendingLeaseIsBounded --require-pass matrix:TestPayoutCrossedBoundaryClawbackCannotBecomeReleasedOrRecovered --require-pass matrix:TestUnfundedPayoutsCannotStarveFundedLiability --require-pass matrix:TestAwaitingFundingRearmsOnlyOnExactCashOrSubsidy --require-pass matrix:TestAmbiguousPayoutOutcomeCannotBecomeSafeReadyOrClawedBack --require-pass matrix:TestAdminMoneyTruthRequiresCashMovedOperation"
         },
         {
           "id": "money_authority_audit",
@@ -74,7 +74,7 @@
           "state": "proven",
           "acceptance": "Every newly admitted subsidy-fund and payout-subsidy authorization is transactionally bound one-to-one to an append-only typed action carrying the live credential principal, authentication mode, honest attribution scope, normalized exact-request SHA-256, target, integer cents, currency, reason, and natural correlation reference. Passkey session/credential and break-glass key revocation are rechecked inside the money transaction; exact retries preserve the first actor and conflicting or forged/mismatched bindings fail without mutation. The bounded keyset review is no-store and omits treasury references, arbitrary detail, credential material, and key/session hashes. Pre-provenance rows remain visibly legacy_unattributed and fail closed for new authority. This proves credential-level attribution, not the human holding a shared key, external cash, DB-superuser resistance, or WORM retention.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestMoneyAuthorityAttributionRetryBindingAndRedactedReview --require-pass matrix:TestMoneyAuthorityRevocationAndMissingActorFailBeforeMutation --require-pass matrix:TestMoneyAuthorityMutationAuditAtomicAndAppendOnly --require-pass matrix:TestMoneyAuthorityConcurrentExactFundHasOneOriginalActor --require-pass matrix:TestMoneyAuthorityCanonicalDigestChangesOnlyWithSemanticIntent --require-pass matrix:TestAdminMoneyAuthorityBodiesAreStrictAndBounded --require-pass matrix:TestAdminActionReviewDTOAndSelectExcludeSecretBearingFields --require-pass matrix:TestAdminActionReviewCursorRoundTripsExactKeyset"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestMoneyAuthorityAttributionRetryBindingAndRedactedReview --require-pass matrix:TestMoneyAuthorityRevocationAndMissingActorFailBeforeMutation --require-pass matrix:TestMoneyAuthorityMutationAuditAtomicAndAppendOnly --require-pass matrix:TestMoneyAuthorityConcurrentExactFundHasOneOriginalActor --require-pass matrix:TestMoneyAuthorityCanonicalDigestChangesOnlyWithSemanticIntent --require-pass matrix:TestAdminMoneyAuthorityBodiesAreStrictAndBounded --require-pass matrix:TestAdminActionReviewDTOAndSelectExcludeSecretBearingFields --require-pass matrix:TestAdminActionReviewCursorRoundTripsExactKeyset"
         },
         {
           "id": "margin_guard",
@@ -145,7 +145,7 @@
           "state": "proven",
           "acceptance": "Audit selection is a stable server-secret HMAC decision unavailable to the worker and is made only after the result is durably committed; the proof injects a fresh non-exported secret only into control/test processes, and production or live-money startup refuses missing, undersized, or source-known fallback sampling secrets.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass verification-sample-secret --require-pass matrix:TestVerificationSamplingIsSecretKeyedAndStable --require-pass matrix:TestVerificationSamplingCannotBeDerivedFromPublicUUIDPrefix --require-pass matrix:TestVerificationSamplingFailClosedProbabilityBounds --require-pass matrix:TestVerificationSamplingRunsOnlyAfterDurableCommit --require-pass matrix:TestProductionRefusesMissingVerificationSampleSecret"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass verification-sample-secret --require-pass matrix:TestVerificationSamplingIsSecretKeyedAndStable --require-pass matrix:TestVerificationSamplingCannotBeDerivedFromPublicUUIDPrefix --require-pass matrix:TestVerificationSamplingFailClosedProbabilityBounds --require-pass matrix:TestVerificationSamplingRunsOnlyAfterDurableCommit --require-pass matrix:TestProductionRefusesMissingVerificationSampleSecret"
         },
         {
           "id": "atomic_acceptance_transaction",
@@ -153,7 +153,7 @@
           "state": "proven",
           "acceptance": "A missing artifact remains verifying and unpaid; after upload, verdict, completion counters, accepted telemetry, and ledger rows commit together exactly once, and penalty verdicts cannot release money.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestCommitRequiresArtifactBeforeAtomicSettlement --require-pass matrix:TestPenaltyVerdictCannotReleaseSupplierMoney"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestCommitRequiresArtifactBeforeAtomicSettlement --require-pass matrix:TestPenaltyVerdictCannotReleaseSupplierMoney"
         },
         {
           "id": "honest_chunk_receipts",
@@ -161,7 +161,7 @@
           "state": "proven",
           "acceptance": "Coverage and verdict are durable per delivered chunk; one checked chunk can never label unchecked chunks or the whole job fully verified.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestDeriveVerificationLabel --require-pass matrix:TestVerificationReceiptSurfaced"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestDeriveVerificationLabel --require-pass matrix:TestVerificationReceiptSurfaced"
         },
         {
           "id": "atomic_verdict_settlement",
@@ -208,7 +208,7 @@
           "state": "proven",
           "acceptance": "Buyer A cannot read, modify, onboard, or mint credentials for supplier B; ownership and ambiguous legacy rows fail closed in database integration tests.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestSupplierRoutesPreventCrossAccountAccess --require-pass matrix:TestSupplierLegacyCollisionFailsClosed --require-pass matrix:TestSupplierOwnershipMigrationBackfillsOnlyUnambiguous"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestSupplierRoutesPreventCrossAccountAccess --require-pass matrix:TestSupplierLegacyCollisionFailsClosed --require-pass matrix:TestSupplierOwnershipMigrationBackfillsOnlyUnambiguous"
         },
         {
           "id": "kyc_data_minimization",
@@ -217,7 +217,7 @@
           "state": "proven",
           "acceptance": "CX rejects caller-supplied identity/tax fields, has no supplier tax-ID columns, and exposes Stripe Connect as the configured KYC provider; this does not prove a live hosted onboarding session.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestSupplierOnboardBoundToAuthenticatedAccount"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestSupplierOnboardBoundToAuthenticatedAccount"
         },
         {
           "id": "hosted_kyc_path",
@@ -357,7 +357,7 @@
           "state": "proven",
           "acceptance": "Quote and submit reject unsupported exact job/model pairs before input writes; registration atomically materializes only current generated production cells with the matrix hash; legacy array-only workers are inert; and claim, count, planner, peer-routing, and scheduler-explain paths require an exact row rather than a Cartesian product.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestRuntimeMatrixRejectsUnsupportedIngressBeforeWrites --require-pass matrix:TestWorkerRegistrationPersistsSevenExactCellsNotCartesianProduct --require-pass matrix:TestLegacyArrayOnlyWorkerIsInertUntilReregistration --require-pass matrix:TestUnsupportedCartesianTupleCannotCountRouteOrClaim --require-pass matrix:TestWorkerReregistrationAtomicallyReplacesExactRowsIdempotently --require-pass matrix:TestETAFallbackUsesExactCurrentEligibleWorkers"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestRuntimeMatrixRejectsUnsupportedIngressBeforeWrites --require-pass matrix:TestWorkerRegistrationPersistsSevenExactCellsNotCartesianProduct --require-pass matrix:TestLegacyArrayOnlyWorkerIsInertUntilReregistration --require-pass matrix:TestUnsupportedCartesianTupleCannotCountRouteOrClaim --require-pass matrix:TestWorkerReregistrationAtomicallyReplacesExactRowsIdempotently --require-pass matrix:TestETAFallbackUsesExactCurrentEligibleWorkers"
         },
         {
           "id": "runtime_matrix",
@@ -479,7 +479,7 @@
           "state": "proven",
           "acceptance": "An authBuyer-only endpoint decodes the exact canonical cxer2 schema, verifies version/audience/P-256 key/request-id and a trusted configured HTTPS origin, derives account and supplier ownership only from authentication, persists that trusted origin/request binding on the ten-minute code row, and returns the byte-stable cxeb2 bundle under no-store. Client Host/X-Forwarded-Proto, extra identity fields, malformed/tampered requests, and cross-account ownership cannot alter issuance.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestEnrollmentDeviceRequestStrictlyBindsSwiftWireFields --require-pass matrix:TestEnrollmentDeviceRequestRejectsMalformedTamperedAndCrossOriginInputs --require-pass matrix:TestEnrollmentControlOriginAllowsOnlyCanonicalHTTPSOrExplicitLoopback --require-pass matrix:TestEnrollmentApprovalBundleMatchesMacDecoderSchema --require-pass matrix:TestEnrollmentWireFixtureBridgesSwiftRequestAndServerBundleByteExactly --require-pass matrix:TestWorkerEnrollmentAuthenticatedApprovalAdapter --require-pass matrix:TestWorkerEnrollmentApprovalRejectsMalformedTamperedWrongOriginAudienceAndExtraFields --require-pass matrix:TestWorkerEnrollmentApprovalConfiguredOriginIgnoresSpoofedHostAndForwardedProto"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestEnrollmentDeviceRequestStrictlyBindsSwiftWireFields --require-pass matrix:TestEnrollmentDeviceRequestRejectsMalformedTamperedAndCrossOriginInputs --require-pass matrix:TestEnrollmentControlOriginAllowsOnlyCanonicalHTTPSOrExplicitLoopback --require-pass matrix:TestEnrollmentApprovalBundleMatchesMacDecoderSchema --require-pass matrix:TestEnrollmentWireFixtureBridgesSwiftRequestAndServerBundleByteExactly --require-pass matrix:TestWorkerEnrollmentAuthenticatedApprovalAdapter --require-pass matrix:TestWorkerEnrollmentApprovalRejectsMalformedTamperedWrongOriginAudienceAndExtraFields --require-pass matrix:TestWorkerEnrollmentApprovalConfiguredOriginIgnoresSpoofedHostAndForwardedProto"
         },
         {
           "id": "proofed_enrollment_exchange_core",
@@ -488,7 +488,7 @@
           "state": "proven",
           "acceptance": "The server issues ten-minute account/audience/P-256-key/trusted-origin/request-id-bound single-use v2 codes, requires a device proof over that exact transcript during exchange, stores only secret hashes, returns no-store responses, serializes concurrent exchange/rotation/revocation, supersedes older same-source rotations across device keys, prevents pending-code resurrection and rotation downgrade, and exposes account-scoped audit/revocation. The resulting credential is enrollment-device-bound metadata but remains a bearer token at runtime.",
           "owner": "us",
-          "evidence_validator": "python3 scripts/verify_proof_ledger.py --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestWorkerEnrollmentOneTimeProofedLifecycle --require-pass matrix:TestWorkerEnrollmentRejectsWrongBindingsExpiryRevocationAndAttemptFlood --require-pass matrix:TestWorkerEnrollmentRotationAndAppendOnlyAudit --require-pass matrix:TestWorkerEnrollmentConcurrentExchangeIsExactlyOnce --require-pass matrix:TestWorkerEnrollmentExpiryIsRecheckedAfterLockWait --require-pass matrix:TestWorkerEnrollmentPendingCodeCannotResurrectRevokedCredential --require-pass matrix:TestWorkerEnrollmentSourceDeletionCannotDowngradeRotation --require-pass matrix:TestWorkerEnrollmentRevokeRotationRaceLeavesNoActiveCredential --require-pass matrix:TestWorkerEnrollmentSchemaRejectsPartialBindingAndSecretsAreNoStore"
+          "evidence_validator": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestWorkerEnrollmentOneTimeProofedLifecycle --require-pass matrix:TestWorkerEnrollmentRejectsWrongBindingsExpiryRevocationAndAttemptFlood --require-pass matrix:TestWorkerEnrollmentRotationAndAppendOnlyAudit --require-pass matrix:TestWorkerEnrollmentConcurrentExchangeIsExactlyOnce --require-pass matrix:TestWorkerEnrollmentExpiryIsRecheckedAfterLockWait --require-pass matrix:TestWorkerEnrollmentPendingCodeCannotResurrectRevokedCredential --require-pass matrix:TestWorkerEnrollmentSourceDeletionCannotDowngradeRotation --require-pass matrix:TestWorkerEnrollmentRevokeRotationRaceLeavesNoActiveCredential --require-pass matrix:TestWorkerEnrollmentSchemaRejectsPartialBindingAndSecretsAreNoStore"
         },
         {
           "id": "one_time_enrollment_exchange",

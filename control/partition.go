@@ -249,10 +249,6 @@ func migrateTelemetryPartitions(ctx context.Context, db pgxPartitionDB) error {
 	return nil
 }
 
-func (s *Store) migrateOneTelemetryPartition(ctx context.Context, spec telemetryPartitionSpec) error {
-	return migrateOneTelemetryPartition(ctx, s.pool, spec)
-}
-
 func migrateOneTelemetryPartition(ctx context.Context, db pgxPartitionDB, spec telemetryPartitionSpec) error {
 	already, err := isPartitioned(ctx, db, spec.table)
 	if err != nil {

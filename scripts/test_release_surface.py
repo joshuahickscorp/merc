@@ -133,7 +133,7 @@ class ReleaseSurfaceContracts(unittest.TestCase):
         )
 
     def test_generated_runtime_matrix_owns_default_client_wire_kind(self):
-        cli = read("cli/main.go")
+        cli = read("control/buyer.go")
         sdk = read("sdk/python/computeexchange/__init__.py")
         runtime = read("control/runtime_matrix.go")
 

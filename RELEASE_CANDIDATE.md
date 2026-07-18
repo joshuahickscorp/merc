@@ -6,7 +6,7 @@
 > payout assumptions, and “everything local is done” language. It is not current
 > release status and must not be used for product, money, runtime, or launch claims.
 > Canonical status is [`proof/5x5-gates.json`](proof/5x5-gates.json), rendered by
-> `python3 scripts/five-by-five.py`; proof ledgers count only when
+> `cx prove`; proof ledgers count only when
 > `scripts/verify_proof_ledger.py` accepts their terminal source-bound envelope.
 > In particular, a local two-process run is not two physical suppliers, transfer
 > code is not real money movement, and a generator/build is not a product outcome.

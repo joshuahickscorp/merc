@@ -259,19 +259,9 @@ func recommendField(fields map[string]bool, strLen, occur map[string]int) ([]Fie
 	return stats, recommended
 }
 
-func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	// small N — insertion sort keeps it dependency-free and deterministic.
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j-1] > out[j]; j-- {
-			out[j-1], out[j] = out[j], out[j-1]
-		}
-	}
-	return out
-}
+// sortedKeys(map[string]bool) is now served by the generic sortedKeys[V any] in
+// audit.go (folded in from the buyer CLI); the map[string]bool caller above binds
+// it directly. One deterministic sorted-keys helper for the whole cx binary.
 
 // --- quote object (PLANE_C §7) --------------------------------------------------
 
@@ -705,23 +695,6 @@ func (s *Server) quoteInitialEconomicTaskCount(ctx context.Context, sub jobSubmi
 		honeypots = len(available)
 	}
 	return primaryTasks + redundancy + honeypots, nil
-}
-
-// buildQuote assembles a conservative quote from the scanned input + live exchange
-// state, reusing the same estimators the real submission path uses (so a quote and
-// the eventual job agree). It performs NO writes and creates no job. buyerID is
-// used only to look up the buyer's OWN private-pool member count when
-// sub.PrivatePool is set (Buyer advantage & pricing edge 6->7) — every other
-// estimator here is buyer-independent, same as before this rung.
-func (s *Server) buildQuote(ctx context.Context, buyerID uuid.UUID, sub jobSubmit, inputBytes []byte) Quote {
-	schedule, err := LoadEconomicScheduleFromEnv()
-	if err != nil {
-		// Non-handler/internal callers still receive an explicitly blocked quote.
-		// Public handlers reject it below rather than treating missing configuration
-		// as an executable $0 schedule.
-		return s.buildQuoteWithSchedule(ctx, buyerID, sub, inputBytes, EconomicSchedule{})
-	}
-	return s.buildQuoteWithSchedule(ctx, buyerID, sub, inputBytes, schedule)
 }
 
 func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, sub jobSubmit, inputBytes []byte, schedule EconomicSchedule) Quote {

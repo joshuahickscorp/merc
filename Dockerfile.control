@@ -28,7 +28,7 @@ COPY control/ ./
 # CGO off → static binary; trimpath + ldflags -s -w strip debug bloat.
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -ldflags="-s -w -X main.controlVersion=${CX_BUILD_VERSION} -X main.controlCommit=${CX_BUILD_COMMIT} -X main.controlBuildDate=${CX_BUILD_DATE}" \
-    -o /control .
+    -o /cx .
 
 # ── final stage ───────────────────────────────────────────────────────────────
 FROM gcr.io/distroless/static:nonroot
@@ -44,7 +44,7 @@ WORKDIR /
 
 # The binary and the authoritative schema (so the image can self-document /
 # bootstrap the DB; the control plane reads DATABASE_URL at runtime).
-COPY --from=build /control /control
+COPY --from=build /cx /cx
 COPY db/schema.sql /db/schema.sql
 
 # The three registered HTML surfaces: the public site at /, the buyer console at
@@ -69,4 +69,4 @@ COPY web/assets/knob-red@3x.png /web/assets/knob-red@3x.png
 EXPOSE 8080
 # distroless/static:nonroot already runs as uid 65532; be explicit.
 USER nonroot:nonroot
-ENTRYPOINT ["/control"]
+ENTRYPOINT ["/cx"]
