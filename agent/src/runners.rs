@@ -1377,7 +1377,6 @@ fn mel_filterbank(n_mels: usize) -> Vec<f32> {
 /// (≤15 pad tokens) per row — the ~10% padding-overhead target the rung names.
 const PAD_BUCKET: usize = 16;
 
-
 pub struct LlamaBackend {
     model: QLlama,
     tokenizer: Tokenizer,
@@ -1508,7 +1507,6 @@ impl LlamaBackend {
             .map_err(infer_err(backend))?;
         Ok((text.trim().to_string(), generated.len()))
     }
-
 
     /// HAWKING lane (docs/HAWKING_PORT_PLAN.md Week 4 — the capstone). Greedy-generate
     /// exactly like `generate`, but route EVERY forward through the real Hawking
@@ -2261,7 +2259,6 @@ impl LlamaBackend {
         }
         Ok(out)
     }
-
 
     /// PATCH (P-padbucket, Inference Hot Path 7.5→8 / Batching Efficiency 7→7.5,
     /// docs/internal/CREED_AND_PATH_TO_TEN.md "Near-length bucketing with padded
@@ -5358,33 +5355,6 @@ mod tests {
     /// `cargo test -- --ignored` sweep is safe without requiring `--test-threads=1`.
     static METAL_HARDWARE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     #[test]
     fn jsonl_parse_text_and_prompt() {
         let input = b"{\"id\":\"a\",\"text\":\"hello\"}\n{\"id\":\"b\",\"prompt\":\"world\"}\n";
@@ -6826,7 +6796,6 @@ mod tests {
         eprintln!("whisper OK: result={}", serde_json::to_string(&v).unwrap());
     }
 
-
     // BatchInfer runs end-to-end on a small quantized GGUF llama. Downloads the
     // model (~800MB) on first run. Run with:
     //   cargo test --release batch_infer_runs_real -- --ignored --nocapture
@@ -7043,10 +7012,6 @@ mod tests {
             SPAN - ACCEPTED
         );
     }
-
-
-
-
 
     /// Context-ceiling bounds check, on the REAL model (Workload & Model Breadth
     /// 6→7, docs/internal/CREED_AND_PATH_TO_TEN.md "lift the context ceiling

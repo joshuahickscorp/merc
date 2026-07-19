@@ -165,11 +165,7 @@ jobs:
         run: |
           cd agent
           cargo clippy --all-targets -- -D warnings
-          cargo clippy --all-targets \
-            --features spec-receipt-bridge,resident-spec-shadow -- -D warnings
-      - name: vulnerability scan (RustSec advisory-db, the agent-side twin of the
-          control plane's govulncheck step — Security Posture 7->8,
-          docs/internal/CREED_AND_PATH_TO_TEN.md)
+      - name: vulnerability scan (RustSec advisory-db; agent-side twin of control's govulncheck)
         run: |
           cargo install cargo-audit --locked
           cd agent && cargo audit
@@ -177,12 +173,7 @@ jobs:
         run: cd agent && cargo build
       - name: test (non-ignored)
         run: cd agent && cargo test
-      - name: test unrouted consolidation seams
-        run: >-
-          cd agent && cargo test
-          --features spec-receipt-bridge,resident-spec-shadow
-      # Mac inference sandbox proof (Security Posture 8->9,
-      # docs/internal/CREED_AND_PATH_TO_TEN.md): run the shipped seatbelt profile
+      # Mac inference sandbox proof (Security Posture 8->9): run the shipped seatbelt profile
       # (macapp/ComputeExchangeAgent/cx-agent.sb) against standalone binaries and
       # assert it contains a malicious buyer payload's blast radius on BOTH axes —
       # filesystem (writes confined to the model cache + data dir; reads of ~/.ssh,

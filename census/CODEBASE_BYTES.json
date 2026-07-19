@@ -10,13 +10,13 @@
     "other": 51644,
     "patch": 22301,
     "python": 385203,
-    "rust": 1691394,
+    "rust": 1691359,
     "shader": 609891,
     "shell": 316152,
     "sql": 169236,
     "toml": 11673,
     "web": 617410,
-    "yaml": 68182
+    "yaml": 67752
   },
   "largest_tracked_40": [
     {
@@ -77,7 +77,7 @@
     },
     {
       "path": "agent/src/runners.rs",
-      "bytes": 510112
+      "bytes": 510077
     },
     {
       "path": "web/assets/site/dgx-spark@2x.png",
@@ -181,5 +181,5 @@
     }
   ],
   "note": "tracked-only (git ls-files). Excludes .git, model weights, dep caches, untracked artifacts.",
-  "tracked_bytes": 27950188
+  "tracked_bytes": 27949723
 }
