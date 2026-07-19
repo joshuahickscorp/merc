@@ -167,14 +167,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/stripe/webhook", s.handleStripeWebhook)          // unauthed; verified by signature
 	mux.HandleFunc("POST /v1/stripe/connect-webhook", s.handleConnectWebhook) // Connect account.updated; verified by signature
 
-	// OpenAI-compatible Batch API (openai.go): upload a JSONL of requests, create a
-	// batch over it, poll, and download the output — all mapped onto the native job
-	// pipeline (one source of truth: createJob).
-	mux.Handle("POST /v1/files", s.authBuyer(http.HandlerFunc(s.handleCreateFile)))
-	mux.Handle("GET /v1/files/{id}/content", s.authBuyer(http.HandlerFunc(s.handleGetFileContent)))
-	mux.Handle("POST /v1/batches", s.authBuyer(http.HandlerFunc(s.handleCreateBatch)))
-	mux.Handle("GET /v1/batches/{id}", s.authBuyer(http.HandlerFunc(s.handleGetBatch)))
-
 	// Buyer API-key lifecycle: mint (raw secret revealed once), list (masked), revoke.
 	mux.Handle("POST /v1/keys", s.authBuyer(http.HandlerFunc(s.handleCreateKey)))
 	mux.Handle("GET /v1/keys", s.authBuyer(http.HandlerFunc(s.handleListKeys)))

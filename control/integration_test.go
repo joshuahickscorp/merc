@@ -26,7 +26,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -5867,132 +5866,7 @@ func TestAPIKeyLifecycle(t *testing.T) {
 
 // --- OpenAI-Batch-compatible adapter: inline embeddings batch → status maps ---
 
-// TestOpenAIFileUploadRoundTrip exercises the disk-backed multipart ingress and
-// streaming object-store egress through the real authenticated HTTP surface.
-func TestOpenAIFileUploadRoundTrip(t *testing.T) {
-	reset(t)
 
-	want := []byte(`{"custom_id":"a","method":"POST","url":"/v1/embeddings","body":{"model":"all-minilm-l6-v2","input":"hello"}}` + "\n")
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("purpose", "batch"); err != nil {
-		t.Fatalf("write purpose: %v", err)
-	}
-	part, err := writer.CreateFormFile("file", "requests.jsonl")
-	if err != nil {
-		t.Fatalf("create file part: %v", err)
-	}
-	if _, err := part.Write(want); err != nil {
-		t.Fatalf("write file part: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close multipart: %v", err)
-	}
-
-	code, out := req(t, "POST", "/v1/files", body.Bytes(), buyerKey(),
-		hdr{"Content-Type", writer.FormDataContentType()})
-	if code != http.StatusOK {
-		t.Fatalf("upload file: want 200, got %d: %s", code, out)
-	}
-	var file struct {
-		ID       string `json:"id"`
-		Object   string `json:"object"`
-		Filename string `json:"filename"`
-		Purpose  string `json:"purpose"`
-		Bytes    int64  `json:"bytes"`
-	}
-	if err := json.Unmarshal(out, &file); err != nil {
-		t.Fatalf("decode file object: %v (%s)", err, out)
-	}
-	if !strings.HasPrefix(file.ID, "file-") || file.Object != "file" ||
-		file.Filename != "requests.jsonl" || file.Purpose != "batch" || file.Bytes != int64(len(want)) {
-		t.Fatalf("unexpected file object: %+v", file)
-	}
-
-	code, out = req(t, "GET", "/v1/files/"+file.ID+"/content", nil, buyerKey())
-	if code != http.StatusOK {
-		t.Fatalf("download file: want 200, got %d: %s", code, out)
-	}
-	if !bytes.Equal(out, want) {
-		t.Fatalf("downloaded bytes differ: got %q want %q", out, want)
-	}
-
-	code, out = req(t, "POST", "/v1/files?purpose=batch", []byte(" \t\r\n"),
-		buyerKey(), hdr{"Content-Type", "application/x-ndjson"})
-	if code != http.StatusBadRequest {
-		t.Fatalf("whitespace-only raw upload: want 400, got %d: %s", code, out)
-	}
-}
-
-// TestOpenAIBatchInlineEmbeddings posts an OpenAI-Batch-shaped embeddings request
-// with INLINE input (no separate file upload), then confirms GET /v1/batches/{id}
-// returns an OpenAI-Batch-shaped object whose status maps from the underlying CX
-// job status and whose request_counts.total reflects the line count.
-func TestOpenAIBatchInlineEmbeddings(t *testing.T) {
-	reset(t)
-
-	// Two embeddings lines, inline as a JSONL string (the OpenAI batch line shape).
-	jsonl := `{"custom_id":"a","method":"POST","url":"/v1/embeddings","body":{"model":"all-minilm-l6-v2","input":"hello"}}` + "\n" +
-		`{"custom_id":"b","method":"POST","url":"/v1/embeddings","body":{"model":"all-minilm-l6-v2","input":"world"}}`
-
-	code, out := req(t, "POST", "/v1/batches", map[string]any{
-		"endpoint":          "/v1/embeddings",
-		"completion_window": "24h",
-		"input":             jsonl,
-	}, buyerKey(), jsonCT())
-	if code != http.StatusOK {
-		t.Fatalf("create batch: want 200, got %d: %s", code, out)
-	}
-	var batch struct {
-		ID            string `json:"id"`
-		Object        string `json:"object"`
-		Endpoint      string `json:"endpoint"`
-		Status        string `json:"status"`
-		InputFileID   string `json:"input_file_id"`
-		RequestCounts struct {
-			Total, Completed, Failed int
-		} `json:"request_counts"`
-	}
-	if err := json.Unmarshal(out, &batch); err != nil {
-		t.Fatalf("batch decode: %v (%s)", err, out)
-	}
-	if batch.Object != "batch" || !strings.HasPrefix(batch.ID, "batch-") {
-		t.Fatalf("not an OpenAI batch object: %+v", batch)
-	}
-	if batch.Endpoint != "/v1/embeddings" {
-		t.Fatalf("endpoint not echoed: %q", batch.Endpoint)
-	}
-	if batch.RequestCounts.Total != 2 {
-		t.Fatalf("request_counts.total: want 2, got %d", batch.RequestCounts.Total)
-	}
-	if batch.InputFileID == "" || !strings.HasPrefix(batch.InputFileID, "file-") {
-		t.Fatalf("inline input should have materialized an input file: %q", batch.InputFileID)
-	}
-	if batch.Status != "in_progress" {
-		t.Fatalf("fresh batch should be in_progress (job queued), got %q", batch.Status)
-	}
-
-	// Status GET maps the underlying CX job status into the OpenAI vocabulary.
-	code, out = req(t, "GET", "/v1/batches/"+batch.ID, nil, buyerKey())
-	if code != http.StatusOK {
-		t.Fatalf("get batch: want 200, got %d: %s", code, out)
-	}
-	var got struct {
-		ID, Status string
-	}
-	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("get batch decode: %v (%s)", err, out)
-	}
-	if got.ID != batch.ID {
-		t.Fatalf("batch id mismatch on GET: %q vs %q", got.ID, batch.ID)
-	}
-	switch got.Status {
-	case "in_progress", "finalizing", "completed":
-		// all valid mappings of queued/running/verifying/complete
-	default:
-		t.Fatalf("unexpected mapped batch status %q", got.Status)
-	}
-}
 
 // --- self-serve accounts + auth + sandbox (accounts.go) ---
 
