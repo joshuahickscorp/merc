@@ -157,13 +157,14 @@ impl ControlPlaneClient {
         Ok(Some(task))
     }
 
-    pub async fn start_task(&self, task_id: Uuid) -> Result<(), ProtocolError> {
+    pub async fn start_task(&self, task_id: Uuid, attempt: i16) -> Result<(), ProtocolError> {
         let endpoint = "/v1/worker/task/{id}/start";
         let path = format!("/v1/worker/task/{task_id}/start");
         let resp = self
             .http
             .post(self.url(&path))
             .header("X-Worker-Token", &self.token)
+            .header("X-Task-Attempt", attempt)
             .send()
             .await
             .map_err(|e| Self::transport(endpoint, e))?;
@@ -236,13 +237,19 @@ impl ControlPlaneClient {
         unreachable!("bounded commit retry loop always returns")
     }
 
-    pub async fn fail_task(&self, task_id: Uuid, report: &FailReport) -> Result<(), ProtocolError> {
+    pub async fn fail_task(
+        &self,
+        task_id: Uuid,
+        attempt: i16,
+        report: &FailReport,
+    ) -> Result<(), ProtocolError> {
         let endpoint = "/v1/worker/task/{id}/fail";
         let path = format!("/v1/worker/task/{task_id}/fail");
         let resp = self
             .http
             .post(self.url(&path))
             .header("X-Worker-Token", &self.token)
+            .header("X-Task-Attempt", attempt)
             .json(report)
             .send()
             .await

@@ -103,7 +103,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 	return nil
 }
 
-var errNotFound = errors.New("not found")
+var (
+	errNotFound          = errors.New("not found")
+	errJobNotCancellable = errors.New("job is no longer cancellable")
+)
 var errOAuthLinkStateInvalid = errors.New("invalid or expired OAuth link state")
 
 const (
@@ -554,6 +557,7 @@ type WorkerResources struct {
 	ReservedHeadroomGB float32
 	Throttled          bool
 	LoadedModels       []string
+	ActiveTasks        []TaskLease
 }
 
 func (s *Store) HeartbeatTx(ctx context.Context, workerID uuid.UUID, r WorkerResources) error {
@@ -598,6 +602,17 @@ func (s *Store) HeartbeatTx(ctx context.Context, workerID uuid.UUID, r WorkerRes
 			 ON CONFLICT (worker_id, model_id)
 			 DO UPDATE SET last_seen_warm = now()`,
 			workerID, r.LoadedModels); err != nil {
+			return err
+		}
+	}
+	for _, lease := range r.ActiveTasks {
+		// Only the authenticated worker's current execution epoch can renew a
+		// lease. A delayed heartbeat from an older attempt is therefore inert.
+		if _, err := tx.Exec(ctx,
+			`UPDATE tasks SET claimed_at = now()
+			 WHERE id = $1 AND claimed_by = $2 AND worker_id = $2
+			   AND status = 'running' AND retry_count = $3`,
+			lease.TaskID, workerID, lease.Attempt); err != nil {
 			return err
 		}
 	}
@@ -899,7 +914,7 @@ func (s *Store) AdminForceRequeueTask(ctx context.Context, taskID uuid.UUID, rea
 	var prevStatus string
 	if err := tx.QueryRow(ctx,
 		`UPDATE tasks SET status = 'queued', claimed_by = NULL, claimed_at = NULL,
-		                  worker_id = NULL, visible_at = now()
+		                  worker_id = NULL, retry_count = retry_count + 1, visible_at = now()
 		 WHERE id = $1 AND status IN ('running','retrying')
 		 RETURNING job_id, status`,
 		taskID,
@@ -1370,10 +1385,11 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    min_memory_gb, max_duration_secs, hw_classes, data_residency, job_type_spec, split_size,
 		    offered_rate_usd_hr, eta_secs, max_usd, budget_state, quote_id, min_reputation,
 		    deadline_secs, firm_quote, firm_quote_max_usd, sla_guarantee_secs, sla_premium_usd,
-		    economic_input_records, economic_input_bytes, economic_input_source)
+		    economic_input_records, economic_input_bytes, economic_input_source,
+		    submit_idempotency_key, submit_request_sha256)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
 		         $11,$12,$13,$14,$15,$16,$17,$18,$19,'tracking',$20,$21,$22,$23,$24,$25,$26,
-		         $27,$28,$29)`,
+		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''))`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
@@ -1382,6 +1398,7 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		j.DeadlineSecs, j.FirmQuote, nullPosFloat(j.FirmQuoteMaxUSD),
 		nullPosInt(j.SLAGuaranteeSecs), nullPosFloat(j.SLAPremiumUSD),
 		economicInputRecords, economicInputBytes, economicInputSource,
+		j.SubmitIdempotencyKey, j.SubmitRequestSHA256,
 	)
 	if err != nil {
 		return err
@@ -1468,6 +1485,8 @@ type jobRow struct {
 	WebhookID                  uuid.UUID
 	WebhookURL                 string
 	WebhookSigningSecretSealed string
+	SubmitIdempotencyKey       string
+	SubmitRequestSHA256        string
 }
 
 type taskRow struct {
@@ -1502,6 +1521,56 @@ type JobView struct {
 	SLAGuaranteeSecs int
 	SLAPremiumUSD    float64
 	SLAMet           *bool
+}
+
+var errIdempotencyConflict = errors.New("idempotency key was already used with a different request")
+
+func (s *Store) JobSubmissionReplay(
+	ctx context.Context,
+	buyerID uuid.UUID,
+	idempotencyKey, requestSHA256 string,
+) (JobSubmitResponse, bool, error) {
+	var out JobSubmitResponse
+	var createdAt time.Time
+	var tier, storedSHA, webhookID, webhookSecretSealed string
+	err := s.pool.QueryRow(ctx, `
+		SELECT j.id,COALESCE(j.task_count,0),COALESCE(j.estimated_usd,0)::float8,
+		       COALESCE(j.eta_secs,0),COALESCE(j.tier,'batch'),j.created_at,
+		       COALESCE(w.id::text,''),COALESCE(w.signing_secret_sealed,''),
+		       COALESCE(j.submit_request_sha256,'')
+		  FROM jobs j
+		  LEFT JOIN LATERAL (
+		    SELECT id,signing_secret_sealed FROM webhooks
+		     WHERE job_id=j.id ORDER BY created_at,id LIMIT 1
+		  ) w ON true
+		 WHERE j.buyer_id=$1 AND j.submit_idempotency_key=$2`,
+		buyerID, idempotencyKey,
+	).Scan(&out.JobID, &out.TaskCount, &out.EstimatedUSD, &out.ETASecs, &tier,
+		&createdAt, &webhookID, &webhookSecretSealed, &storedSHA)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return JobSubmitResponse{}, false, nil
+	}
+	if err != nil {
+		return JobSubmitResponse{}, false, err
+	}
+	if storedSHA != requestSHA256 {
+		return JobSubmitResponse{}, true, errIdempotencyConflict
+	}
+	dur := time.Duration(out.ETASecs) * time.Second
+	if min := tierMinCompletion(tier); dur < min {
+		dur = min
+	}
+	out.EstimatedCompletion = createdAt.Add(dur).UTC().Format(time.RFC3339)
+	out.TierSemantics = serviceTierSemantics(tier)
+	out.WebhookID = webhookID
+	if webhookSecretSealed != "" {
+		secret, err := openWebhookSigningSecret(webhookSecretSealed)
+		if err != nil {
+			return JobSubmitResponse{}, true, fmt.Errorf("open replay webhook secret: %w", err)
+		}
+		out.WebhookSecret = secret
+	}
+	return out, true, nil
 }
 
 func (s *Store) GetJob(ctx context.Context, jobID, buyerID uuid.UUID) (*JobView, error) {
@@ -1585,12 +1654,23 @@ func (s *Store) TaskEconomicAmounts(ctx context.Context, taskID uuid.UUID) (buye
 }
 
 func (s *Store) CancelJob(ctx context.Context, jobID, buyerID uuid.UUID) error {
-	status, pending, err := s.jobTerminalTransitionState(ctx, jobID)
+	// Scope the very first lookup to the authenticated buyer. Besides avoiding
+	// object-existence disclosure, this prevents one buyer from forcing locks on
+	// another buyer's task rows.
+	var status string
+	err := s.pool.QueryRow(ctx,
+		`SELECT status FROM jobs WHERE id=$1 AND buyer_id=$2`, jobID, buyerID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	}
 	if err != nil {
 		return err
 	}
-	if status != "queued" || pending {
-		return errNotFound
+	if status == "cancelled" {
+		return nil // DELETE is naturally idempotent for the owning buyer.
+	}
+	if status != "queued" {
+		return errJobNotCancellable
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -1600,7 +1680,7 @@ func (s *Store) CancelJob(ctx context.Context, jobID, buyerID uuid.UUID) error {
 	if err := lockUnfinishedJobTasksTx(ctx, tx, jobID); err != nil {
 		return err
 	}
-	status, pending, err = jobTerminalTransitionStateTx(ctx, tx, jobID)
+	status, pending, err := jobTerminalTransitionStateTx(ctx, tx, jobID)
 	if err != nil {
 		return err
 	}
@@ -1608,8 +1688,14 @@ func (s *Store) CancelJob(ctx context.Context, jobID, buyerID uuid.UUID) error {
 	if err := tx.QueryRow(ctx, `SELECT buyer_id=$2 FROM jobs WHERE id=$1`, jobID, buyerID).Scan(&owns); err != nil {
 		return err
 	}
-	if status != "queued" || !owns || pending {
+	if !owns {
 		return errNotFound
+	}
+	if status == "cancelled" {
+		return tx.Commit(ctx)
+	}
+	if status != "queued" || pending {
+		return errJobNotCancellable
 	}
 	if _, err := tx.Exec(ctx, `UPDATE jobs SET status='cancelled' WHERE id=$1`, jobID); err != nil {
 		return err
@@ -1622,7 +1708,10 @@ func (s *Store) CancelJob(ctx context.Context, jobID, buyerID uuid.UUID) error {
 	return tx.Commit(ctx)
 }
 
-func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID) error {
+func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID, claimAttempt int16) error {
+	if claimAttempt < 0 {
+		return errNotFound
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -1660,7 +1749,7 @@ func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID) error
 	err = tx.QueryRow(ctx, `
 		SELECT job_id,status,claimed_by,worker_id,execution_worker_id,execution_supplier_id,started_at,
 		       COALESCE(is_redundancy,false),hedged_from,COALESCE(retry_count,0)
-		  FROM tasks WHERE id=$1 FOR UPDATE`, taskID).
+		  FROM tasks WHERE id=$1 AND retry_count=$2 FOR UPDATE`, taskID, claimAttempt).
 		Scan(&jobID, &status, &claimedBy, &taskWorkerID, &executionWorkerID, &executionSupplierID, &startedAt,
 			&isRedundancy, &hedgedFrom, &attempt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1741,8 +1830,8 @@ func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID) error
 		UPDATE tasks SET status='running',started_at=now(),worker_id=$2,
 		       execution_worker_id=$2,execution_supplier_id=$3,
 		       execution_hw_class=$4,execution_engine=$5,execution_build_hash=$6
-		 WHERE id=$1 AND claimed_by=$2 AND status='queued'`,
-		taskID, workerID, claimSupplierID, claimHWClass, claimEngine, claimBuildHash)
+		 WHERE id=$1 AND claimed_by=$2 AND retry_count=$7 AND status='queued'`,
+		taskID, workerID, claimSupplierID, claimHWClass, claimEngine, claimBuildHash, claimAttempt)
 	if err != nil {
 		return err
 	}
@@ -1814,9 +1903,9 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 		       reported_hardware_temp_c = CASE WHEN status='verifying' THEN reported_hardware_temp_c ELSE $7 END,
 		       verification_outcome = CASE WHEN status='verifying' THEN verification_outcome ELSE NULL END,
 		       verified_at = CASE WHEN status='verifying' THEN verified_at ELSE NULL END
-		 WHERE id = $1 AND claimed_by = $2 AND execution_worker_id = $2
+		 WHERE id = $1 AND claimed_by = $2 AND execution_worker_id = $2 AND retry_count = $8
 		   AND (status IN ('running','queued') OR (status = 'verifying' AND worker_id = $2))`,
-		taskID, workerID, c.ResultKey, resultSHA256, int64(c.DurationMS), int64(c.TokensUsed), c.HardwareTempC)
+		taskID, workerID, c.ResultKey, resultSHA256, int64(c.DurationMS), int64(c.TokensUsed), c.HardwareTempC, c.Attempt)
 	if err != nil {
 		return nil, err
 	}
@@ -4265,7 +4354,7 @@ func (s *Store) RescueStuckJob(ctx context.Context, jobID uuid.UUID, backoff tim
 	if _, err := tx.Exec(ctx,
 		`UPDATE tasks
 		   SET status = 'queued', claimed_by = NULL, claimed_at = NULL,
-		       started_at = NULL, worker_id = NULL,
+		       started_at = NULL, worker_id = NULL, retry_count = retry_count + 1,
 		       visible_at = now() + make_interval(secs => $2)
 		 WHERE job_id = $1 AND status IN ('running','retrying')`,
 		jobID, backoff.Seconds()); err != nil {
@@ -4328,7 +4417,7 @@ func (s *Store) RescueRunningTask(ctx context.Context, taskID uuid.UUID, backoff
 	ct, err := s.pool.Exec(ctx,
 		`UPDATE tasks
 		   SET status = 'queued', claimed_by = NULL, claimed_at = NULL,
-		       started_at = NULL, worker_id = NULL,
+		       started_at = NULL, worker_id = NULL, retry_count = retry_count + 1,
 		       visible_at = now() + make_interval(secs => $2)
 		 WHERE id = $1 AND status = 'running'`,
 		taskID, backoff.Seconds())

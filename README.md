@@ -59,6 +59,11 @@ GET    /v1/jobs/{id}/results
 DELETE /v1/jobs/{id}
 ```
 
+Job submission requires an `Idempotency-Key` header (8-128 safe ASCII
+characters). Reusing the key with identical JSON returns the original job;
+reusing it with a different request returns `409 Conflict`. The CLI and Python
+SDK generate a key unless the caller supplies one for an uncertain retry.
+
 The Python SDK wraps that API:
 
 ```python

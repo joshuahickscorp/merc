@@ -82,6 +82,17 @@ CREATE TABLE IF NOT EXISTS tasks (
     excluded_worker UUID,                     -- worker to skip on the next claim (the one that just failed it)
     excluded_until  TIMESTAMPTZ               -- exclusion is only in force while now() < excluded_until (NULL = no exclusion)
 );
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS submit_idempotency_key TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS submit_request_sha256 TEXT;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_submit_idempotency_shape;
+ALTER TABLE jobs ADD CONSTRAINT jobs_submit_idempotency_shape CHECK (
+    (submit_idempotency_key IS NULL AND submit_request_sha256 IS NULL)
+    OR (char_length(submit_idempotency_key) BETWEEN 8 AND 128
+        AND submit_request_sha256 ~ '^[0-9a-f]{64}$')
+);
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_buyer_submit_idempotency_uniq
+    ON jobs (buyer_id, submit_idempotency_key)
+    WHERE submit_idempotency_key IS NOT NULL;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS input_ref TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS result_key TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS expected_output_records BIGINT;

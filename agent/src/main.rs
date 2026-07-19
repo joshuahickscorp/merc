@@ -1170,6 +1170,7 @@ async fn execute_task(
 
     let commit = TaskCommit {
         task_id: task.task_id,
+        attempt: task.attempt,
         result_key: if task.result_key.is_empty() {
             format!("results/{}/{}.json", task.job_id, task.task_id)
         } else {
@@ -1589,13 +1590,15 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
                 let loaded_models = ctx.pool.loaded_model_ids().await;
                 let (gpu, gpu_temp) = gpu_telemetry();
                 let live_throttling = executor::live_throttle_detected();
+                let active_tasks = status.active_task_leases();
                 let hb = Heartbeat {
                     worker_id,
                     timestamp: ts,
                     cpu_pct: cpu,
                     gpu_pct: gpu,
                     gpu_temp_c: gpu_temp,
-                    current_task: None,
+                    current_task: active_tasks.last().map(|lease| lease.task_id),
+                    active_tasks,
                     available_memory_gb: throttle.available_gb,
                     effective_memory_gb: throttle.effective_gb,
                     reserved_headroom_gb: throttle.reserved_headroom_gb,
@@ -1730,11 +1733,12 @@ async fn poll_and_spawn(
     }
 
     ctx.client
-        .start_task(task.task_id)
+        .start_task(task.task_id, task.attempt)
         .await
         .context("start_task")?;
     ctx.status.job_started(
         task.task_id,
+        task.attempt,
         task.job_id,
         task.manifest.job_type.tag(),
         now_unix(),
@@ -1775,7 +1779,7 @@ async fn poll_and_spawn(
                     &snap,
                     ctx.memory_headroom_gb,
                 );
-                if let Err(fe) = ctx.client.fail_task(task_id, &report).await {
+                if let Err(fe) = ctx.client.fail_task(task_id, task.attempt, &report).await {
                     tracing::warn!(task = %task_id, error = %fe, "fail_task report failed (stale reaper remains the fallback)");
                 }
                 ctx.status.job_finished(task_id, Some(e.to_string()));

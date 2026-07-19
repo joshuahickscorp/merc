@@ -333,36 +333,53 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 type jobSubmit struct {
-	JobType       JobType            `json:"job_type"`
-	Model         ModelRef           `json:"model"`
-	Params        json.RawMessage    `json:"params"`
-	Constraints   JobConstraints     `json:"constraints"`
-	Verification  VerificationPolicy `json:"verification"`
-	Tier          string             `json:"tier"`
-	Input         json.RawMessage    `json:"input"`
-	WebhookURL    string             `json:"webhook_url"`
-	MaxUSD        float64            `json:"max_usd,omitempty"`
-	QuoteID       string             `json:"quote_id,omitempty"`
-	FirmQuote     bool               `json:"firm_quote,omitempty"`
-	MinReputation float32            `json:"min_reputation,omitempty"`
-	DeadlineSecs  int                `json:"deadline_secs,omitempty"`
+	JobType        JobType            `json:"job_type"`
+	Model          ModelRef           `json:"model"`
+	Params         json.RawMessage    `json:"params"`
+	Constraints    JobConstraints     `json:"constraints"`
+	Verification   VerificationPolicy `json:"verification"`
+	Tier           string             `json:"tier"`
+	Input          json.RawMessage    `json:"input"`
+	WebhookURL     string             `json:"webhook_url"`
+	MaxUSD         float64            `json:"max_usd,omitempty"`
+	QuoteID        string             `json:"quote_id,omitempty"`
+	FirmQuote      bool               `json:"firm_quote,omitempty"`
+	MinReputation  float32            `json:"min_reputation,omitempty"`
+	DeadlineSecs   int                `json:"deadline_secs,omitempty"`
+	IdempotencyKey string             `json:"-"`
+	RequestSHA256  string             `json:"-"`
 }
+
+var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
 
 const defaultSplitSize = 256
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxBuyer).(*AuthResult)
-	var sub jobSubmit
-	if err := json.NewDecoder(r.Body).Decode(&sub); err != nil {
+	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if !idempotencyKeyPattern.MatchString(idempotencyKey) {
+		writeErr(w, http.StatusBadRequest, "Idempotency-Key is required and must be 8-128 characters using letters, digits, '.', '_', ':', or '-'")
+		return
+	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
 			writeErr(w, http.StatusRequestEntityTooLarge,
 				fmt.Sprintf("request body exceeds the %d byte submission limit", mbe.Limit))
 			return
 		}
+		writeErr(w, http.StatusBadRequest, "reading job submission: "+err.Error())
+		return
+	}
+	var sub jobSubmit
+	if err := decodeStrictJSONObject(raw, &sub); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid job submission json: "+err.Error())
 		return
 	}
+	digest := sha256.Sum256(raw)
+	sub.IdempotencyKey = idempotencyKey
+	sub.RequestSHA256 = hex.EncodeToString(digest[:])
 	resp, herr := s.createJob(r.Context(), auth.BuyerID, sub)
 	if herr != nil {
 		writeErr(w, herr.status, herr.msg)
@@ -370,6 +387,9 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if resp.WebhookSecret != "" {
 		setSecretResponseHeaders(w)
+	}
+	if resp.IdempotentReplay {
+		w.Header().Set("Idempotent-Replayed", "true")
 	}
 	writeJSON(w, http.StatusAccepted, resp)
 }
@@ -382,6 +402,17 @@ type httpError struct {
 func (e *httpError) Error() string { return e.msg }
 
 func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit) (JobSubmitResponse, *httpError) {
+	if sub.IdempotencyKey != "" {
+		if replay, found, err := s.store.JobSubmissionReplay(ctx, buyerID, sub.IdempotencyKey, sub.RequestSHA256); err != nil {
+			if errors.Is(err, errIdempotencyConflict) {
+				return JobSubmitResponse{}, &httpError{http.StatusConflict, err.Error()}
+			}
+			return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable, "idempotency lookup failed: " + err.Error()}
+		} else if found {
+			replay.IdempotentReplay = true
+			return replay, nil
+		}
+	}
 	if math.IsNaN(sub.MaxUSD) || math.IsInf(sub.MaxUSD, 0) || sub.MaxUSD < 0 {
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "max_usd must be a finite non-negative number"}
 	}
@@ -522,6 +553,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 
 	jobID := uuid.New()
+	if sub.IdempotencyKey != "" {
+		jobID = uuid.NewSHA1(buyerID, []byte(sub.IdempotencyKey))
+	}
 	inputKey := srcKey
 	var canonicalWriter io.Writer
 	var canonicalPut *streamingPut
@@ -705,8 +739,18 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		WebhookID:                  webhookRegistration.ID,
 		WebhookURL:                 sub.WebhookURL,
 		WebhookSigningSecretSealed: webhookSecretSealed,
+		SubmitIdempotencyKey:       sub.IdempotencyKey,
+		SubmitRequestSHA256:        sub.RequestSHA256,
 	}
 	if err := s.store.SubmitJobTx(ctx, jr, tasks); err != nil {
+		if sub.IdempotencyKey != "" && isUniqueViolation(err) {
+			if replay, found, replayErr := s.store.JobSubmissionReplay(ctx, buyerID, sub.IdempotencyKey, sub.RequestSHA256); replayErr == nil && found {
+				replay.IdempotentReplay = true
+				return replay, nil
+			} else if errors.Is(replayErr, errIdempotencyConflict) {
+				return JobSubmitResponse{}, &httpError{http.StatusConflict, replayErr.Error()}
+			}
+		}
 		return JobSubmitResponse{}, &httpError{http.StatusInternalServerError, "failed to create job: " + err.Error()}
 	}
 
@@ -1252,7 +1296,11 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	}
 	err := s.store.CancelJob(r.Context(), id, auth.BuyerID)
 	if errors.Is(err, errNotFound) {
-		writeErr(w, http.StatusConflict, "job not found or already started")
+		writeErr(w, http.StatusNotFound, "job not found")
+		return
+	}
+	if errors.Is(err, errJobNotCancellable) {
+		writeErr(w, http.StatusConflict, "job already started or has pending verification work")
 		return
 	}
 	if err != nil {
@@ -1437,9 +1485,30 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
 	var hb Heartbeat
-	if err := json.NewDecoder(r.Body).Decode(&hb); err != nil {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil || len(raw) > 64<<10 || decodeStrictJSONObject(raw, &hb) != nil {
 		writeErr(w, http.StatusBadRequest, "invalid heartbeat json")
 		return
+	}
+	if hb.WorkerID != uuid.Nil && hb.WorkerID != auth.WorkerID {
+		writeErr(w, http.StatusBadRequest, "heartbeat worker_id does not match credential")
+		return
+	}
+	if len(hb.ActiveTasks) > 32 {
+		writeErr(w, http.StatusBadRequest, "too many active task leases")
+		return
+	}
+	seen := make(map[uuid.UUID]struct{}, len(hb.ActiveTasks))
+	for _, lease := range hb.ActiveTasks {
+		if lease.TaskID == uuid.Nil || lease.Attempt < 0 {
+			writeErr(w, http.StatusBadRequest, "invalid active task lease")
+			return
+		}
+		if _, duplicate := seen[lease.TaskID]; duplicate {
+			writeErr(w, http.StatusBadRequest, "duplicate active task lease")
+			return
+		}
+		seen[lease.TaskID] = struct{}{}
 	}
 	if err := validateHeartbeatRuntimeModels(hb.LoadedModels); err != nil {
 		writeErr(w, http.StatusBadRequest, "runtime heartbeat rejected: "+err.Error())
@@ -1451,6 +1520,7 @@ func (s *Server) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		ReservedHeadroomGB: hb.ReservedHeadroomGB,
 		Throttled:          hb.Throttled,
 		LoadedModels:       hb.LoadedModels,
+		ActiveTasks:        hb.ActiveTasks,
 	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1461,6 +1531,20 @@ func (s *Server) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
 const longPollCap = 25 * time.Second
 
 const longPollInterval = 5 * time.Second
+
+const taskAttemptHeaderName = "X-Task-Attempt"
+
+func taskAttemptHeader(r *http.Request) (int16, error) {
+	raw := strings.TrimSpace(r.Header.Get(taskAttemptHeaderName))
+	if raw == "" {
+		return 0, fmt.Errorf("%s is required", taskAttemptHeaderName)
+	}
+	n, err := strconv.ParseInt(raw, 10, 16)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative 16-bit integer", taskAttemptHeaderName)
+	}
+	return int16(n), nil
+}
 
 func parseWaitMs(r *http.Request) time.Duration {
 	raw := r.URL.Query().Get("wait_ms")
@@ -1571,6 +1655,7 @@ func (s *Server) handleWorkerPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	disp := TaskDispatch{
 		TaskID:           c.TaskID,
+		Attempt:          c.Attempt,
 		JobID:            c.JobID,
 		RuntimeCellID:    c.RuntimeCellID,
 		RuntimeID:        c.RuntimeID,
@@ -1601,7 +1686,12 @@ func (s *Server) handleWorkerStart(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.store.StartTask(r.Context(), id, auth.WorkerID)
+	attempt, err := taskAttemptHeader(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	err = s.store.StartTask(r.Context(), id, auth.WorkerID, attempt)
 	if errors.Is(err, errNotFound) {
 		writeErr(w, http.StatusConflict, "task not claimed by this worker or not startable")
 		return
@@ -1623,6 +1713,10 @@ func (s *Server) handleWorkerCommit(w http.ResponseWriter, r *http.Request) {
 	var c TaskCommit
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid commit json: "+err.Error())
+		return
+	}
+	if c.Attempt < 0 {
+		writeErr(w, http.StatusBadRequest, "attempt must be non-negative")
 		return
 	}
 	c.TaskID = id // trust the path, not the body

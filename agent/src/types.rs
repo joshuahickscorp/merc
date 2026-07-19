@@ -162,6 +162,8 @@ pub struct WorkerCapability {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskDispatch {
     pub task_id: Uuid,
+    #[serde(default)]
+    pub attempt: i16,
     pub job_id: Uuid,
     #[serde(default)]
     pub runtime_cell_id: String,
@@ -184,6 +186,7 @@ pub struct TaskDispatch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskCommit {
     pub task_id: Uuid,
+    pub attempt: i16,
     pub result_key: String,
     pub duration_ms: u64,
     pub tokens_used: u64,
@@ -201,6 +204,8 @@ pub struct Heartbeat {
     pub gpu_temp_c: Option<f32>,
     pub current_task: Option<Uuid>,
     #[serde(default)]
+    pub active_tasks: Vec<TaskLease>,
+    #[serde(default)]
     pub available_memory_gb: f32,
     #[serde(default)]
     pub effective_memory_gb: f32,
@@ -210,6 +215,12 @@ pub struct Heartbeat {
     pub throttled: bool,
     #[serde(default)]
     pub loaded_models: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TaskLease {
+    pub task_id: Uuid,
+    pub attempt: i16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

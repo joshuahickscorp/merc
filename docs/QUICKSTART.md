@@ -33,6 +33,7 @@ Quotes are source-bound, expire, and do not reserve capacity or move money.
 ```bash
 JOB_ID=$(curl -fsS "$CX_URL/v1/jobs" \
   -H "Authorization: Bearer $CX_API_KEY" \
+  -H "Idempotency-Key: quickstart-embed-001" \
   -H 'Content-Type: application/json' \
   -d '{
     "job_type":{"type":"embed","batch_size":8},

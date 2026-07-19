@@ -6,6 +6,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 __version__ = "0.1.0"
 __all__ = ["Client", "APIError", "JobError", "BudgetStoppedError", "BadInputError",
@@ -64,16 +65,18 @@ class Client:
         self.api_key = api_key
         self.timeout = timeout
 
-    def _request(self, method, path, body=None, query=None):
+    def _request(self, method, path, body=None, query=None, headers=None):
         url = self.base_url + path
         if query:
             url += "?" + urllib.parse.urlencode(query)
-        headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
+        request_headers = {"Authorization": "Bearer " + self.api_key} if self.api_key else {}
+        if headers:
+            request_headers.update(headers)
         data = None
         if body is not None:
             data = json.dumps(body).encode()
-            headers["Content-Type"] = "application/json"
-        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+            request_headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 raw = response.read()
@@ -119,7 +122,7 @@ class Client:
                    split_size=None, min_memory_gb=0.0, hw_classes=None,
                    data_residency=None, redundancy_frac=0.0, honeypot_frac=0.0,
                    payout_hold_secs=0, webhook_url=None, quote_id=None, max_usd=None,
-                   s3_key=None, model_kind=None):
+                   s3_key=None, model_kind=None, idempotency_key=None):
         body = self._spec(model, job_type, input, tier, split_size, min_memory_gb,
                           redundancy_frac, honeypot_frac, model_kind,
                           max_tokens=max_tokens, temperature=temperature,
@@ -140,7 +143,9 @@ class Client:
                 body[key] = value
         if max_usd is not None and float(max_usd) > 0:
             body["max_usd"] = float(max_usd)
-        return self._request("POST", "/v1/jobs", body)
+        key = idempotency_key or "submit-" + str(uuid.uuid4())
+        return self._request("POST", "/v1/jobs", body,
+                             headers={"Idempotency-Key": key})
 
     def quote(self, model, job_type, input, *, tier="batch", split_size=None,
               min_memory_gb=0.0, redundancy_frac=0.0, honeypot_frac=0.0,
