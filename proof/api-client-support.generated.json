@@ -687,7 +687,6 @@
     "Most Python methods and CLI commands have static source evidence but not one black-box network contract test per advertised operation.",
     "No JavaScript/TypeScript client exists.",
     "Synchronous inference and server token streaming are intentionally unsupported and must remain explicit in every outward client surface.",
-    "The OpenAI-shaped adapter has a named inline-embeddings database integration test, but the present current-source proof ledger is not terminal PASS; chat, multipart file, output-content, response-loss, and negative unsupported-call matrices are also incomplete.",
     "The strict multipart audio quote/submit routes are not exposed by the Python SDK or cx CLI; both generic JSON clients now fail locally and direct users to the bounded curl workflow."
   ],
   "contract_version": "2026-07-11.2",
@@ -717,7 +716,7 @@
       "supplier": 9,
       "worker": 11
     },
-    "unsupported_operations": 4
+    "unsupported_operations": 0
   },
   "coverage": {
     "javascript_client_absent": true,
@@ -761,18 +760,6 @@
       "scope": "Exercises documented curl submit/poll/results, Python submit/wait/results/embeddings, and CLI submit --wait against a running local stack."
     },
     {
-      "command": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestOpenAIBatchInlineEmbeddings",
-      "id": "openai_batch_embeddings_db",
-      "kind": "database_integration_subset",
-      "scope": "When accepted by a terminal current-source proof ledger, this proves inline embeddings batch creation and batch status read; it does not cover chat batches, multipart file upload, output download, cancellation, sync, or streaming."
-    },
-    {
-      "command": "(cd control && GOCACHE=\"$PWD/../.artifacts/go-cache\" go test . -run '^TestOpenAIBatch(ModelNamesAcceptOnlyNativeIdentityOrOmittedDefault|RejectsBrandedCrossModelAliasesWithNativeHint)$' -count=1)",
-      "id": "openai_native_model_rejection",
-      "kind": "unit_contract",
-      "scope": "Proves only omitted defaults and exact native model IDs resolve, while former gpt-* and text-embedding-* rewrites return a typed error naming the endpoint and native model to use."
-    },
-    {
       "command": "scripts/verify-python-sdk-package.sh",
       "id": "python_clean_install",
       "kind": "clean_install",
@@ -785,10 +772,10 @@
       "scope": "Proves alias targets resolve to declared production job/model cells in the canonical matrix; physical runtime proof remains separate."
     },
     {
-      "command": "python3 scripts/api_contract.py --check --artifact-dir .artifacts/5x5/api-contract && python3 -m unittest -v scripts/test_api_contract.py && (cd control && GOCACHE=\"$PWD/../.artifacts/go-cache\" go test . -run '^(TestAdminLogoutIsPublicAndIdempotentWithoutSessionCookie|TestOpenAIBatch(ModelNamesAcceptOnlyNativeIdentityOrOmittedDefault|RejectsBrandedCrossModelAliasesWithNativeHint))$' -count=1)",
+      "command": "python3 scripts/api_contract.py --check --artifact-dir .artifacts/5x5/api-contract && python3 -m unittest -v scripts/test_api_contract.py && (cd control && GOCACHE=\"$PWD/../.artifacts/go-cache\" go test . -run '^TestAdminLogoutIsPublicAndIdempotentWithoutSessionCookie$' -count=1)",
       "id": "static_source_contract",
       "kind": "deterministic_static_contract",
-      "scope": "Exact route/auth inventory, public Python methods, CLI commands, declared route use, execution-mode flags, OpenAI endpoint labels and aliases, and runtime-target authority. It is not a live network proof."
+      "scope": "Exact route/auth inventory, public Python methods, CLI commands, declared route use, execution-mode flags, and runtime-target authority. It is not a live network proof."
     }
   ],
   "execution_boundary": {
@@ -1609,30 +1596,9 @@
       "surface": "public_or_operational"
     }
   ],
-  "input_sha256": "cb5ab54198a73ef448555f229b5d6f2abff2412375ada90b1e08e4d276d0fa15",
+  "input_sha256": "2a2620a9a5245c18be99b26857bd663a0c4cece332edb0ca93a69e0f9afa9ad6",
   "outcome_proven": false,
   "schema_version": 1,
   "status": "IN_PROGRESS",
-  "unsupported_operations": [
-    {
-      "id": "openai.responses",
-      "reason": "No Responses API handler is registered.",
-      "route": "POST /v1/responses"
-    },
-    {
-      "id": "openai.streaming_chat_completions",
-      "reason": "There is no synchronous handler and no SSE or token-streaming server contract.",
-      "route": "POST /v1/chat/completions"
-    },
-    {
-      "id": "openai.sync_chat_completions",
-      "reason": "This path is a batch-line endpoint label only; there is no synchronous HTTP handler.",
-      "route": "POST /v1/chat/completions"
-    },
-    {
-      "id": "openai.sync_embeddings",
-      "reason": "This path is a batch-line endpoint label only; there is no synchronous HTTP handler.",
-      "route": "POST /v1/embeddings"
-    }
-  ]
+  "unsupported_operations": []
 }

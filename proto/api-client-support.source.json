@@ -102,8 +102,8 @@
     {
       "id": "static_source_contract",
       "kind": "deterministic_static_contract",
-      "command": "python3 scripts/api_contract.py --check --artifact-dir .artifacts/5x5/api-contract && python3 -m unittest -v scripts/test_api_contract.py && (cd control && GOCACHE=\"$PWD/../.artifacts/go-cache\" go test . -run '^(TestAdminLogoutIsPublicAndIdempotentWithoutSessionCookie|TestOpenAIBatch(ModelNamesAcceptOnlyNativeIdentityOrOmittedDefault|RejectsBrandedCrossModelAliasesWithNativeHint))$' -count=1)",
-      "scope": "Exact route/auth inventory, public Python methods, CLI commands, declared route use, execution-mode flags, OpenAI endpoint labels and aliases, and runtime-target authority. It is not a live network proof."
+      "command": "python3 scripts/api_contract.py --check --artifact-dir .artifacts/5x5/api-contract && python3 -m unittest -v scripts/test_api_contract.py && (cd control && GOCACHE=\"$PWD/../.artifacts/go-cache\" go test . -run '^TestAdminLogoutIsPublicAndIdempotentWithoutSessionCookie$' -count=1)",
+      "scope": "Exact route/auth inventory, public Python methods, CLI commands, declared route use, execution-mode flags, and runtime-target authority. It is not a live network proof."
     },
     {
       "id": "python_clean_install",
@@ -124,46 +124,13 @@
       "scope": "Exercises documented curl submit/poll/results, Python submit/wait/results/embeddings, and CLI submit --wait against a running local stack."
     },
     {
-      "id": "openai_batch_embeddings_db",
-      "kind": "database_integration_subset",
-      "command": "cx verify --ledger .artifacts/prove-local/proof-ledger.txt --mode contract_only --current-source --require-pass matrix:TestOpenAIBatchInlineEmbeddings",
-      "scope": "When accepted by a terminal current-source proof ledger, this proves inline embeddings batch creation and batch status read; it does not cover chat batches, multipart file upload, output download, cancellation, sync, or streaming."
-    },
-    {
-      "id": "openai_native_model_rejection",
-      "kind": "unit_contract",
-      "command": "(cd control && GOCACHE=\"$PWD/../.artifacts/go-cache\" go test . -run '^TestOpenAIBatch(ModelNamesAcceptOnlyNativeIdentityOrOmittedDefault|RejectsBrandedCrossModelAliasesWithNativeHint)$' -count=1)",
-      "scope": "Proves only omitted defaults and exact native model IDs resolve, while former gpt-* and text-embedding-* rewrites return a typed error naming the endpoint and native model to use."
-    },
-    {
       "id": "runtime_projection",
       "kind": "deterministic_runtime_authority",
       "command": "python3 scripts/runtime_matrix.py --check --artifact-dir .artifacts/5x5/runtime-matrix && python3 -m unittest -v scripts/test_runtime_matrix.py",
       "scope": "Proves alias targets resolve to declared production job/model cells in the canonical matrix; physical runtime proof remains separate."
     }
   ],
-  "unsupported_operations": [
-    {
-      "id": "openai.sync_embeddings",
-      "route": "POST /v1/embeddings",
-      "reason": "This path is a batch-line endpoint label only; there is no synchronous HTTP handler."
-    },
-    {
-      "id": "openai.sync_chat_completions",
-      "route": "POST /v1/chat/completions",
-      "reason": "This path is a batch-line endpoint label only; there is no synchronous HTTP handler."
-    },
-    {
-      "id": "openai.streaming_chat_completions",
-      "route": "POST /v1/chat/completions",
-      "reason": "There is no synchronous handler and no SSE or token-streaming server contract."
-    },
-    {
-      "id": "openai.responses",
-      "route": "POST /v1/responses",
-      "reason": "No Responses API handler is registered."
-    }
-  ],
+  "unsupported_operations": [],
   "clients": {
     "python": {
       "implemented": true,
@@ -721,7 +688,6 @@
   "completion_blockers": [
     "No JavaScript/TypeScript client exists.",
     "Most Python methods and CLI commands have static source evidence but not one black-box network contract test per advertised operation.",
-    "The OpenAI-shaped adapter has a named inline-embeddings database integration test, but the present current-source proof ledger is not terminal PASS; chat, multipart file, output-content, response-loss, and negative unsupported-call matrices are also incomplete.",
     "Branded cross-model rewrites are now rejected with native-model guidance, but the typed HTTP rejection still needs a black-box batch-create matrix in addition to the unit contract.",
     "The strict multipart audio quote/submit routes are not exposed by the Python SDK or cx CLI; both generic JSON clients now fail locally and direct users to the bounded curl workflow.",
     "Synchronous inference and server token streaming are intentionally unsupported and must remain explicit in every outward client surface."

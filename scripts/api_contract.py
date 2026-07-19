@@ -2,7 +2,7 @@
 """Compile and verify the canonical HTTP/API/client support contract.
 
 The source contract says what each shipped client advertises.  This compiler then
-reads the actual Go router, Python SDK, Go CLI, OpenAI batch adapter, and runtime
+reads the actual Go router, Python SDK, Go CLI, and runtime
 matrix.  It fails closed when the advertisement and implementation diverge.
 
 This is deliberately a *support-boundary* proof, not a product-completion proof:
@@ -578,24 +578,6 @@ def parse_cli(cli_text: str) -> dict[str, Any]:
     }
 
 
-def _go_map(go_text: str, name: str) -> dict[str, str]:
-    match = re.search(rf"var\s+{re.escape(name)}\s*=\s*map\[string\]string\s*\{{", go_text)
-    if not match:
-        raise ContractValidationError(f"OpenAI adapter has no {name} map")
-    opening = go_text.find("{", match.start())
-    closing = _matching_brace(go_text, opening)
-    body = go_text[opening + 1 : closing]
-    result: dict[str, str] = {}
-    for row in re.finditer(r'^\s*("(?:[^"\\]|\\.)*")\s*:\s*("(?:[^"\\]|\\.)*")\s*,', body, re.M):
-        key, value = json.loads(row.group(1)), json.loads(row.group(2))
-        if key in result:
-            raise ContractValidationError(f"duplicate {name} key {key!r}")
-        result[key] = value
-    if not result:
-        raise ContractValidationError(f"OpenAI adapter {name} map is empty")
-    return result
-
-
 def _authority_inputs(
     source: Mapping[str, Any],
     *,
@@ -872,7 +854,7 @@ def _validate_unsupported(
 ) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     ids: set[str] = set()
-    for index, candidate in enumerate(_list(source.get("unsupported_operations"), "unsupported_operations", nonempty=True)):
+    for index, candidate in enumerate(_list(source.get("unsupported_operations"), "unsupported_operations", nonempty=False)):
         context = f"unsupported_operations[{index}]"
         row = _object(candidate, context)
         _exact_keys(row, {"id", "route", "reason"}, context)
@@ -984,8 +966,6 @@ def render_markdown(contract: Mapping[str, Any]) -> str:
         "- Native inference is an asynchronous job workflow: submit, poll, then download a completed artifact.",
         "- The Python `embeddings()` helper blocks while it performs that workflow; it is not a synchronous inference HTTP endpoint.",
         "- The CLI can stream a completed artifact body to stdout; that is not server token streaming.",
-        "- `/v1/embeddings` and `/v1/chat/completions` are labels inside OpenAI-shaped batch input. They are not registered HTTP inference routes.",
-        "- The implemented OpenAI scope is a batch-workflow subset, not full API or drop-in SDK compatibility.",
         "",
         "## Inventory summary",
         "",
