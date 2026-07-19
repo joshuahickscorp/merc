@@ -5,6 +5,27 @@
 _The real target (System Reduction Plan): GLOBAL_OWNED_LOC <= 100,000 by net
 DELETION of maintained first-party source. Relocation gets zero credit._
 
+## Wave 2 — reconstruct/event-horizon (off main `60e20df`)
+
+Aggressive, behavior-changing capability deletion + structural reconstruction.
+Measured by `cx audit codebase` (`hydrated_owned_LOC`).
+
+| checkpoint | GLOBAL_OWNED_LOC | net | how |
+|---|--:|--:|---|
+| wave-2 base | ~212,701 | — | off main 60e20df |
+| CP1a `4216fc0` | ~197,966 | — | delete macapp Swift app (keep seatbelt control); vLLM patch distill |
+| CP1b `383b5c8` | 168,593 | -29.4k gross | delete speculative-decode + render-spec-preview capability whole |
+| CP1c `8f5fb57` | 164,421 | -4,172 | delete render/ site-asset build pipeline (assets stay committed) |
+| **CP1 `72f5f51`** | **156,457** | **-7,964** | collapse internal engineering narrative docs → documentation 3,607 |
+
+**Checkpoint 1 (<= 160,000): DONE at 156,457.** Green at each: agent build /
+clippy -D warnings / cargo test / `--no-default-features`; control go build/vet/test;
+`cx prove`; `validate_claims` PASS; `prove-local` 558 pass / 0 fail (CP1b).
+
+**Descent to 125k (structural reconstruction, in progress):** control Go lifecycle
++ worker unification, store transaction consolidation, Rust consolidation, test
+densification — behavior-preserving, integration-matrix verified per change.
+
 ## Global descent (owned = tracked LOC minus unmodified vendored upstream)
 
 | checkpoint | GLOBAL_OWNED_LOC | net removed | how |
