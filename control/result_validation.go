@@ -133,8 +133,6 @@ func validateTaskResultArtifact(info *CommitTaskInfo, body []byte) error {
 		return validateRerankResult(body, records)
 	case "audio_transcribe":
 		return validateAudioTranscriptionResult(body, records)
-	case "render_speculative_preview":
-		return validateRenderPreviewResult(body)
 	case "image_gen":
 		return validateImageResult(body)
 	default:
@@ -586,93 +584,6 @@ func validateAudioTranscriptionResult(body []byte, records resultRecordContract)
 				fmt.Sprintf("segment %d has invalid/non-monotonic timestamps", i))
 		}
 		lastEnd = segment.End
-	}
-	return nil
-}
-
-type renderPreviewEnvelope struct {
-	SchemaVersion   uint32            `json:"schema_version"`
-	Kind            string            `json:"kind"`
-	PreviewOnly     bool              `json:"preview_only"`
-	BillingEligible bool              `json:"billing_eligible"`
-	ProductionReady bool              `json:"production_ready"`
-	ReceiptTrust    string            `json:"receipt_trust"`
-	Outputs         []json.RawMessage `json:"outputs"`
-	Receipt         struct {
-		SchemaVersion      uint32          `json:"schema_version"`
-		DraftCostS         float64         `json:"draft_cost_s"`
-		VerifyCostS        float64         `json:"verify_cost_s"`
-		AcceptedFraction   float64         `json:"accepted_fraction"`
-		RepairCostS        float64         `json:"repair_cost_s"`
-		OverheadCostS      float64         `json:"overhead_cost_s"`
-		TotalProductTimeS  float64         `json:"total_product_time_s"`
-		QualityTier        string          `json:"quality_tier"`
-		SpeedupVsBaseline  *float64        `json:"speedup_vs_baseline"`
-		Exact              bool            `json:"exact"`
-		Modality           string          `json:"modality"`
-		BranchID           string          `json:"branch_id"`
-		Units              uint64          `json:"units"`
-		AcceptedUnits      uint64          `json:"accepted_units"`
-		RepairedUnits      uint64          `json:"repaired_units"`
-		RepairedFraction   float64         `json:"repaired_fraction"`
-		BaselineTotalTimeS float64         `json:"baseline_total_time_s"`
-		BaselineSource     string          `json:"baseline_source"`
-		QualityGate        bool            `json:"quality_gate"`
-		ArtifactVerified   bool            `json:"artifact_verified"`
-		Evidence           string          `json:"evidence"`
-		GlobalSSIM         *float64        `json:"global_ssim"`
-		WorstTileSSIM      *float64        `json:"worst_tile_ssim"`
-		P5SSIM             *float64        `json:"p5_ssim"`
-		ClaimScope         string          `json:"claim_scope"`
-		Details            json.RawMessage `json:"details"`
-	} `json:"receipt"`
-}
-
-func validateRenderPreviewResult(body []byte) error {
-	var envelope renderPreviewEnvelope
-	if err := decodeStrictJSON(body, &envelope); err != nil {
-		return invalidResultArtifact("render_speculative_preview", resultValidationJSON, err.Error())
-	}
-	r := envelope.Receipt
-	if envelope.SchemaVersion != 1 || envelope.Kind != "cx_spec_render_preview_result" ||
-		!envelope.PreviewOnly || envelope.BillingEligible || envelope.ProductionReady ||
-		envelope.ReceiptTrust != "local_experiment_unattested" {
-		return invalidResultArtifact("render_speculative_preview", resultValidationEnvelope, "preview honesty envelope is invalid")
-	}
-	if r.SchemaVersion != 1 || r.Modality != "render" || r.BranchID != "agent-render-preview-v1" ||
-		r.Exact || r.ArtifactVerified || r.Evidence != "synthetic" || r.BaselineSource != "absent" ||
-		r.BaselineTotalTimeS != 0 || r.SpeedupVsBaseline != nil || r.GlobalSSIM != nil ||
-		r.WorstTileSSIM != nil || r.P5SSIM != nil {
-		return invalidResultArtifact("render_speculative_preview", resultValidationEnvelope, "preview receipt claims unsupported authority")
-	}
-	if r.Units == 0 || r.Units > 4096 || uint64(len(envelope.Outputs)) != r.Units ||
-		r.AcceptedUnits > r.Units || r.RepairedUnits > r.Units-r.AcceptedUnits {
-		return invalidResultArtifact("render_speculative_preview", resultValidationCount, "receipt/output unit counts disagree")
-	}
-	values := []float64{r.DraftCostS, r.VerifyCostS, r.AcceptedFraction, r.RepairCostS,
-		r.OverheadCostS, r.TotalProductTimeS, r.RepairedFraction}
-	for _, value := range values {
-		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
-			return invalidResultArtifact("render_speculative_preview", resultValidationNumeric, "receipt contains an invalid scalar")
-		}
-	}
-	if r.TotalProductTimeS <= 0 || r.AcceptedFraction > 1 || r.RepairedFraction > 1 ||
-		math.Abs((r.DraftCostS+r.VerifyCostS+r.RepairCostS+r.OverheadCostS)-r.TotalProductTimeS) > 5e-5 ||
-		math.Abs(r.AcceptedFraction-float64(r.AcceptedUnits)/float64(r.Units)) > 1e-6 ||
-		math.Abs(r.RepairedFraction-float64(r.RepairedUnits)/float64(r.Units)) > 1e-6 {
-		return invalidResultArtifact("render_speculative_preview", resultValidationNumeric, "receipt totals/fractions are inconsistent")
-	}
-	if (r.QualityGate && r.QualityTier != "preview") || (!r.QualityGate && r.QualityTier != "fail") || len(r.ClaimScope) > 4096 {
-		return invalidResultArtifact("render_speculative_preview", resultValidationEnvelope, "quality tier or claim scope is invalid")
-	}
-	if err := validateFiniteJSONValue(r.Details, true); err != nil {
-		return invalidResultArtifact("render_speculative_preview", resultValidationNumeric, "receipt details: "+err.Error())
-	}
-	for i, output := range envelope.Outputs {
-		if err := validateFiniteJSONValue(output, true); err != nil {
-			return invalidResultArtifact("render_speculative_preview", resultValidationEnvelope,
-				fmt.Sprintf("output %d: %v", i, err))
-		}
 	}
 	return nil
 }

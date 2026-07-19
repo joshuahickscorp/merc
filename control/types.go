@@ -17,8 +17,7 @@ import (
 //            apple_silicon_ultra | cpu
 // tier:      batch | priority | trusted
 // job type:  embed | batch_infer | audio_transcribe | image_gen | eval | lora_finetune |
-//            batch_classification | json_extraction | rerank | custom |
-//            render_speculative_preview (typed scaffold; not production-admitted)
+//            batch_classification | json_extraction | rerank | custom
 // task status: queued | running | complete | failed | retrying
 // job status:  queued | running | verifying | complete | failed | cancelled
 
@@ -88,11 +87,6 @@ var validJobTypes = map[string]bool{
 	"image_gen": true, "eval": true, "lora_finetune": true,
 	"batch_classification": true, "json_extraction": true, "rerank": true,
 	"custom": true,
-	// Recognized wire contract only. createJob validates then rejects it before
-	// storage because the ordinary lifecycle structurally requires positive task
-	// economics and verified buyer-artifact finalization. It is never advertised
-	// by the production runtime matrix.
-	"render_speculative_preview": true,
 }
 
 // JobType is the tagged job descriptor. The wire form is the serde-tagged enum
@@ -138,28 +132,6 @@ type JobType struct {
 	// on the GPU in a locked-down sandbox (agent/src/sandbox.rs).
 	Image   *string  `json:"image,omitempty"`
 	Command []string `json:"command,omitempty"`
-	// Closed speculative-Cycles PREVIEW scaffold. False honesty bits use pointers
-	// so an explicitly supplied false survives `omitempty` and round-trips through
-	// jobs.job_type_spec; nil is distinguishable from false and therefore fails the
-	// preview validator. No executable path or buyer-selected code is carried.
-	SchemaVersion           uint32 `json:"schema_version,omitempty"`
-	PreviewOnly             *bool  `json:"preview_only,omitempty"`
-	BillingEligible         *bool  `json:"billing_eligible,omitempty"`
-	ProductionReady         *bool  `json:"production_ready,omitempty"`
-	ReceiptTrust            string `json:"receipt_trust,omitempty"`
-	DriverSHA256            string `json:"driver_sha256,omitempty"`
-	BackendSHA256           string `json:"backend_sha256,omitempty"`
-	ControllerCoreSHA256    string `json:"controller_core_sha256,omitempty"`
-	ControllerAdapterSHA256 string `json:"controller_adapter_sha256,omitempty"`
-	BlenderSHA256           string `json:"blender_sha256,omitempty"`
-	ScenePath               string `json:"scene_path,omitempty"`
-	SceneSHA256             string `json:"scene_sha256,omitempty"`
-	Width                   uint32 `json:"width,omitempty"`
-	Height                  uint32 `json:"height,omitempty"`
-	Frame                   uint32 `json:"frame,omitempty"`
-	DraftSamples            uint32 `json:"draft_samples,omitempty"`
-	VerifySamples           uint32 `json:"verify_samples,omitempty"`
-	RepairSamples           uint32 `json:"repair_samples,omitempty"`
 }
 
 // ModelRef references a model. Wire: {"kind":"gguf"|"hf"|"mlx","ref":"..."}.

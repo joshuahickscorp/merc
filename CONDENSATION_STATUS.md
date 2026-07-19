@@ -1,5 +1,7 @@
 # ComputExchange — Condensation Status
 
+<!-- CLAIM-SCOPE: internal-engineering-non-authoritative -->
+
 _The real target (System Reduction Plan): GLOBAL_OWNED_LOC <= 100,000 by net
 DELETION of maintained first-party source. Relocation gets zero credit._
 

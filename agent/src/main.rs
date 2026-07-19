@@ -18,16 +18,10 @@ mod paged_kv; // host-side paged KV and namespaced prefix-cache ownership (exper
 mod pool;
 mod protocol;
 mod quantized_llama_batched; // vendored + patched candle quantized_llama (bsz>1 batched prefill)
-mod render_preview; // opt-in, pinned, non-billable generalized render-spec preview seam
 mod resident_engine; // host-side long-lived model actor scheduler (experimental, not routed)
-#[cfg(feature = "resident-spec-shadow")]
-mod resident_spec_shadow; // device-free resident/spec integration proof; never routed or billed
 mod runners;
 mod runtime_matrix_generated;
 mod sandbox; // sandboxed BYO-container execution for the `custom` general-compute lane
-mod slot_speculation; // independent ragged speculative transactions (experimental, not routed)
-#[cfg(feature = "spec-receipt-bridge")]
-mod spec_receipt_bridge; // default-off canonical receipt/conformance seam; never routes or bills
 mod status;
 mod types;
 mod whisper_decoder_kv; // vendored + patched candle whisper decoder (incremental self-attn KV cache)
@@ -435,16 +429,6 @@ enum Command {
         #[arg(long, default_value_t = 24)]
         max_tokens: u32,
     },
-    /// Run one local, explicitly non-billable generalized render-speculation
-    /// preview request through the SHA-256-pinned Python controller/backend.
-    /// This command does not register, poll, upload, commit, or contact the
-    /// control plane; stdout is the validated preview envelope.  It is the safe
-    /// agent-side proving path before any production/billing contract exists.
-    SpecRenderPreview {
-        /// Strict protocol-v1 JSON request consumed by the pinned preview driver.
-        #[arg(long)]
-        input: PathBuf,
-    },
     /// Print the agent version and exit.
     Version,
 }
@@ -603,22 +587,6 @@ async fn main() -> Result<()> {
         } => {
             init_tracing();
             run_bench_concurrency(&permits, embed_tasks, llama_tasks, &model, max_tokens).await
-        }
-        Command::SpecRenderPreview { input } => {
-            init_tracing();
-            let runner = render_preview::SpecRenderPreviewRunner::from_env()
-                .map_err(anyhow::Error::msg)?
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                    "spec-render-preview requires CX_SPEC_RENDER_PREVIEW_DRIVER and its SHA-256 pin"
-                )
-                })?;
-            let output = runner.execute_preview_file(&input).await?;
-            use std::io::Write as _;
-            let mut stdout = std::io::stdout().lock();
-            stdout.write_all(&output)?;
-            stdout.write_all(b"\n")?;
-            Ok(())
         }
         Command::ClusterPlan {
             members_gb,
@@ -2326,7 +2294,7 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
         client: Arc::new(client),
         cap: Arc::new(cap),
         runners: Arc::new({
-            let mut rs = default_runners().map_err(anyhow::Error::msg)?;
+            let mut rs = default_runners();
             // Serving-lane seams: only when the operator opts in. Each is inserted right
             // AFTER ClusterRunner (index 0) so a giant cluster model still routes to the
             // Plane B seam, but BEFORE the Candle generative runners so lane jobs route
@@ -2793,24 +2761,6 @@ mod tests {
         ] {
             assert!(!rejected);
         }
-    }
-
-    #[test]
-    fn spec_render_preview_cli_requires_an_explicit_local_input() {
-        let cli = Cli::try_parse_from([
-            "cx-agent",
-            "spec-render-preview",
-            "--input",
-            "/tmp/preview.json",
-        ])
-        .expect("preview subcommand parses");
-        match cli.command {
-            Command::SpecRenderPreview { input } => {
-                assert_eq!(input, PathBuf::from("/tmp/preview.json"));
-            }
-            _ => panic!("wrong subcommand parsed"),
-        }
-        assert!(Cli::try_parse_from(["cx-agent", "spec-render-preview"]).is_err());
     }
 
     // ── self-re-exec sandbox profile discovery (macOS) ──────────────────────

@@ -1,12 +1,12 @@
 {
   "by_plan": {
     "archive_research": {
-      "files": 11,
-      "loc": 2949,
+      "files": 7,
+      "loc": 1233,
       "code": 0,
       "blank": 0,
       "comment": 0,
-      "bytes": 113158
+      "bytes": 44835
     },
     "retain_blender_pack": {
       "files": 5,
@@ -31,14 +31,6 @@
       "blank": 0,
       "comment": 0,
       "bytes": 309228
-    },
-    "rewrite_rust": {
-      "files": 11,
-      "loc": 8575,
-      "code": 0,
-      "blank": 0,
-      "comment": 0,
-      "bytes": 384449
     }
   },
   "files_by_plan": {
@@ -49,11 +41,7 @@
       "render/foam_maps.py",
       "render/site/continuity.py",
       "render/site/og.py",
-      "render/site/webify.py",
-      "scripts/spec-lab/cx_agent_render_preview_driver.py",
-      "scripts/spec-lab/run_spec_render_token_end_to_end.py",
-      "scripts/spec-lab/run_speculative_render_ladder.py",
-      "scripts/spec-lab/run_token_spec_decode_ladder.py"
+      "render/site/webify.py"
     ],
     "retain_blender_pack": [
       "render/build_rack.py",
@@ -84,19 +72,6 @@
       "scripts/test_runtime_matrix.py",
       "scripts/test_validate_claims.py",
       "scripts/validate_claims.py"
-    ],
-    "rewrite_rust": [
-      "scripts/spec-lab/cx_integrated_speculation.py",
-      "scripts/spec-lab/cx_render_spec_adapter.py",
-      "scripts/spec-lab/cx_speculative_core.py",
-      "scripts/spec-lab/cx_transcode_spec_adapter.py",
-      "scripts/spec-lab/emit_current_spec_receipts.py",
-      "scripts/spec-lab/run_cx_native_speculation_ladder.py",
-      "scripts/spec-lab/test_cx_integrated_speculation.py",
-      "scripts/spec-lab/test_cx_native_speculation_ladder.py",
-      "scripts/spec-lab/test_cx_render_spec_adapter.py",
-      "scripts/spec-lab/test_cx_speculative_core.py",
-      "scripts/spec-lab/test_cx_transcode_spec_adapter.py"
     ]
   },
   "policy": "production_python=0, proof_authority_python=0, speculative_runtime_python=0. Only retain_sdk + retain_blender_pack remain in a shipped surface.",

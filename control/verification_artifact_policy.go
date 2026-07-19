@@ -62,9 +62,6 @@ func verificationArtifactMaxBytesForRecords(jobType string, expectedRecords int6
 		estimate = verificationArtifactPolicyFloor + saturatingMul(rows, 1<<20)
 	case "image_gen":
 		estimate = 64 << 20
-	case "render_speculative_preview":
-		// The agent preview driver already enforces a 32 MiB stdout ceiling.
-		estimate = 32 << 20
 	case "custom", "eval", "lora_finetune":
 		// Opaque/checkpoint-like outputs have no smaller trustworthy shape bound.
 		// They still cannot exceed the control plane's existing untrusted-body cap.

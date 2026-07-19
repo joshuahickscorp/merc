@@ -14,7 +14,7 @@ endif
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
 .PHONY: up down dev-up dev-down migrate seed control agent-run agent-bench \
-        prove-local bench-local metrics build fmt test spec-test loc audit docker-build \
+        prove-local bench-local metrics build fmt test loc audit docker-build \
         install uninstall backup
 
 # ── Full stack (containerized control plane + deps) ──────────────────────────
@@ -93,8 +93,6 @@ metrics:
 # Compile both sides. Fails if either toolchain is absent.
 build:
 	cd agent && cargo build
-	cd spec-engine && cargo build --all-targets
-	cd token-spec-poc && cargo build --all-targets
 	cd control && go build ./...
 
 # Format both sides in place.
@@ -105,28 +103,7 @@ fmt:
 # Test both sides.
 test:
 	cd agent && cargo test
-	cd spec-engine && cargo test --all-targets
-	cd token-spec-poc && cargo test --all-targets
-	python3 scripts/spec-lab/test_cx_speculative_core.py
-	python3 scripts/spec-lab/test_cx_render_spec_adapter.py
-	python3 scripts/spec-lab/test_cx_transcode_spec_adapter.py
-	python3 scripts/spec-lab/test_cx_integrated_speculation.py
 	cd control && go test ./...
-
-# Focused, cloud-free speculative substrate gate (same core as CI).
-spec-test:
-	cd spec-engine && cargo test --all-targets
-	cd token-spec-poc && cargo test --all-targets
-	python3 scripts/spec-lab/test_cx_speculative_core.py
-	python3 scripts/spec-lab/test_cx_render_spec_adapter.py
-	python3 scripts/spec-lab/test_cx_transcode_spec_adapter.py
-	python3 scripts/spec-lab/test_cx_integrated_speculation.py
-	python3 scripts/spec-lab/test_cx_native_speculation_ladder.py
-	python3 scripts/spec-lab/emit_current_spec_receipts.py > /tmp/cx-python-spec-receipts.jsonl
-	cargo run --quiet --manifest-path spec-engine/Cargo.toml --example validate_receipts < /tmp/cx-python-spec-receipts.jsonl
-	cd token-spec-poc && cargo run --quiet > /tmp/cx-token-spec-receipts.jsonl
-	sed -n '1p' /tmp/cx-token-spec-receipts.jsonl > /tmp/cx-token-spec-first.jsonl
-	cargo run --quiet --manifest-path spec-engine/Cargo.toml --example validate_receipts < /tmp/cx-token-spec-first.jsonl
 
 # Authoritative codebase census — RETIRES the old selective `find | wc -l`.
 # `cx audit codebase` walks the whole git-tracked set and classifies every file

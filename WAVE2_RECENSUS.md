@@ -1,5 +1,7 @@
 # Wave 2 recensus (reconstruct/event-horizon, off main 60e20df)
 
+<!-- CLAIM-SCOPE: internal-engineering-non-authoritative -->
+
 `GLOBAL_OWNED_LOC = 212,701` (total 297,863 - unmodified vendored 85,162). Target `<= 100,000`.
 Regenerate: `make audit`.
 

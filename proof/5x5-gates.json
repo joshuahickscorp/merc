@@ -762,37 +762,6 @@
           "next_action": "Define SLIs and burn alerts before launch, retain raw telemetry outside the app host, and start the 30-day clock only after immutable deployment and failover drills pass."
         }
       ]
-    },
-    {
-      "id": "spec_decode",
-      "target": 5,
-      "definition_of_5": "Lossless speculative execution is hardened, materially faster on pinned real models/workloads, promoted through the runtime authority, and integrated into ordinary verified billing rather than a research-only path.",
-      "gates": [
-        {
-          "id": "engine_hardening",
-          "scope": "local_plus_hardware",
-          "state": "in_progress",
-          "acceptance": "Receipt validation, modality adapters, adversarial lossless gates, failure handling, and measured held-out generalization satisfy the workstream hardening contract without synthetic evidence promotion.",
-          "owner": "active_spec_workstream",
-          "next_action": "Continue the separate spec-decode hardening plan and emit only source-bound artifacts that the shared benchmark/runtime validators can ingest."
-        },
-        {
-          "id": "real_model_speedup",
-          "scope": "local_plus_hardware",
-          "state": "planned",
-          "acceptance": "On preregistered real pinned models and prompts, speculative output is token-for-token identical to the non-spec baseline and achieves at least 1.5x median end-to-end completed-output throughput with no p95, memory, restart, or cleanup regression; incumbent server baselines are reported where relevant.",
-          "owner": "active_spec_workstream_and_user_hardware",
-          "next_action": "Use the canonical performance manifest on real weights, separate draft/target/provisioning time, compare against the same runtime without speculation, and keep sub-threshold results labeled research."
-        },
-        {
-          "id": "product_integration",
-          "scope": "local_plus_hardware",
-          "state": "planned",
-          "acceptance": "Eligible spec paths are runtime-matrix cells registered, scheduled, executed, independently verified, economically admitted, billed, fault-recovered, and surfaced in ordinary receipts without a parallel demo path.",
-          "owner": "active_spec_workstream_and_us",
-          "next_action": "After real speedup passes, add one soak-only cell behind the lane-promotion rule and drive the full ordinary job/settlement/receipt contract before production promotion."
-        }
-      ]
     }
   ]
 }

@@ -2,15 +2,7 @@
   "cargo_crates": [
     {
       "crate": "agent/Cargo.toml",
-      "direct_deps": 29
-    },
-    {
-      "crate": "spec-engine/Cargo.toml",
-      "direct_deps": 2
-    },
-    {
-      "crate": "token-spec-poc/Cargo.toml",
-      "direct_deps": 8
+      "direct_deps": 27
     }
   ],
   "go_modules": [

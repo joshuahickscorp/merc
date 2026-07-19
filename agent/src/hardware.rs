@@ -341,10 +341,6 @@ const INFERENCE_CONTENT_SOURCES: &[(&str, &str)] = &[
         include_str!("hawking_metal_kernel.rs"),
     ),
     (
-        "token-spec-poc/src/lib.rs",
-        include_str!("../../token-spec-poc/src/lib.rs"),
-    ),
-    (
         "vendor/candle-metal-kernels/src/kernels/quantized.rs",
         include_str!("../vendor/candle-metal-kernels/src/kernels/quantized.rs"),
     ),

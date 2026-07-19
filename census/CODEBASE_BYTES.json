@@ -1,22 +1,22 @@
 {
   "bytes_by_language": {
     "binary": 18276901,
-    "config": 30925,
-    "documentation": 937483,
-    "go": 3408064,
+    "config": 29536,
+    "documentation": 931414,
+    "go": 3311664,
     "javascript": 1450305,
-    "json": 595363,
-    "lockfile": 208710,
+    "json": 593024,
+    "lockfile": 121571,
     "other": 51644,
     "patch": 22301,
-    "python": 1078535,
-    "rust": 2202935,
+    "python": 625763,
+    "rust": 1691394,
     "shader": 609891,
     "shell": 317050,
     "sql": 169236,
-    "toml": 16142,
+    "toml": 11673,
     "web": 617410,
-    "yaml": 74352
+    "yaml": 68182
   },
   "largest_tracked_40": [
     {
@@ -60,10 +60,6 @@
       "bytes": 790855
     },
     {
-      "path": "agent/src/runners.rs",
-      "bytes": 637003
-    },
-    {
       "path": "web/assets/knob-pressed@3x.png",
       "bytes": 601320
     },
@@ -78,6 +74,10 @@
     {
       "path": "web/assets/knob-red@3x.png",
       "bytes": 577025
+    },
+    {
+      "path": "agent/src/runners.rs",
+      "bytes": 510112
     },
     {
       "path": "web/assets/site/dgx-spark@2x.png",
@@ -153,7 +153,7 @@
     },
     {
       "path": "agent/src/main.rs",
-      "bytes": 154796
+      "bytes": 152463
     },
     {
       "path": "web/assets/cx-metal-on@3x.png",
@@ -181,5 +181,5 @@
     }
   ],
   "note": "tracked-only (git ls-files). Excludes .git, model weights, dep caches, untracked artifacts.",
-  "tracked_bytes": 30067247
+  "tracked_bytes": 28898959
 }

@@ -17,22 +17,6 @@ func TestValidateTaskResultArtifactContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	validRender := []byte(`{
-          "schema_version":1,"kind":"cx_spec_render_preview_result",
-          "preview_only":true,"billing_eligible":false,"production_ready":false,
-          "receipt_trust":"local_experiment_unattested",
-          "outputs":[{"artifact_b64":"AA=="}],
-          "receipt":{"schema_version":1,"draft_cost_s":0.1,"verify_cost_s":0.2,
-            "accepted_fraction":1.0,"repair_cost_s":0.0,"overhead_cost_s":0.01,
-            "total_product_time_s":0.31,"quality_tier":"preview",
-            "speedup_vs_baseline":null,"exact":false,"modality":"render",
-            "branch_id":"agent-render-preview-v1","units":1,"accepted_units":1,
-            "repaired_units":0,"repaired_fraction":0.0,"baseline_total_time_s":0.0,
-            "baseline_source":"absent","quality_gate":true,"artifact_verified":false,
-            "evidence":"synthetic","global_ssim":null,"worst_tile_ssim":null,
-            "p5_ssim":null,"claim_scope":"local preview only","details":{}}
-        }`)
-
 	valid := []struct {
 		name    string
 		jobType string
@@ -46,7 +30,6 @@ func TestValidateTaskResultArtifactContracts(t *testing.T) {
 		{"rerank", "rerank", []byte(`{"job_type":"rerank","model":"m","count":1,"rankings":[{"index":0,"order":[2,0,1]}]}`)},
 		{"audio", "audio_transcribe", []byte(`{"job_type":"audio_transcribe","model":"whisper-tiny","text":"ok","segments":[{"start":0,"end":1.25,"text":"ok"}]}`)},
 		{"image", "image_gen", png},
-		{"render-preview", "render_speculative_preview", validRender},
 	}
 	for _, tc := range valid {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,7 +59,6 @@ func TestValidateTaskResultArtifactContracts(t *testing.T) {
 		{"rerank-duplicate", "rerank", "", []byte(`{"job_type":"rerank","model":"m","count":1,"rankings":[{"index":0,"order":[1,1]}]}`)},
 		{"audio-backwards", "audio_transcribe", "", []byte(`{"job_type":"audio_transcribe","model":"m","text":"x","segments":[{"start":2,"end":1,"text":"x"}]}`)},
 		{"image-junk", "image_gen", "", []byte("not an image")},
-		{"render-paid", "render_speculative_preview", "", []byte(`{"schema_version":1,"kind":"cx_spec_render_preview_result","preview_only":true,"billing_eligible":true}`)},
 	}
 	for _, tc := range invalid {
 		t.Run(tc.name, func(t *testing.T) {
