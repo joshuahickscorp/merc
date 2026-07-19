@@ -1,0 +1,533 @@
+{
+ "schema_version": 1,
+ "note": "Compact behavioral oracle for the event-horizon reconstruction: the invariants + scenarios a smaller replacement architecture MUST preserve, proven by control/oracle_capture_test.go goldens + the -tags integration suite. Full per-surface contract detail (error ladders, exact db transitions) lives in the phase1 workflow output and the pinning tests each invariant cites.",
+ "totals": {
+  "surfaces": 98,
+  "scenarios": 54,
+  "invariants": 72
+ },
+ "adversarial_invariants": [
+  {
+   "id": "penalty_credit_not_payable_until_promoted",
+   "danger": "money",
+   "ground_truth": "store.go DuePayouts: AND (le.task_id IS NULL OR t.verification_outcome='pass'); promotion verification_apply.go promoteProvisionalWinnerTx flips pass_with_penalty->pass only on tiebreak/majority confirm",
+   "pinning_test": "verification_state_integration_test.go:106 TestPenaltyVerdictCannotReleaseSupplierMoney",
+   "break_mode": "DuePayouts rewrite keyed only on (kind,payout_status='held',release_at<=now()) pays disputed penalty results once hold expires",
+   "scenario": "commit chunk landing pass_with_penalty; advance past release_at; run payout loop -> assert ZERO cash eligible; promote to pass -> exactly one credit due"
+  },
+  {
+   "id": "dynamic_task_bounded_by_reserve",
+   "danger": "money",
+   "ground_truth": "store.go:5152 consumeEconomicReserveTx CAS: consumed<reserved AND <=max_usd AND <=firm_quote_max_usd; CHECK consumed_tasks<=reserved_tasks",
+   "pinning_test": "economic_plan_integration_test.go:94 TestEconomicReserveConcurrentTiebreakIsBoundedAndIdempotent (:165 exhaustion)",
+   "break_mode": "plain INSERT of tiebreak/hedge task copying primary frozen amounts creates uncharged supplier liability past firm cap",
+   "scenario": "firm-quote job at cap; force N mismatches -> creation #(reserve+1) returns ErrEconomicReserveExhausted, existing task returned idempotently, SUM(economic_supplier_payout) never exceeds envelope"
+  },
+  {
+   "id": "minimum_24h_payout_hold_floor",
+   "danger": "money",
+   "ground_truth": "payment.go:93 const minimumPayoutHold=24h; payoutReleaseAt clamps hold up to minimum",
+   "pinning_test": "(payout hold floor)",
+   "break_mode": "inlining release:=now+PayoutHoldSecs drops clamp; payout_hold_secs=0 pays immediately, defeating refund/dispute window",
+   "scenario": "submit with verification_policy.payout_hold_secs=0; clean pass; assert credit release_at >= decision_time+24h"
+  },
+  {
+   "id": "honeypot_injection_model_and_token_guard",
+   "danger": "verification",
+   "ground_truth": "pricing_extra.go:56 AvailableSeedHoneypots: AND (answer_model IS NULL OR =$2) AND (answer_min_max_tokens IS NULL OR <=$3); gates api.go:1082, quote.go:691",
+   "pinning_test": "honeypot_injection_guard_test.go:41 TestAvailableSeedHoneypotsParamModelGuard",
+   "break_mode": "injection query keyed on job_type+class alone draws byte-exact probe for different model/smaller max_tokens -> honest in-class worker hard-quarantined (wrongful ban)",
+   "scenario": "seed byte-exact honeypot answer_model=M,min_tokens=24; submit different model M' (same class) and max_tokens=8 -> NOT injected; exact-match job -> injected"
+  },
+  {
+   "id": "sla_refund_netted_on_every_collection_path",
+   "danger": "money",
+   "ground_truth": "collect.go:78 firmChargeAmountSQL subtracts SUM(sla_refund payout_ref='sla-<job>'); Go twin store.go:2225 JobChargeInfo chargeUSD-=slaRefund; uniq ledger_sla_refund_ref_uniq",
+   "pinning_test": "sla_integration_test.go:384 TestSLAForcedMissRefundsExactlyOnce",
+   "break_mode": "collapsing immediate+deferred charge paths into one, netting lives in only one path -> buyer charged full missed-SLA premium on surviving path",
+   "scenario": "firm SLA job, force speed miss (1 sla_refund); collect via batch path AND direct path -> both net premium to same amount"
+  },
+  {
+   "id": "stripe_cash_state_monotonic",
+   "danger": "idempotency",
+   "ground_truth": "stripe_cash_events.go:353-420 ON CONFLICT WHEN EXCLUDED.last_event_created>=; dispute (cash_effect_created,cash_effect_rank) guards; GREATEST()",
+   "pinning_test": "stripe_cash_events_integration_test.go:307 TestStripeDisputeOutOfOrderWithdrawalCannotOverrideNewerReinstatement",
+   "break_mode": "straight UPSERT of latest-received event lets re-delivered older funds_withdrawn clobber newer reinstated -> bogus reversal_required/frozen payout",
+   "scenario": "deliver reinstated(created=200) then re-deliver withdrawn(created=100) -> assert cash_unavailable=false survives"
+  },
+  {
+   "id": "money_facts_immutable_by_db_trigger",
+   "danger": "money",
+   "ground_truth": "store.go:1670 settled_ledger_money_immutable; append-only triggers reject_immutable_money_fact_mutation on buyer_cash_collections/stripe_webhook_events/supplier_payout_funding; tasks_frozen_economics_immutable :823",
+   "pinning_test": "(DB triggers)",
+   "break_mode": "Go rewrite UPDATE ledger_entries SET amount_usd=... compiles+passes mock tests, hard-fails real PG; or schema regen drops a trigger silently",
+   "scenario": "attempt UPDATE ledger_entries SET amount_usd+1 WHERE settled supplier_credit AND DELETE FROM stripe_webhook_events -> both raise"
+  },
+  {
+   "id": "job_level_ledger_dedup_by_payout_ref",
+   "danger": "idempotency",
+   "ground_truth": "partial-unique ledger_job_sla_premium_ref_uniq (task_id IS NULL AND payout_ref NOT NULL), ledger_stripe_fee_ref_uniq, ledger_sla_refund_ref_uniq; actual_usd is task-scoped SUM excluding NULL-task SLA row (store.go:7393)",
+   "pinning_test": "(re-finalize idempotency)",
+   "break_mode": "InsertLedgerEntries keeping only ON CONFLICT(task_id,kind) + SLA premium payout_ref=NULL double-charges on re-finalize; stamping task_id folds premium into actual_usd (double-count)",
+   "scenario": "re-finalize completed firm/SLA job twice -> exactly one SLA-premium buyer_charge, actual_usd unchanged by premium"
+  },
+  {
+   "id": "released_requires_payout_ref_check",
+   "danger": "money",
+   "ground_truth": "db/schema.sql:183 ledger_released_requires_ref CHECK (kind<>'supplier_credit' OR payout_status<>'released' OR payout_ref IS NOT NULL)",
+   "pinning_test": "payment_test.go:48 MarkPayout(released,'') must error",
+   "break_mode": "faking released without proof of money movement",
+   "scenario": "attempt mark credit released with empty rail ref -> DB CHECK (not just app) rejects"
+  },
+  {
+   "id": "result_cardinality_exact_equality",
+   "danger": "verification",
+   "ground_truth": "result_validation.go:707 validateResultRecordCount: if records.Exact>0 && count!=records.Exact -> invalid (both directions)",
+   "pinning_test": "result_cardinality_integration_test.go, result_validation_test.go",
+   "break_mode": "guarding count>=expected lets padded/duplicated artifact settle as clean pass",
+   "scenario": "commit result with expected+1 records -> artifact_invalid, non-payable"
+  }
+ ],
+ "domains": [
+  {
+   "domain": "quote + job submission + task creation/splitting + cancel",
+   "critical_invariants": [
+    "MONEY: submit estimated_usd MUST equal EconomicPlan.InitialBuyerChargeUSD (|diff|<=1e-6) or CreateJobWithTasks refuses the job; the persisted job_economic_plans.plan_json is immutable and re-derivable (ValidateEconomicPlanSnapshot re-runs BuildEconomicPlan and DeepEquals, failing closed on any edited scalar/scenario/bit).",
+    "MONEY: supplier payout is frozen from BASE compute * supplierShareRate, INDEPENDENT of the buyer-side safety fee \u2014 a buyer-side margin fee can never leak to the supplier via percentage-of-charge math (the old circular-margin failure). Per-task economic_buyer_charge_usd/economic_supplier_payout_usd are stamped immutably on each task row at creation.",
+    "MONEY: firm_quote caps the buyer's CHARGE at firm_quote_max_usd (== quote's ReservedBuyerChargeUSD) with the platform absorbing overage; actual_usd (ledger truth of work delivered) is NEVER rewritten \u2014 only billed_usd is capped. Non-firm jobs pay actuals.",
+    "MONEY: max_usd is validated finite/non-negative as the FIRST createJob check, before any model/store/billing/storage side effect; 0 persists as NULL so 'no cap' is distinguishable from a real $0 cap. Budget Governor enforcement happens at claim time, not submit.",
+    "MONEY: a job is created only if its EconomicPlan.Executable (every modeled scenario clears the target margin floor); a non-executable plan \u2192 409, no job. Economic schedule comes only from validated env (no silent zero/default pricing) \u2014 missing env \u2192 503.",
+    "VERIFICATION: redundancy_frac=0 AND honeypot_frac=0 with no skip_verification_floor MUST inject at least one real honeypot task (a minimum COUNT, robust to fracCount rounding to zero on small jobs); skip_verification_floor=true is the ONLY way to run genuinely unverified and yields exactly zero probe tasks.",
+    "VERIFICATION: primary, redundancy, and honeypot task storage keys are byte-indistinguishable opaque per-task UUIDs (jobs/{job}/tasks/{taskID}/...) with NO 'honeypots/'/'redundancy/' substring and no ordinal index; only the never-dispatched DB is_honeypot/is_redundancy columns know the type. Redundancy peer selection uses keyed hash of (jobID,taskID), never chunk order, so submission-order watching cannot infer coverage.",
+    "VERIFICATION: quote\u2192submit binding checks non-expired (15min TTL) + matching job_type/model/tier (cheap, pre-storage) and best-effort input sha256 (post-stream); any mismatch/expiry/schedule-drift/plan-tamper is 409 and no job binds. TaskReceipt/receipt NEVER expose honeypot known_answer or result bytes.",
+    "AUTH/TENANCY: every surface requires authBuyer (401 otherwise); buyerID is taken from the token, never the body. Job reads are buyer-scoped (GetJob/JobInvoice WHERE buyer_id \u2192 404 for non-owners; events/failures JOIN buyer_id \u2192 empty 200). s3_key chained input is IDOR-guarded (key jobs/<uuid>/ must be owned by caller, else opaque 400).",
+    "IDEMPOTENCY/ATOMICITY: each POST /v1/jobs mints a fresh jobID (not idempotent), but job + immutable economic plan + reserve + all tasks + optional webhook commit in ONE transaction or none (CopyFrom inside the same tx; mid-copy failure rolls back the whole job). Streamed submit is the one honest trade: a post-upload sha/type mismatch orphans already-written chunk objects (no DB row references them) rather than the old write-nothing-until-verified guarantee.",
+    "LIFECYCLE: cancel succeeds only for a queued job with no verification pending; it flips the job to 'cancelled' and drops still-queued tasks to 'failed' in one parent-fenced transaction (task->parent lock order matching commit/verification-apply), so a concurrent claim/commit can never observe a cancelled job with live work. All non-cancellable states (not-queued, verifying, other-buyer, missing) collapse to one opaque 409.",
+    "DETERMINISM: pricing (estimateJobUSD, modelPrice, tierMultiplier, fracCount, BuildEconomicPlan, roundUSD/roundEconomicUSD/ceilEconomicUSD) is a pure function of (records, input bytes, max_tokens, tier, catalogue price, economic schedule); only live-fleet fields (eligible_now, warm counts, adaptiveSplitSizeLive refinement, ETA band) vary with fleet state, and the quote persists its assumptions row so the invoice can later state what was believed."
+   ],
+   "scenarios": [
+    {
+     "name": "Task split + adaptive sizing determinism",
+     "danger": "general"
+    },
+    {
+     "name": "Pricing determinism (quote vs submit vs estimate)",
+     "danger": "money"
+    },
+    {
+     "name": "Quote-bind \u2192 firm-quote charge cap",
+     "danger": "money"
+    },
+    {
+     "name": "Quote binding mismatch + expiry",
+     "danger": "verification"
+    },
+    {
+     "name": "Verification floor enforced unless explicitly opted out",
+     "danger": "verification"
+    },
+    {
+     "name": "Budget/payment gate + max_usd validation ordering at submit",
+     "danger": "money"
+    },
+    {
+     "name": "Cancel lifecycle fencing",
+     "danger": "lifecycle"
+    },
+    {
+     "name": "Cross-buyer read isolation across all job GETs",
+     "danger": "auth"
+    },
+    {
+     "name": "Oversized + malformed submission body handling",
+     "danger": "general"
+    }
+   ],
+   "surfaces": [
+    "POST /v1/jobs",
+    "POST /v1/quote",
+    "POST /v1/quote/pipeline",
+    "GET /v1/price-estimate",
+    "POST /v1/audio/jobs",
+    "POST /v1/audio/jobs/quote",
+    "GET /v1/jobs/{id}",
+    "GET /v1/jobs/{id}/results",
+    "GET /v1/jobs/{id}/invoice",
+    "GET /v1/jobs/{id}/receipt",
+    "GET /v1/jobs/{id}/events",
+    "GET /v1/jobs/{id}/failures",
+    "DELETE /v1/jobs/{id}"
+   ]
+  },
+  {
+   "domain": "task-execution-lifecycle",
+   "critical_invariants": [
+    "CLAIM EXCLUSIVITY: a queued/retrying task is transitioned to 'running' by at most one worker \u2014 enforced by the claim CTE's FOR UPDATE OF t SKIP LOCKED + LIMIT 1 and the claimed_by predicate (pinned by control_test.go:1241/1298). Parallel pollers each take a different row; a SELECT hw_class FOR UPDATE serializes same-credential concurrent claims.",
+    "WORKER-SCOPING / ANTI-SPOOF: every start/commit/fail is gated on claimed_by (and, for commit, execution_worker_id) == the token-authenticated worker. TaskID is always taken from the URL path, never the request body. WorkerID/SupplierID on register/heartbeat come from the token, never the body.",
+    "MONEY ONLY ON A VERIFIED COMMIT: no ledger row is written at claim, start, heartbeat, or fail. buyer_charge/supplier_credit/platform_take are inserted ONLY inside the same DB transaction as the accepting verdict + task\u2192complete flip (FinalizeTaskVerification / ApplyLeasedVerificationWork). Any error rolls the whole transition back, leaving the task 'verifying' \u2014 a paid-but-unreceipted result is impossible.",
+    "AT-MOST-ONCE PAYMENT under duplicates/replays/crashes: ledger ON CONFLICT(task_id,kind), task_verdicts ON CONFLICT(task_id,attempt), verification_work ON CONFLICT(task_id,attempt) all DO NOTHING; the commit UPDATE's status='verifying' CASE-guard is replay-safe; and after a task is terminal ExactTerminalVerificationCommit returns 204 only on an EXACT field match (else 409). Result: a double commit \u2192 exactly one supplier_credit and one completed_tasks increment.",
+    "AT-LEAST-ONCE EXECUTION WITH BOUNDED RETRIES: an uncommitted task is recovered by (a) the 30-min stale reaper, (b) a worker typed /fail, or (c) a verification-fail requeue \u2014 each increments retry_count; at retry_count>=maxTaskRetries(3) the task is terminally failed and its job settled. Dead-worker rescue (180s) is the exception: it requeues WITHOUT burning a retry or a job strike.",
+    "PAYOUT HOLD SEMANTICS: splitFrozenCharge always emits buyer_charge and platform_take as 'released' immediately and supplier_credit as 'held' with release_at = (server decision time) + VerificationPolicy.PayoutHoldSecs. The hold clock starts when the server constructs the terminal decision, not when the worker announced the commit \u2014 a stalled upload can never age a credit into early eligibility.",
+    "PARTIAL-SETTLE EVERYWHERE, NEVER REFUND: a terminally-failed or cancelled job settles jobs.actual_usd to the sum of its completed-task buyer_charge debits \u2014 delivered chunks stay charged, un-run work was never charged, and NO refund ledger row is ever written. A job with zero delivered chunks honestly settles at $0. failJobAndSettleOnce flips+settles exactly once across concurrent failers.",
+    "PARENT-FENCE LOCK ORDER (task\u2192job): commit/start/apply and every terminal job transition take the job row FOR UPDATE in a fixed order, so a commit can never create durable verification work (or money) beneath a job that a sibling failure/cancel drove terminal; the loser rolls its task projection back.",
+    "SERVER-AUTHORIZED EXECUTION IDENTITY: runtime_cell_id/runtime_id/runtime_matrix_sha256/model_kind and execution_worker/supplier/hw_class/engine/build_hash are frozen onto the task from the server's worker_authorized_capabilities projection at claim (or start), never from a worker-declared dispatch field; the stored result_ref is the server's canonical result_key, not the worker-echoed presigned URL.",
+    "MERGE-BEFORE-MARK: a job is only marked complete after its per-task results are merged into output_ref (finalizeJobIfDone), and completed chunks are checkpointed into output_ref before any terminal-fail flip \u2014 a buyer never observes status=complete/failed with a missing or short merged output.",
+    "HONEYPOT OPACITY: a honeypot task is never signalled to the worker and its known answer is never dispatched; the server verifies the uploaded result against the stored answer server-side, so a hostile worker cannot ace probes.",
+    "IMMUTABLE ATTEMPT SNAPSHOT: expected_output_records / resultMaxBytes / the verification work plan are frozen per attempt; a crash-and-replay applies the identical artifact policy and the identical release_at, so recovery cannot re-plan a different settlement digest, and a short/invalid artifact is durably non-payable."
+   ],
+   "scenarios": [
+    {
+     "name": "Happy path: claim \u2192 start \u2192 PUT \u2192 commit \u2192 verified \u2192 paid \u2192 job finalized",
+     "danger": "money"
+    },
+    {
+     "name": "Duplicate commit is idempotent (at-most-once payment)",
+     "danger": "idempotency"
+    },
+    {
+     "name": "Claim exclusivity under concurrent pollers",
+     "danger": "idempotency"
+    },
+    {
+     "name": "Stale claim requeue then bounded terminal fail",
+     "danger": "lifecycle"
+    },
+    {
+     "name": "Typed fail: retryable requeues fast, buyer-fault fails terminally",
+     "danger": "lifecycle"
+    },
+    {
+     "name": "Fail anti-spoof: only the claiming worker may fail",
+     "danger": "auth"
+    },
+    {
+     "name": "Commit blocked under a concurrently-failed parent job",
+     "danger": "money"
+    },
+    {
+     "name": "Short/invalid result artifact is non-payable",
+     "danger": "verification"
+    },
+    {
+     "name": "Dead-worker rescue burns no retry",
+     "danger": "lifecycle"
+    }
+   ],
+   "surfaces": [
+    "POST /v1/worker/register",
+    "POST /v1/worker/heartbeat",
+    "GET /v1/worker/poll (claim next task)",
+    "POST /v1/worker/task/{id}/start",
+    "POST /v1/worker/task/{id}/commit",
+    "POST /v1/worker/task/{id}/fail",
+    "StaleRequeueSweep (background ticker, 30s cadence, workers.requeueStaleTasks) \u2014 the FALLBACK for workers that die without reporting",
+    "RescueDeadClaimSweep (background ticker, rescueDeadClaims) \u2014 fast per-task rescue of a demonstrably-dead machine"
+   ]
+  },
+  {
+   "domain": "verification + redundancy + honeypots + fraud + reputation + finalization",
+   "critical_invariants": [
+    "MONEY: a payable outcome (pass / pass_with_penalty) writes EXACTLY 3 ledger rows - buyer_charge (negative, buyer-bound, released), supplier_credit (positive, supplier-bound, HELD with release_at), platform_take (positive = buyerCharge - supplierPayout exact complement) - all under ON CONFLICT(task_id,kind) DO NOTHING. fail and loss_no_payout write ZERO settlement rows (enforced by validateVerificationDecisionShape + the apply guards).",
+    "MONEY: settlement amounts are re-validated against the task's frozen economics inside the terminal tx (validateVerificationSettlementTx); buyerCharge>0 and 0<=supplierPayout<=buyerCharge always. The payout-hold clock starts at the SERVER decision time (pinned in the plan), never the worker's commit-announcement time, so a stalled upload cannot age a credit into early eligibility.",
+    "MONEY: at most ONE buyer_charge exists per buyer-visible chunk across a primary and its hedge (fenceHedgeSettlementTx / FinalizeTaskVerification's sibling-settled fence); redundancy and honeypot tasks are never the deliverable and never billed to the buyer as separate results.",
+    "MONEY: a tiebreak/honeypot LOSER never gets paid for the losing task - loss_no_payout carries no settlement, and any credit already scheduled for that task is reversed via ClawbackTaskCredit (clawback ledger row + credit flipped to clawed_back, or reversal_required if the transfer already left/was in flight).",
+    "VERIFICATION: BYTE-EXACT job types dock reputation / quarantine / count a mismatch ONLY within the same verification class (engine + build_hash; a blank build is its own non-matching class); cross-class byte differences are provisionally trusted (pass_with_penalty or skip), never a wrongful quarantine of an honest cross-kernel worker. Tolerant types (embed cosine>=0.999, batch_classification top-1 label, json_extraction canonical JSON, rerank exact order) compare semantics and are class-agnostic.",
+    "VERIFICATION: a redundancy quorum counts INDEPENDENT SUPPLIERS, not task rows - independentSupplierVotes collapses multiple rows of one supplier to a deterministic representative, and a 2-result agreement from the same supplier is never credited as an independent redundancy match (recorded redundancy_same_supplier). A tiebreak third opinion must be independent of BOTH disputants' workers AND suppliers.",
+    "VERIFICATION: a honeypot fail on a byte-comparable known answer is HARD evidence - it unconditionally quarantines the supplier (suspended) in addition to the reputation dock, clawback, and requeue. A byte-exact honeypot with a blank answer_class is refused at seed time (errHoneypotBlankClass) because it can neither fire nor be trusted.",
+    "VERIFICATION: sampling only ever skips SPENDING a check; it never fabricates a pass and never suppresses a failure a check actually found (BLACKHOLE). A skipped check falls through to the ordinary path with no honeypot receipt. Sampling is a deterministic per-task HMAC(secret,taskID) draw, unknowable to workers, and pinned immutably in verification_work so restarts cannot change it.",
+    "LIFECYCLE: the parent job row is the final terminal fence - commit, verify-apply, and every job-wide fail/cancel share task->parent lock order; whichever transaction wins the parent lock determines a coherent state. A terminal parent rejects a verdict with zero effects/money; a live verdict makes terminal paths observe unresolved verification_work (ErrJobVerificationPending) so a durable verifying attempt is never orphaned and money never settles under a failed/cancelled job.",
+    "IDEMPOTENCY: the entire verdict (task transition + verdict row + reputation/events/clawback/quarantine/tiebreak effects + settlement) commits in ONE transaction, so a SIGKILL exposes all or none. Replay authority is task_verdicts UNIQUE(task_id,attempt) carrying decision_sha256 (binding decision+settlement); verification_work UNIQUE(task_id,attempt); ledger UNIQUE(task_id,kind); verification_events UNIQUE(effect_id); content-addressed UUIDv5 effect ids. An exact replay repeats no effect (Applied=false); a changed body is a conflict.",
+    "FINALIZATION: a job becomes terminal (status='complete') only after every task is complete/failed with >=1 complete AND the buyer artifact is merged first (merge-before-mark), so a buyer never sees complete with missing/short output. CompleteJobEconomics/SLA-premium/actual_usd are ON-CONFLICT / recompute-from-ledger idempotent - SIGKILL at any boundary plus full replay converge to identical output sha/bytes/actual_usd. The once-only SLA-premium buyer_charge is charged only to a completed job and carries no task_id (never supplier liability); a failed/partial job is never charged the premium. The external Stripe buyer charge is best-effort, idempotent by job id, gated on charge_status='not_attempted'.",
+    "AUTH: a worker can only commit/fail a task it holds (claimed_by AND execution_worker_id = the token's worker); verifier effects are target-scoped (requeue only the current task, quarantine only the committing supplier, dock only a supplier that executed this chunk); admin fraud/reputation/reinstate/suspend routes are authAdmin-gated and append-only audited; the worker trust panel and buyer dispute are scoped to the caller's own supplier/buyer id."
+   ],
+   "scenarios": [
+    {
+     "name": "Honeypot fraud, same verification class -> full fraud path",
+     "danger": "verification"
+    },
+    {
+     "name": "Honeypot cross-class byte difference -> SKIP, never a wrongful quarantine",
+     "danger": "verification"
+    },
+    {
+     "name": "Two same-class redundancy results disagree -> pass_with_penalty + tiebreak dispatch",
+     "danger": "verification"
+    },
+    {
+     "name": "3-way majority tiebreak, the committing task LOSES -> loss_no_payout + clawback",
+     "danger": "money"
+    },
+    {
+     "name": "Clean pass -> exactly-three-row settlement with a held supplier payout",
+     "danger": "money"
+    },
+    {
+     "name": "Exact response-loss replay -> effect-free, no double money",
+     "danger": "idempotency"
+    },
+    {
+     "name": "Terminal parent fence -> verdict rejected without money/reputation leak",
+     "danger": "lifecycle"
+    },
+    {
+     "name": "Missing staging artifact -> bounded retry then typed non-payable fail",
+     "danger": "verification"
+    },
+    {
+     "name": "Reputation-weighted sampling -> trusted supplier's honeypot sampled OUT falls through, never a fabricated pass",
+     "danger": "verification"
+    },
+    {
+     "name": "Hedge/straggler sibling settles second -> no double buyer charge for one chunk",
+     "danger": "money"
+    },
+    {
+     "name": "Reputation collapse -> auto-quarantine / auto-ban thresholds",
+     "danger": "verification"
+    }
+   ],
+   "surfaces": [
+    "POST /v1/worker/task/{id}/commit",
+    "VerificationProcessor.ProcessAttempt / processLeasedOnce (internal, driven by commit + background Drain)",
+    "verifyTaskResult / PlanTaskResult (the verdict/redundancy/honeypot/tiebreak state machine)",
+    "ApplyLeasedVerificationWork / applyVerificationDecision (the single money commit point)",
+    "POST /v1/worker/task/{id}/fail",
+    "Job finalization (finalizeJobIfDone -> merge + CompleteJobEconomics + charge)",
+    "GET /admin/fraud-flags and GET /admin/fraud",
+    "POST /admin/suppliers/{id}/reputation (manual reputation adjust)",
+    "POST /admin/workers/{id}/reinstate and /suspend",
+    "GET /v1/worker/verification (trust panel) and POST /v1/jobs/{id}/dispute"
+   ]
+  },
+  {
+   "domain": "money",
+   "critical_invariants": [
+    "No double charge of a buyer: chargeOrDeferJob only acts on charge_status='not_attempted'; every charge is frozen (charge_attempt_usd/billed_usd) and replayed with a stable Stripe Idempotency-Key ('job-<id>' or 'cxbatch-<id>') + fixed amount; buyer_cash_collections.payment_intent is the global PK so one external receipt can fund at most one source (job XOR batch), and ledger (task_id,kind) is UNIQUE.",
+    "No double payout of a supplier: the rail idempotency key is the released ledger-entry id (unique per credit, stable across retries); ClaimPayout CAS held\u2192sending; supplier_payout_operations UNIQUE(ledger_entry_id) and transfer_ref UNIQUE where cash_moved; a genuine retry of the same row is a no-op.",
+    "No fake money movement: a supplier_credit may be 'released' only WITH a real payout_ref (ledger_released_requires_ref CHECK + MarkPayout guard); stubPayout always errors; ManualExportPayout records MANUAL settlement (cash_moved=false), never a fabricated transfer id; admin money-truth reports cash only from durable cash_moved operations.",
+    "No allocation of unbacked cash: a supplier payout is funded only by an exact buyer_collection reservation (capped at available = received - refunded - dispute-unavailable, under the shared PI pool lock) or an explicit finite platform_subsidy reservation (capped at authorized_cents under the fund lock); unfunded/partially-funded liabilities go to awaiting_funding and never reach the provider.",
+    "Buyer and supplier amounts are independent (splitFrozenCharge): supplier payout is frozen from base compute; buyer safety fee + processor/control reserve + SLA premium stay platform money and never leak to the supplier; platform_take is the exact buyer-minus-supplier complement.",
+    "Ambiguity is conservative: an outcome_unknown provider result is never turned into the definitely-not-sent 'ready'/'released' state and is retried only with the SAME idempotency key inside the retention window; a crossed-cash boundary under clawback becomes reversal_required (external reversal owed), never released or erased.",
+    "Minor-unit exactness: a supplier liability is reserved at six decimals; provider cash floors to whole cents and the non-negative remainder stays durably owed in append-only supplier_minor_unit_settlements (liability = cash_cents*10000 + remainder, CHECK-enforced); sub-cent liabilities become 'carried', never rounded away or retried each sweep.",
+    "Webhook replay safety: stripe_webhook_events dedups on event_id (PK) with a payload-digest binding; a duplicate is a no-op and a conflicting binding is fatal; refund amounts are cumulative-monotone (GREATEST) and dispute cash-availability is ordered by Stripe event_created/effect_rank so out-of-order deliveries converge; a win alone never restores capacity (only funds_reinstated).",
+    "Webhook authenticity: every Stripe/Connect webhook must pass HMAC-SHA256 over 't.payload' constant-time AND within the 5-minute timestamp tolerance before any state change; failures return 400 and handler/DB failures return 5xx so Stripe retries rather than losing a transition.",
+    "Money-authority actions (subsidy fund + payout subsidy) are audited to the ORIGINAL actor via a normalized-intent SHA-256 bound in admin_actions with deferred two-way FK binding; capacity caps are hard and transactional; authorization refs are globally UNIQUE; a retry by a different valid credential cannot rewrite the authorizer or relax a cap.",
+    "Budget cap PREVENTS dispatch and never refunds: the claim gate counts already-charged + in-flight (uncommitted) frozen charges + one candidate + once-only SLA premium against max_usd; NULL max_usd is no cap, $0 is a real cap; pausing writes budget_state once per transition and moves no money.",
+    "Economic plan is deterministic, immutable, and fails closed: quote and submit must freeze the identical plan (BuildEconomicPlan) or the job is blocked; job_economic_plans is trigger-immutable; extra tiebreak/hedge work is billable only while atomically consuming the bounded job_economic_reserves; the SLA premium is once-only buyer revenue, fully refundable, and never supplier payout, with the sla_refund credit capped at the chargeable amount (never mints free money) and recorded exactly once (ledger_sla_refund_ref_uniq).",
+    "Tenancy on money surfaces: buyer identity comes from the auth token not the body; a buyer can dispute/charge only their own job (enforced in-query); supplier payout targets the supplier bound to the credit; stripe_fee is one row per PaymentIntent (ledger_stripe_fee_ref_uniq)."
+   ],
+   "scenarios": [
+    {
+     "name": "Immediate buyer charge is once-only across re-finalize (hedge/redundancy)",
+     "danger": "money"
+    },
+    {
+     "name": "Sub-threshold defer \u2192 per-buyer batch \u2192 single frozen charge",
+     "danger": "money"
+    },
+    {
+     "name": "Buyer charge outcome_unknown blocks blind retry; reconciled by signed webhook",
+     "danger": "idempotency"
+    },
+    {
+     "name": "Payout hold\u2192release: 24h floor, exact-cash funding gate, released only with rail ref",
+     "danger": "money"
+    },
+    {
+     "name": "Minor-unit floor/carry keeps exactness and does not starve payable liability",
+     "danger": "money"
+    },
+    {
+     "name": "Clawback while transfer confirmation in flight \u2192 reversal_required, cash-moved preserved",
+     "danger": "money"
+    },
+    {
+     "name": "Refund/dispute webhook compromises funding and forces reversal_required; replay idempotent",
+     "danger": "verification"
+    },
+    {
+     "name": "Subsidy pool is a hard cap; concurrent authorizations cannot overallocate; one original actor",
+     "danger": "money"
+    },
+    {
+     "name": "Budget cap pauses dispatch counting in-flight work; no refund",
+     "danger": "lifecycle"
+    },
+    {
+     "name": "Webhook signature/replay window enforcement",
+     "danger": "auth"
+    }
+   ],
+   "surfaces": [
+    "POST /v1/billing/setup",
+    "GET /v1/billing/status",
+    "POST /v1/stripe/webhook",
+    "POST /v1/stripe/connect-webhook",
+    "POST /v1/jobs/{id}/dispute",
+    "GET /v1/worker/connect  (+ GET /v1/worker/connect/status)",
+    "GET /admin/payouts",
+    "POST /admin/payouts/{id}/release",
+    "POST /admin/subsidy-funds",
+    "POST /admin/payouts/{id}/subsidize",
+    "chargeOrDeferJob (finalize-path buyer charge decision)",
+    "collectCharges sweep (60s ticker)",
+    "releasePayouts sweep (payout outbox)",
+    "ClawbackTaskCredit (verification-triggered reversal)",
+    "ApplyStripeCashEvent (refund/dispute funding recompute)",
+    "reconcileLedger (15min ledger\u2194Stripe audit)",
+    "Budget governor: claim-time gate + SweepBudgetStops",
+    "BuildEconomicPlan / admission margin guard (quote + submit)",
+    "SettleJobSLA (speed-SLA remedy)"
+   ]
+  },
+  {
+   "domain": "authentication + authorization + supplier/worker enrollment + webhook delivery + sessions",
+   "critical_invariants": [
+    "Every credential (api_key, session, worker_token, enrollment_code, webhook signing secret) is stored ONLY as its SHA-256 hex hash (hashKey, store.go:2602) or AES-256-GCM sealed value; the raw secret is returned at most once and is never reconstructable from the DB \u2014 a full DB read leaks no live credential.",
+    "Token prefixes are load-bearing and route the lookup: cx_sess_=session (never admin), cx_live_/cx_test_=api key, cxw_=worker token, cxe_=enrollment code, cx_whsec_=webhook signing secret, cxer2_=enrollment device request, cxeb2_=approval bundle.",
+    "authBuyer resolves a bearer to exactly one buyer scope; a session credential can NEVER be admin (admin is api-key-only); every miss/revoked/expired credential returns an honest 401 with no silent bypass.",
+    "Tenancy isolation is enforced in the SQL WHERE clause (buyer_id / owner_buyer_id), not just in the handler: cross-buyer job reads, webhook registrations, worker-credential reads/revokes, and key revokes all return an INDISTINGUISHABLE 404/403 and mutate zero foreign rows; webhook job-scoping is additionally enforced by a composite (job_id,buyer_id) FK.",
+    "Worker identity (WorkerID, SupplierID) is always taken from the authenticated X-Worker-Token and OVERWRITES any body-supplied ids; task start/commit are scoped to the claiming worker (409 otherwise); a worker cannot act for another worker or supplier.",
+    "Worker enrollment exchange is a device proof-of-possession ceremony: P-256 ECDSA over a byte-stable transcript binding code+audience+account+control_origin+request_id; request_id and control_origin are server-authoritative (never caller-chosen), defeating attacker-relay credential theft; the exchange is EXACTLY once (consumed code replay mints nothing, produces one terminal audited attempt, and serializes concurrent attempts on an advisory lock); every rejection cause collapses to one generic 401 with the specific cause only in the owner's append-only audit.",
+    "Passwords are bcrypt cost>=12, never stored/logged/returned, 8..72 bytes; login has no user enumeration (unknown email == wrong password: same 401, equal-cost dummy compare) plus per-account exponential lockout after 5 failures.",
+    "Webhook signing secrets are per-registration (buyers never share a key), stored only AES-256-GCM-sealed ('enc:' prefix, DB CHECK), and registration/delivery FAIL CLOSED without CX_TOKEN_KEY (503 on register, permanent dead-letter of any unsigned/legacy-NULL row before any network I/O) \u2014 no unsigned delivery ever occurs.",
+    "Webhook delivery is SSRF-hardened (resolve-once, refuse every non-public/private/loopback/CGNAT/doc-range IP, refuse redirects, preserve registered Host/TLS-SNI, https-only in prod, no env proxy) and at-least-once with a stable delivery_id: leased with SKIP LOCKED, backoff (30s base x2, cap 6h, dead-letter at 12 attempts), lease-fenced marks (errWebhookLeaseLost), and a stable X-CX-Signature 't=,v1=' HMAC-SHA256 envelope verifiable by verifyStripeSig.",
+    "Unauthenticated inbound webhooks (Stripe connect-webhook) are HMAC-signature-verified with constant-time compare AND a 5-minute timestamp tolerance (bounded replay window), gated on a configured secret (503 otherwise), with buyer/account identity recovered only from the signed payload.",
+    "Idempotency and safe-retry are structural: signup UNIQUE(email)->409 (never overwrite), key/worker-token/enrollment mints are single-use fresh secrets, exact-duplicate webhook registration returns the same id+secret, logout/code-revoke/credential-revoke/key-revoke are no-op-on-repeat, and worker commit replays to an exact-terminal 204 (never a double credit).",
+    "worker_credential_audit is DB-enforced append-only (BEFORE UPDATE/DELETE trigger raises); every credential lifecycle transition (code_issued/revoked, exchange_succeeded/rejected, credential_revoked/rotated) is recorded and buyer-scoped."
+   ],
+   "scenarios": [
+    {
+     "name": "Session credential is never admin and dies on logout",
+     "danger": "auth"
+    },
+    {
+     "name": "No user enumeration + per-account login lockout",
+     "danger": "auth"
+    },
+    {
+     "name": "Cross-buyer job/webhook/credential isolation is an indistinguishable 404",
+     "danger": "auth"
+    },
+    {
+     "name": "Device-proofed enrollment is exactly-once and relay-proof",
+     "danger": "verification"
+    },
+    {
+     "name": "Webhook signing secret is per-registration, sealed, and fails closed",
+     "danger": "idempotency"
+    },
+    {
+     "name": "Webhook delivery is SSRF-guarded, signed, and at-least-once",
+     "danger": "idempotency"
+    },
+    {
+     "name": "Supplier identity and worker-token minting are account-bound",
+     "danger": "auth"
+    },
+    {
+     "name": "API key lifecycle: minted once, masked list, buyer-scoped revoke",
+     "danger": "auth"
+    }
+   ],
+   "surfaces": [
+    "authBuyer middleware (all /v1 buyer routes + /admin data routes)",
+    "authWorker middleware (all /v1/worker/* routes)",
+    "authAdmin middleware (/admin/* data routes)",
+    "POST /v1/signup",
+    "POST /v1/login",
+    "POST /v1/logout",
+    "GET /v1/me",
+    "POST /v1/keys",
+    "GET /v1/keys",
+    "DELETE /v1/keys/{id}",
+    "POST /v1/supplier/onboard",
+    "GET /v1/supplier/status",
+    "POST /v1/supplier/worker-tokens",
+    "POST /v1/supplier/enrollment-codes",
+    "POST /v1/supplier/enrollment-approvals",
+    "POST /v1/worker/enrollment/exchange",
+    "DELETE /v1/supplier/worker-credentials/{id}",
+    "DELETE /v1/supplier/enrollment-codes/{id} ; GET /v1/supplier/worker-credentials ; GET /v1/supplier/credential-audit",
+    "POST /v1/webhooks (register completion webhook)",
+    "Webhook delivery outbox (deliverPendingWebhooks / deliverWebhook / ClaimPendingWebhooks / MarkWebhookDelivered / MarkWebhookFailed)",
+    "POST /v1/stripe/connect-webhook (account.updated)",
+    "Worker task lifecycle routes (POST /v1/worker/register|heartbeat|poll|task/{id}/start|commit|fail) \u2014 authz scoping",
+    "GET /v1/jobs/{id} (+ /results,/invoice,/receipt,/events,/failures,/dispute,DELETE) \u2014 buyer tenancy isolation"
+   ]
+  },
+  {
+   "domain": "External adapter surfaces",
+   "critical_invariants": [
+    "Single source of truth for execution: every indirect job-submit adapter (OpenAI /v1/batches, /v1/intake/launch, /v1/pipelines, and the advanceIntake/advancePipeline completion hooks) funnels through Server.createJob (api.go:648) \u2014 no adapter has its own scheduler/verification/billing path. A reconstruction must keep these as thin translators onto createJob/MergeJobResults, not reimplement job semantics.",
+    "LaunchContract propagation: indirect paths MUST stamp the buyer's budget/verification/reputation/private_pool/quote onto every stage's jobSubmit via LaunchContract.applyTo (launch_contract.go). Historically these paths dropped the spend cap; dropping any of them silently is the exact regression the contract exists to prevent.",
+    "Disjoint aggregate-cap allocation: one buyer aggregate max_usd is split into per-stage caps that sum to the aggregate (allocateAggregateMaxUSD); copying the full cap to every stage would let an N-stage workflow spend N\u00d7 what the buyer approved. Underfunded workflows are rejected 409 BEFORE any pipelines/intakes/jobs side effect.",
+    "Chained-stage cap floor: advanceIntake/advancePipeline REFUSE to submit a downstream chargeable job when its persisted LaunchContract is nil or MaxUSD<=0 \u2014 a completion worker can never create an uncapped chargeable job.",
+    "Exactly-once downstream execution: workflow chaining is guarded by a cross-replica pg advisory lock (LockWorkflowStage) PLUS a durable post-lock submitted re-check (IntakeStageSubmitted/PipelineStageSubmitted), and intake launch reservation is a single-winner CAS on status='detected' (ReserveIntakeLaunch). No HA race may double-create or double-charge.",
+    "OpenAI adapter never silently substitutes a model: mapModel accepts only the omitted default or the exact native identity and returns a typed 404 model_not_found (with the native hint) for any branded alias (gpt-*, text-embedding-*). Output never exceeds input custom_id count.",
+    "Buyer scoping of adapter artifacts: file/batch metadata carry BuyerID and every read/resolve (getFileMeta, GetJob, GetGitSource, GetPipelineView, GetIntake) is buyer-scoped \u2014 cross-buyer access is 403/404, and git access tokens are sealed at rest, never serialized (json:\"-\") or selected in list queries.",
+    "Money-authority integrity: /admin/subsidy-funds and /admin/payouts/{id}/subsidize revalidate the admin actor FOR SHARE inside the mutation tx (closing the revoke-between-middleware-and-commit window), attribute passkey-first over a co-present break-glass bearer, key idempotency/conflict on a normalized-intent SHA-256 (order/whitespace-insensitive, semantics-sensitive), keep the original actor immutable across retries, and write append-only admin_actions rows atomically two-way-bound to their resource. Payout subsidy reserves exact floor cents within a hard fund capacity and never claims cash moved or waives the payout hold.",
+    "Admin review secret allowlist: GET /admin/actions selects an explicit column allowlist (never SELECT *) and never exposes detail/external_treasury_ref/key_hash/token_hash/credential_id/credential/actor_label or raw session/key material; it fails closed (500) on partial/invalid typed money bindings and marks legacy actorless rows honestly; keyset cursor has exactly one canonical wire form.",
+    "Honest-refusal boundaries the adapters OWN (must be preserved, not just translated): GitHub connect/callback/list/tree/deliver return 503 when the OAuth app is unconfigured (never a fake connection/PR); OAuth callback recovers the buyer only via atomic browser-bound single-use state; intake detection is a pure function that returns supported:false with a reason rather than a fabricated plan, and refuses recognized-but-not-launchable workloads (audio-from-repo) early; the Python SDK raises typed BudgetStoppedError/BadInputError and refuses the audio WAV surface locally, and surfaces the OpenAI wire error shape so real SDK clients' .body[\"message\"]/.code/.type work.",
+    "Non-idempotent creates stay side-effect-free on rejection: budget/validation rejections in batch/intake/pipeline creation occur before any DB or object-store write, and admin state-change endpoints return 409 (not silent success) when there is nothing to change so a mistyped id is surfaced."
+   ],
+   "scenarios": [
+    {
+     "name": "OpenAI Batch inline embeddings end-to-end maps to one native job (single source of truth)",
+     "danger": "verification"
+    },
+    {
+     "name": "OpenAI Batch refuses a branded cross-model alias with a typed 404 (never a silent substitution)",
+     "danger": "general"
+    },
+    {
+     "name": "Intake launch splits one aggregate cap into disjoint per-stage caps and reserves single-winner",
+     "danger": "money"
+    },
+    {
+     "name": "Pipeline chaining creates the downstream chargeable job exactly once with its own cap",
+     "danger": "idempotency"
+    },
+    {
+     "name": "Money-authority subsidy fund: passkey-attributed, idempotent cross-actor retry, immutable audit",
+     "danger": "money"
+    },
+    {
+     "name": "Admin action review is a secret-safe, stable keyset page",
+     "danger": "auth"
+    },
+    {
+     "name": "GitHub OAuth callback recovers the buyer only via atomic browser-bound state",
+     "danger": "auth"
+    }
+   ],
+   "surfaces": [
+    "POST /v1/files",
+    "GET /v1/files/{id}/content",
+    "POST /v1/batches",
+    "GET /v1/batches/{id}",
+    "GET /v1/connect/github",
+    "GET /v1/connect/github/callback",
+    "GET /v1/sources",
+    "GET /v1/sources/{id}/repos",
+    "POST /v1/intake",
+    "POST /v1/intake/launch",
+    "advanceIntake (completion-hook, POST /v1/intake/launch chained-stage continuation)",
+    "POST /v1/deliver",
+    "POST /v1/pipelines",
+    "GET /v1/pipelines/{id}",
+    "GET /v1/pipelines/{id}/receipt",
+    "advancePipeline (completion-hook chained-stage continuation)",
+    "POST /admin/workers/{id}/suspend",
+    "POST /admin/workers/{id}/reinstate",
+    "POST /admin/tasks/{id}/requeue",
+    "POST /admin/suppliers/{id}/reputation",
+    "POST /admin/payouts/{id}/release",
+    "POST /admin/subsidy-funds",
+    "POST /admin/payouts/{id}/subsidize",
+    "GET /admin/actions",
+    "Python SDK computeexchange.Client (public buyer contract, sdk/python)"
+   ]
+  }
+ ]
+}
