@@ -1,36 +1,15 @@
-# Supplier agent config. Copy to agent.toml and fill in your worker token.
-#   cp agent.example.toml agent.toml
-# CX_CONTROL_URL and CX_WORKER_TOKEN env vars override control_url/worker_token.
-# Mint a worker_token by running the control plane's `seed` subcommand (dev) or
-# through supplier onboarding (prod).
 
 control_url = "http://localhost:8080"
 worker_token = "REPLACE_WITH_WORKER_TOKEN"
 
-# Bound to the worker by the control plane from the token; informational here.
 supplier_id = "00000000-0000-0000-0000-000000000000"
 
-# Resource controls (the supplier keeps their machine usable while earning).
 max_cpu_pct = 90.0          # cap CPU the agent may use
 power_only = false          # true = refuse to run on battery
 min_payout_usd_per_hr = 0.0 # decline work paying less than this
 data_dir = "/tmp/cx-agent"  # scratch dir (job data is wiped post-commit)
 
-# Dynamic memory throttling (Computexchange supplier safety). The agent reads
-# REAL available memory each cycle and pauses claiming new work before it would
-# eat into your headroom or push the Mac toward swap. Effective allocatable
-# memory for jobs = available − memory_headroom_gb.
 memory_headroom_gb = 8.0    # GB reserved for YOUR use; lower it on a dedicated box
 max_memory_pct = 85.0       # pause new work once physical memory use hits this %
-#   omit either field to take the conservative built-in default (8.0 GB / 85%).
-#   set BOTH to 0 to turn the memory governor OFF (dedicated box, run flat out).
 
-# Intra-task checkpointing: at most every N seconds, PUT the rows completed so
-# far (marked "partial": true) to the control plane's presigned ".partial" URL —
-# generative jobs only — so a killed stuck job still yields mid-chunk progress.
-# Partial output is never verified and never paid; the final result upload is
-# unchanged. 0 turns checkpointing off. CX_CHECKPOINT_SECS overrides.
 checkpoint_secs = 30
-
-# Optional quiet-hours window on a 24h clock; wraps past midnight if start > end.
-# quiet_hours = [22, 6]     # no work 22:00–05:59

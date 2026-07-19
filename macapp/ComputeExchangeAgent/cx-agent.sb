@@ -1,149 +1,36 @@
-;; cx-agent.sb — macOS seatbelt (sandbox-exec) profile for the cx-agent CHILD
-;; process the menu-bar app launches to run paid buyer inference on this Mac.
-;;
-;; WHY THIS EXISTS (Security Posture 8->9, docs/internal/CREED_AND_PATH_TO_TEN.md;
-;; the exact "known, named gap" in docs/SECURITY.md). Unlike the Linux/CUDA `custom`
-;; BYO-container lane — which already runs untrusted code inside a hardened Docker
-;; sandbox (agent/src/sandbox.rs) — the Candle inference path on a Mac has, until
-;; now, run as an ORDINARY user process with the operator's full privileges. A
-;; malicious buyer PAYLOAD (a crafted GGUF/tokenizer/audio input that trips a parser
-;; bug in cx-agent or its dependencies) could therefore read the operator's private
-;; files, plant a LaunchAgent for persistence, or overwrite their documents. This
-;; profile puts a real macOS seatbelt boundary around that child so the blast radius
-;; of such a payload is contained to what inference legitimately needs.
-;;
-;; WHAT IT ACTUALLY ENFORCES (proven, not asserted — see
-;; macapp/ComputeExchangeAgent/sandbox-profile-test.sh, which runs THIS file against
-;; a standalone binary and asserts each row below):
-;;   - WRITE CONTAINMENT: every filesystem WRITE is denied, then re-allowed ONLY under
-;;     the model cache, the agent data dir, the system temp dirs, and /dev. So a
-;;     payload CANNOT plant "~/Library/LaunchAgents/*.plist" (persistence), cannot
-;;     overwrite the operator's "~/Documents", and cannot touch anything else it isn't
-;;     explicitly granted.
-;;   - READ CONTAINMENT of the operator's most sensitive data: reads of "~/.ssh",
-;;     credential/keychain stores, and the user's document folders are denied outright,
-;;     so a payload cannot exfiltrate SSH keys or personal files even though inference
-;;     itself keeps the broad system-library read access Metal/Candle needs.
-;;
-;;   - NETWORK CONTAINMENT (what seatbelt CAN enforce, added in this pass): the child
-;;     is a pure network CLIENT, so ALL inbound connections and ALL socket binds are
-;;     denied — a payload cannot open a listening backdoor on this Mac. Outbound is
-;;     denied by default and re-allowed ONLY on the ports inference legitimately needs
-;;     (443 HTTPS to the control plane / object storage / HuggingFace, 80 for HTTP
-;;     redirects + the dev localhost:8080 plane, 53 for DNS) plus loopback/local and
-;;     unix sockets. So a payload can no longer phone home on an arbitrary port (an SSH
-;;     tunnel on 22, an IRC C2 on 6667, a custom exfil port) — its egress is pinned to
-;;     the same few ports the agent itself uses.
-;;
-;; HONEST SCOPE (what this profile does NOT claim). macOS seatbelt's network filter
-;; accepts only `*` or `localhost` as the HOST — you cannot write a numeric IP or a
-;; DNS name in a `(remote ip …)` rule (sandbox-exec rejects the profile: "host must be
-;; * or localhost"). So the PORT dimension is finely filterable (proven below) but the
-;; HOST dimension is not: outbound-443 is allowed to ANY host, not only the control /
-;; storage hosts. The rung's "network allowed only to the control URL and storage host"
-;; therefore remains PARTIAL — the port-and-direction half is enforced here; the
-;; per-HOST allowlist genuinely requires a different mechanism (a local egress proxy or
-;; PF anchor that resolves and pins the two expected hosts), documented as the precise
-;; remaining gap in docs/SECURITY.md rather than falsely claimed here. This file's
-;; strongest guarantee is still the FILESYSTEM blast-radius containment above.
-;;
-;; PARAMETERS (passed by the launcher via `sandbox-exec -D KEY=VALUE`):
-;;   HOME        the operator's home directory (…/Users/<name>)
-;;   MODELCACHE  the model cache root (CX_MODEL_CACHE / HF_HOME / ~/.cache/huggingface)
-;;   DATADIR     the agent data dir (~/.compute-exchange: config, status.json, prefs,
-;;               checkpoints)
-;;   TMPDIR      the per-user temp dir ($TMPDIR, under /private/var/folders)
 
 (version 1)
 
-;; Baseline: allow by default, then carve out the containment below. A full ALLOWLIST
-;; for a Metal/Candle ML process is intractably fragile across macOS versions (IOKit
-;; user clients, the Metal shader cache, the dyld closure, and dozens of framework
-;; paths shift release to release), and a profile that breaks legitimate inference on
-;; the next OS point-release protects nobody. The deny rules below are the real,
-;; durable teeth: they contain the operator's private data regardless of what else the
-;; inference runtime happens to touch.
 (allow default)
 
-;; ── WRITE CONTAINMENT ────────────────────────────────────────────────────────
-;; Deny ALL writes, then re-allow exactly the paths inference legitimately writes.
-;; Later matching rules win, so these allows override the blanket deny for their
-;; subpaths only.
 (deny file-write*)
 (allow file-write*
-  ;; The model cache: hf-hub downloads/caches weights + tokenizers here.
   (subpath (param "MODELCACHE"))
-  ;; The agent data dir: agent.toml, status.json (atomic write+rename), prefs,
-  ;; encrypted checkpoints.
   (subpath (param "DATADIR"))
-  ;; System temp: inference scratch, memory-mapped spills, tokenizer temp files.
   (subpath "/private/tmp")
   (subpath "/private/var/folders")
   (subpath (param "TMPDIR"))
-  ;; Devices the runtime opens (null, urandom, the Metal/IOKit device nodes live
-  ;; under /dev and are accessed via mach; file writes to /dev are harmless here).
   (subpath "/dev"))
 
-;; ── READ CONTAINMENT of the operator's most sensitive data ───────────────────
-;; Broad system-library reads stay allowed (Metal/Candle need them), but the
-;; operator's private material is denied outright. A buyer-payload parser bug in the
-;; child therefore cannot read these even with code execution inside the process.
-;; Paths are composed from the HOME param with seatbelt's `string-append` (no macros
-;; or hard-coded usernames — the launcher passes the real HOME).
 (deny file-read*
-  ;; SSH keys + known_hosts.
   (subpath (string-append (param "HOME") "/.ssh"))
-  ;; GnuPG keyring.
   (subpath (string-append (param "HOME") "/.gnupg"))
-  ;; Cloud credential stores commonly holding long-lived secrets.
   (subpath (string-append (param "HOME") "/.aws"))
   (subpath (string-append (param "HOME") "/.config/gcloud"))
   (subpath (string-append (param "HOME") "/.kube"))
   (literal (string-append (param "HOME") "/.netrc"))
-  ;; The login keychain + keychain store.
   (subpath (string-append (param "HOME") "/Library/Keychains"))
-  ;; The user's personal document folders.
   (subpath (string-append (param "HOME") "/Documents"))
   (subpath (string-append (param "HOME") "/Desktop"))
   (subpath (string-append (param "HOME") "/Downloads")))
 
-;; ── NETWORK CONTAINMENT ──────────────────────────────────────────────────────
-;; The cx-agent child is a pure network CLIENT (it dials out to the control plane,
-;; object storage, and HuggingFace; it never needs to listen). Contain accordingly:
-;;
-;;   1. Deny ALL inbound + ALL socket binds → a payload cannot open a listening
-;;      backdoor on this Mac. (Proven: a bind attempt returns "Operation not
-;;      permitted" under this profile — macapp/ComputeExchangeAgent/
-;;      sandbox-profile-test.sh.)
-;;   2. Deny outbound by default, then re-allow ONLY the ports inference legitimately
-;;      uses. A payload can therefore no longer phone home on an arbitrary port (SSH
-;;      exfil on 22, an IRC C2 on 6667, a bespoke exfil port) — its egress is pinned
-;;      to the same handful of ports the agent itself needs. (Proven: outbound to a
-;;      remote :443 succeeds; outbound to a remote :6667 is denied IN-KERNEL — it
-;;      fails in ~15ms vs. the ~75s a real network timeout takes, the unambiguous
-;;      fingerprint of a sandbox deny rather than an ordinary connection failure.)
-;;
-;; PORT-ONLY, NOT HOST: seatbelt only accepts `*` or `localhost` as the host in a
-;; network rule (a numeric IP or DNS name makes sandbox-exec reject the whole
-;; profile). So `(remote ip "*:443")` allows 443 to ANY host — the per-host allowlist
-;; the rung ultimately wants is NOT achievable here and is tracked as the real
-;; remaining gap in docs/SECURITY.md.
 (deny network-inbound)
 (deny network-bind)
 (deny network*)
 (allow network-outbound
-  ;; HTTPS: control plane, object storage (MinIO/S3), HuggingFace weight/tokenizer
-  ;; downloads — the agent's entire production egress is TLS on 443.
   (remote ip "*:443")
-  ;; HTTP: redirect hops on first fetch, and the dev-mode control plane the agent
-  ;; talks to at http://localhost:8080 (the default in agent/src/config.rs). 80 covers
-  ;; the redirect + non-loopback dev cases; loopback of any port is re-allowed below.
   (remote ip "*:80")
-  ;; DNS resolution (both transports; large answers fall back to TCP).
   (remote ip "*:53")
   (remote udp "*:53")
-  ;; Loopback + this machine's own interfaces (dev control plane on :8080, and any
-  ;; local sidecar). `localhost` is the ONLY host token seatbelt allows besides `*`.
   (remote ip "localhost:*")
-  ;; Local IPC the runtime uses (dyld, notify, mach-lookup helpers open unix sockets).
   (remote unix-socket))

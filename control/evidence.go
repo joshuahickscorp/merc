@@ -1,9 +1,3 @@
-// Evidence core (Phase C): the shared, non-Python primitives every `cx` proof/
-// audit subcommand reuses — canonical JSON, atomic writes, framed hashing, and
-// the source fingerprint. This is the Go re-expression of the utilities the
-// retired Python proof scripts each re-implemented (scripts/source_fingerprint.py,
-// et al). Phase E moves this into a cross-module internal package; today it lives
-// in the cx binary's package so cli owns the operational/evidence authority.
 package main
 
 import (
@@ -21,15 +15,10 @@ import (
 	"strings"
 )
 
-// sourceFingerprintDomain matches scripts/source_fingerprint.py DOMAIN exactly.
 var sourceFingerprintDomain = []byte("computexchange-source-fingerprint-v1\x00")
 
 const sourceFingerprintSchema = 1
 
-// canonicalProofJSON encodes v the way the Python authority did:
-// json.dumps(sort_keys=True, separators=(",", ":")) — compact, keys sorted.
-// Go's encoding/json already sorts map keys and omits insignificant whitespace,
-// and it must NOT HTML-escape (Python does not escape <, >, &).
 func canonicalProofJSON(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -40,7 +29,6 @@ func canonicalProofJSON(v any) ([]byte, error) {
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
-// atomicWrite writes data to path via a temp file + rename (never a partial file).
 func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".cx-tmp-*")
@@ -63,8 +51,6 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	return os.Rename(tmpName, path)
 }
 
-// framed appends an 8-byte big-endian length prefix then the value (matching the
-// Python `_framed`), so distinct field boundaries can never collide.
 func framed(h hash.Hash, value []byte) {
 	var n [8]byte
 	binary.BigEndian.PutUint64(n[:], uint64(len(value)))
@@ -72,7 +58,6 @@ func framed(h hash.Hash, value []byte) {
 	h.Write(value)
 }
 
-// gitBytes runs git in root and returns raw stdout (no trimming).
 func gitBytes(root string, args ...string) ([]byte, error) {
 	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
 	var out, errb bytes.Buffer
@@ -88,8 +73,6 @@ func gitBytes(root string, args ...string) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// sourceFingerprintResult is the byte-parity mirror of source_fingerprint.py's
-// output dict.
 type sourceFingerprintResult struct {
 	SchemaVersion int    `json:"schema_version"`
 	Head          string `json:"head"`
@@ -99,8 +82,6 @@ type sourceFingerprintResult struct {
 	SourceSHA256  string `json:"source_sha256"`
 }
 
-// toMap yields a map so canonicalProofJSON emits keys in sorted order (Python used a
-// dict + sort_keys=True; Go sorts map keys but preserves struct field order).
 func (r sourceFingerprintResult) toMap() map[string]any {
 	return map[string]any{
 		"schema_version": r.SchemaVersion,
@@ -112,9 +93,6 @@ func (r sourceFingerprintResult) toMap() map[string]any {
 	}
 }
 
-// sourceFingerprint hashes HEAD plus every tracked or non-ignored untracked path
-// (content + exec bit / symlink target / gitlink identity), byte-identical to
-// scripts/source_fingerprint.py.
 func sourceFingerprint(root string) (sourceFingerprintResult, error) {
 	var zero sourceFingerprintResult
 	topRaw, err := gitBytes(root, "rev-parse", "--show-toplevel")
@@ -132,7 +110,6 @@ func sourceFingerprint(root string) (sourceFingerprintResult, error) {
 	if err != nil {
 		return zero, err
 	}
-	// unique + sorted by raw bytes (Python: sorted(set(...)))
 	seen := map[string]struct{}{}
 	var paths []string
 	for _, p := range bytes.Split(rawPaths, []byte{0}) {
@@ -184,7 +161,6 @@ func sourceFingerprint(root string) (sourceFingerprintResult, error) {
 			}
 			framed(digest, sum)
 		case mode.IsDir():
-			// gitlink/submodule: record indexed identity, do not walk.
 			framed(digest, []byte("gitlink"))
 			gl, err := gitBytes(repo, "rev-parse", "HEAD:"+rel)
 			if err != nil {

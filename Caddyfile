@@ -1,69 +1,25 @@
-# Computexchange · public edge (Caddy).
-#
-# Caddy is the only thing listening on the public 80/443. It terminates TLS
-# (automatic ACME certs for the hostnames below), reverse-proxies the API to the
-# TWO control instances as a health-checked load-balancer, and proxies the
-# storage host to MinIO. The control instances and MinIO bind 127.0.0.1 / the
-# compose network only — they are never directly reachable from the internet.
-#
-# Hostnames: set these to your real domains. The repo default in
-# docker-compose.prod.yml is computexchange.net + storage.computexchange.net;
-# production deploys on computexchange.net (see ops notes). Override with the
-# {$SITE_HOST} / {$STORAGE_HOST} env vars (defaults below) so you do not have to
-# edit this file per environment.
-
 {
-	# Global options.
 	email {$ACME_EMAIL}
-	# Caddy's own Prometheus metrics on the admin endpoint (:2019), scraped by
-	# Prometheus as the `caddy` job. This is where caddy_http_requests_total
-	# (the 5xx signal) comes from. The admin API is bound to all interfaces
-	# inside the container but only reachable on the compose network.
 	admin 0.0.0.0:2019
 	metrics
 }
 
-# ── API edge → control plane (load-balanced across both instances) ───────────
 {$SITE_HOST:computexchange.net} {
 	encode zstd gzip
-
-	# Two upstreams, health-checked. Caddy stops routing to an instance whose
-	# active health check fails and resumes when it recovers — that is the HA
-	# behaviour: one control instance can die and the edge keeps serving from the
-	# other. The Postgres SKIP-LOCKED queue makes both instances safe to dispatch
-	# from concurrently; a PostgreSQL advisory lock elects one sweep owner (see
-	# docs/RUNBOOKS.md §HA for the single-host failure-domain boundary).
-	reverse_proxy control:8080 control-2:8080 {
-		lb_policy round_robin
-		# Active health probe of the unauthed /readyz: 503s if Postgres is
-		# unreachable, worker election stops progressing, or a ticker owned by this
-		# replica wedges. Followers prove election progress but own no sweep tickers.
+	reverse_proxy control:8080 {
 		health_uri /readyz
 		health_interval 10s
 		health_timeout 4s
-		health_status 200
-		# Passive: pull an upstream after consecutive transport failures.
-		fail_duration 30s
-		max_fails 3
 	}
-
-	log {
-		output stdout
-		format json
-	}
+	log { output stdout }
 }
 
-# ── Storage edge → MinIO (single backend; presigned URLs sign against this) ──
 {$STORAGE_HOST:storage.computexchange.net} {
 	encode zstd gzip
 	reverse_proxy minio:9000 {
 		health_uri /minio/health/live
 		health_interval 10s
 		health_timeout 4s
-		health_status 200
 	}
-	log {
-		output stdout
-		format json
-	}
+	log { output stdout }
 }

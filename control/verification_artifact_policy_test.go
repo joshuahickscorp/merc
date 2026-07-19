@@ -17,8 +17,8 @@ func TestVerificationArtifactPolicyUsesImmutableJobShapeAndClamps(t *testing.T) 
 		t.Fatalf("max_tokens did not widen bounded generation policy: short=%d long=%d", short, long)
 	}
 
-	if got := verificationArtifactMaxBytes("custom", 1<<30, 0); got != verificationArtifactAbsoluteMaxBytes {
-		t.Fatalf("opaque policy = %d, want absolute cap %d", got, verificationArtifactAbsoluteMaxBytes)
+	if got := verificationArtifactMaxBytes("unsupported", 1<<30, 0); got != verificationArtifactPolicyFloor {
+		t.Fatalf("unsupported policy = %d, want floor %d", got, verificationArtifactPolicyFloor)
 	}
 	if got := verificationArtifactMaxBytes("batch_infer", 1<<30, ^uint32(0)); got != verificationArtifactAbsoluteMaxBytes {
 		t.Fatalf("overflowing job shape escaped clamp: got %d", got)

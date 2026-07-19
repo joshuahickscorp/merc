@@ -12,34 +12,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// suppliers.go — authenticated, self-serve supplier onboarding.
-//
-// All three buyer-facing routes are scoped by the AuthResult installed by
-// authBuyer. The request never supplies an email, supplier id, or tax identifier:
-//
-//   POST /v1/supplier/onboard {}       -> Stripe-hosted Connect onboarding URL
-//   GET  /v1/supplier/status           -> this account's Connect status
-//   POST /v1/supplier/worker-tokens {} -> one token for a new machine
-//
-// suppliers.owner_buyer_id is the authorization boundary. The supplier email is a
-// display/contact value copied from the authenticated buyer account when the row is
-// first created, never a lookup credential. Stripe Connect hosts identity, KYC, and
-// tax collection; CX deliberately stores none of those plaintext identifiers.
-
-// --- store layer: account ownership + payout readiness ---
-
 var (
 	errSupplierAccountRequired   = errors.New("supplier routes require a self-serve buyer account")
 	errSupplierOwnershipConflict = errors.New("supplier ownership conflict")
 	errSupplierBodyMustBeEmpty   = errors.New("supplier request must not contain identity or KYC fields")
 )
 
-// EnsureSupplierForBuyer returns the one supplier owned by buyerID, creating it
-// from the buyer account's canonical email when necessary. It never claims an
-// unowned legacy supplier at request time: the schema migration backfills only
-// unambiguous one-to-one matches, while anything left unowned requires an explicit
-// operator decision. That fail-closed rule prevents an account from taking over a
-// historical supplier merely by presenting the same email string.
 func (s *Store) EnsureSupplierForBuyer(ctx context.Context, buyerID uuid.UUID) (uuid.UUID, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -61,8 +39,6 @@ func (s *Store) EnsureSupplierForBuyer(ctx context.Context, buyerID uuid.UUID) (
 		return uuid.Nil, errSupplierAccountRequired
 	}
 
-	// The owner id is authoritative even if a future account-email migration changes
-	// the display email. Locking the row also serializes duplicate onboard/token calls.
 	var supplierID uuid.UUID
 	err = tx.QueryRow(ctx,
 		`SELECT id FROM suppliers WHERE owner_buyer_id = $1 FOR UPDATE`, buyerID,
@@ -77,8 +53,6 @@ func (s *Store) EnsureSupplierForBuyer(ctx context.Context, buyerID uuid.UUID) (
 		return uuid.Nil, err
 	}
 
-	// An existing case-insensitive email match that was not safely backfilled is
-	// intentionally not claimable here. This also catches a supplier owned elsewhere.
 	var existingOwner *uuid.UUID
 	err = tx.QueryRow(ctx,
 		`SELECT id, owner_buyer_id
@@ -117,8 +91,6 @@ func (s *Store) EnsureSupplierForBuyer(ctx context.Context, buyerID uuid.UUID) (
 		return uuid.Nil, err
 	}
 
-	// A concurrent request may have won either unique constraint while this
-	// transaction waited. Only the same owner may reuse that result.
 	err = tx.QueryRow(ctx,
 		`SELECT id FROM suppliers WHERE owner_buyer_id = $1`, buyerID,
 	).Scan(&supplierID)
@@ -134,9 +106,6 @@ func (s *Store) EnsureSupplierForBuyer(ctx context.Context, buyerID uuid.UUID) (
 	return uuid.Nil, errSupplierOwnershipConflict
 }
 
-// SupplierStatusForBuyer returns only the supplier owned by buyerID. A valid
-// account with no supplier is errNotFound; a legacy/API-key identity with no buyer
-// account row is errSupplierAccountRequired.
 func (s *Store) SupplierStatusForBuyer(ctx context.Context, buyerID uuid.UUID) (supplierID uuid.UUID, acct string, payoutsEnabled bool, err error) {
 	var acctP *string
 	err = s.pool.QueryRow(ctx,
@@ -162,10 +131,6 @@ func (s *Store) SupplierStatusForBuyer(ctx context.Context, buyerID uuid.UUID) (
 	return supplierID, acct, payoutsEnabled, nil
 }
 
-// CreateWorkerTokenForBuyer adds a defense-in-depth ownership check immediately
-// before minting. The handler already obtained supplierID through
-// EnsureSupplierForBuyer, but this prevents a future caller from turning the raw
-// CreateWorkerToken primitive into a cross-account route by mistake.
 func (s *Store) CreateWorkerTokenForBuyer(ctx context.Context, buyerID, workerID, supplierID uuid.UUID) (string, error) {
 	var owned bool
 	if err := s.pool.QueryRow(ctx,
@@ -181,20 +146,12 @@ func (s *Store) CreateWorkerTokenForBuyer(ctx context.Context, buyerID, workerID
 	return s.CreateWorkerToken(ctx, workerID, supplierID)
 }
 
-// SetSupplierPayoutsEnabledByAcct flips the cached payouts_enabled flag for the
-// supplier owning a Stripe Connect account id. Driven by the account.updated
-// webhook. A no-op (no error) when no supplier has that account.
 func (s *Store) SetSupplierPayoutsEnabledByAcct(ctx context.Context, acct string, enabled bool) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE suppliers SET payouts_enabled = $2 WHERE stripe_acct = $1`, acct, enabled)
 	return err
 }
 
-// --- HTTP handlers ---
-
-// decodeEmptySupplierBody accepts an omitted body or one empty JSON object. Any
-// field is rejected so old clients cannot accidentally send email/tax identifiers
-// that CX must not receive or retain.
 func decodeEmptySupplierBody(r *http.Request) error {
 	if r.Body == nil {
 		return nil
@@ -230,10 +187,6 @@ func writeSupplierStoreError(w http.ResponseWriter, action string, err error) {
 	}
 }
 
-// handleSupplierOnboard creates (or reuses) this buyer account's supplier, creates
-// a Stripe Connect Express account, and returns Stripe's hosted onboarding URL.
-// CX never receives KYC or tax identifiers. With no Stripe key, the owned supplier
-// intent remains recorded and the Connect boundary returns an honest 503.
 func (s *Server) handleSupplierOnboard(w http.ResponseWriter, r *http.Request) {
 	if err := decodeEmptySupplierBody(r); err != nil {
 		writeErr(w, http.StatusBadRequest, "supplier identity comes from the authenticated account and KYC is collected by Stripe; send an empty JSON object")
@@ -263,9 +216,6 @@ func (s *Server) handleSupplierOnboard(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleCreateWorkerToken mints one worker token for a new machine under the
-// authenticated account's supplier. It may create that supplier first, but cannot
-// select or mutate one by email or supplier id supplied by the caller.
 func (s *Server) handleCreateWorkerToken(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
@@ -292,10 +242,6 @@ func (s *Server) handleCreateWorkerToken(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// handleSupplierStatus reports only the authenticated account's supplier.
-// connect_status is "none" (no Connect account), "pending" (account exists but is
-// not payout-ready), or "enabled". When Stripe is configured, the cached readiness
-// is refreshed live. No email selector or local "tax on file" claim exists.
 func (s *Server) handleSupplierStatus(w http.ResponseWriter, r *http.Request) {
 	if _, supplied := r.URL.Query()["email"]; supplied {
 		writeErr(w, http.StatusBadRequest, "email is not accepted; supplier status is scoped to the authenticated account")
@@ -312,9 +258,6 @@ func (s *Server) handleSupplierStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Best-effort live refresh: if Stripe is configured and the account exists, ask
-	// Stripe directly so completion shows without waiting for the webhook. A Stripe
-	// error here is non-fatal — we fall back to the cached flag, never fake it.
 	if stripeKey() != "" && acct != "" {
 		if out, gerr := stripeGet(r.Context(), "accounts/"+acct); gerr == nil {
 			if pe, ok := out["payouts_enabled"].(bool); ok {
@@ -340,11 +283,6 @@ func (s *Server) handleSupplierStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleConnectWebhook receives Stripe Connect events (account.updated) and flips
-// the cached payouts_enabled flag for the affected connected account. Like the
-// buyer-side billing webhook it is unauthed but signature-verified, and gated on a
-// secret — CX_CONNECT_WEBHOOK_SECRET, falling back to STRIPE_WEBHOOK_SECRET so a
-// single endpoint secret works for both directions. Honest 503 when no secret is set.
 func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 	secret := os.Getenv("CX_CONNECT_WEBHOOK_SECRET")
 	if secret == "" {
@@ -375,7 +313,6 @@ func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 		pe, _ := obj["payouts_enabled"].(bool)
 		if acct != "" {
 			if err := s.store.SetSupplierPayoutsEnabledByAcct(r.Context(), acct, pe); err != nil {
-				// Surface, do not swallow: the webhook will be retried by Stripe.
 				writeErr(w, http.StatusInternalServerError, "updating payout readiness: "+err.Error())
 				return
 			}

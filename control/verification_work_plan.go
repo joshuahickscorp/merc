@@ -19,10 +19,6 @@ const (
 	verificationSamplingPolicy        = "hmac-reputation-v1"
 )
 
-// VerificationWorkPlan is the immutable bridge between pure planning and the
-// terminal apply transaction. A crash after planning reuses these exact effects,
-// release timestamps, sampling choice, and artifact authority; it never consults
-// a changed reputation or peer view to invent a different retry decision.
 type VerificationWorkPlan struct {
 	WorkID              uuid.UUID
 	SnapshotSHA256      string

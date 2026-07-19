@@ -11,43 +11,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// reconcile.go — the ledger↔Stripe reconciliation loop (ACCRETION Wave 4:
-// "Ledger↔Stripe reconciliation job + payout retry/alerting"). It is a read-only
-// audit: it compares every durable cash_moved payout operation to what Stripe says
-// it actually TRANSFERRED to that supplier's connected account, including cash
-// whose ledger row later became reversal_required. It also flags every unresolved
-// provider outcome and released row without cash proof. It NEVER moves money,
-// marks a row, or "fixes" a discrepancy — surfacing drift honestly is the whole
-// job. Wired into the same Workers.Run ticker loop as the payout/stale/webhook
-// sweeps.
-
-// reconcileInterval is how often the ledger↔Stripe audit runs. Deliberately slow —
-// this is an audit, not a hot path, and each cycle makes one Stripe list call per
-// paid supplier, so a tight cadence would burn rate limit for no benefit.
 const reconcileInterval = 15 * time.Minute
 
-// reconcileEpsilonUSD is the tolerance below which a ledger-vs-Stripe delta is
-// treated as rounding noise, not drift. Transfers settle in integer cents, so
-// sub-cent differences are expected float artefacts; anything at or above a cent is
-// a real discrepancy worth flagging.
 const reconcileEpsilonUSD = 0.01
 
-// reconcileLedger audits durable supplier payout operations against actual Stripe
-// transfers and logs any drift. It is honest about its own limits: with no Stripe key it
-// cannot see real transfers, so it logs that it is skipping rather than inventing a
-// "reconciled" result (the stub/manual-export rails never produce Stripe transfers,
-// so there is nothing to reconcile against). A per-supplier lookup error is logged
-// and skipped so one bad supplier never aborts the whole audit.
 func (wk *Workers) reconcileLedger(ctx context.Context) error {
 	if stripeKey() == "" {
-		// No Stripe rail → no real transfers exist to reconcile against. Say so
-		// plainly instead of reporting a clean reconciliation that proves nothing.
-		log.Print("workers: reconcile skipped — Stripe not configured (no transfers to reconcile against)")
+		log.Print("workers: reconcile skipped  -  Stripe not configured (no transfers to reconcile against)")
 		return nil
 	}
 
-	// Per-supplier cash and anomaly totals come from the same operation-backed
-	// rollup as /admin/payouts. Current ledger status never erases cash_moved.
 	rollups, err := wk.store.ListPayoutsAdmin(ctx)
 	if err != nil {
 		return err
@@ -93,9 +66,6 @@ func (wk *Workers) reconcileLedger(ctx context.Context) error {
 			continue
 		}
 		if acct == "" {
-			// Ledger says we released money to a supplier that has no connected
-			// account: a real anomaly (a transfer could not have succeeded), so flag
-			// it rather than silently skipping.
 			log.Printf("workers: reconcile DRIFT: supplier %s shows $%.2f cash sent ($%.6f liability, $%.6f carried) but has no connected Stripe account",
 				supplierID, e.cashSentUSD, e.liabilityUSD, e.carriedUSD)
 			drifted++
@@ -124,26 +94,16 @@ func (wk *Workers) reconcileLedger(ctx context.Context) error {
 		}
 		checked++
 		if delta := e.cashSentUSD - transferred; math.Abs(delta) >= reconcileEpsilonUSD {
-			// Honest flag only. A positive delta = ledger says we paid more than
-			// Stripe shows (under-transfer / missing transfer); negative = Stripe
-			// transferred more than the ledger released (an out-of-band or duplicate
-			// transfer). Either way the operator investigates — we never move money.
 			log.Printf("workers: reconcile DRIFT: supplier %s (%s): ledger cash sent $%.2f vs stripe transferred $%.2f (delta $%.2f; liability $%.6f, carried $%.6f)",
 				supplierID, acct, e.cashSentUSD, transferred, delta, e.liabilityUSD, e.carriedUSD)
 			drifted++
 			metrics.reconcileDrift.Add(1)
 		}
 	}
-	log.Printf("workers: reconcile complete — %d supplier(s) checked, %d with drift", checked, drifted)
+	log.Printf("workers: reconcile complete  -  %d supplier(s) checked, %d with drift", checked, drifted)
 	return nil
 }
 
-// stripeTransferredUSD sums every Stripe transfer to a connected account, in USD.
-// It pages the Transfers list (destination filter, 100/page) via the existing
-// stripeGet helper until has_more is false, so a supplier with many payouts is
-// fully accounted for rather than truncated at one page. Amounts are integer cents
-// on the wire; we convert to dollars. Any malformed page is a real error (never a
-// silently-dropped page that would fake a low total).
 func stripeTransferredUSD(ctx context.Context, acct string) (float64, error) {
 	var totalCents int64
 	startingAfter := ""
@@ -184,8 +144,4 @@ func stripeTransferredUSD(ctx context.Context, acct string) (float64, error) {
 	return float64(totalCents) / 100.0, nil
 }
 
-// reconcileMaxPages bounds the Transfers pagination so a runaway has_more (or an
-// enormous payout history) cannot make one audit cycle loop unboundedly. 100 pages
-// × 100 transfers = 10k transfers per supplier per cycle, far past any real volume;
-// hitting it would itself be a signal worth the operator's attention.
 const reconcileMaxPages = 100

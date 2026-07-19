@@ -1,27 +1,3 @@
-// cx — a tiny standalone CLI for the Computexchange buyer REST API.
-//
-// Stdlib only (net/http + encoding/json + flag). No SDK, no third-party deps:
-// the buyer surface is small enough that a vendored client would be pure mass
-// (BLACKHOLE: own the trivial). Config comes from the environment:
-//
-//	CX_API_URL   base URL of the control plane   (default http://localhost:8080)
-//	CX_API_KEY   buyer api key, sent as `Authorization: Bearer <key>`
-//
-// Commands:
-//
-//	cx submit   --model <id> --type <jobtype> [--input <file|->] [--labels a,b,c]
-//	            [--max-tokens N] [--temperature F] [--top-k N] [--schema <file>]
-//	            [--batch-size N]
-//	            [--tier batch|priority|trusted] [--redundancy F] [--honeypot F]
-//	            [--split N] [--min-memory G] [--hw-classes a,b] [--webhook URL]
-//	            [--wait] [--poll D] [--timeout D]
-//	cx status   <job_id>
-//	cx results  <job_id>
-//	cx models
-//	cx estimate --model <id> --units N [--tier t]
-//
-// Every non-2xx response is fatal and prints the status line + body (BLACKHOLE:
-// surface every failure — never a silent soft-fail).
 package main
 
 import (
@@ -39,33 +15,20 @@ import (
 	"time"
 )
 
-// Release metadata is injected by scripts/build-cli-release.sh. Development
-// builds stay explicit instead of pretending to be a published version.
 var (
 	cliVersion   = "dev"
 	cliCommit    = "unknown"
 	cliBuildDate = "unknown"
 )
 
-// ---- wire shapes (mirror control/types.go + the cliJobSubmit in control/api.go) ----
-
-// jobType is the tagged job descriptor. omitempty keeps the irrelevant variant
-// fields off the wire so the shape matches the Rust serde enum exactly.
 type jobType struct {
-	Type        string          `json:"type"`
-	BatchSize   int             `json:"batch_size,omitempty"`
-	MaxTokens   uint32          `json:"max_tokens,omitempty"`
-	Temperature float32         `json:"temperature,omitempty"`
-	Language    *string         `json:"language,omitempty"`
-	Timestamps  bool            `json:"timestamps,omitempty"`
-	Labels      []string        `json:"labels,omitempty"`
-	Schema      json.RawMessage `json:"schema,omitempty"`
-	TopK        uint32          `json:"top_k,omitempty"`
+	Type        string  `json:"type"`
+	BatchSize   int     `json:"batch_size,omitempty"`
+	MaxTokens   uint32  `json:"max_tokens,omitempty"`
+	Temperature float32 `json:"temperature,omitempty"`
 }
 
 type modelRef struct {
-	// Kind is optional on buyer ingress. Runtime-matrix authority selects and
-	// freezes the canonical gguf/hf/mlx wire kind when a worker claims the task.
 	Kind string `json:"kind,omitempty"`
 	Ref  string `json:"ref"`
 }
@@ -82,8 +45,6 @@ type verificationPolicy struct {
 	PayoutHoldSecs uint32  `json:"payout_hold_secs"`
 }
 
-// cliJobSubmit is the POST /v1/jobs body. params is raw JSON ({"split_size":N} or
-// null); input is a JSON string (inline JSONL) or {"s3_key":"..."}.
 type cliJobSubmit struct {
 	JobType      jobType            `json:"job_type"`
 	Model        modelRef           `json:"model"`
@@ -93,20 +54,9 @@ type cliJobSubmit struct {
 	Tier         string             `json:"tier"`
 	Input        json.RawMessage    `json:"input"`
 	WebhookURL   string             `json:"webhook_url,omitempty"`
-	// MaxUSD is the optional buyer hard spend cap (Budget Governor); 0/omitempty
-	// means no cap. QuoteID optionally binds this submission to an advisory quote
-	// ("q_<uuid>" from `cx quote`); the server checks/echoes it on the invoice.
-	// Both omitempty so the unbound/uncapped wire shape is unchanged.
-	MaxUSD  float64 `json:"max_usd,omitempty"`
-	QuoteID string  `json:"quote_id,omitempty"`
-	// PrivatePool routes this job ONLY to suppliers bound via `cx private-pool add`
-	// (Buyer advantage & pricing edge 6->7: "Productize the privacy premium instead
-	// of leaving it a sentence"). false (default) is the ordinary shared-pool path,
-	// unchanged.
-	PrivatePool bool `json:"private_pool,omitempty"`
+	MaxUSD       float64            `json:"max_usd,omitempty"`
+	QuoteID      string             `json:"quote_id,omitempty"`
 }
-
-// ---- HTTP client ----
 
 type client struct {
 	base string
@@ -119,8 +69,6 @@ func newClient() *client {
 	return &client{base: base, key: os.Getenv("CX_API_KEY"), hc: &http.Client{Timeout: 60 * time.Second}}
 }
 
-// do issues an authenticated request and returns the body, failing loudly on any
-// transport error or non-2xx status (status line + body printed to stderr).
 func (c *client) do(method, path string, body []byte) []byte {
 	var rdr io.Reader
 	if body != nil {
@@ -148,13 +96,6 @@ func (c *client) do(method, path string, body []byte) []byte {
 	return out
 }
 
-// ---- commands ----
-
-// dispatchBuyer runs the buyer/operator + evidence subcommands of the unified cx
-// binary. These are pure HTTP clients (submit/quote/.../version) or local git
-// tools (audit/source-id/verify): they must run WITHOUT DATABASE_URL and must
-// NOT boot the control plane, so main() calls this BEFORE the mandatory DB gate.
-// Returns true if cmd was a buyer/evidence command (caller then returns).
 func dispatchBuyer(cmd string, args []string) bool {
 	switch cmd {
 	case "submit":
@@ -179,8 +120,6 @@ func dispatchBuyer(cmd string, args []string) bool {
 		cmdExplainScheduler(args)
 	case "cancel":
 		cmdCancel(args)
-	case "private-pool":
-		cmdPrivatePool(args)
 	case "audit":
 		cmdAudit(args)
 	case "source-id":
@@ -232,16 +171,11 @@ func cmdVersion(args []string) {
 func cmdSubmit(args []string) {
 	fs := flag.NewFlagSet("submit", flag.ExitOnError)
 	model := fs.String("model", "", "model id, e.g. all-minilm-l6-v2 (required)")
-	typ := fs.String("type", "", "generic JSON job type: embed|batch_infer|batch_classification|json_extraction|rerank (required)")
+	typ := fs.String("type", "", "job type: embed|batch_infer (required)")
 	input := fs.String("input", "-", "JSONL input file, or - for stdin")
 	tier := fs.String("tier", "batch", "service tier: batch|priority|trusted")
-	labels := fs.String("labels", "", "comma-separated labels (batch_classification)")
-	schemaFile := fs.String("schema", "", "JSON schema file (json_extraction)")
 	maxTokens := fs.Uint("max-tokens", 0, "max tokens (batch_infer)")
 	temperature := fs.Float64("temperature", 0, "sampling temperature (batch_infer)")
-	topK := fs.Uint("top-k", 0, "cut ranking to top-K (rerank)")
-	language := fs.String("language", "", "reserved for the dedicated audio WAV surface (not supported by cx yet)")
-	timestamps := fs.Bool("timestamps", false, "reserved for the dedicated audio WAV surface (not supported by cx yet)")
 	batchSize := fs.Uint("batch-size", 0, "embedding batch size (embed)")
 	redundancy := fs.Float64("redundancy", 0, "redundancy fraction 0.0-1.0")
 	honeypot := fs.Float64("honeypot", 0, "honeypot fraction 0.0-1.0")
@@ -253,7 +187,6 @@ func cmdSubmit(args []string) {
 	webhook := fs.String("webhook", "", "https completion webhook URL")
 	quoteID := fs.String("quote-id", "", "bind to an advisory quote id (q_<uuid> from `cx quote`)")
 	maxUSD := fs.Float64("max-usd", 0, "hard spend cap in USD (Budget Governor); 0 = no cap")
-	privatePool := fs.Bool("private-pool", false, "route ONLY to suppliers you've added via `cx private-pool add` (real premium priced in `cx quote`)")
 	s3Key := fs.String("s3-key", "", "use an already-uploaded object instead of --input")
 	wait := fs.Bool("wait", false, "poll to completion and print results")
 	poll := fs.Duration("poll", 3*time.Second, "poll interval with --wait")
@@ -263,8 +196,8 @@ func cmdSubmit(args []string) {
 	if *model == "" || *typ == "" {
 		fatalf("--model and --type are required")
 	}
-	if *typ == "audio_transcribe" || *language != "" || *timestamps {
-		fatalf("audio transcription requires POST /v1/audio/jobs/quote and POST /v1/audio/jobs; cx does not expose that development-only multipart surface yet (see docs/QUICKSTART.md)")
+	if !validJobTypes[*typ] {
+		fatalf("--type must be embed or batch_infer")
 	}
 
 	jt := jobType{Type: *typ}
@@ -277,27 +210,7 @@ func cmdSubmit(args []string) {
 	if *temperature > 0 {
 		jt.Temperature = float32(*temperature)
 	}
-	if *topK > 0 {
-		jt.TopK = uint32(*topK)
-	}
-	if *timestamps {
-		jt.Timestamps = true
-	}
-	if *language != "" {
-		jt.Language = language
-	}
-	if *labels != "" {
-		jt.Labels = splitCSV(*labels)
-	}
-	if *schemaFile != "" {
-		raw := readFile(*schemaFile)
-		if !json.Valid(raw) {
-			fatalf("--schema file %q is not valid JSON", *schemaFile)
-		}
-		jt.Schema = json.RawMessage(raw)
-	}
 
-	// input: an inline JSONL string, or a reference to an uploaded object.
 	var inputField json.RawMessage
 	if *s3Key != "" {
 		inputField = mustJSON(map[string]string{"s3_key": *s3Key})
@@ -328,12 +241,11 @@ func cmdSubmit(args []string) {
 			HoneypotFrac:   float32(*honeypot),
 			PayoutHoldSecs: uint32(*payoutHold),
 		},
-		Tier:        *tier,
-		Input:       inputField,
-		WebhookURL:  *webhook,
-		MaxUSD:      *maxUSD,
-		QuoteID:     *quoteID,
-		PrivatePool: *privatePool,
+		Tier:       *tier,
+		Input:      inputField,
+		WebhookURL: *webhook,
+		MaxUSD:     *maxUSD,
+		QuoteID:    *quoteID,
 	}
 
 	c := newClient()
@@ -352,8 +264,6 @@ func cmdSubmit(args []string) {
 	}
 }
 
-// waitForJob polls GET /v1/jobs/{id} until the job reaches a terminal status,
-// then prints the results (complete) or exits non-zero (failed/cancelled).
 func waitForJob(c *client, id string, poll, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -381,9 +291,6 @@ func waitForJob(c *client, id string, poll, timeout time.Duration) {
 func cmdStatus(args []string) {
 	id := oneArg("status", args)
 	out := newClient().do("GET", "/v1/jobs/"+id, nil)
-	// Summarize the billing + verification receipt to stderr (the full JSON stays on
-	// stdout for machine use). Decoded leniently: any shape drift just skips the
-	// summary, never the JSON.
 	var js statusResp
 	if json.Unmarshal(out, &js) == nil {
 		if js.ChargeStatus != "" {
@@ -398,9 +305,6 @@ func cmdStatus(args []string) {
 	printJSON(out)
 }
 
-// statusResp is the lenient decode of GET /v1/jobs/{id} the status summary reads
-// (charge_status + the verification receipt block). Only the fields the summary
-// prints are listed; the full body is still emitted verbatim by printJSON.
 type statusResp struct {
 	ChargeStatus string `json:"charge_status"`
 	Verification struct {
@@ -415,41 +319,9 @@ type statusResp struct {
 	} `json:"verification"`
 }
 
-// cmdCancel cancels a job (DELETE /v1/jobs/{id}); queued tasks stop being
-// dispatched and the buyer is refunded for unstarted work by the control plane.
 func cmdCancel(args []string) {
 	id := oneArg("cancel", args)
 	printJSON(newClient().do("DELETE", "/v1/jobs/"+id, nil))
-}
-
-// cmdPrivatePool is the real buyer-facing private-pool flow (Buyer advantage &
-// pricing edge 6->7, docs/internal/CREED_AND_PATH_TO_TEN.md: "Productize the
-// privacy premium instead of leaving it a sentence") — add/list/remove over the
-// already-wired server-side AddPrivatePoolMember, so a buyer can designate a
-// private supplier pool end to end via the CLI, not just a database row.
-func cmdPrivatePool(args []string) {
-	if len(args) == 0 {
-		fatalf("usage: cx private-pool add|list|remove <supplier_id>")
-	}
-	sub, rest := args[0], args[1:]
-	c := newClient()
-	switch sub {
-	case "add":
-		sid := oneArg("private-pool add", rest)
-		c.do("POST", "/v1/private-pool", mustJSON(map[string]string{"supplier_id": sid}))
-		fmt.Printf("added supplier %s to your private pool\n", sid)
-	case "list":
-		if len(rest) != 0 {
-			fatalf("usage: cx private-pool list")
-		}
-		printJSON(c.do("GET", "/v1/private-pool", nil))
-	case "remove":
-		sid := oneArg("private-pool remove", rest)
-		c.do("DELETE", "/v1/private-pool/"+sid, nil)
-		fmt.Printf("removed supplier %s from your private pool\n", sid)
-	default:
-		fatalf("unknown private-pool subcommand %q (try add, list, or remove)", sub)
-	}
 }
 
 func cmdResults(args []string) {
@@ -457,24 +329,16 @@ func cmdResults(args []string) {
 	fetchResults(newClient(), id)
 }
 
-// cmdEvents prints a job's buyer-visible event timeline (Plane C/D): quote/created,
-// task failures, requeues, budget stops, completion — so a buyer never has to infer
-// state from a status field.
 func cmdEvents(args []string) {
 	id := oneArg("events", args)
 	printJSON(newClient().do("GET", "/v1/jobs/"+id+"/events", nil))
 }
 
-// cmdFailures prints a job's typed failure history (class, retryable, buyer_fault,
-// memory snapshot) — what failed and whose fault, without reading worker logs.
 func cmdFailures(args []string) {
 	id := oneArg("failures", args)
 	printJSON(newClient().do("GET", "/v1/jobs/"+id+"/failures", nil))
 }
 
-// invoiceResp mirrors the server's InvoiceView (control/store.go) — the buyer
-// invoice for one job. QuotedUSD is a pointer so a job that was never bound to a
-// quote (field absent) is distinguishable from a real $0 quote. Decoded leniently.
 type invoiceResp struct {
 	JobID           string   `json:"job_id"`
 	Status          string   `json:"status"`
@@ -487,10 +351,6 @@ type invoiceResp struct {
 	QuotedUSD       *float64 `json:"quoted_usd,omitempty"`
 }
 
-// cmdInvoice prints a job's ledger-backed invoice (GET /v1/jobs/{id}/invoice):
-// estimated vs actual vs charged, the supplier credit + platform take split, and
-// — when the job was bound to a quote — the quoted price next to what was charged
-// so a buyer can see quoted-vs-actual at a glance. --json prints the raw invoice.
 func cmdInvoice(args []string) {
 	fs := flag.NewFlagSet("invoice", flag.ExitOnError)
 	asJSON := fs.Bool("json", false, "print the full invoice JSON")
@@ -513,7 +373,6 @@ func cmdInvoice(args []string) {
 	printInvoice(inv)
 }
 
-// printInvoice renders the compact human invoice summary.
 func printInvoice(inv invoiceResp) {
 	p := func(format string, a ...any) { fmt.Printf(format+"\n", a...) }
 	p("Invoice %s", inv.JobID)
@@ -522,17 +381,12 @@ func printInvoice(inv invoiceResp) {
 	p("  Actual   : $%.4f", inv.ActualUSD)
 	p("  Charged  : $%.4f", inv.ChargedUSD)
 	if inv.QuotedUSD != nil {
-		// Quoted-vs-actual: the buyer was told *QuotedUSD up front; ChargedUSD is what
-		// the ledger billed. Show the delta so over/under-quote is obvious.
 		p("  Quoted   : $%.4f (delta $%+.4f vs charged)", *inv.QuotedUSD, inv.ChargedUSD-*inv.QuotedUSD)
 	}
 	p("  Supplier : $%.4f credit", inv.SupplierPaidUSD)
 	p("  Platform : $%.4f take", inv.PlatformTakeUSD)
 }
 
-// fetchResults pulls GET /v1/jobs/{id}/results, downloads the merged
-// results_url and streams it to stdout. Falls back to the per-task result_urls
-// when no merged artifact is present.
 func fetchResults(c *client, id string) {
 	var jr struct {
 		Status     string   `json:"status"`
@@ -553,8 +407,6 @@ func fetchResults(c *client, id string) {
 	}
 }
 
-// streamURL GETs a presigned URL (no auth header — the signature carries it) and
-// copies the body to stdout, failing loudly on non-2xx.
 func streamURL(c *client, u string) {
 	resp, err := c.hc.Get(u)
 	if err != nil {
@@ -590,11 +442,6 @@ func cmdEstimate(args []string) {
 	printJSON(newClient().do("GET", "/v1/price-estimate?"+q.Encode(), nil))
 }
 
-// cmdExplainScheduler answers "why is this worker getting no work?" (admin-only;
-// GET /admin/scheduler/explain?worker_id=<id>). It prints per-reason COUNTS of
-// currently-claimable tasks the worker is filtered out of (memory/model/job-type/
-// hw-class/residency/throttle/payout/supplier gates) plus how many it could claim.
-// Needs an admin CX_API_KEY (the same Bearer auth as the buyer key, is_admin set).
 func cmdExplainScheduler(args []string) {
 	fs := flag.NewFlagSet("explain-scheduler", flag.ExitOnError)
 	worker := fs.String("worker", "", "worker id (uuid) to explain (required)")
@@ -607,8 +454,6 @@ func cmdExplainScheduler(args []string) {
 	printJSON(newClient().do("GET", "/admin/scheduler/explain?"+q.Encode(), nil))
 }
 
-// quoteResp mirrors the server's Quote (control/quote.go) — the fields cmdQuote
-// prints. Decoded leniently; unknown fields are ignored.
 type quoteResp struct {
 	QuoteID       string `json:"quote_id"`
 	JobType       string `json:"job_type"`
@@ -623,19 +468,16 @@ type quoteResp struct {
 		FirstBadLine     int   `json:"first_bad_line"`
 	} `json:"input"`
 	Execution struct {
-		RecommendedSplitSize   int    `json:"recommended_split_size"`
-		EstimatedTasks         int    `json:"estimated_tasks"`
-		EligibleWorkersNow     int    `json:"eligible_workers_now"`
-		OOMRisk                string `json:"oom_risk"`
-		ColdStartRisk          string `json:"cold_start_risk"`
-		PrivatePool            bool   `json:"private_pool"`
-		PrivatePoolMemberCount int    `json:"private_pool_member_count"`
+		RecommendedSplitSize int    `json:"recommended_split_size"`
+		EstimatedTasks       int    `json:"estimated_tasks"`
+		EligibleWorkersNow   int    `json:"eligible_workers_now"`
+		OOMRisk              string `json:"oom_risk"`
+		ColdStartRisk        string `json:"cold_start_risk"`
 	} `json:"execution"`
 	Cost struct {
-		MinUSD                float64 `json:"min_usd"`
-		ExpectedUSD           float64 `json:"expected_usd"`
-		MaxUSD                float64 `json:"max_usd"`
-		PrivatePoolPremiumUSD float64 `json:"private_pool_premium_usd"`
+		MinUSD      float64 `json:"min_usd"`
+		ExpectedUSD float64 `json:"expected_usd"`
+		MaxUSD      float64 `json:"max_usd"`
 	} `json:"cost"`
 	Time struct {
 		P50Secs int `json:"p50_secs"`
@@ -644,30 +486,25 @@ type quoteResp struct {
 	Budget struct {
 		SuggestedMaxUSD float64 `json:"suggested_max_usd"`
 	} `json:"budget"`
-	Warnings               []string `json:"warnings"`
-	PrivatePoolAttestation string   `json:"private_pool_attestation"`
+	Warnings []string `json:"warnings"`
 }
 
-// cmdQuote scans an input locally-via-server and prints a compact quote (PLANE_C
-// §18): cost band, ETA band, eligible supply, risk, suggested cap, and the exact
-// submit command — WITHOUT spending or creating a job. --json prints the raw quote.
 func cmdQuote(args []string) {
 	fs := flag.NewFlagSet("quote", flag.ExitOnError)
 	model := fs.String("model", "", "model id, e.g. all-minilm-l6-v2 (required)")
-	typ := fs.String("type", "", "generic JSON job type: embed|batch_infer|batch_classification|json_extraction|rerank (required)")
+	typ := fs.String("type", "", "job type: embed|batch_infer (required)")
 	input := fs.String("input", "-", "JSONL input file, or - for stdin")
 	tier := fs.String("tier", "batch", "service tier: batch|priority|trusted")
 	split := fs.Int("split", 0, "lines per task (0 = server adaptive default)")
 	minMemory := fs.Float64("min-memory", 0, "min worker memory GB")
 	redundancy := fs.Float64("redundancy", 0, "redundancy fraction 0.0-1.0")
-	privatePool := fs.Bool("private-pool", false, "price a private-pool submission (routes only to suppliers you've added via `cx private-pool add`)")
 	asJSON := fs.Bool("json", false, "print the full quote JSON")
 	fs.Parse(args)
 	if *model == "" || *typ == "" {
 		fatalf("--model and --type are required")
 	}
-	if *typ == "audio_transcribe" {
-		fatalf("audio transcription quotes require POST /v1/audio/jobs/quote; cx does not expose that development-only multipart surface yet (see docs/QUICKSTART.md)")
+	if !validJobTypes[*typ] {
+		fatalf("--type must be embed or batch_infer")
 	}
 	data := readInput(*input)
 	if len(bytes.TrimSpace(data)) == 0 {
@@ -685,7 +522,6 @@ func cmdQuote(args []string) {
 		Verification: verificationPolicy{RedundancyFrac: float32(*redundancy)},
 		Tier:         *tier,
 		Input:        mustJSON(string(data)),
-		PrivatePool:  *privatePool,
 	}
 	out := newClient().do("POST", "/v1/quote", mustJSON(sub))
 	if *asJSON {
@@ -700,7 +536,6 @@ func cmdQuote(args []string) {
 	printQuote(q, *model, *typ, *tier, *input)
 }
 
-// printQuote renders the compact human quote summary.
 func printQuote(q quoteResp, model, typ, tier, inputPath string) {
 	p := func(format string, a ...any) { fmt.Printf(format+"\n", a...) }
 	p("Quote %s", q.QuoteID)
@@ -717,23 +552,13 @@ func printQuote(q quoteResp, model, typ, tier, inputPath string) {
 	p("  Cost     : $%.4f-$%.4f expected $%.4f", q.Cost.MinUSD, q.Cost.MaxUSD, q.Cost.ExpectedUSD)
 	p("  ETA      : p50 %s, p90 %s", humanSecs(q.Time.P50Secs), humanSecs(q.Time.P90Secs))
 	p("  Risk     : %s OOM, %s cold-start", q.Execution.OOMRisk, q.Execution.ColdStartRisk)
-	if q.Execution.PrivatePool {
-		p("  Private  : pool of %d bound supplier(s) · premium $%.4f (already included above)",
-			q.Execution.PrivatePoolMemberCount, q.Cost.PrivatePoolPremiumUSD)
-		p("  Guarantee: %s", q.PrivatePoolAttestation)
-	}
 	for _, w := range q.Warnings {
 		p("  ⚠ %s", w)
 	}
 	p("  Cap      : --max-usd %.4f (suggested)", q.Budget.SuggestedMaxUSD)
-	submitFlags := ""
-	if q.Execution.PrivatePool {
-		submitFlags = " --private-pool"
-	}
-	p("  Submit   : cx submit --model %s --type %s --tier %s --input %s%s", model, typ, tier, inputPath, submitFlags)
+	p("  Submit   : cx submit --model %s --type %s --tier %s --input %s", model, typ, tier, inputPath)
 }
 
-// human formats a count with k/M suffixes; humanBytes/humanSecs for sizes/durations.
 func human(n int64) string {
 	switch {
 	case n >= 1_000_000:
@@ -763,8 +588,6 @@ func humanSecs(s int) string {
 	return fmt.Sprintf("%ds", s)
 }
 
-// ---- helpers ----
-
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -779,7 +602,6 @@ func oneArg(cmd string, args []string) string {
 	return args[0]
 }
 
-// readInput reads JSONL from a file path, or from stdin when path is "-".
 func readInput(path string) []byte {
 	if path == "-" {
 		data, err := io.ReadAll(os.Stdin)
@@ -799,8 +621,6 @@ func readFile(path string) []byte {
 	return data
 }
 
-// splitCSV splits a comma list into a trimmed, empty-dropping slice; "" → nil so
-// omitempty keeps the field off the wire (server treats null as "any").
 func splitCSV(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return nil
@@ -822,8 +642,6 @@ func mustJSON(v any) json.RawMessage {
 	return b
 }
 
-// printJSON re-indents a JSON body for human reading; if it is not JSON, it is
-// printed verbatim (never swallowed).
 func printJSON(b []byte) {
 	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
@@ -843,7 +661,7 @@ func fatalf(format string, a ...any) {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `cx — Computexchange buyer CLI
+	fmt.Fprint(os.Stderr, `cx  -  Computexchange buyer CLI
 
 Usage:
   cx quote    --model <id> --type <jobtype> [--input <file|->] [--tier t] [--json]
@@ -857,7 +675,6 @@ Usage:
   cx models
   cx estimate --model <id> --units N [--tier t]
   cx explain-scheduler --worker <id>   (admin key)
-  cx private-pool add|list|remove <supplier_id>
   cx audit codebase [--out DIR]        (authoritative census; retires make loc)
   cx source-id [--root DIR] [--field F] (source fingerprint; replaces scripts/source_fingerprint.py)
   cx verify --ledger PATH [flags]      (validate a prove-local ledger; replaces verify_proof_ledger.py)
@@ -867,8 +684,7 @@ Env:
   CX_API_URL   control plane base URL (default http://localhost:8080)
   CX_API_KEY   buyer api key (sent as Authorization: Bearer)
 
-Generic JSON job types: embed, batch_infer, batch_classification,
-           json_extraction, rerank
+Job types: embed, batch_infer
 Run "cx submit -h" for the full flag list.
 `)
 }

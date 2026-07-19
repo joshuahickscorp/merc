@@ -7,20 +7,8 @@ import (
 )
 
 const (
-	// Verification holds one PostgreSQL session connection while it owns the
-	// per-chunk advisory lock.  Active processors are therefore capped below the
-	// pool size, leaving connections for their fenced reads/transactions and lease
-	// heartbeat.  Two connections are reserved on normal pools; a two-connection
-	// development/test pool reserves one and runs exactly one verifier at a time.
 	verificationDBHeadroom int32 = 2
 
-	// This is a process-wide ceiling for raw verification artifact buffers retained
-	// by HTTP verification, background recovery, N-way voting, and result merging.
-	// It is deliberately a little above four absolute-size (256 MiB) results: one
-	// primary, one hedge, one redundancy result, and one tiebreak can coexist for a
-	// chunk.  Merge is streamed through a temporary file and retains one chunk at a
-	// time.  The budget accounts byte-slice capacity, including the HEAD-race byte;
-	// it is not a claim that Go/runtime/parser metadata is byte-for-byte bounded.
 	verificationArtifactMemoryCeiling int64 = (1 << 30) + (64 << 20) // 1.0625 GiB
 )
 
@@ -29,9 +17,6 @@ var (
 	ErrVerificationPoolTooSmall = errors.New("verification requires at least two database connections")
 )
 
-// verificationResourceBudget is owned by Store, not by a processor.  The HTTP
-// processor and every background processor constructed over that Store therefore
-// share the exact same connection and byte ceilings.
 type verificationResourceBudget struct {
 	processSlots chan struct{}
 	bytes        *weightedByteBudget
@@ -130,17 +115,8 @@ func (b *weightedByteBudget) release(n int64) {
 	b.inUse -= n
 }
 
-func (b *weightedByteBudget) snapshot() (inUse, peak, ceiling int64) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.inUse, b.peak, b.ceiling
-}
-
 type verificationMemoryTrackerKey struct{}
 
-// verificationMemoryTracker retains reservations until the caller releases a
-// mark or the whole operation.  That matches []byte lifetime: returning from the
-// storage read is not enough to free a buffer that a vote still references.
 type verificationMemoryTracker struct {
 	mu     sync.Mutex
 	budget *weightedByteBudget
@@ -221,8 +197,6 @@ func releaseVerificationMemoryToMark(ctx context.Context, mark int64) {
 	}
 	release := tracker.held - mark
 	tracker.held = mark
-	// Marks are used by the streaming merge after it has consumed one chunk.  A
-	// cached slice from that chunk must not outlive the reservation just released.
 	tracker.bodies = make(map[string][]byte)
 	tracker.budget.release(release)
 }

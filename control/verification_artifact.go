@@ -15,26 +15,13 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
-// verificationArtifactAbsoluteMaxBytes is the final control-plane memory and
-// transfer ceiling for one worker result. It deliberately matches the existing
-// finite cap on ordinary untrusted HTTP request bodies. Job-specific policies
-// below are usually much smaller, but no malformed or future job descriptor can
-// widen this backstop.
 const verificationArtifactAbsoluteMaxBytes int64 = maxRequestBodyBytes
 
 var (
-	// ErrVerificationArtifactTooLarge is the typed sentinel for an object that
-	// exceeds the durable per-attempt result policy. Callers use errors.Is so a
-	// deterministic rejection is distinguishable from a retryable store outage.
 	ErrVerificationArtifactTooLarge = errors.New("verification artifact exceeds size limit")
-	// ErrVerificationArtifactChanged means HEAD metadata, the subsequent bounded
-	// GET, or a pinned digest disagreed. A mutable/stale object is never authority.
-	ErrVerificationArtifactChanged = errors.New("verification artifact changed while reading")
+	ErrVerificationArtifactChanged  = errors.New("verification artifact changed while reading")
 )
 
-// VerificationArtifactTooLargeError records the evidence needed to reject an
-// attempt deterministically without copying the untrusted object. ObservedBytes
-// is a lower bound when the HEAD became stale during the GET.
 type VerificationArtifactTooLargeError struct {
 	Key           string
 	ObservedBytes int64
@@ -50,12 +37,6 @@ func (e *VerificationArtifactTooLargeError) Unwrap() error {
 	return ErrVerificationArtifactTooLarge
 }
 
-// SealedVerificationArtifact is the control-plane observation of one uploaded
-// task attempt. Upload URLs point at mutable staging keys; verdicts and merges
-// must instead bind the bytes the control plane actually read. Keying the sealed
-// copy by a server-computed SHA-256 makes a retry after an object-store response
-// loss idempotent and prevents a later staging-key overwrite from changing the
-// artifact behind an already-recorded verdict.
 type SealedVerificationArtifact struct {
 	Key    string
 	SHA256 string
@@ -83,10 +64,6 @@ func isUnavailableVerificationEvidenceKey(key string) bool {
 	return strings.Contains(key, "/unavailable/") && strings.HasSuffix(key, ".json")
 }
 
-// readExactObjectSizeBounded reads exactly the size returned by HEAD, plus at
-// most one byte. That extra byte is the race detector: if a mutable staging key
-// grew after HEAD, the read fails closed without following the new size. The
-// allocation and bytes requested from r are therefore both <= maxBytes+1.
 func readExactObjectSizeBounded(r io.Reader, key string, declaredBytes, maxBytes int64) ([]byte, error) {
 	if maxBytes < 0 || declaredBytes < 0 {
 		return nil, fmt.Errorf("verification artifact %q has invalid size policy %d/%d", key, declaredBytes, maxBytes)
@@ -94,8 +71,6 @@ func readExactObjectSizeBounded(r io.Reader, key string, declaredBytes, maxBytes
 	if declaredBytes > maxBytes {
 		return nil, &VerificationArtifactTooLargeError{Key: key, ObservedBytes: declaredBytes, MaxBytes: maxBytes}
 	}
-	// All production policies are far below max-int, but retain an explicit
-	// conversion guard so a corrupt test/caller cannot wrap the allocation.
 	if declaredBytes == int64(^uint(0)>>1) {
 		return nil, &VerificationArtifactTooLargeError{Key: key, ObservedBytes: declaredBytes, MaxBytes: maxBytes}
 	}
@@ -104,9 +79,6 @@ func readExactObjectSizeBounded(r io.Reader, key string, declaredBytes, maxBytes
 	n, err := io.ReadFull(io.LimitReader(r, readLimit), buf)
 	switch {
 	case err == nil:
-		// io.ReadFull obtained the one byte beyond HEAD. If HEAD already named
-		// the cap this is provably oversized; otherwise it is a mutation/stale
-		// metadata conflict and must be re-observed from scratch.
 		if int64(n) > maxBytes {
 			return nil, &VerificationArtifactTooLargeError{Key: key, ObservedBytes: int64(n), MaxBytes: maxBytes}
 		}
@@ -138,9 +110,6 @@ func (s *Storage) statVerificationObject(ctx context.Context, key string) (int64
 	return size, err
 }
 
-// readVerificationObjectBounded performs HEAD before GET, rejects an oversized
-// HEAD without opening the body, then uses the exact-size + one-byte read above.
-// expectedBytes, when non-nil, is pinned authority and is checked before GET.
 func (s *Storage) readVerificationObjectBounded(ctx context.Context, key string, maxBytes int64, expectedBytes *int64) ([]byte, error) {
 	if strings.TrimSpace(key) == "" {
 		return nil, errors.New("verification artifact key is required")
@@ -167,10 +136,6 @@ func (s *Storage) readVerificationObjectBounded(ctx context.Context, key string,
 		}
 		return cached, nil
 	}
-	// readExactObjectSizeBounded allocates declared+1 capacity so growth after
-	// HEAD is observed without following an untrusted new size.  Reserve that
-	// exact capacity before allocation; a busy global budget makes verification
-	// pending instead of allowing concurrent large artifacts to exhaust RAM.
 	if err := reserveVerificationMemory(ctx, declared+1); err != nil {
 		return nil, fmt.Errorf("read verification object %q (%d bytes): %w", key, declared, err)
 	}
@@ -190,11 +155,6 @@ func (s *Storage) readVerificationObjectBounded(ctx context.Context, key string,
 
 const verificationDigestReadBufferBytes int64 = 32 << 10
 
-// verifyVerificationObjectDigest reads a just-written control-owned object back
-// without allocating a second artifact-sized slice.  It verifies exact length
-// (including a one-byte growth probe) and the server-computed digest using a
-// fixed 32 KiB buffer.  The original staging body remains the only large buffer
-// and can be reused by the processor immediately after the durable pin.
 func (s *Storage) verifyVerificationObjectDigest(ctx context.Context, key string, expectedBytes, maxBytes int64, expectedSHA string) error {
 	if expectedBytes < 0 || expectedBytes > maxBytes {
 		return &VerificationArtifactTooLargeError{Key: key, ObservedBytes: expectedBytes, MaxBytes: maxBytes}
@@ -233,19 +193,6 @@ func (s *Storage) verifyVerificationObjectDigest(ctx context.Context, key string
 	return nil
 }
 
-// SealVerificationArtifact reads the worker-writable staging object, computes
-// the authority digest itself, writes the exact bytes to a deterministic
-// control-owned key, and reads that key back before returning. The public helper
-// retains the original API and uses the absolute ceiling; production verification
-// passes the narrower immutable per-attempt policy through the with-limit helper.
-func (s *Storage) SealVerificationArtifact(ctx context.Context, taskID uuid.UUID, attempt int16, stagingKey string) (SealedVerificationArtifact, error) {
-	return s.sealVerificationArtifact(ctx, taskID, attempt, stagingKey, nil)
-}
-
-func (s *Storage) sealVerificationArtifact(ctx context.Context, taskID uuid.UUID, attempt int16, stagingKey string, probe recoveryBoundaryProbe) (SealedVerificationArtifact, error) {
-	return s.sealVerificationArtifactWithLimit(ctx, taskID, attempt, stagingKey, verificationArtifactAbsoluteMaxBytes, probe)
-}
-
 func (s *Storage) sealVerificationArtifactWithLimit(ctx context.Context, taskID uuid.UUID, attempt int16, stagingKey string, maxBytes int64, probe recoveryBoundaryProbe) (SealedVerificationArtifact, error) {
 	if taskID == uuid.Nil {
 		return SealedVerificationArtifact{}, fmt.Errorf("sealing verification artifact: task id is required")
@@ -278,14 +225,6 @@ func (s *Storage) sealVerificationArtifactWithLimit(ctx context.Context, taskID 
 	return SealedVerificationArtifact{
 		Key: key, SHA256: digest, Bytes: int64(len(body)), Body: body,
 	}, nil
-}
-
-// sealOversizedVerificationEvidence writes a small, deterministic server-owned
-// artifact describing the rejected observation. It never copies the worker body.
-// Pinning this evidence lets the ordinary immutable plan/apply machinery record a
-// terminal fail + retry instead of releasing the same oversized work forever.
-func (s *Storage) sealOversizedVerificationEvidence(ctx context.Context, taskID uuid.UUID, attempt int16, sizeErr *VerificationArtifactTooLargeError) (SealedVerificationArtifact, error) {
-	return s.sealOversizedVerificationEvidenceWithProbe(ctx, taskID, attempt, sizeErr, nil)
 }
 
 func (s *Storage) sealOversizedVerificationEvidenceWithProbe(ctx context.Context, taskID uuid.UUID, attempt int16, sizeErr *VerificationArtifactTooLargeError, probe recoveryBoundaryProbe) (SealedVerificationArtifact, error) {
@@ -322,11 +261,6 @@ func (s *Storage) sealOversizedVerificationEvidenceWithProbe(ctx context.Context
 	return SealedVerificationArtifact{Key: key, SHA256: digest, Bytes: expected, Body: evidence}, nil
 }
 
-// sealUnavailableVerificationEvidence records a small server-owned observation
-// after a committed staging key has remained missing or unstable across the
-// bounded retry budget. It never claims that absent worker bytes were read. The
-// evidence exists solely to let the ordinary immutable plan/apply transaction
-// terminate the bad attempt without leaving its parent job hostage forever.
 func (s *Storage) sealUnavailableVerificationEvidenceWithProbe(
 	ctx context.Context,
 	taskID uuid.UUID,
@@ -367,9 +301,6 @@ func (s *Storage) sealUnavailableVerificationEvidenceWithProbe(
 	return SealedVerificationArtifact{Key: key, SHA256: digest, Bytes: expected, Body: evidence}, nil
 }
 
-// ReadSealedVerificationArtifact retains the original call surface while making
-// every existing caller bounded. Production verification uses the narrower
-// with-limit variant tied to the immutable attempt snapshot.
 func (s *Storage) ReadSealedVerificationArtifact(ctx context.Context, artifact VerificationArtifact) ([]byte, error) {
 	return s.readSealedVerificationArtifactWithLimit(ctx, artifact, verificationArtifactAbsoluteMaxBytes)
 }

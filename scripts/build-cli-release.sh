@@ -63,7 +63,7 @@ printf ']}\n' >>"$OUT/manifest.json"
   done
 )
 
-python3 -m json.tool "$OUT/manifest.json" >/dev/null
+jq -e . "$OUT/manifest.json" >/dev/null
 echo "CLI release artifacts: $OUT"
 echo "Commit: $COMMIT"
 echo "Checksums: $OUT/SHA256SUMS"

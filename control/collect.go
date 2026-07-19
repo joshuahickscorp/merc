@@ -14,67 +14,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// collect.go — the charge-collect sweep: the MONEY-TRUTH layer that turns "owed
-// in the ledger" into "actually collected", without bleeding ~30¢ of Stripe fixed
-// fee on every sub-$5 job. Four duties, one 60s ticker (workers.go):
-//
-//   1. RETRY attempting batches: a formed batch whose PaymentIntent was not
-//      confirmed (failure OR an ambiguous network timeout) is re-charged with the
-//      SAME idempotency key ("cxbatch-"+id) and the FROZEN row amount — Stripe
-//      replays the first outcome, so a retry after ambiguity can never charge twice.
-//   2. FORM new batches: deferred (sub-threshold) jobs are grouped per buyer and
-//      batched into ONE PaymentIntent once the buyer's deferred sum reaches
-//      CX_CHARGE_MIN_USD or the oldest deferred job turns 24h old. A buyer with no
-//      saved card gets those jobs flipped to the existing honest
-//      'no_payment_method' state — and flipped BACK to 'deferred' the moment a
-//      card appears, so the debt is collected, not stranded.
-//   3. TERMINAL COVERAGE: jobs settled by the watchdog/fail paths (cancelled or
-//      failed with actual_usd > 0) whose charge was never attempted — the paths
-//      that credit suppliers for delivered chunks but billed nobody — are routed
-//      through the SAME immediate-or-defer decision as everything else.
-//   4. RETRY failed singles: a single-job charge that failed is retried with its
-//      ORIGINAL "job-"+jobID idempotency key, backed off 30min × attempts (capped
-//      at 6h) so a dead card is not hammered. It is never given up silently — the
-//      ledger keeps the amount owed, and every failure is logged.
-//
-// Plus the stripe_fee backfill: any confirmed charge (job or batch) with a
-// PaymentIntent but no stripe_fee ledger row gets its REAL fee fetched and
-// recorded (recordStripeFee is idempotent per PI), so a transient fee-fetch
-// failure self-heals instead of leaving the fee ledger short.
-//
-// The whole sweep is gated on stripeKey(): unconfigured billing is one honest log
-// line and a clean no-op — nothing is charged, deferred, or faked.
-
 const (
-	// chargeCollectInterval is the sweep cadence. 60s: fast enough that an
-	// ambiguous batch attempt is resolved within a minute, slow enough that a
-	// failing card sees its backoff respected rather than a tight retry loop.
 	chargeCollectInterval = 60 * time.Second
-	// defaultChargeMinUSD is the batching threshold when CX_CHARGE_MIN_USD is
-	// unset: a settled job below this is deferred into a per-buyer batch instead
-	// of eating a fixed Stripe fee alone.
-	defaultChargeMinUSD = 5.00
-	// chargeBatchMaxAge forces a batch for a buyer whose deferred jobs never
-	// reach the threshold: once the OLDEST deferred job is this old, the sum is
-	// collected anyway — small buyers are billed within a day, not never.
-	chargeBatchMaxAge = 24 * time.Hour
-	// chargeRetryStep / chargeRetryMax shape the failed-single backoff:
-	// next retry = attempts × chargeRetryStep, capped at chargeRetryMax.
-	chargeRetryStep = 30 * time.Minute
-	chargeRetryMax  = 6 * time.Hour
+	defaultChargeMinUSD   = 5.00
+	chargeBatchMaxAge     = 24 * time.Hour
+	chargeRetryStep       = 30 * time.Minute
+	chargeRetryMax        = 6 * time.Hour
 )
 
-// firmChargeAmountSQL is the shared SQL expression for "the amount this job
-// should actually be charged" (Project Detection & Quotation 7->8,
-// docs/internal/CREED_AND_PATH_TO_TEN.md, "Ship a firm-quote tier: a real
-// commitment, not just an estimate"): actual_usd normally, but capped at
-// firm_quote_max_usd for a firm-quote job whose real cost exceeded what it
-// committed to — and, since Speed Lane wave 2A, NET of any recorded speed-SLA
-// refund (the sla_refund ledger credit keyed 'sla-<job_id>'; see
-// settleSLAOutcome below), floored at zero. Used by BOTH charge paths — the
-// immediate single-job path (Store.JobChargeInfo, the Go-side twin of this
-// same logic) and the batch path (FormChargeBatch) — so neither the firm cap
-// nor the SLA remedy can be bypassed by which path happens to collect the job.
 const firmChargeAmountSQL = `GREATEST(0, CASE
 	WHEN firm_quote AND COALESCE(firm_quote_max_usd,0) > 0
 	     AND COALESCE(actual_usd,0) > firm_quote_max_usd
@@ -84,14 +31,6 @@ END - COALESCE((SELECT SUM(le.amount_usd) FROM ledger_entries le
                 WHERE le.kind = 'sla_refund'
                   AND le.payout_ref = 'sla-' || jobs.id::text), 0))`
 
-// chargeMinUSD reads the CX_CHARGE_MIN_USD batching threshold (USD). Unset or
-// unparseable → the 5.00 default; a negative value is clamped to 0 (= batch
-// nothing, charge every job immediately — an explicit operator choice).
-// stripeMinChargeUSD is Stripe's minimum card charge. A batch below it would be
-// rejected on every attempt and wedge forever, so formation SKIPS sub-minimum
-// sums — the debt stays honestly 'deferred' and accumulates until it clears the
-// floor (or forever, for a buyer who owes 10 cents and never returns; the ledger
-// keeps it owed either way).
 const stripeMinChargeUSD = 0.50
 
 func chargeMinUSD() float64 {
@@ -109,17 +48,10 @@ func chargeMinUSD() float64 {
 	return v
 }
 
-// shouldDeferCharge is the pure immediate-vs-defer decision: a settled actual
-// below the threshold is deferred into a per-buyer batch; at or above it is
-// charged immediately. Exactly one comparison — kept as a function so the
-// finalize path and the sweep can never drift apart, and so it is unit-testable.
 func shouldDeferCharge(actualUSD, thresholdUSD float64) bool {
 	return actualUSD < thresholdUSD
 }
 
-// chargeRetryBackoff is the pure failed-single backoff: attempts × 30min, capped
-// at 6h. attempts is the post-increment count (>= 1); anything lower is treated
-// as 1 so the backoff is never zero.
 func chargeRetryBackoff(attempts int) time.Duration {
 	if attempts < 1 {
 		attempts = 1
@@ -131,21 +63,12 @@ func chargeRetryBackoff(attempts int) time.Duration {
 	return d
 }
 
-// --- store access (collect-sweep queries, kept next to the loop that owns them,
-// --- the same file-locality pattern as summary.go's AdminSummaryData) ---
-
-// ChargeBatch is one charge_batches row the sweep acts on.
 type ChargeBatch struct {
 	ID        uuid.UUID
 	BuyerID   uuid.UUID
 	AmountUSD float64
 }
 
-// recordBuyerCashCollection writes the canonical, cross-source cash fact for one
-// terminal PaymentIntent. The PI is the primary key across BOTH standalone jobs
-// and batches, so the same external receipt cannot fund two independent pools.
-// Replaying the identical fact is idempotent; any different binding or amount is
-// rejected and the surrounding charge-state transaction rolls back.
 func recordBuyerCashCollection(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -189,9 +112,6 @@ func recordBuyerCashCollection(
 	if err != nil {
 		return fmt.Errorf("recording canonical buyer cash %s: %w", charge.PaymentIntentID, err)
 	}
-	// A dispute webhook can precede this confirmation and Stripe may omit its
-	// payment_intent. The independently returned Charge id closes that ordering
-	// gap: bind already-recorded object state before this cash becomes fundable.
 	var conflictingState bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS(
@@ -223,7 +143,6 @@ func recordBuyerCashCollection(
 	return nil
 }
 
-// AttemptingChargeBatches lists batches not yet confirmed charged, oldest first.
 func (s *Store) AttemptingChargeBatches(ctx context.Context, limit int) ([]ChargeBatch, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, buyer_id, amount_usd::float8 FROM charge_batches
@@ -244,10 +163,6 @@ func (s *Store) AttemptingChargeBatches(ctx context.Context, limit int) ([]Charg
 	return out, rows.Err()
 }
 
-// MarkChargeBatchCharged confirms a batch's PaymentIntent in one transaction:
-// the batch row flips to 'charged' (stripe_pi + charged_at) and every member job
-// flips to charge_status='charged'. Guarded on status='attempting' so a replayed
-// confirmation is a no-op.
 func (s *Store) MarkChargeBatchCharged(ctx context.Context, batchID uuid.UUID, charge ChargeResult) error {
 	if charge.PaymentIntentID == "" || charge.ChargeID == "" || charge.RequestedCents <= 0 ||
 		charge.ReceivedCents != charge.RequestedCents || charge.Currency != "usd" {
@@ -310,9 +225,6 @@ func (s *Store) MarkChargeBatchCharged(ctx context.Context, batchID uuid.UUID, c
 		`UPDATE jobs SET charge_status = 'charged' WHERE charge_batch_id = $1`, batchID); err != nil {
 		return err
 	}
-	// A payout sweep may have observed these liabilities before collection and
-	// moved them out of the bounded due queue. The new exact cash fact re-arms
-	// them atomically; ClaimPayout still locks and allocates the shared pool.
 	if _, err := tx.Exec(ctx, `
 		UPDATE ledger_entries le SET payout_status=$2
 		  FROM tasks t JOIN jobs j ON j.id=t.job_id
@@ -324,10 +236,6 @@ func (s *Store) MarkChargeBatchCharged(ctx context.Context, batchID uuid.UUID, c
 	return tx.Commit(ctx)
 }
 
-// ReflipNoCardJobs makes stranded 'no_payment_method' jobs re-eligible for
-// collection the moment their buyer saves a card: flipped back to 'deferred' so
-// the next batch-formation pass picks them up. Only unbatched jobs with a real
-// settled amount qualify. Returns how many were flipped (0 is the common case).
 func (s *Store) ReflipNoCardJobs(ctx context.Context) (int64, error) {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE jobs SET charge_status = 'deferred', deferred_at = now()
@@ -342,9 +250,6 @@ func (s *Store) ReflipNoCardJobs(ctx context.Context) (int64, error) {
 	return tag.RowsAffected(), nil
 }
 
-// BuyersDueForBatch lists buyers whose unbatched deferred jobs are ready to
-// collect: the deferred sum reached the threshold, OR the oldest deferred job is
-// older than maxAge (a small buyer is billed within a day, not never).
 func (s *Store) BuyersDueForBatch(ctx context.Context, thresholdUSD float64, maxAge time.Duration, limit int) ([]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT buyer_id FROM jobs
@@ -371,11 +276,6 @@ func (s *Store) BuyersDueForBatch(ctx context.Context, thresholdUSD float64, max
 	return out, rows.Err()
 }
 
-// MarkBuyerDeferredNoCard flips a buyer's unbatched deferred jobs to the honest
-// 'no_payment_method' state (they were due for collection but there is no saved
-// card to charge). ReflipNoCardJobs undoes this the moment a card appears, so
-// the state is a parking spot, not a write-off. Returns the affected job ids so
-// the caller can surface the debt on each job's timeline.
 func (s *Store) MarkBuyerDeferredNoCard(ctx context.Context, buyerID uuid.UUID) ([]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx,
 		`UPDATE jobs SET charge_status = 'no_payment_method'
@@ -396,13 +296,6 @@ func (s *Store) MarkBuyerDeferredNoCard(ctx context.Context, buyerID uuid.UUID) 
 	return out, rows.Err()
 }
 
-// FormChargeBatch freezes one buyer's unbatched deferred jobs into a new batch,
-// in ONE transaction: the member rows are locked (FOR UPDATE), the batch row is
-// inserted with the FROZEN sum of exactly those rows, and each is stamped with
-// the batch id under the same WHERE (charge_status='deferred' AND
-// charge_batch_id IS NULL) — so a concurrent sweep or finalize can neither
-// double-batch a job nor smuggle an uncounted job into the frozen amount.
-// formed=false (no error) when the buyer had nothing to batch.
 func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch ChargeBatch, formed bool, err error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -410,15 +303,6 @@ func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch C
 	}
 	defer tx.Rollback(ctx)
 
-	// Membership is capped per batch: an unbounded sum can overflow the NUMERIC
-	// column (months of parked debt re-armed at once) and a giant member set makes
-	// the freeze transaction long. Leftovers simply form the next batch next tick.
-	//
-	// firmChargeAmountSQL (Project Detection & Quotation 7->8): a batched job can
-	// be firm-quoted too, and batching must never let it bypass the cap
-	// JobChargeInfo already enforces on the immediate-charge path — a firm-quote
-	// job that happens to settle under the batching threshold would otherwise be
-	// charged its full uncapped actual_usd once it lands in a batch with siblings.
 	rows, err := tx.Query(ctx,
 		`SELECT id, `+firmChargeAmountSQL+`::float8 FROM jobs
 		 WHERE buyer_id = $1 AND charge_status = 'deferred' AND charge_batch_id IS NULL
@@ -446,11 +330,9 @@ func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch C
 		return batch, false, err
 	}
 	if len(ids) == 0 || sum <= 0 {
-		return batch, false, nil // raced away or nothing chargeable — clean no-op
+		return batch, false, nil // raced away or nothing chargeable  -  clean no-op
 	}
 	if sum < stripeMinChargeUSD {
-		// Below Stripe's minimum charge: forming this batch would wedge it on a
-		// per-tick rejection forever. Leave the jobs deferred to keep accumulating.
 		return batch, false, nil
 	}
 
@@ -459,9 +341,6 @@ func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch C
 		buyerID, sum).Scan(&batch.ID); err != nil {
 		return batch, false, err
 	}
-	// billed_usd is stamped HERE (not just charge_attempt_usd, which this batch
-	// path never sets) so a firm-quote job's invoice can show the real capped
-	// amount it was actually batched at, not its uncapped actual_usd.
 	if _, err := tx.Exec(ctx,
 		`UPDATE jobs SET charge_batch_id = $1, billed_usd = `+firmChargeAmountSQL+`
 		 WHERE id = ANY($2::uuid[]) AND charge_status = 'deferred' AND charge_batch_id IS NULL`,
@@ -475,10 +354,6 @@ func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch C
 	return batch, true, nil
 }
 
-// TerminalUnattemptedJobs finds the confirmed leak: terminal jobs with a real
-// settled amount whose charge was never attempted (the watchdog-cancel and
-// fail-settle paths credit suppliers for delivered chunks but call no charge
-// site). Routed through the same immediate-or-defer decision as everything else.
 func (s *Store) TerminalUnattemptedJobs(ctx context.Context, limit int) ([]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id FROM jobs
@@ -501,8 +376,6 @@ func (s *Store) TerminalUnattemptedJobs(ctx context.Context, limit int) ([]uuid.
 	return out, rows.Err()
 }
 
-// FailedChargesDue lists failed single-job charges whose retry backoff has
-// elapsed (or was never set — a pre-backoff row).
 func (s *Store) FailedChargesDue(ctx context.Context, limit int) ([]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id FROM jobs
@@ -524,8 +397,6 @@ func (s *Store) FailedChargesDue(ctx context.Context, limit int) ([]uuid.UUID, e
 	return out, rows.Err()
 }
 
-// IncrementChargeAttempts bumps a job's failed-charge attempt counter and
-// returns the post-increment count (the input to chargeRetryBackoff).
 func (s *Store) IncrementChargeAttempts(ctx context.Context, jobID uuid.UUID) (int, error) {
 	var attempts int
 	err := s.pool.QueryRow(ctx,
@@ -534,24 +405,17 @@ func (s *Store) IncrementChargeAttempts(ctx context.Context, jobID uuid.UUID) (i
 	return attempts, err
 }
 
-// SetChargeNextAt schedules a failed single's next retry.
 func (s *Store) SetChargeNextAt(ctx context.Context, jobID uuid.UUID, at time.Time) error {
 	_, err := s.pool.Exec(ctx, `UPDATE jobs SET charge_next_at = $2 WHERE id = $1`, jobID, at)
 	return err
 }
 
-// JobChargeStatus reads a job's current charge_status — the double-charge guard's
-// input (a re-finalize may only decide a 'not_attempted' job).
 func (s *Store) JobChargeStatus(ctx context.Context, jobID uuid.UUID) (string, error) {
 	var st string
 	err := s.pool.QueryRow(ctx, `SELECT charge_status FROM jobs WHERE id = $1`, jobID).Scan(&st)
 	return st, err
 }
 
-// MarkJobDeferred parks a sub-threshold settled job for batching — GUARDED on
-// 'not_attempted' so a re-finalize can never clobber a decided state, and stamping
-// deferred_at so the 24h batching age counts from DEFERRAL, not job creation (a
-// long-queued job still gets its full accumulation window).
 func (s *Store) MarkJobDeferred(ctx context.Context, jobID uuid.UUID) (bool, error) {
 	ct, err := s.pool.Exec(ctx,
 		`UPDATE jobs SET charge_status = 'deferred', deferred_at = now()
@@ -562,13 +426,6 @@ func (s *Store) MarkJobDeferred(ctx context.Context, jobID uuid.UUID) (bool, err
 	return ct.RowsAffected() > 0, nil
 }
 
-// FreezeChargeAmount records the amount a single-job charge attempt is made for,
-// once (first writer wins): every retry must replay the SAME (idempotency key,
-// amount) pair, so the figure is pinned before the first attempt and never drifts
-// with a later re-settle. Also stamps billed_usd — the real amount the buyer is
-// actually being charged (already capped by JobChargeInfo for a firm-quote job
-// whose actual cost exceeded its committed maximum) — so the invoice can show the
-// cap took effect, not just the ledger's own uncapped actual_usd.
 func (s *Store) FreezeChargeAmount(ctx context.Context, jobID uuid.UUID, usd float64) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE jobs SET charge_attempt_usd = $2, billed_usd = COALESCE(billed_usd, $2)
@@ -576,9 +433,6 @@ func (s *Store) FreezeChargeAmount(ctx context.Context, jobID uuid.UUID, usd flo
 	return err
 }
 
-// JobFrozenChargeInfo returns the buyer and the FROZEN attempt amount for a
-// single-job charge retry (falling back to actual_usd only when no attempt was
-// ever frozen — a pre-migration row).
 func (s *Store) JobFrozenChargeInfo(ctx context.Context, jobID uuid.UUID) (uuid.UUID, float64, error) {
 	var buyerID uuid.UUID
 	var usd float64
@@ -588,9 +442,6 @@ func (s *Store) JobFrozenChargeInfo(ctx context.Context, jobID uuid.UUID) (uuid.
 	return buyerID, usd, err
 }
 
-// BumpChargeBatchRetry advances a failed batch's attempt counter and schedules the
-// next try (same 30min x attempts <= 6h schedule as failed singles), so a dead card
-// is not hammered once a minute forever. Returns the new attempt count.
 func (s *Store) BumpChargeBatchRetry(ctx context.Context, batchID uuid.UUID, backoff func(int) time.Duration) (int, error) {
 	var attempts int
 	if err := s.pool.QueryRow(ctx,
@@ -604,7 +455,6 @@ func (s *Store) BumpChargeBatchRetry(ctx context.Context, batchID uuid.UUID, bac
 	return attempts, err
 }
 
-// SetJobCharged records an exact, fully settled provider charge for one job.
 func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge ChargeResult) error {
 	if charge.PaymentIntentID == "" || charge.ChargeID == "" || charge.RequestedCents <= 0 ||
 		charge.ReceivedCents != charge.RequestedCents || charge.Currency != "usd" {
@@ -672,11 +522,6 @@ func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge Charg
 	return tx.Commit(ctx)
 }
 
-// InsertStripeFee writes the one negative 'stripe_fee' ledger row for a
-// PaymentIntent, if absent. payout_ref = the PI id is the idempotency key
-// (INSERT-if-absent + the ledger_stripe_fee_ref_uniq partial unique index), so a
-// replay — the finalize path and the backfill sweep both call this — never
-// double-counts a fee.
 func (s *Store) InsertStripeFee(ctx context.Context, buyerID uuid.UUID, pi string, feeUSD float64) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO ledger_entries (kind, buyer_id, amount_usd, payout_status, payout_ref)
@@ -686,19 +531,11 @@ func (s *Store) InsertStripeFee(ctx context.Context, buyerID uuid.UUID, pi strin
 	return err
 }
 
-// UnfeedCharge is one confirmed charge (single job or batch) whose PaymentIntent
-// has no stripe_fee ledger row yet — the backfill scan's work item.
 type UnfeedCharge struct {
 	BuyerID uuid.UUID
 	PI      string
 }
 
-// ChargesMissingFeeRows scans confirmed charges — jobs and batches — that carry
-// a PaymentIntent id but no matching stripe_fee ledger row. These are charges
-// whose fee fetch failed (or whose balance_transaction had not settled yet);
-// the sweep retries them until the REAL fee is recorded. Charges from before
-// the stripe_pi column existed have no PI stored and are honestly out of reach
-// (their fee is unknown, never estimated).
 func (s *Store) ChargesMissingFeeRows(ctx context.Context, limit int) ([]UnfeedCharge, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT buyer_id, stripe_pi FROM jobs
@@ -726,47 +563,10 @@ func (s *Store) ChargesMissingFeeRows(ctx context.Context, limit int) ([]UnfeedC
 	return out, rows.Err()
 }
 
-// --- speed-SLA enforcement (Speed Lane wave 2A,
-// --- docs/speed-lane-reports/SLA_QUOTE_WAVE2A.md) -------------------------------
-//
-// A job that bound a speed-SLA (jobs.sla_guarantee_secs, stamped at submit from
-// the quote's offer) is judged ONCE, at completion, on the buyer-visible span:
-// created_at (submit) → results_merged_at (the merged artifact exists). Met →
-// sla_met=true and nothing else. Missed → sla_met=false + exactly one
-// sla_refund ledger credit for the premium (capped at what the job is actually
-// chargeable for — the remedy nets a bill down, it never mints free money) + a
-// buyer-visible sla_missed timeline event. The refund is then netted off the
-// collection by firmChargeAmountSQL / JobChargeInfo — the EXISTING collect
-// rails, no new payment path.
-//
-// Idempotent by construction, because THREE sites can observe the same miss
-// (the commit-path finalize, this file's sweep pass, and a re-run of either):
-// the jobs row is locked FOR UPDATE while deciding, sla_met is stamped once
-// (later calls see it non-NULL and no-op), and the refund insert is
-// INSERT-if-absent by payout_ref ('sla-<job_id>') backed by the
-// ledger_sla_refund_ref_uniq partial unique index — the same replay-proof
-// pattern as the stripe_fee recorder.
-//
-// Deliberately NOT wired into deadline_secs/the stuck-run watchdog: the
-// deadline drives a rescue→KILL ladder, and a missed SLA must COMPLETE and
-// REFUND — killing a late job would destroy the buyer's results to punish
-// lateness. A job that never completes (failed/cancelled) is likewise not
-// judged here: its remedy is the existing partial-settle path (pay only for
-// completed tasks), and its sla_met honestly stays NULL — named boundary in
-// the wave report.
-
-// KindSLARefund is the ledger kind of the speed-SLA miss remedy: a POSITIVE
-// buyer amount (credit — the schema's sign convention), payout_ref =
-// slaRefundRef(job) as the idempotency key.
 const KindSLARefund = "sla_refund"
 
-// slaRefundRef is the sla_refund ledger row's payout_ref for a job — the
-// idempotency key the partial unique index enforces (one refund per job, ever).
 func slaRefundRef(jobID uuid.UUID) string { return "sla-" + jobID.String() }
 
-// slaRefundAmount is the pure remedy figure: the full premium, capped at what
-// the job is actually chargeable for (a refund larger than the bill would be
-// minted money, not a remedy). Unit-tested directly.
 func slaRefundAmount(premiumUSD, chargeableUSD float64) float64 {
 	if premiumUSD <= 0 || chargeableUSD <= 0 {
 		return 0
@@ -777,15 +577,10 @@ func slaRefundAmount(premiumUSD, chargeableUSD float64) float64 {
 	return premiumUSD
 }
 
-// slaSpanMissed is the pure miss test: the buyer-visible span (submit →
-// results merged) strictly exceeded the guarantee. Landing exactly ON the
-// guarantee is a MET (the promise is "within"). Unit-tested directly.
 func slaSpanMissed(createdAt, mergedAt time.Time, guaranteeSecs int) bool {
 	return mergedAt.Sub(createdAt) > time.Duration(guaranteeSecs)*time.Second
 }
 
-// SLASettleResult reports what SettleJobSLA actually did, so the caller emits
-// the buyer-visible event exactly once (only the call that DECIDED emits).
 type SLASettleResult struct {
 	Decided    bool    // this call stamped sla_met (false: no SLA / already decided / not finalized yet)
 	Met        bool    // the outcome stamped by this call
@@ -793,11 +588,6 @@ type SLASettleResult struct {
 	OverBySecs int     // how far past the guarantee the span landed (miss only; for the event text)
 }
 
-// SettleJobSLA decides one job's speed-SLA outcome, exactly once, inside a
-// single transaction. The jobs row is locked FOR UPDATE so the competing
-// settle sites serialize; the refund insert is INSERT-if-absent by payout_ref
-// (plus the partial unique index) so even a settle racing an already-committed
-// sibling can never double-credit.
 func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleResult, error) {
 	var res SLASettleResult
 	tx, err := s.pool.Begin(ctx)
@@ -830,9 +620,6 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 	if err != nil {
 		return res, err
 	}
-	// Only a completed, merged, SLA-carrying, not-yet-decided job is judged —
-	// anything else is a clean no-op (the sweep retries next tick when the job
-	// simply has not finished merging yet).
 	if guarantee <= 0 || met != nil || status != "complete" || mergedAt == nil {
 		return res, nil
 	}
@@ -848,8 +635,6 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 		return SLASettleResult{Decided: true, Met: true}, nil
 	}
 
-	// MISS: record the once-only refund credit (the premium, capped at the
-	// chargeable amount) and stamp the outcome, atomically.
 	refund := slaRefundAmount(premium, chargeable)
 	if refund > 0 {
 		if _, err := tx.Exec(ctx,
@@ -871,10 +656,6 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 	return SLASettleResult{Decided: true, Met: false, RefundUSD: refund, OverBySecs: over}, nil
 }
 
-// SLAUndecidedCompleteJobs lists completed, merged jobs whose bound speed-SLA
-// outcome has not been decided yet — the sweep's work items. This is the
-// backstop for jobs finalized by the background completion sweep
-// (workers.go finalizeJobs), which does not run the commit-path finalize.
 func (s *Store) SLAUndecidedCompleteJobs(ctx context.Context, limit int) ([]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id FROM jobs
@@ -898,11 +679,6 @@ func (s *Store) SLAUndecidedCompleteJobs(ctx context.Context, limit int) ([]uuid
 	return out, rows.Err()
 }
 
-// settleSLAOutcome is the shared settle entry point: decide the outcome (once)
-// and, if THIS call decided a miss, surface it on the buyer's timeline. Called
-// from the commit-path finalize (api.go finalizeJobIfDone, BEFORE the charge
-// decision so the refund nets the very first collection) and from the collect
-// sweep below (the backstop for sweep-finalized jobs).
 func settleSLAOutcome(ctx context.Context, store *Store, jobID uuid.UUID) {
 	res, err := store.SettleJobSLA(ctx, jobID)
 	if err != nil {
@@ -916,28 +692,12 @@ func settleSLAOutcome(ctx context.Context, store *Store, jobID uuid.UUID) {
 		log.Printf("sla: job %s met its speed-SLA (guarantee held)", jobID)
 		return
 	}
-	// Miss: the event is emitted only by the call that decided (Decided=true),
-	// so a re-run/sweep replay never duplicates it.
 	_ = store.InsertJobEvent(ctx, jobID, nil, "sla_missed",
 		fmt.Sprintf("Speed SLA missed by %ds · the $%.6f premium was refunded automatically (netted off your charge)", res.OverBySecs, res.RefundUSD), nil)
-	// cx_sla_misses_total (Speed Lane wave 2A): bumped HERE, in the same
-	// decided-a-miss branch that stamps the sla_missed event — reachable only when
-	// SettleJobSLA returned Decided && !Met, i.e. THIS call is the one that durably
-	// stamped sla_met=false and recorded the refund. A re-settle of an
-	// already-missed job returns Decided=false (sla_met is non-NULL, the FOR UPDATE
-	// query no-ops) and bails at the `!res.Decided` guard above without reaching
-	// here, so with three competing settle sites the miss is still counted exactly
-	// ONCE per job — the same replay-proof semantics that gate the event and the
-	// ledger row. This retires the "a dedicated metrics counter would live in
-	// metrics.go" follow-up the prior version of this function noted.
 	metrics.slaMisses.Add(1)
-	log.Printf("sla: job %s MISSED its speed-SLA by %ds — refunded $%.6f (once, ledger sla_refund)", jobID, res.OverBySecs, res.RefundUSD)
+	log.Printf("sla: job %s MISSED its speed-SLA by %ds  -  refunded $%.6f (once, ledger sla_refund)", jobID, res.OverBySecs, res.RefundUSD)
 }
 
-// settleSLAOutcomes is the sweep pass: judge every completed-but-undecided
-// SLA job. Runs inside the charge-collect tick BEFORE any charging duty, and
-// deliberately BEFORE the Stripe gate — the SLA outcome and its ledger truth
-// are independent of whether billing is configured.
 func (wk *Workers) settleSLAOutcomes(ctx context.Context) error {
 	ids, err := wk.store.SLAUndecidedCompleteJobs(ctx, sweepBatch)
 	if err != nil {
@@ -949,31 +709,16 @@ func (wk *Workers) settleSLAOutcomes(ctx context.Context) error {
 	return nil
 }
 
-// --- the sweep ---
-
-// collectCharges is the charge-collect tick. Gated on stripeKey(): unconfigured
-// billing is one honest log line and a clean no-op. Each duty's failure is
-// logged and never aborts the others — one bad buyer must not stall collection
-// for the rest — but a query failure surfaces as the tick's error so the
-// liveness guard sees a genuinely wedged sweep.
 func (wk *Workers) collectCharges(ctx context.Context) error {
-	// Speed-SLA outcomes FIRST, and before the Stripe gate (wave 2A): the
-	// outcome + refund are ledger truth independent of billing configuration,
-	// and running them ahead of every charging duty below guarantees a
-	// sweep-finalized job's refund exists BEFORE its terminal-coverage charge is
-	// decided in the same tick — the refund nets the very first collection.
 	if err := wk.settleSLAOutcomes(ctx); err != nil {
 		return err
 	}
 
 	if stripeKey() == "" {
-		log.Print("workers: charge-collect: skipped — billing not configured (STRIPE_SECRET_KEY unset), nothing charged or faked")
+		log.Print("workers: charge-collect: skipped  -  billing not configured (STRIPE_SECRET_KEY unset), nothing charged or faked")
 		return nil
 	}
 
-	// 1. Attempt newly formed/legacy-attempting batches. The durable operation
-	// boundary moves each to outcome_unknown before Stripe, so ambiguous work is
-	// excluded from this query on later ticks and reconciled instead of re-sent.
 	batches, err := wk.store.AttemptingChargeBatches(ctx, sweepBatch)
 	if err != nil {
 		return err
@@ -982,14 +727,12 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 		wk.chargeBatch(ctx, b)
 	}
 
-	// 2a. Re-arm stranded no-card jobs whose buyer now has a card.
 	if n, rerr := wk.store.ReflipNoCardJobs(ctx); rerr != nil {
 		return rerr
 	} else if n > 0 {
-		log.Printf("workers: charge-collect: %d no_payment_method job(s) re-eligible (buyer saved a card) — back to deferred", n)
+		log.Printf("workers: charge-collect: %d no_payment_method job(s) re-eligible (buyer saved a card)  -  back to deferred", n)
 	}
 
-	// 2b. Form new batches per due buyer.
 	threshold := chargeMinUSD()
 	buyers, err := wk.store.BuyersDueForBatch(ctx, threshold, chargeBatchMaxAge, sweepBatch)
 	if err != nil {
@@ -998,8 +741,6 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 	for _, buyerID := range buyers {
 		cust, pm, gerr := wk.store.GetBillingCustomer(ctx, buyerID)
 		if gerr != nil || cust == "" || pm == "" {
-			// Due for collection but no saved card: park the jobs in the existing
-			// honest state (re-armed automatically once a card appears).
 			ids, merr := wk.store.MarkBuyerDeferredNoCard(ctx, buyerID)
 			if merr != nil {
 				log.Printf("workers: charge-collect: marking buyer %s deferred jobs no_payment_method: %v", buyerID, merr)
@@ -1009,7 +750,7 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 				_ = wk.store.InsertJobEvent(ctx, id, nil, "charge_failed",
 					"Job billed with your other recent jobs but no saved payment method · amount is owed and will be charged once a card is on file", nil)
 			}
-			log.Printf("workers: charge-collect: buyer %s due for a batch but has no saved card — %d job(s) parked no_payment_method (owed)", buyerID, len(ids))
+			log.Printf("workers: charge-collect: buyer %s due for a batch but has no saved card  -  %d job(s) parked no_payment_method (owed)", buyerID, len(ids))
 			continue
 		}
 		batch, formed, ferr := wk.store.FormChargeBatch(ctx, buyerID)
@@ -1018,13 +759,12 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 			continue
 		}
 		if !formed {
-			continue // raced away between the due-scan and the lock — clean no-op
+			continue // raced away between the due-scan and the lock  -  clean no-op
 		}
 		log.Printf("workers: charge-collect: formed batch %s for buyer %s ($%.6f frozen)", batch.ID, buyerID, batch.AmountUSD)
 		wk.chargeBatch(ctx, batch)
 	}
 
-	// 3. Terminal coverage: watchdog/fail-settled jobs that bill nobody today.
 	terminal, err := wk.store.TerminalUnattemptedJobs(ctx, sweepBatch)
 	if err != nil {
 		return err
@@ -1033,7 +773,6 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 		chargeOrDeferJob(ctx, wk.store, id)
 	}
 
-	// 4. Retry failed singles whose backoff elapsed, with the ORIGINAL key.
 	due, err := wk.store.FailedChargesDue(ctx, sweepBatch)
 	if err != nil {
 		return err
@@ -1042,7 +781,6 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 		wk.retryFailedSingle(ctx, id)
 	}
 
-	// 5. Fee backfill: confirmed charges with a PI but no stripe_fee row.
 	unfeed, err := wk.store.ChargesMissingFeeRows(ctx, sweepBatch)
 	if err != nil {
 		return err
@@ -1053,10 +791,6 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 		}
 	}
 
-	// 6. Allocation backfill: a real batch fee can exist while the immediately
-	// following allocation write transiently failed (or predated the allocation
-	// table). Retry from persisted fee + frozen billed_usd only; no Stripe call and
-	// no guessed share. AllocateBatchStripeFee is transactionally idempotent.
 	pendingAllocations, err := wk.store.BatchStripeFeesMissingAllocations(ctx, sweepBatch)
 	if err != nil {
 		return err
@@ -1069,9 +803,6 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 	return nil
 }
 
-// chargeBatch attempts one batch's PaymentIntent after durably moving the batch
-// to outcome_unknown. Success confirms the batch and records the real fee; any
-// post-boundary failure is reconciled from signed Stripe evidence, never re-sent.
 func (wk *Workers) chargeBatch(ctx context.Context, b ChargeBatch) {
 	charge, err := chargeBuyer(ctx, wk.store, b.BuyerID, b.AmountUSD,
 		"cxbatch-"+b.ID.String(), "batch", b.ID)
@@ -1080,11 +811,6 @@ func (wk *Workers) chargeBatch(ctx context.Context, b ChargeBatch) {
 			log.Printf("workers: charge-collect: batch %s outcome unknown; automatic re-charge is blocked pending Stripe reconciliation: %v", b.ID, err)
 			return
 		}
-		// Only a failure before the durable external request is armed reaches this
-		// branch. Backoff mirrors failed singles (30min x attempts, <= 6h): a
-		// hard-declined card must not be hammered once a minute forever — that is
-		// card-network excessive-reattempt territory. The frozen amount + stable
-		// idempotency key make every retry a replay, never a second charge.
 		attempts, aerr := wk.store.BumpChargeBatchRetry(ctx, b.ID, chargeRetryBackoff)
 		if aerr != nil {
 			log.Printf("workers: charge-collect: bumping retry for batch %s: %v", b.ID, aerr)
@@ -1094,9 +820,6 @@ func (wk *Workers) chargeBatch(ctx context.Context, b ChargeBatch) {
 		return
 	}
 	if merr := wk.store.MarkChargeBatchCharged(ctx, b.ID, charge); merr != nil {
-		// The charge went through but the confirmation write failed: the next tick
-		// retries with the same idempotency key (a Stripe replay, not a re-charge)
-		// and confirms then. Money-safe, just late.
 		log.Printf("workers: charge-collect: batch %s charged (pi %s) but confirmation write failed: %v (reconfirmed next tick)", b.ID, charge.PaymentIntentID, merr)
 		return
 	}
@@ -1107,13 +830,7 @@ func (wk *Workers) chargeBatch(ctx context.Context, b ChargeBatch) {
 	}
 }
 
-// retryFailedSingle gives a legacy/pre-request failed job one durable request
-// boundary. Once armed it becomes outcome_unknown and is never automatically
-// re-sent; only failures that occur before arming retain the bounded backoff path.
 func (wk *Workers) retryFailedSingle(ctx context.Context, jobID uuid.UUID) {
-	// Retry the FROZEN attempt amount (charge_attempt_usd), never the current
-	// actual_usd. The operation freezes the exact amount and permanently blocks a
-	// later external re-send after the first durable boundary crossing.
 	buyerID, usd, err := wk.store.JobFrozenChargeInfo(ctx, jobID)
 	if err != nil || usd <= 0 {
 		return

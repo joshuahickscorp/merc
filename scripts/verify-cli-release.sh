@@ -25,16 +25,9 @@ mkdir -p "$OUT/install"
 tar -C "$OUT/install" -xzf "$OUT/release/$ARCHIVE"
 BIN="$OUT/install/cx_${VERSION}_${GOOS}_${GOARCH}/cx"
 VERSION_JSON="$($BIN version --json)"
-python3 - "$VERSION" "$VERSION_JSON" <<'PY'
-import json
-import sys
-
-want, raw = sys.argv[1:]
-got = json.loads(raw)
-assert got["version"] == want, got
-assert len(got["commit"]) == 40, got
-assert got["build_date"].endswith("Z"), got
-assert "/" in got["platform"], got
-PY
+jq -e --arg version "$VERSION" '
+  .version == $version and (.commit | length) == 40 and
+  (.build_date | endswith("Z")) and (.platform | contains("/"))
+' <<<"$VERSION_JSON" >/dev/null
 "$BIN" help >/dev/null 2>&1
 echo "PASS clean CLI archive install: $VERSION $GOOS/$GOARCH"

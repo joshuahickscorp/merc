@@ -2,7 +2,7 @@
 name = "cx-agent"
 version = "0.1.0"
 edition = "2021"
-description = "Computexchange supplier agent — detects/benchmarks Apple Silicon, registers with the control plane, polls and executes batch inference tasks."
+description = "Compute Exchange Apple Silicon supplier agent"
 license = "MIT"
 
 [[bin]]
@@ -10,109 +10,42 @@ name = "cx-agent"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "signal", "sync", "fs"] }
+aes-gcm = "0.10"
+anyhow = "1.0"
+async-trait = "0.1"
+base64 = "0.22"
+candle-core = "=0.10.2"
+candle-nn = "=0.10.2"
+candle-transformers = "=0.10.2"
+clap = { version = "4.5", features = ["derive"] }
+hf-hub = { version = "0.5", default-features = false, features = ["ureq", "rustls-tls"] }
+libc = "0.2"
+rand = "0.8"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "gzip"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# "gzip" (Data Transfer & Artifact I/O 6->7): auto-negotiates Accept-Encoding: gzip
-# and transparently decodes a gzip response body for every request this client
-# sends — makes s3_get's input-object GET compress-over-the-wire for free against
-# Caddy's `encode zstd gzip`. Deliberately GET-side only: reqwest's gzip feature
-# does not auto-compress outgoing request bodies, and result-PUT bodies are
-# intentionally left uncompressed here — see the comment at s3_put_bytes_once
-# for why (a real consumer reads result objects as raw bytes with no
-# Content-Encoding awareness). "zstd" is not enabled: reqwest 0.12 as resolved
-# in this workspace has no such cargo feature (confirmed via `cargo add --dry-run
-# --features zstd`, which fails with "unrecognized feature").
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "gzip"], default-features = false }
-uuid = { version = "1.10", features = ["v4", "serde"] }
-clap = { version = "4.5", features = ["derive"] }
+sha2 = "0.10"
 sysinfo = "0.31"
-anyhow = "1.0"
 thiserror = "1.0"
-base64 = "0.22"
-async-trait = "0.1"
+tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "signal", "sync", "fs"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-# Encrypted local staging for large results (action plan §K): ephemeral
-# AES-256-GCM key, ciphertext-only on disk, wiped after upload.
-aes-gcm = "0.10"
-rand = "0.8"
-# Stable build-identity hashing for the verification class (hardware::engine_build_hash).
-# Already in the lock as a transitive dep of the candle stack at this version, so a
-# direct entry adds no new fetch — it just makes the import a first-class dependency.
-sha2 = "0.10"
-# `localtime_r`/`tm_gmtoff` (docs/internal/CREED_AND_PATH_TO_TEN.md, "Agent idle
-# footprint & startup overhead" 7→8): fixes quiet-hours evaluating against UTC
-# instead of the supplier's actual local clock (a US supplier's configured window
-# silently shifted by 5-8 hours). POSIX `localtime_r` gives the real local-time
-# breakdown AND UTC offset (DST-aware) from the OS's own tz database — no date/tz
-# crate needed. Cross-platform (unlike the macOS-only objc2 additions below):
-# works identically on the CUDA/Linux lane. Already resolved at 0.2.186 in
-# Cargo.lock as a transitive dependency of nearly every other dependency in this
-# tree, so this adds no new fetch — it just makes the import first-class.
-libc = "0.2"
-
-# Real inference (pure Rust). Metal on Apple Silicon, CPU fallback elsewhere.
-candle-core = "0.10"
-candle-nn = "0.10"
-candle-transformers = "0.10"
-tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
-hf-hub = { version = "0.5", default-features = false, features = ["ureq", "rustls-tls"] }
-hound = "3.5"
-# Raw Metal kernel dispatch for the Hawking continuous-batch multi-seq decode
-# port (hawking_metal_kernel.rs, docs/HAWKING_PORT_PLAN.md week 2). Same exact
-# versions candle-core 0.10.2 already pulls transitively (see Cargo.lock), so
-# this adds no new fetch — it just makes the dependency a first-class import.
-# Metal-only (optional + gated into the `metal` feature below).
-candle-metal-kernels = { version = "0.10", optional = true }
-objc2-metal = { version = "0.3", optional = true }
+uuid = { version = "1.10", features = ["v4", "serde"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# Real macOS platform signals (docs/internal/CREED_AND_PATH_TO_TEN.md, "Agent
-# idle footprint & startup overhead" 7→8): `NSProcessInfo.thermalState` /
-# `isLowPowerModeEnabled` replace crude proxies with the actual Apple-defined
-# signal, read in-process (no subprocess spawn). Already resolved at 0.3.2 in
-# Cargo.lock as a TRANSITIVE dependency of candle-core/candle-nn under the
-# `metal` feature — this adds it as a first-class import (same locked version,
-# no new fetch when `metal` is on) so the thermal read works independent of
-# which candle device feature is active. `target_os = "macos"`-gated: this is
-# a real Cocoa framework binding, meaningless (and unbuildable) off Apple platforms
-# — the CUDA/Linux lane never compiles this dependency at all.
+objc2-core-foundation = "0.3"
 objc2-foundation = { version = "0.3", features = ["NSProcessInfo"] }
-# `CFString`/`CFType`/`CFRetained` — the safe wrappers used to read the
-# `CFStringRef` that IOKit's `IOPSGetProvidingPowerSourceType` returns (battery
-# vs AC power), replacing the `pmset -g batt` subprocess spawn. Already resolved
-# at 0.3.2 in Cargo.lock as a transitive dependency of objc2-foundation/objc2-metal.
-objc2-core-foundation = { version = "0.3" }
 
 [features]
-# On by default for Apple Silicon: GPU inference via Metal. Disable
-# (`--no-default-features`) to force the CPU path (e.g. CI on Linux).
 default = ["metal"]
-metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal", "dep:candle-metal-kernels", "dep:objc2-metal"]
-# NVIDIA / RunPod lane: build with `--no-default-features --features cuda` on a
-# CUDA box (Linux + NVIDIA Container Toolkit). Mirrors `metal` exactly — the
-# runners call models::device() and are device-agnostic, so this is a device
-# branch, not a rewrite.
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 
 [dev-dependencies]
-# Only used by the test that proves gzip Accept-Encoding negotiation actually
-# decodes a REAL compressed body (main.rs, s3_get_transparently_decodes_a_real_gzip_response) —
-# already resolved in Cargo.lock as a transitive dependency of reqwest's own
-# "gzip" feature, so this adds no new fetch.
 flate2 = "1"
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
-
-# Keep the Q4_K split-K and skinny-M experiments below Candle's public QTensor
-# API. The patched crate is Candle 0.10.2 plus the opt-in, batch-1, M=2..5
-# Metal dispatches documented in vendor/candle-metal-kernels/CX_PROVENANCE.md.
-# Because candle-core resolves this same package, its existing qmatmul call site
-# automatically reaches the patched kernel without a candle-core fork.
-[patch.crates-io]
-candle-metal-kernels = { path = "vendor/candle-metal-kernels" }

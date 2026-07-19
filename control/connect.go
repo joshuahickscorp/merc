@@ -12,14 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// connect.go — supplier-side Stripe Connect onboarding. Creates a supplier's Express
-// account (Stripe-hosted KYC) + an onboarding link, and reports when the account can
-// receive payouts. The payout TRANSFERS already exist (payment.go's StripePayout);
-// this is the flow that gives each supplier the stripe_acct those transfers target.
-// Gated on STRIPE_SECRET_KEY like the rest — an honest 503 without it, never faked.
-
-// ensureConnectAccount returns the supplier's Express account id, creating + storing
-// it on first use.
 func ensureConnectAccount(ctx context.Context, store *Store, supplierID uuid.UUID) (string, error) {
 	if acct, err := store.SupplierStripeAcct(ctx, supplierID); err == nil && acct != "" {
 		return acct, nil
@@ -42,7 +34,6 @@ func ensureConnectAccount(ctx context.Context, store *Store, supplierID uuid.UUI
 	return acct, nil
 }
 
-// onboardingLink creates a Stripe-hosted onboarding URL for the account.
 func onboardingLink(ctx context.Context, acct string) (string, error) {
 	ret, refresh := strings.TrimSpace(os.Getenv("CX_CONNECT_RETURN_URL")),
 		strings.TrimSpace(os.Getenv("CX_CONNECT_REFRESH_URL"))
@@ -100,8 +91,6 @@ func validateLiveConnectURLConfig(cxEnv, stripeSecret, returnURL, refreshURL, si
 	return nil
 }
 
-// handleWorkerConnect ensures the supplier has a Connect account and returns an
-// onboarding link to complete it (Stripe-hosted KYC). 503 until Stripe is configured.
 func (s *Server) handleWorkerConnect(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
 	acct, err := ensureConnectAccount(r.Context(), s.store, auth.SupplierID)
@@ -117,8 +106,6 @@ func (s *Server) handleWorkerConnect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"account": acct, "onboarding_url": link})
 }
 
-// handleWorkerConnectStatus reports whether the supplier's account can be paid yet
-// (live from Stripe, so it reflects onboarding completion without a webhook).
 func (s *Server) handleWorkerConnectStatus(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
 	acct, _ := s.store.SupplierStripeAcct(r.Context(), auth.SupplierID)

@@ -17,9 +17,6 @@ import (
 
 var ErrVerificationReplayConflict = errors.New("verification replay conflicts with durable verdict")
 
-// VerificationApplyResult describes whether this call won the terminal
-// transition. Applied=false is an exact response-loss replay: the durable
-// verdict already matched the requested attempt and no effect was repeated.
 type VerificationApplyResult struct {
 	Applied           bool
 	Rejected          bool
@@ -31,22 +28,7 @@ type verificationApplyFence struct {
 	Plan  VerificationWorkPlan
 }
 
-// ApplyVerificationDecision is the single database commit point for a planned
-// verification decision. The planner performs reads and object comparisons but
-// no writes; this transaction applies every reputation/event/clawback/tiebreak
-// effect together with either the rejected-attempt requeue or the accepted task,
-// counters, telemetry, and money rows. A process death therefore exposes all or
-// none of the decision. A response-loss replay first checks the immutable verdict
-// and returns without repeating any effect.
-func (s *Store) ApplyVerificationDecision(ctx context.Context, info *CommitTaskInfo, decision VerificationDecision, entries []LedgerEntry) (VerificationApplyResult, error) {
-	return s.applyVerificationDecision(ctx, info, decision, entries, nil, nil)
-}
-
-// ApplyLeasedVerificationWork is the production terminal path. It binds the
-// exact persisted plan and server-sealed artifact to a still-live fenced lease,
-// then terminalizes verification_work in the same transaction as the verdict,
-// effects, counters, telemetry, and money rows.
-func (s *Store) ApplyLeasedVerificationWork(ctx context.Context, lease VerificationLease, plan VerificationWorkPlan, info *CommitTaskInfo, probe recoveryBoundaryProbe) (VerificationApplyResult, error) {
+func (s *Store) VerifyJobTx(ctx context.Context, lease VerificationLease, plan VerificationWorkPlan, info *CommitTaskInfo, probe recoveryBoundaryProbe) (VerificationApplyResult, error) {
 	if plan.WorkID != lease.WorkID {
 		return VerificationApplyResult{}, ErrVerificationWorkConflict
 	}
@@ -91,9 +73,6 @@ func (s *Store) applyVerificationDecision(ctx context.Context, info *CommitTaskI
 			return result, err
 		}
 	}
-	// Global dynamic-work lock order is reserve -> task/root. Hedge insertion uses
-	// that order too; taking the reserve lock up front prevents a tiebreak apply
-	// (task -> reserve) from deadlocking with a concurrent hedge (reserve -> task).
 	for _, effect := range decision.Effects {
 		if effect.Kind == VerificationEffectInsertTiebreak {
 			var lockedJob uuid.UUID
@@ -152,10 +131,6 @@ func (s *Store) applyVerificationDecision(ctx context.Context, info *CommitTaskI
 		return result, err
 	}
 
-	// Exact response-loss replay. Accepted attempts leave the task complete;
-	// rejected attempts have already advanced retry_count and may already be
-	// queued/running as the next attempt. In either case only an exact immutable
-	// verdict match turns the retry into success.
 	if status != "verifying" || currentAttempt != info.Attempt || workerID == nil || *workerID != info.WorkerID {
 		replayErr := assertExactTaskVerdictTx(ctx, tx, info, decision.Outcome, decisionDigest, fence)
 		if replayErr == nil {
@@ -169,13 +144,6 @@ func (s *Store) applyVerificationDecision(ctx context.Context, info *CommitTaskI
 			ErrVerificationReplayConflict, info.TaskID, status, currentAttempt, workerID, info.Attempt, info.WorkerID, replayErr)
 	}
 
-	// Fence the parent before applying any effect or settlement. Job-wide
-	// failure/cancellation paths take the same row lock and refuse while a task or
-	// verification_work is unresolved. Whichever transaction reaches this fence
-	// first therefore determines a coherent state: a live job may accept the whole
-	// verdict, while a terminal parent rejects it without reputation, counters,
-	// telemetry, or money leaking afterward. Exact terminal replays returned above
-	// and do not require the parent to remain nonterminal.
 	var parentStatus string
 	if err := tx.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1 FOR UPDATE`, info.JobID).Scan(&parentStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -338,10 +306,6 @@ func (s *Store) applyVerificationDecision(ctx context.Context, info *CommitTaskI
 		reachRecoveryBoundary(ctx, probe, BoundaryAcceptedAfterLedger)
 	}
 	if fence != nil {
-		// A provisional deliverable must already have its buyer-charge fact in this
-		// same transaction. Recording after ledger insertion lets the structural
-		// trigger prove it is the economic hedge winner, not merely a completed
-		// non-redundancy sibling. Majority rows bind to an earlier accepted winner.
 		if err := recordChunkArtifactResolutionTx(ctx, tx, info, decision, decisionDigest, *fence, countsBuyerChunk); err != nil {
 			return result, err
 		}
@@ -547,12 +511,6 @@ func validateVerificationEffectTargetTx(ctx context.Context, tx pgx.Tx, info *Co
 			return fmt.Errorf("effect target task %s is outside committing chunk/supplier", effect.TaskID)
 		}
 	case VerificationEffectInsertTiebreak:
-		// The selected peer is a mutable scheduling hint inside an immutable plan.
-		// Its class, supplier, liveness, capability, and every job claim gate are
-		// revalidated by insertPlannedTiebreakTx. If any changed, that function
-		// inserts the frozen-class task safely UNPINNED so another eligible supplier
-		// can claim it; returning an error here would retry the same immutable peer
-		// forever and strand verification.
 	}
 	return nil
 }
@@ -706,11 +664,6 @@ func recordChunkArtifactResolutionTx(ctx context.Context, tx pgx.Tx, info *Commi
 	}
 	basis := "majority"
 	if len(winnerIDs) == 0 {
-		// A straggler hedge is another non-redundancy task for the same buyer
-		// chunk. Both uploads can already be in `verifying` when the first one
-		// settles, so the later sibling is still allowed to finish for telemetry.
-		// It is not the economic/deliverable winner and must neither replace nor
-		// conflict with the provisional resolution written by the first settler.
 		if !countsBuyerChunk {
 			return nil
 		}
@@ -783,10 +736,6 @@ func recordChunkArtifactResolutionTx(ctx context.Context, tx pgx.Tx, info *Commi
 	if ct.RowsAffected() == 1 {
 		return nil
 	}
-	// The provisional row is deliberately first-writer-wins under the hedge-root
-	// settlement lock. A later already-verifying sibling is a safe no-op even if
-	// an old caller incorrectly classified it as buyer-counting. Majority facts,
-	// in contrast, must replay byte-for-byte exactly.
 	if basis == "provisional" {
 		return nil
 	}
@@ -913,7 +862,6 @@ func promoteProvisionalWinnerTx(ctx context.Context, tx pgx.Tx, effectID, source
 		return err
 	}
 	if ct.RowsAffected() == 0 {
-		// A clean winner may already have been pass; no correction fact is needed.
 		var outcome string
 		if err := tx.QueryRow(ctx, `SELECT COALESCE(verification_outcome,'') FROM tasks WHERE id=$1`, taskID).Scan(&outcome); err != nil {
 			return err
@@ -999,9 +947,6 @@ func verificationResolutionID(taskID uuid.UUID, kind string, sourceTaskID uuid.U
 }
 
 func insertPlannedTiebreakTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInfo, effect VerificationEffect) (bool, error) {
-	// Serialize every dynamic creator for the job before checking existence. This
-	// avoids consuming reserve in the outer decision transaction merely to discover
-	// that another verifier already inserted the same third opinion.
 	var reserved, consumed int
 	if err := tx.QueryRow(ctx, `
 		SELECT reserved_tasks,consumed_tasks FROM job_economic_reserves
@@ -1046,12 +991,6 @@ func insertPlannedTiebreakTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInf
 		buyerCharge, supplierPayout); err != nil {
 		return false, err
 	}
-	// Revalidate the plan's peer against the exact same transactional predicate
-	// lifecycle recovery uses. A mutable peer can become stale, change class or
-	// supplier, lose capability, or fail a job gate after planning. That is not a
-	// reason to mutate/re-plan an immutable decision: leave the newly durable task
-	// unpinned and let the claim query's identical frozen-class/independence fence
-	// select safe supply when it appears.
 	eligible, err := tiebreakPeerClaimEligibleTx(ctx, tx, effect.TaskID, effect.JobID, effect.PeerWorkerID)
 	if err != nil {
 		return false, err

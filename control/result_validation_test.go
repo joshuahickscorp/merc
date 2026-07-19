@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"math"
@@ -12,11 +11,6 @@ import (
 )
 
 func TestValidateTaskResultArtifactContracts(t *testing.T) {
-	png, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	valid := []struct {
 		name    string
 		jobType string
@@ -25,11 +19,6 @@ func TestValidateTaskResultArtifactContracts(t *testing.T) {
 		{"embed-json", "embed", []byte(`{"job_type":"embed","model":"m","dim":2,"count":1,"vectors":[[1,0]]}`)},
 		{"embed-cxem", "embed", binaryEmbeddingForValidation(2, [][]float32{{1, 0}})},
 		{"batch-infer", "batch_infer", []byte(`{"job_type":"batch_infer","model":"m","completions":[{"index":0,"text":"ok","tokens":1}]}`)},
-		{"classification", "batch_classification", []byte(`{"job_type":"batch_classification","model":"m","count":1,"labels":[{"index":0,"label":"yes"}]}`)},
-		{"extraction", "json_extraction", []byte(`{"job_type":"json_extraction","model":"m","count":1,"items":[{"index":0,"json":{"score":0.5}}]}`)},
-		{"rerank", "rerank", []byte(`{"job_type":"rerank","model":"m","count":1,"rankings":[{"index":0,"order":[2,0,1]}]}`)},
-		{"audio", "audio_transcribe", []byte(`{"job_type":"audio_transcribe","model":"whisper-tiny","text":"ok","segments":[{"start":0,"end":1.25,"text":"ok"}]}`)},
-		{"image", "image_gen", png},
 	}
 	for _, tc := range valid {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,12 +42,7 @@ func TestValidateTaskResultArtifactContracts(t *testing.T) {
 		{"embed-overflow-number", "embed", "", []byte(`{"job_type":"embed","model":"m","dim":1,"count":1,"vectors":[[1e999]]}`)},
 		{"embed-duplicate-key", "embed", "", []byte(`{"job_type":"embed","model":"m","dim":2,"count":1,"count":2,"vectors":[[1,0]]}`)},
 		{"batch-index-gap", "batch_infer", "", []byte(`{"job_type":"batch_infer","model":"m","completions":[{"index":1,"text":"x","tokens":1}]}`)},
-		{"classification-count", "batch_classification", "", []byte(`{"job_type":"batch_classification","model":"m","count":2,"labels":[{"index":0,"label":"yes"}]}`)},
-		{"extraction-not-object", "json_extraction", "", []byte(`{"job_type":"json_extraction","model":"m","count":1,"items":[{"index":0,"json":[]}]}`)},
-		{"extraction-numeric-overflow", "json_extraction", "", []byte(`{"job_type":"json_extraction","model":"m","count":1,"items":[{"index":0,"json":{"n":1e999}}]}`)},
-		{"rerank-duplicate", "rerank", "", []byte(`{"job_type":"rerank","model":"m","count":1,"rankings":[{"index":0,"order":[1,1]}]}`)},
-		{"audio-backwards", "audio_transcribe", "", []byte(`{"job_type":"audio_transcribe","model":"m","text":"x","segments":[{"start":2,"end":1,"text":"x"}]}`)},
-		{"image-junk", "image_gen", "", []byte("not an image")},
+		{"removed-workload", "unsupported", "", []byte(`{"value":[]}`)},
 	}
 	for _, tc := range invalid {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,10 +102,6 @@ func TestExactTaskCardinalityRejectsShortRecordShapedResults(t *testing.T) {
 	}{
 		{"embed", []byte(`{"job_type":"embed","model":"m","dim":2,"count":1,"vectors":[[1,0]]}`)},
 		{"batch_infer", []byte(`{"job_type":"batch_infer","model":"m","completions":[{"index":0,"text":"ok","tokens":1}]}`)},
-		{"batch_classification", []byte(`{"job_type":"batch_classification","model":"m","count":1,"labels":[{"index":0,"label":"yes"}]}`)},
-		{"json_extraction", []byte(`{"job_type":"json_extraction","model":"m","count":1,"items":[{"index":0,"json":{"ok":true}}]}`)},
-		{"rerank", []byte(`{"job_type":"rerank","model":"m","count":1,"rankings":[{"index":0,"order":[0]}]}`)},
-		{"audio_transcribe", []byte(`{"job_type":"audio_transcribe","model":"m","text":"ok","segments":[{"start":0,"end":1,"text":"ok"}]}`)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.jobType, func(t *testing.T) {
@@ -137,8 +117,6 @@ func TestExactTaskCardinalityRejectsShortRecordShapedResults(t *testing.T) {
 				t.Fatalf("short artifact did not become a deterministic non-payable failure: %#v", decision)
 			}
 
-			// A NULL/zero legacy count is not silently relabelled exact. It retains
-			// the conservative historical <= split-size contract.
 			info.ExpectedOutputRecords = 0
 			info.SplitSize = 2
 			if err := validateTaskResultArtifact(info, tc.body); err != nil {

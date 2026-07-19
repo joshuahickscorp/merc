@@ -63,7 +63,6 @@ models/
 data/
 *.gguf
 *.safetensors
-*.mlx
 *.bin
 
 # ── Render pixel artifacts (regenerable — kept local, never committed) ────────

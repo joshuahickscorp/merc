@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# cx — manage the computexchange production stack (lives at /usr/local/bin/cx on the droplet).
 set -euo pipefail
 cd /opt/computexchange
 C=(docker compose -f docker-compose.prod.yml)
@@ -16,7 +15,7 @@ case "${1:-help}" in
   backup)    cx-backup && echo "backup written to backups/" ;;
   health)    curl -s -o /dev/null -w "control HTTP %{http_code} (404=up)\n" http://127.0.0.1:8080/ ;;
   *) cat <<'EOF'
-cx — manage computexchange
+cx  -  manage computexchange
   cx ps            container status
   cx logs [svc]    tail logs (default: control)
   cx reload        reload .env into control (after editing secrets)

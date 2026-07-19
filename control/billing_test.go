@@ -15,10 +15,6 @@ import (
 	"time"
 )
 
-// withStripeTestServer points the package's Stripe transport seams at an
-// adversarial local server. These tests are deliberately not parallel: the seams
-// are package globals because production must route every Stripe call through the
-// same client/base URL.
 func withStripeTestServer(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
 	ts := httptest.NewServer(handler)
@@ -97,9 +93,6 @@ func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
 	})
 }
 
-// The low-level Stripe transport preserves its idempotency key if explicitly
-// called twice. Production adds the stricter durable operation gate and never
-// makes this second request after an ambiguous response.
 func TestChargePaymentIntentResponseLossKeepsIdempotencyKey(t *testing.T) {
 	var (
 		mu   sync.Mutex
@@ -148,10 +141,6 @@ func TestChargePaymentIntentResponseLossKeepsIdempotencyKey(t *testing.T) {
 	}
 }
 
-// The Stripe webhook gate: a correctly-signed payload verifies (within the replay
-// window); a tampered signature or wrong secret must be rejected (no spoofed
-// billing events). Uses verifyStripeSigAt with a fixed clock so "good" and
-// "expired" are both deterministic, not races against real wall-clock time.
 func TestVerifyStripeSig(t *testing.T) {
 	secret, payload, ts := "whsec_test", []byte(`{"type":"setup_intent.succeeded"}`), "1700000000"
 	mac := hmac.New(sha256.New, []byte(secret))
@@ -177,10 +166,6 @@ func TestVerifyStripeSig(t *testing.T) {
 	}
 }
 
-// A correctly-signed payload whose own timestamp has drifted past the replay
-// tolerance (either direction) must be rejected — the HMAC alone never expires,
-// so this is the only thing standing between a captured request and an
-// indefinitely-replayable one.
 func TestVerifyStripeSigRejectsReplayOutsideTolerance(t *testing.T) {
 	secret, payload, ts := "whsec_test", []byte(`{"type":"setup_intent.succeeded"}`), "1700000000"
 	mac := hmac.New(sha256.New, []byte(secret))

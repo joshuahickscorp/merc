@@ -1,119 +1,42 @@
-# Computexchange — full local stack.
-#
-# Brings up everything the control plane needs and the control plane itself, in
-# dependency order, with healthchecks so nothing starts before its deps are
-# ready. No NATS: the job queue is Postgres (SELECT ... FOR UPDATE SKIP LOCKED on
-# tasks). See README "Deviations".
-#
-#   docker compose up -d            # postgres + minio + buckets + schema + control
-#   docker compose up -d postgres minio createbuckets   # just the deps (for `make migrate`)
-#   docker compose down             # stop
-#   docker compose down -v          # stop + wipe volumes
-#
-# Services and order:
-#   postgres        17, healthchecked, persistent volume
-#   minio           S3-compatible object store + web console
-#   createbuckets   one-shot mc init: waits for minio, creates the cx-jobs bucket
-#   migrate         one-shot psql: applies db/schema.sql once postgres is healthy
-#   control         the Go control plane (built from Dockerfile.control)
-#
-# The Rust agent is NOT here — it needs Metal (unavailable in Linux containers)
-# and runs natively on macOS. Point it at this stack with CX_CONTROL_URL.
-#
-# Credentials/ports match .env.example so the binaries connect with no edits.
-
 services:
   postgres:
     image: postgres:17
-    environment:
-      POSTGRES_USER: cx
-      POSTGRES_PASSWORD: cx
-      POSTGRES_DB: cx
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+    environment: {POSTGRES_USER: cx, POSTGRES_PASSWORD: cx, POSTGRES_DB: cx}
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cx -d cx"]
+      test: [CMD-SHELL, pg_isready -U cx -d cx]
       interval: 5s
       timeout: 3s
       retries: 10
 
   minio:
     image: minio/minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"   # S3 API  (S3_ENDPOINT)
-      - "9001:9001"   # web console
-    volumes:
-      - miniodata:/data
+    command: server /data
+    environment: {MINIO_ROOT_USER: minioadmin, MINIO_ROOT_PASSWORD: minioadmin}
+    ports: ["9000:9000"]
+    volumes: [miniodata:/data]
     healthcheck:
-      # mc-free liveness: the MinIO image ships curl; the health endpoint is the
-      # canonical readiness signal.
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      test: [CMD-SHELL, curl -fsS http://localhost:9000/minio/health/live]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  # One-shot: wait for MinIO, then create the jobs bucket. Idempotent — `mb -p`
-  # is a no-op if the bucket already exists. Exits 0 on success; control's
-  # depends_on gates on that completion.
   createbuckets:
     image: minio/mc
     depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      set -e;
-      mc alias set local http://minio:9000 minioadmin minioadmin;
-      mc mb -p local/cx-jobs;
-      mc anonymous set none local/cx-jobs;
-      echo 'bucket cx-jobs ready';
-      "
+      minio: {condition: service_healthy}
+    entrypoint: >-
+      /bin/sh -c 'mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/cx-jobs && mc anonymous set none local/cx-jobs'
     restart: "no"
 
-  # One-shot: apply the authoritative schema once Postgres is healthy. Uses the
-  # postgres image purely for its psql client. Idempotent (schema.sql is all
-  # IF NOT EXISTS / ON CONFLICT DO NOTHING). ON_ERROR_STOP makes any SQL error a
-  # non-zero exit, so a broken schema fails the stack loudly instead of silently.
-  migrate:
-    image: postgres:17
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      PGPASSWORD: cx
-    volumes:
-      - ./db/schema.sql:/schema.sql:ro
-    entrypoint: >
-      /bin/sh -c "
-      set -e;
-      psql -v ON_ERROR_STOP=1 --single-transaction -h postgres -U cx -d cx -f /schema.sql;
-      echo 'schema applied';
-      "
-    restart: "no"
-
-  # The Go control plane. Starts only after the schema is applied and object
-  # storage is ready. LISTEN_ADDR is the env var main.go reads; DATABASE_URL and
-  # the S3_* vars come from the compose env below (host networking names, not
-  # localhost). Override secrets via an .env file if desired.
   control:
-    build:
-      context: .
-      dockerfile: Dockerfile.control
+    build: {context: ., dockerfile: Dockerfile.control}
     depends_on:
-      migrate:
-        condition: service_completed_successfully
-      createbuckets:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+      postgres: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      createbuckets: {condition: service_completed_successfully}
     environment:
       DATABASE_URL: postgres://cx:cx@postgres:5432/cx?sslmode=disable
       LISTEN_ADDR: ":8080"
@@ -123,13 +46,10 @@ services:
       S3_BUCKET: cx-jobs
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
-    ports:
-      - "8080:8080"
+    ports: ["8080:8080"]
     restart: unless-stopped
     healthcheck:
-      # The distroless image has no shell/curl. The binary's healthcheck command
-      # probes /readyz, including DB reachability and owned-worker liveness.
-      test: ["CMD", "/control", "healthcheck"]
+      test: [CMD, /cx, healthcheck]
       interval: 10s
       timeout: 4s
       retries: 5

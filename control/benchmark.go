@@ -6,24 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// benchmark.go — the benchmark database surface. Persisting a WorkerCapability
-// and its BenchResults is handled by store.UpsertWorker (one transaction);
-// this file holds the *read* side the scheduler relies on: turning stored
-// workers + their latest benchmarks into the MatchWorker candidates Match
-// scores, and exposing a worker's full profile.
-
-// CandidateWorkers loads the workers that could plausibly serve a job type into
-// the matching view: liveness, memory, reputation, supplier tier, a job_type→tps map
-// drawn from each worker's most recent benchmark per type, whether the worker has
-// modelRef WARM (warm-routing, D3 — a re-rank bonus in Match, never a filter), and
-// whether it is thermally degraded (docs/internal/CREED_AND_PATH_TO_TEN.md, "Thermal
-// sustained-vs-peak throughput on fanless Apple Silicon" 4→5 — also a re-rank
-// penalty in Match, never a filter: a throttling worker is still real, usable
-// supply). Only workers seen within the last 60s are returned (Match re-checks, but
-// filtering in SQL keeps the candidate set small on the hot path). An exact
-// current-matrix (jobType, modelRef) capability is mandatory; legacy array-only
-// workers are not candidates. modelRef may be "" only if such a production cell
-// exists; Warm is then false.
 func (s *Store) CandidateWorkers(ctx context.Context, jobType, modelRef string, minMemGB float32) ([]MatchWorker, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT w.id, w.supplier_id, COALESCE(w.hw_class,''),
@@ -37,7 +19,7 @@ func (s *Store) CandidateWorkers(ctx context.Context, jobType, modelRef string, 
 		          ORDER BY br.measured_at DESC LIMIT 1
 		        ), 0),
 		        -- WARM: a fresh worker_model_state row for THIS model means the worker
-		        -- still has it loaded (warm-routing re-rank). "" model → never warm.
+		        -- still has it loaded (warm-routing re-rank). "" model -> never warm.
 		        ($3 <> '' AND EXISTS (
 		          SELECT 1 FROM worker_model_state wms
 		          WHERE wms.worker_id = w.id AND wms.model_id = $3
@@ -88,18 +70,6 @@ func (s *Store) CandidateWorkers(ctx context.Context, jobType, modelRef string, 
 	return out, rows.Err()
 }
 
-// FleetRateRow is one live, eligible worker's measured-rate view for the
-// fan-out planner (Speed Lane wave 1B, planner.go): the worker's cached
-// measured tps for the job type (worker_tps_cache — 0 when it has never
-// benchmarked this type), whether it currently reports the job's model WARM
-// (worker_model_state, the same 60s freshness window the claim path uses), and
-// the most recent MEASURED cold-load wall-clock for that model
-// (benchmark_results.load_ms — persisted since the warm-pool facet but never
-// read at planning time before this wave; 0 = no measurement, the planner
-// substitutes its documented default). Row eligibility mirrors the claim
-// path's hard filter (live <60s, supplier active, not throttled, effective
-// memory, exact current-matrix job/model cell) so the planner never plans onto a worker the
-// scheduler could not actually dispatch to.
 type FleetRateRow struct {
 	WorkerID  uuid.UUID
 	TPS       float32
@@ -108,11 +78,6 @@ type FleetRateRow struct {
 	Throttled bool
 }
 
-// FleetRateSnapshot loads the live eligible fleet's measured rates for a
-// (jobType, modelRef, minMemGB) shape — the planner's input. modelRef may be
-// "": Warm is then false for every row (no model to be warm for) and the
-// load_ms lookup is skipped. Read-only; not on the claim hot path (called at
-// submit/quote time and from the endgame sweep's decision log only).
 func (s *Store) FleetRateSnapshot(ctx context.Context, jobType, modelRef string, minMemGB float32) ([]FleetRateRow, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT w.id,
@@ -159,9 +124,6 @@ func (s *Store) FleetRateSnapshot(ctx context.Context, jobType, modelRef string,
 	return out, rows.Err()
 }
 
-// WorkerProfile is the full benchmark/profile view of one worker. Engine + BuildHash
-// are the finer verification-class axes (alongside HWClass) so the redundancy-peer
-// path can pin a peer to the anchor's full (hw_class, engine, build_hash) class.
 type WorkerProfile struct {
 	WorkerID   uuid.UUID     `json:"worker_id"`
 	SupplierID uuid.UUID     `json:"supplier_id"`
@@ -174,7 +136,6 @@ type WorkerProfile struct {
 	Benchmarks []BenchResult `json:"benchmarks"`
 }
 
-// GetWorkerProfile returns a worker plus all its benchmark lines.
 func (s *Store) GetWorkerProfile(ctx context.Context, workerID uuid.UUID) (*WorkerProfile, error) {
 	var p WorkerProfile
 	err := s.pool.QueryRow(ctx,

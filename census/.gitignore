@@ -1,9 +1,4 @@
-# The full per-file census dump is large and deterministically regenerable via
-# `make audit` (cx audit codebase). Track only the compact summaries + the
-# authored boundary/baseline files. Regenerate the dump on demand.
-CODEBASE_CENSUS.json
-
-# regenerable census dumps (make audit) + pack file-lists (digests in PACK_MANIFESTS.json)
+# Regenerable temporary file lists.
 CONDENSATION_CANDIDATES.json
 pack-render-lab-files.json
 pack-benchmarks-files.json

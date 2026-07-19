@@ -12,12 +12,6 @@ import (
 
 var errBuyerChargeOutcomeUnknown = errors.New("buyer charge outcome unknown")
 
-// BeginBuyerChargeOperation persists the exact external request identity before
-// the first byte can reach Stripe. Its initial state is outcome_unknown on
-// purpose: until a terminal Stripe response and the canonical collection commit
-// in one local transaction, a crash can never prove that buyer cash did not move.
-// An existing operation is never re-armed automatically, even after Stripe's
-// idempotency retention window has elapsed.
 func (s *Store) BeginBuyerChargeOperation(
 	ctx context.Context,
 	operationKey, sourceKind string,
@@ -150,11 +144,6 @@ func sameChargeOptionalUUID(a, b *uuid.UUID) bool {
 	return *a == *b
 }
 
-// finalizeBuyerChargeOperation is called inside the same transaction that writes
-// buyer_cash_collections. Therefore `succeeded` can never exist without the
-// canonical PI + charge binding that supplier funding relies on. No operation is
-// required for legacy/operator reconciliation writes, but every production
-// charge path creates one before contacting Stripe.
 func finalizeBuyerChargeOperation(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -195,10 +184,6 @@ func finalizeBuyerChargeOperation(
 		operationKey, status, pi, chargeID)
 }
 
-// ReconcileBuyerChargeOperation is the explicit recovery seam for an operator or
-// future Stripe reconciliation worker that has independently resolved an
-// outcome_unknown operation (for example by its cx_operation_key metadata). It
-// records the authoritative Stripe result; it never issues another charge.
 func (s *Store) ReconcileBuyerChargeOperation(ctx context.Context, operationKey string, charge ChargeResult) error {
 	var sourceKind string
 	var jobID, batchID *uuid.UUID

@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// With a key set, a sealed token must round-trip and must NOT appear in plaintext.
 func TestSealOpenRoundTrip(t *testing.T) {
 	t.Setenv("CX_TOKEN_KEY", "test-secret-key")
 	sealed := sealToken("ghp_secrettoken123")
@@ -20,7 +19,6 @@ func TestSealOpenRoundTrip(t *testing.T) {
 	}
 }
 
-// With no key, sealing is honest plaintext (tagged) and still round-trips.
 func TestSealNoKeyIsHonestPlaintext(t *testing.T) {
 	t.Setenv("CX_TOKEN_KEY", "")
 	sealed := sealToken("abc")
@@ -46,11 +44,6 @@ func (failingSealReader) Read([]byte) (int, error) {
 	return 0, errors.New("entropy unavailable")
 }
 
-// redundancySelectionHash must be deterministic for a fixed (jobID, taskID) pair
-// (so a replayed job assigns redundancy peers identically) but must NOT reduce to
-// picking task IDs in their original ordinal position — the whole point of the
-// fix (Verification Redundancy & Trust-Compute Overhead 6->7) is that "which
-// primaries get a peer" no longer correlates with submission/chunk order.
 func TestRedundancySelectionHashIsDeterministicNotOrdinal(t *testing.T) {
 	jobID := uuid.New()
 	tasks := make([]uuid.UUID, 20)
@@ -58,7 +51,6 @@ func TestRedundancySelectionHashIsDeterministicNotOrdinal(t *testing.T) {
 		tasks[i] = uuid.New()
 	}
 
-	// Determinism: hashing the same pair twice gives the same value.
 	for _, id := range tasks {
 		first := redundancySelectionHash(jobID, id)
 		second := redundancySelectionHash(jobID, id)
@@ -67,11 +59,6 @@ func TestRedundancySelectionHashIsDeterministicNotOrdinal(t *testing.T) {
 		}
 	}
 
-	// Not ordinal: sort tasks by hash and confirm the resulting order is not
-	// simply the original slice order — with 20 random UUIDs the odds of a real
-	// hash function coincidentally preserving input order are negligible, so any
-	// failure here is a real bug (e.g. accidentally hashing the index instead of
-	// the UUID), not flakiness.
 	sorted := append([]uuid.UUID(nil), tasks...)
 	sort.Slice(sorted, func(i, j int) bool {
 		return redundancySelectionHash(jobID, sorted[i]) < redundancySelectionHash(jobID, sorted[j])
@@ -84,11 +71,9 @@ func TestRedundancySelectionHashIsDeterministicNotOrdinal(t *testing.T) {
 		}
 	}
 	if same {
-		t.Fatal("hash-sorted order matched original ordinal order — selection is not actually keyed by the hash")
+		t.Fatal("hash-sorted order matched original ordinal order  -  selection is not actually keyed by the hash")
 	}
 
-	// A different job salts the same task ID to a different rank — two jobs
-	// never share a predictable "always chunk 0..k" pattern.
 	otherJob := uuid.New()
 	differs := false
 	for _, id := range tasks {

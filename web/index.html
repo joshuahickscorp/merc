@@ -1,13 +1,9 @@
 <!doctype html>
 <!-- computexchange · development-preview page, not a launch or market attestation.
-     Current claim state comes from proof/5x5-gates.json and source-bound artifacts;
-     docs/SITE-CLAIMS.md is historical only. DESKTOP-ONLY: under 900px the page is a
-     hand-off screen that sends the link to a Mac. The hero is a LIVE Three.js scene
-     of the two devices (oracles.glb, built by render/build_scene.py, same geometry as
-     the Cycles stills); on WebGL failure it swaps to the Cycles still, which is the
-     same scene, so the fallback is honest. Three is self-hosted under /assets/site/
-     vendor · no CDN at runtime. Dash gate: no U+2014, no U+2013 · separator is the
-     middot.
+     Current claim state comes from source-bound proof receipts.
+     DESKTOP-ONLY: under 900px the page is a hand-off screen that sends the link to a
+     Mac. The hero uses the retained Apple Silicon product still. Dash gate: no
+     U+2014, no U+2013 · separator is the middot.
 
      DESIGN DIRECTION scaffold (DESIGN-DIRECTION.md) · "an instrument the size of a
      room". Weighted monochrome procession · Owens' mass, Ando's void, the instrument
@@ -24,10 +20,10 @@
 <link rel="icon" href="/favicon.ico" sizes="any">
 <meta property="og:title" content="computexchange">
 <meta property="og:description" content="development preview · local contracts exist; market, money, hardware, and distribution proof remain open">
-<meta property="og:image" content="https://computexchange.net/assets/site/og-image.png">
+<meta property="og:image" content="https://computexchange.net/assets/site/mac-studio@2x.png">
 <meta property="og:type" content="website">
 <link rel="preload" href="/assets/site/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="/assets/site/oracles-pair@1x.png" as="image" fetchpriority="high">
+<link rel="preload" href="/assets/site/mac-studio@1x.png" as="image" fetchpriority="high">
 <style>
   /* Self-hosted, no CDN. Geist Mono (400 to 600) is the RECEIPT / LABEL voice only ·
      "the machine speaking". The primary neo-grotesque voice (--sans / --breit) uses the
@@ -37,12 +33,6 @@
   @font-face{font-family:'Geist Mono';font-style:normal;font-weight:400 600;font-display:swap;
     src:url(/assets/site/fonts/geist-mono.woff2) format('woff2')}
 </style>
-<script type="importmap">
-{ "imports": {
-  "three": "/assets/site/vendor/three.module.js",
-  "three/addons/": "/assets/site/vendor/addons/"
-}}
-</script>
 <style>
   :root{
     /* pure monochrome (owner: "all black") · no warm cast anywhere. Near-black ground,
@@ -101,25 +91,15 @@
   .mark b{font-weight:500;font-size:14px;letter-spacing:.01em}
   .masthead .label{color:var(--ash)}
 
-  /* the stage · fallback is an in-flow hero on the LEFT field; live pins it full-bleed
-     left (see .live). Device sits low and toward the frame edge, never dead-center. */
+  /* the stage · the Apple Silicon device sits low and toward the frame edge. */
   .stage{position:relative;height:76vh;min-height:520px;margin:0;overflow:hidden}
-  #hero-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none;z-index:0}
-  #hero-canvas:active{cursor:grabbing}
   .hero-still{position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-start;z-index:1;
-    padding-left:var(--m);transition:opacity var(--dur-veil) var(--ease-veil)}
-  /* seat the still INTO the void · the render has a baked studio ground, so a radial
-     pool-of-light mask melts its edges into the page black (the devices sit in the room,
-     not in a pasted photo) and the still-to-live crossfade stops jumping in luminance. */
+    padding-left:var(--m)}
+  /* Seat the retained still into the void so it reads as part of the room. */
   .hero-still img{width:min(58vw,940px);height:auto;max-height:100%;object-fit:contain;object-position:left center;
     filter:brightness(.88);
     -webkit-mask-image:radial-gradient(60% 54% at 46% 50%,#000 50%,transparent 99%);
             mask-image:radial-gradient(60% 54% at 46% 50%,#000 50%,transparent 99%)}
-  .stage.fallback #hero-canvas{display:none}
-  .stage.ready .hero-still{opacity:0;pointer-events:none}
-  .hint{position:absolute;left:var(--m);bottom:18px;opacity:.5;z-index:2;
-    font:500 10px/1.2 var(--mono);letter-spacing:.28em;text-transform:uppercase;color:var(--ash)}
-  .stage.fallback .hint{display:none}
   /* device specs folded into arrival as instrument lines (was a floating callout layer) */
   .spec{color:var(--ash);margin:20px 0 0}
   .spec+.spec{margin-top:6px}
@@ -161,7 +141,7 @@
   .receipts-line{margin-top:30px}
   .receipts-btn{color:var(--mute);font:500 11px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;
     padding:12px 0;transition:color var(--dur) var(--ease-glide)}
-  .receipts-btn::after{content:" →";color:var(--ash)}
+  .receipts-btn::after{content:" ->";color:var(--ash)}
   .receipts-btn:hover{color:var(--bone-hi)}
 
   /* the monument · the one sanctioned break from the spine · flush-LEFT against the far
@@ -217,48 +197,6 @@
   .ledger-foot{color:var(--ash);font-size:11.5px;line-height:1.5;margin:18px 0 0}
   .ledger-foot .path{color:var(--mute);font-family:var(--mono)}
 
-  /* ── live choreography · pinned canvas full-bleed-left, type in the right field ──
-     Added by JS only when the WebGL hero mounts (html.live). No WebGL → the linear
-     asymmetric page above (already the direction, minus the pinned scene). */
-  /* the stage pins FULL-BLEED (the scene is the set; the camera composes the devices
-     into the LEFT field per hero.js BEATS · verified so the cluster never crosses the
-     spine into the type). The 56vw strip of S1 broke that proof · reverted. */
-  .live .stage{position:fixed;inset:0;height:100vh;width:100%;margin:0;z-index:0}
-  .live #hero-canvas{will-change:opacity}
-  /* S6 · the text layer inertia-scrolls over the fixed stage · promote it so the per-frame
-     translate is a compositor-only transform. The document keeps its true height, so the
-     native scrollbar stays the single source of truth · this warp is purely visual. */
-  .live .beats,.live footer{will-change:transform;backface-visibility:hidden}
-  .live .hero-still{justify-content:flex-start;padding-left:var(--m)}
-  .live .hero-still img{max-height:72vh}
-  .live .beats{position:relative;z-index:2;pointer-events:none}
-  .live .beats a,.live .beats button{pointer-events:auto}
-  .live .beat{min-height:105vh;display:flex;flex-direction:column;justify-content:center}
-  /* per-beat composition · each field sits exactly in that beat's harness-verified void
-     (the rest poses are clean; during travel the devices may pass behind the type). The
-     eye walks a zig: right corner, right, LEFT, right, monument, right, right-top. */
-  /* the BISECTION (owner) · models move in the left band, the text is a vertical
-     column on the right, always. Placements mirror the harness-verified rects. */
-  .live .field{margin-left:57.5%;padding-left:0;padding-right:var(--m)}
-  .live .beat-arrival{justify-content:flex-end;padding-bottom:12vh}
-  .live .beat-arrival .field{margin-left:70%}
-  .live .beat-spark .field{margin-left:65%}
-  .live .beat-rig .field{margin-left:60%}             /* the rig is wide · hold the copy right */
-  .live .beat-how{justify-content:flex-start;padding-top:12vh}
-  .live .beat-how .field{margin-left:53%}             /* the console runs wide */
-  .live .beat-earn{justify-content:flex-end;padding-bottom:12vh}
-  /* release · the download sits against the footer, the scene already faded out */
-  .live .beat-release{min-height:78vh;justify-content:flex-end;padding-bottom:2vh}
-  .live .beat-release .field{margin-left:55%}
-  .live .runway{display:none}                         /* no dead runway · sections sit close */
-  .live footer{position:relative;z-index:2;padding-top:3vh}
-
-  /* reveal · engine drives opacity AND the 12px lift per frame off the glided scalar
-     (one owner, no CSS transition). Reduced-motion shows everything. */
-  .live .reveal{opacity:0;transform:translateY(12px);will-change:opacity,transform}
-  .live.reduced .reveal{opacity:1 !important;transform:none !important}
-  .runway{display:none}
-
   /* ── the phone hand-off (unchanged) ───────────────────────────────────── */
   .handoff{display:none;min-height:100svh;flex-direction:column;align-items:center;
     justify-content:center;text-align:center;padding:40px 28px;gap:0}
@@ -295,12 +233,12 @@
 </header>
 
 <div class="stage" id="stage">
-  <canvas id="hero-canvas"></canvas>
   <div class="hero-still">
-    <img src="/assets/site/oracles-pair@1x.png" width="1066" height="666" fetchpriority="high"
-         alt="A Mac Studio and an NVIDIA DGX Spark on a desk in studio light">
+    <img src="/assets/site/mac-studio@1x.png"
+         srcset="/assets/site/mac-studio@1x.png 1x, /assets/site/mac-studio@2x.png 2x, /assets/site/mac-studio@3x.png 3x"
+         width="682" height="682" fetchpriority="high"
+         alt="A Mac Studio in studio light">
   </div>
-  <div class="hint" id="hint">drag to look</div>
 </div>
 
 <main class="beats">
@@ -310,7 +248,7 @@
       <span class="beat-index label">01 <b>· arrival</b></span>
       <p class="thesis">a development-stage exchange implementation</p>
       <p class="ash-line">Current advertised runtime projection: Candle/Metal on Apple Silicon only · exact supported job/model cells come from the runtime matrix.</p>
-      <p class="ash-line">No live-money, market-liquidity, signed-distribution, or physical-fleet claim. The demo and local validators are prerequisites, not product proof.</p>
+      <p class="ash-line">No live-money, market-liquidity, signed-distribution, or physical-fleet claim. Local validators are prerequisites, not product proof.</p>
     </div></div>
   </section>
 
@@ -323,28 +261,10 @@
     </div></div>
   </section>
 
-  <!-- 03 · the spark · the swap · its sections -->
-  <section class="beat beat-spark" data-beat="2">
-    <div class="field"><div class="reveal">
-      <span class="beat-index label">03 <b>· the spark</b></span>
-      <h2 class="display">Spark</h2>
-      <p class="ash-line">nvidia on cuda · experimental benchmark and sandbox work exists, but CUDA supply is not currently advertised as production</p>
-    </div></div>
-  </section>
-
-  <!-- 04 · the rig · the six-card exposed rig, alone in frame -->
-  <section class="beat beat-rig" data-beat="3">
-    <div class="field"><div class="reveal">
-      <span class="beat-index label">04 <b>· the rig</b></span>
-      <h2 class="display">Rig</h2>
-      <p class="ash-line">six RTX 5090 cards mounted edge-out · a reference chassis modeled for the exposed-edge display, not a deployed or advertised physical fleet</p>
-    </div></div>
-  </section>
-
-  <!-- 05 · how it works · the instrument, wide · side by side on the left -->
-  <section class="beat beat-how" data-beat="4">
+  <!-- 03 · how it works · the instrument -->
+  <section class="beat beat-how" data-beat="2">
     <div class="field">
-      <span class="beat-index label reveal">05 <b>· how it works</b></span>
+      <span class="beat-index label reveal">03 <b>· how it works</b></span>
       <div class="console">
         <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">drop</span>
           <span class="stmt">drop a workload · the pipeline is detected</span><span class="state">detected</span></div>
@@ -357,19 +277,15 @@
         <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">payout</span>
           <span class="stmt">Stripe Connect transfer code exists; a real charge, payout, fee, refund or reversal, and reconciliation remain unproven</span><span class="state">external gate</span></div>
         <div class="row reveal"><span class="lens green" aria-hidden="true"></span><span class="k">proof</span>
-          <span class="stmt">source-bound local contracts cover narrow mechanisms; unchecked chunks, physical hardware, money, and market outcomes stay explicitly open</span><span class="state">see 5x5 registry</span></div>
+          <span class="stmt">source-bound local contracts cover narrow mechanisms; physical hardware, money, and market outcomes stay explicitly open</span><span class="state">see proof receipt</span></div>
       </div>
       <div class="console receipts-block">
         <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">backends</span>
-          <span class="stmt">Candle/Metal on Apple Silicon is the current advertised projection; a CUDA build flag and old benchmarks do not create production CUDA supply</span><span class="state">metal only</span></div>
+          <span class="stmt">Candle on Metal for Apple Silicon is the advertised production runtime</span><span class="state">metal only</span></div>
         <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">executors</span>
-          <span class="stmt">embeddings, inference, transcription, classification, extraction, rerank · classification and extraction are real llama passes</span><span class="state">six verified</span></div>
+          <span class="stmt">embeddings and batch inference use exact admitted workload and model cells</span><span class="state">two workloads</span></div>
         <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">headroom</span>
           <span class="stmt">memory floors and historical benchmark observations are development inputs; current physical apples-to-apples, thermal, and buyer-workload gates remain open</span><span class="state">evidence pending</span></div>
-        <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">sandbox</span>
-          <span class="stmt">your own container in a locked-down gpu sandbox · cuda-only, no network, read-only root, a hard timeout · reputation-trusted</span><span class="state">road ahead</span></div>
-        <div class="row reveal"><span class="lens" aria-hidden="true"></span><span class="k">rig</span>
-          <span class="stmt">a six-card RTX 5090 reference rig is modeled edge-out for the exposed-side display · no physical multi-GPU fleet is deployed or advertised as supply</span><span class="state">render only</span></div>
       </div>
       <div class="receipts-line reveal">
         <button class="receipts-btn" id="open-receipts">the full ledger</button>
@@ -377,8 +293,8 @@
     </div>
   </section>
 
-  <!-- 06 · the price monument · flush-left, bleeding off the right edge, on a plinth -->
-  <section class="beat beat-price" data-beat="5">
+  <!-- 04 · the price monument · flush-left, bleeding off the right edge, on a plinth -->
+  <section class="beat beat-price" data-beat="3">
     <div class="monument reveal">
       <span class="cap-top label">embeddings</span>
       <p class="fig"><span class="dollar">$</span><span class="price">0.001</span></p>
@@ -387,23 +303,23 @@
     </div>
   </section>
 
-  <!-- 07 · earn -->
-  <section class="beat beat-earn" data-beat="6">
+  <!-- 05 · earn -->
+  <section class="beat beat-earn" data-beat="4">
     <div class="field"><div class="reveal">
-      <span class="beat-index label">07 <b>· earn</b></span>
+      <span class="beat-index label">05 <b>· earn</b></span>
       <h2 class="display display-max">earn</h2>
       <div class="earn">
         <img src="/assets/site/knob-off@3x.png" alt="" loading="lazy" width="104" height="104">
         <p class="lede">the agent can contribute eligible work while enabled · real supplier earnings and net hourly value have not been demonstrated</p>
       </div>
-      <p class="road"><a href="/demo">try the buyer console at /demo</a> · no install, same-origin, runs the same job pipeline as the API</p>
+      <p class="road">eligible work uses the same quote, task, verification, and settlement path as the native API</p>
     </div></div>
   </section>
 
-  <!-- 08 · release / download -->
-  <section class="beat beat-release download" data-beat="7">
+  <!-- 06 · release / download -->
+  <section class="beat beat-release download" data-beat="5">
     <div class="field"><div class="reveal">
-      <span class="beat-index label">08 <b>· release</b></span>
+      <span class="beat-index label">06 <b>· release</b></span>
       <h2 class="display">download</h2>
       <span class="flag label">closed alpha</span>
       <p>There is no public download yet. The supplier agent installs with one command from the alpha build · the macOS menu bar app builds today, and the notarized public release is the next step.</p>
@@ -418,7 +334,7 @@
         <button type="submit" class="hand-key">request access</button>
       </form>
       <p id="alpha-status" class="road" aria-live="polite"></p>
-      <p class="road">the development catalogue is not public distribution · a metered general-compute lane remains road-ahead work</p>
+      <p class="road">the development catalogue is not public distribution</p>
     </div></div>
   </section>
 </main>
@@ -434,121 +350,21 @@
       <span class="title">computexchange · claims ledger</span>
       <button class="close" id="close-receipts">close</button>
     </div>
-    <div class="ledger-stat"><span><b>development</b> preview</span><span>no static proof counter</span><span class="gen">current state: proof/5x5-gates.json</span></div>
+    <div class="ledger-stat"><span><b>development</b> preview</span><span>no static proof counter</span><span class="gen">current state: source-bound receipt</span></div>
     <div class="claim"><span class="k">proof</span><span class="v">Only a terminally passing ledger whose source fingerprint matches the current source may support a narrow local contract claim. Local tests do not establish market, live-money, physical-fleet, legal, or production-SLO outcomes.</span></div>
     <div class="claim"><span class="k">queue</span><span class="v">the job queue is a plain Postgres table claimed with FOR UPDATE SKIP LOCKED · no Kafka, RabbitMQ, NATS, or Redis in the dependency tree</span></div>
     <div class="claim"><span class="k">binaries</span><span class="v">two binaries at the core · a Rust supplier agent and a Go control plane · the buyer CLI and macOS menu bar app are optional layers on top</span></div>
-    <div class="claim"><span class="k">executors</span><span class="v">the current generated projection contains seven exact job/model cells on Candle/Metal for Apple Silicon · build flags, stubs, soak-only lanes, and pending models are excluded from advertised supply</span></div>
-    <div class="claim"><span class="k">general compute</span><span class="v">the sandbox that runs your own container is built and hardened · no network, read-only root, all capabilities dropped, non-root, a hard timeout · reputation-trusted, not output-verified, and CUDA-only · Linux with Docker and the NVIDIA Container Toolkit · metering it per GPU-second and opening the lane is the road ahead</span></div>
+    <div class="claim"><span class="k">executors</span><span class="v">the current generated projection contains exact embed and batch inference cells on Candle/Metal for Apple Silicon</span></div>
     <div class="claim"><span class="k">scheduler</span><span class="v">tasks are sized for a 45 second runtime target · five hard filters gate every claim · quiet hours are enforced by the agent on the device itself</span></div>
     <div class="claim"><span class="k">verification</span><span class="v">honeypot known-answer tasks, within-class redundancy, N-way majority votes · a 0.25 audit floor, so even the most trusted supplier is spot-checked about one task in four · a failed honeypot docks reputation, claws back the credit, and quarantines the supplier</span></div>
-    <div class="claim"><span class="k">quote</span><span class="v">a quote before any spend at POST /v1/quote · the max_usd cap set at submission is enforced at dispatch, pausing the job before the cap is breached · $0.002 per 1,000 units of Llama 3.2 1B, from $0.004 per audio minute of Whisper</span></div>
+    <div class="claim"><span class="k">quote</span><span class="v">a quote before any spend at POST /v1/quote · the max_usd cap set at submission is enforced at dispatch, pausing the job before the cap is breached</span></div>
     <div class="claim"><span class="k">payouts</span><span class="v">held-credit, transfer, and reconciliation code exists; no real charge, supplier payout, processor fee, refund or reversal has been accepted as evidence.</span></div>
     <div class="claim"><span class="k">rails</span><span class="v">configured Stripe code is not proof that money moved. Production-money evidence remains an external gate.</span></div>
-    <div class="claim"><span class="k">identity</span><span class="v">the browser demo can provision a local account silently; complete buyer recovery, export, deletion, and stranger activation remain open.</span></div>
-    <p class="ledger-foot">current claim state is generated from <span class="path">proof/5x5-gates.json</span> and source-bound artifacts · the old line-number ledger is historical only</p>
+    <div class="claim"><span class="k">identity</span><span class="v">buyer recovery, export, deletion, and stranger activation remain open product gates.</span></div>
+    <p class="ledger-foot">current claim state is established only by a terminal receipt from <span class="path">scripts/prove-local.sh</span></p>
   </div>
 </dialog>
 </div>
-
-<script type="module">
-  // Dynamic import so any vendor/WebGL gap degrades to the Cycles still (the same
-  // scene) rather than a blank hero · the fallback is honest. On a successful mount
-  // the document goes .live and the asymmetric linear page becomes the pinned beat
-  // choreography; without it the page stays the linear asymmetric still-page above.
-  const root = document.documentElement;
-  const stage = document.getElementById('stage');
-  const canvas = document.getElementById('hero-canvas');
-  const hintEl = document.getElementById('hint');
-  const fallback = () => stage.classList.add('fallback');
-  const coarse = window.matchMedia('(pointer: coarse)').matches;
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-
-  const sections = Array.prototype.slice.call(document.querySelectorAll('.beat'));
-  // S6 · the content layer that inertia-scrolls (the beats + footer) warps over the fixed
-  // stage. window.scrollY stays the true scroll; the warp only eases the content toward the
-  // smoothed viewFrac the engine hands back, so the copy moves with the camera's momentum.
-  const warp = [document.querySelector('.beats'), document.querySelector('footer')].filter(Boolean);
-  let isLive = false, lastView = 0;
-  // index + 6 flow rows + 5 receipt rows (incl. the rig) + the ledger button = 13 staggered reveals · ~60pct overlap
-  const HOW_GATE = [0.10, 0.16, 0.22, 0.28, 0.34, 0.40, 0.46, 0.52, 0.58, 0.63, 0.69, 0.74, 0.80];
-  const GATE_W = 0.16;
-  function setRev(el, o) { el.style.opacity = o; el.style.transform = o > 0.999 ? 'none' : 'translateY(' + ((1 - o) * 12).toFixed(2) + 'px)'; }
-
-  let metrics = [], mMax = 1, mVh = 0, lastP = 0;
-  function measure() {
-    // read UNTRANSFORMED geometry · the warp is a visual transform, so clear it before
-    // measuring section centres, then the reveal() call that always follows reapplies it
-    // in the same frame (no visible flash).
-    for (const el of warp) el.style.transform = 'none';
-    const sy = window.scrollY, vh = window.innerHeight;
-    mVh = vh;
-    mMax = Math.max(1, document.documentElement.scrollHeight - vh);
-    metrics = sections.map(function (sec) {
-      const r = sec.getBoundingClientRect();
-      return {
-        revs: Array.prototype.slice.call(sec.querySelectorAll('.reveal')),
-        idx: +sec.dataset.beat, center: r.top + sy + r.height / 2, h: r.height,
-      };
-    });
-  }
-
-  function reveal(camP, view) {
-    if (reduce) return;
-    // S6 · the reveal AND the content warp both key off the smoothed page-scroll fraction
-    // (viewFrac · pure inertia), so the copy's opacity and its position share one motion.
-    // The camera keeps its own dwell scalar (it holds the shot); the text never holds.
-    const v = (view === undefined ? camP : view);
-    lastP = camP; lastView = v;
-    const vh = mVh || window.innerHeight, mid = vh / 2, vy = v * mMax;
-    // warp the text layer to the smoothed position over the fixed stage · visual only, so
-    // centerInVp below equals the copy's true on-screen centre (warp cancels in the maths).
-    if (isLive && metrics.length) {
-      const tf = 'translate3d(0,' + (window.scrollY - vy).toFixed(2) + 'px,0)';
-      for (const el of warp) el.style.transform = tf;
-    }
-    for (const m of metrics) {
-      const centerInVp = m.center - vy;
-      const align = clamp(1 - (Math.abs(centerInVp - mid) / vh - 0.14) / 0.5, 0, 1);
-      if (m.idx === 4) {   // how · the console rows stagger (beat 5 of 8)
-        const top = centerInVp - m.h / 2;
-        const ep = clamp((vh * 0.86 - top) / (vh * 0.92), 0, 1);
-        for (let i = 0; i < m.revs.length; i++) {
-          setRev(m.revs[i], align * clamp((ep - (HOW_GATE[i] || 0)) / GATE_W, 0, 1));
-        }
-      } else {
-        for (const el of m.revs) setRev(el, align);
-      }
-      if (m.idx === 0 && hintEl) hintEl.style.opacity = (align * 0.5).toFixed(3);
-    }
-  }
-
-  // HYBRID SEAM (S1): the live scene is the procession today. Once ~150 photoreal frames
-  // are baked, swap this import for sequence.js (mountSequence) to scrub the baked
-  // procession, and keep hero.js for drag-to-inspect at the price + release beats.
-  import('/assets/site/hero.js').then(({ mountHero }) => {
-    const h = mountHero(canvas, {
-      onFail: fallback,
-      beats: true,
-      dev: /[?&]perf\b/.test(location.search),
-      onProgress: reveal,
-      onReady: function () { stage.classList.add('ready'); },
-    });
-    if (!h) { fallback(); return; }
-    window.__hero = h;
-    root.classList.add('live');
-    isLive = true;
-    if (reduce) root.classList.add('reduced');
-    measure();
-    window.addEventListener('resize', function () { measure(); reveal(lastView, lastView); }, { passive: true });
-    // reveal at the TRUE starting position so a reload mid-page paints in place (no flash);
-    // the engine's first tick then takes over with its own smoothed viewFrac.
-    var v0 = mMax > 0 ? clamp(window.scrollY / mMax, 0, 1) : 0;
-    reveal(v0, v0);
-    if (coarse) hintEl.textContent = 'a mac studio and an nvidia dgx spark';
-  }).catch(fallback);
-</script>
 
 <script>
   var dlg = document.getElementById('receipts');
@@ -585,80 +401,11 @@
       if (!res.ok) throw new Error('request failed');
       alphaStatus.textContent = "you're on the list · we'll follow up at " + email;
       alphaForm.reset();
-      beacon('cta_click', { detail: 'alpha-request:' + role });
     }).catch(function () {
-      alphaStatus.textContent = "that didn't go through — try again in a moment";
+      alphaStatus.textContent = "that didn't go through  -  try again in a moment";
     });
   });
 </script>
 
-<script>
-  // Funnel beacon (docs/internal/CREED_AND_PATH_TO_TEN.md, "Public site &
-  // conversion" 6→7, "Make the funnel observable"). Self-hosted, same-origin,
-  // no CDN script, no cookie, no localStorage. pageId is generated fresh in
-  // memory on every load and never persisted anywhere — it exists only to
-  // group the handful of events one pageview emits (see control/beacon.go's
-  // header comment for the full reasoning); it is not a visitor identifier and
-  // nothing here would ever need a cookie-consent banner. Best-effort: a
-  // failed beacon send never affects the page (catch swallows silently).
-  var pageId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (
-    // extremely old-browser fallback; still not persisted anywhere
-    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    })
-  );
-
-  function beacon(event, opts) {
-    opts = opts || {};
-    var body = {
-      page_id: pageId,
-      event: event,
-      path: location.pathname,
-      referrer: document.referrer || ''
-    };
-    if (typeof opts.beat === 'number') body.beat = opts.beat;
-    if (opts.detail) body.detail = String(opts.detail).slice(0, 128);
-    try {
-      var payload = JSON.stringify(body);
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon('/v1/beacon', new Blob([payload], { type: 'application/json' }));
-      } else {
-        fetch('/v1/beacon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(function () {});
-      }
-    } catch (e) { /* never let telemetry break the page */ }
-  }
-
-  beacon('pageview');
-
-  document.getElementById('open-receipts').addEventListener('click', function () {
-    beacon('receipts_open');
-  });
-
-  var demoLink = document.querySelector('a[href="/demo"]');
-  if (demoLink) {
-    demoLink.addEventListener('click', function () { beacon('cta_click', { detail: 'demo' }); });
-  }
-
-  // Scroll-depth per narrative beat: each of the seven .beat sections fires at
-  // most once per pageview, the first time it becomes >=50% visible. Plain
-  // IntersectionObserver (not the WebGL hero's own scroll math), so this works
-  // identically whether the live scene mounts or the reduced-motion/fallback
-  // page is shown.
-  var seenBeats = {};
-  var beatEls = Array.prototype.slice.call(document.querySelectorAll('.beat[data-beat]'));
-  if (beatEls.length && 'IntersectionObserver' in window) {
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (!entry.isIntersecting) return;
-        var beat = +entry.target.dataset.beat;
-        if (seenBeats[beat]) return;
-        seenBeats[beat] = true;
-        beacon('scroll_depth', { beat: beat });
-      });
-    }, { threshold: 0.5 });
-    beatEls.forEach(function (el) { io.observe(el); });
-  }
-</script>
 </body>
 </html>

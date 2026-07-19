@@ -241,8 +241,6 @@ func FuzzBuildEconomicPlanNeverAuthorizesNegativeMargin(f *testing.F) {
 	f.Add(100.0, 64, 64, 0.95, 5.0, 0.0)
 	f.Add(4.0, 2, 4, 0.97, 0.25, 3.0)
 	f.Fuzz(func(t *testing.T, compute float64, tasks, reserve int, share, premium, cap float64) {
-		// Keep successful cases within realistic allocation sizes; invalid/hostile
-		// numeric inputs are intentionally still passed through the fail-closed path.
 		if tasks > 10_000 || tasks < -10_000 || reserve > 10_000 || reserve < -10_000 {
 			t.Skip()
 		}

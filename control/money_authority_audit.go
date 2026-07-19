@@ -17,11 +17,6 @@ const moneyAuthorityIntentVersion = 1
 
 var errMoneyAuthorityAuditInvariant = errors.New("money authority audit invariant violated")
 
-// moneyAuthorityIntent is the normalized semantic authorization, not the raw
-// request bytes. JSON key order and whitespace therefore do not affect the
-// digest, while any changed target, treasury/fund reference, cents, currency, or
-// reason does. Actor/session identity is stored separately so a retry by another
-// valid credential cannot rewrite the original authorizer.
 type moneyAuthorityIntent struct {
 	Version             int       `json:"version"`
 	Kind                string    `json:"kind"`
@@ -94,10 +89,6 @@ func moneyAuthorityRequestSHA256(in moneyAuthorityIntent) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// insertMoneyAuthorityAction appends one typed action inside the caller's money
-// transaction. The caller pre-generates action and resource ids, inserts this row
-// first, then inserts the resource with a unique authorization_action_id FK. The
-// schema's deferred two-way binding triggers verify both sides at commit.
 func insertMoneyAuthorityAction(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -143,9 +134,6 @@ func insertMoneyAuthorityAction(
 	return digest, nil
 }
 
-// assertMoneyAuthorityAction checks the immutable action linked from an existing
-// resource during an idempotent retry. It deliberately ignores the retrying actor:
-// the original action's actor remains authoritative and can never be overwritten.
 func assertMoneyAuthorityAction(
 	ctx context.Context,
 	tx pgx.Tx,

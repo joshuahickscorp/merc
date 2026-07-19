@@ -1,3 +1,0 @@
-# Compiled cx binary (go build ./... emits it here; build to ./cx or install instead).
-/cli
-/cx
