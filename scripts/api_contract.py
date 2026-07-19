@@ -38,7 +38,6 @@ ROOT_FIELDS = {
     "authorities",
     "direct_route_auth",
     "evidence_catalog",
-    "openai_batch_subset",
     "unsupported_operations",
     "clients",
     "completion_blockers",
@@ -47,7 +46,6 @@ AUTHORITY_FIELDS = {
     "http_routes",
     "python_client",
     "cli_client",
-    "openai_batch_adapter",
     "runtime_matrix",
 }
 OPERATION_COMMON_FIELDS = {
@@ -193,8 +191,6 @@ def route_surface(path: str) -> str:
         return "worker"
     if path.startswith("/v1/supplier"):
         return "supplier"
-    if path.startswith("/v1/files") or path.startswith("/v1/batches"):
-        return "openai_batch_subset"
     if path.startswith("/v1"):
         return "buyer_or_public_v1"
     return "public_or_operational"
@@ -600,23 +596,6 @@ def _go_map(go_text: str, name: str) -> dict[str, str]:
     return result
 
 
-def parse_openai_adapter(openai_text: str) -> dict[str, Any]:
-    functions = extract_go_functions(openai_text)
-    endpoint_body = functions.get("endpointJobType")
-    if endpoint_body is None:
-        raise ContractValidationError("OpenAI adapter has no endpointJobType")
-    endpoint_jobs = dict(
-        re.findall(r'case\s+"([^\"]+)"\s*:\s*return\s+"([^\"]+)"\s*,\s*true', endpoint_body)
-    )
-    if not endpoint_jobs:
-        raise ContractValidationError("OpenAI adapter exposes no batch endpoint labels")
-    return {
-        "endpoint_jobs": endpoint_jobs,
-        "embed_aliases": _go_map(openai_text, "embedModelAliases"),
-        "chat_aliases": _go_map(openai_text, "chatModelAliases"),
-    }
-
-
 def _authority_inputs(
     source: Mapping[str, Any],
     *,
@@ -888,193 +867,6 @@ def _validate_clients(
     return result, sorted(black_box_missing)
 
 
-def _validate_openai(
-    source: Mapping[str, Any],
-    routes: Sequence[Mapping[str, str]],
-    observed: Mapping[str, Any],
-    runtime: Mapping[str, Any],
-    evidence_kinds: Mapping[str, str],
-) -> dict[str, Any]:
-    value = _object(source.get("openai_batch_subset"), "openai_batch_subset")
-    expected_fields = {
-        "compatibility_scope",
-        "full_openai_api_compatible",
-        "drop_in_sdk_compatible",
-        "synchronous_inference",
-        "server_token_streaming",
-        "endpoint_labels_are_http_routes",
-        "supported_http_routes",
-        "endpoint_labels",
-        "model_names",
-        "rejected_model_names",
-        "evidence",
-    }
-    _exact_keys(value, expected_fields, "openai_batch_subset")
-    if _string(value["compatibility_scope"], "openai_batch_subset.compatibility_scope") != "batch_workflow_subset":
-        raise ContractValidationError("overbroad OpenAI compatibility scope; only batch_workflow_subset is implemented")
-    for field in (
-        "full_openai_api_compatible",
-        "drop_in_sdk_compatible",
-        "synchronous_inference",
-        "server_token_streaming",
-        "endpoint_labels_are_http_routes",
-    ):
-        if _boolean(value[field], f"openai_batch_subset.{field}"):
-            raise ContractValidationError(f"openai_batch_subset.{field} overclaims the implemented subset")
-
-    exact_routes, route_shapes = _route_index(routes)
-    supported = _string_list(value["supported_http_routes"], "openai_batch_subset.supported_http_routes", nonempty=True)
-    for route in supported:
-        if route not in exact_routes:
-            raise ContractValidationError(f"OpenAI subset advertises missing Go route {route}")
-        if exact_routes[route]["auth_kind"] != "buyer_bearer_or_session":
-            raise ContractValidationError(f"OpenAI subset route {route} is not buyer-authenticated")
-
-    endpoint_rows: list[dict[str, str]] = []
-    declared_endpoint_jobs: dict[str, str] = {}
-    for index, candidate in enumerate(_list(value["endpoint_labels"], "openai_batch_subset.endpoint_labels", nonempty=True)):
-        context = f"openai_batch_subset.endpoint_labels[{index}]"
-        row = _object(candidate, context)
-        _exact_keys(row, {"label", "native_job"}, context)
-        label = _string(row["label"], f"{context}.label")
-        job = _id(row["native_job"], f"{context}.native_job")
-        if label in declared_endpoint_jobs:
-            raise ContractValidationError(f"duplicate OpenAI endpoint label {label}")
-        if route_shape(f"POST {label}") in route_shapes:
-            raise ContractValidationError(
-                f"OpenAI batch endpoint label {label} is also registered as a synchronous route; contract must be split explicitly"
-            )
-        declared_endpoint_jobs[label] = job
-        endpoint_rows.append({"label": label, "native_job": job})
-    if declared_endpoint_jobs != observed["endpoint_jobs"]:
-        raise ContractValidationError(
-            f"OpenAI endpoint label mapping mismatch: contract={declared_endpoint_jobs}; code={observed['endpoint_jobs']}"
-        )
-
-    cells = _list(runtime.get("cells"), "runtime_matrix.cells", nonempty=True)
-    production_cells: dict[tuple[str, str], list[str]] = {}
-    for index, candidate in enumerate(cells):
-        row = _object(candidate, f"runtime_matrix.cells[{index}]")
-        if row.get("lifecycle") == "production" and isinstance(row.get("model"), str):
-            production_cells.setdefault((str(row.get("job")), str(row.get("model"))), []).append(str(row.get("id")))
-
-    alias_code = {
-        "/v1/embeddings": observed["embed_aliases"],
-        "/v1/chat/completions": observed["chat_aliases"],
-    }
-    alias_rows: list[dict[str, Any]] = []
-    declared_aliases: dict[str, dict[str, str]] = {label: {} for label in declared_endpoint_jobs}
-    for index, candidate in enumerate(_list(value["model_names"], "openai_batch_subset.model_names", nonempty=True)):
-        context = f"openai_batch_subset.model_names[{index}]"
-        row = _object(candidate, context)
-        _exact_keys(
-            row,
-            {"endpoint_label", "name", "target", "classification", "semantic_equivalence"},
-            context,
-        )
-        endpoint = _string(row["endpoint_label"], f"{context}.endpoint_label")
-        if endpoint not in declared_endpoint_jobs:
-            raise ContractValidationError(f"{context} references unknown endpoint label {endpoint}")
-        name = _string(row["name"], f"{context}.name", allow_empty=True)
-        target = _string(row["target"], f"{context}.target")
-        classification = _string(row["classification"], f"{context}.classification")
-        semantic = _boolean(row["semantic_equivalence"], f"{context}.semantic_equivalence")
-        if classification not in ALLOWED_ALIAS_CLASSIFICATIONS:
-            raise ContractValidationError(f"{context} has unknown classification {classification}")
-        if name in declared_aliases[endpoint]:
-            raise ContractValidationError(f"duplicate model name {name!r} for {endpoint}")
-        if name == "" and classification != "omitted_model_default":
-            raise ContractValidationError(f"{context} blank name must be omitted_model_default")
-        if name == target and classification != "native_identity":
-            raise ContractValidationError(f"{context} identical name/target must be native_identity")
-        if name not in {"", target}:
-            raise ContractValidationError(
-                f"{context} branded cross-model aliases are forbidden; reject the name and provide the native model id"
-            )
-        if name != target and semantic:
-            raise ContractValidationError(
-                f"{context} overbroad OpenAI compatibility: {name!r} cannot be semantically equivalent to different native model {target!r}"
-            )
-        if classification == "native_identity" and not semantic:
-            raise ContractValidationError(f"{context} native identity must set semantic_equivalence=true")
-        job = declared_endpoint_jobs[endpoint]
-        cell_ids = sorted(production_cells.get((job, target), []))
-        if not cell_ids:
-            raise ContractValidationError(
-                f"OpenAI model name {name!r} targets {job}/{target} without a production runtime cell"
-            )
-        declared_aliases[endpoint][name] = target
-        alias_rows.append(
-            {
-                "endpoint_label": endpoint,
-                "name": name,
-                "target": target,
-                "classification": classification,
-                "semantic_equivalence": semantic,
-                "production_cell_ids": cell_ids,
-            }
-        )
-    if declared_aliases != alias_code:
-        raise ContractValidationError(
-            f"OpenAI model-name inventory mismatch: contract={declared_aliases}; code={alias_code}"
-        )
-
-    rejected_rows: list[dict[str, str]] = []
-    rejected_keys: set[tuple[str, str]] = set()
-    for index, candidate in enumerate(
-        _list(
-            value["rejected_model_names"],
-            "openai_batch_subset.rejected_model_names",
-            nonempty=True,
-        )
-    ):
-        context = f"openai_batch_subset.rejected_model_names[{index}]"
-        row = _object(candidate, context)
-        _exact_keys(row, {"endpoint_label", "name", "use_native_model"}, context)
-        endpoint = _string(row["endpoint_label"], f"{context}.endpoint_label")
-        name = _string(row["name"], f"{context}.name")
-        native = _string(row["use_native_model"], f"{context}.use_native_model")
-        if endpoint not in declared_endpoint_jobs:
-            raise ContractValidationError(f"{context} references unknown endpoint label {endpoint}")
-        key = (endpoint, name)
-        if key in rejected_keys:
-            raise ContractValidationError(f"duplicate rejected model name {name!r} for {endpoint}")
-        rejected_keys.add(key)
-        if name in declared_aliases[endpoint] or name in alias_code[endpoint]:
-            raise ContractValidationError(
-                f"{context} says {name!r} is rejected but the adapter accepts it"
-            )
-        default_native = declared_aliases[endpoint].get("")
-        if native != default_native:
-            raise ContractValidationError(
-                f"{context} native guidance {native!r} disagrees with endpoint default {default_native!r}"
-            )
-        job = declared_endpoint_jobs[endpoint]
-        if not production_cells.get((job, native)):
-            raise ContractValidationError(
-                f"{context} suggests {job}/{native} without a production runtime cell"
-            )
-        rejected_rows.append(
-            {"endpoint_label": endpoint, "name": name, "use_native_model": native}
-        )
-
-    return {
-        "compatibility_scope": "batch_workflow_subset",
-        "full_openai_api_compatible": False,
-        "drop_in_sdk_compatible": False,
-        "synchronous_inference": False,
-        "server_token_streaming": False,
-        "endpoint_labels_are_http_routes": False,
-        "supported_http_routes": sorted(supported),
-        "endpoint_labels": sorted(endpoint_rows, key=lambda row: row["label"]),
-        "model_names": sorted(alias_rows, key=lambda row: (row["endpoint_label"], row["name"])),
-        "rejected_model_names": sorted(
-            rejected_rows, key=lambda row: (row["endpoint_label"], row["name"])
-        ),
-        "evidence": _evidence_refs(value["evidence"], "openai_batch_subset.evidence", evidence_kinds),
-    }
-
-
 def _validate_unsupported(
     source: Mapping[str, Any], route_shapes: Mapping[str, Mapping[str, str]]
 ) -> list[dict[str, str]]:
@@ -1126,16 +918,8 @@ def build_contract(
     exact_routes, route_shapes = _route_index(routes)
     python_observed = parse_python_client(str(authorities["python_client"]))
     cli_observed = parse_cli(str(authorities["cli_client"]))
-    openai_observed = parse_openai_adapter(str(authorities["openai_batch_adapter"]))
     clients, black_box_missing = _validate_clients(
         root_source, routes, python_observed, cli_observed, evidence_kinds
-    )
-    openai = _validate_openai(
-        root_source,
-        routes,
-        openai_observed,
-        authorities["runtime_matrix"],
-        evidence_kinds,
     )
     unsupported = _validate_unsupported(root_source, route_shapes)
 
@@ -1150,11 +934,6 @@ def build_contract(
 
     auth_counts = dict(sorted(Counter(row["auth_kind"] for row in routes).items()))
     surface_counts = dict(sorted(Counter(row["surface"] for row in routes).items()))
-    identifier_rewrites = [
-        row for row in openai["model_names"] if row["classification"] == "identifier_rewrite"
-    ]
-    if identifier_rewrites:
-        raise ContractValidationError("OpenAI accepted model names contain forbidden cross-model rewrites")
     return {
         "schema_version": 1,
         "contract_version": contract_version,
@@ -1170,28 +949,20 @@ def build_contract(
             "cli_operations": len(clients["cli"]["operations"]),
             "javascript_operations": 0,
             "unsupported_operations": len(unsupported),
-            "openai_identifier_rewrites": len(identifier_rewrites),
-            "openai_rejected_model_names": len(openai["rejected_model_names"]),
         },
         "execution_boundary": {
             "native_inference_transport": "asynchronous_job_submit_poll_download",
-            "openai_transport": "batch_workflow_subset",
             "synchronous_inference": False,
             "server_token_streaming": False,
             "post_completion_artifact_streaming_is_not_token_streaming": True,
         },
         "http_routes": sorted(routes, key=lambda row: (row["path"], row["method"])),
-        "openai_batch_subset": openai,
         "unsupported_operations": unsupported,
         "clients": clients,
         "evidence_catalog": evidence,
         "coverage": {
             "operations_without_operation_specific_black_box_evidence": black_box_missing,
             "javascript_client_absent": True,
-            "rejected_branded_model_names": [
-                f"{row['endpoint_label']}:{row['name']} (use {row['use_native_model']})"
-                for row in openai["rejected_model_names"]
-            ],
         },
         "completion_blockers": blockers,
     }
@@ -1223,8 +994,6 @@ def render_markdown(contract: Mapping[str, Any]) -> str:
         f"- CLI operations: {counts['cli_operations']}",
         f"- JavaScript operations: {counts['javascript_operations']} (client absent)",
         f"- Explicit unsupported operations: {counts['unsupported_operations']}",
-        f"- Accepted cross-model identifier rewrites: {counts['openai_identifier_rewrites']} (must remain zero)",
-        f"- Explicitly rejected branded model names: {counts['openai_rejected_model_names']}",
         "",
         "### Route authentication",
         "",
@@ -1233,51 +1002,6 @@ def render_markdown(contract: Mapping[str, Any]) -> str:
     ]
     for auth, count in counts["route_auth_kinds"].items():
         lines.append(f"| `{auth}` | {count} |")
-
-    openai = contract["openai_batch_subset"]
-    lines += [
-        "",
-        "## OpenAI-shaped batch subset",
-        "",
-        "Supported HTTP routes:",
-        "",
-    ]
-    lines.extend(f"- `{route}`" for route in openai["supported_http_routes"])
-    lines += [
-        "",
-        "Batch-line endpoint labels:",
-        "",
-        "| Label (not an HTTP route) | Native job |",
-        "|---|---|",
-    ]
-    for row in openai["endpoint_labels"]:
-        lines.append(f"| `{row['label']}` | `{row['native_job']}` |")
-    lines += [
-        "",
-        "Accepted model names are request-name handling rules, not performance or semantic-equivalence claims:",
-        "",
-        "| Endpoint label | Accepted name | Native target | Classification | Semantically equivalent | Production runtime cell |",
-        "|---|---|---|---|---|---|",
-    ]
-    for row in openai["model_names"]:
-        display = row["name"] if row["name"] else "(omitted)"
-        cells = ", ".join(f"`{cell}`" for cell in row["production_cell_ids"])
-        lines.append(
-            f"| `{row['endpoint_label']}` | `{display}` | `{row['target']}` | `{row['classification']}` | "
-            f"{'yes' if row['semantic_equivalence'] else 'no'} | {cells} |"
-        )
-
-    lines += [
-        "",
-        "Former branded substitutions are rejected. The error identifies the native model to use:",
-        "",
-        "| Endpoint label | Rejected name | Use native model |",
-        "|---|---|---|",
-    ]
-    for row in openai["rejected_model_names"]:
-        lines.append(
-            f"| `{row['endpoint_label']}` | `{row['name']}` | `{row['use_native_model']}` |"
-        )
 
     lines += [
         "",

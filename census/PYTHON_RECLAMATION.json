@@ -26,11 +26,11 @@
     },
     "rewrite_go": {
       "files": 16,
-      "loc": 6973,
+      "loc": 6630,
       "code": 0,
       "blank": 0,
       "comment": 0,
-      "bytes": 309228
+      "bytes": 293178
     }
   },
   "files_by_plan": {

@@ -2,7 +2,6 @@
   "authorities": {
     "cli_client": "control/buyer.go",
     "http_routes": "control/api.go",
-    "openai_batch_adapter": "control/openai.go",
     "python_client": "sdk/python/computeexchange/__init__.py",
     "runtime_matrix": "proto/runtime-matrix.source.json"
   },
@@ -694,16 +693,13 @@
   "contract_version": "2026-07-11.2",
   "counts": {
     "cli_operations": 13,
-    "http_routes": 105,
+    "http_routes": 90,
     "javascript_operations": 0,
-    "openai_identifier_rewrites": 0,
-    "openai_rejected_model_names": 8,
     "python_operations": 15,
     "route_auth_kinds": {
       "admin_bearer_or_passkey_session": 24,
-      "buyer_bearer_or_session": 48,
+      "buyer_bearer_or_session": 34,
       "device_p256_one_time_proof": 1,
-      "oauth_state_callback": 1,
       "public_anonymous": 9,
       "public_credential_mint": 2,
       "public_html_shell": 2,
@@ -716,13 +712,12 @@
     },
     "route_surfaces": {
       "admin": 30,
-      "buyer_or_public_v1": 42,
-      "openai_batch_subset": 4,
+      "buyer_or_public_v1": 31,
       "public_or_operational": 9,
       "supplier": 9,
       "worker": 11
     },
-    "unsupported_operations": 10
+    "unsupported_operations": 4
   },
   "coverage": {
     "javascript_client_absent": true,
@@ -750,16 +745,6 @@
       "python.results",
       "python.results_bytes",
       "python.results_records"
-    ],
-    "rejected_branded_model_names": [
-      "/v1/chat/completions:gpt-3.5-turbo (use llama-3.2-1b-instruct-q4)",
-      "/v1/chat/completions:gpt-4 (use llama-3.2-1b-instruct-q4)",
-      "/v1/chat/completions:gpt-4-turbo (use llama-3.2-1b-instruct-q4)",
-      "/v1/chat/completions:gpt-4o (use llama-3.2-1b-instruct-q4)",
-      "/v1/chat/completions:gpt-4o-mini (use llama-3.2-1b-instruct-q4)",
-      "/v1/embeddings:text-embedding-3-large (use all-minilm-l6-v2)",
-      "/v1/embeddings:text-embedding-3-small (use all-minilm-l6-v2)",
-      "/v1/embeddings:text-embedding-ada-002 (use all-minilm-l6-v2)"
     ]
   },
   "evidence_catalog": [
@@ -808,7 +793,6 @@
   ],
   "execution_boundary": {
     "native_inference_transport": "asynchronous_job_submit_poll_download",
-    "openai_transport": "batch_workflow_subset",
     "post_completion_artifact_streaming_is_not_token_streaming": true,
     "server_token_streaming": false,
     "synchronous_inference": false
@@ -1175,24 +1159,6 @@
       "surface": "buyer_or_public_v1"
     },
     {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleCreateBatch",
-      "method": "POST",
-      "middleware": "buyer",
-      "path": "/v1/batches",
-      "route": "POST /v1/batches",
-      "surface": "openai_batch_subset"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleGetBatch",
-      "method": "GET",
-      "middleware": "buyer",
-      "path": "/v1/batches/{id}",
-      "route": "GET /v1/batches/{id}",
-      "surface": "openai_batch_subset"
-    },
-    {
       "auth_kind": "public_rate_limited_telemetry",
       "handler": "handleBeacon",
       "method": "POST",
@@ -1217,69 +1183,6 @@
       "middleware": "buyer",
       "path": "/v1/billing/status",
       "route": "GET /v1/billing/status",
-      "surface": "buyer_or_public_v1"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleGithubConnect",
-      "method": "GET",
-      "middleware": "buyer",
-      "path": "/v1/connect/github",
-      "route": "GET /v1/connect/github",
-      "surface": "buyer_or_public_v1"
-    },
-    {
-      "auth_kind": "oauth_state_callback",
-      "handler": "handleGithubCallback",
-      "method": "GET",
-      "middleware": "direct",
-      "path": "/v1/connect/github/callback",
-      "route": "GET /v1/connect/github/callback",
-      "surface": "buyer_or_public_v1"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleDeliver",
-      "method": "POST",
-      "middleware": "buyer",
-      "path": "/v1/deliver",
-      "route": "POST /v1/deliver",
-      "surface": "buyer_or_public_v1"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleCreateFile",
-      "method": "POST",
-      "middleware": "buyer",
-      "path": "/v1/files",
-      "route": "POST /v1/files",
-      "surface": "openai_batch_subset"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleGetFileContent",
-      "method": "GET",
-      "middleware": "buyer",
-      "path": "/v1/files/{id}/content",
-      "route": "GET /v1/files/{id}/content",
-      "surface": "openai_batch_subset"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleCreateIntake",
-      "method": "POST",
-      "middleware": "buyer",
-      "path": "/v1/intake",
-      "route": "POST /v1/intake",
-      "surface": "buyer_or_public_v1"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleLaunchIntake",
-      "method": "POST",
-      "middleware": "buyer",
-      "path": "/v1/intake/launch",
-      "route": "POST /v1/intake/launch",
       "surface": "buyer_or_public_v1"
     },
     {
@@ -1428,33 +1331,6 @@
     },
     {
       "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleCreatePipeline",
-      "method": "POST",
-      "middleware": "buyer",
-      "path": "/v1/pipelines",
-      "route": "POST /v1/pipelines",
-      "surface": "buyer_or_public_v1"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleGetPipeline",
-      "method": "GET",
-      "middleware": "buyer",
-      "path": "/v1/pipelines/{id}",
-      "route": "GET /v1/pipelines/{id}",
-      "surface": "buyer_or_public_v1"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handlePipelineReceipt",
-      "method": "GET",
-      "middleware": "buyer",
-      "path": "/v1/pipelines/{id}/receipt",
-      "route": "GET /v1/pipelines/{id}/receipt",
-      "surface": "buyer_or_public_v1"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
       "handler": "handlePriceEstimate",
       "method": "GET",
       "middleware": "buyer",
@@ -1499,39 +1375,12 @@
       "surface": "buyer_or_public_v1"
     },
     {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handlePipelineQuote",
-      "method": "POST",
-      "middleware": "buyer",
-      "path": "/v1/quote/pipeline",
-      "route": "POST /v1/quote/pipeline",
-      "surface": "buyer_or_public_v1"
-    },
-    {
       "auth_kind": "public_credential_mint",
       "handler": "handleSignup",
       "method": "POST",
       "middleware": "direct",
       "path": "/v1/signup",
       "route": "POST /v1/signup",
-      "surface": "buyer_or_public_v1"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleListSources",
-      "method": "GET",
-      "middleware": "buyer",
-      "path": "/v1/sources",
-      "route": "GET /v1/sources",
-      "surface": "buyer_or_public_v1"
-    },
-    {
-      "auth_kind": "buyer_bearer_or_session",
-      "handler": "handleListRepos",
-      "method": "GET",
-      "middleware": "buyer",
-      "path": "/v1/sources/{id}/repos",
-      "route": "GET /v1/sources/{id}/repos",
       "surface": "buyer_or_public_v1"
     },
     {
@@ -1760,155 +1609,11 @@
       "surface": "public_or_operational"
     }
   ],
-  "input_sha256": "72dfd00fd09a874767cd840a969f77f5cd0f90a7a22d4a13ff767dbe9570349a",
-  "openai_batch_subset": {
-    "compatibility_scope": "batch_workflow_subset",
-    "drop_in_sdk_compatible": false,
-    "endpoint_labels": [
-      {
-        "label": "/v1/chat/completions",
-        "native_job": "batch_infer"
-      },
-      {
-        "label": "/v1/embeddings",
-        "native_job": "embed"
-      }
-    ],
-    "endpoint_labels_are_http_routes": false,
-    "evidence": [
-      "openai_batch_embeddings_db",
-      "openai_native_model_rejection",
-      "runtime_projection",
-      "static_source_contract"
-    ],
-    "full_openai_api_compatible": false,
-    "model_names": [
-      {
-        "classification": "omitted_model_default",
-        "endpoint_label": "/v1/chat/completions",
-        "name": "",
-        "production_cell_ids": [
-          "candle-metal-llama1-infer"
-        ],
-        "semantic_equivalence": false,
-        "target": "llama-3.2-1b-instruct-q4"
-      },
-      {
-        "classification": "native_identity",
-        "endpoint_label": "/v1/chat/completions",
-        "name": "llama-3.2-1b-instruct-q4",
-        "production_cell_ids": [
-          "candle-metal-llama1-infer"
-        ],
-        "semantic_equivalence": true,
-        "target": "llama-3.2-1b-instruct-q4"
-      },
-      {
-        "classification": "omitted_model_default",
-        "endpoint_label": "/v1/embeddings",
-        "name": "",
-        "production_cell_ids": [
-          "candle-metal-minilm-embed"
-        ],
-        "semantic_equivalence": false,
-        "target": "all-minilm-l6-v2"
-      },
-      {
-        "classification": "native_identity",
-        "endpoint_label": "/v1/embeddings",
-        "name": "all-minilm-l6-v2",
-        "production_cell_ids": [
-          "candle-metal-minilm-embed"
-        ],
-        "semantic_equivalence": true,
-        "target": "all-minilm-l6-v2"
-      }
-    ],
-    "rejected_model_names": [
-      {
-        "endpoint_label": "/v1/chat/completions",
-        "name": "gpt-3.5-turbo",
-        "use_native_model": "llama-3.2-1b-instruct-q4"
-      },
-      {
-        "endpoint_label": "/v1/chat/completions",
-        "name": "gpt-4",
-        "use_native_model": "llama-3.2-1b-instruct-q4"
-      },
-      {
-        "endpoint_label": "/v1/chat/completions",
-        "name": "gpt-4-turbo",
-        "use_native_model": "llama-3.2-1b-instruct-q4"
-      },
-      {
-        "endpoint_label": "/v1/chat/completions",
-        "name": "gpt-4o",
-        "use_native_model": "llama-3.2-1b-instruct-q4"
-      },
-      {
-        "endpoint_label": "/v1/chat/completions",
-        "name": "gpt-4o-mini",
-        "use_native_model": "llama-3.2-1b-instruct-q4"
-      },
-      {
-        "endpoint_label": "/v1/embeddings",
-        "name": "text-embedding-3-large",
-        "use_native_model": "all-minilm-l6-v2"
-      },
-      {
-        "endpoint_label": "/v1/embeddings",
-        "name": "text-embedding-3-small",
-        "use_native_model": "all-minilm-l6-v2"
-      },
-      {
-        "endpoint_label": "/v1/embeddings",
-        "name": "text-embedding-ada-002",
-        "use_native_model": "all-minilm-l6-v2"
-      }
-    ],
-    "server_token_streaming": false,
-    "supported_http_routes": [
-      "GET /v1/batches/{id}",
-      "GET /v1/files/{id}/content",
-      "POST /v1/batches",
-      "POST /v1/files"
-    ],
-    "synchronous_inference": false
-  },
+  "input_sha256": "cb5ab54198a73ef448555f229b5d6f2abff2412375ada90b1e08e4d276d0fa15",
   "outcome_proven": false,
   "schema_version": 1,
   "status": "IN_PROGRESS",
   "unsupported_operations": [
-    {
-      "id": "openai.batches_cancel",
-      "reason": "No OpenAI-shaped batch cancellation handler is registered.",
-      "route": "POST /v1/batches/{id}/cancel"
-    },
-    {
-      "id": "openai.batches_list",
-      "reason": "The subset supports create plus single-batch status only.",
-      "route": "GET /v1/batches"
-    },
-    {
-      "id": "openai.batches_output_stream",
-      "reason": "Output is exposed through the output file content route after completion, not this path.",
-      "route": "GET /v1/batches/{id}/output"
-    },
-    {
-      "id": "openai.files_delete",
-      "reason": "No file delete handler is registered.",
-      "route": "DELETE /v1/files/{id}"
-    },
-    {
-      "id": "openai.files_list",
-      "reason": "The subset supports create plus content download only.",
-      "route": "GET /v1/files"
-    },
-    {
-      "id": "openai.files_retrieve",
-      "reason": "No file metadata retrieve handler is registered.",
-      "route": "GET /v1/files/{id}"
-    },
     {
       "id": "openai.responses",
       "reason": "No Responses API handler is registered.",

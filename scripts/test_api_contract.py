@@ -46,9 +46,7 @@ class APIContractTest(unittest.TestCase):
         self.assertEqual(first["status"], "IN_PROGRESS")
         self.assertFalse(first["outcome_proven"])
         self.assertTrue(first["coverage"]["javascript_client_absent"])
-        self.assertGreater(first["counts"]["http_routes"], 90)
-        self.assertEqual(first["counts"]["openai_identifier_rewrites"], 0)
-        self.assertEqual(first["counts"]["openai_rejected_model_names"], 8)
+        self.assertGreater(first["counts"]["http_routes"], 40)
 
     def test_missing_advertised_go_route_is_rejected(self):
         authorities = dict(self.authorities)
@@ -116,71 +114,6 @@ class APIContractTest(unittest.TestCase):
         source = copy.deepcopy(self.source)
         source["clients"]["cli"]["operations"][0]["server_token_streaming"] = "unknown"
         self.assert_invalid(source, r"server_token_streaming must be an explicit boolean")
-
-    def test_overbroad_openai_compatibility_is_rejected(self):
-        mutations = (
-            ("compatibility_scope", "full_api"),
-            ("full_openai_api_compatible", True),
-            ("drop_in_sdk_compatible", True),
-            ("synchronous_inference", True),
-            ("server_token_streaming", True),
-            ("endpoint_labels_are_http_routes", True),
-        )
-        for field, value in mutations:
-            with self.subTest(field=field):
-                source = copy.deepcopy(self.source)
-                source["openai_batch_subset"][field] = value
-                self.assert_invalid(source, r"overbroad OpenAI|overclaims")
-
-    def test_cross_model_alias_cannot_claim_semantic_equivalence(self):
-        source = copy.deepcopy(self.source)
-        source["openai_batch_subset"]["model_names"].append(
-            {
-                "endpoint_label": "/v1/chat/completions",
-                "name": "gpt-4o",
-                "target": "llama-3.2-1b-instruct-q4",
-                "classification": "native_identity",
-                "semantic_equivalence": True,
-            }
-        )
-        self.assert_invalid(source, r"branded cross-model aliases are forbidden")
-
-    def test_model_alias_target_must_have_exact_production_runtime_cell(self):
-        source = copy.deepcopy(self.source)
-        authorities = copy.deepcopy(self.authorities)
-        runtime = copy.deepcopy(authorities["runtime_matrix"])
-        cell = next(
-            row
-            for row in runtime["cells"]
-            if row.get("job") == "embed"
-            and row.get("model") == "all-minilm-l6-v2"
-            and row.get("lifecycle") == "production"
-        )
-        cell["lifecycle"] = "hardware_pending"
-        authorities["runtime_matrix"] = runtime
-        self.assert_invalid(
-            source,
-            r"without a production runtime cell",
-            authorities=authorities,
-        )
-
-    def test_batch_endpoint_label_cannot_silently_become_sync_route(self):
-        authorities = dict(self.authorities)
-        api_text = str(authorities["http_routes"])
-        marker = "\treturn observe(s.ipLimiter.limitByIP(capBody(requestBodyLimit, mux)))"
-        self.assertIn(marker, api_text)
-        registration = (
-            '\tmux.Handle("POST /v1/embeddings", '
-            "s.authBuyer(http.HandlerFunc(s.handleCreateJob)))\n"
-        )
-        authorities["http_routes"] = api_text.replace(
-            marker, registration + marker, 1
-        )
-        self.assert_invalid(
-            self.source,
-            r"endpoint label /v1/embeddings is also registered as a synchronous route",
-            authorities=authorities,
-        )
 
     def test_python_and_cli_surface_drift_is_rejected(self):
         authorities = dict(self.authorities)

@@ -565,59 +565,6 @@ PY
     record FAIL status-file "agent did not write a valid ~/.compute-exchange/status.json"
   fi
 
-  # OpenAI-compatible Batch API (openai.go): the full shape end-to-end — upload a
-  # JSONL of embeddings requests (POST /v1/files), create a batch (POST /v1/batches),
-  # poll (GET /v1/batches/{id}), and download the output (GET /v1/files/{id}/content).
-  # The batch maps onto a real embed job the agent runs; the output is translated
-  # back into OpenAI batch output JSONL keyed by custom_id.
-  OPENAI_OK=0
-  BATCH_INPUT='{"custom_id":"a","method":"POST","url":"/v1/embeddings","body":{"model":"text-embedding-3-small","input":"alpha openai batch line"}}
-{"custom_id":"b","method":"POST","url":"/v1/embeddings","body":{"model":"text-embedding-3-small","input":"beta openai batch line"}}'
-  FILE_ID="$(printf '%s' "$BATCH_INPUT" | curl -fsS -X POST "$CONTROL_URL/v1/files?purpose=batch" \
-      -H "Authorization: Bearer $API_KEY" --data-binary @- \
-      | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])' 2>/dev/null || true)"
-  BATCH_ID=""
-  if [ -n "$FILE_ID" ]; then
-    BATCH_ID="$(curl -fsS -X POST "$CONTROL_URL/v1/batches" -H "Authorization: Bearer $API_KEY" \
-        -H 'Content-Type: application/json' \
-        -d "{\"input_file_id\":\"$FILE_ID\",\"endpoint\":\"/v1/embeddings\",\"completion_window\":\"24h\",\"metadata\":{\"cx_skip_verification_floor\":true}}" \
-        | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])' 2>/dev/null || true)"
-  fi
-  OUT_FILE=""
-  if [ -n "$BATCH_ID" ]; then
-    for _ in $(seq 1 100); do
-      B="$(curl -fsS "$CONTROL_URL/v1/batches/$BATCH_ID" -H "Authorization: Bearer $API_KEY" 2>/dev/null || true)"
-      ST="$(printf '%s' "$B" | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])' 2>/dev/null || true)"
-      if [ "$ST" = "completed" ]; then
-        OUT_FILE="$(printf '%s' "$B" | python3 -c 'import sys,json;print(json.load(sys.stdin)["output_file_id"])' 2>/dev/null || true)"
-        break
-      fi
-      [ "$ST" = "failed" ] && break
-      sleep 3
-    done
-  fi
-  if [ -n "$OUT_FILE" ] && [ "$OUT_FILE" != "None" ]; then
-    curl -fsS "$CONTROL_URL/v1/files/$OUT_FILE/content" -H "Authorization: Bearer $API_KEY" > "$ART/batch-out.jsonl" 2>/dev/null || true
-    python3 - "$ART/batch-out.jsonl" <<'PY' && OPENAI_OK=1
-import json,sys
-lines=[l for l in open(sys.argv[1]) if l.strip()]
-assert len(lines)==2, f"expected 2 outputs, got {len(lines)}"
-cids=set()
-for l in lines:
-    d=json.loads(l)
-    assert d["response"]["status_code"]==200, "status_code"
-    emb=d["response"]["body"]["data"][0]["embedding"]
-    assert len(emb)==384, f"embedding dim {len(emb)}"
-    cids.add(d["custom_id"])
-assert cids=={"a","b"}, f"custom_ids {cids}"
-PY
-  fi
-  if [ "$OPENAI_OK" = "1" ]; then
-    record PASS openai-batch "OpenAI batch upload→create→poll→download; 2 custom_ids, 384-dim embeddings"
-  else
-    record FAIL openai-batch "OpenAI-compatible batch flow did not produce valid output (file=$FILE_ID batch=$BATCH_ID out=$OUT_FILE)"
-  fi
-
   # Admin panel data surface (jobs + payouts): admin-scoped read views across ALL
   # buyers/suppliers (the goal's admin panel: jobs/workers/fraud/payouts; workers +
   # fraud are already proven via worker-register / fraud handlers). Jobs ran above,

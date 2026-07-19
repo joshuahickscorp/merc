@@ -276,19 +276,6 @@ CREATE INDEX IF NOT EXISTS sessions_buyer_idx ON sessions (buyer_id);
 -- public state value and an HttpOnly initiation cookie. Store only their hashes,
 -- bind them to the initiating buyer, and atomically stamp consumed_at at callback.
 -- This makes state short-lived and single-use without exposing a buyer UUID in it.
-CREATE TABLE IF NOT EXISTS oauth_link_states (
-    state_hash      TEXT PRIMARY KEY CHECK (state_hash ~ '^[0-9a-f]{64}$'),
-    buyer_id        UUID NOT NULL,
-    provider        TEXT NOT NULL CHECK (provider <> ''),
-    initiation_hash TEXT NOT NULL CHECK (initiation_hash ~ '^[0-9a-f]{64}$'),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at      TIMESTAMPTZ NOT NULL,
-    consumed_at     TIMESTAMPTZ,
-    CHECK (expires_at > created_at),
-    CHECK (consumed_at IS NULL OR consumed_at >= created_at)
-);
-CREATE INDEX IF NOT EXISTS oauth_link_states_expiry_idx
-    ON oauth_link_states (expires_at);
 
 CREATE TABLE IF NOT EXISTS api_keys (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),

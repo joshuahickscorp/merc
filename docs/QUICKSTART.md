@@ -7,7 +7,7 @@ activation, physical supply, and stranger testing remain separate gates. The
 reserved `cx.example.invalid` host below is intentionally non-routable: replace it
 with the operator-provided URL and replace `cx_live_…` with the issued key.
 
-Every example below submits a native job, then polls until it's done. There is no separate synchronous `/v1/embeddings` endpoint — `/v1/embeddings` and `/v1/chat/completions` are OpenAI-Batch-API endpoint *labels* you route to inside a batch file (see `docs/RUNBOOKS.md` / `control/openai.go` for that flow); for a first job, `POST /v1/jobs` is the direct, simplest path.
+Every example below submits a native job, then polls until it's done. There is no separate synchronous inference endpoint; `POST /v1/jobs` is the direct, simplest path.
 
 ## curl
 
@@ -100,7 +100,6 @@ job = cx.submit_job(
 cx.wait(job["job_id"])
 print(cx.results_text(job["job_id"]))
 
-# OpenAI-shaped convenience: submit → wait → fetch in one call. Returns a
 # plain dict (not an object) — index it like JSON, not attribute access.
 out = cx.embeddings("all-minilm-l6-v2", ["first row", "second row", "third row"])
 print(out["data"][0]["embedding"][:5])

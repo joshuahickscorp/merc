@@ -2,20 +2,20 @@
   "bytes_by_language": {
     "binary": 18276901,
     "config": 29004,
-    "documentation": 229115,
-    "go": 3173973,
+    "documentation": 222356,
+    "go": 3171121,
     "javascript": 1450305,
-    "json": 634432,
+    "json": 627731,
     "lockfile": 121571,
     "other": 51644,
     "patch": 22301,
-    "python": 385203,
+    "python": 369153,
     "rust": 1691359,
     "shader": 609891,
-    "shell": 316152,
-    "sql": 169236,
+    "shell": 305381,
+    "sql": 168615,
     "toml": 11673,
-    "web": 617410,
+    "web": 617197,
     "yaml": 67752
   },
   "largest_tracked_40": [
@@ -84,11 +84,11 @@
       "bytes": 507523
     },
     {
-      "path": "web/assets/knob-off@3x.png",
+      "path": "web/assets/site/knob-off@3x.png",
       "bytes": 504757
     },
     {
-      "path": "web/assets/site/knob-off@3x.png",
+      "path": "web/assets/knob-off@3x.png",
       "bytes": 504757
     },
     {
@@ -105,7 +105,7 @@
     },
     {
       "path": "control/store.go",
-      "bytes": 359868
+      "bytes": 357016
     },
     {
       "path": "control/integration_test.go",
@@ -136,12 +136,12 @@
       "bytes": 181154
     },
     {
-      "path": "db/schema.sql",
-      "bytes": 169236
-    },
-    {
       "path": "logo/Geist-VariableFont_wght.ttf",
       "bytes": 168804
+    },
+    {
+      "path": "db/schema.sql",
+      "bytes": 168615
     },
     {
       "path": "web/assets/site/dgx-spark@1x.png",
@@ -181,5 +181,5 @@
     }
   ],
   "note": "tracked-only (git ls-files). Excludes .git, model weights, dep caches, untracked artifacts.",
-  "tracked_bytes": 27857922
+  "tracked_bytes": 27813955
 }

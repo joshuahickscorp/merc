@@ -6,33 +6,97 @@
     "http_routes": "control/api.go",
     "python_client": "sdk/python/computeexchange/__init__.py",
     "cli_client": "control/buyer.go",
-    "openai_batch_adapter": "control/openai.go",
     "runtime_matrix": "proto/runtime-matrix.source.json"
   },
   "direct_route_auth": [
-    {"route": "GET /healthz", "auth_kind": "public_anonymous"},
-    {"route": "GET /readyz", "auth_kind": "public_anonymous"},
-    {"route": "GET /version", "auth_kind": "public_anonymous"},
-    {"route": "GET /metrics", "auth_kind": "public_anonymous"},
-    {"route": "GET /{$}", "auth_kind": "public_anonymous"},
-    {"route": "GET /assets/site/{path...}", "auth_kind": "public_anonymous"},
-    {"route": "GET /assets/{path...}", "auth_kind": "public_anonymous"},
-    {"route": "GET /favicon.ico", "auth_kind": "public_anonymous"},
-    {"route": "GET /demo", "auth_kind": "public_anonymous"},
-    {"route": "POST /v1/signup", "auth_kind": "public_credential_mint"},
-    {"route": "POST /v1/login", "auth_kind": "public_credential_mint"},
-    {"route": "POST /v1/alpha-request", "auth_kind": "public_lead_intake"},
-    {"route": "POST /v1/beacon", "auth_kind": "public_rate_limited_telemetry"},
-    {"route": "POST /v1/worker/enrollment/exchange", "auth_kind": "device_p256_one_time_proof"},
-    {"route": "GET /v1/connect/github/callback", "auth_kind": "oauth_state_callback"},
-    {"route": "POST /v1/stripe/webhook", "auth_kind": "stripe_signature"},
-    {"route": "POST /v1/stripe/connect-webhook", "auth_kind": "stripe_signature"},
-    {"route": "GET /admin", "auth_kind": "public_html_shell"},
-    {"route": "GET /admin/{$}", "auth_kind": "public_html_shell"},
-    {"route": "GET /admin/passkey/status", "auth_kind": "public_passkey_ceremony"},
-    {"route": "POST /admin/passkey/login/begin", "auth_kind": "public_passkey_ceremony"},
-    {"route": "POST /admin/passkey/login/finish", "auth_kind": "public_passkey_ceremony"},
-    {"route": "POST /admin/passkey/logout", "auth_kind": "public_idempotent_optional_session_cookie"}
+    {
+      "route": "GET /healthz",
+      "auth_kind": "public_anonymous"
+    },
+    {
+      "route": "GET /readyz",
+      "auth_kind": "public_anonymous"
+    },
+    {
+      "route": "GET /version",
+      "auth_kind": "public_anonymous"
+    },
+    {
+      "route": "GET /metrics",
+      "auth_kind": "public_anonymous"
+    },
+    {
+      "route": "GET /{$}",
+      "auth_kind": "public_anonymous"
+    },
+    {
+      "route": "GET /assets/site/{path...}",
+      "auth_kind": "public_anonymous"
+    },
+    {
+      "route": "GET /assets/{path...}",
+      "auth_kind": "public_anonymous"
+    },
+    {
+      "route": "GET /favicon.ico",
+      "auth_kind": "public_anonymous"
+    },
+    {
+      "route": "GET /demo",
+      "auth_kind": "public_anonymous"
+    },
+    {
+      "route": "POST /v1/signup",
+      "auth_kind": "public_credential_mint"
+    },
+    {
+      "route": "POST /v1/login",
+      "auth_kind": "public_credential_mint"
+    },
+    {
+      "route": "POST /v1/alpha-request",
+      "auth_kind": "public_lead_intake"
+    },
+    {
+      "route": "POST /v1/beacon",
+      "auth_kind": "public_rate_limited_telemetry"
+    },
+    {
+      "route": "POST /v1/worker/enrollment/exchange",
+      "auth_kind": "device_p256_one_time_proof"
+    },
+    {
+      "route": "POST /v1/stripe/webhook",
+      "auth_kind": "stripe_signature"
+    },
+    {
+      "route": "POST /v1/stripe/connect-webhook",
+      "auth_kind": "stripe_signature"
+    },
+    {
+      "route": "GET /admin",
+      "auth_kind": "public_html_shell"
+    },
+    {
+      "route": "GET /admin/{$}",
+      "auth_kind": "public_html_shell"
+    },
+    {
+      "route": "GET /admin/passkey/status",
+      "auth_kind": "public_passkey_ceremony"
+    },
+    {
+      "route": "POST /admin/passkey/login/begin",
+      "auth_kind": "public_passkey_ceremony"
+    },
+    {
+      "route": "POST /admin/passkey/login/finish",
+      "auth_kind": "public_passkey_ceremony"
+    },
+    {
+      "route": "POST /admin/passkey/logout",
+      "auth_kind": "public_idempotent_optional_session_cookie"
+    }
   ],
   "evidence_catalog": [
     {
@@ -78,97 +142,572 @@
       "scope": "Proves alias targets resolve to declared production job/model cells in the canonical matrix; physical runtime proof remains separate."
     }
   ],
-  "openai_batch_subset": {
-    "compatibility_scope": "batch_workflow_subset",
-    "full_openai_api_compatible": false,
-    "drop_in_sdk_compatible": false,
-    "synchronous_inference": false,
-    "server_token_streaming": false,
-    "endpoint_labels_are_http_routes": false,
-    "supported_http_routes": [
-      "POST /v1/files",
-      "GET /v1/files/{id}/content",
-      "POST /v1/batches",
-      "GET /v1/batches/{id}"
-    ],
-    "endpoint_labels": [
-      {"label": "/v1/embeddings", "native_job": "embed"},
-      {"label": "/v1/chat/completions", "native_job": "batch_infer"}
-    ],
-    "model_names": [
-      {"endpoint_label": "/v1/embeddings", "name": "", "target": "all-minilm-l6-v2", "classification": "omitted_model_default", "semantic_equivalence": false},
-      {"endpoint_label": "/v1/embeddings", "name": "all-minilm-l6-v2", "target": "all-minilm-l6-v2", "classification": "native_identity", "semantic_equivalence": true},
-      {"endpoint_label": "/v1/chat/completions", "name": "", "target": "llama-3.2-1b-instruct-q4", "classification": "omitted_model_default", "semantic_equivalence": false},
-      {"endpoint_label": "/v1/chat/completions", "name": "llama-3.2-1b-instruct-q4", "target": "llama-3.2-1b-instruct-q4", "classification": "native_identity", "semantic_equivalence": true}
-    ],
-    "rejected_model_names": [
-      {"endpoint_label": "/v1/embeddings", "name": "text-embedding-3-small", "use_native_model": "all-minilm-l6-v2"},
-      {"endpoint_label": "/v1/embeddings", "name": "text-embedding-3-large", "use_native_model": "all-minilm-l6-v2"},
-      {"endpoint_label": "/v1/embeddings", "name": "text-embedding-ada-002", "use_native_model": "all-minilm-l6-v2"},
-      {"endpoint_label": "/v1/chat/completions", "name": "gpt-4o-mini", "use_native_model": "llama-3.2-1b-instruct-q4"},
-      {"endpoint_label": "/v1/chat/completions", "name": "gpt-4o", "use_native_model": "llama-3.2-1b-instruct-q4"},
-      {"endpoint_label": "/v1/chat/completions", "name": "gpt-4", "use_native_model": "llama-3.2-1b-instruct-q4"},
-      {"endpoint_label": "/v1/chat/completions", "name": "gpt-4-turbo", "use_native_model": "llama-3.2-1b-instruct-q4"},
-      {"endpoint_label": "/v1/chat/completions", "name": "gpt-3.5-turbo", "use_native_model": "llama-3.2-1b-instruct-q4"}
-    ],
-    "evidence": ["static_source_contract", "openai_batch_embeddings_db", "openai_native_model_rejection", "runtime_projection"]
-  },
   "unsupported_operations": [
-    {"id": "openai.sync_embeddings", "route": "POST /v1/embeddings", "reason": "This path is a batch-line endpoint label only; there is no synchronous HTTP handler."},
-    {"id": "openai.sync_chat_completions", "route": "POST /v1/chat/completions", "reason": "This path is a batch-line endpoint label only; there is no synchronous HTTP handler."},
-    {"id": "openai.streaming_chat_completions", "route": "POST /v1/chat/completions", "reason": "There is no synchronous handler and no SSE or token-streaming server contract."},
-    {"id": "openai.responses", "route": "POST /v1/responses", "reason": "No Responses API handler is registered."},
-    {"id": "openai.files_list", "route": "GET /v1/files", "reason": "The subset supports create plus content download only."},
-    {"id": "openai.files_retrieve", "route": "GET /v1/files/{id}", "reason": "No file metadata retrieve handler is registered."},
-    {"id": "openai.files_delete", "route": "DELETE /v1/files/{id}", "reason": "No file delete handler is registered."},
-    {"id": "openai.batches_list", "route": "GET /v1/batches", "reason": "The subset supports create plus single-batch status only."},
-    {"id": "openai.batches_cancel", "route": "POST /v1/batches/{id}/cancel", "reason": "No OpenAI-shaped batch cancellation handler is registered."},
-    {"id": "openai.batches_output_stream", "route": "GET /v1/batches/{id}/output", "reason": "Output is exposed through the output file content route after completion, not this path."}
+    {
+      "id": "openai.sync_embeddings",
+      "route": "POST /v1/embeddings",
+      "reason": "This path is a batch-line endpoint label only; there is no synchronous HTTP handler."
+    },
+    {
+      "id": "openai.sync_chat_completions",
+      "route": "POST /v1/chat/completions",
+      "reason": "This path is a batch-line endpoint label only; there is no synchronous HTTP handler."
+    },
+    {
+      "id": "openai.streaming_chat_completions",
+      "route": "POST /v1/chat/completions",
+      "reason": "There is no synchronous handler and no SSE or token-streaming server contract."
+    },
+    {
+      "id": "openai.responses",
+      "route": "POST /v1/responses",
+      "reason": "No Responses API handler is registered."
+    }
   ],
   "clients": {
     "python": {
       "implemented": true,
       "auth_kind": "buyer_bearer_or_session",
       "distribution": "repository_checkout_only",
-      "surface_evidence": ["static_source_contract", "python_clean_install", "documented_native_clients_e2e"],
+      "surface_evidence": [
+        "static_source_contract",
+        "python_clean_install",
+        "documented_native_clients_e2e"
+      ],
       "operations": [
-        {"id": "python.submit_job", "symbol": "submit_job", "support": "supported", "api_routes": ["POST /v1/jobs"], "server_execution": "asynchronous_job", "client_call_shape": "returns_after_ack", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract", "documented_native_clients_e2e"]},
-        {"id": "python.get_job", "symbol": "get_job", "support": "supported", "api_routes": ["GET /v1/jobs/{id}", "GET /v1/jobs/{id}/failures"], "server_execution": "job_status_read", "client_call_shape": "single_response_with_typed_failure_followup", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.results", "symbol": "results", "support": "supported", "api_routes": ["GET /v1/jobs/{id}/results"], "server_execution": "post_completion_metadata_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.cancel_job", "symbol": "cancel_job", "support": "supported", "api_routes": ["DELETE /v1/jobs/{id}"], "server_execution": "job_control", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.events", "symbol": "events", "support": "supported", "api_routes": ["GET /v1/jobs/{id}/events"], "server_execution": "job_history_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.failures", "symbol": "failures", "support": "supported", "api_routes": ["GET /v1/jobs/{id}/failures"], "server_execution": "job_history_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.invoice", "symbol": "invoice", "support": "supported", "api_routes": ["GET /v1/jobs/{id}/invoice"], "server_execution": "settlement_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.models", "symbol": "models", "support": "supported", "api_routes": ["GET /v1/models"], "server_execution": "catalog_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.estimate", "symbol": "estimate", "support": "supported", "api_routes": ["GET /v1/price-estimate"], "server_execution": "price_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.quote", "symbol": "quote", "support": "supported", "api_routes": ["POST /v1/quote"], "server_execution": "quote_without_job", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.wait", "symbol": "wait", "support": "supported", "api_routes": ["GET /v1/jobs/{id}", "GET /v1/jobs/{id}/failures"], "server_execution": "asynchronous_job", "client_call_shape": "blocking_poll_over_async_job", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract", "documented_native_clients_e2e"]},
-        {"id": "python.results_text", "symbol": "results_text", "support": "supported", "api_routes": ["GET /v1/jobs/{id}/results"], "server_execution": "post_completion_artifact_download", "client_call_shape": "buffers_complete_artifact", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract", "documented_native_clients_e2e"]},
-        {"id": "python.results_bytes", "symbol": "results_bytes", "support": "supported", "api_routes": ["GET /v1/jobs/{id}/results"], "server_execution": "post_completion_artifact_download", "client_call_shape": "buffers_complete_artifact", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.results_records", "symbol": "results_records", "support": "supported", "api_routes": ["GET /v1/jobs/{id}/results"], "server_execution": "post_completion_artifact_download", "client_call_shape": "buffers_and_parses_complete_artifact", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "python.embeddings", "symbol": "embeddings", "support": "supported", "api_routes": ["POST /v1/jobs", "GET /v1/jobs/{id}", "GET /v1/jobs/{id}/failures", "GET /v1/jobs/{id}/results"], "server_execution": "asynchronous_job", "client_call_shape": "blocking_convenience_over_async_job", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract", "documented_native_clients_e2e"]}
+        {
+          "id": "python.submit_job",
+          "symbol": "submit_job",
+          "support": "supported",
+          "api_routes": [
+            "POST /v1/jobs"
+          ],
+          "server_execution": "asynchronous_job",
+          "client_call_shape": "returns_after_ack",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract",
+            "documented_native_clients_e2e"
+          ]
+        },
+        {
+          "id": "python.get_job",
+          "symbol": "get_job",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/jobs/{id}",
+            "GET /v1/jobs/{id}/failures"
+          ],
+          "server_execution": "job_status_read",
+          "client_call_shape": "single_response_with_typed_failure_followup",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.results",
+          "symbol": "results",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/jobs/{id}/results"
+          ],
+          "server_execution": "post_completion_metadata_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.cancel_job",
+          "symbol": "cancel_job",
+          "support": "supported",
+          "api_routes": [
+            "DELETE /v1/jobs/{id}"
+          ],
+          "server_execution": "job_control",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.events",
+          "symbol": "events",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/jobs/{id}/events"
+          ],
+          "server_execution": "job_history_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.failures",
+          "symbol": "failures",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/jobs/{id}/failures"
+          ],
+          "server_execution": "job_history_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.invoice",
+          "symbol": "invoice",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/jobs/{id}/invoice"
+          ],
+          "server_execution": "settlement_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.models",
+          "symbol": "models",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/models"
+          ],
+          "server_execution": "catalog_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.estimate",
+          "symbol": "estimate",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/price-estimate"
+          ],
+          "server_execution": "price_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.quote",
+          "symbol": "quote",
+          "support": "supported",
+          "api_routes": [
+            "POST /v1/quote"
+          ],
+          "server_execution": "quote_without_job",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.wait",
+          "symbol": "wait",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/jobs/{id}",
+            "GET /v1/jobs/{id}/failures"
+          ],
+          "server_execution": "asynchronous_job",
+          "client_call_shape": "blocking_poll_over_async_job",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract",
+            "documented_native_clients_e2e"
+          ]
+        },
+        {
+          "id": "python.results_text",
+          "symbol": "results_text",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/jobs/{id}/results"
+          ],
+          "server_execution": "post_completion_artifact_download",
+          "client_call_shape": "buffers_complete_artifact",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract",
+            "documented_native_clients_e2e"
+          ]
+        },
+        {
+          "id": "python.results_bytes",
+          "symbol": "results_bytes",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/jobs/{id}/results"
+          ],
+          "server_execution": "post_completion_artifact_download",
+          "client_call_shape": "buffers_complete_artifact",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.results_records",
+          "symbol": "results_records",
+          "support": "supported",
+          "api_routes": [
+            "GET /v1/jobs/{id}/results"
+          ],
+          "server_execution": "post_completion_artifact_download",
+          "client_call_shape": "buffers_and_parses_complete_artifact",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "python.embeddings",
+          "symbol": "embeddings",
+          "support": "supported",
+          "api_routes": [
+            "POST /v1/jobs",
+            "GET /v1/jobs/{id}",
+            "GET /v1/jobs/{id}/failures",
+            "GET /v1/jobs/{id}/results"
+          ],
+          "server_execution": "asynchronous_job",
+          "client_call_shape": "blocking_convenience_over_async_job",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract",
+            "documented_native_clients_e2e"
+          ]
+        }
       ]
     },
     "cli": {
       "implemented": true,
       "auth_kind": "buyer_bearer_or_session_except_named_admin_command",
       "distribution": "local_release_artifacts_only",
-      "help_aliases": ["-h", "--help", "help"],
-      "surface_evidence": ["static_source_contract", "cli_clean_release_build", "documented_native_clients_e2e"],
+      "help_aliases": [
+        "-h",
+        "--help",
+        "help"
+      ],
+      "surface_evidence": [
+        "static_source_contract",
+        "cli_clean_release_build",
+        "documented_native_clients_e2e"
+      ],
       "operations": [
-        {"id": "cli.submit", "command": "submit", "source_symbols": ["cmdSubmit", "waitForJob", "fetchResults"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["POST /v1/jobs", "GET /v1/jobs/{id}", "GET /v1/jobs/{id}/results"], "server_execution": "asynchronous_job", "client_call_shape": "returns_after_ack_or_optional_blocking_poll", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": true, "evidence": ["static_source_contract", "documented_native_clients_e2e"]},
-        {"id": "cli.quote", "command": "quote", "source_symbols": ["cmdQuote"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["POST /v1/quote"], "server_execution": "quote_without_job", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "cli.status", "command": "status", "source_symbols": ["cmdStatus"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["GET /v1/jobs/{id}"], "server_execution": "job_status_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "cli.results", "command": "results", "source_symbols": ["cmdResults", "fetchResults"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["GET /v1/jobs/{id}/results"], "server_execution": "post_completion_artifact_download", "client_call_shape": "streams_complete_artifact_to_stdout", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": true, "evidence": ["static_source_contract"]},
-        {"id": "cli.invoice", "command": "invoice", "source_symbols": ["cmdInvoice"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["GET /v1/jobs/{id}/invoice"], "server_execution": "settlement_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "cli.events", "command": "events", "source_symbols": ["cmdEvents"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["GET /v1/jobs/{id}/events"], "server_execution": "job_history_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "cli.failures", "command": "failures", "source_symbols": ["cmdFailures"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["GET /v1/jobs/{id}/failures"], "server_execution": "job_history_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "cli.models", "command": "models", "source_symbols": ["cmdModels"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["GET /v1/models"], "server_execution": "catalog_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "cli.estimate", "command": "estimate", "source_symbols": ["cmdEstimate"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["GET /v1/price-estimate"], "server_execution": "price_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "cli.explain_scheduler", "command": "explain-scheduler", "source_symbols": ["cmdExplainScheduler"], "support": "supported", "auth_kind": "admin_bearer_or_passkey_session", "api_routes": ["GET /admin/scheduler/explain"], "server_execution": "admin_diagnostic_read", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "cli.cancel", "command": "cancel", "source_symbols": ["cmdCancel"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["DELETE /v1/jobs/{id}"], "server_execution": "job_control", "client_call_shape": "single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "cli.private_pool", "command": "private-pool", "source_symbols": ["cmdPrivatePool"], "support": "supported", "auth_kind": "buyer_bearer_or_session", "api_routes": ["POST /v1/private-pool", "GET /v1/private-pool", "DELETE /v1/private-pool/{id}"], "server_execution": "private_pool_control", "client_call_shape": "subcommand_single_response", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract"]},
-        {"id": "cli.version", "command": "version", "source_symbols": ["cmdVersion"], "support": "supported", "auth_kind": "none_local", "api_routes": [], "server_execution": "local_only", "client_call_shape": "local_output", "synchronous_inference": false, "server_token_streaming": false, "post_completion_artifact_streaming": false, "evidence": ["static_source_contract", "cli_clean_release_build"]}
+        {
+          "id": "cli.submit",
+          "command": "submit",
+          "source_symbols": [
+            "cmdSubmit",
+            "waitForJob",
+            "fetchResults"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "POST /v1/jobs",
+            "GET /v1/jobs/{id}",
+            "GET /v1/jobs/{id}/results"
+          ],
+          "server_execution": "asynchronous_job",
+          "client_call_shape": "returns_after_ack_or_optional_blocking_poll",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": true,
+          "evidence": [
+            "static_source_contract",
+            "documented_native_clients_e2e"
+          ]
+        },
+        {
+          "id": "cli.quote",
+          "command": "quote",
+          "source_symbols": [
+            "cmdQuote"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "POST /v1/quote"
+          ],
+          "server_execution": "quote_without_job",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.status",
+          "command": "status",
+          "source_symbols": [
+            "cmdStatus"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "GET /v1/jobs/{id}"
+          ],
+          "server_execution": "job_status_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.results",
+          "command": "results",
+          "source_symbols": [
+            "cmdResults",
+            "fetchResults"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "GET /v1/jobs/{id}/results"
+          ],
+          "server_execution": "post_completion_artifact_download",
+          "client_call_shape": "streams_complete_artifact_to_stdout",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": true,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.invoice",
+          "command": "invoice",
+          "source_symbols": [
+            "cmdInvoice"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "GET /v1/jobs/{id}/invoice"
+          ],
+          "server_execution": "settlement_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.events",
+          "command": "events",
+          "source_symbols": [
+            "cmdEvents"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "GET /v1/jobs/{id}/events"
+          ],
+          "server_execution": "job_history_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.failures",
+          "command": "failures",
+          "source_symbols": [
+            "cmdFailures"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "GET /v1/jobs/{id}/failures"
+          ],
+          "server_execution": "job_history_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.models",
+          "command": "models",
+          "source_symbols": [
+            "cmdModels"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "GET /v1/models"
+          ],
+          "server_execution": "catalog_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.estimate",
+          "command": "estimate",
+          "source_symbols": [
+            "cmdEstimate"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "GET /v1/price-estimate"
+          ],
+          "server_execution": "price_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.explain_scheduler",
+          "command": "explain-scheduler",
+          "source_symbols": [
+            "cmdExplainScheduler"
+          ],
+          "support": "supported",
+          "auth_kind": "admin_bearer_or_passkey_session",
+          "api_routes": [
+            "GET /admin/scheduler/explain"
+          ],
+          "server_execution": "admin_diagnostic_read",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.cancel",
+          "command": "cancel",
+          "source_symbols": [
+            "cmdCancel"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "DELETE /v1/jobs/{id}"
+          ],
+          "server_execution": "job_control",
+          "client_call_shape": "single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.private_pool",
+          "command": "private-pool",
+          "source_symbols": [
+            "cmdPrivatePool"
+          ],
+          "support": "supported",
+          "auth_kind": "buyer_bearer_or_session",
+          "api_routes": [
+            "POST /v1/private-pool",
+            "GET /v1/private-pool",
+            "DELETE /v1/private-pool/{id}"
+          ],
+          "server_execution": "private_pool_control",
+          "client_call_shape": "subcommand_single_response",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract"
+          ]
+        },
+        {
+          "id": "cli.version",
+          "command": "version",
+          "source_symbols": [
+            "cmdVersion"
+          ],
+          "support": "supported",
+          "auth_kind": "none_local",
+          "api_routes": [],
+          "server_execution": "local_only",
+          "client_call_shape": "local_output",
+          "synchronous_inference": false,
+          "server_token_streaming": false,
+          "post_completion_artifact_streaming": false,
+          "evidence": [
+            "static_source_contract",
+            "cli_clean_release_build"
+          ]
+        }
       ]
     },
     "javascript": {

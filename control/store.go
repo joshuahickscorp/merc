@@ -435,31 +435,6 @@ func (s *Store) Migrate(ctx context.Context) error {
 		`ALTER TABLE task_durations ADD COLUMN IF NOT EXISTS engine TEXT`,
 		`ALTER TABLE task_durations ADD COLUMN IF NOT EXISTS build_hash TEXT`,
 		`ALTER TABLE task_durations ADD COLUMN IF NOT EXISTS task_id UUID`,
-		// Concierge intake (intake.go) + buyer billing (billing.go): connected git
-		// sources, detected-pipeline intakes, and the buyer→Stripe-customer map.
-		`CREATE TABLE IF NOT EXISTS git_sources (
-		   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   buyer_id        UUID,
-		   provider        TEXT DEFAULT 'github',
-		   repo_full_name  TEXT,
-		   default_branch  TEXT,
-		   access_token    TEXT,
-		   connected_at    TIMESTAMPTZ DEFAULT now()
-		 )`,
-		`CREATE INDEX IF NOT EXISTS git_sources_buyer_idx ON git_sources (buyer_id)`,
-		`CREATE TABLE IF NOT EXISTS intakes (
-		   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   buyer_id    UUID,
-		   source_id   UUID,
-		   ref         TEXT,
-		   status      TEXT DEFAULT 'inspecting',
-		   pattern     TEXT,
-		   pipeline    JSONB,
-		   quote_id    UUID,
-		   job_id      UUID,
-		   created_at  TIMESTAMPTZ DEFAULT now()
-		 )`,
-		`CREATE INDEX IF NOT EXISTS intakes_buyer_idx ON intakes (buyer_id)`,
 		`CREATE TABLE IF NOT EXISTS billing_customers (
 		   buyer_id               UUID PRIMARY KEY,
 		   stripe_customer_id     TEXT,
@@ -472,30 +447,6 @@ func (s *Store) Migrate(ctx context.Context) error {
 		// Supplier Connect account (the payout transfers' destination) + the
 		// intake→job links that drive multi-stage pipeline execution.
 		`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS stripe_acct TEXT`,
-		`CREATE TABLE IF NOT EXISTS intake_jobs (
-		   job_id      UUID PRIMARY KEY,
-		   intake_id   UUID,
-		   stage_index INT
-		 )`,
-		`CREATE INDEX IF NOT EXISTS intake_jobs_intake_idx ON intake_jobs (intake_id)`,
-		// Compute Autopilot: user-defined pipelines (pipeline.go). A pipeline is an ordered
-		// stage spec; pipeline_jobs links each launched stage to its real CX job, exactly
-		// like intake_jobs, so advancePipeline can chain output->input as stages complete.
-		`CREATE TABLE IF NOT EXISTS pipelines (
-		   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   buyer_id   UUID,
-		   name       TEXT,
-		   spec       JSONB,
-		   status     TEXT DEFAULT 'running',
-		   created_at TIMESTAMPTZ DEFAULT now()
-		 )`,
-		`CREATE INDEX IF NOT EXISTS pipelines_buyer_idx ON pipelines (buyer_id)`,
-		`CREATE TABLE IF NOT EXISTS pipeline_jobs (
-		   job_id      UUID PRIMARY KEY,
-		   pipeline_id UUID,
-		   stage_index INT
-		 )`,
-		`CREATE INDEX IF NOT EXISTS pipeline_jobs_pipeline_idx ON pipeline_jobs (pipeline_id)`,
 		// Self-serve buyer accounts (accounts.go) + opaque session tokens. MIRRORS
 		// db/schema.sql so a control plane that only ran Migrate self-migrates. buyers
 		// is the account of record: UNIQUE email + bcrypt password_hash + a sandbox
@@ -557,23 +508,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 		// OAuth account-link attempts are server-side capabilities, not signed buyer
 		// identifiers. Only hashes of the two independent browser secrets are stored;
 		// the callback atomically consumes a live row and recovers its bound buyer.
-		`CREATE TABLE IF NOT EXISTS oauth_link_states (
-		   state_hash      TEXT PRIMARY KEY CHECK (state_hash ~ '^[0-9a-f]{64}$'),
-		   buyer_id        UUID NOT NULL,
-		   provider        TEXT NOT NULL CHECK (provider <> ''),
-		   initiation_hash TEXT NOT NULL CHECK (initiation_hash ~ '^[0-9a-f]{64}$'),
-		   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   expires_at      TIMESTAMPTZ NOT NULL,
-		   consumed_at     TIMESTAMPTZ,
-		   CHECK (expires_at > created_at),
-		   CHECK (consumed_at IS NULL OR consumed_at >= created_at)
-		 )`,
 		// buyer_id historically also identifies API-key-only buyers that predate the
 		// buyers account table, so do not make OAuth linking silently unavailable to
 		// those still-valid identities.
-		`ALTER TABLE oauth_link_states DROP CONSTRAINT IF EXISTS oauth_link_states_buyer_id_fkey`,
-		`CREATE INDEX IF NOT EXISTS oauth_link_states_expiry_idx
-		   ON oauth_link_states (expires_at)`,
 		// Device-proofed, one-time supplier enrollment. Existing seed/manual tokens
 		// remain valid but visibly unbound; exchanged credentials carry the P-256
 		// public-key binding, stable lifecycle id, rotation chain, and audit trail.
@@ -1972,7 +1909,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 // errNotFound is returned when a lookup matches no row.
 var errNotFound = errors.New("not found")
 
-// --- intake + billing data access (git_sources, intakes, billing_customers) ---
+// --- buyer billing data access (billing_customers) ---
 
 // errOAuthLinkStateInvalid deliberately collapses missing, expired, wrong-browser,
 // and already-consumed states into one result. Callers must not expose which part
@@ -2145,8 +2082,6 @@ func (s *Store) JobBuyerID(ctx context.Context, jobID uuid.UUID) (uuid.UUID, err
 	err := s.pool.QueryRow(ctx, `SELECT buyer_id FROM jobs WHERE id=$1`, jobID).Scan(&buyerID)
 	return buyerID, err
 }
-
-// --- Compute Autopilot pipelines (user-defined multi-step chains, pipeline.go) ---
 
 // nullStrSlice maps an empty/nil slice to nil so it encodes as a SQL NULL (not an
 // empty array). The claim's filters treat NULL hw_classes/data_residency as "any",
