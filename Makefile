@@ -136,12 +136,3 @@ uninstall:
 # The `disaster-recovery` check in prove-local proves the dump is restorable.
 backup:
 	bash scripts/backup.sh
-
-# Render the two site oracles (Mac Studio + DGX Spark) in the product's Cycles rig,
-# then generate the 1x/2x srcset downsizes and the og:image composite. Headless
-# Metal GPU; previews and the continuity sheet live in render/site/previews/.
-BLENDER ?= /Applications/Blender.app/Contents/MacOS/Blender
-render-oracles:
-	@[ -x "$(BLENDER)" ] || { echo "ERROR: Blender not found at $(BLENDER) (set BLENDER=)"; exit 1; }
-	"$(BLENDER)" -b -P render/site/oracles.py -- --out web/assets/site/ --samples 2048
-	bash render/site/downsize.sh

@@ -1,20 +1,20 @@
 {
   "by_plan": {
     "archive_research": {
-      "files": 7,
-      "loc": 1233,
+      "files": 3,
+      "loc": 1084,
       "code": 0,
       "blank": 0,
       "comment": 0,
-      "bytes": 44835
+      "bytes": 38066
     },
     "retain_blender_pack": {
-      "files": 5,
-      "loc": 4041,
+      "files": 1,
+      "loc": 109,
       "code": 0,
       "blank": 0,
       "comment": 0,
-      "bytes": 238710
+      "bytes": 4919
     },
     "retain_sdk": {
       "files": 3,
@@ -37,17 +37,9 @@
     "archive_research": [
       "docker/vllm/launch_pinned.py",
       "docker/vllm/test_runtime_lock.py",
-      "docker/vllm/validate_runtime_lock.py",
-      "render/foam_maps.py",
-      "render/site/continuity.py",
-      "render/site/og.py",
-      "render/site/webify.py"
+      "docker/vllm/validate_runtime_lock.py"
     ],
     "retain_blender_pack": [
-      "render/build_rack.py",
-      "render/build_scene.py",
-      "render/build_trio.py",
-      "render/site/oracles.py",
       "scripts/cx_status.py"
     ],
     "retain_sdk": [

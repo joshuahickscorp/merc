@@ -1,18 +1,18 @@
 {
   "bytes_by_language": {
     "binary": 18276901,
-    "config": 29536,
-    "documentation": 931414,
+    "config": 29004,
+    "documentation": 929642,
     "go": 3311664,
     "javascript": 1450305,
-    "json": 593024,
+    "json": 591692,
     "lockfile": 121571,
     "other": 51644,
     "patch": 22301,
-    "python": 625763,
+    "python": 385203,
     "rust": 1691394,
     "shader": 609891,
-    "shell": 317050,
+    "shell": 316152,
     "sql": 169236,
     "toml": 11673,
     "web": 617410,
@@ -172,14 +172,14 @@
       "bytes": 126861
     },
     {
-      "path": "render/build_scene.py",
-      "bytes": 114229
-    },
-    {
       "path": "web/assets/site/vendor/addons/loaders/GLTFLoader.js",
       "bytes": 108522
+    },
+    {
+      "path": "web/assets/dot-ring@3x.png",
+      "bytes": 102677
     }
   ],
   "note": "tracked-only (git ls-files). Excludes .git, model weights, dep caches, untracked artifacts.",
-  "tracked_bytes": 28898959
+  "tracked_bytes": 28653865
 }

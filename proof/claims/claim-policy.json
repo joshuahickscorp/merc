@@ -153,10 +153,6 @@
       "required_marker": "CLAIM-SCOPE: internal-engineering-non-authoritative"
     },
     {
-      "path": "render/handoff/README.md",
-      "required_marker": "CLAIM-SCOPE: internal-engineering-non-authoritative"
-    },
-    {
       "path": "web/assets/site/CONTRACT.md",
       "required_marker": "CLAIM-SCOPE: internal-engineering-non-authoritative"
     },
