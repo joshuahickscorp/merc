@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "5c60c6d47149e2261b7cae700cc699b32ba8fca9670ad812b77ee2b20d79c514",
+  "authority_sha256": "29588b419953e78e5b6d91b34bd88a1b1bdab63352518fa6c7a23637a16f4ee7",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -9,7 +9,7 @@
   "files": {
     ".dockerignore": 41,
     ".env.example": 50,
-    ".github/workflows/ci.yml": 262,
+    ".github/workflows/ci.yml": 263,
     ".gitignore": 115,
     "Caddyfile": 25,
     "Dockerfile.control": 28,
@@ -310,11 +310,11 @@
     },
     "yaml": {
       "files": 4,
-      "loc": 548,
-      "code": 520,
+      "loc": 549,
+      "code": 521,
       "blank": 28,
       "comment": 0,
-      "bytes": 20739
+      "bytes": 20792
     }
   },
   "owned_by_subsystem": {
@@ -360,11 +360,11 @@
     },
     "ops": {
       "files": 18,
-      "loc": 1781,
-      "code": 1594,
+      "loc": 1782,
+      "code": 1595,
       "blank": 130,
       "comment": 57,
-      "bytes": 61904
+      "bytes": 61957
     },
     "payment": {
       "files": 14,
@@ -408,8 +408,8 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 49046,
-    "non_design_production_core_loc": 38878,
+    "global_owned_loc": 49047,
+    "non_design_production_core_loc": 38879,
     "test_loc": 3996,
     "documentation_loc": 726,
     "python_loc": 335,
@@ -435,6 +435,6 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 6578390,
+  "tracked_bytes": 6578443,
   "tracked_files": 187
 }

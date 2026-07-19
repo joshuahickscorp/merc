@@ -68,7 +68,7 @@ jobs:
           cd "$RUNNER_TEMP/control-evidence"
           sha256sum cx schema.sql runtime-authority.json manifest.schema.json > SHA256SUMS
       - name: Upload control evidence
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-control-${{ env.CANDIDATE_SHA }}
           path: ${{ runner.temp }}/control-evidence
@@ -108,7 +108,7 @@ jobs:
           cd "$RUNNER_TEMP/agent-evidence"
           shasum -a 256 cx-agent > SHA256SUMS
       - name: Upload agent evidence
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-agent-${{ env.CANDIDATE_SHA }}
           path: ${{ runner.temp }}/agent-evidence
@@ -159,10 +159,11 @@ jobs:
           find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | \
             xargs -0 sha256sum > SHA256SUMS
       - name: Upload release evidence
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-release-${{ env.CANDIDATE_SHA }}
           path: ${{ runner.temp }}/release-bundle
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
 
@@ -224,7 +225,7 @@ jobs:
           test -s candidate-sbom.spdx.json
           test -s prior-sbom.spdx.json
       - name: Upload supply-chain evidence
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-supply-chain-${{ env.CANDIDATE_SHA }}
           path: |
