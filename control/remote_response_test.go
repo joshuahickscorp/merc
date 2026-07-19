@@ -77,49 +77,6 @@ func TestStripeHelpersRejectOversizedResponses(t *testing.T) {
 	}
 }
 
-func TestGitHubClientsRejectOversizedResponses(t *testing.T) {
-	tests := []struct {
-		name  string
-		limit int64
-		call  func(*GitHubApp) error
-	}{
-		{name: "oauth exchange", limit: githubOAuthResponseMaxBytes, call: func(g *GitHubApp) error {
-			_, err := g.Exchange(context.Background(), "code")
-			return err
-		}},
-		{name: "recursive tree", limit: githubTreeResponseMaxBytes, call: func(g *GitHubApp) error {
-			_, _, err := g.Tree(context.Background(), "token", "owner/repo", "main")
-			return err
-		}},
-		{name: "repository list", limit: githubAPIResponseMaxBytes, call: func(g *GitHubApp) error {
-			_, err := g.ListRepos(context.Background(), "token")
-			return err
-		}},
-		{name: "json mutation", limit: githubAPIResponseMaxBytes, call: func(g *GitHubApp) error {
-			_, err := g.ghJSON(context.Background(), http.MethodGet, "token", "user", nil)
-			return err
-		}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			g := &GitHubApp{
-				clientID: "client", clientSecret: "secret",
-				http: &http.Client{Transport: remoteRoundTripFunc(func(r *http.Request) (*http.Response, error) {
-					return &http.Response{
-						StatusCode: http.StatusOK,
-						Header:     make(http.Header),
-						Body:       io.NopCloser(io.LimitReader(zeroRemoteReader{}, tc.limit+1)),
-						Request:    r,
-					}, nil
-				})},
-			}
-			if err := tc.call(g); !errors.Is(err, errRemoteResponseTooLarge) {
-				t.Fatalf("oversized GitHub response error = %v, want %v", err, errRemoteResponseTooLarge)
-			}
-		})
-	}
-}
-
 type failingRemoteReader struct{ err error }
 
 func (r failingRemoteReader) Read([]byte) (int, error) { return 0, r.err }

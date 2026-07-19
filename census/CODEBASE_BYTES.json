@@ -2,8 +2,8 @@
   "bytes_by_language": {
     "binary": 18276901,
     "config": 29004,
-    "documentation": 229116,
-    "go": 3294699,
+    "documentation": 229115,
+    "go": 3173973,
     "javascript": 1450305,
     "json": 634432,
     "lockfile": 121571,
@@ -105,11 +105,11 @@
     },
     {
       "path": "control/store.go",
-      "bytes": 373718
+      "bytes": 359868
     },
     {
       "path": "control/integration_test.go",
-      "bytes": 353298
+      "bytes": 348960
     },
     {
       "path": "agent/vendor/candle-metal-kernels/src/metal_src/quantized.metal",
@@ -129,7 +129,7 @@
     },
     {
       "path": "control/api.go",
-      "bytes": 192935
+      "bytes": 191551
     },
     {
       "path": "web/assets/site/og-image.png",
@@ -181,5 +181,5 @@
     }
   ],
   "note": "tracked-only (git ls-files). Excludes .git, model weights, dep caches, untracked artifacts.",
-  "tracked_bytes": 27978649
+  "tracked_bytes": 27857922
 }

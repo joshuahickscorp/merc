@@ -218,13 +218,6 @@ func TestGenericAudioPathsFailClosedBeforeDependencies(t *testing.T) {
 	if rr := authed(generic, server.handleQuote); rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "/v1/audio/jobs") {
 		t.Fatalf("generic quote = %d %s", rr.Code, rr.Body.String())
 	}
-	pipeline := `{"stages":[{"op":"audio_transcribe","model":"whisper-tiny"}],"input":"x\\n"}`
-	if rr := authed(pipeline, server.handleCreatePipeline); rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "/v1/audio/jobs") {
-		t.Fatalf("pipeline create = %d %s", rr.Code, rr.Body.String())
-	}
-	if rr := authed(pipeline, server.handlePipelineQuote); rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "/v1/audio/jobs") {
-		t.Fatalf("pipeline quote = %d %s", rr.Code, rr.Body.String())
-	}
 }
 
 func TestBuildQuoteRejectsMismatchedAudioAdmissionInternally(t *testing.T) {

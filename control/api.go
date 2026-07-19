@@ -142,28 +142,15 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /v1/jobs/{id}", s.authBuyer(http.HandlerFunc(s.handleCancelJob)))
 	mux.Handle("GET /v1/models", s.authBuyer(http.HandlerFunc(s.handleModels)))
 	mux.Handle("GET /v1/price-estimate", s.authBuyer(http.HandlerFunc(s.handlePriceEstimate)))
-	mux.Handle("POST /v1/quote", s.authBuyer(http.HandlerFunc(s.handleQuote)))                  // Plane C: scan + price, no spend
-	mux.Handle("POST /v1/quote/pipeline", s.authBuyer(http.HandlerFunc(s.handlePipelineQuote))) // composite multi-stage quote (item 4)
+	mux.Handle("POST /v1/quote", s.authBuyer(http.HandlerFunc(s.handleQuote))) // Plane C: scan + price, no spend
 	mux.Handle("POST /v1/webhooks", s.authBuyer(http.HandlerFunc(s.handleRegisterWebhook)))
 	mux.Handle("POST /v1/private-pool", s.authBuyer(http.HandlerFunc(s.handleAddPrivatePoolMember)))           // Private Deployment (research §3)
 	mux.Handle("GET /v1/private-pool", s.authBuyer(http.HandlerFunc(s.handleListPrivatePoolMembers)))          // Buyer advantage & pricing edge 6->7
 	mux.Handle("DELETE /v1/private-pool/{id}", s.authBuyer(http.HandlerFunc(s.handleRemovePrivatePoolMember))) // Buyer advantage & pricing edge 6->7
 
-	// Concierge intake + buyer billing (intake.go, billing.go). The callback is
-	// unauthed — GitHub redirects to it with no bearer; the buyer is recovered from
-	// the OAuth state parameter.
-	mux.Handle("GET /v1/connect/github", s.authBuyer(http.HandlerFunc(s.handleGithubConnect)))
-	mux.HandleFunc("GET /v1/connect/github/callback", s.handleGithubCallback)
-	mux.Handle("GET /v1/sources", s.authBuyer(http.HandlerFunc(s.handleListSources)))
-	mux.Handle("POST /v1/intake", s.authBuyer(http.HandlerFunc(s.handleCreateIntake)))
+	// Buyer billing (billing.go): Stripe setup + status for the money core.
 	mux.Handle("POST /v1/billing/setup", s.authBuyer(http.HandlerFunc(s.handleBillingSetup)))
 	mux.Handle("GET /v1/billing/status", s.authBuyer(http.HandlerFunc(s.handleBillingStatus)))
-	mux.Handle("GET /v1/sources/{id}/repos", s.authBuyer(http.HandlerFunc(s.handleListRepos)))
-	mux.Handle("POST /v1/intake/launch", s.authBuyer(http.HandlerFunc(s.handleLaunchIntake)))
-	mux.Handle("POST /v1/pipelines", s.authBuyer(http.HandlerFunc(s.handleCreatePipeline)))
-	mux.Handle("GET /v1/pipelines/{id}", s.authBuyer(http.HandlerFunc(s.handleGetPipeline)))
-	mux.Handle("GET /v1/pipelines/{id}/receipt", s.authBuyer(http.HandlerFunc(s.handlePipelineReceipt))) // pipeline ClearingReceipt (item 14)
-	mux.Handle("POST /v1/deliver", s.authBuyer(http.HandlerFunc(s.handleDeliver)))
 	mux.HandleFunc("POST /v1/stripe/webhook", s.handleStripeWebhook)          // unauthed; verified by signature
 	mux.HandleFunc("POST /v1/stripe/connect-webhook", s.handleConnectWebhook) // Connect account.updated; verified by signature
 
@@ -2669,8 +2656,6 @@ func (s *Server) finalizeJobIfDone(ctx context.Context, jobID uuid.UUID) error {
 	// Best-effort external charge: gated on Stripe + a saved card, idempotent by
 	// job id. A no-op (and unchanged lifecycle) when billing isn't configured.
 	s.chargeForJob(ctx, jobID)
-	s.advanceIntake(ctx, jobID)   // multi-stage chain: no-op unless this job is an intake stage
-	s.advancePipeline(ctx, jobID) // user-defined pipeline chain: no-op unless this job is a pipeline stage
 	return nil
 }
 
