@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-19T22:57:33Z",
+  "generated_at": "2026-07-19T23:24:29Z",
   "scope": "private pilot with real money",
   "decision": "NO-GO",
   "open_p0": [],
@@ -34,17 +34,11 @@
       "blocker": "Alert rules have not delivered and resolved a synthetic page through the real on-call receiver.",
       "owner": "operations",
       "exit_criterion": "Load monitoring/alerts.yml, configure routing, fire one synthetic page, acknowledge/resolve it, and record timestamps."
-    },
-    {
-      "id": "P1-REL-1",
-      "blocker": "The hardened candidate is preserved on release/rc1-hardening but is uncommitted and has no candidate remote CI result.",
-      "owner": "release",
-      "exit_criterion": "Review and commit the exact candidate, push it, and require every control, agent, interface, and security job to pass on that commit."
     }
   ],
   "release_conditions": [
-    "All six P1 exit criteria pass on the exact committed candidate.",
-    "The candidate commit is pushed and all remote CI/security jobs are green.",
+    "All five remaining external P1 exit criteria pass on the exact committed candidate.",
+    "PR #5 stays green on the current head and all four candidate artifacts pass downloaded checksum verification.",
     "Re-run make prove-local and preserve the source-bound ledger with deployment, restore, payment, rollback, and alert receipts."
   ]
 }

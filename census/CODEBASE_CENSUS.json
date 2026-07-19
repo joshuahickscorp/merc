@@ -15,7 +15,7 @@
     "Dockerfile.control": 28,
     "Makefile": 81,
     "README.md": 108,
-    "RELEASE_READINESS.md": 100,
+    "RELEASE_READINESS.md": 104,
     "agent/Cargo.lock": 3932,
     "agent/Cargo.toml": 51,
     "agent/agent.example.toml": 15,
@@ -152,8 +152,8 @@
     "macapp/ComputeExchangeAgent/cx-agent.sb": 36,
     "macapp/ComputeExchangeAgent/sandbox-profile-test.sh": 160,
     "monitoring/alerts.yml": 82,
-    "ops/go-no-go.json": 50,
-    "ops/readiness.json": 133,
+    "ops/go-no-go.json": 44,
+    "ops/readiness.json": 150,
     "proto/enrollment-wire-fixtures.json": 14,
     "proto/manifest.schema.json": 267,
     "scripts/backup.sh": 82,
@@ -214,11 +214,11 @@
     },
     "documentation": {
       "files": 10,
-      "loc": 726,
-      "code": 580,
+      "loc": 730,
+      "code": 584,
       "blank": 146,
       "comment": 0,
-      "bytes": 32832
+      "bytes": 33178
     },
     "go": {
       "files": 94,
@@ -238,11 +238,11 @@
     },
     "json": {
       "files": 6,
-      "loc": 963,
-      "code": 963,
+      "loc": 974,
+      "code": 974,
       "blank": 0,
       "comment": 0,
-      "bytes": 32818
+      "bytes": 34142
     },
     "lockfile": {
       "files": 2,
@@ -360,11 +360,11 @@
     },
     "ops": {
       "files": 18,
-      "loc": 1782,
-      "code": 1595,
+      "loc": 1797,
+      "code": 1610,
       "blank": 130,
       "comment": 57,
-      "bytes": 61957
+      "bytes": 63627
     },
     "payment": {
       "files": 14,
@@ -408,12 +408,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 49047,
+    "global_owned_loc": 49062,
     "non_design_production_core_loc": 38879,
     "test_loc": 3996,
-    "documentation_loc": 726,
+    "documentation_loc": 730,
     "python_loc": 335,
-    "generated_loc": 4700,
+    "generated_loc": 4715,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -435,6 +435,6 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 6578443,
+  "tracked_bytes": 6580113,
   "tracked_files": 187
 }

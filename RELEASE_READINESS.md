@@ -2,8 +2,8 @@
 
 As of 2026-07-19, this working tree is not approved for a private pilot that
 moves real buyer or supplier money. There are no known open P0 code defects, and
-the complete local customer path passes, but six P1 release/operational/payment proofs
-cannot be manufactured from this workstation. The exact machine decision is in
+the complete local customer path and exact-head remote CI pass, but five external
+operational/payment proofs cannot be manufactured from this workstation. The exact machine decision is in
 `ops/go-no-go.json`; `ops/readiness.json` is the evidence ledger.
 
 ## What was fixed
@@ -63,6 +63,20 @@ files, so new hardening files are not omitted merely because they are unstaged.
 It reports approximately 38.7k LOC of maintained non-design production core; the
 exact totals are in `census/CODEBASE_CENSUS.json`.
 
+## Proven remotely
+
+PR #5 exact-head run `29707723987` passed all five jobs at
+`1d026d5a0750825d62561aa973e0948784df5f2d`. Every job asserted the checked-out
+candidate SHA. The four `candidate-*` artifacts were downloaded; all embedded
+checksums passed, including the previously omitted hidden configuration template.
+The receipt includes multi-platform CLI archives, Linux `cx`, optimized Metal
+`cx-agent`, website/contracts, both candidate and `0387766` control image
+archives, and two SPDX SBOMs. The candidate/prior image IDs were
+`sha256:05e23f42a6e52219e4057dbb134fa716b5e1e68ca3508bced3c604e7c229dfe1`
+and `sha256:d74ff5dd81a9fb5194d48a2fbc3c51fca11b01e67c54066ae6a2fb672f996023`.
+Because this document changes the commit, PR #5's current-head check rollup and
+the four `candidate-*-${HEAD}` artifacts are the normative final receipt.
+
 ## Blocking P1s
 
 1. No independent offsite backup was uploaded and restored. The local
@@ -79,18 +93,8 @@ exact totals are in `census/CODEBASE_CENSUS.json`.
    reconciliation using real test-mode ids.
 5. Alert rules parse and map to runbooks, but no real receiver delivered,
    acknowledged, and resolved a synthetic page.
-6. The hardened candidate is preserved on `release/rc1-hardening` but remains
-   uncommitted and unpushed, so its control, agent, interface, container/SBOM,
-   and security jobs have not run on this exact source.
-
-The remote PR #4 checks are green at base commit
-`0387766c5d0e8f9e5b64e8cbef215edcd07784bd` (longest job 8m47s). These local
-repairs are not committed or pushed, so that result is baseline evidence, not
-candidate CI evidence.
-
 ## GO procedure
 
-Commit the exact candidate, push it, and require all remote CI/security jobs.
 Configure independent offsite backup storage and a representative staging host.
 Deploy, run the complete buyer/supplier/admin and both-workload matrix, execute
 the Stripe test-mode cash matrix and scoped reconciliation, restore the uploaded
