@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -126,11 +124,4 @@ func commitInfoFromVerificationWork(work VerificationWork) (*CommitTaskInfo, Tas
 		HardwareTempC: work.Snapshot.HardwareTempC,
 	}
 	return info, commit, nil
-}
-
-func uuidOrNil(id *uuid.UUID) uuid.UUID {
-	if id == nil {
-		return uuid.Nil
-	}
-	return *id
 }

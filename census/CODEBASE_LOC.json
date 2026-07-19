@@ -1,16 +1,16 @@
 {
-  "active_product_LOC": 117538,
-  "active_repository_LOC": 150637,
+  "active_product_LOC": 117529,
+  "active_repository_LOC": 150649,
   "agent_LOC": 36647,
   "control_LOC": 63428,
-  "documentation_LOC": 3607,
+  "documentation_LOC": 3628,
   "generated_LOC": 5201,
-  "go_LOC": 78401,
+  "go_LOC": 78392,
   "historical_LOC": 2992,
-  "hydrated_owned_LOC": 156457,
+  "hydrated_owned_LOC": 156469,
   "interface_LOC": 3942,
   "javascript_LOC": 59786,
-  "kernel_LOC": 79198,
+  "kernel_LOC": 79189,
   "note": "kernel/active_* are derived per documented layer rules in CODEBASE_CENSUS.md; retires `make loc`.",
   "payment_LOC": 4180,
   "proof_LOC": 22215,
@@ -24,7 +24,7 @@
   "sql_LOC": 2720,
   "swift_LOC": 0,
   "test_LOC": 35340,
-  "total_loc": 241619,
+  "total_loc": 241631,
   "vendored_LOC": 85162,
-  "verification_LOC": 10932
+  "verification_LOC": 10923
 }
