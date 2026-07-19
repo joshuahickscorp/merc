@@ -95,7 +95,7 @@ func verifyProofLedger(path, mode string, current bool) (proofSummary, error) {
 	}
 	required := []string{"source-bound", "local-gates", "dependencies", "schema", "lifecycle", "control", "source-stable", "census"}
 	if mode == "full" {
-		required = append(required, "two-agents", "customer-path", "money-invariants", "performance")
+		required = append(required, "two-agents", "idempotency", "customer-path", "attempt-fencing", "money-invariants", "performance")
 	} else if mode != "contract" {
 		return proofSummary{}, fmt.Errorf("mode must be contract or full")
 	}

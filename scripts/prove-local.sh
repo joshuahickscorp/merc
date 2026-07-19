@@ -22,6 +22,7 @@ PG_STARTED=0
 SANDBOX_ROOT=""
 
 export DATABASE_URL="postgres://cx@127.0.0.1:$PGPORT/cx?sslmode=disable"
+export CX_ENV="development"
 export S3_ENDPOINT="http://127.0.0.1:$MINIO_PORT"
 export S3_PUBLIC_ENDPOINT="$S3_ENDPOINT"
 export S3_BUCKET="cx-jobs"
@@ -36,6 +37,15 @@ export CX_CONTROL_PLANE_PER_TASK_USD="0.0001"
 export CX_TARGET_MARGIN_BPS="1000"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/.artifacts/prove-cache/cargo-target}"
 export GOCACHE="${GOCACHE:-$ROOT/.artifacts/prove-cache/go-cache}"
+
+DEV_ADMIN_AUTH='Authorization: Bearer dev-admin-key-0001' # gitleaks:allow -- seeded local proof credential
+DEV_BUYER_AUTH='Authorization: Bearer dev-api-key-0001'   # gitleaks:allow -- seeded local proof credential
+
+# A proof must be hermetic even when the caller has sourced a production or
+# Stripe-enabled .env.  The live processor boundary is exercised by the Go
+# webhook/financial model tests; this local E2E intentionally runs the shadow
+# ledger and must never inherit credentials or contact Stripe.
+unset STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET CX_CONNECT_WEBHOOK_SECRET
 
 record() {
   jq -nc --arg status "$1" --arg gate "$2" --arg detail "$3" \
@@ -73,7 +83,7 @@ wait_for() {
 workers_ready() {
   expected="$1"
   count="$(curl -fsS "$CONTROL_URL/admin/workers" \
-    -H 'Authorization: Bearer dev-admin-key-0001' | \
+    -H "$DEV_ADMIN_AUTH" | \
     jq '[.[] | select(.version != "seed")] | length')"
   [ "$count" -ge "$expected" ]
 }
@@ -194,7 +204,8 @@ if [ "$SKIP_LIVE" != "1" ]; then
         constraints:{min_memory_gb:0,hw_classes:null,data_residency:null},
         verification:{redundancy_frac:0,honeypot_frac:0,payout_hold_secs:0,skip_verification_floor:true},
         tier:"batch",input:$input}')"
-    response="$(curl -sS "$CONTROL_URL/v1/jobs" -H 'Authorization: Bearer dev-api-key-0001' \
+    response="$(curl -sS "$CONTROL_URL/v1/jobs" -H "$DEV_BUYER_AUTH" \
+      -H "Idempotency-Key: proof-$1" \
       -H 'Content-Type: application/json' -d "$body")"
     job_id="$(jq -r '.job_id // empty' <<<"$response")"
     [ -n "$job_id" ] || { printf 'job submission failed: %s\n' "$response" >&2; return 1; }
@@ -203,7 +214,7 @@ if [ "$SKIP_LIVE" != "1" ]; then
   wait_job() {
     deadline=$(( $(date +%s) + 420 ))
     while [ "$(date +%s)" -lt "$deadline" ]; do
-      state="$(curl -fsS "$CONTROL_URL/v1/jobs/$1" -H 'Authorization: Bearer dev-api-key-0001' | jq -r .status)"
+      state="$(curl -fsS "$CONTROL_URL/v1/jobs/$1" -H "$DEV_BUYER_AUTH" | jq -r .status)"
       [ "$state" = complete ] && return 0
       [ "$state" = failed ] || [ "$state" = cancelled ] && return 1
       sleep 3
@@ -213,9 +224,51 @@ if [ "$SKIP_LIVE" != "1" ]; then
 
   EMBED_JOB="$(submit all-minilm-l6-v2 '{"type":"embed","batch_size":8}' $'{"text":"apple silicon"}\n{"text":"compute market"}\n')"
   INFER_JOB="$(submit llama-3.2-1b-instruct-q4 '{"type":"batch_infer","max_tokens":12,"temperature":0}' $'{"prompt":"Reply with only: ping"}\n')"
+	EMBED_REPLAY="$(submit all-minilm-l6-v2 '{"type":"embed","batch_size":8}' $'{"text":"apple silicon"}\n{"text":"compute market"}\n')"
+	[ "$EMBED_REPLAY" = "$EMBED_JOB" ]
+	if submit all-minilm-l6-v2 '{"type":"embed","batch_size":8}' $'{"text":"different request"}\n' >/dev/null 2>&1; then
+	  echo "idempotency conflict was accepted" >&2
+	  exit 1
+	fi
+	record PASS idempotency "identical submit replay returned one job; conflicting reuse was rejected"
   wait_job "$EMBED_JOB"
   wait_job "$INFER_JOB"
   record PASS customer-path "embed and batch_infer completed through live Candle agents"
+
+  # Re-delivery of the exact terminal commit is harmless, while a delayed
+  # process claiming a different attempt epoch must be rejected. This is the
+  # execution-side counterpart to submit idempotency.
+  COMMIT_ROW="$(psql "$DATABASE_URL" -Atc "
+    select json_build_object(
+      'task_id',id,'attempt',retry_count,'result_key',result_key,
+      'duration_ms',reported_duration_ms,'tokens_used',reported_tokens_used,
+      'result_sha256',result_sha256,'hardware_temp_c',reported_hardware_temp_c,
+      'supplier_id',execution_supplier_id)::text
+      from tasks
+     where job_id='$EMBED_JOB' and not is_redundancy and not is_honeypot
+     order by chunk_index,id limit 1")"
+  COMMIT_TASK_ID="$(jq -r .task_id <<<"$COMMIT_ROW")"
+  COMMIT_ATTEMPT="$(jq -r .attempt <<<"$COMMIT_ROW")"
+  COMMIT_SUPPLIER="$(jq -r .supplier_id <<<"$COMMIT_ROW")"
+  COMMIT_BODY="$(jq 'del(.supplier_id)' <<<"$COMMIT_ROW")"
+  case "$COMMIT_SUPPLIER" in
+    *a1) COMMIT_TOKEN=dev-worker-token-0001 ;;
+    *a2) COMMIT_TOKEN=dev-worker-token-0002 ;;
+    *) echo "unexpected proof execution supplier: $COMMIT_SUPPLIER" >&2; exit 1 ;;
+  esac
+  LEDGER_BEFORE="$(psql "$DATABASE_URL" -Atc 'select count(*) from ledger_entries')"
+  REPLAY_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' \
+    "$CONTROL_URL/v1/worker/task/$COMMIT_TASK_ID/commit" \
+    -H "X-Worker-Token: $COMMIT_TOKEN" -H 'Content-Type: application/json' -d "$COMMIT_BODY")"
+  [ "$REPLAY_STATUS" = 204 ]
+  STALE_BODY="$(jq --argjson attempt "$((COMMIT_ATTEMPT + 1))" '.attempt=$attempt' <<<"$COMMIT_BODY")"
+  STALE_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' \
+    "$CONTROL_URL/v1/worker/task/$COMMIT_TASK_ID/commit" \
+    -H "X-Worker-Token: $COMMIT_TOKEN" -H 'Content-Type: application/json' -d "$STALE_BODY")"
+  [ "$STALE_STATUS" = 409 ]
+  LEDGER_AFTER="$(psql "$DATABASE_URL" -Atc 'select count(*) from ledger_entries')"
+  [ "$LEDGER_BEFORE" = "$LEDGER_AFTER" ]
+  record PASS attempt-fencing "exact terminal replay was inert; wrong-attempt late commit was rejected without money effects"
 
   ZERO_SUM="$(psql "$DATABASE_URL" -Atc "select abs(coalesce(sum(amount_usd),0)) < 0.000001 from ledger_entries")"
   DUPES="$(psql "$DATABASE_URL" -Atc "select count(*) from (select task_id,kind,count(*) from ledger_entries where task_id is not null group by task_id,kind having count(*)>1) x")"

@@ -46,14 +46,15 @@ type dependencyCensus struct {
 }
 
 type ownershipTotals struct {
-	GlobalOwnedLOC   int `json:"global_owned_loc"`
-	TestLOC          int `json:"test_loc"`
-	DocumentationLOC int `json:"documentation_loc"`
-	PythonLOC        int `json:"python_loc"`
-	GeneratedLOC     int `json:"generated_loc"`
-	VendoredLOC      int `json:"vendored_upstream_loc"`
-	RelocatedLOC     int `json:"relocated_loc"`
-	PatchLOC         int `json:"first_party_patch_loc"`
+	GlobalOwnedLOC             int `json:"global_owned_loc"`
+	NonDesignProductionCoreLOC int `json:"non_design_production_core_loc"`
+	TestLOC                    int `json:"test_loc"`
+	DocumentationLOC           int `json:"documentation_loc"`
+	PythonLOC                  int `json:"python_loc"`
+	GeneratedLOC               int `json:"generated_loc"`
+	VendoredLOC                int `json:"vendored_upstream_loc"`
+	RelocatedLOC               int `json:"relocated_loc"`
+	PatchLOC                   int `json:"first_party_patch_loc"`
 }
 
 var extLang = map[string]string{
@@ -107,7 +108,9 @@ func repoRoot() string {
 }
 
 func gitTracked(root string) []string {
-	cmd := exec.Command("git", "ls-files", "-z")
+	// Include non-ignored new files so a readiness proof cannot omit newly
+	// created source merely because the operator has not staged it yet.
+	cmd := exec.Command("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
 	cmd.Dir = root
 	o, err := cmd.Output()
 	if err != nil {
@@ -217,7 +220,7 @@ func kindOf(r fileRecord) string {
 }
 
 func isGenerated(path string, data []byte) bool {
-	if filepath.Base(path) == "Cargo.lock" || strings.Contains(filepath.Base(path), ".generated.") {
+	if isGeneratedReleaseEvidencePath(path) || filepath.Base(path) == "Cargo.lock" || strings.Contains(filepath.Base(path), ".generated.") {
 		return true
 	}
 	head := data
@@ -311,6 +314,9 @@ func auditTotals(records []fileRecord) ownershipTotals {
 			continue
 		}
 		t.GlobalOwnedLOC += r.LOC
+		if r.Kind == "maintained" && r.Subsystem != "interface" {
+			t.NonDesignProductionCoreLOC += r.LOC
+		}
 		if r.Kind == "test" {
 			t.TestLOC += r.LOC
 		}
@@ -376,7 +382,7 @@ func cargoDirect(path string) int {
 func sourceIdentity(root string, records []fileRecord) string {
 	h := sha256.New()
 	for _, r := range records {
-		if r.Path == "census/CODEBASE_CENSUS.json" || r.Path == "census/CODEBASE_CENSUS.md" {
+		if isGeneratedReleaseEvidencePath(r.Path) {
 			continue
 		}
 		h.Write([]byte(r.Path))
@@ -451,7 +457,7 @@ func writeAudit(root, dir string, records []fileRecord) {
 	bySub := rollup(records, func(r fileRecord) string { return r.Subsystem })
 	var md strings.Builder
 	fmt.Fprintf(&md, "# Codebase census\n\nGLOBAL_OWNED_LOC: **%d** across %d tracked files (%.2f MB).\n\n", totals.GlobalOwnedLOC, len(records), float64(sumBytes(records))/1e6)
-	fmt.Fprintf(&md, "Tests: %d LOC · documentation: %d LOC · Python: %d LOC · generated: %d LOC · vendored upstream: %d LOC.\n\n", totals.TestLOC, totals.DocumentationLOC, totals.PythonLOC, totals.GeneratedLOC, totals.VendoredLOC)
+	fmt.Fprintf(&md, "Non-design production core: %d LOC · tests: %d LOC · documentation: %d LOC · Python: %d LOC · generated: %d LOC · vendored upstream: %d LOC.\n\n", totals.NonDesignProductionCoreLOC, totals.TestLOC, totals.DocumentationLOC, totals.PythonLOC, totals.GeneratedLOC, totals.VendoredLOC)
 	md.WriteString("## Owned LOC by language\n\n| language | files | loc |\n|---|--:|--:|\n")
 	for _, k := range sortedKeys(byLang) {
 		fmt.Fprintf(&md, "| %s | %d | %d |\n", k, byLang[k].Files, byLang[k].LOC)
