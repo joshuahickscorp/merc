@@ -1,0 +1,82 @@
+groups:
+  - name: computexchange-pilot
+    rules:
+      - alert: ComputeExchangeControlUnavailable
+        expr: absent(cx_jobs_submitted_total) == 1
+        for: 2m
+        labels: {severity: page, runbook: control-or-database-outage}
+        annotations:
+          summary: Control metrics endpoint is unavailable
+          runbook: docs/RUNBOOKS.md#control-plane-or-database-outage
+
+      - alert: ComputeExchangeQueueWithoutWorkers
+        expr: sum(cx_queue_depth) > 0 and cx_active_workers == 0
+        for: 3m
+        labels: {severity: page, runbook: agent-offline}
+        annotations:
+          summary: Claimable work exists but no supplier agent is active
+          runbook: docs/RUNBOOKS.md#agent-offline-or-task-stall
+
+      - alert: ComputeExchangeQueueStalled
+        expr: sum(cx_queue_depth) > 0 and increase(cx_tasks_completed_total[10m]) == 0
+        for: 10m
+        labels: {severity: page, runbook: queue-stall}
+        annotations:
+          summary: Queue has work but no completion in ten minutes
+          runbook: docs/RUNBOOKS.md#queue-stall-and-safe-requeue
+
+      - alert: ComputeExchangeBackgroundLoopStale
+        expr: cx_ticker_seconds_since_success > 3600
+        for: 5m
+        labels: {severity: page, runbook: background-loop}
+        annotations:
+          summary: A control-plane background loop has not succeeded for an hour
+          runbook: docs/RUNBOOKS.md#control-plane-or-database-outage
+
+      - alert: ComputeExchangeBackgroundLoopErrors
+        expr: increase(cx_ticker_failures_total[15m]) > 0
+        for: 2m
+        labels: {severity: ticket, runbook: background-loop}
+        annotations:
+          summary: A control-plane background loop returned errors
+          runbook: docs/RUNBOOKS.md#control-plane-or-database-outage
+
+      - alert: ComputeExchangeVerificationMismatch
+        expr: increase(cx_verification_mismatch_total[15m]) > 0
+        for: 1m
+        labels: {severity: page, runbook: verification-dispute}
+        annotations:
+          summary: Verification or honeypot mismatch detected
+          runbook: docs/RUNBOOKS.md#verification-failure-or-bad-result-dispute
+
+      - alert: ComputeExchangeLedgerOrProviderDrift
+        expr: increase(cx_reconcile_drift_total[30m]) > 0
+        for: 1m
+        labels: {severity: page, runbook: money-incident}
+        annotations:
+          summary: Ledger-to-provider reconciliation found drift
+          runbook: docs/RUNBOOKS.md#money-incident-or-payout-hold
+
+      - alert: ComputeExchangeNoHedgePeer
+        expr: increase(cx_no_hedge_peer_total[15m]) > 0
+        for: 1m
+        labels: {severity: ticket, runbook: insufficient-capacity}
+        annotations:
+          summary: Redundancy or hedge work had no eligible peer
+          runbook: docs/RUNBOOKS.md#insufficient-capacity
+
+      - alert: ComputeExchangeTaskFailureSpike
+        expr: increase(cx_task_failures_total[10m]) >= 5
+        for: 2m
+        labels: {severity: page, runbook: task-failures}
+        annotations:
+          summary: Five or more typed task failures occurred in ten minutes
+          runbook: docs/RUNBOOKS.md#agent-offline-or-task-stall
+
+      - alert: ComputeExchangeBudgetStops
+        expr: increase(cx_budget_stops_total[15m]) > 0
+        for: 1m
+        labels: {severity: ticket, runbook: money-incident}
+        annotations:
+          summary: The budget governor stopped one or more jobs
+          runbook: docs/RUNBOOKS.md#money-incident-or-payout-hold
