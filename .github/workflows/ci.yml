@@ -29,8 +29,8 @@ jobs:
       DATABASE_URL: postgres://cx:cx@localhost:5432/cx?sslmode=disable
       PGPASSWORD: cx
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.26.5"
           cache-dependency-path: control/go.sum
@@ -56,11 +56,11 @@ jobs:
   agent:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           workspaces: agent
       - name: format, lint, test
@@ -79,11 +79,11 @@ jobs:
   interfaces:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
       - name: schema and generated artifacts
@@ -93,3 +93,60 @@ jobs:
           node scripts/site-build.mjs
       - name: Python SDK package
         run: bash scripts/verify-python-sdk-package.sh
+      - name: CLI release archive
+        run: bash scripts/verify-cli-release.sh v0.1.0-rc.1
+
+  container:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26.5"
+      - name: Build immutable candidate image
+        run: |
+          docker build \
+            --build-arg CX_BUILD_VERSION=v0.1.0-rc.1 \
+            --build-arg CX_BUILD_COMMIT="$GITHUB_SHA" \
+            --build-arg CX_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --tag "computexchange/control:$GITHUB_SHA" \
+            --file Dockerfile.control .
+          docker image inspect "computexchange/control:$GITHUB_SHA" \
+            --format '{{.Id}}' | tee container-image-id.txt
+      - name: Generate image SBOM
+        run: |
+          go run github.com/anchore/syft/cmd/syft@v1.48.0 \
+            "computexchange/control:$GITHUB_SHA" \
+            --output spdx-json=sbom.spdx.json
+          test -s sbom.spdx.json
+      - name: Upload candidate supply-chain evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-supply-chain-${{ github.sha }}
+          path: |
+            container-image-id.txt
+            sbom.spdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: control/go.sum
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
+      - name: Go call-graph vulnerability scan
+        working-directory: control
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+      - name: Candidate secret scan
+        run: go run github.com/zricethezav/gitleaks/v8@v8.30.1 dir --redact --no-banner .
+      - name: RustSec advisory scan
+        working-directory: agent
+        run: |
+          cargo install --locked cargo-audit --version 0.22.2
+          cargo audit

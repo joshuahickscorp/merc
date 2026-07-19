@@ -29,7 +29,7 @@ x-control-env: &control-env
 
 services:
   postgres:
-    image: postgres:17
+    image: postgres:17@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d
     environment:
       POSTGRES_USER: cx
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
@@ -41,10 +41,15 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    shm_size: 128m
+    stop_grace_period: 60s
     logging: *logs
 
   minio:
-    image: minio/minio
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     command: server /data
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
@@ -57,10 +62,14 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    stop_grace_period: 60s
     logging: *logs
 
   createbuckets:
-    image: minio/mc
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     depends_on:
       minio: {condition: service_healthy}
     environment:
@@ -70,6 +79,9 @@ services:
       /bin/sh -c 'mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
       mc mb --ignore-existing local/cx-jobs && mc anonymous set none local/cx-jobs'
     restart: "no"
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
 
   control:
     build:
@@ -94,10 +106,18 @@ services:
       retries: 5
       start_period: 15s
     restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp:size=64m,mode=1777]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 60s
     logging: *logs
 
   caddy:
-    image: caddy:2
+    image: caddy:2@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
     depends_on:
       control: {condition: service_healthy}
       minio: {condition: service_healthy}
@@ -111,6 +131,10 @@ services:
       - caddy_config:/config
     ports: ["80:80", "443:443", "443:443/udp"]
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    stop_grace_period: 30s
     logging: *logs
 
 volumes:

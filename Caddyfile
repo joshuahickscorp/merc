@@ -1,6 +1,6 @@
 {
 	email {$ACME_EMAIL}
-	admin 0.0.0.0:2019
+	admin 127.0.0.1:2019
 	metrics
 }
 
