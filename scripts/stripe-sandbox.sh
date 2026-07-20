@@ -78,6 +78,23 @@ api() {
     "https://api.stripe.com/v1/$path" "$@"
 }
 
+api_expect_timeout() {
+  local method="$1" path="$2" status
+  shift 2
+  # An intentionally impossible client deadline proves the command's timeout
+  # path without a proxy or operator-supplied driver. The exact idempotency key
+  # is retried below, so the unknown provider-persistence outcome is recovered
+  # without intentionally creating a second provider object.
+  set +e
+  printf 'user = "%s:"\n' "$STRIPE_SECRET_KEY" | curl --silent --show-error --config - \
+    --request "$method" --header 'Stripe-Version: 2025-06-30.basil' \
+    --connect-timeout 0.001 --max-time 0.001 \
+    "https://api.stripe.com/v1/$path" "$@" >/dev/null
+  status=$?
+  set -e
+  [ "$status" = 28 ]
+}
+
 account="$(api GET account)"
 jq -e '.id | type == "string" and startswith("acct_")' <<< "$account" >/dev/null
 jq -e '.livemode == false' <<< "$account" >/dev/null
@@ -109,6 +126,22 @@ customer_json="$(api POST customers \
   --data-urlencode "description=ComputExchange disposable Sandbox matrix $run_id" \
   --data-urlencode "metadata[cx_matrix_run]=$run_id")"
 customer="$(jq -er '.id | select(startswith("cus_"))' <<< "$customer_json")"
+
+timeout_idem="cx-matrix-$run_id-timeout"
+api_expect_timeout POST payment_intents \
+  --header "Idempotency-Key: $timeout_idem" \
+  --data-urlencode amount=900 --data-urlencode currency=usd \
+  --data-urlencode customer="$customer" --data-urlencode payment_method=pm_card_visa \
+  --data-urlencode 'payment_method_types[]=card' --data-urlencode confirm=true \
+  --data-urlencode "metadata[cx_matrix_run]=$run_id"
+timeout_recovery="$(api POST payment_intents \
+  --header "Idempotency-Key: $timeout_idem" \
+  --data-urlencode amount=900 --data-urlencode currency=usd \
+  --data-urlencode customer="$customer" --data-urlencode payment_method=pm_card_visa \
+  --data-urlencode 'payment_method_types[]=card' --data-urlencode confirm=true \
+  --data-urlencode "metadata[cx_matrix_run]=$run_id")"
+jq -e '.livemode == false and .status == "succeeded" and (.id | startswith("pi_"))' \
+  <<< "$timeout_recovery" >/dev/null
 
 idem="cx-matrix-$run_id-success"
 success="$(api POST payment_intents \
@@ -178,5 +211,6 @@ jq -e '
 jq -nc --arg run "$run_id" --argjson driver "$driver_receipt" \
   '{schema_version:1,kind:"stripe_sandbox_matrix",status:"PASS",provider_mode:"test",
     run_id:$run,secret_values_printed:false,disposable_customer_cleanup:"attempted",
-    payment_objects:{authorization:true,capture:true,decline:true,idempotency:true,refunds:true,transfer:true},
+    payment_objects:{authorization:true,capture:true,decline:true,idempotency:true,refunds:true,transfer:true,
+      timeout:{client_deadline:true,idempotent_recovery:true}},
     external_scenarios:$driver,live_mode:"PROHIBITED"}'

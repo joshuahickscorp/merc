@@ -43,6 +43,7 @@ int main(void) {
     const char request[] =
         "GET /readyz HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
     char response[12] = {0};
+    char drain[1024];
     ssize_t received;
 
     if (address != NULL && (separator = strrchr(address, ':')) != NULL && separator[1] != '\0') {
@@ -74,6 +75,18 @@ int main(void) {
         return 1;
     }
     received = receive_prefix(fd, response, sizeof(response));
+    /*
+     * Drain the Connection: close response before releasing the socket. A
+     * prefix-only probe can send a TCP reset while the Go server is still
+     * writing its readiness JSON; the health check must be observational and
+     * must never perturb the process it is checking.
+     */
+    while (received >= (ssize_t)sizeof(response)) {
+        ssize_t drained = recv(fd, drain, sizeof(drain), 0);
+        if (drained <= 0) {
+            break;
+        }
+    }
     close(fd);
     if (received < 12) {
         return 1;

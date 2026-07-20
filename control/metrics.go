@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	runtimemetrics "runtime/metrics"
 	"sort"
 	"strconv"
 	"strings"
@@ -327,6 +328,10 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeCounter(w, "cx_sla_misses_total", "Jobs whose bound speed-SLA settled as MISSED (Speed Lane wave 2A): the buyer-visible span exceeded the guarantee, sla_met stamped false, the once-only sla_refund credit recorded. Counted once per job (only the settle call that decided the miss bumps it).", metrics.slaMisses.Load())
 	writeCounter(w, "cx_no_hedge_peer_total", "Dispatch-time heterogeneous-fleet degradation: a redundancy/hedge peer was needed but no eligible same-class peer existed on the fleet (silent loss of hedging + warm-routing). Alerted on by monitoring/alerts.yml.", NoHedgePeerCount())
 	residentBytes, openFDs, fdAvailable := processResourceSnapshot()
+	var goMemory runtime.MemStats
+	runtime.ReadMemStats(&goMemory)
+	limitSample := []runtimemetrics.Sample{{Name: "/gc/gomemlimit:bytes"}}
+	runtimemetrics.Read(limitSample)
 	fmt.Fprintf(w, "# HELP cx_process_resident_memory_bytes Resident memory used by the control process.\n")
 	fmt.Fprintf(w, "# TYPE cx_process_resident_memory_bytes gauge\n")
 	fmt.Fprintf(w, "cx_process_resident_memory_bytes %d\n", residentBytes)
@@ -335,6 +340,30 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	if fdAvailable {
 		fmt.Fprintf(w, "cx_process_open_file_descriptors %d\n", openFDs)
 	}
+	for _, gauge := range []struct {
+		name, help string
+		value      uint64
+	}{
+		{"cx_go_memory_limit_bytes", "Active Go runtime soft memory limit.", limitSample[0].Value.Uint64()},
+		{"cx_go_heap_alloc_bytes", "Bytes of allocated Go heap objects.", goMemory.HeapAlloc},
+		{"cx_go_heap_inuse_bytes", "Bytes in in-use Go heap spans.", goMemory.HeapInuse},
+		{"cx_go_heap_idle_bytes", "Bytes in idle Go heap spans.", goMemory.HeapIdle},
+		{"cx_go_heap_released_bytes", "Idle Go heap bytes returned to the operating system.", goMemory.HeapReleased},
+		{"cx_go_stack_inuse_bytes", "Bytes in Go stack spans.", goMemory.StackInuse},
+		{"cx_go_other_sys_bytes", "Other Go runtime system allocations.", goMemory.OtherSys},
+		{"cx_go_sys_bytes", "Total bytes obtained from the operating system by the Go runtime.", goMemory.Sys},
+		{"cx_go_next_gc_bytes", "Target Go heap size for the next garbage collection.", goMemory.NextGC},
+	} {
+		fmt.Fprintf(w, "# HELP %s %s\n", gauge.name, gauge.help)
+		fmt.Fprintf(w, "# TYPE %s gauge\n", gauge.name)
+		fmt.Fprintf(w, "%s %d\n", gauge.name, gauge.value)
+	}
+	fmt.Fprintf(w, "# HELP cx_go_goroutines Current Go goroutine count.\n")
+	fmt.Fprintf(w, "# TYPE cx_go_goroutines gauge\n")
+	fmt.Fprintf(w, "cx_go_goroutines %d\n", runtime.NumGoroutine())
+	fmt.Fprintf(w, "# HELP cx_go_gc_cycles_total Completed Go garbage-collection cycles.\n")
+	fmt.Fprintf(w, "# TYPE cx_go_gc_cycles_total counter\n")
+	fmt.Fprintf(w, "cx_go_gc_cycles_total %d\n", goMemory.NumGC)
 
 	build := currentControlBuildInfo()
 	fmt.Fprintf(w, "# HELP cx_release_info Immutable control-plane release identity; exactly one series per process.\n")

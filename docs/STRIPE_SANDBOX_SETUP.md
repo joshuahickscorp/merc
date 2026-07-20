@@ -47,10 +47,14 @@ make stripe-matrix
 `stripe-check` validates credential classes and confirms both the platform and
 connected account are Sandbox objects. Every live-key check occurs before the
 first network request. `stripe-matrix` creates disposable objects, exercises the
-matrix, emits sanitized JSON, and attempts supported cleanup. As part of the
-matrix, each configured HTTPS webhook endpoint receives one inert signed probe
-and one invalid-signature probe; it must accept only the event signed by its
-supplied Sandbox `whsec_*` secret.
+matrix, emits sanitized JSON, and attempts supported cleanup. It forces an
+impossible client deadline and retries the exact idempotency key, proving safe
+recovery when persistence at the provider is unknown. The deterministic
+simulator separately covers both pre-persistence timeout and provider success
+followed by a lost response. As part of the matrix, each configured HTTPS
+webhook endpoint receives one inert signed probe and one invalid-signature
+probe; it must accept only the event signed by its supplied Sandbox `whsec_*`
+secret.
 
 Until both commands pass with provider-owned receipts, readiness must remain:
 
