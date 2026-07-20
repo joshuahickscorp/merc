@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -106,6 +107,20 @@ func (s *Store) AdminSetOperationalControl(
 	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
 		return OperationalControl{}, err
 	}
+	if replay, err := acquireAdminMutationReplay(ctx, tx, actor, intent); err != nil {
+		return OperationalControl{}, err
+	} else if replay.Found {
+		var state struct {
+			After OperationalControl `json:"after"`
+		}
+		if err := json.Unmarshal(replay.Detail, &state); err != nil {
+			return OperationalControl{}, fmt.Errorf("decode operational-control replay: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return OperationalControl{}, err
+		}
+		return state.After, nil
+	}
 
 	var before OperationalControl
 	if err := tx.QueryRow(ctx, `
@@ -128,9 +143,7 @@ func (s *Store) AdminSetOperationalControl(
 	).Scan(&after.Name, &after.Paused, &after.Reason, &after.UpdatedAt, &after.UpdatedBy, &after.Version); err != nil {
 		return OperationalControl{}, err
 	}
-	if err := insertAdminMutationAction(ctx, tx, actor, intent, nil, nil, nil,
-		map[string]any{"name": before.Name, "paused": before.Paused, "reason": before.Reason, "version": before.Version},
-		map[string]any{"name": after.Name, "paused": after.Paused, "reason": after.Reason, "version": after.Version}); err != nil {
+	if err := insertAdminMutationAction(ctx, tx, actor, intent, nil, nil, nil, before, after); err != nil {
 		return OperationalControl{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

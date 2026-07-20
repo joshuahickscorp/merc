@@ -27,7 +27,7 @@ func validateHardeningSecretConfig(
 	if !missing {
 		return false, nil
 	}
-	liveStripe := strings.HasPrefix(stripeSecret, "sk_live_")
+	liveStripe := isLiveStripeCredential(stripeSecret)
 	if strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod") || liveStripe {
 		reason := "CX_ENV=" + cxEnv
 		if liveStripe {
@@ -59,7 +59,7 @@ func parseDBMaxConns(raw string) (int32, error) {
 
 func validateSeedAllowed(cxEnv, stripeSecret string) error {
 	production := strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod")
-	if production || strings.HasPrefix(stripeSecret, "sk_live_") {
+	if production || isLiveStripeCredential(stripeSecret) {
 		return fmt.Errorf("control seed is disabled in production/live-money mode; refusing to install public development credentials")
 	}
 	return nil
@@ -77,7 +77,7 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 }
 
 func validateLiveMoneyConfig(cxEnv, stripeSecret, billingWebhookSecret, connectWebhookSecret string) error {
-	liveStripe := strings.HasPrefix(stripeSecret, "sk_live_")
+	liveStripe := isLiveStripeCredential(stripeSecret)
 	production := strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod")
 	if !production && !liveStripe {
 		return nil
@@ -105,6 +105,54 @@ func validateLiveMoneyConfig(cxEnv, stripeSecret, billingWebhookSecret, connectW
 	return nil
 }
 
+func stripeCredentialClass(value string) string {
+	value = strings.TrimSpace(value)
+	switch {
+	case value == "":
+		return "missing"
+	case strings.HasPrefix(value, "sk_test_"):
+		return "sk_test"
+	case strings.HasPrefix(value, "sk_live_"):
+		return "sk_live"
+	case strings.HasPrefix(value, "rk_test_"):
+		return "rk_test"
+	case strings.HasPrefix(value, "rk_live_"):
+		return "rk_live"
+	case strings.HasPrefix(value, "pk_test_"):
+		return "publishable_test"
+	case strings.HasPrefix(value, "pk_live_"):
+		return "publishable_live"
+	case strings.HasPrefix(value, "whsec_"):
+		return "webhook_present"
+	default:
+		return "unknown"
+	}
+}
+
+func isLiveStripeCredential(value string) bool {
+	switch stripeCredentialClass(value) {
+	case "sk_live", "rk_live", "publishable_live":
+		return true
+	default:
+		return false
+	}
+}
+
+func validatePaymentProviderMode(cxEnv, provider string) error {
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	if provider == "" || provider == "stripe" || provider == "none" {
+		return nil
+	}
+	if provider == "simulator" {
+		if strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod") ||
+			strings.EqualFold(cxEnv, "staging") {
+			return errors.New("test-only payment simulator is unavailable in production or staging")
+		}
+		return errors.New("test-only payment simulator is CLI/test-only and cannot back the server")
+	}
+	return fmt.Errorf("unsupported CX_PAYMENT_PROVIDER %q", provider)
+}
+
 func validateCanaryMoneyMode(
 	canaryRaw, stripeSecret, billingWebhookSecret, connectWebhookSecret, connectClientID, payoutExport string,
 ) error {
@@ -115,8 +163,8 @@ func validateCanaryMoneyMode(
 	if !enabled {
 		return nil
 	}
-	if !strings.HasPrefix(stripeSecret, "sk_test_") {
-		return fmt.Errorf("private canary requires STRIPE_SECRET_KEY=sk_test_*; live or absent keys are refused")
+	if !strings.HasPrefix(stripeSecret, "sk_test_") && !strings.HasPrefix(stripeSecret, "rk_test_") {
+		return fmt.Errorf("private canary requires STRIPE_SECRET_KEY=sk_test_* or scoped rk_test_*; live or absent keys are refused")
 	}
 	if !strings.HasPrefix(billingWebhookSecret, "whsec_") ||
 		!strings.HasPrefix(connectWebhookSecret, "whsec_") ||
@@ -154,6 +202,9 @@ func main() {
 	}
 
 	if len(os.Args) > 1 && os.Args[1] != "serve" {
+		if dispatchRelease(os.Args[1], os.Args[2:]) {
+			return
+		}
 		if dispatchBuyer(os.Args[1], os.Args[2:]) {
 			return
 		}
@@ -185,6 +236,9 @@ func main() {
 		os.Getenv("CX_ENV"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		os.Getenv("CX_CONNECT_WEBHOOK_SECRET"),
 	); err != nil {
+		log.Fatal(err)
+	}
+	if err := validatePaymentProviderMode(os.Getenv("CX_ENV"), os.Getenv("CX_PAYMENT_PROVIDER")); err != nil {
 		log.Fatal(err)
 	}
 	if err := validateCanaryMoneyMode(

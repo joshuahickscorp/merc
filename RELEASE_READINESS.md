@@ -11,27 +11,31 @@ prohibited**.
 | B — private canary | NO-GO | persistent private staging, approved synthetic participants, Stripe test mode, no value |
 | C — live pilot/public launch | NO-GO / prohibited | no real charges, transfers, payouts, public signup, or independent suppliers |
 
-The weighted readiness score is **69/100**. GO requires at least 95, zero open
+The weighted readiness score is **83/100**. GO requires at least 95, zero open
 P0/P1, all mandatory scenarios, and a passing 24-hour soak. The machine decision
 and scoring evidence are in `ops/go-no-go.json` and `ops/readiness.json`.
 
 ## What is proven
 
 - Go format, vet, unit/integration/race tests and schema apply-twice pass.
-- Rust format and strict clippy pass; all 72 tests pass.
+- Rust format and strict clippy pass; all 73 tests pass.
 - Two distinct local Metal agents completed `embed` and `batch_infer` through
   Candle. A late/wrong-attempt commit was rejected without a money effect; the
   ledger remained zero-sum with no duplicate task effects.
 - Exact model/tokenizer revisions, byte sizes, SHA-256 values, agent source,
   runtime authority, tuning, and hardware class are bound into admission.
-- The 70-route authorization matrix covers eight identity roles with default
+- The 71-route authorization matrix covers eight identity roles with default
   deny; all 56 credential-protected routes reject anonymous and wrong-namespace
   credentials before storage access.
 - All privileged mutations are actor-bound and audit-atomic. Disputes freeze
   settlement, and intake, dispatch, payment, and webhook stops are durable.
 - Static validators pass for the nine-service immutable staging harness, local
   age backup envelope, 23 alert rules, 13 dashboard panels, and website WCAG AA
-  contrast (minimum 6.06:1).
+  contrast (minimum 6.06:1). Isolated restore, local custom-CA TLS, six-fault
+  rollback/forward recovery, a seeded nine-component restart storm, scoped
+  DSAR/tombstone replay, technical incident scenarios, and 4,096 generated
+  deterministic payment sequences also pass. Payment evidence is labelled
+  SIMULATED; Stripe test mode remains NOT EXECUTED.
 - Fourteen independent review domains contain the required scope, failure model,
   findings, severity, evidence, repair, verification, and residual risk fields in
   `ops/independent-reviews.json`.
@@ -49,12 +53,14 @@ cannot be embedded inside the commit it identifies without self-reference.
 
 ## Why Level B is still NO-GO
 
-Nine P1 gates remain. They require resources or authority not available in this
-workspace: persistent TLS staging; rollback, restart storm and 24-hour soak; independently uploaded and
+Eight P1 gates remain. They require resources or authority not available in this
+workspace: persistent TLS staging and published-image external rollback/restart/24-hour soak; independently uploaded and
 restored encrypted backup; Stripe test-mode fixtures and reconciliation; a real
 alert receiver; two approved buyers/two operator-controlled Metal agents and
 scenario adapters; an independent repository reviewer; qualified governance
-approvals; and the named incident/privacy/provenance exercises.
+approvals; and qualified human incident/provenance closure. Local technical
+versions of the incident and privacy exercises pass but do not constitute those
+approvals.
 
 Exact-head run `29711174514` passed all five CI jobs at `7502d1d`; all four
 artifact bundles and their embedded checksums verified. Registry run

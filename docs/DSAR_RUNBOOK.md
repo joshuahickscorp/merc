@@ -1,11 +1,14 @@
 # Data Subject and Account Data Request Runbook
 
-Status: **DRAFT / MANUAL PROCEDURE NOT YET REHEARSED**
+Status: **DRAFT / TECHNICAL WORKFLOW REHEARSED / HUMAN PROCEDURE NOT APPROVED**
 
 This runbook covers access, correction, portability, deletion, restriction and
 objection requests. It does not substitute for counsel and does not authorize
-ad hoc production SQL. The product lacks a complete export/erasure workflow;
-that is a blocker for processing production personal data.
+ad hoc production SQL. The repository now has an idempotent buyer export,
+deletion/tombstone, artifact-expiry manifest and restore-replay workflow with a
+synthetic integration receipt. Authenticated delivery, subprocessor execution,
+retention approval and a qualified two-person production procedure remain
+release blockers.
 
 ## Preconditions
 
@@ -76,10 +79,11 @@ lawful basis controls.
 8. Have a second operator verify negative reads across databases, objects,
    caches, search indexes, logs and participant-visible APIs.
 
-Because these operations are not yet implemented as one safe workflow,
-operators must not run improvised `DELETE`, object-removal or pseudonymization
-commands against production. Build, review and rehearse an idempotent tool
-first.
+The database workflow is implemented and technically rehearsed, but operators
+must not run improvised `DELETE`, object-removal or pseudonymization commands
+against production. Use only the reviewed workflow after qualified privacy
+approval, an authenticated request channel, subprocessor deletion adapters and
+a named second operator are in place.
 
 ## Completion record
 
@@ -102,3 +106,7 @@ category and prove:
 - subprocessor deletion evidence; and
 - restore of a pre-deletion backup followed by tombstone replay, with the data
   still unavailable.
+
+The synthetic database and artifact-manifest protocol above passes in
+`evidence/autonomous/technical-exercises.json`. External subprocessor deletion,
+qualified human review and production operation are explicitly not executed.

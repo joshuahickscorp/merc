@@ -109,7 +109,7 @@
     "supplier_confidentiality_contract":null,
     "incident_runbook_path":"docs/SUPPORT_AND_INCIDENT_RUNBOOK.md",
     "tabletop_record_path":"ops/support-incident-tabletop.json",
-    "tabletop_status":"NOT_EXECUTED"
+    "tabletop_status":"TECHNICAL_PASS_HUMAN_NOT_EXECUTED"
   },
   "approvals": {
     "legal":{"status":"PENDING","approver":null,"organization":null,"scope":null,"evidence":null,"approved_at":null},
@@ -120,11 +120,13 @@
     "trust_safety":{"status":"PENDING","approver":null,"organization":null,"scope":null,"evidence":null,"approved_at":null},
     "license":{"status":"PENDING","approver":null,"organization":null,"scope":null,"evidence":null,"approved_at":null}
   },
+  "closed_technical_findings": [
+    {"id":"PRIV-002","closed_by":"evidence/autonomous/technical-exercises.json","result":"Synthetic scoped export, secret redaction, deletion, artifact-expiry manifest, authentication revocation, minimal financial retention and pre-deletion-backup tombstone replay PASS. External subprocessors and qualified production approval remain outside this closure."}
+  ],
   "open_blockers": [
     {"id":"LEGAL-001","severity":"P1","owner":"founder_and_counsel","blocker":"Operating legal entity, address, jurisdiction, final contacts and governing terms are unset.","exit_criterion":"Counsel supplies and approves all final identity and contract fields for the exact candidate."},
     {"id":"LEGAL-002","severity":"P1","owner":"counsel","blocker":"Canary terms, privacy notice, AUP, supplier terms/DPA and acceptance design are drafts.","exit_criterion":"Counsel approves versioned documents and a tested immutable acceptance/reacceptance receipt."},
     {"id":"PRIV-001","severity":"P1","owner":"privacy_and_engineering","blocker":"Lawful bases, roles, subprocessors, transfers, retention and rights rules are not approved.","exit_criterion":"Complete the field-level matrix and obtain privacy counsel approval."},
-    {"id":"PRIV-002","severity":"P1","owner":"engineering_and_operations","blocker":"Account export, erasure, object lifecycle and backup tombstone workflows are not implemented or rehearsed.","exit_criterion":"Pass synthetic cross-store export/deletion and backup-restore tombstone tests."},
     {"id":"SUPPLIER-001","severity":"P0","owner":"security_legal_and_supplier_operations","blocker":"An independently controlled supplier host can receive and retain buyer input; verified location and contractual duties are absent.","exit_criterion":"Keep canary operator-controlled and synthetic-only; before expansion, approve processor contracts, location evidence and destination-pinned egress/attestation risk."},
     {"id":"TRUST-001","severity":"P1","owner":"trust_safety_and_counsel","blocker":"Abuse contact, mandatory-reporting duties, enforcement controls and appeals are not approved or rehearsed.","exit_criterion":"Staff contacts, approve policy, prove kill switches and complete the named-participant tabletop."},
     {"id":"LICENSE-001","severity":"P1","owner":"product_owner_and_license_counsel","blocker":"Project license and complete third-party/model/font notices are absent or incomplete.","exit_criterion":"Owner approves project license; counsel approves artifact-bound third-party register and release notice bundle."},

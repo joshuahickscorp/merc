@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "label": "CLEAN REGISTRY VERIFICATION",
+  "verified_at": "2026-07-20T04:18:24Z",
+  "updated_at": "2026-07-20T04:21:25Z",
+  "candidate": {
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563",
+    "architecture": "amd64",
+    "source_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5",
+    "version": "v0.1.0-rc.1",
+    "digest_pull": "PASS",
+    "signature": "PASS",
+    "signature_records": 1,
+    "spdx_sbom_attestation": "PASS",
+    "attestation_records": 3
+  },
+  "prior": {
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:098edaa7f97892724b9e62a7008f1b3aecae452a9e08c11e60525c05cc6fdacf",
+    "architecture": "amd64",
+    "digest_pull": "PASS",
+    "signature": "PASS",
+    "spdx_sbom_attestation": "PASS",
+    "retained_for_rollback": true
+  },
+  "identity": {
+    "certificate_identity": "https://github.com/joshuahickscorp/computexchange/.github/workflows/publish-candidate.yml@refs/heads/release/rc1-go-closure",
+    "oidc_issuer": "https://token.actions.githubusercontent.com",
+    "workflow_source_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5"
+  },
+  "policy": {
+    "candidate_and_prior_retained": true,
+    "rollback_pull": "PASS",
+    "vulnerability_scan": {
+      "status": "PASS",
+      "scanner": "Trivy v0.66.0",
+      "database_refreshed_for_run": true,
+      "severity_scope": ["HIGH", "CRITICAL"],
+      "candidate_high": 0,
+      "candidate_critical": 0,
+      "prior_high": 0,
+      "prior_critical": 0,
+      "fixable_critical_gate": "PASS"
+    },
+    "vulnerability_scan_policy_added_to_workflow": true,
+    "fixable_critical_blocks_publication": true,
+    "protected_release_tags": {
+      "status": "PASS",
+      "verified_at": "2026-07-20T05:46:21Z",
+      "ruleset_id": 19184161,
+      "ruleset": "Protect release tags",
+      "enforcement": "active",
+      "patterns": [
+        "refs/tags/v*",
+        "refs/tags/rc*"
+      ],
+      "creation_restricted": true,
+      "update_restricted": true,
+      "deletion_restricted": true,
+      "non_fast_forward_blocked": true,
+      "bypass_actor_count": 1,
+      "bypass_actor_scope": "repository owner only",
+      "bypass_mode": "always"
+    },
+    "rc_tag_created": false
+  },
+  "secret_values_recorded": false
+}

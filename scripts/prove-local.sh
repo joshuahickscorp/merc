@@ -30,7 +30,7 @@ export S3_BUCKET="cx-jobs"
 export S3_ACCESS_KEY="minioadmin"
 export S3_SECRET_KEY="minioadmin"
 export S3_REGION="us-east-1"
-export LISTEN_ADDR=":$CONTROL_PORT"
+export LISTEN_ADDR="127.0.0.1:$CONTROL_PORT"
 export CX_ECON_SCHEDULE_VERSION="prove-v1"
 export CX_PROCESSOR_PERCENT_BPS="290"
 export CX_PROCESSOR_FIXED_USD="0.30"
@@ -89,12 +89,34 @@ workers_ready() {
   expected="$1"
   count="$(curl -fsS "$CONTROL_URL/admin/workers" \
     -H "$DEV_ADMIN_AUTH" | \
-    jq '[.[] | select(.version != "seed")] | length')"
+    jq '[.[] | select(
+      (.id == "00000000-0000-0000-0000-0000000000b1" or
+       .id == "00000000-0000-0000-0000-0000000000b2") and
+      .version != "seed" and .last_seen_at != null
+    )] | length')"
   [ "$count" -ge "$expected" ]
+}
+
+port_available() {
+  python3 - "$1" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+    listener.bind(("127.0.0.1", port))
+PY
 }
 
 for tool in go cargo psql curl jq openssl git node python3; do
   command -v "$tool" >/dev/null || { echo "missing tool: $tool" >&2; exit 1; }
+done
+for port in "$PGPORT" "$MINIO_PORT" "$CONTROL_PORT"; do
+  port_available "$port" || {
+    echo "proof port $port is already occupied; refusing split-stack or cross-run reuse" >&2
+    exit 1
+  }
 done
 
 rm -rf "$ART"
@@ -144,7 +166,7 @@ record PASS dependencies "PostgreSQL and MinIO are healthy"
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
-(cd control && CX_TEST_DATABASE_URL="$DATABASE_URL" go test ./... -run '^(TestBillingCustomerCanonicalSchema|TestListWorkersToleratesLegacyNullTelemetry|TestRuntimeCatalogPriceIsStableAcrossMigration|TestPrivilegedAdminMutationsHaveCompleteAtomicAudit|TestRevocationWinsRaceBeforePrivilegedMutation|TestAdminMutationRollsBackWhenAuditInsertFails|TestOperationalControlsAreDurableAndActorAudited|TestOperationalControlMutationFailsClosed|TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout|TestDisputeFilingOwnershipTerminalReasonAndWindowBoundaries|TestDisputeAPIUsesAuthenticatedOwnerAndStrictBoundedReason|TestConcurrentDisputeFilingsCreateOnlyOneActiveCase|TestDisputeFilingWinsQueuedPayoutClaimRace)$' -count=1)
+(cd control && CX_TEST_DATABASE_URL="$DATABASE_URL" go test ./... -run '^(TestBillingCustomerCanonicalSchema|TestListWorkersToleratesLegacyNullTelemetry|TestRuntimeCatalogPriceIsStableAcrossMigration|TestPrivilegedAdminMutationsHaveCompleteAtomicAudit|TestPrivilegedMutationIdempotentConcurrentReplay|TestConcurrentNamedOperatorsRetainIndependentAttribution|TestRevocationWinsRaceBeforePrivilegedMutation|TestAdminMutationRollsBackWhenAuditInsertFails|TestOperationalControlsAreDurableAndActorAudited|TestOperationalControlMutationFailsClosed|TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout|TestDisputeFilingOwnershipTerminalReasonAndWindowBoundaries|TestDisputeAPIUsesAuthenticatedOwnerAndStrictBoundedReason|TestConcurrentDisputeFilingsCreateOnlyOneActiveCase|TestDisputeFilingWinsQueuedPayoutClaimRace|TestDSARDeletionTombstoneAndRestoreReplay|TestSupportAndSecurityTechnicalTabletops)$' -count=1)
 record PASS schema "canonical schema applies twice"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 DO $$

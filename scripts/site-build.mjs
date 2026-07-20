@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const pageNames = ['web/index.html', 'web/admin.html'];
+const pageNames = ['web/index.html', 'web/buyer.html', 'web/admin.html'];
 const pages = new Map();
 for (const name of pageNames) {
   const html = fs.readFileSync(path.join(root, name), 'utf8');
@@ -48,6 +48,37 @@ if (/\.site\s*\{[^}]*display\s*:\s*none/is.test(publicHTML) || !publicHTML.inclu
 const adminHTML = pages.get('web/admin.html');
 if (/\b(?:localStorage|sessionStorage)\b/.test(adminHTML)) {
   throw new Error('web/admin.html: operator bearer credentials must remain memory-only');
+}
+for (const phrase of [
+  'release identity', 'health', 'queue', 'workers', 'attempts', 'artifacts', 'verification',
+  'ledger', 'reconciliation', 'webhooks', 'backups', 'alerts', 'kill switches',
+  'canary limits', 'audit trail',
+]) {
+  if (!adminHTML.toLowerCase().includes(phrase)) {
+    throw new Error(`web/admin.html: missing operator surface: ${phrase}`);
+  }
+}
+
+const buyerHTML = pages.get('web/buyer.html');
+for (const phrase of [
+  '/v1/login', '/v1/logout', '/v1/me', '/v1/quote', '/v1/jobs',
+  'queued', 'running', 'retrying', 'verifying', 'completed', 'cancelled', 'failed',
+  'webhook', 'budget', 'support',
+]) {
+  if (!buyerHTML.toLowerCase().includes(phrase)) {
+    throw new Error(`web/buyer.html: missing buyer contract surface: ${phrase}`);
+  }
+}
+if (/\b(?:localStorage|sessionStorage)\b/.test(buyerHTML)) {
+  throw new Error('web/buyer.html: buyer credentials must remain memory-only');
+}
+for (const [name, html] of pages) {
+  if (/\/(?:Users|home|private|tmp)\//.test(html)) {
+    throw new Error(`${name}: absolute local path is forbidden`);
+  }
+  if (/\b(?:sk|rk|pk)_live_[A-Za-z0-9]/.test(html)) {
+    throw new Error(`${name}: live secret prefix is forbidden`);
+  }
 }
 
 function cssColor(html, variable) {
@@ -131,5 +162,5 @@ for (const hash of inlineHashes) {
   }
 }
 
-console.log(`site-build: public/operator pages, AA contrast (${labelContrast.toFixed(2)}:1), and hash-bound security headers validated`);
+console.log(`site-build: public/buyer/operator pages, AA contrast (${labelContrast.toFixed(2)}:1), and hash-bound security headers validated`);
 await import('./validate-observability.mjs');

@@ -19,7 +19,7 @@ import (
 func testAdminActor(id uuid.UUID) AdminActor {
 	return AdminActor{
 		Mode: AdminAuthBreakGlassAPIKey, PrincipalID: id,
-		AttributionScope: AdminAttributionSharedCredentialOnly, Label: "integration-admin",
+		AttributionScope: AdminAttributionNamedOperatorKey, Label: "integration-admin",
 	}
 }
 
@@ -27,15 +27,29 @@ func TestEveryPrivilegedAdminMutationRequiresReason(t *testing.T) {
 	target := uuid.New()
 	delta := float32(0.1)
 	for _, intent := range []adminMutationIntent{
-		{Kind: adminActionWorkerSuspended, TargetKind: adminTargetWorker, TargetID: target},
-		{Kind: adminActionWorkerReinstated, TargetKind: adminTargetWorker, TargetID: target},
-		{Kind: adminActionTaskRequeued, TargetKind: adminTargetTask, TargetID: target},
-		{Kind: adminActionReputationChanged, TargetKind: adminTargetSupplier, TargetID: target, Delta: &delta},
-		{Kind: adminActionPayoutReleased, TargetKind: adminTargetLedgerEntry, TargetID: target},
+		{Kind: adminActionWorkerSuspended, TargetKind: adminTargetWorker, TargetID: target, CorrelationRef: "INC-1"},
+		{Kind: adminActionWorkerReinstated, TargetKind: adminTargetWorker, TargetID: target, CorrelationRef: "INC-1"},
+		{Kind: adminActionTaskRequeued, TargetKind: adminTargetTask, TargetID: target, CorrelationRef: "INC-1"},
+		{Kind: adminActionReputationChanged, TargetKind: adminTargetSupplier, TargetID: target, Delta: &delta, CorrelationRef: "INC-1"},
+		{Kind: adminActionPayoutReleased, TargetKind: adminTargetLedgerEntry, TargetID: target, CorrelationRef: "INC-1"},
 	} {
 		if _, err := adminMutationRequestSHA256(intent); !errors.Is(err, errAdminMutationInvalid) {
 			t.Fatalf("action %q accepted an empty reason: %v", intent.Kind, err)
 		}
+	}
+}
+
+func TestPrivilegedMutationRequiresIncidentReferenceAndNamedOperator(t *testing.T) {
+	intent := adminMutationIntent{Kind: adminActionWorkerSuspended, TargetKind: adminTargetWorker,
+		TargetID: uuid.New(), Reason: "containment"}
+	if _, err := prepareAdminMutation(testAdminActor(uuid.New()), intent); !errors.Is(err, errAdminMutationInvalid) {
+		t.Fatalf("missing incident reference accepted: %v", err)
+	}
+	unnamed := testAdminActor(uuid.New())
+	unnamed.Label = ""
+	intent.CorrelationRef = "INC-42"
+	if _, err := prepareAdminMutation(unnamed, intent); !errors.Is(err, errAdminActorUnauthorized) {
+		t.Fatalf("unnamed operator accepted: %v", err)
 	}
 }
 
@@ -255,6 +269,99 @@ func TestPrivilegedAdminMutationsHaveCompleteAtomicAudit(t *testing.T) {
 	}
 	if len(seen) != len(want) {
 		t.Fatalf("audited actions=%v, want all %d privileged mutations", seen, len(want))
+	}
+}
+
+func TestPrivilegedMutationIdempotentConcurrentReplay(t *testing.T) {
+	ctx, store, pool := openAdminMutationTestStore(t)
+	f := seedAdminMutationFixture(t, ctx, pool)
+	correlation := "idempotent-" + uuid.NewString()
+	delta := float32(0.1)
+
+	const callers = 8
+	errs := make(chan error, callers)
+	for range callers {
+		go func() {
+			before, after, err := store.AdminAdjustReputation(
+				ctx, f.actor, f.supplierID, delta, "one reviewed correction", correlation)
+			if err == nil && (before != float32(0.5) || after != float32(0.6)) {
+				err = fmt.Errorf("replay returned %v -> %v", before, after)
+			}
+			errs <- err
+		}()
+	}
+	for range callers {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var reputation float32
+	var actions int
+	if err := pool.QueryRow(ctx, `SELECT reputation FROM suppliers WHERE id=$1`, f.supplierID).Scan(&reputation); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM admin_actions WHERE kind=$1 AND correlation_ref=$2`,
+		adminActionReputationChanged, correlation).Scan(&actions); err != nil {
+		t.Fatal(err)
+	}
+	if reputation != float32(0.6) || actions != 1 {
+		t.Fatalf("idempotent replay produced reputation=%v actions=%d", reputation, actions)
+	}
+
+	conflictingDelta := float32(0.2)
+	if _, _, err := store.AdminAdjustReputation(ctx, f.actor, f.supplierID, conflictingDelta,
+		"one reviewed correction", correlation); !errors.Is(err, errAdminMutationInvalid) {
+		t.Fatalf("conflicting correlation reuse returned %v", err)
+	}
+}
+
+func TestConcurrentNamedOperatorsRetainIndependentAttribution(t *testing.T) {
+	ctx, store, pool := openAdminMutationTestStore(t)
+	f := seedAdminMutationFixture(t, ctx, pool)
+	second := testAdminActor(uuid.New())
+	second.Label = "second-integration-admin"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO api_keys (id,key_hash,is_admin,revoked,name) VALUES ($1,$2,true,false,$3)`,
+		second.PrincipalID, "admin-test-"+second.PrincipalID.String(), second.Label); err != nil {
+		t.Fatal(err)
+	}
+
+	type operation struct {
+		actor AdminActor
+		delta float32
+		ref   string
+	}
+	operations := []operation{
+		{actor: f.actor, delta: 0.1, ref: "operator-one-" + uuid.NewString()},
+		{actor: second, delta: -0.1, ref: "operator-two-" + uuid.NewString()},
+	}
+	errs := make(chan error, len(operations))
+	for _, operation := range operations {
+		operation := operation
+		go func() {
+			_, _, err := store.AdminAdjustReputation(ctx, operation.actor, f.supplierID,
+				operation.delta, "independent operator exercise", operation.ref)
+			errs <- err
+		}()
+	}
+	for range operations {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, operation := range operations {
+		var principal uuid.UUID
+		var label string
+		if err := pool.QueryRow(ctx, `
+			SELECT actor_principal_id,actor_label FROM admin_actions
+			 WHERE kind=$1 AND correlation_ref=$2`,
+			adminActionReputationChanged, operation.ref).Scan(&principal, &label); err != nil {
+			t.Fatal(err)
+		}
+		if principal != operation.actor.PrincipalID || label != operation.actor.Label {
+			t.Fatalf("correlation %s attributed to %s/%q", operation.ref, principal, label)
+		}
 	}
 }
 

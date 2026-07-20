@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "kind": "local_restart_storm",
+  "status": "PASS",
+  "started_at": "2026-07-20T05:26:01Z",
+  "finished_at": "2026-07-20T05:28:28Z",
+  "source_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5",
+  "dirty_state_sha256": "b5318a071de443496bf39aa7aa8fd3ed699ef69aeea022042dbc730f28b0dad7",
+  "immutable_local_image_id": "sha256:bb6cb05263f2e2f9b5d88ea329fc4437d32e56683b9ba3d3aefe99a2383a15c0",
+  "random_seed": 20260719,
+  "fault_order": [
+    "agent2",
+    "backup-worker",
+    "control",
+    "minio",
+    "caddy",
+    "agent1",
+    "postgres",
+    "alertmanager",
+    "prometheus"
+  ],
+  "restarted": {
+    "control": 1,
+    "postgresql": 1,
+    "object_storage": 1,
+    "reverse_proxy": 1,
+    "agents": 2,
+    "monitoring": 2,
+    "backup_worker": 1
+  },
+  "workload": {
+    "submitted": 12,
+    "types": [
+      "embed",
+      "batch_infer",
+      "cancel",
+      "SIMULATED payment",
+      "SIMULATED dispute/webhook ordering"
+    ]
+  },
+  "assertions": {
+    "terminal_jobs_uncorrupted": true,
+    "no_duplicate_financial_effects": true,
+    "ledger_zero_sum": true,
+    "stale_lease_recovered": true,
+    "agents_reconnected": true,
+    "finalization_resumed": true,
+    "webhook_delivery_resumed": true,
+    "reconciliation_fault_detection": "covered by deterministic simulator"
+  },
+  "final_snapshot": {
+    "jobs": 13,
+    "complete": 10,
+    "cancelled": 3,
+    "failed": 0,
+    "retry_count": 1,
+    "terminal_open_tasks": 0,
+    "ledger_sum": "0.000000",
+    "duplicate_money": 0,
+    "webhook_dead_letters": 0
+  },
+  "external": {
+    "stripe_sandbox": "NOT EXECUTED",
+    "real_receiver": "NOT EXECUTED"
+  }
+}

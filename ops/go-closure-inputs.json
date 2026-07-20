@@ -249,7 +249,7 @@
     },
     {
       "name": "STRIPE_SECRET_KEY",
-      "accepted_form": "sk_test_* only",
+      "accepted_form": "sk_test_* or a sufficiently scoped rk_test_* Sandbox key only; never sk_live_* or rk_live_*",
       "minimum_scope": "test-mode PaymentIntent, refund, dispute fixture, balance, and Connect operations required by the matrix",
       "secret": true,
       "used_by": "staging Stripe matrix",
@@ -289,6 +289,24 @@
       "minimum_scope": "test payout hold/release/failure scenarios only",
       "secret": false,
       "used_by": "test-mode payout matrix",
+      "verification": "make release-doctor CHECK=stripe",
+      "unblocks": ["stripe_matrix", "provider_reconciliation"]
+    },
+    {
+      "name": "STRIPE_BILLING_WEBHOOK_ENDPOINT_ID",
+      "accepted_form": "we_* identifier for the enabled test-mode cash-event webhook endpoint",
+      "minimum_scope": "test-mode endpoint delivery and replay only",
+      "secret": false,
+      "used_by": "bundled Stripe Sandbox scenario matrix",
+      "verification": "make release-doctor CHECK=stripe",
+      "unblocks": ["stripe_matrix", "provider_reconciliation"]
+    },
+    {
+      "name": "STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID",
+      "accepted_form": "we_* identifier for the enabled test-mode connected-account webhook endpoint",
+      "minimum_scope": "test-mode Connect event delivery only",
+      "secret": false,
+      "used_by": "bundled Stripe Sandbox scenario matrix",
       "verification": "make release-doctor CHECK=stripe",
       "unblocks": ["stripe_matrix", "provider_reconciliation"]
     },

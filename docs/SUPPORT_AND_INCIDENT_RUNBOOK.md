@@ -1,6 +1,6 @@
 # Support and Incident Runbook
 
-Status: **DRAFT / CONTACTS UNSET / TABLETOP NOT EXECUTED**
+Status: **DRAFT / CONTACTS UNSET / TECHNICAL TABLETOP PASS / QUALIFIED HUMAN TABLETOP NOT EXECUTED**
 
 This runbook covers the controlled synthetic-data, Stripe-test-mode canary. It
 does not authorize production or live-money response. Populate the contacts,

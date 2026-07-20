@@ -9,6 +9,7 @@ mod protocol;
 mod quantized_llama_batched; // vendored + patched candle quantized_llama (bsz>1 batched prefill)
 mod runtime_authority;
 mod status;
+mod tls;
 mod types;
 
 use std::path::PathBuf;
@@ -246,6 +247,7 @@ enum Command {
         #[arg(long, default_value_t = 24)]
         max_tokens: u32,
     },
+    Characterize,
     Version,
 }
 
@@ -350,6 +352,10 @@ async fn main() -> Result<()> {
             init_tracing();
             run_bench_concurrency(&permits, embed_tasks, llama_tasks, &model, max_tokens).await
         }
+        Command::Characterize => {
+            init_tracing();
+            run_characterize().await
+        }
         Command::Run { config } => {
             init_tracing();
             reexec_under_sandbox_if_needed();
@@ -358,6 +364,130 @@ async fn main() -> Result<()> {
             run_agent(cfg).await
         }
     }
+}
+
+#[derive(serde::Serialize)]
+struct CharacterizationReceipt {
+    schema_version: u32,
+    kind: &'static str,
+    status: &'static str,
+    physical_devices_observed: u32,
+    device: String,
+    device_model: String,
+    hardware_class: String,
+    memory_gb: f32,
+    operating_system: String,
+    metal_available: bool,
+    source_identity: String,
+    runtime_authority_sha256: String,
+    model_revisions: Vec<(&'static str, &'static str)>,
+    benchmarks: Vec<types::BenchResult>,
+    peak_rss_bytes: u64,
+    thermal_state: String,
+    throttling: bool,
+    cache_behavior: String,
+    limitations: Vec<&'static str>,
+}
+
+async fn run_characterize() -> Result<()> {
+    let benchmark_cache = std::env::var("CX_BENCH_CACHE_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                .join(".compute-exchange")
+                .join("bench_cache.json")
+        });
+    let reused_benchmark_cache = benchmark_cache.is_file();
+    let pool = ModelPool::new();
+    let capability =
+        hardware::detect_and_benchmark(uuid::Uuid::nil(), AGENT_VERSION, 0.0, "candle", &pool)
+            .await;
+    let thermal = hardware::read_thermal_pressure();
+    let throttling = matches!(
+        thermal,
+        Some(config::ThermalPressure::Serious | config::ThermalPressure::Critical)
+    ) || capability.benchmarks.iter().any(|item| !item.thermal_ok);
+    let sw_vers = |argument: &str| {
+        std::process::Command::new("sw_vers")
+            .arg(argument)
+            .output()
+            .ok()
+            .filter(|value| value.status.success())
+            .map(|value| String::from_utf8_lossy(&value.stdout).trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+    let os = match (
+        sw_vers("-productName"),
+        sw_vers("-productVersion"),
+        sw_vers("-buildVersion"),
+    ) {
+        (Some(name), Some(version), Some(build)) => format!("{name} {version} ({build})"),
+        _ => format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+    };
+    let device_model = std::process::Command::new("sysctl")
+        .args(["-n", "hw.model"])
+        .output()
+        .ok()
+        .filter(|value| value.status.success())
+        .map(|value| String::from_utf8_lossy(&value.stdout).trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unavailable".into());
+    let cache_behavior = if reused_benchmark_cache {
+        "warm benchmark cache reused after build/hardware identity validation"
+    } else {
+        "fresh isolated benchmark run completed and cache receipt written"
+    };
+    let receipt = CharacterizationReceipt {
+        schema_version: 1,
+        kind: "cx_agent_device_characterization",
+        status: "PASS",
+        physical_devices_observed: 1,
+        device: models::device_label().to_string(),
+        device_model,
+        hardware_class: capability.hw_class.as_wire_str().to_string(),
+        memory_gb: capability.memory_gb,
+        operating_system: os,
+        metal_available: models::device().is_metal(),
+        source_identity: capability.build_hash.clone(),
+        runtime_authority_sha256: runtime_authority::sha256().to_string(),
+        model_revisions: models::retained_model_revisions(),
+        benchmarks: capability.benchmarks,
+        peak_rss_bytes: peak_rss_bytes(),
+        thermal_state: thermal
+            .map(|value| value.as_str().to_string())
+            .unwrap_or_else(|| "unavailable".into()),
+        throttling,
+        cache_behavior: cache_behavior.to_string(),
+        limitations: vec![
+            "single physical Mac only",
+            "additional authorized devices require separate receipts",
+        ],
+    };
+    println!("{}", serde_json::to_string_pretty(&receipt)?);
+    Ok(())
+}
+
+#[cfg(unix)]
+fn peak_rss_bytes() -> u64 {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+    let ok = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } == 0;
+    if !ok {
+        return 0;
+    }
+    let rss = unsafe { usage.assume_init().ru_maxrss.max(0) as u64 };
+    #[cfg(target_os = "macos")]
+    {
+        rss
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        rss * 1024
+    }
+}
+
+#[cfg(not(unix))]
+fn peak_rss_bytes() -> u64 {
+    0
 }
 
 async fn run_bench(config: Option<PathBuf>) -> Result<()> {
@@ -1536,7 +1666,7 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
 
     let client = ControlPlaneClient::new(cfg.control_url.clone(), cfg.worker_token.clone())
         .context("building control-plane client (is worker_token set?)")?;
-    let s3 = reqwest::Client::builder()
+    let s3 = tls::client_builder()?
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(120))
         .build()

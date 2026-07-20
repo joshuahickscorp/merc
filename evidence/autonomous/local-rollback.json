@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "kind": "local_immutable_rollback",
+  "status": "PASS",
+  "started_at": "2026-07-20T05:22:48Z",
+  "finished_at": "2026-07-20T05:24:37Z",
+  "candidate": {
+    "source_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5",
+    "dirty_state_sha256": "b5318a071de443496bf39aa7aa8fd3ed699ef69aeea022042dbc730f28b0dad7",
+    "image_id": "sha256:bb6cb05263f2e2f9b5d88ea329fc4437d32e56683b9ba3d3aefe99a2383a15c0",
+    "workloads_before_and_after": true
+  },
+  "prior": {
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:098edaa7f97892724b9e62a7008f1b3aecae452a9e08c11e60525c05cc6fdacf",
+    "smoke": true
+  },
+  "recovery": {
+    "rollback_rto_seconds": 64,
+    "forward_rto_seconds": 17,
+    "measured_data_loss_jobs": 0,
+    "before": {
+      "jobs": 1,
+      "complete": 1,
+      "cancelled": 0,
+      "failed": 0,
+      "retry_count": 0,
+      "terminal_open_tasks": 0,
+      "ledger_sum": "0.000000",
+      "duplicate_money": 0,
+      "webhook_dead_letters": 0
+    },
+    "after": {
+      "jobs": 2,
+      "complete": 2,
+      "cancelled": 0,
+      "failed": 0,
+      "retry_count": 0,
+      "terminal_open_tasks": 0,
+      "ledger_sum": "0.000000",
+      "duplicate_money": 0,
+      "webhook_dead_letters": 0
+    }
+  },
+  "injections": {
+    "migration_interruption": "PASS",
+    "control_death": "PASS",
+    "database_restart": "PASS",
+    "storage_restart": "PASS",
+    "unavailable_image": "PASS",
+    "corrupt_backup_rejection": "PASS"
+  },
+  "payments": {
+    "deterministic_provider_events": "PASS",
+    "label": "SIMULATED",
+    "stripe_sandbox": "NOT EXECUTED",
+    "stripe_live": "PROHIBITED"
+  },
+  "limitation": "Published amd64 candidate workload execution is not claimed on this arm64 host; current source was exercised as an immutable native image ID."
+}

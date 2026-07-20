@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +16,10 @@ const AdminAuthBreakGlassAPIKey AdminAuthMode = "break_glass_api_key"
 
 type AdminAttributionScope string
 
-const AdminAttributionSharedCredentialOnly AdminAttributionScope = "shared_credential_only"
+const (
+	AdminAttributionSharedCredentialOnly AdminAttributionScope = "shared_credential_only"
+	AdminAttributionNamedOperatorKey     AdminAttributionScope = "named_operator_key"
+)
 
 type AdminActor struct {
 	Mode             AdminAuthMode         `json:"authentication_mode"`
@@ -49,8 +53,12 @@ func validateAdminActorShape(actor AdminActor) error {
 	if actor.Mode != AdminAuthBreakGlassAPIKey {
 		return fmt.Errorf("%w: unsupported authentication mode %q", errAdminActorUnauthorized, actor.Mode)
 	}
-	if actor.SessionID != nil || actor.AttributionScope != AdminAttributionSharedCredentialOnly {
+	if actor.SessionID != nil || actor.AttributionScope != AdminAttributionNamedOperatorKey {
 		return fmt.Errorf("%w: invalid admin key attribution", errAdminActorUnauthorized)
+	}
+	label := strings.TrimSpace(actor.Label)
+	if label == "" || len(label) > 200 {
+		return fmt.Errorf("%w: a named operator key label is required", errAdminActorUnauthorized)
 	}
 	return nil
 }

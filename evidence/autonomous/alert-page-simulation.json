@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "label": "ALERT PIPELINE SIMULATION",
+  "profile": "page",
+  "receiver": "harness-controlled loopback receiver",
+  "checks": {
+    "firing": true,
+    "retry": true,
+    "timeout": true,
+    "deduplication": true,
+    "invalid_receiver_response": true,
+    "retry_exhaustion": true,
+    "dead_letter": true,
+    "resolution": true,
+    "runbook_link": true
+  },
+  "attempt_counts": {
+    "normal-firing": 1,
+    "retry-firing": 2,
+    "timeout-firing": 2,
+    "invalid-response": 2,
+    "exhaustion": 3,
+    "normal-resolved": 1
+  },
+  "external": {
+    "real_receiver_delivery": "NOT EXECUTED",
+    "receiver_value_recorded": false,
+    "attempts": {}
+  }
+}

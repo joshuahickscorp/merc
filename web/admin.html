@@ -80,6 +80,8 @@ pre { margin: 0; color: #d9d2c1; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .action textarea { grid-column: 1 / -1; min-height: 76px; }
 #status { min-height: 20px; margin: 12px 0; color: var(--muted); }
+.coverage { margin: 0 0 18px; padding: 12px; border: 1px solid var(--line); color: var(--muted); }
+.coverage strong { color: var(--gold); }
 .error { color: var(--bad) !important; }
 @media (max-width: 650px) {
   header { align-items: flex-start; flex-wrap: wrap; }
@@ -99,6 +101,12 @@ pre { margin: 0; color: #d9d2c1; white-space: pre-wrap; overflow-wrap: anywhere;
   <input id="key" type="password" autocomplete="off" placeholder="admin API key">
 </header>
 <main>
+<section class="coverage" aria-label="operator coverage">
+  <strong>Release identity and health</strong> are read live. Queue, workers, attempts, artifacts,
+  verification, ledger, reconciliation, webhooks, backups, alerts, kill switches, canary limits,
+  and the immutable audit trail remain authenticated operator concerns. Reused data views are
+  labelled by concern; raw metrics stay off the public TLS host.
+</section>
 <nav id="tabs"></nav>
 <div id="status">Enter a revocable admin key, then choose a view.</div>
 <div id="data" class="grid"></div>
@@ -109,18 +117,27 @@ pre { margin: 0; color: #d9d2c1; white-space: pre-wrap; overflow-wrap: anywhere;
   <select id="method"><option>POST</option><option>DELETE</option></select>
   <button type="submit">execute</button>
   <label class="visually-hidden" for="body">audited operator action JSON</label>
-  <textarea id="body" placeholder='{"reason":"operator action","request_id":"unique-id"}'></textarea>
+  <textarea id="body" placeholder='{"reason":"operator action","request_id":"INC-1234"}'></textarea>
 </form>
 </main>
 <script>
 const views = {
+  release_identity: '/version',
+  health: '/readyz',
+  queue: '/admin/jobs',
   workers: '/admin/workers',
   jobs: '/admin/jobs',
+  attempts_artifacts: '/admin/jobs',
+  verification: '/admin/jobs',
   payouts: '/admin/payouts',
+  ledger: '/admin/payouts',
   fraud: '/admin/fraud',
-  drift: '/admin/drift',
-  controls: '/admin/controls',
-  actions: '/admin/actions'
+  reconciliation: '/admin/drift',
+  webhooks: '/admin/jobs',
+  backups_alerts: '/admin/controls',
+  kill_switches: '/admin/controls',
+  canary_limits: '/version',
+  audit_trail: '/admin/actions'
 };
 const key = document.querySelector('#key');
 const status = document.querySelector('#status');

@@ -93,6 +93,10 @@
   .mark img{width:24px;height:24px;opacity:.92}
   .mark b{font-weight:500;font-size:14px;letter-spacing:.01em}
   .masthead .label{color:var(--ash)}
+  .masthead nav{display:flex;gap:18px;pointer-events:auto}
+  .masthead nav a{color:var(--ash);font:500 10.5px/1.2 var(--mono);letter-spacing:.12em;
+    text-transform:uppercase;text-decoration:none}
+  .masthead nav a:hover{color:var(--bone-hi)}
 
   /* the stage · the Apple Silicon device sits low and toward the frame edge. */
   .stage{position:relative;height:76vh;min-height:520px;margin:0;overflow:hidden}
@@ -183,6 +187,15 @@
   .alpha-field input,.alpha-field select{width:100%;min-width:0;background:transparent;
     border:1px solid var(--mute);color:inherit;padding:12px;font:inherit}
   .alpha-field option{background:var(--bg);color:var(--bone)}
+  .contract{margin:10vh var(--m) 0;padding:10vh 0;border-top:1px solid var(--hair)}
+  .contract h2{margin:0 0 34px;color:var(--bone-hi);font:600 clamp(38px,6vw,90px)/1 var(--breit)}
+  .contract-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--hair)}
+  .contract article{background:var(--bg);padding:26px;min-height:190px}
+  .contract article h3{margin:0 0 12px;color:var(--bone-hi);font:500 13px/1.3 var(--mono);letter-spacing:.08em}
+  .contract article p{margin:0;color:var(--mute);font-size:13px;line-height:1.65}
+  .contract-links{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+  .contract-links a{border:1px solid var(--hair);padding:11px 14px;color:var(--bone);
+    font:500 11px/1 var(--mono);letter-spacing:.08em;text-decoration:none}
 
   footer{display:flex;align-items:center;gap:12px;color:var(--ash);
     padding:16vh 0 10vh;margin-left:var(--m)}
@@ -234,6 +247,7 @@
     .earn{display:grid;gap:22px}
     .earn img{width:104px;height:104px}
     .alpha-form{grid-template-columns:1fr;align-items:stretch}
+    .contract-grid{grid-template-columns:1fr}
     footer{margin-left:var(--m);margin-right:var(--m);padding:10vh 0 8vh;align-items:flex-start}
     .ledger{padding:22px 20px 26px}
     .ledger-head{gap:18px}
@@ -253,7 +267,7 @@
 <div class="site">
 <header class="masthead">
   <span class="mark"><img src="/assets/site/cx-mark-white.png" alt="Cx" width="24" height="24"><b>computexchange</b></span>
-  <span class="label">Private test canary</span>
+  <nav aria-label="site"><a href="/buyer">buyer</a><a href="/healthz">status</a></nav>
 </header>
 
 <div class="stage" id="stage">
@@ -374,6 +388,22 @@
       <p class="road">the development catalogue is not public distribution</p>
     </div></div>
   </section>
+  <section class="contract" aria-labelledby="contract-title">
+    <span class="label">frozen production contract</span>
+    <h2 id="contract-title">What this canary does.</h2>
+    <div class="contract-grid">
+      <article><h3>Product and buyer flow</h3><p>Approved buyers authenticate, request a quote, provide bounded JSONL input, set a budget cap, submit through the native API, follow every job state, retrieve results, and optionally receive a signed webhook.</p></article>
+      <article><h3>Supplier flow</h3><p>An approved Apple Silicon supplier runs the sandboxed agent. Eligible work is admitted only through the pinned Candle runtime on Metal, with quiet-hours, memory, thermal, and operator controls enforced.</p></article>
+      <article><h3>Workloads</h3><p>Only <code>embed</code> with all-MiniLM-L6-v2 and <code>batch_infer</code> with the pinned Llama 3.2 1B revision are advertised. No other workload or model cell is promised.</p></article>
+      <article><h3>Verification</h3><p>Task receipts, attempt identity, model revision, known-answer sampling, redundancy, finalization, ledger entries, webhook events, and result retrieval form the trace. Conditions and failure records remain visible to the operator.</p></article>
+      <article><h3>Security and privacy</h3><p>Authenticated tenant checks, short-lived artifact access, revocable credentials, encrypted webhook secrets, attributed emergency actions, data export, deletion tombstones, and restore replay are technically exercised. Qualified review remains open.</p></article>
+      <article><h3>Measured performance</h3><p>Performance receipts are device, source, model, cache, load, and thermal specific. They describe one accessible Mac under measured conditions, not fleet capacity, a service-level objective, or guaranteed buyer latency.</p></article>
+      <article><h3>Limitations</h3><p>Private test canary only. No real payments, no public supplier fleet, no persistent external staging proof, no 24-hour qualifying soak yet, and no qualified legal, privacy, security, payments, operations, or release approval.</p></article>
+      <article><h3>Canary access</h3><p>Accounts and workers are allowlisted. Capacity, concurrency, budgets, held shadow payouts, and workload shapes are bounded. Operator kill switches can pause intake, dispatch, finalization, webhooks, or payment paths.</p></article>
+      <article><h3>Docs and status</h3><p>The source repository holds the API contract, runbooks, privacy drafts, canary terms, supply-chain policy, and exact evidence validators. Health is reported directly by the control plane.</p></article>
+    </div>
+    <div class="contract-links"><a href="/buyer">open buyer workspace</a><a href="/healthz">service status</a><a href="https://github.com/joshuahickscorp/computexchange/tree/release/rc1-go-closure/docs">read documentation</a></div>
+  </section>
 </main>
 
 <footer>
@@ -397,7 +427,7 @@
     <div class="claim"><span class="k">quote</span><span class="v">a quote before any spend at POST /v1/quote · the max_usd cap set at submission is enforced at dispatch, pausing the job before the cap is breached</span></div>
     <div class="claim"><span class="k">payouts</span><span class="v">held-credit, transfer, and reconciliation code exists; no real charge, supplier payout, processor fee, refund or reversal has been accepted as evidence.</span></div>
     <div class="claim"><span class="k">rails</span><span class="v">configured Stripe code is not proof that money moved. Production-money evidence remains an external gate.</span></div>
-    <div class="claim"><span class="k">identity</span><span class="v">buyer recovery, export, deletion, and stranger activation remain open product gates.</span></div>
+    <div class="claim"><span class="k">identity</span><span class="v">buyer export, deletion, tombstone replay, and cross-tenant denial are technically exercised; authenticated delivery, subprocessors, qualified privacy review, and production operation remain open gates.</span></div>
     <p class="ledger-foot">current claim state is established only by a terminal receipt from <span class="path">scripts/prove-local.sh</span></p>
   </div>
 </dialog>

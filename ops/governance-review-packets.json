@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "status": "PREPARED_PENDING_QUALIFIED_REVIEW",
+  "scope": "supervised_stripe_test_mode_private_canary",
+  "candidate_binding": {
+    "kind": "exact_git_commit_at_review",
+    "required_environment": "CX_APPROVAL_CANDIDATE_COMMIT",
+    "format": "40 lowercase hexadecimal characters",
+    "verification_command": "git rev-parse HEAD",
+    "rule": "Every reviewer must record the same exact clean commit. Any reviewed-content change invalidates every signature."
+  },
+  "approval_bundle_schema": "ops/governance-approval-bundle.schema.json",
+  "verification_command": "scripts/cx release approvals-check --bundle <secure-bundle-path>",
+  "packets": [
+    {
+      "domain": "security",
+      "status": "PENDING",
+      "qualified_reviewer_required": true,
+      "review_scope": ["authentication and authorization", "tenant isolation and artifact access", "privileged action attribution", "secret handling", "incident containment"],
+      "required_evidence": ["evidence/autonomous/technical-exercises.json", "ops/authorization-matrix.json", "evidence/autonomous/local-production-tls.json", "ops/independent-reviews.json"],
+      "decision_required": "approve or reject the exact candidate for the supervised private canary"
+    },
+    {
+      "domain": "privacy",
+      "status": "PENDING",
+      "qualified_reviewer_required": true,
+      "review_scope": ["lawful roles and purposes", "DSAR export and authenticated delivery", "deletion and tombstone retention", "subprocessors and transfers", "retention schedule"],
+      "required_evidence": ["docs/PRIVACY_DATA_GOVERNANCE.md", "docs/DSAR_RUNBOOK.md", "evidence/autonomous/technical-exercises.json", "ops/legal-review.json"],
+      "decision_required": "approve or reject synthetic personal-data processing for the exact canary"
+    },
+    {
+      "domain": "legal",
+      "status": "PENDING",
+      "qualified_reviewer_required": true,
+      "review_scope": ["entity and jurisdiction", "canary terms and acceptance", "privacy notice and AUP", "tax boundaries", "no-real-money disclosures"],
+      "required_evidence": ["docs/CANARY_TERMS.md", "docs/PRIVACY_NOTICE_DRAFT.md", "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md", "ops/legal-review.json"],
+      "decision_required": "approve or reject the exact private-canary terms and operating scope"
+    },
+    {
+      "domain": "licensing",
+      "status": "PENDING",
+      "qualified_reviewer_required": true,
+      "review_scope": ["project license", "dependency notices", "model licenses and cards", "visual and font provenance", "distribution obligations"],
+      "required_evidence": ["NOTICE", "docs/THIRD_PARTY_LICENSES.md", "docs/SUPPLY_CHAIN_POLICY.md", "ops/model-provenance.json", "ops/asset-provenance.json", "ops/rust-paste-audit.json"],
+      "decision_required": "approve or reject distribution of the exact hashes in the candidate"
+    },
+    {
+      "domain": "payments",
+      "status": "PENDING",
+      "qualified_reviewer_required": true,
+      "review_scope": ["test-mode-only boundary", "authorization through reconciliation", "refunds and disputes", "Connect transfer and payout state", "live-key quarantine"],
+      "required_evidence": ["evidence/autonomous/payment-simulator.json", "ops/stripe-secret-exposure.json", "docs/STRIPE_SANDBOX_SETUP.md", "ops/economics-readiness.json"],
+      "decision_required": "approve or reject a supervised Stripe test-mode exercise; live money remains separately prohibited"
+    },
+    {
+      "domain": "operations",
+      "status": "PENDING",
+      "qualified_reviewer_required": true,
+      "review_scope": ["deployment and rollback", "backup and restore", "TLS and observability", "restart storm and soak", "support and incident coverage"],
+      "required_evidence": ["evidence/autonomous/staging-validation.json", "evidence/autonomous/local-production-tls.json", "evidence/autonomous/logical-independent-restore.json", "ops/support-incident-tabletop.json"],
+      "decision_required": "approve or reject supervised operation of the exact candidate"
+    },
+    {
+      "domain": "supplier_policy",
+      "status": "PENDING",
+      "qualified_reviewer_required": true,
+      "review_scope": ["operator-controlled devices", "worker enrollment and revocation", "egress and data handling", "verification and payout holds", "prohibited supplier expansion"],
+      "required_evidence": ["docs/CANARY_TERMS.md", "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md", "evidence/autonomous/hardware-characterization.json", "ops/independent-reviews.json"],
+      "decision_required": "approve or reject only the operator-controlled supplier cohort"
+    },
+    {
+      "domain": "release_approval",
+      "status": "PENDING",
+      "qualified_reviewer_required": true,
+      "review_scope": ["exact-head CI", "registry signature, SBOM and provenance", "all prior domain decisions", "open external gates", "tag prohibition"],
+      "required_evidence": ["ops/readiness.json", "ops/go-no-go.json", "ops/go-closure-inputs.json", "ops/governance-approval-bundle.schema.json"],
+      "decision_required": "approve or reject Level B only; Level A and Level C remain separate decisions"
+    }
+  ],
+  "approvers": [],
+  "approved_at": null,
+  "warning": "This file prepares review scope only. It contains no approval and must never be converted into an approval by automation."
+}

@@ -37,7 +37,7 @@ x-control-env: &control-env
   CX_CANARY_MAX_DAILY_JOBS: ${CX_CANARY_MAX_DAILY_JOBS:-}
   CX_CANARY_MAX_SHADOW_VALUE_USD: ${CX_CANARY_MAX_SHADOW_VALUE_USD:-}
   CX_CANARY_MAX_HELD_SHADOW_PAYOUT_USD: ${CX_CANARY_MAX_HELD_SHADOW_PAYOUT_USD:-}
-  GOMEMLIMIT: 384MiB
+  GOMEMLIMIT: 768MiB
   S3_ENDPOINT: http://minio:9000
   S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?required}
   S3_REGION: ${S3_REGION:-us-east-1}
@@ -118,7 +118,7 @@ services:
     environment: *control-env
     expose: ["8080"]
     healthcheck:
-      test: [CMD, /cx, healthcheck]
+      test: [CMD, /cx-healthcheck]
       interval: 10s
       timeout: 4s
       retries: 5
@@ -128,7 +128,7 @@ services:
     tmpfs: [/tmp:size=64m,mode=1777]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    mem_limit: 512m
+    mem_limit: 1g
     cpus: 1.0
     pids_limit: 128
     stop_grace_period: 60s

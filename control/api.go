@@ -69,6 +69,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /version", s.handleVersion)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("GET /{$}", s.handleRoot)
+	mux.HandleFunc("GET /buyer", s.handleBuyerRoom)
 	mux.HandleFunc("GET /admin", s.handleAdminRoom)
 	mux.HandleFunc("GET /assets/site/{path...}", s.handleSiteAsset) // whitelisted public static assets
 	mux.HandleFunc("GET /favicon.ico", s.handleFavicon)
@@ -280,7 +281,7 @@ func (s *Server) authAdmin(next http.Handler) http.Handler {
 		}
 		actor := AdminActor{
 			Mode: AdminAuthBreakGlassAPIKey, PrincipalID: auth.APIKeyID,
-			AttributionScope: AdminAttributionSharedCredentialOnly, Label: auth.APIKeyLabel,
+			AttributionScope: AdminAttributionNamedOperatorKey, Label: auth.APIKeyLabel,
 		}
 		ctx := context.WithValue(r.Context(), ctxAdmin, actor)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -2417,6 +2418,14 @@ func (s *Server) handleAdminRoom(w http.ResponseWriter, r *http.Request) {
 	path := os.Getenv("ADMIN_PATH")
 	if path == "" {
 		path = "web/admin.html"
+	}
+	serveHTML(w, path)
+}
+
+func (s *Server) handleBuyerRoom(w http.ResponseWriter, r *http.Request) {
+	path := os.Getenv("BUYER_PATH")
+	if path == "" {
+		path = "web/buyer.html"
 	}
 	serveHTML(w, path)
 }
