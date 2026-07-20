@@ -1,36 +1,15 @@
-# Computexchange — control plane (Go) image. Multi-stage: build a fully static
-# binary, then ship it on distroless (no shell, no libc surface). The control
-# plane is pure-Go (pgx + google/uuid; no cgo), so CGO_ENABLED=0 yields a static
-# binary that runs on `gcr.io/distroless/static`.
-#
-# Build:  docker build -f Dockerfile.control -t cx-control .
-# Run:    docker run --rm -p 8080:8080 --env-file .env cx-control
-#
-# NOTE: there is deliberately NO Dockerfile for the Rust agent. The agent uses
-# Candle + Metal for on-device inference, and Metal is unavailable inside Linux
-# containers — the agent MUST run natively on macOS. See README "Why no agent
-# image".
-
-# ── build stage ───────────────────────────────────────────────────────────────
 FROM golang:1.26.5 AS build
 ARG CX_BUILD_VERSION=dev
 ARG CX_BUILD_COMMIT=unknown
 ARG CX_BUILD_DATE=unknown
-WORKDIR /src
-
-# Module graph first, for layer-cached `go mod download`.
-COPY control/go.mod control/go.sum ./control/
 WORKDIR /src/control
+COPY control/go.mod control/go.sum ./
 RUN go mod download
-
-# Source, then build a static binary.
 COPY control/ ./
-# CGO off → static binary; trimpath + ldflags -s -w strip debug bloat.
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -ldflags="-s -w -X main.controlVersion=${CX_BUILD_VERSION} -X main.controlCommit=${CX_BUILD_COMMIT} -X main.controlBuildDate=${CX_BUILD_DATE}" \
     -o /cx .
 
-# ── final stage ───────────────────────────────────────────────────────────────
 FROM gcr.io/distroless/static:nonroot
 ARG CX_BUILD_VERSION=dev
 ARG CX_BUILD_COMMIT=unknown
@@ -41,32 +20,9 @@ LABEL org.opencontainers.image.title="Computexchange control plane" \
       org.opencontainers.image.created="${CX_BUILD_DATE}" \
       org.opencontainers.image.source="https://github.com/joshuahickscorp/computexchange"
 WORKDIR /
-
-# The binary and the authoritative schema (so the image can self-document /
-# bootstrap the DB; the control plane reads DATABASE_URL at runtime).
 COPY --from=build /cx /cx
-COPY db/schema.sql /db/schema.sql
-
-# The three registered HTML surfaces: the public site at /, the buyer console at
-# /demo, and the operator panel at /admin. Keep this list in lockstep with
-# Server.Routes: a linked, registered route must not become a production-only 404.
-COPY web/admin.html /web/admin.html
-COPY web/demo.html /web/demo.html
-COPY web/index.html /web/index.html
+COPY web/index.html web/admin.html /web/
 COPY web/favicon.ico /web/favicon.ico
-COPY web/assets/site/ /web/assets/site/
-# /demo deliberately exposes only this fixed flat asset set through
-# handleDemoAsset; copy the same allowlist into the runtime image.
-COPY web/assets/btn-add-payment-shell@3x.png /web/assets/btn-add-payment-shell@3x.png
-COPY web/assets/btn-launch-shell@3x.png /web/assets/btn-launch-shell@3x.png
-COPY web/assets/cx-mark-white.png /web/assets/cx-mark-white.png
-COPY web/assets/dot-ring@3x.png /web/assets/dot-ring@3x.png
-COPY web/assets/knob-off@3x.png /web/assets/knob-off@3x.png
-COPY web/assets/knob-on@3x.png /web/assets/knob-on@3x.png
-COPY web/assets/knob-pressed@3x.png /web/assets/knob-pressed@3x.png
-COPY web/assets/knob-red@3x.png /web/assets/knob-red@3x.png
-
-EXPOSE 8080
-# distroless/static:nonroot already runs as uid 65532; be explicit.
 USER nonroot:nonroot
+EXPOSE 8080
 ENTRYPOINT ["/cx"]

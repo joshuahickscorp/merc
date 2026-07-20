@@ -11,21 +11,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Background sweeps include provider side effects, so only one control replica
-// may run them at a time. A PostgreSQL session advisory lock makes leadership
-// self-releasing on process, network, or database-session failure and lets every
-// API replica stand by for automatic takeover.
 const workerLeaderAdvisoryLock = "computeexchange-background-workers-v1"
 
 const (
-	workerLeaderPollInterval   = 5 * time.Second
-	workerLeaderHealthInterval = 5 * time.Second
-	workerLeaderStopTimeout    = 45 * time.Second
-	workerLeaderStaleSamples   = 2
-	// A replica with worker election enabled must keep proving that its election
-	// goroutine can reach PostgreSQL. Without this, a panic or an advisory-lock
-	// permission error before leadership is acquired leaves an empty liveness
-	// registry and /readyz incorrectly green forever.
+	workerLeaderPollInterval      = 5 * time.Second
+	workerLeaderHealthInterval    = 5 * time.Second
+	workerLeaderStopTimeout       = 45 * time.Second
+	workerLeaderStaleSamples      = 2
 	workerLeaderObservationMaxAge = 3 * workerLeaderPollInterval
 )
 
@@ -73,8 +65,6 @@ func tryAcquireWorkerLeadership(ctx context.Context, pool *pgxpool.Pool) (*pgxpo
 	return conn, true, nil
 }
 
-// releaseWorkerLeadership never returns an unconfirmed lock-bearing session to
-// the pool. Closing a discarded session is PostgreSQL's final lock-release rail.
 func releaseWorkerLeadership(conn *pgxpool.Conn) {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -114,11 +104,6 @@ func waitWorkerLeaderRetry(ctx context.Context) bool {
 	}
 }
 
-// runWorkerLeader continuously elects one sweep owner. Followers remain fully
-// serving API traffic and poll cheaply. The leader also probes the exact locked
-// DB session and relinquishes leadership when a registered sweep has missed its
-// liveness budget twice in a row, preventing a healthy-looking but inert primary
-// from permanently blocking takeover.
 func runWorkerLeader(ctx context.Context, pool *pgxpool.Pool, workers *Workers) {
 	followerLogged := false
 	for ctx.Err() == nil {
@@ -132,8 +117,6 @@ func runWorkerLeader(ctx context.Context, pool *pgxpool.Pool, workers *Workers) 
 			}
 			continue
 		}
-		// Either acquiring the lock or observing a current owner proves the
-		// election loop itself is alive and PostgreSQL advisory locks are usable.
 		markWorkerElectionObserved(time.Now())
 		if !acquired {
 			if !followerLogged {
@@ -161,15 +144,9 @@ func runWorkerLeader(ctx context.Context, pool *pgxpool.Pool, workers *Workers) 
 		select {
 		case <-done:
 		case <-time.After(workerLeaderStopTimeout):
-			// Never overlap potentially side-effecting sweeps with a successor.
-			// A process restart closes the advisory-lock session before another
-			// replica can win and is safer than releasing beneath a stuck goroutine.
 			log.Fatalf("workers: failed to stop within %s after losing leadership", workerLeaderStopTimeout)
 		}
 		releaseWorkerLeadership(conn)
-		// This process is now a standby. Sweep liveness belongs only to the
-		// current lock owner; retaining the old leader's registry would leave a
-		// healthy follower permanently unready after failover.
 		resetWorkerLiveness()
 		log.Printf("workers: released sweep leadership: %s", reason)
 		if ctx.Err() != nil {

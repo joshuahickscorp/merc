@@ -11,25 +11,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrJobVerificationPending is returned by terminal-failure paths when another
-// attempt for the same job has durably entered verification. Failing the parent
-// underneath that attempt would either orphan verification_work or let a later
-// verifier settle money against a terminal job, so the terminal transition must
-// be retried after verification reaches an atomic verdict.
 var ErrJobVerificationPending = errors.New("job has unresolved verification work")
 
-// jobTerminalTransitionStateTx locks the parent row and reports whether any
-// attempt still owns the uploaded -> verdict transition. Callers that target one
-// task already hold that task; job-wide cancellation first locks unfinished tasks
-// in id order and then calls this. The shared task -> parent order matches commit
-// and verification apply, while the parent row remains the final transition fence.
 func jobTerminalTransitionStateTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) (status string, pending bool, err error) {
-	// Keep the lock and the pending read as two statements. Under READ COMMITTED a
-	// SELECT that begins before a concurrent CommitTask releases this row can retain
-	// its old statement snapshot for correlated subqueries even though the locked
-	// job tuple is EvalPlanQual-rechecked. The second statement necessarily obtains
-	// a fresh snapshot after the wait and therefore sees the just-committed verifying
-	// task/work before deciding whether the parent may go terminal.
 	err = tx.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1 FOR UPDATE`, jobID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, errNotFound
@@ -48,10 +32,6 @@ func jobTerminalTransitionStateTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUI
 	return status, pending, err
 }
 
-// jobTerminalTransitionState reads the same predicate without locks. Cancellation
-// uses it only as a fast refusal: when verification is visibly pending there is no
-// reason to lock the whole job. A false result is never trusted for mutation; the
-// transaction subsequently locks tasks, locks the parent, and rechecks above.
 func (s *Store) jobTerminalTransitionState(ctx context.Context, jobID uuid.UUID) (status string, pending bool, err error) {
 	err = s.pool.QueryRow(ctx, `
 		SELECT j.status,
@@ -69,10 +49,6 @@ func (s *Store) jobTerminalTransitionState(ctx context.Context, jobID uuid.UUID)
 	return status, pending, err
 }
 
-// lockUnfinishedJobTasksTx establishes the global task -> parent lock order for
-// a job-wide terminal transition. ORDER BY makes two concurrent job-wide paths
-// acquire the same task sequence. Rows that become terminal while waiting are
-// rechecked by PostgreSQL and do not need to be changed by the caller.
 func lockUnfinishedJobTasksTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) error {
 	rows, err := tx.Query(ctx, `
 		SELECT id FROM tasks
@@ -91,13 +67,6 @@ func lockUnfinishedJobTasksTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) e
 	return rows.Err()
 }
 
-// ReconcileLegacyVerifyingTasks repairs the one unsafe state an upgrade from the
-// pre-durable verifier can leave behind: a task says "verifying" but no immutable
-// verification_work snapshot exists. There is no honest way to reconstruct the
-// worker's exact commit body after the fact, so recovery never invents a verdict,
-// artifact, or settlement. It clears the unauthoritative upload projection and
-// advances the attempt back to the runnable retry queue. The status predicate
-// makes the operation idempotent; the event and task transition share one tx.
 func (s *Store) ReconcileLegacyVerifyingTasks(ctx context.Context) (int64, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -185,9 +154,6 @@ func (s *Store) ReconcileLegacyVerifyingTasks(ctx context.Context) (int64, error
 	return int64(len(recoveredRows)), nil
 }
 
-// StalePinnedTiebreak is a third-opinion task that was pre-claimed to a peer
-// but never started. The anchor task fixes the verification class; all workers
-// and suppliers that already executed the chunk remain excluded on reselection.
 type StalePinnedTiebreak struct {
 	TaskID       uuid.UUID
 	JobID        uuid.UUID
@@ -244,9 +210,6 @@ type tiebreakVerificationClass struct {
 	BuildHash string
 }
 
-// frozenTiebreakClassForAnchorTx resolves the class that actually executed the
-// anchor attempt. Durable verification snapshots win; the fallback is the
-// claim-frozen execution tuple, never the worker's mutable registration.
 func frozenTiebreakClassForAnchorTx(ctx context.Context, tx pgx.Tx, anchorTaskID uuid.UUID) (tiebreakVerificationClass, error) {
 	var out tiebreakVerificationClass
 	err := tx.QueryRow(ctx, `
@@ -277,12 +240,6 @@ func frozenTiebreakClassForAnchorTx(ctx context.Context, tx pgx.Tx, anchorTaskID
 	return out, nil
 }
 
-// tiebreakPeerClaimEligibleTx is the one transactional authority used both when
-// an immutable plan first creates a pin and when lifecycle recovery replaces a
-// stale pin. It rechecks the complete claim-time policy, the frozen verification
-// class, and independence from every durable execution of this chunk. Returning
-// false is recoverable: the task may remain safely unpinned until eligible supply
-// appears; callers must never weaken the predicate to make a plan "succeed".
 func tiebreakPeerClaimEligibleTx(ctx context.Context, tx pgx.Tx, taskID, jobID, peer uuid.UUID) (bool, error) {
 	var eligible bool
 	err := tx.QueryRow(ctx, `
@@ -313,10 +270,6 @@ func tiebreakPeerClaimEligibleTx(ctx context.Context, tx pgx.Tx, taskID, jobID, 
 		    )
 		    AND (j.data_residency IS NULL OR ns.data_country=ANY(j.data_residency))
 		    AND COALESCE(j.min_reputation,0)<=ns.reputation
-		    AND (NOT COALESCE(j.private_pool,false) OR EXISTS (
-		      SELECT 1 FROM private_pool_members m
-		       WHERE m.buyer_id=j.buyer_id AND m.supplier_id=ns.id
-		    ))
 		    AND (j.tier<>'trusted' OR (ns.reputation>=0.80 AND ns.completed_tasks>=500))
 		    AND COALESCE(j.offered_rate_usd_hr,1e9)>=COALESCE(nw.min_payout_usd_hr,0)
 		    AND (j.max_usd IS NULL OR (
@@ -357,9 +310,6 @@ func tiebreakPeerClaimEligibleTx(ctx context.Context, tx pgx.Tx, taskID, jobID, 
 	return eligible, err
 }
 
-// PinnedTiebreakExclusions reconstructs the exact independence set from durable
-// executions, rather than clearing claimed_by and letting the general scheduler
-// accidentally hand a third vote to one of the two disputants.
 func (s *Store) PinnedTiebreakExclusions(ctx context.Context, item StalePinnedTiebreak) (anchor uuid.UUID, workers, suppliers []uuid.UUID, err error) {
 	err = s.pool.QueryRow(ctx, `
 		SELECT COALESCE(vw.worker_id,t.execution_worker_id)
@@ -407,10 +357,6 @@ func (s *Store) PinnedTiebreakExclusions(ctx context.Context, item StalePinnedTi
 	return anchor, workers, suppliers, nil
 }
 
-// ReassignPinnedTiebreak atomically replaces one still-stale, unstarted pin.
-// The SQL revalidates liveness, exact runtime authority, same verification class,
-// and distinct worker/supplier against every execution for the chunk so a profile
-// change between selection and CAS cannot weaken the third-opinion guarantee.
 func (s *Store) ReassignPinnedTiebreak(ctx context.Context, item StalePinnedTiebreak, peer uuid.UUID, olderThan time.Duration) (bool, error) {
 	if peer == uuid.Nil || olderThan <= 0 {
 		return false, errors.New("pinned tiebreak reassignment requires peer and positive age")

@@ -207,8 +207,6 @@ func TestEnrollmentDeviceRequestStrictlyBindsSwiftWireFields(t *testing.T) {
 		t.Fatalf("decoded request changed wire binding: %+v", request)
 	}
 
-	// This is the stable generator point used by the Swift suite. Keeping its
-	// request id here proves both implementations hash identical bytes.
 	stableKey := "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU"
 	stableRaw, err := base64.RawURLEncoding.DecodeString(stableKey)
 	if err != nil {

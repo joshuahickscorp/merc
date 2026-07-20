@@ -12,12 +12,10 @@ func productionMetalCapability() WorkerCapability {
 		Engine:   "candle",
 		MemoryGB: 36,
 		SupportedJobs: []string{
-			"embed", "rerank", "batch_infer", "batch_classification",
-			"json_extraction", "audio_transcribe",
+			"embed", "batch_infer",
 		},
 		SupportedModels: []string{
 			"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4",
-			"whisper-tiny", "whisper-base",
 		},
 		Benchmarks: []BenchResult{
 			{JobType: "embed", ModelID: "all-minilm-l6-v2", EPS: 10, ThermalOK: true},
@@ -35,18 +33,9 @@ func TestWorkerRuntimeProjectionRejectsHostileTelemetryAndIdentity(t *testing.T)
 		{
 			name: "duplicate benchmark tuple",
 			mutate: func(c *WorkerCapability) {
-				c.Benchmarks = append(c.Benchmarks, c.Benchmarks[0])
+				c.Benchmarks[1] = c.Benchmarks[0]
 			},
 			pattern: "duplicate tuple",
-		},
-		{
-			name: "benchmark cardinality exceeds exact cells",
-			mutate: func(c *WorkerCapability) {
-				for len(c.Benchmarks) <= 7 {
-					c.Benchmarks = append(c.Benchmarks, c.Benchmarks[0])
-				}
-			},
-			pattern: "projects to only 7 exact production cells",
 		},
 		{
 			name: "negative throughput",
@@ -142,12 +131,7 @@ func TestWorkerRuntimeProjectionRejectsHostileTelemetryAndIdentity(t *testing.T)
 func TestAdvertisedRuntimeJobModelIsExactNotCartesian(t *testing.T) {
 	allowed := [][2]string{
 		{"embed", "all-minilm-l6-v2"},
-		{"rerank", "all-minilm-l6-v2"},
 		{"batch_infer", "llama-3.2-1b-instruct-q4"},
-		{"batch_classification", "llama-3.2-1b-instruct-q4"},
-		{"json_extraction", "llama-3.2-1b-instruct-q4"},
-		{"audio_transcribe", "whisper-tiny"},
-		{"audio_transcribe", "whisper-base"},
 	}
 	for _, pair := range allowed {
 		if err := validateAdvertisedRuntimeJobModel(pair[0], pair[1]); err != nil {
@@ -156,14 +140,11 @@ func TestAdvertisedRuntimeJobModelIsExactNotCartesian(t *testing.T) {
 	}
 
 	rejected := [][2]string{
-		{"embed", "llama-3.2-1b-instruct-q4"},         // old Cartesian false positive
-		{"batch_infer", "whisper-base"},               // old Cartesian false positive
-		{"audio_transcribe", "all-minilm-l6-v2"},      // old Cartesian false positive
-		{"batch_infer", "qwen2.5-7b-instruct-q4"},     // hardware_pending
-		{"embed", "bge-small-en-v1.5"},                // hardware_pending
-		{"custom", ""},                                // hardware_pending/model-less
-		{"image_gen", "llama-3.2-1b-instruct-q4"},     // wire_only
-		{"batch_infer", "llama-3.1-405b-instruct-q4"}, // stub cluster
+		{"embed", "llama-3.2-1b-instruct-q4"},
+		{"unsupported", "all-minilm-l6-v2"},
+		{"batch_infer", "unsupported-model"},
+		{"embed", "unsupported-model"},
+		{"unsupported", ""},
 	}
 	for _, pair := range rejected {
 		if err := validateAdvertisedRuntimeJobModel(pair[0], pair[1]); err == nil {
@@ -178,7 +159,6 @@ func TestGeneratedRuntimeModelRefOwnsInternalWireKind(t *testing.T) {
 	}{
 		{"embed", "all-minilm-l6-v2", "hf"},
 		{"batch_infer", "llama-3.2-1b-instruct-q4", "gguf"},
-		{"audio_transcribe", "whisper-tiny", "hf"},
 		{"unknown", "unknown", ""},
 	} {
 		got := generatedRuntimeModelRef(tc.job, tc.model)
@@ -232,8 +212,8 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project valid production Metal worker: %v", err)
 	}
-	if len(projected) != 7 {
-		t.Fatalf("6 jobs x 4 models must project to 7 exact production cells, got %d", len(projected))
+	if len(projected) != 2 {
+		t.Fatalf("focused worker must project to 2 exact production cells, got %d", len(projected))
 	}
 	seen := map[[2]string]bool{}
 	for _, cell := range projected {
@@ -245,7 +225,7 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 	for _, falseCartesian := range [][2]string{
 		{"embed", "llama-3.2-1b-instruct-q4"},
 		{"batch_infer", "all-minilm-l6-v2"},
-		{"audio_transcribe", "llama-3.2-1b-instruct-q4"},
+		{"unsupported", "all-minilm-l6-v2"},
 	} {
 		if seen[falseCartesian] {
 			t.Errorf("unsupported Cartesian pair entered exact projection: %v", falseCartesian)
@@ -257,45 +237,33 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 		mutate  func(*WorkerCapability)
 		pattern string
 	}{
+		{name: "unknown engine", mutate: func(c *WorkerCapability) { c.Engine = "other" }, pattern: "no advertised production cell"},
+		{name: "unknown hardware", mutate: func(c *WorkerCapability) { c.HWClass = "other" }, pattern: "no advertised production cell"},
 		{
-			name: "soak-only vllm cuda",
+			name: "unknown model",
 			mutate: func(c *WorkerCapability) {
-				c.Engine, c.HWClass = "vllm", "nvidia_80g"
-			},
-			pattern: "no advertised production cell",
-		},
-		{
-			name: "stub mlx metal",
-			mutate: func(c *WorkerCapability) {
-				c.Engine = "mlx"
-			},
-			pattern: "no advertised production cell",
-		},
-		{
-			name: "hardware-pending qwen",
-			mutate: func(c *WorkerCapability) {
-				c.SupportedModels = append(c.SupportedModels, "qwen2.5-7b-instruct-q4")
+				c.SupportedModels = append(c.SupportedModels, "other-model")
 			},
 			pattern: "not advertised",
 		},
 		{
 			name: "unsupported job",
 			mutate: func(c *WorkerCapability) {
-				c.SupportedJobs = append(c.SupportedJobs, "custom")
+				c.SupportedJobs = append(c.SupportedJobs, "unsupported")
 			},
 			pattern: "not advertised",
 		},
 		{
 			name: "benchmark cross product",
 			mutate: func(c *WorkerCapability) {
-				c.Benchmarks = append(c.Benchmarks, BenchResult{JobType: "batch_infer", ModelID: "whisper-base", TPS: 1})
+				c.Benchmarks[1] = BenchResult{JobType: "embed", ModelID: "llama-3.2-1b-instruct-q4", EPS: 1}
 			},
 			pattern: "not an advertised production cell",
 		},
 		{
 			name: "duplicate model",
 			mutate: func(c *WorkerCapability) {
-				c.SupportedModels = append(c.SupportedModels, "whisper-base")
+				c.SupportedModels = append(c.SupportedModels, "all-minilm-l6-v2")
 			},
 			pattern: "duplicate",
 		},
@@ -320,13 +288,13 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 }
 
 func TestHeartbeatLoadedModelsStayInsideProductionProjection(t *testing.T) {
-	if err := validateHeartbeatRuntimeModels([]string{"all-minilm-l6-v2", "whisper-tiny"}); err != nil {
+	if err := validateHeartbeatRuntimeModels([]string{"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4"}); err != nil {
 		t.Fatalf("production warm models rejected: %v", err)
 	}
 	for _, models := range [][]string{
-		{"qwen2.5-7b-instruct-q4"},
+		{"unsupported-model"},
 		{"unknown"},
-		{"whisper-tiny", "whisper-tiny"},
+		{"all-minilm-l6-v2", "all-minilm-l6-v2"},
 	} {
 		if err := validateHeartbeatRuntimeModels(models); err == nil {
 			t.Fatalf("non-authoritative warm-model advertisement accepted: %v", models)
@@ -338,8 +306,6 @@ func productionCatalogRows() []ModelRow {
 	return []ModelRow{
 		{ID: "all-minilm-l6-v2", Kind: "embed", PricePer1K: .001, MinMemoryGB: 2, HFRepo: "sentence-transformers/all-MiniLM-L6-v2"},
 		{ID: "llama-3.2-1b-instruct-q4", Kind: "gguf", PricePer1K: .002, MinMemoryGB: 4, HFRepo: "unsloth/Llama-3.2-1B-Instruct-GGUF"},
-		{ID: "whisper-tiny", Kind: "whisper", PricePerUnit: .004, MinMemoryGB: 1, HFRepo: "openai/whisper-tiny"},
-		{ID: "whisper-base", Kind: "whisper", PricePerUnit: .005, MinMemoryGB: 2, HFRepo: "openai/whisper-base"},
 	}
 }
 
@@ -349,7 +315,7 @@ func TestAdvertisedRuntimeCatalogFailsClosedOnDrift(t *testing.T) {
 	}
 
 	t.Run("missing row", func(t *testing.T) {
-		rows := productionCatalogRows()[:3]
+		rows := productionCatalogRows()[:1]
 		if err := validateAdvertisedRuntimeCatalogRows(rows); err == nil || !strings.Contains(err.Error(), "no row") {
 			t.Fatalf("error=%v", err)
 		}
@@ -370,7 +336,7 @@ func TestAdvertisedRuntimeCatalogFailsClosedOnDrift(t *testing.T) {
 	})
 	t.Run("missing resolver metadata", func(t *testing.T) {
 		rows := productionCatalogRows()
-		rows[2].HFRepo = ""
+		rows[1].HFRepo = ""
 		if err := validateAdvertisedRuntimeCatalogRows(rows); err == nil || !strings.Contains(err.Error(), "metadata") {
 			t.Fatalf("error=%v", err)
 		}
@@ -395,8 +361,6 @@ func TestGeneratedRuntimeCapabilitiesBindCanonicalWireKind(t *testing.T) {
 	want := map[string]string{
 		"all-minilm-l6-v2":         "hf",
 		"llama-3.2-1b-instruct-q4": "gguf",
-		"whisper-tiny":             "hf",
-		"whisper-base":             "hf",
 	}
 	for _, cap := range generatedAdvertisedRuntimeCapabilities {
 		if cap.ModelKind == "" {
@@ -410,14 +374,16 @@ func TestGeneratedRuntimeCapabilitiesBindCanonicalWireKind(t *testing.T) {
 
 func TestRuntimeWireModelKind(t *testing.T) {
 	for catalog, want := range map[string]string{
-		"gguf": "gguf", "mlx": "mlx", "hf": "hf", "embed": "hf", "whisper": "hf",
+		"gguf": "gguf", "hf": "hf", "embed": "hf",
 	} {
 		got, err := runtimeWireModelKind(catalog)
 		if err != nil || got != want {
 			t.Fatalf("runtimeWireModelKind(%q)=(%q,%v), want %q", catalog, got, err, want)
 		}
 	}
-	if _, err := runtimeWireModelKind("container"); err == nil {
-		t.Fatal("unmapped catalog kind must fail closed")
+	for _, kind := range []string{"unsupported", "archive", "remote"} {
+		if _, err := runtimeWireModelKind(kind); err == nil {
+			t.Fatalf("unmapped catalog kind %q must fail closed", kind)
+		}
 	}
 }

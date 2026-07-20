@@ -37,6 +37,5 @@ models/
 data/
 *.gguf
 *.safetensors
-*.mlx
 *.bin
 *.wav

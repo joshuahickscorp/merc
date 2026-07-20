@@ -16,13 +16,9 @@ import (
 )
 
 const (
-	verificationLeaseDurationDefault = 5 * time.Minute
-	verificationLeaseRenewalDefault  = verificationLeaseDurationDefault / 3
-	verificationRetryDelay           = time.Second
-	// A worker is required to PUT before commit. A handful of retries tolerates a
-	// transient read-after-write/store race; after that, a definitively missing or
-	// continuously changing staging key is a worker-attempt failure, not an
-	// infinite control-plane retry that may hold the parent job forever.
+	verificationLeaseDurationDefault                = 5 * time.Minute
+	verificationLeaseRenewalDefault                 = verificationLeaseDurationDefault / 3
+	verificationRetryDelay                          = time.Second
 	verificationArtifactUnavailableMaxLeaseAttempts = 5
 )
 
@@ -37,10 +33,6 @@ type VerificationProcessResult struct {
 	Pending bool
 }
 
-// VerificationProcessor owns the restart-safe uploaded->verdict transition.
-// HTTP may opportunistically drive one attempt, while the background worker
-// drains the same durable queue; correctness is fenced in PostgreSQL and never
-// depends on the request goroutine surviving.
 type VerificationProcessor struct {
 	store    *Store
 	storage  *Storage
@@ -48,8 +40,6 @@ type VerificationProcessor struct {
 	owner    string
 	probe    recoveryBoundaryProbe
 
-	// Configurable in same-package integration tests so lease renewal can be
-	// exercised in milliseconds; production always uses the conservative defaults.
 	leaseDuration time.Duration
 	leaseRenewal  time.Duration
 }
@@ -65,11 +55,6 @@ func NewVerificationProcessor(store *Store, storage *Storage, verifier *Verifier
 		leaseDuration: verificationLeaseDurationDefault,
 		leaseRenewal:  verificationLeaseRenewalDefault,
 	}
-}
-
-func (p *VerificationProcessor) WithRecoveryProbe(probe recoveryBoundaryProbe) *VerificationProcessor {
-	p.probe = probe
-	return p
 }
 
 func (p *VerificationProcessor) ProcessAttempt(ctx context.Context, taskID uuid.UUID, attempt int64) (VerificationProcessResult, error) {
@@ -117,9 +102,6 @@ func (p *VerificationProcessor) Drain(ctx context.Context, limit int) error {
 		if !p.store.verificationResources.tryAcquireProcess() {
 			break
 		}
-		// Claim immediately before processing. Claiming a large batch up front makes
-		// every later row's lease age while earlier rows perform object I/O, which can
-		// expire ownership before those rows are even examined.
 		leased, err := p.store.ClaimVerificationWork(ctx, p.owner, p.leaseDuration, 1)
 		if err != nil {
 			p.store.verificationResources.releaseProcess()
@@ -180,8 +162,6 @@ func (p *VerificationProcessor) processLeased(ctx context.Context, leased Leased
 	result, err := p.processLeasedOnce(processCtx, leased)
 	close(stopHeartbeat)
 	heartbeatErr := <-heartbeatDone
-	// A successful terminal transaction is authoritative even if a heartbeat raced
-	// with terminalization and consequently observed that the lease disappeared.
 	if err == nil {
 		return result, nil
 	}
@@ -257,10 +237,6 @@ func (p *VerificationProcessor) processLeasedOnce(ctx context.Context, leased Le
 			var sizeErr *VerificationArtifactTooLargeError
 			switch {
 			case errors.As(err, &sizeErr):
-				// Oversize is deterministic, not an object-store outage. Pin a tiny
-				// content-addressed observation (never the worker body), then persist the
-				// ordinary immutable fail/requeue plan below. A crash at either boundary
-				// resumes from the evidence key instead of retrying the giant GET forever.
 				sealed, err = p.storage.sealOversizedVerificationEvidenceWithProbe(ctx, info.TaskID, info.Attempt, sizeErr, p.probe)
 			case errors.Is(err, ErrVerificationArtifactChanged) &&
 				work.LeaseAttempts >= verificationArtifactUnavailableMaxLeaseAttempts:
@@ -318,7 +294,7 @@ func (p *VerificationProcessor) processLeasedOnce(ctx context.Context, leased Le
 	}
 	selected = plan.SamplingSelected
 	info.verificationCheckSampled = &selected
-	apply, err := p.store.ApplyLeasedVerificationWork(ctx, leased.Lease, plan, info, p.probe)
+	apply, err := p.store.VerifyJobTx(ctx, leased.Lease, plan, info, p.probe)
 	if err != nil {
 		return result, err
 	}
@@ -405,10 +381,6 @@ func (p *VerificationProcessor) createPlan(ctx context.Context, lease Verificati
 	selected := *work.SamplingSelected
 	info.verificationCheckSampled = &selected
 
-	// Validate the exact server-sealed artifact before consulting a peer and,
-	// critically, before constructing any payable settlement. A malformed result
-	// is a deterministic worker failure: persist the typed rejection so a crash or
-	// response-loss replay cannot later reinterpret the same bytes as a pass.
 	if validationErr := validateTaskResultArtifact(info, commitBytes); validationErr != nil {
 		decision := invalidResultVerificationDecision(info, validationErr)
 		plan, _, err := p.store.PersistVerificationWorkPlan(ctx, lease, work,
@@ -439,7 +411,6 @@ func (p *VerificationProcessor) createPlan(ctx context.Context, lease Verificati
 	} else if !errors.Is(sealedErr, errNotFound) {
 		return VerificationWorkPlan{}, sealedErr
 	} else {
-		// Legacy completed peers are readable for continuity, but never hash-trusted.
 		peerKey, legacySupplier, legacyEngine, legacyBuild, _, legacyErr := p.store.PeerResultKey(ctx, info.TaskID)
 		if legacyErr != nil && !errors.Is(legacyErr, errNotFound) {
 			return VerificationWorkPlan{}, legacyErr
@@ -458,11 +429,6 @@ func (p *VerificationProcessor) createPlan(ctx context.Context, lease Verificati
 	}
 	var settlement []LedgerEntry
 	if decision.Outcome != OutcomeFail && decision.Outcome != OutcomeLossNoPayout {
-		// The dispute hold starts when the server constructs the terminal decision,
-		// not when the worker first announced a commit. A missing/stalled upload must
-		// never age a future supplier credit into immediate eligibility before the
-		// artifact has even been verified. Once persisted, the plan retains this exact
-		// timestamp for every crash/response-loss replay.
 		settlement, err = p.taskPayoutEntriesAt(ctx, info, time.Now().UTC())
 		if err != nil {
 			return VerificationWorkPlan{}, err
@@ -518,8 +484,6 @@ func (p *VerificationProcessor) lockChunk(ctx context.Context, jobID uuid.UUID, 
 			conn.Release()
 			return
 		}
-		// Never return a session whose lock state is unknown to the pool. Closing a
-		// hijacked connection makes PostgreSQL release every session advisory lock.
 		raw := conn.Hijack()
 		if closeErr := raw.Close(unlockCtx); closeErr != nil {
 			log.Printf("verification: discard advisory-lock connection for %s/%d (unlock=%v, close=%v)",

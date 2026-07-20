@@ -5,9 +5,6 @@ import (
 	"runtime/debug"
 )
 
-// These values are injected into release/container builds with -ldflags -X.
-// Development builds remain explicit and may recover the VCS revision from Go's
-// embedded build settings, but never claim a release version they were not given.
 var (
 	controlVersion   = "dev"
 	controlCommit    = "unknown"

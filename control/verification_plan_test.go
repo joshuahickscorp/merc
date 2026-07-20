@@ -74,9 +74,6 @@ func TestPlanTaskResultTiebreakEffectIsDeterministicPerAttempt(t *testing.T) {
 	store := &verificationStoreDouble{selectedPeer: peerWorker}
 	store.chunkResultsFunc = func() []ChunkResult {
 		store.chunkReadCalls++
-		// gatherChunkResults gets no persisted rows and uses the two bytes already
-		// supplied by the caller. dispatchTiebreak's second read supplies the
-		// worker/supplier exclusion set.
 		if store.chunkReadCalls%2 == 1 {
 			return nil
 		}
@@ -180,9 +177,6 @@ func TestVerifyTaskResultStillWritesThrough(t *testing.T) {
 	}
 }
 
-// verificationStoreDouble implements the whole narrow verifier surface. Read
-// defaults are inert; every write increments mutationCalls so planner tests prove
-// the recording wrapper never delegates mutations.
 type verificationStoreDouble struct {
 	honeypotAnswer      []byte
 	honeypotAnswerClass string

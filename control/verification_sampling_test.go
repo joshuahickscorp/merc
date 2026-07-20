@@ -23,8 +23,6 @@ func TestVerificationSamplingIsSecretKeyedAndStable(t *testing.T) {
 
 func TestVerificationSamplingCannotBeDerivedFromPublicUUIDPrefix(t *testing.T) {
 	secret := []byte("server-only-secret")
-	// These UUIDs share the same public first eight bytes. The old implementation
-	// read only that prefix, making their sample identical and knowable to workers.
 	a := uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-000000000001")
 	b := uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-000000000002")
 	if taskSample(secret, a) == taskSample(secret, b) {

@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Prove the documented local SDK install works without PYTHONPATH or an editable
-# checkout. This is intentionally safe for CI: it uses a throwaway virtualenv,
-# imports from outside the repository, and deletes all build state on exit.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,8 +9,6 @@ trap 'rm -rf "$WORK"' EXIT
 "$PYTHON_BIN" -m venv "$WORK/venv"
 PY="$WORK/venv/bin/python"
 cp -R "$ROOT/sdk/python" "$WORK/sdk-python"
-# The source checkout may contain artifacts from an earlier local build. Remove
-# them only from the throwaway copy so the wheel is always built from source.
 rm -rf \
   "$WORK/sdk-python/build" \
   "$WORK/sdk-python/dist" \

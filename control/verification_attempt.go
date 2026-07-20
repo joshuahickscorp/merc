@@ -4,42 +4,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-
-	"github.com/google/uuid"
 )
 
 const (
 	verificationAttemptSnapshotLegacyVersion int16 = 1
 	verificationAttemptSnapshotPolicyVersion int16 = 2
-	// v4 guarantees that worker/supplier/hardware/engine/build provenance came
-	// from the immutable execution tuple frozen by the claim transaction. The
-	// JSON shape is intentionally unchanged; the version records the stronger
-	// source-of-truth contract for recovery and audit readers.
-	verificationAttemptSnapshotVersion int16 = 4
+	verificationAttemptSnapshotVersion       int16 = 4
 )
 
-// verificationAttemptInput is the immutable planner context captured with the
-// task->verifying transition. Worker rows and job policy may change later; crash
-// recovery must verify the attempt that actually ran, not today's projection.
 type verificationAttemptInput struct {
-	IsHoneypot   bool    `json:"is_honeypot"`
-	IsRedundancy bool    `json:"is_redundancy"`
-	HWClass      string  `json:"hw_class"`
-	Engine       string  `json:"engine"`
-	BuildHash    string  `json:"build_hash"`
-	JobType      string  `json:"job_type"`
-	InputRef     string  `json:"input_ref"`
-	ModelRef     string  `json:"model_ref"`
-	MinMemoryGB  float32 `json:"min_memory_gb"`
-	ChunkIndex   int     `json:"chunk_index"`
-	SplitSize    int     `json:"split_size"`
-	// ExpectedOutputRecords is exact when positive. Zero/omitted remains an
-	// explicit legacy/opaque unknown and retains the <= split-size contract.
-	ExpectedOutputRecords int64 `json:"expected_output_records,omitempty"`
-	// ResultMaxBytes is the immutable resource policy for this exact attempt.
-	// omitempty preserves decoding of pre-policy snapshots; recovery derives the
-	// conservative job-type fallback for those rows.
-	ResultMaxBytes int64 `json:"result_max_bytes,omitempty"`
+	IsHoneypot            bool    `json:"is_honeypot"`
+	IsRedundancy          bool    `json:"is_redundancy"`
+	HWClass               string  `json:"hw_class"`
+	Engine                string  `json:"engine"`
+	BuildHash             string  `json:"build_hash"`
+	JobType               string  `json:"job_type"`
+	InputRef              string  `json:"input_ref"`
+	ModelRef              string  `json:"model_ref"`
+	MinMemoryGB           float32 `json:"min_memory_gb"`
+	ChunkIndex            int     `json:"chunk_index"`
+	SplitSize             int     `json:"split_size"`
+	ExpectedOutputRecords int64   `json:"expected_output_records,omitempty"`
+	ResultMaxBytes        int64   `json:"result_max_bytes,omitempty"`
 }
 
 func verificationWorkSnapshotFromCommit(info *CommitTaskInfo, c TaskCommit) (VerificationWorkSnapshot, error) {
@@ -96,8 +82,6 @@ func commitInfoFromVerificationWork(work VerificationWork) (*CommitTaskInfo, Tas
 		return nil, TaskCommit{}, fmt.Errorf("decode verification attempt snapshot: %w", err)
 	}
 	if work.Snapshot.SnapshotVersion == verificationAttemptSnapshotLegacyVersion && input.ResultMaxBytes <= 0 {
-		// Legacy v1 snapshots did not freeze this field. Use the most generous
-		// deterministic cap for their job shape; never consult mutable job rows.
 		input.ResultMaxBytes = verificationArtifactMaxBytes(input.JobType, input.SplitSize, verificationMaxGenerationTokens)
 	}
 	if input.ExpectedOutputRecords < 0 {
@@ -126,11 +110,4 @@ func commitInfoFromVerificationWork(work VerificationWork) (*CommitTaskInfo, Tas
 		HardwareTempC: work.Snapshot.HardwareTempC,
 	}
 	return info, commit, nil
-}
-
-func uuidOrNil(id *uuid.UUID) uuid.UUID {
-	if id == nil {
-		return uuid.Nil
-	}
-	return *id
 }

@@ -2,11 +2,6 @@ package main
 
 import "testing"
 
-// Items 9 + 12: the verification receipt label differentiates verified / honeypot-checked
-// / no-independent-peer / cross-class-skip / unverified, surfacing the same-supplier and
-// cross-class coverage gaps that the supplier-distinct + class machinery now record. An
-// independent cross-check only labels the WHOLE job fully verified when every
-// delivered primary chunk has coverage.
 func TestDeriveVerificationLabel(t *testing.T) {
 	cases := []struct {
 		name string

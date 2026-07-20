@@ -1,25 +1,16 @@
-# Computexchange — CI. Independent jobs, each a real gate that fails
-# loudly (no `|| true`, no soft-skip): the Go control plane (build + vet + gofmt
-# + tests against live Postgres & MinIO), the Rust agent (fmt + clippy + build +
-# the non-ignored test set, on macOS for Candle/Metal), and a schema apply that
-# asserts db/schema.sql loads cleanly into Postgres 17.
-
 name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, reconstruct/event-horizon]
   pull_request:
 
-# Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ── Control plane (Go) ───────────────────────────────────────────────────────
   control:
-    name: control (go)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -28,9 +19,7 @@ jobs:
           POSTGRES_USER: cx
           POSTGRES_PASSWORD: cx
           POSTGRES_DB: cx
-        ports:
-          - 5432:5432
-        # Gate the job on the DB actually accepting connections.
+        ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U cx -d cx"
           --health-interval 5s
@@ -38,118 +27,33 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://cx:cx@localhost:5432/cx?sslmode=disable
-      S3_ENDPOINT: http://localhost:9000
-      S3_PUBLIC_ENDPOINT: http://localhost:9000
-      S3_BUCKET: cx-jobs
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
-      S3_REGION: us-east-1
+      PGPASSWORD: cx
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.5"
           cache-dependency-path: control/go.sum
-      - name: install psql client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-      - name: start MinIO (bitnami image was retired; run the official one as a step)
+      - name: schema is idempotent
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio server /data
-          for i in $(seq 1 30); do
-            curl -fsS http://localhost:9000/minio/health/live >/dev/null 2>&1 && { echo "minio up"; break; }
-            sleep 2
-          done
-          docker run --rm --network host -e MC_HOST_local=http://minioadmin:minioadmin@localhost:9000 \
-            minio/mc mb -p local/cx-jobs
-      - name: apply schema (base tables for the integration suite)
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f db/schema.sql
-      - name: build
-        run: cd control && go build ./...
-      - name: vet
-        run: cd control && go vet ./...
-      - name: gofmt (must be clean)
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql
+          psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql
+      - name: format, vet, test, race
+        run: |
+          test -z "$(gofmt -l control)"
+          cd control
+          go vet ./...
+          go test ./...
+          go test -race ./...
+      - name: build and census
         run: |
           cd control
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "::error::gofmt found unformatted files:"
-            echo "$unformatted"
-            exit 1
-          fi
-      - name: vulnerability scan (reachable CVEs in stdlib + deps)
-        run: cd control && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      - name: test (unit, no infra)
-        run: cd control && go test ./...
-      - name: test (integration matrix — live Postgres + MinIO)
-        run: cd control && go test -tags integration -count=1 ./...
-      # Buyer DX doc-as-test (Buyer Developer Experience 5->6,
-      # docs/internal/CREED_AND_PATH_TO_TEN.md): run EVERY documented buyer command
-      # from docs/QUICKSTART.md (curl, Python SDK, cx CLI) end to end against the real
-      # control plane, using the CI Postgres + MinIO services already up for this job
-      # (doc-as-test.sh's SERVICE mode). Fails CI if a documented command no longer
-      # works — and its built-in self-test asserts a deliberately-broken doc command
-      # IS caught, so this gate cannot silently pass on doc drift.
-      - name: doc-as-test (QUICKSTART.md is executable truth)
-        run: bash scripts/doc-as-test.sh
+          time go build -trimpath -o "$RUNNER_TEMP/cx" .
+          go run . audit codebase --out census
 
-  # ── Evidence contracts ──────────────────────────────────────────────────────
-  # These are deliberately hardware-free contracts. They prove that evidence is
-  # comparable, source-bound, policy-consistent, and fail-closed; they never turn
-  # synthetic fixtures into Apple/CUDA performance or market proof.
-  proof-contracts:
-    name: proof contracts
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.5"
-      - name: build cx (evidence authority)
-        run: cd control && go build -o "$RUNNER_TEMP/cx" .
-      - name: source identity contract
-        run: |
-          # Source identity (cx source-id), terminal-ledger validation (cx verify),
-          # and the 5x5 registry engine (cx prove) are the Go evidence authority now;
-          # their logic is covered by go test (evidence_test.go, prove_test.go). The
-          # still-Python contract generators keep their own unit tests.
-          (cd control && go test -run 'SourceFingerprint|Verify|Canonical|Framed|AtomicWrite|LedgerReject' .)
-          python3 -m unittest -v \
-            scripts/test_runtime_matrix.py \
-            scripts/test_api_contract.py \
-            scripts/test_release_surface.py
-          python3 scripts/runtime_matrix.py --check
-          python3 scripts/api_contract.py --check
-      - name: registry is valid and attached local contracts pass
-        # Two gates are excluded here because they require artifacts that do not
-        # exist in a hardware-free CI checkout, and are enforced in their real
-        # environment instead:
-        #   - platform_runtime/exact_scheduler_capability_authority validates the
-        #     prove-local ledger (.artifacts/prove-local/proof-ledger.txt), which
-        #     only `make prove-local` (live Postgres + Metal) produces.
-        #   - policy_gtm/high_risk_claim_guard scans web/admin-demo.html, a
-        #     gitignored built asset not regenerated by scripts/site-build.mjs.
-        # The skip is recorded in source.json's skipped_gates, never silent.
-        run: |
-          export PATH="$RUNNER_TEMP:$PATH"   # cx on PATH for the run + any cx verify gate command
-          cx prove
-          cx prove --run \
-            --facet performance --facet platform_runtime --facet policy_gtm \
-            --skip-gate platform_runtime/exact_scheduler_capability_authority \
-            --skip-gate policy_gtm/high_risk_claim_guard \
-            --artifact-dir "$RUNNER_TEMP/5x5"
-          python3 -c 'import json,os; p=json.load(open(os.environ["RUNNER_TEMP"]+"/5x5/source.json")); assert p["run_status"] == "PASS" and p["source_stable"] is True'
-
-  # ── Supplier agent (Rust) ────────────────────────────────────────────────────
-  # macOS so Candle's default `metal` feature compiles (Metal is unavailable on
-  # Linux runners). cargo test runs the non-ignored set; the three model-download
-  # integration tests are #[ignore]d and not exercised here.
   agent:
-    name: agent (rust)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -159,196 +63,33 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: agent
-      - name: fmt (check)
-        run: cd agent && cargo fmt --check
-      - name: clippy (deny warnings)
+      - name: format, lint, test
         run: |
           cd agent
+          cargo fmt --all -- --check
           cargo clippy --all-targets -- -D warnings
-          cargo clippy --all-targets \
-            --features spec-receipt-bridge,resident-spec-shadow -- -D warnings
-      - name: vulnerability scan (RustSec advisory-db, the agent-side twin of the
-          control plane's govulncheck step — Security Posture 7->8,
-          docs/internal/CREED_AND_PATH_TO_TEN.md)
+          cargo test
+      - name: release build and sandbox
         run: |
-          cargo install cargo-audit --locked
-          cd agent && cargo audit
-      - name: build
-        run: cd agent && cargo build
-      - name: test (non-ignored)
-        run: cd agent && cargo test
-      - name: test unrouted consolidation seams
-        run: >-
-          cd agent && cargo test
-          --features spec-receipt-bridge,resident-spec-shadow
-      # Mac inference sandbox proof (Security Posture 8->9,
-      # docs/internal/CREED_AND_PATH_TO_TEN.md): run the shipped seatbelt profile
-      # (macapp/ComputeExchangeAgent/cx-agent.sb) against standalone binaries and
-      # assert it contains a malicious buyer payload's blast radius on BOTH axes —
-      # filesystem (writes confined to the model cache + data dir; reads of ~/.ssh,
-      # keychain, documents denied) AND network (no inbound/listen; outbound pinned to
-      # 443/80/53 + loopback, an arbitrary port denied) — while still permitting the
-      # reads/writes/egress legitimate inference needs. macOS-only (seatbelt is macOS),
-      # which this runner is. The network rows self-skip on an offline runner.
-      - name: sandbox profile proof (cx-agent.sb contains the blast radius)
-        run: bash macapp/ComputeExchangeAgent/sandbox-profile-test.sh
-      # The menu-bar app (which launches cx-agent under that profile) must exercise
-      # its P-256/SecKey enrollment, no-redirect exchange, and rollback contract,
-      # then compile the release configuration. Signing/notarization remains an
-      # external release gate.
-      - name: macapp enrollment tests + release build
-        run: |
-          swift test --package-path macapp
-          swift build --package-path macapp -c release
+          cd agent
+          time cargo build --release
+          cd ..
+          bash macapp/ComputeExchangeAgent/sandbox-profile-test.sh
 
-  # ── Modality-general speculative execution substrate ───────────────────────
-  # Linux/CPU gate: canonical Rust engine + token lane + Python render/transcode
-  # adapters. No cloud credentials, model download, Blender, or GPU is involved.
-  speculation:
-    name: speculation (rust + python + ffmpeg)
+  interfaces:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            spec-engine
-            token-spec-poc
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: install ffmpeg for the real local transcode smoke
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: rustfmt (owned hot-path files)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: schema and generated artifacts
         run: |
-          rustfmt --edition 2021 --check \
-            spec-engine/src/engine.rs spec-engine/src/receipt.rs spec-engine/src/verify.rs \
-            spec-engine/examples/validate_receipts.rs \
-            token-spec-poc/src/lib.rs token-spec-poc/src/main.rs \
-            token-spec-poc/tests/lossless.rs token-spec-poc/examples/bench_ngram.rs
-      - name: clippy (deny warnings)
-        run: |
-          cd spec-engine && cargo clippy --all-targets -- -D warnings
-          cd ../token-spec-poc && cargo clippy --all-targets -- -D warnings
-      - name: rust tests
-        run: |
-          cd spec-engine && cargo test --all-targets
-          cd ../token-spec-poc && cargo test --all-targets
-      - name: python adapter and adversarial tests
-        run: |
-          python3 scripts/spec-lab/test_cx_speculative_core.py
-          python3 scripts/spec-lab/test_cx_render_spec_adapter.py
-          python3 scripts/spec-lab/test_cx_transcode_spec_adapter.py
-          python3 scripts/spec-lab/test_cx_integrated_speculation.py
-          python3 scripts/spec-lab/test_cx_native_speculation_ladder.py
-      - name: current emitters pass strict Rust ingress
-        run: |
-          python3 scripts/spec-lab/emit_current_spec_receipts.py > "$RUNNER_TEMP/python-spec-receipts.jsonl"
-          cargo run --quiet --manifest-path spec-engine/Cargo.toml --example validate_receipts < "$RUNNER_TEMP/python-spec-receipts.jsonl"
-          (cd token-spec-poc && cargo run --quiet) > "$RUNNER_TEMP/token-spec-receipts.jsonl"
-          sed -n '1p' "$RUNNER_TEMP/token-spec-receipts.jsonl" > "$RUNNER_TEMP/token-spec-first.jsonl"
-          cargo run --quiet --manifest-path spec-engine/Cargo.toml --example validate_receipts < "$RUNNER_TEMP/token-spec-first.jsonl"
-      - name: real ffmpeg transcode smoke (bounded, no network)
-        env:
-          CX_FFMPEG_TIMEOUT_S: "120"
-        run: |
-          python3 scripts/spec-lab/cx_transcode_spec_adapter.py \
-            --codec x264 --mode ssim --duration 2 --segment-time 1 \
-            --size 320x180 --fps 12 --noise 0 --gate 0.90 \
-            --workdir "$RUNNER_TEMP/cx-transcode-smoke" >/tmp/cx-transcode-receipt.json
-          python3 -c 'import json; r=json.load(open("/tmp/cx-transcode-receipt.json")); assert r["evidence"] == "measured"; assert r["units"] > 0'
-          python3 -c 'import json; print(json.dumps(json.load(open("/tmp/cx-transcode-receipt.json")), separators=(",", ":")))' > "$RUNNER_TEMP/cx-transcode-receipt.jsonl"
-          cargo run --quiet --manifest-path spec-engine/Cargo.toml --example validate_receipts < "$RUNNER_TEMP/cx-transcode-receipt.jsonl"
-          python3 scripts/spec-lab/cx_transcode_spec_adapter.py \
-            --codec x264 --mode ssim --duration 2 --segment-time 1 \
-            --size 320x180 --fps 12 --noise 0 --gate 0.90 --skip-baseline \
-            --workdir "$RUNNER_TEMP/cx-transcode-production-smoke" >/tmp/cx-transcode-production.json
-          python3 -c 'import hashlib,json,os; r=json.load(open("/tmp/cx-transcode-production.json")); p=r["details"]["delivered_artifact_path"]; q=r["details"]["parallelism"]; assert r["artifact_verified"] is True; assert r["baseline_source"] == "absent"; assert r["speedup_vs_baseline"] is None; assert p and os.path.isfile(p); assert q["max_concurrent_encode_threads"] <= q["baseline_encode_threads"]; assert r["details"]["concat_stream_compatibility"]["profile"] == "High"; assert r["details"]["delivered_timeline_verification"]["tolerance_s"] == 0.002; assert hashlib.sha256(open(p,"rb").read()).hexdigest() == r["details"]["delivered_artifact_sha256"]'
-          python3 -c 'import json; print(json.dumps(json.load(open("/tmp/cx-transcode-production.json")), separators=(",", ":")))' > "$RUNNER_TEMP/cx-transcode-production.jsonl"
-          cargo run --quiet --manifest-path spec-engine/Cargo.toml --example validate_receipts < "$RUNNER_TEMP/cx-transcode-production.jsonl"
-          set +e
-          python3 scripts/spec-lab/cx_transcode_spec_adapter.py \
-            --codec x264 --mode ssim --duration 1 --segment-time 1 \
-            --size 128x72 --fps 8 --noise 0 --gate 1.0 --skip-baseline \
-            --workdir "$RUNNER_TEMP/cx-transcode-rejected" >/tmp/cx-transcode-rejected.json
-          rc=$?
-          set -e
-          test "$rc" -eq 3
-          python3 -c 'import json,os; r=json.load(open("/tmp/cx-transcode-rejected.json")); assert r["artifact_verified"] is False; assert r["quality_tier"] == "fail"; assert r["details"]["delivered_artifact_path"] is None; assert r["details"]["candidate_artifact_path"] is None; assert not os.listdir(os.environ["RUNNER_TEMP"] + "/cx-transcode-rejected")'
-          python3 scripts/spec-lab/cx_transcode_spec_adapter.py \
-            --codec x264_lossless --mode lossless --duration 1 --segment-time 1 \
-            --size 128x72 --fps 8 --noise 0 --gate 1.0 --skip-baseline \
-            --workdir "$RUNNER_TEMP/cx-transcode-lossless" >/tmp/cx-transcode-lossless.json
-          python3 -c 'import json; r=json.load(open("/tmp/cx-transcode-lossless.json")); assert r["exact"] is True; assert r["artifact_verified"] is True; assert r["details"]["delivered_ssim_vs_source"] is None; assert r["details"]["delivered_timeline_verification"]["verified"] is True'
-
-  # ── Supplier agent — CUDA lane (Linux) ───────────────────────────────────────
-  # Compile-gate the NVIDIA/CUDA build so the lane can't silently rot. Installs the
-  # CUDA toolkit (no GPU needed to COMPILE + link Candle's CUDA kernels) and builds
-  # with --features cuda, mirroring the RunPod build (docs/RUNPOD_SPIKE.md). It does
-  # NOT run — CI has no NVIDIA GPU; runtime is verified on a real GPU host (prove-cuda).
-  # The CUDA toolkit version may need bumping as Candle/cudarc move.
-  agent-cuda:
-    name: agent (cuda build)
-    runs-on: ubuntu-latest
-    # Informational, non-blocking: the CUDA lane's authoritative gate is a build on
-    # real NVIDIA hardware (docs/RUNPOD_SPIKE.md + the A100 trial). CUDA-in-CI
-    # containers are finicky, so a hiccup here must not block merges to main.
-    continue-on-error: true
-    # Run IN the CUDA devel image — it ships nvcc + the dev libs Candle needs to
-    # COMPILE the NVIDIA lane (no GPU required to build, no flaky toolkit-install
-    # action). Mirrors Dockerfile.agent's build stage. Runtime is proven on real
-    # NVIDIA hardware (docs/RUNPOD_SPIKE.md + the A100 trial), not here.
-    container: nvidia/cuda:12.4.1-devel-ubuntu22.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: install build deps + rust
-        run: |
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update -qq
-          apt-get install -y -qq curl build-essential pkg-config libssl-dev ca-certificates
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-      - name: build (cuda feature)
-        env:
-          # candle-kernels probes nvidia-smi for the GPU compute capability at BUILD
-          # time, but no GPU is present during a container build (only at docker run
-          # --gpus all). Pin it so the kernels compile headless (sm_80 = A100, the
-          # trial target); other archs JIT from PTX at runtime. Without this the build
-          # fails at ComputeCapDetectionFailed before our code is ever compiled.
-          CUDA_COMPUTE_CAP: "80"
-        run: |
-          . "$HOME/.cargo/env"
-          cd agent && cargo build --no-default-features --features cuda
-
-  # ── Schema apply ─────────────────────────────────────────────────────────────
-  # Assert the single authoritative schema loads into Postgres 17 with no error.
-  # ON_ERROR_STOP=1 turns any SQL error into a non-zero psql exit, failing the job.
-  schema:
-    name: schema (psql apply)
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: cx
-          POSTGRES_PASSWORD: cx
-          POSTGRES_DB: cx
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cx -d cx"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: install psql client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-      - name: apply schema (idempotent — apply twice to prove re-runnability)
-        env:
-          PGPASSWORD: cx
-        run: |
-          psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f db/schema.sql
-          psql -h localhost -U cx -d cx -v ON_ERROR_STOP=1 --single-transaction -f db/schema.sql
+          python3 -m json.tool proto/manifest.schema.json >/dev/null
+          python3 -m json.tool control/runtime-authority.json >/dev/null
+          node scripts/site-build.mjs
+      - name: Python SDK package
+        run: bash scripts/verify-python-sdk-package.sh

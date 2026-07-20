@@ -9,19 +9,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// verificationStore is the complete database surface used by Verifier. Keeping
-// reads and writes behind this narrow boundary lets PlanTaskResult execute the
-// exact production decision logic while replacing every mutation with a typed,
-// ordered effect.
 type verificationStore interface {
-	// Reads.
 	GetHoneypotAnswer(context.Context, string, string) ([]byte, string, error)
 	CandidateWorkers(context.Context, string, string, float32) ([]MatchWorker, error)
 	ChunkResults(context.Context, uuid.UUID, int) ([]ChunkResult, error)
 	TiebreakExists(context.Context, uuid.UUID, int) (bool, error)
 	SelectRedundancyPeerExcluding(context.Context, string, string, float32, uuid.UUID, []uuid.UUID, []uuid.UUID) (uuid.UUID, error)
 
-	// Writes.
 	DockReputation(context.Context, uuid.UUID, ReputationEvent) error
 	RecordVerificationEvent(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) error
 	ClawbackTaskCredit(context.Context, uuid.UUID, uuid.UUID) error
@@ -32,9 +26,6 @@ type verificationStore interface {
 
 var _ verificationStore = (*Store)(nil)
 
-// VerificationEffectKind is a closed description of one mutation requested by
-// verification. Effects are returned in the exact order in which the existing
-// write-through verifier would have issued them.
 type VerificationEffectKind string
 
 const (
@@ -46,11 +37,6 @@ const (
 	VerificationEffectInsertTiebreak VerificationEffectKind = "insert_tiebreak_task"
 )
 
-// VerificationEffect contains the union of arguments needed by the six
-// verification mutation types. Fields irrelevant to Kind are zero-valued. ID is
-// a stable decision-local id derived from (committing task, attempt, ordinal,
-// kind); for InsertTiebreak it is also the task id returned to the decision
-// algorithm. That makes repeated planning of one attempt byte-for-byte stable.
 type VerificationEffect struct {
 	ID              uuid.UUID              `json:"id"`
 	Kind            VerificationEffectKind `json:"kind"`
@@ -65,28 +51,18 @@ type VerificationEffect struct {
 	ChunkIndex      int                    `json:"chunk_index,omitempty"`
 }
 
-// VerificationDecision is the complete, write-free result of verification.
-// Effects are safe to consume only when PlanTaskResult returns a nil error.
 type VerificationDecision struct {
 	Outcome VerifyOutcome        `json:"outcome"`
 	Effects []VerificationEffect `json:"effects"`
 	Failure *VerificationFailure `json:"failure,omitempty"`
 }
 
-// VerificationFailure is the typed, low-cardinality reason a non-payable
-// decision was produced before semantic peer verification. Detail from an
-// untrusted parser is deliberately excluded from the durable plan.
 type VerificationFailure struct {
 	Kind    string `json:"kind"`
 	Code    string `json:"code"`
 	JobType string `json:"job_type"`
 }
 
-// PlanTaskResult runs the production verification algorithm against live reads
-// and object-store fetches, but records every requested database mutation instead
-// of performing it. The receiver is not mutated. A read/fetch error invalidates
-// the whole plan and returns no effects, preventing callers from applying a
-// partially evaluated decision.
 func (v *Verifier) PlanTaskResult(ctx context.Context, info *CommitTaskInfo, commit TaskCommit, commitBytes, redundancyBytes []byte) (VerificationDecision, error) {
 	if info == nil {
 		return VerificationDecision{}, fmt.Errorf("plan verification: nil commit task info")
@@ -98,7 +74,6 @@ func (v *Verifier) PlanTaskResult(ctx context.Context, info *CommitTaskInfo, com
 	}
 	planner := *v
 	planner.store = recorder
-	planner.samplingDecisionObserver = nil
 	planner.planning = true
 
 	outcome, err := planner.verifyTaskResult(ctx, info, commit, commitBytes, redundancyBytes)
@@ -122,17 +97,10 @@ func (r *recordingVerificationStore) append(effect VerificationEffect) uuid.UUID
 	return effect.ID
 }
 
-// verificationEffectID deliberately includes the attempt and ordinal. Replaying
-// the same committed attempt produces identical ids, while a later retry or a
-// differently ordered decision cannot alias an earlier effect.
 func verificationEffectID(taskID uuid.UUID, attempt int16, ordinal int, kind VerificationEffectKind) uuid.UUID {
 	return verificationEffectPayloadID(taskID, attempt, ordinal, VerificationEffect{Kind: kind})
 }
 
-// verificationEffectPayloadID includes the typed payload, not just the ordinal.
-// A re-plan that selects a different peer or targets a different task therefore
-// cannot masquerade behind the same effect identity. InsertTiebreak's TaskID is
-// derived from this ID, so it is cleared before hashing to avoid a cycle.
 func verificationEffectPayloadID(taskID uuid.UUID, attempt int16, ordinal int, effect VerificationEffect) uuid.UUID {
 	data := make([]byte, 0, len(taskID)+2+8+len(effect.Kind)+128)
 	data = append(data, taskID[:]...)
@@ -155,9 +123,6 @@ func verificationEffectPayloadID(taskID uuid.UUID, attempt int16, ordinal int, e
 
 var verificationEffectNamespace = uuid.MustParse("d63f7f13-0178-5dc4-90fd-81caf1074a6f")
 
-// Read methods delegate to the verifier's real store. The explicit nil errors
-// make a no-database verifier usable in pure branches while failing clearly if a
-// branch unexpectedly needs persistence.
 func (r *recordingVerificationStore) GetHoneypotAnswer(ctx context.Context, jobType, inputRef string) ([]byte, string, error) {
 	if r.reads == nil {
 		return nil, "", fmt.Errorf("verification plan requires store read: GetHoneypotAnswer")
@@ -193,7 +158,6 @@ func (r *recordingVerificationStore) SelectRedundancyPeerExcluding(ctx context.C
 	return r.reads.SelectRedundancyPeerExcluding(ctx, jobType, modelRef, minMemoryGB, anchor, also, alsoSuppliers)
 }
 
-// Write methods only append typed effects. They never delegate.
 func (r *recordingVerificationStore) DockReputation(_ context.Context, supplierID uuid.UUID, event ReputationEvent) error {
 	r.append(VerificationEffect{Kind: VerificationEffectDockReputation, SupplierID: supplierID, ReputationEvent: event})
 	return nil

@@ -24,10 +24,6 @@ const (
 
 var errWebhookRedirectRefused = errors.New("webhook redirects are refused")
 
-// net.IP.IsGlobalUnicast intentionally includes several special-use ranges.
-// Those ranges are not safe webhook destinations: many are routed only inside a
-// provider, test network, carrier NAT, or translation domain. Keep the explicit
-// deny-list here so "public" means publicly routable, not merely unicast-shaped.
 var webhookNonPublicPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("0.0.0.0/8"),       // current network / software aliases
 	netip.MustParsePrefix("100.64.0.0/10"),   // carrier-grade NAT shared space
@@ -40,14 +36,11 @@ var webhookNonPublicPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("64:ff9b:1::/48"),  // local-use NAT64 translation
 	netip.MustParsePrefix("100::/64"),        // discard-only
 	netip.MustParsePrefix("2001:2::/48"),     // benchmark networks
-	netip.MustParsePrefix("2001:10::/28"),    // deprecated ORCHID
+	netip.MustParsePrefix("2001:10::/28"),    // reserved ORCHID range
 	netip.MustParsePrefix("2001:20::/28"),    // ORCHIDv2
 	netip.MustParsePrefix("2001:db8::/32"),   // documentation
 }
 
-// webhookIPResolver is the small net.Resolver surface used by the pinned
-// transport. Keeping it injectable lets the SSRF boundary be proven without
-// relying on mutable process-wide DNS state.
 type webhookIPResolver interface {
 	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
 }
@@ -59,9 +52,6 @@ type webhookTargetPolicy struct {
 	tlsConfig    *tls.Config // test-only custom roots/hooks; production leaves this nil
 }
 
-// permanentWebhookDeliveryError marks a destination/configuration failure that
-// cannot become healthy by replaying the same registered URL (invalid URL, an
-// SSRF-blocked address, a refused redirect, or a terminal HTTP response).
 type permanentWebhookDeliveryError struct{ err error }
 
 func (e *permanentWebhookDeliveryError) Error() string { return e.err.Error() }
@@ -87,14 +77,8 @@ func allowPrivateWebhookHosts() bool {
 	return allowPrivateWebhookHostsForProcess(testing.Testing())
 }
 
-// Production has no configuration escape hatch for the SSRF boundary. Tests use
-// injected policies/loopback servers and are the only process mode allowed to
-// reach private addresses.
 func allowPrivateWebhookHostsForProcess(isTest bool) bool { return isTest }
 
-// validateWebhookURLSyntax performs the side-effect-free registration check.
-// DNS is deliberately resolved only at delivery, immediately before dialing;
-// validating it here and dialing it later would recreate a DNS-rebinding gap.
 func validateWebhookURLSyntax(raw string, allowHTTP bool) (*url.URL, error) {
 	if len(raw) == 0 || len(raw) > webhookURLMaxBytes {
 		return nil, fmt.Errorf("webhook url must be between 1 and %d bytes", webhookURLMaxBytes)
@@ -178,11 +162,6 @@ func resolveWebhookTarget(ctx context.Context, raw string, policy webhookTargetP
 	return resolvedWebhookTarget{host: host, port: port, ips: ips}, nil
 }
 
-// webhookPinnedTransport resolves and validates exactly once per request, then
-// dials only that immutable set of IPs while leaving req.URL.Host untouched.
-// net/http therefore sends the registered Host header and uses the registered
-// hostname for TLS SNI/certificate verification, but DNS cannot change between
-// the policy check and the socket connection.
 type webhookPinnedTransport struct {
 	policy webhookTargetPolicy
 }

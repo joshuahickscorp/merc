@@ -1,6 +1,6 @@
 # Golden token-baseline hashes for the DEFAULT batch_infer model on THIS device class.
 #
-# Concept lifted directly from Hawking (crates/hawking-core/tests/golden/*.hashes):
+# Hash fixtures bind deterministic prompt/output behavior to the executor.
 # a small set of (prompt -> greedy-output hash) anchors that pin the token baseline so
 # a future kernel/codegen change that SILENTLY shifts bytes is caught by the gate
 # instead of by a false cross-worker auto-dock.
@@ -10,9 +10,9 @@
 # model:  llama-3.2-1b-instruct-q4 (Llama-3.2-1B-Instruct Q4_K_M GGUF)
 # decode: temperature=0 greedy (argmax), LlamaBackend::generate
 #
-# SCOPE — read docs/DETERMINISM_CLASS.md: these hashes are valid ONLY within a single
+# SCOPE  -  read docs/DETERMINISM_CLASS.md: these hashes are valid ONLY within a single
 # (device, engine, build_hash) verification class. Token-level determinism is
-# IMPOSSIBLE across heterogeneous Apple-Silicon generations (Hawking's own research),
+# impossible across heterogeneous Apple Silicon generations,
 # so this file pins the baseline for the build that RECORDED it, not for every Mac.
 # A mismatch on the SAME class is a real regression (a kernel change shifted bytes);
 # a mismatch on a DIFFERENT class is expected and must NOT be read as a regression.
@@ -22,7 +22,7 @@
 # infer_content_id=c9a43b499231c46b. The harness RECORDS missing rows (CX_GOLDEN_RECORD=1)
 # and GATES against them otherwise (proven: no-record re-runs passed on build_hash 29788fb25f948522).
 # These same hash VALUES were first recorded under build_hash cb257fe8535ef6c7 and re-verified
-# green after the rope_dim fallback edit moved build_hash to 29788fb25f948522 — i.e. the edit is
+# green after the rope_dim fallback edit moved build_hash to 29788fb25f948522  -  i.e. the edit is
 # byte-identical for the Llama default (only the class LABEL changed, as the content-id intends).
 # CAVEAT: device_label is "metal" (coarse, NOT chip-specific), so a DIFFERENT Apple-Silicon
 # generation that lands in the same class could legitimately differ. Re-record on each shipped

@@ -1,4 +1,4 @@
-# computeexchange — Python buyer SDK
+# computeexchange  -  Python buyer SDK
 
 A thin, **dependency-free** client for the Computexchange buyer REST API. The
 runtime uses only stdlib `urllib`; installing the package adds no third-party
@@ -34,7 +34,7 @@ print(out["data"][0]["embedding"][:3], out["model"])
 `estimate(model, units, tier)`, and `embeddings(model, input)`.
 
 Every non-2xx response raises `APIError` carrying the HTTP status and the
-server's error body — failures are surfaced, never swallowed.
+server's error body  -  failures are surfaced, never swallowed.
 
 **Verify the package from a clean environment:**
 
@@ -48,13 +48,6 @@ out of the checkout, imports the installed wheel, checks its metadata and public
 surface, and removes the environment on exit. It does not use `PYTHONPATH` or an
 editable install.
 
-Generic JSON job types: `embed`, `batch_infer`, `batch_classification`,
-`json_extraction`, `rerank`. Variant params (`labels=`, `schema=`, `top_k=`,
-`max_tokens=`, `temperature=`) are passed as keyword args to `submit_job` and
-folded into the tagged `job_type` only when given.
-
-`audio_transcribe` now requires the strict multipart WAV endpoints
-`POST /v1/audio/jobs/quote` and `POST /v1/audio/jobs`; this SDK does not expose
-that development-only surface yet and fails locally instead of sending a generic
-JSON request the server will reject. See `docs/QUICKSTART.md` for the bounded curl
-workflow and its idempotency/retention limitations.
+Supported job types are `embed` and `batch_infer`. Inference parameters
+(`max_tokens=`, `temperature=`) are folded into the tagged job type only when
+given. Any other workload identifier fails locally.

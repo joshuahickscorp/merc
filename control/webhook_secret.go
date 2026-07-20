@@ -20,10 +20,6 @@ var (
 	errWebhookSigningSecretInvalid  = errors.New("webhook signing secret is missing or cannot be opened")
 )
 
-// WebhookRegistration is the one-time authenticated registration result. Secret
-// is returned to the owning buyer but only its AES-GCM sealed representation is
-// stored. Exact duplicate registration returns the same ID and recovered secret,
-// which makes a lost HTTP response safely retryable.
 type WebhookRegistration struct {
 	ID     uuid.UUID
 	Secret string
@@ -36,9 +32,6 @@ func requireWebhookSigningKey() error {
 	return nil
 }
 
-// newWebhookSigningSecret creates 256 bits of URL-safe entropy and seals it with
-// CX_TOKEN_KEY. sealToken's development plaintext fallback is deliberately not
-// accepted here: a webhook is either encrypted at rest or registration fails.
 func newWebhookSigningSecret() (plaintext, sealed string, err error) {
 	if err := requireWebhookSigningKey(); err != nil {
 		return "", "", err
@@ -54,9 +47,6 @@ func newWebhookSigningSecret() (plaintext, sealed string, err error) {
 	return plaintext, sealed, nil
 }
 
-// openWebhookSigningSecret rejects every legacy plaintext/raw/NULL value. It is
-// used only to return an exact duplicate registration to its authenticated owner
-// and immediately before one delivery is signed.
 func openWebhookSigningSecret(sealed string) (string, error) {
 	if !strings.HasPrefix(sealed, "enc:") {
 		return "", errWebhookSigningSecretInvalid
@@ -69,8 +59,6 @@ func openWebhookSigningSecret(sealed string) (string, error) {
 	return plaintext, nil
 }
 
-// signWebhook applies the documented Stripe-like t=...,v1=... envelope with the
-// per-registration secret. There is intentionally no process-global fallback.
 func signWebhook(secret string, body []byte) string {
 	return signWebhookAt(secret, body, time.Now())
 }

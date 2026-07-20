@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# Computexchange — supplier agent uninstaller (macOS). Clean + idempotent: it
-# stops and removes the LaunchAgent and the installed binary, and (only with
-# --purge) removes ~/.compute-exchange (config + logs + model-cache pointer).
-# Downloaded model weights in the shared HF cache are NEVER touched.
-#
-#   scripts/uninstall.sh            stop agent, remove binary + LaunchAgent
-#   scripts/uninstall.sh --purge    the above, plus remove ~/.compute-exchange
-#   scripts/uninstall.sh --check    dry run: print what would be removed
 set -euo pipefail
 
 PREFIX="${CX_PREFIX:-$HOME/.local/bin}"
@@ -24,7 +16,7 @@ case "${1:-}" in
 esac
 
 if [ "$CHECK" = "1" ]; then
-  say "dry run — would remove:"
+  say "dry run  -  would remove:"
   say "  LaunchAgent: $PLIST"
   say "  binary:      $BIN"
   say "  data/config: $HOMEDIR   $( [ "$PURGE" = 1 ] && echo '(--purge)' || echo '(kept; pass --purge to remove)')"
@@ -45,6 +37,6 @@ if [ "$PURGE" = "1" ] && [ -d "$HOMEDIR" ]; then
   rm -rf "$HOMEDIR"
   say "purged $HOMEDIR"
 else
-  [ -d "$HOMEDIR" ] && say "kept $HOMEDIR (config + logs) — pass --purge to remove it"
+  [ -d "$HOMEDIR" ] && say "kept $HOMEDIR (config + logs)  -  pass --purge to remove it"
 fi
 say "done."

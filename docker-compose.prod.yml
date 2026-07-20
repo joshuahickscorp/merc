@@ -1,133 +1,76 @@
-# Computexchange — PRODUCTION stack (claimed droplet, fronted by Caddy).
-#
-# Differences from docker-compose.yml (local dev):
-#   - All credentials come from .env (strong, generated) — never the cx/cx +
-#     minioadmin defaults.
-#   - Postgres is NOT published to the host; MinIO console (9001) is NOT published.
-#   - control + MinIO S3 bind to 127.0.0.1 only · the public edge is the bundled
-#     Caddy service, which terminates TLS and reverse-proxies
-#     computexchange.net -> the control instances (load-balanced) and
-#     storage.computexchange.net -> MinIO.
-#   - control receives Stripe/CX secrets via env_file: .env; infra wiring is set
-#     explicitly below (and overrides any stale localhost values in .env).
-#   - Process HA: a SECOND control instance (control-2) runs behind Caddy. The
-#     Postgres SKIP-LOCKED task queue is multi-instance-safe for dispatch, while
-#     a session advisory lock elects exactly one background-sweep owner and the
-#     standby takes over when that session disappears. Both replicas, Postgres,
-#     MinIO, and Caddy still share one host/failure domain; see docs/RUNBOOKS.md
-#     §HA for that explicit boundary.
-#   - Monitoring (Prometheus/Alertmanager/Grafana + exporters) ships under the
-#     `monitoring` profile, off by default. See monitoring/README.md.
-#
-#   cd /opt/computexchange
-#   docker compose -f docker-compose.prod.yml up -d --build
-#   # with monitoring:
-#   docker compose -f docker-compose.prod.yml --profile monitoring up -d --build
-#
-# .env must define: POSTGRES_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD,
-# STRIPE_SECRET_KEY, the two distinct Stripe endpoint secrets, CX_TOKEN_KEY,
-# CX_VERIFICATION_SAMPLE_SECRET, CX_PUBLIC_CONTROL_ORIGIN, the
-# five versioned CX_ECON_* pricing inputs, and ACME_EMAIL. The publishable Stripe
-# key is browser configuration and is not consumed by the control container. For
-# monitoring + offsite backups see the additional vars in .env.example.
-
-# E2 · bounded container logs. Without this the json-file driver grows
-# unbounded and eventually fills the droplet disk (which halts Postgres). Anchor
-# applied to every long-lived service below.
-x-logging: &default-logging
+x-logging: &logs
   driver: json-file
-  options:
-    max-size: "10m"
-    max-file: "5"
+  options: {max-size: "10m", max-file: "5"}
+
+x-control-env: &control-env
+  CX_ENV: production
+  DATABASE_URL: postgres://cx:${POSTGRES_PASSWORD}@postgres:5432/cx?sslmode=disable
+  LISTEN_ADDR: ":8080"
+  CX_PUBLIC_CONTROL_ORIGIN: ${CX_PUBLIC_CONTROL_ORIGIN:?required}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?required}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?required}
+  CX_CONNECT_WEBHOOK_SECRET: ${CX_CONNECT_WEBHOOK_SECRET:?required}
+  CX_CONNECT_RETURN_URL: ${CX_CONNECT_RETURN_URL:?required}
+  CX_CONNECT_REFRESH_URL: ${CX_CONNECT_REFRESH_URL:?required}
+  CX_TOKEN_KEY: ${CX_TOKEN_KEY:?required}
+  CX_VERIFICATION_SAMPLE_SECRET: ${CX_VERIFICATION_SAMPLE_SECRET:?required}
+  CX_ECON_SCHEDULE_VERSION: ${CX_ECON_SCHEDULE_VERSION:?required}
+  CX_PROCESSOR_PERCENT_BPS: ${CX_PROCESSOR_PERCENT_BPS:?required}
+  CX_PROCESSOR_FIXED_USD: ${CX_PROCESSOR_FIXED_USD:?required}
+  CX_CONTROL_PLANE_PER_TASK_USD: ${CX_CONTROL_PLANE_PER_TASK_USD:?required}
+  CX_TARGET_MARGIN_BPS: ${CX_TARGET_MARGIN_BPS:?required}
+  GOMEMLIMIT: 384MiB
+  S3_ENDPOINT: http://minio:9000
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?required}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-cx-jobs}
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
 
 services:
   postgres:
     image: postgres:17
     environment:
       POSTGRES_USER: cx
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
       POSTGRES_DB: cx
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+    volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cx -d cx"]
+      test: [CMD-SHELL, pg_isready -U cx -d cx]
       interval: 5s
       timeout: 3s
       retries: 10
     restart: unless-stopped
-    logging: *default-logging
-    # E1 · per-service resource caps (single-host compose, non-swarm: mem_limit/cpus
-    # are the v2 keys that apply without `docker stack`). Postgres is the data plane
-    # and gets the largest share; the buffer cache lives here.
-    mem_limit: 1g
-    cpus: 1.0
+    logging: *logs
 
   minio:
     image: minio/minio
-    command: server /data --console-address ":9001"
+    command: server /data
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
-    ports:
-      - "127.0.0.1:9000:9000"   # S3 API, localhost-only; Caddy fronts it publicly
-    volumes:
-      - miniodata:/data
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+    ports: ["127.0.0.1:9000:9000"]
+    volumes: [miniodata:/data]
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      test: [CMD-SHELL, curl -fsS http://localhost:9000/minio/health/live]
       interval: 5s
       timeout: 3s
       retries: 10
     restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 768m
-    cpus: 1.0
+    logging: *logs
 
-  # One-shot: create the jobs bucket with the rotated creds.
   createbuckets:
     image: minio/mc
     depends_on:
-      minio:
-        condition: service_healthy
+      minio: {condition: service_healthy}
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    entrypoint: >
-      /bin/sh -c "
-      set -e;
-      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
-      mc mb -p local/cx-jobs;
-      mc anonymous set none local/cx-jobs;
-      echo 'bucket cx-jobs ready';
-      "
+    entrypoint: >-
+      /bin/sh -c 'mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+      mc mb --ignore-existing local/cx-jobs && mc anonymous set none local/cx-jobs'
     restart: "no"
 
-  # One-shot: apply the authoritative schema once Postgres is healthy.
-  migrate:
-    image: postgres:17
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - ./db/schema.sql:/schema.sql:ro
-    entrypoint: >
-      /bin/sh -c "
-      set -e;
-      psql -v ON_ERROR_STOP=1 --single-transaction -h postgres -U cx -d cx -f /schema.sql;
-      echo 'schema applied';
-      "
-    restart: "no"
-
-  # ── HA control plane: two identical instances behind Caddy ─────────────────
-  # Both run the same image and enter PostgreSQL session-lock leader election
-  # for the background sweeps (payout / stale-task / webhook / reconcile / hedge
-  # / dispute). Exactly one replica runs side effects; the other remains an API
-  # standby and takes over automatically when the leader session disappears.
-  # The task claim path itself remains multi-active via SKIP LOCKED.
-  #   - The Stripe webhook (POST /v1/stripe/webhook) is stateless + signature
-  #     verified and idempotent on the event, so Caddy load-balancing it across
-  #     both instances is safe.
   control:
     build:
       context: .
@@ -136,242 +79,42 @@ services:
         CX_BUILD_VERSION: ${CX_BUILD_VERSION:-dev}
         CX_BUILD_COMMIT: ${CX_BUILD_COMMIT:-unknown}
         CX_BUILD_DATE: ${CX_BUILD_DATE:-unknown}
-    image: computexchange/control:${CX_BUILD_COMMIT:-dev}   # immutable commit tag; control-2 reuses this exact image
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      createbuckets:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment: &control-env
-      # Make the production safety contract explicit. This activates fail-closed
-      # startup even if an operator accidentally supplies a test key or no key.
-      CX_ENV: production
-      DATABASE_URL: postgres://cx:${POSTGRES_PASSWORD}@postgres:5432/cx?sslmode=disable
-      LISTEN_ADDR: ":8080"
-      CX_PUBLIC_CONTROL_ORIGIN: ${CX_PUBLIC_CONTROL_ORIGIN:?set CX_PUBLIC_CONTROL_ORIGIN in .env}
-      SITE_HOST: ${SITE_HOST:-computexchange.net}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?set STRIPE_SECRET_KEY in .env}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?set STRIPE_WEBHOOK_SECRET in .env}
-      CX_CONNECT_WEBHOOK_SECRET: ${CX_CONNECT_WEBHOOK_SECRET:?set CX_CONNECT_WEBHOOK_SECRET in .env}
-      CX_CONNECT_RETURN_URL: ${CX_CONNECT_RETURN_URL:?set CX_CONNECT_RETURN_URL in .env}
-      CX_CONNECT_REFRESH_URL: ${CX_CONNECT_REFRESH_URL:?set CX_CONNECT_REFRESH_URL in .env}
-      CX_TOKEN_KEY: ${CX_TOKEN_KEY:?set CX_TOKEN_KEY in .env}
-      CX_VERIFICATION_SAMPLE_SECRET: ${CX_VERIFICATION_SAMPLE_SECRET:?set CX_VERIFICATION_SAMPLE_SECRET in .env}
-      CX_ECON_SCHEDULE_VERSION: ${CX_ECON_SCHEDULE_VERSION:?set CX_ECON_SCHEDULE_VERSION in .env}
-      CX_PROCESSOR_PERCENT_BPS: ${CX_PROCESSOR_PERCENT_BPS:?set CX_PROCESSOR_PERCENT_BPS in .env}
-      CX_PROCESSOR_FIXED_USD: ${CX_PROCESSOR_FIXED_USD:?set CX_PROCESSOR_FIXED_USD in .env}
-      CX_CONTROL_PLANE_PER_TASK_USD: ${CX_CONTROL_PLANE_PER_TASK_USD:?set CX_CONTROL_PLANE_PER_TASK_USD in .env}
-      CX_TARGET_MARGIN_BPS: ${CX_TARGET_MARGIN_BPS:?set CX_TARGET_MARGIN_BPS in .env}
-      # E1 · GC soft ceiling, set ~85% of the mem_limit below so the Go runtime GCs
-      # harder before the cgroup OOM-kills the container. main.go applies a 300MiB
-      # default only when this is unset; we set it explicitly here to match the cap.
-      GOMEMLIMIT: "384MiB"
-      S3_ENDPOINT: http://minio:9000
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-https://storage.computexchange.net}
-      S3_REGION: us-east-1
-      S3_BUCKET: cx-jobs
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-    # No host port: Caddy (compose network) is the only ingress. Reachable as
-    # control:8080 / control-2:8080 on the network for Caddy + Prometheus.
-    expose:
-      - "8080"
-    healthcheck:
-      test: ["CMD", "/control", "healthcheck"]   # distroless self-probe of /readyz (DB + owned-sweep liveness)
-      interval: 10s
-      timeout: 4s
-      retries: 5
-      start_period: 15s
-    restart: unless-stopped
-    logging: *default-logging
-    # E1 · the control plane is a lean Go binary; cap it at 450MiB (above GOMEMLIMIT
-    # so the GC valve engages before the cgroup kill) and one core.
-    mem_limit: 450m
-    cpus: 1.0
-
-  # Second instance. Reuses the image control builds (no build: of its own) and
-  # the same env (env_file: .env + the *control-env anchor). Depends on control
-  # so the image exists, and on the data plane being healthy. Identical config ·
-  # only the service name (hence network alias control-2) differs.
-  control-2:
     image: computexchange/control:${CX_BUILD_COMMIT:-dev}
     depends_on:
-      control:
-        condition: service_started
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      <<: *control-env
-      # Same leader-election path as control. While it is a follower, /readyz
-      # reflects API/DB readiness; if the leader disappears this replica takes over.
-      CX_RUN_WORKERS: "true"
-    expose:
-      - "8080"
+      postgres: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      createbuckets: {condition: service_completed_successfully}
+    env_file: [.env]
+    environment: *control-env
+    expose: ["8080"]
     healthcheck:
-      test: ["CMD", "/control", "healthcheck"]
+      test: [CMD, /cx, healthcheck]
       interval: 10s
       timeout: 4s
       retries: 5
       start_period: 15s
     restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 450m
-    cpus: 1.0
+    logging: *logs
 
-  # ── Public edge: TLS termination + load-balancing reverse proxy ────────────
   caddy:
     image: caddy:2
     depends_on:
-      control:
-        condition: service_started
-      control-2:
-        condition: service_started
-      minio:
-        condition: service_healthy
+      control: {condition: service_healthy}
+      minio: {condition: service_healthy}
     environment:
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env for Let's Encrypt}
+      ACME_EMAIL: ${ACME_EMAIL:?required}
       SITE_HOST: ${SITE_HOST:-computexchange.net}
       STORAGE_HOST: ${STORAGE_HOST:-storage.computexchange.net}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data     # persists ACME certs/keys across restarts
+      - caddy_data:/data
       - caddy_config:/config
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"        # HTTP/3
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:2019/metrics"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    ports: ["80:80", "443:443", "443:443/udp"]
     restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 256m
-    cpus: 0.5
-
-  # ── Monitoring (opt-in: --profile monitoring) ──────────────────────────────
-  prometheus:
-    image: prom/prometheus:latest
-    profiles: ["monitoring"]
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=30d
-      - --web.enable-lifecycle
-    expose:
-      - "9090"
-    restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 512m
-
-  alertmanager:
-    image: prom/alertmanager:latest
-    profiles: ["monitoring"]
-    env_file:
-      - .env
-    volumes:
-      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.tmpl:ro
-      - alertmanager_data:/alertmanager
-    # envsubst resolves the ${SLACK_WEBHOOK_URL} / ${PAGERDUTY_ROUTING_KEY} /
-    # ${DEADMANSSWITCH_URL} placeholders from the container env at start, then
-    # exec's alertmanager. If a var is unset it expands empty and Alertmanager
-    # logs a loud delivery error on the first alert (never a silent drop).
-    entrypoint:
-      - /bin/sh
-      - -c
-      - >
-        apk add --no-cache gettext >/dev/null 2>&1 || true;
-        envsubst < /etc/alertmanager/alertmanager.tmpl > /tmp/alertmanager.yml;
-        exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager
-    expose:
-      - "9093"
-    restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 128m
-
-  node-exporter:
-    image: prom/node-exporter:latest
-    profiles: ["monitoring"]
-    command:
-      - --path.rootfs=/host
-    pid: host
-    volumes:
-      - /:/host:ro,rslave
-    expose:
-      - "9100"
-    restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 128m
-
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
-    profiles: ["monitoring"]
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
-    devices:
-      - /dev/kmsg
-    privileged: true
-    expose:
-      - "8080"
-    restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 256m
-
-  blackbox-exporter:
-    image: prom/blackbox-exporter:latest
-    profiles: ["monitoring"]
-    volumes:
-      - ./monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
-    expose:
-      - "9115"
-    restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 64m
-
-  grafana:
-    image: grafana/grafana:latest
-    profiles: ["monitoring"]
-    depends_on:
-      - prometheus
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:3000/"
-    volumes:
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
-    ports:
-      - "127.0.0.1:3000:3000"   # localhost-only; reach via SSH tunnel, not Caddy
-    restart: unless-stopped
-    logging: *default-logging
-    mem_limit: 256m
+    logging: *logs
 
 volumes:
   pgdata:
   miniodata:
   caddy_data:
   caddy_config:
-  prometheus_data:
-  alertmanager_data:
-  grafana_data:

@@ -10,10 +10,6 @@ import (
 	"strings"
 )
 
-// EconomicSchedule is the versioned, explicit set of modeled variable costs used
-// by the quote/submit admission guard. A missing version or an invalid value is not
-// silently replaced with zero: BuildEconomicPlan returns a non-executable plan.
-// Actual processor fees are still reconciled later by economic_facts.go.
 type EconomicSchedule struct {
 	Version                string  `json:"version"`
 	ProcessorPercent       float64 `json:"processor_percent"`
@@ -22,10 +18,6 @@ type EconomicSchedule struct {
 	TargetMarginRate       float64 `json:"target_margin_rate"`
 }
 
-// EconomicPlanInput contains only values frozen before a job becomes executable.
-// BaseComputeUSD excludes a refundable SLA premium. ExtraTaskReserve is the
-// maximum additional accepted tiebreak/reverification work the control plane will
-// authorize; a later dispatcher must consume that reserve atomically.
 type EconomicPlanInput struct {
 	BaseComputeUSD   float64 `json:"base_compute_usd"`
 	InitialTaskCount int     `json:"initial_task_count"`
@@ -35,9 +27,6 @@ type EconomicPlanInput struct {
 	FirmQuoteMaxUSD  float64 `json:"firm_quote_max_usd,omitempty"`
 }
 
-// EconomicScenario is a complete worst-case admission scenario. Processor fees
-// are applied to the net amount collected after a modeled SLA refund because the
-// current collection path nets that refund before creating the PaymentIntent.
 type EconomicScenario struct {
 	Name                  string  `json:"name"`
 	AcceptedTasks         int     `json:"accepted_tasks"`
@@ -52,10 +41,6 @@ type EconomicScenario struct {
 	MarginHeadroomUSD     float64 `json:"margin_headroom_usd"`
 }
 
-// EconomicPlan is the frozen quote/submit economics contract. BuyerChargePerTask
-// and SupplierPayoutPerTask are intentionally independent. A buyer-side safety fee
-// therefore cannot leak 95-99% to the supplier through percentage-of-charge payout
-// math, which was the circular margin failure in the old settlement path.
 type EconomicPlan struct {
 	Version                  int                `json:"version"`
 	Schedule                 EconomicSchedule   `json:"schedule"`
@@ -77,9 +62,6 @@ type EconomicPlan struct {
 
 const economicPlanVersion = 2
 
-// economicExtraTaskReserve gives every primary chunk one bounded slot shared by
-// hedge and tiebreak work. The two mechanisms compete for the same persisted
-// reserve; neither can create unpriced work after it is exhausted.
 func economicExtraTaskReserve(primaryTasks int) int {
 	if primaryTasks <= 0 {
 		return 0
@@ -95,10 +77,6 @@ const (
 	targetMarginBPSEnv         = "CX_TARGET_MARGIN_BPS"
 )
 
-// LoadEconomicScheduleFromEnv has no pricing defaults. Processor contracts and
-// platform cost assumptions change; silently assuming zero or a stale card rate
-// would turn a missing deployment setting into permission to lose money. Basis
-// points are used for percentage inputs (350 = 3.50%).
 func LoadEconomicScheduleFromEnv() (EconomicSchedule, error) {
 	version := strings.TrimSpace(os.Getenv(economicScheduleVersionEnv))
 	if version == "" {
@@ -193,17 +171,6 @@ func blockedEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule, reason
 	}
 }
 
-// BuildEconomicPlan constructs the same frozen plan that quote binding and direct
-// submission must use. It raises the buyer-side per-task charge when necessary to
-// cover the supplier liability, a standalone processor fixed fee, the modeled
-// variable fee, control-plane cost, and target margin. Supplier payout remains
-// based on BaseComputeUSD, not on the raised buyer charge.
-//
-// The one-task scenario deliberately assigns a whole processor fixed fee to a
-// single accepted task. This is conservative but necessary: a terminal partial job
-// can contain only one billable result and still create a PaymentIntent. Full jobs
-// may therefore carry more fixed-fee reserve than the eventual single charge uses;
-// actual margin reporting uses the real Stripe fee, never this reserve.
 func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) EconomicPlan {
 	if reason := validateEconomicSchedule(schedule); reason != "" {
 		return blockedEconomicPlan(in, schedule, reason)
@@ -299,9 +266,6 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 	return plan
 }
 
-// ValidateEconomicPlanSnapshot proves a persisted/caller-provided plan is the
-// deterministic output of its own frozen input and schedule. Any edited scalar,
-// scenario, assumption, or executable bit fails closed.
 func ValidateEconomicPlanSnapshot(plan EconomicPlan) error {
 	rebuilt := BuildEconomicPlan(plan.Input, plan.Schedule)
 	if !reflect.DeepEqual(plan, rebuilt) {

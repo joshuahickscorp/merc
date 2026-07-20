@@ -8,13 +8,6 @@ import (
 	"unicode/utf8"
 )
 
-// runtime_matrix.go is the production admission boundary for the generated
-// capability projection. The JSON source remains the only place where a runtime /
-// hardware / job / model cell is promoted to production; admission, registration,
-// scheduling, quote, and routing paths consume only
-// generatedAdvertisedRuntimeCapabilities, which deliberately excludes every
-// hardware_pending, soak_only, stub, and wire_only cell.
-
 func generatedCapabilityHasHWClass(cap generatedRuntimeCapability, hwClass string) bool {
 	for _, candidate := range cap.HardwareClasses {
 		if candidate == hwClass {
@@ -58,11 +51,6 @@ func validateAdvertisedRuntimeJobModel(jobType, modelRef string) error {
 	)
 }
 
-// generatedRuntimeModelRef projects an internal job/model pair onto the model
-// wire kind owned by the generated runtime matrix. It is a shape helper, not an
-// admission helper: callers still pass through validateAdvertisedRuntimeJobModel.
-// Keeping internal adapters on this helper prevents a new hf/mlx model from being
-// silently stamped as gguf just because an older client field once defaulted so.
 func generatedRuntimeModelRef(jobType, modelRef string) ModelRef {
 	ref := ModelRef{Ref: modelRef}
 	for _, cap := range generatedAdvertisedRuntimeCapabilities {
@@ -74,11 +62,6 @@ func generatedRuntimeModelRef(jobType, modelRef string) ModelRef {
 	return ref
 }
 
-// normalizeAdvertisedRuntimeModelRef is the buyer-ingress boundary for ModelRef.
-// The generated runtime matrix owns the wire kind for every executable job/model
-// cell: older clients may omit kind, but a client may not override it. Returning
-// the generated value (instead of merely validating the pair) also makes all
-// downstream internal work independent of client defaults.
 func normalizeAdvertisedRuntimeModelRef(jobType string, submitted ModelRef) (ModelRef, error) {
 	if err := validateAdvertisedRuntimeJobModel(jobType, submitted.Ref); err != nil {
 		return ModelRef{}, err
@@ -93,11 +76,6 @@ func normalizeAdvertisedRuntimeModelRef(jobType string, submitted ModelRef) (Mod
 	return canonical, nil
 }
 
-// projectWorkerRuntimeCapabilities converts the worker's broad wire advertisement
-// into the exact production cells the server is willing to authorize. The worker
-// supplies two independent arrays for compatibility with existing agents, but those
-// arrays are never scheduler authority: only this server-side intersection with the
-// generated production projection is persisted in worker_authorized_capabilities.
 func projectWorkerRuntimeCapabilities(cap WorkerCapability) ([]generatedRuntimeCapability, error) {
 	if err := validateWorkerCapabilityShape(cap); err != nil {
 		return nil, err
@@ -174,10 +152,6 @@ func projectWorkerRuntimeCapabilities(cap WorkerCapability) ([]generatedRuntimeC
 		}
 	}
 
-	// A worker may advertise multiple cells, but it must have enough total memory
-	// for every model it claims runnable. ClaimTask also checks live effective
-	// memory; this registration check prevents an impossible static claim entering
-	// the fleet catalog in the first place.
 	for _, candidate := range projected {
 		if float64(cap.MemoryGB) < candidate.MinMemoryGB {
 			return nil, fmt.Errorf(
@@ -276,10 +250,6 @@ func validateWorkerCapabilityShape(cap WorkerCapability) error {
 	return nil
 }
 
-// validateWorkerRuntimeProjection is the HTTP admission check. UpsertWorker calls
-// projectWorkerRuntimeCapabilities again inside the store boundary before opening
-// its transaction, so a future non-HTTP caller cannot accidentally restore the old
-// array-as-authority behavior.
 func validateWorkerRuntimeProjection(cap WorkerCapability) error {
 	_, err := projectWorkerRuntimeCapabilities(cap)
 	return err
@@ -311,9 +281,6 @@ func validateHeartbeatRuntimeModels(models []string) error {
 	return nil
 }
 
-// validateAdvertisedRuntimeCatalogRows checks the live DB rows needed by every
-// advertised production cell. Extra catalog rows may exist for pending work, but
-// they do not become buyer-visible or admissible merely by existing in Postgres.
 func validateAdvertisedRuntimeCatalogRows(rows []ModelRow) error {
 	byID := make(map[string]ModelRow, len(rows))
 	for _, row := range rows {
@@ -338,9 +305,6 @@ func validateAdvertisedRuntimeCatalogRows(rows []ModelRow) error {
 			return fmt.Errorf("runtime matrix advertises model %q but the DB catalog has no row", modelID)
 		}
 		price := modelPrice(row)
-		if row.JobType == audioUploadJobType {
-			price = row.PricePerUnit
-		}
 		if math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
 			return fmt.Errorf("runtime matrix advertises model %q but its DB price is not positive", modelID)
 		}
@@ -367,29 +331,17 @@ func validateAdvertisedRuntimeCatalogRows(rows []ModelRow) error {
 	return nil
 }
 
-// runtimeWireModelKind maps the catalog's storage/runner family to the closed
-// ModelRef wire vocabulary understood by the agent. Embedding and Whisper weights
-// are fetched from Hugging Face even though their catalog family names are
-// "embed"/"whisper"; GGUF and MLX retain their native wire tags. This mapping is
-// used only to validate that the mutable catalog still agrees with the generated
-// wire kind. ClaimTask reads the generated kind persisted with the exact worker
-// capability row and never re-derives dispatch authority from the live catalog.
 func runtimeWireModelKind(catalogKind string) (string, error) {
 	switch catalogKind {
 	case "gguf":
 		return "gguf", nil
-	case "mlx":
-		return "mlx", nil
-	case "hf", "embed", "whisper":
+	case "hf", "embed":
 		return "hf", nil
 	default:
 		return "", fmt.Errorf("catalog kind %q has no agent wire mapping", catalogKind)
 	}
 }
 
-// ValidateAdvertisedRuntimeCatalog is a startup fail-closed check: production
-// cannot serve a generated capability whose priced catalog row is absent or less
-// conservative than the matrix cell.
 func (s *Store) ValidateAdvertisedRuntimeCatalog(ctx context.Context) error {
 	rows, err := s.ListModels(ctx)
 	if err != nil {

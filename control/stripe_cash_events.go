@@ -29,10 +29,6 @@ const (
 	stripeDisputeCashAvailable
 )
 
-// stripeCashEvent is the normalized, exact-minor-unit subset of a signed Stripe
-// snapshot event that can change whether collected buyer cash is still usable to
-// fund a NEW supplier payout. Raw provider payloads are not retained; the durable
-// event inbox stores their SHA-256 plus stable Stripe identifiers.
 type stripeCashEvent struct {
 	EventID       string
 	EventType     string
@@ -73,9 +69,6 @@ func isStripeCashEventType(eventType string) bool {
 func disputeCashEffect(eventType, status string) (stripeDisputeCashEffect, int) {
 	switch eventType {
 	case stripeEventDisputeCreated:
-		// Stripe inquiry/warning objects do not necessarily withdraw funds. Formal
-		// disputes are conservatively unavailable from creation even if the separate
-		// funds_withdrawn delivery arrives later or out of order.
 		if strings.HasPrefix(status, "warning_") || status == "prevented" {
 			return stripeDisputeCashNoEffect, 0
 		}
@@ -83,8 +76,6 @@ func disputeCashEffect(eventType, status string) (stripeDisputeCashEffect, int) 
 	case stripeEventDisputeFundsWithdrawn:
 		return stripeDisputeCashUnavailable, 20
 	case stripeEventDisputeClosed:
-		// A loss is conclusive unavailability. A win does NOT reopen capacity by
-		// itself: only funds_reinstated proves the platform balance was restored.
 		if status == "lost" {
 			return stripeDisputeCashUnavailable, 30
 		}
@@ -96,8 +87,6 @@ func disputeCashEffect(eventType, status string) (stripeDisputeCashEffect, int) 
 	}
 }
 
-// stripeExpandableID accepts the two documented shapes of an expandable Stripe
-// reference: a plain id string or an expanded object containing an id.
 func stripeExpandableID(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return "", nil
@@ -220,7 +209,7 @@ func nullableStripeID(value string) any {
 	return strings.TrimSpace(value)
 }
 
-func (s *Store) ApplyStripeCashEvent(ctx context.Context, event stripeCashEvent) (stripeCashEventResult, error) {
+func (s *Store) ApplyPaymentEventTx(ctx context.Context, event stripeCashEvent) (stripeCashEventResult, error) {
 	var result stripeCashEventResult
 	if err := validateStripeCashEvent(event); err != nil {
 		return result, err
@@ -315,9 +304,6 @@ func (s *Store) ApplyStripeCashEvent(ctx context.Context, event stripeCashEvent)
 		return result, err
 	}
 
-	// A charge snapshot can supply a PaymentIntent that an earlier, out-of-order
-	// dispute snapshot omitted. Bind those dispute objects now so every later payout
-	// availability check sees the already-recorded dispute.
 	if event.EventType == stripeEventChargeRefunded && resolvedPI != "" {
 		if _, err := tx.Exec(ctx, `
 			UPDATE stripe_dispute_cash_state SET payment_intent=$2,updated_at=now()

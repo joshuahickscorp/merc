@@ -2,10 +2,6 @@ package main
 
 import "context"
 
-// RecoveryBoundary is a stable, test-addressable lifecycle edge. Production
-// wiring uses no probe. Crash integration helpers inject a probe that signals the
-// parent and blocks; the parent then SIGKILLs the child, so rollback/recovery is
-// proved under process death rather than simulated with a returned error or panic.
 type RecoveryBoundary string
 
 const (

@@ -36,10 +36,6 @@ const (
 	verificationWorkErrorMax     = 1000
 )
 
-// VerificationWorkSnapshot is the immutable, per-(task, attempt) staging fact.
-// StagedResultKey and ReportedResultSHA256 are worker/upload metadata only; they
-// are never authoritative artifact evidence. Snapshot is versioned canonical JSON
-// for planner inputs that do not merit mutable columns in this foundation.
 type VerificationWorkSnapshot struct {
 	TaskID               uuid.UUID
 	Attempt              int64
@@ -55,8 +51,6 @@ type VerificationWorkSnapshot struct {
 	HardwareTempC        *float32
 }
 
-// VerificationArtifact is server-observed authority, pinned once after a lease
-// reads/copies the staging object. It cannot be replaced by a later worker write.
 type VerificationArtifact struct {
 	Key    string
 	SHA256 string
@@ -173,11 +167,6 @@ func prepareVerificationSnapshot(in VerificationWorkSnapshot) (VerificationWorkS
 	return in, canonical, digest, nil
 }
 
-// createVerificationWorkTx is the commit-path form of CreateVerificationWork.
-// It deliberately returns no row projection: the caller is still inside the
-// task->verifying transaction, so reading through the pool would not see the new
-// row yet. Exact duplicate commit bodies are accepted; any changed immutable
-// field aborts the surrounding task transaction.
 func createVerificationWorkTx(ctx context.Context, tx pgx.Tx, snapshot VerificationWorkSnapshot) error {
 	snapshot, canonical, digest, err := prepareVerificationSnapshot(snapshot)
 	if err != nil {
@@ -262,10 +251,6 @@ func scanVerificationWork(row verificationRowScanner) (VerificationWork, error) 
 	return out, nil
 }
 
-// PinVerificationSampling persists the reputation-derived probability and HMAC
-// branch once, after the upload transaction is durable but before any artifact
-// or verdict work. A restart therefore cannot change the attempt's audit choice
-// merely because unrelated work changed supplier reputation in the meantime.
 func (s *Store) PinVerificationSampling(ctx context.Context, lease VerificationLease, probability float64, selected bool) (bool, error) {
 	if err := normalizeVerificationLease(lease); err != nil {
 		return false, err
@@ -320,20 +305,6 @@ func (s *Store) VerificationWorkForAttempt(ctx context.Context, taskID uuid.UUID
 		`SELECT `+verificationWorkColumns+` FROM verification_work WHERE task_id=$1 AND attempt=$2`, taskID, attempt))
 }
 
-// OwnsVerificationChunkPlanTurn serializes the crash gap between persisting an
-// immutable decision and applying it. The processor already holds the chunk's
-// session advisory lock while calling this method, so at most one new plan can
-// be created for the chunk. If an earlier process died after persisting a plan,
-// every sibling must wait for that exact plan to reach a terminal verdict before
-// it may observe the chunk and create its own plan. Otherwise a sibling could
-// settle while the first task remained verifying, and the recovered no-peer plan
-// could later pay both disagreeing results without ever comparing them.
-//
-// Existing planned work owns the turn deterministically by (created_at, work_id).
-// With no nonterminal plan, the caller may create the next one while retaining
-// the advisory lock. This is deliberately a read fence rather than a blocking DB
-// lock: callers release their work lease with short backoff and the recovery
-// queue resumes the abandoned plan first.
 func (s *Store) OwnsVerificationChunkPlanTurn(ctx context.Context, workID, jobID uuid.UUID, chunkIndex int) (bool, error) {
 	if workID == uuid.Nil || jobID == uuid.Nil || chunkIndex < 0 {
 		return false, errors.New("verification chunk plan turn requires work, job, and non-negative chunk")
@@ -357,9 +328,6 @@ func (s *Store) OwnsVerificationChunkPlanTurn(ctx context.Context, workID, jobID
 	return owner == workID, nil
 }
 
-// ExactTerminalVerificationCommit recognizes a response-loss replay after the
-// task has already left verifying. Only an exact immutable work snapshot from
-// the same worker is success; a changed body remains a conflict.
 func (s *Store) ExactTerminalVerificationCommit(ctx context.Context, taskID, workerID uuid.UUID, c TaskCommit) (bool, error) {
 	if taskID == uuid.Nil || workerID == uuid.Nil || c.DurationMS > math.MaxInt64 || c.TokensUsed > math.MaxInt64 {
 		return false, nil
@@ -395,8 +363,6 @@ func optionalFloat32Equal(a, b *float32) bool {
 	return *a == *b
 }
 
-// CreateVerificationWork inserts one immutable attempt snapshot. An exact retry
-// returns the existing row with created=false; any changed field is a conflict.
 func (s *Store) CreateVerificationWork(ctx context.Context, snapshot VerificationWorkSnapshot) (work VerificationWork, created bool, err error) {
 	snapshot, canonical, digest, err := prepareVerificationSnapshot(snapshot)
 	if err != nil {
@@ -443,8 +409,6 @@ func (s *Store) CreateVerificationWork(ctx context.Context, snapshot Verificatio
 	return work, false, err
 }
 
-// ClaimVerificationWork atomically leases due or expired work. Every claimed row
-// receives its own random fence token; concurrent control processes use SKIP LOCKED.
 func (s *Store) ClaimVerificationWork(ctx context.Context, owner string, lease time.Duration, limit int) ([]LeasedVerificationWork, error) {
 	owner = strings.TrimSpace(owner)
 	if owner == "" || len(owner) > 200 || lease <= 0 || limit <= 0 {
@@ -507,10 +471,6 @@ func (s *Store) ClaimVerificationWork(ctx context.Context, owner string, lease t
 	return out, nil
 }
 
-// ClaimVerificationWorkForAttempt is the request fast path. It uses the same
-// fenced lease transition as the batch recovery claim but targets the commit the
-// caller just durably enqueued. A live competing lease is reported as busy so the
-// HTTP handler can return 202 while the autonomous recovery worker finishes it.
 func (s *Store) ClaimVerificationWorkForAttempt(ctx context.Context, taskID uuid.UUID, attempt int64, owner string, lease time.Duration) (LeasedVerificationWork, error) {
 	var out LeasedVerificationWork
 	owner = strings.TrimSpace(owner)
@@ -559,12 +519,6 @@ func normalizeVerificationLease(lease VerificationLease) error {
 	return nil
 }
 
-// RenewVerificationLease extends a still-live fenced lease without changing its
-// owner or token. Verification can include object-store reads and an N-way vote,
-// so a fixed lease that is never renewed would let a second control process steal
-// the same attempt while the first one is still doing useful work. The terminal
-// transaction still rechecks the same token and expiry; renewal only preserves
-// ownership while that work is actively making progress.
 func (s *Store) RenewVerificationLease(ctx context.Context, lease VerificationLease, extension time.Duration) (VerificationLease, error) {
 	if err := normalizeVerificationLease(lease); err != nil {
 		return VerificationLease{}, err
@@ -589,8 +543,6 @@ func (s *Store) RenewVerificationLease(ctx context.Context, lease VerificationLe
 	return lease, nil
 }
 
-// PinVerificationArtifact performs the one-time fenced NULL->artifact CAS.
-// Exact retry is a no-op; a different key/hash/size can never replace authority.
 func (s *Store) PinVerificationArtifact(ctx context.Context, lease VerificationLease, artifact VerificationArtifact) (bool, error) {
 	if err := normalizeVerificationLease(lease); err != nil {
 		return false, err
@@ -674,7 +626,6 @@ func (s *Store) PinVerificationArtifact(ctx context.Context, lease VerificationL
 	return false, ErrVerificationWorkConflict
 }
 
-// ReleaseVerificationWork returns a live fenced lease to pending retry state.
 func (s *Store) ReleaseVerificationWork(ctx context.Context, lease VerificationLease, retryAt time.Time, cause string) error {
 	if err := normalizeVerificationLease(lease); err != nil {
 		return err
@@ -698,9 +649,6 @@ func (s *Store) ReleaseVerificationWork(ctx context.Context, lease VerificationL
 	return nil
 }
 
-// MarkVerificationWorkTerminal fences the final durable decision marker. It is
-// intentionally separate from verdict/settlement integration for now. A commit-
-// response retry with the exact outcome+digest succeeds idempotently.
 func (s *Store) MarkVerificationWorkTerminal(ctx context.Context, lease VerificationLease, outcome VerifyOutcome, decisionSHA256 string) (bool, error) {
 	if err := normalizeVerificationLease(lease); err != nil {
 		return false, err

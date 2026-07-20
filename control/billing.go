@@ -21,35 +21,17 @@ import (
 	"github.com/google/uuid"
 )
 
-// billing.go — the BUYER side of money (payment.go is the supplier-payout side).
-// Scaffolds Stripe: one customer per buyer, a SetupIntent to save a card, and an
-// off-session charge when a job is billed. Gated on STRIPE_SECRET_KEY exactly like
-// the payout rail — with no key, every call returns errBillingUnconfigured and
-// NOTHING is charged or faked (BLACKHOLE: surface every failure, never a fake
-// success). The internal ledger (payment.go) stays the source of truth for what is
-// owed; this rail is the external money-in that reconciles against it.
+var errBillingUnconfigured = fmt.Errorf("billing is not configured (set STRIPE_SECRET_KEY)  -  no charge is made or faked")
 
-var errBillingUnconfigured = fmt.Errorf("billing is not configured (set STRIPE_SECRET_KEY) — no charge is made or faked")
-
-// These package seams keep every Stripe call on the same implementation while
-// letting adversarial httptest servers exercise the real request/response parser.
-// Production never mutates them.
 var (
 	stripeAPIBaseURL = "https://api.stripe.com/v1"
 	stripeHTTPClient = &http.Client{Timeout: 20 * time.Second}
 )
 
-// Stripe's JSON objects are small. This ceiling is intentionally generous for
-// expanded PaymentIntent/charge objects while preventing a faulty or compromised
-// upstream from consuming the control plane's heap within the client timeout.
 const stripeAPIResponseMaxBytes int64 = 2 << 20
 
-// stripeKey is the shared Stripe secret (same env var as the payout rail).
 func stripeKey() string { return os.Getenv("STRIPE_SECRET_KEY") }
 
-// stripeForm POSTs an x-www-form-urlencoded request to the Stripe API and decodes
-// the JSON object. idemKey, when set, is sent as Idempotency-Key so a retried
-// charge never double-bills. A missing key is the honest unconfigured error.
 func stripeForm(ctx context.Context, path string, form url.Values, idemKey string) (map[string]any, error) {
 	key := stripeKey()
 	if key == "" {
@@ -84,8 +66,6 @@ func stripeForm(ctx context.Context, path string, form url.Values, idemKey strin
 	return out, nil
 }
 
-// ensureStripeCustomer returns the buyer's Stripe customer id, creating + storing
-// it on first use. Honest unconfigured error without a key.
 func ensureStripeCustomer(ctx context.Context, store *Store, buyerID uuid.UUID) (string, error) {
 	if cust, _, err := store.GetBillingCustomer(ctx, buyerID); err == nil && cust != "" {
 		return cust, nil
@@ -104,8 +84,6 @@ func ensureStripeCustomer(ctx context.Context, store *Store, buyerID uuid.UUID) 
 	return cust, nil
 }
 
-// setupIntent creates a SetupIntent so the buyer's app (Stripe.js) can collect and
-// save a card against their customer. Returns the client_secret.
 func setupIntent(ctx context.Context, store *Store, buyerID uuid.UUID) (string, error) {
 	cust, err := ensureStripeCustomer(ctx, store, buyerID)
 	if err != nil {
@@ -122,9 +100,6 @@ func setupIntent(ctx context.Context, store *Store, buyerID uuid.UUID) (string, 
 	return cs, nil
 }
 
-// ChargeResult is the exact successful cash fact returned by Stripe. PI and
-// Charge ids are both required: disputes can omit payment_intent but always bind
-// to the charge. Amounts are integer minor units; internal USD is not cash proof.
 type ChargeResult struct {
 	PaymentIntentID string
 	ChargeID        string
@@ -133,8 +108,6 @@ type ChargeResult struct {
 	Currency        string
 }
 
-// stripeIntegerField reads one integer-valued Stripe JSON field without silently
-// accepting a fractional, negative, non-finite, or float-rounded value.
 func stripeIntegerField(out map[string]any, field string) (int64, error) {
 	v, ok := out[field].(float64)
 	if !ok || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || math.Trunc(v) != v || v > math.MaxInt64 {
@@ -143,10 +116,6 @@ func stripeIntegerField(out map[string]any, field string) (int64, error) {
 	return int64(v), nil
 }
 
-// chargePaymentIntent sends the exact integer-cent request and accepts only a
-// terminal, successful cash result for precisely that amount and currency. A
-// 2xx requires_action/processing response is not collection, and neither is a
-// malformed or error-shaped 2xx body.
 func chargePaymentIntent(ctx context.Context, customer, paymentMethod string, cents int64, currency, idemKey string) (ChargeResult, error) {
 	if cents <= 0 {
 		return ChargeResult{}, fmt.Errorf("non-positive charge amount %d cents", cents)
@@ -253,9 +222,6 @@ func parseStripeSucceededPaymentIntent(object json.RawMessage) (string, ChargeRe
 	}, true, nil
 }
 
-// chargeBuyer makes one off-session charge attempt only after committing a durable
-// outcome_unknown request operation. The stable Stripe key is defense-in-depth;
-// production never blindly retries the external request after this boundary.
 func chargeBuyer(
 	ctx context.Context,
 	store *Store,
@@ -295,10 +261,6 @@ func chargeBuyer(
 	return charge, nil
 }
 
-// --- handlers ---
-
-// handleBillingSetup returns a SetupIntent client_secret the buyer's app uses to
-// save a card. 503 with an honest reason until STRIPE_SECRET_KEY is set.
 func (s *Server) handleBillingSetup(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxBuyer).(*AuthResult)
 	cs, err := setupIntent(r.Context(), s.store, auth.BuyerID)
@@ -309,8 +271,6 @@ func (s *Server) handleBillingSetup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"client_secret": cs})
 }
 
-// handleBillingStatus reports whether billing is configured and whether THIS buyer
-// has a customer + a saved card. Honest about the unconfigured state.
 func (s *Server) handleBillingStatus(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxBuyer).(*AuthResult)
 	cust, pm, err := s.store.GetBillingCustomer(r.Context(), auth.BuyerID)
@@ -325,26 +285,12 @@ func (s *Server) handleBillingStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- Stripe webhooks + auto-charge ---
-
-// stripeSigTolerance bounds how far a webhook's own claimed timestamp may drift
-// from wall-clock "now" before it is rejected — Stripe's own client libraries
-// default to 5 minutes for exactly this reason (Security Posture 6.5->7,
-// docs/internal/CREED_AND_PATH_TO_TEN.md): without it, a signature is valid
-// forever once computed, so a captured request body (e.g. from a proxy log, a
-// misconfigured debug tool, or a compromised intermediary) stays replayable
-// indefinitely — the HMAC alone never expires on its own.
 const stripeSigTolerance = 5 * time.Minute
 
-// verifyStripeSig checks a Stripe-Signature header (t=…,v1=…) against the webhook
-// secret: real HMAC-SHA256 over "t.payload", constant-time compared, AND that the
-// header's own claimed timestamp is within stripeSigTolerance of now.
 func verifyStripeSig(payload []byte, sigHeader, secret string) bool {
 	return verifyStripeSigAt(payload, sigHeader, secret, time.Now())
 }
 
-// verifyStripeSigAt is verifyStripeSig with an injectable clock, so replay-window
-// behavior is unit-testable without a real wall-clock race.
 func verifyStripeSigAt(payload []byte, sigHeader, secret string, now time.Time) bool {
 	var t string
 	var v1s []string
@@ -378,9 +324,6 @@ func verifyStripeSigAt(payload []byte, sigHeader, secret string, now time.Time) 
 	mac.Write([]byte(t + "." + string(payload)))
 	expected := []byte(hex.EncodeToString(mac.Sum(nil)))
 	valid := false
-	// During endpoint-secret rotation Stripe can include more than one v1 value.
-	// Accept the event when ANY candidate matches, and still compare every candidate
-	// so the position of the matching signature does not alter control flow.
 	for _, candidate := range v1s {
 		if hmac.Equal(expected, []byte(candidate)) {
 			valid = true
@@ -393,11 +336,6 @@ type billingPMSetter func(context.Context, string, string) error
 type stripeCashEventApplier func(context.Context, stripeCashEvent) (stripeCashEventResult, error)
 type buyerChargeReconciler func(context.Context, string, ChargeResult) error
 
-// handleStripeWebhookWithSetter contains the signature-verified webhook path with
-// one narrow dependency seam. Production passes Store.SetBillingPMByCustomer;
-// tests can force a database failure without a live Postgres. A failed or unknown
-// customer update must be non-2xx so Stripe retries instead of permanently losing
-// the saved-card state transition.
 func handleStripeWebhookWithSetter(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -505,9 +443,6 @@ func handleStripeWebhookWithAllHandlers(
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleStripeWebhook receives Stripe events (unauthed — verified by signature) and
-// reconciles billing state: a saved card sets the buyer's default payment method so
-// the auto-charge can run. Gated on STRIPE_WEBHOOK_SECRET (honest 503 without it).
 func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 	secret := os.Getenv("STRIPE_WEBHOOK_SECRET")
 	if secret == "" {
@@ -515,30 +450,15 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handleStripeWebhookWithAllHandlers(
-		w, r, secret, s.store.SetBillingPMByCustomer, s.store.ApplyStripeCashEvent,
+		w, r, secret, s.store.SetBillingPMByCustomer, s.store.ApplyPaymentEventTx,
 		s.store.ReconcileBuyerChargeOperation,
 	)
 }
 
-// chargeForJob bills the buyer's saved card for a completed job's actual cost.
-// GATED: with no Stripe key OR no saved card it is a no-op — the internal ledger
-// still records what is owed, so nothing is faked and the proven lifecycle is
-// unchanged. Idempotent by job id so a re-finalize never double-charges. The
-// actual decision + charge live in chargeOrDeferJob so the charge-collect sweep
-// (collect.go) can route watchdog/fail-settled jobs through the SAME logic.
 func (s *Server) chargeForJob(ctx context.Context, jobID uuid.UUID) {
 	chargeOrDeferJob(ctx, s.store, jobID)
 }
 
-// chargeOrDeferJob is the single immediate-or-defer charge decision for one
-// settled job. Below the CX_CHARGE_MIN_USD batching threshold the job is marked
-// 'deferred' — deliberately NOT charged alone (Stripe's ~30¢ fixed fee would eat
-// a sub-threshold charge), left for the charge-collect sweep to batch per buyer.
-// At or above the threshold it charges immediately, exactly as before: no key →
-// no-op; no saved card → 'no_payment_method' (owed, surfaced on the timeline);
-// a pre-request Stripe/setup failure may remain 'failed' for a later attempt. Once
-// the durable external boundary is armed, any error remains outcome_unknown and is
-// reconciled by signed Stripe evidence rather than blindly retried.
 func chargeOrDeferJob(ctx context.Context, store *Store, jobID uuid.UUID) {
 	if stripeKey() == "" {
 		return
@@ -547,12 +467,6 @@ func chargeOrDeferJob(ctx context.Context, store *Store, jobID uuid.UUID) {
 	if err != nil || usd <= 0 {
 		return
 	}
-	// DOUBLE-CHARGE GUARD: only a job whose charge was never decided may be decided
-	// here. finalizeJobIfDone re-runs on late sibling commits (hedge/redundancy) and
-	// would otherwise re-decide a job that is already charged or deferred — worst
-	// case flipping 'charged' back to 'deferred' and re-charging it under a NEW
-	// batch idempotency key, which Stripe cannot dedupe. Every later transition is
-	// owned by the charge-collect sweep, never by a re-finalize.
 	if st, serr := store.JobChargeStatus(ctx, jobID); serr != nil || st != "not_attempted" {
 		return
 	}
@@ -565,17 +479,10 @@ func chargeOrDeferJob(ctx context.Context, store *Store, jobID uuid.UUID) {
 	cust, pm, err := store.GetBillingCustomer(ctx, buyerID)
 	if err != nil || cust == "" || pm == "" {
 		_ = store.SetChargeStatus(ctx, jobID, "no_payment_method")
-		// Surface the silent debt on the buyer's timeline (best-effort): the work ran
-		// and is owed, but there was no saved card to charge off-session.
 		_ = store.InsertJobEvent(ctx, jobID, nil, "charge_failed",
 			"Job complete but no saved payment method · amount is owed and will be charged once a card is on file", nil)
-		return // no saved card → nothing to charge off-session (still owed in the ledger)
+		return // no saved card -> nothing to charge off-session (still owed in the ledger)
 	}
-	// Freeze the attempted amount BEFORE the charge: retries must replay the SAME
-	// (key, amount) pair. If actual_usd drifted after a failed attempt (a late
-	// sibling commit re-settling), reusing the key with a different amount is a
-	// permanent Stripe idempotency_error loop — and a double charge once the key
-	// expires. The frozen figure is what every retry charges.
 	if ferr := store.FreezeChargeAmount(ctx, jobID, usd); ferr != nil {
 		log.Printf("billing: freezing charge amount for job %s: %v (charge deferred to the sweep)", jobID, ferr)
 		return
@@ -585,7 +492,6 @@ func chargeOrDeferJob(ctx context.Context, store *Store, jobID uuid.UUID) {
 		if !errors.Is(err, errBuyerChargeOutcomeUnknown) {
 			_ = store.SetChargeStatus(ctx, jobID, "failed")
 		}
-		// Make the charge failure visible to the buyer (best-effort), not just a log line.
 		_ = store.InsertJobEvent(ctx, jobID, nil, "charge_failed",
 			"Charge for this job failed · amount is owed and will be reconciled", nil)
 		log.Printf("billing: charge for job %s failed or is outcome_unknown (owed, will reconcile without a blind retry): %v", jobID, err)
@@ -595,21 +501,11 @@ func chargeOrDeferJob(ctx context.Context, store *Store, jobID uuid.UUID) {
 		log.Printf("billing: marking job %s charged (pi %s): %v", jobID, charge.PaymentIntentID, serr)
 		return
 	}
-	// Record the REAL Stripe fee (never estimated). A fetch failure is logged and
-	// left to the charge-collect sweep's backfill scan — the charge itself stands.
 	if ferr := recordStripeFee(ctx, store, buyerID, charge.PaymentIntentID); ferr != nil {
 		log.Printf("billing: stripe fee for job %s (pi %s) not recorded yet: %v (backfilled by the charge-collect sweep)", jobID, charge.PaymentIntentID, ferr)
 	}
 }
 
-// recordStripeFee fetches the REAL processing fee of a successful PaymentIntent
-// (latest_charge.balance_transaction.fee, integer cents) and inserts exactly one
-// negative 'stripe_fee' ledger row with payout_ref = the PI id. Idempotent: a PI
-// that already has its fee row is a clean no-op (INSERT-if-absent, backed by the
-// ledger_stripe_fee_ref_uniq index), so the finalize path and the backfill sweep
-// can both call this without double-counting. A missing/not-yet-settled
-// balance_transaction is an error (retried by the backfill scan) — the fee is
-// never guessed.
 func recordStripeFee(ctx context.Context, store *Store, buyerID uuid.UUID, pi string) error {
 	if pi == "" {
 		return fmt.Errorf("no payment intent id to fetch a fee for")
@@ -622,21 +518,17 @@ func recordStripeFee(ctx context.Context, store *Store, buyerID uuid.UUID, pi st
 	bt, _ := lc["balance_transaction"].(map[string]any)
 	feeCents, ok := bt["fee"].(float64) // JSON number; Stripe fees are integer cents
 	if !ok {
-		return fmt.Errorf("payment intent %s: latest_charge.balance_transaction.fee absent (not settled yet?) — fee not recorded, never estimated", pi)
+		return fmt.Errorf("payment intent %s: latest_charge.balance_transaction.fee absent (not settled yet?)  -  fee not recorded, never estimated", pi)
 	}
 	if err := store.InsertStripeFee(ctx, buyerID, pi, feeCents/100); err != nil {
 		return err
 	}
-	// A direct PI is a clean no-op. For a charge batch this persists the exact
-	// frozen-billed-weight allocation immediately; recomputing economics is the
-	// idempotent backstop for pre-migration/transiently missed allocations.
 	if _, err := store.AllocateBatchStripeFee(ctx, pi); err != nil {
 		return fmt.Errorf("stripe fee recorded for %s but batch allocation is pending: %w", pi, err)
 	}
 	return nil
 }
 
-// stripeGet does a GET against the Stripe API (used by the Connect status check).
 func stripeGet(ctx context.Context, path string) (map[string]any, error) {
 	key := stripeKey()
 	if key == "" {

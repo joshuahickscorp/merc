@@ -1,271 +1,104 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://compute.exchange/proto/manifest.schema.json",
-  "title": "Computexchange wire contract",
-  "description": "Canonical JSON Schema for the messages shared between the Go control plane (control/types.go) and the Rust supplier agent (agent/src/types.rs). This file is the single source of truth for the wire shape (the project 'horizon'): snake_case property names, snake_case string enums, an internally-tagged JobType. It is documentation and validation; the two binaries are checked AGAINST it, they do not generate from it. Keep all three in lockstep.",
-
+  "title": "Compute Exchange wire contract",
   "$defs": {
     "uuid": {
       "type": "string",
       "format": "uuid",
       "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
     },
-
-    "base64": {
-      "type": "string",
-      "description": "Standard base64 (e.g. the honeypot expected answer).",
-      "pattern": "^[A-Za-z0-9+/]*={0,2}$"
-    },
-
     "hw_class": {
-      "type": "string",
-      "description": "Hardware capability class. apple_silicon_cluster (Plane B) is a co-located Mac cluster registering as one worker with SUMMED member memory. The nvidia_* classes are the NVIDIA/CUDA lane, tiered by VRAM (the gating resource on NVIDIA); they are a DISTINCT family from Apple so within-class verification never compares across architectures (FP kernels differ Metal/CUDA).",
-      "enum": [
-        "apple_silicon_base",
-        "apple_silicon_pro",
-        "apple_silicon_max",
-        "apple_silicon_ultra",
-        "apple_silicon_cluster",
-        "nvidia_24g",
-        "nvidia_48g",
-        "nvidia_80g",
-        "nvidia_180g",
-        "cpu"
-      ]
+      "enum": ["apple_silicon_base", "apple_silicon_pro", "apple_silicon_max", "apple_silicon_ultra"]
     },
-
-    "tier": {
-      "type": "string",
-      "description": "Service tier.",
-      "enum": ["batch", "priority", "trusted"]
-    },
-
-    "model_kind": {
-      "type": "string",
-      "description": "How to resolve ModelRef.ref.",
-      "enum": ["gguf", "hf", "mlx"]
-    },
-
+    "tier": { "enum": ["batch", "priority", "trusted"] },
+    "model_kind": { "enum": ["gguf", "hf"] },
+    "job_tag": { "enum": ["embed", "batch_infer"] },
     "ModelRef": {
       "type": "object",
-      "description": "Reference to a model. Wire: {\"kind\":\"gguf\",\"ref\":\"llama3.1-70b-q4_k_m\"}.",
       "properties": {
         "kind": { "$ref": "#/$defs/model_kind" },
-        "ref": {
-          "type": "string",
-          "description": "GGUF key | HuggingFace repo id | MLX model id, per kind."
-        }
+        "ref": { "type": "string", "minLength": 1 }
       },
       "required": ["kind", "ref"],
       "additionalProperties": false
     },
-
     "JobType": {
-      "type": "object",
-      "description": "Internally-tagged job descriptor. The `type` field discriminates; the remaining fields are the variant payload, flattened alongside `type` (serde `#[serde(tag = \"type\")]`). Wire examples: {\"type\":\"embed\",\"batch_size\":64}, {\"type\":\"batch_infer\",\"max_tokens\":512,\"temperature\":0.0}.",
-      "required": ["type"],
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": ["embed", "batch_infer", "audio_transcribe", "image_gen", "eval", "lora_finetune", "batch_classification", "json_extraction", "rerank", "custom"]
-        }
-      },
       "oneOf": [
         {
-          "title": "embed",
+          "type": "object",
           "properties": {
             "type": { "const": "embed" },
-            "batch_size": { "type": "integer", "minimum": 1 },
-            "binary": {
-              "type": "boolean",
-              "description": "Opt-in compact float32 output (PLANE_D D5/D15). When true the agent emits a binary embedding artifact (magic header + packed little-endian f32 rows) instead of the JSON vectors array; absent/false keeps JSON (the default). Optional — a peer that omits it decodes to false."
-            }
+            "batch_size": { "type": "integer", "minimum": 0 },
+            "binary": { "type": "boolean" }
           },
-          "required": ["type", "batch_size"],
+          "required": ["type"],
           "additionalProperties": false
         },
         {
-          "title": "batch_infer",
+          "type": "object",
           "properties": {
             "type": { "const": "batch_infer" },
             "max_tokens": { "type": "integer", "minimum": 0 },
             "temperature": { "type": "number" }
           },
-          "required": ["type", "max_tokens", "temperature"],
-          "additionalProperties": false
-        },
-        {
-          "title": "audio_transcribe",
-          "properties": {
-            "type": { "const": "audio_transcribe" },
-            "language": { "type": ["string", "null"], "description": "BCP-47 hint, or null to auto-detect." },
-            "timestamps": { "type": "boolean" }
-          },
-          "required": ["type", "language", "timestamps"],
-          "additionalProperties": false
-        },
-        {
-          "title": "image_gen",
-          "properties": {
-            "type": { "const": "image_gen" },
-            "resolution": {
-              "type": "array",
-              "description": "[width, height] in pixels.",
-              "prefixItems": [
-                { "type": "integer", "minimum": 1 },
-                { "type": "integer", "minimum": 1 }
-              ],
-              "items": false,
-              "minItems": 2,
-              "maxItems": 2
-            },
-            "steps": { "type": "integer", "minimum": 1 }
-          },
-          "required": ["type", "resolution", "steps"],
-          "additionalProperties": false
-        },
-        {
-          "title": "eval",
-          "properties": {
-            "type": { "const": "eval" },
-            "rubric": {
-              "type": "object",
-              "description": "Arbitrary evaluation rubric (free-form object; structure defined by the buyer)."
-            }
-          },
-          "required": ["type", "rubric"],
-          "additionalProperties": false
-        },
-        {
-          "title": "lora_finetune",
-          "properties": {
-            "type": { "const": "lora_finetune" },
-            "epochs": { "type": "integer", "minimum": 1 },
-            "lr": { "type": "number", "exclusiveMinimum": 0 },
-            "checkpoint_every": { "type": "integer", "minimum": 1 }
-          },
-          "required": ["type", "epochs", "lr", "checkpoint_every"],
-          "additionalProperties": false
-        },
-        {
-          "title": "batch_classification",
-          "description": "Assign each input text exactly one label from `labels` (warm Llama, top-1).",
-          "properties": {
-            "type": { "const": "batch_classification" },
-            "labels": { "type": "array", "items": { "type": "string" }, "description": "Closed label set the model picks from." }
-          },
-          "required": ["type", "labels"],
-          "additionalProperties": false
-        },
-        {
-          "title": "json_extraction",
-          "description": "Extract one JSON object per input text conforming to `schema` (warm Llama).",
-          "properties": {
-            "type": { "const": "json_extraction" },
-            "schema": { "type": "object", "description": "JSON schema each extracted item must conform to (free-form object)." }
-          },
-          "required": ["type", "schema"],
-          "additionalProperties": false
-        },
-        {
-          "title": "rerank",
-          "description": "Re-order each query's candidate docs by relevance (warm MiniLM, cosine).",
-          "properties": {
-            "type": { "const": "rerank" },
-            "top_k": { "type": "integer", "minimum": 0, "description": "Cut the ranking to the top-K documents; 0 = keep all." }
-          },
-          "required": ["type", "top_k"],
-          "additionalProperties": false
-        },
-        {
-          "title": "custom",
-          "description": "GENERAL-COMPUTE SEAM (ACCRETION.md §7-8): an opaque bring-your-own-container compute job for the metered NVIDIA GPU-second lane (simulation / render / HPC / training / ZK). It carries a `command` to run and/or a container `image` reference; the agent does NOT yet execute it — the sandboxed BYO-container runner (gVisor/Kata + GPU cgroup limits + metered billing) is the next build, so a dispatched `custom` task fails with an HONEST typed error rather than a fabricated result. Unlike the verified AI catalogue (honeypot/redundancy on a known answer), arbitrary compute has no known answer, so this lane is metered per GPU-second with attestation, never output-checked.",
-          "properties": {
-            "type": { "const": "custom" },
-            "image": {
-              "description": "OCI container image reference (e.g. `docker.io/org/sim:tag` or a registry digest) the job runs in, or null when only `command` is given.",
-              "oneOf": [ { "type": "null" }, { "type": "string" } ]
-            },
-            "command": {
-              "type": "array",
-              "description": "Argv the sandbox executes inside the image (e.g. [\"python\",\"sim.py\"]). Empty = the image's own entrypoint.",
-              "items": { "type": "string" }
-            }
-          },
-          "required": ["type", "image", "command"],
+          "required": ["type"],
           "additionalProperties": false
         }
       ]
     },
-
     "InputRef": {
       "type": "object",
-      "description": "One input object: a fetch URL plus its size.",
       "properties": {
-        "url": { "type": "string", "description": "Presigned S3 GET URL, or inline reference for small payloads." },
+        "url": { "type": "string" },
         "bytes": { "type": "integer", "minimum": 0 }
       },
       "required": ["url", "bytes"],
       "additionalProperties": false
     },
-
     "OutputRef": {
       "type": "object",
-      "description": "Where the merged result is written.",
-      "properties": {
-        "url": { "type": "string" }
-      },
+      "properties": { "url": { "type": "string" } },
       "required": ["url"],
       "additionalProperties": false
     },
-
     "JobConstraints": {
       "type": "object",
-      "description": "Narrows which workers may run a job.",
       "properties": {
         "min_memory_gb": { "type": "number", "minimum": 0 },
         "hw_classes": {
-          "description": "null = any hardware class.",
-          "oneOf": [
-            { "type": "null" },
-            { "type": "array", "items": { "$ref": "#/$defs/hw_class" } }
-          ]
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/hw_class" }
         },
         "max_duration_secs": { "type": "integer", "minimum": 0 },
         "data_residency": {
-          "description": "ISO country codes to restrict to, e.g. [\"CA\",\"US\"]; null = unrestricted.",
-          "oneOf": [
-            { "type": "null" },
-            { "type": "array", "items": { "type": "string" } }
-          ]
+          "type": ["array", "null"],
+          "items": { "type": "string", "minLength": 2, "maxLength": 2 }
         }
       },
       "required": ["min_memory_gb", "hw_classes", "max_duration_secs", "data_residency"],
       "additionalProperties": false
     },
-
     "VerificationPolicy": {
       "type": "object",
-      "description": "Honeypot/redundancy rates and payout hold for a job.",
       "properties": {
-        "redundancy_frac": { "type": "number", "minimum": 0, "maximum": 1, "description": "Fraction of tasks re-run on the same HW class, e.g. 0.10." },
-        "honeypot_frac":   { "type": "number", "minimum": 0, "maximum": 1, "description": "Fraction of tasks that are known-answer honeypots, e.g. 0.02." },
-        "payout_hold_secs": { "type": "integer", "minimum": 0, "description": "Hold before payout release, e.g. 86400 (24h)." }
+        "redundancy_frac": { "type": "number", "minimum": 0, "maximum": 1 },
+        "honeypot_frac": { "type": "number", "minimum": 0, "maximum": 1 },
+        "payout_hold_secs": { "type": "integer", "minimum": 0 },
+        "skip_verification_floor": { "type": "boolean" }
       },
       "required": ["redundancy_frac", "honeypot_frac", "payout_hold_secs"],
       "additionalProperties": false
     },
-
     "JobManifest": {
       "type": "object",
-      "description": "The full job description submitted by a buyer and carried in each TaskDispatch.",
       "properties": {
         "id": { "$ref": "#/$defs/uuid" },
         "job_type": { "$ref": "#/$defs/JobType" },
         "model": { "$ref": "#/$defs/ModelRef" },
         "inputs": { "type": "array", "items": { "$ref": "#/$defs/InputRef" } },
         "output": { "$ref": "#/$defs/OutputRef" },
-        "params": { "description": "Type-specific free-form params (temp, quant, etc.); any JSON value." },
+        "params": true,
         "constraints": { "$ref": "#/$defs/JobConstraints" },
         "verification": { "$ref": "#/$defs/VerificationPolicy" },
         "tier": { "$ref": "#/$defs/tier" }
@@ -273,155 +106,133 @@
       "required": ["id", "job_type", "model", "inputs", "output", "params", "constraints", "verification", "tier"],
       "additionalProperties": false
     },
-
     "BenchResult": {
       "type": "object",
-      "description": "One benchmark line for a (model, job_type) pair.",
       "properties": {
         "model_id": { "type": "string" },
-        "job_type": {
-          "type": "string",
-          "description": "The JobType tag string (embed | batch_infer | audio_transcribe | image_gen | eval | lora_finetune | batch_classification | json_extraction | rerank | custom).",
-          "enum": ["embed", "batch_infer", "audio_transcribe", "image_gen", "eval", "lora_finetune", "batch_classification", "json_extraction", "rerank", "custom"]
-        },
-        "tps":        { "type": "number", "description": "Tokens per second." },
-        "eps":        { "type": "number", "description": "Embeddings per second." },
-        "p99_ms":     { "type": "integer", "minimum": 0 },
-        "thermal_ok": { "type": "boolean" }
+        "job_type": { "$ref": "#/$defs/job_tag" },
+        "tps": { "type": "number", "minimum": 0 },
+        "eps": { "type": "number", "minimum": 0 },
+        "p99_ms": { "type": "integer", "minimum": 0 },
+        "thermal_ok": { "type": "boolean" },
+        "load_ms": { "type": "integer", "minimum": 0 }
       },
       "required": ["model_id", "job_type", "tps", "eps", "p99_ms", "thermal_ok"],
       "additionalProperties": false
     },
-
     "WorkerCapability": {
       "type": "object",
-      "description": "What a worker advertises to the control plane on registration.",
       "properties": {
-        "worker_id":      { "$ref": "#/$defs/uuid" },
-        "supplier_id":    { "$ref": "#/$defs/uuid" },
-        "hw_class":       { "$ref": "#/$defs/hw_class" },
-        "engine":         { "type": "string", "enum": ["candle", "mlx", "vllm", "hawking"], "description": "On-device inference engine — the second axis of the verification class (hw_class, engine, build_hash). Optional: an absent/blank value normalizes to 'candle' at registration." },
-        "build_hash":     { "type": "string", "description": "Finer verification-class axis below (hw_class, engine): a stable hash of the byte-output-determining build inputs (engine + agent build + device backend + catalogue quant). Optional: an absent/blank value is 'unknown build' — never byte-compared, provisional trust. See docs/DETERMINISM_CLASS.md." },
-        "memory_gb":      { "type": "number", "minimum": 0 },
+        "worker_id": { "$ref": "#/$defs/uuid" },
+        "supplier_id": { "$ref": "#/$defs/uuid" },
+        "hw_class": { "$ref": "#/$defs/hw_class" },
+        "engine": { "const": "candle" },
+        "build_hash": { "type": "string" },
+        "memory_gb": { "type": "number", "minimum": 0 },
         "memory_bw_gbps": { "type": "number", "minimum": 0 },
-        "supported_jobs": {
-          "type": "array",
-          "description": "JobType tag strings this worker can run.",
-          "items": { "type": "string", "enum": ["embed", "batch_infer", "audio_transcribe", "image_gen", "eval", "lora_finetune", "batch_classification", "json_extraction", "rerank", "custom"] }
-        },
-        "supported_models": { "type": "array", "items": { "type": "string" }, "description": "Model ids available locally." },
-        "benchmarks":     { "type": "array", "items": { "$ref": "#/$defs/BenchResult" } },
-        "agent_version":  { "type": "string" },
-        "os_version":     { "type": "string" }
+        "supported_jobs": { "type": "array", "items": { "$ref": "#/$defs/job_tag" } },
+        "supported_models": { "type": "array", "items": { "type": "string" } },
+        "min_payout_usd_hr": { "type": "number", "minimum": 0 },
+        "benchmarks": { "type": "array", "items": { "$ref": "#/$defs/BenchResult" } },
+        "agent_version": { "type": "string" },
+        "os_version": { "type": "string" }
       },
       "required": ["worker_id", "supplier_id", "hw_class", "memory_gb", "memory_bw_gbps", "supported_jobs", "supported_models", "benchmarks", "agent_version", "os_version"],
       "additionalProperties": false
     },
-
     "TaskDispatch": {
       "type": "object",
-      "description": "A task handed to a worker in response to a poll.",
       "properties": {
-        "task_id":    { "$ref": "#/$defs/uuid" },
-        "job_id":     { "$ref": "#/$defs/uuid" },
-        "manifest":   { "$ref": "#/$defs/JobManifest" },
-        "input_url":  { "type": "string", "description": "Presigned S3 GET URL, ~1h expiry." },
-        "output_url": { "type": "string", "description": "Presigned S3 PUT URL, ~1h expiry." },
-        "partial_put_url": { "type": "string", "description": "Presigned S3 PUT URL for result_key + \".partial\", same expiry as output_url — the optional intra-task checkpoint seam. Sent only for checkpointable job types (batch_infer, batch_classification, json_extraction); when present the worker MAY periodically PUT a partial result document there (the same JSON shape as the final result plus a top-level \"partial\": true marker). The final commit is UNCHANGED (full result to output_url; byte-determinism unaffected); partials are never merged into the verified artifact and never affect money. Optional: an older control plane never sends it, an older worker ignores it." },
-        "result_key": { "type": "string", "description": "Bare S3 object key the worker's result lands at (the key behind output_url's presign). Optional: when present the worker echoes it back as TaskCommit.result_key; when absent the worker derives the key from output_url." },
-        "deadline":   { "type": "integer", "minimum": 0, "description": "Unix timestamp (seconds): complete before this." }
+        "task_id": { "$ref": "#/$defs/uuid" },
+        "job_id": { "$ref": "#/$defs/uuid" },
+        "runtime_cell_id": { "type": "string" },
+        "runtime_id": { "type": "string" },
+        "runtime_matrix_sha256": { "type": "string" },
+        "manifest": { "$ref": "#/$defs/JobManifest" },
+        "input_url": { "type": "string" },
+        "output_url": { "type": "string" },
+        "partial_put_url": { "type": "string" },
+        "result_key": { "type": "string" },
+        "offered_rate_usd_hr": { "type": "number", "minimum": 0 },
+        "deadline": { "type": "integer", "minimum": 0 }
       },
       "required": ["task_id", "job_id", "manifest", "input_url", "output_url", "deadline"],
       "additionalProperties": false
     },
-
     "TaskCommit": {
       "type": "object",
-      "description": "A worker's result submission after a task completes.",
       "properties": {
-        "task_id":    { "$ref": "#/$defs/uuid" },
-        "result_key": { "type": "string", "description": "S3 object key of the uploaded result." },
-        "duration_ms":  { "type": "integer", "minimum": 0 },
-        "tokens_used":  { "type": "integer", "minimum": 0 },
+        "task_id": { "$ref": "#/$defs/uuid" },
+        "result_key": { "type": "string" },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "tokens_used": { "type": "integer", "minimum": 0 },
+        "result_sha256": { "type": "string" },
         "hardware_temp_c": { "type": ["number", "null"] }
       },
       "required": ["task_id", "result_key", "duration_ms", "tokens_used", "hardware_temp_c"],
       "additionalProperties": false
     },
-
     "Heartbeat": {
       "type": "object",
-      "description": "Periodic liveness + telemetry signal (~every 30s). The resource-protection fields (available/effective memory, reserved headroom, throttled) are the supplier-throttling delta the control plane's safe-dispatch filter reads; they are optional so an older agent still validates. loaded_models is the warm-routing delta (PLANE_D §9 D3): the model ids currently warm in the agent's pool — the control plane upserts a worker_model_state row per id and the scheduler gives a small re-rank bonus to a worker that has the job's model warm (it never overrides the claim's hard filter). Optional so an older agent still validates; the agent reports real warm ids only.",
       "properties": {
-        "worker_id":  { "$ref": "#/$defs/uuid" },
-        "timestamp":  { "type": "integer", "minimum": 0, "description": "Unix timestamp (seconds)." },
-        "cpu_pct":    { "type": "number", "minimum": 0, "maximum": 100 },
-        "gpu_pct":    { "type": "number", "minimum": 0, "maximum": 100 },
+        "worker_id": { "$ref": "#/$defs/uuid" },
+        "timestamp": { "type": "integer", "minimum": 0 },
+        "cpu_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+        "gpu_pct": { "type": "number", "minimum": 0, "maximum": 100 },
         "gpu_temp_c": { "type": ["number", "null"] },
-        "current_task": {
-          "description": "UUID of the task in progress, or null when idle.",
-          "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/uuid" } ]
-        },
-        "available_memory_gb":  { "type": "number", "minimum": 0, "description": "Live free + reclaimable memory, GB." },
-        "effective_memory_gb":  { "type": "number", "minimum": 0, "description": "Allocatable for jobs = available − reserved headroom, GB." },
-        "reserved_headroom_gb": { "type": "number", "minimum": 0, "description": "Memory the operator reserves for their own use, GB." },
-        "throttled":            { "type": "boolean", "description": "True while the agent is pausing new claims for memory pressure." },
-        "loaded_models":        { "type": "array", "items": { "type": "string" }, "description": "Canonical ids of models currently warm in the agent's pool (warm-routing re-rank). Empty when nothing is loaded; real ids only." }
+        "current_task": { "type": ["string", "null"], "format": "uuid" },
+        "available_memory_gb": { "type": "number", "minimum": 0 },
+        "effective_memory_gb": { "type": "number", "minimum": 0 },
+        "reserved_headroom_gb": { "type": "number", "minimum": 0 },
+        "throttled": { "type": "boolean" },
+        "loaded_models": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["worker_id", "timestamp", "cpu_pct", "gpu_pct", "gpu_temp_c", "current_task"],
       "additionalProperties": false
     },
-
     "JobSubmitRequest": {
       "type": "object",
-      "description": "The buyer-facing job-submit body for POST /v1/jobs. This is the ergonomic surface a buyer SDK builds; the control plane expands it into the full internal JobManifest (assigning the job id, splitting tasks, presigning input/output). `input` is either an inline reference string (small payloads) or an object pointing at an already-uploaded S3 key.",
       "properties": {
         "job_type": { "$ref": "#/$defs/JobType" },
-        "model": { "type": "string", "description": "Model id from GET /v1/models, e.g. \"all-minilm-l6-v2\"." },
-        "params": { "description": "Type-specific free-form params (temperature, quant, language, ...); any JSON value." },
+        "model": { "type": "string" },
+        "params": true,
         "constraints": { "$ref": "#/$defs/JobConstraints" },
         "verification": { "$ref": "#/$defs/VerificationPolicy" },
         "tier": { "$ref": "#/$defs/tier" },
         "input": {
-          "description": "Job input: either an inline reference string (small payloads, e.g. a presigned GET URL or inline JSONL marker) or a pointer to a pre-uploaded object by S3 key.",
           "oneOf": [
             { "type": "string" },
             {
               "type": "object",
-              "properties": { "s3_key": { "type": "string", "description": "Object key in the jobs bucket." } },
+              "properties": { "s3_key": { "type": "string" } },
               "required": ["s3_key"],
               "additionalProperties": false
             }
           ]
         },
-        "webhook_url": { "type": "string", "description": "Optional https URL to POST on job completion (registered into the webhooks table)." },
-        "max_usd": { "type": "number", "description": "Optional buyer hard spend cap (Budget Governor, Plane C §12 / Plane D §14 D8). When > 0 the scheduler refuses to dispatch a new task once the job's projected charge (already-charged + one task's estimate) would breach it; the task stays queued and budget_state flips to paused_for_budget. Omitted or 0 means no cap." }
+        "webhook_url": { "type": "string" },
+        "max_usd": { "type": "number", "minimum": 0 }
       },
       "required": ["job_type", "model", "params", "constraints", "verification", "tier", "input"],
       "additionalProperties": false
     },
-
     "EmbedResult": {
       "type": "object",
-      "description": "Result document a worker writes for an embed task (read back by the control plane / buyer). One vector per input line, row-aligned with the input order.",
       "properties": {
         "job_type": { "const": "embed" },
         "model": { "type": "string" },
-        "dim": { "type": "integer", "minimum": 1, "description": "Vector dimensionality (e.g. 384 for all-MiniLM-L6-v2)." },
-        "count": { "type": "integer", "minimum": 0, "description": "Number of vectors; equals vectors.length." },
+        "dim": { "type": "integer", "minimum": 1 },
+        "count": { "type": "integer", "minimum": 0 },
         "vectors": {
           "type": "array",
-          "description": "Embedding vectors, each a fixed-length array of dim floats.",
           "items": { "type": "array", "items": { "type": "number" } }
         }
       },
       "required": ["job_type", "model", "dim", "count", "vectors"],
       "additionalProperties": false
     },
-
     "BatchInferResult": {
       "type": "object",
-      "description": "Result document a worker writes for a batch_infer task. One completion per input prompt, row-aligned by index.",
       "properties": {
         "job_type": { "const": "batch_infer" },
         "model": { "type": "string" },
@@ -430,9 +241,9 @@
           "items": {
             "type": "object",
             "properties": {
-              "index": { "type": "integer", "minimum": 0, "description": "0-based input row this completion answers." },
+              "index": { "type": "integer", "minimum": 0 },
               "text": { "type": "string" },
-              "tokens": { "type": "integer", "minimum": 0, "description": "Output tokens generated for this completion." }
+              "tokens": { "type": "integer", "minimum": 0 }
             },
             "required": ["index", "text", "tokens"],
             "additionalProperties": false
@@ -441,34 +252,8 @@
       },
       "required": ["job_type", "model", "completions"],
       "additionalProperties": false
-    },
-
-    "AudioTranscribeResult": {
-      "type": "object",
-      "description": "Result document a worker writes for an audio_transcribe task: the full transcript plus per-segment timestamps.",
-      "properties": {
-        "job_type": { "const": "audio_transcribe" },
-        "model": { "type": "string" },
-        "text": { "type": "string", "description": "Full concatenated transcript." },
-        "segments": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "start": { "type": "number", "minimum": 0, "description": "Segment start time in seconds." },
-              "end": { "type": "number", "minimum": 0, "description": "Segment end time in seconds." },
-              "text": { "type": "string" }
-            },
-            "required": ["start", "end", "text"],
-            "additionalProperties": false
-          }
-        }
-      },
-      "required": ["job_type", "model", "text", "segments"],
-      "additionalProperties": false
     }
   },
-
   "oneOf": [
     { "$ref": "#/$defs/JobManifest" },
     { "$ref": "#/$defs/WorkerCapability" },
@@ -477,7 +262,6 @@
     { "$ref": "#/$defs/Heartbeat" },
     { "$ref": "#/$defs/JobSubmitRequest" },
     { "$ref": "#/$defs/EmbedResult" },
-    { "$ref": "#/$defs/BatchInferResult" },
-    { "$ref": "#/$defs/AudioTranscribeResult" }
+    { "$ref": "#/$defs/BatchInferResult" }
   ]
 }

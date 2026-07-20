@@ -7,10 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// FinalizeTaskVerification is the only normal path from verifying to complete.
-// Verdict, completion counters, accepted-duration telemetry, and every ledger row
-// commit together. Any error rolls the whole transition back, leaving the task in
-// verifying so the worker can retry without a paid-but-unreceipted result.
 func (s *Store) FinalizeTaskVerification(ctx context.Context, info *CommitTaskInfo, outcome VerifyOutcome, entries []LedgerEntry) error {
 	switch outcome {
 	case OutcomePass, OutcomePassWithPenalty, OutcomeLossNoPayout:
@@ -24,13 +20,6 @@ func (s *Store) FinalizeTaskVerification(ctx context.Context, info *CommitTaskIn
 	}
 	defer tx.Rollback(ctx)
 
-	// A primary and its endgame hedge are two executions of one buyer-visible
-	// chunk, not two separately billable results. Lock the original row before the
-	// current task can become complete. InsertHedgeTask takes the same lock, which
-	// closes the otherwise-dangerous race where a hedge could appear immediately
-	// after a standalone primary had settled. Once serialized, an existing sibling
-	// buyer_charge is the durable winner marker; the later finisher records its
-	// verdict/telemetry but receives no second buyer/supplier/platform ledger set.
 	var hedgedFrom *uuid.UUID
 	var isRedundancy bool
 	if err := tx.QueryRow(ctx,
@@ -99,8 +88,6 @@ func (s *Store) FinalizeTaskVerification(ctx context.Context, info *CommitTaskIn
 		return err
 	}
 
-	// Accepted-only telemetry: a malformed/missing/rejected upload never teaches
-	// the ETA model that it was successful work.
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO task_durations
 		   (task_id, job_id, job_type, model_ref, split_size, duration_ms, worker_id, engine, build_hash)
@@ -127,9 +114,6 @@ func (s *Store) FinalizeTaskVerification(ctx context.Context, info *CommitTaskIn
 	return tx.Commit(ctx)
 }
 
-// RecordRejectedTaskVerdict preserves the failed attempt after verification has
-// requeued it. retry_count is captured in CommitTaskInfo before RequeueTask bumps
-// it, so each attempt has one immutable history row.
 func (s *Store) RecordRejectedTaskVerdict(ctx context.Context, info *CommitTaskInfo) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO task_verdicts
@@ -140,8 +124,6 @@ func (s *Store) RecordRejectedTaskVerdict(ctx context.Context, info *CommitTaskI
 	return err
 }
 
-// TaskVerdictOutcome returns the current durable verdict projection. It is a
-// focused proof/test seam and useful to recovery workers; absence is not a pass.
 func (s *Store) TaskVerdictOutcome(ctx context.Context, taskID uuid.UUID) (string, error) {
 	var outcome string
 	err := s.pool.QueryRow(ctx,

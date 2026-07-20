@@ -46,19 +46,12 @@ class InstalledPackageTests(unittest.TestCase):
         artifact = b"CXEM" + struct.pack("<IIIff", 1, 2, 1, 0.25, -0.5)
         self.assertEqual(decode_embeddings_binary(artifact), [[0.25, -0.5]])
 
-    def test_generic_json_methods_fail_locally_for_dedicated_audio_surface(self):
+    def test_unsupported_workloads_fail_locally(self):
         client = Client("https://example.invalid", "cx_test_key", timeout=2)
-        with self.assertRaisesRegex(ValueError, "strict multipart WAV endpoints"):
-            client.submit_job("whisper-tiny", "audio_transcribe", input="")
-        with self.assertRaisesRegex(ValueError, "strict multipart WAV endpoints"):
-            client.quote("whisper-tiny", "audio_transcribe", input="")
-        with self.assertRaisesRegex(ValueError, "language/timestamps are reserved"):
-            client.submit_job(
-                "all-minilm-l6-v2",
-                "embed",
-                input='{"text":"x"}\n',
-                language="en",
-            )
+        with self.assertRaisesRegex(ValueError, "unsupported job_type"):
+            client.submit_job("unknown", "unsupported", input="")
+        with self.assertRaisesRegex(ValueError, "unsupported job_type"):
+            client.quote("unknown", "unsupported", input="")
 
     def test_buyer_model_kind_defaults_to_server_runtime_authority(self):
         class RecordingClient(Client):

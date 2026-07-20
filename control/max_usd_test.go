@@ -21,8 +21,6 @@ func TestCreateJobRejectsInvalidMaxUSDBeforeSideEffects(t *testing.T) {
 		{name: "not a number", max: math.NaN()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// A nil Server is deliberate: validation must return before model, store,
-			// billing, or object-storage dependencies can be touched.
 			_, herr := (&Server{}).createJob(context.Background(), uuid.New(), jobSubmit{MaxUSD: tc.max})
 			if herr == nil || herr.status != http.StatusBadRequest ||
 				!strings.Contains(herr.msg, "max_usd") {

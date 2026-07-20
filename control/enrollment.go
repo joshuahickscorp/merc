@@ -46,9 +46,6 @@ var (
 	errWorkerEnrollmentRejected     = errors.New("worker enrollment exchange rejected")
 )
 
-// EnrollmentCodeIssueInput is account-authenticated. Account/supplier identity
-// is deliberately absent: it always comes from authBuyer. Rotation uses the same
-// one-time proofed exchange, with the prior credential selected by its public id.
 type EnrollmentCodeIssueInput struct {
 	Audience               string     `json:"audience"`
 	DeviceKeyAlgorithm     string     `json:"device_key_algorithm"`
@@ -71,9 +68,6 @@ type EnrollmentCodeIssueResult struct {
 	Rotation          bool      `json:"rotation"`
 }
 
-// EnrollmentDeviceRequest is the public, non-secret request produced by the
-// macOS app. It deliberately contains no buyer or supplier identity: those are
-// selected only by authBuyer when an account approves the request.
 type EnrollmentDeviceRequest struct {
 	Version            int    `json:"v"`
 	ControlOrigin      string `json:"control_origin"`
@@ -83,18 +77,11 @@ type EnrollmentDeviceRequest struct {
 	DevicePublicKey    string `json:"device_public_key"`
 }
 
-// EnrollmentApprovalInput is the complete caller-controlled surface of the
-// authenticated account adapter. In particular, account_id and supplier_id do
-// not exist here and are rejected as unknown JSON fields by decodeEnrollmentJSON.
 type EnrollmentApprovalInput struct {
 	DeviceRequest string `json:"device_request"`
 	Label         string `json:"label,omitempty"`
 }
 
-// EnrollmentApprovalResult returns the one paste the Mac app consumes. The raw
-// one-time code is present only inside EnrollmentBundle and every HTTP response
-// carrying this type is marked no-store. No long-lived worker bearer is issued
-// until the device proves possession of its private key at the exchange route.
 type EnrollmentApprovalResult struct {
 	EnrollmentBundle string    `json:"enrollment_bundle"`
 	EnrollmentCodeID uuid.UUID `json:"enrollment_code_id"`
@@ -111,10 +98,6 @@ type enrollmentApprovalBundlePayload struct {
 	DeviceFingerprint string    `json:"device_fingerprint"`
 }
 
-// EnrollmentExchangeInput is unauthenticated because the short-lived code plus
-// a P-256 proof-of-possession is the authentication ceremony. Every value is
-// included in the signed transcript, and the account/audience/key must match the
-// immutable account-issued row.
 type EnrollmentExchangeInput struct {
 	Version            int       `json:"v"`
 	EnrollmentCode     string    `json:"enrollment_code"`
@@ -137,11 +120,6 @@ type EnrollmentExchangeResult struct {
 	Rotated           bool      `json:"rotated"`
 }
 
-// enrollmentRequestBinding is server-authoritative ceremony context. The
-// account adapter obtains the origin from trusted deployment configuration and
-// the request id from the strictly decoded cxer2 request. The lower-level
-// authenticated issuer derives the same request id from the submitted key and
-// the same trusted public origin; callers never get to choose either binding.
 type enrollmentRequestBinding struct {
 	Version       int
 	ControlOrigin string
@@ -201,9 +179,6 @@ func enrollmentRequestID(publicKey []byte) string {
 	return base64.RawURLEncoding.EncodeToString(digest[:16])
 }
 
-// decodeExactEnrollmentObject rejects unknown, missing, and duplicate keys.
-// encoding/json's ordinary struct decoder accepts duplicate names, which would
-// make the account approval display and the value actually acted on ambiguous.
 func decodeExactEnrollmentObject(data []byte, dst any, expectedKeys ...string) error {
 	expected := make(map[string]struct{}, len(expectedKeys))
 	for _, key := range expectedKeys {
@@ -253,10 +228,6 @@ func decodeExactEnrollmentObject(data []byte, dst any, expectedKeys ...string) e
 	return json.Unmarshal(data, dst)
 }
 
-// canonicalEnrollmentControlOrigin implements the same origin-only boundary as
-// EnrollmentValidator.normalizedControlURL in the macOS package. Production is
-// HTTPS-only. Explicit loopback HTTP is accepted solely for local development
-// and the in-process integration harness.
 func canonicalEnrollmentControlOrigin(raw string, allowInsecureLoopback bool) (string, error) {
 	if raw == "" || strings.TrimSpace(raw) != raw {
 		return "", errors.New("control_origin must not contain outer whitespace")
@@ -337,10 +308,6 @@ func enrollmentControlOriginForRequest(r *http.Request) (string, error) {
 		}
 		return canonical, nil
 	}
-	// Without an explicit public origin, accept only a real loopback-to-loopback
-	// development request. Host is client-controlled even on direct TLS, so every
-	// non-loopback deployment (direct TLS or reverse proxy) must configure the
-	// public origin. Deliberately do not consult X-Forwarded-Proto either.
 	peerHost, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		peerHost = r.RemoteAddr
@@ -370,9 +337,6 @@ func enrollmentControlOriginForRequest(r *http.Request) (string, error) {
 }
 
 func encodeEnrollmentApprovalBundle(request EnrollmentDeviceRequest, issued EnrollmentCodeIssueResult) (string, error) {
-	// encoding/json sorts map keys, giving the bundle a deterministic payload in
-	// addition to canonical unpadded base64url. Swift's strict decoder consumes
-	// these same seven names (JSON slash escaping is semantically irrelevant).
 	payload, err := json.Marshal(map[string]any{
 		"v":                  workerEnrollmentProtocolVersion,
 		"control_origin":     request.ControlOrigin,
@@ -396,10 +360,6 @@ func validEnrollmentCode(raw string) bool {
 	return err == nil && len(b) == 32
 }
 
-// enrollmentExchangeTranscript is public protocol surface. Keep it byte-stable:
-// the Mac client signs exactly these UTF-8 bytes with SHA-256/P-256. Version 2
-// binds the trusted control origin and pending request id so a modified cxeb2
-// cannot send a valid device proof through an attacker-controlled HTTPS relay.
 func enrollmentExchangeTranscript(
 	code, audience string,
 	accountID uuid.UUID,
@@ -455,9 +415,6 @@ func nullEnrollmentRotationSource(source *uuid.UUID) uuid.UUID {
 	return *source
 }
 
-// revokePendingEnrollmentCodesTx invalidates every other still-live ceremony for
-// a device or rotation source. This prevents a code issued before revocation or
-// rotation from later resurrecting access. Caller holds the relevant device lock.
 func revokePendingEnrollmentCodesTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -630,7 +587,7 @@ type enrollmentCodeRow struct {
 	rotateFrom              *uuid.UUID
 }
 
-func (s *Store) ExchangeWorkerEnrollmentCode(ctx context.Context, in EnrollmentExchangeInput) (EnrollmentExchangeResult, error) {
+func (s *Store) EnrollWorkerTx(ctx context.Context, in EnrollmentExchangeInput) (EnrollmentExchangeResult, error) {
 	if !validEnrollmentCode(in.EnrollmentCode) {
 		return EnrollmentExchangeResult{}, errWorkerEnrollmentRejected
 	}
@@ -640,9 +597,6 @@ func (s *Store) ExchangeWorkerEnrollmentCode(ctx context.Context, in EnrollmentE
 	}
 	defer tx.Rollback(ctx)
 
-	// Read the immutable fingerprint first so every lifecycle operation can acquire
-	// the same advisory lock before taking the code row lock. The locked query below
-	// re-reads all fields and evaluates expiry after any lock wait.
 	var knownFingerprint string
 	err = tx.QueryRow(ctx, `
 		SELECT device_fingerprint FROM worker_enrollment_codes WHERE code_hash=$1`,
@@ -676,9 +630,6 @@ func (s *Store) ExchangeWorkerEnrollmentCode(ctx context.Context, in EnrollmentE
 	if err != nil {
 		return EnrollmentExchangeResult{}, err
 	}
-	// PostgreSQL may evaluate SELECT projection expressions before waiting for the
-	// FOR UPDATE lock. Recheck wall-clock expiry in a new statement after that lock
-	// has been acquired so a request cannot start before expiry, wait, then succeed.
 	if err := tx.QueryRow(ctx, `
 		SELECT expires_at <= clock_timestamp() FROM worker_enrollment_codes WHERE id=$1`,
 		code.id).Scan(&code.expired); err != nil {
@@ -686,8 +637,6 @@ func (s *Store) ExchangeWorkerEnrollmentCode(ctx context.Context, in EnrollmentE
 	}
 
 	reject := func(reason string, terminal bool) (EnrollmentExchangeResult, error) {
-		// A consumed/revoked code gets one observable terminal attempt. Suppressing
-		// later identical attempts caps known-code audit/storage amplification.
 		if (code.consumedAt != nil || code.revokedAt != nil) && code.failedAttempts >= 1 {
 			return EnrollmentExchangeResult{}, fmt.Errorf("%w: %s", errWorkerEnrollmentRejected, reason)
 		}
@@ -917,9 +866,6 @@ func (s *Store) RevokeWorkerCredentialForBuyer(ctx context.Context, buyerID, cre
 			return err
 		}
 	}
-	// Lock/revoke pending rotations before credential rows. A concurrently
-	// completing rotation either loses its code and rejects, or commits first and
-	// is discovered as a descendant by the recursive query below.
 	if err := revokePendingEnrollmentCodesTx(ctx, tx, buyerID, supplierID, uuid.Nil,
 		targetFingerprint, credentialID, "credential_revoked"); err != nil {
 		return err
@@ -1140,11 +1086,6 @@ func (s *Server) handleCreateWorkerEnrollmentCode(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusCreated, out)
 }
 
-// handleApproveWorkerEnrollmentRequest is the authenticated account-side half
-// of the macOS copy/paste ceremony. It validates the exact cxer2 request against
-// this HTTP origin, derives ownership from authBuyer, reuses the same ten-minute
-// code issuer as the lower-level API, and returns the canonical cxeb2 bundle the
-// app can verify and exchange. It is an API adapter, not a public-site UI.
 func (s *Server) handleApproveWorkerEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
@@ -1207,10 +1148,8 @@ func (s *Server) handleExchangeWorkerEnrollmentCode(w http.ResponseWriter, r *ht
 		writeErr(w, http.StatusBadRequest, "invalid enrollment exchange json")
 		return
 	}
-	out, err := s.store.ExchangeWorkerEnrollmentCode(r.Context(), in)
+	out, err := s.store.EnrollWorkerTx(r.Context(), in)
 	if errors.Is(err, errWorkerEnrollmentRejected) {
-		// One response for unknown, expired, replayed, wrong-account, wrong-device,
-		// or bad-proof attempts. The account audit has the specific known-code cause.
 		writeErr(w, http.StatusUnauthorized, "enrollment exchange rejected")
 		return
 	}

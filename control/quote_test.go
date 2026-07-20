@@ -9,10 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Plane C quote — pure unit tests for the JSONL preflight scanner and the
-// risk/confidence assessor (no DB). The endpoint + persistence are covered by the
-// integration suite (TestQuoteEndpointPersistsAssumptions).
-
 func TestServiceTierSemanticsDoNotPromiseCapacity(t *testing.T) {
 	for _, tier := range []string{"batch", "priority", "trusted"} {
 		got := serviceTierSemantics(tier)
@@ -44,11 +40,9 @@ func TestScanJSONLCountsAndFields(t *testing.T) {
 	if s.MalformedRecords != 0 || s.FirstBadLine != 0 {
 		t.Fatalf("clean input flagged malformed: %+v", s)
 	}
-	// Token heuristic is bytes/4, rounded up, and never claims to be exact.
 	if s.EstimatedTokens <= 0 || int(s.EstimatedTokens) < s.Bytes/4 {
 		t.Fatalf("estimated_tokens=%d for %d bytes looks wrong", s.EstimatedTokens, s.Bytes)
 	}
-	// Field union across records: id, text, prompt (sorted).
 	want := []string{"id", "prompt", "text"}
 	if len(s.DetectedFields) != 3 || s.DetectedFields[0] != "id" ||
 		s.DetectedFields[1] != "prompt" || s.DetectedFields[2] != "text" {
@@ -56,37 +50,25 @@ func TestScanJSONLCountsAndFields(t *testing.T) {
 	}
 }
 
-// TestScanJSONLRecommendsLongestStringField proves the Project Detection &
-// Quotation 8->9 content-based detection (docs/internal/CREED_AND_PATH_TO_TEN.md):
-// the sampled records' ACTUAL field data drives a longest-average-string
-// recommendation for which column to embed/classify/extract, surfacing the
-// previously-computed-but-dropped field information as a confirmable suggestion.
 func TestScanJSONLRecommendsLongestStringField(t *testing.T) {
-	// A realistic messy input: a short id, a short category label, and a long
-	// free-text body. The body is unambiguously the text a buyer wants processed.
 	input := []byte(`{"id":"1","category":"news","body":"A long-form article about distributed compute markets and idle GPUs."}
 {"id":"2","category":"blog","body":"Another substantial paragraph of real prose that dwarfs the id and category fields in length."}
 {"id":"3","category":"news","body":"Yet more multi-sentence content here, clearly the primary text column of this dataset."}
 `)
 	s := scanJSONL(input)
 
-	// The recommendation is the long free-text column, not the id or the label.
 	if s.RecommendedField != "body" {
 		t.Fatalf("recommended_field=%q, want \"body\" (the longest-average-string column)", s.RecommendedField)
 	}
-	// The evidence is surfaced and ordered by avg string length DESC — body first.
 	if len(s.FieldStats) != 3 {
 		t.Fatalf("field_stats len=%d, want 3 (id, category, body)", len(s.FieldStats))
 	}
 	if s.FieldStats[0].Field != "body" {
 		t.Fatalf("field_stats[0]=%q, want \"body\" (highest avg length first): %+v", s.FieldStats[0].Field, s.FieldStats)
 	}
-	// The recommendation is strictly the top of the evidence list.
 	if s.FieldStats[0].Field != s.RecommendedField {
 		t.Fatalf("recommendation (%q) must be FieldStats[0] (%q)", s.RecommendedField, s.FieldStats[0].Field)
 	}
-	// body's avg must strictly exceed both other candidates' — the heuristic is
-	// genuinely content-driven, not coincidental.
 	byField := map[string]FieldStat{}
 	for _, fs := range s.FieldStats {
 		byField[fs.Field] = fs
@@ -95,7 +77,6 @@ func TestScanJSONLRecommendsLongestStringField(t *testing.T) {
 		byField["category"].AvgStringLen > byField["id"].AvgStringLen) {
 		t.Fatalf("avg string lengths must order body > category > id, got %+v", s.FieldStats)
 	}
-	// Every candidate carried in all 3 sampled records.
 	for _, fs := range s.FieldStats {
 		if fs.Occurrences != 3 {
 			t.Fatalf("field %q occurrences=%d, want 3", fs.Field, fs.Occurrences)
@@ -103,10 +84,6 @@ func TestScanJSONLRecommendsLongestStringField(t *testing.T) {
 	}
 }
 
-// TestScanJSONLNoStringFieldNoRecommendation proves the honest negative: when no
-// field carries string content (all-numeric records), there is NO recommendation
-// — the heuristic never invents a text column that does not exist. The field
-// evidence is still surfaced (avg 0) so the buyer sees the candidates.
 func TestScanJSONLNoStringFieldNoRecommendation(t *testing.T) {
 	input := []byte(`{"a":1,"b":2.5,"c":true}
 {"a":9,"b":0.1,"c":false}
@@ -125,17 +102,7 @@ func TestScanJSONLNoStringFieldNoRecommendation(t *testing.T) {
 	}
 }
 
-// TestEstimateTokensFixesMultiByteUndercounting proves the Project Detection &
-// Quotation 6->6.5 fix (docs/internal/CREED_AND_PATH_TO_TEN.md): the OLD
-// bytes/4 heuristic badly undercounted multi-byte UTF-8 (CJK/Cyrillic/etc.)
-// text, since a 3-byte-per-rune script divided by 4 gives ~0.75 "tokens" per
-// character when a real tokenizer is much closer to 1 token per character.
 func TestEstimateTokensFixesMultiByteUndercounting(t *testing.T) {
-	// 20 Japanese characters, 60 UTF-8 bytes (3 bytes/rune). The old bytes/4
-	// heuristic would estimate ceil(60/4) = 15 tokens for 20 real characters —
-	// FEWER estimated tokens than actual characters, which is implausible for
-	// any real tokenizer. The fixed rune-based, script-aware estimate must be
-	// close to the rune count, not a fraction of it.
 	cjk := []byte("こんにちはこんにちはこんにちはこんにちは")
 	runeCount := 20
 	if got := utf8.RuneCount(cjk); got != runeCount {
@@ -144,18 +111,13 @@ func TestEstimateTokensFixesMultiByteUndercounting(t *testing.T) {
 	old := int64((len(cjk) + 3) / 4) // the literal old bytes/4 (ceil) computation
 	got := estimateTokens(cjk)
 	if got <= old {
-		t.Fatalf("fixed estimate (%d) must exceed the old bytes/4 estimate (%d) for CJK text — the whole point of the fix", got, old)
+		t.Fatalf("fixed estimate (%d) must exceed the old bytes/4 estimate (%d) for CJK text  -  the whole point of the fix", got, old)
 	}
 	if got < int64(runeCount)/2 {
 		t.Fatalf("fixed estimate (%d) is still implausibly low for %d real characters", got, runeCount)
 	}
 }
 
-// TestEstimateTokensUnchangedForASCII proves the fix is additive, not a
-// behavior change for the common English/ASCII case the old heuristic already
-// handled reasonably — every existing ASCII-input test must keep passing
-// unchanged (confirmed by the full suite), and this pins the exact expected
-// arithmetic for a hand-picked ASCII case too.
 func TestEstimateTokensUnchangedForASCII(t *testing.T) {
 	ascii := []byte("the quick brown fox jumps over the lazy dog") // 44 bytes, all ASCII
 	want := int64((44 + 3) / 4)                                    // ceil(44/4) = 11
@@ -165,8 +127,6 @@ func TestEstimateTokensUnchangedForASCII(t *testing.T) {
 }
 
 func TestScanJSONLFindsFirstMalformedLine(t *testing.T) {
-	// Line 1 valid, line 2 blank (skipped, still counts toward line number),
-	// line 3 malformed → first_bad_line must be 3, not 2.
 	input := []byte("{\"ok\":1}\n\n{not json}\n{\"ok\":2}\n")
 	s := scanJSONL(input)
 	if s.Records != 3 {
@@ -190,8 +150,6 @@ func TestScanJSONLEmpty(t *testing.T) {
 func TestAssessRiskSupplyDrivesOOMAndConfidence(t *testing.T) {
 	clean := QuoteInputScan{Records: 100, Bytes: 4000, EstimatedTokens: 1000}
 
-	// Ample supply + known model, but NONE warm → low OOM, high-ish confidence, and
-	// cold-start honestly medium (a cold load is still possible).
 	oom, cold, conf, warn := assessRisk(clean, 8, 0, 4.0)
 	if oom != "low" {
 		t.Fatalf("oom=%q with 8 eligible workers, want low", oom)
@@ -206,8 +164,6 @@ func TestAssessRiskSupplyDrivesOOMAndConfidence(t *testing.T) {
 		t.Fatalf("clean input + supply should warn nothing, got %v", warn)
 	}
 
-	// Warm-routing (D3): the SAME supply but with warm eligible workers → cold-start
-	// drops to low and confidence rises, because the job can start without a load.
 	oomWarm, coldWarm, confWarm, _ := assessRisk(clean, 8, 3, 4.0)
 	if oomWarm != "low" {
 		t.Fatalf("warm supply should not worsen OOM, got %q", oomWarm)
@@ -219,7 +175,6 @@ func TestAssessRiskSupplyDrivesOOMAndConfidence(t *testing.T) {
 		t.Fatalf("warm supply should raise confidence (%v !> %v)", confWarm.Score, conf.Score)
 	}
 
-	// No eligible supply → high OOM, a buyer-visible warning, lower confidence.
 	oom2, _, conf2, warn2 := assessRisk(clean, 0, 0, 4.0)
 	if oom2 != "high" {
 		t.Fatalf("oom=%q with 0 eligible workers, want high", oom2)
@@ -249,20 +204,12 @@ func TestAssessRiskMalformedLowersConfidenceAndWarns(t *testing.T) {
 	}
 }
 
-// Plane D D4 memory-floor feedback — applyMemoryFloorRisk escalates OOM + lowers
-// confidence when the model's floor exceeds the MEDIAN effective memory of eligible
-// workers, softly cautions when the floor merely approaches the median, and leaves
-// risk alone (only adding a reassuring reason) when the median comfortably clears
-// the floor. Pure; the live median query is covered by TestMemorySampleRecorded
-// (integration). assessRisk itself stays untouched (its tests above still pass).
 func TestApplyMemoryFloorRisk(t *testing.T) {
 	base := QuoteConfidence{Score: 0.80, Reasons: []string{"baseline"}}
 
-	// Floor (24) over the median eligible effective memory (16) → escalate low→medium,
-	// confidence drops, a reason names the median.
 	oom, conf := applyMemoryFloorRisk("low", base, 24, 16)
 	if oom != "medium" {
-		t.Fatalf("floor>median should escalate low→medium, got %q", oom)
+		t.Fatalf("floor>median should escalate low->medium, got %q", oom)
 	}
 	if conf.Score >= base.Score {
 		t.Fatalf("floor>median must lower confidence (%v !< %v)", conf.Score, base.Score)
@@ -271,13 +218,10 @@ func TestApplyMemoryFloorRisk(t *testing.T) {
 		t.Fatalf("expected an explainable median reason, got %v", conf.Reasons)
 	}
 
-	// Already high stays high (no overflow past the top of the ladder).
 	if oom2, _ := applyMemoryFloorRisk("high", base, 24, 16); oom2 != "high" {
 		t.Fatalf("high should stay high, got %q", oom2)
 	}
 
-	// Floor (15) within memFloorTightMargin of the median (16) → no escalation, but a
-	// softer confidence shave + a "little headroom" caution.
 	oomTight, confTight := applyMemoryFloorRisk("low", base, 15, 16)
 	if oomTight != "low" {
 		t.Fatalf("a tight-but-clearing floor should NOT escalate, got %q", oomTight)
@@ -286,8 +230,6 @@ func TestApplyMemoryFloorRisk(t *testing.T) {
 		t.Fatalf("a tight floor should still shave confidence (%v !< %v)", confTight.Score, base.Score)
 	}
 
-	// Floor (8) comfortably under the median (64) → risk unchanged, confidence kept,
-	// only a reassuring reason added.
 	oomOK, confOK := applyMemoryFloorRisk("low", base, 8, 64)
 	if oomOK != "low" {
 		t.Fatalf("ample median should leave OOM low, got %q", oomOK)
@@ -309,15 +251,9 @@ func reasonsMention(reasons []string, sub string) bool {
 	return false
 }
 
-// Plane D D7 quote binding — the buyer-facing quote handle round-trips through
-// quoteIDToUUID: the "q_<uuid>" form POST /v1/quote returns AND a bare uuid both
-// resolve to the same quotes.id, and garbage is a clear caller error (never a
-// silently-dropped binding). Pure; the not-expired/match checks + invoice
-// quoted-vs-actual are covered by TestQuoteBindingMatchAndExpiry (integration).
 func TestQuoteIDToUUIDRoundTrip(t *testing.T) {
 	id := uuid.New()
 
-	// The "q_<uuid>" handle (what the buyer is handed) parses back to the bare id.
 	got, err := quoteIDToUUID("q_" + id.String())
 	if err != nil {
 		t.Fatalf("q_ handle should parse, got %v", err)
@@ -326,7 +262,6 @@ func TestQuoteIDToUUIDRoundTrip(t *testing.T) {
 		t.Fatalf("q_ handle resolved to %v, want %v", got, id)
 	}
 
-	// A bare uuid is accepted too, so a buyer can pass back either shape.
 	got2, err := quoteIDToUUID(id.String())
 	if err != nil {
 		t.Fatalf("bare uuid should parse, got %v", err)
@@ -335,12 +270,10 @@ func TestQuoteIDToUUIDRoundTrip(t *testing.T) {
 		t.Fatalf("bare uuid resolved to %v, want %v", got2, id)
 	}
 
-	// Surrounding whitespace is tolerated (handles copy-pasted with a trailing newline).
 	if got3, err := quoteIDToUUID("  q_" + id.String() + "  "); err != nil || got3 != id {
 		t.Fatalf("padded handle: got (%v,%v), want (%v,nil)", got3, err, id)
 	}
 
-	// Garbage is a caller error, not a zero-uuid that would mis-bind.
 	for _, bad := range []string{"", "q_", "q_not-a-uuid", "deadbeef", "q_q_" + id.String()} {
 		if _, err := quoteIDToUUID(bad); err == nil {
 			t.Fatalf("quoteIDToUUID(%q) should error", bad)
@@ -348,15 +281,7 @@ func TestQuoteIDToUUIDRoundTrip(t *testing.T) {
 	}
 }
 
-// Plane D D6 / errata C-Errata-6 — the quote-to-actual drift feedback's pure core:
-// once a (job_type, model) has enough committed durations the ETA uses the OBSERVED
-// p90 per-task seconds, and with no/thin history it falls back to the static target.
-// The sample-count gate + the SQL p90 live in the store (HistoricalP90DurationMs,
-// covered by integration TestTaskDurationRecorded); this pins the ms→secs conversion
-// and the fallback the estimator depends on.
 func TestPerTaskSecsFromP90FallbackAndConversion(t *testing.T) {
-	// No trustworthy history (the store returns 0 below the sample floor / on error)
-	// must fall back to the static target, never to zero.
 	if got := perTaskSecsFromP90(0); got != targetTaskSecs {
 		t.Fatalf("p90ms=0 must fall back to targetTaskSecs(%d), got %d", targetTaskSecs, got)
 	}
@@ -364,8 +289,6 @@ func TestPerTaskSecsFromP90FallbackAndConversion(t *testing.T) {
 		t.Fatalf("negative p90ms must fall back to targetTaskSecs(%d), got %d", targetTaskSecs, got)
 	}
 
-	// A real observed p90 drives the per-task seconds, rounding UP so a sub-second p90
-	// still costs a whole second (a job never takes < 1s/task).
 	if got := perTaskSecsFromP90(1); got != 1 {
 		t.Fatalf("p90ms=1 must round up to 1s, got %d", got)
 	}
@@ -375,22 +298,13 @@ func TestPerTaskSecsFromP90FallbackAndConversion(t *testing.T) {
 	if got := perTaskSecsFromP90(1001); got != 2 {
 		t.Fatalf("p90ms=1001 must round up to 2s, got %d", got)
 	}
-	// A p90 well above the static target overrides it (the observed reality wins once
-	// enough history exists), proving the feedback is live, not cosmetic.
 	if got := perTaskSecsFromP90(90000); got != 90 || got <= targetTaskSecs {
 		t.Fatalf("observed p90=90000ms must override the %ds target, got %d", targetTaskSecs, got)
 	}
 }
 
-// TestSustainedBatchETASecs proves the Thermal 6->7 sustained-throughput ETA
-// adjustment (docs/internal/CREED_AND_PATH_TO_TEN.md): a LONG batch job whose ETA
-// came from the PEAK-derived static target is derated to the measured sustained
-// pace (36.6% slower → ~1.577× longer), while short jobs, non-batch tiers, and
-// ETAs already driven by real observed history are left EXACTLY at peak. Pure — no
-// DB.
 func TestSustainedBatchETASecs(t *testing.T) {
-	// A long batch job on the peak-derived static target IS derated.
-	long := 600 // 10 min peak estimate — well past the throttle onset
+	long := 600 // 10 min peak estimate  -  well past the throttle onset
 	got := sustainedBatchETASecs(long, "batch", false /*usedObservedHistory*/)
 	want := 947 // ceil(600 * 1/(1-0.366)) = ceil(946.37)
 	if got != want {
@@ -400,20 +314,15 @@ func TestSustainedBatchETASecs(t *testing.T) {
 		t.Fatalf("the sustained ETA must be strictly longer than the peak ETA (%d), got %d", long, got)
 	}
 
-	// A SHORT batch job (under the threshold) finishes inside the peak regime — no
-	// derating.
 	shortPeak := sustainedETAThresholdSecs - 1
 	if got := sustainedBatchETASecs(shortPeak, "batch", false); got != shortPeak {
 		t.Fatalf("a short batch ETA (%ds < %ds threshold) must stay at peak, got %d", shortPeak, sustainedETAThresholdSecs, got)
 	}
 
-	// Exactly at the threshold: derating engages (>= threshold).
 	if got := sustainedBatchETASecs(sustainedETAThresholdSecs, "batch", false); got <= sustainedETAThresholdSecs {
 		t.Fatalf("at the threshold the sustained derating must engage, got %d (<= %d)", got, sustainedETAThresholdSecs)
 	}
 
-	// A non-batch tier (priority/trusted are latency tiers, not the minutes-long
-	// sustained regime) is never derated, even when long.
 	if got := sustainedBatchETASecs(long, "priority", false); got != long {
 		t.Fatalf("a non-batch tier must not be derated, got %d (want %d)", got, long)
 	}
@@ -421,9 +330,6 @@ func TestSustainedBatchETASecs(t *testing.T) {
 		t.Fatalf("the trusted tier must not be derated, got %d (want %d)", got, long)
 	}
 
-	// An ETA already driven by REAL observed history must NOT be re-derated — the
-	// observed durations already embody the machine's actual sustained pace, so
-	// derating again would double-count.
 	if got := sustainedBatchETASecs(long, "batch", true /*usedObservedHistory*/); got != long {
 		t.Fatalf("an observed-history ETA must not be re-derated, got %d (want %d)", got, long)
 	}
@@ -438,36 +344,23 @@ func containsSub(s, sub string) bool {
 	return false
 }
 
-// --- wall-clock speed-SLA quote (Speed Lane wave 2A) — pure unit tests ----------
-// The DB-backed path (quote → firm submit → enforcement → refund) is proven by
-// the real-infra integration test (sla_integration_test.go); these pin the pure
-// math and the honesty gates without a DB.
-
-// TestSLAGuaranteedSecsFormula pins the guarantee formula term by term:
-// ceil(conservative × safety margin) + merge allowance — and its zero handling.
 func TestSLAGuaranteedSecsFormula(t *testing.T) {
-	// conservative 100s → ceil(100×1.25)=125 + 60 = 185.
 	if got := slaGuaranteedSecs(100); got != 185 {
 		t.Fatalf("slaGuaranteedSecs(100)=%d, want 185 (ceil(100*1.25)+60)", got)
 	}
-	// Ceil engages on fractional products: 1 → ceil(1.25)=2 + 60 = 62.
 	if got := slaGuaranteedSecs(1); got != 62 {
 		t.Fatalf("slaGuaranteedSecs(1)=%d, want 62 (ceil(1*1.25)+60)", got)
 	}
-	// No band → no guarantee, never a fabricated one.
 	if got := slaGuaranteedSecs(0); got != 0 {
 		t.Fatalf("slaGuaranteedSecs(0)=%d, want 0", got)
 	}
 	if got := slaGuaranteedSecs(-5); got != 0 {
 		t.Fatalf("slaGuaranteedSecs(-5)=%d, want 0", got)
 	}
-	// Monotone: a bigger band never yields a smaller guarantee.
 	if slaGuaranteedSecs(200) <= slaGuaranteedSecs(100) {
 		t.Fatalf("guarantee must grow with the band: g(200)=%d g(100)=%d",
 			slaGuaranteedSecs(200), slaGuaranteedSecs(100))
 	}
-	// The guarantee is always strictly ABOVE the conservative band itself (margin
-	// + allowance are real additive slack, not a re-label of the band).
 	for _, cons := range []int{1, 10, 47, 100, 3600} {
 		if g := slaGuaranteedSecs(cons); g <= cons {
 			t.Fatalf("guarantee %d must exceed its own conservative band %d", g, cons)
@@ -475,10 +368,6 @@ func TestSLAGuaranteedSecsFormula(t *testing.T) {
 	}
 }
 
-// TestSLAGuaranteeIsBuiltOnConservativeNotP50 pins the wave's core honesty rule:
-// the guarantee basis is the planner's CONSERVATIVE band, so for any plan where
-// conservative > p50 (always, by planner construction) the guarantee built on
-// the band strictly exceeds what the p50 would have produced.
 func TestSLAGuaranteeIsBuiltOnConservativeNotP50(t *testing.T) {
 	p50, conservative := 60, 80 // planner invariant: conservative >= p50
 	if g, gp := slaGuaranteedSecs(conservative), slaGuaranteedSecs(p50); g <= gp {
@@ -486,29 +375,20 @@ func TestSLAGuaranteeIsBuiltOnConservativeNotP50(t *testing.T) {
 	}
 }
 
-// TestDeriveQuoteSLAHonestDegradation proves every precondition gate returns
-// nil — no guarantee — and that the offer, when made, carries the documented
-// premium math and every formula term.
 func TestDeriveQuoteSLAHonestDegradation(t *testing.T) {
 	const expected = 10.0
-	// Supply below the SLA threshold → no guarantee.
 	if sla := deriveQuoteSLA(false, true, 100, expected); sla != nil {
 		t.Fatalf("sla offered without eligible supply: %+v", sla)
 	}
-	// ETA not planner-backed (planner disabled / thin rate cache) → no guarantee.
 	if sla := deriveQuoteSLA(true, false, 100, expected); sla != nil {
 		t.Fatalf("sla offered without planner-backed ETA: %+v", sla)
 	}
-	// Degenerate band → no guarantee.
 	if sla := deriveQuoteSLA(true, true, 0, expected); sla != nil {
 		t.Fatalf("sla offered with no conservative band: %+v", sla)
 	}
-	// Premium that rounds to $0 (zero-cost quote) → no guarantee (a $0 remedy is
-	// not a commitment).
 	if sla := deriveQuoteSLA(true, true, 100, 0); sla != nil {
 		t.Fatalf("sla offered with an un-priceable premium: %+v", sla)
 	}
-	// All gates pass → the offer carries the documented terms.
 	sla := deriveQuoteSLA(true, true, 100, expected)
 	if sla == nil {
 		t.Fatal("sla expected when every precondition holds")
@@ -525,7 +405,6 @@ func TestDeriveQuoteSLAHonestDegradation(t *testing.T) {
 	}
 }
 
-// TestSLAPremiumMath pins the surcharge rate on realistic figures.
 func TestSLAPremiumMath(t *testing.T) {
 	cases := []struct{ expected, want float64 }{
 		{10.00, 1.50},
@@ -543,8 +422,6 @@ func TestSLAPremiumMath(t *testing.T) {
 	}
 }
 
-// TestSLARefundAmount pins the remedy figure: the full premium, capped at the
-// chargeable amount — the refund nets a bill down, it never mints money.
 func TestSLARefundAmount(t *testing.T) {
 	if got := slaRefundAmount(1.50, 10.0); got != 1.50 {
 		t.Fatalf("refund=%v, want the full premium 1.50", got)
@@ -553,15 +430,13 @@ func TestSLARefundAmount(t *testing.T) {
 		t.Fatalf("refund=%v, want capped at the chargeable 0.40", got)
 	}
 	if got := slaRefundAmount(0, 10.0); got != 0 {
-		t.Fatalf("no premium → no refund, got %v", got)
+		t.Fatalf("no premium -> no refund, got %v", got)
 	}
 	if got := slaRefundAmount(1.50, 0); got != 0 {
-		t.Fatalf("nothing chargeable → no refund, got %v", got)
+		t.Fatalf("nothing chargeable -> no refund, got %v", got)
 	}
 }
 
-// TestSLASpanMissed pins the miss boundary: the promise is "within
-// guaranteed_secs", so landing exactly ON the guarantee is a MET.
 func TestSLASpanMissed(t *testing.T) {
 	base := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
 	if slaSpanMissed(base, base.Add(90*time.Second), 90) {
@@ -575,12 +450,6 @@ func TestSLASpanMissed(t *testing.T) {
 	}
 }
 
-// TestSLABindingValidation pins the submit-side binding rules at the pure
-// level: a firm submission binds the guarantee ONLY when the quote actually
-// carried a priced offer, and the committed price ceiling grows by exactly the
-// premium (the cap covered the work; the surcharge is priced on top, never
-// squeezed out of it). Mirrors createJob's binding block (api.go), which the
-// integration test drives end-to-end over HTTP.
 func TestSLABindingValidation(t *testing.T) {
 	bind := func(q boundQuote) (guarantee int, premium, cap float64) {
 		cap = q.CostMaxUSD
@@ -590,18 +459,14 @@ func TestSLABindingValidation(t *testing.T) {
 		}
 		return
 	}
-	// SLA-bearing quote: guarantee + premium bind, ceiling grows by the premium.
 	g, p, cap := bind(boundQuote{CostMaxUSD: 20, SLAGuaranteedSecs: 185, SLAPremiumUSD: 1.5})
 	if g != 185 || p != 1.5 || cap != 21.5 {
 		t.Fatalf("sla binding: got g=%d p=%v cap=%v, want 185/1.5/21.5", g, p, cap)
 	}
-	// No offer on the quote → price-only binding, byte-identical to pre-wave.
 	g, p, cap = bind(boundQuote{CostMaxUSD: 20})
 	if g != 0 || p != 0 || cap != 20 {
 		t.Fatalf("price-only binding: got g=%d p=%v cap=%v, want 0/0/20", g, p, cap)
 	}
-	// A guarantee without a priced premium (defensive: half-written row) must
-	// NOT bind — no remedy means no commitment.
 	g, p, cap = bind(boundQuote{CostMaxUSD: 20, SLAGuaranteedSecs: 185})
 	if g != 0 || p != 0 || cap != 20 {
 		t.Fatalf("guarantee without premium must not bind: got g=%d p=%v cap=%v", g, p, cap)

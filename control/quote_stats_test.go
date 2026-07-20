@@ -2,8 +2,6 @@ package main
 
 import "testing"
 
-// Item 23: the quote's input scan reports records USED vs SKIPPED (blank + malformed)
-// and bytes, so the buyer sees honestly how much of the input is usable before paying.
 func TestScanJSONLUsedAndSkipped(t *testing.T) {
 	data := []byte("{\"text\":\"a\"}\n\n{\"text\":\"b\"}\nnot json")
 	scan := scanJSONL(data)

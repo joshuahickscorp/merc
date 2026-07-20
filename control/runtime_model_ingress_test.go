@@ -12,8 +12,6 @@ import (
 )
 
 func TestCreateJobRejectsExplicitNoncanonicalModelKindBeforeSideEffects(t *testing.T) {
-	// A dependency-free Server is deliberate. A mismatched buyer-controlled kind
-	// must fail before economic configuration, DB, billing, or object storage.
 	_, herr := (&Server{}).createJob(context.Background(), uuid.New(), jobSubmit{
 		JobType: JobType{Type: "embed"},
 		Model:   ModelRef{Kind: "gguf", Ref: "all-minilm-l6-v2"},
