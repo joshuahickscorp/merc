@@ -1,10 +1,10 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-07-20T01:13:18Z",
+  "generated_at": "2026-07-20T01:51:00Z",
   "release_levels": {
     "level_a_software": {
       "scope": "buildable and locally proven release candidate",
-      "decision": "GO_LOCAL_PENDING_EXACT_HEAD_REMOTE",
+      "decision": "GO",
       "live_money": false,
       "public_access": false
     },
@@ -43,17 +43,17 @@
   },
   "severity": {
     "target_scope_open_p0": 0,
-    "target_scope_open_p1": 10,
+    "target_scope_open_p1": 9,
     "open_p2": 4,
     "out_of_scope_p0": ["independently controlled supplier devices remain prohibited without contractual, location, egress, and attestation controls"]
   },
   "weighted_score": {
-    "earned": 65,
+    "earned": 69,
     "possible": 100,
     "go_threshold": 95,
     "p0_or_p1_override": "any open target-scope P0 or P1 forces NO_GO",
     "domains": [
-      {"id": "source_and_ci", "earned": 7, "possible": 10, "reason": "local gates and prior merge CI pass; closure exact-head CI, fresh clone, and registry receipts pending"},
+      {"id": "source_and_ci", "earned": 10, "possible": 10, "reason": "closure exact-head CI passed 5/5; four artifacts verified; clean fresh-clone CI and two-agent proof passed"},
       {"id": "security", "earned": 13, "possible": 15, "reason": "hostile local review repairs and 70-route matrix pass; external staging attack rehearsal/reviewer pending"},
       {"id": "money_and_reconciliation", "earned": 6, "possible": 15, "reason": "ledger and billing tests pass; Stripe test matrix and provider reconciliation absent"},
       {"id": "lifecycle_and_concurrency", "earned": 10, "possible": 10, "reason": "schema, race, attempt fencing, dispute lock, idempotency, and two-agent proof pass"},
@@ -63,7 +63,7 @@
       {"id": "deployment_and_rollback", "earned": 2, "possible": 8, "reason": "immutable harness validates statically; persistent deployment/rollback/restart/soak unexecuted"},
       {"id": "observability_and_alerting", "earned": 4, "possible": 6, "reason": "23 alerts and 13 panels validate; genuine receiver firing/resolution absent"},
       {"id": "privacy_and_data_governance", "earned": 1, "possible": 4, "reason": "review/drafts exist; qualified approval and deletion/tombstone exercises absent"},
-      {"id": "licensing_and_supply_chain", "earned": 1, "possible": 3, "reason": "immutable models/SBOM design exist; license and asset provenance approval absent"},
+      {"id": "licensing_and_supply_chain", "earned": 2, "possible": 3, "reason": "immutable models and digest-pinned images have verified SPDX SBOMs, OIDC signatures, and attestations; license and asset provenance approval remains absent"},
       {"id": "abuse_and_trust", "earned": 1, "possible": 2, "reason": "limits, revocation, and stops pass locally; human route/tabletop absent"},
       {"id": "support_and_incident_response", "earned": 0, "possible": 1, "reason": "runbook exists but named coverage/tabletops are absent"},
       {"id": "website_and_buyer_usability", "earned": 2, "possible": 2, "reason": "desktop/mobile browser review and AA 6.06:1 static validation pass"}
@@ -87,6 +87,22 @@
     "domains": 14,
     "required_fields_complete": true,
     "result": "local controls reviewed and repaired; external/governance outcomes remain NO_GO where no exercise or authority exists"
+  },
+  "remote_evidence": {
+    "verified_functional_predecessor_commit": "7502d1d5f87c76953b7d1f626251021101d4532d",
+    "selection_rule": "The PR current-head check rollup and candidate-*-${HEAD} artifacts are normative after receipt-ledger-only successors.",
+    "ci_run": 29711174514,
+    "ci_result": "PASS 5/5; control, agent, interfaces, container, and security each asserted the exact candidate head",
+    "ci_artifacts": "PASS; four bundles downloaded and every embedded SHA256SUMS entry verified",
+    "ci_source_sha256": "4777056bf4fc8b4b7198e21607f15ab31993da04ee5f7f3918f1bb1a77449536",
+    "candidate_archive_image_id": "sha256:21eef1a60833cf4a73a0c91afdd53b27f6274471e0c07b9ab6aed38186a1f4fb",
+    "prior_archive_image_id": "sha256:2af9034ce0c713a1228787891647b2867473369d44a042463b5d03d30a5c3f84",
+    "registry_run": 29711173217,
+    "registry_result": "PASS; build/push, SPDX SBOM, keyless OIDC signature, attestation, pull, and verification",
+    "candidate_registry_image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:e6f8e7e6208119454567f174241e34efea89d499a85d9612af976ccbc0578e8f",
+    "prior_registry_image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:9a2cf1aa8366bf9f476816ad5288851fea48322296a64c0af82a774b9dccccd2",
+    "fresh_clone": "PASS at exact 7502d1d; make ci and isolated two-agent full proof; clean tree",
+    "fresh_clone_proof_ledger_sha256": "3d5331bc56f042212dbc61427b73237b9bb8eac3228354d4b6ea1dc38fb4f23f"
   },
   "external_input_contract": {
     "artifact": "ops/go-closure-inputs.json",

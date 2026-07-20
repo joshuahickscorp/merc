@@ -7,11 +7,11 @@ prohibited**.
 
 | Level | Decision | Boundary |
 |---|---|---|
-| A — software candidate | GO locally, pending exact-head remote publication proof | build/test artifacts only |
+| A — software candidate | GO | exact-head CI, artifacts, signed registry images, and fresh-clone proof |
 | B — private canary | NO-GO | persistent private staging, approved synthetic participants, Stripe test mode, no value |
 | C — live pilot/public launch | NO-GO / prohibited | no real charges, transfers, payouts, public signup, or independent suppliers |
 
-The weighted readiness score is **65/100**. GO requires at least 95, zero open
+The weighted readiness score is **69/100**. GO requires at least 95, zero open
 P0/P1, all mandatory scenarios, and a passing 24-hour soak. The machine decision
 and scoring evidence are in `ops/go-no-go.json` and `ops/readiness.json`.
 
@@ -49,13 +49,24 @@ cannot be embedded inside the commit it identifies without self-reference.
 
 ## Why Level B is still NO-GO
 
-Ten P1 gates remain. They require resources or authority not available in this
-workspace: exact-head remote publication/fresh-clone proof; persistent TLS
-staging; rollback, restart storm and 24-hour soak; independently uploaded and
+Nine P1 gates remain. They require resources or authority not available in this
+workspace: persistent TLS staging; rollback, restart storm and 24-hour soak; independently uploaded and
 restored encrypted backup; Stripe test-mode fixtures and reconciliation; a real
 alert receiver; two approved buyers/two operator-controlled Metal agents and
 scenario adapters; an independent repository reviewer; qualified governance
 approvals; and the named incident/privacy/provenance exercises.
+
+Exact-head run `29711174514` passed all five CI jobs at `7502d1d`; all four
+artifact bundles and their embedded checksums verified. Registry run
+`29711173217` published and verified candidate digest
+`sha256:e6f8e7e6208119454567f174241e34efea89d499a85d9612af976ccbc0578e8f`
+and prior digest
+`sha256:9a2cf1aa8366bf9f476816ad5288851fea48322296a64c0af82a774b9dccccd2`
+with SPDX SBOMs, GitHub-OIDC signatures, and attestations. A clean fresh clone
+passed `make ci` and the full isolated two-agent proof; its ledger SHA-256 is
+`3d5331bc56f042212dbc61427b73237b9bb8eac3228354d4b6ea1dc38fb4f23f`.
+Receipt-ledger-only successor commits use the PR current-head check rollup as
+the normative exact-head remote receipt.
 
 The workstation contains a Stripe **live-mode** credential. It was classified
 `live_refused`, never printed, and never used. It cannot satisfy any gate.

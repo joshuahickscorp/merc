@@ -1,21 +1,15 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-07-20T01:13:18Z",
+  "generated_at": "2026-07-20T01:51:00Z",
   "decisions": {
-    "software_candidate": "GO_LOCAL_PENDING_EXACT_HEAD_REMOTE",
+    "software_candidate": "GO",
     "supervised_stripe_test_mode_private_canary": "NO_GO",
     "live_money_or_public_launch": "NO_GO_PROHIBITED"
   },
-  "readiness_score": 65,
+  "readiness_score": 69,
   "go_threshold": 95,
   "open_p0": [],
   "open_p1": [
-    {
-      "id": "P1-RELEASE-REMOTE",
-      "owner": "release_engineering",
-      "blocker": "The GO-closure candidate has not yet passed exact-head remote CI, registry publication/signature verification, artifact download inspection, and a fresh-clone proof.",
-      "exit_criterion": "Draft PR exact head passes every required job; digest-pinned candidate/prior images, SBOMs, signatures and attestations verify; downloaded artifacts verify; fresh clone make ci and proof pass."
-    },
     {
       "id": "P1-STAGING",
       "owner": "operations",

@@ -168,17 +168,17 @@
     {
       "id": "dependency_registry",
       "reviewer_track": "focused_governance_agent",
-      "outcome": "PASS_DESIGN_PENDING_REMOTE_PUBLICATION",
+      "outcome": "PASS_PUBLICATION_NO_GO_LICENSE",
       "scope": ["Go, Rust, Python, JavaScript, actions, containers, and model dependencies", "immutable registry publication", "SBOM, signatures, attestations, and artifact retention"],
       "threat_or_failure_model": ["mutable dependency or action substitution", "unsigned or untraceable image", "missing release contents", "known vulnerable or unmaintained dependency"],
       "findings": [
         {"id": "DEP-PINS", "severity": "P1", "status": "FIXED", "evidence": "actions and production containers are pinned; models are revision/hash pinned"},
         {"id": "DEP-P2-PASTE", "severity": "P2", "status": "OPEN", "evidence": "Candle transitively uses unmaintained paste; no known vulnerability is reported"},
-        {"id": "DEP-P1-PUBLISH", "severity": "P1", "status": "OPEN", "evidence": "signed exact-head candidate images have not yet been published by the new workflow"}
+        {"id": "DEP-P1-PUBLISH", "severity": "P1", "status": "FIXED", "evidence": "run 29711173217 published candidate digest e6f8e7e6208119454567f174241e34efea89d499a85d9612af976ccbc0578e8f and prior digest 9a2cf1aa8366bf9f476816ad5288851fea48322296a64c0af82a774b9dccccd2 with verified SPDX SBOMs, keyless OIDC signatures, and attestations"}
       ],
       "repair": ["added dependency-review policy", "added immutable GHCR candidate/prior build", "added SPDX SBOM and keyless cosign signing/attestation/verification"],
-      "verification": ["make ci", "publish-candidate workflow must pass at exact head", "downloaded registry evidence and digest verification remain required"],
-      "residual_risk": ["remote registry workflow has not run", "license completeness remains blocked", "transitive paste maintenance warning remains"]
+      "verification": ["make ci", "publish-candidate run 29711173217 passed", "downloaded registry evidence parsed and both signature identities matched the pinned workflow/branch"],
+      "residual_risk": ["license completeness remains blocked", "transitive paste maintenance warning remains"]
     },
     {
       "id": "website_buyer_ux",
