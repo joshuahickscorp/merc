@@ -134,6 +134,10 @@ jobs:
           node-version: "22"
       - name: Candidate source identity
         run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - name: Install backup envelope tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y age
       - name: schema and generated artifacts
         run: |
           python3 -m json.tool proto/manifest.schema.json >/dev/null
