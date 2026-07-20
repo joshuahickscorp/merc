@@ -17,6 +17,11 @@ This is the current boundary and limitation register. It is not a certification.
 
 ## Authorization matrix
 
+The normative route-by-route, eight-role decision table is
+`ops/authorization-matrix.json`. CI parses `Server.Routes`, requires exact
+coverage of all 70 method/path registrations, and verifies each protected route
+uses its reviewed authentication wrapper. The summary below is explanatory.
+
 | Surface | Credential / proof | Object scope | Mutation authority |
 |---|---|---|---|
 | health, readiness, version, static site, metrics | public behind the production proxy | no buyer objects | none |

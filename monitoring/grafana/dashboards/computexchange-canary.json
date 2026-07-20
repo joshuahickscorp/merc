@@ -1,0 +1,31 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {"id": 1, "title": "API health", "type": "stat", "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0}, "targets": [{"expr": "up{job=\"computexchange-control\"}", "refId": "A"}]},
+    {"id": 2, "title": "Release identity", "type": "table", "gridPos": {"h": 4, "w": 8, "x": 4, "y": 0}, "targets": [{"expr": "cx_release_info", "format": "table", "instant": true, "refId": "A"}]},
+    {"id": 3, "title": "Active alerts", "type": "stat", "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0}, "targets": [{"expr": "count(ALERTS{alertstate=\"firing\"})", "refId": "A"}]},
+    {"id": 4, "title": "Active workers", "type": "stat", "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0}, "targets": [{"expr": "cx_active_workers", "refId": "A"}]},
+    {"id": 5, "title": "DB pool utilization", "type": "gauge", "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0}, "fieldConfig": {"defaults": {"max": 1, "min": 0, "unit": "percentunit"}, "overrides": []}, "targets": [{"expr": "cx_db_pool_utilization_ratio", "refId": "A"}]},
+    {"id": 6, "title": "Queue depth", "type": "timeseries", "gridPos": {"h": 7, "w": 8, "x": 0, "y": 4}, "targets": [{"expr": "sum by (tier,job_type) (cx_queue_depth)", "legendFormat": "{{tier}} / {{job_type}}", "refId": "A"}]},
+    {"id": 7, "title": "Queue age p99", "type": "timeseries", "gridPos": {"h": 7, "w": 8, "x": 8, "y": 4}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}, "targets": [{"expr": "cx_queue_age_seconds{quantile=\"0.99\"}", "legendFormat": "{{tier}} / {{job_type}}", "refId": "A"}]},
+    {"id": 8, "title": "Job and task rates", "type": "timeseries", "gridPos": {"h": 7, "w": 8, "x": 16, "y": 4}, "targets": [{"expr": "rate(cx_jobs_submitted_total[5m])", "legendFormat": "jobs submitted", "refId": "A"}, {"expr": "rate(cx_tasks_completed_total[5m])", "legendFormat": "tasks completed", "refId": "B"}, {"expr": "rate(cx_task_failures_total[5m])", "legendFormat": "task failures", "refId": "C"}]},
+    {"id": 9, "title": "Verification and reconciliation", "type": "timeseries", "gridPos": {"h": 7, "w": 8, "x": 0, "y": 11}, "targets": [{"expr": "increase(cx_verification_mismatch_total[15m])", "legendFormat": "verification mismatch", "refId": "A"}, {"expr": "increase(cx_reconcile_drift_total[15m])", "legendFormat": "ledger/provider drift", "refId": "B"}, {"expr": "increase(cx_budget_stops_total[15m])", "legendFormat": "budget stops", "refId": "C"}]},
+    {"id": 10, "title": "Storage and backups", "type": "timeseries", "gridPos": {"h": 7, "w": 8, "x": 8, "y": 11}, "targets": [{"expr": "cx_object_storage_up", "legendFormat": "object storage up", "refId": "A"}, {"expr": "cx_backup_signal_valid", "legendFormat": "backup signal valid", "refId": "B"}, {"expr": "cx_backup_age_seconds / 3600", "legendFormat": "backup age hours", "refId": "C"}]},
+    {"id": 11, "title": "Webhook delivery", "type": "timeseries", "gridPos": {"h": 7, "w": 8, "x": 16, "y": 11}, "targets": [{"expr": "cx_webhook_backlog", "legendFormat": "{{state}}", "refId": "A"}, {"expr": "cx_webhook_oldest_pending_age_seconds", "legendFormat": "oldest pending seconds", "refId": "B"}]},
+    {"id": 12, "title": "Host disk free", "type": "timeseries", "gridPos": {"h": 7, "w": 12, "x": 0, "y": 18}, "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []}, "targets": [{"expr": "node_filesystem_avail_bytes{job=\"node-exporter\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs\"} / node_filesystem_size_bytes{job=\"node-exporter\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs\"}", "legendFormat": "{{instance}} {{mountpoint}}", "refId": "A"}]},
+    {"id": 13, "title": "Background loop age / interval", "type": "timeseries", "gridPos": {"h": 7, "w": 12, "x": 12, "y": 18}, "targets": [{"expr": "cx_ticker_seconds_since_success / on(ticker) cx_ticker_interval_seconds", "legendFormat": "{{ticker}} missed intervals", "refId": "A"}]}
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["computexchange", "canary"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "ComputExchange canary operations",
+  "uid": "computexchange-canary",
+  "version": 1
+}

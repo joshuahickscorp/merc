@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -58,19 +59,48 @@ func (rl *rateLimiter) sweep() {
 }
 
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.LastIndexByte(xff, ','); i >= 0 {
-			return strings.TrimSpace(xff[i+1:])
+	peer := remoteIP(r.RemoteAddr)
+	if trustedProxy(peer, os.Getenv("CX_TRUSTED_PROXY_CIDRS")) {
+		if xr := parseForwardedIP(r.Header.Get("X-Real-IP")); xr != "" {
+			return xr
 		}
-		return strings.TrimSpace(xff)
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if i := strings.LastIndexByte(xff, ','); i >= 0 {
+				return parseForwardedIP(strings.TrimSpace(xff[i+1:]))
+			}
+			return parseForwardedIP(xff)
+		}
 	}
-	if xr := r.Header.Get("X-Real-IP"); xr != "" {
-		return strings.TrimSpace(xr)
-	}
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+	return peer
+}
+
+func remoteIP(remoteAddr string) string {
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
 		return host
 	}
-	return r.RemoteAddr
+	return strings.TrimSpace(remoteAddr)
+}
+
+func parseForwardedIP(raw string) string {
+	ip := net.ParseIP(strings.TrimSpace(raw))
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
+}
+
+func trustedProxy(peer, rawCIDRs string) bool {
+	ip := net.ParseIP(strings.TrimSpace(peer))
+	if ip == nil || strings.TrimSpace(rawCIDRs) == "" {
+		return false
+	}
+	for _, raw := range strings.Split(rawCIDRs, ",") {
+		_, network, err := net.ParseCIDR(strings.TrimSpace(raw))
+		if err == nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func isRemote(r *http.Request) bool {
@@ -81,7 +111,7 @@ func isRemote(r *http.Request) bool {
 func (rl *rateLimiter) limitByIP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/healthz", "/metrics":
+		case "/healthz":
 			next.ServeHTTP(w, r)
 			return
 		}

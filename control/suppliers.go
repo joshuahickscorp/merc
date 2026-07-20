@@ -188,6 +188,9 @@ func writeSupplierStoreError(w http.ResponseWriter, action string, err error) {
 }
 
 func (s *Server) handleSupplierOnboard(w http.ResponseWriter, r *http.Request) {
+	if !s.requireOperationalControlActive(w, r, controlPayments) {
+		return
+	}
 	if err := decodeEmptySupplierBody(r); err != nil {
 		writeErr(w, http.StatusBadRequest, "supplier identity comes from the authenticated account and KYC is collected by Stripe; send an empty JSON object")
 		return
@@ -219,7 +222,21 @@ func (s *Server) handleSupplierOnboard(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateWorkerToken(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
-	if err := decodeEmptySupplierBody(r); err != nil {
+	workerID := uuid.New()
+	if s.canary.Enabled {
+		var body struct {
+			WorkerID uuid.UUID `json:"worker_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.WorkerID == uuid.Nil {
+			writeErr(w, http.StatusBadRequest, "private-canary worker token requires an approved worker_id")
+			return
+		}
+		if !s.canary.allowsWorker(body.WorkerID) {
+			writeErr(w, http.StatusForbidden, "worker is not approved for this private canary")
+			return
+		}
+		workerID = body.WorkerID
+	} else if err := decodeEmptySupplierBody(r); err != nil {
 		writeErr(w, http.StatusBadRequest, "supplier identity comes from the authenticated account; send an empty JSON object")
 		return
 	}
@@ -229,7 +246,6 @@ func (s *Server) handleCreateWorkerToken(w http.ResponseWriter, r *http.Request)
 		writeSupplierStoreError(w, "recording supplier", err)
 		return
 	}
-	workerID := uuid.New()
 	token, err := s.store.CreateWorkerTokenForBuyer(r.Context(), auth.BuyerID, workerID, supplierID)
 	if err != nil {
 		writeSupplierStoreError(w, "minting worker token", err)
@@ -284,6 +300,10 @@ func (s *Server) handleSupplierStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
+	if !s.requireOperationalControlActive(w, r, controlWebhooks) ||
+		!s.requireOperationalControlActive(w, r, controlPayments) {
+		return
+	}
 	secret := os.Getenv("CX_CONNECT_WEBHOOK_SECRET")
 	if secret == "" {
 		secret = os.Getenv("STRIPE_WEBHOOK_SECRET")

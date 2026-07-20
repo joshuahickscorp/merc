@@ -226,6 +226,10 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "a valid email is required")
 		return
 	}
+	if !s.canary.allowsBuyerEmail(email) {
+		writeErr(w, http.StatusForbidden, "email is not approved for this private canary")
+		return
+	}
 	if len(req.Password) < 8 {
 		writeErr(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
@@ -268,6 +272,8 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	} else {
 		resp["sandbox_key_error"] = kerr.Error() // honest: the grant stands, the key mint did not
 	}
+	w.Header().Set("Cache-Control", "no-store, private")
+	w.Header().Set("Pragma", "no-cache")
 	writeJSON(w, http.StatusCreated, resp)
 }
 
@@ -278,6 +284,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := normalizeEmail(req.Email)
+	if !s.canary.allowsBuyerEmail(email) {
+		writeErr(w, http.StatusForbidden, "email is not approved for this private canary")
+		return
+	}
 	now := time.Now()
 	if ok, retry := loginGuard.allow(email, now); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
@@ -300,12 +310,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "issuing session: "+err.Error())
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store, private")
+	w.Header().Set("Pragma", "no-cache")
 	writeJSON(w, http.StatusOK, map[string]any{"buyer_id": buyerID, "token": token})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if strings.HasPrefix(raw, "cx_sess_") {
+	raw, ok := bearer(r)
+	if ok && strings.HasPrefix(raw, "cx_sess_") {
 		if err := s.store.RevokeSession(r.Context(), raw); err != nil {
 			writeErr(w, http.StatusInternalServerError, "logout: "+err.Error())
 			return

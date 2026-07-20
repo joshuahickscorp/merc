@@ -1,0 +1,386 @@
+{
+  "schema_version": 1,
+  "purpose": "Exact operator-supplied inputs required to resume GO closure; this file never contains values.",
+  "policy": {
+    "stripe_live_mode": "refused",
+    "paid_resource_creation": "requires_separate_authorization",
+    "unrelated_personal_credentials": "refused",
+    "secret_output": "forbidden"
+  },
+  "delivery": {
+    "destination": "/Users/scammermike/Downloads/computexchange/.env.go-closure (gitignored, chmod 600); CX_BACKUP_DECRYPTION_IDENTITY_FILE contains a path to a separate chmod-600 identity file, never the identity value",
+    "format": "one NAME=VALUE assignment per requested input; do not place values in chat, git, CI logs, or evidence files",
+    "verification_command": "make release-doctor",
+    "expected_evidence": {
+      "staging": "TLS certificate/headers, external health and source identity, persistent-volume restart, prior-digest rollback and candidate forward-recovery receipts",
+      "backup": "encrypted offsite object URI and SHA-256, independent download, isolated decrypt/restore, restored database/object checksums and application verification",
+      "stripe": "redacted test-mode fixture IDs covering success, decline, retry/idempotency, refund, dispute, Connect restriction, payout hold/manual release/failure, webhook replay/out-of-order, and reconciliation",
+      "alert": "redacted receiver delivery ID, delivery timestamp, acknowledgement, deduplication, and resolved notification",
+      "canary": "two approved synthetic buyers and two distinct operator-controlled Metal worker identities exercised within every configured bound",
+      "review": "required approving review on the exact-head GO-closure PR from the named non-author collaborator",
+      "governance": "exact-candidate approval receipts from the named legal, privacy, tax, payments, security, trust-and-safety, licensing, and support authorities plus PASS receipts for both tabletops, DSAR deletion/export, backup tombstones, and asset/model provenance"
+    }
+  },
+  "inputs": [
+    {
+      "name": "STAGING_SSH_TARGET",
+      "accepted_form": "existing project-controlled SSH host alias or user@host",
+      "minimum_scope": "deploy and operate an isolated persistent staging stack",
+      "secret": false,
+      "used_by": "persistent TLS staging and rollback",
+      "verification": "make release-doctor CHECK=staging",
+      "unblocks": ["persistent_staging", "rollback", "restart_storm", "soak"]
+    },
+    {
+      "name": "STAGING_TLS_HOSTNAME",
+      "accepted_form": "DNS hostname controlled for staging with valid TLS",
+      "minimum_scope": "A/AAAA/CNAME and ACME issuance for the staging endpoint",
+      "secret": false,
+      "used_by": "external staging verification",
+      "verification": "make release-doctor CHECK=staging",
+      "unblocks": ["persistent_staging", "external_health"]
+    },
+    {
+      "name": "STAGING_DEPLOYMENT_ROOT",
+      "accepted_form": "absolute host path dedicated to ComputExchange staging",
+      "minimum_scope": "persistent compose state, evidence, and rollback manifests",
+      "secret": false,
+      "used_by": "staging deployment",
+      "verification": "make release-doctor CHECK=staging",
+      "unblocks": ["persistent_staging", "rollback"]
+    },
+    {
+      "name": "STAGING_STORAGE_TLS_HOSTNAME",
+      "accepted_form": "DNS hostname controlled for the staging object endpoint with valid TLS",
+      "minimum_scope": "A/AAAA/CNAME and ACME issuance for the private-canary object endpoint",
+      "secret": false,
+      "used_by": "artifact upload/download through persistent TLS staging",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "artifact_delivery"]
+    },
+    {
+      "name": "STAGING_BIND_ADDRESS",
+      "accepted_form": "specific non-wildcard IPv4 address assigned to the staging host interface",
+      "minimum_scope": "bind only the TLS ingress interface governed by the project firewall, VPN, or identity-aware proxy",
+      "secret": false,
+      "used_by": "private staging ingress",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "private_access"]
+    },
+    {
+      "name": "ACME_EMAIL",
+      "accepted_form": "project-controlled operations email address for ACME notices",
+      "minimum_scope": "staging certificate issuance only",
+      "secret": false,
+      "used_by": "persistent TLS staging",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging"]
+    },
+    {
+      "name": "POSTGRES_PASSWORD",
+      "accepted_form": "random staging-only database password of at least 32 URL-safe characters [A-Za-z0-9._~-]",
+      "minimum_scope": "cx database in the isolated staging stack only",
+      "secret": true,
+      "used_by": "persistent staging database",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "rollback"]
+    },
+    {
+      "name": "MINIO_ROOT_USER",
+      "accepted_form": "random staging-only MinIO access-key identifier",
+      "minimum_scope": "isolated staging object store only",
+      "secret": true,
+      "used_by": "persistent staging object storage",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "artifact_delivery"]
+    },
+    {
+      "name": "MINIO_ROOT_PASSWORD",
+      "accepted_form": "random staging-only MinIO secret of at least 32 characters",
+      "minimum_scope": "isolated staging object store only",
+      "secret": true,
+      "used_by": "persistent staging object storage",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "artifact_delivery"]
+    },
+    {
+      "name": "GF_SECURITY_ADMIN_PASSWORD",
+      "accepted_form": "random staging-only Grafana administrator password of at least 32 characters",
+      "minimum_scope": "loopback-bound staging Grafana only",
+      "secret": true,
+      "used_by": "persistent staging dashboards",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "observability"]
+    },
+    {
+      "name": "CX_TOKEN_KEY",
+      "accepted_form": "at least 32 unpredictable bytes, distinct from every other secret",
+      "minimum_scope": "encrypt staging OAuth and webhook-secret state only",
+      "secret": true,
+      "used_by": "hardened staging control plane",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "stripe_matrix"]
+    },
+    {
+      "name": "CX_VERIFICATION_SAMPLE_SECRET",
+      "accepted_form": "at least 32 unpredictable bytes distinct from CX_TOKEN_KEY",
+      "minimum_scope": "staging verification sampling only",
+      "secret": true,
+      "used_by": "hardened staging control plane",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "canary_rehearsal"]
+    },
+    {
+      "name": "CX_CANDIDATE_CONTROL_IMAGE",
+      "accepted_form": "published registry/repository@sha256:<64 lowercase hex> candidate reference",
+      "minimum_scope": "pull access to the retained signed candidate image",
+      "secret": false,
+      "used_by": "candidate deployment and forward recovery",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "forward_recovery", "soak"]
+    },
+    {
+      "name": "CX_CANDIDATE_COMMIT",
+      "accepted_form": "full 40-character lowercase source commit embedded in the candidate image",
+      "minimum_scope": "exact release-source identity",
+      "secret": false,
+      "used_by": "candidate source-identity probe",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "forward_recovery", "soak"]
+    },
+    {
+      "name": "CX_PRIOR_CONTROL_IMAGE",
+      "accepted_form": "published registry/repository@sha256:<64 lowercase hex> prior reference",
+      "minimum_scope": "pull access and retention through completion of the rollback gate",
+      "secret": false,
+      "used_by": "prior-image rollback",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate prior --check",
+      "unblocks": ["rollback"]
+    },
+    {
+      "name": "CX_PRIOR_COMMIT",
+      "accepted_form": "full 40-character lowercase source commit embedded in the prior image",
+      "minimum_scope": "exact rollback source identity",
+      "secret": false,
+      "used_by": "prior-image source-identity probe",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate prior --check",
+      "unblocks": ["rollback"]
+    },
+    {
+      "name": "CX_PROMETHEUS_IMAGE",
+      "accepted_form": "reviewed Prometheus registry/repository@sha256:<64 lowercase hex> reference",
+      "minimum_scope": "pull access and retention for the canary observation window",
+      "secret": false,
+      "used_by": "persistent staging metrics",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["observability", "soak"]
+    },
+    {
+      "name": "CX_ALERTMANAGER_IMAGE",
+      "accepted_form": "reviewed Alertmanager registry/repository@sha256:<64 lowercase hex> reference",
+      "minimum_scope": "pull access and retention for the canary observation window",
+      "secret": false,
+      "used_by": "persistent staging alerts",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["observability", "real_alert_receiver"]
+    },
+    {
+      "name": "CX_GRAFANA_IMAGE",
+      "accepted_form": "reviewed Grafana registry/repository@sha256:<64 lowercase hex> reference",
+      "minimum_scope": "pull access and retention for the canary observation window",
+      "secret": false,
+      "used_by": "persistent staging dashboards",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["observability", "soak"]
+    },
+    {
+      "name": "CX_NODE_EXPORTER_IMAGE",
+      "accepted_form": "reviewed node-exporter registry/repository@sha256:<64 lowercase hex> reference",
+      "minimum_scope": "pull access and retention for the canary observation window",
+      "secret": false,
+      "used_by": "persistent staging host metrics",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["observability", "soak"]
+    },
+    {
+      "name": "CX_BACKUP_OFFSITE",
+      "accepted_form": "s3://bucket/private-prefix at an independent provider or credential boundary",
+      "minimum_scope": "put/get/list/delete only within the staging backup prefix",
+      "secret": false,
+      "used_by": "encrypted offsite backup and isolated restore",
+      "verification": "make release-doctor CHECK=backup",
+      "unblocks": ["offsite_backup", "independent_restore"]
+    },
+    {
+      "name": "AWS_ACCESS_KEY_ID",
+      "accepted_form": "restricted S3-compatible access-key identifier",
+      "minimum_scope": "staging backup prefix only",
+      "secret": true,
+      "used_by": "offsite backup upload/download",
+      "verification": "make release-doctor CHECK=backup",
+      "unblocks": ["offsite_backup", "independent_restore"]
+    },
+    {
+      "name": "AWS_SECRET_ACCESS_KEY",
+      "accepted_form": "restricted S3-compatible secret",
+      "minimum_scope": "staging backup prefix only",
+      "secret": true,
+      "used_by": "offsite backup upload/download",
+      "verification": "make release-doctor CHECK=backup",
+      "unblocks": ["offsite_backup", "independent_restore"]
+    },
+    {
+      "name": "CX_BACKUP_ENCRYPTION_RECIPIENT",
+      "accepted_form": "age1... public recipient",
+      "minimum_scope": "encrypt the staging backup bundle before upload",
+      "secret": false,
+      "used_by": "offsite backup encryption",
+      "verification": "make release-doctor CHECK=backup",
+      "unblocks": ["offsite_backup"]
+    },
+    {
+      "name": "CX_BACKUP_DECRYPTION_IDENTITY_FILE",
+      "accepted_form": "readable path to the matching age identity; never the identity value",
+      "minimum_scope": "isolated restore of the uploaded staging backup",
+      "secret": true,
+      "used_by": "independent restore",
+      "verification": "make release-doctor CHECK=backup",
+      "unblocks": ["independent_restore"]
+    },
+    {
+      "name": "STRIPE_SECRET_KEY",
+      "accepted_form": "sk_test_* only",
+      "minimum_scope": "test-mode PaymentIntent, refund, dispute fixture, balance, and Connect operations required by the matrix",
+      "secret": true,
+      "used_by": "staging Stripe matrix",
+      "verification": "make release-doctor CHECK=stripe",
+      "unblocks": ["stripe_matrix", "provider_reconciliation"]
+    },
+    {
+      "name": "STRIPE_WEBHOOK_SECRET",
+      "accepted_form": "whsec_* for the staging cash-event endpoint",
+      "minimum_scope": "test-mode staging endpoint only",
+      "secret": true,
+      "used_by": "Stripe cash webhook verification",
+      "verification": "make release-doctor CHECK=stripe",
+      "unblocks": ["stripe_matrix"]
+    },
+    {
+      "name": "CX_CONNECT_WEBHOOK_SECRET",
+      "accepted_form": "distinct whsec_* for the staging Connect endpoint",
+      "minimum_scope": "test-mode staging Connect endpoint only",
+      "secret": true,
+      "used_by": "Connect webhook verification",
+      "verification": "make release-doctor CHECK=stripe",
+      "unblocks": ["stripe_matrix", "provider_reconciliation"]
+    },
+    {
+      "name": "CX_CONNECT_CLIENT_ID",
+      "accepted_form": "ca_* test platform client identifier",
+      "minimum_scope": "test-mode Connect onboarding",
+      "secret": false,
+      "used_by": "test supplier onboarding",
+      "verification": "make release-doctor CHECK=stripe",
+      "unblocks": ["stripe_matrix"]
+    },
+    {
+      "name": "STRIPE_TEST_CONNECTED_ACCOUNT_ID",
+      "accepted_form": "acct_* test-mode connected account controlled by the project",
+      "minimum_scope": "test payout hold/release/failure scenarios only",
+      "secret": false,
+      "used_by": "test-mode payout matrix",
+      "verification": "make release-doctor CHECK=stripe",
+      "unblocks": ["stripe_matrix", "provider_reconciliation"]
+    },
+    {
+      "name": "CX_CANARY_APPROVED_BUYER_EMAILS",
+      "accepted_form": "exactly two comma-separated synthetic-data participant email addresses controlled by the project",
+      "minimum_scope": "create and authenticate only the two supervised test buyers",
+      "secret": false,
+      "used_by": "private-canary admission policy and rehearsal",
+      "verification": "make release-doctor CHECK=canary",
+      "unblocks": ["approved_participants", "canary_rehearsal"]
+    },
+    {
+      "name": "CX_CANARY_APPROVED_WORKER_IDS",
+      "accepted_form": "exactly two distinct comma-separated UUIDs preassigned to two operator-controlled Metal agents",
+      "minimum_scope": "mint credentials and dispatch only to the two supervised test workers",
+      "secret": false,
+      "used_by": "private-canary worker admission policy and rehearsal",
+      "verification": "make release-doctor CHECK=canary",
+      "unblocks": ["approved_participants", "canary_rehearsal"]
+    },
+    {
+      "name": "CX_CANARY_APPROVED_AGENT_VERSIONS",
+      "accepted_form": "one to four distinct comma-separated reviewed cx-agent semantic versions",
+      "minimum_scope": "admit only release-reviewed agent binaries during the private canary",
+      "secret": false,
+      "used_by": "private-canary worker admission policy and rehearsal",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["approved_agent_artifacts", "canary_rehearsal"]
+    },
+    {
+      "name": "CX_CANARY_APPROVED_BUILD_HASHES",
+      "accepted_form": "one to four distinct comma-separated lowercase 16-hex build hashes reported by reviewed Metal agent/runtime classes",
+      "minimum_scope": "admit only reviewed runtime-authority, model, tuning, and hardware-class combinations",
+      "secret": false,
+      "used_by": "private-canary worker admission policy and rehearsal",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["approved_agent_artifacts", "canary_rehearsal"]
+    },
+    {
+      "name": "CX_CANARY_SCENARIO_DRIVER",
+      "accepted_form": "absolute path on the staging host to the project-controlled executable implementing the documented strict JSON scenario protocol",
+      "minimum_scope": "exercise only synthetic approved participants and Stripe test-mode fixtures",
+      "secret": false,
+      "used_by": "counted canary workload, backup/restore, Stripe, alert, and invariant rehearsals",
+      "verification": "scripts/go-closure-canary-rehearsal.sh --target ssh --check",
+      "unblocks": ["canary_rehearsal", "stripe_matrix", "independent_restore", "real_alert_receiver"]
+    },
+    {
+      "name": "CX_AGENT_RESTART_DRIVER",
+      "accepted_form": "absolute path on the staging host to the project-controlled executable implementing the documented strict JSON Metal-agent restart protocol",
+      "minimum_scope": "restart exactly the two approved staging Metal agents",
+      "secret": false,
+      "used_by": "restart storm",
+      "verification": "scripts/go-closure-restart-storm.sh --target ssh --check",
+      "unblocks": ["restart_storm", "agent_recovery"]
+    },
+    {
+      "name": "GITHUB_RELEASE_REVIEWER_LOGIN",
+      "accepted_form": "GitHub login other than joshuahickscorp with write, maintain, or admin permission on the repository",
+      "minimum_scope": "independently review and approve the exact-head GO-closure pull request after evidence is complete",
+      "secret": false,
+      "used_by": "protected-branch required review",
+      "verification": "make release-doctor CHECK=review",
+      "unblocks": ["required_review", "closure_merge"]
+    },
+    {
+      "name": "GOVERNANCE_APPROVAL_BUNDLE_PATH",
+      "accepted_form": "absolute readable path to a JSON receipt conforming to ops/governance-approval-bundle.schema.json and bound to the exact 40-character candidate commit",
+      "minimum_scope": "named approvals and exercise receipts for the supervised Stripe-test-mode private canary only; it grants no live-money, public-access, or independently controlled supplier authority",
+      "secret": false,
+      "used_by": "legal, privacy, tax, payments, security, trust-and-safety, licensing, support, and incident-readiness closure",
+      "verification": "make release-doctor CHECK=governance",
+      "unblocks": ["governance_approvals", "support_tabletop", "security_tabletop", "privacy_operations", "asset_and_model_provenance"]
+    },
+    {
+      "name": "ALERT_RECEIVER_WEBHOOK_URL",
+      "accepted_form": "HTTPS webhook for an existing genuine on-call receiver",
+      "minimum_scope": "deliver, deduplicate, acknowledge, and resolve staging alerts",
+      "secret": true,
+      "used_by": "Alertmanager routing",
+      "verification": "make release-doctor CHECK=alert",
+      "unblocks": ["real_alert_receiver"]
+    },
+    {
+      "name": "ALERT_RECEIVER_NAME",
+      "accepted_form": "non-secret receiver/system name",
+      "minimum_scope": "identify the destination without exposing its private channel or account",
+      "secret": false,
+      "used_by": "alert evidence",
+      "verification": "make release-doctor CHECK=alert",
+      "unblocks": ["real_alert_receiver"]
+    }
+  ]
+}

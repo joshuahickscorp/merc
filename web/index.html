@@ -1,8 +1,7 @@
 <!doctype html>
-<!-- computexchange · development-preview page, not a launch or market attestation.
-     Current claim state comes from source-bound proof receipts.
-     DESKTOP-ONLY: under 900px the page is a hand-off screen that sends the link to a
-     Mac. The hero uses the retained Apple Silicon product still. Dash gate: no
+<!-- computexchange · private test-canary page, not a launch or market attestation.
+     Current claim state comes from source-bound proof receipts. The responsive page
+     uses the retained Apple Silicon product still. Dash gate: no
      U+2014, no U+2013 · separator is the middot.
 
      DESIGN DIRECTION scaffold (DESIGN-DIRECTION.md) · "an instrument the size of a
@@ -15,11 +14,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>computexchange</title>
-<meta name="description" content="development preview of a centrally coordinated batch-compute exchange · not a launch or market claim">
+<meta name="description" content="private test canary for approved accounts · no real payments · Apple Metal suppliers · embed and batch_infer only">
 <meta name="theme-color" content="#050505">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <meta property="og:title" content="computexchange">
-<meta property="og:description" content="development preview · local contracts exist; market, money, hardware, and distribution proof remain open">
+<meta property="og:description" content="private test canary · approved accounts only · no real payments · capacity and latency are limited">
 <meta property="og:image" content="https://computexchange.net/assets/site/mac-studio@2x.png">
 <meta property="og:type" content="website">
 <link rel="preload" href="/assets/site/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin>
@@ -41,8 +40,8 @@
     --bg-lift:#0E0E0E;
     --hair:rgba(255,255,255,.11);       /* rules, borders · visible but quiet */
     --hair-2:rgba(255,255,255,.06);
-    --ash:#575757;      /* faint labels */
-    --mute:#8C8C8C;     /* body-adjacent, receipt values */
+    --ash:#8C8C8C;      /* labels · 6.06:1 against --bg */
+    --mute:#A6A6A6;     /* body-adjacent, receipt values */
     --bone:#C7C7C7;     /* primary text */
     --bone-hi:#F2F2F0;  /* the monument + the single brightest highlight */
     --green-core:#69c096;               /* fact only */
@@ -68,14 +67,18 @@
   ::selection{background:var(--bone-hi);color:var(--bg)}
   img{display:block}
   button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+  :where(a,button,input,select):focus-visible{outline:2px solid var(--green-core);outline-offset:4px}
+  .skip-link{position:fixed;left:16px;top:16px;z-index:20;transform:translateY(-160%);
+    padding:10px 14px;background:var(--bone-hi);color:var(--bg);font:600 12px/1 var(--mono);
+    text-transform:uppercase;text-decoration:none}
+  .skip-link:focus{transform:translateY(0)}
 
   /* mono is the RECEIPT / LABEL voice · tabular, tracked small-caps for labels */
   .label{font:500 10.5px/1.2 var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--ash)}
   .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 
-  /* ── the desktop site ─────────────────────────────────────────────────── */
-  .site{display:none}
-  @media (min-width:900px){.site{display:block;position:relative;overflow-x:clip}}   /* the monument bleeds off, clipped here */
+  /* ── responsive site ──────────────────────────────────────────────────── */
+  .site{display:block;position:relative;overflow-x:clip}
 
   /* the spine · one full-height hairline that says "there is a system here", plus a
      faint tick-scale down the left frame rule (a chemin-de-fer, not a HUD). */
@@ -100,6 +103,12 @@
     filter:brightness(.88);
     -webkit-mask-image:radial-gradient(60% 54% at 46% 50%,#000 50%,transparent 99%);
             mask-image:radial-gradient(60% 54% at 46% 50%,#000 50%,transparent 99%)}
+  .canary-banner{margin:0 var(--m);padding:24px 0;border-top:1px solid var(--hair);
+    border-bottom:1px solid var(--hair)}
+  .canary-banner h1{color:var(--bone-hi);font:500 clamp(24px,3vw,42px)/1.15 var(--breit);
+    letter-spacing:-.01em;margin:12px 0 18px;max-width:24ch}
+  .canary-facts{display:flex;flex-wrap:wrap;gap:8px 22px;padding:0;margin:0;list-style:none;
+    color:var(--mute);font:500 11px/1.45 var(--mono);letter-spacing:.04em}
   /* device specs folded into arrival as instrument lines (was a floating callout layer) */
   .spec{color:var(--ash);margin:20px 0 0}
   .spec+.spec{margin-top:6px}
@@ -168,6 +177,12 @@
   .flag{display:inline-block;color:var(--mute);margin:0 0 18px}
   .download p{color:var(--bone);margin:0 0 12px;max-width:44ch}
   .download .road{color:var(--ash);font-size:13px;line-height:1.55;max-width:46ch}
+  .alpha-form{display:grid;grid-template-columns:minmax(220px,1fr) minmax(170px,.6fr) auto;
+    gap:12px;align-items:end;margin-top:24px;max-width:760px}
+  .alpha-field{display:grid;gap:8px}
+  .alpha-field input,.alpha-field select{width:100%;min-width:0;background:transparent;
+    border:1px solid var(--mute);color:inherit;padding:12px;font:inherit}
+  .alpha-field option{background:var(--bg);color:var(--bone)}
 
   footer{display:flex;align-items:center;gap:12px;color:var(--ash);
     padding:16vh 0 10vh;margin-left:var(--m)}
@@ -197,39 +212,48 @@
   .ledger-foot{color:var(--ash);font-size:11.5px;line-height:1.5;margin:18px 0 0}
   .ledger-foot .path{color:var(--mute);font-family:var(--mono)}
 
-  /* ── the phone hand-off (unchanged) ───────────────────────────────────── */
-  .handoff{display:none;min-height:100svh;flex-direction:column;align-items:center;
-    justify-content:center;text-align:center;padding:40px 28px;gap:0}
-  @media (max-width:899px){.handoff{display:flex}}
-  .handoff img{width:44px;height:44px;opacity:.92;margin-bottom:22px}
-  .handoff .eyebrow{margin-bottom:34px;font:500 11px/1 var(--mono);letter-spacing:.38em;color:var(--ash);text-transform:uppercase}
-  .handoff h1{font:400 17px/1.6 var(--sans);color:var(--bone-hi);margin:0 0 8px;max-width:300px}
-  .handoff .sub{color:var(--ash);font-size:12px;margin:0 0 44px;max-width:300px}
-  .handoff .keys{display:flex;flex-direction:column;gap:14px;width:100%;max-width:280px}
   .hand-key{display:block;width:100%;border:1px solid var(--hair);
     padding:14px 20px;color:var(--bone);font:500 12px/1 var(--mono);letter-spacing:.16em;
     text-transform:uppercase;text-align:center;text-decoration:none}
   .hand-key:active{color:var(--bone-hi)}
+  @media (max-width:899px){
+    :root{--m:24px}
+    .masthead{position:static;padding:20px var(--m);border-bottom:1px solid var(--hair);pointer-events:auto}
+    .masthead>.label{max-width:18ch;text-align:right}
+    .stage{height:44vh;min-height:280px}
+    .hero-still{justify-content:center;padding:0 var(--m)}
+    .hero-still img{width:min(94vw,620px);object-position:center}
+    .canary-banner{padding:22px 0}
+    .beat{padding:9vh 0}
+    .field>.reveal{max-width:none}
+    .row{grid-template-columns:12px 64px 1fr;gap:12px;padding:18px 0}
+    .row .state{grid-column:3;text-align:left;white-space:normal}
+    .beat-price{padding:18vh 0 18vh var(--m)}
+    .monument .fig{font-size:clamp(78px,28vw,180px)}
+    .monument .cap-bot{display:block;max-width:76vw;line-height:1.5}
+    .earn{display:grid;gap:22px}
+    .earn img{width:104px;height:104px}
+    .alpha-form{grid-template-columns:1fr;align-items:stretch}
+    footer{margin-left:var(--m);margin-right:var(--m);padding:10vh 0 8vh;align-items:flex-start}
+    .ledger{padding:22px 20px 26px}
+    .ledger-head{gap:18px}
+    .ledger-stat{display:grid;gap:10px}
+    .ledger-stat .gen{margin-left:0}
+    .claim{grid-template-columns:1fr;gap:7px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;
+      animation-iteration-count:1!important;transition-duration:.01ms!important}
+  }
 </style>
 </head>
 <body>
 
-<div class="handoff">
-  <img src="/assets/site/cx-mark-white.png" alt="Cx" width="44" height="44">
-  <span class="eyebrow">computexchange</span>
-  <h1>this page is built for a desktop</h1>
-  <p class="sub">send it to your Mac · AirDrop, email, or copy the link</p>
-  <div class="keys">
-    <button class="hand-key" id="hand-share" hidden>share · AirDrop</button>
-    <a class="hand-key" href="mailto:?subject=computexchange&amp;body=https%3A%2F%2Fcomputexchange.net%2F">email me the link</a>
-    <button class="hand-key" id="hand-copy">copy the link</button>
-  </div>
-</div>
-
+<a class="skip-link" href="#main-content">skip to content</a>
 <div class="site">
 <header class="masthead">
   <span class="mark"><img src="/assets/site/cx-mark-white.png" alt="Cx" width="24" height="24"><b>computexchange</b></span>
-  <span class="label">Development preview</span>
+  <span class="label">Private test canary</span>
 </header>
 
 <div class="stage" id="stage">
@@ -241,7 +265,16 @@
   </div>
 </div>
 
-<main class="beats">
+<main class="beats" id="main-content">
+<section class="canary-banner" aria-labelledby="canary-title">
+  <span class="label">private test canary</span>
+  <h1 id="canary-title">Approved accounts only. No real payments.</h1>
+  <ul class="canary-facts">
+    <li>Apple Metal suppliers only</li>
+    <li>embed and batch_infer only</li>
+    <li>capacity and latency are limited</li>
+  </ul>
+</section>
   <!-- 01 · arrival · the stacked pair is the monument, the thesis its corner caption -->
   <section class="beat beat-arrival" data-beat="0">
     <div class="field"><div class="reveal">
@@ -323,14 +356,18 @@
       <h2 class="display">download</h2>
       <span class="flag label">closed alpha</span>
       <p>There is no public download yet. The supplier agent installs with one command from the alpha build · the macOS menu bar app builds today, and the notarized public release is the next step.</p>
-      <form id="alpha-form" class="alpha-form" style="display:flex;gap:.5em;flex-wrap:wrap;align-items:center;margin-top:1em">
-        <label for="alpha-email" class="label" style="flex:0 0 auto">ask for alpha access</label>
-        <input id="alpha-email" name="email" type="email" required placeholder="you@example.com"
-               style="flex:1 1 220px;min-width:0;background:transparent;border:1px solid currentColor;color:inherit;padding:.5em .75em;font:inherit">
-        <select id="alpha-role" name="role" style="background:transparent;border:1px solid currentColor;color:inherit;padding:.5em .75em;font:inherit">
-          <option value="buyer">as a buyer</option>
-          <option value="supplier">as a supplier</option>
-        </select>
+      <form id="alpha-form" class="alpha-form">
+        <div class="alpha-field">
+          <label for="alpha-email" class="label">email for access request</label>
+          <input id="alpha-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-describedby="alpha-status">
+        </div>
+        <div class="alpha-field">
+          <label for="alpha-role" class="label">participant role</label>
+          <select id="alpha-role" name="role">
+            <option value="buyer">buyer</option>
+            <option value="supplier">supplier</option>
+          </select>
+        </div>
         <button type="submit" class="hand-key">request access</button>
       </form>
       <p id="alpha-status" class="road" aria-live="polite"></p>
@@ -370,21 +407,8 @@
   var dlg = document.getElementById('receipts');
   document.getElementById('open-receipts').addEventListener('click', function () { dlg.showModal(); });
   document.getElementById('close-receipts').addEventListener('click', function () { dlg.close(); });
+  dlg.addEventListener('cancel', function (event) { event.preventDefault(); dlg.close(); });
   dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });
-
-  var URL_SELF = 'https://computexchange.net/';
-  var shareBtn = document.getElementById('hand-share');
-  if (navigator.share) {
-    shareBtn.hidden = false;
-    shareBtn.addEventListener('click', function () {
-      navigator.share({ title: 'computexchange', url: URL_SELF }).catch(function () {});
-    });
-  }
-  var copyBtn = document.getElementById('hand-copy');
-  copyBtn.addEventListener('click', function () {
-    var done = function () { copyBtn.textContent = 'copied'; setTimeout(function () { copyBtn.textContent = 'copy the link'; }, 1600); };
-    if (navigator.clipboard) { navigator.clipboard.writeText(URL_SELF).then(done).catch(done); } else { done(); }
-  });
 
   var alphaForm = document.getElementById('alpha-form');
   var alphaStatus = document.getElementById('alpha-status');

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-07-01T22:34:11Z",
+  "hardware_class": "apple_silicon_pro",
+  "device_label": "Apple M3 Pro",
+  "engine": "candle",
+  "agent_version": "0.1.0",
+  "agent_build_hash": "408db133af3c3014",
+  "source_receipts": {
+    "capability_json_sha256": "45564635b7fbfdbfcd62eba9873060f9404521ef3738cbd5e454efef1ddfbb0e",
+    "batch_benchmark_json_sha256": "889f431199335e8fdfc2d8a2dfc3b52fcc819a2c5c874cf8027db9e85725c796"
+  },
+  "embed": {
+    "model": "all-minilm-l6-v2",
+    "throughput_eps": 1967.3141,
+    "p99_ms": 7,
+    "thermal_ok": true
+  },
+  "batch_infer": {
+    "model": "llama-3.2-1b-instruct-q4",
+    "max_tokens": 48,
+    "serial_tokens_per_second": 91.18760462269711,
+    "batch_32_tokens_per_second": 138.71389521174524,
+    "peak_speedup": 1.5211924448031675,
+    "batched_equals_serial": true,
+    "thermal_ok": true
+  },
+  "limitations": [
+    "Single Apple M3 Pro measurement; not a fleet-capacity claim.",
+    "Electricity, depreciation, utilization, support, payment, fraud, refund, tax, and working-capital costs are not measured by this receipt."
+  ]
+}

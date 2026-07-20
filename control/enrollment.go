@@ -1143,6 +1143,10 @@ func (s *Server) handleApproveWorkerEnrollmentRequest(w http.ResponseWriter, r *
 func (s *Server) handleExchangeWorkerEnrollmentCode(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
+	if s.canary.Enabled {
+		writeErr(w, http.StatusForbidden, "public worker enrollment exchange is disabled during the private canary")
+		return
+	}
 	var in EnrollmentExchangeInput
 	if err := decodeEnrollmentJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid enrollment exchange json")

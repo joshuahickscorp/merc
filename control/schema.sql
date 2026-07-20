@@ -153,6 +153,19 @@ CREATE TABLE IF NOT EXISTS buyers (
     created_at      TIMESTAMPTZ DEFAULT now()
 );
 
+-- Buyer-to-processor identity is canonical schema state.  Keeping this table
+-- here (rather than creating it lazily in the billing path) makes a fresh
+-- database capable of serving billing setup/status and charge recovery before
+-- any Stripe request is attempted.
+CREATE TABLE IF NOT EXISTS billing_customers (
+    buyer_id               UUID PRIMARY KEY REFERENCES buyers(id) ON DELETE CASCADE,
+    stripe_customer_id     TEXT NOT NULL UNIQUE CHECK (btrim(stripe_customer_id) <> ''),
+    default_payment_method TEXT,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (default_payment_method IS NULL OR btrim(default_payment_method) <> '')
+);
+
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS owner_buyer_id UUID;
 WITH ownership_matches AS (
     SELECT s.id AS supplier_id,
@@ -269,6 +282,58 @@ ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_money_shape CHECK (
      AND amount_cents > 0 AND currency = 'usd'
      AND reason IS NOT NULL AND btrim(reason) <> '')
 ) NOT VALID;
+ALTER TABLE admin_actions DROP CONSTRAINT IF EXISTS admin_actions_privileged_mutation_shape;
+ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_privileged_mutation_shape CHECK (
+    kind NOT IN ('worker_suspended','worker_reinstated','task_requeued',
+                 'reputation_adjusted','payout_released','operational_control_changed')
+ OR COALESCE((
+    actor_mode = 'break_glass_api_key'
+    AND actor_principal_id IS NOT NULL AND actor_session_id IS NULL
+    AND attribution_scope = 'shared_credential_only'
+    AND intent_version = 1
+    AND request_sha256 ~ '^[0-9a-f]{64}$'
+    AND correlation_ref IS NOT NULL AND btrim(correlation_ref) <> ''
+    AND reason IS NOT NULL AND btrim(reason) <> ''
+    AND target_kind IS NOT NULL AND target_id IS NOT NULL
+    AND jsonb_typeof(detail) = 'object'
+    AND detail ? 'before' AND detail ? 'after'
+    AND jsonb_typeof(detail->'before') = 'object'
+    AND jsonb_typeof(detail->'after') = 'object'
+    AND CASE kind
+          WHEN 'worker_suspended' THEN
+            target_kind = 'worker' AND supplier_id IS NOT NULL
+              AND task_id IS NULL AND ledger_entry_id IS NULL
+          WHEN 'worker_reinstated' THEN
+            target_kind = 'worker' AND supplier_id IS NOT NULL
+              AND task_id IS NULL AND ledger_entry_id IS NULL
+          WHEN 'task_requeued' THEN
+            target_kind = 'task' AND target_id = task_id
+              AND supplier_id IS NULL AND ledger_entry_id IS NULL
+          WHEN 'reputation_adjusted' THEN
+            target_kind = 'supplier' AND target_id = supplier_id
+              AND task_id IS NULL AND ledger_entry_id IS NULL
+          WHEN 'payout_released' THEN
+            target_kind = 'ledger_entry' AND target_id = ledger_entry_id
+              AND supplier_id IS NOT NULL AND task_id IS NULL
+          WHEN 'operational_control_changed' THEN
+            target_kind = 'operational_control'
+              AND supplier_id IS NULL AND task_id IS NULL AND ledger_entry_id IS NULL
+          ELSE false
+        END
+ ), false)
+) NOT VALID;
+
+CREATE TABLE IF NOT EXISTS operational_controls (
+    name       TEXT PRIMARY KEY CHECK (name IN ('intake','dispatch','payments','webhooks')),
+    paused     BOOLEAN NOT NULL DEFAULT false,
+    reason     TEXT NOT NULL DEFAULT 'initial migration state',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by UUID,
+    version    BIGINT NOT NULL DEFAULT 1 CHECK (version > 0)
+);
+INSERT INTO operational_controls (name,paused)
+VALUES ('intake',false),('dispatch',false),('payments',false),('webhooks',false)
+ON CONFLICT (name) DO NOTHING;
 CREATE UNIQUE INDEX IF NOT EXISTS admin_actions_money_correlation_uniq
     ON admin_actions (kind, correlation_ref)
     WHERE kind IN ('subsidy_fund_authorized','payout_subsidy_authorized');
@@ -1057,11 +1122,126 @@ CREATE TABLE IF NOT EXISTS disputes (
     job_id      UUID NOT NULL REFERENCES jobs,
     buyer_id    UUID NOT NULL,
     reason      TEXT,
-    status      TEXT NOT NULL DEFAULT 'open',  -- open|resolved|rejected
+    status      TEXT NOT NULL DEFAULT 'open',
     created_at  TIMESTAMPTZ DEFAULT now(),
     resolved_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS disputes_job_idx ON disputes (job_id, created_at);
+
+-- A dispute is a money boundary, not just a support note.  terminal_at gives
+-- filing-window decisions a stable timestamp even when a job ran for days.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS terminal_at TIMESTAMPTZ;
+UPDATE jobs j
+   SET terminal_at=COALESCE(
+       (SELECT max(t.completed_at) FROM tasks t WHERE t.job_id=j.id),
+       j.created_at,now())
+ WHERE j.status IN ('complete','failed','cancelled') AND j.terminal_at IS NULL;
+CREATE OR REPLACE FUNCTION cx_stamp_job_terminal_at() RETURNS trigger AS $$
+BEGIN
+    IF NEW.status IN ('complete','failed','cancelled')
+       AND (TG_OP='INSERT' OR OLD.status NOT IN ('complete','failed','cancelled')) THEN
+        NEW.terminal_at := COALESCE(NEW.terminal_at,now());
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS jobs_terminal_at_stamp ON jobs;
+CREATE TRIGGER jobs_terminal_at_stamp
+BEFORE INSERT OR UPDATE OF status ON jobs
+FOR EACH ROW EXECUTE FUNCTION cx_stamp_job_terminal_at();
+
+ALTER TABLE disputes ADD COLUMN IF NOT EXISTS filing_deadline TIMESTAMPTZ;
+UPDATE disputes SET reason='Legacy dispute reason unavailable'
+ WHERE reason IS NULL OR btrim(reason)='';
+UPDATE disputes SET status='upheld' WHERE status='resolved';
+UPDATE disputes SET created_at=now() WHERE created_at IS NULL;
+UPDATE disputes SET resolved_at=COALESCE(resolved_at,created_at,now())
+ WHERE status IN ('upheld','rejected') AND resolved_at IS NULL;
+UPDATE disputes SET resolved_at=NULL
+ WHERE status NOT IN ('upheld','rejected') AND resolved_at IS NOT NULL;
+UPDATE disputes SET filing_deadline=created_at + interval '7 days'
+ WHERE filing_deadline IS NULL;
+-- Older trees allowed duplicate open rows.  Preserve the first case and close
+-- later duplicates before installing the concurrency invariant.
+WITH ranked AS (
+    SELECT id,row_number() OVER (PARTITION BY job_id ORDER BY created_at,id) AS n
+      FROM disputes WHERE status IN ('open','no_peer','reverifying','unresolvable')
+)
+UPDATE disputes d SET status='rejected',resolved_at=COALESCE(d.resolved_at,now())
+  FROM ranked r WHERE d.id=r.id AND r.n>1;
+ALTER TABLE disputes ALTER COLUMN reason SET NOT NULL;
+ALTER TABLE disputes ALTER COLUMN created_at SET NOT NULL;
+ALTER TABLE disputes ALTER COLUMN filing_deadline SET NOT NULL;
+ALTER TABLE disputes DROP CONSTRAINT IF EXISTS disputes_reason_shape;
+ALTER TABLE disputes ADD CONSTRAINT disputes_reason_shape
+    CHECK (char_length(btrim(reason)) BETWEEN 1 AND 1000);
+ALTER TABLE disputes DROP CONSTRAINT IF EXISTS disputes_status_shape;
+ALTER TABLE disputes ADD CONSTRAINT disputes_status_shape CHECK (
+    status IN ('open','no_peer','reverifying','unresolvable','upheld','rejected')
+);
+ALTER TABLE disputes DROP CONSTRAINT IF EXISTS disputes_resolution_shape;
+ALTER TABLE disputes ADD CONSTRAINT disputes_resolution_shape CHECK (
+    (status IN ('upheld','rejected') AND resolved_at IS NOT NULL)
+ OR (status NOT IN ('upheld','rejected') AND resolved_at IS NULL)
+);
+ALTER TABLE disputes DROP CONSTRAINT IF EXISTS disputes_filing_window_shape;
+ALTER TABLE disputes ADD CONSTRAINT disputes_filing_window_shape CHECK (
+    created_at <= filing_deadline AND filing_deadline <= created_at + interval '7 days'
+);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='disputes'::regclass AND conname='disputes_job_owner_fkey'
+    ) THEN
+        ALTER TABLE disputes ADD CONSTRAINT disputes_job_owner_fkey
+            FOREIGN KEY (job_id,buyer_id) REFERENCES jobs(id,buyer_id)
+            ON DELETE RESTRICT NOT VALID;
+    END IF;
+END $$;
+ALTER TABLE disputes VALIDATE CONSTRAINT disputes_job_owner_fkey;
+CREATE UNIQUE INDEX IF NOT EXISTS disputes_one_active_job_uniq
+    ON disputes (job_id)
+    WHERE status IN ('open','no_peer','reverifying','unresolvable');
+
+-- One row per affected liability proves that filing froze the complete job
+-- scope in the same transaction.  Resolution annotates, but never removes,
+-- this evidence.
+CREATE TABLE IF NOT EXISTS dispute_payout_holds (
+    dispute_id             UUID NOT NULL REFERENCES disputes(id) ON DELETE RESTRICT,
+    ledger_entry_id        UUID NOT NULL REFERENCES ledger_entries(id) ON DELETE RESTRICT,
+    payout_status_at_filing TEXT NOT NULL,
+    resolution             TEXT CHECK (resolution IN ('upheld','rejected')),
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at            TIMESTAMPTZ,
+    PRIMARY KEY (dispute_id,ledger_entry_id),
+    CHECK ((resolution IS NULL AND resolved_at IS NULL)
+        OR (resolution IS NOT NULL AND resolved_at IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS dispute_payout_holds_entry_idx
+    ON dispute_payout_holds (ledger_entry_id,created_at);
+
+CREATE TABLE IF NOT EXISTS dispute_events (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    dispute_id  UUID NOT NULL REFERENCES disputes(id) ON DELETE RESTRICT,
+    job_id      UUID NOT NULL REFERENCES jobs(id) ON DELETE RESTRICT,
+    event       TEXT NOT NULL CHECK (event IN
+                  ('filed','no_peer','reverifying','unresolvable','upheld','rejected')),
+    detail      JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(detail)='object'),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dispute_events_dispute_idx
+    ON dispute_events (dispute_id,created_at,id);
+CREATE OR REPLACE FUNCTION reject_dispute_event_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'dispute events are append-only';
+END;
+$$;
+DROP TRIGGER IF EXISTS dispute_events_append_only ON dispute_events;
+CREATE TRIGGER dispute_events_append_only
+BEFORE UPDATE OR DELETE ON dispute_events
+FOR EACH ROW EXECUTE FUNCTION reject_dispute_event_mutation();
 
 CREATE TABLE IF NOT EXISTS verification_events (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1881,6 +2061,7 @@ INSERT INTO lifecycle_transitions (entity,from_state,to_state) VALUES
 ('charge_batch','attempting','charged'),('charge_batch','attempting','outcome_unknown'),('charge_batch','outcome_unknown','charged'),
 ('charge_operation','outcome_unknown','succeeded'),
 ('payout','pending','held'),('payout','pending','awaiting_funding'),('payout','pending','ready'),
+('payout','pending','clawed_back'),('payout','pending','reversal_required'),
 ('payout','held','awaiting_funding'),('payout','held','ready'),('payout','held','sending'),
 ('payout','held','released'),('payout','held','exported'),('payout','held','carried'),('payout','held','clawed_back'),('payout','held','reversal_required'),
 ('payout','awaiting_funding','held'),('payout','awaiting_funding','ready'),('payout','awaiting_funding','sending'),
@@ -1892,6 +2073,7 @@ INSERT INTO lifecycle_transitions (entity,from_state,to_state) VALUES
 ('payout','outcome_unknown','ready'),('payout','outcome_unknown','released'),('payout','outcome_unknown','reversal_required'),
 ('payout','released','clawed_back'),('payout','released','reversal_required'),('payout','exported','reversal_required'),
 ('payout','carried','held'),('payout','carried','awaiting_funding'),
+('payout','carried','clawed_back'),('payout','carried','reversal_required'),
 ('webhook','pending','leased'),('webhook','pending','delivered'),('webhook','pending','dead'),
 ('webhook','leased','pending'),('webhook','leased','delivered'),('webhook','leased','dead');
 
@@ -1932,6 +2114,30 @@ FOR EACH ROW EXECUTE FUNCTION cx_guard_lifecycle_transition('charge_operation','
 DROP TRIGGER IF EXISTS payouts_lifecycle_guard ON ledger_entries;
 CREATE TRIGGER payouts_lifecycle_guard BEFORE UPDATE OF payout_status ON ledger_entries
 FOR EACH ROW EXECUTE FUNCTION cx_guard_lifecycle_transition('payout','payout_status');
+
+-- Store checks make payout claims return a clean "not claimed" result.  This
+-- database guard is the last line of defence for future writers that bypass
+-- those helpers: active buyer disputes may not cross a payout boundary.
+CREATE OR REPLACE FUNCTION cx_guard_active_dispute_payout() RETURNS trigger AS $$
+BEGIN
+    IF NEW.kind='supplier_credit'
+       AND OLD.payout_status IS DISTINCT FROM NEW.payout_status
+       AND NEW.payout_status IN ('sending','released','exported')
+       AND EXISTS (
+           SELECT 1
+             FROM tasks t JOIN disputes d ON d.job_id=t.job_id
+            WHERE t.id=NEW.task_id
+              AND d.status IN ('open','no_peer','reverifying','unresolvable')
+       ) THEN
+        RAISE EXCEPTION 'supplier payout % is frozen by an active job dispute',NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS payouts_active_dispute_guard ON ledger_entries;
+CREATE TRIGGER payouts_active_dispute_guard
+BEFORE UPDATE OF payout_status ON ledger_entries
+FOR EACH ROW EXECUTE FUNCTION cx_guard_active_dispute_payout();
 
 CREATE OR REPLACE FUNCTION cx_webhook_lifecycle_guard() RETURNS trigger AS $$
 DECLARE old_state TEXT; new_state TEXT;

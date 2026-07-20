@@ -91,21 +91,6 @@ func validateLiveConnectURLConfig(cxEnv, stripeSecret, returnURL, refreshURL, si
 	return nil
 }
 
-func (s *Server) handleWorkerConnect(w http.ResponseWriter, r *http.Request) {
-	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
-	acct, err := ensureConnectAccount(r.Context(), s.store, auth.SupplierID)
-	if err != nil {
-		writeErr(w, http.StatusServiceUnavailable, err.Error())
-		return
-	}
-	link, err := onboardingLink(r.Context(), acct)
-	if err != nil {
-		writeErr(w, http.StatusServiceUnavailable, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"account": acct, "onboarding_url": link})
-}
-
 func (s *Server) handleWorkerConnectStatus(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
 	acct, _ := s.store.SupplierStripeAcct(r.Context(), auth.SupplierID)

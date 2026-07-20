@@ -662,6 +662,8 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 	 UPDATE tasks
 	   SET claimed_by = $1, claimed_at = now(), worker_id = $1,
 	       status = 'running', started_at = now(),
+	       result_key = 'jobs/' || tasks.job_id::text || '/tasks/' || tasks.id::text ||
+	                    '/attempt-' || COALESCE(tasks.retry_count,0)::text || '/result.json',
 	       runtime_cell_id = next.runtime_cell_id,
 	       runtime_id = next.runtime_id,
 	       runtime_matrix_sha256 = next.runtime_matrix_sha256,
@@ -739,6 +741,9 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 	}
 	claimed := err == nil
 	if claimed {
+		if err := validateTaskAttemptResultKey(c.JobID, c.TaskID, c.Attempt, c.ResultKey); err != nil {
+			return nil, fmt.Errorf("claim persisted a non-canonical staging key: %w", err)
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO task_execution_history (task_id,attempt,worker_id,supplier_id)
 			SELECT t.id,COALESCE(t.retry_count,0),t.execution_worker_id,t.execution_supplier_id

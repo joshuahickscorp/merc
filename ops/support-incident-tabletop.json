@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "exercise_id": "controlled-canary-tabletop-001",
+  "status": "NOT_EXECUTED",
+  "scope": "synthetic-data, operator-controlled supplier, Stripe-test-mode canary",
+  "candidate_commit": null,
+  "planned_scenarios": [
+    {
+      "id": "supplier-egress",
+      "inject": "An approved worker is observed sending HTTPS traffic to an unapproved destination after receiving a synthetic task.",
+      "required_decisions": [
+        "global versus scoped dispatch stop",
+        "credential and presigned-access revocation",
+        "privacy and evidence escalation",
+        "resume criteria"
+      ],
+      "result": "NOT_RUN"
+    },
+    {
+      "id": "prohibited-content",
+      "inject": "A synthetic safety fixture triggers the prohibited-content escalation path during inference and verification.",
+      "required_decisions": [
+        "content access restriction",
+        "mandatory-reporting consultation",
+        "artifact preservation versus deletion",
+        "participant notice"
+      ],
+      "result": "NOT_RUN"
+    },
+    {
+      "id": "dispute-payout-race",
+      "inject": "A buyer dispute becomes active immediately before a held supplier credit becomes payout-eligible.",
+      "required_decisions": [
+        "payout freeze",
+        "provider and ledger reconciliation",
+        "duplicate-event handling",
+        "release or clawback authority"
+      ],
+      "result": "NOT_RUN"
+    },
+    {
+      "id": "credential-compromise",
+      "inject": "A worker credential and one presigned URL appear in a support transcript.",
+      "required_decisions": [
+        "revocation and rotation",
+        "scope reconstruction",
+        "support-record minimization",
+        "negative authorization tests"
+      ],
+      "result": "NOT_RUN"
+    },
+    {
+      "id": "model-license-takedown",
+      "inject": "The model owner changes availability or asserts a license breach while supplier caches contain the model.",
+      "required_decisions": [
+        "runtime-cell disablement",
+        "cache inventory and deletion",
+        "notice and participant communication",
+        "approved replacement evidence"
+      ],
+      "result": "NOT_RUN"
+    }
+  ],
+  "participants": [],
+  "started_at": null,
+  "ended_at": null,
+  "timeline": [],
+  "evidence": [],
+  "gaps": [
+    "Incident commander and backup are not assigned.",
+    "Privacy, security, payments, supplier operations and counsel contacts are not approved.",
+    "A real on-call page has not been delivered and resolved.",
+    "The global dispatch and payment stop has not been exercised in representative staging.",
+    "Dispute-to-payout freezing is not proven.",
+    "External notification and mandatory-reporting rules are not approved."
+  ],
+  "actions": [],
+  "facilitator": null,
+  "reviewer": null,
+  "approved_at": null
+}

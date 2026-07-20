@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "source": "control/api.go:Server.Routes",
+  "policy": {
+    "default": "deny",
+    "public_routes_are_explicit": true,
+    "cross_tenant_access": "deny",
+    "revoked_credentials": "deny_on_every_authenticated_route",
+    "operator_override_on_buyer_resources": "none",
+    "provider_webhooks": "signature_required_inside_handler"
+  },
+  "roles": [
+    "anonymous",
+    "buyer_owner",
+    "different_buyer",
+    "active_worker",
+    "different_worker",
+    "operator",
+    "revoked_identity",
+    "provider_hmac"
+  ],
+  "route_classes": [
+    {
+      "id": "public_read",
+      "registration": "HandleFunc",
+      "enforcement": "public by explicit inventory; no credential grants additional authority",
+      "role_decisions": {
+        "anonymous": "allow",
+        "buyer_owner": "allow",
+        "different_buyer": "allow",
+        "active_worker": "allow",
+        "different_worker": "allow",
+        "operator": "allow",
+        "revoked_identity": "allow_as_anonymous",
+        "provider_hmac": "allow_as_anonymous"
+      },
+      "routes": [
+        "GET /healthz",
+        "GET /readyz",
+        "GET /version",
+        "GET /metrics",
+        "GET /{$}",
+        "GET /admin",
+        "GET /assets/site/{path...}",
+        "GET /favicon.ico"
+      ]
+    },
+    {
+      "id": "public_bootstrap",
+      "registration": "HandleFunc",
+      "enforcement": "public entry point with bounded input and rate limits; supplied credentials are ignored",
+      "role_decisions": {
+        "anonymous": "allow",
+        "buyer_owner": "allow_as_anonymous",
+        "different_buyer": "allow_as_anonymous",
+        "active_worker": "allow_as_anonymous",
+        "different_worker": "allow_as_anonymous",
+        "operator": "allow_as_anonymous",
+        "revoked_identity": "allow_as_anonymous",
+        "provider_hmac": "allow_as_anonymous"
+      },
+      "routes": [
+        "POST /v1/signup",
+        "POST /v1/login",
+        "POST /v1/alpha-request",
+        "POST /v1/worker/enrollment/exchange"
+      ]
+    },
+    {
+      "id": "buyer_owned",
+      "registration": "authBuyer",
+      "enforcement": "valid non-revoked buyer session/API key plus handler-scoped ownership; admin keys receive no cross-buyer override",
+      "role_decisions": {
+        "anonymous": "deny_401",
+        "buyer_owner": "allow_own_scope",
+        "different_buyer": "deny_cross_tenant",
+        "active_worker": "deny_wrong_namespace",
+        "different_worker": "deny_wrong_namespace",
+        "operator": "allow_own_buyer_scope_only",
+        "revoked_identity": "deny_401",
+        "provider_hmac": "deny_wrong_namespace"
+      },
+      "routes": [
+        "POST /v1/logout",
+        "GET /v1/me",
+        "POST /v1/supplier/onboard",
+        "GET /v1/supplier/status",
+        "POST /v1/supplier/worker-tokens",
+        "POST /v1/supplier/enrollment-approvals",
+        "POST /v1/supplier/enrollment-codes",
+        "DELETE /v1/supplier/enrollment-codes/{id}",
+        "GET /v1/supplier/worker-credentials",
+        "DELETE /v1/supplier/worker-credentials/{id}",
+        "GET /v1/supplier/credential-audit",
+        "POST /v1/jobs",
+        "GET /v1/jobs/{id}",
+        "GET /v1/jobs/{id}/results",
+        "GET /v1/jobs/{id}/invoice",
+        "GET /v1/jobs/{id}/receipt",
+        "GET /v1/jobs/{id}/events",
+        "GET /v1/jobs/{id}/failures",
+        "POST /v1/jobs/{id}/dispute",
+        "DELETE /v1/jobs/{id}",
+        "GET /v1/models",
+        "GET /v1/price-estimate",
+        "POST /v1/quote",
+        "POST /v1/webhooks",
+        "POST /v1/billing/setup",
+        "GET /v1/billing/status",
+        "POST /v1/keys",
+        "GET /v1/keys",
+        "DELETE /v1/keys/{id}"
+      ]
+    },
+    {
+      "id": "provider_hmac",
+      "registration": "HandleFunc",
+      "enforcement": "provider signature, timestamp tolerance, event idempotency, and endpoint-specific secret inside handler",
+      "role_decisions": {
+        "anonymous": "deny_without_valid_signature",
+        "buyer_owner": "deny_without_valid_signature",
+        "different_buyer": "deny_without_valid_signature",
+        "active_worker": "deny_without_valid_signature",
+        "different_worker": "deny_without_valid_signature",
+        "operator": "deny_without_valid_signature",
+        "revoked_identity": "deny_without_valid_signature",
+        "provider_hmac": "allow_valid_signature_only"
+      },
+      "routes": [
+        "POST /v1/stripe/webhook",
+        "POST /v1/stripe/connect-webhook"
+      ]
+    },
+    {
+      "id": "worker_owned",
+      "registration": "authWorker",
+      "enforcement": "valid non-revoked worker token, canary allowlist, and assigned-worker/attempt fencing",
+      "role_decisions": {
+        "anonymous": "deny_401",
+        "buyer_owner": "deny_wrong_namespace",
+        "different_buyer": "deny_wrong_namespace",
+        "active_worker": "allow_own_assignment",
+        "different_worker": "deny_cross_worker",
+        "operator": "deny_wrong_namespace",
+        "revoked_identity": "deny_401",
+        "provider_hmac": "deny_wrong_namespace"
+      },
+      "routes": [
+        "POST /v1/worker/register",
+        "POST /v1/worker/heartbeat",
+        "GET /v1/worker/poll",
+        "POST /v1/worker/task/{id}/start",
+        "POST /v1/worker/task/{id}/commit",
+        "POST /v1/worker/task/{id}/fail",
+        "GET /v1/worker/earnings",
+        "GET /v1/worker/verification",
+        "GET /v1/worker/connect/status"
+      ]
+    },
+    {
+      "id": "operator",
+      "registration": "authAdmin",
+      "enforcement": "valid non-revoked admin API key; mutations additionally require actor, bounded reason, correlation reference, before/after digest, and atomic audit",
+      "role_decisions": {
+        "anonymous": "deny_401",
+        "buyer_owner": "deny_403",
+        "different_buyer": "deny_403",
+        "active_worker": "deny_wrong_namespace",
+        "different_worker": "deny_wrong_namespace",
+        "operator": "allow_admin_scope",
+        "revoked_identity": "deny_401",
+        "provider_hmac": "deny_wrong_namespace"
+      },
+      "routes": [
+        "GET /admin/workers",
+        "GET /admin/jobs",
+        "GET /admin/payouts",
+        "GET /admin/fraud-flags",
+        "GET /admin/fraud",
+        "GET /admin/drift",
+        "GET /admin/quotes",
+        "GET /admin/scheduler/explain",
+        "POST /admin/workers/{id}/suspend",
+        "POST /admin/workers/{id}/reinstate",
+        "POST /admin/tasks/{id}/requeue",
+        "POST /admin/suppliers/{id}/reputation",
+        "POST /admin/payouts/{id}/release",
+        "POST /admin/subsidy-funds",
+        "POST /admin/payouts/{id}/subsidize",
+        "GET /admin/actions",
+        "GET /admin/controls",
+        "POST /admin/controls/{name}"
+      ]
+    }
+  ]
+}

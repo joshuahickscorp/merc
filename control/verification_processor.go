@@ -381,6 +381,18 @@ func (p *VerificationProcessor) createPlan(ctx context.Context, lease Verificati
 	selected := *work.SamplingSelected
 	info.verificationCheckSampled = &selected
 
+	if validationErr := validateReportedResultDigest(info.jobType,
+		work.Snapshot.ReportedResultSHA256, work.Artifact.SHA256); validationErr != nil {
+		decision := invalidResultVerificationDecision(info, validationErr)
+		plan, _, err := p.store.PersistVerificationWorkPlan(ctx, lease, work,
+			probability, selected, decision, nil)
+		if err != nil {
+			return VerificationWorkPlan{}, err
+		}
+		reachRecoveryBoundary(ctx, p.probe, BoundaryVerifyAfterDecision)
+		return plan, nil
+	}
+
 	if validationErr := validateTaskResultArtifact(info, commitBytes); validationErr != nil {
 		decision := invalidResultVerificationDecision(info, validationErr)
 		plan, _, err := p.store.PersistVerificationWorkPlan(ctx, lease, work,

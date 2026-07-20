@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: ComputExchange
+    folder: ComputExchange
+    type: file
+    disableDeletion: true
+    editable: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

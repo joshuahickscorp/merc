@@ -710,6 +710,10 @@ func (wk *Workers) settleSLAOutcomes(ctx context.Context) error {
 }
 
 func (wk *Workers) collectCharges(ctx context.Context) error {
+	paused, err := wk.store.OperationalControlPaused(ctx, controlPayments)
+	if err != nil || paused {
+		return err
+	}
 	if err := wk.settleSLAOutcomes(ctx); err != nil {
 		return err
 	}

@@ -18,6 +18,10 @@ const (
 )
 
 func (s *Server) handleAlphaRequest(w http.ResponseWriter, r *http.Request) {
+	if s.canary.Enabled {
+		writeErr(w, http.StatusForbidden, "public alpha enrollment is disabled during the private canary")
+		return
+	}
 	var req alphaRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid alpha-request json: "+err.Error())

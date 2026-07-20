@@ -18,6 +18,7 @@ pub fn classify(err: &RunError, low_memory: bool) -> &'static str {
             }
         }
         RunError::OomPreempt { .. } => "oom",
+        RunError::DeadlineExceeded { .. } => "timeout",
     }
 }
 
@@ -101,6 +102,15 @@ mod tests {
                 false
             ),
             "internal_error"
+        );
+        assert_eq!(
+            classify(
+                &RunError::DeadlineExceeded {
+                    message: "task deadline expired".into()
+                },
+                false
+            ),
+            "timeout"
         );
     }
 

@@ -1,0 +1,132 @@
+name: publish candidate image
+
+on:
+  push:
+    branches: [release/rc1-go-closure]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/computexchange-control
+  PRIOR_SHA: 0387766c5d0e8f9e5b64e8cbef215edcd07784bd
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Verify source identity
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Authenticate to GHCR
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push immutable candidate
+        run: |
+          BUILD_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          BUILD_DATE="$(date -u -d "@$BUILD_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+          REF="$IMAGE:sha-$GITHUB_SHA"
+          docker build \
+            --build-arg CX_BUILD_VERSION=v0.1.0-rc.1 \
+            --build-arg CX_BUILD_COMMIT="$GITHUB_SHA" \
+            --build-arg CX_BUILD_DATE="$BUILD_DATE" \
+            --tag "$REF" \
+            --file Dockerfile.control .
+          docker push "$REF"
+          DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$REF" | cut -d@ -f2)"
+          test -n "$DIGEST"
+          printf 'IMAGE_REF=%s@%s\n' "$IMAGE" "$DIGEST" >> "$GITHUB_ENV"
+          printf '%s\n' "$IMAGE@$DIGEST" > candidate-image.txt
+
+          PRIOR_DIR="$RUNNER_TEMP/prior-source"
+          mkdir -p "$PRIOR_DIR"
+          git archive "$PRIOR_SHA" | tar -x -C "$PRIOR_DIR"
+          PRIOR_EPOCH="$(git show -s --format=%ct "$PRIOR_SHA")"
+          PRIOR_DATE="$(date -u -d "@$PRIOR_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+          PRIOR_TAG="$IMAGE:sha-$PRIOR_SHA"
+          docker build \
+            --build-arg CX_BUILD_VERSION=sha-${PRIOR_SHA:0:7} \
+            --build-arg CX_BUILD_COMMIT="$PRIOR_SHA" \
+            --build-arg CX_BUILD_DATE="$PRIOR_DATE" \
+            --tag "$PRIOR_TAG" \
+            --file "$PRIOR_DIR/Dockerfile.control" "$PRIOR_DIR"
+          docker push "$PRIOR_TAG"
+          PRIOR_DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$PRIOR_TAG" | cut -d@ -f2)"
+          test -n "$PRIOR_DIGEST"
+          printf 'PRIOR_IMAGE_REF=%s@%s\n' "$IMAGE" "$PRIOR_DIGEST" >> "$GITHUB_ENV"
+          printf '%s\n' "$IMAGE@$PRIOR_DIGEST" > prior-image.txt
+      - name: Generate SBOMs
+        run: |
+          go run github.com/anchore/syft/cmd/syft@v1.48.0 \
+            "$IMAGE_REF" --output spdx-json=candidate-sbom.spdx.json
+          go run github.com/anchore/syft/cmd/syft@v1.48.0 \
+            "$PRIOR_IMAGE_REF" --output spdx-json=prior-sbom.spdx.json
+          test -s candidate-sbom.spdx.json
+          test -s prior-sbom.spdx.json
+      - name: Sign and attest with GitHub OIDC
+        run: |
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            sign --yes "$IMAGE_REF"
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            attest --yes --type spdxjson \
+            --predicate candidate-sbom.spdx.json "$IMAGE_REF"
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            sign --yes "$PRIOR_IMAGE_REF"
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            attest --yes --type spdxjson \
+            --predicate prior-sbom.spdx.json "$PRIOR_IMAGE_REF"
+      - name: Pull and verify digest and signatures
+        run: |
+          docker image rm "$IMAGE_REF" || true
+          docker pull "$IMAGE_REF"
+          docker pull "$PRIOR_IMAGE_REF"
+          EXPECTED_ID="$(docker image inspect "$IMAGE_REF" --format '{{.Id}}')"
+          test -n "$EXPECTED_ID"
+          PRIOR_ID="$(docker image inspect "$PRIOR_IMAGE_REF" --format '{{.Id}}')"
+          test -n "$PRIOR_ID"
+          IDENTITY="https://github.com/$GITHUB_REPOSITORY/.github/workflows/publish-candidate.yml@refs/heads/release/rc1-go-closure"
+          ISSUER="https://token.actions.githubusercontent.com"
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            verify --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" "$IMAGE_REF" \
+            > candidate-signature-verification.json
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            verify-attestation --type spdxjson \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" "$IMAGE_REF" \
+            > candidate-attestation-verification.json
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            verify --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" "$PRIOR_IMAGE_REF" \
+            > prior-signature-verification.json
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            verify-attestation --type spdxjson \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" "$PRIOR_IMAGE_REF" \
+            > prior-attestation-verification.json
+      - name: Upload registry evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-registry-${{ github.sha }}
+          path: |
+            candidate-image.txt
+            prior-image.txt
+            candidate-sbom.spdx.json
+            prior-sbom.spdx.json
+            candidate-signature-verification.json
+            candidate-attestation-verification.json
+            prior-signature-verification.json
+            prior-attestation-verification.json
+          if-no-files-found: error
+          retention-days: 30

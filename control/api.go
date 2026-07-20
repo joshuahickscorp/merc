@@ -36,6 +36,7 @@ type Server struct {
 	buyerLimiter  *rateLimiter
 	workerLimiter *rateLimiter
 	signupLimiter *rateLimiter
+	canary        CanaryPolicy
 }
 
 func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout) *Server {
@@ -46,6 +47,7 @@ func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout
 		buyerLimiter:  newRateLimiter(20, 40), // 20 req/s, burst 40, per api key
 		workerLimiter: newRateLimiter(30, 60), // 30 req/s, burst 60, per worker token
 		signupLimiter: newRateLimiter(signupsPerIPPerDay/86400.0, signupsPerIPPerDay),
+		canary:        loadCanaryPolicyFromEnv(),
 	}
 }
 
@@ -119,7 +121,6 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/worker/task/{id}/fail", s.authWorker(http.HandlerFunc(s.handleWorkerFail))) // Plane C/D: immediate typed failure
 	mux.Handle("GET /v1/worker/earnings", s.authWorker(http.HandlerFunc(s.handleWorkerEarnings)))
 	mux.Handle("GET /v1/worker/verification", s.authWorker(http.HandlerFunc(s.handleWorkerVerification))) // trust panel (Supplier onboarding & safety 7->8)
-	mux.Handle("POST /v1/worker/connect", s.authWorker(http.HandlerFunc(s.handleWorkerConnect)))
 	mux.Handle("GET /v1/worker/connect/status", s.authWorker(http.HandlerFunc(s.handleWorkerConnectStatus)))
 
 	mux.Handle("GET /admin/workers", s.authAdmin(http.HandlerFunc(s.handleAdminWorkers)))
@@ -138,6 +139,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /admin/subsidy-funds", s.authAdmin(http.HandlerFunc(s.handleAdminCreateSubsidyFund)))
 	mux.Handle("POST /admin/payouts/{id}/subsidize", s.authAdmin(http.HandlerFunc(s.handleAdminSubsidizePayout)))
 	mux.Handle("GET /admin/actions", s.authAdmin(http.HandlerFunc(s.handleAdminActions))) // audit log for the above
+	mux.Handle("GET /admin/controls", s.authAdmin(http.HandlerFunc(s.handleAdminControls)))
+	mux.Handle("POST /admin/controls/{name}", s.authAdmin(http.HandlerFunc(s.handleAdminSetControl)))
 
 	return observe(s.ipLimiter.limitByIP(capBody(requestBodyLimit, mux)))
 }
@@ -248,6 +251,17 @@ func (s *Server) authBuyer(next http.Handler) http.Handler {
 			writeErr(w, http.StatusUnauthorized, "invalid credential")
 			return
 		}
+		if s.canary.Enabled && !auth.IsAdmin {
+			email, emailErr := s.store.BuyerEmail(r.Context(), auth.BuyerID)
+			if emailErr != nil {
+				writeErr(w, http.StatusServiceUnavailable, "canary participant check unavailable")
+				return
+			}
+			if !s.canary.allowsBuyerEmail(email) {
+				writeErr(w, http.StatusForbidden, "buyer is not approved for this private canary")
+				return
+			}
+		}
 		if isRemote(r) && !s.buyerLimiter.allow(auth.BuyerID.String()) {
 			writeErr(w, http.StatusTooManyRequests, "rate limit exceeded")
 			return
@@ -285,6 +299,10 @@ func (s *Server) authWorker(next http.Handler) http.Handler {
 			writeErr(w, http.StatusUnauthorized, "invalid worker token")
 			return
 		}
+		if !s.canary.allowsWorker(auth.WorkerID) {
+			writeErr(w, http.StatusForbidden, "worker is not approved for this private canary")
+			return
+		}
 		if isRemote(r) && !s.workerLimiter.allow(auth.WorkerID.String()) {
 			writeErr(w, http.StatusTooManyRequests, "rate limit exceeded")
 			return
@@ -304,10 +322,6 @@ func bearer(r *http.Request) (string, bool) {
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.Ping(r.Context()); err != nil {
-		writeErr(w, http.StatusServiceUnavailable, "database unreachable")
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -316,6 +330,10 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if s.canary.Enabled && s.canary.configError != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "canary policy is incomplete"})
+		return
+	}
 	if err := s.store.Ping(r.Context()); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "database unreachable"})
 		return
@@ -416,6 +434,44 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	if math.IsNaN(sub.MaxUSD) || math.IsInf(sub.MaxUSD, 0) || sub.MaxUSD < 0 {
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "max_usd must be a finite non-negative number"}
 	}
+	if err := s.canary.validateJobShape(sub); err != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusForbidden, "outside private-canary limits: " + err.Error()}
+	}
+	if s.canary.Enabled {
+		allowed, err := s.store.CanaryBuyerAdmissionAllowed(ctx, buyerID, s.canary.MaxActiveBuyers)
+		if err != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable, "canary buyer-admission check unavailable"}
+		}
+		if !allowed {
+			return JobSubmitResponse{}, &httpError{http.StatusTooManyRequests, "private-canary active-buyer limit reached"}
+		}
+		counts, err := s.store.CanaryAdmissionCounts(ctx)
+		if err != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable, "canary admission counters unavailable"}
+		}
+		if counts.QueuedJobs >= s.canary.MaxQueuedJobs {
+			return JobSubmitResponse{}, &httpError{http.StatusTooManyRequests, "private-canary queued-job limit reached"}
+		}
+		if counts.JobsToday >= s.canary.MaxDailyJobs {
+			return JobSubmitResponse{}, &httpError{http.StatusTooManyRequests, "private-canary daily-job limit reached"}
+		}
+		if counts.HeldShadowPayoutUSD >= s.canary.MaxHeldShadowPayoutUSD {
+			return JobSubmitResponse{}, &httpError{http.StatusTooManyRequests, "private-canary held-shadow-payout limit reached"}
+		}
+		// Buyers cannot weaken verification or accelerate payout release in the
+		// supervised canary. Every primary receives a same-shape redundancy run,
+		// at least one honeypot is requested, and payout remains manually gated.
+		sub.Verification.SkipVerificationFloor = false
+		if sub.Verification.RedundancyFrac < 1 {
+			sub.Verification.RedundancyFrac = 1
+		}
+		if sub.Verification.HoneypotFrac <= 0 {
+			sub.Verification.HoneypotFrac = 0.1
+		}
+		if sub.Verification.PayoutHoldSecs < 7*24*60*60 {
+			sub.Verification.PayoutHoldSecs = 7 * 24 * 60 * 60
+		}
+	}
 	if sub.JobType.Type == "" {
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "job_type.type is required"}
 	}
@@ -433,6 +489,13 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, err.Error()}
 	}
 	sub.Model = canonicalModel
+	paused, err := s.store.OperationalControlPaused(ctx, controlIntake)
+	if err != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable, "intake control unavailable"}
+	}
+	if paused {
+		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable, "job intake is paused by the operator"}
+	}
 	economicSchedule, err := LoadEconomicScheduleFromEnv()
 	if err != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable, "economic schedule unavailable: " + err.Error()}
@@ -575,6 +638,10 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	if serr != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusInternalServerError, "splitting/uploading input: " + serr.Error()}
 	}
+	if s.canary.Enabled && int64(exactInputBytes) > s.canary.MaxInputBytes {
+		return JobSubmitResponse{}, &httpError{http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("private-canary input limit is %d bytes", s.canary.MaxInputBytes)}
+	}
 	if len(tasks) == 0 {
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "input is empty: at least one JSONL line is required"}
 	}
@@ -603,14 +670,14 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			JobID:                 jobID,
 			IsRedundancy:          true,
 			InputRef:              p.InputRef,
-			ResultKey:             fmt.Sprintf("jobs/%s/tasks/%s/result.json", jobID, taskID),
+			ResultKey:             taskAttemptResultKey(jobID, taskID, 0),
 			ChunkIndex:            p.ChunkIndex,
 			ExpectedOutputRecords: p.ExpectedOutputRecords,
 		})
 	}
 
 	nHoneypot := fracCount(nPrimary, sub.Verification.HoneypotFrac)
-	if wantVerificationFloor && nHoneypot == 0 {
+	if (wantVerificationFloor || s.canary.Enabled) && nHoneypot == 0 {
 		nHoneypot = 1
 	}
 	if nHoneypot > 0 {
@@ -642,11 +709,27 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 				JobID:                 jobID,
 				IsHoneypot:            true,
 				InputRef:              opaqueKey,
-				ResultKey:             fmt.Sprintf("jobs/%s/tasks/%s/result.json", jobID, taskID),
+				ResultKey:             taskAttemptResultKey(jobID, taskID, 0),
 				ChunkIndex:            i % nPrimary,
 				ExpectedOutputRecords: int64(expectedRecords),
 			})
 		}
+	}
+	if s.canary.Enabled {
+		actualHoneypots := 0
+		for _, task := range tasks {
+			if task.IsHoneypot {
+				actualHoneypots++
+			}
+		}
+		if actualHoneypots == 0 {
+			return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable,
+				"private-canary verification floor unavailable: no usable honeypot"}
+		}
+	}
+	if s.canary.Enabled && len(tasks) > s.canary.MaxTasksPerJob {
+		return JobSubmitResponse{}, &httpError{http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("private-canary task limit is %d after verification expansion", s.canary.MaxTasksPerJob)}
 	}
 
 	basePrimaryCompute := s.estimateJobUSD(ctx, sub.JobType.Type, sub.Model.Ref, exactInputBytes, totalRecords, sub.JobType.MaxTokens, sub.Tier)
@@ -1433,23 +1516,40 @@ func (s *Server) handleFileDispute(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Reason string `json:"reason"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body) // reason is optional
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "reading dispute request: "+err.Error())
+		return
+	}
+	if err := decodeStrictJSONObject(raw, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid dispute json: "+err.Error())
+		return
+	}
 	id, err := s.store.RecordDispute(r.Context(), jobID, auth.BuyerID, body.Reason)
 	if errors.Is(err, errNotFound) {
 		writeErr(w, http.StatusNotFound, "job not found")
+		return
+	}
+	if errors.Is(err, errDisputeReasonRequired) || errors.Is(err, errDisputeReasonTooLong) {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if errors.Is(err, errDisputeJobNotTerminal) || errors.Is(err, errDisputeAlreadyActive) {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	if errors.Is(err, errDisputeWindowClosed) {
+		writeErr(w, http.StatusGone, err.Error())
 		return
 	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "recording dispute: "+err.Error())
 		return
 	}
-	_ = s.store.InsertJobEvent(r.Context(), jobID, nil, "dispute_filed",
-		"Buyer filed a dispute on this job's result", nil)
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"dispute_id": id,
 		"status":     "open",
-		"note": "Dispute recorded. Resolution by optimistic recompute (operator-level bisection / " +
-			"tolerance-aware FP verification) is the frontier seam (docs/PRODUCTION_AUDIT.md §2.3) and is not yet auto-resolved.",
+		"note":       "Dispute recorded; unreleased supplier credits are frozen pending independent resolution.",
 	})
 }
 
@@ -1472,6 +1572,21 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 	if err := validateWorkerRuntimeProjection(cap); err != nil {
 		writeErr(w, http.StatusBadRequest, "runtime capability rejected: "+err.Error())
 		return
+	}
+	if s.canary.Enabled {
+		if !s.canary.allowsWorkerRuntime(cap) {
+			writeErr(w, http.StatusForbidden, "worker agent version or source-bound build hash is outside the private-canary allowlist")
+			return
+		}
+		allowed, err := s.store.CanaryWorkerAdmissionAllowed(r.Context(), auth.WorkerID, s.canary.MaxActiveWorkers)
+		if err != nil {
+			writeErr(w, http.StatusServiceUnavailable, "canary worker-admission check unavailable")
+			return
+		}
+		if !allowed {
+			writeErr(w, http.StatusTooManyRequests, "private-canary active-worker limit reached")
+			return
+		}
 	}
 	cap.WorkerID = auth.WorkerID
 	cap.SupplierID = auth.SupplierID
@@ -1563,6 +1678,10 @@ func parseWaitMs(r *http.Request) time.Duration {
 }
 
 func (s *Server) claimWithWait(ctx context.Context, auth WorkerAuth, wait time.Duration) (*ClaimedTask, error) {
+	paused, err := s.store.OperationalControlPaused(ctx, controlDispatch)
+	if err != nil || paused {
+		return nil, err
+	}
 	c, err := s.store.ClaimTasksTx(ctx, auth)
 	if err != nil || c != nil || wait <= 0 {
 		return c, err
@@ -1581,11 +1700,19 @@ func (s *Server) claimWithWait(ctx context.Context, auth WorkerAuth, wait time.D
 			metrics.longPollTimeouts.Add(1)
 			return nil, nil
 		case <-taskWake.Wait():
+			paused, err := s.store.OperationalControlPaused(ctx, controlDispatch)
+			if err != nil || paused {
+				return nil, err
+			}
 			c, err := s.store.ClaimTasksTx(ctx, auth)
 			if err != nil || c != nil {
 				return c, err
 			}
 		case <-tick.C:
+			paused, err := s.store.OperationalControlPaused(ctx, controlDispatch)
+			if err != nil || paused {
+				return nil, err
+			}
 			c, err := s.store.ClaimTasksTx(ctx, auth)
 			if err != nil || c != nil {
 				return c, err
@@ -1603,6 +1730,20 @@ func claimedTaskConstraints(c *ClaimedTask) JobConstraints {
 		MaxDurationSecs: c.MaxDurationSecs,
 		DataResidency:   append([]string(nil), c.DataResidency...),
 	}
+}
+
+type taskResultPutPresigner interface {
+	PresignPut(context.Context, string, time.Duration) (string, error)
+}
+
+func presignTaskAttemptResult(ctx context.Context, presigner taskResultPutPresigner, c *ClaimedTask) (string, error) {
+	if c == nil {
+		return "", errors.New("cannot presign result for a nil task")
+	}
+	if err := validateTaskAttemptResultKey(c.JobID, c.TaskID, c.Attempt, c.ResultKey); err != nil {
+		return "", err
+	}
+	return presigner.PresignPut(ctx, c.ResultKey, time.Hour)
 }
 
 func (s *Server) handleWorkerPoll(w http.ResponseWriter, r *http.Request) {
@@ -1630,7 +1771,7 @@ func (s *Server) handleWorkerPoll(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "presign input: "+err.Error())
 		return
 	}
-	outputURL, err := s.storage.PresignPut(ctx, c.ResultKey, time.Hour)
+	outputURL, err := presignTaskAttemptResult(ctx, s.storage, c)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "presign result: "+err.Error())
 		return
@@ -1893,9 +2034,22 @@ func (s *Server) handleAdminSuspend(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.store.SuspendWorker(r.Context(), id)
+	body, err := decodeAdminActionBody(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request json: "+err.Error())
+		return
+	}
+	actor, ok := adminActorFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "authenticated admin identity is required")
+		return
+	}
+	err = s.store.SuspendWorker(r.Context(), actor, id, body.Reason, body.RequestID)
 	if errors.Is(err, errNotFound) {
 		writeErr(w, http.StatusNotFound, "worker not found")
+		return
+	}
+	if writeAdminMutationInputOrAuthError(w, err) {
 		return
 	}
 	if err != nil {
@@ -1906,19 +2060,39 @@ func (s *Server) handleAdminSuspend(w http.ResponseWriter, r *http.Request) {
 }
 
 type adminActionBody struct {
-	Reason string  `json:"reason,omitempty"`
-	Delta  float32 `json:"delta,omitempty"`
+	Reason    string  `json:"reason"`
+	Delta     float32 `json:"delta,omitempty"`
+	RequestID string  `json:"request_id,omitempty"`
 }
+
+const adminActionBodyLimit = 4 << 10
 
 func decodeAdminActionBody(r *http.Request) (adminActionBody, error) {
 	var b adminActionBody
-	if r.ContentLength == 0 {
-		return b, nil
+	raw, err := io.ReadAll(io.LimitReader(r.Body, adminActionBodyLimit+1))
+	if err != nil {
+		return b, err
 	}
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil && !errors.Is(err, io.EOF) {
+	if len(raw) > adminActionBodyLimit {
+		return b, fmt.Errorf("request body exceeds %d bytes", adminActionBodyLimit)
+	}
+	if err := decodeStrictJSONObject(raw, &b); err != nil {
 		return b, err
 	}
 	return b, nil
+}
+
+func writeAdminMutationInputOrAuthError(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, errAdminActorUnauthorized):
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return true
+	case errors.Is(err, errAdminMutationInvalid):
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) handleAdminReinstate(w http.ResponseWriter, r *http.Request) {
@@ -1926,17 +2100,26 @@ func (s *Server) handleAdminReinstate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := decodeAdminActionBody(r); err != nil {
+	body, err := decodeAdminActionBody(r)
+	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request json: "+err.Error())
 		return
 	}
-	err := s.store.ReinstateWorker(r.Context(), id)
+	actor, ok := adminActorFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "authenticated admin identity is required")
+		return
+	}
+	err = s.store.ReinstateWorker(r.Context(), actor, id, body.Reason, body.RequestID)
 	if errors.Is(err, errNotFound) {
 		writeErr(w, http.StatusNotFound, "worker not found")
 		return
 	}
 	if errors.Is(err, errNotSuspended) {
 		writeErr(w, http.StatusConflict, "worker's supplier is not currently suspended")
+		return
+	}
+	if writeAdminMutationInputOrAuthError(w, err) {
 		return
 	}
 	if err != nil {
@@ -1956,13 +2139,21 @@ func (s *Server) handleAdminRequeueTask(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "invalid request json: "+err.Error())
 		return
 	}
-	err = s.store.AdminForceRequeueTask(r.Context(), id, body.Reason)
+	actor, ok := adminActorFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "authenticated admin identity is required")
+		return
+	}
+	err = s.store.AdminForceRequeueTask(r.Context(), actor, id, body.Reason, body.RequestID)
 	if errors.Is(err, errNotFound) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
 	if errors.Is(err, errNotRequeueable) {
 		writeErr(w, http.StatusConflict, "task is not running/retrying  -  nothing to requeue")
+		return
+	}
+	if writeAdminMutationInputOrAuthError(w, err) {
 		return
 	}
 	if err != nil {
@@ -1986,9 +2177,18 @@ func (s *Server) handleAdminAdjustReputation(w http.ResponseWriter, r *http.Requ
 		writeErr(w, http.StatusBadRequest, "delta must be non-zero")
 		return
 	}
-	before, after, err := s.store.AdminAdjustReputation(r.Context(), id, body.Delta, body.Reason)
+	actor, ok := adminActorFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "authenticated admin identity is required")
+		return
+	}
+	before, after, err := s.store.AdminAdjustReputation(
+		r.Context(), actor, id, body.Delta, body.Reason, body.RequestID)
 	if errors.Is(err, errNotFound) {
 		writeErr(w, http.StatusNotFound, "supplier not found")
+		return
+	}
+	if writeAdminMutationInputOrAuthError(w, err) {
 		return
 	}
 	if err != nil {
@@ -2008,13 +2208,21 @@ func (s *Server) handleAdminReleasePayout(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusBadRequest, "invalid request json: "+err.Error())
 		return
 	}
-	err = s.store.ReleasePayoutTx(r.Context(), id, body.Reason)
+	actor, ok := adminActorFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "authenticated admin identity is required")
+		return
+	}
+	err = s.store.ReleasePayoutTx(r.Context(), actor, id, body.Reason, body.RequestID)
 	if errors.Is(err, errNotFound) {
 		writeErr(w, http.StatusNotFound, "ledger entry not found")
 		return
 	}
 	if errors.Is(err, errNotHeld) {
 		writeErr(w, http.StatusConflict, "ledger entry is not currently held or ready")
+		return
+	}
+	if writeAdminMutationInputOrAuthError(w, err) {
 		return
 	}
 	if err != nil {
@@ -2693,7 +2901,7 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, inpu
 			ID:                    taskID,
 			JobID:                 jobID,
 			InputRef:              chunkKey,
-			ResultKey:             fmt.Sprintf("jobs/%s/tasks/%s/result.json", jobID, taskID),
+			ResultKey:             taskAttemptResultKey(jobID, taskID, 0),
 			ChunkIndex:            idx,
 			ExpectedOutputRecords: int64(expectedRecords),
 		})
@@ -2783,6 +2991,8 @@ func pathUUID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 }
 
 func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store, private")
+	w.Header().Set("Pragma", "no-cache")
 	auth := r.Context().Value(ctxBuyer).(*AuthResult)
 	var body struct {
 		Name string `json:"name"`

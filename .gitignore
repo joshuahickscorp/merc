@@ -30,6 +30,7 @@ scripts/*.log
 
 # ── Secrets / local config ───────────────────────────────────────────────────
 .env
+.env.go-closure
 .env.local
 .secrets/
 # The agent's runtime config holds a worker token — commit agent.example.toml,

@@ -279,6 +279,10 @@ func (wk *Workers) tick(ctx context.Context, d time.Duration, name string, fn fu
 }
 
 func (wk *Workers) releasePayouts(ctx context.Context) error {
+	paused, err := wk.store.OperationalControlPaused(ctx, controlPayments)
+	if err != nil || paused {
+		return err
+	}
 	finishAttempt := func(claimed DueHeldEntry, resolvingUnknown bool) error {
 		result, sendErr := wk.payout.Send(ctx, claimed.SupplierID, claimed.RequestedCents,
 			claimed.Currency, claimed.ID.String())
@@ -345,12 +349,16 @@ func (wk *Workers) releasePayouts(ctx context.Context) error {
 }
 
 func (wk *Workers) requeueStaleTasks(ctx context.Context) error {
+	retryLimit, err := canaryRetryLimit()
+	if err != nil {
+		return fmt.Errorf("canary retry policy: %w", err)
+	}
 	stale, err := wk.store.StaleRunningTasks(ctx, staleTaskTimeout, sweepBatch)
 	if err != nil {
 		return err
 	}
 	for _, t := range stale {
-		if int(t.RetryCount) >= maxTaskRetries {
+		if int(t.RetryCount) >= retryLimit {
 			checkpointBeforeFail(ctx, wk.store, wk.storage, t.JobID)
 			if ferr := wk.store.FailTaskAndSettleJob(ctx, t.ID, t.JobID); ferr != nil {
 				return ferr
@@ -403,7 +411,6 @@ func (wk *Workers) resolveDisputes(ctx context.Context) error {
 			if serr := wk.store.SetDisputeReverifying(ctx, d.ID, reverifyID); serr != nil {
 				return serr
 			}
-			_ = wk.store.InsertJobEvent(ctx, d.JobID, nil, "dispute_reverifying", "Dispute: independent re-verification dispatched", nil)
 		case "reverifying":
 			pending, perr := wk.store.JobHasPendingTasks(ctx, d.JobID)
 			if perr != nil {
@@ -412,7 +419,7 @@ func (wk *Workers) resolveDisputes(ctx context.Context) error {
 			if pending {
 				continue // wait until the re-verify (and any cascaded tiebreak) settles
 			}
-			verdict, text := "rejected", "Dispute rejected: independent re-verification agreed with the original result"
+			verdict := "rejected"
 			if target, ok, terr := wk.store.ReverifyTarget(ctx, d.JobID); terr != nil {
 				return terr
 			} else if ok {
@@ -421,13 +428,12 @@ func (wk *Workers) resolveDisputes(ctx context.Context) error {
 					return cerr
 				}
 				if clawed {
-					verdict, text = "resolved", "Dispute upheld: independent re-verification found the original result was wrong (clawed back)"
+					verdict = "upheld"
 				}
 			}
 			if serr := wk.store.SetDisputeStatus(ctx, d.ID, verdict); serr != nil {
 				return serr
 			}
-			_ = wk.store.InsertJobEvent(ctx, d.JobID, nil, "dispute_"+verdict, text, nil)
 		}
 	}
 	return nil
@@ -781,6 +787,10 @@ func (wk *Workers) finalizeJobs(ctx context.Context) error {
 }
 
 func (wk *Workers) deliverPendingWebhooks(ctx context.Context) error {
+	paused, err := wk.store.OperationalControlPaused(ctx, controlWebhooks)
+	if err != nil || paused {
+		return err
+	}
 	pending, err := wk.store.ClaimPendingWebhooks(ctx, webhookDeliveryBatch, webhookDeliveryLease)
 	if err != nil {
 		return err

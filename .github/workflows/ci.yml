@@ -31,6 +31,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://cx:cx@localhost:5432/cx?sslmode=disable
+      CX_TEST_DATABASE_URL: postgres://cx:cx@localhost:5432/cx?sslmode=disable
       PGPASSWORD: cx
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -137,7 +138,14 @@ jobs:
         run: |
           python3 -m json.tool proto/manifest.schema.json >/dev/null
           python3 -m json.tool control/runtime-authority.json >/dev/null
+          python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
+          python3 scripts/validate-authorization-matrix.py
+          python3 scripts/validate-independent-reviews.py
+          python3 scripts/validate-governance.py
+          python3 scripts/validate-readiness.py
           node scripts/site-build.mjs
+          bash -n scripts/backup.sh scripts/restore.sh scripts/release-doctor.sh
+          bash scripts/test-backup-envelope.sh
       - name: Python SDK package
         run: bash scripts/verify-python-sdk-package.sh
       - name: CLI release archive

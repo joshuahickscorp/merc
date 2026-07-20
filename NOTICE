@@ -1,0 +1,64 @@
+ComputExchange Notices
+=======================
+
+Project license status
+----------------------
+
+This repository does not currently contain a project-level LICENSE file or a
+complete license grant from the copyright owner. The Rust package metadata
+declares `MIT`, but the corresponding license text and ownership approval are
+not present. This NOTICE does not create or expand a license grant. Public
+source or binary distribution remains blocked pending an owner-approved project
+license and complete third-party notices.
+
+Built with Llama
+----------------
+
+The batch-inference feature uses Llama 3.2 materials.
+
+Llama 3.2 is licensed under the Llama 3.2 Community License,
+Copyright © Meta Platforms, Inc. All Rights Reserved.
+
+License: https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/LICENSE
+Acceptable Use Policy: https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/USE_POLICY.md
+
+The full agreement is not yet vendored into this repository. Distribution or
+service availability of the Llama path remains blocked until counsel confirms
+the required agreement copy, attribution, use-policy controls, and any
+downstream notice obligations are present in every applicable artifact and UI.
+
+Embedding model
+---------------
+
+The embedding feature requests `sentence-transformers/all-MiniLM-L6-v2`. Its
+upstream model page declares Apache-2.0:
+https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+
+The current closure worktree introduces an upstream revision and artifact-hash
+checks, but that work is not yet bound to a final clean candidate or approval.
+An upstream declaration is not proof of complete licensing of the downloaded
+artifact. The model path remains blocked pending reviewed release evidence and
+required license/notice files.
+
+Geist font
+----------
+
+Bundled files identify as Geist/Geist Mono. The official Vercel Geist font
+repository declares the SIL Open Font License 1.1 and copyright to Vercel in
+collaboration with basement.studio:
+https://github.com/vercel/geist-font/blob/main/LICENSE.txt
+
+The exact bundled binaries are not tied to an upstream revision or source
+receipt in this repository. Distribution remains blocked until that linkage is
+established and the full required font license/copyright notice accompanies the
+font.
+
+Other dependencies and assets
+------------------------------
+
+Go and Rust dependency SBOMs produced by CI are supporting evidence, not a
+replacement for license review or required notices. Logos, icons, screenshots,
+device renders, and decorative site assets have repository history but no
+owner assignment or complete provenance receipt in the candidate tree. See
+`docs/THIRD_PARTY_LICENSES.md`, `ops/model-provenance.json`, and
+`ops/asset-provenance.json` for the explicit gaps.

@@ -11,8 +11,9 @@ func TestVerificationAttemptFreezesExactCardinalityAndNarrowCap(t *testing.T) {
 	info := &CommitTaskInfo{
 		TaskID: uuid.New(), JobID: uuid.New(), WorkerID: uuid.New(), SupplierID: uuid.New(),
 		jobType: "embed", ModelRef: "all-minilm-l6-v2", SplitSize: 4096,
-		ExpectedOutputRecords: 1, ResultKey: "jobs/cardinality/result.json",
+		ExpectedOutputRecords: 1,
 	}
+	info.ResultKey = taskAttemptResultKey(info.JobID, info.TaskID, info.Attempt)
 	snapshot, err := verificationWorkSnapshotFromCommit(info, TaskCommit{TaskID: info.TaskID, ResultKey: info.ResultKey})
 	if err != nil {
 		t.Fatal(err)

@@ -1,150 +1,103 @@
 {
-  "schema_version": 1,
-  "generated_at": "2026-07-19T23:24:29Z",
-  "release_scope": "private pilot with real buyer payments and supplier payouts",
-  "decision": "NO-GO",
+  "schema_version": 2,
+  "generated_at": "2026-07-20T01:13:18Z",
+  "release_levels": {
+    "level_a_software": {
+      "scope": "buildable and locally proven release candidate",
+      "decision": "GO_LOCAL_PENDING_EXACT_HEAD_REMOTE",
+      "live_money": false,
+      "public_access": false
+    },
+    "level_b_private_canary": {
+      "scope": "controlled approved-participant persistent-staging Stripe-test-mode no-value private canary",
+      "decision": "NO_GO",
+      "live_money": false,
+      "public_access": false
+    },
+    "level_c_live_money": {
+      "scope": "real buyer charges, independently controlled suppliers, payouts, or public launch",
+      "decision": "NO_GO_PROHIBITED",
+      "live_money": false,
+      "public_access": false
+    }
+  },
   "source": {
-    "base_commit": "0387766c5d0e8f9e5b64e8cbef215edcd07784bd",
-    "branch": "release/rc1-hardening",
-    "historical_precommit_proof_source_sha256": "4c8c5bd4228bbde5155a4e850549dd80241f8f4109f9f1abe778ee7ebe4210db",
-    "working_tree": "release branch committed and pushed; the PR #5 exact-head check rollup and artifacts are the normative receipt for this readiness-only successor",
-    "fingerprint_scope": "all cached and non-ignored worktree source except generated census and release-ledger files"
+    "base_commit": "3dc8bb263777c17a3723dbfa835d6a00d9445845",
+    "branch": "release/rc1-go-closure",
+    "candidate_commit": null,
+    "candidate_binding": "The final candidate is the GO-closure PR exact head. CI jobs independently assert that SHA; this ledger does not invent a self-referential precommit hash.",
+    "latest_full_local_precommit_proof_source_sha256": "05627d75e28fe07815f7026c5e81093e329be168cc99b701fe96971c7cac5eab",
+    "latest_full_local_precommit_proof_ledger_sha256": "249215b4dd7822ef0ee5f5e7b8b21dc14ebbb54e8f591c9a5fc18ffcbad9e824",
+    "proof_binding_status": "PRECOMMIT_PASS; the authoritative committed-candidate receipt is generated after commit and selected by exact HEAD outside this self-referential ledger"
   },
-  "remote_candidate": {
-    "pull_request": 5,
-    "last_verified_predecessor_commit": "1d026d5a0750825d62561aa973e0948784df5f2d",
-    "ci_run": 29707723987,
-    "ci_result": "PASS; 5/5 jobs; every job asserted the exact candidate head",
-    "download_verification": "PASS; all four artifacts downloaded and every embedded checksum verified",
-    "source_sha256": "15dad2d77f30e49b29ede1b8c045623772624d4c02eeefaee550b09dae3ec482",
-    "control_image_id": "sha256:05e23f42a6e52219e4057dbb134fa716b5e1e68ca3508bced3c604e7c229dfe1",
-    "prior_image_id": "sha256:d74ff5dd81a9fb5194d48a2fbc3c51fca11b01e67c54066ae6a2fb672f996023",
-    "control_image_archive_sha256": "18883f2bbdbff7fb99316fe33c4f67f964d368111fee8ca9d35a9208b0ecf972",
-    "prior_image_archive_sha256": "1cf683535f750f452bd5725ff9f114a7d4b525aea9df1ed8ee1a081a30c2706a",
-    "cx_sha256": "d72470007cf74110c47eeb983a9e71bb6c60b42f583d4501bfdaa3bd24973a39",
-    "cx_agent_sha256": "db37884cc393657eefa9581ba0bf4b286a6244bf47bf93f19627092fdf66d3ff",
-    "website_manifest_sha256": "f477a93345721c262998f0d0e71692332e3b0104a66d539c122a6dc024ce4074",
-    "schema_sha256": "17245bf59bfccf4bf04cb824c0761dde9328e303677815427473d7bf8ef7d420",
-    "runtime_authority_sha256": "016a524de2c986e20240e8dd71a8a7b90d6295d14568e87822a840ad796e7cb9",
-    "required_final_receipt": "PR #5 must show 5/5 green on its current head and expose four candidate-*-${HEAD} artifacts before release"
-  },
-  "census": {
-    "global_owned_loc": 49062,
-    "non_design_production_core_loc": 38879,
-    "tracked_and_candidate_files": 187,
-    "tracked_and_candidate_bytes": 6580113,
-    "direct_dependencies": 29,
-    "routes": 69,
-    "tables": 49,
+  "census_at_latest_full_proof": {
+    "global_owned_loc": 58579,
+    "non_design_production_core_loc": 45879,
+    "tracked_and_candidate_files": 247,
+    "tracked_and_candidate_bytes": 7000215,
+    "routes": 70,
+    "tables": 53,
     "binaries": 2,
     "workloads": ["embed", "batch_infer"],
     "runtime": "Candle on Apple Metal"
   },
   "severity": {
-    "open_p0": 0,
-    "open_p1": 5,
-    "open_p2": 3
+    "target_scope_open_p0": 0,
+    "target_scope_open_p1": 10,
+    "open_p2": 4,
+    "out_of_scope_p0": ["independently controlled supplier devices remain prohibited without contractual, location, egress, and attestation controls"]
   },
-  "gates": [
-    {
-      "id": "portable-ci",
-      "status": "PASS",
-      "evidence": "make ci; Go format/vet/tests, Rust format/clippy/67 tests, SDK 6 tests, JSON and site validation"
-    },
-    {
-      "id": "race-and-repeat",
-      "status": "PASS",
-      "evidence": "go test -race -count=10 ./..."
-    },
-    {
-      "id": "full-local-proof",
-      "status": "PASS",
-      "evidence": "historical precommit ledger sha256 da0c9da90c3a421d2840a6042fef33a424b08c605ecabba92db27e073543ac8d; PR #5 must carry the current-head 14/14 source-bound ledger and checksum"
-    },
-    {
-      "id": "idempotency-and-attempt-fencing",
-      "status": "PASS",
-      "evidence": "durable buyer/key submission replay; conflicting body rejected; worker start/fail/commit and lease renewal fenced by task attempt"
-    },
-    {
-      "id": "schema-and-lifecycle",
-      "status": "PASS",
-      "evidence": "canonical schema applied twice; legal transition accepted and lifecycle regression rejected"
-    },
-    {
-      "id": "dependency-security",
-      "status": "PASS_WITH_WARNING",
-      "evidence": "govulncheck: zero reachable vulnerabilities; cargo audit: zero vulnerabilities and one transitive unmaintained paste warning"
-    },
-    {
-      "id": "secret-history",
-      "status": "PASS_WITH_TRIAGE",
-      "evidence": "gitleaks scanned 870 commits/40.37 MB; 24 hits were shell-variable auth headers, development fixtures, and content hashes; ignored local secret files have no git history"
-    },
-    {
-      "id": "artifact-build",
-      "status": "PASS",
-      "evidence": "run 29707723987 remote artifacts verified: cx sha256 d72470007cf74110c47eeb983a9e71bb6c60b42f583d4501bfdaa3bd24973a39; cx-agent sha256 db37884cc393657eefa9581ba0bf4b286a6244bf47bf93f19627092fdf66d3ff; complete release bundle and two SPDX SBOMs"
-    },
-    {
-      "id": "local-restore-drill",
-      "status": "PASS",
-      "evidence": "local-restore-drill-evidence sha256 4c5823adfe7e7bff7590df18567518ad0070fa3c8460e43db03b3d7bb72e1077; transactional database restore and object-mirror hashes matched"
-    },
-    {
-      "id": "offsite-backup-restore",
-      "status": "BLOCKED",
-      "blocker_id": "P1-OPS-1",
-      "evidence": "CX_BACKUP_OFFSITE and offsite credentials are absent, aws CLI is absent, and GitHub Actions has no secrets; no uploaded backup could be downloaded and restored"
-    },
-    {
-      "id": "persistent-staging-deployment",
-      "status": "BLOCKED",
-      "blocker_id": "P1-OPS-2",
-      "evidence": "no Docker Compose v2 or Docker daemon; Fly and Railway authentication fail; GitHub has no environment/secrets; no staging host, DNS, or TLS endpoint exists"
-    },
-    {
-      "id": "rollback-rehearsal",
-      "status": "BLOCKED",
-      "blocker_id": "P1-OPS-3",
-      "evidence": "rollback script exists and is syntax-checked, but no prior image on a persistent staging host was available to roll back to"
-    },
-    {
-      "id": "payment-provider-matrix",
-      "status": "BLOCKED",
-      "blocker_id": "P1-MONEY-1",
-      "evidence": "only a live-mode Stripe secret is configured and was explicitly refused; no Stripe test-mode webhook or Connect credentials exist, so the end-to-end matrix was not executed"
-    },
-    {
-      "id": "alert-delivery",
-      "status": "BLOCKED",
-      "blocker_id": "P1-OPS-4",
-      "evidence": "monitoring/alerts.yml parses and maps to runbooks; no notification router, receiver destination, or receiver credential is configured"
-    },
-    {
-      "id": "candidate-remote-ci",
-      "status": "PASS",
-      "evidence": "PR #5 exact-head run 29707723987 passed 5/5 at 1d026d5; four artifacts were downloaded and checksum-verified; the PR check rollup and candidate-*-${HEAD} artifacts bind the current readiness-only successor"
-    }
-  ],
-  "performance": {
-    "control_rss_kb": 567968,
-    "two_agent_rss_kb": 2434416,
-    "embed_ms": 3200,
-    "batch_infer_ms": 3196,
-    "remote_ci_max_seconds_at_candidate": 232,
-    "slo_assessment": "correctness gate passed; embed varied from 3301 ms warm to a 34108 ms cold outlier across final proofs, so sustained concurrent capacity remains a P2 pilot follow-up"
+  "weighted_score": {
+    "earned": 65,
+    "possible": 100,
+    "go_threshold": 95,
+    "p0_or_p1_override": "any open target-scope P0 or P1 forces NO_GO",
+    "domains": [
+      {"id": "source_and_ci", "earned": 7, "possible": 10, "reason": "local gates and prior merge CI pass; closure exact-head CI, fresh clone, and registry receipts pending"},
+      {"id": "security", "earned": 13, "possible": 15, "reason": "hostile local review repairs and 70-route matrix pass; external staging attack rehearsal/reviewer pending"},
+      {"id": "money_and_reconciliation", "earned": 6, "possible": 15, "reason": "ledger and billing tests pass; Stripe test matrix and provider reconciliation absent"},
+      {"id": "lifecycle_and_concurrency", "earned": 10, "possible": 10, "reason": "schema, race, attempt fencing, dispute lock, idempotency, and two-agent proof pass"},
+      {"id": "artifacts_and_storage", "earned": 5, "possible": 8, "reason": "artifact integrity and encrypted local envelope pass; offsite copy absent"},
+      {"id": "agent_and_sandbox", "earned": 8, "possible": 8, "reason": "Metal workloads, deadline, model integrity, admission policy, and sandbox checks pass locally"},
+      {"id": "database_and_recovery", "earned": 5, "possible": 8, "reason": "schema apply-twice and local restore pass; independent offsite restore absent"},
+      {"id": "deployment_and_rollback", "earned": 2, "possible": 8, "reason": "immutable harness validates statically; persistent deployment/rollback/restart/soak unexecuted"},
+      {"id": "observability_and_alerting", "earned": 4, "possible": 6, "reason": "23 alerts and 13 panels validate; genuine receiver firing/resolution absent"},
+      {"id": "privacy_and_data_governance", "earned": 1, "possible": 4, "reason": "review/drafts exist; qualified approval and deletion/tombstone exercises absent"},
+      {"id": "licensing_and_supply_chain", "earned": 1, "possible": 3, "reason": "immutable models/SBOM design exist; license and asset provenance approval absent"},
+      {"id": "abuse_and_trust", "earned": 1, "possible": 2, "reason": "limits, revocation, and stops pass locally; human route/tabletop absent"},
+      {"id": "support_and_incident_response", "earned": 0, "possible": 1, "reason": "runbook exists but named coverage/tabletops are absent"},
+      {"id": "website_and_buyer_usability", "earned": 2, "possible": 2, "reason": "desktop/mobile browser review and AA 6.06:1 static validation pass"}
+    ]
   },
-  "restore_drill": {
-    "status": "PASS",
-    "completed_at": "2026-07-19T21:27:19Z",
-    "db_dump_sha256": "0976ffd20ed400ac22ca866423b27b07738f74ca3b3d5df33c6b32fc0e75f48b",
-    "restored_state_sha256": "b8299082ea5956e32976620913ab390c9cc68157fd26a8787c56f3b4414f103f",
-    "restored_object_manifest_sha256": "b44928e0a58c7e34a48fc1458bc5663a7a971cdc09b0026bb906b788550831b7"
+  "local_evidence": {
+    "go": "format, vet, unit, integration, race, schema apply twice: PASS",
+    "rust": "format, clippy -D warnings, 72/72 all-target/all-feature tests: PASS",
+    "full_two_agent_proof": "PASS with two distinct agents; embed and batch_infer completed through Candle",
+    "attempt_and_money": "late/wrong attempt rejected without money; ledger zero-sum with no duplicate task effects",
+    "performance": {"control_rss_kb": 568640, "two_agent_rss_kb": 4784288, "embed_ms": 60939, "batch_infer_ms": 45836},
+    "authorization": "PASS: 70 routes x 8 roles, default deny; 56 credential-protected routes reject anonymous/wrong namespace",
+    "governance_validator": "PASS means the artifacts are internally consistent and honestly remain fail-closed; it is not an approval",
+    "observability": "PASS static: 23 alert rules and 13 dashboard panels",
+    "website": "PASS static/browser: WCAG AA minimum contrast 6.06:1",
+    "backup_envelope": "PASS local age encrypt/decrypt round trip",
+    "staging_scaffold": "PASS static: 9 services and immutable image references"
   },
-  "p2_followups": [
-    "Replace Candle's transitive unmaintained paste macro when its upstream graph permits.",
-    "Add registry signing and a container vulnerability scanner once registry credentials are available.",
-    "Run sustained concurrent multi-job and restart soak tests beyond the deterministic two-agent pilot proof."
+  "independent_review": {
+    "artifact": "ops/independent-reviews.json",
+    "domains": 14,
+    "required_fields_complete": true,
+    "result": "local controls reviewed and repaired; external/governance outcomes remain NO_GO where no exercise or authority exists"
+  },
+  "external_input_contract": {
+    "artifact": "ops/go-closure-inputs.json",
+    "delivery": ".env.go-closure plus an external governance approval bundle path; both are gitignored/private",
+    "verification": "make release-doctor",
+    "current_result": "NOT_READY; present local Stripe credential class is live_refused and was not used"
+  },
+  "p2_backlog": [
+    "Replace Candle's transitive unmaintained paste dependency when upstream permits.",
+    "Add destination-pinned supplier HTTPS egress and remote hardware attestation before independently controlled suppliers.",
+    "Resolve the shared break-glass admin-key attribution model with per-operator identity.",
+    "Characterize cold-start, thermal, memory-pressure, and multi-device capacity after external agents exist."
   ]
 }

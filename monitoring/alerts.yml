@@ -1,13 +1,22 @@
 groups:
-  - name: computexchange-pilot
+  - name: computexchange-canary
+    interval: 15s
     rules:
       - alert: ComputeExchangeControlUnavailable
-        expr: absent(cx_jobs_submitted_total) == 1
+        expr: (up{job="computexchange-control"} == 0) or absent(up{job="computexchange-control"})
         for: 2m
         labels: {severity: page, runbook: control-or-database-outage}
         annotations:
           summary: Control metrics endpoint is unavailable
           runbook: docs/RUNBOOKS.md#control-plane-or-database-outage
+
+      - alert: ComputeExchangeReleaseIdentityUnsafe
+        expr: cx_release_info{commit="unknown"} == 1 or cx_release_info{modified="true"} == 1
+        for: 2m
+        labels: {severity: page, runbook: deploy}
+        annotations:
+          summary: Control is running an unknown or locally modified release
+          runbook: docs/RUNBOOKS.md#deploy
 
       - alert: ComputeExchangeQueueWithoutWorkers
         expr: sum(cx_queue_depth) > 0 and cx_active_workers == 0
@@ -16,6 +25,14 @@ groups:
         annotations:
           summary: Claimable work exists but no supplier agent is active
           runbook: docs/RUNBOOKS.md#agent-offline-or-task-stall
+
+      - alert: ComputeExchangeQueueAgeHigh
+        expr: max(cx_queue_age_seconds{quantile="0.99"}) > 300
+        for: 5m
+        labels: {severity: page, runbook: queue-stall}
+        annotations:
+          summary: Claimable task p99 queue age exceeds five minutes
+          runbook: docs/RUNBOOKS.md#queue-stall-and-safe-requeue
 
       - alert: ComputeExchangeQueueStalled
         expr: sum(cx_queue_depth) > 0 and increase(cx_tasks_completed_total[10m]) == 0
@@ -26,11 +43,11 @@ groups:
           runbook: docs/RUNBOOKS.md#queue-stall-and-safe-requeue
 
       - alert: ComputeExchangeBackgroundLoopStale
-        expr: cx_ticker_seconds_since_success > 3600
-        for: 5m
+        expr: cx_ticker_seconds_since_success > on(ticker) (4 * cx_ticker_interval_seconds)
+        for: 1m
         labels: {severity: page, runbook: background-loop}
         annotations:
-          summary: A control-plane background loop has not succeeded for an hour
+          summary: A control loop missed more than four of its own configured intervals
           runbook: docs/RUNBOOKS.md#control-plane-or-database-outage
 
       - alert: ComputeExchangeBackgroundLoopErrors
@@ -41,6 +58,54 @@ groups:
           summary: A control-plane background loop returned errors
           runbook: docs/RUNBOOKS.md#control-plane-or-database-outage
 
+      - alert: ComputeExchangeDatabasePoolSaturated
+        expr: cx_db_pool_utilization_ratio > 0.85
+        for: 5m
+        labels: {severity: page, runbook: control-or-database-outage}
+        annotations:
+          summary: More than 85 percent of PostgreSQL pool connections are acquired
+          runbook: docs/RUNBOOKS.md#control-plane-or-database-outage
+
+      - alert: ComputeExchangeObjectStorageUnavailable
+        expr: cx_object_storage_up == 0
+        for: 2m
+        labels: {severity: page, runbook: storage-outage}
+        annotations:
+          summary: The artifact bucket is failing bounded active probes
+          runbook: docs/RUNBOOKS.md#storage-or-database-outage
+
+      - alert: ComputeExchangeBackupSignalInvalid
+        expr: cx_backup_signal_configured != 1 or cx_backup_signal_valid != 1
+        for: 5m
+        labels: {severity: page, runbook: backup-restore}
+        annotations:
+          summary: The offsite-backup health input is missing or invalid
+          runbook: docs/RUNBOOKS.md#backup-and-restore
+
+      - alert: ComputeExchangeBackupStale
+        expr: cx_backup_age_seconds > 93600
+        for: 15m
+        labels: {severity: page, runbook: backup-restore}
+        annotations:
+          summary: No post-upload-verified offsite backup has completed in 26 hours
+          runbook: docs/RUNBOOKS.md#backup-and-restore
+
+      - alert: ComputeExchangeWebhookDeadLetter
+        expr: cx_webhook_backlog{state="dead_letter"} > 0
+        for: 1m
+        labels: {severity: page, runbook: webhook-delivery}
+        annotations:
+          summary: One or more buyer webhooks are dead-lettered
+          runbook: docs/RUNBOOKS.md#webhook-delivery-failure
+
+      - alert: ComputeExchangeWebhookBacklogOld
+        expr: cx_webhook_oldest_pending_age_seconds > 300
+        for: 5m
+        labels: {severity: ticket, runbook: webhook-delivery}
+        annotations:
+          summary: The oldest pending buyer webhook is more than five minutes old
+          runbook: docs/RUNBOOKS.md#webhook-delivery-failure
+
       - alert: ComputeExchangeVerificationMismatch
         expr: increase(cx_verification_mismatch_total[15m]) > 0
         for: 1m
@@ -48,6 +113,22 @@ groups:
         annotations:
           summary: Verification or honeypot mismatch detected
           runbook: docs/RUNBOOKS.md#verification-failure-or-bad-result-dispute
+
+      - alert: ComputeExchangeModelCacheCorruption
+        expr: increase(cx_model_cache_corruption_total[15m]) > 0
+        for: 1m
+        labels: {severity: page, runbook: agent-offline}
+        annotations:
+          summary: A supplier agent rejected a corrupt or revision-mismatched model cache
+          runbook: docs/RUNBOOKS.md#agent-offline-or-task-stall
+
+      - alert: ComputeExchangeModelCacheTelemetryMissing
+        expr: absent(cx_model_cache_corruption_total)
+        for: 10m
+        labels: {severity: ticket, runbook: agent-offline}
+        annotations:
+          summary: Staging is not ingesting the required agent model-cache integrity counter
+          runbook: docs/RUNBOOKS.md#agent-offline-or-task-stall
 
       - alert: ComputeExchangeLedgerOrProviderDrift
         expr: increase(cx_reconcile_drift_total[30m]) > 0
@@ -80,3 +161,27 @@ groups:
         annotations:
           summary: The budget governor stopped one or more jobs
           runbook: docs/RUNBOOKS.md#money-incident-or-payout-hold
+
+      - alert: ComputeExchangeDiskPressure
+        expr: min by (instance,device,mountpoint) (node_filesystem_avail_bytes{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"}) < 0.15
+        for: 10m
+        labels: {severity: page, runbook: control-or-database-outage}
+        annotations:
+          summary: Host filesystem has less than 15 percent free space
+          runbook: docs/RUNBOOKS.md#control-plane-or-database-outage
+
+      - alert: ComputeExchangeDiskTelemetryMissing
+        expr: absent(node_filesystem_avail_bytes{job="node-exporter"})
+        for: 10m
+        labels: {severity: ticket, runbook: control-or-database-outage}
+        annotations:
+          summary: Staging node-exporter disk telemetry is unavailable
+          runbook: docs/RUNBOOKS.md#control-plane-or-database-outage
+
+      - alert: ComputeExchangeAlertmanagerUnavailable
+        expr: up{job="alertmanager"} == 0 or absent(up{job="alertmanager"})
+        for: 2m
+        labels: {severity: page, runbook: alert-mapping}
+        annotations:
+          summary: Prometheus cannot scrape the configured Alertmanager
+          runbook: docs/RUNBOOKS.md#alert-mapping

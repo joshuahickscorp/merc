@@ -128,19 +128,35 @@ fn classify(brand: &str) -> HardwareClass {
 
 const CATALOGUE_QUANT: &str = "q4_k_m";
 
-const INFERENCE_CONTENT_SOURCES: &[(&str, &str)] = &[
+// The worker-advertised build hash is an admission credential during the
+// private canary. Bind it to every agent source module and the locked
+// dependency graph, rather than only to the inference kernel, so a protocol,
+// deadline, cache-integrity, or sandbox downgrade cannot reuse an approved
+// result-class identity.
+const AGENT_CONTENT_SOURCES: &[(&str, &str)] = &[
+    ("config.rs", include_str!("config.rs")),
+    ("deadline.rs", include_str!("deadline.rs")),
+    ("failure.rs", include_str!("failure.rs")),
+    ("hardware.rs", include_str!("hardware.rs")),
+    ("main.rs", include_str!("main.rs")),
+    ("models.rs", include_str!("models.rs")),
+    ("pool.rs", include_str!("pool.rs")),
+    ("protocol.rs", include_str!("protocol.rs")),
     (
         "quantized_llama_batched.rs",
         include_str!("quantized_llama_batched.rs"),
     ),
     ("executor.rs", include_str!("executor.rs")),
+    ("runtime_authority.rs", include_str!("runtime_authority.rs")),
+    ("status.rs", include_str!("status.rs")),
+    ("types.rs", include_str!("types.rs")),
     ("Cargo.lock", include_str!("../Cargo.lock")),
 ];
 
 pub fn infer_content_id() -> String {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
-    for (name, source) in INFERENCE_CONTENT_SOURCES {
+    for (name, source) in AGENT_CONTENT_SOURCES {
         h.update((name.len() as u64).to_le_bytes());
         h.update(name.as_bytes());
         h.update((source.len() as u64).to_le_bytes());
@@ -184,9 +200,19 @@ fn inference_runtime_tuning_identity(engine: &str) -> String {
 }
 
 pub fn engine_build_hash(engine: &str, agent_version: &str) -> String {
+    engine_build_hash_for_class(engine, agent_version, crate::models::device_label())
+}
+
+pub fn engine_build_hash_for_class(
+    engine: &str,
+    agent_version: &str,
+    hardware_class: &str,
+) -> String {
     engine_build_hash_inner(
         engine,
         agent_version,
+        hardware_class,
+        crate::runtime_authority::sha256(),
         &infer_content_id(),
         &inference_runtime_tuning_identity(engine),
     )
@@ -195,6 +221,8 @@ pub fn engine_build_hash(engine: &str, agent_version: &str) -> String {
 fn engine_build_hash_inner(
     engine: &str,
     agent_version: &str,
+    hardware_class: &str,
+    runtime_authority_sha256: &str,
     infer_content_id: &str,
     runtime_tuning_identity: &str,
 ) -> String {
@@ -203,7 +231,8 @@ fn engine_build_hash_inner(
     for field in [
         engine,
         agent_version,
-        crate::models::device_label(),
+        hardware_class,
+        runtime_authority_sha256,
         CATALOGUE_QUANT,
         infer_content_id,
         runtime_tuning_identity,
@@ -318,7 +347,7 @@ pub async fn detect_and_benchmark(
     }
     let memory_gb = host_mem_gb;
 
-    let build_hash = engine_build_hash(engine, agent_version);
+    let build_hash = engine_build_hash_for_class(engine, agent_version, hw_class.as_wire_str());
     let cache_key = bench_cache_key(agent_version, &build_hash, &brand, host_mem_gb);
 
     let (memory_bw_gbps, benchmarks) = match load_bench_cache(&cache_key) {

@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -136,6 +139,133 @@ func observeHTTPRequest(endpoint string, d time.Duration) {
 	httpRequestDuration.observe(endpoint, float64(d)/float64(time.Millisecond))
 }
 
+type queueAgeQuantiles struct {
+	tier, jobType string
+	p50, p95, p99 float64
+}
+
+func (s *Store) observabilityQueueAge(ctx context.Context) ([]queueAgeQuantiles, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT j.tier,j.job_type,
+		       percentile_cont(0.50) WITHIN GROUP (
+		         ORDER BY GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(t.visible_at,t.created_at))))::float8,
+		       percentile_cont(0.95) WITHIN GROUP (
+		         ORDER BY GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(t.visible_at,t.created_at))))::float8,
+		       percentile_cont(0.99) WITHIN GROUP (
+		         ORDER BY GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(t.visible_at,t.created_at))))::float8
+		  FROM tasks t JOIN jobs j ON j.id=t.job_id
+		 WHERE t.status IN ('queued','retrying')
+		   AND t.claimed_by IS NULL
+		   AND COALESCE(t.visible_at,t.created_at) <= now()
+		   AND j.status NOT IN ('cancelled','failed','complete')
+		 GROUP BY j.tier,j.job_type
+		 ORDER BY j.tier,j.job_type`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []queueAgeQuantiles
+	for rows.Next() {
+		var q queueAgeQuantiles
+		if err := rows.Scan(&q.tier, &q.jobType, &q.p50, &q.p95, &q.p99); err != nil {
+			return nil, err
+		}
+		out = append(out, q)
+	}
+	return out, rows.Err()
+}
+
+type webhookBacklog struct {
+	pending, leased, dead int64
+	oldestPendingSeconds  float64
+}
+
+func (s *Store) observabilityWebhookBacklog(ctx context.Context) (webhookBacklog, error) {
+	var out webhookBacklog
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (
+		         WHERE delivered_at IS NULL AND dead_lettered_at IS NULL
+		           AND (lease_token IS NULL OR lease_expires_at <= now())),
+		       count(*) FILTER (
+		         WHERE delivered_at IS NULL AND dead_lettered_at IS NULL
+		           AND lease_token IS NOT NULL AND lease_expires_at > now()),
+		       count(*) FILTER (WHERE dead_lettered_at IS NOT NULL),
+		       COALESCE(GREATEST(0,EXTRACT(EPOCH FROM now()-MIN(created_at) FILTER (
+		         WHERE delivered_at IS NULL AND dead_lettered_at IS NULL))),0)::float8
+		  FROM webhooks`).Scan(&out.pending, &out.leased, &out.dead, &out.oldestPendingSeconds)
+	return out, err
+}
+
+type backupSignal struct {
+	configured  bool
+	valid       bool
+	lastSuccess float64
+	ageSeconds  float64
+}
+
+func readBackupSignal(now time.Time, path string) backupSignal {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return backupSignal{}
+	}
+	out := backupSignal{configured: true}
+	f, err := os.Open(path)
+	if err != nil {
+		return out
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, 129))
+	if err != nil || len(raw) == 0 || len(raw) > 128 {
+		return out
+	}
+	unix, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+	if err != nil || unix <= 0 {
+		return out
+	}
+	when := time.Unix(unix, 0)
+	if when.After(now.Add(5 * time.Minute)) {
+		return out
+	}
+	out.valid = true
+	out.lastSuccess = float64(unix)
+	out.ageSeconds = max(0, now.Sub(when).Seconds())
+	return out
+}
+
+func metricLabelValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if b.Len() >= 96 {
+			break
+		}
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '.', r == '_', r == '-', r == '+', r == '/', r == ':', r == '@':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "unknown"
+	}
+	return b.String()
+}
+
+func (l *tickerLiveness) intervalSnapshot() map[string]float64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	out := make(map[string]float64, len(l.entries))
+	for name, entry := range l.entries {
+		out[name] = entry.interval.Seconds()
+	}
+	return out
+}
+
 func writeLabeledHistogram(w http.ResponseWriter, name, help, labelKey string, h *labeledHistogram) {
 	fmt.Fprintf(w, "# HELP %s %s\n", name, help)
 	fmt.Fprintf(w, "# TYPE %s histogram\n", name)
@@ -178,8 +308,69 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeCounter(w, "cx_sla_misses_total", "Jobs whose bound speed-SLA settled as MISSED (Speed Lane wave 2A): the buyer-visible span exceeded the guarantee, sla_met stamped false, the once-only sla_refund credit recorded. Counted once per job (only the settle call that decided the miss bumps it).", metrics.slaMisses.Load())
 	writeCounter(w, "cx_no_hedge_peer_total", "Dispatch-time heterogeneous-fleet degradation: a redundancy/hedge peer was needed but no eligible same-class peer existed on the fleet (silent loss of hedging + warm-routing). Alerted on by monitoring/alerts.yml.", NoHedgePeerCount())
 
+	build := currentControlBuildInfo()
+	fmt.Fprintf(w, "# HELP cx_release_info Immutable control-plane release identity; exactly one series per process.\n")
+	fmt.Fprintf(w, "# TYPE cx_release_info gauge\n")
+	fmt.Fprintf(w, "cx_release_info{version=%q,commit=%q,build_date=%q,go_version=%q,platform=%q,modified=%q} 1\n",
+		metricLabelValue(build.Version), metricLabelValue(build.Commit), metricLabelValue(build.BuildDate),
+		metricLabelValue(build.GoVersion), metricLabelValue(build.Platform), strconv.FormatBool(build.Modified))
+
+	backup := readBackupSignal(time.Now(), os.Getenv("CX_BACKUP_STATUS_FILE"))
+	fmt.Fprintf(w, "# HELP cx_backup_signal_configured Whether CX_BACKUP_STATUS_FILE is configured for this process.\n")
+	fmt.Fprintf(w, "# TYPE cx_backup_signal_configured gauge\n")
+	fmt.Fprintf(w, "cx_backup_signal_configured %d\n", boolMetric(backup.configured))
+	fmt.Fprintf(w, "# HELP cx_backup_signal_valid Whether the bounded backup timestamp input is readable and valid.\n")
+	fmt.Fprintf(w, "# TYPE cx_backup_signal_valid gauge\n")
+	fmt.Fprintf(w, "cx_backup_signal_valid %d\n", boolMetric(backup.valid))
+	if backup.valid {
+		fmt.Fprintf(w, "# HELP cx_backup_last_success_timestamp_seconds Unix timestamp of the latest post-upload-verified offsite backup.\n")
+		fmt.Fprintf(w, "# TYPE cx_backup_last_success_timestamp_seconds gauge\n")
+		fmt.Fprintf(w, "cx_backup_last_success_timestamp_seconds %.0f\n", backup.lastSuccess)
+		fmt.Fprintf(w, "# HELP cx_backup_age_seconds Seconds since the latest post-upload-verified offsite backup.\n")
+		fmt.Fprintf(w, "# TYPE cx_backup_age_seconds gauge\n")
+		fmt.Fprintf(w, "cx_backup_age_seconds %.3f\n", backup.ageSeconds)
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	pool := s.store.pool.Stat()
+	maxConns := pool.MaxConns()
+	utilization := 0.0
+	if maxConns > 0 {
+		utilization = float64(pool.AcquiredConns()) / float64(maxConns)
+	}
+	fmt.Fprintf(w, "# HELP cx_db_pool_connections PostgreSQL pool connections by bounded state.\n")
+	fmt.Fprintf(w, "# TYPE cx_db_pool_connections gauge\n")
+	fmt.Fprintf(w, "cx_db_pool_connections{state=\"acquired\"} %d\n", pool.AcquiredConns())
+	fmt.Fprintf(w, "cx_db_pool_connections{state=\"idle\"} %d\n", pool.IdleConns())
+	fmt.Fprintf(w, "cx_db_pool_connections{state=\"constructing\"} %d\n", pool.ConstructingConns())
+	fmt.Fprintf(w, "cx_db_pool_connections{state=\"total\"} %d\n", pool.TotalConns())
+	fmt.Fprintf(w, "cx_db_pool_connections{state=\"max\"} %d\n", maxConns)
+	fmt.Fprintf(w, "# HELP cx_db_pool_utilization_ratio Fraction of configured PostgreSQL connections currently acquired.\n")
+	fmt.Fprintf(w, "# TYPE cx_db_pool_utilization_ratio gauge\n")
+	fmt.Fprintf(w, "cx_db_pool_utilization_ratio %.6f\n", utilization)
+	fmt.Fprintf(w, "# HELP cx_db_pool_empty_acquire_wait_seconds_total Cumulative wait time for a connection while the pool was empty.\n")
+	fmt.Fprintf(w, "# TYPE cx_db_pool_empty_acquire_wait_seconds_total counter\n")
+	fmt.Fprintf(w, "cx_db_pool_empty_acquire_wait_seconds_total %.6f\n", pool.EmptyAcquireWaitTime().Seconds())
+	fmt.Fprintf(w, "# HELP cx_db_pool_canceled_acquires_total Cumulative connection acquisitions cancelled while waiting.\n")
+	fmt.Fprintf(w, "# TYPE cx_db_pool_canceled_acquires_total counter\n")
+	fmt.Fprintf(w, "cx_db_pool_canceled_acquires_total %d\n", pool.CanceledAcquireCount())
+
+	storageProbeCtx, storageProbeCancel := context.WithTimeout(ctx, 2*time.Second)
+	storageProbeStarted := time.Now()
+	storageUp := false
+	if s.storage != nil && s.storage.internal != nil {
+		exists, err := s.storage.internal.BucketExists(storageProbeCtx, s.storage.bucket)
+		storageUp = err == nil && exists
+	}
+	storageProbeCancel()
+	fmt.Fprintf(w, "# HELP cx_object_storage_up Whether the configured artifact bucket answered a bounded active probe.\n")
+	fmt.Fprintf(w, "# TYPE cx_object_storage_up gauge\n")
+	fmt.Fprintf(w, "cx_object_storage_up %d\n", boolMetric(storageUp))
+	fmt.Fprintf(w, "# HELP cx_object_storage_probe_duration_seconds Duration of the bounded artifact-store health probe.\n")
+	fmt.Fprintf(w, "# TYPE cx_object_storage_probe_duration_seconds gauge\n")
+	fmt.Fprintf(w, "cx_object_storage_probe_duration_seconds %.6f\n", time.Since(storageProbeStarted).Seconds())
 
 	fmt.Fprintf(w, "# HELP cx_active_workers Workers seen within the last 60s.\n")
 	fmt.Fprintf(w, "# TYPE cx_active_workers gauge\n")
@@ -199,11 +390,41 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	fmt.Fprintf(w, "# HELP cx_queue_age_seconds Claimable task queue-age quantiles by bounded tier and job type.\n")
+	fmt.Fprintf(w, "# TYPE cx_queue_age_seconds gauge\n")
+	if rows, err := s.store.observabilityQueueAge(ctx); err != nil {
+		fmt.Fprintf(w, "# cx_queue_age_seconds unavailable: %s\n", err.Error())
+	} else {
+		for _, row := range rows {
+			fmt.Fprintf(w, "cx_queue_age_seconds{tier=%q,job_type=%q,quantile=\"0.50\"} %.3f\n", row.tier, row.jobType, row.p50)
+			fmt.Fprintf(w, "cx_queue_age_seconds{tier=%q,job_type=%q,quantile=\"0.95\"} %.3f\n", row.tier, row.jobType, row.p95)
+			fmt.Fprintf(w, "cx_queue_age_seconds{tier=%q,job_type=%q,quantile=\"0.99\"} %.3f\n", row.tier, row.jobType, row.p99)
+		}
+	}
+
+	fmt.Fprintf(w, "# HELP cx_webhook_backlog Webhook delivery rows by bounded lifecycle state.\n")
+	fmt.Fprintf(w, "# TYPE cx_webhook_backlog gauge\n")
+	if backlog, err := s.store.observabilityWebhookBacklog(ctx); err != nil {
+		fmt.Fprintf(w, "# cx_webhook_backlog unavailable: %s\n", err.Error())
+	} else {
+		fmt.Fprintf(w, "cx_webhook_backlog{state=\"pending\"} %d\n", backlog.pending)
+		fmt.Fprintf(w, "cx_webhook_backlog{state=\"leased\"} %d\n", backlog.leased)
+		fmt.Fprintf(w, "cx_webhook_backlog{state=\"dead_letter\"} %d\n", backlog.dead)
+		fmt.Fprintf(w, "# HELP cx_webhook_oldest_pending_age_seconds Age of the oldest undelivered non-dead-letter webhook.\n")
+		fmt.Fprintf(w, "# TYPE cx_webhook_oldest_pending_age_seconds gauge\n")
+		fmt.Fprintf(w, "cx_webhook_oldest_pending_age_seconds %.3f\n", backlog.oldestPendingSeconds)
+	}
+
 	now := time.Now()
 	fmt.Fprintf(w, "# HELP cx_ticker_seconds_since_success Seconds since a background ticker last completed a successful run.\n")
 	fmt.Fprintf(w, "# TYPE cx_ticker_seconds_since_success gauge\n")
 	for name, secs := range liveness.snapshot(now, workersStarted()) {
 		fmt.Fprintf(w, "cx_ticker_seconds_since_success{ticker=%q} %.3f\n", name, secs)
+	}
+	fmt.Fprintf(w, "# HELP cx_ticker_interval_seconds Configured interval for each bounded background ticker.\n")
+	fmt.Fprintf(w, "# TYPE cx_ticker_interval_seconds gauge\n")
+	for name, seconds := range liveness.intervalSnapshot() {
+		fmt.Fprintf(w, "cx_ticker_interval_seconds{ticker=%q} %.3f\n", name, seconds)
 	}
 
 	fmt.Fprintf(w, "# HELP cx_ticker_failures_total Lifetime count of a background ticker's fn returning an error.\n")
@@ -282,4 +503,11 @@ func writeCounter(w http.ResponseWriter, name, help string, v int64) {
 	fmt.Fprintf(w, "# HELP %s %s\n", name, help)
 	fmt.Fprintf(w, "# TYPE %s counter\n", name)
 	fmt.Fprintf(w, "%s %d\n", name, v)
+}
+
+func boolMetric(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

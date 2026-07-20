@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://computexchange.invalid/schemas/governance-approval-bundle.schema.json",
+  "title": "ComputExchange exact-candidate governance approval bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "candidate_commit", "scope", "approvals", "exercises"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "scope": {"const": "supervised_stripe_test_mode_private_canary"},
+    "approvals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["legal", "privacy", "tax", "payments", "security", "trust_safety", "license", "support"],
+      "properties": {
+        "legal": {"$ref": "#/$defs/approval"},
+        "privacy": {"$ref": "#/$defs/approval"},
+        "tax": {"$ref": "#/$defs/approval"},
+        "payments": {"$ref": "#/$defs/approval"},
+        "security": {"$ref": "#/$defs/approval"},
+        "trust_safety": {"$ref": "#/$defs/approval"},
+        "license": {"$ref": "#/$defs/approval"},
+        "support": {"$ref": "#/$defs/approval"}
+      }
+    },
+    "exercises": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["support_tabletop", "security_tabletop", "dsar_export_deletion", "backup_tombstone", "asset_and_model_provenance"],
+      "properties": {
+        "support_tabletop": {"$ref": "#/$defs/exercise"},
+        "security_tabletop": {"$ref": "#/$defs/exercise"},
+        "dsar_export_deletion": {"$ref": "#/$defs/exercise"},
+        "backup_tombstone": {"$ref": "#/$defs/exercise"},
+        "asset_and_model_provenance": {"$ref": "#/$defs/exercise"}
+      }
+    }
+  },
+  "$defs": {
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "approver", "organization", "reviewed_scope", "evidence_uri", "approved_at"],
+      "properties": {
+        "status": {"const": "APPROVED"},
+        "approver": {"type": "string", "minLength": 1},
+        "organization": {"type": "string", "minLength": 1},
+        "reviewed_scope": {"type": "string", "minLength": 1},
+        "evidence_uri": {"type": "string", "minLength": 1},
+        "approved_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "exercise": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "evidence_uri", "completed_at"],
+      "properties": {
+        "status": {"const": "PASS"},
+        "evidence_uri": {"type": "string", "minLength": 1},
+        "completed_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

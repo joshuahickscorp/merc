@@ -19,14 +19,14 @@ var repricingBenchmarks = []measuredThroughput{
 		JobType:        "embed",
 		UnitsPerSec:    1967.3141,
 		HWClass:        "apple_silicon_pro",
-		SourceCitation: ".artifacts/gpu-bench/metal-Apple_M3_Pro-20260701T223411Z/capability.json (eps)",
+		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#embed",
 	},
 	{
 		ModelID:        "llama-3.2-1b-instruct-q4",
 		JobType:        "batch_infer",
 		UnitsPerSec:    138.7,
 		HWClass:        "apple_silicon_pro",
-		SourceCitation: "docs/GPU_CAPABILITY.md:43 (batch-32 peak tok/s, byte-identical to serial)",
+		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#batch_infer",
 	},
 }
 

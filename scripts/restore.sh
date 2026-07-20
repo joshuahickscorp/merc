@@ -2,7 +2,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [ -f "$ROOT/.env" ]; then set -a; . "$ROOT/.env"; set +a; fi
+for env_file in "$ROOT/.env" "${CX_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"; do
+  [ -f "$env_file" ] || continue
+  set -a
+  # shellcheck disable=SC1090
+  . "$env_file"
+  set +a
+done
 
 die() { echo "[restore] ERROR: $*" >&2; exit 1; }
 log() { echo "[restore] $*"; }
@@ -37,6 +43,10 @@ AWS_ARGS=()
 
 command -v docker >/dev/null 2>&1 || die "docker not found"
 command -v aws >/dev/null 2>&1 || die "aws CLI not found"
+command -v age >/dev/null 2>&1 || die "age not found"
+IDENTITY="${CX_BACKUP_DECRYPTION_IDENTITY_FILE:-}"
+[ -n "$IDENTITY" ] && [ -r "$IDENTITY" ] \
+  || die "CX_BACKUP_DECRYPTION_IDENTITY_FILE must name a readable age identity"
 
 dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
 
@@ -54,10 +64,23 @@ trap 'rm -rf "$STAGE"' EXIT
 log "fetch $SRC -> $STAGE"
 aws "${AWS_ARGS[@]}" s3 cp --recursive "$SRC" "$STAGE" \
   || die "fetch from $SRC failed."
-[ -s "$STAGE/db.dump" ] || die "no db.dump in fetched backup $SRC."
+[ -s "$STAGE/backup.tar.age" ] || die "no encrypted backup.tar.age in fetched backup $SRC."
+[ -s "$STAGE/backup.tar.age.sha256" ] || die "no ciphertext checksum in fetched backup $SRC."
 
-log "verify checksum"
-( cd "$STAGE" && shasum -a 256 -c db.dump.sha256 ) \
+log "verify encrypted bundle checksum and decrypt"
+( cd "$STAGE" && shasum -a 256 -c backup.tar.age.sha256 ) \
+  || die "encrypted bundle checksum MISMATCH  -  corrupt/incomplete backup. Aborting."
+age --decrypt -i "$IDENTITY" -o "$STAGE/backup.tar" "$STAGE/backup.tar.age" \
+  || die "backup decryption failed"
+if tar -tf "$STAGE/backup.tar" | awk 'BEGIN{bad=0} /^\// || /(^|\/)\.\.($|\/)/ {bad=1} END{exit bad?0:1}'; then
+  die "backup archive contains an unsafe path"
+fi
+mkdir "$STAGE/payload"
+tar -C "$STAGE/payload" -xf "$STAGE/backup.tar" || die "backup archive extraction failed"
+rm -f "$STAGE/backup.tar"
+PAYLOAD="$STAGE/payload"
+[ -s "$PAYLOAD/db.dump" ] || die "decrypted bundle has no db.dump."
+( cd "$PAYLOAD" && shasum -a 256 -c db.dump.sha256 ) \
   || die "db.dump checksum MISMATCH  -  corrupt/incomplete backup. Aborting."
 
 if [ "$RESTORE_DB" != "$PG_DB" ]; then
@@ -70,19 +93,19 @@ fi
 
 log "pg_restore -> db '$RESTORE_DB'"
 if ! dc exec -T "$PG_SERVICE" pg_restore -U "$PG_USER" -d "$RESTORE_DB" \
-        --clean --if-exists --no-owner --no-privileges -1 < "$STAGE/db.dump"; then
+        --clean --if-exists --no-owner --no-privileges -1 < "$PAYLOAD/db.dump"; then
   die "pg_restore FAILED  -  db '$RESTORE_DB' rolled back (transaction). Nothing partially applied."
 fi
 log "DB restored into '$RESTORE_DB'"
 
 if [ "$DB_ONLY" -eq 0 ] && [ "$RESTORE_DB" = "$PG_DB" ]; then
-  if [ -s "$STAGE/objects.tar" ]; then
-    ( cd "$STAGE" && shasum -a 256 -c objects.tar.sha256 ) \
+  if [ -s "$PAYLOAD/objects.tar" ]; then
+    ( cd "$PAYLOAD" && shasum -a 256 -c objects.tar.sha256 ) \
       || die "objects.tar checksum MISMATCH. Aborting object restore."
     log "object store: mirror archive -> minio/$S3_BUCKET"
     if ! dc run --rm -T \
           -e MC_HOST_local="http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio:9000" \
-          -v "$STAGE/objects.tar:/tmp/objects.tar:ro" \
+          -v "$PAYLOAD/objects.tar:/tmp/objects.tar:ro" \
           --entrypoint sh minio/mc -c \
           "mkdir -p /tmp/x && tar -C /tmp/x -xf /tmp/objects.tar && mc mb -p local/${S3_BUCKET} && mc mirror --overwrite /tmp/x/o local/${S3_BUCKET}"; then
       die "object-store restore failed."

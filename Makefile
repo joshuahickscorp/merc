@@ -5,7 +5,7 @@ endif
 
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: up down dev-up dev-down migrate seed control agent-run agent-bench prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill
+.PHONY: up down dev-up dev-down migrate seed control agent-run agent-bench prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test release-doctor
 
 up:
 	docker compose up -d --build
@@ -57,6 +57,11 @@ ci:
 	cd control && test -z "$$(gofmt -l .)" && go vet ./... && go test ./...
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
 	python3 -m json.tool proto/manifest.schema.json >/dev/null
+	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
+	python3 scripts/validate-authorization-matrix.py
+	python3 scripts/validate-independent-reviews.py
+	python3 scripts/validate-governance.py
+	python3 scripts/validate-readiness.py
 	node scripts/site-build.mjs
 	bash scripts/verify-python-sdk-package.sh
 
@@ -79,3 +84,9 @@ backup:
 
 restore-drill:
 	bash scripts/restore-drill.sh
+
+backup-envelope-test:
+	bash scripts/test-backup-envelope.sh
+
+release-doctor:
+	bash scripts/release-doctor.sh $(if $(CHECK),--check $(CHECK),)

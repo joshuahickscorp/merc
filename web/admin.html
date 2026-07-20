@@ -44,6 +44,18 @@ input, select, textarea, button {
 }
 button { color: var(--gold); cursor: pointer; }
 button:hover { border-color: var(--gold); }
+:where(button,input,select,textarea):focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 #key { width: min(360px, 42vw); margin-left: auto; }
 nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .active { background: var(--gold); color: var(--ink); }
@@ -74,22 +86,29 @@ pre { margin: 0; color: #d9d2c1; white-space: pre-wrap; overflow-wrap: anywhere;
   #key { width: 100%; margin: 0; }
   .action { grid-template-columns: 1fr; }
 }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
 </style>
 </head>
 <body>
 <header>
   <h1>cx / control room</h1>
   <small>authenticated operator API</small>
+  <label class="visually-hidden" for="key">revocable admin API key</label>
   <input id="key" type="password" autocomplete="off" placeholder="admin API key">
 </header>
 <main>
 <nav id="tabs"></nav>
-<div id="status">Enter a revocable admin key, then refresh.</div>
+<div id="status">Enter a revocable admin key, then choose a view.</div>
 <div id="data" class="grid"></div>
 <form id="action" class="action">
+  <label class="visually-hidden" for="path">audited operator API path</label>
   <input id="path" required placeholder="/admin/workers/{id}/suspend">
+  <label class="visually-hidden" for="method">HTTP method</label>
   <select id="method"><option>POST</option><option>DELETE</option></select>
-  <button>execute</button>
+  <button type="submit">execute</button>
+  <label class="visually-hidden" for="body">audited operator action JSON</label>
   <textarea id="body" placeholder='{"reason":"operator action","request_id":"unique-id"}'></textarea>
 </form>
 </main>
@@ -100,13 +119,13 @@ const views = {
   payouts: '/admin/payouts',
   fraud: '/admin/fraud',
   drift: '/admin/drift',
+  controls: '/admin/controls',
   actions: '/admin/actions'
 };
 const key = document.querySelector('#key');
 const status = document.querySelector('#status');
 const data = document.querySelector('#data');
 const tabs = document.querySelector('#tabs');
-key.value = sessionStorage.getItem('cx-admin-key') || '';
 
 for (const [name, path] of Object.entries(views)) {
   const button = document.createElement('button');
@@ -116,7 +135,6 @@ for (const [name, path] of Object.entries(views)) {
 }
 
 async function request(path, options = {}) {
-  sessionStorage.setItem('cx-admin-key', key.value);
   const headers = { Authorization: 'Bearer ' + key.value };
   if (options.body) headers['Content-Type'] = 'application/json';
   const response = await fetch(path, { ...options, headers });
@@ -171,8 +189,13 @@ document.querySelector('#action').onsubmit = async event => {
     status.textContent = error.message;
   }
 };
-key.onchange = () => sessionStorage.setItem('cx-admin-key', key.value);
-tabs.firstChild.click();
+key.addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    tabs.firstChild.click();
+  }
+});
+window.addEventListener('pagehide', () => { key.value = ''; });
 </script>
 </body>
 </html>

@@ -1,0 +1,34 @@
+# The repository currently has one accountable maintainer. Split these groups
+# when additional maintainers can provide independent review.
+* @joshuahickscorp
+
+# Ledger and payments
+/control/billing.go @joshuahickscorp
+/control/collect.go @joshuahickscorp
+/control/connect.go @joshuahickscorp
+/control/ledger.go @joshuahickscorp
+/control/payout*.go @joshuahickscorp
+/control/stripe*.go @joshuahickscorp
+
+# Authentication and authorization
+/control/accounts.go @joshuahickscorp
+/control/admin*.go @joshuahickscorp
+/control/api.go @joshuahickscorp
+/control/auth*.go @joshuahickscorp
+/control/suppliers.go @joshuahickscorp
+
+# Schema, task lifecycle, and agent sandbox
+/control/schema.sql @joshuahickscorp
+/control/scheduler.go @joshuahickscorp
+/control/store.go @joshuahickscorp
+/agent/ @joshuahickscorp
+/macapp/ComputeExchangeAgent/ComputeExchangeAgent.entitlements @joshuahickscorp
+/macapp/ComputeExchangeAgent/cx-agent.sb @joshuahickscorp
+
+# Release and deployment
+/.github/ @joshuahickscorp
+/Caddyfile @joshuahickscorp
+/Dockerfile* @joshuahickscorp
+/docker-compose*.yml @joshuahickscorp
+/scripts/deploy.sh @joshuahickscorp
+/scripts/rollback.sh @joshuahickscorp

@@ -7,6 +7,7 @@ use candle_transformers::models::bert::{BertModel, Config as BertConfig, DTYPE a
 use serde::{Deserialize, Serialize};
 use tokenizers::Tokenizer;
 
+use crate::deadline::DeadlineError;
 use crate::models;
 use crate::pool::ModelPool;
 use crate::types::{JobManifest, JobType, ModelKind, WorkerCapability};
@@ -34,6 +35,16 @@ pub enum RunError {
     Inference { backend: &'static str, msg: String },
     #[error("memory pressure preempted `{backend}` mid-job: {msg}")]
     OomPreempt { backend: &'static str, msg: String },
+    #[error("{message}")]
+    DeadlineExceeded { message: String },
+}
+
+impl From<DeadlineError> for RunError {
+    fn from(error: DeadlineError) -> Self {
+        Self::DeadlineExceeded {
+            message: error.to_string(),
+        }
+    }
 }
 
 fn infer_err<E: std::fmt::Display>(backend: &'static str) -> impl Fn(E) -> RunError {
@@ -870,11 +881,7 @@ impl LlamaBackend {
 }
 
 fn load_llama_tokenizer(_model_ref: &str) -> Result<Tokenizer, RunError> {
-    let spec = models::ModelSpec {
-        repo: "unsloth/Llama-3.2-1B-Instruct",
-        files: &["tokenizer.json"],
-    };
-    let paths = models::fetch(&spec)?;
+    let paths = models::fetch(&models::LLAMA_TOKENIZER)?;
     Tokenizer::from_file(&paths[0]).map_err(infer_err("batch_infer"))
 }
 

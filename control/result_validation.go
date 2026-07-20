@@ -38,6 +38,7 @@ const (
 	resultValidationDimension   = "invalid_dimension"
 	resultValidationNumeric     = "non_finite_numeric"
 	resultValidationUnsupported = "unsupported_shape"
+	resultValidationDigest      = "digest_mismatch"
 
 	embeddingDimensionHardMax uint64 = 65_536
 	embeddingRowsHardMax      uint64 = 1_000_000
@@ -46,6 +47,14 @@ const (
 
 func invalidResultArtifact(jobType, code, detail string) error {
 	return &ResultArtifactValidationError{JobType: jobType, Code: code, Detail: detail}
+}
+
+func validateReportedResultDigest(jobType, reported, sealed string) error {
+	if reportedResultDigestMatches(reported, sealed) {
+		return nil
+	}
+	return invalidResultArtifact(jobType, resultValidationDigest,
+		"worker-reported SHA-256 does not match the sealed attempt artifact")
 }
 
 func invalidResultVerificationDecision(info *CommitTaskInfo, validationErr error) VerificationDecision {

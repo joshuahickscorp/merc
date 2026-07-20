@@ -35,6 +35,12 @@ func verificationWorkSnapshotFromCommit(info *CommitTaskInfo, c TaskCommit) (Ver
 	if info.Attempt < 0 || c.DurationMS > math.MaxInt64 || c.TokensUsed > math.MaxInt64 {
 		return VerificationWorkSnapshot{}, fmt.Errorf("verification attempt snapshot: reported counters exceed durable range")
 	}
+	if err := validateTaskAttemptResultKey(info.JobID, info.TaskID, info.Attempt, info.ResultKey); err != nil {
+		return VerificationWorkSnapshot{}, fmt.Errorf("verification attempt snapshot: %w", err)
+	}
+	if c.ResultKey != info.ResultKey {
+		return VerificationWorkSnapshot{}, fmt.Errorf("verification attempt snapshot: commit result key %q does not match server key %q", c.ResultKey, info.ResultKey)
+	}
 	input := verificationAttemptInput{
 		IsHoneypot: info.IsHoneypot, IsRedundancy: info.IsRedundancy,
 		HWClass: info.HWClass, Engine: info.engine, BuildHash: info.buildHash,
@@ -51,6 +57,11 @@ func verificationWorkSnapshotFromCommit(info *CommitTaskInfo, c TaskCommit) (Ver
 			input.JobType, input.ExpectedOutputRecords, input.SplitSize, info.jobMaxTokens,
 		)
 	}
+	limitedResultBytes, err := canaryArtifactLimit(input.ResultMaxBytes)
+	if err != nil {
+		return VerificationWorkSnapshot{}, fmt.Errorf("verification attempt snapshot: canary artifact policy: %w", err)
+	}
+	input.ResultMaxBytes = limitedResultBytes
 	if input.ResultMaxBytes <= 0 || input.ResultMaxBytes > verificationArtifactAbsoluteMaxBytes {
 		return VerificationWorkSnapshot{}, fmt.Errorf("verification attempt snapshot: invalid result limit %d", input.ResultMaxBytes)
 	}
@@ -77,6 +88,10 @@ func commitInfoFromVerificationWork(work VerificationWork) (*CommitTaskInfo, Tas
 		return nil, TaskCommit{}, fmt.Errorf("unsupported verification attempt snapshot v%d/attempt %d",
 			work.Snapshot.SnapshotVersion, work.Snapshot.Attempt)
 	}
+	if err := validateTaskAttemptResultKey(work.Snapshot.JobID, work.Snapshot.TaskID,
+		int16(work.Snapshot.Attempt), work.Snapshot.StagedResultKey); err != nil {
+		return nil, TaskCommit{}, fmt.Errorf("verification attempt snapshot: %w", err)
+	}
 	var input verificationAttemptInput
 	if err := json.Unmarshal(work.Snapshot.Snapshot, &input); err != nil {
 		return nil, TaskCommit{}, fmt.Errorf("decode verification attempt snapshot: %w", err)
@@ -84,6 +99,11 @@ func commitInfoFromVerificationWork(work VerificationWork) (*CommitTaskInfo, Tas
 	if work.Snapshot.SnapshotVersion == verificationAttemptSnapshotLegacyVersion && input.ResultMaxBytes <= 0 {
 		input.ResultMaxBytes = verificationArtifactMaxBytes(input.JobType, input.SplitSize, verificationMaxGenerationTokens)
 	}
+	limitedResultBytes, err := canaryArtifactLimit(input.ResultMaxBytes)
+	if err != nil {
+		return nil, TaskCommit{}, fmt.Errorf("verification attempt snapshot has invalid canary artifact policy: %w", err)
+	}
+	input.ResultMaxBytes = limitedResultBytes
 	if input.ExpectedOutputRecords < 0 {
 		return nil, TaskCommit{}, fmt.Errorf("verification attempt snapshot has invalid expected output records %d", input.ExpectedOutputRecords)
 	}
@@ -104,7 +124,7 @@ func commitInfoFromVerificationWork(work VerificationWork) (*CommitTaskInfo, Tas
 		ResultKey: work.Snapshot.StagedResultKey,
 	}
 	commit := TaskCommit{
-		TaskID: info.TaskID, ResultKey: work.Snapshot.StagedResultKey,
+		TaskID: info.TaskID, Attempt: info.Attempt, ResultKey: work.Snapshot.StagedResultKey,
 		DurationMS: info.DurationMS, TokensUsed: info.TokensUsed,
 		ResultSHA256:  work.Snapshot.ReportedResultSHA256,
 		HardwareTempC: work.Snapshot.HardwareTempC,

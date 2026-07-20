@@ -1,4 +1,5 @@
 mod config;
+mod deadline;
 mod executor;
 mod failure;
 mod hardware;
@@ -20,6 +21,7 @@ use sysinfo::System;
 use tokio::sync::Semaphore;
 
 use config::AgentConfig;
+use deadline::TaskDeadline;
 use executor::{default_runners, dispatch, JobRunner, RunError};
 use pool::ModelPool;
 use protocol::ControlPlaneClient;
@@ -1070,6 +1072,7 @@ async fn run_bench_concurrency(
 #[allow(clippy::too_many_arguments)]
 async fn execute_task(
     task: &TaskDispatch,
+    deadline: &TaskDeadline,
     cap: &WorkerCapability,
     runners: &[Box<dyn JobRunner>],
     pool: &ModelPool,
@@ -1079,6 +1082,7 @@ async fn execute_task(
     max_memory_pct: f32,
 ) -> Result<TaskCommit, RunError> {
     let manifest = &task.manifest;
+    deadline.check("dispatch validation")?;
     if !runtime_authority_matches(
         &task.runtime_cell_id,
         &task.runtime_id,
@@ -1102,11 +1106,14 @@ async fn execute_task(
             ),
         });
     }
-    let runner = dispatch(manifest, cap, runners).await?;
+    let runner = deadline
+        .run("runner selection", dispatch(manifest, cap, runners))
+        .await??;
     tracing::info!(task = %task.task_id, backend = runner.backend_name(), "executing task");
 
-    let mut input = s3_get(s3, &task.input_url)
-        .await
+    let mut input = deadline
+        .run("input download", s3_get(s3, &task.input_url))
+        .await?
         .map_err(|e| RunError::Inference {
             backend: runner.backend_name(),
             msg: format!("fetching input_url: {e:#}"),
@@ -1136,9 +1143,12 @@ async fn execute_task(
                 }
             });
 
-    let output = match runner
-        .run_with_checkpoints(manifest, &input, pool, &ckpt)
-        .await
+    let output = match deadline
+        .run(
+            "model load and execution",
+            runner.run_with_checkpoints(manifest, &input, pool, &ckpt),
+        )
+        .await?
     {
         Ok(o) => o,
         Err(e) => {
@@ -1156,17 +1166,23 @@ async fn execute_task(
     } else {
         "application/json"
     };
-    let put = if result.len() > STAGING_THRESHOLD {
-        put_via_encrypted_staging(s3, &task.output_url, &result, content_type).await
-    } else {
-        s3_put_bytes(s3, &task.output_url, &result, content_type).await
-    };
+    let put = deadline
+        .run("result upload", async {
+            if result.len() > STAGING_THRESHOLD {
+                put_via_encrypted_staging(s3, &task.output_url, &result, content_type).await
+            } else {
+                s3_put_bytes(s3, &task.output_url, &result, content_type).await
+            }
+        })
+        .await?;
     put.map_err(|e| RunError::Inference {
         backend: runner.backend_name(),
         msg: format!("putting output_url: {e:#}"),
     })?;
 
+    deadline.check("result digest")?;
     let result_sha256 = sha256_hex(&result);
+    deadline.check("commit preparation")?;
 
     let commit = TaskCommit {
         task_id: task.task_id,
@@ -1705,6 +1721,18 @@ async fn poll_and_spawn(
         Err(e) => return Err(e.into()),
     };
     tracing::info!(task = %task.task_id, job = %task.job_id, "received task");
+    let received_at = std::time::Instant::now();
+    let deadline = match TaskDeadline::from_dispatch(
+        task.deadline,
+        task.manifest.constraints.max_duration_secs,
+    ) {
+        Ok(deadline) => deadline,
+        Err(error) => {
+            let error = RunError::from(error);
+            report_task_error(ctx, &task, received_at, &error).await;
+            return Ok(());
+        }
+    };
 
     let task_fit = cfg.evaluate_memory_throttle(
         &throttle_snapshot(),
@@ -1732,10 +1760,21 @@ async fn poll_and_spawn(
         return Ok(()); // never started -> control plane reassigns it
     }
 
-    ctx.client
-        .start_task(task.task_id, task.attempt)
+    let start_result = match deadline
+        .run(
+            "task start acknowledgement",
+            ctx.client.start_task(task.task_id, task.attempt),
+        )
         .await
-        .context("start_task")?;
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let error = RunError::from(error);
+            report_task_error(ctx, &task, received_at, &error).await;
+            return Ok(());
+        }
+    };
+    start_result.context("start_task")?;
     ctx.status.job_started(
         task.task_id,
         task.attempt,
@@ -1748,9 +1787,10 @@ async fn poll_and_spawn(
     inflight.spawn(async move {
         let _permit = permit;
         let task_id = task.task_id;
-        let started = std::time::Instant::now();
+        let started = received_at;
         match execute_task(
             &task,
+            &deadline,
             &ctx.cap,
             &ctx.runners,
             &ctx.pool,
@@ -1762,31 +1802,56 @@ async fn poll_and_spawn(
         .await
         {
             Ok(commit) => {
-                match ctx.client.commit_task(task_id, &commit).await {
-                    Ok(()) => tracing::info!(task = %task_id, "committed result"),
-                    Err(e) => tracing::error!(task = %task_id, error = %e, "commit_task failed"),
+                match deadline
+                    .run("result commit", ctx.client.commit_task(task_id, &commit))
+                    .await
+                {
+                    Ok(Ok(())) => {
+                        tracing::info!(task = %task_id, "committed result");
+                        ctx.status.job_finished(task_id, None);
+                    }
+                    Ok(Err(e)) => {
+                        tracing::error!(task = %task_id, error = %e, "commit_task failed");
+                        ctx.status.job_finished(task_id, None);
+                    }
+                    Err(error) => {
+                        report_task_error(&ctx, &task, started, &RunError::from(error)).await;
+                    }
                 }
-                ctx.status.job_finished(task_id, None);
             }
             Err(e) => {
-                tracing::error!(task = %task_id, error = %e, "task execution failed; reporting typed failure");
-                let snap = hardware::read_memory_snapshot();
-                let report = failure::build_report(
-                    &e,
-                    task.manifest.job_type.tag(),
-                    &task.manifest.model.model_ref,
-                    started.elapsed().as_millis() as u64,
-                    &snap,
-                    ctx.memory_headroom_gb,
-                );
-                if let Err(fe) = ctx.client.fail_task(task_id, task.attempt, &report).await {
-                    tracing::warn!(task = %task_id, error = %fe, "fail_task report failed (stale reaper remains the fallback)");
-                }
-                ctx.status.job_finished(task_id, Some(e.to_string()));
+                report_task_error(&ctx, &task, started, &e).await;
             }
         }
     });
     Ok(())
+}
+
+async fn report_task_error(
+    ctx: &WorkCtx,
+    task: &TaskDispatch,
+    started: std::time::Instant,
+    error: &RunError,
+) {
+    tracing::error!(task = %task.task_id, error = %error, "task execution failed; reporting typed failure");
+    let snap = hardware::read_memory_snapshot();
+    let report = failure::build_report(
+        error,
+        task.manifest.job_type.tag(),
+        &task.manifest.model.model_ref,
+        started.elapsed().as_millis() as u64,
+        &snap,
+        ctx.memory_headroom_gb,
+    );
+    if let Err(failure_error) = ctx
+        .client
+        .fail_task(task.task_id, task.attempt, &report)
+        .await
+    {
+        tracing::warn!(task = %task.task_id, error = %failure_error, "fail_task report failed (stale reaper remains the fallback)");
+    }
+    ctx.status
+        .job_finished(task.task_id, Some(error.to_string()));
 }
 
 #[cfg(test)]

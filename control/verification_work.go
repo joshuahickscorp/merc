@@ -144,9 +144,14 @@ func prepareVerificationSnapshot(in VerificationWorkSnapshot) (VerificationWorkS
 	if in.SnapshotVersion <= 0 {
 		return in, nil, "", errors.New("verification snapshot version must be positive")
 	}
-	in.StagedResultKey = strings.TrimSpace(in.StagedResultKey)
 	if in.StagedResultKey == "" {
 		return in, nil, "", errors.New("verification staging result key is required")
+	}
+	if in.Attempt > math.MaxInt16 {
+		return in, nil, "", errors.New("verification work attempt exceeds task attempt range")
+	}
+	if err := validateTaskAttemptResultKey(in.JobID, in.TaskID, int16(in.Attempt), in.StagedResultKey); err != nil {
+		return in, nil, "", fmt.Errorf("verification staging result key: %w", err)
 	}
 	var err error
 	in.ReportedResultSHA256, err = normalizeVerificationSHA(in.ReportedResultSHA256, true)

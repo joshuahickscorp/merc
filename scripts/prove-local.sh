@@ -14,6 +14,7 @@ CONTROL_URL="http://127.0.0.1:$CONTROL_PORT"
 KEEP="${KEEP:-0}"
 SKIP_LIVE="${SKIP_LIVE:-0}"
 USE_DOCKER="${USE_DOCKER:-0}"
+CX_PROOF_COMPOSE_PROJECT=""
 CONTROL_PID=""
 AGENT_PID=""
 AGENT2_PID=""
@@ -61,7 +62,11 @@ cleanup() {
   done
   if [ "$KEEP" != "1" ]; then
     if [ "$USE_DOCKER" = "1" ]; then
-      docker compose down >/dev/null 2>&1 || true
+      if [[ "$CX_PROOF_COMPOSE_PROJECT" =~ ^cx-proof-[0-9]+-[0-9]+$ ]]; then
+        docker compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+      else
+        echo "refusing to remove proof volumes for unexpected Compose project" >&2
+      fi
     elif [ "$PG_STARTED" = "1" ]; then
       pg_ctl -D "$PGDATA" -m fast stop >/dev/null 2>&1 || true
     fi
@@ -110,6 +115,11 @@ node scripts/site-build.mjs
 record PASS local-gates "format, vet, race, Rust, SDK, and site gates passed"
 
 if [ "$USE_DOCKER" = "1" ]; then
+  # A proof must never inherit jobs, workers, object bytes, or idempotency keys
+  # from a prior run. The unique project owns disposable volumes that cleanup
+  # can remove without touching the developer's ordinary Compose project.
+  CX_PROOF_COMPOSE_PROJECT="cx-proof-$$-$(date +%s)"
+  export COMPOSE_PROJECT_NAME="$CX_PROOF_COMPOSE_PROJECT"
   docker compose up -d postgres minio createbuckets
   export DATABASE_URL="postgres://cx:cx@127.0.0.1:5432/cx?sslmode=disable"
   export S3_ENDPOINT="http://127.0.0.1:9000"
@@ -134,6 +144,7 @@ record PASS dependencies "PostgreSQL and MinIO are healthy"
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
+(cd control && CX_TEST_DATABASE_URL="$DATABASE_URL" go test ./... -run '^(TestBillingCustomerCanonicalSchema|TestListWorkersToleratesLegacyNullTelemetry|TestRuntimeCatalogPriceIsStableAcrossMigration|TestPrivilegedAdminMutationsHaveCompleteAtomicAudit|TestRevocationWinsRaceBeforePrivilegedMutation|TestAdminMutationRollsBackWhenAuditInsertFails|TestOperationalControlsAreDurableAndActorAudited|TestOperationalControlMutationFailsClosed|TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout|TestDisputeFilingOwnershipTerminalReasonAndWindowBoundaries|TestDisputeAPIUsesAuthenticatedOwnerAndStrictBoundedReason|TestConcurrentDisputeFilingsCreateOnlyOneActiveCase|TestDisputeFilingWinsQueuedPayoutClaimRace)$' -count=1)
 record PASS schema "canonical schema applies twice"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 DO $$

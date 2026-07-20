@@ -262,6 +262,9 @@ func chargeBuyer(
 }
 
 func (s *Server) handleBillingSetup(w http.ResponseWriter, r *http.Request) {
+	if !s.requireOperationalControlActive(w, r, controlPayments) {
+		return
+	}
 	auth := r.Context().Value(ctxBuyer).(*AuthResult)
 	cs, err := setupIntent(r.Context(), s.store, auth.BuyerID)
 	if err != nil {
@@ -444,6 +447,10 @@ func handleStripeWebhookWithAllHandlers(
 }
 
 func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
+	if !s.requireOperationalControlActive(w, r, controlWebhooks) ||
+		!s.requireOperationalControlActive(w, r, controlPayments) {
+		return
+	}
 	secret := os.Getenv("STRIPE_WEBHOOK_SECRET")
 	if secret == "" {
 		writeErr(w, http.StatusServiceUnavailable, "stripe webhooks not configured (set STRIPE_WEBHOOK_SECRET)")
@@ -456,6 +463,11 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) chargeForJob(ctx context.Context, jobID uuid.UUID) {
+	paused, err := s.store.OperationalControlPaused(ctx, controlPayments)
+	if err != nil || paused {
+		log.Printf("billing: charge for job %s deferred while payment processing is paused or unavailable", jobID)
+		return
+	}
 	chargeOrDeferJob(ctx, s.store, jobID)
 }
 

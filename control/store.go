@@ -104,8 +104,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 var (
-	errNotFound          = errors.New("not found")
-	errJobNotCancellable = errors.New("job is no longer cancellable")
+	errNotFound              = errors.New("not found")
+	errJobNotCancellable     = errors.New("job is no longer cancellable")
+	errDisputeReasonRequired = errors.New("dispute reason is required")
+	errDisputeReasonTooLong  = errors.New("dispute reason exceeds 1000 characters")
+	errDisputeJobNotTerminal = errors.New("only terminal jobs may be disputed")
+	errDisputeWindowClosed   = errors.New("the seven-day dispute filing window has closed")
+	errDisputeAlreadyActive  = errors.New("an active dispute already exists for this job")
 )
 var errOAuthLinkStateInvalid = errors.New("invalid or expired OAuth link state")
 
@@ -127,14 +132,17 @@ func (s *Store) GetBillingCustomer(ctx context.Context, buyerID uuid.UUID) (cust
 func (s *Store) UpsertBillingCustomer(ctx context.Context, buyerID uuid.UUID, custID string) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO billing_customers (buyer_id, stripe_customer_id) VALUES ($1, $2)
-		   ON CONFLICT (buyer_id) DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id`,
+		   ON CONFLICT (buyer_id) DO UPDATE
+		   SET stripe_customer_id = EXCLUDED.stripe_customer_id, updated_at = now()`,
 		buyerID, custID)
 	return err
 }
 
 func (s *Store) SetBillingPMByCustomer(ctx context.Context, custID, pm string) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE billing_customers SET default_payment_method=$2 WHERE stripe_customer_id=$1`, custID, pm)
+		`UPDATE billing_customers
+		    SET default_payment_method=$2, updated_at=now()
+		  WHERE stripe_customer_id=$1`, custID, pm)
 	if err != nil {
 		return err
 	}
@@ -709,12 +717,13 @@ func (s *Store) TelemetryTableCounts(ctx context.Context) (map[string]int64, err
 
 func (s *Store) ListWorkers(ctx context.Context) ([]AdminWorker, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT w.id, w.supplier_id, w.hw_class, w.memory_gb,
+		`SELECT w.id, w.supplier_id, w.hw_class, COALESCE(w.memory_gb, 0),
 		        COALESCE(w.effective_memory_gb, w.memory_gb, 0),
 		        COALESCE(w.throttled, false),
 		        COALESCE(s2.avg_available_gb, 0), COALESCE(s2.n, 0),
 		        w.last_seen_at,
-		        COALESCE(w.version,''), s.reputation, s.tier, s.status
+		        COALESCE(w.version,''), COALESCE(s.reputation, 0),
+		        COALESCE(s.tier, 0), COALESCE(s.status, 'pending')
 		 FROM workers w JOIN suppliers s ON s.id = w.supplier_id
 		 LEFT JOIN LATERAL (
 		     SELECT avg(recent.available_gb)::real AS avg_available_gb, count(*) AS n
@@ -821,72 +830,116 @@ func (s *Store) ListPayoutsAdmin(ctx context.Context) ([]AdminPayout, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) SuspendWorker(ctx context.Context, workerID uuid.UUID) error {
-	ct, err := s.pool.Exec(ctx,
-		`UPDATE suppliers SET status = 'suspended'
-		 WHERE id = (SELECT supplier_id FROM workers WHERE id = $1)`,
-		workerID)
+func (s *Store) SuspendWorker(ctx context.Context, actor AdminActor, workerID uuid.UUID, reason, correlationRef string) error {
+	intent, err := prepareAdminMutation(actor, adminMutationIntent{
+		Kind: adminActionWorkerSuspended, TargetKind: adminTargetWorker,
+		TargetID: workerID, Reason: reason, CorrelationRef: correlationRef,
+	})
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
-		return errNotFound
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
 	}
-	return nil
+	defer tx.Rollback(ctx)
+	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
+		return err
+	}
+
+	var supplierID uuid.UUID
+	var beforeStatus string
+	if err := tx.QueryRow(ctx, `
+		SELECT s.id,s.status
+		  FROM workers w JOIN suppliers s ON s.id=w.supplier_id
+		 WHERE w.id=$1 FOR UPDATE OF s`, workerID).Scan(&supplierID, &beforeStatus); errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	} else if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE suppliers SET status='suspended' WHERE id=$1`, supplierID); err != nil {
+		return err
+	}
+	if err := insertAdminMutationAction(ctx, tx, actor, intent, nil, &supplierID, nil,
+		map[string]any{"status": beforeStatus}, map[string]any{"status": "suspended"}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
-func (s *Store) ReinstateWorker(ctx context.Context, workerID uuid.UUID) error {
-	ct, err := s.pool.Exec(ctx,
-		`UPDATE suppliers SET status = 'active', quarantined_at = NULL
-		 WHERE id = (SELECT supplier_id FROM workers WHERE id = $1) AND status = 'suspended'`,
-		workerID)
+func (s *Store) ReinstateWorker(ctx context.Context, actor AdminActor, workerID uuid.UUID, reason, correlationRef string) error {
+	intent, err := prepareAdminMutation(actor, adminMutationIntent{
+		Kind: adminActionWorkerReinstated, TargetKind: adminTargetWorker,
+		TargetID: workerID, Reason: reason, CorrelationRef: correlationRef,
+	})
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
-		var exists bool
-		if qerr := s.pool.QueryRow(ctx, `SELECT true FROM workers WHERE id = $1`, workerID).Scan(&exists); errors.Is(qerr, pgx.ErrNoRows) {
-			return errNotFound
-		} else if qerr != nil {
-			return qerr
-		}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
+		return err
+	}
+
+	var supplierID uuid.UUID
+	var beforeStatus string
+	var beforeQuarantinedAt *time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT s.id,s.status,s.quarantined_at
+		  FROM workers w JOIN suppliers s ON s.id=w.supplier_id
+		 WHERE w.id=$1 FOR UPDATE OF s`, workerID).Scan(
+		&supplierID, &beforeStatus, &beforeQuarantinedAt); errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	} else if err != nil {
+		return err
+	}
+	if beforeStatus != "suspended" {
 		return errNotSuspended
 	}
-	return nil
+	if _, err := tx.Exec(ctx,
+		`UPDATE suppliers SET status='active',quarantined_at=NULL WHERE id=$1`, supplierID); err != nil {
+		return err
+	}
+	if err := insertAdminMutationAction(ctx, tx, actor, intent, nil, &supplierID, nil,
+		map[string]any{"status": beforeStatus, "quarantined_at": beforeQuarantinedAt},
+		map[string]any{"status": "active", "quarantined_at": nil}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 var errNotSuspended = errors.New("supplier is not suspended")
 
 type AdminAction struct {
-	ID            uuid.UUID       `json:"id"`
-	CreatedAt     time.Time       `json:"created_at"`
-	Kind          string          `json:"kind"`
-	TaskID        *uuid.UUID      `json:"task_id,omitempty"`
-	SupplierID    *uuid.UUID      `json:"supplier_id,omitempty"`
-	LedgerEntryID *uuid.UUID      `json:"ledger_entry_id,omitempty"`
-	Reason        string          `json:"reason,omitempty"`
-	Detail        json.RawMessage `json:"detail,omitempty"`
-}
-
-func recordAdminAction(ctx context.Context, tx pgx.Tx, kind string, taskID, supplierID, ledgerEntryID *uuid.UUID, reason string, detail any) error {
-	var detailJSON []byte
-	if detail != nil {
-		b, err := json.Marshal(detail)
-		if err != nil {
-			return err
-		}
-		detailJSON = b
-	}
-	_, err := tx.Exec(ctx,
-		`INSERT INTO admin_actions (kind, task_id, supplier_id, ledger_entry_id, reason, detail)
-		 VALUES ($1,$2,$3,$4,$5,$6)`,
-		kind, taskID, supplierID, ledgerEntryID, nullIfEmpty(reason), detailJSON)
-	return err
+	ID               uuid.UUID       `json:"id"`
+	CreatedAt        time.Time       `json:"created_at"`
+	Kind             string          `json:"kind"`
+	TaskID           *uuid.UUID      `json:"task_id,omitempty"`
+	SupplierID       *uuid.UUID      `json:"supplier_id,omitempty"`
+	LedgerEntryID    *uuid.UUID      `json:"ledger_entry_id,omitempty"`
+	Reason           string          `json:"reason,omitempty"`
+	Detail           json.RawMessage `json:"detail,omitempty"`
+	ActorMode        string          `json:"actor_mode,omitempty"`
+	ActorPrincipalID *uuid.UUID      `json:"actor_principal_id,omitempty"`
+	ActorSessionID   *uuid.UUID      `json:"actor_session_id,omitempty"`
+	ActorLabel       string          `json:"actor_label,omitempty"`
+	AttributionScope string          `json:"attribution_scope,omitempty"`
+	IntentVersion    *int            `json:"intent_version,omitempty"`
+	RequestSHA256    string          `json:"request_sha256,omitempty"`
+	CorrelationRef   string          `json:"correlation_ref,omitempty"`
+	TargetKind       string          `json:"target_kind,omitempty"`
+	TargetID         *uuid.UUID      `json:"target_id,omitempty"`
 }
 
 func (s *Store) ListAdminActions(ctx context.Context) ([]AdminAction, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, created_at, kind, task_id, supplier_id, ledger_entry_id, COALESCE(reason,''), detail
+		`SELECT id,created_at,kind,task_id,supplier_id,ledger_entry_id,COALESCE(reason,''),detail,
+		        COALESCE(actor_mode,''),actor_principal_id,actor_session_id,COALESCE(actor_label,''),
+		        COALESCE(attribution_scope,''),intent_version,COALESCE(request_sha256,''),
+		        COALESCE(correlation_ref,''),COALESCE(target_kind,''),target_id
 		 FROM admin_actions ORDER BY created_at DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
@@ -895,7 +948,10 @@ func (s *Store) ListAdminActions(ctx context.Context) ([]AdminAction, error) {
 	var out []AdminAction
 	for rows.Next() {
 		var a AdminAction
-		if err := rows.Scan(&a.ID, &a.CreatedAt, &a.Kind, &a.TaskID, &a.SupplierID, &a.LedgerEntryID, &a.Reason, &a.Detail); err != nil {
+		if err := rows.Scan(&a.ID, &a.CreatedAt, &a.Kind, &a.TaskID, &a.SupplierID, &a.LedgerEntryID,
+			&a.Reason, &a.Detail, &a.ActorMode, &a.ActorPrincipalID, &a.ActorSessionID, &a.ActorLabel,
+			&a.AttributionScope, &a.IntentVersion, &a.RequestSHA256, &a.CorrelationRef,
+			&a.TargetKind, &a.TargetID); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -903,35 +959,57 @@ func (s *Store) ListAdminActions(ctx context.Context) ([]AdminAction, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) AdminForceRequeueTask(ctx context.Context, taskID uuid.UUID, reason string) error {
+func (s *Store) AdminForceRequeueTask(ctx context.Context, actor AdminActor, taskID uuid.UUID, reason, correlationRef string) error {
+	intent, err := prepareAdminMutation(actor, adminMutationIntent{
+		Kind: adminActionTaskRequeued, TargetKind: adminTargetTask,
+		TargetID: taskID, Reason: reason, CorrelationRef: correlationRef,
+	})
+	if err != nil {
+		return err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-
-	var jobID uuid.UUID
-	var prevStatus string
-	if err := tx.QueryRow(ctx,
-		`UPDATE tasks SET status = 'queued', claimed_by = NULL, claimed_at = NULL,
-		                  worker_id = NULL, retry_count = retry_count + 1, visible_at = now()
-		 WHERE id = $1 AND status IN ('running','retrying')
-		 RETURNING job_id, status`,
-		taskID,
-	).Scan(&jobID, &prevStatus); errors.Is(err, pgx.ErrNoRows) {
-		var exists bool
-		if qerr := tx.QueryRow(ctx, `SELECT true FROM tasks WHERE id = $1`, taskID).Scan(&exists); errors.Is(qerr, pgx.ErrNoRows) {
-			return errNotFound
-		} else if qerr != nil {
-			return qerr
-		}
-		return errNotRequeueable
-	} else if err != nil {
+	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
 		return err
 	}
 
-	if err := recordAdminAction(ctx, tx, "task_requeued", &taskID, nil, nil, reason,
-		map[string]any{"job_id": jobID}); err != nil {
+	var jobID uuid.UUID
+	var beforeStatus string
+	var beforeRetry int16
+	var beforeClaimedBy, beforeWorkerID *uuid.UUID
+	if err := tx.QueryRow(ctx, `
+		SELECT job_id,status,COALESCE(retry_count,0),claimed_by,worker_id
+		  FROM tasks WHERE id=$1 FOR UPDATE`, taskID).Scan(
+		&jobID, &beforeStatus, &beforeRetry, &beforeClaimedBy, &beforeWorkerID); errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	} else if err != nil {
+		return err
+	}
+	if beforeStatus != "running" && beforeStatus != "retrying" {
+		return errNotRequeueable
+	}
+	retryLimit, err := canaryRetryLimit()
+	if err != nil {
+		return err
+	}
+	if int(beforeRetry) >= retryLimit {
+		return fmt.Errorf("task retry limit %d reached", retryLimit)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE tasks SET status='queued',claimed_by=NULL,claimed_at=NULL,
+		                 worker_id=NULL,retry_count=retry_count+1,visible_at=now()
+		 WHERE id=$1`, taskID); err != nil {
+		return err
+	}
+
+	if err := insertAdminMutationAction(ctx, tx, actor, intent, &taskID, nil, nil,
+		map[string]any{"job_id": jobID, "status": beforeStatus, "retry_count": beforeRetry,
+			"claimed_by": beforeClaimedBy, "worker_id": beforeWorkerID},
+		map[string]any{"job_id": jobID, "status": "queued", "retry_count": beforeRetry + 1,
+			"claimed_by": nil, "worker_id": nil}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -939,12 +1017,22 @@ func (s *Store) AdminForceRequeueTask(ctx context.Context, taskID uuid.UUID, rea
 
 var errNotRequeueable = errors.New("task is not in a requeueable state")
 
-func (s *Store) AdminAdjustReputation(ctx context.Context, supplierID uuid.UUID, delta float32, reason string) (before, after float32, err error) {
+func (s *Store) AdminAdjustReputation(ctx context.Context, actor AdminActor, supplierID uuid.UUID, delta float32, reason, correlationRef string) (before, after float32, err error) {
+	intent, err := prepareAdminMutation(actor, adminMutationIntent{
+		Kind: adminActionReputationChanged, TargetKind: adminTargetSupplier,
+		TargetID: supplierID, Reason: reason, CorrelationRef: correlationRef, Delta: &delta,
+	})
+	if err != nil {
+		return 0, 0, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer tx.Rollback(ctx)
+	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
+		return 0, 0, err
+	}
 
 	if err := tx.QueryRow(ctx,
 		`SELECT reputation FROM suppliers WHERE id = $1 FOR UPDATE`, supplierID,
@@ -964,8 +1052,8 @@ func (s *Store) AdminAdjustReputation(ctx context.Context, supplierID uuid.UUID,
 		return 0, 0, err
 	}
 
-	if err := recordAdminAction(ctx, tx, "reputation_adjusted", nil, &supplierID, nil, reason,
-		map[string]any{"delta": delta, "before": before, "after": after}); err != nil {
+	if err := insertAdminMutationAction(ctx, tx, actor, intent, nil, &supplierID, nil,
+		map[string]any{"reputation": before}, map[string]any{"reputation": after}); err != nil {
 		return 0, 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1282,32 +1370,47 @@ func (s *Store) AuthorizePayoutSubsidy(
 	return true, nil
 }
 
-func (s *Store) ReleasePayoutTx(ctx context.Context, entryID uuid.UUID, reason string) error {
+func (s *Store) ReleasePayoutTx(ctx context.Context, actor AdminActor, entryID uuid.UUID, reason, correlationRef string) error {
+	intent, err := prepareAdminMutation(actor, adminMutationIntent{
+		Kind: adminActionPayoutReleased, TargetKind: adminTargetLedgerEntry,
+		TargetID: entryID, Reason: reason, CorrelationRef: correlationRef,
+	})
+	if err != nil {
+		return err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-
-	var supplierID uuid.UUID
-	if err := tx.QueryRow(ctx,
-		`UPDATE ledger_entries SET payout_status = 'held', release_at = now()
-		 WHERE id = $1 AND kind = 'supplier_credit' AND payout_status IN ('held','ready')
-		 RETURNING supplier_id`,
-		entryID,
-	).Scan(&supplierID); errors.Is(err, pgx.ErrNoRows) {
-		var exists bool
-		if qerr := tx.QueryRow(ctx, `SELECT true FROM ledger_entries WHERE id = $1`, entryID).Scan(&exists); errors.Is(qerr, pgx.ErrNoRows) {
-			return errNotFound
-		} else if qerr != nil {
-			return qerr
-		}
-		return errNotHeld
-	} else if err != nil {
+	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
 		return err
 	}
 
-	if err := recordAdminAction(ctx, tx, "payout_released", nil, &supplierID, &entryID, reason, nil); err != nil {
+	var supplierID uuid.UUID
+	var kind, beforeStatus string
+	var beforeReleaseAt *time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT supplier_id,kind,payout_status,release_at
+		  FROM ledger_entries WHERE id=$1 FOR UPDATE`, entryID).Scan(
+		&supplierID, &kind, &beforeStatus, &beforeReleaseAt); errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	} else if err != nil {
+		return err
+	}
+	if kind != KindSupplierCredit || (beforeStatus != PayoutHeld && beforeStatus != PayoutReady) {
+		return errNotHeld
+	}
+	var afterReleaseAt time.Time
+	if err := tx.QueryRow(ctx, `
+		UPDATE ledger_entries SET payout_status='held',release_at=now()
+		 WHERE id=$1 RETURNING release_at`, entryID).Scan(&afterReleaseAt); err != nil {
+		return err
+	}
+
+	if err := insertAdminMutationAction(ctx, tx, actor, intent, nil, &supplierID, &entryID,
+		map[string]any{"payout_status": beforeStatus, "release_at": beforeReleaseAt},
+		map[string]any{"payout_status": PayoutHeld, "release_at": afterReleaseAt}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -1616,6 +1719,48 @@ func (s *Store) QueuedTaskCount(ctx context.Context) (int, error) {
 	return n, err
 }
 
+type CanaryAdmissionCounts struct {
+	QueuedJobs          int
+	JobsToday           int
+	HeldShadowPayoutUSD float64
+}
+
+func (s *Store) CanaryAdmissionCounts(ctx context.Context) (CanaryAdmissionCounts, error) {
+	var out CanaryAdmissionCounts
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+		  (SELECT count(*) FROM jobs WHERE status='queued'),
+		  (SELECT count(*) FROM jobs WHERE created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'),
+		  (SELECT COALESCE(sum(amount_usd),0)::float8 FROM ledger_entries
+		    WHERE kind='supplier_credit' AND payout_status IN ('held','ready','sending','outcome_unknown'))`,
+	).Scan(&out.QueuedJobs, &out.JobsToday, &out.HeldShadowPayoutUSD)
+	return out, err
+}
+
+func (s *Store) CanaryBuyerAdmissionAllowed(ctx context.Context, buyerID uuid.UUID, max int) (bool, error) {
+	var alreadyActive bool
+	var active int
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+		  EXISTS(SELECT 1 FROM jobs WHERE buyer_id=$1 AND created_at >= now()-interval '24 hours'),
+		  count(DISTINCT buyer_id)
+		FROM jobs WHERE created_at >= now()-interval '24 hours'`, buyerID,
+	).Scan(&alreadyActive, &active)
+	return alreadyActive || active < max, err
+}
+
+func (s *Store) CanaryWorkerAdmissionAllowed(ctx context.Context, workerID uuid.UUID, max int) (bool, error) {
+	var alreadyActive bool
+	var active int
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+		  EXISTS(SELECT 1 FROM workers WHERE id=$1 AND last_seen_at > now()-interval '60 seconds'),
+		  count(*)
+		FROM workers WHERE last_seen_at > now()-interval '60 seconds'`, workerID,
+	).Scan(&alreadyActive, &active)
+	return alreadyActive || active < max, err
+}
+
 type jobInternal struct {
 	BuyerID            uuid.UUID
 	TaskCount          int
@@ -1880,7 +2025,7 @@ func (s *Store) CompleteTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 }
 
 func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, c TaskCommit, probe recoveryBoundaryProbe) (*CommitTaskInfo, error) {
-	if c.DurationMS > math.MaxInt64 || c.TokensUsed > math.MaxInt64 {
+	if c.Attempt < 0 || c.DurationMS > math.MaxInt64 || c.TokensUsed > math.MaxInt64 {
 		return nil, fmt.Errorf("reported duration/tokens exceed durable range")
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -1889,13 +2034,33 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 	}
 	defer tx.Rollback(ctx)
 
+	var stagedJobID uuid.UUID
+	var stagedResultKey string
+	err = tx.QueryRow(ctx, `
+		SELECT job_id,COALESCE(result_key,'')
+		  FROM tasks
+		 WHERE id=$1 AND claimed_by=$2 AND execution_worker_id=$2 AND retry_count=$3
+		   AND status IN ('running','queued','verifying')
+		 FOR UPDATE`, taskID, workerID, c.Attempt).Scan(&stagedJobID, &stagedResultKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, errNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	expectedResultKey := taskAttemptResultKey(stagedJobID, taskID, c.Attempt)
+	if validateTaskAttemptResultKey(stagedJobID, taskID, c.Attempt, stagedResultKey) != nil ||
+		c.ResultKey != expectedResultKey {
+		return nil, errNotFound
+	}
+
 	resultSHA256 := nullSHA256Hex(c.ResultSHA256)
 
 	ct, err := tx.Exec(ctx,
 		`UPDATE tasks
 		   SET status = 'verifying',
 		       completed_at = CASE WHEN status='verifying' THEN completed_at ELSE NULL END,
-		       result_ref = CASE WHEN status='verifying' THEN result_ref ELSE COALESCE(NULLIF(result_key,''), $3) END,
+		       result_ref = CASE WHEN status='verifying' THEN result_ref ELSE result_key END,
 		       worker_id = CASE WHEN status='verifying' THEN worker_id ELSE $2 END,
 		       result_sha256 = CASE WHEN status='verifying' THEN result_sha256 ELSE $4 END,
 		       reported_duration_ms = CASE WHEN status='verifying' THEN reported_duration_ms ELSE $5 END,
@@ -1904,6 +2069,7 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 		       verification_outcome = CASE WHEN status='verifying' THEN verification_outcome ELSE NULL END,
 		       verified_at = CASE WHEN status='verifying' THEN verified_at ELSE NULL END
 		 WHERE id = $1 AND claimed_by = $2 AND execution_worker_id = $2 AND retry_count = $8
+		   AND result_key = $3
 		   AND (status IN ('running','queued') OR (status = 'verifying' AND worker_id = $2))`,
 		taskID, workerID, c.ResultKey, resultSHA256, int64(c.DurationMS), int64(c.TokensUsed), c.HardwareTempC, c.Attempt)
 	if err != nil {
@@ -1920,7 +2086,7 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 	err = tx.QueryRow(ctx,
 		`SELECT t.job_id, t.is_honeypot, t.is_redundancy,
 		        COALESCE(t.input_ref,''),
-		        COALESCE(NULLIF(t.result_key,''), $3),
+		        COALESCE(t.result_key,''),
 		        t.execution_worker_id,t.execution_supplier_id,t.execution_hw_class,
 		        t.execution_engine,t.execution_build_hash,j.job_type,
 		        COALESCE((j.job_type_spec->>'max_tokens')::bigint,0),
@@ -1930,7 +2096,7 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 		        COALESCE(t.retry_count,0), COALESCE(t.result_sha256,'')
 	 FROM tasks t JOIN jobs j ON j.id = t.job_id
 	 WHERE t.id = $1 AND t.execution_worker_id=$2`,
-		taskID, workerID, c.ResultKey,
+		taskID, workerID,
 	).Scan(&info.JobID, &info.IsHoneypot, &info.IsRedundancy, &info.InputRef,
 		&info.ResultKey, &info.WorkerID, &info.SupplierID, &info.HWClass, &info.engine, &info.buildHash, &info.jobType, &jobMaxTokens,
 		&info.ModelRef, &info.MinMemoryGB, &info.ChunkIndex, &info.SplitSize,
@@ -2422,7 +2588,7 @@ func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, pe
 	}
 
 	id := uuid.New()
-	resultKey := fmt.Sprintf("jobs/%s/tiebreak/%s/result.json", jobID, id)
+	resultKey := taskAttemptResultKey(jobID, id, 0)
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO tasks
 		   (id, job_id, status, is_honeypot, is_redundancy, retry_count,
@@ -3164,15 +3330,26 @@ func reservePayoutFunding(
 }
 
 func (s *Store) DuePayouts(ctx context.Context, limit int) ([]DueHeldEntry, error) {
+	manualGate, err := canaryManualPayoutGate()
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT le.id, le.supplier_id, le.amount_usd
 		 FROM ledger_entries le LEFT JOIN tasks t ON t.id=le.task_id
 		 WHERE le.kind = 'supplier_credit' AND le.payout_status = 'held'
 		   AND le.release_at IS NOT NULL AND le.release_at <= now()
+		   AND NOT EXISTS (
+		       SELECT 1 FROM disputes d
+		        WHERE d.job_id=t.job_id
+		          AND d.status IN ('open','no_peer','reverifying','unresolvable'))
 		   -- A provisional pass_with_penalty is visible to the buyer but cannot
 		   -- leave the platform as supplier money until an unqualified durable pass.
 		   AND (le.task_id IS NULL OR t.verification_outcome = 'pass')
-		 ORDER BY le.release_at ASC,le.id ASC LIMIT $1`, limit)
+		   AND (NOT $2 OR EXISTS (
+		       SELECT 1 FROM admin_actions aa
+		       WHERE aa.kind='payout_released' AND aa.ledger_entry_id=le.id))
+		 ORDER BY le.release_at ASC,le.id ASC LIMIT $1`, limit, manualGate)
 	if err != nil {
 		return nil, err
 	}
@@ -3190,11 +3367,47 @@ func (s *Store) DuePayouts(ctx context.Context, limit int) ([]DueHeldEntry, erro
 
 func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntry, bool, error) {
 	var out DueHeldEntry
+	manualGate, err := canaryManualPayoutGate()
+	if err != nil {
+		return out, false, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return out, false, err
 	}
 	defer tx.Rollback(ctx)
+
+	// All dispute filing and payout claiming serializes on the parent job row
+	// before either path locks a liability.  Whichever transaction wins that
+	// lock establishes the ordering; a claim that runs second observes the
+	// active dispute and cannot advance the credit to sending.
+	var jobID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT t.job_id
+		  FROM ledger_entries le JOIN tasks t ON t.id=le.task_id
+		 WHERE le.id=$1 AND le.kind='supplier_credit'`, entryID).Scan(&jobID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return out, false, err
+	}
+	if err == nil {
+		if err := tx.QueryRow(ctx,
+			`SELECT id FROM jobs WHERE id=$1 FOR UPDATE`, jobID).Scan(&jobID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return out, false, errNotFound
+			}
+			return out, false, err
+		}
+		var disputed bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS(SELECT 1 FROM disputes
+			 WHERE job_id=$1 AND status IN ('open','no_peer','reverifying','unresolvable'))`,
+			jobID).Scan(&disputed); err != nil {
+			return out, false, err
+		}
+		if disputed {
+			return out, false, nil
+		}
+	}
 
 	var (
 		status          string
@@ -3220,6 +3433,17 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 	if status != PayoutHeld || releaseAt == nil || releaseAt.After(time.Now()) ||
 		(taskID != nil && verdict != string(OutcomePass)) {
 		return out, false, nil
+	}
+	if manualGate {
+		var approved bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS(SELECT 1 FROM admin_actions
+			 WHERE kind='payout_released' AND ledger_entry_id=$1)`, entryID).Scan(&approved); err != nil {
+			return out, false, err
+		}
+		if !approved {
+			return out, false, nil
+		}
 	}
 	out.LiabilityMicros = liabilityMicros
 	out.SettlementPolicy = supplierSettlementPolicyFloorCentCarryV1
@@ -3806,17 +4030,158 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 	return out, rows.Err()
 }
 
+const (
+	disputeFilingWindow   = 7 * 24 * time.Hour
+	maxDisputeReasonRunes = 1000
+)
+
+func isActiveDisputeUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" &&
+		pgErr.ConstraintName == "disputes_one_active_job_uniq"
+}
+
+func appendDisputeEventTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	disputeID, jobID uuid.UUID,
+	event string,
+	detail []byte,
+) error {
+	if len(detail) == 0 {
+		detail = []byte(`{}`)
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO dispute_events (dispute_id,job_id,event,detail)
+		VALUES ($1,$2,$3,$4)`, disputeID, jobID, event, detail)
+	return err
+}
+
+// RecordDispute is the single filing boundary.  The parent job lock is shared
+// with ClaimPayout, so the active-case row and every affected supplier-credit
+// hold become visible atomically before any later payout claim can proceed.
 func (s *Store) RecordDispute(ctx context.Context, jobID, buyerID uuid.UUID, reason string) (uuid.UUID, error) {
-	var id uuid.UUID
-	err := s.pool.QueryRow(ctx,
-		`INSERT INTO disputes (job_id, buyer_id, reason)
-		 SELECT $1, $2, $3 WHERE EXISTS (SELECT 1 FROM jobs WHERE id = $1 AND buyer_id = $2)
-		 RETURNING id`,
-		jobID, buyerID, reason).Scan(&id)
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return uuid.Nil, errDisputeReasonRequired
+	}
+	if len([]rune(reason)) > maxDisputeReasonRunes {
+		return uuid.Nil, errDisputeReasonTooLong
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	var status string
+	var terminalAt *time.Time
+	var now time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT status,terminal_at,now()
+		  FROM jobs WHERE id=$1 AND buyer_id=$2 FOR UPDATE`, jobID, buyerID,
+	).Scan(&status, &terminalAt, &now)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, errNotFound
 	}
-	return id, err
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if status != "complete" && status != "failed" && status != "cancelled" {
+		return uuid.Nil, errDisputeJobNotTerminal
+	}
+	if terminalAt == nil {
+		return uuid.Nil, fmt.Errorf("terminal job %s has no terminal timestamp", jobID)
+	}
+	filingDeadline := terminalAt.Add(disputeFilingWindow)
+	if now.After(filingDeadline) {
+		return uuid.Nil, errDisputeWindowClosed
+	}
+
+	disputeID := uuid.New()
+	_, err = tx.Exec(ctx, `
+		INSERT INTO disputes
+		  (id,job_id,buyer_id,reason,status,created_at,filing_deadline)
+		VALUES ($1,$2,$3,$4,'open',$5,$6)`,
+		disputeID, jobID, buyerID, reason, now, filingDeadline)
+	if isActiveDisputeUniqueViolation(err) {
+		return uuid.Nil, errDisputeAlreadyActive
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	type frozenCredit struct {
+		id     uuid.UUID
+		status string
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT le.id,le.payout_status
+		  FROM ledger_entries le JOIN tasks t ON t.id=le.task_id
+		 WHERE t.job_id=$1 AND le.kind='supplier_credit'
+		   AND le.payout_status NOT IN ('released','exported','clawed_back','reversal_required')
+		 ORDER BY le.id FOR UPDATE OF le`, jobID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	var credits []frozenCredit
+	for rows.Next() {
+		var credit frozenCredit
+		if err := rows.Scan(&credit.id, &credit.status); err != nil {
+			rows.Close()
+			return uuid.Nil, err
+		}
+		credits = append(credits, credit)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return uuid.Nil, err
+	}
+	for _, credit := range credits {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO dispute_payout_holds
+			  (dispute_id,ledger_entry_id,payout_status_at_filing)
+			VALUES ($1,$2,$3)`, disputeID, credit.id, credit.status); err != nil {
+			return uuid.Nil, err
+		}
+		// A claim which linearized just before filing may already be at the
+		// provider boundary.  Preserve it as recovery-required; FinalizePayout
+		// will never represent resulting cash as an ordinary release.
+		if credit.status == PayoutSending || credit.status == PayoutOutcomeUnknown {
+			if _, err := tx.Exec(ctx, `
+				UPDATE ledger_entries SET payout_status='reversal_required'
+				 WHERE id=$1`, credit.id); err != nil {
+				return uuid.Nil, err
+			}
+			if _, err := tx.Exec(ctx, `
+				UPDATE supplier_payout_operations
+				   SET status='reversal_required',updated_at=now(),
+				       last_error='buyer dispute filed while payout was in flight'
+				 WHERE ledger_entry_id=$1`, credit.id); err != nil {
+				return uuid.Nil, err
+			}
+		}
+	}
+
+	detail, _ := json.Marshal(map[string]any{
+		"dispute_id": disputeID, "frozen_supplier_credits": len(credits),
+		"filing_deadline": filingDeadline,
+	})
+	if err := appendDisputeEventTx(ctx, tx, disputeID, jobID, "filed", detail); err != nil {
+		return uuid.Nil, err
+	}
+	if err := insertEventTx(ctx, tx, jobID, nil, "dispute_filed",
+		"Buyer filed a dispute; supplier payouts are frozen pending resolution", detail); err != nil {
+		return uuid.Nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		if isActiveDisputeUniqueViolation(err) {
+			return uuid.Nil, errDisputeAlreadyActive
+		}
+		return uuid.Nil, err
+	}
+	return disputeID, nil
 }
 
 type DisputeRow struct {
@@ -3873,18 +4238,175 @@ func (s *Store) ReverifyTarget(ctx context.Context, jobID uuid.UUID) (ReverifyTa
 }
 
 func (s *Store) SetDisputeReverifying(ctx context.Context, id, reverifyTaskID uuid.UUID) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE disputes SET status = 'reverifying', reverify_task_id = $2 WHERE id = $1`,
-		id, reverifyTaskID)
-	return err
+	return s.setActiveDisputeStatus(ctx, id, "reverifying", &reverifyTaskID)
 }
 
 func (s *Store) SetDisputeStatus(ctx context.Context, id uuid.UUID, status string) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE disputes SET status = $2,
-		        resolved_at = CASE WHEN $2 IN ('resolved','rejected') THEN now() ELSE resolved_at END
-		  WHERE id = $1`, id, status)
-	return err
+	if status == "resolved" {
+		status = "upheld"
+	}
+	if status == "upheld" || status == "rejected" {
+		return s.resolveDispute(ctx, id, status)
+	}
+	if status != "no_peer" && status != "unresolvable" {
+		return fmt.Errorf("unsupported dispute status %q", status)
+	}
+	return s.setActiveDisputeStatus(ctx, id, status, nil)
+}
+
+func (s *Store) setActiveDisputeStatus(
+	ctx context.Context,
+	id uuid.UUID,
+	status string,
+	reverifyTaskID *uuid.UUID,
+) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var jobID uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT job_id FROM disputes WHERE id=$1`, id).Scan(&jobID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errNotFound
+		}
+		return err
+	}
+	if err := tx.QueryRow(ctx, `SELECT id FROM jobs WHERE id=$1 FOR UPDATE`, jobID).Scan(&jobID); err != nil {
+		return err
+	}
+	var before string
+	if err := tx.QueryRow(ctx, `SELECT status FROM disputes WHERE id=$1 FOR UPDATE`, id).Scan(&before); err != nil {
+		return err
+	}
+	if before == status {
+		return tx.Commit(ctx)
+	}
+	if before != "open" && before != "no_peer" && before != "reverifying" {
+		return fmt.Errorf("dispute %s cannot transition from %s to %s", id, before, status)
+	}
+	if status == "reverifying" && reverifyTaskID == nil {
+		return errors.New("reverifying dispute requires a task id")
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE disputes SET status=$2,reverify_task_id=COALESCE($3,reverify_task_id)
+		 WHERE id=$1`, id, status, reverifyTaskID); err != nil {
+		return err
+	}
+	detail, _ := json.Marshal(map[string]any{"from": before, "to": status, "reverify_task_id": reverifyTaskID})
+	if err := appendDisputeEventTx(ctx, tx, id, jobID, status, detail); err != nil {
+		return err
+	}
+	buyerText := "Dispute remains open pending independent review"
+	if status == "reverifying" {
+		buyerText = "Dispute: independent re-verification dispatched"
+	} else if status == "unresolvable" {
+		buyerText = "Dispute remains open: independent resolution is currently unavailable"
+	}
+	if err := insertEventTx(ctx, tx, jobID, nil, "dispute_"+status, buyerText, detail); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var jobID uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT job_id FROM disputes WHERE id=$1`, id).Scan(&jobID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errNotFound
+		}
+		return err
+	}
+	if err := tx.QueryRow(ctx, `SELECT id FROM jobs WHERE id=$1 FOR UPDATE`, jobID).Scan(&jobID); err != nil {
+		return err
+	}
+	var before string
+	if err := tx.QueryRow(ctx, `SELECT status FROM disputes WHERE id=$1 FOR UPDATE`, id).Scan(&before); err != nil {
+		return err
+	}
+	if before == resolution {
+		return tx.Commit(ctx)
+	}
+	if before == "upheld" || before == "rejected" {
+		return fmt.Errorf("dispute %s is already resolved as %s", id, before)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE disputes SET status=$2,resolved_at=now() WHERE id=$1`, id, resolution); err != nil {
+		return err
+	}
+	clawedCredits := int64(0)
+	if resolution == "upheld" {
+		// Append a balancing liability effect for every task credit.  Existing
+		// verification clawbacks are idempotently retained by the task/kind key.
+		ct, err := tx.Exec(ctx, `
+			INSERT INTO ledger_entries
+			  (kind,supplier_id,task_id,amount_usd,payout_status)
+			SELECT 'clawback',le.supplier_id,le.task_id,-le.amount_usd,'clawed_back'
+			  FROM ledger_entries le JOIN tasks t ON t.id=le.task_id
+			 WHERE t.job_id=$1 AND le.kind='supplier_credit'
+			   AND le.amount_usd>0 AND le.task_id IS NOT NULL
+			ON CONFLICT (task_id,kind) DO NOTHING`, jobID)
+		if err != nil {
+			return err
+		}
+		clawedCredits = ct.RowsAffected()
+		if _, err := tx.Exec(ctx, `
+			UPDATE ledger_entries le
+			   SET payout_status=CASE
+			       WHEN le.payout_ref IS NOT NULL
+			         OR le.payout_status IN ('sending','outcome_unknown','released','exported','reversal_required')
+			         OR EXISTS (SELECT 1 FROM supplier_payout_operations op
+			                      WHERE op.ledger_entry_id=le.id AND op.outcome_unknown)
+			       THEN 'reversal_required' ELSE 'clawed_back' END
+			  FROM tasks t
+			 WHERE le.task_id=t.id AND t.job_id=$1 AND le.kind='supplier_credit'
+			   AND le.payout_status NOT IN ('clawed_back','reversal_required')`, jobID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE supplier_payout_operations op
+			   SET status=le.payout_status,updated_at=now(),
+			       last_error=CASE WHEN le.payout_status='reversal_required'
+			         THEN 'upheld buyer dispute requires external recovery' ELSE op.last_error END
+			  FROM ledger_entries le JOIN tasks t ON t.id=le.task_id
+			 WHERE op.ledger_entry_id=le.id AND t.job_id=$1`, jobID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE tasks SET verification_outcome='clawed_back',verified_at=now()
+			 WHERE job_id=$1 AND id IN (
+			   SELECT task_id FROM ledger_entries
+			    WHERE kind='supplier_credit' AND task_id IS NOT NULL)`, jobID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE dispute_payout_holds
+		   SET resolution=$2,resolved_at=now()
+		 WHERE dispute_id=$1 AND resolution IS NULL`, id, resolution); err != nil {
+		return err
+	}
+	detail, _ := json.Marshal(map[string]any{
+		"from": before, "resolution": resolution, "new_clawback_entries": clawedCredits,
+	})
+	if err := appendDisputeEventTx(ctx, tx, id, jobID, resolution, detail); err != nil {
+		return err
+	}
+	buyerText := "Dispute rejected: independent re-verification agreed with the original result; held payouts are eligible again"
+	if resolution == "upheld" {
+		buyerText = "Dispute upheld: supplier liabilities were clawed back"
+	}
+	if err := insertEventTx(ctx, tx, jobID, nil, "dispute_"+resolution, buyerText, detail); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) JobHasPendingTasks(ctx context.Context, jobID uuid.UUID) (bool, error) {
@@ -4149,7 +4671,7 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 	}
 
 	id := uuid.New()
-	resultKey := fmt.Sprintf("jobs/%s/hedge/%s/result.json", jobID, id)
+	resultKey := taskAttemptResultKey(jobID, id, 0)
 	_, err = tx.Exec(ctx,
 		`INSERT INTO tasks
 		   (id, job_id, status, is_honeypot, is_redundancy, retry_count,

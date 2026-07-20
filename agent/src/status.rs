@@ -9,56 +9,6 @@ use crate::types::{BenchResult, Earnings, TaskLease};
 
 const SCHEMA_VERSION: u32 = 1;
 
-const CX_PRICE_PER_1K: &[(&str, f64)] = &[
-    ("all-minilm-l6-v2", 0.00100),
-    ("llama-3.2-1b-instruct-q4", 0.00200),
-];
-
-const DEFAULT_PLATFORM_TAKE_PCT: f64 = 3.0;
-
-fn estimated_sustained_watts(hw_class: crate::types::HardwareClass) -> f64 {
-    use crate::types::HardwareClass::*;
-    match hw_class {
-        AppleSiliconBase => 20.0,
-        AppleSiliconPro => 30.0,
-        AppleSiliconMax => 45.0,
-        AppleSiliconUltra => 65.0,
-        Cpu => 25.0,
-    }
-}
-
-const DEFAULT_ELECTRICITY_USD_PER_KWH: f64 = 0.15;
-
-const HOURS_ONLINE_PER_DAY: f64 = 24.0;
-
-pub fn projected_daily_usd(
-    benchmarks: &[BenchResult],
-    hw_class: crate::types::HardwareClass,
-) -> Option<f64> {
-    let share_rate = 1.0 - (DEFAULT_PLATFORM_TAKE_PCT.clamp(1.0, 5.0) / 100.0);
-    let watts = estimated_sustained_watts(hw_class);
-    let elec_usd_hr = watts / 1000.0 * DEFAULT_ELECTRICITY_USD_PER_KWH;
-
-    let best_net_usd_hr = benchmarks
-        .iter()
-        .filter_map(|b| {
-            let price = CX_PRICE_PER_1K
-                .iter()
-                .find(|(model, _)| *model == b.model_id)
-                .map(|(_, p)| *p)?;
-            let units_per_sec = if b.tps > 0.0 { b.tps } else { b.eps } as f64;
-            if units_per_sec <= 0.0 {
-                return None;
-            }
-            let gross_buyer_usd_hr = units_per_sec * 3600.0 / 1000.0 * price;
-            let supplier_usd_hr = gross_buyer_usd_hr * share_rate;
-            Some(supplier_usd_hr - elec_usd_hr)
-        })
-        .fold(None::<f64>, |acc, v| Some(acc.map_or(v, |a: f64| a.max(v))));
-
-    best_net_usd_hr.map(|net_hr| (net_hr * HOURS_ONLINE_PER_DAY).max(0.0))
-}
-
 #[derive(Serialize, Clone, PartialEq)]
 struct CurrentJob {
     job_id: String,
@@ -107,6 +57,7 @@ struct StatusDoc<'a> {
     balance_usd: f64,
     lifetime_usd: f64,
     projected_daily_usd: Option<f64>,
+    projection_status: &'static str,
     thermal_state: &'static str,
     gpu_temp_c: Option<f32>,
     cpu_pct: f32,
@@ -141,6 +92,7 @@ struct Inner {
     balance_usd: f64,
     lifetime_usd: f64,
     projected_daily_usd: Option<f64>,
+    projection_status: &'static str,
     lifetime_baseline: Option<(u64, f64)>,
     thermal_state: &'static str,
     gpu_temp_c: Option<f32>,
@@ -178,8 +130,8 @@ impl StatusWriter {
     pub fn new(
         agent_version: &str,
         worker_id: Uuid,
-        benchmarks: &[BenchResult],
-        hw_class: crate::types::HardwareClass,
+        _benchmarks: &[BenchResult],
+        _hw_class: crate::types::HardwareClass,
     ) -> Self {
         Self {
             path: status_path(),
@@ -190,7 +142,11 @@ impl StatusWriter {
                 today_earnings_usd: 0.0,
                 balance_usd: 0.0,
                 lifetime_usd: 0.0,
-                projected_daily_usd: projected_daily_usd(benchmarks, hw_class),
+                // A benchmark multiplied by 24 hours assumes continuous paid
+                // demand and omits depreciation, failures, tax, support, and
+                // hold risk.  Do not present it as an earnings claim.
+                projected_daily_usd: None,
+                projection_status: "unavailable_until_measured_paid_utilization",
                 lifetime_baseline: None,
                 thermal_state: "unknown",
                 gpu_temp_c: None,
@@ -375,6 +331,7 @@ impl StatusWriter {
                 balance_usd: i.balance_usd,
                 lifetime_usd: i.lifetime_usd,
                 projected_daily_usd: i.projected_daily_usd,
+                projection_status: i.projection_status,
                 thermal_state: i.thermal_state,
                 gpu_temp_c: i.gpu_temp_c,
                 cpu_pct: i.cpu_pct,

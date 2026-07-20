@@ -975,7 +975,7 @@ func insertPlannedTiebreakTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInf
 	if info == nil || info.HWClass == "" {
 		return false, errors.New("planned tiebreak requires frozen verification class")
 	}
-	resultKey := fmt.Sprintf("jobs/%s/tiebreak/%s/result.json", effect.JobID, effect.TaskID)
+	resultKey := taskAttemptResultKey(effect.JobID, effect.TaskID, 0)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO tasks
 		  (id,job_id,status,is_honeypot,is_redundancy,retry_count,input_ref,result_key,

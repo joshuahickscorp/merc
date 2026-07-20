@@ -28,6 +28,15 @@ type runtimeAuthorityDocument struct {
 		WireKind    string  `json:"wire_kind"`
 		Job         string  `json:"job_type"`
 		MinMemoryGB float64 `json:"min_memory_gb"`
+		HFRepo      string  `json:"hf_repo"`
+		HFRevision  string  `json:"hf_revision"`
+		Artifacts   []struct {
+			Repo     string `json:"repo,omitempty"`
+			Revision string `json:"revision,omitempty"`
+			Path     string `json:"path"`
+			SHA256   string `json:"sha256"`
+			Bytes    int64  `json:"bytes"`
+		} `json:"artifacts"`
 	} `json:"models"`
 	Cells []struct {
 		ID           string  `json:"id"`
@@ -86,8 +95,21 @@ func projectRuntimeCapabilities(authority runtimeAuthorityDocument) []generatedR
 		min  float64
 	}, len(authority.Models))
 	for _, model := range authority.Models {
-		if model.ID == "" || model.WireKind == "" || model.Job == "" || model.MinMemoryGB <= 0 {
+		if model.ID == "" || model.WireKind == "" || model.Job == "" || model.MinMemoryGB <= 0 ||
+			model.HFRepo == "" || len(model.HFRevision) != 40 || len(model.Artifacts) == 0 {
 			panic("embedded runtime authority contains an invalid model")
+		}
+		for _, artifact := range model.Artifacts {
+			if artifact.Path == "" || artifact.Bytes <= 0 || len(artifact.SHA256) != 64 {
+				panic("embedded runtime authority contains an invalid model artifact")
+			}
+			if _, err := hex.DecodeString(artifact.SHA256); err != nil {
+				panic("embedded runtime authority contains a non-hex model digest")
+			}
+			if (artifact.Repo == "") != (artifact.Revision == "") ||
+				(artifact.Revision != "" && len(artifact.Revision) != 40) {
+				panic("embedded runtime authority contains an invalid alternate artifact revision")
+			}
 		}
 		if _, exists := models[model.ID]; exists {
 			panic("embedded runtime authority contains a duplicate model")
@@ -131,7 +153,9 @@ WITH desired AS (
     ON CONFLICT (id) DO UPDATE SET
         family=EXCLUDED.family, quant=EXCLUDED.quant, kind=EXCLUDED.kind,
         dim=EXCLUDED.dim, job_type=EXCLUDED.job_type,
-        price_per_1k=EXCLUDED.price_per_1k, min_memory_gb=EXCLUDED.min_memory_gb,
+        -- Runtime synchronization must not silently overwrite a versioned
+        -- measured price or leave its provenance attached to seed bytes.
+        min_memory_gb=EXCLUDED.min_memory_gb,
         hf_repo=EXCLUDED.hf_repo
     RETURNING id
 )

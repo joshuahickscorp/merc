@@ -6,6 +6,26 @@
 
 {$SITE_HOST:computexchange.net} {
 	encode zstd gzip
+
+	# Metrics remain available to an authorized scraper on the private service
+	# network; they are never exposed through the public TLS virtual host.
+	@metrics path /metrics
+	respond @metrics 404
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; style-src 'self' 'sha256-wzPyOXShc9nAq0Cda7CuKQSaamiZEkR74x0iZTLEPw4=' 'sha256-Aq5awmSpm7f7t1qOIS62slGI1euKBfj9rxjjetSNyKw=' 'sha256-Z0RU1z/IY2csxbHNra0NClI3OXujRUqU7Y/0Bau8TGQ='; script-src 'self' 'sha256-AF9A9ibovGU5H65tmnSjv7CNjdNb8ECpp1jr8xQ7jSI=' 'sha256-naGAnElhdy9Ao49yiCvLOnlUSxV7z3RWwrWQBGP+WwY='; upgrade-insecure-requests"
+		Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	@html path / /admin
+	header @html Cache-Control "no-store"
+
 	reverse_proxy control:8080 {
 		health_uri /readyz
 		health_interval 10s
@@ -16,6 +36,13 @@
 
 {$STORAGE_HOST:storage.computexchange.net} {
 	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
 	reverse_proxy minio:9000 {
 		health_uri /minio/health/live
 		health_interval 10s

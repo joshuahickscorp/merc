@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "status": "BLOCKED_INCOMPLETE_PROVENANCE",
+  "review_basis_commit": "533788d69c0fa06863d8fbcf5b2fd793955c3bbd",
+  "candidate_commit": null,
+  "assets": [
+    {"path":"logo/Geist-VariableFont_wght.ttf","sha256":"39fb61a385b9bbac6ff86c03a948d32f6d5626cd993e4a7e1a62d73d3a54bc79","group":"geist-font","status":"BLOCKED_VERSION_LINKAGE"},
+    {"path":"logo/cx-app-icon.png","sha256":"867f8f8614aa56a670d1c3138b27d5e2d354a894e2b4e9cd60786b872499b5d2","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"logo/cx-capsule-target.svg","sha256":"543a8f3c2a687a446475a7a31ff84d2589ceafa0b1b9c0bd8d7349f487911da9","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"logo/cx-mark-white.png","sha256":"a047e5f4a306767807be030b7597db602f3be9b4be3f0bb7b438b36b2df37c6f","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"logo/cx_logo.png","sha256":"cf58c0a3cba70ddb465b953596b04c5b537666a3777f9b197bdbc0f18470817b","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"web/apple-touch-icon.png","sha256":"835cb74e9a670c5eb949b65e3719bf4bd06029c7a100fee36e4882f3fc9e681b","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"web/assets/site/cx-mark-white.png","sha256":"1d39b14b0903f447f8518f06254f41fdb5470e02b317fcc97c6e8feb1ba139d2","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"web/assets/site/dot-ring@3x.png","sha256":"ba2f51b2dc1af569a1987ac6f248a97e9199ac0199bc2f507633da5cda5e4071","group":"site-decoration","status":"BLOCKED_CREATOR_RECEIPT"},
+    {"path":"web/assets/site/fonts/geist-mono.woff2","sha256":"0e77b676653832c7e25fd6fbdca4fcd284c8625316689ad696b207c4a19b49e9","group":"geist-font","status":"BLOCKED_VERSION_LINKAGE"},
+    {"path":"web/assets/site/knob-off@3x.png","sha256":"c809290e919bd5fd7dfb80f1423e67e809762bcc2d983a390dc4d9fbda8ae8a1","group":"site-decoration","status":"BLOCKED_CREATOR_RECEIPT"},
+    {"path":"web/assets/site/mac-studio@1x.png","sha256":"c86cf953405a9d8c8371c2533e0f96e62c1f2d5f6fc40d33c12470feec9a2682","group":"device-render","status":"BLOCKED_REFERENCE_AND_ASSIGNMENT_REVIEW"},
+    {"path":"web/assets/site/mac-studio@2x.png","sha256":"c710c92c80c20ff8f0f892bef4c13d8bcfc38e904489a988c53cf9b9566ec6ed","group":"device-render","status":"BLOCKED_REFERENCE_AND_ASSIGNMENT_REVIEW"},
+    {"path":"web/assets/site/mac-studio@3x.png","sha256":"353fe0e05430d681d08ccd765315da5ffcc49288da3b69028d6e15694976f0a3","group":"device-render","status":"BLOCKED_REFERENCE_AND_ASSIGNMENT_REVIEW"},
+    {"path":"web/favicon-16.png","sha256":"e530bb3ca389c86c5c9c532fab090f6ed34fa0573e0352b131250fc42b77e3a2","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"web/favicon-32.png","sha256":"226fe5c58df6af934a26348eee9632a1235dc7beb1bbc150f01041fa519d6cfe","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"web/favicon-48.png","sha256":"7ec15aed72236f1424e2a3108141f1bbc8d04e34f10486ead2ebe36c71158680","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"web/favicon.ico","sha256":"327ad2bfacb889d7cc55925047e730a4ee5694018737457b21204724638070e0","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"web/icon-192.png","sha256":"a1e4665fe0f03c40312e22f097410fb787379632680fbda87272ce91eafc2cf3","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"},
+    {"path":"web/icon-512.png","sha256":"5627e2fe54c17320f99fa42ace91f11c05049fe477d1783de89ebbee166bd71d","group":"cx-brand","status":"BLOCKED_OWNERSHIP_RECEIPT"}
+  ],
+  "groups": {
+    "geist-font": {
+      "repository_history": "The WOFF2 was introduced as a self-hosted subset in commit 9238510632c5570b8fa61dc5146928df60faed6b.",
+      "upstream_license_declaration": "SIL Open Font License 1.1; copyright Vercel in collaboration with basement.studio",
+      "source": "https://github.com/vercel/geist-font/blob/main/LICENSE.txt",
+      "gaps": ["exact upstream commit", "source binary hash", "reproducible subset command and glyph set", "bundled full OFL/copyright text", "reserved-name review"]
+    },
+    "device-render": {
+      "repository_history": "Commit 25300c3aa550fbc60b2a036955b52346ba00a26c describes procedural construction from primitives without imported meshes or trademarks; later history describes reference-photography comparison and rerendering.",
+      "gaps": ["current-tree source render files", "reference list and usage rights", "human/AI creator declaration", "copyright assignment", "product-shape and trademark counsel review"]
+    },
+    "cx-brand": {
+      "repository_history": "Repository commits describe generation and rendering of the Cx mark and icons.",
+      "gaps": ["source design files", "creator declaration", "copyright assignment", "trademark clearance", "approved project license"]
+    },
+    "site-decoration": {
+      "repository_history": "Binary site-decoration assets are tracked, but the candidate does not carry a complete source/provenance package.",
+      "gaps": ["source files", "creator declaration", "third-party-input declaration", "copyright assignment", "approved license"]
+    }
+  },
+  "required_exit_evidence": [
+    "Resolve every BLOCKED status with a named accountable reviewer and source receipt.",
+    "Bind source and distributed asset hashes to the final candidate.",
+    "Ship every required license and notice.",
+    "Review reference imagery, product shape, brand and trademark risk.",
+    "Re-run the deterministic governance validator."
+  ],
+  "reviewer": null,
+  "approved_at": null
+}

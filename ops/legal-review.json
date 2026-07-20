@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "status": "NO_GO",
+  "decision": "NO_GO",
+  "scope": "controlled synthetic-data canary on operator-controlled supplier devices using Stripe test mode only",
+  "review_basis_commit": "533788d69c0fa06863d8fbcf5b2fd793955c3bbd",
+  "candidate_commit": null,
+  "candidate_binding_status": "PENDING_FINAL_CLEAN_COMMIT",
+  "documents": {
+    "canary_terms": {"path":"docs/CANARY_TERMS.md","version":"draft-0.1","sha256":null,"status":"DRAFT_PENDING_COUNSEL","publication":false,"acceptance_test":null},
+    "privacy_notice": {"path":"docs/PRIVACY_NOTICE_DRAFT.md","version":"draft-0.1","sha256":null,"status":"DRAFT_PENDING_PRIVACY_COUNSEL","publication":false,"acceptance_test":null},
+    "data_governance": {"path":"docs/PRIVACY_DATA_GOVERNANCE.md","version":"draft-0.1","sha256":null,"status":"CONTROL_DESIGN_INCOMPLETE"},
+    "dsar_runbook": {"path":"docs/DSAR_RUNBOOK.md","version":"draft-0.1","sha256":null,"status":"NOT_REHEARSED"},
+    "acceptable_use": {"path":"docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md","version":"draft-0.1","sha256":null,"status":"DRAFT_PENDING_COUNSEL_AND_TRUST_SAFETY"},
+    "incident_runbook": {"path":"docs/SUPPORT_AND_INCIDENT_RUNBOOK.md","version":"draft-0.1","sha256":null,"status":"CONTACTS_UNSET_AND_NOT_REHEARSED"},
+    "notice": {"path":"NOTICE","version":"draft-0.1","sha256":null,"status":"INCOMPLETE_THIRD_PARTY_NOTICES"},
+    "third_party_register": {"path":"docs/THIRD_PARTY_LICENSES.md","version":"draft-0.1","sha256":null,"status":"BLOCKED"}
+  },
+  "data_governance": {
+    "inventory_path": "docs/PRIVACY_DATA_GOVERNANCE.md",
+    "privacy_roles": {"operator":null,"buyers":null,"suppliers":null,"subprocessors":null,"status":"UNRESOLVED"},
+    "lawful_bases": [],
+    "purposes_approved": false,
+    "minimization_status": "POLICY_ONLY_NOT_ENFORCED",
+    "retention_status": "PROPOSED_NOT_APPROVED_OR_IMPLEMENTED",
+    "dsar_export_test": null,
+    "deletion_test": null,
+    "backup_tombstone_test": null,
+    "subprocessors": [],
+    "international_transfers": [],
+    "residency_evidence": [],
+    "canary_admission_rule": "synthetic data and disposable test identities only"
+  },
+  "commercial": {
+    "operator_legal_entity": null,
+    "buyer_type": null,
+    "approved_jurisdictions": [],
+    "consumer_use_allowed": false,
+    "real_money_allowed": false,
+    "stripe_mode": "test_only",
+    "independently_owned_suppliers_allowed": false,
+    "pricing_disclosure_approved": false,
+    "tax_analysis": null,
+    "currency_analysis": null,
+    "refund_and_dispute_terms_approved": false,
+    "supplier_classification": null,
+    "sanctions_and_export_review": null,
+    "insurance_review": null
+  },
+  "licenses": [
+    {
+      "component":"ComputExchange source and binaries",
+      "version_or_commit":"533788d69c0fa06863d8fbcf5b2fd793955c3bbd",
+      "artifact_sha256":null,
+      "license":null,
+      "source":"repository",
+      "obligations":["owner must choose and approve project license","align Rust and Python metadata","ship license text"],
+      "notice_path":"NOTICE",
+      "review_status":"BLOCKED_NO_PROJECT_LICENSE"
+    },
+    {
+      "component":"Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+      "version_or_commit":"closure worktree enforces b69aef112e9f895e6f98d7ae0949f72ff09aa401; final candidate binding pending",
+      "artifact_sha256":"3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+      "license":"Llama 3.2 Community License",
+      "source":"https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/LICENSE",
+      "obligations":["agreement copy","Built with Llama attribution","Notice for distributed copies","AUP and applicable-law compliance"],
+      "notice_path":"NOTICE",
+      "review_status":"BLOCKED_PENDING_FINAL_BINDING_LICENSE_BUNDLE_AND_COUNSEL"
+    },
+    {
+      "component":"sentence-transformers/all-MiniLM-L6-v2",
+      "version_or_commit":"closure worktree enforces 1110a243fdf4706b3f48f1d95db1a4f5529b4d41; final candidate binding pending",
+      "artifact_sha256":"multi-file; see ops/model-provenance.json",
+      "license":"Apache-2.0 as declared by upstream model page",
+      "source":"https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2",
+      "obligations":["artifact-bound license and notice review","model-card and provenance review"],
+      "notice_path":"NOTICE",
+      "review_status":"BLOCKED_PENDING_FINAL_BINDING_AND_LICENSE_BUNDLE"
+    },
+    {
+      "component":"Geist and Geist Mono bundled fonts",
+      "version_or_commit":null,
+      "artifact_sha256":"see ops/asset-provenance.json",
+      "license":"SIL Open Font License 1.1 as declared by official upstream",
+      "source":"https://github.com/vercel/geist-font/blob/main/LICENSE.txt",
+      "obligations":["bind binaries to upstream source","ship copyright and full license","review subset naming"],
+      "notice_path":"NOTICE",
+      "review_status":"BLOCKED_VERSION_LINKAGE"
+    },
+    {
+      "component":"logos, icons, screenshots, device renders and site decoration",
+      "version_or_commit":"repository history only",
+      "artifact_sha256":"see ops/asset-provenance.json",
+      "license":null,
+      "source":"repository",
+      "obligations":["creator declaration","copyright assignment","source and third-party-input receipts","reference and trademark review"],
+      "notice_path":"docs/THIRD_PARTY_LICENSES.md",
+      "review_status":"BLOCKED_INCOMPLETE_PROVENANCE"
+    }
+  ],
+  "trust_safety": {
+    "allowed_workloads":"allowlisted benign synthetic fixtures only",
+    "prohibited_uses_path":"docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md",
+    "reporting_contact":null,
+    "emergency_route":null,
+    "triage_targets_approved":false,
+    "enforcement_status":"POLICY_ONLY_NOT_FULLY_ENFORCED",
+    "supplier_confidentiality_contract":null,
+    "incident_runbook_path":"docs/SUPPORT_AND_INCIDENT_RUNBOOK.md",
+    "tabletop_record_path":"ops/support-incident-tabletop.json",
+    "tabletop_status":"NOT_EXECUTED"
+  },
+  "approvals": {
+    "legal":{"status":"PENDING","approver":null,"organization":null,"scope":null,"evidence":null,"approved_at":null},
+    "privacy":{"status":"PENDING","approver":null,"organization":null,"scope":null,"evidence":null,"approved_at":null},
+    "tax":{"status":"PENDING","approver":null,"organization":null,"scope":null,"evidence":null,"approved_at":null},
+    "payments":{"status":"PENDING","approver":null,"organization":null,"scope":null,"evidence":null,"approved_at":null},
+    "security":{"status":"PENDING","approver":null,"organization":null,"scope":null,"evidence":null,"approved_at":null},
+    "trust_safety":{"status":"PENDING","approver":null,"organization":null,"scope":null,"evidence":null,"approved_at":null},
+    "license":{"status":"PENDING","approver":null,"organization":null,"scope":null,"evidence":null,"approved_at":null}
+  },
+  "open_blockers": [
+    {"id":"LEGAL-001","severity":"P1","owner":"founder_and_counsel","blocker":"Operating legal entity, address, jurisdiction, final contacts and governing terms are unset.","exit_criterion":"Counsel supplies and approves all final identity and contract fields for the exact candidate."},
+    {"id":"LEGAL-002","severity":"P1","owner":"counsel","blocker":"Canary terms, privacy notice, AUP, supplier terms/DPA and acceptance design are drafts.","exit_criterion":"Counsel approves versioned documents and a tested immutable acceptance/reacceptance receipt."},
+    {"id":"PRIV-001","severity":"P1","owner":"privacy_and_engineering","blocker":"Lawful bases, roles, subprocessors, transfers, retention and rights rules are not approved.","exit_criterion":"Complete the field-level matrix and obtain privacy counsel approval."},
+    {"id":"PRIV-002","severity":"P1","owner":"engineering_and_operations","blocker":"Account export, erasure, object lifecycle and backup tombstone workflows are not implemented or rehearsed.","exit_criterion":"Pass synthetic cross-store export/deletion and backup-restore tombstone tests."},
+    {"id":"SUPPLIER-001","severity":"P0","owner":"security_legal_and_supplier_operations","blocker":"An independently controlled supplier host can receive and retain buyer input; verified location and contractual duties are absent.","exit_criterion":"Keep canary operator-controlled and synthetic-only; before expansion, approve processor contracts, location evidence and destination-pinned egress/attestation risk."},
+    {"id":"TRUST-001","severity":"P1","owner":"trust_safety_and_counsel","blocker":"Abuse contact, mandatory-reporting duties, enforcement controls and appeals are not approved or rehearsed.","exit_criterion":"Staff contacts, approve policy, prove kill switches and complete the named-participant tabletop."},
+    {"id":"LICENSE-001","severity":"P1","owner":"product_owner_and_license_counsel","blocker":"Project license and complete third-party/model/font notices are absent or incomplete.","exit_criterion":"Owner approves project license; counsel approves artifact-bound third-party register and release notice bundle."},
+    {"id":"ASSET-001","severity":"P1","owner":"product_owner_and_ip_counsel","blocker":"Visual assets lack creator assignment, source/reference receipts and trademark review.","exit_criterion":"Resolve every blocked asset provenance entry for the exact distributed hashes."},
+    {"id":"TAX-001","severity":"P1","owner":"tax_counsel","blocker":"Buyer tax, supplier classification, reporting, currency and jurisdiction analysis is absent.","exit_criterion":"Approve jurisdictions and obligations before any real charge or payout."},
+    {"id":"PAYMENTS-001","severity":"P1","owner":"payments_legal_and_engineering","blocker":"Stripe test-mode cash/dispute/payout matrix and approved commercial disclosures are incomplete.","exit_criterion":"Pass the full test-mode matrix and counsel review; live money remains separately gated."},
+    {"id":"RELEASE-001","severity":"P1","owner":"release_manager","blocker":"These artifacts are not bound to a final clean candidate commit and hashes are unset.","exit_criterion":"Populate final commit and document hashes, run validation, and obtain named approvals without changing reviewed content."}
+  ],
+  "reviewed_at": null,
+  "next_review_due": null
+}

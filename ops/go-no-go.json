@@ -1,44 +1,85 @@
 {
-  "schema_version": 1,
-  "generated_at": "2026-07-19T23:24:29Z",
-  "scope": "private pilot with real money",
-  "decision": "NO-GO",
+  "schema_version": 2,
+  "generated_at": "2026-07-20T01:13:18Z",
+  "decisions": {
+    "software_candidate": "GO_LOCAL_PENDING_EXACT_HEAD_REMOTE",
+    "supervised_stripe_test_mode_private_canary": "NO_GO",
+    "live_money_or_public_launch": "NO_GO_PROHIBITED"
+  },
+  "readiness_score": 65,
+  "go_threshold": 95,
   "open_p0": [],
   "open_p1": [
     {
-      "id": "P1-OPS-1",
-      "blocker": "No successful independent offsite backup upload and restore from that uploaded copy.",
-      "owner": "operations",
-      "exit_criterion": "Configure restricted offsite credentials, run scripts/backup.sh, restore the uploaded database and objects, and compare application/ledger/artifact invariants."
+      "id": "P1-RELEASE-REMOTE",
+      "owner": "release_engineering",
+      "blocker": "The GO-closure candidate has not yet passed exact-head remote CI, registry publication/signature verification, artifact download inspection, and a fresh-clone proof.",
+      "exit_criterion": "Draft PR exact head passes every required job; digest-pinned candidate/prior images, SBOMs, signatures and attestations verify; downloaded artifacts verify; fresh clone make ci and proof pass."
     },
     {
-      "id": "P1-OPS-2",
-      "blocker": "The candidate was not deployed to a persistent TLS staging environment.",
+      "id": "P1-STAGING",
       "owner": "operations",
-      "exit_criterion": "Deploy the exact source/image to representative staging and pass health, readiness, version, auth, both workloads, webhook, lifecycle, and money checks."
+      "blocker": "No persistent private TLS staging endpoint or persistent data plane is available.",
+      "exit_criterion": "Deploy the exact candidate digest to the supplied host/DNS/TLS boundary and pass external health, source identity, auth, storage, lifecycle, and both workload probes."
     },
     {
-      "id": "P1-OPS-3",
-      "blocker": "Rollback was not rehearsed against a prior content-addressed image.",
+      "id": "P1-RECOVERY-SOAK",
       "owner": "operations",
-      "exit_criterion": "Run scripts/rollback.sh against the previous compatible image in staging, verify version/readiness/customer paths/reconciliation, then redeploy the candidate."
+      "blocker": "Prior-digest rollback, forward recovery, restart storm, and 24-hour soak have not executed against persistent state and two Metal agents.",
+      "exit_criterion": "Run all four immutable harnesses, preserve duration/restart/source/state receipts, and meet the configured invariant and SLO thresholds."
     },
     {
-      "id": "P1-MONEY-1",
-      "blocker": "The complete Stripe test-mode cash and payout matrix was not executed end to end.",
+      "id": "P1-OFFSITE-RESTORE",
+      "owner": "operations",
+      "blocker": "No encrypted backup has been uploaded across an independent provider/credential boundary and restored from an independently downloaded copy.",
+      "exit_criterion": "Upload only ciphertext, independently download/decrypt in isolation, restore database and objects, and match checksums plus application/ledger invariants."
+    },
+    {
+      "id": "P1-STRIPE-TEST",
       "owner": "payments",
-      "exit_criterion": "Prove duplicate/out-of-order webhook handling, authorize/capture, actual fee, refund, dispute, payout success/failure/outcome-unknown, and reconciliation using scoped test-mode ids."
+      "blocker": "The full Stripe test-mode payment, refund, dispute, Connect restriction, payout hold/release/failure, replay/out-of-order webhook, and provider reconciliation matrix has not run.",
+      "exit_criterion": "Execute every scenario with sk_test/whsec test credentials and distinct endpoint secrets; preserve redacted provider IDs and reconciliation receipts."
     },
     {
-      "id": "P1-OPS-4",
-      "blocker": "Alert rules have not delivered and resolved a synthetic page through the real on-call receiver.",
-      "owner": "operations",
-      "exit_criterion": "Load monitoring/alerts.yml, configure routing, fire one synthetic page, acknowledge/resolve it, and record timestamps."
+      "id": "P1-ALERT-DELIVERY",
+      "owner": "operations_on_call",
+      "blocker": "No synthetic alert has fired, deduplicated, been acknowledged, resolved, and delivered through a genuine receiver.",
+      "exit_criterion": "Preserve redacted receiver delivery IDs and firing, acknowledgement, deduplication, and resolution timestamps."
+    },
+    {
+      "id": "P1-CANARY-REHEARSAL",
+      "owner": "canary_operator",
+      "blocker": "Two approved synthetic buyers, two operator-controlled Metal workers, and the strict scenario/restart adapters are unavailable.",
+      "exit_criterion": "Exercise the complete counted scenario matrix within every fail-closed limit, including kill switches, revocations, restore, alert, reconciliation, result retrieval during intake pause, and no payout export."
+    },
+    {
+      "id": "P1-INDEPENDENT-APPROVAL",
+      "owner": "repository_owner",
+      "blocker": "No non-author collaborator with repository review authority is available to approve the exact-head closure PR.",
+      "exit_criterion": "Named eligible reviewer independently inspects evidence and grants the required exact-head approval with no unresolved thread."
+    },
+    {
+      "id": "P1-GOVERNANCE",
+      "owner": "legal_privacy_tax_payments_security_trust_license_support",
+      "blocker": "Qualified approvals for the bounded test canary and named human incident coverage are absent.",
+      "exit_criterion": "Supply an exact-candidate governance bundle conforming to ops/governance-approval-bundle.schema.json with all eight named approvals."
+    },
+    {
+      "id": "P1-GOVERNANCE-EXERCISES",
+      "owner": "privacy_security_support_and_release_operations",
+      "blocker": "Support/security tabletops, DSAR export/deletion, backup tombstone, and asset/model provenance closure have no PASS receipts.",
+      "exit_criterion": "Execute all five exercises and bind evidence to the exact candidate in the same governance approval bundle."
     }
   ],
-  "release_conditions": [
-    "All five remaining external P1 exit criteria pass on the exact committed candidate.",
-    "PR #5 stays green on the current head and all four candidate artifacts pass downloaded checksum verification.",
-    "Re-run make prove-local and preserve the source-bound ledger with deployment, restore, payment, rollback, and alert receipts."
-  ]
+  "out_of_scope_p0": [
+    {
+      "id": "P0-INDEPENDENT-SUPPLIER",
+      "containment": "Independent supplier ownership is prohibited; only two operator-controlled Metal devices and synthetic data may enter the Level B canary.",
+      "expansion_exit_criterion": "Contracts, verified location, destination-pinned egress, confidentiality, data governance, and attestation risk must be separately approved before expansion."
+    }
+  ],
+  "machine_input_request": "ops/go-closure-inputs.json",
+  "verification_command": "make release-doctor",
+  "tag_policy": "Do not create v0.1.0-rc.1 or any release tag while the Level B decision is NO_GO.",
+  "merge_policy": "Keep the GO-closure pull request draft and unmerged while any target-scope P1 remains open."
 }

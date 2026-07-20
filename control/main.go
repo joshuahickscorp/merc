@@ -105,6 +105,33 @@ func validateLiveMoneyConfig(cxEnv, stripeSecret, billingWebhookSecret, connectW
 	return nil
 }
 
+func validateCanaryMoneyMode(
+	canaryRaw, stripeSecret, billingWebhookSecret, connectWebhookSecret, connectClientID, payoutExport string,
+) error {
+	enabled, err := strconv.ParseBool(strings.TrimSpace(canaryRaw))
+	if err != nil && strings.TrimSpace(canaryRaw) != "" {
+		return fmt.Errorf("CX_CANARY_MODE must be a boolean")
+	}
+	if !enabled {
+		return nil
+	}
+	if !strings.HasPrefix(stripeSecret, "sk_test_") {
+		return fmt.Errorf("private canary requires STRIPE_SECRET_KEY=sk_test_*; live or absent keys are refused")
+	}
+	if !strings.HasPrefix(billingWebhookSecret, "whsec_") ||
+		!strings.HasPrefix(connectWebhookSecret, "whsec_") ||
+		billingWebhookSecret == connectWebhookSecret {
+		return fmt.Errorf("private canary requires distinct cash and Connect whsec_* endpoint secrets")
+	}
+	if !strings.HasPrefix(connectClientID, "ca_") {
+		return fmt.Errorf("private canary requires a test-mode CX_CONNECT_CLIENT_ID")
+	}
+	if strings.TrimSpace(payoutExport) != "" {
+		return fmt.Errorf("private canary refuses CX_PAYOUT_EXPORT; supplier value movement is test-mode only")
+	}
+	return nil
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("control: ")
@@ -157,6 +184,13 @@ func main() {
 	if err := validateLiveMoneyConfig(
 		os.Getenv("CX_ENV"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		os.Getenv("CX_CONNECT_WEBHOOK_SECRET"),
+	); err != nil {
+		log.Fatal(err)
+	}
+	if err := validateCanaryMoneyMode(
+		os.Getenv("CX_CANARY_MODE"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		os.Getenv("CX_CONNECT_WEBHOOK_SECRET"), os.Getenv("CX_CONNECT_CLIENT_ID"),
+		os.Getenv("CX_PAYOUT_EXPORT"),
 	); err != nil {
 		log.Fatal(err)
 	}
