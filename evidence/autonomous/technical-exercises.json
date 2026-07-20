@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "completed_at": "2026-07-20T05:49:23Z",
+  "dsar": {
+    "export_complete": true,
+    "foreign_data_absent": true,
+    "secrets_redacted": true,
+    "artifacts_in_manifest": true,
+    "payment_records": true,
+    "provenance": true
+  },
+  "deletion": {
+    "deletable_data_removed": true,
+    "minimal_financial_retention": true,
+    "artifact_expiry_harness": true,
+    "authentication_revoked": true,
+    "foreign_keys_valid": true
+  },
+  "tombstone": {
+    "authentication_denied": true,
+    "submission_denied": true,
+    "private_retrieval_denied": true,
+    "silent_recreation_denied": true,
+    "minimal_identity_retained": true,
+    "pre_deletion_restore_replayed": true
+  },
+  "provenance": {
+    "request": true,
+    "input": true,
+    "quote": true,
+    "submission": true,
+    "tasks": true,
+    "agent_identity": true,
+    "model_revision": true,
+    "attempt": true,
+    "result": true,
+    "verification": true,
+    "finalization": true,
+    "ledger": true,
+    "webhook": true,
+    "retrieval": true
+  },
+  "support_tabletop": {
+    "status": "PASS",
+    "settlement_mismatch_detected": true,
+    "reconciled_to_immutable_ledger": true,
+    "safe_correction_proposal": true,
+    "communication_draft": true,
+    "postmortem_required": true
+  },
+  "security_tabletop": {
+    "status": "PASS",
+    "cross_tenant_access": false,
+    "intake_pause_procedure": true,
+    "token_revocation": true,
+    "leaked_url_issued": false,
+    "url_presign_denied_after_owner_check": true,
+    "canonical_artifact_reference_revoked": true,
+    "audit_export": true,
+    "containment": true,
+    "recovery_intake_resumed": true,
+    "severity_if_access_succeeded": "P0"
+  },
+  "break_glass": {
+    "status": "PASS",
+    "named_operator": true,
+    "reason": true,
+    "incident_reference": true,
+    "before_after": true,
+    "immutable_audit": true,
+    "unauthorized_rejected": true,
+    "audit_failure_aborts": true,
+    "concurrent_operators": true,
+    "idempotent_retries": true
+  },
+  "qualification": {
+    "technical_tabletop": "PASS",
+    "qualified_human_tabletop": "NOT EXECUTED",
+    "external_subprocessor_deletion": "NOT EXECUTED"
+  }
+}

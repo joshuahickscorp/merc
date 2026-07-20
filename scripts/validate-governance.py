@@ -44,9 +44,9 @@ def validate_documents() -> None:
         "docs/CANARY_TERMS.md": ("DRAFT", "synthetic", "Stripe test-mode", "Built with Llama"),
         "docs/PRIVACY_NOTICE_DRAFT.md": ("DRAFT", "DO NOT PUBLISH", "supplier"),
         "docs/PRIVACY_DATA_GOVERNANCE.md": ("DRAFT", "Proposed", "backup"),
-        "docs/DSAR_RUNBOOK.md": ("DRAFT", "not yet", "tombstone"),
+        "docs/DSAR_RUNBOOK.md": ("DRAFT", "TECHNICAL WORKFLOW REHEARSED", "tombstone"),
         "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md": ("DRAFT", "Prohibited use", "operator-controlled"),
-        "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md": ("DRAFT", "TABLETOP NOT EXECUTED", "Stripe"),
+        "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md": ("DRAFT", "QUALIFIED HUMAN TABLETOP NOT EXECUTED", "Stripe"),
         "docs/THIRD_PARTY_LICENSES.md": ("INCOMPLETE", "RELEASE BLOCKING", "Llama"),
         "NOTICE": ("Built with Llama", "does not currently contain a project-level LICENSE", "Apache-2.0"),
     }
@@ -56,6 +56,26 @@ def validate_documents() -> None:
         text = target.read_text(encoding="utf-8")
         for needle in needles:
             require(needle in text, f"{relative}: missing required marker {needle!r}")
+
+
+def validate_review_packets() -> None:
+    packets = read_json("ops/governance-review-packets.json")
+    require(packets.get("status") == "PREPARED_PENDING_QUALIFIED_REVIEW",
+            "review packets must remain pending qualified review")
+    expected = {"security", "privacy", "legal", "licensing", "payments", "operations",
+                "supplier_policy", "release_approval"}
+    rows = packets.get("packets", [])
+    require({row.get("domain") for row in rows} == expected,
+            "governance packets must cover exactly eight required domains")
+    require(all(row.get("status") == "PENDING" and
+                row.get("qualified_reviewer_required") is True and
+                row.get("required_evidence") for row in rows),
+            "every governance packet must remain pending and evidence-scoped")
+    require(not packets.get("approvers") and packets.get("approved_at") is None,
+            "prepared packets cannot fabricate approvers or approval time")
+    schema = packets.get("approval_bundle_schema")
+    require(isinstance(schema, str) and (ROOT / schema).is_file(),
+            "review packets must reference the approval bundle schema")
 
 
 def validate_legal() -> None:
@@ -112,10 +132,22 @@ def validate_economics() -> None:
 
 def validate_tabletop() -> None:
     tabletop = read_json("ops/support-incident-tabletop.json")
-    require(tabletop.get("status") == "NOT_EXECUTED", "tabletop must remain NOT_EXECUTED")
-    require(tabletop.get("candidate_commit") is None, "unexecuted tabletop cannot bind a candidate")
-    require(not tabletop.get("participants"), "unexecuted tabletop cannot name participants")
-    require(tabletop.get("approved_at") is None, "unexecuted tabletop cannot be approved")
+    require(tabletop.get("status") == "TECHNICAL_PASS_HUMAN_NOT_EXECUTED",
+            "tabletop must distinguish technical PASS from human non-execution")
+    technical = tabletop.get("technical_tabletops", [])
+    require(len(technical) == 2 and all(item.get("status") == "PASS" for item in technical),
+            "support and security technical tabletops must both pass")
+    for item in technical:
+        evidence = item.get("evidence")
+        require(isinstance(evidence, str) and (ROOT / evidence).is_file(),
+                f"technical tabletop evidence missing: {evidence!r}")
+    human = tabletop.get("qualified_human_tabletop", {})
+    require(human.get("status") == "NOT_EXECUTED",
+            "qualified human tabletop must remain NOT_EXECUTED")
+    require(tabletop.get("candidate_commit") is None,
+            "unapproved qualified tabletop cannot bind a candidate")
+    require(not tabletop.get("participants"), "unexecuted human tabletop cannot name participants")
+    require(tabletop.get("approved_at") is None, "unexecuted human tabletop cannot be approved")
     scenarios = tabletop.get("planned_scenarios", [])
     require(len(scenarios) >= 5, "tabletop must retain all planned scenarios")
     require(all(item.get("result") == "NOT_RUN" for item in scenarios),
@@ -186,6 +218,7 @@ def validate_models() -> None:
 def main() -> int:
     checks = (
         ("documents", validate_documents),
+        ("review-packets", validate_review_packets),
         ("legal", validate_legal),
         ("economics", validate_economics),
         ("tabletop", validate_tabletop),

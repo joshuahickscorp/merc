@@ -44,7 +44,7 @@ x-control-environment: &control-environment
   CX_CANARY_MAX_DAILY_JOBS: "100"
   CX_CANARY_MAX_SHADOW_VALUE_USD: "10"
   CX_CANARY_MAX_HELD_SHADOW_PAYOUT_USD: "10"
-  GOMEMLIMIT: 384MiB
+  GOMEMLIMIT: 768MiB
   S3_ENDPOINT: http://minio:9000
   S3_PUBLIC_ENDPOINT: https://${STAGING_STORAGE_TLS_HOSTNAME:?required in .env.go-closure}
   S3_REGION: ${S3_REGION:-us-east-1}
@@ -128,10 +128,11 @@ services:
     environment: *control-environment
     expose:
       - "8080"
+    user: "65532:65532"
     volumes:
       - ../../.artifacts/go-closure-health:/run/cx-health:ro
     healthcheck:
-      test: [CMD, /cx, healthcheck]
+      test: [CMD, /cx-healthcheck]
       interval: 10s
       timeout: 4s
       retries: 12
@@ -144,7 +145,7 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    mem_limit: 512m
+    mem_limit: 1g
     cpus: 1.0
     pids_limit: 128
     stop_grace_period: 60s

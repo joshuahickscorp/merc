@@ -64,7 +64,7 @@ missing = sorted(set(registered) - set(reviewed))
 stale = sorted(set(reviewed) - set(registered))
 if missing or stale:
     fail(f"coverage mismatch missing={missing} stale={stale}")
-if len(reviewed) != 70:
-    fail(f"expected reviewed 70-route surface, found {len(reviewed)}")
+if len(reviewed) != 71:
+    fail(f"expected reviewed 71-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")

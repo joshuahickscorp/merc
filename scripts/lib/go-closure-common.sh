@@ -51,9 +51,22 @@ gc_load_env() {
   # shellcheck disable=SC1090
   . "$GC_ENV_FILE"
   set +a
-  if [[ "${STRIPE_SECRET_KEY:-}" == sk_live_* ]]; then
-    gc_die "Stripe live mode is refused"
-  fi
+  gc_reject_live_stripe_environment
+}
+
+gc_reject_live_stripe_environment() {
+  local name value
+  for name in STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY \
+    STRIPE_PUBLISHABLE_KEY NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY; do
+    value="${!name:-}"
+    case "$value" in
+      sk_live_*|rk_live_*|pk_live_*)
+        gc_die "$name has a live Stripe credential class; closure commands refuse it before network access"
+        ;;
+    esac
+  done
+  [ "${CX_PAYMENT_PROVIDER:-}" != simulator ] \
+    || gc_die "the payment simulator is CLI/test-only and cannot be selected by staging"
 }
 
 gc_require_declared_inputs() {
@@ -139,7 +152,8 @@ gc_validate_host_config() {
   esac
   [ "$GC_ROOT" = "$(cd "$STAGING_DEPLOYMENT_ROOT" 2>/dev/null && pwd -P)" ] \
     || gc_die "script root $GC_ROOT does not match STAGING_DEPLOYMENT_ROOT $STAGING_DEPLOYMENT_ROOT"
-  [[ "$STRIPE_SECRET_KEY" == sk_test_* ]] || gc_die "STRIPE_SECRET_KEY must be sk_test_*"
+  [[ "$STRIPE_SECRET_KEY" == sk_test_* || "$STRIPE_SECRET_KEY" == rk_test_* ]] \
+    || gc_die "STRIPE_SECRET_KEY must be sk_test_* or a sufficiently scoped rk_test_*"
   [[ "$STRIPE_WEBHOOK_SECRET" == whsec_* ]] || gc_die "STRIPE_WEBHOOK_SECRET must be whsec_*"
   [[ "$CX_CONNECT_WEBHOOK_SECRET" == whsec_* ]] || gc_die "CX_CONNECT_WEBHOOK_SECRET must be whsec_*"
   [[ "$CX_CONNECT_CLIENT_ID" == ca_* ]] || gc_die "CX_CONNECT_CLIENT_ID must be a test-mode ca_* identifier"
@@ -311,6 +325,37 @@ gc_sha256() {
     shasum -a 256 "$1" | awk '{print $1}'
   else
     sha256sum "$1" | awk '{print $1}'
+  fi
+}
+
+# Bind the content and mode of every releasable dirty file, not merely the set
+# of paths reported by `git status`. Generated receipts are excluded because a
+# receipt cannot include its own content without becoming self-referential.
+gc_source_state_sha256() {
+  local root="${1:-$GC_ROOT}" path digest mode
+  {
+    git -C "$root" diff --binary --no-ext-diff HEAD -- . \
+      ':(exclude)evidence/autonomous/**'
+    while IFS= read -r -d '' path; do
+      case "$path" in evidence/autonomous/*) continue ;; esac
+      mode=100644
+      [ ! -x "$root/$path" ] || mode=100755
+      if [ -L "$root/$path" ]; then
+        mode=120000
+        if command -v shasum >/dev/null 2>&1; then
+          digest="$(readlink "$root/$path" | shasum -a 256 | awk '{print $1}')"
+        else
+          digest="$(readlink "$root/$path" | sha256sum | awk '{print $1}')"
+        fi
+      else
+        digest="$(gc_sha256 "$root/$path")"
+      fi
+      printf 'untracked\0%s\0%s\0%s\0' "$mode" "$path" "$digest"
+    done < <(git -C "$root" ls-files --others --exclude-standard -z)
+  } | if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | awk '{print $1}'
+  else
+    sha256sum | awk '{print $1}'
   fi
 }
 

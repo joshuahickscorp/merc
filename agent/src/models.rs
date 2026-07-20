@@ -86,6 +86,13 @@ const INFER: ModelSpec = ModelSpec {
     }],
 };
 
+pub fn retained_model_revisions() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (EMBED_MINILM_ID, EMBED.revision),
+        (INFER_LLAMA_ID, INFER.revision),
+    ]
+}
+
 pub const LLAMA_TOKENIZER: ModelSpec = ModelSpec {
     repo: "unsloth/Llama-3.2-1B-Instruct",
     revision: "5a8abab4a5d6f164389b1079fb721cfab8d7126c",

@@ -321,7 +321,9 @@ func (s *Store) LookupAPIKey(ctx context.Context, rawKey string) (AuthResult, er
 		`SELECT id, buyer_id, is_admin,
 		        COALESCE(NULLIF(name,''), CASE WHEN is_admin THEN 'break-glass API key' ELSE 'API key' END)
 		   FROM api_keys
-		 WHERE key_hash = $1 AND revoked = false`,
+		 WHERE key_hash = $1 AND revoked = false
+		   AND (is_admin OR EXISTS (
+		     SELECT 1 FROM buyers b WHERE b.id=api_keys.buyer_id AND b.deleted_at IS NULL))`,
 		hashKey(rawKey),
 	).Scan(&r.APIKeyID, &r.BuyerID, &r.IsAdmin, &r.APIKeyLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -411,11 +413,15 @@ func (s *Store) CreateAPIKey(ctx context.Context, buyerID uuid.UUID, name string
 	masked = maskKey(raw)
 	err = s.pool.QueryRow(ctx,
 		`INSERT INTO api_keys (buyer_id, key_hash, name, masked, is_admin, revoked)
-		 VALUES ($1, $2, $3, $4, false, false)
+		 SELECT id, $2, $3, $4, false, false
+		   FROM buyers WHERE id=$1 AND deleted_at IS NULL
 		 RETURNING id`,
 		buyerID, hashKey(raw), name, masked,
 	).Scan(&id)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, "", "", errNotFound
+		}
 		return uuid.Nil, "", "", err
 	}
 	return id, raw, masked, nil
@@ -846,6 +852,11 @@ func (s *Store) SuspendWorker(ctx context.Context, actor AdminActor, workerID uu
 	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
 		return err
 	}
+	if replay, err := acquireAdminMutationReplay(ctx, tx, actor, intent); err != nil {
+		return err
+	} else if replay.Found {
+		return tx.Commit(ctx)
+	}
 
 	var supplierID uuid.UUID
 	var beforeStatus string
@@ -882,6 +893,11 @@ func (s *Store) ReinstateWorker(ctx context.Context, actor AdminActor, workerID 
 	defer tx.Rollback(ctx)
 	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
 		return err
+	}
+	if replay, err := acquireAdminMutationReplay(ctx, tx, actor, intent); err != nil {
+		return err
+	} else if replay.Found {
+		return tx.Commit(ctx)
 	}
 
 	var supplierID uuid.UUID
@@ -975,6 +991,11 @@ func (s *Store) AdminForceRequeueTask(ctx context.Context, actor AdminActor, tas
 	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
 		return err
 	}
+	if replay, err := acquireAdminMutationReplay(ctx, tx, actor, intent); err != nil {
+		return err
+	} else if replay.Found {
+		return tx.Commit(ctx)
+	}
 
 	var jobID uuid.UUID
 	var beforeStatus string
@@ -1032,6 +1053,18 @@ func (s *Store) AdminAdjustReputation(ctx context.Context, actor AdminActor, sup
 	defer tx.Rollback(ctx)
 	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
 		return 0, 0, err
+	}
+	if replay, err := acquireAdminMutationReplay(ctx, tx, actor, intent); err != nil {
+		return 0, 0, err
+	} else if replay.Found {
+		before, after, err := replayedReputation(replay.Detail)
+		if err != nil {
+			return 0, 0, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return 0, 0, err
+		}
+		return before, after, nil
 	}
 
 	if err := tx.QueryRow(ctx,
@@ -1385,6 +1418,11 @@ func (s *Store) ReleasePayoutTx(ctx context.Context, actor AdminActor, entryID u
 	defer tx.Rollback(ctx)
 	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
 		return err
+	}
+	if replay, err := acquireAdminMutationReplay(ctx, tx, actor, intent); err != nil {
+		return err
+	} else if replay.Found {
+		return tx.Commit(ctx)
 	}
 
 	var supplierID uuid.UUID

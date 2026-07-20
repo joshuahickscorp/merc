@@ -32,6 +32,12 @@ func seedDemo(ctx context.Context, pool *pgxpool.Pool, storage *Storage) error {
 		sql  string
 		args []any
 	}{
+		{`INSERT INTO buyers (id, email, free_credit_usd)
+		  VALUES ($1, 'demo-buyer@example.invalid', 100.00)
+		  ON CONFLICT (id) DO NOTHING`, []any{demoBuyerID}},
+		{`INSERT INTO buyers (id, email, free_credit_usd)
+		  VALUES ($1, 'demo-admin@example.invalid', 0)
+		  ON CONFLICT (id) DO NOTHING`, []any{demoAdminBuyerID}},
 		{`INSERT INTO suppliers (id, email, reputation, tier, status)
 		  VALUES ($1, 'demo-supplier@example.com', 0.90, 2, 'active')
 		  ON CONFLICT (id) DO NOTHING`, []any{demoSupplierID}},
@@ -63,9 +69,10 @@ func seedDemo(ctx context.Context, pool *pgxpool.Pool, storage *Storage) error {
 		{`INSERT INTO api_keys (buyer_id, key_hash, is_admin, revoked)
 		  VALUES ($1, $2, false, false)
 		  ON CONFLICT (key_hash) DO NOTHING`, []any{demoBuyerID, hashKey(demoAPIKey)}},
-		{`INSERT INTO api_keys (buyer_id, key_hash, is_admin, revoked)
-		  VALUES ($1, $2, true, false)
-		  ON CONFLICT (key_hash) DO NOTHING`, []any{demoAdminBuyerID, hashKey(demoAdminAPIKey)}},
+		{`INSERT INTO api_keys (buyer_id, key_hash, is_admin, revoked, name, masked)
+		  VALUES ($1, $2, true, false, 'local-rehearsal-operator', 'dev-...0001')
+		  ON CONFLICT (key_hash) DO UPDATE
+		  SET name=EXCLUDED.name,masked=EXCLUDED.masked`, []any{demoAdminBuyerID, hashKey(demoAdminAPIKey)}},
 		{`INSERT INTO honeypots (job_type, input_ref, known_answer)
 		  SELECT 'embed', $1, $2
 		  WHERE NOT EXISTS (SELECT 1 FROM honeypots WHERE job_type='embed' AND input_ref=$1)`,

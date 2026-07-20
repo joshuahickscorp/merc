@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>computexchange buyer workspace</title>
+<style>
+:root{color-scheme:dark;--bg:#070707;--panel:#111;--line:#3f3f3f;--text:#f2f2ef;--muted:#ababab;--good:#74c69d;--bad:#f08c7d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,sans-serif}
+a{color:var(--good)}button,input,select,textarea{font:inherit;color:inherit;background:#171717;border:1px solid var(--line);padding:10px}
+button{cursor:pointer}button:hover{border-color:var(--good)}:where(a,button,input,select,textarea):focus-visible{outline:2px solid var(--good);outline-offset:3px}
+header,main{width:min(1120px,calc(100% - 32px));margin:auto}header{display:flex;align-items:center;gap:18px;padding:22px 0;border-bottom:1px solid var(--line)}
+header strong{letter-spacing:.04em}header nav{margin-left:auto;display:flex;gap:14px}.muted{color:var(--muted)}
+.notice{padding:14px 0;color:var(--muted)}.notice b{color:var(--text)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:14px 0 40px}
+.card{border:1px solid var(--line);background:var(--panel);padding:18px;min-width:0}.wide{grid-column:1/-1}h1,h2{margin:0 0 14px}h1{font-size:20px}h2{font-size:15px;color:var(--good)}
+form{display:grid;gap:12px}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}label{display:grid;gap:6px;color:var(--muted);font-size:13px}
+textarea{min-height:130px;resize:vertical}button.primary{background:var(--good);color:#07130d;border-color:var(--good);font-weight:700}.actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+.states{display:flex;flex-wrap:wrap;gap:7px;list-style:none;margin:0;padding:0}.states li{border:1px solid var(--line);padding:5px 8px;color:var(--muted);font:12px ui-monospace,monospace}
+pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;color:#d6d6d2;font:12px/1.5 ui-monospace,monospace}
+#session[hidden],#workspace[hidden]{display:none}.status{min-height:24px;color:var(--muted)}.status.error{color:var(--bad)}.status.good{color:var(--good)}
+@media(max-width:760px){.grid,.fields{grid-template-columns:1fr}.wide{grid-column:auto}header{align-items:flex-start;flex-wrap:wrap}header nav{margin-left:0;width:100%}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<header>
+  <strong>computexchange / buyer</strong>
+  <span class="muted">approved private test canary</span>
+  <nav aria-label="product links"><a href="/">product</a><a href="/healthz">status</a></nav>
+</header>
+<main>
+  <p class="notice"><b>No real payments.</b> This workspace accepts only the advertised <code>embed</code> and <code>batch_infer</code> contract for approved canary accounts.</p>
+  <section id="session" class="grid">
+    <div class="card">
+      <h1>Sign in</h1>
+      <form id="login-form">
+        <label>Email <input id="email" name="email" type="email" autocomplete="email" required></label>
+        <label>Password <input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">sign in</button>
+      </form>
+      <p id="login-status" class="status" aria-live="polite"></p>
+    </div>
+    <div class="card">
+      <h2>Canary limits</h2>
+      <p class="muted">Approved accounts only. Capacity and latency are limited. Payment-provider integration remains test-mode only and is not represented as live-money readiness.</p>
+      <p><a href="https://github.com/joshuahickscorp/computexchange/tree/release/rc1-go-closure/docs">API and canary documentation</a></p>
+    </div>
+  </section>
+
+  <section id="workspace" class="grid" hidden>
+    <div class="card wide">
+      <div class="actions"><strong id="identity">authenticated buyer</strong><span id="budget" class="muted"></span><button id="logout" type="button">log out</button></div>
+    </div>
+    <div class="card">
+      <h2>1 / quote and input</h2>
+      <form id="job-form">
+        <div class="fields">
+          <label>Workload
+            <select id="workload"><option value="embed">embed</option><option value="batch_infer">batch_infer</option></select>
+          </label>
+          <label>Budget cap USD <input id="max-usd" type="number" min="0" step="0.000001" value="0.10"></label>
+        </div>
+        <label>JSONL input file <input id="input-file" type="file" accept=".jsonl,.txt,application/json,text/plain"></label>
+        <label>JSONL input
+          <textarea id="input" required>{"text":"private canary embedding"}</textarea>
+        </label>
+        <label>Completion webhook HTTPS URL, optional <input id="webhook" type="url" inputmode="url" placeholder="https://buyer.example/cx-complete"></label>
+        <div class="actions"><button id="quote" type="button">request quote</button><button class="primary" type="submit">submit job</button></div>
+      </form>
+      <p id="job-status" class="status" aria-live="polite"></p>
+    </div>
+    <div class="card">
+      <h2>2 / quote receipt</h2>
+      <pre id="quote-output">Request a quote before submission.</pre>
+    </div>
+    <div class="card wide">
+      <h2>3 / job lifecycle</h2>
+      <ul class="states" aria-label="possible job states">
+        <li>queued</li><li>running</li><li>retrying</li><li>verifying</li><li>completed</li><li>cancelled</li><li>failed</li>
+      </ul>
+      <div class="actions">
+        <label>Job ID <input id="job-id" inputmode="text" autocomplete="off"></label>
+        <button id="refresh" type="button">refresh</button><button id="events" type="button">events</button>
+        <button id="results" type="button">results</button><button id="cancel" type="button">cancel queued job</button>
+      </div>
+      <p id="poll-status" class="status" aria-live="polite"></p>
+      <pre id="job-output">No job selected.</pre>
+    </div>
+    <div class="card">
+      <h2>Webhook and results</h2>
+      <p class="muted">A webhook signing secret is revealed once on registration or submission. Keep it outside browser storage. Results remain buyer-authenticated and artifact URLs are short-lived.</p>
+    </div>
+    <div class="card">
+      <h2>Support and privacy</h2>
+      <p class="muted">Use the approved canary support channel for failures, billing-model questions, data export, deletion, restriction, or an artifact-reference concern. Include a job ID, never a credential or private input.</p>
+    </div>
+  </section>
+</main>
+<script>
+let token = '';
+let quoteReceipt = null;
+let pollTimer = null;
+const byId = id => document.getElementById(id);
+
+async function api(path, options = {}) {
+  const headers = {...(options.headers || {})};
+  if (token) headers.Authorization = 'Bearer ' + token;
+  if (options.body) headers['Content-Type'] = 'application/json';
+  const response = await fetch(path, {...options, headers, cache:'no-store'});
+  const text = await response.text();
+  let value;
+  try { value = text ? JSON.parse(text) : null; } catch { value = text; }
+  if (!response.ok) throw new Error(typeof value === 'string' ? value : JSON.stringify(value));
+  return value;
+}
+
+function submission() {
+  const workload = byId('workload').value;
+  return {
+    job_type: workload === 'embed' ? {type:'embed',batch_size:8} : {type:'batch_infer',max_tokens:32,temperature:0},
+    model: {ref: workload === 'embed' ? 'all-minilm-l6-v2' : 'llama-3.2-1b-instruct-q4'},
+    params: {split_size:1}, constraints:{min_memory_gb:0,hw_classes:null,data_residency:null},
+    verification:{redundancy_frac:0,honeypot_frac:0,payout_hold_secs:0}, tier:'batch',
+    input: byId('input').value, webhook_url:byId('webhook').value.trim(),
+    max_usd:Number(byId('max-usd').value)
+  };
+}
+
+function showStatus(id, message, kind = '') {
+  const node = byId(id); node.className = 'status ' + kind; node.textContent = message;
+}
+
+byId('login-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  showStatus('login-status','signing in...');
+  try {
+    const session = await api('/v1/login',{method:'POST',body:JSON.stringify({email:byId('email').value,password:byId('password').value})});
+    token = session.token;
+    byId('password').value = '';
+    const me = await api('/v1/me');
+    byId('identity').textContent = me.email;
+    byId('budget').textContent = 'sandbox credit remaining: $' + Number(me.free_credit_remaining_usd).toFixed(6);
+    byId('session').hidden = true; byId('workspace').hidden = false;
+    showStatus('login-status','');
+  } catch (error) { showStatus('login-status',error.message,'error'); }
+});
+
+byId('logout').addEventListener('click', async () => {
+  try { await api('/v1/logout',{method:'POST'}); } catch {}
+  token = ''; quoteReceipt = null; clearInterval(pollTimer); byId('workspace').hidden = true; byId('session').hidden = false;
+});
+
+byId('input-file').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  if (file) byId('input').value = await file.text();
+});
+
+byId('workload').addEventListener('change', () => {
+  byId('input').value = byId('workload').value === 'embed' ? '{"text":"private canary embedding"}' : '{"prompt":"Summarize this private canary input."}';
+  quoteReceipt = null;
+});
+
+byId('quote').addEventListener('click', async () => {
+  showStatus('job-status','quoting...');
+  try {
+    quoteReceipt = await api('/v1/quote',{method:'POST',body:JSON.stringify(submission())});
+    byId('quote-output').textContent = JSON.stringify(quoteReceipt,null,2);
+    showStatus('job-status','quote ready','good');
+  } catch (error) { showStatus('job-status',error.message,'error'); }
+});
+
+byId('job-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  showStatus('job-status','submitting...');
+  try {
+    const request = submission();
+    if (quoteReceipt && quoteReceipt.quote_id) { request.quote_id = quoteReceipt.quote_id; request.firm_quote = true; }
+    const response = await api('/v1/jobs',{method:'POST',headers:{'Idempotency-Key':'buyer-web-' + crypto.randomUUID()},body:JSON.stringify(request)});
+    byId('job-id').value = response.job_id;
+    byId('job-output').textContent = JSON.stringify(response,null,2);
+    showStatus('job-status','job accepted; any webhook secret above is shown once','good');
+    beginPolling();
+  } catch (error) { showStatus('job-status',error.message,'error'); }
+});
+
+async function loadJob(path = '') {
+  const id = byId('job-id').value.trim();
+  if (!id) throw new Error('enter a job ID');
+  const value = await api('/v1/jobs/' + encodeURIComponent(id) + path);
+  byId('job-output').textContent = JSON.stringify(value,null,2);
+  if (!path) {
+    const state = value.status || 'unknown';
+    showStatus('poll-status','job state: ' + state,state === 'complete' ? 'good' : state === 'failed' ? 'error' : '');
+    if (['complete','cancelled','failed'].includes(state)) clearInterval(pollTimer);
+  }
+}
+
+function beginPolling() { clearInterval(pollTimer); loadJob().catch(error => showStatus('poll-status',error.message,'error')); pollTimer = setInterval(() => loadJob().catch(error => showStatus('poll-status',error.message,'error')),5000); }
+byId('refresh').addEventListener('click',beginPolling);
+byId('events').addEventListener('click',() => loadJob('/events').catch(error => showStatus('poll-status',error.message,'error')));
+byId('results').addEventListener('click',() => loadJob('/results').catch(error => showStatus('poll-status',error.message,'error')));
+byId('cancel').addEventListener('click',async () => {
+  try { const id = byId('job-id').value.trim(); const value = await api('/v1/jobs/' + encodeURIComponent(id),{method:'DELETE'}); byId('job-output').textContent = JSON.stringify(value,null,2); showStatus('poll-status','job cancelled','good'); clearInterval(pollTimer); }
+  catch (error) { showStatus('poll-status',error.message,'error'); }
+});
+window.addEventListener('pagehide',() => { token=''; quoteReceipt=null; clearInterval(pollTimer); });
+</script>
+</body>
+</html>

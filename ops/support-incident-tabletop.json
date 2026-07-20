@@ -1,9 +1,27 @@
 {
   "schema_version": 1,
   "exercise_id": "controlled-canary-tabletop-001",
-  "status": "NOT_EXECUTED",
+  "status": "TECHNICAL_PASS_HUMAN_NOT_EXECUTED",
   "scope": "synthetic-data, operator-controlled supplier, Stripe-test-mode canary",
   "candidate_commit": null,
+  "technical_tabletops": [
+    {
+      "id": "support-ledger-display-mismatch",
+      "status": "PASS",
+      "evidence": "evidence/autonomous/technical-exercises.json",
+      "assertions": ["mismatch detected", "immutable ledger preserved", "safe correction proposed", "communication drafted", "postmortem required"]
+    },
+    {
+      "id": "cross-tenant-artifact-reference",
+      "status": "PASS",
+      "evidence": "evidence/autonomous/technical-exercises.json",
+      "assertions": ["cross-tenant access denied", "intake pause procedure", "token revocation", "presign denied", "audit export", "containment and recovery"]
+    }
+  ],
+  "qualified_human_tabletop": {
+    "status": "NOT_EXECUTED",
+    "reason": "named qualified participants, contacts and external notification authority are absent"
+  },
   "planned_scenarios": [
     {
       "id": "supplier-egress",

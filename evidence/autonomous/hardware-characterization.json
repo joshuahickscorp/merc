@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "kind": "cx_agent_device_characterization",
+  "status": "PASS",
+  "physical_devices_observed": 1,
+  "device": "metal",
+  "device_model": "Mac15,14",
+  "hardware_class": "apple_silicon_ultra",
+  "memory_gb": 103.079216,
+  "operating_system": "macOS 27.0 (26A5378j)",
+  "metal_available": true,
+  "source_identity": "4a4807d69d8747a5",
+  "runtime_authority_sha256": "ecbf2fc6cc2b749860cd769d29a6b39bcf76f8c96ad0b785c0cdb29851b1f5c8",
+  "model_revisions": [
+    [
+      "all-minilm-l6-v2",
+      "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+    ],
+    [
+      "llama-3.2-1b-instruct-q4",
+      "b69aef112e9f895e6f98d7ae0949f72ff09aa401"
+    ]
+  ],
+  "benchmarks": [
+    {
+      "model_id": "all-minilm-l6-v2",
+      "job_type": "embed",
+      "tps": 0.0,
+      "eps": 1902.0637,
+      "p99_ms": 14,
+      "thermal_ok": true,
+      "load_ms": 275
+    },
+    {
+      "model_id": "llama-3.2-1b-instruct-q4",
+      "job_type": "batch_infer",
+      "tps": 202.76547,
+      "eps": 0.0,
+      "p99_ms": 9,
+      "thermal_ok": true,
+      "load_ms": 3308
+    }
+  ],
+  "peak_rss_bytes": 3703095296,
+  "thermal_state": "nominal",
+  "throttling": false,
+  "cache_behavior": "fresh isolated benchmark run completed and cache receipt written",
+  "limitations": [
+    "single physical Mac only",
+    "additional authorized devices require separate receipts"
+  ]
+}

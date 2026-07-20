@@ -51,6 +51,12 @@ scripts/go-closure-canary-rehearsal.sh --target ssh --execute
 scripts/go-closure-soak.sh --target ssh --duration 86400 --execute
 ```
 
+For the production-shaped local topology, `make soak-15m` and `make soak-2h`
+are short non-qualifying iterations. `make soak-24h-persistent` starts a
+terminal-independent continuous 24-hour process and `make soak-24h-status`
+reports its state. Any process interruption invalidates the run; only the
+terminal PASS receipt can close the 24-hour gate.
+
 Use `--target local` only for an isolated host rehearsal. It does not close the
 persistent external staging blocker.
 

@@ -74,18 +74,51 @@ jobs:
             "$PRIOR_IMAGE_REF" --output spdx-json=prior-sbom.spdx.json
           test -s candidate-sbom.spdx.json
           test -s prior-sbom.spdx.json
+      - name: Scan candidate and rollback images
+        run: |
+          for pair in "candidate:$IMAGE_REF" "prior:$PRIOR_IMAGE_REF"; do
+            name="${pair%%:*}"
+            ref="${pair#*:}"
+            go run github.com/aquasecurity/trivy/cmd/trivy@v0.66.0 image \
+              --format json --output "$name-vulnerabilities.json" \
+              --severity HIGH,CRITICAL "$ref"
+            go run github.com/aquasecurity/trivy/cmd/trivy@v0.66.0 image \
+              --exit-code 1 --ignore-unfixed --severity CRITICAL "$ref"
+          done
       - name: Sign and attest with GitHub OIDC
         run: |
+          jq -n --arg repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --arg ref "$GITHUB_REF" --arg commit "$GITHUB_SHA" \
+            --arg builder "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/.github/workflows/publish-candidate.yml@$GITHUB_REF" \
+            --arg invocation "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" '
+            {buildDefinition:{buildType:"https://computexchange.invalid/buildtypes/docker-control/v1",
+              externalParameters:{repository:$repo,ref:$ref,commit:$commit,dockerfile:"Dockerfile.control"},
+              internalParameters:{workflow:"publish-candidate"},
+              resolvedDependencies:[{uri:("git+"+$repo+"@"+$ref),digest:{gitCommit:$commit}}]},
+             runDetails:{builder:{id:$builder},metadata:{invocationId:$invocation}}}' \
+            > candidate-provenance.json
+          jq --arg commit "$PRIOR_SHA" \
+            '.buildDefinition.externalParameters.commit=$commit |
+             .buildDefinition.externalParameters.ref="retained-prior-commit" |
+             .buildDefinition.resolvedDependencies[0].uri=("git+"+.buildDefinition.externalParameters.repository+"@"+$commit) |
+             .buildDefinition.resolvedDependencies[0].digest.gitCommit=$commit' \
+            candidate-provenance.json > prior-provenance.json
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
             sign --yes "$IMAGE_REF"
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
             attest --yes --type spdxjson \
             --predicate candidate-sbom.spdx.json "$IMAGE_REF"
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            attest --yes --type slsaprovenance \
+            --predicate candidate-provenance.json "$IMAGE_REF"
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
             sign --yes "$PRIOR_IMAGE_REF"
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
             attest --yes --type spdxjson \
             --predicate prior-sbom.spdx.json "$PRIOR_IMAGE_REF"
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            attest --yes --type slsaprovenance \
+            --predicate prior-provenance.json "$PRIOR_IMAGE_REF"
       - name: Pull and verify digest and signatures
         run: |
           docker image rm "$IMAGE_REF" || true
@@ -107,6 +140,11 @@ jobs:
             --certificate-oidc-issuer "$ISSUER" "$IMAGE_REF" \
             > candidate-attestation-verification.json
           go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            verify-attestation --type slsaprovenance \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" "$IMAGE_REF" \
+            > candidate-provenance-verification.json
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
             verify --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer "$ISSUER" "$PRIOR_IMAGE_REF" \
             > prior-signature-verification.json
@@ -115,6 +153,11 @@ jobs:
             --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer "$ISSUER" "$PRIOR_IMAGE_REF" \
             > prior-attestation-verification.json
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 \
+            verify-attestation --type slsaprovenance \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" "$PRIOR_IMAGE_REF" \
+            > prior-provenance-verification.json
       - name: Upload registry evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -126,7 +169,13 @@ jobs:
             prior-sbom.spdx.json
             candidate-signature-verification.json
             candidate-attestation-verification.json
+            candidate-provenance.json
+            candidate-provenance-verification.json
             prior-signature-verification.json
             prior-attestation-verification.json
+            prior-provenance.json
+            prior-provenance-verification.json
+            candidate-vulnerabilities.json
+            prior-vulnerabilities.json
           if-no-files-found: error
           retention-days: 30

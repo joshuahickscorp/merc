@@ -6,9 +6,11 @@ WORKDIR /src/control
 COPY control/go.mod control/go.sum ./
 RUN go mod download
 COPY control/ ./
+COPY ops/healthcheck.c /tmp/healthcheck.c
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -ldflags="-s -w -X main.controlVersion=${CX_BUILD_VERSION} -X main.controlCommit=${CX_BUILD_COMMIT} -X main.controlBuildDate=${CX_BUILD_DATE}" \
-    -o /cx .
+    -o /cx . && \
+    cc -static -Os -s -Wall -Wextra -Werror -o /cx-healthcheck /tmp/healthcheck.c
 
 FROM gcr.io/distroless/static:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
 ARG CX_BUILD_VERSION=dev
@@ -21,7 +23,8 @@ LABEL org.opencontainers.image.title="Computexchange control plane" \
       org.opencontainers.image.source="https://github.com/joshuahickscorp/computexchange"
 WORKDIR /
 COPY --from=build /cx /cx
-COPY web/index.html web/admin.html /web/
+COPY --from=build /cx-healthcheck /cx-healthcheck
+COPY web/index.html web/buyer.html web/admin.html /web/
 COPY web/favicon.ico /web/favicon.ico
 USER nonroot:nonroot
 EXPOSE 8080

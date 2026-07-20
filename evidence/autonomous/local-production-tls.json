@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "label": "LOCAL PRODUCTION-SHAPED TLS",
+  "completed_at": "2026-07-20T03:59:04Z",
+  "candidate_image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563",
+  "reported_version": {
+    "version": "v0.1.0-rc.1",
+    "commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5",
+    "build_date": "2026-07-20T01:50:04Z",
+    "go_version": "go1.26.5",
+    "platform": "linux/amd64",
+    "modified": false
+  },
+  "topology": {
+    "tls_reverse_proxy": true,
+    "control_by_digest": true,
+    "postgresql": true,
+    "s3_compatible_storage": true,
+    "website": true,
+    "metrics": true,
+    "logs": true,
+    "alert_router": true,
+    "backup_worker": true,
+    "metal_agent_processes": 2,
+    "distinct_physical_devices": 1
+  },
+  "tls": {
+    "valid_certificate": true,
+    "wrong_hostname_rejected": true,
+    "unknown_ca_rejected": true,
+    "expired_certificate_rejected": true,
+    "insecure_bypass_used": false,
+    "http_redirect": true,
+    "hsts": true,
+    "csp": true
+  },
+  "authorization": {
+    "api_requires_auth": true,
+    "operator_routes_protected": true,
+    "worker_tls_validated": true
+  },
+  "runtime_architecture": {
+    "host": "aarch64",
+    "candidate_image": "amd64",
+    "cross_architecture_emulation": true,
+    "candidate_workload_execution": "NOT CLAIMED BY THIS TLS RECEIPT",
+    "note": "The amd64 candidate transport was exercised on an arm64 Docker host; workload execution is proved separately by make prove-local."
+  },
+  "ledger": {
+    "sum": "0",
+    "duplicates": 0
+  },
+  "external": {
+    "persistent_external_tls": "NOT EXECUTED",
+    "stripe_sandbox": "NOT EXECUTED",
+    "stripe_live": "PROHIBITED"
+  }
+}

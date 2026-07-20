@@ -1,11 +1,6 @@
-ifneq (,$(wildcard .env))
-include .env
-export
-endif
-
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: up down dev-up dev-down migrate seed control agent-run agent-bench prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test release-doctor
+.PHONY: up down dev-up dev-down migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check
 
 up:
 	docker compose up -d --build
@@ -33,6 +28,9 @@ agent-run:
 
 agent-bench:
 	cd agent && cargo run --release -- bench
+
+agent-characterize:
+	cd agent && cargo run --release -- characterize
 
 prove-local:
 	cd control && go run . prove --full
@@ -88,5 +86,68 @@ restore-drill:
 backup-envelope-test:
 	bash scripts/test-backup-envelope.sh
 
+local-independent-restore:
+	bash scripts/local-independent-restore.sh
+
+local-production-tls:
+	bash scripts/local-production-rehearsal.sh
+
+local-rollback:
+	bash scripts/local-resilience-rehearsal.sh rollback
+
+restart-storm-local:
+	bash scripts/local-resilience-rehearsal.sh restart-storm
+
+technical-exercises:
+	bash scripts/technical-exercises.sh
+
+alert-check:
+	bash scripts/cx release alert-check
+
+alert-page:
+	bash scripts/cx release alert-page
+
+render-staging:
+	bash scripts/cx release render-staging
+
+validate-staging:
+	bash scripts/cx release validate-staging
+
+soak-15m:
+	bash scripts/local-resilience-rehearsal.sh soak --duration 900 --interval 30
+
+soak-2h:
+	bash scripts/local-resilience-rehearsal.sh soak --duration 7200 --interval 60
+
+soak-24h:
+	bash scripts/local-resilience-rehearsal.sh soak --duration 86400 --interval 60
+
+soak-24h-persistent:
+	bash scripts/start-local-soak-24h.sh start
+
+soak-24h-status:
+	bash scripts/start-local-soak-24h.sh status
+
 release-doctor:
 	bash scripts/release-doctor.sh $(if $(CHECK),--check $(CHECK),)
+
+stripe-simulate:
+	mkdir -p evidence/autonomous
+	cd control && go run . release stripe-simulate --sequences 4096 > ../evidence/autonomous/payment-simulator.json.tmp
+	mv evidence/autonomous/payment-simulator.json.tmp evidence/autonomous/payment-simulator.json
+	jq -e '.status == "SIMULATED PASS" and .evidence_label == "SIMULATED" and .generated_sequences.count == 4096' evidence/autonomous/payment-simulator.json >/dev/null
+
+stripe-check:
+	bash scripts/stripe-sandbox.sh check
+
+stripe-matrix:
+	bash scripts/stripe-sandbox.sh matrix
+
+secret-audit:
+	@set -e; tmp="$$(mktemp ops/stripe-secret-exposure.XXXXXX)"; \
+	  python3 scripts/secret-exposure-audit.py --ci > "$$tmp"; \
+	  mv "$$tmp" ops/stripe-secret-exposure.json
+	jq -e '.secret_values_printed == false and .live_key_exposure == "not detected"' ops/stripe-secret-exposure.json >/dev/null
+
+approvals-check:
+	cd control && go run . release approvals-check $(if $(BUNDLE),--bundle $(BUNDLE),)

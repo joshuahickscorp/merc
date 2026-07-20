@@ -26,6 +26,27 @@ matches() { local name="$1" pattern="$2"; [[ "${!name:-}" == $pattern ]]; }
 readable_path() { present "$1" && [ -r "${!1}" ]; }
 command_present() { command -v "$1" >/dev/null 2>&1; }
 
+stripe_class() {
+  local value="${STRIPE_SECRET_KEY:-}"
+  case "$value" in
+    '') echo missing ;;
+    sk_test_*) echo sk_test ;;
+    sk_live_*) echo sk_live ;;
+    rk_test_*) echo rk_test ;;
+    rk_live_*) echo rk_live ;;
+    pk_test_*) echo publishable_test ;;
+    pk_live_*) echo publishable_live ;;
+    whsec_*) echo webhook_present ;;
+    *) echo unknown ;;
+  esac
+}
+
+live_alias_present=false
+for stripe_name in STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY \
+  STRIPE_PUBLISHABLE_KEY NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY; do
+  case "${!stripe_name:-}" in sk_live_*|rk_live_*|pk_live_*) live_alias_present=true ;; esac
+done
+
 staging_ok=false
 backup_ok=false
 stripe_ok=false
@@ -43,12 +64,15 @@ present CX_BACKUP_OFFSITE && matches CX_BACKUP_OFFSITE 's3://*' && \
   readable_path CX_BACKUP_DECRYPTION_IDENTITY_FILE && \
   command_present age && command_present aws && backup_ok=true
 
-matches STRIPE_SECRET_KEY 'sk_test_*' && \
+(matches STRIPE_SECRET_KEY 'sk_test_*' || matches STRIPE_SECRET_KEY 'rk_test_*') && \
   matches STRIPE_WEBHOOK_SECRET 'whsec_*' && \
   matches CX_CONNECT_WEBHOOK_SECRET 'whsec_*' && \
   [ "${STRIPE_WEBHOOK_SECRET:-}" != "${CX_CONNECT_WEBHOOK_SECRET:-}" ] && \
   matches CX_CONNECT_CLIENT_ID 'ca_*' && \
-  matches STRIPE_TEST_CONNECTED_ACCOUNT_ID 'acct_*' && stripe_ok=true
+  matches STRIPE_TEST_CONNECTED_ACCOUNT_ID 'acct_*' && \
+  matches STRIPE_BILLING_WEBHOOK_ENDPOINT_ID 'we_*' && \
+  matches STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID 'we_*' && \
+  command_present stripe && stripe_ok=true
 
 matches ALERT_RECEIVER_WEBHOOK_URL 'https://*' && present ALERT_RECEIVER_NAME && alert_ok=true
 
@@ -104,7 +128,7 @@ json="$(jq -nc \
   --argjson canary "$canary_ok" \
   --argjson review "$review_ok" \
   --argjson governance "$governance_ok" \
-  --arg stripe_class "$(if matches STRIPE_SECRET_KEY 'sk_test_*'; then echo test; elif matches STRIPE_SECRET_KEY 'sk_live_*'; then echo live_refused; elif present STRIPE_SECRET_KEY; then echo invalid; else echo absent; fi)" \
+  --arg stripe_class "$(if [ "$live_alias_present" = true ]; then echo live_refused; else stripe_class; fi)" \
   --argjson docker "$(command_present docker && echo true || echo false)" \
   --argjson compose "$(docker compose version >/dev/null 2>&1 && echo true || echo false)" \
   --argjson age "$(command_present age && echo true || echo false)" \

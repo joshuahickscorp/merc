@@ -83,14 +83,34 @@ func (g *loginGuardT) success(email string) {
 }
 
 func (s *Store) CreateBuyerAccount(ctx context.Context, email, password string, freeCreditUSD float64) (uuid.UUID, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
 		return uuid.Nil, err
 	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,
+		"buyer-email|"+email); err != nil {
+		return uuid.Nil, err
+	}
+	var tombstoned bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM buyer_identity_tombstones
+		   WHERE email_sha256=encode(digest($1,'sha256'),'hex'))`, email).Scan(&tombstoned); err != nil {
+		return uuid.Nil, err
+	}
+	if tombstoned {
+		return uuid.Nil, errEmailTaken
+	}
 	var id uuid.UUID
-	err = s.pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`INSERT INTO buyers (email, password_hash, free_credit_usd)
-		 VALUES (lower($1), $2, $3)
+		 VALUES ($1, $2, $3)
 		 RETURNING id`,
 		email, string(hash), freeCreditUSD,
 	).Scan(&id)
@@ -98,6 +118,9 @@ func (s *Store) CreateBuyerAccount(ctx context.Context, email, password string, 
 		if isUniqueViolation(err) {
 			return uuid.Nil, errEmailTaken
 		}
+		return uuid.Nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return uuid.Nil, err
 	}
 	return id, nil
@@ -109,7 +132,7 @@ func (s *Store) VerifyBuyerPassword(ctx context.Context, email, password string)
 		hash *string
 	)
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, password_hash FROM buyers WHERE email = lower($1)`, email,
+		`SELECT id, password_hash FROM buyers WHERE email = lower($1) AND deleted_at IS NULL`, email,
 	).Scan(&id, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_ = bcrypt.CompareHashAndPassword([]byte("$2a$12$"+strings.Repeat("x", 53)), []byte(password))
@@ -133,13 +156,16 @@ func (s *Store) CreateSession(ctx context.Context, buyerID uuid.UUID, ttl time.D
 	if raw == "" {
 		return "", errors.New("session token: entropy failure")
 	}
-	_, err := s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(ctx,
 		`INSERT INTO sessions (token_hash, buyer_id, expires_at, revoked)
-		 VALUES ($1, $2, $3, false)`,
+		 SELECT $1, id, $3, false FROM buyers WHERE id=$2 AND deleted_at IS NULL`,
 		hashKey(raw), buyerID, time.Now().Add(ttl),
 	)
 	if err != nil {
 		return "", err
+	}
+	if tag.RowsAffected() != 1 {
+		return "", errNotFound
 	}
 	return raw, nil
 }
@@ -147,8 +173,9 @@ func (s *Store) CreateSession(ctx context.Context, buyerID uuid.UUID, ttl time.D
 func (s *Store) LookupSession(ctx context.Context, rawToken string) (AuthResult, error) {
 	var r AuthResult
 	err := s.pool.QueryRow(ctx,
-		`SELECT buyer_id FROM sessions
-		 WHERE token_hash = $1 AND revoked = false AND expires_at > now()`,
+		`SELECT s.buyer_id FROM sessions s JOIN buyers b ON b.id=s.buyer_id
+		 WHERE s.token_hash = $1 AND s.revoked = false AND s.expires_at > now()
+		   AND b.deleted_at IS NULL`,
 		hashKey(rawToken),
 	).Scan(&r.BuyerID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -184,7 +211,7 @@ func (s *Store) BuyerFreeCreditRemaining(ctx context.Context, buyerID uuid.UUID)
 func (s *Store) BuyerEmail(ctx context.Context, buyerID uuid.UUID) (string, error) {
 	var email string
 	err := s.pool.QueryRow(ctx,
-		`SELECT email FROM buyers WHERE id = $1`, buyerID,
+		`SELECT email FROM buyers WHERE id = $1 AND deleted_at IS NULL`, buyerID,
 	).Scan(&email)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil

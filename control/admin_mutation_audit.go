@@ -23,12 +23,14 @@ const (
 	adminActionReputationChanged = "reputation_adjusted"
 	adminActionPayoutReleased    = "payout_released"
 	adminActionControlChanged    = "operational_control_changed"
+	adminActionBuyerTombstoned   = "buyer_tombstoned"
 
 	adminTargetWorker      = "worker"
 	adminTargetTask        = "task"
 	adminTargetSupplier    = "supplier"
 	adminTargetLedgerEntry = "ledger_entry"
 	adminTargetControl     = "operational_control"
+	adminTargetBuyer       = "buyer"
 )
 
 var errAdminMutationInvalid = errors.New("invalid admin mutation")
@@ -41,6 +43,11 @@ type adminMutationIntent struct {
 	Reason         string    `json:"reason"`
 	CorrelationRef string    `json:"correlation_ref,omitempty"`
 	Delta          *float32  `json:"delta,omitempty"`
+}
+
+type adminMutationReplay struct {
+	Found  bool
+	Detail json.RawMessage
 }
 
 func (in adminMutationIntent) normalized() adminMutationIntent {
@@ -56,8 +63,8 @@ func (in adminMutationIntent) validate() error {
 	if in.Version != adminMutationIntentVersion || in.TargetID == uuid.Nil {
 		return fmt.Errorf("%w: version and target are required", errAdminMutationInvalid)
 	}
-	if in.Reason == "" {
-		return fmt.Errorf("%w: reason is required", errAdminMutationInvalid)
+	if in.Reason == "" || in.CorrelationRef == "" {
+		return fmt.Errorf("%w: reason and incident or ticket reference are required", errAdminMutationInvalid)
 	}
 	if len(in.Reason) > 1000 || len(in.CorrelationRef) > 200 {
 		return fmt.Errorf("%w: reason or request_id is too long", errAdminMutationInvalid)
@@ -77,6 +84,8 @@ func (in adminMutationIntent) validate() error {
 		wantTarget = adminTargetLedgerEntry
 	case adminActionControlChanged:
 		wantTarget = adminTargetControl
+	case adminActionBuyerTombstoned:
+		wantTarget = adminTargetBuyer
 	default:
 		return fmt.Errorf("%w: unsupported action %q", errAdminMutationInvalid, in.Kind)
 	}
@@ -113,6 +122,64 @@ func prepareAdminMutation(actor AdminActor, in adminMutationIntent) (adminMutati
 	return in, nil
 }
 
+// acquireAdminMutationReplay serializes use of a privileged-action correlation
+// reference. An exact retry by the same named operator is a no-op; any reuse for
+// a different request or operator fails closed.
+func acquireAdminMutationReplay(
+	ctx context.Context,
+	tx pgx.Tx,
+	actor AdminActor,
+	intent adminMutationIntent,
+) (adminMutationReplay, error) {
+	intent = intent.normalized()
+	digest, err := adminMutationRequestSHA256(intent)
+	if err != nil {
+		return adminMutationReplay{}, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,
+		intent.Kind+"|"+intent.CorrelationRef); err != nil {
+		return adminMutationReplay{}, err
+	}
+	var storedDigest, storedLabel, storedScope string
+	var storedPrincipal uuid.UUID
+	var detail json.RawMessage
+	err = tx.QueryRow(ctx, `
+		SELECT request_sha256,actor_principal_id,COALESCE(actor_label,''),
+		       COALESCE(attribution_scope,''),detail
+		  FROM admin_actions
+		 WHERE kind=$1 AND correlation_ref=$2`,
+		intent.Kind, intent.CorrelationRef).Scan(
+		&storedDigest, &storedPrincipal, &storedLabel, &storedScope, &detail)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return adminMutationReplay{}, nil
+	}
+	if err != nil {
+		return adminMutationReplay{}, err
+	}
+	if storedDigest != digest || storedPrincipal != actor.PrincipalID ||
+		storedLabel != strings.TrimSpace(actor.Label) || storedScope != string(actor.AttributionScope) {
+		return adminMutationReplay{}, fmt.Errorf(
+			"%w: incident or ticket reference already belongs to another privileged request",
+			errAdminMutationInvalid)
+	}
+	return adminMutationReplay{Found: true, Detail: detail}, nil
+}
+
+func replayedReputation(detail json.RawMessage) (before, after float32, err error) {
+	var state struct {
+		Before struct {
+			Reputation float32 `json:"reputation"`
+		} `json:"before"`
+		After struct {
+			Reputation float32 `json:"reputation"`
+		} `json:"after"`
+	}
+	if err := json.Unmarshal(detail, &state); err != nil {
+		return 0, 0, fmt.Errorf("decode privileged-action replay: %w", err)
+	}
+	return state.Before.Reputation, state.After.Reputation, nil
+}
+
 func insertAdminMutationAction(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -138,9 +205,6 @@ func insertAdminMutationAction(
 	}
 	actionID := uuid.New()
 	correlationRef := intent.CorrelationRef
-	if correlationRef == "" {
-		correlationRef = actionID.String()
-	}
 	label := strings.TrimSpace(actor.Label)
 	if len(label) > 200 {
 		label = label[:200]

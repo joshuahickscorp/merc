@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "kind": "website_contract_and_accessibility_validation",
+  "status": "PASS_AUTOMATED_BROWSER",
+  "completed_at": "2026-07-20T05:41:18Z",
+  "surfaces": {
+    "public": "PASS",
+    "buyer": "PASS",
+    "operator": "PASS"
+  },
+  "checks": {
+    "frozen_api_contract": true,
+    "all_buyer_lifecycle_states": true,
+    "operator_release_and_control_surfaces": true,
+    "explicit_labels": true,
+    "visible_keyboard_focus": true,
+    "wcag_aa_contrast_ratio": 6.06,
+    "reduced_motion": true,
+    "responsive_breakpoint": true,
+    "hash_bound_csp": true,
+    "secure_headers": true,
+    "memory_only_credentials": true,
+    "no_deleted_feature_strings": true,
+    "no_absolute_local_paths": true,
+    "no_secret_prefixes": true
+  },
+  "supported_claims": [
+    "embed",
+    "batch_infer",
+    "Apple Silicon Metal",
+    "approved private canary",
+    "native API",
+    "test-mode payment flow"
+  ],
+  "interactive_browser": {
+    "status": "PASS_AUTOMATED",
+    "engine": "installed Google Chrome driven by Playwright",
+    "viewports": [
+      "1440x900",
+      "390x844"
+    ],
+    "checks": {
+      "pages_loaded_without_console_errors": true,
+      "no_horizontal_overflow": true,
+      "keyboard_focus_order_exercised": true,
+      "dialog_keyboard_open_and_escape_close": true,
+      "buyer_form_labels_exposed": true,
+      "buyer_errors_announced": true,
+      "operator_unauthorized_failure_visible": true,
+      "browser_storage_credentials_absent": true,
+      "reduced_motion_active": true
+    },
+    "limitation": "Automated desktop/mobile interaction coverage; no manual visual-review approval is claimed."
+  },
+  "verification_commands": [
+    "node scripts/site-build.mjs",
+    "Playwright against a loopback static server using the installed Google Chrome executable"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "kind": "registry_supply_chain_verification",
+  "status": "PASS",
+  "completed_at": "2026-07-20T05:46:21Z",
+  "candidate": {
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563",
+    "digest_pull": true,
+    "signature_verified": true,
+    "spdx_attestation_verified": true,
+    "high_or_critical_findings": 0,
+    "fixable_critical_policy": "PASS"
+  },
+  "prior": {
+    "image": "ghcr.io/joshuahickscorp/computexchange-control@sha256:098edaa7f97892724b9e62a7008f1b3aecae452a9e08c11e60525c05cc6fdacf",
+    "digest_pull": true,
+    "signature_verified": true,
+    "spdx_attestation_verified": true,
+    "high_or_critical_findings": 0,
+    "fixable_critical_policy": "PASS"
+  },
+  "verification": {
+    "cosign_version": "3.0.6",
+    "trivy_version": "0.66.0",
+    "certificate_identity": "https://github.com/joshuahickscorp/computexchange/.github/workflows/publish-candidate.yml@refs/heads/release/rc1-go-closure",
+    "certificate_issuer": "https://token.actions.githubusercontent.com",
+    "workflow_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5",
+    "full_tool_outputs_retained_in_ignored_artifact_directory": true
+  },
+  "rust_paste": {
+    "version": "1.0.15",
+    "known_vulnerabilities": 0,
+    "informational_advisory": "RUSTSEC-2024-0436",
+    "status": "RETAINED_WITH_DOCUMENTED_REMOVAL_CONDITION",
+    "audit": "ops/rust-paste-audit.json"
+  },
+  "external_registry_policy": {
+    "protected_release_tags": "PASS",
+    "ruleset_id": 19184161,
+    "enforcement": "active",
+    "patterns": [
+      "refs/tags/v*",
+      "refs/tags/rc*"
+    ],
+    "creation_update_deletion_restricted": true,
+    "bypass_scope": "repository owner only",
+    "rc_tag_created": false
+  },
+  "exact_head_note": "The publication workflow repeats scan, SBOM, sign, attestation, clean pull, signature verification, and provenance verification for every pushed head."
+}

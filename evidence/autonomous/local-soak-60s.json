@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "kind": "local_resilience_soak",
+  "status": "PASS",
+  "started_at": "2026-07-20T04:53:45Z",
+  "finished_at": "2026-07-20T04:55:48Z",
+  "source_commit": "a4d50d93d0d8e44742fabe9d6b06380e3191b2e5",
+  "dirty_state_sha256": "85f1028fb84db3758eb0413f902381064ae3149123a75f6b1f3ecd5ddfd50843",
+  "immutable_local_image_id": "sha256:634f73849e0384932b094f99d872a0a12064a071169f64fdb588da7c05bb1c83",
+  "duration": {
+    "requested_seconds": 60,
+    "actual_seconds": 123,
+    "interval_seconds": 10,
+    "samples": 1
+  },
+  "tracked": [
+    "RSS",
+    "file descriptors",
+    "database connections",
+    "queue age",
+    "retry count",
+    "artifact growth",
+    "model-cache growth",
+    "webhook backlog",
+    "failed finalizations",
+    "reconciliation",
+    "backup status"
+  ],
+  "samples": {
+    "sha256": "cec9dd3ba74f02b50d80e7e795778a9e885ff2bd93dd0549a13f38c439f1828b",
+    "retained_in_ignored_artifact_directory": true
+  },
+  "observed_bounds": {
+    "sample_count": 1,
+    "rss_bytes": {
+      "first": 29528064,
+      "last": 29528064,
+      "min": 29528064,
+      "max": 29528064,
+      "delta": 0
+    },
+    "open_file_descriptors": {
+      "first": 27,
+      "last": 27,
+      "min": 27,
+      "max": 27,
+      "delta": 0
+    },
+    "database_connections": {
+      "max": 15
+    },
+    "queue_age_seconds": {
+      "max": 0
+    },
+    "retry_count": {
+      "max": 0
+    },
+    "artifact_bytes": {
+      "first": 14457,
+      "last": 14457,
+      "min": 14457,
+      "max": 14457,
+      "delta": 0
+    },
+    "model_cache_kb": {
+      "first": 9717100,
+      "last": 9717100,
+      "min": 9717100,
+      "max": 9717100,
+      "delta": 0
+    },
+    "webhook_backlog": {
+      "max": 0
+    },
+    "failed_finalizations": {
+      "max": 0
+    },
+    "reconciliation_mismatches": {
+      "max": 0
+    },
+    "backup_unhealthy_samples": 0,
+    "control_restart_count": {
+      "max": 0
+    },
+    "control_oom_samples": 0
+  },
+  "assertions": {
+    "backup_healthy": true,
+    "control_never_restarted": true,
+    "control_never_oom_killed": true,
+    "webhook_backlog_zero": true,
+    "failed_finalizations_zero": true,
+    "reconciliation_mismatches_zero": true
+  },
+  "final_snapshot": {
+    "jobs": 1,
+    "complete": 1,
+    "cancelled": 0,
+    "failed": 0,
+    "retry_count": 0,
+    "terminal_open_tasks": 0,
+    "ledger_sum": "0.000000",
+    "duplicate_money": 0,
+    "webhook_dead_letters": 0
+  },
+  "qualification": {
+    "qualifies_for_24h_gate": false,
+    "status": "NOT EXECUTED"
+  },
+  "external": {
+    "stripe_sandbox": "NOT EXECUTED",
+    "live_money": "PROHIBITED"
+  }
+}

@@ -20,6 +20,8 @@ const POLL_PATH: &str = "/v1/worker/poll?wait_ms=25000";
 pub enum ProtocolError {
     #[error("worker token is empty; refusing to send unauthenticated request")]
     MissingToken,
+    #[error("TLS client configuration rejected: {0}")]
+    TLSConfig(String),
     #[error("transport error calling {endpoint}: {source}")]
     Transport {
         endpoint: String,
@@ -55,7 +57,8 @@ impl ControlPlaneClient {
         if token.is_empty() {
             return Err(ProtocolError::MissingToken);
         }
-        let http = Client::builder()
+        let http = crate::tls::client_builder()
+            .map_err(|error| ProtocolError::TLSConfig(error.to_string()))?
             .timeout(REQUEST_TIMEOUT)
             .user_agent(concat!("cx-agent/", env!("CARGO_PKG_VERSION")))
             .build()

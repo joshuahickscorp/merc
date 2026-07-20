@@ -152,6 +152,25 @@ CREATE TABLE IF NOT EXISTS buyers (
     free_credit_usd NUMERIC(12,6) NOT NULL DEFAULT 0,  -- sandbox grant; 402 gate exempts spend up to this
     created_at      TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE buyers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE buyers ADD COLUMN IF NOT EXISTS deletion_tombstone_id UUID;
+
+CREATE TABLE IF NOT EXISTS buyer_identity_tombstones (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    buyer_id              UUID NOT NULL UNIQUE,
+    email_sha256          TEXT NOT NULL UNIQUE CHECK (email_sha256 ~ '^[0-9a-f]{64}$'),
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reason                TEXT NOT NULL CHECK (btrim(reason) <> ''),
+    correlation_ref       TEXT NOT NULL UNIQUE CHECK (btrim(correlation_ref) <> ''),
+    deleted_by            UUID NOT NULL,
+    deleted_by_label      TEXT NOT NULL CHECK (btrim(deleted_by_label) <> ''),
+    artifact_ref_sha256s  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    retention_basis       TEXT NOT NULL DEFAULT 'fraud prevention and immutable financial records'
+);
+ALTER TABLE buyers DROP CONSTRAINT IF EXISTS buyers_deletion_tombstone_fkey;
+ALTER TABLE buyers ADD CONSTRAINT buyers_deletion_tombstone_fkey
+    FOREIGN KEY (deletion_tombstone_id) REFERENCES buyer_identity_tombstones(id)
+    ON DELETE RESTRICT NOT VALID;
 
 -- Buyer-to-processor identity is canonical schema state.  Keeping this table
 -- here (rather than creating it lazily in the billing path) makes a fresh
@@ -269,7 +288,10 @@ ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_actor_shape CHECK (
     (actor_mode IS NULL AND actor_principal_id IS NULL AND actor_session_id IS NULL
      AND attribution_scope IS NULL)
  OR (actor_mode = 'break_glass_api_key' AND actor_principal_id IS NOT NULL
-     AND actor_session_id IS NULL AND attribution_scope = 'shared_credential_only')
+     AND actor_session_id IS NULL AND (
+       attribution_scope = 'shared_credential_only'
+       OR (attribution_scope = 'named_operator_key' AND btrim(COALESCE(actor_label,'')) <> '')
+     ))
 ) NOT VALID;
 ALTER TABLE admin_actions DROP CONSTRAINT IF EXISTS admin_actions_money_shape;
 ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_money_shape CHECK (
@@ -285,11 +307,13 @@ ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_money_shape CHECK (
 ALTER TABLE admin_actions DROP CONSTRAINT IF EXISTS admin_actions_privileged_mutation_shape;
 ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_privileged_mutation_shape CHECK (
     kind NOT IN ('worker_suspended','worker_reinstated','task_requeued',
-                 'reputation_adjusted','payout_released','operational_control_changed')
+                 'reputation_adjusted','payout_released','operational_control_changed',
+                 'buyer_tombstoned')
  OR COALESCE((
     actor_mode = 'break_glass_api_key'
     AND actor_principal_id IS NOT NULL AND actor_session_id IS NULL
-    AND attribution_scope = 'shared_credential_only'
+    AND attribution_scope = 'named_operator_key'
+    AND btrim(COALESCE(actor_label,'')) <> ''
     AND intent_version = 1
     AND request_sha256 ~ '^[0-9a-f]{64}$'
     AND correlation_ref IS NOT NULL AND btrim(correlation_ref) <> ''
@@ -318,6 +342,9 @@ ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_privileged_mutation_shape
           WHEN 'operational_control_changed' THEN
             target_kind = 'operational_control'
               AND supplier_id IS NULL AND task_id IS NULL AND ledger_entry_id IS NULL
+          WHEN 'buyer_tombstoned' THEN
+            target_kind = 'buyer'
+              AND supplier_id IS NULL AND task_id IS NULL AND ledger_entry_id IS NULL
           ELSE false
         END
  ), false)
@@ -337,6 +364,11 @@ ON CONFLICT (name) DO NOTHING;
 CREATE UNIQUE INDEX IF NOT EXISTS admin_actions_money_correlation_uniq
     ON admin_actions (kind, correlation_ref)
     WHERE kind IN ('subsidy_fund_authorized','payout_subsidy_authorized');
+CREATE UNIQUE INDEX IF NOT EXISTS admin_actions_privileged_correlation_uniq
+    ON admin_actions (kind, correlation_ref)
+    WHERE kind IN ('worker_suspended','worker_reinstated','task_requeued',
+                   'reputation_adjusted','payout_released','operational_control_changed',
+                   'buyer_tombstoned');
 CREATE OR REPLACE FUNCTION reject_admin_action_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -346,6 +378,10 @@ $$;
 DROP TRIGGER IF EXISTS admin_actions_append_only ON admin_actions;
 CREATE TRIGGER admin_actions_append_only
 BEFORE UPDATE OR DELETE ON admin_actions
+FOR EACH ROW EXECUTE FUNCTION reject_admin_action_mutation();
+DROP TRIGGER IF EXISTS buyer_identity_tombstones_append_only ON buyer_identity_tombstones;
+CREATE TRIGGER buyer_identity_tombstones_append_only
+BEFORE UPDATE OR DELETE ON buyer_identity_tombstones
 FOR EACH ROW EXECUTE FUNCTION reject_admin_action_mutation();
 
 CREATE TABLE IF NOT EXISTS worker_tokens (

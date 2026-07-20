@@ -24,17 +24,17 @@
     {
       "id": "privacy_data_governance",
       "reviewer_track": "focused_governance_agent",
-      "outcome": "NO_GO_PENDING_APPROVAL_AND_EXERCISE",
+      "outcome": "NO_GO_PENDING_QUALIFIED_APPROVAL_AND_EXTERNAL_PROCESS",
       "scope": ["field-level data inventory", "logging and metrics minimization", "retention, deletion, backups, and dispute holds", "DSAR export/deletion and incident operations"],
       "threat_or_failure_model": ["buyer inputs, results, credentials, or presigned URLs leaking through logs", "data persisting past policy in artifacts or backups", "unapproved processing roles, purposes, transfers, or subprocessors"],
       "findings": [
         {"id": "PRIV-P1-POLICY", "severity": "P1", "status": "OPEN", "evidence": "ops/legal-review.json records unresolved roles, lawful bases, retention, subprocessors, and transfers"},
-        {"id": "PRIV-P1-OPS", "severity": "P1", "status": "OPEN", "evidence": "DSAR export/deletion and backup-tombstone exercises have no PASS receipt"},
+        {"id": "PRIV-P1-OPS", "severity": "P1", "status": "FIXED_TECHNICAL", "evidence": "evidence/autonomous/technical-exercises.json passes scoped DSAR export, deletion, artifact expiry, authentication revocation and pre-deletion restore tombstone replay"},
         {"id": "PRIV-CONTROL-LOGS", "severity": "control", "status": "VERIFIED_LOCAL", "evidence": "bounded metric labels, no-store credential responses, and request logs exclude bodies and bearer values"}
       ],
-      "repair": ["created privacy notice, data-governance matrix, and DSAR runbook drafts", "kept private canary synthetic-only and operator controlled", "added approval/exercise receipt schema"],
-      "verification": ["python3 scripts/validate-governance.py", "ops/governance-approval-bundle.schema.json", "make release-doctor CHECK=governance"],
-      "residual_risk": ["qualified privacy approval absent", "cross-store deletion and backup tombstone not exercised", "retention automation is incomplete"]
+      "repair": ["created privacy notice, data-governance matrix, and DSAR runbook drafts", "implemented idempotent scoped export/deletion and append-only identity tombstones", "replayed tombstones after restoration of a pre-deletion backup", "kept private canary synthetic-only and operator controlled", "added approval/exercise receipt schema"],
+      "verification": ["evidence/autonomous/technical-exercises.json", "python3 scripts/validate-governance.py", "ops/governance-approval-bundle.schema.json", "make release-doctor CHECK=governance"],
+      "residual_risk": ["qualified privacy approval absent", "external subprocessor deletion not executed", "retention automation and authenticated production delivery are incomplete"]
     },
     {
       "id": "legal_commercial",
@@ -69,16 +69,16 @@
     {
       "id": "abuse_trust",
       "reviewer_track": "focused_governance_agent",
-      "outcome": "NO_GO_PENDING_TABLETOP_AND_APPROVAL",
+      "outcome": "NO_GO_PENDING_QUALIFIED_HUMAN_TABLETOP_AND_APPROVAL",
       "scope": ["prohibited buyer workloads", "supplier Sybil, substitution, collusion, and replay", "buyer economic and webhook abuse", "revocation and emergency stops"],
       "threat_or_failure_model": ["malicious data processing or exfiltration", "fabricated or substituted supplier results", "denial-of-wallet, dispute, refund, retry, or identity farming abuse"],
       "findings": [
         {"id": "TRUST-CONTROLS", "severity": "P1", "status": "FIXED_LOCAL", "evidence": "allowlisted workloads/participants/builds, bounded canary caps, revocation, typed verification, payout hold, and global stops"},
-        {"id": "TRUST-P1-OPS", "severity": "P1", "status": "OPEN", "evidence": "abuse contact, appeals route, human coverage, and security tabletop receipt are absent"}
+        {"id": "TRUST-P1-OPS", "severity": "P1", "status": "FIXED_TECHNICAL_HUMAN_OPEN", "evidence": "evidence/autonomous/technical-exercises.json passes both defined security/support scenarios; abuse contact, appeals route, staffed coverage, and qualified human tabletop participation remain absent"}
       ],
       "repair": ["created acceptable-use and abuse-response draft", "implemented intake/dispatch/payment/webhook stops", "made canary admission and workload bounds fail closed"],
-      "verification": ["canary policy tests", "operational control integration tests", "full local wrong-attempt and ledger proof"],
-      "residual_risk": ["no human moderation/on-call exercise", "destination-pinning and remote attestation are absent"]
+      "verification": ["canary policy tests", "operational control integration tests", "full local wrong-attempt and ledger proof", "evidence/autonomous/technical-exercises.json"],
+      "residual_risk": ["no qualified human moderation/on-call exercise", "destination-pinning and remote attestation are absent"]
     },
     {
       "id": "economics",
@@ -111,44 +111,46 @@
     {
       "id": "reliability_load_soak",
       "reviewer_track": "focused_operations_agent",
-      "outcome": "NO_GO_PENDING_EXTERNAL_EXECUTION",
+      "outcome": "NO_GO_PENDING_PERSISTENT_EXTERNAL_EXECUTION_AND_24H_SOAK",
       "scope": ["load percentiles and resource envelope", "24-hour soak", "control/data-store/agent restart storm", "rollback and forward recovery"],
       "threat_or_failure_model": ["leaks, stuck leases, backlog, queue drift, and missed finalizers", "corruption or outage during simultaneous restarts", "rollback that changes source but not data safely"],
       "findings": [
-        {"id": "REL-HARNESS", "severity": "P1", "status": "FIXED", "evidence": "immutable nine-service staging, rollback, restart-storm, canary, and soak scripts validate statically"},
+        {"id": "REL-HARNESS", "severity": "P1", "status": "FIXED_LOCAL_EXECUTED", "evidence": "evidence/autonomous/local-rollback.json and local-restart-storm.json pass six rollback fault injections, prior/forward recovery, seeded nine-component restarts, stale-lease recovery, and financial invariants"},
         {"id": "REL-P1-RUN", "severity": "P1", "status": "OPEN", "evidence": "no persistent staging host, two external agents, or 24-hour observation window exists"}
       ],
       "repair": ["created digest-only candidate/prior deployment and source probes", "created restart-storm and 86400-second soak harnesses", "defined strict scenario and agent restart adapter protocols"],
-      "verification": ["scripts/validate-go-closure-scaffold.sh", "Docker Compose placeholder expansion: 9 services and 9 immutable images", "full local two-agent proof"],
-      "residual_risk": ["no external p95/p99 or capacity result", "no 24-hour leak/backlog evidence", "rollback and restart storm are unexecuted"]
+      "verification": ["scripts/validate-go-closure-scaffold.sh", "evidence/autonomous/local-rollback.json", "evidence/autonomous/local-restart-storm.json", "Docker Compose placeholder expansion: 9 services and 9 immutable images", "full local two-agent proof"],
+      "residual_risk": ["no external p95/p99 or capacity result", "no 24-hour leak/backlog evidence", "published-candidate rollback/restart proof against persistent external state remains unexecuted"]
     },
     {
       "id": "observability",
       "reviewer_track": "focused_operations_agent",
-      "outcome": "PASS_STATIC_NO_GO_DELIVERY",
+      "outcome": "PASS_SIMULATED_NO_GO_REAL_RECEIVER",
       "scope": ["API, queue, workers, jobs, verification, money, storage, webhooks, backups, and release identity", "dashboard coverage", "alert firing, deduplication, acknowledgement, and resolution"],
       "threat_or_failure_model": ["silent invariant or reconciliation failure", "unbounded-cardinality metrics", "alerts that parse but never reach a human", "dashboards that omit stop-state or release identity"],
       "findings": [
         {"id": "OBS-COVERAGE", "severity": "P1", "status": "FIXED", "evidence": "23 alert rules and 13 Grafana panels pass the deterministic validator"},
+        {"id": "OBS-PIPELINE-SIMULATION", "severity": "P1", "status": "FIXED_SIMULATED", "evidence": "evidence/autonomous/alert-page-simulation.json passes firing, retry, timeout, deduplication, invalid response, retry exhaustion, dead letter and resolution"},
         {"id": "OBS-P1-RECEIVER", "severity": "P1", "status": "OPEN", "evidence": "no genuine on-call receiver delivery and resolved receipt exists"}
       ],
-      "repair": ["added bounded metrics and release labels", "added Prometheus, Alertmanager, Grafana, and node exporter to immutable staging", "mapped alert rules to runbooks"],
-      "verification": ["node scripts/validate-observability.mjs", "control/metrics_observability_test.go"],
-      "residual_risk": ["receiver routing, acknowledgement, deduplication, and resolution are untested", "no staging load exists to validate dashboard usefulness"]
+      "repair": ["added bounded metrics and release labels", "added Prometheus, Alertmanager, Grafana, and node exporter to immutable staging", "mapped alert rules to runbooks", "exercised retry, deduplication, timeout, dead-letter and resolution against a harness receiver"],
+      "verification": ["evidence/autonomous/alert-pipeline-simulation.json", "evidence/autonomous/alert-page-simulation.json", "node scripts/validate-observability.mjs", "control/metrics_observability_test.go"],
+      "residual_risk": ["real receiver routing and human acknowledgement are untested", "no external staging load exists to validate dashboard usefulness"]
     },
     {
       "id": "support_incident_response",
       "reviewer_track": "focused_governance_agent",
-      "outcome": "NO_GO_PENDING_NAMED_PEOPLE_AND_TABLETOPS",
+      "outcome": "NO_GO_PENDING_NAMED_PEOPLE_AND_QUALIFIED_HUMAN_TABLETOP",
       "scope": ["incident roles and escalation", "security, privacy, payments, supplier, and service scenarios", "communications, evidence, recovery, and closure"],
       "threat_or_failure_model": ["no accountable decision maker during an incident", "unsafe recovery or payout action", "missing notification and evidence preservation"],
       "findings": [
         {"id": "SUPPORT-RUNBOOK", "severity": "P1", "status": "FIXED_DRAFT", "evidence": "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md defines scenarios, roles, stop controls, and evidence expectations"},
-        {"id": "SUPPORT-P1-TABLETOP", "severity": "P1", "status": "OPEN", "evidence": "ops/support-incident-tabletop.json is correctly NOT_EXECUTED with no fabricated participants"}
+        {"id": "SUPPORT-TECHNICAL-TABLETOP", "severity": "P1", "status": "FIXED_TECHNICAL", "evidence": "evidence/autonomous/technical-exercises.json passes the ledger/display mismatch and cross-tenant artifact-reference scenarios"},
+        {"id": "SUPPORT-P1-HUMAN-TABLETOP", "severity": "P1", "status": "OPEN", "evidence": "ops/support-incident-tabletop.json retains qualified_human_tabletop NOT_EXECUTED with no fabricated participants"}
       ],
-      "repair": ["created support/incident runbook and exercise record", "connected operational stops to audited admin controls", "included both tabletop receipts in the exact input bundle"],
-      "verification": ["python3 scripts/validate-governance.py", "operational control integration tests"],
-      "residual_risk": ["roles and contact paths are unstaffed", "support and security scenarios have not been exercised"]
+      "repair": ["created support/incident runbook and exercise record", "connected operational stops to audited admin controls", "exercised support and security scenarios technically", "included both tabletop receipts in the exact input bundle"],
+      "verification": ["evidence/autonomous/technical-exercises.json", "python3 scripts/validate-governance.py", "operational control integration tests"],
+      "residual_risk": ["roles and contact paths are unstaffed", "qualified human tabletop and external notification decisions are not executed"]
     },
     {
       "id": "change_management_governance",
@@ -202,12 +204,12 @@
       "threat_or_failure_model": ["ephemeral local success mistaken for deployability", "backup existing only inside the failure boundary", "rollback without data compatibility", "live Stripe credentials used accidentally", "alerts never delivered"] ,
       "findings": [
         {"id": "OPS-HARNESS", "severity": "P1", "status": "FIXED", "evidence": "digest-only nine-service staging and fail-closed deploy/recovery/rehearsal harness"},
-        {"id": "OPS-P1-EXTERNAL", "severity": "P1", "status": "OPEN", "evidence": "staging, offsite, Stripe test, receiver, participant agents, and scenario adapters are absent"},
+        {"id": "OPS-P1-EXTERNAL", "severity": "P1", "status": "OPEN", "evidence": "local TLS, isolated restore, rollback, restart-storm, alert-pipeline, technical governance, and deterministic payment-simulator receipts pass; persistent staging, offsite boundary, Stripe test, real receiver, external participant agents, and human authority remain absent"},
         {"id": "OPS-LIVE-REFUSED", "severity": "control", "status": "PASS", "evidence": "the only locally present Stripe key class is live_refused and was never used"}
       ],
       "repair": ["encrypted backup before upload and required independent download", "made restore isolated and checksum-verifying", "defined exact external values and expected evidence in one machine contract", "made Stripe test-only and payout-export fail closed"],
-      "verification": ["scripts/test-backup-envelope.sh", "scripts/validate-go-closure-scaffold.sh", "make release-doctor", "external execute modes remain blocked"],
-      "residual_risk": ["all external execution receipts are absent", "no 24-hour persistent-state evidence", "no provider reconciliation or on-call delivery evidence"]
+      "verification": ["scripts/test-backup-envelope.sh", "scripts/local-independent-restore.sh", "evidence/autonomous/local-rollback.json", "evidence/autonomous/local-restart-storm.json", "scripts/validate-go-closure-scaffold.sh", "make release-doctor", "external execute modes remain blocked"],
+      "residual_risk": ["all authority- or external-boundary execution receipts are absent", "no 24-hour persistent-state evidence", "no provider reconciliation or on-call delivery evidence"]
     }
   ]
 }

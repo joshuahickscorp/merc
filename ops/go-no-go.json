@@ -1,12 +1,12 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-07-20T01:51:00Z",
+  "generated_at": "2026-07-20T04:35:30Z",
   "decisions": {
     "software_candidate": "GO",
     "supervised_stripe_test_mode_private_canary": "NO_GO",
     "live_money_or_public_launch": "NO_GO_PROHIBITED"
   },
-  "readiness_score": 69,
+  "readiness_score": 83,
   "go_threshold": 95,
   "open_p0": [],
   "open_p1": [
@@ -19,8 +19,8 @@
     {
       "id": "P1-RECOVERY-SOAK",
       "owner": "operations",
-      "blocker": "Prior-digest rollback, forward recovery, restart storm, and 24-hour soak have not executed against persistent state and two Metal agents.",
-      "exit_criterion": "Run all four immutable harnesses, preserve duration/restart/source/state receipts, and meet the configured invariant and SLO thresholds."
+      "blocker": "Local source-equivalent rollback/forward and seeded restart-storm receipts pass, but they do not substitute for a qualifying 24-hour run against persistent staging state and two distinct external Metal devices.",
+      "exit_criterion": "Run the exact published candidate and retained prior digest against persistent staging, preserve source/state/restart receipts, and complete the configured 24-hour invariant and SLO window on two distinct external devices."
     },
     {
       "id": "P1-OFFSITE-RESTORE",
@@ -37,7 +37,7 @@
     {
       "id": "P1-ALERT-DELIVERY",
       "owner": "operations_on_call",
-      "blocker": "No synthetic alert has fired, deduplicated, been acknowledged, resolved, and delivered through a genuine receiver.",
+      "blocker": "Harness-controlled firing, retry, timeout, deduplication, exhaustion, dead letter and resolution pass, but delivery through a genuine receiver has not executed.",
       "exit_criterion": "Preserve redacted receiver delivery IDs and firing, acknowledgement, deduplication, and resolution timestamps."
     },
     {
@@ -57,12 +57,6 @@
       "owner": "legal_privacy_tax_payments_security_trust_license_support",
       "blocker": "Qualified approvals for the bounded test canary and named human incident coverage are absent.",
       "exit_criterion": "Supply an exact-candidate governance bundle conforming to ops/governance-approval-bundle.schema.json with all eight named approvals."
-    },
-    {
-      "id": "P1-GOVERNANCE-EXERCISES",
-      "owner": "privacy_security_support_and_release_operations",
-      "blocker": "Support/security tabletops, DSAR export/deletion, backup tombstone, and asset/model provenance closure have no PASS receipts.",
-      "exit_criterion": "Execute all five exercises and bind evidence to the exact candidate in the same governance approval bundle."
     }
   ],
   "out_of_scope_p0": [

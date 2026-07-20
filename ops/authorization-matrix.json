@@ -40,6 +40,7 @@
         "GET /version",
         "GET /metrics",
         "GET /{$}",
+        "GET /buyer",
         "GET /admin",
         "GET /assets/site/{path...}",
         "GET /favicon.ico"

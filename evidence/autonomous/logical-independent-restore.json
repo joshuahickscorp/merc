@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "logical_independent_restore",
+  "status": "PASS",
+  "completed_at": "2026-07-20T05:43:55Z",
+  "separation": {
+    "source_environment_destroyed": true,
+    "separate_transfer_process": true,
+    "transfer_received_ciphertext_only": true,
+    "new_database_credentials": true,
+    "new_object_credentials": true,
+    "new_namespace": true
+  },
+  "integrity": {
+    "ciphertext_sha256": "b1983343d645650ae7212dc93f1118b8ea3ad88f6b4fb31a9e4dc5978afa1a1f",
+    "ciphertext_verified": true,
+    "corrupt_backup_rejected": true,
+    "payload_checksums_verified": true,
+    "database_semantics": {
+      "buyers": 1,
+      "workers": 2,
+      "completed_embed": 1,
+      "completed_batch": 1,
+      "cancelled": 1,
+      "retried": 1,
+      "held_payout": 1,
+      "webhooks": 1,
+      "ledger_sum": "0.000000"
+    },
+    "object_count": 2,
+    "ledger_zero_sum": true,
+    "artifact_sentinels_verified": true
+  },
+  "external_offsite_restore": "NOT EXECUTED",
+  "secret_values_recorded": false
+}

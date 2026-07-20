@@ -1,0 +1,223 @@
+name: cx-local-production-rehearsal
+
+x-logs: &logs
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+services:
+  postgres:
+    image: postgres:17@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d
+    environment:
+      POSTGRES_USER: cx
+      POSTGRES_PASSWORD: ${CX_LOCAL_POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: cx
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U cx -d cx]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    logging: *logs
+
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${CX_LOCAL_MINIO_USER:?required}
+      MINIO_ROOT_PASSWORD: ${CX_LOCAL_MINIO_PASSWORD:?required}
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: [CMD-SHELL, curl -fsS http://localhost:9000/minio/health/live]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    logging: *logs
+
+  createbuckets:
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio: {condition: service_healthy}
+    environment:
+      MINIO_ROOT_USER: ${CX_LOCAL_MINIO_USER:?required}
+      MINIO_ROOT_PASSWORD: ${CX_LOCAL_MINIO_PASSWORD:?required}
+      MC_CONFIG_DIR: /tmp/mc
+    entrypoint: >-
+      /bin/sh -c 'mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+      mc mb --ignore-existing local/cx-jobs && mc anonymous set none local/cx-jobs'
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    logging: *logs
+
+  control:
+    image: ${CX_LOCAL_CONTROL_IMAGE:?immutable candidate digest required}
+    platform: ${CX_LOCAL_CONTROL_PLATFORM:-linux/amd64}
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      createbuckets: {condition: service_completed_successfully}
+    environment:
+      CX_ENV: development
+      DATABASE_URL: postgres://cx:${CX_LOCAL_POSTGRES_PASSWORD:?required}@postgres:5432/cx?sslmode=disable
+      LISTEN_ADDR: ":8080"
+      SITE_HOST: cx.localhost
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: https://storage.cx.localhost:18443
+      S3_REGION: us-east-1
+      S3_BUCKET: cx-jobs
+      S3_ACCESS_KEY: ${CX_LOCAL_MINIO_USER:?required}
+      S3_SECRET_KEY: ${CX_LOCAL_MINIO_PASSWORD:?required}
+      CX_TOKEN_KEY: ${CX_LOCAL_TOKEN_KEY:?required}
+      CX_VERIFICATION_SAMPLE_SECRET: ${CX_LOCAL_SAMPLE_SECRET:?required}
+      CX_ECON_SCHEDULE_VERSION: local-tls-v1
+      CX_PROCESSOR_PERCENT_BPS: "290"
+      CX_PROCESSOR_FIXED_USD: "0.30"
+      CX_CONTROL_PLANE_PER_TASK_USD: "0.0001"
+      CX_TARGET_MARGIN_BPS: "1000"
+      GOMEMLIMIT: 768MiB
+    expose: ["8080"]
+    extra_hosts:
+      - storage.cx.localhost:host-gateway
+    healthcheck:
+      # The legacy retained image uses `/cx healthcheck`; the dedicated probe
+      # ignores this compatibility argument.
+      test: [CMD, "${CX_LOCAL_CONTROL_HEALTHCHECK:-/cx-healthcheck}", healthcheck]
+      # Colima/Docker Desktop can retain cgroup charges from container execs.
+      # Soaks use a long post-start cadence while the harness and Prometheus
+      # continue probing the HTTPS/API surface every sample/scrape.
+      interval: ${CX_LOCAL_CONTROL_HEALTH_INTERVAL:-5s}
+      start_interval: 2s
+      timeout: 4s
+      retries: 30
+      start_period: 10s
+    user: "65532:65532"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+    logging: *logs
+
+  caddy:
+    image: caddy:2@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
+    depends_on:
+      control: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    volumes:
+      - ${CX_LOCAL_ASSET_DIR:?required}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${CX_LOCAL_ASSET_DIR:?required}/tls:/certs:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    ports:
+      - 127.0.0.1:18080:80
+      - 127.0.0.1:18443:443
+    healthcheck:
+      test: [CMD, caddy, validate, --config, /etc/caddy/Caddyfile]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    logging: *logs
+
+  prometheus:
+    image: quay.io/prometheus/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus]
+    volumes:
+      - ${CX_LOCAL_ASSET_DIR:?required}/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    ports: [127.0.0.1:19090:9090]
+    depends_on:
+      control: {condition: service_healthy}
+      alertmanager: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://localhost:9090/-/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 0.5
+    pids_limit: 128
+    logging: *logs
+
+  alertmanager:
+    image: quay.io/prometheus/alertmanager@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+    command: [--config.file=/etc/alertmanager/alertmanager.yml, --storage.path=/alertmanager]
+    volumes:
+      - ${CX_LOCAL_ASSET_DIR:?required}/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanagerdata:/alertmanager
+    ports: [127.0.0.1:19093:9093]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://localhost:9093/-/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    logging: *logs
+
+  backup-worker:
+    image: postgres:17@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      PGHOST: postgres
+      PGUSER: cx
+      PGPASSWORD: ${CX_LOCAL_POSTGRES_PASSWORD:?required}
+      PGDATABASE: cx
+    entrypoint: >-
+      /bin/sh -c 'umask 077; while :; do pg_dump -Fc -f /backups/latest.dump.tmp &&
+      mv /backups/latest.dump.tmp /backups/latest.dump && sha256sum /backups/latest.dump > /backups/latest.sha256;
+      sleep 60; done'
+    volumes: [backupdata:/backups]
+    healthcheck:
+      test: [CMD-SHELL, test -s /backups/latest.dump -a -s /backups/latest.sha256]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    logging: *logs
+
+volumes:
+  pgdata:
+  miniodata:
+  caddydata:
+  caddyconfig:
+  prometheusdata:
+  alertmanagerdata:
+  backupdata:

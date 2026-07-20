@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +14,24 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+func processResourceSnapshot() (residentBytes uint64, openFDs int, fdAvailable bool) {
+	var memory runtime.MemStats
+	runtime.ReadMemStats(&memory)
+	residentBytes = memory.Sys
+	if raw, err := os.ReadFile("/proc/self/statm"); err == nil {
+		fields := strings.Fields(string(raw))
+		if len(fields) >= 2 {
+			if pages, parseErr := strconv.ParseUint(fields[1], 10, 64); parseErr == nil {
+				residentBytes = pages * uint64(os.Getpagesize())
+			}
+		}
+	}
+	if entries, err := os.ReadDir("/proc/self/fd"); err == nil {
+		openFDs, fdAvailable = len(entries), true
+	}
+	return residentBytes, openFDs, fdAvailable
+}
 
 type metricsState struct {
 	jobsSubmitted             atomic.Int64
@@ -307,6 +326,15 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeCounter(w, "cx_endgame_races_total", "Endgame-race duplicates actually inserted onto an idle warm same-class peer (Speed Lane wave 1B): the slowest running chunk raced the moment a job's queue emptied, ahead of the 90s hedge window. A subset of cx_hedges_total, split out so the fan-out planner's tail-latency work has its own signal.", metrics.endgameRaces.Load())
 	writeCounter(w, "cx_sla_misses_total", "Jobs whose bound speed-SLA settled as MISSED (Speed Lane wave 2A): the buyer-visible span exceeded the guarantee, sla_met stamped false, the once-only sla_refund credit recorded. Counted once per job (only the settle call that decided the miss bumps it).", metrics.slaMisses.Load())
 	writeCounter(w, "cx_no_hedge_peer_total", "Dispatch-time heterogeneous-fleet degradation: a redundancy/hedge peer was needed but no eligible same-class peer existed on the fleet (silent loss of hedging + warm-routing). Alerted on by monitoring/alerts.yml.", NoHedgePeerCount())
+	residentBytes, openFDs, fdAvailable := processResourceSnapshot()
+	fmt.Fprintf(w, "# HELP cx_process_resident_memory_bytes Resident memory used by the control process.\n")
+	fmt.Fprintf(w, "# TYPE cx_process_resident_memory_bytes gauge\n")
+	fmt.Fprintf(w, "cx_process_resident_memory_bytes %d\n", residentBytes)
+	fmt.Fprintf(w, "# HELP cx_process_open_file_descriptors Open file descriptors when the runtime exposes /proc.\n")
+	fmt.Fprintf(w, "# TYPE cx_process_open_file_descriptors gauge\n")
+	if fdAvailable {
+		fmt.Fprintf(w, "cx_process_open_file_descriptors %d\n", openFDs)
+	}
 
 	build := currentControlBuildInfo()
 	fmt.Fprintf(w, "# HELP cx_release_info Immutable control-plane release identity; exactly one series per process.\n")
