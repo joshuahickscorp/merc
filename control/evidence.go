@@ -19,6 +19,16 @@ var sourceFingerprintDomain = []byte("computexchange-source-fingerprint-v1\x00")
 
 const sourceFingerprintSchema = 1
 
+func isGeneratedReleaseEvidencePath(path string) bool {
+	switch path {
+	case "census/CODEBASE_CENSUS.json", "census/CODEBASE_CENSUS.md",
+		"ops/readiness.json", "ops/go-no-go.json", "RELEASE_READINESS.md":
+		return true
+	default:
+		return false
+	}
+}
+
 func canonicalProofJSON(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -117,6 +127,9 @@ func sourceFingerprint(root string) (sourceFingerprintResult, error) {
 			continue
 		}
 		s := string(p)
+		if isGeneratedReleaseEvidencePath(s) {
+			continue
+		}
 		if _, ok := seen[s]; !ok {
 			seen[s] = struct{}{}
 			paths = append(paths, s)

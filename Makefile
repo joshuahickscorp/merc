@@ -5,7 +5,7 @@ endif
 
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: up down dev-up dev-down migrate seed control agent-run agent-bench prove-local metrics build fmt test ci audit loc docker-build install uninstall backup
+.PHONY: up down dev-up dev-down migrate seed control agent-run agent-bench prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill
 
 up:
 	docker compose up -d --build
@@ -76,3 +76,6 @@ uninstall:
 
 backup:
 	bash scripts/backup.sh
+
+restore-drill:
+	bash scripts/restore-drill.sh

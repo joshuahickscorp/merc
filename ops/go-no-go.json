@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-19T23:24:29Z",
+  "scope": "private pilot with real money",
+  "decision": "NO-GO",
+  "open_p0": [],
+  "open_p1": [
+    {
+      "id": "P1-OPS-1",
+      "blocker": "No successful independent offsite backup upload and restore from that uploaded copy.",
+      "owner": "operations",
+      "exit_criterion": "Configure restricted offsite credentials, run scripts/backup.sh, restore the uploaded database and objects, and compare application/ledger/artifact invariants."
+    },
+    {
+      "id": "P1-OPS-2",
+      "blocker": "The candidate was not deployed to a persistent TLS staging environment.",
+      "owner": "operations",
+      "exit_criterion": "Deploy the exact source/image to representative staging and pass health, readiness, version, auth, both workloads, webhook, lifecycle, and money checks."
+    },
+    {
+      "id": "P1-OPS-3",
+      "blocker": "Rollback was not rehearsed against a prior content-addressed image.",
+      "owner": "operations",
+      "exit_criterion": "Run scripts/rollback.sh against the previous compatible image in staging, verify version/readiness/customer paths/reconciliation, then redeploy the candidate."
+    },
+    {
+      "id": "P1-MONEY-1",
+      "blocker": "The complete Stripe test-mode cash and payout matrix was not executed end to end.",
+      "owner": "payments",
+      "exit_criterion": "Prove duplicate/out-of-order webhook handling, authorize/capture, actual fee, refund, dispute, payout success/failure/outcome-unknown, and reconciliation using scoped test-mode ids."
+    },
+    {
+      "id": "P1-OPS-4",
+      "blocker": "Alert rules have not delivered and resolved a synthetic page through the real on-call receiver.",
+      "owner": "operations",
+      "exit_criterion": "Load monitoring/alerts.yml, configure routing, fire one synthetic page, acknowledge/resolve it, and record timestamps."
+    }
+  ],
+  "release_conditions": [
+    "All five remaining external P1 exit criteria pass on the exact committed candidate.",
+    "PR #5 stays green on the current head and all four candidate artifacts pass downloaded checksum verification.",
+    "Re-run make prove-local and preserve the source-bound ledger with deployment, restore, payment, rollback, and alert receipts."
+  ]
+}

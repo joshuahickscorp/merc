@@ -342,8 +342,8 @@ func (s *Store) ExactTerminalVerificationCommit(ctx context.Context, taskID, wor
 	err = s.pool.QueryRow(ctx, `
 		SELECT staged_result_key,COALESCE(reported_result_sha256,''),duration_ms,tokens_used,hardware_temp_c
 		  FROM verification_work
-		 WHERE task_id=$1 AND worker_id=$2 AND status='terminal'
-		 ORDER BY attempt DESC LIMIT 1`, taskID, workerID).
+		 WHERE task_id=$1 AND worker_id=$2 AND attempt=$3 AND status='terminal'
+		 LIMIT 1`, taskID, workerID, c.Attempt).
 		Scan(&staged, &storedSHA, &durationMS, &tokensUsed, &temp)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil

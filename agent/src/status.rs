@@ -5,7 +5,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::config::{AgentConfig, ThrottleDecision};
-use crate::types::{BenchResult, Earnings};
+use crate::types::{BenchResult, Earnings, TaskLease};
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -68,6 +68,7 @@ struct CurrentJob {
 
 struct InflightTask {
     task_id: Uuid,
+    attempt: i16,
     job: CurrentJob,
 }
 
@@ -230,11 +231,19 @@ impl StatusWriter {
         self.write();
     }
 
-    pub fn job_started(&self, task_id: Uuid, job_id: Uuid, job_type: &str, started_at: u64) {
+    pub fn job_started(
+        &self,
+        task_id: Uuid,
+        attempt: i16,
+        job_id: Uuid,
+        job_type: &str,
+        started_at: u64,
+    ) {
         {
             let mut i = self.inner.lock().unwrap();
             i.inflight.push(InflightTask {
                 task_id,
+                attempt,
                 job: CurrentJob {
                     job_id: job_id.to_string(),
                     job_type: job_type.to_string(),
@@ -243,6 +252,17 @@ impl StatusWriter {
             });
         }
         self.write();
+    }
+
+    pub fn active_task_leases(&self) -> Vec<TaskLease> {
+        let i = self.inner.lock().unwrap();
+        i.inflight
+            .iter()
+            .map(|task| TaskLease {
+                task_id: task.task_id,
+                attempt: task.attempt,
+            })
+            .collect()
     }
 
     pub fn job_finished(&self, task_id: Uuid, error: Option<String>) {

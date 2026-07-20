@@ -39,8 +39,9 @@ info "target host: https://$HOST"
 stripe_api() {
   local method="$1" path="$2"; shift 2
   local resp
-  resp="$(curl -fsS -X "$method" "https://api.stripe.com/v1/$path" -u "$SK:" "$@" 2>/dev/null)" \
-    || die "Stripe API $method /$path failed (network, or the key lacks permission)"
+  if ! resp="$(curl -fsS -X "$method" "https://api.stripe.com/v1/$path" -u "$SK:" "$@" 2>/dev/null)"; then # gitleaks:allow -- credential comes only from the environment
+    die "Stripe API $method /$path failed (network, or the key lacks permission)"
+  fi
   if echo "$resp" | jq -e '.error' >/dev/null 2>&1; then
     die "Stripe API error: $(echo "$resp" | jq -r '.error.message')"
   fi

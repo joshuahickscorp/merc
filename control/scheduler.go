@@ -285,6 +285,7 @@ func prunePeers(candidates []MatchWorker, anchor, anchorSupplier uuid.UUID, also
 
 type ClaimedTask struct {
 	TaskID           uuid.UUID
+	Attempt          int16
 	JobID            uuid.UUID
 	JobType          string
 	ModelRef         string
@@ -672,7 +673,7 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 	       execution_build_hash = next.claim_build_hash
 	 FROM next, jobs j
 	 WHERE tasks.id = next.id AND j.id = tasks.job_id
-	 RETURNING tasks.id, tasks.job_id, j.job_type, COALESCE(j.model_ref,''),
+	 RETURNING tasks.id, COALESCE(tasks.retry_count,0), tasks.job_id, j.job_type, COALESCE(j.model_ref,''),
 	           tasks.model_kind, tasks.runtime_cell_id, tasks.runtime_id,
 	           tasks.runtime_matrix_sha256,
 		           COALESCE(tasks.input_ref,''), COALESCE(tasks.result_key,''),
@@ -721,7 +722,7 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 	scanClaim := func(claimedByPredicate string) error {
 		return tx.QueryRow(ctx, claimTaskQuery(claimedByPredicate),
 			w.WorkerID, int(tier), selfCostRank, generatedRuntimeMatrixSHA256,
-		).Scan(&c.TaskID, &c.JobID, &c.JobType, &c.ModelRef, &c.ModelKind,
+		).Scan(&c.TaskID, &c.Attempt, &c.JobID, &c.JobType, &c.ModelRef, &c.ModelKind,
 			&c.RuntimeCellID, &c.RuntimeID, &c.RuntimeMatrixSHA, &c.InputRef, &c.ResultKey,
 			&c.OutputRef, &c.Tier, &c.MinMemoryGB, &c.HWClasses, &c.MaxDurationSecs,
 			&c.DataResidency, &c.VerifPolicy, &c.JobTypeSpec, &c.OfferedRateUsdHr,

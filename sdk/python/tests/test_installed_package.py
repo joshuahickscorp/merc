@@ -59,8 +59,8 @@ class InstalledPackageTests(unittest.TestCase):
                 super().__init__("https://example.invalid", "cx_test_key")
                 self.calls = []
 
-            def _request(self, method, path, body=None, query=None):
-                self.calls.append((method, path, body, query))
+            def _request(self, method, path, body=None, query=None, headers=None):
+                self.calls.append((method, path, body, query, headers))
                 return {"job_id": "test"}
 
         client = RecordingClient()
@@ -68,6 +68,7 @@ class InstalledPackageTests(unittest.TestCase):
             "all-minilm-l6-v2", "embed", input='{"text":"x"}\n'
         )
         self.assertEqual(client.calls[-1][2]["model"], {"ref": "all-minilm-l6-v2"})
+        self.assertTrue(client.calls[-1][4]["Idempotency-Key"].startswith("submit-"))
         client.quote("all-minilm-l6-v2", "embed", input='{"text":"x"}\n')
         self.assertEqual(client.calls[-1][2]["model"], {"ref": "all-minilm-l6-v2"})
 

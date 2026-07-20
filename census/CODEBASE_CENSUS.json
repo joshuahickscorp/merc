@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "b47eb8fb4155646ac502a11dcc6a1a4179cb23602bdd9ae1c501d72433f3102f",
+  "authority_sha256": "29588b419953e78e5b6d91b34bd88a1b1bdab63352518fa6c7a23637a16f4ee7",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -8,13 +8,14 @@
   },
   "files": {
     ".dockerignore": 41,
-    ".env.example": 42,
-    ".github/workflows/ci.yml": 95,
+    ".env.example": 50,
+    ".github/workflows/ci.yml": 263,
     ".gitignore": 115,
     "Caddyfile": 25,
     "Dockerfile.control": 28,
-    "Makefile": 78,
-    "README.md": 103,
+    "Makefile": 81,
+    "README.md": 108,
+    "RELEASE_READINESS.md": 104,
     "agent/Cargo.lock": 3932,
     "agent/Cargo.toml": 51,
     "agent/agent.example.toml": 15,
@@ -22,29 +23,30 @@
     "agent/src/executor.rs": 1272,
     "agent/src/failure.rs": 131,
     "agent/src/hardware.rs": 464,
-    "agent/src/main.rs": 2336,
+    "agent/src/main.rs": 2340,
     "agent/src/models.rs": 88,
     "agent/src/pool.rs": 200,
-    "agent/src/protocol.rs": 307,
+    "agent/src/protocol.rs": 314,
     "agent/src/quantized_llama_batched.rs": 1316,
     "agent/src/runtime_authority.rs": 138,
-    "agent/src/status.rs": 493,
-    "agent/src/types.rs": 258,
+    "agent/src/status.rs": 513,
+    "agent/src/types.rs": 269,
     "agent/test_float_precision.toml": 17,
     "agent/tests/golden/llama32_1b_q4k_greedy.hashes": 34,
     "census/.gitignore": 4,
-    "census/CODEBASE_CENSUS.json": 430,
+    "census/CODEBASE_CENSUS.json": 440,
     "census/CODEBASE_CENSUS.md": 45,
+    "cli/README.md": 13,
     "control/accounts.go": 355,
     "control/admin_authority.go": 76,
     "control/alpha_request.go": 52,
-    "control/api.go": 2755,
-    "control/audit.go": 494,
+    "control/api.go": 2849,
+    "control/audit.go": 500,
     "control/benchmark.go": 174,
     "control/billing.go": 560,
     "control/billing_test.go": 243,
     "control/buildinfo.go": 41,
-    "control/buyer.go": 690,
+    "control/buyer.go": 705,
     "control/buyer_charge_operations.go": 203,
     "control/collect.go": 867,
     "control/connect.go": 131,
@@ -56,12 +58,13 @@
     "control/economic_plan_test.go": 263,
     "control/enrollment.go": 1220,
     "control/enrollment_test.go": 488,
-    "control/evidence.go": 197,
-    "control/failure.go": 345,
+    "control/evidence.go": 210,
+    "control/failure.go": 356,
     "control/failure_test.go": 27,
     "control/fuzz_test.go": 76,
     "control/go.mod": 34,
     "control/go.sum": 80,
+    "control/idempotency_test.go": 34,
     "control/latency_watchdog.go": 110,
     "control/main.go": 307,
     "control/max_usd_test.go": 31,
@@ -97,18 +100,18 @@
     "control/runtime_matrix.go": 351,
     "control/runtime_matrix_test.go": 389,
     "control/runtime_model_ingress_test.go": 36,
-    "control/scheduler.go": 1001,
-    "control/schema.sql": 1952,
+    "control/scheduler.go": 1002,
+    "control/schema.sql": 1963,
     "control/seed.go": 101,
     "control/storage.go": 276,
-    "control/store.go": 4872,
+    "control/store.go": 4961,
     "control/strict_json.go": 110,
     "control/strict_json_test.go": 173,
     "control/stripe_cash_events.go": 519,
     "control/stripe_cash_events_test.go": 142,
     "control/suppliers.go": 322,
     "control/tiebreak_retry_safety_test.go": 28,
-    "control/types.go": 247,
+    "control/types.go": 259,
     "control/verification.go": 558,
     "control/verification_apply.go": 1094,
     "control/verification_apply_test.go": 55,
@@ -132,12 +135,13 @@
     "control/worker_leader.go": 194,
     "control/worker_leader_test.go": 27,
     "control/workers.go": 907,
-    "docker-compose.prod.yml": 120,
+    "docker-compose.prod.yml": 144,
     "docker-compose.yml": 60,
-    "docs/QUICKSTART.md": 83,
-    "docs/RUNBOOKS.md": 93,
+    "docs/FRONTEND_CONTRACT.md": 26,
+    "docs/QUICKSTART.md": 84,
+    "docs/RUNBOOKS.md": 197,
     "docs/RUNTIME_MATRIX.md": 17,
-    "docs/SECURITY.md": 66,
+    "docs/SECURITY.md": 83,
     "docs/screenshots/site-1440.png": 0,
     "docs/screenshots/site-390.png": 0,
     "logo/Geist-VariableFont_wght.ttf": 0,
@@ -147,6 +151,9 @@
     "logo/cx_logo.png": 0,
     "macapp/ComputeExchangeAgent/cx-agent.sb": 36,
     "macapp/ComputeExchangeAgent/sandbox-profile-test.sh": 160,
+    "monitoring/alerts.yml": 82,
+    "ops/go-no-go.json": 44,
+    "ops/readiness.json": 150,
     "proto/enrollment-wire-fixtures.json": 14,
     "proto/manifest.schema.json": 267,
     "scripts/backup.sh": 82,
@@ -156,17 +163,19 @@
     "scripts/deploy.sh": 43,
     "scripts/install.sh": 89,
     "scripts/mint-admin-key.sh": 21,
-    "scripts/prove-local.sh": 236,
+    "scripts/prove-local.sh": 289,
+    "scripts/restore-drill.sh": 98,
     "scripts/restore.sh": 102,
+    "scripts/rollback.sh": 40,
     "scripts/site-build.mjs": 14,
-    "scripts/stripe-webhooks.sh": 100,
+    "scripts/stripe-webhooks.sh": 101,
     "scripts/uninstall.sh": 42,
     "scripts/verify-cli-release.sh": 33,
     "scripts/verify-python-sdk-package.sh": 35,
     "sdk/python/README.md": 53,
-    "sdk/python/computeexchange/__init__.py": 242,
+    "sdk/python/computeexchange/__init__.py": 247,
     "sdk/python/pyproject.toml": 32,
-    "sdk/python/tests/test_installed_package.py": 87,
+    "sdk/python/tests/test_installed_package.py": 88,
     "web/admin.html": 178,
     "web/apple-touch-icon.png": 0,
     "web/assets/site/cx-mark-white.png": 0,
@@ -197,27 +206,27 @@
     },
     "config": {
       "files": 7,
-      "loc": 333,
-      "code": 223,
-      "blank": 53,
+      "loc": 336,
+      "code": 225,
+      "blank": 54,
       "comment": 57,
-      "bytes": 9660
+      "bytes": 9723
     },
     "documentation": {
-      "files": 7,
-      "loc": 460,
-      "code": 363,
-      "blank": 97,
+      "files": 10,
+      "loc": 730,
+      "code": 584,
+      "blank": 146,
       "comment": 0,
-      "bytes": 16967
+      "bytes": 33178
     },
     "go": {
-      "files": 93,
-      "loc": 30075,
-      "code": 28073,
-      "blank": 2000,
-      "comment": 2,
-      "bytes": 1030603
+      "files": 94,
+      "loc": 30350,
+      "code": 28326,
+      "blank": 2012,
+      "comment": 12,
+      "bytes": 1040746
     },
     "javascript": {
       "files": 1,
@@ -228,12 +237,12 @@
       "bytes": 583
     },
     "json": {
-      "files": 4,
-      "loc": 770,
-      "code": 770,
+      "files": 6,
+      "loc": 974,
+      "code": 974,
       "blank": 0,
       "comment": 0,
-      "bytes": 24080
+      "bytes": 34142
     },
     "lockfile": {
       "files": 2,
@@ -245,43 +254,43 @@
     },
     "other": {
       "files": 4,
-      "loc": 104,
-      "code": 97,
-      "blank": 7,
+      "loc": 112,
+      "code": 104,
+      "blank": 8,
       "comment": 0,
-      "bytes": 4940
+      "bytes": 5471
     },
     "python": {
       "files": 2,
-      "loc": 329,
-      "code": 277,
+      "loc": 335,
+      "code": 283,
       "blank": 52,
       "comment": 0,
-      "bytes": 13837
+      "bytes": 14208
     },
     "rust": {
       "files": 12,
-      "loc": 7552,
-      "code": 6926,
-      "blank": 626,
+      "loc": 7594,
+      "code": 6966,
+      "blank": 628,
       "comment": 0,
-      "bytes": 253145
+      "bytes": 254200
     },
     "shell": {
-      "files": 14,
-      "loc": 1091,
-      "code": 948,
-      "blank": 129,
-      "comment": 14,
-      "bytes": 43517
+      "files": 16,
+      "loc": 1283,
+      "code": 1111,
+      "blank": 147,
+      "comment": 25,
+      "bytes": 54111
     },
     "sql": {
       "files": 1,
-      "loc": 1952,
-      "code": 1843,
+      "loc": 1963,
+      "code": 1854,
       "blank": 109,
       "comment": 0,
-      "bytes": 105782
+      "bytes": 106419
     },
     "toml": {
       "files": 4,
@@ -300,22 +309,22 @@
       "bytes": 38292
     },
     "yaml": {
-      "files": 3,
-      "loc": 275,
-      "code": 259,
-      "blank": 16,
+      "files": 4,
+      "loc": 549,
+      "code": 521,
+      "blank": 28,
       "comment": 0,
-      "bytes": 8303
+      "bytes": 20792
     }
   },
   "owned_by_subsystem": {
     "agent": {
       "files": 17,
-      "loc": 11601,
-      "code": 10572,
-      "blank": 1029,
+      "loc": 11643,
+      "code": 10612,
+      "blank": 1031,
       "comment": 0,
-      "bytes": 355289
+      "bytes": 356344
     },
     "contract": {
       "files": 2,
@@ -326,20 +335,20 @@
       "bytes": 11683
     },
     "control": {
-      "files": 55,
-      "loc": 19388,
-      "code": 18070,
-      "blank": 1316,
-      "comment": 2,
-      "bytes": 661280
+      "files": 56,
+      "loc": 19644,
+      "code": 18307,
+      "blank": 1327,
+      "comment": 10,
+      "bytes": 670560
     },
     "documentation": {
-      "files": 6,
-      "loc": 259,
-      "code": 205,
-      "blank": 54,
+      "files": 7,
+      "loc": 407,
+      "code": 322,
+      "blank": 85,
       "comment": 0,
-      "bytes": 415247
+      "bytes": 424393
     },
     "interface": {
       "files": 25,
@@ -350,12 +359,12 @@
       "bytes": 4502027
     },
     "ops": {
-      "files": 13,
-      "loc": 1186,
-      "code": 1031,
-      "blank": 98,
+      "files": 18,
+      "loc": 1797,
+      "code": 1610,
+      "blank": 130,
       "comment": 57,
-      "bytes": 33417
+      "bytes": 63627
     },
     "payment": {
       "files": 14,
@@ -366,28 +375,28 @@
       "bytes": 140027
     },
     "proof": {
-      "files": 20,
-      "loc": 2068,
-      "code": 1874,
-      "blank": 181,
-      "comment": 13,
-      "bytes": 69423
+      "files": 22,
+      "loc": 2279,
+      "code": 2053,
+      "blank": 200,
+      "comment": 26,
+      "bytes": 80876
     },
     "sdk": {
       "files": 4,
-      "loc": 414,
-      "code": 345,
+      "loc": 420,
+      "code": 351,
       "blank": 69,
       "comment": 0,
-      "bytes": 16825
+      "bytes": 17196
     },
     "store": {
       "files": 1,
-      "loc": 1952,
-      "code": 1843,
+      "loc": 1963,
+      "code": 1854,
       "blank": 109,
       "comment": 0,
-      "bytes": 105782
+      "bytes": 106419
     },
     "verification": {
       "files": 21,
@@ -395,15 +404,16 @@
       "code": 5374,
       "blank": 362,
       "comment": 0,
-      "bytes": 206957
+      "bytes": 206961
     }
   },
   "ownership": {
-    "global_owned_loc": 47777,
-    "test_loc": 3961,
-    "documentation_loc": 460,
-    "python_loc": 329,
-    "generated_loc": 3932,
+    "global_owned_loc": 49062,
+    "non_design_production_core_loc": 38879,
+    "test_loc": 3996,
+    "documentation_loc": 730,
+    "python_loc": 335,
+    "generated_loc": 4715,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -425,6 +435,6 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 6517957,
-  "tracked_files": 178
+  "tracked_bytes": 6580113,
+  "tracked_files": 187
 }

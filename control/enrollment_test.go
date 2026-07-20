@@ -207,7 +207,7 @@ func TestEnrollmentDeviceRequestStrictlyBindsSwiftWireFields(t *testing.T) {
 		t.Fatalf("decoded request changed wire binding: %+v", request)
 	}
 
-	stableKey := "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU"
+	stableKey := "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU" // gitleaks:allow -- fixed public-key fixture, not a credential
 	stableRaw, err := base64.RawURLEncoding.DecodeString(stableKey)
 	if err != nil {
 		t.Fatal(err)

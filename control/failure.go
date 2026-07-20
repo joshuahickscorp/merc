@@ -67,7 +67,10 @@ const (
 
 var errNotOwner = errors.New("task is not claimed by this worker")
 
-func (s *Store) FailTaskTx(ctx context.Context, taskID, workerID uuid.UUID, rep FailureReport) (FailOutcome, error) {
+func (s *Store) FailTaskTx(ctx context.Context, taskID, workerID uuid.UUID, attempt int16, rep FailureReport) (FailOutcome, error) {
+	if attempt < 0 {
+		return FailNoop, errNotOwner
+	}
 	policy, known := classifyFailure(rep.Class)
 	class := rep.Class
 	if !known {
@@ -97,6 +100,9 @@ func (s *Store) FailTaskTx(ctx context.Context, taskID, workerID uuid.UUID, rep 
 		return FailNoop, err
 	}
 	if claimedBy == nil || *claimedBy != workerID {
+		return FailNoop, errNotOwner
+	}
+	if retry != attempt {
 		return FailNoop, errNotOwner
 	}
 	if status != "running" && status != "queued" && status != "retrying" {
@@ -278,12 +284,17 @@ func (s *Server) handleWorkerFail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid task id")
 		return
 	}
+	attempt, err := taskAttemptHeader(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	var rep FailureReport
 	if err := json.NewDecoder(r.Body).Decode(&rep); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid fail report json")
 		return
 	}
-	outcome, err := s.store.FailTaskTx(r.Context(), taskID, auth.WorkerID, rep)
+	outcome, err := s.store.FailTaskTx(r.Context(), taskID, auth.WorkerID, attempt, rep)
 	switch {
 	case errors.Is(err, errNotFound):
 		writeErr(w, http.StatusNotFound, "task not found")

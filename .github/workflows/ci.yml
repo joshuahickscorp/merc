@@ -9,6 +9,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PRIOR_SHA: 0387766c5d0e8f9e5b64e8cbef215edcd07784bd
+
 jobs:
   control:
     runs-on: ubuntu-latest
@@ -29,11 +33,15 @@ jobs:
       DATABASE_URL: postgres://cx:cx@localhost:5432/cx?sslmode=disable
       PGPASSWORD: cx
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.5"
           cache-dependency-path: control/go.sum
+      - name: Candidate source identity
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
       - name: schema is idempotent
         run: |
           sudo apt-get update
@@ -52,17 +60,35 @@ jobs:
           cd control
           time go build -trimpath -o "$RUNNER_TEMP/cx" .
           go run . audit codebase --out census
+      - name: Package control evidence
+        run: |
+          mkdir -p "$RUNNER_TEMP/control-evidence"
+          cp "$RUNNER_TEMP/cx" control/schema.sql control/runtime-authority.json \
+            proto/manifest.schema.json "$RUNNER_TEMP/control-evidence/"
+          cd "$RUNNER_TEMP/control-evidence"
+          sha256sum cx schema.sql runtime-authority.json manifest.schema.json > SHA256SUMS
+      - name: Upload control evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-control-${{ env.CANDIDATE_SHA }}
+          path: ${{ runner.temp }}/control-evidence
+          if-no-files-found: error
+          retention-days: 30
 
   agent:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           workspaces: agent
+      - name: Candidate source identity
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
       - name: format, lint, test
         run: |
           cd agent
@@ -75,17 +101,38 @@ jobs:
           time cargo build --release
           cd ..
           bash macapp/ComputeExchangeAgent/sandbox-profile-test.sh
+      - name: Package agent evidence
+        run: |
+          mkdir -p "$RUNNER_TEMP/agent-evidence"
+          cp agent/target/release/cx-agent "$RUNNER_TEMP/agent-evidence/"
+          cd "$RUNNER_TEMP/agent-evidence"
+          shasum -a 256 cx-agent > SHA256SUMS
+      - name: Upload agent evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-agent-${{ env.CANDIDATE_SHA }}
+          path: ${{ runner.temp }}/agent-evidence
+          if-no-files-found: error
+          retention-days: 30
 
   interfaces:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: control/go.sum
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "22"
+      - name: Candidate source identity
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
       - name: schema and generated artifacts
         run: |
           python3 -m json.tool proto/manifest.schema.json >/dev/null
@@ -93,3 +140,124 @@ jobs:
           node scripts/site-build.mjs
       - name: Python SDK package
         run: bash scripts/verify-python-sdk-package.sh
+      - name: CLI release archive
+        run: bash scripts/verify-cli-release.sh v0.1.0-rc.1
+      - name: Package release evidence
+        run: |
+          BUNDLE="$RUNNER_TEMP/release-bundle"
+          mkdir -p "$BUNDLE/contracts" "$BUNDLE/website" "$BUNDLE/docs"
+          bash scripts/build-cli-release.sh v0.1.0-rc.1 "$BUNDLE/cli"
+          cp web/index.html web/admin.html web/favicon.ico "$BUNDLE/website/"
+          cp control/schema.sql control/runtime-authority.json \
+            proto/manifest.schema.json .env.example "$BUNDLE/contracts/"
+          cp RELEASE_READINESS.md docs/RUNBOOKS.md docs/SECURITY.md \
+            "$BUNDLE/docs/"
+          printf '%s\n' "$CANDIDATE_SHA" > "$BUNDLE/SOURCE_COMMIT"
+          (cd control && go run . source-id --root .. --field source_sha256) \
+            > "$BUNDLE/SOURCE_SHA256"
+          cd "$BUNDLE"
+          find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | \
+            xargs -0 sha256sum > SHA256SUMS
+      - name: Upload release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-release-${{ env.CANDIDATE_SHA }}
+          path: ${{ runner.temp }}/release-bundle
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+  container:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+      - name: Candidate source identity
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - name: Build immutable candidate and prior images
+        run: |
+          CANDIDATE_EPOCH="$(git show -s --format=%ct "$CANDIDATE_SHA")"
+          CANDIDATE_DATE="$(date -u -d "@$CANDIDATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+          docker build \
+            --build-arg CX_BUILD_VERSION=v0.1.0-rc.1 \
+            --build-arg CX_BUILD_COMMIT="$CANDIDATE_SHA" \
+            --build-arg CX_BUILD_DATE="$CANDIDATE_DATE" \
+            --tag "computexchange/control:sha-$CANDIDATE_SHA" \
+            --file Dockerfile.control .
+          mkdir -p "$RUNNER_TEMP/prior-source"
+          git archive "$PRIOR_SHA" | tar -x -C "$RUNNER_TEMP/prior-source"
+          PRIOR_EPOCH="$(git show -s --format=%ct "$PRIOR_SHA")"
+          PRIOR_DATE="$(date -u -d "@$PRIOR_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+          docker build \
+            --build-arg CX_BUILD_VERSION=sha-${PRIOR_SHA:0:7} \
+            --build-arg CX_BUILD_COMMIT="$PRIOR_SHA" \
+            --build-arg CX_BUILD_DATE="$PRIOR_DATE" \
+            --tag "computexchange/control:sha-$PRIOR_SHA" \
+            --file "$RUNNER_TEMP/prior-source/Dockerfile.control" \
+            "$RUNNER_TEMP/prior-source"
+          {
+            printf 'candidate='
+            docker image inspect "computexchange/control:sha-$CANDIDATE_SHA" --format '{{.Id}}'
+            printf 'prior='
+            docker image inspect "computexchange/control:sha-$PRIOR_SHA" --format '{{.Id}}'
+          } | tee container-image-ids.txt
+          docker save "computexchange/control:sha-$CANDIDATE_SHA" | \
+            gzip -n > candidate-control-image.tar.gz
+          docker save "computexchange/control:sha-$PRIOR_SHA" | \
+            gzip -n > prior-control-image.tar.gz
+          sha256sum candidate-control-image.tar.gz prior-control-image.tar.gz \
+            > container-archive-SHA256SUMS
+      - name: Generate image SBOMs
+        run: |
+          go run github.com/anchore/syft/cmd/syft@v1.48.0 \
+            "computexchange/control:sha-$CANDIDATE_SHA" \
+            --output spdx-json=candidate-sbom.spdx.json
+          go run github.com/anchore/syft/cmd/syft@v1.48.0 \
+            "computexchange/control:sha-$PRIOR_SHA" \
+            --output spdx-json=prior-sbom.spdx.json
+          test -s candidate-sbom.spdx.json
+          test -s prior-sbom.spdx.json
+      - name: Upload supply-chain evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-supply-chain-${{ env.CANDIDATE_SHA }}
+          path: |
+            candidate-control-image.tar.gz
+            prior-control-image.tar.gz
+            container-image-ids.txt
+            container-archive-SHA256SUMS
+            candidate-sbom.spdx.json
+            prior-sbom.spdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: control/go.sum
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
+      - name: Candidate source identity
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - name: Go call-graph vulnerability scan
+        working-directory: control
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+      - name: Candidate secret scan
+        run: go run github.com/zricethezav/gitleaks/v8@v8.30.1 dir --redact --no-banner .
+      - name: RustSec advisory scan
+        working-directory: agent
+        run: |
+          cargo install --locked cargo-audit --version 0.22.2
+          cargo audit

@@ -15,6 +15,23 @@ This is the current boundary and limitation register. It is not a certification.
 - PostgreSQL is the queue, lifecycle, and money authority. S3-compatible storage
   is an artifact store, not a source of lifecycle truth.
 
+## Authorization matrix
+
+| Surface | Credential / proof | Object scope | Mutation authority |
+|---|---|---|---|
+| health, readiness, version, static site, metrics | public behind the production proxy | no buyer objects | none |
+| signup, login, alpha request | IP-rate-limited public request | newly created identity/lead only | identity bootstrap |
+| Stripe billing and Connect webhooks | endpoint-specific timestamped HMAC | provider event id and bound account/job references | append-only provider facts; idempotent effects |
+| buyer jobs, results, invoices, receipts, disputes, keys, webhooks | revocable buyer key or session | every lookup includes authenticated `buyer_id` | own jobs, credentials, callbacks, disputes |
+| supplier enrollment management | buyer key/session plus supplier ownership | the buyer's single owned supplier | mint/revoke own device credentials |
+| worker register, heartbeat, poll, start, fail, commit | hashed-at-rest worker token | authenticated worker plus exact task claim and attempt epoch | current execution only; no buyer or admin access |
+| `/admin/*` | revocable admin API key with actor attribution | explicitly requested global object | audited suspend/requeue/reputation/payout/subsidy actions |
+
+Buyer and worker credentials are different namespaces. A valid object UUID never
+grants authority by itself. Cancellation performs an owner-scoped lookup before
+locking task rows; task start, failure, commit, and heartbeat lease renewal are
+fenced by the retry-attempt epoch.
+
 ## Enforced controls
 
 - Buyer API keys and worker tokens are stored as hashes. Token-bearing responses

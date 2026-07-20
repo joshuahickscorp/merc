@@ -102,6 +102,7 @@ type WorkerCapability struct {
 
 type TaskDispatch struct {
 	TaskID           uuid.UUID   `json:"task_id"`
+	Attempt          int16       `json:"attempt"`
 	JobID            uuid.UUID   `json:"job_id"`
 	RuntimeCellID    string      `json:"runtime_cell_id"`
 	RuntimeID        string      `json:"runtime_id"`
@@ -117,6 +118,7 @@ type TaskDispatch struct {
 
 type TaskCommit struct {
 	TaskID        uuid.UUID `json:"task_id"`
+	Attempt       int16     `json:"attempt"`
 	ResultKey     string    `json:"result_key"`
 	DurationMS    uint64    `json:"duration_ms"`
 	TokensUsed    uint64    `json:"tokens_used"`
@@ -125,17 +127,26 @@ type TaskCommit struct {
 }
 
 type Heartbeat struct {
-	WorkerID           uuid.UUID  `json:"worker_id"`
-	Timestamp          uint64     `json:"timestamp"`
-	CPUPct             float32    `json:"cpu_pct"`
-	GPUPct             float32    `json:"gpu_pct"`
-	GPUTempC           *float32   `json:"gpu_temp_c"`
-	CurrentTask        *uuid.UUID `json:"current_task"`
-	AvailableMemoryGB  float32    `json:"available_memory_gb"`
-	EffectiveMemoryGB  float32    `json:"effective_memory_gb"`
-	ReservedHeadroomGB float32    `json:"reserved_headroom_gb"`
-	Throttled          bool       `json:"throttled"`
-	LoadedModels       []string   `json:"loaded_models,omitempty"` // model ids warm in the agent's pool (warm-routing re-rank)
+	WorkerID           uuid.UUID   `json:"worker_id"`
+	Timestamp          uint64      `json:"timestamp"`
+	CPUPct             float32     `json:"cpu_pct"`
+	GPUPct             float32     `json:"gpu_pct"`
+	GPUTempC           *float32    `json:"gpu_temp_c"`
+	CurrentTask        *uuid.UUID  `json:"current_task"`
+	ActiveTasks        []TaskLease `json:"active_tasks,omitempty"`
+	AvailableMemoryGB  float32     `json:"available_memory_gb"`
+	EffectiveMemoryGB  float32     `json:"effective_memory_gb"`
+	ReservedHeadroomGB float32     `json:"reserved_headroom_gb"`
+	Throttled          bool        `json:"throttled"`
+	LoadedModels       []string    `json:"loaded_models,omitempty"` // model ids warm in the agent's pool (warm-routing re-rank)
+}
+
+// TaskLease identifies the exact execution epoch an agent is still running.
+// The retry counter is an attempt fence: an old process cannot renew a task
+// after the control plane has requeued and reassigned it.
+type TaskLease struct {
+	TaskID  uuid.UUID `json:"task_id"`
+	Attempt int16     `json:"attempt"`
 }
 
 type Earnings struct {
@@ -162,6 +173,7 @@ type JobSubmitResponse struct {
 	TierSemantics       string    `json:"tier_semantics"`
 	WebhookID           string    `json:"webhook_id,omitempty"`
 	WebhookSecret       string    `json:"webhook_secret,omitempty"`
+	IdempotentReplay    bool      `json:"-"`
 }
 
 type JobStatus struct {

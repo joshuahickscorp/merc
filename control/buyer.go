@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 var (
@@ -70,6 +72,10 @@ func newClient() *client {
 }
 
 func (c *client) do(method, path string, body []byte) []byte {
+	return c.doHeaders(method, path, body, nil)
+}
+
+func (c *client) doHeaders(method, path string, body []byte, headers map[string]string) []byte {
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)
@@ -83,6 +89,9 @@ func (c *client) do(method, path string, body []byte) []byte {
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -186,12 +195,16 @@ func cmdSubmit(args []string) {
 	dataResidency := fs.String("data-residency", "", "comma-separated allowed country codes")
 	webhook := fs.String("webhook", "", "https completion webhook URL")
 	quoteID := fs.String("quote-id", "", "bind to an advisory quote id (q_<uuid> from `cx quote`)")
+	idempotencyKey := fs.String("idempotency-key", "", "stable retry key (default: generated for this invocation)")
 	maxUSD := fs.Float64("max-usd", 0, "hard spend cap in USD (Budget Governor); 0 = no cap")
 	s3Key := fs.String("s3-key", "", "use an already-uploaded object instead of --input")
 	wait := fs.Bool("wait", false, "poll to completion and print results")
 	poll := fs.Duration("poll", 3*time.Second, "poll interval with --wait")
 	timeout := fs.Duration("timeout", 30*time.Minute, "give up waiting after this")
 	fs.Parse(args)
+	if *idempotencyKey == "" {
+		*idempotencyKey = "submit-" + uuid.NewString()
+	}
 
 	if *model == "" || *typ == "" {
 		fatalf("--model and --type are required")
@@ -249,7 +262,9 @@ func cmdSubmit(args []string) {
 	}
 
 	c := newClient()
-	out := c.do("POST", "/v1/jobs", mustJSON(sub))
+	out := c.doHeaders("POST", "/v1/jobs", mustJSON(sub), map[string]string{
+		"Idempotency-Key": *idempotencyKey,
+	})
 	printJSON(out)
 
 	var sr struct {
