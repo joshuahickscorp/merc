@@ -96,9 +96,8 @@ services:
       # The legacy retained image uses `/cx healthcheck`; the dedicated probe
       # ignores this compatibility argument.
       test: [CMD, "${CX_LOCAL_CONTROL_HEALTHCHECK:-/cx-healthcheck}", healthcheck]
-      # Colima/Docker Desktop can retain cgroup charges from container execs.
-      # Soaks use a long post-start cadence while the harness and Prometheus
-      # continue probing the HTTPS/API surface every sample/scrape.
+      # Soaks use a production-shaped post-start cadence while the harness and
+      # Prometheus continue probing the HTTPS/API surface every sample/scrape.
       interval: ${CX_LOCAL_CONTROL_HEALTH_INTERVAL:-5s}
       start_interval: 2s
       timeout: 4s

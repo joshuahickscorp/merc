@@ -107,13 +107,11 @@ else
 fi
 [[ "$LOCAL_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "local build lacks immutable image ID" >&2; exit 1; }
 
-# Docker healthchecks are execs inside the service cgroup. On the local
-# Colima/Docker Desktop VM those short-lived exec charges can accumulate until
-# the 1 GiB control limit is reached. Keep fast startup checks, then use one
-# hourly in-container check for soaks; HTTPS readiness is asserted on every
-# sample and Prometheus independently scrapes the control every five seconds.
+# Keep fast startup checks, then use a production-shaped post-start cadence for
+# soaks. HTTPS readiness is also asserted on every sample and Prometheus
+# independently scrapes the control every five seconds.
 CONTROL_HEALTH_INTERVAL=5s
-[ "$MODE" != soak ] || CONTROL_HEALTH_INTERVAL=1h
+[ "$MODE" != soak ] || CONTROL_HEALTH_INTERVAL=30s
 
 KEEP=1 KEEP_AGENTS=1 CX_LOCAL_SOURCE_PROOF=1 \
   CX_LOCAL_PROJECT="$PROJECT" CX_LOCAL_ARTIFACT_DIR="$ART/topology" \
@@ -363,7 +361,7 @@ while [ "$(date +%s)" -lt "$end_epoch" ]; do
   id="$(submit_job embed "embed-$sequence")"; wait_job "$id"
   [ $((sequence % 5)) -ne 0 ] || { infer="$(submit_job batch "batch-$sequence")"; wait_job "$infer"; }
   metrics="$(curl --silent --get http://127.0.0.1:19090/api/v1/query \
-    --data-urlencode 'query={__name__=~"cx_process_resident_memory_bytes|cx_process_open_file_descriptors|cx_db_pool_connections|cx_queue_age_seconds|cx_webhook_backlog|cx_reconcile_drift_total"}' | jq '.data.result')"
+    --data-urlencode 'query={__name__=~"cx_process_resident_memory_bytes|cx_process_open_file_descriptors|cx_go_.*|cx_db_pool_connections|cx_queue_age_seconds|cx_webhook_backlog|cx_reconcile_drift_total"}' | jq '.data.result')"
   database="$(psql_value "SELECT json_build_object(
     'connections',(SELECT count(*) FROM pg_stat_activity WHERE datname='cx'),
     'queue_age_seconds',(SELECT COALESCE(max(EXTRACT(EPOCH FROM now()-created_at)),0)::float8 FROM tasks WHERE status IN ('queued','retrying')),
@@ -404,9 +402,17 @@ summary="$(jq -s '
   . as $samples |
   (metric_values("cx_process_resident_memory_bytes")) as $rss |
   (metric_values("cx_process_open_file_descriptors")) as $fds |
+  (metric_values("cx_go_heap_alloc_bytes")) as $heap |
+  (metric_values("cx_go_sys_bytes")) as $go_sys |
+  (metric_values("cx_go_goroutines")) as $goroutines |
+  (metric_values("cx_go_gc_cycles_total")) as $gc_cycles |
   {sample_count:length,
    rss_bytes:bounds($rss),
    open_file_descriptors:bounds($fds),
+   go_heap_alloc_bytes:bounds($heap),
+   go_sys_bytes:bounds($go_sys),
+   go_goroutines:bounds($goroutines),
+   go_gc_cycles_total:bounds($gc_cycles),
    database_connections:{max:([$samples[].database.connections]|max)},
    queue_age_seconds:{max:([$samples[].database.queue_age_seconds]|max)},
    retry_count:{max:([$samples[].database.retry_count]|max)},
@@ -438,7 +444,7 @@ jq -n --arg started "$(date -u -r "$started_epoch" +%Y-%m-%dT%H:%M:%SZ)" \
    duration:{requested_seconds:$requested,actual_seconds:$actual,interval_seconds:$interval,samples:$count},
    health_monitoring:{docker_control_interval:$docker_health_interval,
      startup_interval:"2s",https_readiness_each_sample:true,prometheus_scrape_interval:"5s"},
-   tracked:["RSS","file descriptors","database connections","queue age","retry count","artifact growth",
+   tracked:["RSS","file descriptors","Go heap/runtime/goroutines/GC","database connections","queue age","retry count","artifact growth",
      "model-cache growth","webhook backlog","failed finalizations","reconciliation","backup status",
      "control restarts","control OOM kills"],
    samples:{sha256:$samples_sha,retained_in_ignored_artifact_directory:true},observed_bounds:$summary,
