@@ -73,6 +73,7 @@ from blender_vision.perception import (
     FrontendRepairService,
     GraphicsRoundTripService,
     ObservationQueryService,
+    PerceptionLearningService,
     PerceptionWorkspace,
     SourceIntelligenceService,
     default_adapter_registry,
@@ -2938,6 +2939,22 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             correction_budget=correction_budget,
         )
 
+    @mcp.tool(name="active_learning.start_from_workspace")
+    def active_learning_start_from_workspace(
+        project_path: str,
+        workspace_id: str,
+        model_level: str,
+        model_identity: dict[str, Any],
+        correction_budget: int = 32,
+    ) -> dict[str, Any]:
+        """Rank evidence-bound workspace uncertainty for named correction."""
+        return PerceptionLearningService(open_project(project_path)).start_from_workspace(
+            workspace_id,
+            model_level=model_level,
+            model_identity=model_identity,
+            correction_budget=correction_budget,
+        )
+
     @mcp.tool(name="active_learning.record_corrections")
     def active_learning_record_corrections(
         project_path: str,
@@ -3012,6 +3029,20 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         """Activate a commercially eligible non-regressing checkpoint after named review."""
         return ActiveLearningStore(open_project(project_path)).promote(
             cycle_id, reviewed_by=reviewed_by, reason=reason
+        )
+
+    @mcp.tool(name="active_learning.rollback")
+    def active_learning_rollback(
+        project_path: str,
+        active_revision_id: str,
+        reviewed_by: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Receipt-roll back the current revision and restore its predecessor."""
+        return ActiveLearningStore(open_project(project_path)).rollback(
+            active_revision_id,
+            reviewed_by=reviewed_by,
+            reason=reason,
         )
 
     @mcp.tool(name="synthetic_view.register")

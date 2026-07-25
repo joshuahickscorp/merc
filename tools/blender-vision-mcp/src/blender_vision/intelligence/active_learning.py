@@ -418,6 +418,141 @@ class ActiveLearningStore:
                 )
             ]
 
+    def rollback(
+        self,
+        active_revision_id: str,
+        *,
+        reviewed_by: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reviewed_by.strip() or not reason.strip():
+            raise ValueError("model rollback requires a named reviewer and reason")
+        with self.project.connection() as connection:
+            existing = connection.execute(
+                "SELECT * FROM active_model_rollbacks WHERE rolled_back_revision_id=?",
+                (active_revision_id,),
+            ).fetchone()
+            active = connection.execute(
+                "SELECT * FROM active_model_revisions WHERE id=?",
+                (active_revision_id,),
+            ).fetchone()
+        if existing:
+            record = dict(existing)
+            if (
+                record["reviewed_by"] != reviewed_by.strip()
+                or record["reason"] != reason.strip()
+            ):
+                raise ValueError("model revision already has a different rollback receipt")
+            receipt = json.loads(
+                self.artifacts.path_for(record["receipt_digest"]).read_text(
+                    encoding="utf-8"
+                )
+            )
+            return {**receipt, "receipt_digest": record["receipt_digest"], "reused": True}
+        if active is None or active["status"] != "ACTIVE":
+            raise ValueError("only the currently active model revision can be rolled back")
+        cycle = self.get(active["cycle_id"])
+        activation = cycle.get("activation") or {}
+        restored_id = activation.get("supersedes_active_revision_id")
+        restored = None
+        if restored_id:
+            with self.project.connection() as connection:
+                restored = connection.execute(
+                    "SELECT * FROM active_model_revisions WHERE id=?",
+                    (restored_id,),
+                ).fetchone()
+            if (
+                restored is None
+                or restored["status"] != "SUPERSEDED"
+                or restored["model_level"] != active["model_level"]
+                or restored["model_name"] != active["model_name"]
+            ):
+                raise ValueError("superseded model revision is not eligible for restoration")
+        rollback_id = str(uuid.uuid4())
+        now = utc_now()
+        receipt = {
+            "schema_version": 1,
+            "record_type": "active_model_rollback",
+            "id": rollback_id,
+            "rolled_back_revision": {
+                "id": active["id"],
+                "model_level": active["model_level"],
+                "model_name": active["model_name"],
+                "model_revision": active["model_revision"],
+                "checkpoint_digest": active["checkpoint_digest"],
+                "activation_digest": active["activation_digest"],
+            },
+            "restored_revision": (
+                {
+                    "id": restored["id"],
+                    "model_level": restored["model_level"],
+                    "model_name": restored["model_name"],
+                    "model_revision": restored["model_revision"],
+                    "checkpoint_digest": restored["checkpoint_digest"],
+                    "activation_digest": restored["activation_digest"],
+                }
+                if restored
+                else None
+            ),
+            "reviewed_by": reviewed_by.strip(),
+            "reason": reason.strip(),
+            "created_at": now,
+        }
+        relative = (
+            Path("training") / "active-learning" / f"rollback-{rollback_id}.json"
+        )
+        atomic_write_json(self.project.root / relative, receipt)
+        artifact = self.artifacts.ingest_file(
+            self.project.root / relative,
+            media_type="application/vnd.bvmcp.active-model-rollback+json",
+        )
+        with self.project.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                "SELECT status FROM active_model_revisions WHERE id=?",
+                (active_revision_id,),
+            ).fetchone()
+            if current is None or current["status"] != "ACTIVE":
+                raise RuntimeError("active model changed during rollback")
+            if restored_id:
+                previous = connection.execute(
+                    "SELECT status FROM active_model_revisions WHERE id=?",
+                    (restored_id,),
+                ).fetchone()
+                if previous is None or previous["status"] != "SUPERSEDED":
+                    raise RuntimeError("restored model changed during rollback")
+            connection.execute(
+                "UPDATE active_model_revisions SET status='ROLLED_BACK',updated_at=? "
+                "WHERE id=?",
+                (now, active_revision_id),
+            )
+            if restored_id:
+                connection.execute(
+                    "UPDATE active_model_revisions SET status='ACTIVE',updated_at=? "
+                    "WHERE id=?",
+                    (now, restored_id),
+                )
+            connection.execute(
+                "INSERT INTO active_model_rollbacks("
+                "id,rolled_back_revision_id,restored_revision_id,reviewed_by,reason,"
+                "receipt_digest,created_at) VALUES(?,?,?,?,?,?,?)",
+                (
+                    rollback_id,
+                    active_revision_id,
+                    restored_id,
+                    reviewed_by.strip(),
+                    reason.strip(),
+                    artifact.digest,
+                    now,
+                ),
+            )
+        return {
+            **receipt,
+            "receipt_digest": artifact.digest,
+            "path": str(relative),
+            "reused": False,
+        }
+
     def _correction_dataset(
         self, record: dict[str, Any], source_digest: str
     ) -> dict[str, Any]:
@@ -613,6 +748,9 @@ def audit_active_learning(project: ProjectStore) -> dict[str, Any]:
         model_rows = connection.execute(
             "SELECT * FROM active_model_revisions ORDER BY created_at,id"
         ).fetchall()
+        rollback_rows = connection.execute(
+            "SELECT * FROM active_model_rollbacks ORDER BY created_at,id"
+        ).fetchall()
         dataset_rows = connection.execute("SELECT * FROM datasets").fetchall()
         training_rows = connection.execute("SELECT * FROM training_runs").fetchall()
         evaluation_rows = connection.execute("SELECT * FROM model_evaluations").fetchall()
@@ -706,12 +844,52 @@ def audit_active_learning(project: ProjectStore) -> dict[str, Any]:
             active_keys.add(key)
         if not valid:
             invalid_models.append(row["id"])
+    models_by_id = {row["id"]: dict(row) for row in model_rows}
+    invalid_rollbacks = []
+    for row in rollback_rows:
+        record = dict(row)
+        receipt = _artifact_json(project, artifacts, row["receipt_digest"])
+        rolled = models_by_id.get(row["rolled_back_revision_id"])
+        restored = (
+            models_by_id.get(row["restored_revision_id"])
+            if row["restored_revision_id"]
+            else None
+        )
+        valid = bool(
+            isinstance(receipt, dict)
+            and receipt.get("record_type") == "active_model_rollback"
+            and receipt.get("id") == row["id"]
+            and receipt.get("rolled_back_revision", {}).get("id")
+            == row["rolled_back_revision_id"]
+            and (
+                receipt.get("restored_revision", {}).get("id")
+                if receipt.get("restored_revision")
+                else None
+            )
+            == row["restored_revision_id"]
+            and receipt.get("reviewed_by") == row["reviewed_by"]
+            and receipt.get("reason") == row["reason"]
+            and rolled is not None
+            and rolled["status"] == "ROLLED_BACK"
+            and (
+                restored is None
+                or (
+                    restored["model_level"] == rolled["model_level"]
+                    and restored["model_name"] == rolled["model_name"]
+                    and restored["status"] in {"ACTIVE", "SUPERSEDED", "ROLLED_BACK"}
+                )
+            )
+        )
+        if not valid:
+            invalid_rollbacks.append(row["id"])
     return {
         "cycles": cycle_records,
         "events": [dict(row) for row in event_rows],
         "active_model_revisions": [dict(row) for row in model_rows],
+        "model_rollbacks": [dict(row) for row in rollback_rows],
         "invalid_cycle_ids": invalid_cycles,
         "invalid_model_revision_ids": invalid_models,
+        "invalid_rollback_ids": invalid_rollbacks,
     }
 
 

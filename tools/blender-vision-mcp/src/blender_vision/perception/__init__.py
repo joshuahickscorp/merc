@@ -18,6 +18,7 @@ from blender_vision.perception.graphics import (
     GraphicsRuntimeAdapter,
     RuntimeGltfCompiler,
 )
+from blender_vision.perception.learning import PerceptionLearningService
 from blender_vision.perception.media import (
     CameraFrameAdapter,
     DesktopSnapshotAdapter,
@@ -56,6 +57,7 @@ __all__ = [
     "MotionGraphReplay",
     "ObservationQueryService",
     "PerceptionWorkspace",
+    "PerceptionLearningService",
     "RuntimeGltfCompiler",
     "StorybookExportAdapter",
     "SourceIntelligenceService",
