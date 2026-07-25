@@ -73,6 +73,8 @@ from blender_vision.perception import (
     FeatureCapsuleCompiler,
     FeatureCapsuleVerifier,
     FigmaExportAdapter,
+    FrontendComparisonService,
+    FrontendRepairService,
     GraphicsRoundTripService,
     GraphicsRuntimeAdapter,
     ObservationQueryService,
@@ -1492,6 +1494,8 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         capture_a: str,
         capture_b: str,
         bindings: dict[str, str] | None = None,
+        selectors: list[str] | None = None,
+        thresholds: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         """Compare two governed observations with a domain-specific evidence evaluator."""
         project = open_project(project_path)
@@ -1499,21 +1503,37 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         try:
             left = service.graph(capture_a, "DesignSystemGraph")
             right = service.graph(capture_b, "DesignSystemGraph")
-        except KeyError as error:
-            raise ValueError(
-                "no compatible comparison evaluator is installed for these captures"
-            ) from error
-        if {left.get("source_kind"), right.get("source_kind")} != {"figma", "storybook"}:
-            raise ValueError("design comparison requires one Figma and one Storybook capture")
-        if left["source_kind"] == "figma":
-            figma_capture, storybook_capture = capture_a, capture_b
+        except KeyError:
+            try:
+                service.graph(capture_a, "LayoutGraph")
+                service.graph(capture_b, "LayoutGraph")
+            except KeyError as error:
+                raise ValueError(
+                    "no compatible comparison evaluator is installed for these captures"
+                ) from error
+            return FrontendComparisonService(project).compare(
+                capture_a,
+                capture_b,
+                selectors=selectors,
+                thresholds=thresholds,
+            )
         else:
-            figma_capture, storybook_capture = capture_b, capture_a
-        return DesignIntelligenceService(project).analyze_drift(
-            figma_capture,
-            storybook_capture,
-            bindings=bindings,
-        )
+            if {left.get("source_kind"), right.get("source_kind")} != {
+                "figma",
+                "storybook",
+            }:
+                raise ValueError(
+                    "design comparison requires one Figma and one Storybook capture"
+                )
+            if left["source_kind"] == "figma":
+                figma_capture, storybook_capture = capture_a, capture_b
+            else:
+                figma_capture, storybook_capture = capture_b, capture_a
+            return DesignIntelligenceService(project).analyze_drift(
+                figma_capture,
+                storybook_capture,
+                bindings=bindings,
+            )
 
     @mcp.tool(name="vision.transplant_feature")
     def vision_transplant_feature(
@@ -1550,10 +1570,94 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
     @mcp.tool(name="vision.evaluate")
     def vision_evaluate(
         project_path: str,
-        capsule_id: str,
+        capsule_id: str | None = None,
+        portfolio_id: str | None = None,
     ) -> dict[str, Any]:
-        """Evaluate a Feature Capsule's integrity, clean-room policy, and replay coverage."""
-        return FeatureCapsuleVerifier(open_project(project_path)).verify(capsule_id)
+        """Run a capsule evaluation or mandatory global frontend non-regression gate."""
+        project = open_project(project_path)
+        if capsule_id is not None:
+            return FeatureCapsuleVerifier(project).verify(capsule_id)
+        if portfolio_id is not None:
+            return FrontendRepairService(project).run_global_gate(portfolio_id)
+        raise ValueError("vision.evaluate requires capsule_id or portfolio_id")
+
+    @mcp.tool(name="vision.repair")
+    def vision_repair(
+        project_path: str,
+        action: str,
+        target_capture_id: str | None = None,
+        candidate_capture_id: str | None = None,
+        candidates: list[dict[str, Any]] | None = None,
+        selectors: list[str] | None = None,
+        thresholds: dict[str, float] | None = None,
+        target_file: str | None = None,
+        portfolio_id: str | None = None,
+        proposal_id: str | None = None,
+        accepted: bool | None = None,
+        reviewer: str | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Propose, review, apply, and globally gate bounded frontend repairs."""
+        service = FrontendRepairService(open_project(project_path))
+        if action == "portfolio":
+            if not target_capture_id:
+                raise ValueError("portfolio action requires target_capture_id")
+            return service.create_portfolio(
+                target_capture_id,
+                candidates or [],
+                locality_selectors=selectors or [],
+                thresholds=thresholds,
+            )
+        if action == "global_gate":
+            if not portfolio_id:
+                raise ValueError("global_gate action requires portfolio_id")
+            return service.run_global_gate(portfolio_id)
+        if action == "propose_css":
+            if not target_capture_id or not candidate_capture_id or not target_file:
+                raise ValueError(
+                    "propose_css requires target/candidate captures and target_file"
+                )
+            return service.propose_css_patch(
+                target_capture_id,
+                candidate_capture_id,
+                target_file=target_file,
+                selectors=selectors or [],
+            )
+        if action == "review":
+            if (
+                not proposal_id
+                or accepted is None
+                or reviewer is None
+                or reason is None
+            ):
+                raise ValueError(
+                    "review requires proposal_id, accepted, reviewer, and reason"
+                )
+            return service.review_patch(
+                proposal_id,
+                accepted=accepted,
+                reviewer=reviewer,
+                reason=reason,
+            )
+        if action == "apply":
+            if not proposal_id:
+                raise ValueError("apply requires proposal_id")
+            return service.apply_patch(proposal_id)
+        raise ValueError(f"unknown frontend repair action: {action}")
+
+    @mcp.tool(name="vision.review_queue")
+    def vision_review_queue(project_path: str) -> dict[str, Any]:
+        """List perception decisions that still require named human or policy review."""
+        project = open_project(project_path)
+        with project.connection() as connection:
+            frontend = connection.execute(
+                "SELECT id,target_file,created_at FROM frontend_patch_proposals "
+                "WHERE status='PROPOSED' ORDER BY created_at"
+            ).fetchall()
+        return {
+            "frontend_patch_proposals": [dict(row) for row in frontend],
+            "existing_project_review_queue": ReviewService(project).review_queue(),
+        }
 
     @mcp.tool(name="vision.verify")
     def vision_verify(
@@ -1594,6 +1698,10 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
                 "SELECT id,status FROM feature_capsules "
                 "WHERE status='REJECTED' ORDER BY created_at"
             ).fetchall()
+            rejected_portfolios = connection.execute(
+                "SELECT id,status FROM frontend_candidate_portfolios "
+                "WHERE status='GLOBAL_REJECTED' ORDER BY created_at"
+            ).fetchall()
         return {
             "project_id": project.project()["id"],
             "observation_count": len(overview["captures"]),
@@ -1607,6 +1715,10 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             + [
                 {"kind": "rejected_capsule", **dict(row)}
                 for row in rejected_capsules
+            ]
+            + [
+                {"kind": "frontend_global_regression", **dict(row)}
+                for row in rejected_portfolios
             ],
         }
 
@@ -3899,7 +4011,23 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
     @mcp.resource("vision://project/{project_id}/candidate/{candidate_id}")
     def vision_project_candidate(project_id: str, candidate_id: str) -> dict[str, Any]:
         project = by_id(project_id)
-        return FeatureCapsuleCompiler(project).get(candidate_id)
+        try:
+            return FeatureCapsuleCompiler(project).get(candidate_id)
+        except KeyError:
+            with project.connection() as connection:
+                row = connection.execute(
+                    "SELECT * FROM frontend_candidates WHERE id=?",
+                    (candidate_id,),
+                ).fetchone()
+            if row is None:
+                raise KeyError(
+                    f"unknown perception candidate: {candidate_id}"
+                ) from None
+            value = dict(row)
+            value["parameters"] = __import__("json").loads(
+                value.pop("parameters_json")
+            )
+            return value
 
     @mcp.resource("vision://project/{project_id}/evaluation/{evaluation_id}")
     def vision_project_evaluation(project_id: str, evaluation_id: str) -> dict[str, Any]:
@@ -3909,6 +4037,11 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
                 "SELECT report_digest FROM capsule_evaluations WHERE id=?",
                 (evaluation_id,),
             ).fetchone()
+            if row is None:
+                row = connection.execute(
+                    "SELECT report_digest FROM frontend_global_gate_runs WHERE id=?",
+                    (evaluation_id,),
+                ).fetchone()
         if row is None:
             raise KeyError(f"unknown capsule evaluation: {evaluation_id}")
         return __import__("json").loads(

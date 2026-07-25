@@ -70,6 +70,8 @@ async def test_mcp_discovers_required_vertical_slice_tools(tmp_path: Path) -> No
         "vision.transplant_feature",
         "vision.evaluate",
         "vision.progress",
+        "vision.repair",
+        "vision.review_queue",
         "campaign.start",
         "campaign.advance",
         "campaign.progress",

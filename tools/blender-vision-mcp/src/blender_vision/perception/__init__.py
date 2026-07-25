@@ -19,6 +19,10 @@ from blender_vision.perception.graphics import (
     RuntimeGltfCompiler,
 )
 from blender_vision.perception.query import ObservationQueryService
+from blender_vision.perception.repair import (
+    FrontendComparisonService,
+    FrontendRepairService,
+)
 
 __all__ = [
     "AdapterRegistry",
@@ -30,6 +34,8 @@ __all__ = [
     "FeatureCapsuleCompiler",
     "FeatureCapsuleVerifier",
     "FigmaExportAdapter",
+    "FrontendComparisonService",
+    "FrontendRepairService",
     "GraphicsRoundTripService",
     "GraphicsRuntimeAdapter",
     "MotionGraphReplay",

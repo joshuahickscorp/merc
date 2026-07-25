@@ -1005,6 +1005,63 @@ CREATE TABLE IF NOT EXISTS capsule_evaluations (
     report_digest TEXT NOT NULL REFERENCES artifacts(digest),
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS perception_comparisons (
+    id TEXT PRIMARY KEY,
+    target_capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    candidate_capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    scope_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    score REAL NOT NULL,
+    report_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL,
+    UNIQUE(target_capture_id, candidate_capture_id, scope_json)
+);
+CREATE TABLE IF NOT EXISTS frontend_candidate_portfolios (
+    id TEXT PRIMARY KEY,
+    target_capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    locality_json TEXT NOT NULL,
+    thresholds_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    selected_candidate_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS frontend_candidates (
+    id TEXT PRIMARY KEY,
+    portfolio_id TEXT NOT NULL REFERENCES frontend_candidate_portfolios(id),
+    capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    parameters_json TEXT NOT NULL,
+    comparison_id TEXT REFERENCES perception_comparisons(id),
+    score REAL,
+    rank INTEGER,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS frontend_patch_proposals (
+    id TEXT PRIMARY KEY,
+    target_capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    candidate_capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    target_file TEXT NOT NULL,
+    base_digest TEXT NOT NULL,
+    result_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    patch_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    status TEXT NOT NULL,
+    reviewer TEXT,
+    reason TEXT,
+    decision_digest TEXT REFERENCES artifacts(digest),
+    applied_digest TEXT REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS frontend_global_gate_runs (
+    id TEXT PRIMARY KEY,
+    portfolio_id TEXT NOT NULL REFERENCES frontend_candidate_portfolios(id),
+    candidate_id TEXT NOT NULL REFERENCES frontend_candidates(id),
+    comparison_id TEXT NOT NULL REFERENCES perception_comparisons(id),
+    status TEXT NOT NULL,
+    report_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS model_approvals (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

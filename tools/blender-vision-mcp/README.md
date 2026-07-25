@@ -47,6 +47,9 @@ materialization, and the safe Blender/GLB candidate round trip are documented in
 ExperienceIR compilation and verified clean-room Feature Capsules are documented in
 [`docs/FEATURE_CAPSULES.md`](docs/FEATURE_CAPSULES.md).
 
+Bounded frontend candidate search, named-review CSS patching, and mandatory full-page regression
+gates are documented in [`docs/FRONTEND_REPAIR.md`](docs/FRONTEND_REPAIR.md).
+
 ## Reproducible calibration benchmark
 
 Benchmark 0 is CC0 procedural evidence and needs no private references. It generates a known
