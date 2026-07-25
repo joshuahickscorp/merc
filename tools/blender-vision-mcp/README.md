@@ -66,6 +66,8 @@ verification, lease recovery, and receipt-equivalent replay is documented in
 Evidence-ranked correction queues, fixed-benchmark activation, supersession, and
 receipt-backed rollback are documented in
 [`docs/PERCEPTION_LEARNING.md`](docs/PERCEPTION_LEARNING.md).
+The wave-by-wave proof and external benchmark boundaries are recorded in
+[`docs/ALL_SEEING_EYE_STATUS.md`](docs/ALL_SEEING_EYE_STATUS.md).
 
 ## Reproducible calibration benchmark
 

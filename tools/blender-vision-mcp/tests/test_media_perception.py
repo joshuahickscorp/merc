@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import numpy as np
 import pytest
 from jsonschema import Draft202012Validator
 from PIL import Image, ImageDraw
@@ -16,6 +17,8 @@ from blender_vision.perception import (
     CaptureBus,
     DesktopSnapshotAdapter,
     ImageFileAdapter,
+    LiveCameraAdapter,
+    MediaReconstructionService,
     ObservationQueryService,
     VideoFileAdapter,
 )
@@ -36,6 +39,7 @@ def _bus(tmp_path: Path) -> tuple[ProjectStore, CaptureBus]:
     registry = AdapterRegistry()
     registry.register(ImageFileAdapter())
     registry.register(CameraFrameAdapter())
+    registry.register(LiveCameraAdapter())
     registry.register(VideoFileAdapter())
     registry.register(DesktopSnapshotAdapter())
     return project, CaptureBus(project, registry)
@@ -56,11 +60,19 @@ def test_image_and_authorized_camera_frames_are_traceable_and_queryable(
     project, bus = _bus(tmp_path)
     source = tmp_path / "owned.png"
     _fixture_image(source)
+    depth = tmp_path / "owned-depth.png"
+    Image.new("I;16", (320, 200), 1024).save(depth)
 
     image = bus.observe(
         "image.file",
         {"path": str(source)},
-        {"ocr": True},
+        {
+            "ocr": True,
+            "depth_path": str(depth),
+            "depth_kind": "sensor",
+            "depth_calibration": {"unit": "millimetres", "scale": 1.0},
+            "depth_encoding": "uint16-millimetres",
+        },
         rights_decision="SYNTHETIC_OWNED",
     )
     with pytest.raises(PermissionError, match="user_authorized"):
@@ -87,9 +99,89 @@ def test_image_and_authorized_camera_frames_are_traceable_and_queryable(
     assert image["summary"]["region_count"] >= 1
     assert matches["graph_type"] == "ImageGraph"
     assert any(node["domain_type"] == "VisualRegion" for node in matches["matches"])
+    depth_node = next(
+        node for node in graph["nodes"] if node["domain_type"] == "DepthMap"
+    )
+    assert depth_node["authority"] == "OBSERVED"
+    assert graph["depth"]["status"] == "AVAILABLE"
     assert all(node["evidence_references"] for node in graph["nodes"])
     assert camera["summary"]["width"] == 320
     assert bus.verify(camera["capture_id"])["valid"] is True
+    interface = MediaReconstructionService(project).reconstruct_interface(
+        image["capture_id"]
+    )
+    assert interface["status"] == "CANDIDATE"
+    assert interface["authority"] == "HYPOTHESIS"
+    assert interface["implementation_contract"]["copy_reference_source"] is False
+    assert MediaReconstructionService(project).reconstruct_interface(
+        image["capture_id"]
+    )["reused"] is True
+
+
+def test_live_camera_is_explicit_bounded_and_emits_replayable_sequence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, bus = _bus(tmp_path)
+
+    class FakeCamera:
+        def __init__(self) -> None:
+            self.index = 0
+            self.released = False
+
+        def isOpened(self) -> bool:  # noqa: N802 - OpenCV protocol
+            return True
+
+        def set(self, _key: int, _value: int) -> bool:
+            return True
+
+        def read(self) -> tuple[bool, np.ndarray]:
+            frame = np.full((48, 64, 3), 20 + self.index * 30, dtype=np.uint8)
+            self.index += 1
+            return True, frame
+
+        def release(self) -> None:
+            self.released = True
+
+    camera = FakeCamera()
+    monkeypatch.setattr(
+        "blender_vision.perception.media.cv2.VideoCapture",
+        lambda _index: camera,
+    )
+    with pytest.raises(PermissionError, match="user_authorized"):
+        bus.observe(
+            "camera.live",
+            {"device_index": 0, "label": "owned", "session_id": "session-1"},
+            {"frame_count": 2},
+            rights_decision="USER_CAPTURE",
+        )
+    capture = bus.observe(
+        "camera.live",
+        {"device_index": 0, "label": "owned", "session_id": "session-1"},
+        {
+            "user_authorized": True,
+            "frame_count": 2,
+            "interval_ms": 0,
+            "calibration": {"fx": 1000, "fy": 1000},
+        },
+        rights_decision="USER_CAPTURE",
+    )
+    graph = ObservationQueryService(project).graph(
+        capture["capture_id"], "CameraSequenceGraph"
+    )
+    schema = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "schemas"
+            / "camera-sequence-graph.schema.json"
+        ).read_text()
+    )
+    Draft202012Validator(schema).validate(
+        {key: value for key, value in graph.items() if key != "citation"}
+    )
+    assert capture["summary"]["frame_count"] == 2
+    assert graph["metadata"]["live_camera"]["calibration"]["fx"] == 1000
+    assert camera.released is True
+    assert bus.verify(capture["capture_id"])["valid"] is True
 
 
 @pytest.mark.skipif(
@@ -217,6 +309,7 @@ async def test_media_adapters_and_region_explanation_are_public_mcp_tools(
     assert {
         "image.file",
         "camera.frame",
+        "camera.live",
         "video.file",
         "desktop.authorized_snapshot",
     } <= names

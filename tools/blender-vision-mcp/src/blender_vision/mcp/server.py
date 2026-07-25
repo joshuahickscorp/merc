@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import os
 import threading
 from pathlib import Path
@@ -72,6 +73,7 @@ from blender_vision.perception import (
     FrontendComparisonService,
     FrontendRepairService,
     GraphicsRoundTripService,
+    MediaReconstructionService,
     ObservationQueryService,
     PerceptionLearningService,
     PerceptionWorkspace,
@@ -1528,6 +1530,10 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         mode: str = "graphics_to_blender",
     ) -> dict[str, Any]:
         """Materialize an editable candidate without promoting it to accepted authority."""
+        if mode == "media_to_interface":
+            return MediaReconstructionService(
+                open_project(project_path)
+            ).reconstruct_interface(capture_id)
         if mode != "graphics_to_blender":
             raise ValueError(f"unsupported reconstruction mode: {mode}")
         return await asyncio.to_thread(
@@ -1788,6 +1794,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
                     "capsule_evaluations",
                     "design_drift_runs",
                     "graphics_roundtrips",
+                    "media_reconstructions",
                     "perception_workspace_runs",
                     "perception_findings",
                     "perception_contradictions",
@@ -4094,37 +4101,35 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
     @mcp.resource("vision://project/{project_id}/graph/{graph_type}")
     def vision_project_graph(project_id: str, graph_type: str) -> dict[str, Any]:
         service = ObservationQueryService(by_id(project_id))
-        return service.graph(service.latest_capture_id(), graph_type)
+        return service.graph(service.latest_capture_id(graph_type), graph_type)
 
     @mcp.resource("vision://project/{project_id}/node/{node_id}")
     def vision_project_node(project_id: str, node_id: str) -> dict[str, Any]:
         service = ObservationQueryService(by_id(project_id))
-        capture_id = service.latest_capture_id()
-        for graph_type in (
-            "LayoutGraph",
-            "StateGraph",
-            "InteractionGraph",
-            "ResponsiveGraph",
-            "MotionGraph",
-        ):
-            try:
-                graph = service.graph(capture_id, graph_type)
-            except KeyError:
-                continue
-            node = next((item for item in graph.get("nodes", []) if item["id"] == node_id), None)
+        with service.project.connection() as connection:
+            rows = connection.execute(
+                "SELECT capture_id,graph_type FROM perceptual_graphs "
+                "ORDER BY created_at DESC,id DESC"
+            ).fetchall()
+        for row in rows:
+            graph = service.graph(row["capture_id"], row["graph_type"])
+            node = next(
+                (item for item in graph.get("nodes", []) if item["id"] == node_id),
+                None,
+            )
             if node is not None:
                 return {
-                    "capture_id": capture_id,
-                    "graph_type": graph_type,
+                    "capture_id": row["capture_id"],
+                    "graph_type": row["graph_type"],
                     "node": node,
                     "citation": graph["citation"],
                 }
-        raise KeyError(f"unknown node in latest observation: {node_id}")
+        raise KeyError(f"unknown perceptual node: {node_id}")
 
     @mcp.resource("vision://project/{project_id}/timeline/{timeline_id}")
     def vision_project_timeline(project_id: str, timeline_id: str) -> dict[str, Any]:
         service = ObservationQueryService(by_id(project_id))
-        capture_id = service.latest_capture_id()
+        capture_id = service.latest_capture_id("MotionGraph")
         graph = service.graph(capture_id, "MotionGraph")
         timeline = next(
             (item for item in graph.get("timelines", []) if item["id"] == timeline_id),
@@ -4136,6 +4141,36 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             "capture_id": capture_id,
             "timeline": timeline,
             "citation": graph["citation"],
+        }
+
+    @mcp.resource("vision://project/{project_id}/artifact/{digest}")
+    def vision_project_artifact(project_id: str, digest: str) -> dict[str, Any]:
+        project = by_id(project_id)
+        with project.connection() as connection:
+            artifact = connection.execute(
+                "SELECT digest,size,media_type,relative_path,source_name,created_at "
+                "FROM artifacts WHERE digest=?",
+                (digest,),
+            ).fetchone()
+            roles = connection.execute(
+                "SELECT capture_id,role,metadata_json FROM observation_capture_artifacts "
+                "WHERE artifact_digest=? ORDER BY capture_id,role",
+                (digest,),
+            ).fetchall()
+        if artifact is None:
+            raise KeyError(f"unknown artifact: {digest}")
+        return {
+            **dict(artifact),
+            "exists": (project.root / artifact["relative_path"]).is_file(),
+            "capture_roles": [
+                {
+                    "capture_id": row["capture_id"],
+                    "role": row["role"],
+                    "metadata": json.loads(row["metadata_json"]),
+                }
+                for row in roles
+            ],
+            "content_disclosure": "use the governed artifact path only when raw evidence is needed",
         }
 
     @mcp.resource("vision://project/{project_id}/candidate/{candidate_id}")

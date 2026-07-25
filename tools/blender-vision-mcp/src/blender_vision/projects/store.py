@@ -1131,6 +1131,15 @@ CREATE TABLE IF NOT EXISTS perception_router_benchmarks (
     report_digest TEXT NOT NULL REFERENCES artifacts(digest),
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS media_reconstructions (
+    id TEXT PRIMARY KEY,
+    capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    mode TEXT NOT NULL,
+    status TEXT NOT NULL,
+    record_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL,
+    UNIQUE(capture_id, mode)
+);
 CREATE TABLE IF NOT EXISTS model_approvals (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

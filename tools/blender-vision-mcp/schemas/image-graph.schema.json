@@ -4,7 +4,7 @@
   "title": "VisionMCP ImageGraph",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "graph_type", "authority", "nodes", "edges", "analysis"],
+  "required": ["schema", "graph_type", "authority", "nodes", "edges", "analysis", "depth"],
   "properties": {
     "schema": { "const": "vision.image-graph/v1" },
     "graph_type": { "const": "ImageGraph" },
@@ -34,6 +34,7 @@
         "required": ["source", "target", "type", "authority", "evidence_references"]
       }
     },
-    "analysis": { "type": "object" }
+    "analysis": { "type": "object" },
+    "depth": { "type": "object" }
   }
 }
