@@ -1,0 +1,11 @@
+ℹ️  blendkit: Verbose is enabled [19:56:57.600, addon_updater.py:150]
+ℹ️  blendkit: Read in JSON settings from file [19:56:57.601, addon_updater.py:150]
+ℹ️  blendkit: Ports reordered so first port is now 62485 (previous index was 0) [19:56:57.602, client_lib.py:156]
+Created history step a51905a8-fa41-4691-addd-2590a843d39f
+ℹ️  blendkit: Created new search history step [19:56:57.606, search.py:2698]
+ℹ️  blendkit: No temporarily enabled addons to clean up [19:56:57.606, download.py:419]
+building: blender_vision_mcp-0.1.0.zip
+complete
+created: "artifacts/100-plus/baseline/builds/blender-extension/blender_vision_mcp-0.1.0.zip", 4860
+ℹ️  blendkit: Unregistering Blendkit add-on [19:56:57.658, __init__.py:2973]
+ℹ️  blendkit: No temporarily enabled addons to clean up [19:56:57.659, download.py:419]
