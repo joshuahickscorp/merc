@@ -836,6 +836,16 @@ CREATE TABLE IF NOT EXISTS active_model_revisions (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS active_model_revision_current
 ON active_model_revisions(model_level, model_name) WHERE status='ACTIVE';
+CREATE TABLE IF NOT EXISTS active_model_rollbacks (
+    id TEXT PRIMARY KEY,
+    rolled_back_revision_id TEXT NOT NULL REFERENCES active_model_revisions(id),
+    restored_revision_id TEXT REFERENCES active_model_revisions(id),
+    reviewed_by TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    receipt_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL,
+    UNIQUE(rolled_back_revision_id)
+);
 CREATE TABLE IF NOT EXISTS surface_coverage_cells (
     id TEXT PRIMARY KEY,
     target_id TEXT,

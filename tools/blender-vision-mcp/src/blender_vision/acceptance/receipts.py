@@ -1363,9 +1363,11 @@ def _records(project: ProjectStore) -> dict[str, Any]:
         "active_learning_cycles": active_learning_cycles,
         "active_learning_events": active_learning_audit["events"],
         "active_model_revisions": active_learning_audit["active_model_revisions"],
+        "active_model_rollbacks": active_learning_audit["model_rollbacks"],
         "active_learning_audit": {
             "invalid_cycle_ids": active_learning_audit["invalid_cycle_ids"],
             "invalid_model_revision_ids": active_learning_audit["invalid_model_revision_ids"],
+            "invalid_rollback_ids": active_learning_audit["invalid_rollback_ids"],
         },
         "surface_coverage_cells": surface_coverage_cells,
         "warm_services": warm_services,
@@ -1961,6 +1963,7 @@ def _acceptance(
         },
         "invalid_cycle_ids": active_learning_audit["invalid_cycle_ids"],
         "invalid_model_revision_ids": active_learning_audit["invalid_model_revision_ids"],
+        "invalid_rollback_ids": active_learning_audit["invalid_rollback_ids"],
         "active_model_count": sum(
             item["status"] == "ACTIVE" for item in records["active_model_revisions"]
         ),
@@ -1969,6 +1972,8 @@ def _acceptance(
         blockers.append("one or more active-learning cycle receipts are invalid")
     if active_learning_audit["invalid_model_revision_ids"]:
         blockers.append("one or more active model activation receipts are invalid")
+    if active_learning_audit["invalid_rollback_ids"]:
+        blockers.append("one or more active model rollback receipts are invalid")
     unresolved_surface_cells = [
         item["id"]
         for item in surface_coverage_cells

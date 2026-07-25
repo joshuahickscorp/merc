@@ -376,3 +376,28 @@ def test_new_activation_atomically_supersedes_prior_model_revision(tmp_path: Pat
     audit = audit_active_learning(project)
     assert audit["invalid_cycle_ids"] == []
     assert audit["invalid_model_revision_ids"] == []
+
+    rollback = store.rollback(
+        models[1]["id"],
+        reviewed_by="Model rollback reviewer",
+        reason="Deployment telemetry requires restoring the last verified revision.",
+    )
+    after_rollback = store.active_models()
+    assert [(item["cycle_id"], item["status"]) for item in after_rollback] == [
+        (first["id"], "ACTIVE"),
+        (promoted["id"], "ROLLED_BACK"),
+    ]
+    assert rollback["rolled_back_revision"]["id"] == models[1]["id"]
+    assert rollback["restored_revision"]["id"] == models[0]["id"]
+    assert store.rollback(
+        models[1]["id"],
+        reviewed_by="Model rollback reviewer",
+        reason="Deployment telemetry requires restoring the last verified revision.",
+    )["reused"] is True
+    rollback_audit = audit_active_learning(project)
+    assert rollback_audit["invalid_rollback_ids"] == []
+    receipt = export_receipt(project)
+    assert receipt["acceptance"]["metrics"]["active_learning"][
+        "invalid_rollback_ids"
+    ] == []
+    assert verify_receipt(project.root / receipt["path"], project=project)["valid"] is True

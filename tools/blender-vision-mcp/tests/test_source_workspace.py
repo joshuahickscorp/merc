@@ -12,6 +12,7 @@ from blender_vision.perception import (
     CaptureBus,
     CodeRepositoryAdapter,
     ImageFileAdapter,
+    PerceptionLearningService,
     PerceptionWorkspace,
     SourceIntelligenceService,
 )
@@ -252,6 +253,17 @@ def test_workspace_persists_findings_contradictions_compute_and_router_refutatio
     assert benchmark["status"] == "REFUTED"
     assert benchmark["active_router"] == "deterministic-v1"
     assert benchmark["matched_compute"]["caller_supplied_scores_trusted"] is False
+    learning = PerceptionLearningService(project).start_from_workspace(
+        run["id"],
+        model_level="project_few_shot_adapter",
+        model_identity={"name": "workspace-specialist", "revision": "baseline-v1"},
+        correction_budget=2,
+    )
+    assert learning["status"] == "AWAITING_CORRECTIONS"
+    assert learning["source_workspace_digest"] == run["artifact_digest"]
+    assert all(
+        item["evidence_references"] for item in learning["correction_requests"]
+    )
     with project.connection() as connection:
         assert (
             connection.execute(
