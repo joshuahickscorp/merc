@@ -57,12 +57,18 @@ not collected. Target credentials and URL fragments are rejected or discarded.
 
 - `vision.adapters` lists installed sensors without starting them.
 - `vision.observe` captures or reuses an observation.
+- `vision.discover_states` performs bounded pointer, keyboard, and touch exploration plus a
+  viewport sweep and deterministic motion/scroll sampling.
+- `vision.capture_state`, `vision.trace_behavior`, and `vision.analyze_motion` progressively
+  disclose observed state, causality, and replayable tracks.
 - `vision.query` queries the capture's observed graph.
 - `vision.verify` verifies its immutable evidence chain.
 - `vision://project/{project_id}/overview` lists project observations.
 - `vision://project/{project_id}/graph/{graph_type}` returns the latest complete graph.
+- `vision://project/{project_id}/node/{node_id}` and
+  `vision://project/{project_id}/timeline/{timeline_id}` disclose one graph entity at a time.
 
-Static web capture is the first slice. Cross-origin iframe internals and closed shadow roots are
-reported as limitations rather than guessed. Interaction/state exploration, responsive comparison,
-motion, design-authoring adapters, WebGL/WebGPU scene reconstruction, Feature Capsules, repair
-loops, desktop sensors, and active learning remain later expansion waves.
+Cross-origin iframe internals and closed shadow roots are reported as limitations rather than
+guessed. The bounded crawler does not treat undiscovered states as absent. Design-authoring
+adapters, WebGL/WebGPU scene reconstruction, Feature Capsules, repair loops, desktop sensors, and
+active learning remain later expansion waves.

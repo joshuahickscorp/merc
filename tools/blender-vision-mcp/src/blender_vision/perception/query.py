@@ -111,7 +111,9 @@ class ObservationQueryService:
                 )
             ]
         if interactive is not None:
-            nodes = [node for node in nodes if node.get("interactive") is bool(interactive)]
+            if not isinstance(interactive, bool):
+                raise ValueError("interactive query must be a boolean")
+            nodes = [node for node in nodes if node.get("interactive") is interactive]
         if point:
             x, y = float(point["x"]), float(point["y"])
             nodes = [
