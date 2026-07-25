@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/code-graph.schema.json",
+  "title": "VisionMCP CodeGraph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "graph_type",
+    "authority",
+    "repository_digest",
+    "linked_capture_ids",
+    "nodes",
+    "edges",
+    "runtime_bindings"
+  ],
+  "properties": {
+    "schema": { "const": "vision.code-graph/v1" },
+    "graph_type": { "const": "CodeGraph" },
+    "authority": { "const": "MIXED" },
+    "repository_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "linked_capture_ids": { "type": "array", "items": { "type": "string" } },
+    "nodes": { "type": "array" },
+    "edges": { "type": "array" },
+    "runtime_bindings": { "type": "array" }
+  }
+}

@@ -1062,6 +1062,65 @@ CREATE TABLE IF NOT EXISTS frontend_global_gate_runs (
     report_digest TEXT NOT NULL REFERENCES artifacts(digest),
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS perception_workspace_runs (
+    id TEXT PRIMARY KEY,
+    capture_ids_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    router_json TEXT NOT NULL,
+    summary_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS perception_specialist_tasks (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES perception_workspace_runs(id),
+    specialist TEXT NOT NULL,
+    status TEXT NOT NULL,
+    compute_units REAL NOT NULL,
+    request_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(workspace_id, specialist)
+);
+CREATE TABLE IF NOT EXISTS perception_findings (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES perception_workspace_runs(id),
+    task_id TEXT NOT NULL REFERENCES perception_specialist_tasks(id),
+    specialist TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    authority TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    evidence_json TEXT NOT NULL,
+    finding_json TEXT NOT NULL,
+    artifact_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS perception_contradictions (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES perception_workspace_runs(id),
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    artifact_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS perception_router_examples (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES perception_workspace_runs(id),
+    features_json TEXT NOT NULL,
+    selected_specialists_json TEXT NOT NULL,
+    outcome_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS perception_router_benchmarks (
+    id TEXT PRIMARY KEY,
+    dataset_digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    active_router TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    report_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS model_approvals (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

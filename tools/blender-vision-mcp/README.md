@@ -54,6 +54,11 @@ Static images, bounded video, authorized camera frames, and synchronized authori
 snapshots now share the same evidence bus and region-explanation surface. See
 [`docs/MULTIMODAL_PERCEPTION.md`](docs/MULTIMODAL_PERCEPTION.md).
 
+Repository-to-runtime bindings, visual blast-radius planning, persistent specialist
+findings, contradiction handling, compute accounting, and evidence-scored router
+refutation are documented in
+[`docs/PERCEPTION_WORKSPACE.md`](docs/PERCEPTION_WORKSPACE.md).
+
 ## Reproducible calibration benchmark
 
 Benchmark 0 is CC0 procedural evidence and needs no private references. It generates a known
