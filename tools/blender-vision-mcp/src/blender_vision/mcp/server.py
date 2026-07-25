@@ -69,6 +69,7 @@ from blender_vision.perception import (
     BrowserExperienceAdapter,
     CameraFrameAdapter,
     CaptureBus,
+    CodeRepositoryAdapter,
     DesignIntelligenceService,
     DesktopSnapshotAdapter,
     ExperienceIRCompiler,
@@ -81,6 +82,8 @@ from blender_vision.perception import (
     GraphicsRuntimeAdapter,
     ImageFileAdapter,
     ObservationQueryService,
+    PerceptionWorkspace,
+    SourceIntelligenceService,
     StorybookExportAdapter,
     VideoFileAdapter,
 )
@@ -132,6 +135,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         registry.register(GraphicsRuntimeAdapter())
         registry.register(ImageFileAdapter())
         registry.register(CameraFrameAdapter())
+        registry.register(CodeRepositoryAdapter())
         registry.register(VideoFileAdapter())
         registry.register(DesktopSnapshotAdapter())
         registry.register(StorybookExportAdapter())
@@ -563,6 +567,27 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         alternatives: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Resolve and persist one canonical variant without merging incompatible evidence."""
+        return TargetResolver(open_project(project_path)).resolve(
+            structured_target or target,
+            request_class=request_class,
+            requested_tier=requested_tier,
+            configuration=configuration,
+            market=market,
+            alternatives=alternatives,
+        )
+
+    @mcp.tool(name="vision.resolve_target")
+    def vision_resolve_target(
+        project_path: str,
+        target: str,
+        requested_tier: str = "L3",
+        request_class: str = "AUTONOMOUS_PUBLIC_EVIDENCE",
+        configuration: str = "factory standard unless evidence specifies otherwise",
+        market: str = "unspecified",
+        structured_target: dict[str, Any] | None = None,
+        alternatives: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Resolve the canonical governed target through the stable vision surface."""
         return TargetResolver(open_project(project_path)).resolve(
             structured_target or target,
             request_class=request_class,
@@ -1315,6 +1340,12 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
     ) -> dict[str, Any]:
         """Query an observed perceptual graph with an exact artifact citation."""
         project = open_project(project_path)
+        if query.get("operation") == "visual_blast_radius":
+            return SourceIntelligenceService(project).visual_blast_radius(
+                capture_id,
+                [str(path) for path in query.get("changed_paths", [])],
+                [str(value) for value in query.get("linked_capture_ids", [])] or None,
+            )
         return ObservationQueryService(project).query(capture_id, query)
 
     @mcp.tool(name="vision.discover_states")
@@ -1689,6 +1720,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         x: float,
         y: float,
         graph_type: str | None = None,
+        source_capture_id: str | None = None,
     ) -> dict[str, Any]:
         """Explain the evidence, authority, and uncertainty at an observed pixel."""
         query: dict[str, Any] = {"point": {"x": x, "y": y}, "limit": 100}
@@ -1697,7 +1729,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         result = ObservationQueryService(open_project(project_path)).query(
             capture_id, query
         )
-        return {
+        response = {
             **result,
             "explanations": [
                 {
@@ -1712,12 +1744,33 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
                 for node in result["matches"]
             ],
         }
+        if source_capture_id is not None:
+            response["source_trace"] = SourceIntelligenceService(
+                open_project(project_path)
+            ).explain_bindings(result["matches"], source_capture_id)
+        return response
 
     @mcp.tool(name="vision.progress")
-    def vision_progress(project_path: str) -> dict[str, Any]:
+    def vision_progress(
+        project_path: str,
+        capture_ids: list[str] | None = None,
+        compute_budget: float = 8.0,
+        router_benchmark_cases: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         """Return compact perception progress, evidence counts, and unresolved blockers."""
         project = open_project(project_path)
         overview = ObservationQueryService(project).overview()
+        workspace_service = PerceptionWorkspace(project)
+        workspace_run = (
+            workspace_service.run(capture_ids, compute_budget=compute_budget)
+            if capture_ids
+            else None
+        )
+        router_benchmark = (
+            workspace_service.benchmark_router(router_benchmark_cases)
+            if router_benchmark_cases
+            else None
+        )
         with project.connection() as connection:
             counts = {
                 table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -1727,6 +1780,9 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
                     "capsule_evaluations",
                     "design_drift_runs",
                     "graphics_roundtrips",
+                    "perception_workspace_runs",
+                    "perception_findings",
+                    "perception_contradictions",
                 )
             }
             interrupted = connection.execute(
@@ -1748,6 +1804,9 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
                 overview["captures"][0] if overview["captures"] else None
             ),
             "counts": counts,
+            "workspace_run": workspace_run,
+            "router_benchmark": router_benchmark,
+            "workspace_progress": workspace_service.progress(),
             "blockers": [
                 {"kind": "interrupted_capture", **dict(row)} for row in interrupted
             ]
@@ -1771,6 +1830,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         registry.register(GraphicsRuntimeAdapter())
         registry.register(ImageFileAdapter())
         registry.register(CameraFrameAdapter())
+        registry.register(CodeRepositoryAdapter())
         registry.register(VideoFileAdapter())
         registry.register(DesktopSnapshotAdapter())
         registry.register(StorybookExportAdapter())

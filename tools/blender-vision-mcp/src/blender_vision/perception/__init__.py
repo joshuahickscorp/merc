@@ -29,6 +29,8 @@ from blender_vision.perception.repair import (
     FrontendComparisonService,
     FrontendRepairService,
 )
+from blender_vision.perception.source import CodeRepositoryAdapter, SourceIntelligenceService
+from blender_vision.perception.workspace import PerceptionWorkspace
 
 __all__ = [
     "AdapterRegistry",
@@ -36,6 +38,7 @@ __all__ = [
     "BrowserExperienceAdapter",
     "CameraFrameAdapter",
     "CaptureBus",
+    "CodeRepositoryAdapter",
     "DesignIntelligenceService",
     "DesktopSnapshotAdapter",
     "ExperienceIRCompiler",
@@ -49,7 +52,9 @@ __all__ = [
     "ImageFileAdapter",
     "MotionGraphReplay",
     "ObservationQueryService",
+    "PerceptionWorkspace",
     "RuntimeGltfCompiler",
     "StorybookExportAdapter",
+    "SourceIntelligenceService",
     "VideoFileAdapter",
 ]
