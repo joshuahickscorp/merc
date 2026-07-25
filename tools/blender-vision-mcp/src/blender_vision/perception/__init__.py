@@ -29,6 +29,7 @@ from blender_vision.perception.repair import (
     FrontendComparisonService,
     FrontendRepairService,
 )
+from blender_vision.perception.runtime import default_adapter_registry, default_capture_bus
 from blender_vision.perception.source import CodeRepositoryAdapter, SourceIntelligenceService
 from blender_vision.perception.workspace import PerceptionWorkspace
 
@@ -41,6 +42,8 @@ __all__ = [
     "CodeRepositoryAdapter",
     "DesignIntelligenceService",
     "DesktopSnapshotAdapter",
+    "default_adapter_registry",
+    "default_capture_bus",
     "ExperienceIRCompiler",
     "FeatureCapsuleCompiler",
     "FeatureCapsuleVerifier",

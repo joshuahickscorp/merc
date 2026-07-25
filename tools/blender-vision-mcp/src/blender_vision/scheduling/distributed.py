@@ -15,6 +15,8 @@ from blender_vision.core.errors import ProjectError
 from blender_vision.core.models import JobStatus
 from blender_vision.core.util import utc_now
 from blender_vision.datasets.store import DatasetStore, TrainingStore
+from blender_vision.perception.runtime import default_capture_bus
+from blender_vision.perception.workspace import PerceptionWorkspace
 from blender_vision.projects.store import ProjectStore
 
 WORKER_CLASSES = {
@@ -63,7 +65,7 @@ def operation_requirements(
     }:
         worker_classes = ["blender"]
         preferred_hardware = ["metal", "optix", "cuda"]
-    elif operation.startswith(("vision.", "evidence.")):
+    elif operation.startswith(("vision.", "evidence.", "perception.")):
         worker_classes = ["vision"]
         preferred_hardware = ["cuda", "mps", "cpu"]
     elif operation.startswith("optimization.") or operation == "component.fit":
@@ -418,6 +420,49 @@ class DistributedScheduler:
                 confidence=result.get("confidence"),
                 known_limitations=list(result.get("known_limitations") or []),
             )
+        if operation == "perception.capture":
+            capture_id = str(result.get("capture_id", ""))
+            if not capture_id:
+                raise ValueError("perception capture completion requires capture_id")
+            verified = default_capture_bus(self.project).verify(capture_id)
+            if not verified["valid"]:
+                raise ValueError("remote perception capture failed central verification")
+            with self.project.connection() as connection:
+                row = connection.execute(
+                    "SELECT adapter,status FROM observation_captures WHERE id=?",
+                    (capture_id,),
+                ).fetchone()
+            if (
+                row is None
+                or row["status"] != "COMPLETE"
+                or row["adapter"] != configuration["adapter"]
+            ):
+                raise ValueError(
+                    "remote perception capture does not match the leased adapter"
+                )
+            return {
+                "capture_id": capture_id,
+                "verification": verified,
+                "authority": "centrally-verified-observation",
+            }
+        if operation == "perception.workspace":
+            workspace_id = str(result.get("id", ""))
+            workspace = PerceptionWorkspace(self.project).get(workspace_id)
+            return {
+                "workspace_id": workspace["id"],
+                "artifact_digest": workspace["artifact_digest"],
+                "status": workspace["status"],
+            }
+        if operation == "perception.verify":
+            capture_id = str(configuration.get("capture_id", ""))
+            verified = default_capture_bus(self.project).verify(capture_id)
+            if result.get("valid") is not True or not verified["valid"]:
+                raise ValueError("worker verification does not match central verification")
+            return {
+                "capture_id": capture_id,
+                "verification": verified,
+                "authority": "central-verifier",
+            }
         return None
 
     def fail(

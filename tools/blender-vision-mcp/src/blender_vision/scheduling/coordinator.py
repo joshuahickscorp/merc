@@ -18,6 +18,8 @@ from blender_vision.evidence.pursuit import EvidencePursuitStore
 from blender_vision.geometry.portfolio_executor import PortfolioExecutor
 from blender_vision.optimization.search import MultiviewSearchStore
 from blender_vision.parametric.fitting import ComponentFitter
+from blender_vision.perception.runtime import default_capture_bus
+from blender_vision.perception.workspace import PerceptionWorkspace
 from blender_vision.projects.store import ProjectStore
 from blender_vision.scheduling.distributed import DistributedScheduler, operation_requirements
 from blender_vision.vision.pipeline import GeometryPipeline
@@ -336,6 +338,21 @@ class Coordinator:
         self._record_result(job_id, result, cache_hit=cache_hit)
 
     def _dispatch(self, operation: str, config: dict[str, Any], job_id: str) -> dict[str, Any]:
+        if operation == "perception.capture":
+            return default_capture_bus(self.project).observe(
+                config["adapter"],
+                dict(config["target"]),
+                dict(config.get("configuration") or {}),
+                rights_decision=str(config["rights_decision"]),
+                source_id=config.get("source_id"),
+            )
+        if operation == "perception.workspace":
+            return PerceptionWorkspace(self.project).run(
+                [str(value) for value in config["capture_ids"]],
+                compute_budget=float(config.get("compute_budget", 8.0)),
+            )
+        if operation == "perception.verify":
+            return default_capture_bus(self.project).verify(str(config["capture_id"]))
         if operation == "scene.import":
             return self.service.import_scene(config["source"])
         if operation == "reference.import":
