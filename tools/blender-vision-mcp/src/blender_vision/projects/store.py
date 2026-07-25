@@ -29,6 +29,7 @@ PROJECT_DIRECTORIES = (
     "jobs/manifests",
     "jobs/logs",
     "jobs/transfers",
+    "observations",
     "artifacts/sha256",
 )
 
@@ -911,6 +912,53 @@ CREATE TABLE IF NOT EXISTS artifact_transfers (
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS observation_captures (
+    id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    source_id TEXT,
+    adapter TEXT NOT NULL,
+    adapter_version TEXT NOT NULL,
+    normalized_request_json TEXT NOT NULL,
+    environment_json TEXT NOT NULL,
+    rights_decision TEXT NOT NULL,
+    status TEXT NOT NULL,
+    authority TEXT NOT NULL,
+    manifest_digest TEXT REFERENCES artifacts(digest),
+    summary_json TEXT NOT NULL,
+    limitations_json TEXT NOT NULL,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS observation_capture_artifacts (
+    capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    role TEXT NOT NULL,
+    artifact_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    media_type TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(capture_id, role)
+);
+CREATE TABLE IF NOT EXISTS observation_events (
+    capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    sequence INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    receipt_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(capture_id, sequence)
+);
+CREATE TABLE IF NOT EXISTS perceptual_graphs (
+    id TEXT PRIMARY KEY,
+    capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    graph_type TEXT NOT NULL,
+    artifact_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    node_count INTEGER NOT NULL,
+    edge_count INTEGER NOT NULL,
+    authority TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(capture_id, graph_type)
 );
 CREATE TABLE IF NOT EXISTS model_approvals (
     id TEXT PRIMARY KEY,

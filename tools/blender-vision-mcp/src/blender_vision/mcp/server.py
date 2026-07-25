@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
 import threading
@@ -61,6 +62,12 @@ from blender_vision.orchestration.services import WarmServiceRegistry
 from blender_vision.parametric.components import ComponentSpec, ComponentType
 from blender_vision.parametric.fitting import ComponentFitter
 from blender_vision.parametric.store import ComponentStore
+from blender_vision.perception import (
+    AdapterRegistry,
+    BrowserAdapter,
+    CaptureBus,
+    ObservationQueryService,
+)
 from blender_vision.projects.store import ProjectStore, slugify
 from blender_vision.repairs.store import RepairStore
 from blender_vision.review.service import ReviewService
@@ -100,6 +107,11 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
 
     def open_project(path: str) -> ProjectStore:
         return ProjectStore.open(Path(path))
+
+    def perception_bus(project: ProjectStore) -> CaptureBus:
+        registry = AdapterRegistry()
+        registry.register(BrowserAdapter())
+        return CaptureBus(project, registry)
 
     def by_id(project_id: str) -> ProjectStore:
         for metadata in root.glob("*/project.json"):
@@ -1208,6 +1220,78 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             root / slugify(name), name, target_fidelity=FidelityLevel(target_fidelity)
         )
         return project.status()
+
+    @mcp.tool(name="vision.observe")
+    async def vision_observe(
+        project_path: str,
+        target_url: str,
+        rights_decision: str,
+        allowed_origins: list[str],
+        source_id: str | None = None,
+        viewport_width: int = 1280,
+        viewport_height: int = 720,
+        device_scale_factor: float = 1.0,
+        color_scheme: str = "light",
+        reduced_motion: str = "no-preference",
+        locale: str = "en-US",
+        timezone_id: str = "UTC",
+        wait_until: str = "networkidle",
+        timeout_ms: int = 30_000,
+        allow_private_network: bool = False,
+        browser_channel: str = "chrome",
+        browser_executable_path: str | None = None,
+        headless: bool = True,
+        full_page: bool = True,
+    ) -> dict[str, Any]:
+        """Capture an allowlisted web target into a durable OBSERVED evidence envelope."""
+        configuration = {
+            "viewport": {"width": viewport_width, "height": viewport_height},
+            "device_scale_factor": device_scale_factor,
+            "color_scheme": color_scheme,
+            "reduced_motion": reduced_motion,
+            "locale": locale,
+            "timezone_id": timezone_id,
+            "wait_until": wait_until,
+            "timeout_ms": timeout_ms,
+            "allowed_origins": allowed_origins,
+            "allow_private_network": allow_private_network,
+            "channel": browser_channel,
+            "executable_path": browser_executable_path,
+            "headless": headless,
+            "full_page": full_page,
+        }
+        return await asyncio.to_thread(
+            perception_bus(open_project(project_path)).observe,
+            "browser.chromium",
+            {"url": target_url},
+            configuration,
+            rights_decision=rights_decision,
+            source_id=source_id,
+        )
+
+    @mcp.tool(name="vision.query")
+    def vision_query(
+        project_path: str,
+        capture_id: str,
+        query: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Query an observed perceptual graph with an exact artifact citation."""
+        project = open_project(project_path)
+        return ObservationQueryService(project).query(capture_id, query)
+
+    @mcp.tool(name="vision.verify")
+    def vision_verify(project_path: str, capture_id: str) -> dict[str, Any]:
+        """Verify the observation manifest, artifacts, and event receipts by digest."""
+        project = open_project(project_path)
+        bus = perception_bus(project)
+        return ObservationQueryService(project, bus).verify(capture_id)
+
+    @mcp.tool(name="vision.adapters")
+    def vision_adapters() -> dict[str, Any]:
+        """List installed sensor adapters without launching a browser."""
+        registry = AdapterRegistry()
+        registry.register(BrowserAdapter())
+        return {"adapters": registry.list()}
 
     @mcp.tool(name="benchmark.beast_audit")
     def benchmark_beast_audit(project_path: str, stage: int) -> dict[str, Any]:
@@ -3432,6 +3516,15 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
     @mcp.resource("project://{project_id}/summary")
     def project_summary(project_id: str) -> dict[str, Any]:
         return by_id(project_id).status()
+
+    @mcp.resource("vision://project/{project_id}/overview")
+    def vision_project_overview(project_id: str) -> dict[str, Any]:
+        return ObservationQueryService(by_id(project_id)).overview()
+
+    @mcp.resource("vision://project/{project_id}/graph/{graph_type}")
+    def vision_project_graph(project_id: str, graph_type: str) -> dict[str, Any]:
+        service = ObservationQueryService(by_id(project_id))
+        return service.graph(service.latest_capture_id(), graph_type)
 
     @mcp.resource("project://{project_id}/references")
     def project_references(project_id: str) -> dict[str, Any]:

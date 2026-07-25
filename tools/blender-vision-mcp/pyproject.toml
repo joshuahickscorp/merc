@@ -16,6 +16,7 @@ dependencies = [
   "opencv-python-headless>=4.10",
   "Pillow>=10.4",
   "platformdirs>=4.2",
+  "playwright>=1.54,<2",
   "pydantic>=2.8,<3",
 ]
 classifiers = [
