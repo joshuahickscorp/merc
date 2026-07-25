@@ -18,6 +18,12 @@ from blender_vision.perception.graphics import (
     GraphicsRuntimeAdapter,
     RuntimeGltfCompiler,
 )
+from blender_vision.perception.media import (
+    CameraFrameAdapter,
+    DesktopSnapshotAdapter,
+    ImageFileAdapter,
+    VideoFileAdapter,
+)
 from blender_vision.perception.query import ObservationQueryService
 from blender_vision.perception.repair import (
     FrontendComparisonService,
@@ -28,8 +34,10 @@ __all__ = [
     "AdapterRegistry",
     "BrowserAdapter",
     "BrowserExperienceAdapter",
+    "CameraFrameAdapter",
     "CaptureBus",
     "DesignIntelligenceService",
+    "DesktopSnapshotAdapter",
     "ExperienceIRCompiler",
     "FeatureCapsuleCompiler",
     "FeatureCapsuleVerifier",
@@ -38,8 +46,10 @@ __all__ = [
     "FrontendRepairService",
     "GraphicsRoundTripService",
     "GraphicsRuntimeAdapter",
+    "ImageFileAdapter",
     "MotionGraphReplay",
     "ObservationQueryService",
     "RuntimeGltfCompiler",
     "StorybookExportAdapter",
+    "VideoFileAdapter",
 ]

@@ -67,8 +67,10 @@ from blender_vision.perception import (
     AdapterRegistry,
     BrowserAdapter,
     BrowserExperienceAdapter,
+    CameraFrameAdapter,
     CaptureBus,
     DesignIntelligenceService,
+    DesktopSnapshotAdapter,
     ExperienceIRCompiler,
     FeatureCapsuleCompiler,
     FeatureCapsuleVerifier,
@@ -77,8 +79,10 @@ from blender_vision.perception import (
     FrontendRepairService,
     GraphicsRoundTripService,
     GraphicsRuntimeAdapter,
+    ImageFileAdapter,
     ObservationQueryService,
     StorybookExportAdapter,
+    VideoFileAdapter,
 )
 from blender_vision.projects.store import ProjectStore, slugify
 from blender_vision.repairs.store import RepairStore
@@ -126,6 +130,10 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         registry.register(BrowserExperienceAdapter())
         registry.register(FigmaExportAdapter())
         registry.register(GraphicsRuntimeAdapter())
+        registry.register(ImageFileAdapter())
+        registry.register(CameraFrameAdapter())
+        registry.register(VideoFileAdapter())
+        registry.register(DesktopSnapshotAdapter())
         registry.register(StorybookExportAdapter())
         return CaptureBus(project, registry)
 
@@ -1674,6 +1682,37 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         bus = perception_bus(project)
         return ObservationQueryService(project, bus).verify(capture_id)
 
+    @mcp.tool(name="vision.explain_region")
+    def vision_explain_region(
+        project_path: str,
+        capture_id: str,
+        x: float,
+        y: float,
+        graph_type: str | None = None,
+    ) -> dict[str, Any]:
+        """Explain the evidence, authority, and uncertainty at an observed pixel."""
+        query: dict[str, Any] = {"point": {"x": x, "y": y}, "limit": 100}
+        if graph_type is not None:
+            query["graph_type"] = graph_type
+        result = ObservationQueryService(open_project(project_path)).query(
+            capture_id, query
+        )
+        return {
+            **result,
+            "explanations": [
+                {
+                    "node_id": node["id"],
+                    "domain_type": node.get("domain_type"),
+                    "authority": node.get("authority", "UNKNOWN"),
+                    "confidence": node.get("confidence"),
+                    "uncertainty": node.get("uncertainty", []),
+                    "evidence_references": node.get("evidence_references", []),
+                    "source_restrictions": node.get("source_restrictions", []),
+                }
+                for node in result["matches"]
+            ],
+        }
+
     @mcp.tool(name="vision.progress")
     def vision_progress(project_path: str) -> dict[str, Any]:
         """Return compact perception progress, evidence counts, and unresolved blockers."""
@@ -1730,6 +1769,10 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         registry.register(BrowserExperienceAdapter())
         registry.register(FigmaExportAdapter())
         registry.register(GraphicsRuntimeAdapter())
+        registry.register(ImageFileAdapter())
+        registry.register(CameraFrameAdapter())
+        registry.register(VideoFileAdapter())
+        registry.register(DesktopSnapshotAdapter())
         registry.register(StorybookExportAdapter())
         return {"adapters": registry.list()}
 

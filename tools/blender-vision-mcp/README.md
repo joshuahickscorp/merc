@@ -50,6 +50,10 @@ ExperienceIR compilation and verified clean-room Feature Capsules are documented
 Bounded frontend candidate search, named-review CSS patching, and mandatory full-page regression
 gates are documented in [`docs/FRONTEND_REPAIR.md`](docs/FRONTEND_REPAIR.md).
 
+Static images, bounded video, authorized camera frames, and synchronized authorized desktop
+snapshots now share the same evidence bus and region-explanation surface. See
+[`docs/MULTIMODAL_PERCEPTION.md`](docs/MULTIMODAL_PERCEPTION.md).
+
 ## Reproducible calibration benchmark
 
 Benchmark 0 is CC0 procedural evidence and needs no private references. It generates a known
