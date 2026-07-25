@@ -985,6 +985,16 @@ def render_passes(root: Path, parameters: dict[str, object]) -> dict[str, object
     radius = max(dimensions.length * 0.5, 0.01)
     scene.camera = camera
     scene.render.engine = "BLENDER_EEVEE_NEXT"
+    # Evidence renders must be replayable across isolated Blender processes.
+    # Eevee's temporal reprojection and jittered soft shadows can otherwise
+    # move a handful of 8-bit channels even when every scene input is fixed.
+    # Retain multisample antialiasing, but use the deterministic sample path.
+    eevee = getattr(scene, "eevee", None)
+    if eevee is not None:
+        eevee.taa_render_samples = 64
+        eevee.use_taa_reprojection = False
+        eevee.use_soft_shadows = False
+        eevee.use_shadow_jitter_viewport = False
     scene.render.resolution_x = width
     scene.render.resolution_y = height
     scene.render.resolution_percentage = 100

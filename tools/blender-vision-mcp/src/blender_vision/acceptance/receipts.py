@@ -1462,7 +1462,7 @@ def _acceptance(
     visual_geometry_required = bool(
         l3_plus
         and (
-            benchmark_name not in {None, "", "calibration"}
+            benchmark_name not in {None, "", "calibration", "synthetic_calibration_v1"}
             or project_metadata.get("metadata", {}).get(
                 "visual_geometry_acceptance_required", False
             )

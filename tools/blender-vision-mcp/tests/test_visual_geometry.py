@@ -62,6 +62,29 @@ def test_maximal_passes_extend_without_rewriting_frozen_governed_minimum() -> No
     )
 
 
+def test_procedural_calibration_does_not_inherit_product_visual_geometry_gates(
+    tmp_path: Path,
+) -> None:
+    project = ProjectStore.create(
+        tmp_path / "calibration-policy",
+        "Procedural calibration policy fixture",
+        metadata={"benchmark": "synthetic_calibration_v1"},
+    )
+
+    acceptance = evaluate_acceptance(project)
+
+    assert acceptance["metrics"]["visual_geometry"]["policy_required"] is False
+    product_visual_blockers = {
+        "L3+ requires an immutable visual baseline freeze covering the authoritative scene",
+        "L3+ requires a receipt-valid fixed rig with approved cameras",
+        "L3+ visual-geometry scorecards do not cover every acceptance reference",
+        "L3+ requires a replayable manufactured-form audit",
+        "L3+ visual acceptance is blocked by unbound visible geometry",
+        "L3+ requires a component-weighted primary/secondary/tertiary scorecard",
+    }
+    assert product_visual_blockers.isdisjoint(acceptance["blockers"])
+
+
 def _clean_inventory() -> dict:
     return {
         "canonical_transform": {"scale_to_millimetres": 1000.0},
