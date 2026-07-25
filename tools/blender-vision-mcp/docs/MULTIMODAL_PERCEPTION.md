@@ -12,6 +12,9 @@ tool environment, and stores immutable source and derived artifacts.
 - `camera.frame` uses the image contract but requires
   `configuration.user_authorized=true` and records the device label and optional
   calibration metadata.
+- `camera.live` opens an explicitly selected OpenCV device only after
+  `configuration.user_authorized=true`, requires a caller-supplied session ID,
+  and captures a bounded frame count into a replayable `CameraSequenceGraph`.
 - `video.file` uses `ffprobe` and `ffmpeg` to extract a deterministic, bounded
   timestamp set. It emits a `VideoNarrativeGraph` containing frame evidence,
   derived region tracks and scene cuts, and explicitly uncalibrated 2D global
@@ -22,10 +25,17 @@ tool environment, and stores immutable source and derived artifacts.
   correspondences as derived.
 
 Live ambient surveillance is deliberately absent. Device acquisition must happen
-through an authorized host integration that produces the governed snapshot or
-frame input. Monocular depth is reported as unavailable unless a separately
-governed depth backend is configured.
+through an explicit authorized request. Monocular depth is reported as
+unavailable unless a governed depth artifact is supplied. Sensor depth requires
+calibration metadata and remains limited to the supplied record; model depth
+requires model identity and license metadata and is labeled `DERIVED`, never
+direct metric observation.
 
 `vision.query` selects the capture's sole graph automatically and
 `vision.explain_region` returns all nodes at a pixel with evidence references,
 authority, confidence, uncertainty, and source restrictions.
+
+`vision.reconstruct` with `mode=media_to_interface` compiles observed regions,
+OCR symbols, and temporal tracks into an editable clean-room
+`MediaInterfaceIR`. Its layout constraints remain hypotheses and require rendered
+pixel comparison, accessibility review, and the global regression gate.

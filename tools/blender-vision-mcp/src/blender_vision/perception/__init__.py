@@ -23,6 +23,8 @@ from blender_vision.perception.media import (
     CameraFrameAdapter,
     DesktopSnapshotAdapter,
     ImageFileAdapter,
+    LiveCameraAdapter,
+    MediaReconstructionService,
     VideoFileAdapter,
 )
 from blender_vision.perception.query import ObservationQueryService
@@ -54,10 +56,12 @@ __all__ = [
     "GraphicsRoundTripService",
     "GraphicsRuntimeAdapter",
     "ImageFileAdapter",
+    "LiveCameraAdapter",
+    "MediaReconstructionService",
     "MotionGraphReplay",
     "ObservationQueryService",
-    "PerceptionWorkspace",
     "PerceptionLearningService",
+    "PerceptionWorkspace",
     "RuntimeGltfCompiler",
     "StorybookExportAdapter",
     "SourceIntelligenceService",

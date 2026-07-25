@@ -52,9 +52,7 @@ packages = ["src/blender_vision"]
 "schemas" = "blender_vision/schemas"
 "MODEL_LICENSES.json" = "blender_vision/MODEL_LICENSES.json"
 "SECURITY.md" = "blender_vision/SECURITY.md"
-"docs/SECURITY_REVIEW.md" = "blender_vision/docs/SECURITY_REVIEW.md"
-"docs/RELEASE.md" = "blender_vision/docs/RELEASE.md"
-"docs/V1_COMPLIANCE.md" = "blender_vision/docs/V1_COMPLIANCE.md"
+"docs" = "blender_vision/docs"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -9,6 +9,7 @@ from blender_vision.perception.media import (
     CameraFrameAdapter,
     DesktopSnapshotAdapter,
     ImageFileAdapter,
+    LiveCameraAdapter,
     VideoFileAdapter,
 )
 from blender_vision.perception.source import CodeRepositoryAdapter
@@ -23,6 +24,7 @@ def default_adapter_registry() -> AdapterRegistry:
     registry.register(GraphicsRuntimeAdapter())
     registry.register(ImageFileAdapter())
     registry.register(CameraFrameAdapter())
+    registry.register(LiveCameraAdapter())
     registry.register(CodeRepositoryAdapter())
     registry.register(VideoFileAdapter())
     registry.register(DesktopSnapshotAdapter())

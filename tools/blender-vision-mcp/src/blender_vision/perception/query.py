@@ -39,14 +39,24 @@ class ObservationQueryService:
             ],
         }
 
-    def latest_capture_id(self) -> str:
+    def latest_capture_id(self, graph_type: str | None = None) -> str:
         with self.project.connection() as connection:
-            row = connection.execute(
-                "SELECT id FROM observation_captures WHERE status='COMPLETE' "
-                "ORDER BY updated_at DESC,id DESC LIMIT 1"
-            ).fetchone()
+            if graph_type is None:
+                row = connection.execute(
+                    "SELECT id FROM observation_captures WHERE status='COMPLETE' "
+                    "ORDER BY updated_at DESC,id DESC LIMIT 1"
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT c.id FROM observation_captures c "
+                    "JOIN perceptual_graphs g ON g.capture_id=c.id "
+                    "WHERE c.status='COMPLETE' AND g.graph_type=? "
+                    "ORDER BY c.updated_at DESC,c.id DESC LIMIT 1",
+                    (graph_type,),
+                ).fetchone()
         if row is None:
-            raise KeyError("project has no complete observations")
+            suffix = f" containing {graph_type}" if graph_type else ""
+            raise KeyError(f"project has no complete observations{suffix}")
         return str(row["id"])
 
     def graph(self, capture_id: str, graph_type: str = "LayoutGraph") -> dict[str, Any]:

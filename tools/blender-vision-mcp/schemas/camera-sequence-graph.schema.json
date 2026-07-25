@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/camera-sequence-graph.schema.json",
+  "title": "VisionMCP CameraSequenceGraph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "graph_type",
+    "authority",
+    "source_digest",
+    "nodes",
+    "edges",
+    "tracks",
+    "scenes",
+    "camera_motion",
+    "depth",
+    "metadata"
+  ],
+  "properties": {
+    "schema": { "const": "vision.camera-sequence-graph/v1" },
+    "graph_type": { "const": "CameraSequenceGraph" },
+    "authority": { "const": "MIXED" },
+    "source_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "nodes": { "type": "array" },
+    "edges": { "type": "array" },
+    "tracks": { "type": "array" },
+    "scenes": { "type": "array" },
+    "camera_motion": { "type": "array" },
+    "depth": { "type": "object" },
+    "metadata": { "type": "object" }
+  }
+}

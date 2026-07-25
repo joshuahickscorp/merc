@@ -8,6 +8,8 @@ import platform
 import shutil
 import subprocess
 import tempfile
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +17,11 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
-from blender_vision.core.util import canonical_json, sha256_file
+from blender_vision.artifacts.store import ArtifactStore
+from blender_vision.core.util import atomic_write_json, canonical_json, sha256_file, utc_now
 from blender_vision.perception.contracts import ArtifactSink, CaptureOutcome
+from blender_vision.perception.query import ObservationQueryService
+from blender_vision.projects.store import ProjectStore
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 _VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
@@ -62,6 +67,7 @@ class ImageFileAdapter:
             "maximum_regions": max(
                 1, min(int(config.get("maximum_regions", 128)), 1024)
             ),
+            "depth": _normalize_depth(config),
         }
 
     def environment(self, config: dict[str, Any]) -> dict[str, Any]:
@@ -98,11 +104,13 @@ class ImageFileAdapter:
                 "source_digest": source["digest"],
             },
         )
+        depth = _capture_depth(config["depth"], analysis, sink)
         graph = image_graph(
             analysis,
             source_digest=source["digest"],
             normalized_digest=normalized["digest"],
             source_kind=target["kind"],
+            depth=depth,
         )
         sink("image.graph", canonical_json(graph), "application/json", None)
         return CaptureOutcome(
@@ -115,7 +123,11 @@ class ImageFileAdapter:
             },
             limitations=[
                 "Contour regions and OCR symbols are DERIVED interpretations of observed pixels.",
-                "Single-image depth and occluded structure remain unobserved.",
+                (
+                    "Depth authority is limited to the supplied governed depth artifact."
+                    if depth
+                    else "Single-image depth and occluded structure remain unobserved."
+                ),
             ],
             graphs=[
                 {
@@ -167,6 +179,151 @@ class CameraFrameAdapter(ImageFileAdapter):
             "device_label": config["device_label"],
             "calibration_recorded": config["calibration"] is not None,
         }
+
+
+class LiveCameraAdapter(ImageFileAdapter):
+    name = "camera.live"
+
+    def normalize_target(self, target: dict[str, Any]) -> dict[str, Any]:
+        device_index = int(target.get("device_index", 0))
+        if device_index not in range(0, 33):
+            raise ValueError("camera device_index must be between 0 and 32")
+        label = str(target.get("label", f"camera-{device_index}")).strip()
+        session_id = str(target.get("session_id", "")).strip()
+        if not label or not session_id:
+            raise ValueError("live camera requires a non-empty label and session_id")
+        return {
+            "id": f"live-camera:{device_index}:{label}:{session_id}",
+            "kind": "live-camera",
+            "device_index": device_index,
+            "label": label,
+            "session_id": session_id,
+        }
+
+    def normalize_config(
+        self, target: dict[str, Any], config: dict[str, Any]
+    ) -> dict[str, Any]:
+        del target
+        if not config.get("user_authorized"):
+            raise PermissionError("live camera requires explicit user_authorized=true")
+        return {
+            "frame_count": max(1, min(int(config.get("frame_count", 3)), 120)),
+            "interval_ms": max(0, min(int(config.get("interval_ms", 100)), 10_000)),
+            "width": max(0, min(int(config.get("width", 0)), 8192)),
+            "height": max(0, min(int(config.get("height", 0)), 8192)),
+            "maximum_dimension": max(
+                64, min(int(config.get("maximum_dimension", 1280)), 4096)
+            ),
+            "maximum_regions": max(
+                1, min(int(config.get("maximum_regions", 64)), 256)
+            ),
+            "ocr": bool(config.get("ocr", False)),
+            "calibration": config.get("calibration"),
+        }
+
+    def environment(self, config: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+            "opencv": cv2.__version__,
+            "adapter": self.name,
+            "adapter_version": self.version,
+            "authorization": "explicit",
+            "frame_count": config["frame_count"],
+            "calibration_recorded": config["calibration"] is not None,
+        }
+
+    def capture(
+        self,
+        target: dict[str, Any],
+        config: dict[str, Any],
+        sink: ArtifactSink,
+    ) -> CaptureOutcome:
+        device = cv2.VideoCapture(target["device_index"])
+        if not device.isOpened():
+            device.release()
+            raise RuntimeError("authorized camera device could not be opened")
+        if config["width"]:
+            device.set(cv2.CAP_PROP_FRAME_WIDTH, config["width"])
+        if config["height"]:
+            device.set(cv2.CAP_PROP_FRAME_HEIGHT, config["height"])
+        frames = []
+        try:
+            with tempfile.TemporaryDirectory(prefix="vision-camera-") as directory:
+                root = Path(directory)
+                for index in range(config["frame_count"]):
+                    ok, array = device.read()
+                    if not ok or array is None:
+                        raise RuntimeError(f"camera failed to emit authorized frame {index}")
+                    frame_path = root / f"frame-{index:03d}.png"
+                    if not cv2.imwrite(str(frame_path), array):
+                        raise RuntimeError(f"camera frame {index} could not be encoded")
+                    analysis, normalized_png = analyze_image(frame_path, config)
+                    timestamp = index * config["interval_ms"] / 1000
+                    artifact = sink(
+                        f"camera.frame.{index:03d}",
+                        normalized_png,
+                        "image/png",
+                        {
+                            "timestamp_seconds": timestamp,
+                            "device_label": target["label"],
+                        },
+                    )
+                    frames.append(
+                        {
+                            "index": index,
+                            "timestamp_seconds": timestamp,
+                            "artifact_digest": artifact["digest"],
+                            "analysis": analysis,
+                            "evidence_role": f"camera.frame.{index:03d}",
+                        }
+                    )
+                    if index + 1 < config["frame_count"] and config["interval_ms"]:
+                        time.sleep(config["interval_ms"] / 1000)
+        finally:
+            device.release()
+        source_digest = __import__("hashlib").sha256(
+            canonical_json([frame["artifact_digest"] for frame in frames])
+        ).hexdigest()
+        graph = video_graph(
+            frames,
+            {
+                "live_camera": {
+                    "device_index": target["device_index"],
+                    "label": target["label"],
+                    "calibration": config["calibration"],
+                }
+            },
+            source_digest,
+        )
+        graph["schema"] = "vision.camera-sequence-graph/v1"
+        graph["graph_type"] = "CameraSequenceGraph"
+        sink("camera.graph", canonical_json(graph), "application/json", None)
+        return CaptureOutcome(
+            summary={
+                "frame_count": len(frames),
+                "duration_seconds": frames[-1]["timestamp_seconds"],
+                "calibration_recorded": config["calibration"] is not None,
+            },
+            limitations=[
+                "Acquisition is bounded to the explicitly authorized frame count.",
+                "2D global motion is not a calibrated 3D trajectory.",
+                (
+                    "Camera calibration was not supplied."
+                    if config["calibration"] is None
+                    else "Metric use is limited to the supplied calibration record."
+                ),
+            ],
+            graphs=[
+                {
+                    "graph_type": "CameraSequenceGraph",
+                    "role": "camera.graph",
+                    "node_count": len(graph["nodes"]),
+                    "edge_count": len(graph["edges"]),
+                    "authority": "MIXED",
+                }
+            ],
+        )
 
 
 class VideoFileAdapter:
@@ -586,6 +743,7 @@ def image_graph(
     source_digest: str,
     normalized_digest: str,
     source_kind: str,
+    depth: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     evidence = [
         {"role": "image.source", "artifact_digest": source_digest},
@@ -668,6 +826,44 @@ def image_graph(
                 "evidence_references": evidence,
             }
         )
+    if depth is not None:
+        depth_id = f"{source_kind}:depth"
+        depth_evidence = [
+            {"role": "image.depth", "artifact_digest": depth["artifact_digest"]}
+        ]
+        nodes.append(
+            {
+                "id": depth_id,
+                "domain_type": "DepthMap",
+                "spatial_bounds": {
+                    "x": 0,
+                    "y": 0,
+                    "width": analysis["width"],
+                    "height": analysis["height"],
+                },
+                "temporal_validity": "static",
+                "evidence_references": depth_evidence,
+                "authority": depth["authority"],
+                "confidence": depth["confidence"],
+                "source_restrictions": ["governed-depth-source"],
+                "uncertainty": depth["uncertainty"],
+                "revision_lineage": [],
+                "depth_kind": depth["kind"],
+                "encoding": depth["encoding"],
+                "calibration": depth["calibration"],
+                "model_identity": depth["model_identity"],
+                "license": depth["license"],
+            }
+        )
+        edges.append(
+            {
+                "source": root_id,
+                "target": depth_id,
+                "type": "ALIGNS_DEPTH",
+                "authority": depth["authority"],
+                "evidence_references": depth_evidence,
+            }
+        )
     return {
         "schema": "vision.image-graph/v1",
         "graph_type": "ImageGraph",
@@ -675,6 +871,15 @@ def image_graph(
         "nodes": nodes,
         "edges": edges,
         "analysis": analysis,
+        "depth": (
+            {
+                key: value
+                for key, value in depth.items()
+                if key not in {"artifact_digest", "path"}
+            }
+            if depth
+            else {"status": "UNAVAILABLE"}
+        ),
     }
 
 
@@ -697,7 +902,9 @@ def video_graph(
         frame_id = f"video:frame:{frame['index']}"
         evidence = [
             {
-                "role": f"video.frame.{frame['index']:03d}",
+                "role": frame.get(
+                    "evidence_role", f"video.frame.{frame['index']:03d}"
+                ),
                 "artifact_digest": frame["artifact_digest"],
             }
         ]
@@ -941,3 +1148,200 @@ def _iou(left: dict[str, Any], right: dict[str, Any]) -> float:
     left_area = float(left["width"]) * float(left["height"])
     right_area = float(right["width"]) * float(right["height"])
     return intersection / max(1.0, left_area + right_area - intersection)
+
+
+def _normalize_depth(config: dict[str, Any]) -> dict[str, Any] | None:
+    raw_path = config.get("depth_path")
+    if raw_path is None:
+        return None
+    path = Path(str(raw_path)).expanduser().resolve()
+    if not path.is_file() or path.suffix.lower() not in _IMAGE_SUFFIXES:
+        raise ValueError("depth_path must be an existing supported image file")
+    kind = str(config.get("depth_kind", "")).lower()
+    if kind not in {"sensor", "model"}:
+        raise ValueError("depth_kind must be sensor or model")
+    calibration = config.get("depth_calibration")
+    model_identity = config.get("depth_model_identity")
+    license_record = config.get("depth_license")
+    if kind == "sensor" and not calibration:
+        raise ValueError("sensor depth requires depth_calibration")
+    if kind == "model" and (not model_identity or not license_record):
+        raise ValueError("model depth requires model identity and license")
+    digest, size = sha256_file(path)
+    return {
+        "path": str(path),
+        "digest": digest,
+        "size": size,
+        "kind": kind,
+        "calibration": calibration,
+        "model_identity": model_identity,
+        "license": license_record,
+        "encoding": str(config.get("depth_encoding", "relative-grayscale")),
+    }
+
+
+def _capture_depth(
+    depth: dict[str, Any] | None,
+    analysis: dict[str, Any],
+    sink: ArtifactSink,
+) -> dict[str, Any] | None:
+    if depth is None:
+        return None
+    path = Path(depth["path"])
+    with Image.open(path) as image:
+        image = ImageOps.exif_transpose(image)
+        if image.size not in {
+            (analysis["original_width"], analysis["original_height"]),
+            (analysis["width"], analysis["height"]),
+        }:
+            raise ValueError("depth map dimensions must align with the source image")
+    artifact = sink(
+        "image.depth",
+        path.read_bytes(),
+        mimetypes.guess_type(path.name)[0] or "image/png",
+        {
+            "source_digest": depth["digest"],
+            "depth_kind": depth["kind"],
+            "encoding": depth["encoding"],
+        },
+    )
+    authority = "OBSERVED" if depth["kind"] == "sensor" else "DERIVED"
+    return {
+        **depth,
+        "artifact_digest": artifact["digest"],
+        "authority": authority,
+        "confidence": 1.0 if depth["kind"] == "sensor" else 0.7,
+        "uncertainty": (
+            []
+            if depth["kind"] == "sensor"
+            else ["model-depth-is-not-direct-metric-observation"]
+        ),
+        "status": "AVAILABLE",
+    }
+
+
+class MediaReconstructionService:
+    def __init__(self, project: ProjectStore):
+        self.project = project
+        self.artifacts = ArtifactStore(project)
+        self.query = ObservationQueryService(project)
+
+    def reconstruct_interface(self, capture_id: str) -> dict[str, Any]:
+        existing = self._existing(capture_id, "media_to_interface")
+        if existing is not None:
+            return existing
+        graph = self._media_graph(capture_id)
+        regions = []
+        texts = []
+        for node in graph.get("nodes", []):
+            bounds = node.get("bounds") or node.get("spatial_bounds")
+            if node.get("domain_type") == "VisualRegion" and bounds:
+                regions.append(
+                    {
+                        "id": node["id"],
+                        "bounds": bounds,
+                        "mean_rgb": node.get("mean_rgb"),
+                        "authority": "HYPOTHESIS",
+                        "source_evidence": node.get("evidence_references", []),
+                    }
+                )
+            if node.get("domain_type") == "TextSymbol" and bounds:
+                texts.append(
+                    {
+                        "id": node["id"],
+                        "text": node.get("text"),
+                        "bounds": bounds,
+                        "confidence": node.get("confidence"),
+                        "source_evidence": node.get("evidence_references", []),
+                    }
+                )
+        record_id = str(uuid.uuid4())
+        now = utc_now()
+        record = {
+            "schema": "vision.media-interface-ir/v1",
+            "id": record_id,
+            "capture_id": capture_id,
+            "mode": "media_to_interface",
+            "status": "CANDIDATE",
+            "authority": "HYPOTHESIS",
+            "coordinate_space": "observed media pixels",
+            "regions": regions,
+            "text_symbols": texts,
+            "temporal_tracks": graph.get("tracks", []),
+            "implementation_contract": {
+                "editable": True,
+                "copy_reference_source": False,
+                "copy_reference_assets": False,
+                "layout_strategy": "constraint-candidates-from-observed-bounds",
+                "mandatory_verification": [
+                    "rendered pixel comparison",
+                    "semantic accessibility review",
+                    "global regression gate",
+                ],
+            },
+            "citation": graph["citation"],
+            "limitations": [
+                "Visual regions are not automatically semantic components.",
+                "The reconstruction is a clean-room editable candidate, not accepted fidelity.",
+            ],
+            "created_at": now,
+        }
+        relative = Path("observations") / "reconstructions" / f"{record_id}.json"
+        atomic_write_json(self.project.root / relative, record)
+        artifact = self.artifacts.ingest_file(
+            self.project.root / relative,
+            media_type="application/vnd.visionmcp.media-interface-ir+json",
+        )
+        with self.project.connection() as connection:
+            connection.execute(
+                "INSERT INTO media_reconstructions("
+                "id,capture_id,mode,status,record_digest,created_at"
+                ") VALUES(?,?,?,?,?,?)",
+                (
+                    record_id,
+                    capture_id,
+                    "media_to_interface",
+                    "CANDIDATE",
+                    artifact.digest,
+                    now,
+                ),
+            )
+        return {
+            **record,
+            "record_digest": artifact.digest,
+            "path": str(relative),
+            "reused": False,
+        }
+
+    def _media_graph(self, capture_id: str) -> dict[str, Any]:
+        for graph_type in (
+            "ImageGraph",
+            "DesktopExperienceGraph",
+            "VideoNarrativeGraph",
+            "CameraSequenceGraph",
+        ):
+            try:
+                return self.query.graph(capture_id, graph_type)
+            except KeyError:
+                continue
+        raise ValueError(
+            "media-to-interface requires image, desktop, video, or camera evidence"
+        )
+
+    def _existing(self, capture_id: str, mode: str) -> dict[str, Any] | None:
+        with self.project.connection() as connection:
+            row = connection.execute(
+                "SELECT record_digest FROM media_reconstructions "
+                "WHERE capture_id=? AND mode=?",
+                (capture_id, mode),
+            ).fetchone()
+        if row is None:
+            return None
+        record = json.loads(
+            self.artifacts.path_for(row["record_digest"]).read_text(encoding="utf-8")
+        )
+        return {
+            **record,
+            "record_digest": row["record_digest"],
+            "reused": True,
+        }
