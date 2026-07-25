@@ -2,6 +2,11 @@
 
 from blender_vision.perception.browser import BrowserAdapter
 from blender_vision.perception.bus import AdapterRegistry, CaptureBus
+from blender_vision.perception.capsules import (
+    ExperienceIRCompiler,
+    FeatureCapsuleCompiler,
+    FeatureCapsuleVerifier,
+)
 from blender_vision.perception.design import (
     DesignIntelligenceService,
     FigmaExportAdapter,
@@ -21,6 +26,9 @@ __all__ = [
     "BrowserExperienceAdapter",
     "CaptureBus",
     "DesignIntelligenceService",
+    "ExperienceIRCompiler",
+    "FeatureCapsuleCompiler",
+    "FeatureCapsuleVerifier",
     "FigmaExportAdapter",
     "GraphicsRoundTripService",
     "GraphicsRuntimeAdapter",

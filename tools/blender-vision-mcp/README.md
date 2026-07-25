@@ -44,6 +44,9 @@ Browser canvas/WebGL/WebGPU runtime evidence, fixed-time frame capture, explicit
 materialization, and the safe Blender/GLB candidate round trip are documented in
 [`docs/GRAPHICS_RUNTIME.md`](docs/GRAPHICS_RUNTIME.md).
 
+ExperienceIR compilation and verified clean-room Feature Capsules are documented in
+[`docs/FEATURE_CAPSULES.md`](docs/FEATURE_CAPSULES.md).
+
 ## Reproducible calibration benchmark
 
 Benchmark 0 is CC0 procedural evidence and needs no private references. It generates a known
