@@ -59,6 +59,10 @@ findings, contradiction handling, compute accounting, and evidence-scored router
 refutation are documented in
 [`docs/PERCEPTION_WORKSPACE.md`](docs/PERCEPTION_WORKSPACE.md).
 
+Authenticated capability routing for capture, specialist analysis, central
+verification, lease recovery, and receipt-equivalent replay is documented in
+[`docs/DISTRIBUTED_PERCEPTION.md`](docs/DISTRIBUTED_PERCEPTION.md).
+
 ## Reproducible calibration benchmark
 
 Benchmark 0 is CC0 procedural evidence and needs no private references. It generates a known

@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from blender_vision.artifacts.store import ArtifactStore
 from blender_vision.artifacts.transfer import ArtifactTransfer
@@ -315,3 +316,157 @@ def test_distributed_dataset_completion_updates_governed_dataset(tmp_path: Path)
     assert generated_dataset["artifact_digest"] != plan_digest
     assert generated_dataset["manifest"]["execution"]["plan_record_digest"] == plan_digest
     assert ArtifactStore(project).path_for(plan_digest).is_file()
+
+
+def test_perception_capture_analysis_and_verification_route_across_workers(
+    tmp_path: Path,
+) -> None:
+    project = ProjectStore.create(tmp_path / "project", "Distributed perception")
+    image_path = tmp_path / "owned.png"
+    Image.new("RGB", (64, 48), "#125cd2").save(image_path)
+    scheduler = DistributedScheduler(project)
+    capture_capabilities = _capabilities("vision")
+    capture_capabilities["capabilities"] = [
+        "perception.capture",
+        "adapter.image.file",
+        "device.primary",
+    ]
+    analysis_capabilities = _capabilities("vision")
+    analysis_capabilities["capabilities"] = ["perception.workspace"]
+    verifier_capabilities = _capabilities("vision")
+    verifier_capabilities["capabilities"] = ["perception.verify"]
+    replica_capabilities = _capabilities("vision")
+    replica_capabilities["capabilities"] = [
+        "perception.capture",
+        "adapter.image.file",
+        "device.replica",
+    ]
+    capture_worker = scheduler.register(
+        "Browser acquisition worker", "vision", capture_capabilities
+    )
+    analysis_worker = scheduler.register(
+        "DGX analysis worker", "vision", analysis_capabilities
+    )
+    verifier_worker = scheduler.register(
+        "Central verifier", "vision", verifier_capabilities
+    )
+    replica_worker = scheduler.register(
+        "Replica acquisition worker", "vision", replica_capabilities
+    )
+    capture_config = {
+        "adapter": "image.file",
+        "target": {"path": str(image_path)},
+        "configuration": {"ocr": False},
+        "rights_decision": "SYNTHETIC_OWNED",
+    }
+    capture_job = Coordinator(project).enqueue(
+        "perception.capture",
+        {
+            **capture_config,
+            "worker_requirements": {
+                "worker_classes": ["vision"],
+                "required_capabilities": [
+                    "perception.capture",
+                    "adapter.image.file",
+                    "device.primary",
+                ],
+                "preferred_hardware": ["cuda", "cpu"],
+                "required_models": [],
+                "min_vram_gb": 0,
+                "max_attempts": 3,
+            },
+        },
+    )
+    capture_report = WorkerRuntime(
+        project,
+        capture_worker["id"],
+        capture_worker["worker_token"],
+        lease_seconds=30,
+    ).run(once=True)
+    assert capture_report["status"] == "succeeded", json.dumps(capture_report)
+    capture = project.job(capture_job)["result"]
+    capture_id = capture["capture_id"]
+
+    workspace_job = Coordinator(project).enqueue(
+        "perception.workspace",
+        {
+            "capture_ids": [capture_id],
+            "compute_budget": 5,
+            "worker_requirements": {
+                "worker_classes": ["vision"],
+                "required_capabilities": ["perception.workspace"],
+                "preferred_hardware": ["cuda", "cpu"],
+                "required_models": [],
+                "min_vram_gb": 0,
+                "max_attempts": 3,
+            },
+        },
+    )
+    analysis_report = WorkerRuntime(
+        project,
+        analysis_worker["id"],
+        analysis_worker["worker_token"],
+        lease_seconds=30,
+    ).run(once=True)
+    workspace = project.job(workspace_job)["result"]["governed_result"]
+
+    verify_job = Coordinator(project).enqueue(
+        "perception.verify",
+        {
+            "capture_id": capture_id,
+            "worker_requirements": {
+                "worker_classes": ["vision"],
+                "required_capabilities": ["perception.verify"],
+                "preferred_hardware": ["cpu"],
+                "required_models": [],
+                "min_vram_gb": 0,
+                "max_attempts": 3,
+            },
+        },
+    )
+    verify_report = WorkerRuntime(
+        project,
+        verifier_worker["id"],
+        verifier_worker["worker_token"],
+        lease_seconds=30,
+    ).run(once=True)
+
+    replica_job = Coordinator(project).enqueue(
+        "perception.capture",
+        {
+            **capture_config,
+            "worker_requirements": {
+                "worker_classes": ["vision"],
+                "required_capabilities": [
+                    "perception.capture",
+                    "adapter.image.file",
+                    "device.replica",
+                ],
+                "preferred_hardware": ["cuda", "cpu"],
+                "required_models": [],
+                "min_vram_gb": 0,
+                "max_attempts": 3,
+            },
+        },
+    )
+    replica_report = WorkerRuntime(
+        project,
+        replica_worker["id"],
+        replica_worker["worker_token"],
+        lease_seconds=30,
+    ).run(once=True)
+    replica = project.job(replica_job)["result"]
+
+    assert capture_report["status"] == "succeeded"
+    assert analysis_report["status"] == "succeeded"
+    assert verify_report["status"] == "succeeded"
+    assert replica_report["status"] == "succeeded"
+    assert capture["governed_result"]["verification"]["valid"] is True
+    assert workspace["status"] == "COMPLETE"
+    assert project.job(verify_job)["result"]["governed_result"]["verification"][
+        "valid"
+    ] is True
+    assert capture["worker"]["id"] != project.job(workspace_job)["result"]["worker"]["id"]
+    assert replica["worker"]["id"] != capture["worker"]["id"]
+    assert replica["capture_id"] == capture_id
+    assert replica["manifest_digest"] == capture["manifest_digest"]

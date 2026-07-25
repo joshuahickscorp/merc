@@ -64,28 +64,19 @@ from blender_vision.parametric.components import ComponentSpec, ComponentType
 from blender_vision.parametric.fitting import ComponentFitter
 from blender_vision.parametric.store import ComponentStore
 from blender_vision.perception import (
-    AdapterRegistry,
-    BrowserAdapter,
-    BrowserExperienceAdapter,
-    CameraFrameAdapter,
     CaptureBus,
-    CodeRepositoryAdapter,
     DesignIntelligenceService,
-    DesktopSnapshotAdapter,
     ExperienceIRCompiler,
     FeatureCapsuleCompiler,
     FeatureCapsuleVerifier,
-    FigmaExportAdapter,
     FrontendComparisonService,
     FrontendRepairService,
     GraphicsRoundTripService,
-    GraphicsRuntimeAdapter,
-    ImageFileAdapter,
     ObservationQueryService,
     PerceptionWorkspace,
     SourceIntelligenceService,
-    StorybookExportAdapter,
-    VideoFileAdapter,
+    default_adapter_registry,
+    default_capture_bus,
 )
 from blender_vision.projects.store import ProjectStore, slugify
 from blender_vision.repairs.store import RepairStore
@@ -128,18 +119,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         return ProjectStore.open(Path(path))
 
     def perception_bus(project: ProjectStore) -> CaptureBus:
-        registry = AdapterRegistry()
-        registry.register(BrowserAdapter())
-        registry.register(BrowserExperienceAdapter())
-        registry.register(FigmaExportAdapter())
-        registry.register(GraphicsRuntimeAdapter())
-        registry.register(ImageFileAdapter())
-        registry.register(CameraFrameAdapter())
-        registry.register(CodeRepositoryAdapter())
-        registry.register(VideoFileAdapter())
-        registry.register(DesktopSnapshotAdapter())
-        registry.register(StorybookExportAdapter())
-        return CaptureBus(project, registry)
+        return default_capture_bus(project)
 
     def by_id(project_id: str) -> ProjectStore:
         for metadata in root.glob("*/project.json"):
@@ -1294,6 +1274,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         browser_executable_path: str | None = None,
         headless: bool = True,
         full_page: bool = True,
+        execution: str = "local",
     ) -> dict[str, Any]:
         """Capture any installed sensor into a durable OBSERVED evidence envelope."""
         resolved_target = dict(target or {})
@@ -1323,8 +1304,34 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
                 resolved_configuration.setdefault(key, value)
         elif not resolved_target:
             raise ValueError(f"{adapter} requires a typed target")
+        project = open_project(project_path)
+        if execution == "distributed":
+            return enqueue_remote(
+                project,
+                "perception.capture",
+                {
+                    "adapter": adapter,
+                    "target": resolved_target,
+                    "configuration": resolved_configuration,
+                    "rights_decision": rights_decision,
+                    "source_id": source_id,
+                    "worker_requirements": {
+                        "worker_classes": ["vision"],
+                        "required_capabilities": [
+                            "perception.capture",
+                            f"adapter.{adapter}",
+                        ],
+                        "preferred_hardware": ["cuda", "mps", "cpu"],
+                        "required_models": [],
+                        "min_vram_gb": 0.0,
+                        "max_attempts": 3,
+                    },
+                },
+            )
+        if execution != "local":
+            raise ValueError("vision.observe execution must be local or distributed")
         return await asyncio.to_thread(
-            perception_bus(open_project(project_path)).observe,
+            perception_bus(project).observe,
             adapter,
             resolved_target,
             resolved_configuration,
@@ -1823,18 +1830,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
     @mcp.tool(name="vision.adapters")
     def vision_adapters() -> dict[str, Any]:
         """List installed sensor adapters without launching a browser."""
-        registry = AdapterRegistry()
-        registry.register(BrowserAdapter())
-        registry.register(BrowserExperienceAdapter())
-        registry.register(FigmaExportAdapter())
-        registry.register(GraphicsRuntimeAdapter())
-        registry.register(ImageFileAdapter())
-        registry.register(CameraFrameAdapter())
-        registry.register(CodeRepositoryAdapter())
-        registry.register(VideoFileAdapter())
-        registry.register(DesktopSnapshotAdapter())
-        registry.register(StorybookExportAdapter())
-        return {"adapters": registry.list()}
+        return {"adapters": default_adapter_registry().list()}
 
     @mcp.tool(name="benchmark.beast_audit")
     def benchmark_beast_audit(project_path: str, stage: int) -> dict[str, Any]:
