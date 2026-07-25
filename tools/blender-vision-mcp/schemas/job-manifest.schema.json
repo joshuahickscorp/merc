@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/job-manifest.schema.json",
+  "title": "Blender Vision Blender worker manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation",
+    "project_root",
+    "scene_path",
+    "result_path",
+    "safe_mode",
+    "limits",
+    "parameters",
+    "manifest_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "operation": {
+      "enum": [
+        "inspect_scene",
+        "validate_scene",
+        "import_asset",
+        "create_component",
+        "update_component",
+        "apply_constraints",
+        "create_camera",
+        "apply_camera_solution",
+        "render_passes",
+        "evaluate_camera_candidates",
+        "export_glb",
+        "export_blend",
+        "generate_lod",
+        "save_checkpoint",
+        "repair_degenerate_geometry_candidate",
+        "repair_mac_studio_grille",
+        "revise_rtx_5090_fe_candidate",
+        "refine_rtx_5090_fe_visual_candidate",
+        "refine_rtx_5090_fe_front_frame_candidate",
+        "refine_dgx_spark_visual_candidate",
+        "refine_dgx_spark_base_foot_candidate",
+        "generate_components",
+        "generate_semantic_seed",
+        "generate_synthetic_dataset",
+        "generate_calibration_benchmark"
+      ]
+    },
+    "project_root": { "type": "string", "minLength": 1 },
+    "scene_path": { "type": "string", "minLength": 1 },
+    "result_path": { "type": "string", "minLength": 1 },
+    "safe_mode": { "type": "boolean" },
+    "manifest_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_output_bytes"],
+      "properties": {
+        "max_output_bytes": { "type": "integer", "minimum": 1, "maximum": 1073741824 }
+      }
+    },
+    "parameters": { "type": "object" }
+  }
+}

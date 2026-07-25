@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/measurement-grid.schema.json",
+  "title": "Evidence-bound perspective measurement grid",
+  "type": "object",
+  "required": [
+    "id",
+    "reference_id",
+    "image_size",
+    "coordinate_space",
+    "definition",
+    "uncertainty",
+    "created_by",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": { "type": "string" },
+    "reference_id": { "type": "string" },
+    "image_size": {
+      "type": "object",
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "coordinate_space": { "const": "normalized_image" },
+    "definition": {
+      "type": "object",
+      "required": [
+        "vanishing_points",
+        "vanishing_lines",
+        "rulers",
+        "calibration_targets",
+        "symmetry_axes",
+        "snap",
+        "multi_view_links"
+      ],
+      "properties": {
+        "vanishing_points": { "type": "object" },
+        "vanishing_lines": { "type": "array" },
+        "rulers": { "type": "array" },
+        "calibration_targets": { "type": "array" },
+        "symmetry_axes": { "type": "array" },
+        "snap": { "type": "object" },
+        "multi_view_links": { "type": "array" }
+      }
+    },
+    "scale_measurement_id": { "type": ["string", "null"] },
+    "millimetre_conversion": { "type": "object" },
+    "uncertainty": { "type": "object" },
+    "created_by": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" }
+  }
+}
