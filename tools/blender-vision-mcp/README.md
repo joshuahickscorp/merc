@@ -40,6 +40,10 @@ Governed Figma and Storybook exports now compile into a shared `DesignSystemGrap
 variant, source-symbol, and token drift is evaluated through `vision.compare`. See
 [`docs/DESIGN_INTELLIGENCE.md`](docs/DESIGN_INTELLIGENCE.md).
 
+Browser canvas/WebGL/WebGPU runtime evidence, fixed-time frame capture, explicit owned-scene glTF
+materialization, and the safe Blender/GLB candidate round trip are documented in
+[`docs/GRAPHICS_RUNTIME.md`](docs/GRAPHICS_RUNTIME.md).
+
 ## Reproducible calibration benchmark
 
 Benchmark 0 is CC0 procedural evidence and needs no private references. It generates a known

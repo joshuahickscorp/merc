@@ -970,6 +970,17 @@ CREATE TABLE IF NOT EXISTS design_drift_runs (
     created_at TEXT NOT NULL,
     UNIQUE(figma_capture_id, storybook_capture_id, bindings_json)
 );
+CREATE TABLE IF NOT EXISTS graphics_roundtrips (
+    id TEXT PRIMARY KEY,
+    capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    source_gltf_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    blend_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    output_glb_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    report_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    validation_status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(capture_id)
+);
 CREATE TABLE IF NOT EXISTS model_approvals (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

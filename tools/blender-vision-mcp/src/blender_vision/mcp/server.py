@@ -69,6 +69,8 @@ from blender_vision.perception import (
     CaptureBus,
     DesignIntelligenceService,
     FigmaExportAdapter,
+    GraphicsRoundTripService,
+    GraphicsRuntimeAdapter,
     ObservationQueryService,
     StorybookExportAdapter,
 )
@@ -117,6 +119,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         registry.register(BrowserAdapter())
         registry.register(BrowserExperienceAdapter())
         registry.register(FigmaExportAdapter())
+        registry.register(GraphicsRuntimeAdapter())
         registry.register(StorybookExportAdapter())
         return CaptureBus(project, registry)
 
@@ -1423,6 +1426,62 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             "citation": graph["citation"],
         }
 
+    @mcp.tool(name="vision.inspect_graphics")
+    async def vision_inspect_graphics(
+        project_path: str,
+        capture_id: str | None = None,
+        target_url: str | None = None,
+        rights_decision: str | None = None,
+        allowed_origins: list[str] | None = None,
+        source_id: str | None = None,
+        frame_timestamps_ms: list[int] | None = None,
+        require_runtime_scene_hook: bool = False,
+        materialize_gltf: bool = True,
+        allow_private_network: bool = False,
+        browser_channel: str = "chrome",
+        headless: bool = True,
+    ) -> dict[str, Any]:
+        """Capture or progressively disclose governed canvas and graphics-runtime evidence."""
+        project = open_project(project_path)
+        if capture_id is not None:
+            return ObservationQueryService(project).graph(
+                capture_id, "GraphicsFrameGraph"
+            )
+        if not target_url or not rights_decision:
+            raise ValueError(
+                "graphics capture requires target_url and a non-empty rights_decision"
+            )
+        return await asyncio.to_thread(
+            perception_bus(project).observe,
+            "browser.graphics",
+            {"url": target_url},
+            {
+                "allowed_origins": allowed_origins or [],
+                "allow_private_network": allow_private_network,
+                "channel": browser_channel,
+                "headless": headless,
+                "frame_timestamps_ms": frame_timestamps_ms or [0, 500, 1000],
+                "require_runtime_scene_hook": require_runtime_scene_hook,
+                "materialize_gltf": materialize_gltf,
+            },
+            rights_decision=rights_decision,
+            source_id=source_id,
+        )
+
+    @mcp.tool(name="vision.reconstruct")
+    async def vision_reconstruct(
+        project_path: str,
+        capture_id: str,
+        mode: str = "graphics_to_blender",
+    ) -> dict[str, Any]:
+        """Materialize an editable candidate without promoting it to accepted authority."""
+        if mode != "graphics_to_blender":
+            raise ValueError(f"unsupported reconstruction mode: {mode}")
+        return await asyncio.to_thread(
+            GraphicsRoundTripService(open_project(project_path)).round_trip,
+            capture_id,
+        )
+
     @mcp.tool(name="vision.compare")
     def vision_compare(
         project_path: str,
@@ -1466,6 +1525,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         registry.register(BrowserAdapter())
         registry.register(BrowserExperienceAdapter())
         registry.register(FigmaExportAdapter())
+        registry.register(GraphicsRuntimeAdapter())
         registry.register(StorybookExportAdapter())
         return {"adapters": registry.list()}
 

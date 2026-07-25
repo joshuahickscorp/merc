@@ -8,6 +8,11 @@ from blender_vision.perception.design import (
     StorybookExportAdapter,
 )
 from blender_vision.perception.experience import BrowserExperienceAdapter, MotionGraphReplay
+from blender_vision.perception.graphics import (
+    GraphicsRoundTripService,
+    GraphicsRuntimeAdapter,
+    RuntimeGltfCompiler,
+)
 from blender_vision.perception.query import ObservationQueryService
 
 __all__ = [
@@ -17,7 +22,10 @@ __all__ = [
     "CaptureBus",
     "DesignIntelligenceService",
     "FigmaExportAdapter",
+    "GraphicsRoundTripService",
+    "GraphicsRuntimeAdapter",
     "MotionGraphReplay",
     "ObservationQueryService",
+    "RuntimeGltfCompiler",
     "StorybookExportAdapter",
 ]
