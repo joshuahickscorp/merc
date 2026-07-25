@@ -65,6 +65,7 @@ from blender_vision.parametric.store import ComponentStore
 from blender_vision.perception import (
     AdapterRegistry,
     BrowserAdapter,
+    BrowserExperienceAdapter,
     CaptureBus,
     ObservationQueryService,
 )
@@ -111,6 +112,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
     def perception_bus(project: ProjectStore) -> CaptureBus:
         registry = AdapterRegistry()
         registry.register(BrowserAdapter())
+        registry.register(BrowserExperienceAdapter())
         return CaptureBus(project, registry)
 
     def by_id(project_id: str) -> ProjectStore:
@@ -1279,6 +1281,129 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         project = open_project(project_path)
         return ObservationQueryService(project).query(capture_id, query)
 
+    @mcp.tool(name="vision.discover_states")
+    async def vision_discover_states(
+        project_path: str,
+        target_url: str,
+        rights_decision: str,
+        allowed_origins: list[str],
+        source_id: str | None = None,
+        viewport_width: int = 1280,
+        viewport_height: int = 720,
+        device_scale_factor: float = 1.0,
+        color_scheme: str = "light",
+        reduced_motion: str = "no-preference",
+        responsive_viewports: list[dict[str, int]] | None = None,
+        input_modes: list[str] | None = None,
+        action_limit: int = 24,
+        timeline_duration_ms: int = 1200,
+        timeline_step_ms: int = 100,
+        scroll_steps: int = 5,
+        allow_private_network: bool = False,
+        browser_channel: str = "chrome",
+        browser_executable_path: str | None = None,
+        headless: bool = True,
+    ) -> dict[str, Any]:
+        """Discover only actually observed state, interaction, responsive, and motion evidence."""
+        configuration = {
+            "viewport": {"width": viewport_width, "height": viewport_height},
+            "device_scale_factor": device_scale_factor,
+            "color_scheme": color_scheme,
+            "reduced_motion": reduced_motion,
+            "responsive_viewports": responsive_viewports
+            or [
+                {"width": 360, "height": 800},
+                {"width": 768, "height": 800},
+                {"width": 1280, "height": 800},
+            ],
+            "input_modes": input_modes or ["pointer", "keyboard", "touch"],
+            "action_limit": action_limit,
+            "timeline_duration_ms": timeline_duration_ms,
+            "timeline_step_ms": timeline_step_ms,
+            "scroll_steps": scroll_steps,
+            "allowed_origins": allowed_origins,
+            "allow_private_network": allow_private_network,
+            "channel": browser_channel,
+            "executable_path": browser_executable_path,
+            "headless": headless,
+        }
+        return await asyncio.to_thread(
+            perception_bus(open_project(project_path)).observe,
+            "browser.experience",
+            {"url": target_url},
+            configuration,
+            rights_decision=rights_decision,
+            source_id=source_id,
+        )
+
+    @mcp.tool(name="vision.capture_state")
+    def vision_capture_state(
+        project_path: str,
+        capture_id: str,
+        state_id: str,
+    ) -> dict[str, Any]:
+        """Return one actually observed state and its exact screenshot citations."""
+        graph = ObservationQueryService(open_project(project_path)).graph(
+            capture_id, "StateGraph"
+        )
+        node = next((item for item in graph["nodes"] if item["id"] == state_id), None)
+        if node is None:
+            raise KeyError(f"unknown observed state: {state_id}")
+        return {"state": node, "citation": graph["citation"]}
+
+    @mcp.tool(name="vision.trace_behavior")
+    def vision_trace_behavior(
+        project_path: str,
+        capture_id: str,
+        selector: str | None = None,
+        input_mode: str | None = None,
+    ) -> dict[str, Any]:
+        """Trace observed input-to-visual-effect causality for an experience capture."""
+        graph = ObservationQueryService(open_project(project_path)).graph(
+            capture_id, "InteractionGraph"
+        )
+        edges = graph["edges"]
+        if selector is not None:
+            edges = [
+                edge
+                for edge in edges
+                if selector in {edge.get("source"), edge.get("event_target")}
+            ]
+        if input_mode is not None:
+            edges = [
+                edge for edge in edges if edge.get("input", {}).get("mode") == input_mode
+            ]
+        return {
+            "capture_id": capture_id,
+            "selector": selector,
+            "input_mode": input_mode,
+            "transitions": edges,
+            "citation": graph["citation"],
+        }
+
+    @mcp.tool(name="vision.analyze_motion")
+    def vision_analyze_motion(
+        project_path: str,
+        capture_id: str,
+        selector: str | None = None,
+    ) -> dict[str, Any]:
+        """Return observed motion tracks, compiled curves, and replay bounds."""
+        graph = ObservationQueryService(open_project(project_path)).graph(
+            capture_id, "MotionGraph"
+        )
+        tracks = graph["nodes"]
+        if selector is not None:
+            tracks = [track for track in tracks if track["selector"] == selector]
+        return {
+            "capture_id": capture_id,
+            "selector": selector,
+            "tracks": tracks,
+            "inference": graph["inference"],
+            "reduced_motion_variant": graph["reduced_motion_variant"],
+            "replay_contract": graph["replay_contract"],
+            "citation": graph["citation"],
+        }
+
     @mcp.tool(name="vision.verify")
     def vision_verify(project_path: str, capture_id: str) -> dict[str, Any]:
         """Verify the observation manifest, artifacts, and event receipts by digest."""
@@ -1291,6 +1416,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         """List installed sensor adapters without launching a browser."""
         registry = AdapterRegistry()
         registry.register(BrowserAdapter())
+        registry.register(BrowserExperienceAdapter())
         return {"adapters": registry.list()}
 
     @mcp.tool(name="benchmark.beast_audit")
@@ -3525,6 +3651,48 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
     def vision_project_graph(project_id: str, graph_type: str) -> dict[str, Any]:
         service = ObservationQueryService(by_id(project_id))
         return service.graph(service.latest_capture_id(), graph_type)
+
+    @mcp.resource("vision://project/{project_id}/node/{node_id}")
+    def vision_project_node(project_id: str, node_id: str) -> dict[str, Any]:
+        service = ObservationQueryService(by_id(project_id))
+        capture_id = service.latest_capture_id()
+        for graph_type in (
+            "LayoutGraph",
+            "StateGraph",
+            "InteractionGraph",
+            "ResponsiveGraph",
+            "MotionGraph",
+        ):
+            try:
+                graph = service.graph(capture_id, graph_type)
+            except KeyError:
+                continue
+            node = next((item for item in graph.get("nodes", []) if item["id"] == node_id), None)
+            if node is not None:
+                return {
+                    "capture_id": capture_id,
+                    "graph_type": graph_type,
+                    "node": node,
+                    "citation": graph["citation"],
+                }
+        raise KeyError(f"unknown node in latest observation: {node_id}")
+
+    @mcp.resource("vision://project/{project_id}/timeline/{timeline_id}")
+    def vision_project_timeline(project_id: str, timeline_id: str) -> dict[str, Any]:
+        service = ObservationQueryService(by_id(project_id))
+        capture_id = service.latest_capture_id()
+        graph = service.graph(capture_id, "MotionGraph")
+        timeline = next(
+            (item for item in graph.get("timelines", []) if item["id"] == timeline_id),
+            None,
+        )
+        if timeline is None:
+            raise KeyError(f"unknown timeline in latest observation: {timeline_id}")
+        return {
+            "capture_id": capture_id,
+            "timeline": timeline,
+            "citation": graph["citation"],
+        }
 
     @mcp.resource("project://{project_id}/references")
     def project_references(project_id: str) -> dict[str, Any]:
