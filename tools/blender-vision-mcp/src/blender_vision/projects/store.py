@@ -981,6 +981,30 @@ CREATE TABLE IF NOT EXISTS graphics_roundtrips (
     created_at TEXT NOT NULL,
     UNIQUE(capture_id)
 );
+CREATE TABLE IF NOT EXISTS experience_ir_records (
+    id TEXT PRIMARY KEY,
+    capture_ids_json TEXT NOT NULL,
+    artifact_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    authority TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS feature_capsules (
+    id TEXT PRIMARY KEY,
+    experience_ir_id TEXT NOT NULL REFERENCES experience_ir_records(id),
+    kind TEXT NOT NULL,
+    framework TEXT NOT NULL,
+    status TEXT NOT NULL,
+    manifest_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    test_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS capsule_evaluations (
+    id TEXT PRIMARY KEY,
+    capsule_id TEXT NOT NULL REFERENCES feature_capsules(id),
+    status TEXT NOT NULL,
+    report_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS model_approvals (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

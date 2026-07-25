@@ -11,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 
 from blender_vision.acceptance.regression import FixedCameraRegressionEvaluator
 from blender_vision.acceptance.transactions import CandidateTransactionStore
+from blender_vision.artifacts.store import ArtifactStore
 from blender_vision.artifacts.transfer import ArtifactTransfer
 from blender_vision.backends.generative3d import GenerativeProposalStore
 from blender_vision.backends.registry import BackendRegistry
@@ -68,6 +69,9 @@ from blender_vision.perception import (
     BrowserExperienceAdapter,
     CaptureBus,
     DesignIntelligenceService,
+    ExperienceIRCompiler,
+    FeatureCapsuleCompiler,
+    FeatureCapsuleVerifier,
     FigmaExportAdapter,
     GraphicsRoundTripService,
     GraphicsRuntimeAdapter,
@@ -1511,12 +1515,100 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             bindings=bindings,
         )
 
-    @mcp.tool(name="vision.verify")
-    def vision_verify(project_path: str, capture_id: str) -> dict[str, Any]:
-        """Verify the observation manifest, artifacts, and event receipts by digest."""
+    @mcp.tool(name="vision.transplant_feature")
+    def vision_transplant_feature(
+        project_path: str,
+        capture_ids: list[str],
+        semantic_purpose: str,
+        kind: str,
+        framework: str,
+        owned_asset_mappings: list[dict[str, Any]] | None = None,
+        implementation_interface: dict[str, Any] | None = None,
+        performance_budget: dict[str, Any] | None = None,
+        verification_thresholds: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Compile and verify a clean-room behavior capsule without copying source assets."""
         project = open_project(project_path)
+        experience = ExperienceIRCompiler(project).compile(capture_ids)
+        capsule = FeatureCapsuleCompiler(project).compile(
+            experience["id"],
+            semantic_purpose=semantic_purpose,
+            kind=kind,
+            framework=framework,
+            owned_asset_mappings=owned_asset_mappings,
+            implementation_interface=implementation_interface,
+            performance_budget=performance_budget,
+            verification_thresholds=verification_thresholds,
+        )
+        evaluation = FeatureCapsuleVerifier(project).verify(capsule["id"])
+        return {
+            "experience_ir": experience,
+            "capsule": capsule,
+            "evaluation": evaluation,
+        }
+
+    @mcp.tool(name="vision.evaluate")
+    def vision_evaluate(
+        project_path: str,
+        capsule_id: str,
+    ) -> dict[str, Any]:
+        """Evaluate a Feature Capsule's integrity, clean-room policy, and replay coverage."""
+        return FeatureCapsuleVerifier(open_project(project_path)).verify(capsule_id)
+
+    @mcp.tool(name="vision.verify")
+    def vision_verify(
+        project_path: str,
+        capture_id: str | None = None,
+        capsule_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Verify an observation or Feature Capsule by immutable evidence digest."""
+        project = open_project(project_path)
+        if capsule_id is not None:
+            return FeatureCapsuleVerifier(project).verify(capsule_id)
+        if capture_id is None:
+            raise ValueError("vision.verify requires capture_id or capsule_id")
         bus = perception_bus(project)
         return ObservationQueryService(project, bus).verify(capture_id)
+
+    @mcp.tool(name="vision.progress")
+    def vision_progress(project_path: str) -> dict[str, Any]:
+        """Return compact perception progress, evidence counts, and unresolved blockers."""
+        project = open_project(project_path)
+        overview = ObservationQueryService(project).overview()
+        with project.connection() as connection:
+            counts = {
+                table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in (
+                    "experience_ir_records",
+                    "feature_capsules",
+                    "capsule_evaluations",
+                    "design_drift_runs",
+                    "graphics_roundtrips",
+                )
+            }
+            interrupted = connection.execute(
+                "SELECT id,adapter FROM observation_captures "
+                "WHERE status='INTERRUPTED' ORDER BY updated_at"
+            ).fetchall()
+            rejected_capsules = connection.execute(
+                "SELECT id,status FROM feature_capsules "
+                "WHERE status='REJECTED' ORDER BY created_at"
+            ).fetchall()
+        return {
+            "project_id": project.project()["id"],
+            "observation_count": len(overview["captures"]),
+            "latest_observation": (
+                overview["captures"][0] if overview["captures"] else None
+            ),
+            "counts": counts,
+            "blockers": [
+                {"kind": "interrupted_capture", **dict(row)} for row in interrupted
+            ]
+            + [
+                {"kind": "rejected_capsule", **dict(row)}
+                for row in rejected_capsules
+            ],
+        }
 
     @mcp.tool(name="vision.adapters")
     def vision_adapters() -> dict[str, Any]:
@@ -3803,6 +3895,27 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             "timeline": timeline,
             "citation": graph["citation"],
         }
+
+    @mcp.resource("vision://project/{project_id}/candidate/{candidate_id}")
+    def vision_project_candidate(project_id: str, candidate_id: str) -> dict[str, Any]:
+        project = by_id(project_id)
+        return FeatureCapsuleCompiler(project).get(candidate_id)
+
+    @mcp.resource("vision://project/{project_id}/evaluation/{evaluation_id}")
+    def vision_project_evaluation(project_id: str, evaluation_id: str) -> dict[str, Any]:
+        project = by_id(project_id)
+        with project.connection() as connection:
+            row = connection.execute(
+                "SELECT report_digest FROM capsule_evaluations WHERE id=?",
+                (evaluation_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown capsule evaluation: {evaluation_id}")
+        return __import__("json").loads(
+            ArtifactStore(project)
+            .path_for(row["report_digest"])
+            .read_text(encoding="utf-8")
+        )
 
     @mcp.resource("project://{project_id}/references")
     def project_references(project_id: str) -> dict[str, Any]:
