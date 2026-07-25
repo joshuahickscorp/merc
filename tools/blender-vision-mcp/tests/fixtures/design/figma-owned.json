@@ -1,0 +1,75 @@
+{
+  "version": "owned-figma-v1",
+  "document": {
+    "id": "0:0",
+    "name": "Owned Design System",
+    "type": "DOCUMENT",
+    "children": [
+      {
+        "id": "1:0",
+        "name": "Components",
+        "type": "CANVAS",
+        "children": [
+          {
+            "id": "2:0",
+            "name": "Button",
+            "type": "COMPONENT_SET",
+            "absoluteBoundingBox": {"x": 0, "y": 0, "width": 320, "height": 120},
+            "children": [
+              {
+                "id": "2:1",
+                "name": "Button",
+                "type": "COMPONENT",
+                "variantProperties": {"State": "Primary"},
+                "absoluteBoundingBox": {"x": 0, "y": 0, "width": 140, "height": 44},
+                "fills": [{"type": "SOLID", "color": {"r": 0.07, "g": 0.36, "b": 0.82}}],
+                "styles": {"fill": "S:action"}
+              },
+              {
+                "id": "2:2",
+                "name": "Button",
+                "type": "COMPONENT",
+                "variantProperties": {"State": "Secondary"},
+                "absoluteBoundingBox": {"x": 160, "y": 0, "width": 140, "height": 44},
+                "fills": [{"type": "SOLID", "color": {"r": 0.9, "g": 0.93, "b": 0.98}}],
+                "styles": {"fill": "S:surface"}
+              }
+            ]
+          },
+          {
+            "id": "3:0",
+            "name": "Card",
+            "type": "COMPONENT",
+            "absoluteBoundingBox": {"x": 0, "y": 180, "width": 360, "height": 240},
+            "layoutMode": "VERTICAL",
+            "itemSpacing": 16,
+            "paddingLeft": 24,
+            "paddingRight": 24,
+            "paddingTop": 24,
+            "paddingBottom": 24
+          }
+        ]
+      }
+    ]
+  },
+  "styles": {
+    "S:action": {
+      "name": "color/action",
+      "styleType": "FILL",
+      "value": "#125CD2"
+    },
+    "S:surface": {
+      "name": "color/surface",
+      "styleType": "FILL",
+      "value": "#FFFFFF"
+    }
+  },
+  "components": {
+    "2:1": {"name": "Button, State=Primary"},
+    "2:2": {"name": "Button, State=Secondary"},
+    "3:0": {"name": "Card"}
+  },
+  "componentSets": {
+    "2:0": {"name": "Button"}
+  }
+}

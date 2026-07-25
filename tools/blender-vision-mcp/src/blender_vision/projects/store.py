@@ -960,6 +960,16 @@ CREATE TABLE IF NOT EXISTS perceptual_graphs (
     created_at TEXT NOT NULL,
     UNIQUE(capture_id, graph_type)
 );
+CREATE TABLE IF NOT EXISTS design_drift_runs (
+    id TEXT PRIMARY KEY,
+    figma_capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    storybook_capture_id TEXT NOT NULL REFERENCES observation_captures(id),
+    bindings_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    report_digest TEXT NOT NULL REFERENCES artifacts(digest),
+    created_at TEXT NOT NULL,
+    UNIQUE(figma_capture_id, storybook_capture_id, bindings_json)
+);
 CREATE TABLE IF NOT EXISTS model_approvals (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

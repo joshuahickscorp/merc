@@ -70,6 +70,8 @@ class ObservationQueryService:
     def query(self, capture_id: str, query: dict[str, Any]) -> dict[str, Any]:
         graph = self.graph(capture_id, str(query.get("graph_type", "LayoutGraph")))
         nodes = list(graph.get("nodes", []))
+        node_id = query.get("id")
+        domain_type = query.get("domain_type")
         selector = query.get("selector")
         role = query.get("role")
         text = query.get("text")
@@ -79,13 +81,22 @@ class ObservationQueryService:
         source_binding = query.get("source_binding")
         interactive = query.get("interactive")
         point = query.get("point")
+        if node_id:
+            nodes = [node for node in nodes if node.get("id") == node_id]
+        if domain_type:
+            nodes = [node for node in nodes if node.get("domain_type") == domain_type]
         if selector:
             nodes = [node for node in nodes if node.get("selector") == selector]
         if role:
             nodes = [node for node in nodes if node.get("role") == role]
         if text:
             needle = str(text).casefold()
-            nodes = [node for node in nodes if needle in str(node.get("text", "")).casefold()]
+            nodes = [
+                node
+                for node in nodes
+                if needle
+                in str(node.get("text") or node.get("name") or "").casefold()
+            ]
         if asset_url:
             needle = str(asset_url).casefold()
             nodes = [
