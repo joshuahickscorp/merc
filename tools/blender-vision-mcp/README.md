@@ -29,6 +29,13 @@ release gates are documented in [`docs/RELEASE.md`](docs/RELEASE.md).
 The capability/benchmark distinction and current Beast Mode evidence gaps are tracked in
 [`docs/BEAST_MODE_STATUS.md`](docs/BEAST_MODE_STATUS.md).
 
+The All-Seeing Eye expansion now includes a governed Chromium capture bus for static web evidence.
+It records screenshots, DOM/accessibility/style/asset/network/console/performance artifacts,
+publishes a content-addressed observation envelope and queryable `LayoutGraph`, and exposes
+`vision.observe`, `vision.query`, and `vision.verify` over MCP. See
+[`docs/PERCEPTION_CAPTURE.md`](docs/PERCEPTION_CAPTURE.md) for the authority, isolation, query, and
+limitation contract.
+
 ## Reproducible calibration benchmark
 
 Benchmark 0 is CC0 procedural evidence and needs no private references. It generates a known
