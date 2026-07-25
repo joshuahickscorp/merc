@@ -36,6 +36,10 @@ publishes a content-addressed observation envelope and queryable `LayoutGraph`, 
 [`docs/PERCEPTION_CAPTURE.md`](docs/PERCEPTION_CAPTURE.md) for the authority, isolation, query, and
 limitation contract.
 
+Governed Figma and Storybook exports now compile into a shared `DesignSystemGraph`; component,
+variant, source-symbol, and token drift is evaluated through `vision.compare`. See
+[`docs/DESIGN_INTELLIGENCE.md`](docs/DESIGN_INTELLIGENCE.md).
+
 ## Reproducible calibration benchmark
 
 Benchmark 0 is CC0 procedural evidence and needs no private references. It generates a known

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/design-system-graph.schema.json",
+  "title": "VisionMCP DesignSystemGraph",
+  "type": "object",
+  "required": [
+    "schema",
+    "graph_type",
+    "authority",
+    "source_kind",
+    "source_revision",
+    "nodes",
+    "edges",
+    "tokens"
+  ],
+  "properties": {
+    "schema": { "const": "vision.design-system-graph/v1" },
+    "graph_type": { "const": "DesignSystemGraph" },
+    "authority": { "const": "OBSERVED" },
+    "source_kind": { "enum": ["figma", "storybook"] },
+    "source_revision": {},
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "domain_type",
+          "spatial_bounds",
+          "temporal_validity",
+          "evidence_references",
+          "authority",
+          "confidence",
+          "source_restrictions",
+          "uncertainty",
+          "revision_lineage",
+          "name",
+          "semantic_name"
+        ]
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "type", "authority", "evidence_references"]
+      }
+    },
+    "tokens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "semantic_name", "kind", "value", "authority"]
+      }
+    }
+  }
+}

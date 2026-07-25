@@ -67,7 +67,10 @@ from blender_vision.perception import (
     BrowserAdapter,
     BrowserExperienceAdapter,
     CaptureBus,
+    DesignIntelligenceService,
+    FigmaExportAdapter,
     ObservationQueryService,
+    StorybookExportAdapter,
 )
 from blender_vision.projects.store import ProjectStore, slugify
 from blender_vision.repairs.store import RepairStore
@@ -113,6 +116,8 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         registry = AdapterRegistry()
         registry.register(BrowserAdapter())
         registry.register(BrowserExperienceAdapter())
+        registry.register(FigmaExportAdapter())
+        registry.register(StorybookExportAdapter())
         return CaptureBus(project, registry)
 
     def by_id(project_id: str) -> ProjectStore:
@@ -1226,10 +1231,13 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
     @mcp.tool(name="vision.observe")
     async def vision_observe(
         project_path: str,
-        target_url: str,
         rights_decision: str,
-        allowed_origins: list[str],
         source_id: str | None = None,
+        adapter: str = "browser.chromium",
+        target: dict[str, Any] | None = None,
+        configuration: dict[str, Any] | None = None,
+        target_url: str | None = None,
+        allowed_origins: list[str] | None = None,
         viewport_width: int = 1280,
         viewport_height: int = 720,
         device_scale_factor: float = 1.0,
@@ -1245,28 +1253,39 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         headless: bool = True,
         full_page: bool = True,
     ) -> dict[str, Any]:
-        """Capture an allowlisted web target into a durable OBSERVED evidence envelope."""
-        configuration = {
-            "viewport": {"width": viewport_width, "height": viewport_height},
-            "device_scale_factor": device_scale_factor,
-            "color_scheme": color_scheme,
-            "reduced_motion": reduced_motion,
-            "locale": locale,
-            "timezone_id": timezone_id,
-            "wait_until": wait_until,
-            "timeout_ms": timeout_ms,
-            "allowed_origins": allowed_origins,
-            "allow_private_network": allow_private_network,
-            "channel": browser_channel,
-            "executable_path": browser_executable_path,
-            "headless": headless,
-            "full_page": full_page,
-        }
+        """Capture any installed sensor into a durable OBSERVED evidence envelope."""
+        resolved_target = dict(target or {})
+        resolved_configuration = dict(configuration or {})
+        if adapter == "browser.chromium":
+            if target_url is not None:
+                resolved_target.setdefault("url", target_url)
+            if "url" not in resolved_target:
+                raise ValueError("browser.chromium requires target.url or target_url")
+            browser_defaults = {
+                "viewport": {"width": viewport_width, "height": viewport_height},
+                "device_scale_factor": device_scale_factor,
+                "color_scheme": color_scheme,
+                "reduced_motion": reduced_motion,
+                "locale": locale,
+                "timezone_id": timezone_id,
+                "wait_until": wait_until,
+                "timeout_ms": timeout_ms,
+                "allowed_origins": allowed_origins or [],
+                "allow_private_network": allow_private_network,
+                "channel": browser_channel,
+                "executable_path": browser_executable_path,
+                "headless": headless,
+                "full_page": full_page,
+            }
+            for key, value in browser_defaults.items():
+                resolved_configuration.setdefault(key, value)
+        elif not resolved_target:
+            raise ValueError(f"{adapter} requires a typed target")
         return await asyncio.to_thread(
             perception_bus(open_project(project_path)).observe,
-            "browser.chromium",
-            {"url": target_url},
-            configuration,
+            adapter,
+            resolved_target,
+            resolved_configuration,
             rights_decision=rights_decision,
             source_id=source_id,
         )
@@ -1404,6 +1423,35 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             "citation": graph["citation"],
         }
 
+    @mcp.tool(name="vision.compare")
+    def vision_compare(
+        project_path: str,
+        capture_a: str,
+        capture_b: str,
+        bindings: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Compare two governed observations with a domain-specific evidence evaluator."""
+        project = open_project(project_path)
+        service = ObservationQueryService(project)
+        try:
+            left = service.graph(capture_a, "DesignSystemGraph")
+            right = service.graph(capture_b, "DesignSystemGraph")
+        except KeyError as error:
+            raise ValueError(
+                "no compatible comparison evaluator is installed for these captures"
+            ) from error
+        if {left.get("source_kind"), right.get("source_kind")} != {"figma", "storybook"}:
+            raise ValueError("design comparison requires one Figma and one Storybook capture")
+        if left["source_kind"] == "figma":
+            figma_capture, storybook_capture = capture_a, capture_b
+        else:
+            figma_capture, storybook_capture = capture_b, capture_a
+        return DesignIntelligenceService(project).analyze_drift(
+            figma_capture,
+            storybook_capture,
+            bindings=bindings,
+        )
+
     @mcp.tool(name="vision.verify")
     def vision_verify(project_path: str, capture_id: str) -> dict[str, Any]:
         """Verify the observation manifest, artifacts, and event receipts by digest."""
@@ -1417,6 +1465,8 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         registry = AdapterRegistry()
         registry.register(BrowserAdapter())
         registry.register(BrowserExperienceAdapter())
+        registry.register(FigmaExportAdapter())
+        registry.register(StorybookExportAdapter())
         return {"adapters": registry.list()}
 
     @mcp.tool(name="benchmark.beast_audit")
