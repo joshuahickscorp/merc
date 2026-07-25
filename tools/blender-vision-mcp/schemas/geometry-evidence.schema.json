@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision-mcp.dev/schemas/geometry-evidence.schema.json",
+  "title": "Normalized geometry evidence run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "backend",
+    "backend_version",
+    "evidence_class",
+    "commercial_eligible",
+    "license",
+    "configuration",
+    "evidence",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "format": "uuid"},
+    "backend": {"type": "string", "minLength": 1},
+    "backend_version": {"type": "string", "minLength": 1},
+    "evidence_class": {
+      "enum": [
+        "MEASURED",
+        "MANUFACTURER_SPEC",
+        "MULTI_VIEW_OBSERVED",
+        "SINGLE_VIEW_OBSERVED",
+        "TEARDOWN_OBSERVED",
+        "INFERRED_HIGH_CONFIDENCE",
+        "INFERRED_LOW_CONFIDENCE",
+        "OCCLUDED",
+        "UNSEEN"
+      ]
+    },
+    "commercial_eligible": {"type": "boolean"},
+    "license": {
+      "type": "object",
+      "required": ["license"],
+      "properties": {
+        "license": {"type": "string", "minLength": 1},
+        "commercial_use": {"type": "boolean"},
+        "research_only": {"type": "boolean"},
+        "weight_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "configuration": {"type": "object"},
+    "evidence": {
+      "type": "object",
+      "required": [
+        "camera_intrinsics",
+        "camera_extrinsics",
+        "depth_artifacts",
+        "point_artifacts",
+        "normal_artifacts",
+        "correspondence_artifacts",
+        "visibility_artifacts",
+        "confidence_artifacts",
+        "mask_artifacts",
+        "occupancy_artifacts",
+        "silhouette_volume_artifacts",
+        "visual_hull_artifacts",
+        "diagnostics",
+        "source_frame",
+        "transform_to_canonical",
+        "scale_factor",
+        "uncertainty"
+      ],
+      "properties": {
+        "camera_intrinsics": {"type": "array", "items": {"type": "object"}},
+        "camera_extrinsics": {"type": "array", "items": {"type": "object"}},
+        "depth_artifacts": {"$ref": "#/$defs/digests"},
+        "point_artifacts": {"$ref": "#/$defs/digests"},
+        "normal_artifacts": {"$ref": "#/$defs/digests"},
+        "correspondence_artifacts": {"$ref": "#/$defs/digests"},
+        "visibility_artifacts": {"$ref": "#/$defs/digests"},
+        "confidence_artifacts": {"$ref": "#/$defs/digests"},
+        "mask_artifacts": {"$ref": "#/$defs/digests"},
+        "occupancy_artifacts": {"$ref": "#/$defs/digests"},
+        "silhouette_volume_artifacts": {"$ref": "#/$defs/digests"},
+        "visual_hull_artifacts": {"$ref": "#/$defs/digests"},
+        "diagnostics": {"type": "object"},
+        "source_frame": {"type": "string", "minLength": 1},
+        "transform_to_canonical": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "array",
+                "minItems": 4,
+                "maxItems": 4,
+                "items": {"type": "number"}
+              }
+            }
+          ]
+        },
+        "scale_factor": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "uncertainty": {"type": "object"}
+      }
+    },
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "digests": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+      "uniqueItems": true
+    }
+  }
+}

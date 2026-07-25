@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/measurement.schema.json",
+  "title": "Evidence-bound measurement",
+  "type": "object",
+  "required": ["id", "type", "value", "coordinate_frame", "certainty", "evidence_class"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": {
+      "enum": [
+        "known_overall_dimension", "point", "line", "angle", "circle", "ellipse",
+        "bounding_box", "surface_boundary", "symmetry_axis", "array_pitch",
+        "depth_offset", "cross_view_correspondence"
+      ]
+    },
+    "value": { "type": "object" },
+    "coordinate_frame": { "type": "string" },
+    "certainty": { "enum": ["exact", "bounded", "estimated", "derived"] },
+    "uncertainty": { "type": "object" },
+    "reference_ids": { "type": "array", "items": { "type": "string" } },
+    "evidence_class": { "type": "string" }
+  }
+}
+

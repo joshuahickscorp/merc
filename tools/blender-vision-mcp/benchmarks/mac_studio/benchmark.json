@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "benchmark": "mac_studio",
+  "target_fidelity": "L3",
+  "authoritative_scene": "models/mac_studio/final_packed.blend",
+  "manufacturer_spec": {
+    "source": "https://www.apple.com/mac-studio/specs/",
+    "retrieved_date": "2026-07-20",
+    "evidence_class": "MANUFACTURER_SPEC",
+    "dimensions_mm": {
+      "x_width": 197.0,
+      "y_depth": 197.0,
+      "z_height": 95.0
+    },
+    "uncertainty": {
+      "classification": "bounded",
+      "millimetres": 0.5,
+      "reason": "Apple publishes dimensions to the nearest 0.1 centimetre."
+    }
+  },
+  "required_feature_groups": [
+    "front_ports",
+    "rear_ports",
+    "rear_controls",
+    "rear_grille"
+  ],
+  "feature_candidates": [
+    {
+      "id_prefix": "rear-thunderbolt",
+      "type": "USB-C",
+      "parent_component": "rear-panel",
+      "coverage_group": "rear_ports",
+      "scene_objects": [
+        "mac-usbc-stadium-face",
+        "mac-usbc-stadium-face.001",
+        "mac-usbc-stadium-face.002",
+        "mac-usbc-stadium-face.003"
+      ],
+      "confidence": 0.85,
+      "evidence_class": "INFERRED_HIGH_CONFIDENCE",
+      "manufacturer_claim": "Four rear Thunderbolt ports use USB-C receptacles."
+    },
+    {
+      "id_prefix": "rear-ethernet",
+      "type": "Ethernet",
+      "parent_component": "rear-panel",
+      "coverage_group": "rear_ports",
+      "scene_objects": ["mac-port-ins.004"],
+      "confidence": 0.8,
+      "evidence_class": "INFERRED_HIGH_CONFIDENCE",
+      "manufacturer_claim": "The rear panel includes 10Gb Ethernet."
+    },
+    {
+      "id_prefix": "rear-usba",
+      "type": "USB-A",
+      "parent_component": "rear-panel",
+      "coverage_group": "rear_ports",
+      "scene_objects": ["mac-port-ins.006", "mac-port-ins.007"],
+      "confidence": 0.85,
+      "evidence_class": "INFERRED_HIGH_CONFIDENCE",
+      "manufacturer_claim": "The rear panel includes two USB-A ports."
+    },
+    {
+      "id_prefix": "rear-hdmi",
+      "type": "HDMI",
+      "parent_component": "rear-panel",
+      "coverage_group": "rear_ports",
+      "scene_objects": ["mac-port-ins.008"],
+      "confidence": 0.85,
+      "evidence_class": "INFERRED_HIGH_CONFIDENCE",
+      "manufacturer_claim": "The rear panel includes HDMI."
+    },
+    {
+      "id_prefix": "rear-audio",
+      "type": "audio jack",
+      "parent_component": "rear-panel",
+      "coverage_group": "rear_ports",
+      "scene_objects": ["mac-headphone-jack"],
+      "confidence": 0.9,
+      "evidence_class": "INFERRED_HIGH_CONFIDENCE",
+      "manufacturer_claim": "The rear panel includes a 3.5 mm headphone jack."
+    },
+    {
+      "id_prefix": "rear-power",
+      "type": "power connector",
+      "parent_component": "rear-panel",
+      "coverage_group": "rear_ports",
+      "scene_objects": ["mac-ac-face"],
+      "confidence": 0.75,
+      "evidence_class": "INFERRED_HIGH_CONFIDENCE",
+      "manufacturer_claim": "Mac Studio is supplied with a power cord."
+    },
+    {
+      "id_prefix": "rear-button",
+      "type": "button",
+      "parent_component": "rear-panel",
+      "coverage_group": "rear_controls",
+      "scene_objects": ["mac-power-button-ring"],
+      "confidence": 0.8,
+      "evidence_class": "INFERRED_HIGH_CONFIDENCE",
+      "manufacturer_claim": "Scene naming identifies the modeled rear control as the power button."
+    },
+    {
+      "id_prefix": "rear-grille",
+      "type": "grille",
+      "parent_component": "rear-panel",
+      "coverage_group": "rear_grille",
+      "scene_objects": ["mac-vent-mesh"],
+      "confidence": 0.2,
+      "evidence_class": "INFERRED_LOW_CONFIDENCE",
+      "hero_surface": true,
+      "known_issue": "Strict pass-6 evidence says this mesh does not cover the main rear hero grille target."
+    },
+    {
+      "id_prefix": "front-usbc",
+      "type": "USB-C",
+      "parent_component": "front-panel",
+      "coverage_group": "front_ports",
+      "scene_objects": ["usbc-tongue", "usbc-tongue.001"],
+      "confidence": 0.7,
+      "evidence_class": "INFERRED_HIGH_CONFIDENCE",
+      "manufacturer_claim": "The front panel includes two USB-C-form-factor ports; protocol varies by processor configuration."
+    },
+    {
+      "id_prefix": "front-sdxc",
+      "type": "SD card slot",
+      "parent_component": "front-panel",
+      "coverage_group": "front_ports",
+      "scene_objects": ["sd-lip"],
+      "confidence": 0.75,
+      "evidence_class": "INFERRED_HIGH_CONFIDENCE",
+      "manufacturer_claim": "The front panel includes an SDXC card slot."
+    },
+    {
+      "id_prefix": "front-led",
+      "type": "LED",
+      "parent_component": "front-panel",
+      "coverage_group": "front_ports",
+      "scene_objects": ["mac-studio-led"],
+      "confidence": 0.8,
+      "evidence_class": "INFERRED_HIGH_CONFIDENCE",
+      "manufacturer_claim": "Scene naming identifies the modeled front indicator as an LED."
+    }
+  ],
+  "expected_scene_inventory": {
+    "objects": 36,
+    "meshes": 36,
+    "vertices": 37868,
+    "polygons": 26327,
+    "missing_images": 0
+  },
+  "rear_grille_evidence": {
+    "source": "review/pass6/mac_studio/b1/B1_STATUS.md",
+    "evidence_class": "SINGLE_VIEW_OBSERVED",
+    "source_reference": "apple_back.jpg",
+    "source_available": false,
+    "field_width_mm": 171.5,
+    "field_height_mm": 48.5,
+    "z_center_mm": 66.3,
+    "pitch_mm": 1.934,
+    "hole_diameter_mm": 0.918,
+    "open_area_fraction": 0.428,
+    "target_hole_count": 2349,
+    "uncertainty": {
+      "classification": "derived_from_legacy_single_view_calibration",
+      "approval": "pending_raw_reference_recovery"
+    }
+  },
+  "legacy_truth": [
+    "review/pass6/gate_report.json",
+    "review/pass6/mac_studio/b1/B1_STATUS.md",
+    "review/pass6/mac_studio/b1/b1_grille_metrics.json",
+    "review/pass6/mac_studio/interactive_grille/diagnosis.json",
+    "review/pass6/mac_studio/interactive_grille/grille_metrics.json",
+    "review/pass6/mac_studio/geometry_delta.json",
+    "review/pass6/mac_studio/final/regression.json",
+    "docs/WEBSITE_3D_BLENDER_STATUS_2026-07-19.md"
+  ],
+  "known_blockers": [
+    "The strict pass-6 gate records zero accepted geometry and revoked the perforation acceptance.",
+    "The existing 418-hole field is on the secondary lower band; the main rear hero grille is absent.",
+    "Legacy camera overlays are body-bounding-box registrations, not metric camera solutions.",
+    "Raw photographic references and their distribution provenance are not present in this package.",
+    "The technical feature graph requires evidence binding and human approval."
+  ],
+  "marketing_reference": {
+    "path": "web/assets/site/mac-studio@3x.png",
+    "classification": "MARKETING_RENDER_NON_AUTHORITATIVE",
+    "default_import": false
+  }
+}

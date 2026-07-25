@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "blender-vision": {
+      "command": "blender-vision",
+      "env": {
+        "BVMCP_PROJECTS_ROOT": "/absolute/path/to/blender-vision-projects"
+      }
+    }
+  }
+}

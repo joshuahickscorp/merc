@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "builtin-silhouette-v1",
+      "kind": "included_algorithm",
+      "license": "Apache-2.0",
+      "commercial_use": true,
+      "redistribution": true,
+      "checkpoint_required": false,
+      "status": "included"
+    },
+    {
+      "id": "colmap-system",
+      "kind": "external_executable",
+      "license": "BSD-3-Clause",
+      "commercial_use": true,
+      "redistribution": false,
+      "checkpoint_required": false,
+      "status": "operator_installed",
+      "source": "https://github.com/colmap/colmap"
+    },
+    {
+      "id": "depth-anything-v2-small",
+      "kind": "external_checkpoint",
+      "license": "Apache-2.0",
+      "commercial_use": true,
+      "redistribution": false,
+      "checkpoint_required": true,
+      "status": "manual_digest_pinned_import_only",
+      "source": "https://github.com/DepthAnything/Depth-Anything-V2"
+    },
+    {
+      "id": "depth-anything-v2-base-large-giant",
+      "kind": "external_checkpoint",
+      "license": "CC-BY-NC-4.0",
+      "commercial_use": false,
+      "redistribution": false,
+      "checkpoint_required": true,
+      "status": "research_only",
+      "source": "https://github.com/DepthAnything/Depth-Anything-V2"
+    },
+    {
+      "id": "vggt-1b-original",
+      "kind": "external_checkpoint",
+      "license": "non-commercial upstream checkpoint terms",
+      "commercial_use": false,
+      "redistribution": false,
+      "checkpoint_required": true,
+      "status": "research_only",
+      "source": "https://github.com/facebookresearch/vggt"
+    },
+    {
+      "id": "vggt-1b-commercial",
+      "kind": "external_checkpoint",
+      "license": "VGGT-1B-Commercial upstream license; military use excluded",
+      "commercial_use": true,
+      "redistribution": false,
+      "checkpoint_required": true,
+      "status": "application_and_manual_digest_pinned_import_required",
+      "source": "https://github.com/facebookresearch/vggt"
+    },
+    {
+      "id": "metric3d-v2",
+      "kind": "external_code_and_checkpoint",
+      "license": "BSD-2-Clause code; checkpoint commercial terms require operator review",
+      "commercial_use": null,
+      "redistribution": false,
+      "checkpoint_required": true,
+      "status": "license_review_required",
+      "source": "https://github.com/YvanYin/Metric3D"
+    }
+  ],
+  "policy": {
+    "silent_downloads": false,
+    "commercial_release_requires_verified_license": true,
+    "research_results_are_non_authoritative": true,
+    "network_downloads_by_coordinator": false,
+    "last_reviewed": "2026-07-20",
+    "disclaimer": "Registry metadata is an engineering gate, not legal advice; verify upstream terms for each exact revision and checkpoint."
+  }
+}
