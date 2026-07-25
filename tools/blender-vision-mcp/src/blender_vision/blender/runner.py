@@ -96,7 +96,11 @@ class BlenderRunner:
             "--factory-startup",
             "--disable-autoexec",
         ]
-        if operation not in {"generate_calibration_benchmark", "generate_semantic_seed"}:
+        if operation not in {
+            "generate_calibration_benchmark",
+            "generate_semantic_seed",
+            "import_asset",
+        }:
             command.append(str(scene_path))
         command.extend(
             [

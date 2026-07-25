@@ -65,6 +65,8 @@ async def test_mcp_discovers_required_vertical_slice_tools(tmp_path: Path) -> No
         "vision.trace_behavior",
         "vision.analyze_motion",
         "vision.compare",
+        "vision.inspect_graphics",
+        "vision.reconstruct",
         "campaign.start",
         "campaign.advance",
         "campaign.progress",
