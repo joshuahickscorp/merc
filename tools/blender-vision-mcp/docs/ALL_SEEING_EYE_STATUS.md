@@ -44,7 +44,8 @@ being inserted into model context by default.
 
 ## Final local evidence
 
-- Fast suite: **328 passed, 7 gated skips** in 87.30 seconds.
+- Fast suite: **328 passed, 7 gated skips** in 94.14 seconds on the final
+  implementation tree.
 - Real-runtime suite: **13 passed** in 240.01 seconds with installed Chrome and
   Blender gates enabled.
 - Real-runtime coverage included static browser capture, interaction/state/motion,
