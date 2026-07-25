@@ -67,8 +67,30 @@ class ObservationQueryService:
         }
         return graph
 
+    def graph_types(self, capture_id: str) -> list[str]:
+        with self.project.connection() as connection:
+            rows = connection.execute(
+                "SELECT graph_type FROM perceptual_graphs "
+                "WHERE capture_id=? ORDER BY graph_type",
+                (capture_id,),
+            ).fetchall()
+        return [str(row["graph_type"]) for row in rows]
+
     def query(self, capture_id: str, query: dict[str, Any]) -> dict[str, Any]:
-        graph = self.graph(capture_id, str(query.get("graph_type", "LayoutGraph")))
+        requested_type = query.get("graph_type")
+        if requested_type is None:
+            graph_types = self.graph_types(capture_id)
+            if "LayoutGraph" in graph_types:
+                requested_type = "LayoutGraph"
+            elif len(graph_types) == 1:
+                requested_type = graph_types[0]
+            elif graph_types:
+                raise ValueError(
+                    "capture contains multiple graph types; query.graph_type is required"
+                )
+            else:
+                raise KeyError(f"capture {capture_id} has no perceptual graph")
+        graph = self.graph(capture_id, str(requested_type))
         nodes = list(graph.get("nodes", []))
         node_id = query.get("id")
         domain_type = query.get("domain_type")

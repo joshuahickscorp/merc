@@ -58,6 +58,7 @@ async def test_mcp_discovers_required_vertical_slice_tools(tmp_path: Path) -> No
         "system.warm_service_list",
         "vision.observe",
         "vision.query",
+        "vision.explain_region",
         "vision.verify",
         "vision.adapters",
         "vision.capture_state",
