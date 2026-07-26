@@ -1,0 +1,97 @@
+{
+  "schema_version": "1",
+  "benchmark_id": "adversarial-security-acceptance-v1",
+  "attacks": [
+    {
+      "id": "malicious_web_prompt_injection",
+      "guard": "ContentTrustBoundary.require_non_instructional",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "poisoned_design_exports",
+      "guard": "FigmaExportAdapter.DesignExportPolicy",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "hostile_glb_blend",
+      "guard": "GlbValidator.BlendInputPolicy",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "path_traversal",
+      "guard": "confined_path",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "symlink_escape",
+      "guard": "confined_path.symlink_resolution",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "stale_source_maps",
+      "guard": "SourceMapAuthority.verify",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "artifact_substitution",
+      "guard": "ArtifactStore.verify",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "benchmark_leakage",
+      "guard": "SealedBenchmarkBoundary.verify",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "evaluator_tampering",
+      "guard": "DigestBoundEvaluator.verify",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "secret_exposure",
+      "guard": "SecretExposurePolicy.assert_clean",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "unauthorized_asset_reuse",
+      "guard": "AssetRightsPolicy.authorize",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "unsafe_generated_backend_code",
+      "guard": "GenerativeProposalStore.GeneratedBackendPolicy",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "auth_bypass",
+      "guard": "AuthTenantPolicy.permission",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "sql_injection",
+      "guard": "SQLite.parameterized_query",
+      "required_disposition": "NEUTRALIZED"
+    },
+    {
+      "id": "cross_tenant_leakage",
+      "guard": "AuthTenantPolicy.tenant",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "performance_score_gaming",
+      "guard": "PerformanceEvidenceGuard.verify",
+      "required_disposition": "REJECTED"
+    },
+    {
+      "id": "visual_local_repair_global_regression",
+      "guard": "GlobalRegressionGuard.verify",
+      "required_disposition": "REJECTED"
+    }
+  ],
+  "required_negative_controls": [
+    "omitted_attack",
+    "substituted_attack_input",
+    "manifest_attack_set_tamper",
+    "false_pass_disposition"
+  ]
+}

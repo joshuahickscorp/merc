@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import platform
 import tempfile
 from pathlib import Path
@@ -12,6 +11,7 @@ from blender_vision.core.util import canonical_json, sha256_file, utc_now
 from blender_vision.perception.contracts import ArtifactSink, CaptureOutcome
 from blender_vision.perception.query import ObservationQueryService
 from blender_vision.projects.store import ProjectStore
+from blender_vision.security.adversarial import DesignExportPolicy
 
 
 class FigmaExportAdapter:
@@ -21,16 +21,20 @@ class FigmaExportAdapter:
     version = "1"
 
     def normalize_target(self, target: dict[str, Any]) -> dict[str, Any]:
-        path = Path(str(target.get("path", ""))).expanduser().resolve()
+        supplied = Path(str(target.get("path", ""))).expanduser().absolute()
+        if supplied.is_symlink():
+            raise ValueError("Figma export target cannot be a symlink")
+        path = supplied.resolve()
         if not path.is_file() or path.suffix.lower() != ".json":
             raise ValueError("Figma export target must be an existing JSON file")
-        digest, size = sha256_file(path)
+        _payload, security = DesignExportPolicy.load(path)
         return {
-            "id": str(target.get("id") or digest),
+            "id": str(target.get("id") or security["sha256"]),
             "kind": "figma-export",
             "path": str(path),
-            "digest": digest,
-            "size": size,
+            "digest": security["sha256"],
+            "size": security["size"],
+            "security": security,
         }
 
     def normalize_config(
@@ -69,7 +73,9 @@ class FigmaExportAdapter:
         sink: ArtifactSink,
     ) -> CaptureOutcome:
         source = Path(target["path"])
-        payload = json.loads(source.read_text(encoding="utf-8"))
+        payload, security = DesignExportPolicy.load(source)
+        if security["sha256"] != target["digest"]:
+            raise ValueError("Figma export changed after target normalization")
         source_record = sink(
             "design.source",
             source.read_bytes(),
@@ -92,6 +98,7 @@ class FigmaExportAdapter:
             rendered_digest=rendered_record["digest"] if rendered_record else None,
             include_invisible=config["include_invisible"],
         )
+        graph["source_security"] = security
         sink("design.graph", canonical_json(graph), "application/json", None)
         return CaptureOutcome(
             summary={
@@ -271,16 +278,20 @@ class StorybookExportAdapter:
     version = "1"
 
     def normalize_target(self, target: dict[str, Any]) -> dict[str, Any]:
-        path = Path(str(target.get("path", ""))).expanduser().resolve()
+        supplied = Path(str(target.get("path", ""))).expanduser().absolute()
+        if supplied.is_symlink():
+            raise ValueError("Storybook export target cannot be a symlink")
+        path = supplied.resolve()
         if not path.is_file() or path.suffix.lower() != ".json":
             raise ValueError("Storybook target must be an existing index JSON file")
-        digest, size = sha256_file(path)
+        _payload, security = DesignExportPolicy.load(path)
         return {
-            "id": str(target.get("id") or digest),
+            "id": str(target.get("id") or security["sha256"]),
             "kind": "storybook-export",
             "path": str(path),
-            "digest": digest,
-            "size": size,
+            "digest": security["sha256"],
+            "size": security["size"],
+            "security": security,
         }
 
     def normalize_config(
@@ -309,7 +320,9 @@ class StorybookExportAdapter:
         sink: ArtifactSink,
     ) -> CaptureOutcome:
         source = Path(target["path"])
-        payload = json.loads(source.read_text(encoding="utf-8"))
+        payload, security = DesignExportPolicy.load(source)
+        if security["sha256"] != target["digest"]:
+            raise ValueError("Storybook export changed after target normalization")
         source_record = sink(
             "design.source",
             source.read_bytes(),
@@ -317,6 +330,7 @@ class StorybookExportAdapter:
             {"source_format": "storybook-index", "source_digest": target["digest"]},
         )
         graph = self._compile_graph(payload, source_record["digest"], config)
+        graph["source_security"] = security
         sink("design.graph", canonical_json(graph), "application/json", None)
         return CaptureOutcome(
             summary={

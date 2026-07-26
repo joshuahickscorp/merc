@@ -11,6 +11,7 @@ from blender_vision.artifacts.store import ArtifactStore
 from blender_vision.core.errors import ProjectError
 from blender_vision.core.util import atomic_write_json, canonical_json, sha256_file, utc_now
 from blender_vision.projects.store import ProjectStore
+from blender_vision.security.adversarial import GeneratedBackendPolicy
 
 OPERATIONS = {
     "generate_shape",
@@ -74,6 +75,7 @@ class GenerativeProposalStore:
         configuration = dict(backend_configuration or {})
         if self._contains_secret(configuration):
             raise ValueError("generative backend configuration cannot persist credentials")
+        GeneratedBackendPolicy.validate(configuration)
         reference_ids = self._string_list(inputs.get("reference_ids", []), "reference ids")
         artifact_digests = self._string_list(
             inputs.get("artifact_digests", []), "artifact digests"
