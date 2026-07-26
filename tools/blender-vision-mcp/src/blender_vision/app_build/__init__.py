@@ -1,5 +1,15 @@
 """Governed visual + textual reference to application construction."""
 
+from blender_vision.app_build.benchmark import (
+    ApplicationBenchmarkCase,
+    ApplicationBenchmarkCaseResult,
+    ApplicationBenchmarkError,
+    ApplicationBenchmarkGateResult,
+    ApplicationBenchmarkManifest,
+    ApplicationBenchmarkReceipt,
+    ApplicationBenchmarkRunner,
+    load_application_benchmark_manifest,
+)
 from blender_vision.app_build.compiler import (
     ApplicationCandidateReceipt,
     BoundedApplicationCompiler,
@@ -29,6 +39,13 @@ from blender_vision.app_build.specification import (
 __all__ = [
     "APIContractGraph",
     "AcceptanceTestGraph",
+    "ApplicationBenchmarkCase",
+    "ApplicationBenchmarkCaseResult",
+    "ApplicationBenchmarkError",
+    "ApplicationBenchmarkGateResult",
+    "ApplicationBenchmarkManifest",
+    "ApplicationBenchmarkReceipt",
+    "ApplicationBenchmarkRunner",
     "ApplicationReferencePacket",
     "AuthPolicyGraph",
     "ApplicationCandidateReceipt",
@@ -46,4 +63,5 @@ __all__ = [
     "ReferencePacketLoadError",
     "ReferencePacketLoader",
     "UserJourneyGraph",
+    "load_application_benchmark_manifest",
 ]

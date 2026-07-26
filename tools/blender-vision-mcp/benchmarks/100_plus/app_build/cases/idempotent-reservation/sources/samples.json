@@ -1,0 +1,7 @@
+{
+  "authority": "SPECIFIED",
+  "benchmark_case": "idempotent-reservation",
+  "kind": "sample_payload",
+  "rights_state": "OWNED",
+  "source_id": "samples"
+}

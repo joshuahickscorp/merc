@@ -1,0 +1,7 @@
+{
+  "authority": "SPECIFIED",
+  "benchmark_case": "idempotent-reservation",
+  "kind": "user_story",
+  "rights_state": "OWNED",
+  "source_id": "stories"
+}

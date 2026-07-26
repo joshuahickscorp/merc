@@ -113,3 +113,34 @@ docker compose build
 
 Failed generation attempts are retained under the compiler workspace `failed/` directory with the
 exact error rather than deleted.
+
+## Fixed application microbenchmarks
+
+`benchmarks/100_plus/app_build/manifest.json` binds five immutable, source-backed packets:
+
+- relational CRUD through create/list/get/update/delete;
+- RBAC authentication and denied permission paths;
+- actor-scoped idempotent reservation replay and conflict;
+- file type, size, authorization, and confined-storage boundaries;
+- polling status and explicit missing-record recovery.
+
+The deterministic fixture generator rejects drift with:
+
+```bash
+uv run python scripts/generate-app-benchmark-fixtures.py --check
+```
+
+The runtime runner compiles promotion candidates from the actual digest-verified packet sources,
+installs from the pinned lock, builds strict TypeScript, executes generated API tests, migrates
+twice, starts and health-checks the application twice, rolls back, and repeats install/build/tests
+from a clean copied candidate:
+
+```bash
+bvmcp app benchmark --output /tmp/visionmcp-app-benchmark
+```
+
+It attempts the local container build when a Docker daemon exists. An unavailable daemon is
+recorded as `BLOCKED_EXTERNAL` with an exact restart contract, never as a pass. A remote deployment
+is attempted only when the user supplies an authorized argv array through
+`BVMCP_AUTHORIZED_REMOTE_DEPLOY_JSON`; `{candidate}` is replaced with the first generated candidate
+path without shell evaluation. Otherwise the remote lane is explicitly `BLOCKED_EXTERNAL`.
