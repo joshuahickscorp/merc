@@ -1,0 +1,178 @@
+{
+  "cases": [
+    {
+      "candidate_receipt_sha256": "690b9285e3245fdfc4c1b09a8b64767f6efab0fbc4c6a38ae5c98dc8a06a950f",
+      "complete": false,
+      "functional_passed": true,
+      "gates": [
+        {
+          "command": [
+            "bvmcp",
+            "app",
+            "compile",
+            "cases/crud-relational/packet.json"
+          ],
+          "elapsed_seconds": 0.05575562501326203,
+          "exact_resumption_contract": null,
+          "id": "compile",
+          "log_path": "logs/crud-relational/compile.log",
+          "log_sha256": "690b9285e3245fdfc4c1b09a8b64767f6efab0fbc4c6a38ae5c98dc8a06a950f",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 22.19124583399389,
+          "exact_resumption_contract": null,
+          "id": "npm_ci",
+          "log_path": "logs/crud-relational/npm_ci.log",
+          "log_sha256": "8cf36e94ef96a5242273c8713c5c61b1bf3ca92b8b8ff7c624df943c2e2dc306",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.6003358330344781,
+          "exact_resumption_contract": null,
+          "id": "typescript_and_api_tests",
+          "log_path": "logs/crud-relational/typescript_and_api_tests.log",
+          "log_sha256": "26bbaaabb71b6fe7d5c985484c9a8ffee63ac162fcee1cda3efa4595ae652381",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.7704903749981895,
+          "exact_resumption_contract": null,
+          "id": "migration",
+          "log_path": "logs/crud-relational/migration.log",
+          "log_sha256": "6eaf8692f96f39840d7ffb103a0d749100fd24005a8f35a96dd21a20c5ee4093",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.748545499984175,
+          "exact_resumption_contract": null,
+          "id": "repeat_migration",
+          "log_path": "logs/crud-relational/repeat_migration.log",
+          "log_sha256": "6eaf8692f96f39840d7ffb103a0d749100fd24005a8f35a96dd21a20c5ee4093",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "node",
+            "dist/src/server.js",
+            "# twice"
+          ],
+          "elapsed_seconds": 0.28434324997942895,
+          "exact_resumption_contract": null,
+          "id": "restart_health",
+          "log_path": "logs/crud-relational/restart_health.log",
+          "log_sha256": "63d90519ab1d0313d0ed1a536c0d8a4058b23ed0ab065bd4fa16572b65d57fe1",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:rollback"
+          ],
+          "elapsed_seconds": 0.7789807080407627,
+          "exact_resumption_contract": null,
+          "id": "rollback",
+          "log_path": "logs/crud-relational/rollback.log",
+          "log_sha256": "19c15cd8f6f27481a2335173931824bdd267ae1c21558b8ff4ed72c37161a941",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 22.09971720800968,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_install",
+          "log_path": "logs/crud-relational/fresh_clone_install.log",
+          "log_sha256": "86cb0522d7f7d5752085e35d3cce83cf93b44eda100800f3dff167953a4f717c",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.6131362079759128,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_reproduction",
+          "log_path": "logs/crud-relational/fresh_clone_reproduction.log",
+          "log_sha256": "1e8842c917a937ed2d5ba3f318829eecc15a524fff3e5c87f0996b9bdfe65a62",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "docker",
+            "compose",
+            "build"
+          ],
+          "elapsed_seconds": 0.0,
+          "exact_resumption_contract": "Start or provide an authorized Docker daemon, then rerun this exact benchmark. Preflight detail: failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
+          "id": "local_container_build",
+          "log_path": "logs/crud-relational/local_container_build.log",
+          "log_sha256": "f7efda1a3cc198a2d2027f12b5671a8e29d7048a681e942aafcab08108515b96",
+          "return_code": null,
+          "status": "BLOCKED_EXTERNAL"
+        }
+      ],
+      "id": "crud-relational",
+      "packet_sha256": "c37b4ba00c98a0b89edd9755222aadf10cd7a497f6ad92f41445cacd5a97eafe"
+    }
+  ],
+  "complete": false,
+  "completed_at": "2026-07-26T01:17:58.111313+00:00",
+  "corpus_sha256": "8d85feddd82f5677634004f59f55cb8d0da95e176246ebf75a626bf4293d8f4a",
+  "external_boundaries": {
+    "local_container": "BLOCKED_EXTERNAL: failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
+    "remote_deployment": "BLOCKED_EXTERNAL: Set BVMCP_AUTHORIZED_REMOTE_DEPLOY_JSON to a JSON argv array only after the user authorizes the target and credentials; no remote deployment was attempted."
+  },
+  "external_gates": [
+    {
+      "command": [],
+      "elapsed_seconds": 0.0,
+      "exact_resumption_contract": "Set BVMCP_AUTHORIZED_REMOTE_DEPLOY_JSON to a JSON argv array only after the user authorizes the target and credentials; no remote deployment was attempted.",
+      "id": "authorized_remote_deployment",
+      "log_path": "logs/_external/authorized_remote_deployment.log",
+      "log_sha256": "4ac7b10e695101cab49b6a3fb022769c338809c9f13f0c47accb12ca1771e2ca",
+      "return_code": null,
+      "status": "BLOCKED_EXTERNAL"
+    }
+  ],
+  "functional_passed": true,
+  "manifest_sha256": "46e3c4a656057c1dea01d866b342937127f5db6aff4a2def3c6feb295d0e4190",
+  "node_version": "v20.17.0",
+  "npm_version": "10.8.2",
+  "schema_version": "1",
+  "source_git_head": "ffdc5597b0b27908eb2b3ac43227474c49b7641d",
+  "started_at": "2026-07-26T01:17:07.438346+00:00"
+}
