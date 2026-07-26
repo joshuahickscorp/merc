@@ -523,6 +523,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     distributed_runtime.add_argument("--output", required=True)
     distributed_runtime.add_argument("--manifest")
+    adversarial = benchmark_sub.add_parser("bootstrap-adversarial")
+    adversarial.add_argument("--output", required=True)
+    adversarial.add_argument("--manifest")
     for command_name in ("bootstrap-dgx-spark", "bootstrap-rtx-5090-fe"):
         device = benchmark_sub.add_parser(command_name)
         device.add_argument("--project", required=True)
@@ -1191,6 +1194,18 @@ def dispatch(args: argparse.Namespace) -> Any:
             args.asynchronous,
         )
     if args.command == "benchmark":
+        if args.benchmark_command == "bootstrap-adversarial":
+            from blender_vision.benchmarks.adversarial import (
+                AdversarialBenchmarkRunner,
+            )
+
+            return (
+                AdversarialBenchmarkRunner(
+                    Path(args.manifest) if args.manifest else None
+                )
+                .run(Path(args.output))
+                .model_dump(mode="json")
+            )
         if args.benchmark_command == "bootstrap-distributed-runtime":
             from blender_vision.benchmarks.distributed_runtime import (
                 DistributedRuntimeBenchmarkRunner,

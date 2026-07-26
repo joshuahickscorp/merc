@@ -71,6 +71,14 @@ That contract now includes a real two-process crash/restart benchmark plus
 installed Chromium, WebKit, and Blender launch evidence; unavailable second-host
 and WebGPU execution remains explicitly blocked.
 
+The fixed adversarial acceptance suite executes and preserves all 17 required
+attack classes, including prompt injection, poisoned design/3D inputs,
+path/symlink escape, evidence and evaluator substitution, secrets/rights,
+generated backend code, auth/tenant/SQL boundaries, performance gaming, and
+cross-route visual regressions. Its exact anti-omission and anti-substitution
+contract is documented in
+[`docs/ADVERSARIAL_ACCEPTANCE.md`](docs/ADVERSARIAL_ACCEPTANCE.md).
+
 Evidence-ranked correction queues, fixed-benchmark activation, supersession, and
 receipt-backed rollback are documented in
 [`docs/PERCEPTION_LEARNING.md`](docs/PERCEPTION_LEARNING.md).

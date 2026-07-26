@@ -19,6 +19,26 @@
     "authority": { "const": "OBSERVED" },
     "source_kind": { "enum": ["figma", "storybook"] },
     "source_revision": {},
+    "source_security": {
+      "type": "object",
+      "required": [
+        "sha256",
+        "size",
+        "node_count",
+        "string_bytes",
+        "prompt_injection_findings",
+        "instruction_authority"
+      ],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "size": { "type": "integer", "minimum": 0 },
+        "node_count": { "type": "integer", "minimum": 1 },
+        "string_bytes": { "type": "integer", "minimum": 0 },
+        "prompt_injection_findings": { "type": "integer", "minimum": 0 },
+        "instruction_authority": { "const": false }
+      },
+      "additionalProperties": false
+    },
     "nodes": {
       "type": "array",
       "items": {

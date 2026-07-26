@@ -74,3 +74,10 @@ authority spanning browser, WebGL, GLB/texture, API, and database measurements.
 Its repair is preimage-bound and may pass only when screenshot, ARIA, behavior,
 API payload, and validated GLB identity are preserved. See
 [`PERFORMANCE_AUTHORITY.md`](PERFORMANCE_AUTHORITY.md).
+
+The same closure lane now includes a fixed adversarial acceptance authority.
+It executes all 17 required attack classes, preserves each exact input and
+result, and rejects omitted cases, substituted input digests, manifest-set
+tampering, and false pass labels. SQL injection is neutralized through a real
+parameterized SQLite query; the other 16 cases are actively rejected. See
+[`ADVERSARIAL_ACCEPTANCE.md`](ADVERSARIAL_ACCEPTANCE.md).
