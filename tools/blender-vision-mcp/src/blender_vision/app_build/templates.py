@@ -67,7 +67,12 @@ def tsconfig_json() -> str:
             "declaration": True,
             "sourceMap": True,
         },
-        "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"],
+        "include": [
+            "src/**/*.ts",
+            "frontend/src/**/*.ts",
+            "tests/**/*.ts",
+            "scripts/**/*.ts",
+        ],
     }
     return json.dumps(document, indent=2, sort_keys=True) + "\n"
 
@@ -1095,15 +1100,20 @@ def frontend_ts(spec: dict[str, Any]) -> str:
         "apiBase": spec["api_contract"]["base_path"],
     }
     return (
-        "const SPEC = "
+        "export {};\n\nconst SPEC = "
         + json.dumps(frontend_spec, indent=2, sort_keys=True)
         + r""" as const;
 
-const navigation = document.querySelector<HTMLElement>("[data-navigation]");
-const main = document.querySelector<HTMLElement>("main");
-if (!navigation || !main) {
-  throw new Error("application shell is incomplete");
+function requiredElement<T extends Element>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  if (!element) {
+    throw new Error(`application shell is missing ${selector}`);
+  }
+  return element;
 }
+
+const navigationElement = requiredElement<HTMLElement>("[data-navigation]");
+const mainElement = requiredElement<HTMLElement>("main");
 
 for (const route of SPEC.product.routes) {
   const link = document.createElement("a");
@@ -1114,14 +1124,14 @@ for (const route of SPEC.product.routes) {
     history.pushState({}, "", route.path);
     render();
   });
-  navigation.append(link);
+  navigationElement.append(link);
 }
 
 function render(): void {
   const route = SPEC.product.routes.find((item) => item.path === location.pathname)
     ?? SPEC.product.routes[0];
   if (!route) {
-    main.replaceChildren();
+    mainElement.replaceChildren();
     return;
   }
   document.title = `${route.title} — ${SPEC.product.name}`;
@@ -1144,8 +1154,8 @@ function render(): void {
     states.append(item);
   }
   section.append(eyebrow, heading, purpose, states);
-  main.replaceChildren(section);
-  main.focus();
+  mainElement.replaceChildren(section);
+  mainElement.focus();
 }
 
 addEventListener("popstate", render);
