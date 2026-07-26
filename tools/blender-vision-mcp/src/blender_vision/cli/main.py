@@ -555,6 +555,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="ID:FAILED|ACCEPTED:relative/receipt.json",
     )
     nocturne_seal.add_argument("--contract")
+    nocturne_preflight = benchmark_sub.add_parser(
+        "preflight-nocturne-candidate"
+    )
+    nocturne_preflight.add_argument("--packet", required=True)
+    nocturne_preflight.add_argument("--candidate", required=True)
+    nocturne_preflight.add_argument("--output", required=True)
+    nocturne_preflight.add_argument("--contract")
     nocturne_drills = benchmark_sub.add_parser("run-nocturne-repair-drills")
     nocturne_drills.add_argument("--app-receipt", required=True)
     nocturne_drills.add_argument("--three-d-receipt", required=True)
@@ -1259,6 +1266,22 @@ def dispatch(args: argparse.Namespace) -> Any:
                 attempts=attempts,
                 contract_path=Path(args.contract) if args.contract else None,
             ).model_dump(mode="json")
+        if args.benchmark_command == "preflight-nocturne-candidate":
+            from blender_vision.benchmarks.nocturne_contract_gate import (
+                NocturneLocalContractGate,
+            )
+
+            return (
+                NocturneLocalContractGate(
+                    Path(args.contract) if args.contract else None
+                )
+                .run(
+                    packet_root=Path(args.packet),
+                    candidate_root=Path(args.candidate),
+                    output_root=Path(args.output),
+                )
+                .model_dump(mode="json")
+            )
         if args.benchmark_command == "evaluate-nocturne-app":
             from blender_vision.benchmarks.nocturne_app import (
                 NocturneAppEvaluator,

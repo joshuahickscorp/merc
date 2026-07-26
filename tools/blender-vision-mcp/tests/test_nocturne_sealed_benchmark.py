@@ -19,6 +19,10 @@ from blender_vision.benchmarks.nocturne_app import (
     NocturneCandidateAuthority,
     seal_nocturne_candidate,
 )
+from blender_vision.benchmarks.nocturne_contract_gate import (
+    NocturneLocalContractGate,
+    NocturneLocalContractGateReceipt,
+)
 from blender_vision.cli.main import build_parser
 from blender_vision.core.errors import SecurityError
 from blender_vision.core.util import atomic_write_json, sha256_file
@@ -352,6 +356,95 @@ def test_candidate_sealer_creates_verifiable_exact_receipt(tmp_path: Path) -> No
     assert sealed.authority == "VISIONMCP_BUILDER_OUTPUT"
     assert verification["valid"] is True
     assert verification["file_count"] == 6
+
+
+def test_h4_sealer_binds_trusted_gate_and_never_claims_global_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    packet, packet_digest = _packet(tmp_path)
+    candidate = tmp_path / "candidate"
+    for relative in (
+        "3d/nocturne-one.blend",
+        "public/assets/nocturne-one-hero.glb",
+        "public/assets/nocturne-one-low.glb",
+        "package.json",
+        "package-lock.json",
+        ".visionmcp/attempt-001.json",
+    ):
+        path = candidate / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"fixture: {relative}\n", encoding="utf-8")
+
+    def fake_gate(
+        self: NocturneLocalContractGate,
+        *,
+        packet_root: Path,
+        candidate_root: Path,
+        output_root: Path,
+    ) -> NocturneLocalContractGateReceipt:
+        del packet_root, candidate_root
+        output_root.mkdir(parents=True)
+        receipt = NocturneLocalContractGateReceipt(
+            benchmark_id=self.contract.benchmark_id,
+            authority="VISIONMCP_TRUSTED_LOCAL_CONTRACT_GATE",
+            contract_sha256=sha256_file(self.contract_path)[0],
+            packet_manifest_sha256=packet_digest,
+            started_at="2026-07-26T00:00:00+00:00",
+            completed_at="2026-07-26T00:00:01+00:00",
+            status="LOCAL_PASS_EXTERNAL_UNMEASURED",
+            global_acceptance="EXTERNAL_UNMEASURED",
+            assertions=[],
+            measured_surfaces=["fixture public surface"],
+            external_unmeasured_surfaces=["frozen evaluator global decision"],
+            fixed_public_camera_digest="0" * 64,
+            output_digests={},
+            runtime={},
+        )
+        atomic_write_json(
+            output_root / "local-contract-gate.receipt.json",
+            receipt.model_dump(mode="json"),
+        )
+        return receipt
+
+    monkeypatch.setattr(NocturneLocalContractGate, "run", fake_gate)
+    sealed = seal_nocturne_candidate(
+        candidate_root=candidate,
+        packet_root=packet,
+        builder_condition="H4-test",
+        attempts=[("attempt-001", "ACCEPTED", ".visionmcp/attempt-001.json")],
+    )
+    _receipt, verification = NocturneCandidateAuthority().verify(
+        candidate,
+        packet_manifest_sha256=packet_digest,
+    )
+
+    assert sealed.local_contract_gate_path is not None
+    assert sealed.local_contract_gate_receipt_sha256 is not None
+    assert sealed.global_acceptance_status == "EXTERNAL_UNMEASURED"
+    assert verification["valid"] is True
+
+
+def test_local_contract_gate_schema_cannot_express_global_pass() -> None:
+    with pytest.raises(ValueError):
+        NocturneLocalContractGateReceipt.model_validate(
+            {
+                "schema_version": "1",
+                "benchmark_id": "nocturne-one-sealed-v1",
+                "authority": "VISIONMCP_TRUSTED_LOCAL_CONTRACT_GATE",
+                "contract_sha256": "0" * 64,
+                "packet_manifest_sha256": "1" * 64,
+                "started_at": "2026-07-26T00:00:00+00:00",
+                "completed_at": "2026-07-26T00:00:01+00:00",
+                "status": "GLOBAL_PASS",
+                "global_acceptance": "PASS",
+                "assertions": [],
+                "measured_surfaces": [],
+                "external_unmeasured_surfaces": [],
+                "fixed_public_camera_digest": "2" * 64,
+                "output_digests": {},
+                "runtime": {},
+            }
+        )
 
 
 def test_silhouette_iou_uses_alpha_and_penalizes_shape_drift(tmp_path: Path) -> None:
