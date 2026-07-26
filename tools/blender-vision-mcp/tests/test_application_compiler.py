@@ -66,7 +66,9 @@ def test_compiler_materializes_receipt_bound_typescript_application(tmp_path: Pa
     assert (candidate / "package-lock.json").is_file()
     package = json.loads((candidate / "package.json").read_text(encoding="utf-8"))
     lock = json.loads((candidate / "package-lock.json").read_text(encoding="utf-8"))
+    tsconfig = json.loads((candidate / "tsconfig.json").read_text(encoding="utf-8"))
     assert package["engines"]["node"] == ">=20 <21"
+    assert "frontend/src/**/*.ts" in tsconfig["include"]
     assert (
         lock["packages"]["node_modules/better-sqlite3"]["version"]
         == package["dependencies"]["better-sqlite3"]

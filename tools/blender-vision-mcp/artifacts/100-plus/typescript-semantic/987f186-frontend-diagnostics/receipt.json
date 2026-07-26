@@ -1,0 +1,116 @@
+{
+  "capture_id": "7094938e24c0d7de82eb98a4474a21fc34e04753d5dbf4a4496b173cffd13e1f",
+  "capture_manifest_digest": "15447317129813fb921f82e3ec4370620971ab7a1221cb0fff3fd591414db99f",
+  "compiler_symbols": 145,
+  "environment": {
+    "adapter": "code.repository",
+    "adapter_version": "2",
+    "maximum_files": 20,
+    "node_sha256": "c5548e7a991a5c90170a29843ffc46df4643e29141f3cbb035f60295cf2bc882",
+    "node_version": "v20.17.0",
+    "parser": "typescript-native-compiler-api",
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "python": "3.12.13",
+    "semantic_analyzer_sha256": "3662fe06727db35518b8632dfea645f31cfac51f94c0bf9386a8be2cfea71f3f",
+    "typescript_authority_sha256": "94738164fdb3145bb21d74aca9c437fea328b5eb0c2b0ec550b821c47460de28",
+    "typescript_version": "7.0.2",
+    "visionmcp_runtime_revision": "987f1860e2d3a0fec4d3d734ab1d410545d0620b:e60669a6e71de33e3c1d1eb66f6d5dd654a051fdcc9376b1829c0b58e3a87747"
+  },
+  "reference_edges": 425,
+  "resolved_import_edges": 22,
+  "schema": "vision.typescript-semantic-benchmark-receipt/v1",
+  "semantic_artifact_digest": "011c36bb48b2d5f27cca5206ee8c4928629802e8736cba7fab766db9defb155e",
+  "semantic_index": {
+    "artifact_digest": "011c36bb48b2d5f27cca5206ee8c4928629802e8736cba7fab766db9defb155e",
+    "diagnostics": [
+      {
+        "category": "error",
+        "character": null,
+        "code": 5096,
+        "file": null,
+        "line": null,
+        "message": "Option 'allowImportingTsExtensions' can only be used when one of 'noEmit', 'emitDeclarationOnly', or 'rewriteRelativeImportExtensions' is set."
+      },
+      {
+        "category": "error",
+        "character": 7,
+        "code": 2451,
+        "file": "frontend/src/app.ts",
+        "line": 26,
+        "message": "Cannot redeclare block-scoped variable 'navigation'."
+      },
+      {
+        "category": "error",
+        "character": 14,
+        "code": 2339,
+        "file": "frontend/src/app.ts",
+        "line": 41,
+        "message": "Property 'append' does not exist on type 'Navigation'."
+      },
+      {
+        "category": "error",
+        "character": 5,
+        "code": 18047,
+        "file": "frontend/src/app.ts",
+        "line": 48,
+        "message": "'main' is possibly 'null'."
+      },
+      {
+        "category": "error",
+        "character": 3,
+        "code": 18047,
+        "file": "frontend/src/app.ts",
+        "line": 71,
+        "message": "'main' is possibly 'null'."
+      },
+      {
+        "category": "error",
+        "character": 3,
+        "code": 18047,
+        "file": "frontend/src/app.ts",
+        "line": 72,
+        "message": "'main' is possibly 'null'."
+      },
+      {
+        "category": "error",
+        "character": null,
+        "code": 2451,
+        "file": null,
+        "line": null,
+        "message": "Cannot redeclare block-scoped variable 'navigation'."
+      }
+    ],
+    "enabled": true,
+    "engine": "typescript-native-compiler-api",
+    "file_count": 9,
+    "reference_count": 425,
+    "reference_truncated": false,
+    "resolved_import_count": 22,
+    "symbol_count": 145,
+    "typescript_authority_sha256": "94738164fdb3145bb21d74aca9c437fea328b5eb0c2b0ec550b821c47460de28",
+    "typescript_version": "7.0.2"
+  },
+  "source_git_head": "987f1860e2d3a0fec4d3d734ab1d410545d0620b",
+  "source_graph_artifact_digest": "1ada5196b6af4b04bc4ba9f0094d43b54ef3d9f7a8c0cc5181c1f81f27e63907",
+  "source_repository": "/private/tmp/visionmcp-app-benchmark-05916b5.wf75Wo/candidates/crud-relational",
+  "source_repository_digest": "498ae011df2376b0384056cf81045f480d56a2f29a2f3ff75c2ef1e4d5bc9ea9",
+  "summary": {
+    "compiler_diagnostic_count": 7,
+    "compiler_reference_count": 425,
+    "compiler_resolved_import_count": 22,
+    "compiler_semantic_symbol_count": 145,
+    "edge_count": 615,
+    "file_count": 20,
+    "node_count": 188,
+    "runtime_binding_count": 0,
+    "selector_count": 23,
+    "symbol_count": 138
+  },
+  "verification": {
+    "capture_id": "7094938e24c0d7de82eb98a4474a21fc34e04753d5dbf4a4496b173cffd13e1f",
+    "failures": [],
+    "manifest_digest": "15447317129813fb921f82e3ec4370620971ab7a1221cb0fff3fd591414db99f",
+    "status": "COMPLETE",
+    "valid": true
+  }
+}
