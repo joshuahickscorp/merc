@@ -159,6 +159,49 @@ def test_sealed_builder_process_is_denied_oracle_and_holdout_reads(
     assert (builder / "builder-ran.txt").is_file()
 
 
+@pytest.mark.skipif(
+    sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").is_file(),
+    reason="sealed builder access test requires macOS sandbox-exec",
+)
+def test_sealed_builder_denies_additional_declared_prior_state(
+    tmp_path: Path,
+) -> None:
+    packet, _manifest_digest = _packet(tmp_path)
+    builder = tmp_path / "builder"
+    oracle = tmp_path / "sealed-oracle"
+    oracle_source = tmp_path / "oracle-source"
+    prior_state = tmp_path / "prior-state"
+    output = tmp_path / "run"
+    builder.mkdir()
+    oracle.mkdir()
+    oracle_source.mkdir()
+    prior_state.mkdir()
+    canary = "NOCTURNE-TEST-ORACLE-CANARY-additional"
+    (oracle / "ORACLE_CANARY.txt").write_text(canary, encoding="utf-8")
+    secret = prior_state / "prior-candidate.txt"
+    secret.write_text("must-not-read", encoding="utf-8")
+
+    receipt = SealedBuilderRunner().run(
+        builder_root=builder,
+        packet_root=packet,
+        oracle_root=oracle,
+        oracle_source_root=oracle_source,
+        oracle_canary=canary,
+        command=[
+            "/bin/sh",
+            "-c",
+            f"if /bin/cat {secret} >/dev/null 2>&1; then exit 9; fi; "
+            "/usr/bin/touch additional-denial-passed.txt",
+        ],
+        output_root=output,
+        timeout_seconds=30,
+        additional_denied_roots=[prior_state],
+    )
+
+    assert receipt.status == "PASS"
+    assert (builder / "additional-denial-passed.txt").is_file()
+
+
 def test_nocturne_oracle_cli_requires_explicit_output() -> None:
     args = build_parser().parse_args(
         ["benchmark", "bootstrap-nocturne-oracle", "--output", "oracle"]
