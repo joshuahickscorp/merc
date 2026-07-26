@@ -12,7 +12,8 @@
     "linked_capture_ids",
     "nodes",
     "edges",
-    "runtime_bindings"
+    "runtime_bindings",
+    "semantic_index"
   ],
   "properties": {
     "schema": { "const": "vision.code-graph/v1" },
@@ -22,6 +23,42 @@
     "linked_capture_ids": { "type": "array", "items": { "type": "string" } },
     "nodes": { "type": "array" },
     "edges": { "type": "array" },
-    "runtime_bindings": { "type": "array" }
+    "runtime_bindings": { "type": "array" },
+    "semantic_index": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "engine",
+        "typescript_version",
+        "typescript_authority_sha256",
+        "artifact_digest",
+        "file_count",
+        "symbol_count",
+        "resolved_import_count",
+        "reference_count",
+        "reference_truncated",
+        "diagnostics"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "engine": { "type": "string" },
+        "typescript_version": { "type": ["string", "null"] },
+        "typescript_authority_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "artifact_digest": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "file_count": { "type": "integer", "minimum": 0 },
+        "symbol_count": { "type": "integer", "minimum": 0 },
+        "resolved_import_count": { "type": "integer", "minimum": 0 },
+        "reference_count": { "type": "integer", "minimum": 0 },
+        "reference_truncated": { "type": "boolean" },
+        "diagnostics": { "type": "array" }
+      }
+    }
   }
 }
