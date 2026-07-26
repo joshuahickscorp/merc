@@ -1,0 +1,19 @@
+{
+  "tree": {
+    "forbidden_distributable_files": [],
+    "missing_paths": [],
+    "missing_worker_operations": [],
+    "model_policy_failures": [],
+    "model_registry_count": 7,
+    "valid": true,
+    "worker_operation_count": 28
+  },
+  "valid": true,
+  "wheel": {
+    "forbidden": [],
+    "member_count": 368,
+    "missing": [],
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-100plus-sandbox/tools/blender-vision-mcp/dist/blender_vision_mcp-0.1.0-py3-none-any.whl",
+    "valid": true
+  }
+}
