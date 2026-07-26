@@ -1,0 +1,22 @@
+{
+  "schema_version": "1",
+  "attempt_id": "attempt-005",
+  "status": "FAILED",
+  "stage": "desktop_frame_p95_performance",
+  "command": [
+    "npm",
+    "run",
+    "test:browser"
+  ],
+  "exit_code": 1,
+  "observed": {
+    "desktop_median_fps": 73.52941176470637,
+    "desktop_frame_p95_ms": 26.199999999999818
+  },
+  "expected": {
+    "desktop_median_fps_minimum": 55,
+    "desktop_frame_p95_ms_maximum": 24
+  },
+  "repair": "Bound device pixel ratio and render the static product on demand while retaining immediate real rendering for every interaction/configuration/resize change.",
+  "oracle_source_access": false
+}

@@ -1,0 +1,30 @@
+Reading additional input from stdin...
+2026-07-26T03:26:37.866390Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/
+2026-07-26T03:26:37.866414Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/
+2026-07-26T03:26:37.866882Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt: maximum of 3 prompts is supported path=file:///Users/scammermike/.codex/plugins/cache/openai-primary-runtime/template-creator/26.723.12215/.codex-plugin/plugin.json
+2026-07-26T03:26:37.868516Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt: maximum of 3 prompts is supported path=file:///Users/scammermike/.codex/plugins/cache/openai-primary-runtime/template-creator/26.723.12215/.codex-plugin/plugin.json
+2026-07-26T03:26:37.882338Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-07-26T03:26:37.884114Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-07-26T03:26:38.223507Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/
+2026-07-26T03:26:38.223525Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/
+2026-07-26T03:26:38.223804Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt: maximum of 3 prompts is supported path=file:///Users/scammermike/.codex/plugins/cache/openai-primary-runtime/template-creator/26.723.12215/.codex-plugin/plugin.json
+2026-07-26T03:26:38.225110Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt: maximum of 3 prompts is supported path=file:///Users/scammermike/.codex/plugins/cache/openai-primary-runtime/template-creator/26.723.12215/.codex-plugin/plugin.json
+2026-07-26T03:35:29.096949Z  WARN codex_core::responses_retry: stream disconnected - retrying sampling request (1/5 in 191ms)... turn_id=019f9c75-dd89-72e3-a9f3-b3b0022786ed retries=1 max_retries=5 sampling_error=stream disconnected before completion: WebSocket protocol error: Connection reset without closing handshake
+2026-07-26T03:51:05.753886Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --disable-autoexec --python-exit-code 1 --python 3d/build_candidate.py >/private/tmp/nocturne-build-raw-shell.log && tail -n 8 /private/tmp/nocturne-build-raw-shell.log
+rm -rf /private/tmp/nocturne-public-check/renders
+/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --disable-autoexec 3d/nocturne-one.blend --python-exit-code 1 --python tests/blender_scene_check.py -- /private/tmp/nocturne-public-check/report.json /private/tmp/nocturne-public-check/renders >/private/tmp/nocturne-public-check/blender.log || true
+python3 - <<'PY'
+from PIL import Image
+from pathlib import Path
+import numpy as np, os, json
+refs=Path(os.environ['NOCTURNE_PACKET_ROOT'])/'references'
+renders=Path('/private/tmp/nocturne-public-check/renders')
+print(json.load(open('/private/tmp/nocturne-public-check/report.json'))['primary_dimensions_mm'])
+for p in sorted(renders.glob('*.png')):
+    a=np.asarray(Image.open(p).convert('RGBA'))[:,:,3]>=12
+    b=np.asarray(Image.open(refs/p.name).convert('RGBA'))[:,:,3]>=12
+    print(p.stem, f'{np.logical_and(a,b).sum()/np.logical_or(a,b).sum():.6f}')
+PY"`: CreateProcess { message: "Rejected(\"`/bin/zsh -lc \\\"/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --disable-autoexec --python-exit-code 1 --python 3d/build_candidate.py >/private/tmp/nocturne-build-raw-shell.log && tail -n 8 /private/tmp/nocturne-build-raw-shell.log\\nrm -rf /private/tmp/nocturne-public-check/renders\\n/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --disable-autoexec 3d/nocturne-one.blend --python-exit-code 1 --python tests/blender_scene_check.py -- /private/tmp/nocturne-public-check/report.json /private/tmp/nocturne-public-check/renders >/private/tmp/nocturne-public-check/blender.log || true\\npython3 - <<'PY'\\nfrom PIL import Image\\nfrom pathlib import Path\\nimport numpy as np, os, json\\nrefs=Path(os.environ['NOCTURNE_PACKET_ROOT'])/'references'\\nrenders=Path('/private/tmp/nocturne-public-check/renders')\\nprint(json.load(open('/private/tmp/nocturne-public-check/report.json'))['primary_dimensions_mm'])\\nfor p in sorted(renders.glob('*.png')):\\n    a=np.asarray(Image.open(p).convert('RGBA'))[:,:,3]>=12\\n    b=np.asarray(Image.open(refs/p.name).convert('RGBA'))[:,:,3]>=12\\n    print(p.stem, f'{np.logical_and(a,b).sum()/np.logical_or(a,b).sum():.6f}')\\nPY\\\"` rejected: rm -f style commands are not permitted. Use a safer approach\")" }
+2026-07-26T03:57:29.609103Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /private/tmp/nocturne-one-builder-db820c9/tools/blender-vision-mcp/sandbox/nocturne-one/tests/browser.test.ts:
+      glb: __NOCTURNE__.glbRequested,
+      state: __NOCTURNE__.state
