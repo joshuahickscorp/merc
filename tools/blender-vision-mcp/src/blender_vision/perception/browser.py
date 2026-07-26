@@ -993,8 +993,11 @@ class BrowserAdapter:
         steps: list[dict[str, Any]] = []
         first_selector: str | None = None
         status = "BOUNDED"
+        navigation_key = "Tab"
+        navigation_keys = ["Tab"]
+        body_sentinels = 0
         for index in range(config["keyboard_step_limit"]):
-            page.keyboard.press("Tab")
+            page.keyboard.press(navigation_key)
             active = page.evaluate(_ACTIVE_ELEMENT_SCRIPT)
             if active is None:
                 status = "FOCUS_UNAVAILABLE"
@@ -1005,8 +1008,18 @@ class BrowserAdapter:
                 if steps:
                     status = "COMPLETE_DOCUMENT"
                     break
-                # WebKit reports the body as the first Tab sentinel before it
-                # advances into the sequential focus navigation order.
+                body_sentinels += 1
+                if (
+                    config.get("engine") == "webkit"
+                    and navigation_key == "Tab"
+                    and body_sentinels >= 2
+                ):
+                    # Safari/WebKit on macOS uses Option-Tab for the
+                    # user-selected "all controls" navigation path. Record
+                    # that fallback rather than claiming plain Tab reached
+                    # controls when the engine exposes only body sentinels.
+                    navigation_key = "Alt+Tab"
+                    navigation_keys.append(navigation_key)
                 continue
             if first_selector is None:
                 first_selector = selector
@@ -1018,6 +1031,7 @@ class BrowserAdapter:
             "schema": "vision.keyboard-journey/v1",
             "status": status,
             "step_limit": config["keyboard_step_limit"],
+            "navigation_keys": navigation_keys,
             "steps": steps,
             "unique_focus_targets": sorted({step["selector"] for step in steps}),
             "authority": "OBSERVED",

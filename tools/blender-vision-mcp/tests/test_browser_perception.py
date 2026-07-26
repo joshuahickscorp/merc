@@ -135,15 +135,18 @@ def test_browser_adapter_redacts_secrets_recursively() -> None:
 
 def test_keyboard_journey_skips_webkit_body_sentinel_before_controls() -> None:
     class Keyboard:
+        def __init__(self) -> None:
+            self.keys: list[str] = []
+
         def press(self, key: str) -> None:
-            assert key == "Tab"
+            self.keys.append(key)
 
     class Page:
-        keyboard = Keyboard()
-
         def __init__(self) -> None:
+            self.keyboard = Keyboard()
             self.focus = iter(
                 [
+                    {"selector": "body", "tag": "body", "role": None, "name": ""},
                     {"selector": "body", "tag": "body", "role": None, "name": ""},
                     {
                         "selector": "#action",
@@ -160,9 +163,15 @@ def test_keyboard_journey_skips_webkit_body_sentinel_before_controls() -> None:
                 return None
             return next(self.focus)
 
-    journey = BrowserAdapter._keyboard_journey(Page(), {"keyboard_step_limit": 8})
+    page = Page()
+    journey = BrowserAdapter._keyboard_journey(
+        page,
+        {"keyboard_step_limit": 8, "engine": "webkit"},
+    )
 
     assert journey["status"] == "COMPLETE_DOCUMENT"
+    assert journey["navigation_keys"] == ["Tab", "Alt+Tab"]
+    assert page.keyboard.keys == ["Tab", "Tab", "Alt+Tab", "Alt+Tab"]
     assert journey["unique_focus_targets"] == ["#action"]
 
 
@@ -327,6 +336,10 @@ def test_real_additional_engine_capture_is_accessible_and_evidence_bound(
     assert capture["summary"]["browser_engine"] == engine
     assert capture["summary"]["http_status"] == 200
     assert capture["summary"]["accessibility_critical_or_serious_count"] == 0
+    assert capture["summary"]["keyboard_journey_status"] in {
+        "COMPLETE_CYCLE",
+        "COMPLETE_DOCUMENT",
+    }
     assert capture["environment"]["browser_engine"] == engine
     assert capture["environment"]["browser_executable_sha256"]
     assert {"accessibility.tree", "accessibility.journey", "layout.graph"} <= roles
