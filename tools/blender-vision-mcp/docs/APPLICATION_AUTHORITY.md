@@ -27,6 +27,13 @@ Every source carries a content digest, authority class, rights state, and locato
 The CLI confines every locator to the packet directory, rejects symlinks and unresolved rights,
 and verifies the declared SHA-256 against the actual source bytes before analysis or compilation.
 
+Numeric budgets become executable observations through the fixed installed-browser
+performance repair authority. That layer binds cold transfer, JavaScript, WebGL,
+GLB/texture, frame, long-task, layout-shift, interaction, memory, API, and indexed
+database measurements while requiring unchanged visual, behavior, accessibility,
+API, and 3D identity gates. See
+[`PERFORMANCE_AUTHORITY.md`](PERFORMANCE_AUTHORITY.md).
+
 ## Authority classes
 
 - `OBSERVED`: directly captured from a governed runtime or supplied artifact

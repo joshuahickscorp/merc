@@ -44,6 +44,11 @@ Browser canvas/WebGL/WebGPU runtime evidence, fixed-time frame capture, explicit
 materialization, and the safe Blender/GLB candidate round trip are documented in
 [`docs/GRAPHICS_RUNTIME.md`](docs/GRAPHICS_RUNTIME.md).
 
+Source-bound performance measurement, exact bounded repair, adaptive LOD/DPR,
+reduced-motion/no-WebGL coverage, API/database timing, and mandatory
+visual/behavior/accessibility/GLB preservation gates are documented in
+[`docs/PERFORMANCE_AUTHORITY.md`](docs/PERFORMANCE_AUTHORITY.md).
+
 ExperienceIR compilation and verified clean-room Feature Capsules are documented in
 [`docs/FEATURE_CAPSULES.md`](docs/FEATURE_CAPSULES.md).
 
@@ -249,6 +254,13 @@ uv run bvmcp benchmark bootstrap-appearance \
 
 The complete contract and its inference limits are in
 [`docs/APPEARANCE_AUTHORITY.md`](docs/APPEARANCE_AUTHORITY.md).
+
+Run the owned degraded-to-repaired application and realtime-graphics performance benchmark with:
+
+```bash
+BVMCP_RUN_BROWSER_TESTS=1 uv run bvmcp benchmark bootstrap-performance \
+  --output artifacts/performance-run
+```
 
 Opaque references use automatic segmentation only as diagnostic evidence. To make a silhouette
 authoritative for L3, import a same-size binary mask after a named human boundary review:

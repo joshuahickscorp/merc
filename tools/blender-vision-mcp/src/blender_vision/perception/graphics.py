@@ -184,6 +184,11 @@ async () => {
 """
 
 
+def graphics_instrumentation_script() -> str:
+    """Return the exact WebGL interception used by the governed graphics adapter."""
+    return _GRAPHICS_INSTRUMENTATION
+
+
 class GraphicsRuntimeAdapter(BrowserAdapter):
     name = "browser.graphics"
     version = "1"

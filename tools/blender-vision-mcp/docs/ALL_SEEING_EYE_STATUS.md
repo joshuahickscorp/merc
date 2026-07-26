@@ -68,3 +68,9 @@ The implementation therefore does not convert an unavailable credential,
 physical device, external target, model checkpoint, or controlled LLM study into
 a passing claim. Those are deployment benchmarks, not hidden TODOs in the
 authority model.
+
+The 100-plus closure lane additionally provides a fixed performance-repair
+authority spanning browser, WebGL, GLB/texture, API, and database measurements.
+Its repair is preimage-bound and may pass only when screenshot, ARIA, behavior,
+API payload, and validated GLB identity are preserved. See
+[`PERFORMANCE_AUTHORITY.md`](PERFORMANCE_AUTHORITY.md).

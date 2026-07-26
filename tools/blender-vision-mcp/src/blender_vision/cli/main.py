@@ -515,6 +515,9 @@ def build_parser() -> argparse.ArgumentParser:
     appearance = benchmark_sub.add_parser("bootstrap-appearance")
     appearance.add_argument("--output", required=True)
     appearance.add_argument("--manifest")
+    performance = benchmark_sub.add_parser("bootstrap-performance")
+    performance.add_argument("--output", required=True)
+    performance.add_argument("--manifest")
     for command_name in ("bootstrap-dgx-spark", "bootstrap-rtx-5090-fe"):
         device = benchmark_sub.add_parser(command_name)
         device.add_argument("--project", required=True)
@@ -1183,6 +1186,18 @@ def dispatch(args: argparse.Namespace) -> Any:
             args.asynchronous,
         )
     if args.command == "benchmark":
+        if args.benchmark_command == "bootstrap-performance":
+            from blender_vision.benchmarks.performance import (
+                PerformanceBenchmarkRunner,
+            )
+
+            return (
+                PerformanceBenchmarkRunner(
+                    Path(args.manifest) if args.manifest else None
+                )
+                .run(Path(args.output))
+                .model_dump(mode="json")
+            )
         if args.benchmark_command == "bootstrap-appearance":
             from blender_vision.benchmarks.appearance import (
                 AppearanceBenchmarkRunner,
