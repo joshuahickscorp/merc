@@ -9,6 +9,8 @@ REQUIRED = {
     "blender_vision/benchmarks/data/mac_studio.json",
     "blender_vision/benchmarks/data/calibration/benchmark.json",
     "blender_vision/benchmarks/data/calibration/create_scene.py",
+    "blender_vision/benchmarks/data/100_plus/browser/manifest.json",
+    "blender_vision/benchmarks/data/100_plus/browser/fixture/index.html",
     "blender_vision/review/static/index.html",
     "blender_vision/review/static/app.js",
     "blender_vision/schemas/receipt.schema.json",

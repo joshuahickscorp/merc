@@ -139,6 +139,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="run only this fixed case; repeat for multiple cases",
     )
 
+    browser = sub.add_parser(
+        "browser", help="run governed cross-browser and environment-state verification"
+    )
+    browser_sub = browser.add_subparsers(dest="browser_command", required=True)
+    browser_benchmark = browser_sub.add_parser("benchmark")
+    browser_benchmark.add_argument("--manifest")
+    browser_benchmark.add_argument("--output", required=True)
+
     model = sub.add_parser("model", help="govern manually acquired model checkpoints")
     model_sub = model.add_subparsers(dest="model_command", required=True)
     model_approve = model_sub.add_parser("approve-source")
@@ -705,6 +713,14 @@ def dispatch(args: argparse.Namespace) -> Any:
                 mode=args.mode,
                 verified_source_ids=loaded.verified_source_ids,
             )
+            .model_dump(mode="json")
+        )
+    if args.command == "browser":
+        from blender_vision.perception.browser_benchmark import BrowserBenchmarkRunner
+
+        return (
+            BrowserBenchmarkRunner(Path(args.manifest) if args.manifest else None)
+            .run(Path(args.output))
             .model_dump(mode="json")
         )
     if args.command == "model":

@@ -1,6 +1,11 @@
 """Evidence-governed perception capture and query services."""
 
 from blender_vision.perception.browser import BrowserAdapter
+from blender_vision.perception.browser_benchmark import (
+    BrowserBenchmarkReceipt,
+    BrowserBenchmarkRunner,
+    load_browser_benchmark_manifest,
+)
 from blender_vision.perception.bus import AdapterRegistry, CaptureBus
 from blender_vision.perception.capsules import (
     ExperienceIRCompiler,
@@ -39,6 +44,8 @@ from blender_vision.perception.workspace import PerceptionWorkspace
 __all__ = [
     "AdapterRegistry",
     "BrowserAdapter",
+    "BrowserBenchmarkReceipt",
+    "BrowserBenchmarkRunner",
     "BrowserExperienceAdapter",
     "CameraFrameAdapter",
     "CaptureBus",
@@ -57,6 +64,7 @@ __all__ = [
     "GraphicsRuntimeAdapter",
     "ImageFileAdapter",
     "LiveCameraAdapter",
+    "load_browser_benchmark_manifest",
     "MediaReconstructionService",
     "MotionGraphReplay",
     "ObservationQueryService",

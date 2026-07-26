@@ -17,6 +17,12 @@ from blender_vision.perception.bus import AdapterRegistry, CaptureBus
 from blender_vision.perception.query import ObservationQueryService
 from blender_vision.projects.store import ProjectStore
 
+_CROSS_BROWSER_ENGINES = [
+    item
+    for item in os.environ.get("BVMCP_CROSS_BROWSER_ENGINES", "webkit").split(",")
+    if item
+]
+
 
 @contextlib.contextmanager
 def owned_fixture_server() -> Any:
@@ -61,6 +67,53 @@ def test_browser_adapter_requires_explicit_origin_and_private_network_consent() 
     )
     assert normalized["viewport"] == {"width": 1280, "height": 720}
     assert normalized["allowed_origins"] == ["http://127.0.0.1:8765"]
+    assert normalized["engine"] == "chromium"
+    assert normalized["channel"] == "chrome"
+
+
+def test_browser_adapter_normalizes_engine_device_and_network_authority() -> None:
+    adapter = BrowserAdapter()
+    target = adapter.normalize_target({"url": "http://127.0.0.1:8765/"})
+    base = {
+        "allowed_origins": ["http://127.0.0.1:8765"],
+        "allow_private_network": True,
+    }
+
+    firefox = adapter.normalize_config(
+        target,
+        {
+            **base,
+            "engine": "firefox",
+            "viewport": {"width": 390, "height": 844},
+            "device_scale_factor": 3,
+            "has_touch": True,
+            "orientation": "portrait",
+            "color_scheme": "dark",
+            "reduced_motion": "reduce",
+        },
+    )
+
+    assert firefox["engine"] == "firefox"
+    assert firefox["channel"] is None
+    assert firefox["has_touch"] is True
+    assert firefox["orientation"] == "portrait"
+    assert firefox["resolved_executable_path"].endswith("/firefox")
+    with pytest.raises(ValueError, match="channels"):
+        adapter.normalize_config(target, {**base, "engine": "webkit", "channel": "chrome"})
+    with pytest.raises(ValueError, match="orientation"):
+        adapter.normalize_config(
+            target,
+            {
+                **base,
+                "viewport": {"width": 844, "height": 390},
+                "orientation": "portrait",
+            },
+        )
+    with pytest.raises(ValueError, match="CDP"):
+        adapter.normalize_config(
+            target,
+            {**base, "engine": "firefox", "network_profile": "slow-3g"},
+        )
 
 
 def test_browser_adapter_redacts_secrets_recursively() -> None:
@@ -126,6 +179,7 @@ async def test_real_chrome_capture_produces_queryable_observed_evidence(
         "dom.html",
         "dom.snapshot",
         "accessibility.tree",
+        "accessibility.journey",
         "layout.graph",
         "stylesheets",
         "fonts",
@@ -138,6 +192,12 @@ async def test_real_chrome_capture_produces_queryable_observed_evidence(
     } <= roles
     assert capture["authority"] == "OBSERVED"
     assert capture["summary"]["http_status"] == 200
+    assert capture["summary"]["browser_engine"] == "chromium"
+    assert capture["summary"]["accessibility_critical_or_serious_count"] == 0
+    assert capture["summary"]["keyboard_journey_status"] in {
+        "COMPLETE_CYCLE",
+        "COMPLETE_DOCUMENT",
+    }
     assert capture["summary"]["node_count"] >= 6
     assert reused["reused"] is True
     assert reused["capture_id"] == capture["capture_id"]
@@ -195,3 +255,46 @@ async def test_real_chrome_capture_produces_queryable_observed_evidence(
     network_bytes = bus.artifacts.path_for(network_role["digest"]).read_bytes()
     assert b"owned-fixture" not in network_bytes
     assert b"REDACTED" in network_bytes
+
+
+@pytest.mark.skipif(
+    os.environ.get("BVMCP_RUN_CROSS_BROWSER_TESTS") != "1",
+    reason="set BVMCP_RUN_CROSS_BROWSER_TESTS=1 to launch managed Firefox and WebKit",
+)
+@pytest.mark.parametrize("engine", _CROSS_BROWSER_ENGINES)
+def test_real_additional_engine_capture_is_accessible_and_evidence_bound(
+    tmp_path: Path,
+    engine: str,
+) -> None:
+    project = ProjectStore.create(tmp_path / engine, f"{engine} perception")
+    adapter = BrowserAdapter()
+    registry = AdapterRegistry()
+    registry.register(adapter)
+    bus = CaptureBus(project, registry)
+
+    with owned_fixture_server() as origin:
+        capture = bus.observe(
+            adapter.name,
+            {"url": f"{origin}/index.html"},
+            {
+                "engine": engine,
+                "allowed_origins": [origin],
+                "allow_private_network": True,
+                "viewport": {"width": 390, "height": 844},
+                "device_scale_factor": 2,
+                "orientation": "portrait",
+                "has_touch": True,
+                "color_scheme": "dark",
+                "reduced_motion": "reduce",
+            },
+            rights_decision="SYNTHETIC_OWNED",
+        )
+
+    roles = {artifact["role"] for artifact in capture["artifacts"]}
+    assert capture["summary"]["browser_engine"] == engine
+    assert capture["summary"]["http_status"] == 200
+    assert capture["summary"]["accessibility_critical_or_serious_count"] == 0
+    assert capture["environment"]["browser_engine"] == engine
+    assert capture["environment"]["browser_executable_sha256"]
+    assert {"accessibility.tree", "accessibility.journey", "layout.graph"} <= roles
+    assert bus.verify(capture["capture_id"])["valid"] is True
