@@ -1,0 +1,9 @@
+HTTP/2 200
+accept-ranges: bytes
+alt-svc: h3=":443"; ma=2592000
+cache-control: public, max-age=86400
+content-type: model/gltf-binary
+date: Sun, 26 Jul 2026 04:57:28 GMT
+via: 1.1 Caddy
+x-content-type-options: nosniff
+x-request-id: 50aaf166-5c16-4aa8-827e-2101f82850d4
