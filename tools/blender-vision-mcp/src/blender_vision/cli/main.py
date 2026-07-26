@@ -114,6 +114,22 @@ def build_parser() -> argparse.ArgumentParser:
         default="artifacts/100-plus/capability-report.json",
     )
 
+    application = sub.add_parser("app", help="compile governed application reference packets")
+    application_sub = application.add_subparsers(dest="application_command", required=True)
+    application_check = application_sub.add_parser("check")
+    application_check.add_argument("packet")
+    application_compile = application_sub.add_parser("compile")
+    application_compile.add_argument("packet")
+    application_compile.add_argument("--workspace", required=True)
+    application_compile.add_argument("--candidate-id", required=True)
+    application_compile.add_argument(
+        "--mode",
+        choices=("draft", "promotion_candidate"),
+        default="draft",
+    )
+    application_verify = application_sub.add_parser("verify")
+    application_verify.add_argument("candidate")
+
     model = sub.add_parser("model", help="govern manually acquired model checkpoints")
     model_sub = model.add_subparsers(dest="model_command", required=True)
     model_approve = model_sub.add_parser("approve-source")
@@ -637,6 +653,34 @@ def dispatch(args: argparse.Namespace) -> Any:
                 )
             ],
         }
+    if args.command == "app":
+        from blender_vision.app_build import (
+            ApplicationReferencePacket,
+            BoundedApplicationCompiler,
+            ReferenceCompletenessAnalyzer,
+        )
+
+        if args.application_command == "verify":
+            candidate = Path(args.candidate).expanduser().resolve()
+            return (
+                BoundedApplicationCompiler(candidate.parent)
+                .verify_candidate(candidate)
+                .model_dump(mode="json")
+            )
+        packet = ApplicationReferencePacket.model_validate_json(
+            Path(args.packet).read_text(encoding="utf-8")
+        )
+        if args.application_command == "check":
+            return ReferenceCompletenessAnalyzer().analyze(packet).model_dump(mode="json")
+        return (
+            BoundedApplicationCompiler(Path(args.workspace))
+            .compile(
+                packet,
+                candidate_id=args.candidate_id,
+                mode=args.mode,
+            )
+            .model_dump(mode="json")
+        )
     if args.command == "model":
         from blender_vision.models.store import ModelStore
 

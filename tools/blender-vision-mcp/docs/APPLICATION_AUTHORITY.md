@@ -62,3 +62,50 @@ uv run pytest tests/test_application_specification.py
 The application compiler consumes the packet digest and completeness report. It refuses to build
 an unlabelled production candidate when business rules, auth policy, deployment target, or another
 required authority is absent.
+
+## Bounded compiler
+
+`BoundedApplicationCompiler` v1 supports declared REST + SQLite applications on local process or
+container targets. It generates:
+
+- strict TypeScript backend and frontend source;
+- relational schema, numbered up migration, and rollback;
+- list/get/create/update/delete handlers;
+- idempotent create with request hashes, replay, conflict, scope, and retention;
+- file upload type, size, permission, and confined-storage boundaries;
+- status/polling lookup with explicit missing-record recovery;
+- deny-by-default role/permission checks using the declared local test identity provider;
+- parameterized SQL and validated identifiers;
+- OpenAPI;
+- deterministic frontend shell with semantic routes, keyboard focus, and reduced motion;
+- generated API/authorization/CRUD/idempotency/upload/status tests;
+- structured request logs and health checks;
+- pinned package lock;
+- Dockerfile and Compose target;
+- packet, completeness, source-file, and candidate receipts.
+
+The compiler currently refuses unsupported database, protocol, tenant, remote-deployment, and auth
+provider classes. It does not silently replace them with easier implementations.
+
+```bash
+bvmcp app check packet.json
+bvmcp app compile packet.json \
+  --workspace /tmp/application-candidates \
+  --candidate-id candidate-v1 \
+  --mode promotion_candidate
+bvmcp app verify /tmp/application-candidates/candidate-v1
+```
+
+Generated candidates reproduce with:
+
+```bash
+npm ci
+npm run verify
+npm run db:migrate
+npm run db:migrate
+npm run db:rollback
+docker compose build
+```
+
+Failed generation attempts are retained under the compiler workspace `failed/` directory with the
+exact error rather than deleted.

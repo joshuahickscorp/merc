@@ -73,6 +73,13 @@
           "title": "Authorization",
           "type": "string"
         },
+        "business_rule_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Business Rule Ids",
+          "type": "array"
+        },
         "entity_refs": {
           "items": {
             "type": "string"
@@ -90,6 +97,9 @@
             }
           ],
           "default": null
+        },
+        "handler": {
+          "$ref": "#/$defs/HandlerBinding"
         },
         "idempotency": {
           "anyOf": [
@@ -164,6 +174,7 @@
         "request_fields",
         "responses",
         "entity_refs",
+        "handler",
         "authorization",
         "rate_limit",
         "timeout_ms"
@@ -1035,6 +1046,83 @@
         "malware_scan_policy"
       ],
       "title": "FileBoundary",
+      "type": "object"
+    },
+    "HandlerBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_ref": {
+          "title": "Entity Ref",
+          "type": "string"
+        },
+        "field_bindings": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Field Bindings",
+          "type": "object"
+        },
+        "id_field": {
+          "title": "Id Field",
+          "type": "string"
+        },
+        "initial_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Initial Status"
+        },
+        "kind": {
+          "enum": [
+            "list_entities",
+            "get_entity",
+            "create_entity",
+            "update_entity",
+            "delete_entity",
+            "idempotent_create",
+            "file_upload",
+            "status_lookup"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "status_field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status Field"
+        },
+        "storage_subdirectory": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storage Subdirectory"
+        }
+      },
+      "required": [
+        "kind",
+        "entity_ref",
+        "id_field"
+      ],
+      "title": "HandlerBinding",
       "type": "object"
     },
     "IdempotencyContract": {

@@ -1,5 +1,11 @@
 """Governed visual + textual reference to application construction."""
 
+from blender_vision.app_build.compiler import (
+    ApplicationCandidateReceipt,
+    BoundedApplicationCompiler,
+    CandidateVerification,
+    CompilationError,
+)
 from blender_vision.app_build.completeness import ReferenceCompletenessAnalyzer
 from blender_vision.app_build.specification import (
     AcceptanceTestGraph,
@@ -20,7 +26,11 @@ __all__ = [
     "AcceptanceTestGraph",
     "ApplicationReferencePacket",
     "AuthPolicyGraph",
+    "ApplicationCandidateReceipt",
+    "BoundedApplicationCompiler",
     "BusinessRuleGraph",
+    "CandidateVerification",
+    "CompilationError",
     "DataModelGraph",
     "DeploymentGraph",
     "ObservabilityGraph",
