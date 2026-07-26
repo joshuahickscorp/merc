@@ -191,6 +191,25 @@ class IdempotencyContract(StrictModel):
     retention_seconds: int = Field(gt=0)
 
 
+class HandlerBinding(StrictModel):
+    kind: Literal[
+        "list_entities",
+        "get_entity",
+        "create_entity",
+        "update_entity",
+        "delete_entity",
+        "idempotent_create",
+        "file_upload",
+        "status_lookup",
+    ]
+    entity_ref: str
+    id_field: str
+    status_field: str | None = None
+    initial_status: str | None = None
+    storage_subdirectory: str | None = None
+    field_bindings: dict[str, str] = Field(default_factory=dict)
+
+
 class APIEndpoint(StrictModel):
     operation_id: str
     method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
@@ -199,6 +218,8 @@ class APIEndpoint(StrictModel):
     request_fields: list[APIField]
     responses: list[APIResponse]
     entity_refs: list[str]
+    business_rule_ids: list[str] = Field(default_factory=list)
+    handler: HandlerBinding
     authorization: Literal["public", "authenticated", "permission"]
     required_permissions: list[str] = Field(default_factory=list)
     idempotency: IdempotencyContract | None = None
@@ -216,6 +237,12 @@ class APIEndpoint(StrictModel):
             )
         if self.file_boundary and self.method not in {"POST", "PUT", "PATCH"}:
             raise ValueError(f"{self.operation_id} file boundary requires a mutating method")
+        if self.handler.kind == "idempotent_create" and self.idempotency is None:
+            raise ValueError(f"{self.operation_id} idempotent handler requires idempotency")
+        if self.handler.kind == "file_upload" and self.file_boundary is None:
+            raise ValueError(f"{self.operation_id} upload handler requires file boundaries")
+        if self.handler.kind == "status_lookup" and self.method != "GET":
+            raise ValueError(f"{self.operation_id} status lookup must use GET")
         return self
 
 

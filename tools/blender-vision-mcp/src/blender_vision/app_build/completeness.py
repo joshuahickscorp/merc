@@ -303,6 +303,27 @@ class ReferenceCompletenessAnalyzer:
         findings: list[CompletenessFinding],
     ) -> None:
         entities = {entity.name: entity for entity in packet.data_model.entities}
+        if len(entities) != len(packet.data_model.entities):
+            self._finding(
+                findings,
+                finding_id="duplicate-data-entity",
+                path="data_model.entities",
+                status="CONTRADICTORY",
+                severity="P0",
+                message="Data entity names must be unique.",
+                resumption="Rename duplicate entities and update every API/relation binding.",
+            )
+        table_names = [entity.table_name for entity in packet.data_model.entities]
+        if len(set(table_names)) != len(table_names):
+            self._finding(
+                findings,
+                finding_id="duplicate-data-table",
+                path="data_model.entities.table_name",
+                status="CONTRADICTORY",
+                severity="P0",
+                message="Data table names must be unique.",
+                resumption="Assign one table name per entity.",
+            )
         operations = {endpoint.operation_id: endpoint for endpoint in packet.api_contract.endpoints}
         if len(operations) != len(packet.api_contract.endpoints):
             self._finding(
@@ -326,6 +347,71 @@ class ReferenceCompletenessAnalyzer:
                     message=f"Endpoint references unknown entities: {sorted(missing)}.",
                     resumption="Add the entities to DataModelGraph or correct entity_refs.",
                 )
+            if endpoint.handler.entity_ref not in entities:
+                self._finding(
+                    findings,
+                    finding_id=f"api-{endpoint.operation_id}-unknown-handler-entity",
+                    path=f"api_contract.{endpoint.operation_id}.handler.entity_ref",
+                    status="CONTRADICTORY",
+                    severity="P0",
+                    message=(f"Handler references unknown entity {endpoint.handler.entity_ref}."),
+                    resumption="Bind the handler to a declared DataModelGraph entity.",
+                )
+            elif endpoint.handler.entity_ref not in endpoint.entity_refs:
+                self._finding(
+                    findings,
+                    finding_id=f"api-{endpoint.operation_id}-unbound-handler-entity",
+                    path=f"api_contract.{endpoint.operation_id}.handler.entity_ref",
+                    status="CONTRADICTORY",
+                    severity="P0",
+                    message="Handler entity is absent from the endpoint entity_refs.",
+                    resumption="Add the handler entity to entity_refs.",
+                )
+            else:
+                entity = entities[endpoint.handler.entity_ref]
+                field_names = {field.name for field in entity.fields}
+                request_names = {field.name for field in endpoint.request_fields}
+                if endpoint.handler.kind == "file_upload":
+                    request_names.update({"id", "content_type", "size_bytes", "storage_path"})
+                if endpoint.handler.id_field not in field_names:
+                    self._finding(
+                        findings,
+                        finding_id=f"api-{endpoint.operation_id}-unknown-id-field",
+                        path=f"api_contract.{endpoint.operation_id}.handler.id_field",
+                        status="CONTRADICTORY",
+                        severity="P0",
+                        message="Handler ID field is absent from its entity.",
+                        resumption="Bind id_field to a declared entity field.",
+                    )
+                missing_sources = set(endpoint.handler.field_bindings.keys()) - request_names
+                missing_targets = set(endpoint.handler.field_bindings.values()) - field_names
+                if missing_sources or missing_targets:
+                    self._finding(
+                        findings,
+                        finding_id=f"api-{endpoint.operation_id}-invalid-field-binding",
+                        path=f"api_contract.{endpoint.operation_id}.handler.field_bindings",
+                        status="CONTRADICTORY",
+                        severity="P0",
+                        message=(
+                            f"Handler bindings have unknown request fields "
+                            f"{sorted(missing_sources)} or entity fields "
+                            f"{sorted(missing_targets)}."
+                        ),
+                        resumption=("Bind only declared request fields to declared entity fields."),
+                    )
+                if (
+                    endpoint.handler.status_field
+                    and endpoint.handler.status_field not in field_names
+                ):
+                    self._finding(
+                        findings,
+                        finding_id=f"api-{endpoint.operation_id}-unknown-status-field",
+                        path=f"api_contract.{endpoint.operation_id}.handler.status_field",
+                        status="CONTRADICTORY",
+                        severity="P0",
+                        message="Handler status field is absent from its entity.",
+                        resumption="Bind status_field to a declared entity field.",
+                    )
             if (
                 endpoint.method in {"POST", "PUT", "PATCH"}
                 and "reservation" in endpoint.operation_id.lower()
@@ -423,6 +509,34 @@ class ReferenceCompletenessAnalyzer:
         findings: list[CompletenessFinding],
     ) -> None:
         tests = {test.id: test for test in packet.acceptance.tests}
+        rule_ids = {rule.id for rule in packet.business_rules.rules}
+        for endpoint in packet.api_contract.endpoints:
+            missing_rules = set(endpoint.business_rule_ids) - rule_ids
+            if missing_rules:
+                self._finding(
+                    findings,
+                    finding_id=f"api-{endpoint.operation_id}-missing-rules",
+                    path=f"api_contract.{endpoint.operation_id}.business_rule_ids",
+                    status="MISSING",
+                    severity="P0",
+                    message=f"Endpoint references missing business rules: {sorted(missing_rules)}.",
+                    resumption="Supply every referenced BusinessRuleGraph rule.",
+                )
+            if (
+                endpoint.method in {"POST", "PUT", "PATCH", "DELETE"}
+                and not endpoint.business_rule_ids
+            ):
+                self._finding(
+                    findings,
+                    finding_id=f"api-{endpoint.operation_id}-rules-absent",
+                    path=f"api_contract.{endpoint.operation_id}.business_rule_ids",
+                    status="MISSING",
+                    severity="P0",
+                    message="Mutating endpoint has no machine-bound business-rule authority.",
+                    resumption=(
+                        f"Bind {endpoint.operation_id} to at least one supplied business rule."
+                    ),
+                )
         journey_ids = {journey.id for journey in packet.journeys.journeys}
         covered_journeys = {
             journey_id for test in packet.acceptance.tests for journey_id in test.journey_ids

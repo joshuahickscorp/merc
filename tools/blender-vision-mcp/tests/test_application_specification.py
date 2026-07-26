@@ -150,6 +150,12 @@ def complete_packet_document() -> dict[str, object]:
                         }
                     ],
                     "entity_refs": ["Item"],
+                    "business_rule_ids": [],
+                    "handler": {
+                        "kind": "list_entities",
+                        "entity_ref": "Item",
+                        "id_field": "id",
+                    },
                     "authorization": "authenticated",
                     "rate_limit": "120/minute/actor",
                     "timeout_ms": 1000,
@@ -180,6 +186,13 @@ def complete_packet_document() -> dict[str, object]:
                         },
                     ],
                     "entity_refs": ["Item"],
+                    "business_rule_ids": ["item-name-required"],
+                    "handler": {
+                        "kind": "create_entity",
+                        "entity_ref": "Item",
+                        "id_field": "id",
+                        "field_bindings": {"name": "name"},
+                    },
                     "authorization": "permission",
                     "required_permissions": ["item.create"],
                     "rate_limit": "30/minute/actor",
