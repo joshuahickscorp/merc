@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -20,6 +21,25 @@ def _packet(**changes: object) -> ApplicationReferencePacket:
     return ApplicationReferencePacket.model_validate(document)
 
 
+def _verified_sources(packet: ApplicationReferencePacket) -> set[str]:
+    return {source.id for source in packet.sources}
+
+
+def _materialize_packet(tmp_path: Path) -> Path:
+    document = complete_packet_document()
+    for source in document["sources"]:
+        payload = f"authoritative source bytes for {source['id']}\n".encode()
+        locator = Path("packet") / f"{source['id']}.json"
+        destination = tmp_path / locator
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+        source["locator"] = locator.as_posix()
+        source["digest"] = hashlib.sha256(payload).hexdigest()
+    packet_path = tmp_path / "packet.json"
+    packet_path.write_text(json.dumps(document), encoding="utf-8")
+    return packet_path
+
+
 def test_compiler_materializes_receipt_bound_typescript_application(tmp_path: Path) -> None:
     compiler = BoundedApplicationCompiler(tmp_path / "candidates")
     packet = _packet()
@@ -28,11 +48,13 @@ def test_compiler_materializes_receipt_bound_typescript_application(tmp_path: Pa
         packet,
         candidate_id="owned-crud",
         mode="promotion_candidate",
+        verified_source_ids=_verified_sources(packet),
     )
     candidate = tmp_path / "candidates" / "owned-crud"
     verification = compiler.verify_candidate(candidate)
 
     assert receipt.promotable is True
+    assert receipt.verified_source_ids == sorted(_verified_sources(packet))
     assert receipt.packet_sha256 == packet.canonical_digest()
     assert verification.valid is True
     assert (candidate / "src" / "app.ts").is_file()
@@ -64,6 +86,20 @@ def test_verifier_detects_source_tampering(tmp_path: Path) -> None:
 
     assert verification.valid is False
     assert verification.changed_files[0]["path"] == "src/app.ts"
+
+
+def test_promotion_rejects_unverified_source_bytes(tmp_path: Path) -> None:
+    compiler = BoundedApplicationCompiler(tmp_path / "candidates")
+
+    with pytest.raises(
+        CompilationError,
+        match="promotion candidate requires digest-verified source bytes",
+    ):
+        compiler.compile(
+            _packet(),
+            candidate_id="unverified-promotion",
+            mode="promotion_candidate",
+        )
 
 
 def test_hypothesis_compiles_only_as_draft(tmp_path: Path) -> None:
@@ -129,11 +165,7 @@ def test_verified_candidate_can_be_copied_for_fresh_clone_test(tmp_path: Path) -
 
 
 def test_cli_checks_compiles_and_verifies_packet(tmp_path: Path) -> None:
-    packet_path = tmp_path / "packet.json"
-    packet_path.write_text(
-        json.dumps(complete_packet_document()),
-        encoding="utf-8",
-    )
+    packet_path = _materialize_packet(tmp_path)
     workspace = tmp_path / "workspace"
     parser = build_parser()
 
@@ -156,6 +188,8 @@ def test_cli_checks_compiles_and_verifies_packet(tmp_path: Path) -> None:
     verified = dispatch(parser.parse_args(["app", "verify", str(workspace / "cli-candidate")]))
 
     assert checked["promotable"] is True
+    assert checked["missing_authority"] == []
     assert compiled["candidate_id"] == "cli-candidate"
     assert compiled["promotable"] is True
+    assert compiled["verified_source_ids"]
     assert verified["valid"] is True

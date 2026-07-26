@@ -65,6 +65,7 @@ class ApplicationCandidateReceipt(StrictModel):
     source_git_head: str = Field(pattern=r"^[0-9a-f]{40}$")
     packet_id: str
     packet_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    verified_source_ids: list[str]
     completeness_report: ReferenceCompletenessReport
     promotable: bool
     generated_at: str
@@ -280,6 +281,7 @@ class BoundedApplicationCompiler:
         packet: ApplicationReferencePacket,
         report: ReferenceCompletenessReport,
         mode: str,
+        verified_source_ids: set[str] | None,
     ) -> None:
         if not report.compilable_as_draft:
             raise CompilationError(
@@ -290,6 +292,13 @@ class BoundedApplicationCompiler:
                 "promotion candidate requires complete authority: "
                 + "; ".join(report.exact_resumption_contracts)
             )
+        if mode == "promotion_candidate":
+            expected_sources = {source.id for source in packet.sources}
+            if verified_source_ids != expected_sources:
+                missing = sorted(expected_sources - (verified_source_ids or set()))
+                raise CompilationError(
+                    f"promotion candidate requires digest-verified source bytes; missing: {missing}"
+                )
         if packet.data_model.database_engine != "sqlite":
             raise CompilationError("bounded compiler v1 supports declared SQLite targets only")
         if packet.api_contract.protocol != "REST":
@@ -399,6 +408,7 @@ class BoundedApplicationCompiler:
         *,
         candidate_id: str,
         mode: Literal["draft", "promotion_candidate"] = "draft",
+        verified_source_ids: set[str] | None = None,
     ) -> ApplicationCandidateReceipt:
         if not CANDIDATE_ID.fullmatch(candidate_id):
             raise CompilationError(
@@ -407,8 +417,11 @@ class BoundedApplicationCompiler:
         destination = self.workspace_root / candidate_id
         if destination.exists():
             raise CompilationError(f"candidate destination already exists: {destination}")
-        report = ReferenceCompletenessAnalyzer().analyze(packet)
-        self._validate_support(packet, report, mode)
+        report = ReferenceCompletenessAnalyzer().analyze(
+            packet,
+            verified_source_ids=verified_source_ids,
+        )
+        self._validate_support(packet, report, mode, verified_source_ids)
         temporary = Path(
             tempfile.mkdtemp(prefix=f".{candidate_id}-", dir=self.workspace_root)
         ).resolve()
@@ -423,6 +436,7 @@ class BoundedApplicationCompiler:
                 source_git_head=_git_head(project_root),
                 packet_id=packet.packet_id,
                 packet_sha256=packet.canonical_digest(),
+                verified_source_ids=sorted(verified_source_ids or set()),
                 completeness_report=report,
                 promotable=mode == "promotion_candidate" and report.promotable,
                 generated_at=datetime.now(UTC).isoformat(),
