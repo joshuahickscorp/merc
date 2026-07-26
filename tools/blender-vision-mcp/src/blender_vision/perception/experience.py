@@ -297,6 +297,7 @@ class BrowserExperienceAdapter(BrowserAdapter):
             )
             responsive_graph = self._capture_responsive(page, target, config, sink)
             motion_graph = self._capture_motion(page, target, config, sink, browser)
+            browser_version = browser.version
             context.close()
             browser.close()
 
@@ -335,6 +336,7 @@ class BrowserExperienceAdapter(BrowserAdapter):
         return CaptureOutcome(
             summary={
                 "browser_engine": config["engine"],
+                "browser_version": browser_version,
                 "state_count": len(state_graph["nodes"]),
                 "state_transition_count": len(state_graph["edges"]),
                 "interaction_count": len(interaction_graph["edges"]),

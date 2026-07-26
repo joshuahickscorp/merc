@@ -300,4 +300,8 @@ def test_real_additional_engine_replays_keyboard_touch_responsive_and_motion(
     assert capture["summary"]["responsive_observation_count"] == 2
     assert capture["summary"]["motion_timeline_count"] == 2
     assert capture["summary"]["accessibility_critical_or_serious_count"] == 0
+    assert capture["summary"]["keyboard_journey_status"] in {
+        "COMPLETE_CYCLE",
+        "COMPLETE_DOCUMENT",
+    }
     assert bus.verify(capture["capture_id"])["valid"] is True
