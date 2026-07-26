@@ -1,0 +1,7 @@
+{
+  "authority": "SPECIFIED",
+  "benchmark_case": "rbac-denied-paths",
+  "kind": "api_contract",
+  "rights_state": "OWNED",
+  "source_id": "api"
+}

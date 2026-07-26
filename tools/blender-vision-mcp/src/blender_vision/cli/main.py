@@ -129,6 +129,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     application_verify = application_sub.add_parser("verify")
     application_verify.add_argument("candidate")
+    application_benchmark = application_sub.add_parser("benchmark")
+    application_benchmark.add_argument("--manifest")
+    application_benchmark.add_argument("--output", required=True)
+    application_benchmark.add_argument(
+        "--case",
+        action="append",
+        default=[],
+        help="run only this fixed case; repeat for multiple cases",
+    )
 
     model = sub.add_parser("model", help="govern manually acquired model checkpoints")
     model_sub = model.add_subparsers(dest="model_command", required=True)
@@ -655,11 +664,21 @@ def dispatch(args: argparse.Namespace) -> Any:
         }
     if args.command == "app":
         from blender_vision.app_build import (
+            ApplicationBenchmarkRunner,
             BoundedApplicationCompiler,
             ReferenceCompletenessAnalyzer,
             ReferencePacketLoader,
         )
 
+        if args.application_command == "benchmark":
+            return (
+                ApplicationBenchmarkRunner(Path(args.manifest) if args.manifest else None)
+                .run(
+                    Path(args.output),
+                    case_ids=set(args.case) if args.case else None,
+                )
+                .model_dump(mode="json")
+            )
         if args.application_command == "verify":
             candidate = Path(args.candidate).expanduser().resolve()
             return (
