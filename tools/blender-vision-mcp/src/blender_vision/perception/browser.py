@@ -1001,15 +1001,19 @@ class BrowserAdapter:
                 break
             active["index"] = index
             selector = active["selector"]
+            if selector in {"body", "html > body:nth-of-type(1)"}:
+                if steps:
+                    status = "COMPLETE_DOCUMENT"
+                    break
+                # WebKit reports the body as the first Tab sentinel before it
+                # advances into the sequential focus navigation order.
+                continue
             if first_selector is None:
                 first_selector = selector
             elif selector == first_selector:
                 status = "COMPLETE_CYCLE"
                 break
             steps.append(active)
-            if selector in {"body", "html > body:nth-of-type(1)"}:
-                status = "COMPLETE_DOCUMENT" if len(steps) > 1 else "FOCUS_LEFT_DOCUMENT"
-                break
         return {
             "schema": "vision.keyboard-journey/v1",
             "status": status,

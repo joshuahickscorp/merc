@@ -133,6 +133,39 @@ def test_browser_adapter_redacts_secrets_recursively() -> None:
     assert url == "https://example.test/path?token=%5BREDACTED%5D&safe=yes"
 
 
+def test_keyboard_journey_skips_webkit_body_sentinel_before_controls() -> None:
+    class Keyboard:
+        def press(self, key: str) -> None:
+            assert key == "Tab"
+
+    class Page:
+        keyboard = Keyboard()
+
+        def __init__(self) -> None:
+            self.focus = iter(
+                [
+                    {"selector": "body", "tag": "body", "role": None, "name": ""},
+                    {
+                        "selector": "#action",
+                        "tag": "button",
+                        "role": None,
+                        "name": "Action",
+                    },
+                    {"selector": "body", "tag": "body", "role": None, "name": ""},
+                ]
+            )
+
+        def evaluate(self, script: str) -> dict[str, Any] | None:
+            if "blur()" in script:
+                return None
+            return next(self.focus)
+
+    journey = BrowserAdapter._keyboard_journey(Page(), {"keyboard_step_limit": 8})
+
+    assert journey["status"] == "COMPLETE_DOCUMENT"
+    assert journey["unique_focus_targets"] == ["#action"]
+
+
 @pytest.mark.skipif(
     os.environ.get("BVMCP_RUN_BROWSER_TESTS") != "1",
     reason="set BVMCP_RUN_BROWSER_TESTS=1 to launch the installed Chrome browser",
