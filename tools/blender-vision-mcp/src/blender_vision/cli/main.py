@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -526,6 +527,34 @@ def build_parser() -> argparse.ArgumentParser:
     adversarial = benchmark_sub.add_parser("bootstrap-adversarial")
     adversarial.add_argument("--output", required=True)
     adversarial.add_argument("--manifest")
+    nocturne_oracle = benchmark_sub.add_parser("bootstrap-nocturne-oracle")
+    nocturne_oracle.add_argument("--output", required=True)
+    nocturne_oracle.add_argument("--contract")
+    nocturne_3d = benchmark_sub.add_parser("evaluate-nocturne-3d")
+    nocturne_3d.add_argument("--packet", required=True)
+    nocturne_3d.add_argument("--oracle", required=True)
+    nocturne_3d.add_argument("--candidate", required=True)
+    nocturne_3d.add_argument("--builder-receipt", required=True)
+    nocturne_3d.add_argument("--output", required=True)
+    nocturne_3d.add_argument("--contract")
+    nocturne_app = benchmark_sub.add_parser("evaluate-nocturne-app")
+    nocturne_app.add_argument("--packet", required=True)
+    nocturne_app.add_argument("--candidate", required=True)
+    nocturne_app.add_argument("--builder-receipt", required=True)
+    nocturne_app.add_argument("--hidden-mobile-trace", required=True)
+    nocturne_app.add_argument("--output", required=True)
+    nocturne_app.add_argument("--contract")
+    nocturne_seal = benchmark_sub.add_parser("seal-nocturne-candidate")
+    nocturne_seal.add_argument("--packet", required=True)
+    nocturne_seal.add_argument("--candidate", required=True)
+    nocturne_seal.add_argument("--condition", required=True)
+    nocturne_seal.add_argument(
+        "--attempt",
+        action="append",
+        required=True,
+        help="ID:FAILED|ACCEPTED:relative/receipt.json",
+    )
+    nocturne_seal.add_argument("--contract")
     for command_name in ("bootstrap-dgx-spark", "bootstrap-rtx-5090-fe"):
         device = benchmark_sub.add_parser(command_name)
         device.add_argument("--project", required=True)
@@ -1194,6 +1223,88 @@ def dispatch(args: argparse.Namespace) -> Any:
             args.asynchronous,
         )
     if args.command == "benchmark":
+        if args.benchmark_command == "seal-nocturne-candidate":
+            from blender_vision.benchmarks.nocturne_app import (
+                seal_nocturne_candidate,
+            )
+
+            attempts = []
+            for value in args.attempt:
+                identifier, status, relative = value.split(":", 2)
+                if status not in {"FAILED", "ACCEPTED"}:
+                    raise ValueError("attempt status must be FAILED or ACCEPTED")
+                attempts.append((identifier, status, relative))
+            return seal_nocturne_candidate(
+                candidate_root=Path(args.candidate),
+                packet_root=Path(args.packet),
+                builder_condition=args.condition,
+                attempts=attempts,
+                contract_path=Path(args.contract) if args.contract else None,
+            ).model_dump(mode="json")
+        if args.benchmark_command == "evaluate-nocturne-app":
+            from blender_vision.benchmarks.nocturne_app import (
+                NocturneAppEvaluator,
+            )
+
+            return (
+                NocturneAppEvaluator(
+                    Path(args.contract) if args.contract else None
+                )
+                .run(
+                    packet_root=Path(args.packet),
+                    candidate_root=Path(args.candidate),
+                    sealed_builder_receipt_path=Path(args.builder_receipt),
+                    hidden_mobile_trace_path=Path(args.hidden_mobile_trace),
+                    output_root=Path(args.output),
+                )
+                .model_dump(mode="json")
+            )
+        if args.benchmark_command == "evaluate-nocturne-3d":
+            from blender_vision.benchmarks.nocturne_3d import (
+                Nocturne3DEvaluator,
+            )
+
+            return (
+                Nocturne3DEvaluator(
+                    Path(args.contract) if args.contract else None
+                )
+                .run(
+                    packet_root=Path(args.packet),
+                    sealed_oracle_root=Path(args.oracle),
+                    candidate_root=Path(args.candidate),
+                    sealed_builder_receipt_path=Path(args.builder_receipt),
+                    output_root=Path(args.output),
+                )
+                .model_dump(mode="json")
+            )
+        if args.benchmark_command == "bootstrap-nocturne-oracle":
+            from blender_vision.benchmarks.nocturne import (
+                nocturne_benchmark_root,
+            )
+
+            command = [
+                sys.executable,
+                str(nocturne_benchmark_root() / "oracle_author" / "generate.py"),
+                "--output",
+                args.output,
+                *(["--contract", args.contract] if args.contract else []),
+            ]
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=2400,
+                check=False,
+            )
+            if completed.returncode:
+                raise BlenderVisionError(
+                    "NOCTURNE/ONE oracle generation failed: "
+                    + completed.stderr[-4000:]
+                )
+            receipt_path = Path(args.output).expanduser().resolve() / (
+                "oracle-author.receipt.json"
+            )
+            return json.loads(receipt_path.read_text(encoding="utf-8"))
         if args.benchmark_command == "bootstrap-adversarial":
             from blender_vision.benchmarks.adversarial import (
                 AdversarialBenchmarkRunner,
