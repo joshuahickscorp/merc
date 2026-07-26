@@ -1,0 +1,1744 @@
+{
+  "$defs": {
+    "APIContractGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authority Refs",
+          "type": "array"
+        },
+        "base_path": {
+          "title": "Base Path",
+          "type": "string"
+        },
+        "endpoints": {
+          "items": {
+            "$ref": "#/$defs/APIEndpoint"
+          },
+          "title": "Endpoints",
+          "type": "array"
+        },
+        "error_envelope": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Error Envelope",
+          "type": "object"
+        },
+        "protocol": {
+          "enum": [
+            "REST",
+            "GraphQL",
+            "RPC"
+          ],
+          "title": "Protocol",
+          "type": "string"
+        },
+        "sample_payload_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sample Payload Refs",
+          "type": "array"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "base_path",
+        "version",
+        "endpoints",
+        "error_envelope",
+        "sample_payload_refs",
+        "authority_refs"
+      ],
+      "title": "APIContractGraph",
+      "type": "object"
+    },
+    "APIEndpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization": {
+          "enum": [
+            "public",
+            "authenticated",
+            "permission"
+          ],
+          "title": "Authorization",
+          "type": "string"
+        },
+        "entity_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Refs",
+          "type": "array"
+        },
+        "file_boundary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileBoundary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "idempotency": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdempotencyContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "operation_id": {
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "rate_limit": {
+          "title": "Rate Limit",
+          "type": "string"
+        },
+        "request_fields": {
+          "items": {
+            "$ref": "#/$defs/APIField"
+          },
+          "title": "Request Fields",
+          "type": "array"
+        },
+        "required_permissions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Permissions",
+          "type": "array"
+        },
+        "responses": {
+          "items": {
+            "$ref": "#/$defs/APIResponse"
+          },
+          "title": "Responses",
+          "type": "array"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "exclusiveMinimum": 0,
+          "title": "Timeout Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operation_id",
+        "method",
+        "path",
+        "summary",
+        "request_fields",
+        "responses",
+        "entity_refs",
+        "authorization",
+        "rate_limit",
+        "timeout_ms"
+      ],
+      "title": "APIEndpoint",
+      "type": "object"
+    },
+    "APIField": {
+      "additionalProperties": false,
+      "properties": {
+        "data_type": {
+          "title": "Data Type",
+          "type": "string"
+        },
+        "location": {
+          "enum": [
+            "path",
+            "query",
+            "header",
+            "body",
+            "response"
+          ],
+          "title": "Location",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "validation": {
+          "additionalProperties": true,
+          "title": "Validation",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "location",
+        "data_type",
+        "required"
+      ],
+      "title": "APIField",
+      "type": "object"
+    },
+    "APIResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "schema_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Ref"
+        },
+        "status": {
+          "maximum": 599,
+          "minimum": 100,
+          "title": "Status",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "description"
+      ],
+      "title": "APIResponse",
+      "type": "object"
+    },
+    "AcceptanceTest": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "title": "Command",
+          "type": "string"
+        },
+        "expected": {
+          "title": "Expected",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "journey_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Journey Ids",
+          "type": "array"
+        },
+        "level": {
+          "enum": [
+            "unit",
+            "integration",
+            "api",
+            "browser",
+            "accessibility",
+            "visual",
+            "performance",
+            "security",
+            "migration",
+            "rollback"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "operation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Operation Ids",
+          "type": "array"
+        },
+        "requirement": {
+          "title": "Requirement",
+          "type": "string"
+        },
+        "route_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Route Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "level",
+        "requirement",
+        "command",
+        "expected"
+      ],
+      "title": "AcceptanceTest",
+      "type": "object"
+    },
+    "AcceptanceTestGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authority Refs",
+          "type": "array"
+        },
+        "fresh_clone_command": {
+          "title": "Fresh Clone Command",
+          "type": "string"
+        },
+        "global_regression_command": {
+          "title": "Global Regression Command",
+          "type": "string"
+        },
+        "tests": {
+          "items": {
+            "$ref": "#/$defs/AcceptanceTest"
+          },
+          "title": "Tests",
+          "type": "array"
+        }
+      },
+      "required": [
+        "tests",
+        "global_regression_command",
+        "fresh_clone_command",
+        "authority_refs"
+      ],
+      "title": "AcceptanceTestGraph",
+      "type": "object"
+    },
+    "AccessibilityRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "criterion": {
+          "title": "Criterion",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "A",
+            "AA",
+            "AAA",
+            "benchmark"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "test_method": {
+          "title": "Test Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "criterion",
+        "level",
+        "test_method"
+      ],
+      "title": "AccessibilityRequirement",
+      "type": "object"
+    },
+    "AuthPolicyGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authority Refs",
+          "type": "array"
+        },
+        "credential_storage_policy": {
+          "title": "Credential Storage Policy",
+          "type": "string"
+        },
+        "cross_tenant_policy": {
+          "title": "Cross Tenant Policy",
+          "type": "string"
+        },
+        "default_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Default Role"
+        },
+        "deny_by_default": {
+          "title": "Deny By Default",
+          "type": "boolean"
+        },
+        "identity_claim": {
+          "title": "Identity Claim",
+          "type": "string"
+        },
+        "permissions": {
+          "items": {
+            "$ref": "#/$defs/PermissionSpec"
+          },
+          "title": "Permissions",
+          "type": "array"
+        },
+        "provider": {
+          "enum": [
+            "none",
+            "test_header",
+            "oidc",
+            "oauth2",
+            "signed_session",
+            "api_key"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/RoleSpec"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "session_lifetime_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Lifetime Seconds"
+        },
+        "tenant_claim": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tenant Claim"
+        }
+      },
+      "required": [
+        "provider",
+        "identity_claim",
+        "roles",
+        "permissions",
+        "default_role",
+        "deny_by_default",
+        "cross_tenant_policy",
+        "credential_storage_policy",
+        "authority_refs"
+      ],
+      "title": "AuthPolicyGraph",
+      "type": "object"
+    },
+    "AuthorityClass": {
+      "enum": [
+        "OBSERVED",
+        "SPECIFIED",
+        "DERIVED",
+        "HYPOTHESIS"
+      ],
+      "title": "AuthorityClass",
+      "type": "string"
+    },
+    "BusinessRule": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance_test_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Acceptance Test Ids",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "deterministic_effect": {
+          "title": "Deterministic Effect",
+          "type": "string"
+        },
+        "duplicate_behavior": {
+          "title": "Duplicate Behavior",
+          "type": "string"
+        },
+        "failure_behavior": {
+          "title": "Failure Behavior",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "invariants": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Invariants",
+          "type": "array"
+        },
+        "preconditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Preconditions",
+          "type": "array"
+        },
+        "retry_behavior": {
+          "title": "Retry Behavior",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "inputs",
+        "preconditions",
+        "deterministic_effect",
+        "invariants",
+        "retry_behavior",
+        "duplicate_behavior",
+        "failure_behavior",
+        "acceptance_test_ids"
+      ],
+      "title": "BusinessRule",
+      "type": "object"
+    },
+    "BusinessRuleGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "analytics_events": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Analytics Events",
+          "type": "array"
+        },
+        "authority_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authority Refs",
+          "type": "array"
+        },
+        "edge_case_matrix": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Edge Case Matrix",
+          "type": "array"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/BusinessRule"
+          },
+          "title": "Rules",
+          "type": "array"
+        }
+      },
+      "required": [
+        "rules",
+        "edge_case_matrix",
+        "analytics_events",
+        "authority_refs"
+      ],
+      "title": "BusinessRuleGraph",
+      "type": "object"
+    },
+    "DataEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "contains_sensitive_data": {
+          "default": false,
+          "title": "Contains Sensitive Data",
+          "type": "boolean"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/DataField"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "indexes": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Indexes",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "retention_policy": {
+          "title": "Retention Policy",
+          "type": "string"
+        },
+        "table_name": {
+          "title": "Table Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "table_name",
+        "fields",
+        "retention_policy"
+      ],
+      "title": "DataEntity",
+      "type": "object"
+    },
+    "DataField": {
+      "additionalProperties": false,
+      "properties": {
+        "data_type": {
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "datetime",
+            "json",
+            "binary",
+            "uuid"
+          ],
+          "title": "Data Type",
+          "type": "string"
+        },
+        "default": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "nullable": {
+          "default": false,
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "primary_key": {
+          "default": false,
+          "title": "Primary Key",
+          "type": "boolean"
+        },
+        "unique": {
+          "default": false,
+          "title": "Unique",
+          "type": "boolean"
+        },
+        "validation": {
+          "additionalProperties": true,
+          "title": "Validation",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "data_type"
+      ],
+      "title": "DataField",
+      "type": "object"
+    },
+    "DataModelGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authority Refs",
+          "type": "array"
+        },
+        "database_engine": {
+          "enum": [
+            "sqlite",
+            "postgresql"
+          ],
+          "title": "Database Engine",
+          "type": "string"
+        },
+        "entities": {
+          "items": {
+            "$ref": "#/$defs/DataEntity"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "migration_policy": {
+          "title": "Migration Policy",
+          "type": "string"
+        },
+        "relations": {
+          "items": {
+            "$ref": "#/$defs/DataRelation"
+          },
+          "title": "Relations",
+          "type": "array"
+        },
+        "rollback_policy": {
+          "title": "Rollback Policy",
+          "type": "string"
+        },
+        "seed_policy": {
+          "title": "Seed Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "database_engine",
+        "entities",
+        "relations",
+        "seed_policy",
+        "migration_policy",
+        "rollback_policy",
+        "authority_refs"
+      ],
+      "title": "DataModelGraph",
+      "type": "object"
+    },
+    "DataRelation": {
+      "additionalProperties": false,
+      "properties": {
+        "cardinality": {
+          "enum": [
+            "one_to_one",
+            "one_to_many",
+            "many_to_many"
+          ],
+          "title": "Cardinality",
+          "type": "string"
+        },
+        "from_entity": {
+          "title": "From Entity",
+          "type": "string"
+        },
+        "from_field": {
+          "title": "From Field",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "on_delete": {
+          "enum": [
+            "restrict",
+            "cascade",
+            "set_null"
+          ],
+          "title": "On Delete",
+          "type": "string"
+        },
+        "to_entity": {
+          "title": "To Entity",
+          "type": "string"
+        },
+        "to_field": {
+          "title": "To Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "from_entity",
+        "from_field",
+        "to_entity",
+        "to_field",
+        "cardinality",
+        "on_delete"
+      ],
+      "title": "DataRelation",
+      "type": "object"
+    },
+    "DeploymentGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authority Refs",
+          "type": "array"
+        },
+        "edges": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Edges",
+          "type": "array"
+        },
+        "fresh_clone_command": {
+          "title": "Fresh Clone Command",
+          "type": "string"
+        },
+        "migration_command": {
+          "title": "Migration Command",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/DeploymentNode"
+          },
+          "title": "Nodes",
+          "type": "array"
+        },
+        "release_command": {
+          "title": "Release Command",
+          "type": "string"
+        },
+        "rollback_command": {
+          "title": "Rollback Command",
+          "type": "string"
+        },
+        "secret_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Secret Names",
+          "type": "array"
+        },
+        "target": {
+          "enum": [
+            "local_process",
+            "local_container",
+            "kubernetes",
+            "cloud_run",
+            "user_authorized_remote"
+          ],
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "nodes",
+        "edges",
+        "secret_names",
+        "migration_command",
+        "rollback_command",
+        "fresh_clone_command",
+        "release_command",
+        "authority_refs"
+      ],
+      "title": "DeploymentGraph",
+      "type": "object"
+    },
+    "DeploymentNode": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "title": "Artifact",
+          "type": "string"
+        },
+        "health_check": {
+          "title": "Health Check",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "frontend",
+            "api",
+            "database",
+            "worker",
+            "object_store",
+            "proxy"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource_limits": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Resource Limits",
+          "type": "object"
+        },
+        "runtime": {
+          "title": "Runtime",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "runtime",
+        "artifact",
+        "health_check",
+        "resource_limits"
+      ],
+      "title": "DeploymentNode",
+      "type": "object"
+    },
+    "ErrorCase": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance_test_id": {
+          "title": "Acceptance Test Id",
+          "type": "string"
+        },
+        "expected_api_status": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Api Status"
+        },
+        "expected_user_state": {
+          "title": "Expected User State",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "retry_policy": {
+          "title": "Retry Policy",
+          "type": "string"
+        },
+        "trigger": {
+          "title": "Trigger",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "trigger",
+        "expected_user_state",
+        "retry_policy",
+        "acceptance_test_id"
+      ],
+      "title": "ErrorCase",
+      "type": "object"
+    },
+    "FileBoundary": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_content_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Content Types",
+          "type": "array"
+        },
+        "malware_scan_policy": {
+          "title": "Malware Scan Policy",
+          "type": "string"
+        },
+        "maximum_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Maximum Bytes",
+          "type": "integer"
+        },
+        "storage_policy": {
+          "title": "Storage Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "allowed_content_types",
+        "maximum_bytes",
+        "storage_policy",
+        "malware_scan_policy"
+      ],
+      "title": "FileBoundary",
+      "type": "object"
+    },
+    "IdempotencyContract": {
+      "additionalProperties": false,
+      "properties": {
+        "conflict_status": {
+          "maximum": 499,
+          "minimum": 400,
+          "title": "Conflict Status",
+          "type": "integer"
+        },
+        "key_header": {
+          "title": "Key Header",
+          "type": "string"
+        },
+        "replay_status": {
+          "maximum": 299,
+          "minimum": 200,
+          "title": "Replay Status",
+          "type": "integer"
+        },
+        "request_hash_required": {
+          "default": true,
+          "title": "Request Hash Required",
+          "type": "boolean"
+        },
+        "retention_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Retention Seconds",
+          "type": "integer"
+        },
+        "scope": {
+          "enum": [
+            "actor",
+            "tenant",
+            "global"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key_header",
+        "scope",
+        "replay_status",
+        "conflict_status",
+        "retention_seconds"
+      ],
+      "title": "IdempotencyContract",
+      "type": "object"
+    },
+    "JourneyStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "actor": {
+          "title": "Actor",
+          "type": "string"
+        },
+        "api_operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Operation Id"
+        },
+        "error_recovery": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Recovery"
+        },
+        "expected_state": {
+          "title": "Expected State",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "route_id": {
+          "title": "Route Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "actor",
+        "route_id",
+        "action",
+        "expected_state"
+      ],
+      "title": "JourneyStep",
+      "type": "object"
+    },
+    "ObservabilityGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "alerts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Alerts",
+          "type": "array"
+        },
+        "authority_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authority Refs",
+          "type": "array"
+        },
+        "dashboards": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dashboards",
+          "type": "array"
+        },
+        "metrics": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "privacy_redactions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Privacy Redactions",
+          "type": "array"
+        },
+        "slos": {
+          "items": {
+            "$ref": "#/$defs/SLOSpec"
+          },
+          "title": "Slos",
+          "type": "array"
+        },
+        "structured_log_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Structured Log Fields",
+          "type": "array"
+        },
+        "traces": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Traces",
+          "type": "array"
+        }
+      },
+      "required": [
+        "structured_log_fields",
+        "metrics",
+        "traces",
+        "slos",
+        "dashboards",
+        "alerts",
+        "privacy_redactions",
+        "authority_refs"
+      ],
+      "title": "ObservabilityGraph",
+      "type": "object"
+    },
+    "PerformanceBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "measurement_command": {
+          "title": "Measurement Command",
+          "type": "string"
+        },
+        "metric": {
+          "title": "Metric",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "<=",
+            ">=",
+            "=="
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "metric",
+        "operation",
+        "value",
+        "unit",
+        "measurement_command"
+      ],
+      "title": "PerformanceBudget",
+      "type": "object"
+    },
+    "PermissionSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "resource": {
+          "title": "Resource",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "resource",
+        "actions"
+      ],
+      "title": "PermissionSpec",
+      "type": "object"
+    },
+    "ProductSpecIR": {
+      "additionalProperties": false,
+      "properties": {
+        "actors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Actors",
+          "type": "array"
+        },
+        "authority_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authority Refs",
+          "type": "array"
+        },
+        "feature_flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Feature Flags",
+          "type": "array"
+        },
+        "goals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Goals",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "non_goals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Non Goals",
+          "type": "array"
+        },
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/RouteSpec"
+          },
+          "title": "Routes",
+          "type": "array"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "version",
+        "summary",
+        "actors",
+        "goals",
+        "non_goals",
+        "routes",
+        "authority_refs"
+      ],
+      "title": "ProductSpecIR",
+      "type": "object"
+    },
+    "ReferenceSource": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/AuthorityClass"
+        },
+        "digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "product_brief",
+            "user_story",
+            "api_contract",
+            "data_schema",
+            "auth_policy",
+            "business_rules",
+            "error_matrix",
+            "analytics_requirements",
+            "deployment_target",
+            "slo",
+            "performance_budget",
+            "accessibility_requirements",
+            "visual_reference",
+            "motion_reference",
+            "design_system_export",
+            "source_code",
+            "sample_payload"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator": {
+          "title": "Locator",
+          "type": "string"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "rights_state": {
+          "enum": [
+            "OWNED",
+            "AUTHORIZED",
+            "CC0",
+            "PERMISSIVE",
+            "INTERNAL",
+            "UNKNOWN"
+          ],
+          "title": "Rights State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "authority",
+        "rights_state",
+        "digest",
+        "locator"
+      ],
+      "title": "ReferenceSource",
+      "type": "object"
+    },
+    "RoleSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "permission_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Permission Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "permission_ids"
+      ],
+      "title": "RoleSpec",
+      "type": "object"
+    },
+    "RouteSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "required_states": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required States",
+          "type": "array"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "visual_reference_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Visual Reference Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "title",
+        "purpose",
+        "required_states"
+      ],
+      "title": "RouteSpec",
+      "type": "object"
+    },
+    "SLOSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "alert": {
+          "title": "Alert",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "indicator": {
+          "title": "Indicator",
+          "type": "string"
+        },
+        "objective": {
+          "title": "Objective",
+          "type": "string"
+        },
+        "window": {
+          "title": "Window",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "indicator",
+        "objective",
+        "window",
+        "alert"
+      ],
+      "title": "SLOSpec",
+      "type": "object"
+    },
+    "UserJourney": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "title": "Actor",
+          "type": "string"
+        },
+        "denied_or_failure_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Denied Or Failure Paths",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "preconditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Preconditions",
+          "type": "array"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/JourneyStep"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "success_postconditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Success Postconditions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "actor",
+        "preconditions",
+        "steps",
+        "success_postconditions",
+        "denied_or_failure_paths"
+      ],
+      "title": "UserJourney",
+      "type": "object"
+    },
+    "UserJourneyGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authority Refs",
+          "type": "array"
+        },
+        "journeys": {
+          "items": {
+            "$ref": "#/$defs/UserJourney"
+          },
+          "title": "Journeys",
+          "type": "array"
+        }
+      },
+      "required": [
+        "journeys",
+        "authority_refs"
+      ],
+      "title": "UserJourneyGraph",
+      "type": "object"
+    }
+  },
+  "$id": "https://compute.exchange/schemas/application-reference-packet.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "acceptance": {
+      "$ref": "#/$defs/AcceptanceTestGraph"
+    },
+    "accessibility_requirements": {
+      "items": {
+        "$ref": "#/$defs/AccessibilityRequirement"
+      },
+      "title": "Accessibility Requirements",
+      "type": "array"
+    },
+    "api_contract": {
+      "$ref": "#/$defs/APIContractGraph"
+    },
+    "auth_policy": {
+      "$ref": "#/$defs/AuthPolicyGraph"
+    },
+    "business_rules": {
+      "$ref": "#/$defs/BusinessRuleGraph"
+    },
+    "data_model": {
+      "$ref": "#/$defs/DataModelGraph"
+    },
+    "deployment": {
+      "$ref": "#/$defs/DeploymentGraph"
+    },
+    "design_system_reference_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Design System Reference Ids",
+      "type": "array"
+    },
+    "error_cases": {
+      "items": {
+        "$ref": "#/$defs/ErrorCase"
+      },
+      "title": "Error Cases",
+      "type": "array"
+    },
+    "journeys": {
+      "$ref": "#/$defs/UserJourneyGraph"
+    },
+    "motion_reference_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Motion Reference Ids",
+      "type": "array"
+    },
+    "observability": {
+      "$ref": "#/$defs/ObservabilityGraph"
+    },
+    "packet_id": {
+      "title": "Packet Id",
+      "type": "string"
+    },
+    "performance_budgets": {
+      "items": {
+        "$ref": "#/$defs/PerformanceBudget"
+      },
+      "title": "Performance Budgets",
+      "type": "array"
+    },
+    "product": {
+      "$ref": "#/$defs/ProductSpecIR"
+    },
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_code_reference_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Code Reference Ids",
+      "type": "array"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/ReferenceSource"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "visual_reference_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Visual Reference Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "packet_id",
+    "sources",
+    "product",
+    "journeys",
+    "data_model",
+    "api_contract",
+    "auth_policy",
+    "business_rules",
+    "deployment",
+    "observability",
+    "acceptance",
+    "error_cases",
+    "performance_budgets",
+    "accessibility_requirements",
+    "visual_reference_ids",
+    "motion_reference_ids",
+    "design_system_reference_ids"
+  ],
+  "title": "ApplicationReferencePacket",
+  "type": "object"
+}

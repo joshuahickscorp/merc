@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "DeploymentNode": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "title": "Artifact",
+          "type": "string"
+        },
+        "health_check": {
+          "title": "Health Check",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "frontend",
+            "api",
+            "database",
+            "worker",
+            "object_store",
+            "proxy"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource_limits": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Resource Limits",
+          "type": "object"
+        },
+        "runtime": {
+          "title": "Runtime",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "runtime",
+        "artifact",
+        "health_check",
+        "resource_limits"
+      ],
+      "title": "DeploymentNode",
+      "type": "object"
+    }
+  },
+  "$id": "https://compute.exchange/schemas/deployment-graph.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Authority Refs",
+      "type": "array"
+    },
+    "edges": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Edges",
+      "type": "array"
+    },
+    "fresh_clone_command": {
+      "title": "Fresh Clone Command",
+      "type": "string"
+    },
+    "migration_command": {
+      "title": "Migration Command",
+      "type": "string"
+    },
+    "nodes": {
+      "items": {
+        "$ref": "#/$defs/DeploymentNode"
+      },
+      "title": "Nodes",
+      "type": "array"
+    },
+    "release_command": {
+      "title": "Release Command",
+      "type": "string"
+    },
+    "rollback_command": {
+      "title": "Rollback Command",
+      "type": "string"
+    },
+    "secret_names": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Secret Names",
+      "type": "array"
+    },
+    "target": {
+      "enum": [
+        "local_process",
+        "local_container",
+        "kubernetes",
+        "cloud_run",
+        "user_authorized_remote"
+      ],
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "nodes",
+    "edges",
+    "secret_names",
+    "migration_command",
+    "rollback_command",
+    "fresh_clone_command",
+    "release_command",
+    "authority_refs"
+  ],
+  "title": "DeploymentGraph",
+  "type": "object"
+}
