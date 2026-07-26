@@ -1,0 +1,1 @@
+{"schema_version":"1","id":"failure-007","attempt":"attempt-000","command":"npm run verify:3d","phase":"topology_metric_api","exit_code":1,"severity":"P2","information_gain":"medium","observations":["MeshEdge RNA lacks is_manifold in Blender 4.2","BMesh edge exposes required direct property"],"downstream_gates_run":false,"recorded_before_source_change":true}

@@ -1,0 +1,298 @@
+{
+  "attempts": [
+    {
+      "id": "attempt-001",
+      "receipt_sha256": "02db24176be9f688f7215dcf8ff022d795c1fa02447041ac995bcd2d6c372cf5",
+      "retained_path": ".visionmcp/attempt-001.json",
+      "status": "ACCEPTED"
+    }
+  ],
+  "authority": "VISIONMCP_BUILDER_OUTPUT",
+  "benchmark_id": "nocturne-one-sealed-v1",
+  "builder_condition": "H4-codex-sealed-portfolio",
+  "contract_sha256": "b1ff7fd969075671ab59ffea65757a1fbcc825217fc456d002dd206cc7154fd6",
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "3753554ade9e9471641c6c68571d6dab64e24597c92ad59d1ab408f25899a216",
+      "size": 65
+    },
+    {
+      "path": ".visionmcp/attempt-001.json",
+      "sha256": "02db24176be9f688f7215dcf8ff022d795c1fa02447041ac995bcd2d6c372cf5",
+      "size": 1494
+    },
+    {
+      "path": ".visionmcp/failures/failure-001.json",
+      "sha256": "135b5e3691e2528272c35772a3ebdb01163c2c05ac67dcb01330c06c7fe3c52e",
+      "size": 401
+    },
+    {
+      "path": ".visionmcp/failures/failure-002.json",
+      "sha256": "dd5e2cf8103955a27ba169dde17ae50ea431e7cc5c6f0d34a2672215d9978f22",
+      "size": 334
+    },
+    {
+      "path": ".visionmcp/failures/failure-003.json",
+      "sha256": "a316f8d2cb13c029fb30618801194605431978a75a32c476bce3880a502ba5c9",
+      "size": 380
+    },
+    {
+      "path": ".visionmcp/failures/failure-004.json",
+      "sha256": "27da7ea7e644802cb8062dd5a2f05569478aa75f9db327e37c24fae8ba0eb28a",
+      "size": 388
+    },
+    {
+      "path": ".visionmcp/failures/failure-005.json",
+      "sha256": "5efe2380b3c8fcc7dfae58ed2c22759f71653ada093adae5fd8a50bb29278fd3",
+      "size": 371
+    },
+    {
+      "path": ".visionmcp/failures/failure-006.json",
+      "sha256": "d09698e904a3e701c035f136192d492fb2b4deaeda11b7e30cbb7a17d0744218",
+      "size": 376
+    },
+    {
+      "path": ".visionmcp/failures/failure-007.json",
+      "sha256": "9cc48f2890d1347e833960a84a7f994dabd6bc9a18314d398480dc2d23ebe648",
+      "size": 361
+    },
+    {
+      "path": ".visionmcp/failures/failure-008.json",
+      "sha256": "9a736fb339c17befde5b9555c977df8403a4171a9e0d7e798eded4c6c4ee96b1",
+      "size": 362
+    },
+    {
+      "path": ".visionmcp/failures/failure-009.json",
+      "sha256": "3e5d9ad9e2dc688c28c4ea541145676927c609260e62315b9fa3848a5a9dad80",
+      "size": 335
+    },
+    {
+      "path": ".visionmcp/failures/failure-010.json",
+      "sha256": "1b59fcf57fa1a09ef5f7ae9d965a95bcecc54641002d3209ffc1b505e7f69b2d",
+      "size": 361
+    },
+    {
+      "path": ".visionmcp/failures/failure-011.json",
+      "sha256": "e9cc254e339ecce732d0632df3bea6ae8aa20cd5dac844c8b7a81474bc0bc819",
+      "size": 355
+    },
+    {
+      "path": ".visionmcp/failures/failure-012.json",
+      "sha256": "10cf3d5c03b440207a312c104a27aa96aa0982a47b59c5ec78c1d61b74630631",
+      "size": 446
+    },
+    {
+      "path": ".visionmcp/failures/failure-013.json",
+      "sha256": "739b8c76a5399e2f9992c23b7ad3e4aace4040fc79a7a3504aff1ac047122530",
+      "size": 434
+    },
+    {
+      "path": ".visionmcp/ledger.json",
+      "sha256": "f952af9197a55df4d6721f4dc35769b4105ccf0604133e9ed76b82312bffe589",
+      "size": 1523
+    },
+    {
+      "path": ".visionmcp/repairs/repair-001.json",
+      "sha256": "1d33283b31c4b8cec47f9f17644d2cf2b970e1c8c6d4584ec687c81308a4f0c9",
+      "size": 703
+    },
+    {
+      "path": ".visionmcp/repairs/repair-002.json",
+      "sha256": "35d3165760efbb770c4dff1f01171ffaf1b9417cc484c7b4054ac85b980ab31e",
+      "size": 448
+    },
+    {
+      "path": ".visionmcp/repairs/repair-003.json",
+      "sha256": "82851620b5a256c3a21201d3268ba5cfcad28592ea0438d9ae4a158d0c2d9dbf",
+      "size": 568
+    },
+    {
+      "path": ".visionmcp/repairs/repair-004.json",
+      "sha256": "6b98ab193a17fc80cb0518b4729c0a8081190a1d9698b84bbfdfdb979d868e96",
+      "size": 459
+    },
+    {
+      "path": ".visionmcp/repairs/repair-005.json",
+      "sha256": "ae893fa41526fa7d83b58c35ca32ab0d9da53b799e9726f19fdbf5b37f9395b2",
+      "size": 408
+    },
+    {
+      "path": ".visionmcp/repairs/repair-006.json",
+      "sha256": "1c766e8a36095125abbeb64dd3a3b87fd9c8d0b49126954e608555d3953f2993",
+      "size": 440
+    },
+    {
+      "path": ".visionmcp/repairs/repair-007.json",
+      "sha256": "c34f1ae79bf8e23d514d6dd443ca748aa8aa4ed8c0d3dec96c13f786a842ee08",
+      "size": 421
+    },
+    {
+      "path": ".visionmcp/repairs/repair-008.json",
+      "sha256": "dd22eb3a961f2251ddbf0c9a305524023fd894af23b9847965628f0c9daf820c",
+      "size": 556
+    },
+    {
+      "path": ".visionmcp/repairs/repair-009.json",
+      "sha256": "86876f7fdfb7505a47193d278d61b85816e595b2c50414d58c3ae8454491f91a",
+      "size": 513
+    },
+    {
+      "path": ".visionmcp/repairs/repair-010.json",
+      "sha256": "8125ae4f3b433d0268e55f3cfb4dfd69cf3988ec70be3424d6053115bd9c6082",
+      "size": 535
+    },
+    {
+      "path": ".visionmcp/repairs/repair-011.json",
+      "sha256": "643a83e78a4dad0def95a0120e3a720013728584fee161b6437ea9dcd2389f1d",
+      "size": 490
+    },
+    {
+      "path": ".visionmcp/repairs/repair-012.json",
+      "sha256": "974e08164f3fccb73160cbc5c95a776c6b7439d0f38cea49b8853ffb73a21462",
+      "size": 621
+    },
+    {
+      "path": ".visionmcp/repairs/repair-013.json",
+      "sha256": "54929430158579c69d30748fddd69eb3579fcff9beb6d37d05acbbfbcfafeaaf",
+      "size": 493
+    },
+    {
+      "path": "3d/build_candidate.py",
+      "sha256": "24ebab7dc79974b75cc81af1dc4bb91dd1f7c58a815d7ea80a4eb42563da29cb",
+      "size": 6770
+    },
+    {
+      "path": "3d/nocturne-one.blend",
+      "sha256": "8038940f1b34f446832c677db7873b688a79ba5335f8a843ccbc71417fe8e819",
+      "size": 1031196
+    },
+    {
+      "path": "README.md",
+      "sha256": "25b291f44984f4db73bdf18fed6213af6f332449e1280b4ec374f8f4d692e8da",
+      "size": 293
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "7f31fb88e899c10f9947f6684e3fc3bb4744378d22f5ba7cc28cd5cddf854ac1",
+      "size": 150866
+    },
+    {
+      "path": "package.json",
+      "sha256": "29a54c29b530eda022a16744a7b74e1b86c33a8f31e0190098f39ab1f0bfa935",
+      "size": 1022
+    },
+    {
+      "path": "playwright.config.ts",
+      "sha256": "8e519acdbd8c7bdd0cc940f82bda33b6b699133e3d8475fbbcd6c1356abb8fdb",
+      "size": 413
+    },
+    {
+      "path": "portfolios/3d-arch-hypotheses.json",
+      "sha256": "ec01b8388223bba42ed437ba0cfdd381284eb73ed998960c03a7da1dc8f5e40a",
+      "size": 1207
+    },
+    {
+      "path": "portfolios/app-loading-hypotheses.json",
+      "sha256": "2da82f06ec9ff473cc0f2c2f49551c85971e15f16989ff2eafdcd55659bb7ca1",
+      "size": 1217
+    },
+    {
+      "path": "portfolios/ranking.json",
+      "sha256": "0da28c583f7b5412e563c9666c146fc3dfeb57902ec7f8095a4a5e479a377205",
+      "size": 328
+    },
+    {
+      "path": "public/assets/nocturne-one-hero.glb",
+      "sha256": "ce5ca9770040b8de66b645133f94217a72006b4269818734cf3d9181d945ac87",
+      "size": 257672
+    },
+    {
+      "path": "public/assets/nocturne-one-low.glb",
+      "sha256": "ce5ca9770040b8de66b645133f94217a72006b4269818734cf3d9181d945ac87",
+      "size": 257672
+    },
+    {
+      "path": "server/app.ts",
+      "sha256": "57533710585f3fdbf1304d9c545777a438d2fd0e8c0bf0c5717400577fbdfd20",
+      "size": 3062
+    },
+    {
+      "path": "server/db.ts",
+      "sha256": "e4637ca79880d4efd25f9ad28144d31e54105be69e5f64362f3dfec76bd628b3",
+      "size": 1126
+    },
+    {
+      "path": "server/index.ts",
+      "sha256": "e1b98a5edfc50c4a3a3972ac07157d5aed0478625f0ad4b9a82b701b8c8ff9db",
+      "size": 158
+    },
+    {
+      "path": "server/migrate.ts",
+      "sha256": "cd16698b064cad7d1dc2c9e8d93d55352af06c67c66bc9b62d2c3aef8ee5e1cc",
+      "size": 353
+    },
+    {
+      "path": "src/index.html",
+      "sha256": "ad9805cec2c6a76989185cd3c1f612dc558ef99dbb8279948d3d41876a6a131d",
+      "size": 379
+    },
+    {
+      "path": "src/main.ts",
+      "sha256": "7d28267c8ced269c21643efbe6509ff286a31255f84a94c429b06ae8c6ff2ac2",
+      "size": 10785
+    },
+    {
+      "path": "src/style.css",
+      "sha256": "6ee889d75a76ae97f25c78fbf6fb8077ecca2c2afbc27db5c8ef3820df7598d6",
+      "size": 2151
+    },
+    {
+      "path": "src/three.d.ts",
+      "sha256": "74495ebb91b07b5153ac9f8237dc4f158d9ed68903c8d337df63a97d9f095d63",
+      "size": 59
+    },
+    {
+      "path": "tests/api.test.ts",
+      "sha256": "72e3e9cacfd6cd3fdc472076ef31710cfd148f0a37586ed9651f78a044ac487e",
+      "size": 1855
+    },
+    {
+      "path": "tests/browser/journeys.spec.ts",
+      "sha256": "fcb24bd5f9b2305c49c387eaa5ea63d4eec58eea0dfccc4705ef7d31412540b3",
+      "size": 2904
+    },
+    {
+      "path": "tests/inspect_blender.py",
+      "sha256": "ec94791d44a34563ed223e8aa12bf9cafeaef66c7cb7732a3883bbd3640a4298",
+      "size": 1720
+    },
+    {
+      "path": "tests/validate-3d.mjs",
+      "sha256": "7404eef2e1fba835f31eb5551f25e57e900447a77907da5f1d39b819a405c1ae",
+      "size": 553
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "b3f1922e71a601eea6e6da2ab5f4d164c9c4d65c412e85a7f61827b8a501b742",
+      "size": 204
+    },
+    {
+      "path": "vite.config.ts",
+      "sha256": "e24d451d0656d7e76dd5e2916bd9df7f9b18416d3783bae3c37555d053cc295b",
+      "size": 260
+    }
+  ],
+  "generated_at": "2026-07-26T05:05:19.326160+00:00",
+  "manual_edits_outside_receipt_chain": false,
+  "oracle_source_access": false,
+  "packet_manifest_sha256": "434a699dfd95e379c7c56d020fc5b0137f099c8c172ecb9690063df13b71d079",
+  "reproduction_commands": [
+    "npm ci",
+    "npm run verify",
+    "npm run db:migrate",
+    "npm run db:rollback",
+    "npm start"
+  ],
+  "schema_version": "1"
+}

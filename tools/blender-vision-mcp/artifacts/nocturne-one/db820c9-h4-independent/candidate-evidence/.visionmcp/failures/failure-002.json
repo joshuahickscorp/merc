@@ -1,0 +1,1 @@
+{"schema_version":"1","id":"failure-002","attempt":"attempt-000","command":"npm run verify","phase":"unit_test_discovery","exit_code":1,"severity":"P1","information_gain":"high","observations":["Vitest inherited Vite root src","tests/api.test.ts was not discovered"],"downstream_gates_run":false,"recorded_before_source_change":true}

@@ -1,0 +1,329 @@
+{
+  "accessibility": {},
+  "api": {
+    "conflict": {
+      "body": {
+        "actor": "benchmark-actor",
+        "configuration_id": "d33a544b-0067-4f52-91cc-e26cc024e47b",
+        "created_at": "2026-07-26T05:07:10.717Z",
+        "email": "builder@example.invalid",
+        "id": "8ca6157b-25f4-4049-ae59-b80e5bdbf67b",
+        "idempotency_key": "nocturne-fixed-idempotency-key",
+        "status": "confirmed"
+      },
+      "status": 200
+    },
+    "cross_actor": {
+      "body": {
+        "error": "reservation not found"
+      },
+      "status": 404
+    },
+    "first": {
+      "body": {
+        "actor": "benchmark-actor",
+        "configuration_id": "d33a544b-0067-4f52-91cc-e26cc024e47b",
+        "created_at": "2026-07-26T05:07:10.717Z",
+        "email": "builder@example.invalid",
+        "id": "8ca6157b-25f4-4049-ae59-b80e5bdbf67b",
+        "idempotency_key": "nocturne-fixed-idempotency-key",
+        "status": "confirmed"
+      },
+      "status": 200
+    },
+    "invalid": {
+      "body": {
+        "error": "invalid reservation"
+      },
+      "status": 400
+    },
+    "latency_samples_ms": [
+      1.352708030026406,
+      0.989958003628999,
+      1.0838750167749822,
+      0.8993750088848174,
+      0.9082499891519547,
+      0.6597500178031623,
+      0.893999997060746,
+      1.308040984440595,
+      1.233957998920232,
+      1.3289999915286899,
+      2.704832993913442,
+      1.2617080355994403,
+      0.8534580119885504,
+      0.6197919719852507,
+      0.5976249813102186,
+      0.6421249709092081,
+      0.9392080246470869,
+      0.8487500017508864,
+      0.5419579683803022,
+      0.5377089837566018,
+      0.5359170027077198,
+      0.5225419881753623,
+      0.49937498988583684,
+      0.5240829777903855,
+      0.5112920189276338,
+      0.7914159796200693,
+      0.6174580194056034,
+      0.4889999981969595,
+      0.5634580156765878,
+      0.5508330068551004
+    ],
+    "missing_permission": {
+      "body": {
+        "error": "permission denied"
+      },
+      "status": 403
+    },
+    "own_lookup": {
+      "body": {
+        "created_at": "2026-07-26T05:07:10.717Z",
+        "id": "8ca6157b-25f4-4049-ae59-b80e5bdbf67b",
+        "status": "confirmed"
+      },
+      "status": 200
+    },
+    "p95_ms": 1.352708030026406,
+    "repeated": {
+      "body": {
+        "actor": "benchmark-actor",
+        "configuration_id": "d33a544b-0067-4f52-91cc-e26cc024e47b",
+        "created_at": "2026-07-26T05:07:10.717Z",
+        "email": "builder@example.invalid",
+        "id": "8ca6157b-25f4-4049-ae59-b80e5bdbf67b",
+        "idempotency_key": "nocturne-fixed-idempotency-key",
+        "status": "confirmed"
+      },
+      "status": 200
+    },
+    "transient": {
+      "body": {
+        "configuration_id": "d33a544b-0067-4f52-91cc-e26cc024e47b",
+        "id": "8ca6157b-25f4-4049-ae59-b80e5bdbf67b",
+        "status": "confirmed"
+      },
+      "status": 201
+    },
+    "unauthorized": {
+      "body": {
+        "error": "authentication required"
+      },
+      "status": 401
+    }
+  },
+  "assertions": [
+    {
+      "expected": "all install/build/test/migration/rollback commands pass",
+      "id": "fresh_clone_commands",
+      "observed": {
+        "migration_first": {
+          "elapsed_seconds": 0.40953437495045364,
+          "exit_code": 0
+        },
+        "migration_reapply": {
+          "elapsed_seconds": 0.3145227080094628,
+          "exit_code": 0
+        },
+        "migration_rollback": {
+          "elapsed_seconds": 0.30559975001960993,
+          "exit_code": 0
+        },
+        "migration_second": {
+          "elapsed_seconds": 0.31607674999395385,
+          "exit_code": 0
+        },
+        "npm_ci": {
+          "elapsed_seconds": 1.6427099169814028,
+          "exit_code": 0
+        },
+        "npm_verify": {
+          "elapsed_seconds": 2.911483167030383,
+          "exit_code": 1
+        }
+      },
+      "passed": false,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "missing_permission": 403,
+        "unauthenticated": 401
+      },
+      "id": "api_auth_policy",
+      "observed": {
+        "missing_permission": 403,
+        "unauthenticated": 401
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "transient": 503,
+        "validation": 400
+      },
+      "id": "api_validation_and_transient_errors",
+      "observed": {
+        "transient": 201,
+        "validation": 400
+      },
+      "passed": false,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "conflict": 409,
+        "first": 201,
+        "repeated": 200,
+        "same_id": true
+      },
+      "id": "reservation_idempotency",
+      "observed": {
+        "conflict": 200,
+        "first": 200,
+        "repeated": 200,
+        "same_id": true
+      },
+      "passed": false,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "cross_actor": [
+          403,
+          404
+        ],
+        "own_lookup": 200
+      },
+      "id": "reservation_actor_scope",
+      "observed": {
+        "cross_actor": 404,
+        "own_lookup": 200
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "p95_ms_maximum": 150.0
+      },
+      "id": "api_latency",
+      "observed": {
+        "p95_ms": 1.352708030026406,
+        "sample_count": 30
+      },
+      "passed": true,
+      "severity": "P1"
+    }
+  ],
+  "benchmark_id": "nocturne-one-sealed-v1",
+  "browser": {},
+  "candidate_build_receipt_sha256": "75c94955ff91c2b9fccb539fb3ea241abf564df4c2cf9c196db160b4bfcb1d66",
+  "claim_boundary": [
+    "The evaluator installs from the lockfile in a fresh copied source tree.",
+    "Browser, API, database, migration, accessibility, fallback, and performance gates execute on the real local application path.",
+    "The selected accessibility scanner is deterministic but does not replace manual assistive-technology review.",
+    "Performance results are specific to the recorded browser and host."
+  ],
+  "commands": [
+    {
+      "command": [
+        "npm",
+        "ci"
+      ],
+      "elapsed_seconds": 1.6427099169814028,
+      "exit_code": 0,
+      "id": "npm_ci",
+      "passed": true,
+      "stderr_sha256": "817732f4e9d3fb3a07b0c11a68d4cc6dc654b74cb487e0f6fdddec42b0d2f3ca",
+      "stdout_sha256": "5693c6b258a507bf90e0445387b40cd1b2c97e4f8c9f14aed0e904e914c559d3"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "verify"
+      ],
+      "elapsed_seconds": 2.911483167030383,
+      "exit_code": 1,
+      "id": "npm_verify",
+      "passed": false,
+      "stderr_sha256": "53602a0a78cc24240c64214694a871d5e6973855b5e7a6b3eae3edfd8a9474f3",
+      "stdout_sha256": "042263bb21cdfa32ef9dbef293f5c22fdfd85cad4e04bd6b1221ee4c40c6701c"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:migrate"
+      ],
+      "elapsed_seconds": 0.40953437495045364,
+      "exit_code": 0,
+      "id": "migration_first",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "b686714aaadd415b72b546900c4faf34f599547d72e6b29baaf69d83127e6c90"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:migrate"
+      ],
+      "elapsed_seconds": 0.31607674999395385,
+      "exit_code": 0,
+      "id": "migration_second",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "b686714aaadd415b72b546900c4faf34f599547d72e6b29baaf69d83127e6c90"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:rollback"
+      ],
+      "elapsed_seconds": 0.30559975001960993,
+      "exit_code": 0,
+      "id": "migration_rollback",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "c410604b1475ee32bbde4a8a12e3f3ca0b204defc7dbdc9bd91826343eb1df62"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:migrate"
+      ],
+      "elapsed_seconds": 0.3145227080094628,
+      "exit_code": 0,
+      "id": "migration_reapply",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "b686714aaadd415b72b546900c4faf34f599547d72e6b29baaf69d83127e6c90"
+    }
+  ],
+  "completed_at": "2026-07-26T05:07:18.256979+00:00",
+  "contract_sha256": "b1ff7fd969075671ab59ffea65757a1fbcc825217fc456d002dd206cc7154fd6",
+  "elapsed_seconds": 13.934397083998192,
+  "failure": "Error: Page.select_option: Error: Element is not a <select> element\nCall log:\n  - waiting for locator(\"#part-selector\")\n    - locator resolved to <div class=\"parts\" id=\"part-selector\">…</div>\n  - attempting select option action\n    - waiting for element to be visible and enabled\n",
+  "functional_passed": false,
+  "output_digests": {},
+  "packet_manifest_sha256": "434a699dfd95e379c7c56d020fc5b0137f099c8c172ecb9690063df13b71d079",
+  "performance": {},
+  "runtime": {
+    "health": {
+      "raw": "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"theme-color\" content=\"#070910\"><title>NOCTURNE/ONE</title>  <script type=\"module\" crossorigin src=\"/assets/index-CNEK0HBA.js\"></script>\n  <link rel=\"stylesheet\" crossorigin href=\"/assets/index-DuxesrE-.css\">\n</head><body><a class=\"skip\" href=\"#main\">Skip to content</a><div id=\"app\"></div></body></html>\n"
+    },
+    "host": "macOS-27.0-arm64-arm-64bit",
+    "origin": "http://127.0.0.1:63881",
+    "server_process_id": 2110
+  },
+  "schema_version": "1",
+  "sealed_builder_receipt_sha256": "147c7aaa88b195bf10335dda1556f263a5e4dcdc9ea8316e0b4cfff6c899479f",
+  "source_git_head": "35efe1bd3fd3e9fa1f132133da7dc586410f5d8c",
+  "started_at": "2026-07-26T05:07:04.322354+00:00",
+  "status": "FAIL",
+  "workspace": "/private/tmp/nocturne-one-h4-eval-app2-db820c9"
+}
