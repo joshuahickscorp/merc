@@ -1,0 +1,28 @@
+00:39:51 | INFO: Data are loaded, start creating Blender stuff
+00:39:51 | INFO: Blender create Mesh node MESH_acoustic_membrane_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_base_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_braided_cable_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_eclipse_disk_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_glass_core_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_internal_frame_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_left_driver_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_logic_board_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_outer_shell_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_right_driver_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_rotary_control_LOD0
+00:39:51 | INFO: Blender create Mesh node MESH_thermal_grille_LOD0
+00:39:51 | INFO: glTF import finished in 0.02s
+00:39:51 | INFO: Data are loaded, start creating Blender stuff
+00:39:51 | INFO: Blender create Mesh node MESH_acoustic_membrane_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_base_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_braided_cable_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_eclipse_disk_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_glass_core_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_internal_frame_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_left_driver_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_logic_board_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_outer_shell_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_right_driver_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_rotary_control_LOD1
+00:39:51 | INFO: Blender create Mesh node MESH_thermal_grille_LOD1
+00:39:51 | INFO: glTF import finished in 0.01s
