@@ -1,0 +1,15 @@
+
+> nocturne-one@1.0.0 start
+> npm run build --silent && tsx src/server/index.ts
+
+vite v6.3.5 building for production...
+transforming...
+✓ 10 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.57 kB │ gzip:   0.35 kB
+dist/assets/style-DR42oFtu.css   13.00 kB │ gzip:   3.60 kB
+dist/assets/app-B_DN3nUo.js      23.08 kB │ gzip:   7.57 kB
+dist/assets/scene-DpADeD2B.js   573.48 kB │ gzip: 146.44 kB
+✓ built in 744ms
+{"event":"server_ready","origin":"http://127.0.0.1:57979","database":"/private/tmp/nocturne-one-initial-app-eval-db820c9/application.sqlite3"}
