@@ -77,6 +77,14 @@ class BackendCapability:
     download_source: str | None = None
     precision: list[str] = field(default_factory=list)
     input_limits: dict[str, Any] = field(default_factory=dict)
+    operations: list[str] = field(default_factory=list)
+    input_modalities: list[str] = field(default_factory=list)
+    output_coordinate_frame: str = "declared-per-run"
+    scale_authority: str = "none-without-external-metric-evidence"
+    known_limitations: list[str] = field(
+        default_factory=lambda: ["Capability registration is not execution evidence."]
+    )
+    confidence_semantics: str = "Backend-specific confidence must be preserved per output."
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
