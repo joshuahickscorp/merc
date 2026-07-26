@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import platform
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
-from blender_vision.core.util import canonical_json, sha256_file
+from blender_vision.core.util import canonical_json, runtime_revision, sha256_file
 from blender_vision.perception.contracts import ArtifactSink, CaptureOutcome
 from blender_vision.perception.query import ObservationQueryService
 from blender_vision.projects.store import ProjectStore
@@ -123,9 +126,197 @@ def _repository_manifest(root: Path) -> list[dict[str, Any]]:
     return entries
 
 
+def _confined_path(
+    root: Path,
+    value: str,
+    *,
+    label: str,
+    kind: str,
+) -> Path:
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"{label} must be a repository-relative confined path")
+    component = root
+    for part in relative.parts:
+        if part in {"", "."}:
+            continue
+        component /= part
+        if component.is_symlink():
+            raise ValueError(f"{label} cannot traverse symlinks")
+    candidate = (root / relative).resolve()
+    if not candidate.is_relative_to(root):
+        raise ValueError(f"{label} escaped the repository")
+    valid = candidate.is_dir() if kind == "directory" else candidate.is_file()
+    if not valid:
+        raise ValueError(f"{label} must name an existing {kind}")
+    return candidate
+
+
+def _typescript_authority(
+    root: Path,
+    package_value: str,
+) -> dict[str, Any]:
+    package_root = _confined_path(
+        root,
+        package_value,
+        label="typescript_package_path",
+        kind="directory",
+    )
+    package_json = package_root / "package.json"
+    if not package_json.is_file() or package_json.is_symlink():
+        raise ValueError("TypeScript package.json is missing or unsafe")
+    try:
+        document = json.loads(package_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as error:
+        raise ValueError("TypeScript package.json is invalid") from error
+    if document.get("name") != "typescript":
+        raise ValueError("typescript_package_path must resolve to the TypeScript package")
+    version = str(document.get("version", ""))
+    try:
+        major = int(version.split(".", 1)[0])
+    except ValueError as error:
+        raise ValueError("TypeScript package version is invalid") from error
+    if major < 5:
+        raise ValueError("compiler semantic indexing requires TypeScript 5 or newer")
+    authority_paths = [package_json]
+    if major >= 7:
+        authority_paths.extend(
+            [
+                package_root / "dist" / "api" / "sync" / "api.js",
+                package_root / "dist" / "ast" / "index.js",
+                package_root / "dist" / "ast" / "is.js",
+            ]
+        )
+        system = {"darwin": "darwin", "linux": "linux", "windows": "win32"}.get(
+            platform.system().casefold()
+        )
+        architecture = {
+            "arm64": "arm64",
+            "aarch64": "arm64",
+            "x86_64": "x64",
+            "amd64": "x64",
+        }.get(platform.machine().casefold())
+        if not system or not architecture:
+            raise ValueError("TypeScript native compiler platform is unsupported")
+        node_modules = package_root.parent
+        native_root = node_modules / "@typescript" / f"typescript-{system}-{architecture}"
+        native_binary = native_root / "lib" / ("tsc.exe" if system == "win32" else "tsc")
+        authority_paths.extend([native_root / "package.json", native_binary])
+        engine = "typescript-native-compiler-api"
+    else:
+        authority_paths.append(package_root / "lib" / "typescript.js")
+        engine = "typescript-compiler-api"
+    files = []
+    for path in authority_paths:
+        if not path.is_relative_to(root):
+            raise ValueError(f"TypeScript compiler authority file escaped the repository: {path}")
+        validated = _confined_path(
+            root,
+            path.relative_to(root).as_posix(),
+            label="TypeScript compiler authority file",
+            kind="file",
+        )
+        digest, size = sha256_file(validated)
+        files.append(
+            {
+                "path": validated.relative_to(root).as_posix(),
+                "sha256": digest,
+                "size": size,
+            }
+        )
+    node = shutil.which("node")
+    if not node:
+        raise ValueError("TypeScript compiler semantic indexing requires Node.js")
+    node_path = Path(node).resolve()
+    node_digest, node_size = sha256_file(node_path)
+    process = subprocess.run(
+        [str(node_path), "--version"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if process.returncode != 0:
+        raise ValueError("Node.js version probe failed")
+    digest = hashlib.sha256(canonical_json(files)).hexdigest()
+    return {
+        "package_path": package_root.relative_to(root).as_posix(),
+        "version": version,
+        "engine": engine,
+        "authority_files": files,
+        "authority_sha256": digest,
+        "node_path": str(node_path),
+        "node_sha256": node_digest,
+        "node_size": node_size,
+        "node_version": process.stdout.strip(),
+    }
+
+
+def _verify_typescript_authority(root: Path, authority: dict[str, Any]) -> None:
+    observed = []
+    for item in authority["authority_files"]:
+        path = _confined_path(
+            root,
+            item["path"],
+            label="TypeScript compiler authority file",
+            kind="file",
+        )
+        digest, size = sha256_file(path)
+        observed.append({"path": item["path"], "sha256": digest, "size": size})
+    digest = hashlib.sha256(canonical_json(observed)).hexdigest()
+    if digest != authority["authority_sha256"]:
+        raise RuntimeError("TypeScript compiler authority changed before capture")
+    node = Path(authority["node_path"])
+    node_digest, node_size = sha256_file(node)
+    if node_digest != authority["node_sha256"] or node_size != authority["node_size"]:
+        raise RuntimeError("Node.js runtime changed before semantic capture")
+
+
+def _typescript_semantic_index(
+    root: Path,
+    files: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    authority = config["typescript_authority"]
+    _verify_typescript_authority(root, authority)
+    analyzer = Path(__file__).with_name("typescript_semantic_index.mjs")
+    if not analyzer.is_file():
+        raise RuntimeError("bundled TypeScript semantic analyzer is missing")
+    selected = [item["path"] for item in files if item["language"] in {"typescript", "javascript"}]
+    process = subprocess.run(
+        [authority["node_path"], str(analyzer)],
+        input=canonical_json(
+            {
+                "root": str(root),
+                "typescript_package": str(root / authority["package_path"]),
+                "tsconfig": config["typescript_tsconfig"],
+                "files": selected,
+                "reference_limit": config["semantic_reference_limit"],
+            }
+        ),
+        check=False,
+        capture_output=True,
+        timeout=60,
+    )
+    if process.returncode != 0:
+        stderr = process.stderr.decode("utf-8", errors="replace")[-4000:]
+        raise RuntimeError(f"TypeScript compiler semantic indexing failed: {stderr}")
+    try:
+        document = json.loads(process.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("TypeScript semantic analyzer emitted invalid JSON") from error
+    if (
+        document.get("schema") != "vision.typescript-semantic-index/v1"
+        or document.get("typescript_version") != authority["version"]
+        or not set(document.get("files", [])).issubset(selected)
+    ):
+        raise RuntimeError("TypeScript semantic analyzer authority contract failed")
+    return document
+
+
 class CodeRepositoryAdapter:
     name = "code.repository"
-    version = "1"
+    version = "2"
 
     def normalize_target(self, target: dict[str, Any]) -> dict[str, Any]:
         root = Path(str(target.get("path", ""))).expanduser().resolve()
@@ -142,12 +333,9 @@ class CodeRepositoryAdapter:
             "manifest": manifest,
         }
 
-    def normalize_config(
-        self, target: dict[str, Any], config: dict[str, Any]
-    ) -> dict[str, Any]:
-        maximum_files = max(
-            1, min(int(config.get("maximum_files", target["file_count"])), 5000)
-        )
+    def normalize_config(self, target: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+        root = Path(target["path"])
+        maximum_files = max(1, min(int(config.get("maximum_files", target["file_count"])), 5000))
         bindings = []
         for item in config.get("runtime_bindings", []):
             source_path = Path(str(item.get("source_path", "")))
@@ -166,19 +354,50 @@ class CodeRepositoryAdapter:
                     "capture_id": item.get("capture_id"),
                 }
             )
+        typescript_package = str(config.get("typescript_package_path", "")).strip()
+        typescript_authority = (
+            _typescript_authority(root, typescript_package) if typescript_package else None
+        )
+        tsconfig_value = str(config.get("typescript_tsconfig", "tsconfig.json"))
+        if typescript_authority:
+            tsconfig = _confined_path(
+                root,
+                tsconfig_value,
+                label="typescript_tsconfig",
+                kind="file",
+            )
+            typescript_tsconfig = tsconfig.relative_to(root).as_posix()
+        else:
+            typescript_tsconfig = None
         return {
             "maximum_files": maximum_files,
             "runtime_bindings": bindings,
             "linked_capture_ids": sorted(
                 {str(value) for value in config.get("linked_capture_ids", [])}
             ),
+            "typescript_authority": typescript_authority,
+            "typescript_tsconfig": typescript_tsconfig,
+            "semantic_reference_limit": max(
+                1, min(int(config.get("semantic_reference_limit", 50_000)), 100_000)
+            ),
         }
 
     def environment(self, config: dict[str, Any]) -> dict[str, Any]:
+        authority = config["typescript_authority"]
+        analyzer = Path(__file__).with_name("typescript_semantic_index.mjs")
+        analyzer_digest = sha256_file(analyzer)[0] if analyzer.is_file() else None
         return {
             "platform": platform.platform(),
             "python": platform.python_version(),
-            "parser": "python-ast-plus-static-language-patterns",
+            "parser": (
+                authority["engine"] if authority else "python-ast-plus-static-language-patterns"
+            ),
+            "typescript_version": authority["version"] if authority else None,
+            "typescript_authority_sha256": (authority["authority_sha256"] if authority else None),
+            "node_version": authority["node_version"] if authority else None,
+            "node_sha256": authority["node_sha256"] if authority else None,
+            "semantic_analyzer_sha256": analyzer_digest if authority else None,
+            "visionmcp_runtime_revision": runtime_revision(),
             "adapter": self.name,
             "adapter_version": self.version,
             "maximum_files": config["maximum_files"],
@@ -205,12 +424,29 @@ class CodeRepositoryAdapter:
         manifest_artifact = sink(
             "source.manifest", canonical_json(manifest), "application/json", None
         )
+        semantic_index = None
+        semantic_artifact = None
+        if config["typescript_authority"]:
+            semantic_index = _typescript_semantic_index(root, selected, config)
+            semantic_artifact = sink(
+                "source.typescript-semantic-index",
+                canonical_json(semantic_index),
+                "application/json",
+                {
+                    "typescript_version": semantic_index["typescript_version"],
+                    "engine": semantic_index["engine"],
+                    "authority_sha256": config["typescript_authority"]["authority_sha256"],
+                },
+            )
         graph = _code_graph(
             root,
             selected,
             manifest_artifact["digest"],
             config["runtime_bindings"],
             config["linked_capture_ids"],
+            semantic_index=semantic_index,
+            semantic_artifact_digest=(semantic_artifact["digest"] if semantic_artifact else None),
+            typescript_authority=config["typescript_authority"],
         )
         sink("source.graph", canonical_json(graph), "application/json", None)
         return CaptureOutcome(
@@ -219,17 +455,36 @@ class CodeRepositoryAdapter:
                 "node_count": len(graph["nodes"]),
                 "edge_count": len(graph["edges"]),
                 "symbol_count": sum(
-                    node["domain_type"]
-                    in {"Symbol", "Component", "Hook", "Route", "Store"}
+                    node["domain_type"] in {"Symbol", "Component", "Hook", "Route", "Store"}
                     for node in graph["nodes"]
                 ),
                 "selector_count": sum(
                     node["domain_type"] == "CSSSelector" for node in graph["nodes"]
                 ),
                 "runtime_binding_count": len(graph["runtime_bindings"]),
+                "compiler_semantic_symbol_count": (
+                    len(semantic_index["symbols"]) if semantic_index else 0
+                ),
+                "compiler_resolved_import_count": (
+                    sum(item["resolution"] == "workspace" for item in semantic_index["imports"])
+                    if semantic_index
+                    else 0
+                ),
+                "compiler_reference_count": (
+                    len(semantic_index["references"]) if semantic_index else 0
+                ),
+                "compiler_diagnostic_count": (
+                    len(semantic_index["diagnostics"]) if semantic_index else 0
+                ),
             },
             limitations=[
-                "Python symbols use the standard AST; other languages use bounded static patterns.",
+                (
+                    "Python uses the standard AST; configured TypeScript/JavaScript files use "
+                    "the digest-bound compiler API; other languages use bounded static patterns."
+                    if semantic_index
+                    else "Python symbols use the standard AST; other languages use bounded "
+                    "static patterns."
+                ),
                 "No repository code is executed and no dependency installation is performed.",
                 "Runtime bindings are OBSERVED only when supplied by governed instrumentation.",
             ],
@@ -251,12 +506,33 @@ def _code_graph(
     manifest_digest: str,
     runtime_bindings: list[dict[str, Any]],
     linked_capture_ids: list[str],
+    *,
+    semantic_index: dict[str, Any] | None = None,
+    semantic_artifact_digest: str | None = None,
+    typescript_authority: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     evidence = [{"role": "source.manifest", "artifact_digest": manifest_digest}]
+    semantic_evidence = [
+        *evidence,
+        *(
+            [
+                {
+                    "role": "source.typescript-semantic-index",
+                    "artifact_digest": semantic_artifact_digest,
+                }
+            ]
+            if semantic_artifact_digest
+            else []
+        ),
+    ]
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
     file_nodes: dict[str, str] = {}
     symbol_nodes: dict[tuple[str, str], str] = {}
+    semantic_by_path: dict[str, list[dict[str, Any]]] = {}
+    if semantic_index:
+        for symbol in semantic_index["symbols"]:
+            semantic_by_path.setdefault(symbol["path"], []).append(symbol)
     for entry in files:
         path = entry["path"]
         file_id = f"file:{path}"
@@ -285,14 +561,32 @@ def _code_graph(
             text = source_path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        symbols = (
-            _python_symbols(text)
-            if entry["language"] == "python"
-            else _pattern_symbols(text, path)
-        )
+        compiler_symbols = semantic_by_path.get(path)
+        if compiler_symbols is not None:
+            symbols = [
+                {
+                    "name": symbol["name"],
+                    "line": symbol["line"],
+                    "character": symbol["character"],
+                    "domain_type": _semantic_symbol_domain(symbol, path),
+                    "exported": symbol["exported"],
+                    "confidence": 1.0,
+                    "uncertainty": [],
+                    "compiler_kind": symbol["kind"],
+                    "compiler_type": symbol["type"],
+                    "semantic_symbol_id": symbol["id"],
+                }
+                for symbol in compiler_symbols
+            ]
+        else:
+            symbols = (
+                _python_symbols(text)
+                if entry["language"] == "python"
+                else _pattern_symbols(text, path)
+            )
         for symbol in symbols:
             symbol_id = f"source:{path}:{symbol['line']}:{symbol['name']}"
-            symbol_nodes[(path, symbol["name"])] = symbol_id
+            symbol_nodes.setdefault((path, symbol["name"]), symbol_id)
             nodes.append(
                 {
                     "id": symbol_id,
@@ -301,12 +595,24 @@ def _code_graph(
                     "name": symbol["name"],
                     "line": symbol["line"],
                     "exported": symbol["exported"],
-                    "evidence_references": evidence,
+                    "evidence_references": (
+                        semantic_evidence if "semantic_symbol_id" in symbol else evidence
+                    ),
                     "authority": "OBSERVED",
                     "confidence": symbol["confidence"],
                     "source_restrictions": ["governed-repository-snapshot"],
                     "uncertainty": symbol["uncertainty"],
                     "revision_lineage": [],
+                    **(
+                        {
+                            "character": symbol["character"],
+                            "compiler_kind": symbol["compiler_kind"],
+                            "compiler_type": symbol["compiler_type"],
+                            "semantic_symbol_id": symbol["semantic_symbol_id"],
+                        }
+                        if "semantic_symbol_id" in symbol
+                        else {}
+                    ),
                 }
             )
             edges.append(
@@ -315,10 +621,13 @@ def _code_graph(
                     "target": symbol_id,
                     "type": "DECLARES",
                     "authority": "OBSERVED",
-                    "evidence_references": evidence,
+                    "evidence_references": (
+                        semantic_evidence if "semantic_symbol_id" in symbol else evidence
+                    ),
                 }
             )
-        for module in _imports(text, entry["language"]):
+        modules = [] if compiler_symbols is not None else _imports(text, entry["language"])
+        for module in modules:
             edges.append(
                 {
                     "source": file_id,
@@ -331,9 +640,7 @@ def _code_graph(
         for selector in _selectors(text, entry["language"]):
             selector_id = f"selector:{path}:{selector}"
             nodes.append(
-                _derived_source_node(
-                    selector_id, "CSSSelector", path, evidence, selector=selector
-                )
+                _derived_source_node(selector_id, "CSSSelector", path, evidence, selector=selector)
             )
             edges.append(
                 {
@@ -368,6 +675,46 @@ def _code_graph(
                     "type": "REFERENCES_ASSET",
                     "authority": "OBSERVED",
                     "evidence_references": evidence,
+                }
+            )
+    if semantic_index:
+        semantic_ids = {
+            node.get("semantic_symbol_id"): node["id"]
+            for node in nodes
+            if node.get("semantic_symbol_id")
+        }
+        for imported in semantic_index["imports"]:
+            target = (
+                file_nodes.get(imported["resolved_path"]) if imported["resolved_path"] else None
+            ) or f"module:{imported['module']}"
+            edges.append(
+                {
+                    "source": file_nodes[imported["source_path"]],
+                    "target": target,
+                    "type": (
+                        "RESOLVES_IMPORT" if imported["resolved_path"] else "IMPORTS_EXTERNAL"
+                    ),
+                    "module": imported["module"],
+                    "line": imported["line"],
+                    "authority": "OBSERVED",
+                    "evidence_references": semantic_evidence,
+                }
+            )
+        for reference in semantic_index["references"]:
+            target = semantic_ids.get(reference["target_symbol_id"])
+            source = file_nodes.get(reference["source_path"])
+            if not target or not source:
+                continue
+            edges.append(
+                {
+                    "source": source,
+                    "target": target,
+                    "type": "REFERENCES_SYMBOL",
+                    "name": reference["name"],
+                    "line": reference["line"],
+                    "character": reference["character"],
+                    "authority": "OBSERVED",
+                    "evidence_references": semantic_evidence,
                 }
             )
     bindings = []
@@ -424,6 +771,37 @@ def _code_graph(
         "nodes": nodes,
         "edges": edges,
         "runtime_bindings": bindings,
+        "semantic_index": (
+            {
+                "enabled": True,
+                "engine": semantic_index["engine"],
+                "typescript_version": semantic_index["typescript_version"],
+                "typescript_authority_sha256": typescript_authority["authority_sha256"],
+                "artifact_digest": semantic_artifact_digest,
+                "file_count": len(semantic_index["files"]),
+                "symbol_count": len(semantic_index["symbols"]),
+                "resolved_import_count": sum(
+                    item["resolution"] == "workspace" for item in semantic_index["imports"]
+                ),
+                "reference_count": len(semantic_index["references"]),
+                "reference_truncated": semantic_index["reference_truncated"],
+                "diagnostics": semantic_index["diagnostics"],
+            }
+            if semantic_index and typescript_authority
+            else {
+                "enabled": False,
+                "engine": "static-pattern-fallback",
+                "typescript_version": None,
+                "typescript_authority_sha256": None,
+                "artifact_digest": None,
+                "file_count": 0,
+                "symbol_count": 0,
+                "resolved_import_count": 0,
+                "reference_count": 0,
+                "reference_truncated": False,
+                "diagnostics": [],
+            }
+        ),
     }
 
 
@@ -481,6 +859,15 @@ def _pattern_symbols(text: str, path: str) -> list[dict[str, Any]]:
             }
         )
     return result
+
+
+def _semantic_symbol_domain(symbol: dict[str, Any], path: str) -> str:
+    kind = symbol["kind"]
+    if kind in {"InterfaceDeclaration", "TypeAliasDeclaration", "EnumDeclaration"}:
+        return "Type"
+    if kind == "ClassDeclaration":
+        return "Component" if symbol["name"][:1].isupper() else "Symbol"
+    return _symbol_domain(symbol["name"], path)
 
 
 def _symbol_domain(name: str, path: str = "") -> str:
@@ -561,9 +948,7 @@ class SourceIntelligenceService:
         graph = self.query.graph(code_capture_id, "CodeGraph")
         changed = {Path(path).as_posix() for path in changed_paths}
         bindings = [
-            binding
-            for binding in graph["runtime_bindings"]
-            if binding["source_path"] in changed
+            binding for binding in graph["runtime_bindings"] if binding["source_path"] in changed
         ]
         runtime_ids = {binding["runtime_node_id"] for binding in bindings}
         capture_ids = linked_capture_ids or graph["linked_capture_ids"]
@@ -591,8 +976,7 @@ class SourceIntelligenceService:
                         node["path"] in changed
                         or any(
                             component.get("name")
-                            and str(component["name"]).casefold()
-                            in node["path"].casefold()
+                            and str(component["name"]).casefold() in node["path"].casefold()
                             for component in graph["nodes"]
                             if component.get("path") in changed
                         )
@@ -642,10 +1026,7 @@ class SourceIntelligenceService:
             "code_capture_id": code_capture_id,
             "changed_paths": sorted(changed),
             "runtime_node_ids": sorted(runtime_ids),
-            "affected": {
-                key: sorted(set(values))
-                for key, values in affected.items()
-            },
+            "affected": {key: sorted(set(values)) for key, values in affected.items()},
             "search_scope": "locality-only",
             "final_global_gate_required": True,
             "citations": citations,
@@ -669,15 +1050,12 @@ class SourceIntelligenceService:
             }
             candidates.discard(None)
             bindings = [
-                item
-                for item in graph["runtime_bindings"]
-                if item["runtime_node_id"] in candidates
+                item for item in graph["runtime_bindings"] if item["runtime_node_id"] in candidates
             ]
             selectors = [
                 node
                 for node in graph["nodes"]
-                if node["domain_type"] == "CSSSelector"
-                and node.get("selector") in candidates
+                if node["domain_type"] == "CSSSelector" and node.get("selector") in candidates
             ]
             trace.append(
                 {
@@ -693,3 +1071,177 @@ class SourceIntelligenceService:
                 }
             )
         return trace
+
+    def source_to_pixel_trace(
+        self,
+        code_capture_id: str,
+        *,
+        source_path: str,
+        symbol: str | None = None,
+    ) -> dict[str, Any]:
+        path = Path(source_path)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError("source trace path must be confined")
+        normalized = path.as_posix()
+        graph = self.query.graph(code_capture_id, "CodeGraph")
+        source_nodes = [
+            node
+            for node in graph["nodes"]
+            if node.get("path") == normalized
+            and (symbol is None or node.get("name") == symbol)
+            and node["domain_type"] != "RuntimeBinding"
+        ]
+        source_ids = {node["id"] for node in source_nodes}
+        bindings = [
+            binding
+            for binding in graph["runtime_bindings"]
+            if binding.get("source_node_id") in source_ids
+            or (not symbol and binding.get("source_path") == normalized)
+        ]
+        runtime_ids = {binding["runtime_node_id"] for binding in bindings}
+        capture_ids = sorted(
+            {
+                *graph["linked_capture_ids"],
+                *(binding["capture_id"] for binding in bindings if binding.get("capture_id")),
+            }
+        )
+        pixels: list[dict[str, Any]] = []
+        runtime_observations: list[dict[str, Any]] = []
+        citations = [graph["citation"]]
+        for capture_id in capture_ids:
+            for graph_type in self.query.graph_types(capture_id):
+                observed = self.query.graph(capture_id, graph_type)
+                matches = [
+                    node
+                    for node in observed.get("nodes", [])
+                    if node.get("id") in runtime_ids
+                    or node.get("selector") in runtime_ids
+                    or node.get("sourceBinding", {}).get("path") == normalized
+                ]
+                if not matches:
+                    continue
+                citations.append(observed["citation"])
+                for node in matches:
+                    observation = {
+                        "capture_id": capture_id,
+                        "graph_type": graph_type,
+                        "runtime_node_id": node.get("id"),
+                        "selector": node.get("selector"),
+                        "authority": node.get("authority", observed.get("authority")),
+                        "evidence_references": node.get("evidence_references", []),
+                    }
+                    runtime_observations.append(observation)
+                    bounds = node.get("spatial_bounds") or node.get("bounds")
+                    if bounds:
+                        pixels.append(
+                            {
+                                **observation,
+                                "coordinate_space": observed.get(
+                                    "coordinate_space", "runtime CSS pixels"
+                                ),
+                                "bounds": bounds,
+                            }
+                        )
+        if not bindings:
+            authority = "HYPOTHESIS"
+            resumption = (
+                f"Instrument {normalized}"
+                + (f"::{symbol}" if symbol else "")
+                + " and bind it to a captured runtime node."
+            )
+        elif not runtime_observations:
+            authority = "DERIVED"
+            resumption = (
+                "Capture the bound runtime node in a governed layout, interaction, or "
+                "graphics observation."
+            )
+        else:
+            authority = (
+                "OBSERVED"
+                if all(binding["authority"] == "OBSERVED" for binding in bindings)
+                else "MIXED"
+            )
+            resumption = None
+        return {
+            "schema": "vision.source-pixel-trace/v1",
+            "code_capture_id": code_capture_id,
+            "source_path": normalized,
+            "symbol": symbol,
+            "source_nodes": source_nodes,
+            "runtime_bindings": bindings,
+            "runtime_observations": runtime_observations,
+            "pixel_regions": pixels,
+            "authority": authority,
+            "exact_resumption_contract": resumption,
+            "citations": sorted(
+                {canonical_json(citation).decode(): citation for citation in citations}.values(),
+                key=lambda item: canonical_json(item),
+            ),
+        }
+
+    def event_to_source_trace(
+        self,
+        code_capture_id: str,
+        *,
+        event_capture_id: str,
+        event_edge_id: str,
+    ) -> dict[str, Any]:
+        code = self.query.graph(code_capture_id, "CodeGraph")
+        observed_graph = None
+        event = None
+        for graph_type in ("InteractionGraph", "StateGraph"):
+            try:
+                candidate = self.query.graph(event_capture_id, graph_type)
+            except KeyError:
+                continue
+            match = next(
+                (edge for edge in candidate.get("edges", []) if edge.get("id") == event_edge_id),
+                None,
+            )
+            if match:
+                observed_graph = candidate
+                event = match
+                break
+        if event is None or observed_graph is None:
+            raise KeyError(f"unknown observed event edge: {event_edge_id}")
+        runtime_candidates = {
+            value
+            for value in (
+                event.get("event_target"),
+                event.get("source"),
+                event.get("target"),
+            )
+            if value
+        }
+        bindings = [
+            binding
+            for binding in code["runtime_bindings"]
+            if binding["runtime_node_id"] in runtime_candidates
+        ]
+        source_ids = {
+            binding["source_node_id"] for binding in bindings if binding.get("source_node_id")
+        }
+        sources = [node for node in code["nodes"] if node["id"] in source_ids]
+        authority = (
+            "OBSERVED"
+            if sources
+            and event.get("authority") == "OBSERVED"
+            and all(binding["authority"] == "OBSERVED" for binding in bindings)
+            else "HYPOTHESIS"
+        )
+        return {
+            "schema": "vision.event-source-trace/v1",
+            "code_capture_id": code_capture_id,
+            "event_capture_id": event_capture_id,
+            "event": event,
+            "runtime_candidates": sorted(runtime_candidates),
+            "runtime_bindings": bindings,
+            "source_nodes": sources,
+            "authority": authority,
+            "exact_resumption_contract": (
+                None
+                if authority == "OBSERVED"
+                else "Bind the observed event target to a compiler-indexed source symbol."
+            ),
+            "citations": [observed_graph["citation"], code["citation"]],
+        }
