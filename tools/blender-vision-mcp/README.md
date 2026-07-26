@@ -238,6 +238,18 @@ character-lite rigging/animation, object animation, LODs, collision hulls, and m
 audits the candidate BLEND, structurally validates its GLB, and audits a fresh GLB reimport.
 Outputs remain review candidates; a successful operation receipt is not perceptual acceptance.
 
+Camera/material/lighting acceptance uses immutable no-nudge camera states, structural PBR and light
+inspection, independent real-Blender renders, exposure brackets, held-out views, pixel thresholds,
+and mandatory corruption controls:
+
+```bash
+uv run bvmcp benchmark bootstrap-appearance \
+  --output artifacts/appearance-run
+```
+
+The complete contract and its inference limits are in
+[`docs/APPEARANCE_AUTHORITY.md`](docs/APPEARANCE_AUTHORITY.md).
+
 Opaque references use automatic segmentation only as diagnostic evidence. To make a silhouette
 authoritative for L3, import a same-size binary mask after a named human boundary review:
 

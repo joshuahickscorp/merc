@@ -46,6 +46,15 @@ def test_registry_distinguishes_execution_from_proposal_governance() -> None:
     assert external["quality_tier"] == "proposal-only"
     assert "organic_reconstruction" in external["operations"]
     assert "retopology" not in external["operations"]
+    appearance = capabilities["blender-appearance-authority"]
+    assert appearance["state"] in {"AVAILABLE", "UNAVAILABLE"}
+    assert set(appearance["operations"]) >= {
+        "lens_distortion_governance",
+        "illumination_hypothesis_validation",
+        "transparent_translucent_validation",
+        "heldout_camera_validation",
+        "no_camera_nudge_acceptance",
+    }
     assert any(
         "does not provide an execution backend" in item
         for item in external["known_limitations"]

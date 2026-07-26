@@ -58,6 +58,9 @@ rigging, UV/baking, LOD/collision, and deliberate mesh damage. A pass requires r
 candidate and reimport audits, byte-bound GLB validation, every requested stage receipt, and
 source-head-bound output digests.
 
+Fixed-camera camera/material/lighting acceptance is registered separately as
+`blender-appearance-authority`; see [`APPEARANCE_AUTHORITY.md`](APPEARANCE_AUTHORITY.md).
+
 ## GLB structural authority
 
 `GlbValidator` parses GLB 2.0 bytes without executing extensions or fetching external resources. It
