@@ -63,7 +63,7 @@
     {
       "id": "file-upload-boundaries",
       "packet": "cases/file-upload-boundaries/packet.json",
-      "packet_sha256": "ce2448493bdb4bdbd2fdb2bb9a97644e19de7f6b480eace2b881c89c2da355f7",
+      "packet_sha256": "3bc51ffe54441a4a528dc8854d0b5019ca6487f2e9f8012525ff09ba4e868a5b",
       "required_handler_kinds": [
         "file_upload"
       ],
@@ -99,6 +99,6 @@
       ]
     }
   ],
-  "corpus_sha256": "598945fb961fc9bb9c2bec7a27ed4d73140fa3066d78ddd835ba9a624271a590",
+  "corpus_sha256": "8d85feddd82f5677634004f59f55cb8d0da95e176246ebf75a626bf4293d8f4a",
   "schema_version": "1"
 }
