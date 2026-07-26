@@ -55,6 +55,13 @@ class NocturneCandidateBuildReceipt(_StrictModel):
     reproduction_commands: list[str]
     manual_edits_outside_receipt_chain: Literal[False]
     oracle_source_access: Literal[False]
+    local_contract_gate_path: str | None = None
+    local_contract_gate_receipt_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    global_acceptance_status: Literal["EXTERNAL_UNMEASURED"] = (
+        "EXTERNAL_UNMEASURED"
+    )
 
     @model_validator(mode="after")
     def exact_files_and_attempts(self) -> NocturneCandidateBuildReceipt:
@@ -65,6 +72,10 @@ class NocturneCandidateBuildReceipt(_StrictModel):
             raise ValueError("candidate build receipt requires a final accepted attempt")
         if len({item.id for item in self.attempts}) != len(self.attempts):
             raise ValueError("candidate attempt IDs must be unique")
+        if (self.local_contract_gate_path is None) != (
+            self.local_contract_gate_receipt_sha256 is None
+        ):
+            raise ValueError("local contract gate path and digest must be paired")
         return self
 
 
@@ -228,6 +239,36 @@ class NocturneCandidateAuthority:
                 raise SecurityError(
                     f"NOCTURNE/ONE candidate source was substituted: {relative}"
                 )
+        if receipt.builder_condition.upper().startswith("H4"):
+            if (
+                receipt.local_contract_gate_path is None
+                or receipt.local_contract_gate_receipt_sha256 is None
+            ):
+                raise SecurityError(
+                    "H4 candidate is missing the trusted local contract gate"
+                )
+            gate_path = root / receipt.local_contract_gate_path
+            if (
+                gate_path.is_symlink()
+                or not gate_path.is_file()
+                or sha256_file(gate_path)[0]
+                != receipt.local_contract_gate_receipt_sha256
+            ):
+                raise SecurityError("H4 local contract gate receipt was substituted")
+            from blender_vision.benchmarks.nocturne_contract_gate import (
+                NocturneLocalContractGateReceipt,
+            )
+
+            gate = NocturneLocalContractGateReceipt.model_validate_json(
+                gate_path.read_text(encoding="utf-8")
+            )
+            if (
+                gate.status != "LOCAL_PASS_EXTERNAL_UNMEASURED"
+                or gate.global_acceptance != "EXTERNAL_UNMEASURED"
+                or gate.contract_sha256 != receipt.contract_sha256
+                or gate.packet_manifest_sha256 != receipt.packet_manifest_sha256
+            ):
+                raise SecurityError("H4 local contract gate is not acceptance-eligible")
         return receipt, {
             "valid": True,
             "file_count": len(registered),
@@ -266,6 +307,30 @@ def seal_nocturne_candidate(
     )
     if any(path.is_symlink() or not path.is_file() for path in required):
         raise SecurityError("NOCTURNE/ONE candidate is missing required source artifacts")
+    local_gate_path: Path | None = None
+    local_gate_digest: str | None = None
+    if builder_condition.upper().startswith("H4"):
+        from blender_vision.benchmarks.nocturne_contract_gate import (
+            NocturneLocalContractGate,
+            next_local_contract_gate_root,
+        )
+
+        gate_root = next_local_contract_gate_root(root)
+        gate = NocturneLocalContractGate(resolved_contract).run(
+            packet_root=packet_root,
+            candidate_root=root,
+            output_root=gate_root,
+        )
+        local_gate_path = gate_root / "local-contract-gate.receipt.json"
+        local_gate_digest = sha256_file(local_gate_path)[0]
+        if gate.status != "LOCAL_PASS_EXTERNAL_UNMEASURED":
+            failed = [
+                item.id for item in gate.assertions if not item.passed
+            ]
+            raise SecurityError(
+                "H4 trusted local contract gate failed; "
+                f"failed assertions={failed}; receipt={local_gate_path}"
+            )
     attempt_records: list[CandidateAttempt] = []
     for identifier, status, relative in attempts:
         relative_path = Path(relative)
@@ -321,6 +386,13 @@ def seal_nocturne_candidate(
         ],
         manual_edits_outside_receipt_chain=False,
         oracle_source_access=False,
+        local_contract_gate_path=(
+            local_gate_path.relative_to(root).as_posix()
+            if local_gate_path is not None
+            else None
+        ),
+        local_contract_gate_receipt_sha256=local_gate_digest,
+        global_acceptance_status="EXTERNAL_UNMEASURED",
     )
     atomic_write_json(receipt_path, receipt.model_dump(mode="json"))
     return receipt
