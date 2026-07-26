@@ -22,6 +22,7 @@ REQUIRED = {
     "blender_vision/SECURITY.md",
     "blender_vision/docs/SECURITY_REVIEW.md",
     "blender_vision/docs/RELEASE.md",
+    "blender_vision/docs/GEOMETRY_BACKENDS.md",
     "blender_vision/docs/V1_COMPLIANCE.md",
     "blender_vision/vision/vggt.py",
     "blender_vision/cameras/refinement.py",

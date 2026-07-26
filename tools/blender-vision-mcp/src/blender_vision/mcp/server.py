@@ -3310,6 +3310,29 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             solution_id, reviewer=reviewer, reason=reason
         )
 
+    @mcp.tool(name="geometry.validate_glb")
+    def geometry_validate_glb(
+        project_path: str,
+        glb_path: str,
+        required_node_names: list[str] | None = None,
+        required_mesh_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Validate one project-confined GLB without fetching external resources."""
+        from blender_vision.geometry import GlbValidator
+
+        project = open_project(project_path)
+        supplied = Path(glb_path).expanduser()
+        if not supplied.is_absolute():
+            supplied = project.root / supplied
+        absolute = supplied.absolute()
+        if absolute != project.root and project.root not in absolute.parents:
+            raise ValueError("GLB validation path must remain inside the project")
+        return GlbValidator().validate(
+            absolute,
+            required_node_names=required_node_names,
+            required_mesh_names=required_mesh_names,
+        ).to_dict()
+
     @mcp.tool(name="blender.export")
     def blender_export(project_path: str, output_name: str = "model.glb") -> dict[str, Any]:
         """Queue safe headless GLB export of the authoritative imported Blender scene."""

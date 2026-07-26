@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from blender_vision.core.config import discover_executable
+from blender_vision.core.config import discover_blender, discover_executable
 from blender_vision.core.models import BackendCapability, BackendState
 
 
@@ -9,6 +9,7 @@ class BackendRegistry:
 
     def capabilities(self) -> list[BackendCapability]:
         colmap = discover_executable("colmap", ["-h"])
+        blender = discover_blender()
         return [
             BackendCapability(
                 name="exif",
@@ -23,6 +24,14 @@ class BackendRegistry:
                 quality_tier="initialization-only",
                 precision=["float64"],
                 input_limits={"media": ["image/*"], "requires_35mm_equivalent_for_focal": True},
+                operations=["camera_initialization"],
+                input_modalities=["image_metadata"],
+                output_coordinate_frame="per-image camera metadata frame",
+                scale_authority="none",
+                known_limitations=[
+                    "EXIF initializes cameras but does not solve cross-view registration."
+                ],
+                confidence_semantics="Confidence covers metadata completeness, not pose accuracy.",
             ),
             BackendCapability(
                 name="heuristic-pinhole",
@@ -37,6 +46,12 @@ class BackendRegistry:
                 quality_tier="initialization-only",
                 precision=["float64"],
                 input_limits={"minimum_images": 1},
+                operations=["camera_initialization"],
+                input_modalities=["images", "optional_dimensions"],
+                output_coordinate_frame="declared right-handed Z-up canonical frame",
+                scale_authority="metric only when bound dimensions are supplied",
+                known_limitations=["Heuristic camera poses are initialization, not acceptance."],
+                confidence_semantics="Confidence is a heuristic initialization score.",
             ),
             BackendCapability(
                 name="colmap",
@@ -57,6 +72,14 @@ class BackendRegistry:
                 download_source="https://github.com/colmap/colmap",
                 precision=["float64", "float32"],
                 input_limits={"minimum_images": 2, "formats": ["JPEG", "PNG", "TIFF"]},
+                operations=["classical_multiview_reconstruction", "bundle_adjustment"],
+                input_modalities=["calibrated_or_uncalibrated_multiview_images"],
+                output_coordinate_frame="COLMAP world frame with explicit canonical transform",
+                scale_authority="unknown until aligned to authoritative metric evidence",
+                known_limitations=[
+                    "Textureless, reflective, repeated, or low-overlap views can fail registration."
+                ],
+                confidence_semantics="Confidence derives from registered views and reprojection.",
             ),
             BackendCapability(
                 name="turntable_fallback",
@@ -71,6 +94,12 @@ class BackendRegistry:
                 quality_tier="initialization-only",
                 precision=["float64"],
                 input_limits={"minimum_images": 1},
+                operations=["turntable_camera_initialization"],
+                input_modalities=["ordered_turntable_images"],
+                output_coordinate_frame="synthetic turntable frame",
+                scale_authority="none",
+                known_limitations=["Assumes an ordered approximately level turntable capture."],
+                confidence_semantics="Confidence reflects assumption coverage, not measured pose.",
             ),
             BackendCapability(
                 name="visual_hull",
@@ -95,6 +124,14 @@ class BackendRegistry:
                     "requires_complete_immutable_cameras": True,
                     "distorted_references": False,
                 },
+                operations=["classical_multiview_reconstruction"],
+                input_modalities=["reviewed_masks", "immutable_cameras"],
+                output_coordinate_frame="declared reconstruction bounds frame",
+                scale_authority="inherits only from metric camera and bounds authority",
+                known_limitations=[
+                    "Concavities and never-silhouetted hidden geometry are not observable."
+                ],
+                confidence_semantics="Voxel support counts quantify silhouette consensus.",
             ),
             BackendCapability(
                 name="vggt-commercial",
@@ -110,6 +147,15 @@ class BackendRegistry:
                 download_source="https://github.com/facebookresearch/vggt",
                 precision=["bfloat16", "float32"],
                 input_limits={"checkpoint": "operator-approved", "maximum_images": "hardware"},
+                operations=["multi_image_candidate_generation", "camera_and_depth_proposal"],
+                input_modalities=["one_or_more_images"],
+                output_coordinate_frame="backend camera frame with mandatory canonical transform",
+                scale_authority="relative only without external dimensions",
+                known_limitations=[
+                    "No checkpoint is bundled or silently downloaded.",
+                    "Outputs remain proposals until governed visual and metric acceptance.",
+                ],
+                confidence_semantics="Preserves per-pixel upstream confidence without promotion.",
             ),
             BackendCapability(
                 name="vggt-original-research",
@@ -125,6 +171,148 @@ class BackendRegistry:
                 download_source="https://github.com/facebookresearch/vggt",
                 precision=["bfloat16", "float32"],
                 input_limits={"checkpoint": "operator-approved", "maximum_images": "hardware"},
+                operations=["multi_image_candidate_generation", "camera_and_depth_proposal"],
+                input_modalities=["one_or_more_images"],
+                output_coordinate_frame="backend camera frame with mandatory canonical transform",
+                scale_authority="relative only without external dimensions",
+                known_limitations=[
+                    "Research-only terms forbid commercial release authority.",
+                    "No checkpoint is bundled or silently downloaded.",
+                ],
+                confidence_semantics="Preserves per-pixel upstream confidence without promotion.",
+            ),
+            BackendCapability(
+                name="gltf-structural-validator",
+                version="1",
+                revision="builtin",
+                license="Apache-2.0",
+                commercial_use=True,
+                redistribution="included",
+                state=BackendState.AVAILABLE,
+                outputs=["glb_structure_report", "named_identity_report", "digest"],
+                hardware=["cpu"],
+                quality_tier="exact-structural-validation",
+                precision=["byte-exact"],
+                input_limits={"format": ["GLB 2.0"], "maximum_bytes": 536870912},
+                operations=["glb_validation"],
+                input_modalities=["glb"],
+                output_coordinate_frame="preserves source glTF frame without conversion",
+                scale_authority="reports structure only; does not infer scale",
+                known_limitations=[
+                    "Does not render materials or prove perceptual equivalence.",
+                    "Does not execute unrecognized extensions.",
+                ],
+                confidence_semantics="Validation is exact for implemented structural rules.",
+            ),
+            BackendCapability(
+                name="blender-hard-surface-parametric",
+                version=blender.version or "unknown",
+                revision="system",
+                license="GPL-3.0-or-later executable; generated asset terms remain caller-owned",
+                commercial_use=True,
+                redistribution="external executable",
+                state=BackendState.AVAILABLE if blender.available else BackendState.UNAVAILABLE,
+                outputs=["editable_blend", "named_component_hierarchy", "glb"],
+                hardware=["cpu", "gpu-optional"],
+                quality_tier="dimension-governed-parametric",
+                precision=["float32", "float64-parameters"],
+                input_limits={"maximum_components": 512, "requires_explicit_dimensions": True},
+                operations=["hard_surface_parametric_modeling", "component_generation"],
+                input_modalities=["component_graph", "dimensions", "material_specification"],
+                output_coordinate_frame="right-handed Z-up Blender frame",
+                scale_authority="metric from explicit component dimensions",
+                known_limitations=[
+                    "Does not infer absent hidden dimensions.",
+                    "Organic shape quality depends on supplied curve or surface controls.",
+                ],
+                confidence_semantics="Per-component authority follows bound measurements.",
+            ),
+            BackendCapability(
+                name="blender-lod-decimate",
+                version=blender.version or "unknown",
+                revision="system",
+                license="GPL-3.0-or-later executable; generated asset terms remain caller-owned",
+                commercial_use=True,
+                redistribution="external executable",
+                state=BackendState.AVAILABLE if blender.available else BackendState.UNAVAILABLE,
+                outputs=["editable_blend", "named_lod_meshes", "polygon_metrics"],
+                hardware=["cpu"],
+                quality_tier="bounded-topology-reduction",
+                precision=["float32"],
+                input_limits={"ratio": [0.01, 1.0], "maximum_objects": 128},
+                operations=["lod_generation"],
+                input_modalities=["editable_blend", "named_mesh_selection"],
+                output_coordinate_frame="preserves source Blender frame",
+                scale_authority="inherits source scale without modification",
+                known_limitations=[
+                    "Decimation alone does not prove silhouette or deformation preservation."
+                ],
+                confidence_semantics=(
+                    "Reports exact output polygon counts; quality is separately gated."
+                ),
+            ),
+            BackendCapability(
+                name="blender-degenerate-repair",
+                version=blender.version or "unknown",
+                revision="system",
+                license="GPL-3.0-or-later executable; generated asset terms remain caller-owned",
+                commercial_use=True,
+                redistribution="external executable",
+                state=BackendState.AVAILABLE if blender.available else BackendState.UNAVAILABLE,
+                outputs=["candidate_blend", "topology_before_after", "bounds_delta"],
+                hardware=["cpu"],
+                quality_tier="bounded-causal-repair",
+                precision=["float32"],
+                input_limits={
+                    "maximum_expected_degenerate_faces": 64,
+                    "maximum_merge_distance": 1e-8,
+                },
+                operations=["mesh_repair"],
+                input_modalities=["editable_blend", "named_mesh", "defect_count"],
+                output_coordinate_frame="preserves source Blender frame",
+                scale_authority="inherits source scale; bounded repair may not rescale",
+                known_limitations=[
+                    "Repairs only declared degenerate geometry and remains a review candidate."
+                ],
+                confidence_semantics="Before/after topology facts are exact within audit bounds.",
+            ),
+            BackendCapability(
+                name="governed-external-3d-candidate",
+                version="unconfigured",
+                revision="operator-supplied",
+                license="operator review required",
+                commercial_use=False,
+                redistribution="no bundled code or weights; no silent download",
+                state=BackendState.LICENSE_REVIEW_REQUIRED,
+                outputs=["hypothesis_mesh", "hypothesis_materials", "confidence", "limitations"],
+                hardware=["backend-declared"],
+                quality_tier="proposal-only",
+                input_limits={
+                    "checkpoint": "operator-approved digest required",
+                    "credentials": "never persisted",
+                },
+                operations=[
+                    "single_image_candidate_generation",
+                    "multi_image_candidate_generation",
+                    "text_conditioned_candidate_generation",
+                    "organic_reconstruction",
+                    "retopology",
+                    "uv_generation",
+                    "pbr_material_generation",
+                    "texture_projection_and_baking",
+                    "rigging",
+                    "object_animation",
+                    "character_lite_animation",
+                    "collision_generation",
+                ],
+                input_modalities=["image", "multiview_images", "text", "mesh"],
+                output_coordinate_frame="backend-declared with mandatory canonical transform",
+                scale_authority="hypothesis unless bound to metric evidence",
+                known_limitations=[
+                    "Registration governs proposals but does not provide an execution backend.",
+                    "Every output remains acceptance-ineligible until separately verified.",
+                ],
+                confidence_semantics="Backend confidence is preserved and never treated as truth.",
             ),
         ]
 

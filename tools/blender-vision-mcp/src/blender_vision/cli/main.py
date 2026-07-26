@@ -147,6 +147,13 @@ def build_parser() -> argparse.ArgumentParser:
     browser_benchmark.add_argument("--manifest")
     browser_benchmark.add_argument("--output", required=True)
 
+    glb = sub.add_parser("glb", help="validate GLB 2.0 structure without external fetches")
+    glb_sub = glb.add_subparsers(dest="glb_command", required=True)
+    glb_validate = glb_sub.add_parser("validate")
+    glb_validate.add_argument("path")
+    glb_validate.add_argument("--required-node", action="append", default=[])
+    glb_validate.add_argument("--required-mesh", action="append", default=[])
+
     model = sub.add_parser("model", help="govern manually acquired model checkpoints")
     model_sub = model.add_subparsers(dest="model_command", required=True)
     model_approve = model_sub.add_parser("approve-source")
@@ -723,6 +730,14 @@ def dispatch(args: argparse.Namespace) -> Any:
             .run(Path(args.output))
             .model_dump(mode="json")
         )
+    if args.command == "glb":
+        from blender_vision.geometry import GlbValidator
+
+        return GlbValidator().validate(
+            Path(args.path),
+            required_node_names=args.required_node,
+            required_mesh_names=args.required_mesh,
+        ).to_dict()
     if args.command == "model":
         from blender_vision.models.store import ModelStore
 
