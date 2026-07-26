@@ -23,6 +23,12 @@ from blender_vision.perception import (
 )
 from blender_vision.projects.store import ProjectStore
 
+_CROSS_BROWSER_ENGINES = [
+    item
+    for item in os.environ.get("BVMCP_CROSS_BROWSER_ENGINES", "webkit").split(",")
+    if item
+]
+
 
 @contextlib.contextmanager
 def experience_server() -> Iterator[str]:
@@ -69,6 +75,7 @@ def test_experience_configuration_is_bounded_and_environment_identified() -> Non
     ]
     assert config["action_limit"] == 64
     assert config["input_modes"] == ["keyboard", "touch"]
+    assert config["engine"] == "chromium"
     environment = adapter.environment(config)
     assert environment["capture_mode"] == "experience"
     assert environment["responsive_viewports"] == config["responsive_viewports"]
@@ -245,3 +252,52 @@ def test_real_experience_capture_discovers_state_responsive_interaction_and_moti
     )
     assert motion["reduced_motion_variant"]["animations"] == []
     assert motion["inference"]["movement_classification"]["camera_motion"] == "not_observed"
+
+
+@pytest.mark.skipif(
+    os.environ.get("BVMCP_RUN_CROSS_BROWSER_TESTS") != "1",
+    reason="set BVMCP_RUN_CROSS_BROWSER_TESTS=1 to launch managed Firefox and WebKit",
+)
+@pytest.mark.parametrize("engine", _CROSS_BROWSER_ENGINES)
+def test_real_additional_engine_replays_keyboard_touch_responsive_and_motion(
+    tmp_path: Path,
+    engine: str,
+) -> None:
+    project = ProjectStore.create(tmp_path / engine, f"{engine} experience")
+    adapter = BrowserExperienceAdapter()
+    registry = AdapterRegistry()
+    registry.register(adapter)
+    bus = CaptureBus(project, registry)
+
+    with experience_server() as origin:
+        capture = bus.observe(
+            adapter.name,
+            {"url": f"{origin}/index.html"},
+            {
+                "engine": engine,
+                "allowed_origins": [origin],
+                "allow_private_network": True,
+                "viewport": {"width": 390, "height": 844},
+                "device_scale_factor": 2,
+                "orientation": "portrait",
+                "has_touch": True,
+                "responsive_viewports": [
+                    {"width": 390, "height": 844},
+                    {"width": 900, "height": 700},
+                ],
+                "input_modes": ["keyboard", "touch"],
+                "action_limit": 4,
+                "timeline_duration_ms": 100,
+                "timeline_step_ms": 100,
+                "scroll_steps": 2,
+            },
+            rights_decision="SYNTHETIC_OWNED",
+        )
+
+    assert capture["summary"]["browser_engine"] == engine
+    assert capture["summary"]["state_count"] >= 2
+    assert capture["summary"]["interaction_count"] >= 2
+    assert capture["summary"]["responsive_observation_count"] == 2
+    assert capture["summary"]["motion_timeline_count"] == 2
+    assert capture["summary"]["accessibility_critical_or_serious_count"] == 0
+    assert bus.verify(capture["capture_id"])["valid"] is True

@@ -4,7 +4,12 @@ import hashlib
 from typing import Any
 
 from blender_vision.core.util import canonical_json
-from blender_vision.perception.browser import _PAGE_SNAPSHOT_SCRIPT, BrowserAdapter
+from blender_vision.perception.browser import (
+    _NETWORK_PROFILES,
+    _PAGE_SNAPSHOT_SCRIPT,
+    _SEMANTIC_ACCESSIBILITY_SCRIPT,
+    BrowserAdapter,
+)
 from blender_vision.perception.contracts import ArtifactSink, CaptureOutcome
 
 _ACTIONABLE_SCRIPT = r"""
@@ -173,7 +178,9 @@ class BrowserExperienceAdapter(BrowserAdapter):
     def normalize_config(
         self, target: dict[str, Any], config: dict[str, Any]
     ) -> dict[str, Any]:
-        normalized = super().normalize_config(target, config)
+        experience_config = dict(config)
+        experience_config.setdefault("has_touch", True)
+        normalized = super().normalize_config(target, experience_config)
         viewports = config.get(
             "responsive_viewports",
             [
@@ -239,15 +246,51 @@ class BrowserExperienceAdapter(BrowserAdapter):
 
         with sync_playwright() as playwright:
             launch = self._launch_options(config)
-            browser = playwright.chromium.launch(**launch)
+            self._verify_executable_binding(config)
+            browser_type = getattr(playwright, config["engine"])
+            browser = browser_type.launch(**launch)
             context = browser.new_context(**self._context_options(config, has_touch=True))
             page = context.new_page()
+            if config["network_profile"] in {"fast-3g", "slow-3g"}:
+                cdp = context.new_cdp_session(page)
+                cdp.send("Network.enable")
+                cdp.send(
+                    "Network.emulateNetworkConditions",
+                    _NETWORK_PROFILES[config["network_profile"]],
+                )
             self._govern_page(page, config)
             page.goto(
                 target["url"],
                 wait_until=config["wait_until"],
                 timeout=config["timeout_ms"],
             )
+            offline_variant = None
+            if config["offline"]:
+                context.set_offline(True)
+                page.evaluate("() => dispatchEvent(new Event('offline'))")
+                offline_frame = sink(
+                    "environment.offline",
+                    page.screenshot(type="png", full_page=False),
+                    "image/png",
+                    {
+                        "network_profile": "offline",
+                        "viewport": config["viewport"],
+                    },
+                )
+                offline_variant = {
+                    "network_profile": "offline",
+                    "navigator_online": page.evaluate("() => navigator.onLine"),
+                    "frame_artifact": offline_frame["digest"],
+                    "snapshot": page.evaluate(_PAGE_SNAPSHOT_SCRIPT),
+                    "authority": "OBSERVED",
+                }
+            aria_snapshot = page.locator("body").aria_snapshot(
+                timeout=config["timeout_ms"]
+            )
+            semantic_accessibility = page.evaluate(_SEMANTIC_ACCESSIBILITY_SCRIPT)
+            keyboard_journey = self._keyboard_journey(page, config)
+            if config["offline"]:
+                context.set_offline(False)
             self._settle_static(page)
             state_graph, interaction_graph = self._discover_states(
                 page, target, config, sink, emit_json
@@ -264,8 +307,34 @@ class BrowserExperienceAdapter(BrowserAdapter):
         emit_json("responsive.graph", responsive_graph)
         emit_json("motion.graph", motion_graph)
         emit_json("actionable.inventory", action_inventory)
+        emit_json(
+            "accessibility.tree",
+            {
+                "format": "playwright-aria-plus-dom-semantics/v1",
+                "engine": config["engine"],
+                "aria_snapshot": aria_snapshot,
+                "semantic_snapshot": semantic_accessibility,
+            },
+        )
+        emit_json("accessibility.journey", keyboard_journey)
+        emit_json(
+            "environment.variants",
+            {
+                "engine": config["engine"],
+                "viewport": config["viewport"],
+                "device_scale_factor": config["device_scale_factor"],
+                "orientation": config["orientation"],
+                "has_touch": config["has_touch"],
+                "is_mobile": config["is_mobile"],
+                "color_scheme": config["color_scheme"],
+                "reduced_motion": config["reduced_motion"],
+                "network_profile": config["network_profile"],
+                "offline_variant": offline_variant,
+            },
+        )
         return CaptureOutcome(
             summary={
+                "browser_engine": config["engine"],
                 "state_count": len(state_graph["nodes"]),
                 "state_transition_count": len(state_graph["edges"]),
                 "interaction_count": len(interaction_graph["edges"]),
@@ -273,11 +342,19 @@ class BrowserExperienceAdapter(BrowserAdapter):
                 "responsive_transition_count": len(responsive_graph["edges"]),
                 "motion_timeline_count": len(motion_graph["timelines"]),
                 "motion_track_count": len(motion_graph["nodes"]),
+                "accessibility_issue_count": len(semantic_accessibility["issues"]),
+                "accessibility_critical_or_serious_count": sum(
+                    issue["impact"] in {"critical", "serious"}
+                    for issue in semantic_accessibility["issues"]
+                ),
+                "keyboard_journey_status": keyboard_journey["status"],
             },
             limitations=[
                 "Exploration is bounded and never proves that undiscovered states do not exist.",
                 "Only actually rendered post-input states receive OBSERVED state authority.",
                 "External handler source symbols remain unknown unless the page exposes bindings.",
+                "ARIA and DOM semantics are screen-reader-oriented evidence, not physical "
+                "assistive-technology parity.",
             ],
             graphs=[
                 self._graph_descriptor("StateGraph", "state.graph", state_graph),
@@ -773,22 +850,7 @@ class BrowserExperienceAdapter(BrowserAdapter):
 
     @staticmethod
     def _launch_options(config: dict[str, Any]) -> dict[str, Any]:
-        launch: dict[str, Any] = {
-            "headless": config["headless"],
-            "args": [
-                "--disable-background-networking",
-                "--disable-component-update",
-                "--disable-default-apps",
-                "--disable-sync",
-                "--metrics-recording-only",
-                "--no-first-run",
-            ],
-        }
-        if config["executable_path"]:
-            launch["executable_path"] = config["executable_path"]
-        else:
-            launch["channel"] = config["channel"]
-        return launch
+        return BrowserAdapter._launch_options(config)
 
     @staticmethod
     def _context_options(
@@ -797,17 +859,11 @@ class BrowserExperienceAdapter(BrowserAdapter):
         reduced_motion: str | None = None,
         has_touch: bool,
     ) -> dict[str, Any]:
-        return {
-            "viewport": config["viewport"],
-            "device_scale_factor": config["device_scale_factor"],
-            "locale": config["locale"],
-            "timezone_id": config["timezone_id"],
-            "color_scheme": config["color_scheme"],
-            "reduced_motion": reduced_motion or config["reduced_motion"],
-            "service_workers": "block",
-            "ignore_https_errors": config["ignore_https_errors"],
-            "has_touch": has_touch,
-        }
+        return BrowserAdapter._context_options(
+            config,
+            reduced_motion=reduced_motion,
+            has_touch=has_touch,
+        )
 
     def _govern_page(self, page: Any, config: dict[str, Any]) -> None:
         def route_request(route: Any) -> None:

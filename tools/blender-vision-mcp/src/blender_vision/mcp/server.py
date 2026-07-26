@@ -1266,8 +1266,16 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         viewport_width: int = 1280,
         viewport_height: int = 720,
         device_scale_factor: float = 1.0,
+        browser_engine: str = "chromium",
+        is_mobile: bool = False,
+        has_touch: bool = False,
+        orientation: str | None = None,
         color_scheme: str = "light",
         reduced_motion: str = "no-preference",
+        forced_colors: str = "none",
+        contrast: str = "no-preference",
+        offline: bool = False,
+        network_profile: str = "online",
         locale: str = "en-US",
         timezone_id: str = "UTC",
         wait_until: str = "networkidle",
@@ -1290,8 +1298,15 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             browser_defaults = {
                 "viewport": {"width": viewport_width, "height": viewport_height},
                 "device_scale_factor": device_scale_factor,
+                "engine": browser_engine,
+                "is_mobile": is_mobile,
+                "has_touch": has_touch,
                 "color_scheme": color_scheme,
                 "reduced_motion": reduced_motion,
+                "forced_colors": forced_colors,
+                "contrast": contrast,
+                "offline": offline,
+                "network_profile": network_profile,
                 "locale": locale,
                 "timezone_id": timezone_id,
                 "wait_until": wait_until,
@@ -1303,6 +1318,8 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
                 "headless": headless,
                 "full_page": full_page,
             }
+            if orientation is not None:
+                browser_defaults["orientation"] = orientation
             for key, value in browser_defaults.items():
                 resolved_configuration.setdefault(key, value)
         elif not resolved_target:
@@ -1368,8 +1385,16 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         viewport_width: int = 1280,
         viewport_height: int = 720,
         device_scale_factor: float = 1.0,
+        browser_engine: str = "chromium",
+        is_mobile: bool = False,
+        has_touch: bool = True,
+        orientation: str | None = None,
         color_scheme: str = "light",
         reduced_motion: str = "no-preference",
+        forced_colors: str = "none",
+        contrast: str = "no-preference",
+        offline: bool = False,
+        network_profile: str = "online",
         responsive_viewports: list[dict[str, int]] | None = None,
         input_modes: list[str] | None = None,
         action_limit: int = 24,
@@ -1385,8 +1410,15 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
         configuration = {
             "viewport": {"width": viewport_width, "height": viewport_height},
             "device_scale_factor": device_scale_factor,
+            "engine": browser_engine,
+            "is_mobile": is_mobile,
+            "has_touch": has_touch,
             "color_scheme": color_scheme,
             "reduced_motion": reduced_motion,
+            "forced_colors": forced_colors,
+            "contrast": contrast,
+            "offline": offline,
+            "network_profile": network_profile,
             "responsive_viewports": responsive_viewports
             or [
                 {"width": 360, "height": 800},
@@ -1404,6 +1436,8 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             "executable_path": browser_executable_path,
             "headless": headless,
         }
+        if orientation is not None:
+            configuration["orientation"] = orientation
         return await asyncio.to_thread(
             perception_bus(open_project(project_path)).observe,
             "browser.experience",
