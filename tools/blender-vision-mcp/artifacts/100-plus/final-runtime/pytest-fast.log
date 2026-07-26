@@ -1,0 +1,24 @@
+...................s....s......................s........................ [ 16%]
+....................................ss....s....sss...................... [ 33%]
+........................................................................ [ 50%]
+....s........................................................ss......... [ 67%]
+.........................................................s.............. [ 83%]
+.......................................s......................ss.....    [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_appearance_authority.py:69: set BVMCP_RUN_BLENDER_TESTS=1 for real Blender appearance authority
+SKIPPED [1] tests/test_application_benchmark.py:78: set BVMCP_RUN_APP_BENCHMARKS=1 for real Node/SQLite application benchmarks
+SKIPPED [1] tests/test_asset_preparation_benchmark.py:44: set BVMCP_RUN_BLENDER_TESTS=1 for real Blender asset preparation
+SKIPPED [1] tests/test_blender_integration.py:30: set BVMCP_RUN_BLENDER_TESTS=1 for real Blender integration
+SKIPPED [1] tests/test_blender_integration.py:356: set BVMCP_RUN_BLENDER_TESTS=1 for real Blender integration
+SKIPPED [1] tests/test_browser_benchmark.py:62: set BVMCP_RUN_BROWSER_BENCHMARK=1 to run the governed browser matrix
+SKIPPED [1] tests/test_browser_perception.py:178: set BVMCP_RUN_BROWSER_TESTS=1 to launch the installed Chrome browser
+SKIPPED [1] tests/test_browser_perception.py:302: set BVMCP_RUN_CROSS_BROWSER_TESTS=1 to launch managed Firefox and WebKit
+SKIPPED [1] tests/test_calibration_benchmark.py:14: set BVMCP_RUN_BLENDER_TESTS=1 for real Blender calibration
+SKIPPED [1] tests/test_distributed_runtime_benchmark.py:43: set BVMCP_RUN_PROCESS_TESTS=1 for real process-loss recovery
+SKIPPED [1] tests/test_graphics_perception.py:115: set BVMCP_RUN_BROWSER_TESTS=1 to launch the installed Chrome browser
+SKIPPED [1] tests/test_graphics_perception.py:155: set browser and Blender integration gates for the real graphics round trip
+SKIPPED [1] tests/test_performance_authority.py:144: set BVMCP_RUN_BROWSER_TESTS=1 for real Chromium performance repair
+SKIPPED [1] tests/test_source_workspace.py:269: set BVMCP_TYPESCRIPT_SEMANTIC_REPOSITORY to a prepared owned npm repository
+SKIPPED [1] tests/test_web_experience.py:119: set BVMCP_RUN_BROWSER_TESTS=1 to launch the installed Chrome browser
+SKIPPED [1] tests/test_web_experience.py:257: set BVMCP_RUN_CROSS_BROWSER_TESTS=1 to launch managed Firefox and WebKit
+413 passed, 16 skipped in 58.24s
