@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VisionMCP Performance Repair Fixture</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Synthetic owned benchmark</p>
+      <h1>Orbit inspection</h1>
+      <p id="description">Inspect the same governed triangle at an adaptive fidelity.</p>
+      <canvas id="scene" width="640" height="360" aria-label="Blue triangle preview"></canvas>
+      <p id="fallback" role="status" hidden>Interactive 3D is unavailable. Static preview active.</p>
+      <button id="inspect" type="button" aria-describedby="description">Inspect details</button>
+      <output id="result" aria-live="polite">Ready</output>
+    </main>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

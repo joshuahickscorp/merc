@@ -5,9 +5,11 @@ from blender_vision.benchmarks.asset_preparation import (
     AssetPreparationBenchmarkRunner,
 )
 from blender_vision.benchmarks.mac_studio import bootstrap_mac_studio
+from blender_vision.benchmarks.performance import PerformanceBenchmarkRunner
 
 __all__ = [
     "AppearanceBenchmarkRunner",
     "AssetPreparationBenchmarkRunner",
+    "PerformanceBenchmarkRunner",
     "bootstrap_mac_studio",
 ]
