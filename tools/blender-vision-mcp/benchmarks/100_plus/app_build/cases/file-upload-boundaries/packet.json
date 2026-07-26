@@ -58,7 +58,12 @@
         },
         "handler": {
           "entity_ref": "Upload",
-          "field_bindings": {},
+          "field_bindings": {
+            "content_type": "content_type",
+            "id": "id",
+            "size_bytes": "size_bytes",
+            "storage_path": "storage_path"
+          },
           "id_field": "id",
           "initial_status": null,
           "kind": "file_upload",

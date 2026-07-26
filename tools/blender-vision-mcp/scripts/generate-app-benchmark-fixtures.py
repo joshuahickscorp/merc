@@ -312,7 +312,12 @@ def _upload(template: dict[str, Any]) -> dict[str, Any]:
         "status_field": None,
         "initial_status": None,
         "storage_subdirectory": "uploads",
-        "field_bindings": {},
+        "field_bindings": {
+            "id": "id",
+            "content_type": "content_type",
+            "size_bytes": "size_bytes",
+            "storage_path": "storage_path",
+        },
     }
     upload["responses"] = [
         _response(201, "Stored", "Upload"),
