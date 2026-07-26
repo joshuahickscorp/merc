@@ -274,6 +274,7 @@ class SealedBuilderRunner:
         command: list[str],
         output_root: Path,
         timeout_seconds: int = 3600,
+        additional_denied_roots: list[Path] | None = None,
     ) -> SealedBuilderReceipt:
         if not command:
             raise ValueError("sealed builder command cannot be empty")
@@ -290,7 +291,10 @@ class SealedBuilderRunner:
         if not oracle_source.is_dir():
             raise NocturneBenchmarkError("oracle source root must exist")
         packet_receipt = NocturnePacketAuthority(self.contract_path).verify(packet)
-        profile_text = _sandbox_profile([oracle, oracle_source])
+        extra_denied = [
+            root.expanduser().resolve() for root in (additional_denied_roots or [])
+        ]
+        profile_text = _sandbox_profile([oracle, oracle_source, *extra_denied])
         profile_path = output / "builder.sb"
         profile_path.write_text(profile_text, encoding="utf-8")
         sandbox = Path("/usr/bin/sandbox-exec")
@@ -375,6 +379,8 @@ class SealedBuilderRunner:
             claim_boundary=[
                 "The OS sandbox denied reads and writes under the sealed oracle and "
                 "oracle-source roots.",
+                f"The same sandbox profile denied {len(extra_denied)} additional "
+                "declared prior-state roots.",
                 "The builder tree was scanned for an evaluator-only canary after execution.",
                 "This proves filesystem separation for the recorded process, not cognitive "
                 "independence of the benchmark authors.",

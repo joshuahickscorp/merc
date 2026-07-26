@@ -555,6 +555,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="ID:FAILED|ACCEPTED:relative/receipt.json",
     )
     nocturne_seal.add_argument("--contract")
+    nocturne_drills = benchmark_sub.add_parser("run-nocturne-repair-drills")
+    nocturne_drills.add_argument("--app-receipt", required=True)
+    nocturne_drills.add_argument("--three-d-receipt", required=True)
+    nocturne_drills.add_argument("--output", required=True)
     for command_name in ("bootstrap-dgx-spark", "bootstrap-rtx-5090-fe"):
         device = benchmark_sub.add_parser(command_name)
         device.add_argument("--project", required=True)
@@ -1223,6 +1227,20 @@ def dispatch(args: argparse.Namespace) -> Any:
             args.asynchronous,
         )
     if args.command == "benchmark":
+        if args.benchmark_command == "run-nocturne-repair-drills":
+            from blender_vision.benchmarks.nocturne_repair_drills import (
+                NocturneRepairDrillRunner,
+            )
+
+            return (
+                NocturneRepairDrillRunner()
+                .run(
+                    app_receipt_path=Path(args.app_receipt),
+                    three_d_receipt_path=Path(args.three_d_receipt),
+                    output_path=Path(args.output),
+                )
+                .model_dump(mode="json")
+            )
         if args.benchmark_command == "seal-nocturne-candidate":
             from blender_vision.benchmarks.nocturne_app import (
                 seal_nocturne_candidate,
