@@ -38,14 +38,20 @@
     },
     {
       "id": "attempt-007",
-      "receipt_sha256": "c7de97d99393fd73f9aca26dd18f517b40d2a7814869162b06ab7143b185722d",
-      "retained_path": ".visionmcp/attempt-007.json",
+      "receipt_sha256": "0f44c48964fffe688b8ccacc72483589cf575aa605fe235dbf394052109538a3",
+      "retained_path": "failed-attempts/attempt-007.json",
+      "status": "FAILED"
+    },
+    {
+      "id": "attempt-008",
+      "receipt_sha256": "a5b709a1fe226ff2086a08faef81c54fbf45f73a36d45aa1de8afbf78f51a04e",
+      "retained_path": ".visionmcp/attempt-008.json",
       "status": "ACCEPTED"
     }
   ],
   "authority": "VISIONMCP_BUILDER_OUTPUT",
   "benchmark_id": "nocturne-one-sealed-v1",
-  "builder_condition": "H3-codex-sealed",
+  "builder_condition": "H4-codex-bounded-repair",
   "contract_sha256": "b1ff7fd969075671ab59ffea65757a1fbcc825217fc456d002dd206cc7154fd6",
   "files": [
     {
@@ -54,9 +60,9 @@
       "size": 46
     },
     {
-      "path": ".visionmcp/attempt-007.json",
-      "sha256": "c7de97d99393fd73f9aca26dd18f517b40d2a7814869162b06ab7143b185722d",
-      "size": 4690
+      "path": ".visionmcp/attempt-008.json",
+      "sha256": "a5b709a1fe226ff2086a08faef81c54fbf45f73a36d45aa1de8afbf78f51a04e",
+      "size": 1438
     },
     {
       "path": "3d/build_candidate.py",
@@ -107,6 +113,16 @@
       "path": "failed-attempts/attempt-006.json",
       "sha256": "a5384885a73b93465c334eb74bc93e2a1a9bee1ca898f3720aa892d632f601ed",
       "size": 619
+    },
+    {
+      "path": "failed-attempts/attempt-007-builder-accepted.json",
+      "sha256": "ef756e0706bb7c214934ce8e324f61e84b5d0f6f6077d9e5a4c4a5a3a5ca24a6",
+      "size": 4848
+    },
+    {
+      "path": "failed-attempts/attempt-007.json",
+      "sha256": "0f44c48964fffe688b8ccacc72483589cf575aa605fe235dbf394052109538a3",
+      "size": 1139
     },
     {
       "path": "index.html",
@@ -160,8 +176,8 @@
     },
     {
       "path": "src/client/main.ts",
-      "sha256": "e87d221638465bb2dd8d57129314bb390da24e2fed2e5e3ae30d8d866a21412d",
-      "size": 30044
+      "sha256": "c9354467af34096ff499ff0b73c52d916ce01fa64684cf693f2e987c16dd83ea",
+      "size": 30146
     },
     {
       "path": "src/client/renderer.ts",
@@ -205,8 +221,8 @@
     },
     {
       "path": "tests/browser.test.ts",
-      "sha256": "3dec9fe58816e9d7a772a382e16fdedfe8bd1d20e82ac1ca21f6357c120ac171",
-      "size": 12966
+      "sha256": "97c15b4e17b0b76a2d73e1e542a13375290205a7a0da9c1fd13e91b3c3d3f915",
+      "size": 13608
     },
     {
       "path": "tests/unit.test.ts",
@@ -224,7 +240,7 @@
       "size": 440
     }
   ],
-  "generated_at": "2026-07-26T04:21:10.768345+00:00",
+  "generated_at": "2026-07-26T04:33:31.625440+00:00",
   "manual_edits_outside_receipt_chain": false,
   "oracle_source_access": false,
   "packet_manifest_sha256": "434a699dfd95e379c7c56d020fc5b0137f099c8c172ecb9690063df13b71d079",

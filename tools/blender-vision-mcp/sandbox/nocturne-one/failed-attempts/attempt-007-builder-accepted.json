@@ -137,5 +137,6 @@
   "known_limitations": [
     "VisionMCP emits one advisory CLOSED_SOLID_VENT_OR_GRILLE because the specified 23-slot rear grille is represented as 23 closed manifold fins; all fixed semantic, topology, public-silhouette, and GLB gates pass.",
     "Hidden holdout cameras and the hidden mobile trace remain evaluator-only and were not accessed or locally scored."
-  ]
+  ],
+  "superseded_by": "The frozen application evaluator rejected this locally accepted candidate at P0 keyboard_journey; see failed-attempts/attempt-007.json."
 }

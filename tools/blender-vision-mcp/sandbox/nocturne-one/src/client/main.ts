@@ -228,9 +228,11 @@ function nav(): string {
     ["/receipt", "Receipt"]
   ];
   return `
-    <a class="skip-link" href="#main">Skip to content</a>
+    <a id="skip-to-main" class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
-      <a class="wordmark" href="/" aria-label="NOCTURNE/ONE home">
+      <a class="wordmark" href="/" aria-label="NOCTURNE/ONE home" ${
+        current === "/" ? 'tabindex="-1"' : ""
+      }>
         <span>NOCTURNE</span><i>/</i><span>ONE</span>
       </a>
       <nav aria-label="Primary navigation">
@@ -268,7 +270,7 @@ function productStage(showEntry = false): string {
         id="product-canvas"
         width="960"
         height="720"
-        tabindex="0"
+        tabindex="-1"
         aria-label="Interactive 3D model of NOCTURNE/ONE. Drag, swipe, or use arrow keys to orbit."
       ></canvas>
       <div class="stage-vignette" aria-hidden="true"></div>
@@ -578,6 +580,7 @@ async function enter3D(): Promise<void> {
       configuration: sceneConfig,
       reducedMotion
     });
+    canvas.tabIndex = 0;
     scene.selectPart(selectedPart);
     posterVisible = false;
     document.querySelector(".product-poster")?.classList.add("is-hidden");

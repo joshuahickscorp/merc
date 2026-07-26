@@ -140,12 +140,25 @@ try {
       { poster: first.poster, glb: first.glb },
       { poster: true, glb: false }
     );
+    const keyboardTargets: string[] = [];
+    for (let index = 0; index < 8; index += 1) {
+      await page.keyboard.press("Tab");
+      keyboardTargets.push(
+        await page.evaluate(
+          () => document.activeElement?.id || document.activeElement?.tagName || ""
+        )
+      );
+    }
+    assert.ok(keyboardTargets.includes("enter-3d"), JSON.stringify(keyboardTargets));
+    assert.ok(new Set(keyboardTargets).size >= 3, JSON.stringify(keyboardTargets));
+    assert.equal(await page.locator("#product-canvas").getAttribute("tabindex"), "-1");
     await page.locator("#enter-3d").click();
     await page.waitForFunction(
       () => window.__NOCTURNE__.state === "3d_ready",
       undefined,
       { timeout: 20_000 }
     );
+    assert.equal(await page.locator("#product-canvas").getAttribute("tabindex"), "0");
     const frames = await page.evaluate(() =>
       window.__NOCTURNE__.sampleFrames(120)
     );
