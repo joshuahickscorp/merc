@@ -1,0 +1,1260 @@
+{
+  "assertions": [
+    {
+      "expected": "different SHA-256",
+      "id": "candidate_is_not_oracle_blend",
+      "observed": {
+        "candidate": "8038940f1b34f446832c677db7873b688a79ba5335f8a843ccbc71417fe8e819",
+        "oracle": "947ba11ac4c05cfffeacb2b2655538644a918f9529a9c1b090fed8e973856102"
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ],
+      "id": "all_named_parts_present",
+      "observed": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ],
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "dimensions_mm": [
+          320.0,
+          180.0,
+          360.0
+        ],
+        "maximum_error_ratio": 0.01
+      },
+      "id": "overall_dimensions",
+      "observed": {
+        "dimensions_mm": [
+          325.300415,
+          180.0,
+          380.047485
+        ],
+        "error_ratios": [
+          0.01656379687499996,
+          0.0,
+          0.05568745833333332
+        ]
+      },
+      "passed": false,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "maximum_diagonal_ratio": 0.02
+      },
+      "id": "part_placement",
+      "observed": {
+        "acoustic_membrane": 1.7502971436368536e-08,
+        "base": 0.0,
+        "braided_cable": 0.013749988774019478,
+        "eclipse_disk": 0.0,
+        "glass_core": 4.577455773798586e-08,
+        "internal_frame": 0.0,
+        "left_driver": 0.0,
+        "logic_board": 0.0,
+        "outer_shell": 0.038037860198224964,
+        "right_driver": 0.0,
+        "rotary_control": 0.0,
+        "thermal_grille": 0.0
+      },
+      "passed": false,
+      "severity": "P0"
+    },
+    {
+      "expected": "not every required part has the oracle mesh signature",
+      "id": "oracle_mesh_not_embedded",
+      "observed": [],
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": "all declared class checks pass",
+      "id": "material_classes",
+      "observed": {
+        "black_anodized_is_metallic": true,
+        "black_anodized_is_not_mirror": true,
+        "eclipse_is_emissive": true,
+        "glass_and_emissive_are_separate": true,
+        "glass_is_frosted": true,
+        "glass_is_transmissive": true,
+        "membrane_is_high_roughness": true,
+        "rotary_control_is_metallic": true
+      },
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "root_present": true,
+        "unparented_required_parts": []
+      },
+      "id": "clean_scene_hierarchy",
+      "observed": {
+        "root_present": false,
+        "unparented_required_parts": [
+          "acoustic_membrane",
+          "base",
+          "braided_cable",
+          "eclipse_disk",
+          "glass_core",
+          "internal_frame",
+          "left_driver",
+          "logic_board",
+          "outer_shell",
+          "right_driver",
+          "rotary_control",
+          "thermal_grille"
+        ]
+      },
+      "passed": false,
+      "severity": "P1"
+    },
+    {
+      "expected": [],
+      "id": "missing_textures",
+      "observed": [],
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "mesh_count_minimum": 1,
+        "missing_uv_objects": [],
+        "negative_scale_objects": [],
+        "non_finite_normal_objects": [],
+        "non_manifold_edges": {}
+      },
+      "id": "uv_topology_normals",
+      "observed": {
+        "mesh_count": 12,
+        "missing_uv_objects": [],
+        "negative_scale_objects": [],
+        "non_finite_normal_objects": [],
+        "non_manifold_edges": {}
+      },
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "all_required_animated": true,
+        "frame_120_deterministic": true
+      },
+      "id": "deterministic_exploded_animation",
+      "observed": {
+        "all_required_animated": true,
+        "frame_120_deterministic": true
+      },
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "hero_valid": true,
+        "invalid_reference_count": 0,
+        "low_valid": true
+      },
+      "id": "validated_glb_outputs",
+      "observed": {
+        "hero_errors": [],
+        "hero_valid": true,
+        "low_errors": [],
+        "low_valid": true
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "hero_object_count_minimum": 1,
+        "low_object_count_minimum": 1
+      },
+      "id": "glb_reimports",
+      "observed": {
+        "hero_object_count": 12,
+        "low_object_count": 12
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ],
+      "id": "lod_named_identity",
+      "observed": {
+        "hero": [
+          "acoustic_membrane",
+          "base",
+          "braided_cable",
+          "eclipse_disk",
+          "glass_core",
+          "internal_frame",
+          "left_driver",
+          "logic_board",
+          "outer_shell",
+          "right_driver",
+          "rotary_control",
+          "thermal_grille"
+        ],
+        "low": [
+          "acoustic_membrane",
+          "base",
+          "braided_cable",
+          "eclipse_disk",
+          "glass_core",
+          "internal_frame",
+          "left_driver",
+          "logic_board",
+          "outer_shell",
+          "right_driver",
+          "rotary_control",
+          "thermal_grille"
+        ]
+      },
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": true,
+      "id": "blend_reopens",
+      "observed": true,
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "every_view_minimum": 0.95
+      },
+      "id": "public_silhouettes",
+      "observed": [
+        0.8314348283706244,
+        0.8360087789372777,
+        0.8505585115754607,
+        0.8466077230070316,
+        0.7866957086124771,
+        0.8532228432943751
+      ],
+      "passed": false,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "every_view_minimum": 0.92
+      },
+      "id": "hidden_silhouettes",
+      "observed": [
+        0.859837686757728,
+        0.8498207434136608,
+        0.8892223097684867,
+        0.8675280948754811
+      ],
+      "passed": false,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "camera_nudge": false,
+        "hidden_count": 4,
+        "public_count": 6
+      },
+      "id": "fixed_evaluator_cameras",
+      "observed": {
+        "hidden_count": 4,
+        "inspection_script_sha256": "42a27e94c5bec5a55997ef4bc179b07aa631404f90aabcd9da5501fbd01d24c6",
+        "public_count": 6
+      },
+      "passed": true,
+      "severity": "P0"
+    }
+  ],
+  "benchmark_id": "nocturne-one-sealed-v1",
+  "candidate_blend_sha256": "8038940f1b34f446832c677db7873b688a79ba5335f8a843ccbc71417fe8e819",
+  "candidate_hero_glb_sha256": "ce5ca9770040b8de66b645133f94217a72006b4269818734cf3d9181d945ac87",
+  "candidate_low_glb_sha256": "ce5ca9770040b8de66b645133f94217a72006b4269818734cf3d9181d945ac87",
+  "claim_boundary": [
+    "Public and hidden silhouettes use fixed oracle camera states with no nudge.",
+    "Part placement compares evaluator-only oracle bounds to independently built candidate bounds.",
+    "Structural material checks do not prove universal photorealism.",
+    "The result is specific to the fixed NOCTURNE/ONE contract and recorded host."
+  ],
+  "completed_at": "2026-07-26T05:05:57.541651+00:00",
+  "contract_sha256": "b1ff7fd969075671ab59ffea65757a1fbcc825217fc456d002dd206cc7154fd6",
+  "elapsed_seconds": 2.188689125003293,
+  "failure": null,
+  "functional_passed": false,
+  "hero_glb_validation": {
+    "authority": "STRUCTURAL_OBSERVED",
+    "errors": [],
+    "extensions": {
+      "required": [],
+      "used": [
+        "KHR_materials_emissive_strength",
+        "KHR_materials_transmission"
+      ]
+    },
+    "metrics": {
+      "accessor_count": 56,
+      "animation_count": 8,
+      "binary_chunk_bytes": 244024,
+      "buffer_view_count": 56,
+      "image_count": 0,
+      "material_count": 6,
+      "mesh_count": 12,
+      "node_count": 12,
+      "primitive_count": 12,
+      "scene_count": 1,
+      "skin_count": 0,
+      "texture_count": 0
+    },
+    "named_identity": {
+      "missing_meshes": [],
+      "missing_nodes": [],
+      "observed_meshes": [
+        "acoustic_membrane_LOD0",
+        "base_LOD0",
+        "braided_cable_LOD0",
+        "eclipse_disk_LOD0",
+        "glass_core_LOD0",
+        "internal_frame_LOD0",
+        "left_driver_LOD0",
+        "logic_board_LOD0",
+        "outer_shell_LOD0",
+        "right_driver_LOD0",
+        "rotary_control_LOD0",
+        "thermal_grille_LOD0"
+      ],
+      "observed_nodes": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ],
+      "required_meshes": [],
+      "required_nodes": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ]
+    },
+    "path": "/private/tmp/nocturne-one-h4-builder-db820c9/tools/blender-vision-mcp/sandbox/nocturne-one/public/assets/nocturne-one-hero.glb",
+    "sha256": "ce5ca9770040b8de66b645133f94217a72006b4269818734cf3d9181d945ac87",
+    "size": 257672,
+    "valid": true,
+    "validator": "visionmcp-glb-validator/v1",
+    "warnings": []
+  },
+  "inspection": {
+    "animation": {
+      "all_required_animated": true,
+      "assembled_frame_sha256_payload": {
+        "acoustic_membrane": [
+          -8.0,
+          -48.0,
+          176.0
+        ],
+        "base": [
+          0.0,
+          0.0,
+          17.0
+        ],
+        "braided_cable": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "eclipse_disk": [
+          -8.0,
+          39.0,
+          181.0
+        ],
+        "glass_core": [
+          -8.0,
+          -4.0,
+          178.0
+        ],
+        "internal_frame": [
+          -8.0,
+          3.0,
+          178.0
+        ],
+        "left_driver": [
+          -76.0,
+          -8.0,
+          178.0
+        ],
+        "logic_board": [
+          -8.0,
+          12.0,
+          76.0
+        ],
+        "outer_shell": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "right_driver": [
+          65.0,
+          -8.0,
+          178.0
+        ],
+        "rotary_control": [
+          104.0,
+          -76.0,
+          41.0
+        ],
+        "thermal_grille": [
+          0.0,
+          87.0,
+          75.0
+        ]
+      },
+      "exploded_frame_sha256_payload": {
+        "acoustic_membrane": [
+          -8.0,
+          -130.0,
+          176.0
+        ],
+        "base": [
+          0.0,
+          0.0,
+          17.0
+        ],
+        "braided_cable": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "eclipse_disk": [
+          -8.0,
+          97.0,
+          181.0
+        ],
+        "glass_core": [
+          -8.0,
+          -50.0,
+          178.0
+        ],
+        "internal_frame": [
+          -8.0,
+          31.0,
+          178.0
+        ],
+        "left_driver": [
+          -134.0,
+          -36.0,
+          178.0
+        ],
+        "logic_board": [
+          -8.0,
+          88.0,
+          58.0
+        ],
+        "outer_shell": [
+          0.0,
+          0.0,
+          44.0
+        ],
+        "right_driver": [
+          123.0,
+          -36.0,
+          178.0
+        ],
+        "rotary_control": [
+          104.0,
+          -76.0,
+          41.0
+        ],
+        "thermal_grille": [
+          0.0,
+          87.0,
+          75.0
+        ]
+      },
+      "frame_120_deterministic": true,
+      "observed_animated_parts": [
+        "acoustic_membrane",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver"
+      ],
+      "required_animated_parts": [
+        "acoustic_membrane",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver"
+      ]
+    },
+    "blend_reopened": true,
+    "hero_glb_reimport": {
+      "object_count": 12,
+      "object_names": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ],
+      "path": "/private/tmp/nocturne-one-h4-builder-db820c9/tools/blender-vision-mcp/sandbox/nocturne-one/public/assets/nocturne-one-hero.glb",
+      "semantic_names": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ]
+    },
+    "hierarchy": {
+      "root_present": false,
+      "unparented_required_parts": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ]
+    },
+    "low_glb_reimport": {
+      "object_count": 12,
+      "object_names": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ],
+      "path": "/private/tmp/nocturne-one-h4-builder-db820c9/tools/blender-vision-mcp/sandbox/nocturne-one/public/assets/nocturne-one-low.glb",
+      "semantic_names": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ]
+    },
+    "material_details": {
+      "MAT_BLACK_ANODIZED_ALUMINUM": {
+        "Alpha": 1.0,
+        "Base Color": [
+          0.006,
+          0.008,
+          0.012,
+          1.0
+        ],
+        "Emission Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Emission Strength": 0.0,
+        "Metallic": 0.82,
+        "Roughness": 0.28,
+        "Transmission Weight": 0.0,
+        "uses_principled": true
+      },
+      "MAT_FROSTED_TRANSLUCENT_GLASS": {
+        "Alpha": 1.0,
+        "Base Color": [
+          0.18,
+          0.27,
+          0.34,
+          1.0
+        ],
+        "Emission Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Emission Strength": 0.0,
+        "Metallic": 0.0,
+        "Roughness": 0.24,
+        "Transmission Weight": 0.72,
+        "uses_principled": true
+      },
+      "MAT_GRAPHITE_TENSIONED_TEXTILE": {
+        "Alpha": 1.0,
+        "Base Color": [
+          0.018,
+          0.022,
+          0.03,
+          1.0
+        ],
+        "Emission Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Emission Strength": 0.0,
+        "Metallic": 0.0,
+        "Roughness": 0.86,
+        "Transmission Weight": 0.0,
+        "uses_principled": true
+      },
+      "MAT_LOGIC_BOARD": {
+        "Alpha": 1.0,
+        "Base Color": [
+          0.02,
+          0.12,
+          0.08,
+          1.0
+        ],
+        "Emission Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Emission Strength": 0.0,
+        "Metallic": 0.05,
+        "Roughness": 0.5,
+        "Transmission Weight": 0.0,
+        "uses_principled": true
+      },
+      "MAT_MACHINED_ALUMINUM": {
+        "Alpha": 1.0,
+        "Base Color": [
+          0.28,
+          0.31,
+          0.34,
+          1.0
+        ],
+        "Emission Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Emission Strength": 0.0,
+        "Metallic": 0.9,
+        "Roughness": 0.2,
+        "Transmission Weight": 0.0,
+        "uses_principled": true
+      },
+      "MAT_WARM_EMISSIVE_CERAMIC": {
+        "Alpha": 1.0,
+        "Base Color": [
+          1.0,
+          0.28,
+          0.06,
+          1.0
+        ],
+        "Emission Color": [
+          1.0,
+          0.24,
+          0.035,
+          1.0
+        ],
+        "Emission Strength": 5.0,
+        "Metallic": 0.0,
+        "Roughness": 0.3,
+        "Transmission Weight": 0.0,
+        "uses_principled": true
+      }
+    },
+    "materials": [
+      "MAT_BLACK_ANODIZED_ALUMINUM",
+      "MAT_FROSTED_TRANSLUCENT_GLASS",
+      "MAT_GRAPHITE_TENSIONED_TEXTILE",
+      "MAT_LOGIC_BOARD",
+      "MAT_MACHINED_ALUMINUM",
+      "MAT_WARM_EMISSIVE_CERAMIC"
+    ],
+    "mesh_quality": {
+      "mesh_count": 12,
+      "missing_uv_objects": [],
+      "negative_scale_objects": [],
+      "non_finite_normal_objects": [],
+      "non_manifold_edges": {}
+    },
+    "missing_parts": [],
+    "missing_textures": [],
+    "observed_parts": [
+      "acoustic_membrane",
+      "base",
+      "braided_cable",
+      "eclipse_disk",
+      "glass_core",
+      "internal_frame",
+      "left_driver",
+      "logic_board",
+      "outer_shell",
+      "right_driver",
+      "rotary_control",
+      "thermal_grille"
+    ],
+    "parts": {
+      "acoustic_membrane": {
+        "descendant_count": 0,
+        "dimensions": [
+          108.000046,
+          8.0,
+          222.0
+        ],
+        "location": [
+          -8.00001,
+          -48.0,
+          176.0
+        ],
+        "materials": [
+          "MAT_GRAPHITE_TENSIONED_TEXTILE"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 800,
+        "vertex_count": 762
+      },
+      "base": {
+        "descendant_count": 0,
+        "dimensions": [
+          320.0,
+          180.0,
+          34.0
+        ],
+        "location": [
+          0.0,
+          0.0,
+          17.0
+        ],
+        "materials": [
+          "MAT_BLACK_ANODIZED_ALUMINUM"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 98,
+        "vertex_count": 96
+      },
+      "braided_cable": {
+        "descendant_count": 0,
+        "dimensions": [
+          164.546951,
+          55.780083,
+          21.117386
+        ],
+        "location": [
+          138.388123,
+          111.304413,
+          12.457462
+        ],
+        "materials": [
+          "MAT_GRAPHITE_TENSIONED_TEXTILE"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 302,
+        "vertex_count": 310
+      },
+      "eclipse_disk": {
+        "descendant_count": 0,
+        "dimensions": [
+          108.0,
+          8.000008,
+          108.0
+        ],
+        "location": [
+          -8.0,
+          39.0,
+          181.0
+        ],
+        "materials": [
+          "MAT_WARM_EMISSIVE_CERAMIC"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 50,
+        "vertex_count": 96
+      },
+      "glass_core": {
+        "descendant_count": 0,
+        "dimensions": [
+          122.000084,
+          96.000099,
+          252.0
+        ],
+        "location": [
+          -8.000019,
+          -3.999989,
+          178.0
+        ],
+        "materials": [
+          "MAT_FROSTED_TRANSLUCENT_GLASS"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 1152,
+        "vertex_count": 1106
+      },
+      "internal_frame": {
+        "descendant_count": 0,
+        "dimensions": [
+          104.0,
+          68.0,
+          236.0
+        ],
+        "location": [
+          -8.0,
+          3.0,
+          178.0
+        ],
+        "materials": [
+          "MAT_MACHINED_ALUMINUM"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 98,
+        "vertex_count": 96
+      },
+      "left_driver": {
+        "descendant_count": 0,
+        "dimensions": [
+          58.0,
+          18.000004,
+          58.0
+        ],
+        "location": [
+          -76.0,
+          -8.0,
+          178.0
+        ],
+        "materials": [
+          "MAT_GRAPHITE_TENSIONED_TEXTILE"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 42,
+        "vertex_count": 80
+      },
+      "logic_board": {
+        "descendant_count": 0,
+        "dimensions": [
+          94.0,
+          4.0,
+          48.0
+        ],
+        "location": [
+          -8.0,
+          12.0,
+          76.0
+        ],
+        "materials": [
+          "MAT_LOGIC_BOARD"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 98,
+        "vertex_count": 96
+      },
+      "outer_shell": {
+        "descendant_count": 0,
+        "dimensions": [
+          325.300415,
+          68.298538,
+          359.429443
+        ],
+        "location": [
+          0.95932,
+          1.179823,
+          200.332764
+        ],
+        "materials": [
+          "MAT_BLACK_ANODIZED_ALUMINUM"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 1346,
+        "vertex_count": 1358
+      },
+      "right_driver": {
+        "descendant_count": 0,
+        "dimensions": [
+          58.0,
+          18.000004,
+          58.0
+        ],
+        "location": [
+          65.0,
+          -8.0,
+          178.0
+        ],
+        "materials": [
+          "MAT_GRAPHITE_TENSIONED_TEXTILE"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 42,
+        "vertex_count": 80
+      },
+      "rotary_control": {
+        "descendant_count": 0,
+        "dimensions": [
+          34.0,
+          13.0,
+          34.0
+        ],
+        "location": [
+          104.0,
+          -76.0,
+          41.0
+        ],
+        "materials": [
+          "MAT_MACHINED_ALUMINUM"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 50,
+        "vertex_count": 96
+      },
+      "thermal_grille": {
+        "descendant_count": 0,
+        "dimensions": [
+          220.0,
+          2.399994,
+          18.0
+        ],
+        "location": [
+          0.0,
+          87.0,
+          75.0
+        ],
+        "materials": [
+          "MAT_BLACK_ANODIZED_ALUMINUM"
+        ],
+        "object_type": "MESH",
+        "polygon_count": 98,
+        "vertex_count": 96
+      }
+    },
+    "primary_dimensions_mm": [
+      325.300415,
+      180.0,
+      380.047485
+    ],
+    "required_parts": [
+      "acoustic_membrane",
+      "base",
+      "braided_cable",
+      "eclipse_disk",
+      "glass_core",
+      "internal_frame",
+      "left_driver",
+      "logic_board",
+      "outer_shell",
+      "right_driver",
+      "rotary_control",
+      "thermal_grille"
+    ],
+    "schema_version": "1",
+    "silhouettes": {
+      "front": "/private/tmp/nocturne-one-h4-eval-3d-db820c9/silhouettes/front.candidate.png",
+      "hero": "/private/tmp/nocturne-one-h4-eval-3d-db820c9/silhouettes/hero.candidate.png",
+      "holdout-a": "/private/tmp/nocturne-one-h4-eval-3d-db820c9/silhouettes/holdout-a.candidate.png",
+      "holdout-b": "/private/tmp/nocturne-one-h4-eval-3d-db820c9/silhouettes/holdout-b.candidate.png",
+      "holdout-c": "/private/tmp/nocturne-one-h4-eval-3d-db820c9/silhouettes/holdout-c.candidate.png",
+      "holdout-d": "/private/tmp/nocturne-one-h4-eval-3d-db820c9/silhouettes/holdout-d.candidate.png",
+      "left": "/private/tmp/nocturne-one-h4-eval-3d-db820c9/silhouettes/left.candidate.png",
+      "rear": "/private/tmp/nocturne-one-h4-eval-3d-db820c9/silhouettes/rear.candidate.png",
+      "right": "/private/tmp/nocturne-one-h4-eval-3d-db820c9/silhouettes/right.candidate.png",
+      "top": "/private/tmp/nocturne-one-h4-eval-3d-db820c9/silhouettes/top.candidate.png"
+    }
+  },
+  "leakage_boundary": {
+    "builder_file_count": 55,
+    "builder_root_sha256": "ac6ba25c7090f7777172d5338796b93e2b5d69f3a281b5da0975c8286fb17b92",
+    "builder_scanned_bytes": 1758409,
+    "canary_count": 1,
+    "leakage_detected": false,
+    "oracle_root_sha256": "e9453f5c21f29d650aa9e87a11d622f103be370bbb1a253ec341fedea5b9d50e"
+  },
+  "low_glb_validation": {
+    "authority": "STRUCTURAL_OBSERVED",
+    "errors": [],
+    "extensions": {
+      "required": [],
+      "used": [
+        "KHR_materials_emissive_strength",
+        "KHR_materials_transmission"
+      ]
+    },
+    "metrics": {
+      "accessor_count": 56,
+      "animation_count": 8,
+      "binary_chunk_bytes": 244024,
+      "buffer_view_count": 56,
+      "image_count": 0,
+      "material_count": 6,
+      "mesh_count": 12,
+      "node_count": 12,
+      "primitive_count": 12,
+      "scene_count": 1,
+      "skin_count": 0,
+      "texture_count": 0
+    },
+    "named_identity": {
+      "missing_meshes": [],
+      "missing_nodes": [],
+      "observed_meshes": [
+        "acoustic_membrane_LOD0",
+        "base_LOD0",
+        "braided_cable_LOD0",
+        "eclipse_disk_LOD0",
+        "glass_core_LOD0",
+        "internal_frame_LOD0",
+        "left_driver_LOD0",
+        "logic_board_LOD0",
+        "outer_shell_LOD0",
+        "right_driver_LOD0",
+        "rotary_control_LOD0",
+        "thermal_grille_LOD0"
+      ],
+      "observed_nodes": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ],
+      "required_meshes": [],
+      "required_nodes": [
+        "acoustic_membrane",
+        "base",
+        "braided_cable",
+        "eclipse_disk",
+        "glass_core",
+        "internal_frame",
+        "left_driver",
+        "logic_board",
+        "outer_shell",
+        "right_driver",
+        "rotary_control",
+        "thermal_grille"
+      ]
+    },
+    "path": "/private/tmp/nocturne-one-h4-builder-db820c9/tools/blender-vision-mcp/sandbox/nocturne-one/public/assets/nocturne-one-low.glb",
+    "sha256": "ce5ca9770040b8de66b645133f94217a72006b4269818734cf3d9181d945ac87",
+    "size": 257672,
+    "valid": true,
+    "validator": "visionmcp-glb-validator/v1",
+    "warnings": []
+  },
+  "oracle_manifest_sha256": "c1c1a8786ba37e6369f2aa67d37a4aa9f7307787c6127d2941617414f8d68975",
+  "output_digests": {
+    "blender.stderr.log": "0fdc4f4a6385aec20a9a9def311afb2ce357e1d10ae34ff5e70ac75b4f43b51c",
+    "blender.stdout.log": "743f7dbe573a2e824c06bffe7879ec56b7ac7999291c52da6fbce9b6b2b65d2c",
+    "candidate-inspection.json": "c8ac8048d667bcb980cab59b5476a9e48a7b0307c8fc0b7285c7bee2f15c0ac7",
+    "silhouettes/front.candidate.png": "548dd21ab43656848bf3061eb7b79b0102b8ba3e428d228ae50207e3bfbd8770",
+    "silhouettes/hero.candidate.png": "73a1f98aa54dccf3579c1dcd3e01e13b5a8c7ff01f7d8a52543722cb11cb41c3",
+    "silhouettes/holdout-a.candidate.png": "eecc8f0e992d15f7c605d5aeca5c83408324ecd2dc49b613bd044662c988948c",
+    "silhouettes/holdout-b.candidate.png": "b044b074514d8f887dcb3860621c345d63051d18d6a5237600328ec01b7ddca3",
+    "silhouettes/holdout-c.candidate.png": "8d0040e152cfe427d22163e2e97d01b3235fc4caa9568815f2386b32c33977be",
+    "silhouettes/holdout-d.candidate.png": "8a3bd20fb095038000e2477e1ad511a8bc4f5b538b1deea922ca462fed768b32",
+    "silhouettes/left.candidate.png": "8ab66a2e360d162c69f7909be3c28ed8a6ddfa1959837414e93e5fdbd8eb8a3d",
+    "silhouettes/rear.candidate.png": "db32281123f6d5c5ec33b03bc979e01eee57899aa80b0a2df5e4f0ab7c74b3d3",
+    "silhouettes/right.candidate.png": "71841837e6041166604f8a1231377b9d57144f2a660b85dde0b1f9fea487003a",
+    "silhouettes/top.candidate.png": "06862a36c543cea79e3c66b18ac6e324db6b2986fd360422fad05d5932ab990d"
+  },
+  "packet_manifest_sha256": "434a699dfd95e379c7c56d020fc5b0137f099c8c172ecb9690063df13b71d079",
+  "runtime": {
+    "blender_executable": "/Applications/Blender.app/Contents/MacOS/Blender",
+    "blender_executable_sha256": "b5737da97b0e164cc18e227be115c4ea2791d11e9577f7e302c73f4871f9249c",
+    "blender_version": "Blender 4.2.1 LTS",
+    "host": "macOS-27.0-arm64-arm-64bit",
+    "inspection_script_sha256": "42a27e94c5bec5a55997ef4bc179b07aa631404f90aabcd9da5501fbd01d24c6"
+  },
+  "schema_version": "1",
+  "sealed_builder_receipt_sha256": "147c7aaa88b195bf10335dda1556f263a5e4dcdc9ea8316e0b4cfff6c899479f",
+  "source_git_head": "35efe1bd3fd3e9fa1f132133da7dc586410f5d8c",
+  "started_at": "2026-07-26T05:05:55.352668+00:00",
+  "status": "FAIL",
+  "view_scores": [
+    {
+      "candidate_sha256": "548dd21ab43656848bf3061eb7b79b0102b8ba3e428d228ae50207e3bfbd8770",
+      "label": "front",
+      "oracle_sha256": "c8e42c9c327baf9945c0619bba8e94e688ab2d032782207c9daf3e6c2ac6b1da",
+      "passed": false,
+      "silhouette_iou": 0.8314348283706244,
+      "threshold": 0.95,
+      "visibility": "public"
+    },
+    {
+      "candidate_sha256": "db32281123f6d5c5ec33b03bc979e01eee57899aa80b0a2df5e4f0ab7c74b3d3",
+      "label": "rear",
+      "oracle_sha256": "77cd81254f0db496131687ca43a9b8061f908182e1c3a7b009d576d5ed98124e",
+      "passed": false,
+      "silhouette_iou": 0.8360087789372777,
+      "threshold": 0.95,
+      "visibility": "public"
+    },
+    {
+      "candidate_sha256": "8ab66a2e360d162c69f7909be3c28ed8a6ddfa1959837414e93e5fdbd8eb8a3d",
+      "label": "left",
+      "oracle_sha256": "8f0a7c414cc9f13faa4836aa6caf44840d5a4b7cd3580d6809b9ce1f99b9dbcd",
+      "passed": false,
+      "silhouette_iou": 0.8505585115754607,
+      "threshold": 0.95,
+      "visibility": "public"
+    },
+    {
+      "candidate_sha256": "71841837e6041166604f8a1231377b9d57144f2a660b85dde0b1f9fea487003a",
+      "label": "right",
+      "oracle_sha256": "bf1b6b71c41e4408d1719265634862941f99c59fcee1a56f8badfe2b25913174",
+      "passed": false,
+      "silhouette_iou": 0.8466077230070316,
+      "threshold": 0.95,
+      "visibility": "public"
+    },
+    {
+      "candidate_sha256": "06862a36c543cea79e3c66b18ac6e324db6b2986fd360422fad05d5932ab990d",
+      "label": "top",
+      "oracle_sha256": "c06cc5462046672c468e811d9667aaf158fe21de6c9e1944da9e9b8124ac45fd",
+      "passed": false,
+      "silhouette_iou": 0.7866957086124771,
+      "threshold": 0.95,
+      "visibility": "public"
+    },
+    {
+      "candidate_sha256": "73a1f98aa54dccf3579c1dcd3e01e13b5a8c7ff01f7d8a52543722cb11cb41c3",
+      "label": "hero",
+      "oracle_sha256": "241d1cd558c2027e7f2183cadf73bf1155c4a115e14664a8492fc6d7ae12ec93",
+      "passed": false,
+      "silhouette_iou": 0.8532228432943751,
+      "threshold": 0.95,
+      "visibility": "public"
+    },
+    {
+      "candidate_sha256": "eecc8f0e992d15f7c605d5aeca5c83408324ecd2dc49b613bd044662c988948c",
+      "label": "holdout-a",
+      "oracle_sha256": "41a854331b6571145ad82a0d07ae52673493c50edfd2dbf46241f624492b7a44",
+      "passed": false,
+      "silhouette_iou": 0.859837686757728,
+      "threshold": 0.92,
+      "visibility": "hidden"
+    },
+    {
+      "candidate_sha256": "b044b074514d8f887dcb3860621c345d63051d18d6a5237600328ec01b7ddca3",
+      "label": "holdout-b",
+      "oracle_sha256": "823bd42b2e1ac8979efd093fc636c6a1c42b41bc8b43c31dcca2638ca1d26986",
+      "passed": false,
+      "silhouette_iou": 0.8498207434136608,
+      "threshold": 0.92,
+      "visibility": "hidden"
+    },
+    {
+      "candidate_sha256": "8d0040e152cfe427d22163e2e97d01b3235fc4caa9568815f2386b32c33977be",
+      "label": "holdout-c",
+      "oracle_sha256": "75157849bb4d81b37bccddde4eb0afc2b7aeca7c31b1d28553199fc9e6920142",
+      "passed": false,
+      "silhouette_iou": 0.8892223097684867,
+      "threshold": 0.92,
+      "visibility": "hidden"
+    },
+    {
+      "candidate_sha256": "8a3bd20fb095038000e2477e1ad511a8bc4f5b538b1deea922ca462fed768b32",
+      "label": "holdout-d",
+      "oracle_sha256": "5b0566c16f33994c610d9486ae11c24ed1437d9548c15a3fb07690ed75cb69a4",
+      "passed": false,
+      "silhouette_iou": 0.8675280948754811,
+      "threshold": 0.92,
+      "visibility": "hidden"
+    }
+  ],
+  "workspace": "/private/tmp/nocturne-one-h4-eval-3d-db820c9"
+}

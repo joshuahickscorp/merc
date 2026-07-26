@@ -1,0 +1,1 @@
+{"schema_version":"1","id":"failure-006","attempt":"attempt-000","command":"npm run verify:3d","phase":"topology_metric","exit_code":1,"severity":"P1","information_gain":"high","observations":["selection operator reported 96 eclipse_disk rim vertices","operator includes categories beyond edge manifoldness"],"downstream_gates_run":false,"recorded_before_source_change":true}
