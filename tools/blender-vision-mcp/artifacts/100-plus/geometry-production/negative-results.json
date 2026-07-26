@@ -1,0 +1,42 @@
+{
+  "schema_version": "1",
+  "source_git_head_visible_during_development": "cdbdbdf0848254bfc081f19fa016c01eeff76301",
+  "authority": "Transcribed from observed pytest output and Blender logs during dirty-tree development; the pytest temporary workspaces were automatically removed before archival.",
+  "attempts": [
+    {
+      "sequence": 1,
+      "status": "REJECTED",
+      "stage": "texture_baking",
+      "command": "BVMCP_RUN_BLENDER_TESTS=1 uv run pytest -q tests/test_asset_preparation_benchmark.py::test_real_asset_preparation_benchmark_passes_every_stage -s",
+      "observed_error": "RuntimeError: Error: Current render engine does not support baking",
+      "cause": "The initial worker selected BLENDER_EEVEE_NEXT for bpy.ops.object.bake under Blender 4.2.1.",
+      "repair": "Use bounded one-sample CPU Cycles for the bake stage and restore the prior engine and sample count.",
+      "candidate_produced": false,
+      "raw_workspace_archived": false,
+      "raw_workspace_limitation": "pytest tmp_path cleanup removed the temporary directory before it was copied"
+    },
+    {
+      "sequence": 2,
+      "status": "REJECTED",
+      "stage": "glb_reimport_audit",
+      "command": "BVMCP_RUN_BLENDER_TESTS=1 uv run pytest -q tests/test_asset_preparation_benchmark.py::test_real_asset_preparation_benchmark_passes_every_stage -s",
+      "observed_error": "RuntimeError: prepared BLEND or GLB reimport failed scene audit",
+      "observed_audit": {
+        "candidate_blend_valid": true,
+        "glb_reimport_valid": false,
+        "glb_reimport_errors": [
+          {
+            "severity": "error",
+            "code": "MISSING_IMAGE",
+            "image": "Benchmark_Textured_Prepared_base_color"
+          }
+        ]
+      },
+      "cause": "The GLB importer packed its embedded image but retained an advisory nonexistent filepath; the auditor ignored packed_file. Factory-default Cube, Camera, and Light also polluted the fresh import.",
+      "repair": "Pack images during GLB import, treat packed images as present, and clear factory-default objects before import.",
+      "candidate_produced": true,
+      "raw_workspace_archived": false,
+      "raw_workspace_limitation": "pytest tmp_path cleanup removed the temporary directory before it was copied"
+    }
+  ]
+}
