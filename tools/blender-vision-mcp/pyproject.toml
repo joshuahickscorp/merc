@@ -52,6 +52,7 @@ exclude = [
 "blender_worker/entry.py" = "blender_vision/blender/standalone_worker.py"
 "benchmarks/mac_studio/benchmark.json" = "blender_vision/benchmarks/data/mac_studio.json"
 "benchmarks/calibration" = "blender_vision/benchmarks/data/calibration"
+"benchmarks/100_plus" = "blender_vision/benchmarks/data/100_plus"
 "benchmarks/dgx/benchmark.json" = "blender_vision/benchmarks/data/dgx_spark.json"
 "benchmarks/rtx_5090/benchmark.json" = "blender_vision/benchmarks/data/rtx_5090_fe.json"
 "schemas" = "blender_vision/schemas"
