@@ -67,6 +67,9 @@ refutation are documented in
 Authenticated capability routing for capture, specialist analysis, central
 verification, lease recovery, and receipt-equivalent replay is documented in
 [`docs/DISTRIBUTED_PERCEPTION.md`](docs/DISTRIBUTED_PERCEPTION.md).
+That contract now includes a real two-process crash/restart benchmark plus
+installed Chromium, WebKit, and Blender launch evidence; unavailable second-host
+and WebGPU execution remains explicitly blocked.
 
 Evidence-ranked correction queues, fixed-benchmark activation, supersession, and
 receipt-backed rollback are documented in

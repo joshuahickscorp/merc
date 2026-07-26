@@ -518,6 +518,11 @@ def build_parser() -> argparse.ArgumentParser:
     performance = benchmark_sub.add_parser("bootstrap-performance")
     performance.add_argument("--output", required=True)
     performance.add_argument("--manifest")
+    distributed_runtime = benchmark_sub.add_parser(
+        "bootstrap-distributed-runtime"
+    )
+    distributed_runtime.add_argument("--output", required=True)
+    distributed_runtime.add_argument("--manifest")
     for command_name in ("bootstrap-dgx-spark", "bootstrap-rtx-5090-fe"):
         device = benchmark_sub.add_parser(command_name)
         device.add_argument("--project", required=True)
@@ -1186,6 +1191,18 @@ def dispatch(args: argparse.Namespace) -> Any:
             args.asynchronous,
         )
     if args.command == "benchmark":
+        if args.benchmark_command == "bootstrap-distributed-runtime":
+            from blender_vision.benchmarks.distributed_runtime import (
+                DistributedRuntimeBenchmarkRunner,
+            )
+
+            return (
+                DistributedRuntimeBenchmarkRunner(
+                    Path(args.manifest) if args.manifest else None
+                )
+                .run(Path(args.output))
+                .model_dump(mode="json")
+            )
         if args.benchmark_command == "bootstrap-performance":
             from blender_vision.benchmarks.performance import (
                 PerformanceBenchmarkRunner,
