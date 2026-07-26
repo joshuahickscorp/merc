@@ -655,9 +655,9 @@ def dispatch(args: argparse.Namespace) -> Any:
         }
     if args.command == "app":
         from blender_vision.app_build import (
-            ApplicationReferencePacket,
             BoundedApplicationCompiler,
             ReferenceCompletenessAnalyzer,
+            ReferencePacketLoader,
         )
 
         if args.application_command == "verify":
@@ -667,17 +667,24 @@ def dispatch(args: argparse.Namespace) -> Any:
                 .verify_candidate(candidate)
                 .model_dump(mode="json")
             )
-        packet = ApplicationReferencePacket.model_validate_json(
-            Path(args.packet).read_text(encoding="utf-8")
-        )
+        loaded = ReferencePacketLoader().load(Path(args.packet))
+        packet = loaded.packet
         if args.application_command == "check":
-            return ReferenceCompletenessAnalyzer().analyze(packet).model_dump(mode="json")
+            return (
+                ReferenceCompletenessAnalyzer()
+                .analyze(
+                    packet,
+                    verified_source_ids=loaded.verified_source_ids,
+                )
+                .model_dump(mode="json")
+            )
         return (
             BoundedApplicationCompiler(Path(args.workspace))
             .compile(
                 packet,
                 candidate_id=args.candidate_id,
                 mode=args.mode,
+                verified_source_ids=loaded.verified_source_ids,
             )
             .model_dump(mode="json")
         )

@@ -48,7 +48,12 @@ class ReferenceCompletenessAnalyzer:
             )
         )
 
-    def analyze(self, packet: ApplicationReferencePacket) -> ReferenceCompletenessReport:
+    def analyze(
+        self,
+        packet: ApplicationReferencePacket,
+        *,
+        verified_source_ids: set[str] | None = None,
+    ) -> ReferenceCompletenessReport:
         findings: list[CompletenessFinding] = []
         sources = {source.id: source for source in packet.sources}
         if len(sources) != len(packet.sources):
@@ -63,6 +68,8 @@ class ReferenceCompletenessAnalyzer:
             )
 
         self._validate_graph_authority(packet, sources, findings)
+        if verified_source_ids is not None:
+            self._validate_source_artifacts(packet, verified_source_ids, findings)
         self._validate_source_classes(packet, sources, findings)
         self._validate_routes_and_journeys(packet, findings)
         self._validate_data_and_api(packet, findings)
@@ -104,6 +111,38 @@ class ReferenceCompletenessAnalyzer:
                 "fraction": authoritative / total if total else 1.0,
             },
         )
+
+    def _validate_source_artifacts(
+        self,
+        packet: ApplicationReferencePacket,
+        verified_source_ids: set[str],
+        findings: list[CompletenessFinding],
+    ) -> None:
+        for source in packet.sources:
+            if source.id in verified_source_ids:
+                self._finding(
+                    findings,
+                    finding_id=f"source-{source.id}-digest",
+                    path=f"sources.{source.id}",
+                    status="AUTHORITATIVE",
+                    severity="P2",
+                    message="Source artifact exists and matches its declared digest.",
+                    authority_refs=[source.id],
+                )
+            else:
+                self._finding(
+                    findings,
+                    finding_id=f"source-{source.id}-digest-missing",
+                    path=f"sources.{source.id}",
+                    status="MISSING",
+                    severity="P0",
+                    message="Source artifact bytes were not digest-verified.",
+                    authority_refs=[source.id],
+                    resumption=(
+                        f"Place source {source.id} at its confined locator and verify SHA-256 "
+                        f"{source.digest}."
+                    ),
+                )
 
     def _validate_graph_authority(
         self,

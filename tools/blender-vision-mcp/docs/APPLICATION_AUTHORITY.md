@@ -24,6 +24,8 @@ and textual evidence plus the structured contracts needed for backend behavior.
 The packet also declares error cases, numeric performance budgets, accessibility requirements,
 visual and motion references, design-system exports, sample payloads, and supplied source code.
 Every source carries a content digest, authority class, rights state, and locator.
+The CLI confines every locator to the packet directory, rejects symlinks and unresolved rights,
+and verifies the declared SHA-256 against the actual source bytes before analysis or compilation.
 
 ## Authority classes
 
@@ -48,7 +50,9 @@ Its `ReferenceCompletenessReport` separates:
 
 A P0 contradiction or missing required graph prevents even draft compilation. A hypothesis can
 produce an explicitly draft candidate, but prevents promotion. A production candidate requires no
-P0/P1 missing authority, contradiction, or hypothesis.
+P0/P1 missing authority, contradiction, or hypothesis, and requires every declared source byte to
+have passed the confined digest-verification loader. Supplying a source ID to the in-memory compiler
+without matching loader evidence cannot produce a promotable CLI candidate.
 
 ## Schema reproduction
 

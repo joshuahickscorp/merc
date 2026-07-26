@@ -7,6 +7,11 @@ from blender_vision.app_build.compiler import (
     CompilationError,
 )
 from blender_vision.app_build.completeness import ReferenceCompletenessAnalyzer
+from blender_vision.app_build.loader import (
+    LoadedApplicationReferencePacket,
+    ReferencePacketLoader,
+    ReferencePacketLoadError,
+)
 from blender_vision.app_build.specification import (
     AcceptanceTestGraph,
     APIContractGraph,
@@ -33,9 +38,12 @@ __all__ = [
     "CompilationError",
     "DataModelGraph",
     "DeploymentGraph",
+    "LoadedApplicationReferencePacket",
     "ObservabilityGraph",
     "ProductSpecIR",
     "ReferenceCompletenessAnalyzer",
     "ReferenceCompletenessReport",
+    "ReferencePacketLoadError",
+    "ReferencePacketLoader",
     "UserJourneyGraph",
 ]
