@@ -514,6 +514,12 @@ class Coordinator:
                 objects=config.get("objects"),
                 job_id=job_id,
             )
+        if operation == "blender.prepare_asset":
+            return self.service.prepare_asset(
+                scene_id=config.get("scene_id"),
+                targets=config["targets"],
+                job_id=job_id,
+            )
         if operation == "visual_geometry.repair_degenerate_candidate":
             return self.service.repair_degenerate_geometry_candidate(
                 scene_id=config["scene_id"],

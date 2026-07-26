@@ -390,6 +390,15 @@ def build_parser() -> argparse.ArgumentParser:
     lod.add_argument("--ratio", type=float, default=0.5)
     lod.add_argument("--object", action="append", default=[])
     lod.add_argument("--async", dest="asynchronous", action="store_true")
+    prepare_asset = blender_sub.add_parser("prepare-asset")
+    prepare_asset.add_argument("--project", required=True)
+    prepare_asset.add_argument("--scene-id")
+    prepare_asset.add_argument(
+        "--targets",
+        required=True,
+        help="JSON target list or path to a JSON document",
+    )
+    prepare_asset.add_argument("--async", dest="asynchronous", action="store_true")
 
     vision = sub.add_parser("vision", help="vision backends")
     vision_sub = vision.add_subparsers(dest="vision_command", required=True)
@@ -500,6 +509,9 @@ def build_parser() -> argparse.ArgumentParser:
     calibration.add_argument("--project", required=True)
     calibration.add_argument("--reviewer", required=True)
     calibration.add_argument("--review-reason", required=True)
+    asset_preparation = benchmark_sub.add_parser("bootstrap-asset-preparation")
+    asset_preparation.add_argument("--output", required=True)
+    asset_preparation.add_argument("--manifest")
     for command_name in ("bootstrap-dgx-spark", "bootstrap-rtx-5090-fe"):
         device = benchmark_sub.add_parser(command_name)
         device.add_argument("--project", required=True)
@@ -954,6 +966,16 @@ def dispatch(args: argparse.Namespace) -> Any:
                 {"ratio": args.ratio, "objects": args.object},
                 args.asynchronous,
             )
+        if args.blender_command == "prepare-asset":
+            targets = _json_argument(args.targets)
+            if not isinstance(targets, list):
+                raise ValueError("--targets must resolve to a JSON list")
+            return _run(
+                project,
+                "blender.prepare_asset",
+                {"scene_id": args.scene_id, "targets": targets},
+                args.asynchronous,
+            )
         return _run(
             project,
             "blender.render",
@@ -1158,6 +1180,18 @@ def dispatch(args: argparse.Namespace) -> Any:
             args.asynchronous,
         )
     if args.command == "benchmark":
+        if args.benchmark_command == "bootstrap-asset-preparation":
+            from blender_vision.benchmarks.asset_preparation import (
+                AssetPreparationBenchmarkRunner,
+            )
+
+            return (
+                AssetPreparationBenchmarkRunner(
+                    Path(args.manifest) if args.manifest else None
+                )
+                .run(Path(args.output))
+                .model_dump(mode="json")
+            )
         if args.benchmark_command == "bootstrap-calibration":
             from blender_vision.benchmarks.calibration import bootstrap_calibration
 

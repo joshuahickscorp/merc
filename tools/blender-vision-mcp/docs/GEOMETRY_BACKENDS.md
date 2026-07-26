@@ -18,11 +18,45 @@ manifest alone.
 
 Current real lanes include EXIF and heuristic camera initialization, COLMAP classical multiview,
 reviewed-mask visual hull, dimension-governed Blender parametric modeling, bounded Blender LOD,
-bounded causal degenerate repair, and exact GLB structural validation. VGGT remains checkpoint
-governed. The generic external-candidate contract accepts operator-supplied single-image,
-multi-image, text-conditioned, organic, retopology, UV/PBR/bake, rig/animation, and collision
-backends only after license and checkpoint review; it does not claim that any such backend is
-installed.
+bounded causal degenerate repair, bounded Blender production preparation, and exact GLB structural
+validation. VGGT remains checkpoint governed. The generic external-candidate contract accepts
+operator-supplied single-image, multi-image, text-conditioned, and organic reconstruction backends
+only after license and checkpoint review; it does not claim that any such backend is installed.
+
+## Blender production preparation
+
+`blender-asset-preparation` is a real, locally discovered Blender lane. One transaction accepts
+explicit named meshes and can execute:
+
+- bounded decimate-based retopology candidates with polygon and envelope deltas;
+- smart-project UV generation with finite coordinate and unit-square checks;
+- explicit Principled BSDF material construction;
+- real Cycles diffuse-color texture baking into a project-confined PNG packed into the BLEND;
+- a two-bone weighted character-lite rig and deterministic pose animation;
+- deterministic object animation;
+- descending decimated LODs;
+- named `UCX_*` convex collision hulls;
+- duplicate/degenerate cleanup and normal recalculation with topology before/after facts.
+
+The operation saves an isolated candidate BLEND, exports an embedded-resource GLB, validates that
+GLB, reimports it into a fresh Blender scene, and audits both Blender scenes. It does not promote
+the source or candidate. Decimation is not represented as hand-authored all-quad topology, and
+successful baking does not prove reference-texture fidelity.
+
+```bash
+uv run bvmcp blender prepare-asset \
+  --project "$PROJECT" \
+  --targets preparation-targets.json
+
+uv run bvmcp benchmark bootstrap-asset-preparation \
+  --output artifacts/asset-preparation-run
+```
+
+The fixed `asset-preparation-v1` benchmark is a six-object synthetic-owned corpus covering
+dimensioned hard surface, curved reflective/translucent material, organic form, character-lite
+rigging, UV/baking, LOD/collision, and deliberate mesh damage. A pass requires real Blender,
+candidate and reimport audits, byte-bound GLB validation, every requested stage receipt, and
+source-head-bound output digests.
 
 ## GLB structural authority
 

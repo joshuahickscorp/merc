@@ -3360,6 +3360,19 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             {"ratio": ratio, "objects": objects or []},
         )
 
+    @mcp.tool(name="blender.prepare_asset")
+    def blender_prepare_asset(
+        project_path: str,
+        targets: list[dict[str, Any]],
+        scene_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Queue bounded retopo, UV, PBR, bake, rig, animation, LOD, collision, and repair."""
+        return enqueue_background(
+            open_project(project_path),
+            "blender.prepare_asset",
+            {"scene_id": scene_id, "targets": targets},
+        )
+
     @mcp.tool(name="validation.compare")
     def validation_compare(
         project_path: str,

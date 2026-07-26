@@ -29,6 +29,7 @@ from blender_vision.evidence.references import ReferenceIngestor
 from blender_vision.evidence.targets import TargetResolver
 from blender_vision.features.ontology import FeatureType, TechnicalFeature
 from blender_vision.features.store import FeatureStore
+from blender_vision.geometry.gltf_validator import GlbValidator
 from blender_vision.geometry.portfolio import ReconstructionPortfolioStore
 from blender_vision.geometry.scenes import SceneStore
 from blender_vision.geometry.semantic_graph import ROVER_COMPONENTS, SemanticTwinGraph
@@ -1492,6 +1493,104 @@ class ReconstructionService:
             "acceptance": {
                 "accepted": False,
                 "reason": "LOD checkpoint requires visual review before becoming authoritative",
+            },
+        }
+
+    def prepare_asset(
+        self,
+        *,
+        targets: list[dict[str, Any]],
+        scene_id: str | None = None,
+        job_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create, structurally validate, and reimport one bounded production candidate."""
+
+        if not isinstance(targets, list):
+            raise TypeError("asset preparation targets must be a list")
+        scene = SceneStore(self.project).get(scene_id)
+        token = safe_filename(job_id or str(uuid.uuid4()))
+        output = (
+            self.project.root
+            / "scene"
+            / "checkpoints"
+            / f"asset-preparation-{token}.blend"
+        )
+        glb_output = self.project.root / "exports" / f"asset-preparation-{token}.glb"
+        worker = BlenderRunner(self.project).run(
+            "prepare_asset",
+            Path(scene["absolute_path"]),
+            {
+                "output_path": str(output),
+                "glb_output_path": str(glb_output),
+                "targets": targets,
+            },
+            job_id=job_id,
+            timeout_seconds=1800,
+            cancelled=(lambda: self.project.cancellation_requested(job_id)) if job_id else None,
+        )
+        generated_scene = SceneStore(self.project).register_generated(
+            output, original_name=f"asset-preparation-{token}.blend"
+        )
+        audit = self.audit_scene(
+            generated_scene["id"], job_id=f"{job_id}-audit" if job_id else None
+        )
+        structural_validation = GlbValidator().validate(
+            glb_output,
+            required_node_names=worker["required_prepared_nodes"],
+        ).to_dict()
+        if not structural_validation["valid"]:
+            raise RuntimeError("prepared GLB failed structural validation")
+
+        reimport_output = (
+            self.project.root
+            / "scene"
+            / "checkpoints"
+            / f"asset-preparation-{token}-glb-reimport.blend"
+        )
+        reimport_worker = BlenderRunner(self.project).run(
+            "import_asset",
+            self.project.root,
+            {
+                "source_path": str(glb_output),
+                "output_path": str(reimport_output),
+            },
+            job_id=f"{job_id}-glb-reimport" if job_id else None,
+            timeout_seconds=1200,
+            cancelled=(lambda: self.project.cancellation_requested(job_id)) if job_id else None,
+        )
+        reimported_scene = SceneStore(self.project).register_generated(
+            reimport_output,
+            original_name=f"asset-preparation-{token}-glb-reimport.blend",
+        )
+        reimport_audit = self.audit_scene(
+            reimported_scene["id"],
+            job_id=f"{job_id}-glb-reimport-audit" if job_id else None,
+        )
+        if not audit["audit"]["valid"] or not reimport_audit["audit"]["valid"]:
+            raise RuntimeError("prepared BLEND or GLB reimport failed scene audit")
+        return {
+            "source_scene_id": scene["id"],
+            "generated_scene": generated_scene,
+            "worker": worker,
+            "audit": audit,
+            "glb": {
+                "relative_path": str(glb_output.relative_to(self.project.root)),
+                "artifact": self.artifacts.ingest_file(
+                    glb_output, media_type="model/gltf-binary"
+                ).to_dict(),
+                "validation": structural_validation,
+            },
+            "glb_reimport": {
+                "scene": reimported_scene,
+                "worker": reimport_worker,
+                "audit": reimport_audit,
+            },
+            "acceptance": {
+                "accepted": False,
+                "reason": (
+                    "Execution, editability, structural GLB, and reimport gates passed; "
+                    "reference-specific visual and deformation review remain required."
+                ),
             },
         }
 
