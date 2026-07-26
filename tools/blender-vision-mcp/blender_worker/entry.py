@@ -35,6 +35,7 @@ ALLOWED_OPERATIONS = {
     "export_glb",
     "export_blend",
     "generate_lod",
+    "prepare_asset",
     "save_checkpoint",
     "repair_degenerate_geometry_candidate",
     "repair_mac_studio_grille",
@@ -47,6 +48,7 @@ ALLOWED_OPERATIONS = {
     "generate_semantic_seed",
     "generate_synthetic_dataset",
     "generate_calibration_benchmark",
+    "generate_asset_preparation_benchmark",
 }
 
 AUDIT_MAX_EXACT_MESH_ELEMENTS = 500_000
@@ -377,7 +379,7 @@ def inspect_scene(root: Path, safe: bool) -> dict[str, object]:
             violations.append(f"external linked library: {path.name}")
     missing_images = []
     for image in bpy.data.images:
-        if image.source == "FILE":
+        if image.source == "FILE" and image.packed_file is None:
             path = Path(bpy.path.abspath(image.filepath)).resolve()
             if not path.is_file():
                 missing_images.append(image.name)
@@ -6310,9 +6312,11 @@ def refine_rtx_5090_fe_front_frame_candidate(
 def import_asset(root: Path, parameters: dict[str, object]) -> dict[str, object]:
     source = confined(root, str(parameters["source_path"]), must_exist=True)
     extension = source.suffix.lower()
+    for item in list(bpy.data.objects):
+        bpy.data.objects.remove(item, do_unlink=True)
     before = set(bpy.data.objects)
     if extension in {".glb", ".gltf"}:
-        bpy.ops.import_scene.gltf(filepath=str(source))
+        bpy.ops.import_scene.gltf(filepath=str(source), import_pack_images=True)
     elif extension == ".obj":
         bpy.ops.wm.obj_import(filepath=str(source))
     elif extension == ".ply":
@@ -6443,6 +6447,1031 @@ def apply_camera_solution(root: Path, parameters: dict[str, object]) -> dict[str
     if parameters.get("output_path"):
         result["checkpoint"] = save_checkpoint(root, parameters)
     return result
+
+
+ASSET_PREPARATION_TARGET_FIELDS = {
+    "name",
+    "repair",
+    "repair_merge_distance",
+    "retopology_ratio",
+    "uv",
+    "material",
+    "texture_bake",
+    "texture_resolution",
+    "rig",
+    "animation",
+    "lod_ratios",
+    "collision",
+}
+ASSET_PREPARATION_MATERIAL_FIELDS = {
+    "name",
+    "material_class",
+    "base_color",
+    "metallic",
+    "roughness",
+    "transmission",
+    "alpha",
+    "emission_color",
+    "emission_strength",
+}
+
+
+def _activate_object(obj) -> None:
+    if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.hide_set(False)
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+
+def _safe_asset_token(value: str) -> str:
+    token = "".join(character if character.isalnum() else "_" for character in value)
+    token = token.strip("_")
+    if not token:
+        raise ValueError("asset preparation name has no safe filename characters")
+    return token[:96]
+
+
+def _mesh_stage_facts(obj) -> dict[str, object]:
+    topology = mesh_topology(obj.data)
+    bounds = object_world_bounds(obj)
+    return {
+        "vertices": len(obj.data.vertices),
+        "edges": len(obj.data.edges),
+        "polygons": len(obj.data.polygons),
+        "uv_layers": [layer.name for layer in obj.data.uv_layers],
+        "material_slots": [
+            slot.material.name if slot.material else None for slot in obj.material_slots
+        ],
+        "world_bounds": bounds,
+        "topology": topology,
+    }
+
+
+def _maximum_bounds_delta(
+    before: dict[str, list[float]], after: dict[str, list[float]]
+) -> float:
+    return max(
+        abs(float(after[group][axis]) - float(before[group][axis]))
+        for group in ("minimum", "maximum", "dimensions")
+        for axis in range(3)
+    )
+
+
+def _repair_asset_mesh(obj, merge_distance: float) -> dict[str, object]:
+    if not 0.0 < merge_distance <= 1e-4:
+        raise ValueError("repair_merge_distance must be in (0, 1e-4]")
+    before = _mesh_stage_facts(obj)
+    graph = bmesh.new()
+    graph.from_mesh(obj.data)
+    before_degenerate = sum(face.calc_area() <= 1e-12 for face in graph.faces)
+    before_non_manifold = sum(not edge.is_manifold for edge in graph.edges)
+    bmesh.ops.remove_doubles(graph, verts=list(graph.verts), dist=merge_distance)
+    bmesh.ops.dissolve_degenerate(
+        graph,
+        dist=max(merge_distance, 1e-12),
+        edges=list(graph.edges),
+    )
+    if graph.faces:
+        bmesh.ops.recalc_face_normals(graph, faces=list(graph.faces))
+    after_degenerate = sum(face.calc_area() <= 1e-12 for face in graph.faces)
+    after_non_manifold = sum(not edge.is_manifold for edge in graph.edges)
+    graph.to_mesh(obj.data)
+    graph.free()
+    obj.data.update()
+    after = _mesh_stage_facts(obj)
+    if after_degenerate:
+        raise ValueError(
+            f"mesh repair left {after_degenerate} degenerate faces on {obj.name}"
+        )
+    return {
+        "operation": "remove_doubles_dissolve_degenerate_recalculate_normals",
+        "merge_distance": merge_distance,
+        "before": before,
+        "after": after,
+        "degenerate_faces_before": before_degenerate,
+        "degenerate_faces_after": after_degenerate,
+        "non_manifold_edges_before": before_non_manifold,
+        "non_manifold_edges_after": after_non_manifold,
+        "maximum_world_bounds_delta": _maximum_bounds_delta(
+            before["world_bounds"], after["world_bounds"]
+        ),
+    }
+
+
+def _retopology_candidate(obj, ratio: float) -> dict[str, object]:
+    if not 0.05 <= ratio <= 1.0:
+        raise ValueError("retopology_ratio must be between 0.05 and 1.0")
+    before = _mesh_stage_facts(obj)
+    if ratio < 0.999999 and len(obj.data.polygons) >= 8:
+        modifier = obj.modifiers.new("BVMCP_RetopologyDecimate", "DECIMATE")
+        modifier.decimate_type = "COLLAPSE"
+        modifier.ratio = ratio
+        _activate_object(obj)
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
+    after = _mesh_stage_facts(obj)
+    if not after["polygons"]:
+        raise ValueError(f"retopology removed every polygon from {obj.name}")
+    return {
+        "operation": "bounded_decimate_retopology_candidate",
+        "requested_ratio": ratio,
+        "realized_polygon_ratio": after["polygons"] / max(1, before["polygons"]),
+        "before": before,
+        "after": after,
+        "maximum_world_bounds_delta": _maximum_bounds_delta(
+            before["world_bounds"], after["world_bounds"]
+        ),
+        "deformation_ready_claim": False,
+        "limitation": (
+            "This is an executable topology-reduction candidate, not hand-authored "
+            "all-quad deformation topology."
+        ),
+    }
+
+
+def _unwrap_asset_mesh(obj) -> dict[str, object]:
+    if not obj.data.polygons:
+        raise ValueError(f"UV generation requires polygons: {obj.name}")
+    layer = obj.data.uv_layers.get("BVMCP_UV0") or obj.data.uv_layers.new(name="BVMCP_UV0")
+    obj.data.uv_layers.active = layer
+    _activate_object(obj)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    result = bpy.ops.uv.smart_project(
+        angle_limit=math.radians(66.0),
+        island_margin=0.02,
+        area_weight=0.0,
+        correct_aspect=True,
+        scale_to_bounds=True,
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+    if "FINISHED" not in result:
+        raise RuntimeError(f"Blender smart-project UV generation failed for {obj.name}")
+    active = obj.data.uv_layers.active
+    coordinates = [tuple(float(value) for value in item.uv) for item in active.data]
+    if not coordinates or not all(math.isfinite(value) for uv in coordinates for value in uv):
+        raise ValueError(f"UV generation produced invalid coordinates for {obj.name}")
+    minimum = [min(uv[axis] for uv in coordinates) for axis in range(2)]
+    maximum = [max(uv[axis] for uv in coordinates) for axis in range(2)]
+    return {
+        "operation": "smart_project",
+        "layer": active.name,
+        "loop_count": len(coordinates),
+        "finite": True,
+        "minimum_uv": minimum,
+        "maximum_uv": maximum,
+        "within_unit_square": all(
+            -1e-6 <= value <= 1.0 + 1e-6 for uv in coordinates for value in uv
+        ),
+    }
+
+
+def _rgba(value: object, *, field: str) -> tuple[float, float, float, float]:
+    if not isinstance(value, list) or len(value) not in {3, 4}:
+        raise ValueError(f"{field} must be an RGB or RGBA list")
+    channels = [float(channel) for channel in value]
+    if len(channels) == 3:
+        channels.append(1.0)
+    if not all(0.0 <= channel <= 1.0 for channel in channels):
+        raise ValueError(f"{field} channels must be between zero and one")
+    return tuple(channels)
+
+
+def _bounded_material_value(
+    specification: dict[str, object], field: str, default: float
+) -> float:
+    value = float(specification.get(field, default))
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(f"material {field} must be between zero and one")
+    return value
+
+
+def _create_asset_pbr_material(
+    obj,
+    specification: dict[str, object],
+) -> tuple[object, dict[str, object]]:
+    unknown = set(specification) - ASSET_PREPARATION_MATERIAL_FIELDS
+    if unknown:
+        raise ValueError(f"unsupported PBR material fields: {sorted(unknown)}")
+    name = str(specification.get("name", f"BVMCP_{obj.name}_PBR"))
+    if not name or len(name) > 128:
+        raise ValueError("PBR material name is invalid")
+    material_class = str(specification.get("material_class", "unspecified"))
+    base_color = _rgba(
+        specification.get("base_color", [0.5, 0.5, 0.5, 1.0]),
+        field="base_color",
+    )
+    emission_color = _rgba(
+        specification.get("emission_color", [0.0, 0.0, 0.0, 1.0]),
+        field="emission_color",
+    )
+    metallic = _bounded_material_value(specification, "metallic", 0.0)
+    roughness = _bounded_material_value(specification, "roughness", 0.5)
+    transmission = _bounded_material_value(specification, "transmission", 0.0)
+    alpha = _bounded_material_value(specification, "alpha", base_color[3])
+    emission_strength = float(specification.get("emission_strength", 0.0))
+    if not 0.0 <= emission_strength <= 1000.0:
+        raise ValueError("material emission_strength must be between zero and 1000")
+    material = bpy.data.materials.get(name) or bpy.data.materials.new(name)
+    material.use_nodes = True
+    tree = material.node_tree
+    if tree is None:
+        raise RuntimeError("Blender did not create a material node tree")
+    principled = tree.nodes.get("Principled BSDF")
+    if principled is None:
+        principled = tree.nodes.new("ShaderNodeBsdfPrincipled")
+        output = tree.nodes.get("Material Output") or tree.nodes.new("ShaderNodeOutputMaterial")
+        tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
+    principled.inputs["Base Color"].default_value = base_color
+    principled.inputs["Metallic"].default_value = metallic
+    principled.inputs["Roughness"].default_value = roughness
+    principled.inputs["Alpha"].default_value = alpha
+    if "Transmission Weight" in principled.inputs:
+        principled.inputs["Transmission Weight"].default_value = transmission
+    if "Emission Color" in principled.inputs:
+        principled.inputs["Emission Color"].default_value = emission_color
+    elif "Emission" in principled.inputs:
+        principled.inputs["Emission"].default_value = emission_color
+    if "Emission Strength" in principled.inputs:
+        principled.inputs["Emission Strength"].default_value = emission_strength
+    material.diffuse_color = base_color
+    material["bvmcp_material_class"] = material_class
+    material["bvmcp_pbr_authority"] = "explicit_specification"
+    obj.data.materials.clear()
+    obj.data.materials.append(material)
+    return material, {
+        "operation": "principled_bsdf_material",
+        "material": material.name,
+        "material_class": material_class,
+        "base_color": list(base_color),
+        "metallic": metallic,
+        "roughness": roughness,
+        "transmission": transmission,
+        "alpha": alpha,
+        "emission_color": list(emission_color),
+        "emission_strength": emission_strength,
+        "node_type": principled.bl_idname,
+    }
+
+
+def _bake_asset_base_color(
+    root: Path,
+    obj,
+    material,
+    resolution: int,
+) -> dict[str, object]:
+    if not 32 <= resolution <= 4096 or resolution & (resolution - 1):
+        raise ValueError("texture_resolution must be a power of two from 32 through 4096")
+    if not obj.data.uv_layers.active:
+        raise ValueError(f"texture baking requires an active UV layer: {obj.name}")
+    texture_directory = root / "textures" / "generated"
+    texture_directory.mkdir(parents=True, exist_ok=True)
+    destination = texture_directory / f"{_safe_asset_token(obj.name)}_base_color.png"
+    image = bpy.data.images.new(
+        f"BVMCP_{obj.name}_BaseColor",
+        width=resolution,
+        height=resolution,
+        alpha=True,
+        float_buffer=False,
+    )
+    image.generated_color = (0.0, 0.0, 0.0, 1.0)
+    tree = material.node_tree
+    if tree is None:
+        raise RuntimeError("texture bake material has no node tree")
+    image_node = tree.nodes.new("ShaderNodeTexImage")
+    image_node.name = "BVMCP_BakedBaseColor"
+    image_node.label = "BVMCP Baked Base Color"
+    image_node.image = image
+    for node in tree.nodes:
+        node.select = False
+    image_node.select = True
+    tree.nodes.active = image_node
+    _activate_object(obj)
+    scene = bpy.context.scene
+    original_engine = scene.render.engine
+    scene.render.engine = "CYCLES"
+    scene.cycles.device = "CPU"
+    original_samples = scene.cycles.samples
+    scene.cycles.samples = 1
+    try:
+        result = bpy.ops.object.bake(
+            type="DIFFUSE",
+            pass_filter={"COLOR"},
+            margin=max(2, resolution // 64),
+            use_clear=True,
+        )
+    finally:
+        scene.cycles.samples = original_samples
+        scene.render.engine = original_engine
+    if "FINISHED" not in result:
+        raise RuntimeError(f"Blender texture bake failed for {obj.name}")
+    image.filepath_raw = str(destination)
+    image.file_format = "PNG"
+    image.save()
+    if not destination.is_file() or not destination.stat().st_size:
+        raise RuntimeError(f"texture bake did not produce a PNG for {obj.name}")
+    image.pack()
+    principled = tree.nodes.get("Principled BSDF")
+    if principled is not None:
+        tree.links.new(image_node.outputs["Color"], principled.inputs["Base Color"])
+    material["bvmcp_baked_base_color"] = str(destination.relative_to(root))
+    return {
+        "operation": "blender_diffuse_color_bake",
+        "image": image.name,
+        "path": str(destination.relative_to(root)),
+        "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
+        "bytes": destination.stat().st_size,
+        "resolution": [resolution, resolution],
+        "uv_layer": obj.data.uv_layers.active.name,
+        "packed_in_blend": bool(image.packed_file),
+        "network_used": False,
+    }
+
+
+def _create_character_lite_rig(obj, frame_start: int, frame_end: int) -> dict[str, object]:
+    if frame_start < 0 or frame_end <= frame_start or frame_end - frame_start > 10_000:
+        raise ValueError("rig frame range is invalid or unbounded")
+    if not obj.data.vertices:
+        raise ValueError("character-lite rig requires a non-empty mesh")
+    z_values = [float(vertex.co.z) for vertex in obj.data.vertices]
+    minimum_z = min(z_values)
+    maximum_z = max(z_values)
+    if maximum_z - minimum_z <= 1e-6:
+        raise ValueError("character-lite rig requires vertical mesh extent")
+    midpoint = (minimum_z + maximum_z) / 2.0
+    armature_data = bpy.data.armatures.new(f"{obj.name}_RigData")
+    armature = bpy.data.objects.new(f"{obj.name}_Rig", armature_data)
+    bpy.context.scene.collection.objects.link(armature)
+    armature.matrix_world = obj.matrix_world.copy()
+    armature.show_in_front = True
+    _activate_object(armature)
+    bpy.ops.object.mode_set(mode="EDIT")
+    root_bone = armature_data.edit_bones.new("root")
+    root_bone.head = (0.0, 0.0, minimum_z)
+    root_bone.tail = (0.0, 0.0, midpoint)
+    upper_bone = armature_data.edit_bones.new("upper")
+    upper_bone.head = root_bone.tail
+    upper_bone.tail = (0.0, 0.0, maximum_z)
+    upper_bone.parent = root_bone
+    upper_bone.use_connect = True
+    bpy.ops.object.mode_set(mode="OBJECT")
+    root_group = obj.vertex_groups.new(name="root")
+    upper_group = obj.vertex_groups.new(name="upper")
+    lower_indices = [
+        vertex.index for vertex in obj.data.vertices if float(vertex.co.z) <= midpoint
+    ]
+    upper_indices = [
+        vertex.index for vertex in obj.data.vertices if float(vertex.co.z) > midpoint
+    ]
+    if lower_indices:
+        root_group.add(lower_indices, 1.0, "REPLACE")
+    if upper_indices:
+        upper_group.add(upper_indices, 1.0, "REPLACE")
+    modifier = obj.modifiers.new("BVMCP_Armature", "ARMATURE")
+    modifier.object = armature
+    world_matrix = obj.matrix_world.copy()
+    obj.parent = armature
+    obj.matrix_world = world_matrix
+    scene = bpy.context.scene
+    scene.frame_start = min(scene.frame_start, frame_start)
+    scene.frame_end = max(scene.frame_end, frame_end)
+    upper_pose = armature.pose.bones["upper"]
+    upper_pose.rotation_mode = "XYZ"
+    middle_frame = frame_start + (frame_end - frame_start) // 2
+    for frame, angle in (
+        (frame_start, 0.0),
+        (middle_frame, math.radians(18.0)),
+        (frame_end, 0.0),
+    ):
+        upper_pose.rotation_euler[1] = angle
+        upper_pose.keyframe_insert(data_path="rotation_euler", index=1, frame=frame)
+    if armature.animation_data and armature.animation_data.action:
+        armature.animation_data.action.name = f"{obj.name}_CharacterLite_Action"
+    armature["bvmcp_rig_kind"] = "character_lite_two_bone"
+    obj["bvmcp_character_lite_rig"] = armature.name
+    return {
+        "operation": "character_lite_two_bone_rig",
+        "armature": armature.name,
+        "bones": ["root", "upper"],
+        "vertex_groups": ["root", "upper"],
+        "weighted_vertices": {
+            "root": len(lower_indices),
+            "upper": len(upper_indices),
+        },
+        "animation": {
+            "kind": "pose_bone",
+            "frame_start": frame_start,
+            "frame_end": frame_end,
+            "keyframes": [frame_start, middle_frame, frame_end],
+            "action": (
+                armature.animation_data.action.name
+                if armature.animation_data and armature.animation_data.action
+                else None
+            ),
+        },
+    }
+
+
+def _create_object_animation(
+    obj, frame_start: int, frame_end: int, rotation_degrees: float
+) -> dict[str, object]:
+    if frame_start < 0 or frame_end <= frame_start or frame_end - frame_start > 10_000:
+        raise ValueError("object animation frame range is invalid or unbounded")
+    if not -360.0 <= rotation_degrees <= 360.0:
+        raise ValueError("object animation rotation_degrees is out of bounds")
+    scene = bpy.context.scene
+    scene.frame_start = min(scene.frame_start, frame_start)
+    scene.frame_end = max(scene.frame_end, frame_end)
+    original = float(obj.rotation_euler.z)
+    middle_frame = frame_start + (frame_end - frame_start) // 2
+    for frame, angle in (
+        (frame_start, original),
+        (middle_frame, original + math.radians(rotation_degrees)),
+        (frame_end, original),
+    ):
+        obj.rotation_euler.z = angle
+        obj.keyframe_insert(data_path="rotation_euler", index=2, frame=frame)
+    if obj.animation_data and obj.animation_data.action:
+        obj.animation_data.action.name = f"{obj.name}_Object_Action"
+    obj["bvmcp_object_animation"] = "bounded_rotation"
+    return {
+        "operation": "bounded_object_rotation",
+        "object": obj.name,
+        "frame_start": frame_start,
+        "frame_end": frame_end,
+        "keyframes": [frame_start, middle_frame, frame_end],
+        "rotation_degrees": rotation_degrees,
+        "action": (
+            obj.animation_data.action.name
+            if obj.animation_data and obj.animation_data.action
+            else None
+        ),
+    }
+
+
+def _create_collision_hull(obj, collection) -> dict[str, object]:
+    source_bounds = object_world_bounds(obj)
+    collision = obj.copy()
+    collision.data = obj.data.copy()
+    collision.animation_data_clear()
+    collision.name = f"UCX_{obj.name}_00"
+    collection.objects.link(collision)
+    world_matrix = collision.matrix_world.copy()
+    collision.parent = None
+    collision.matrix_world = world_matrix
+    for modifier in list(collision.modifiers):
+        collision.modifiers.remove(modifier)
+    collision.data.materials.clear()
+    _activate_object(collision)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    result = bpy.ops.mesh.convex_hull(
+        delete_unused=True,
+        use_existing_faces=False,
+        make_holes=False,
+        join_triangles=True,
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+    if "FINISHED" not in result or not collision.data.polygons:
+        raise RuntimeError(f"convex collision generation failed for {obj.name}")
+    collision.hide_render = True
+    collision.display_type = "WIRE"
+    collision["bvmcp_collision_source"] = obj.name
+    collision["bvmcp_collision_kind"] = "convex_hull"
+    collision_bounds = object_world_bounds(collision)
+    return {
+        "operation": "convex_hull",
+        "source": obj.name,
+        "object": collision.name,
+        "vertices": len(collision.data.vertices),
+        "polygons": len(collision.data.polygons),
+        "source_world_bounds": source_bounds,
+        "collision_world_bounds": collision_bounds,
+        "maximum_world_bounds_delta": _maximum_bounds_delta(
+            source_bounds, collision_bounds
+        ),
+        "renderable": False,
+    }
+
+
+def _create_asset_lods(obj, ratios: list[object], collection) -> list[dict[str, object]]:
+    if len(ratios) > 4:
+        raise ValueError("at most four LOD ratios may be requested per object")
+    generated = []
+    previous = 1.0
+    for raw_ratio in ratios:
+        ratio = float(raw_ratio)
+        if not 0.01 <= ratio < previous:
+            raise ValueError("LOD ratios must be strictly descending values in [0.01, 1)")
+        previous = ratio
+        item = obj.copy()
+        item.data = obj.data.copy()
+        item.animation_data_clear()
+        item.name = f"{obj.name}_LOD_{ratio:.3f}"
+        collection.objects.link(item)
+        modifier = item.modifiers.new("BVMCP_LOD_Decimate", "DECIMATE")
+        modifier.decimate_type = "COLLAPSE"
+        modifier.ratio = ratio
+        _activate_object(item)
+        bpy.ops.object.modifier_move_to_index(modifier=modifier.name, index=0)
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
+        item.hide_render = True
+        item["bvmcp_lod_source"] = obj.name
+        item["bvmcp_lod_ratio"] = ratio
+        generated.append(
+            {
+                "operation": "decimate_lod",
+                "source": obj.name,
+                "object": item.name,
+                "requested_ratio": ratio,
+                "vertices": len(item.data.vertices),
+                "polygons": len(item.data.polygons),
+                "renderable": False,
+            }
+        )
+    return generated
+
+
+def _target_animation_specification(value: object) -> dict[str, object]:
+    if value is None or value is False:
+        return {}
+    if value is True:
+        return {
+            "kind": "object",
+            "frame_start": 1,
+            "frame_end": 48,
+            "rotation_degrees": 30.0,
+        }
+    if not isinstance(value, dict):
+        raise ValueError("animation must be false, true, or an object")
+    allowed = {"kind", "frame_start", "frame_end", "rotation_degrees"}
+    unknown = set(value) - allowed
+    if unknown:
+        raise ValueError(f"unsupported animation fields: {sorted(unknown)}")
+    kind = str(value.get("kind", "object"))
+    if kind != "object":
+        raise ValueError("asset preparation animation supports only kind=object")
+    return {
+        "kind": kind,
+        "frame_start": int(value.get("frame_start", 1)),
+        "frame_end": int(value.get("frame_end", 48)),
+        "rotation_degrees": float(value.get("rotation_degrees", 30.0)),
+    }
+
+
+def _target_rig_specification(value: object) -> dict[str, object]:
+    if value is None or value is False:
+        return {}
+    if value is True:
+        return {"kind": "character_lite", "frame_start": 1, "frame_end": 48}
+    if not isinstance(value, dict):
+        raise ValueError("rig must be false, true, or an object")
+    allowed = {"kind", "frame_start", "frame_end"}
+    unknown = set(value) - allowed
+    if unknown:
+        raise ValueError(f"unsupported rig fields: {sorted(unknown)}")
+    kind = str(value.get("kind", "character_lite"))
+    if kind != "character_lite":
+        raise ValueError("asset preparation rig supports only kind=character_lite")
+    return {
+        "kind": kind,
+        "frame_start": int(value.get("frame_start", 1)),
+        "frame_end": int(value.get("frame_end", 48)),
+    }
+
+
+def prepare_asset(root: Path, parameters: dict[str, object]) -> dict[str, object]:
+    """Execute a bounded, non-authoritative production-preparation transaction."""
+    allowed_parameters = {"output_path", "glb_output_path", "targets"}
+    unknown_parameters = set(parameters) - allowed_parameters
+    if unknown_parameters:
+        raise ValueError(
+            f"unsupported asset preparation parameters: {sorted(unknown_parameters)}"
+        )
+    targets = parameters.get("targets")
+    if not isinstance(targets, list) or not 1 <= len(targets) <= 32:
+        raise ValueError("asset preparation requires between one and 32 target records")
+    output = confined(root, str(parameters["output_path"]))
+    glb_output = confined(root, str(parameters["glb_output_path"]))
+    if output.suffix.lower() != ".blend":
+        raise ValueError("asset preparation output_path must use .blend")
+    if glb_output.suffix.lower() != ".glb":
+        raise ValueError("asset preparation glb_output_path must use .glb")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    glb_output.parent.mkdir(parents=True, exist_ok=True)
+    names = []
+    for target in targets:
+        if not isinstance(target, dict):
+            raise ValueError("asset preparation target records must be JSON objects")
+        unknown = set(target) - ASSET_PREPARATION_TARGET_FIELDS
+        if unknown:
+            raise ValueError(f"unsupported asset target fields: {sorted(unknown)}")
+        name = str(target.get("name", ""))
+        if not name or name in names:
+            raise ValueError("asset preparation target names must be unique and non-empty")
+        names.append(name)
+    missing = [
+        name
+        for name in names
+        if bpy.data.objects.get(name) is None or bpy.data.objects[name].type != "MESH"
+    ]
+    if missing:
+        raise ValueError(f"asset preparation mesh targets were not found: {missing}")
+
+    prepared_collection = bpy.data.collections.get("BVMCP_PREPARED")
+    if prepared_collection is None:
+        prepared_collection = bpy.data.collections.new("BVMCP_PREPARED")
+        bpy.context.scene.collection.children.link(prepared_collection)
+    lod_collection = bpy.data.collections.get("BVMCP_LOD")
+    if lod_collection is None:
+        lod_collection = bpy.data.collections.new("BVMCP_LOD")
+        bpy.context.scene.collection.children.link(lod_collection)
+    collision_collection = bpy.data.collections.get("BVMCP_COLLISION")
+    if collision_collection is None:
+        collision_collection = bpy.data.collections.new("BVMCP_COLLISION")
+        bpy.context.scene.collection.children.link(collision_collection)
+
+    reports = []
+    capability_receipts: dict[str, list[str]] = {}
+    for target in targets:
+        source = bpy.data.objects[str(target["name"])]
+        prepared = source.copy()
+        prepared.data = source.data.copy()
+        prepared.animation_data_clear()
+        prepared.name = f"{source.name}_Prepared"
+        prepared_collection.objects.link(prepared)
+        prepared["bvmcp_preparation_source"] = source.name
+        prepared["bvmcp_component_id"] = (
+            source.get("bvmcp_component_id") or source.name
+        )
+        source.hide_render = True
+        source["bvmcp_superseded_for_render_by"] = prepared.name
+        stages: dict[str, object] = {}
+
+        if bool(target.get("repair", False)):
+            stages["mesh_repair"] = _repair_asset_mesh(
+                prepared,
+                float(target.get("repair_merge_distance", 1e-6)),
+            )
+            capability_receipts.setdefault("mesh_repair", []).append(prepared.name)
+        if "retopology_ratio" in target:
+            stages["retopology"] = _retopology_candidate(
+                prepared, float(target["retopology_ratio"])
+            )
+            capability_receipts.setdefault("retopology", []).append(prepared.name)
+        if bool(target.get("uv", False)) or bool(target.get("texture_bake", False)):
+            stages["uv_generation"] = _unwrap_asset_mesh(prepared)
+            capability_receipts.setdefault("uv_generation", []).append(prepared.name)
+        material_specification = target.get("material")
+        if material_specification is not None:
+            if not isinstance(material_specification, dict):
+                raise ValueError("asset material must be a JSON object")
+            material, material_report = _create_asset_pbr_material(
+                prepared, material_specification
+            )
+            stages["pbr_material_generation"] = material_report
+            capability_receipts.setdefault("pbr_material_generation", []).append(
+                prepared.name
+            )
+        else:
+            material = prepared.active_material
+        if bool(target.get("texture_bake", False)):
+            if material is None:
+                raise ValueError(f"texture baking requires a material: {prepared.name}")
+            stages["texture_baking"] = _bake_asset_base_color(
+                root,
+                prepared,
+                material,
+                int(target.get("texture_resolution", 256)),
+            )
+            capability_receipts.setdefault("texture_projection_and_baking", []).append(
+                prepared.name
+            )
+        animation = _target_animation_specification(target.get("animation"))
+        if animation:
+            stages["object_animation"] = _create_object_animation(
+                prepared,
+                int(animation["frame_start"]),
+                int(animation["frame_end"]),
+                float(animation["rotation_degrees"]),
+            )
+            capability_receipts.setdefault("object_animation", []).append(prepared.name)
+        rig = _target_rig_specification(target.get("rig"))
+        if rig:
+            stages["rigging"] = _create_character_lite_rig(
+                prepared,
+                int(rig["frame_start"]),
+                int(rig["frame_end"]),
+            )
+            capability_receipts.setdefault("rigging", []).append(prepared.name)
+            capability_receipts.setdefault("character_lite_animation", []).append(
+                prepared.name
+            )
+        lods = target.get("lod_ratios", [])
+        if not isinstance(lods, list):
+            raise ValueError("lod_ratios must be a list")
+        if lods:
+            stages["lod_generation"] = _create_asset_lods(
+                prepared, lods, lod_collection
+            )
+            capability_receipts.setdefault("lod_generation", []).append(prepared.name)
+        if bool(target.get("collision", False)):
+            stages["collision_generation"] = _create_collision_hull(
+                prepared, collision_collection
+            )
+            capability_receipts.setdefault("collision_generation", []).append(
+                prepared.name
+            )
+        reports.append(
+            {
+                "source": source.name,
+                "prepared": prepared.name,
+                "stages": stages,
+                "final": _mesh_stage_facts(prepared),
+            }
+        )
+
+    bpy.context.scene["bvmcp_asset_preparation"] = "candidate_v1"
+    bpy.context.scene["bvmcp_candidate_accepted"] = False
+    bpy.context.scene["bvmcp_preparation_capabilities"] = json.dumps(
+        sorted(capability_receipts)
+    )
+    checkpoint = save_checkpoint(root, {"output_path": str(output)})
+    bpy.ops.export_scene.gltf(
+        filepath=str(glb_output),
+        export_format="GLB",
+        export_apply=True,
+        use_renderable=True,
+        export_yup=True,
+        export_cameras=False,
+        export_lights=False,
+        export_animations=True,
+    )
+    if not glb_output.is_file() or not glb_output.stat().st_size:
+        raise RuntimeError("asset preparation GLB export produced no bytes")
+    return {
+        **checkpoint,
+        "glb_path": str(glb_output.relative_to(root)),
+        "glb_sha256": hashlib.sha256(glb_output.read_bytes()).hexdigest(),
+        "glb_size": glb_output.stat().st_size,
+        "targets": reports,
+        "capability_receipts": capability_receipts,
+        "required_prepared_nodes": [report["prepared"] for report in reports],
+        "candidate_only": True,
+        "accepted": False,
+        "network_used": False,
+        "authority": (
+            "Exact Blender execution receipts prove the requested production operations; "
+            "visual, deformation, and application-specific acceptance remain separate gates."
+        ),
+    }
+
+
+def _apply_fixture_scale(obj) -> None:
+    _activate_object(obj)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+
+def generate_asset_preparation_benchmark(
+    root: Path, parameters: dict[str, object]
+) -> dict[str, object]:
+    """Create an owned deterministic fixture spanning the production-preparation stages."""
+    allowed = {"output_path"}
+    unknown = set(parameters) - allowed
+    if unknown:
+        raise ValueError(
+            f"unsupported asset preparation benchmark parameters: {sorted(unknown)}"
+        )
+    output = confined(root, str(parameters["output_path"]))
+    if output.suffix.lower() != ".blend":
+        raise ValueError("asset preparation benchmark output must use .blend")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    for item in list(bpy.data.objects):
+        bpy.data.objects.remove(item, do_unlink=True)
+    scene = bpy.context.scene
+    scene.unit_settings.system = "METRIC"
+    scene.unit_settings.scale_length = 0.001
+    scene.unit_settings.length_unit = "MILLIMETERS"
+    scene["bvmcp_benchmark_id"] = "asset-preparation-v1"
+    scene["bvmcp_rights_state"] = "SYNTHETIC_OWNED_CC0"
+    scene["bvmcp_candidate_accepted"] = False
+
+    fixture_material = _material(
+        "Benchmark_Source_Neutral", (0.3, 0.34, 0.4, 1.0), 0.1, 0.45
+    )
+    bpy.ops.mesh.primitive_cube_add(location=(-150.0, 0.0, 20.0))
+    product = bpy.context.active_object
+    product.name = "Benchmark_HardSurface"
+    product.scale = (60.0, 35.0, 20.0)
+    _apply_fixture_scale(product)
+    product.data.materials.append(fixture_material)
+    bevel = product.modifiers.new("Benchmark_Product_Bevel", "BEVEL")
+    bevel.width = 5.0
+    bevel.segments = 5
+    _activate_object(product)
+    bpy.ops.object.modifier_apply(modifier=bevel.name)
+
+    bpy.ops.mesh.primitive_uv_sphere_add(
+        segments=48,
+        ring_count=24,
+        location=(-20.0, 0.0, 42.0),
+    )
+    curved = bpy.context.active_object
+    curved.name = "Benchmark_CurvedConsumer"
+    curved.scale = (42.0, 28.0, 42.0)
+    _apply_fixture_scale(curved)
+    curved.data.materials.append(fixture_material)
+
+    bpy.ops.mesh.primitive_ico_sphere_add(
+        subdivisions=4,
+        radius=36.0,
+        location=(90.0, 0.0, 42.0),
+    )
+    organic = bpy.context.active_object
+    organic.name = "Benchmark_Organic"
+    for vertex in organic.data.vertices:
+        factor = 1.0 + 0.12 * math.sin(vertex.co.z * 0.17) * math.cos(vertex.co.x * 0.13)
+        vertex.co.x *= factor
+        vertex.co.y *= 0.8 + 0.08 * math.sin(vertex.co.z * 0.11)
+        vertex.co.z *= 1.25
+    organic.data.update()
+    organic.data.materials.append(fixture_material)
+
+    bpy.ops.mesh.primitive_uv_sphere_add(
+        segments=40,
+        ring_count=24,
+        location=(190.0, 0.0, 45.0),
+    )
+    character = bpy.context.active_object
+    character.name = "Benchmark_CharacterLite"
+    character.scale = (20.0, 15.0, 45.0)
+    _apply_fixture_scale(character)
+    character.data.materials.append(fixture_material)
+
+    bpy.ops.mesh.primitive_cylinder_add(
+        vertices=48,
+        radius=34.0,
+        depth=65.0,
+        location=(285.0, 0.0, 34.0),
+    )
+    textured = bpy.context.active_object
+    textured.name = "Benchmark_Textured"
+    textured.data.materials.append(fixture_material)
+
+    damaged_mesh = bpy.data.meshes.new("Benchmark_Damaged_Mesh")
+    damaged_mesh.from_pydata(
+        [
+            (-20.0, -20.0, 0.0),
+            (20.0, -20.0, 0.0),
+            (20.0, 20.0, 0.0),
+            (-20.0, 20.0, 0.0),
+            (-20.0, -20.0, 40.0),
+            (20.0, -20.0, 40.0),
+            (20.0, 20.0, 40.0),
+            (-20.0, 20.0, 40.0),
+            (-20.0, -20.0, 0.0),
+        ],
+        [],
+        [
+            (0, 3, 2, 1),
+            (4, 5, 6, 7),
+            (0, 1, 5, 4),
+            (1, 2, 6, 5),
+            (2, 3, 7, 6),
+            (3, 0, 4, 7),
+            (0, 8, 1),
+        ],
+    )
+    damaged_mesh.update()
+    damaged = bpy.data.objects.new("Benchmark_Damaged", damaged_mesh)
+    bpy.context.scene.collection.objects.link(damaged)
+    damaged.location = (375.0, 0.0, 0.0)
+    damaged.data.materials.append(fixture_material)
+
+    for obj in (product, curved, organic, character, textured, damaged):
+        obj["bvmcp_component_id"] = obj.name
+        obj["bvmcp_fixture_authority"] = "procedural_ground_truth"
+
+    targets = [
+        {
+            "name": product.name,
+            "retopology_ratio": 0.72,
+            "uv": True,
+            "material": {
+                "name": "Benchmark_Anodized_PBR",
+                "material_class": "reflective_anodized_metal",
+                "base_color": [0.04, 0.05, 0.065, 1.0],
+                "metallic": 0.92,
+                "roughness": 0.24,
+            },
+            "animation": {
+                "kind": "object",
+                "frame_start": 1,
+                "frame_end": 48,
+                "rotation_degrees": 28.0,
+            },
+            "lod_ratios": [0.5, 0.2],
+            "collision": True,
+        },
+        {
+            "name": curved.name,
+            "retopology_ratio": 0.55,
+            "uv": True,
+            "material": {
+                "name": "Benchmark_Translucent_PBR",
+                "material_class": "frosted_translucent_polymer",
+                "base_color": [0.65, 0.76, 0.82, 0.72],
+                "metallic": 0.0,
+                "roughness": 0.38,
+                "transmission": 0.62,
+                "alpha": 0.72,
+            },
+            "lod_ratios": [0.5],
+            "collision": True,
+        },
+        {
+            "name": organic.name,
+            "retopology_ratio": 0.45,
+            "uv": True,
+            "material": {
+                "name": "Benchmark_Organic_PBR",
+                "material_class": "matte_organic_surface",
+                "base_color": [0.18, 0.32, 0.16, 1.0],
+                "metallic": 0.0,
+                "roughness": 0.72,
+            },
+            "lod_ratios": [0.5, 0.25],
+            "collision": True,
+        },
+        {
+            "name": character.name,
+            "retopology_ratio": 0.5,
+            "uv": True,
+            "material": {
+                "name": "Benchmark_Character_PBR",
+                "material_class": "stylized_character",
+                "base_color": [0.36, 0.14, 0.5, 1.0],
+                "metallic": 0.0,
+                "roughness": 0.62,
+            },
+            "rig": {
+                "kind": "character_lite",
+                "frame_start": 1,
+                "frame_end": 48,
+            },
+            "lod_ratios": [0.5],
+            "collision": True,
+        },
+        {
+            "name": textured.name,
+            "uv": True,
+            "material": {
+                "name": "Benchmark_Baked_PBR",
+                "material_class": "painted_metal",
+                "base_color": [0.72, 0.22, 0.08, 1.0],
+                "metallic": 0.35,
+                "roughness": 0.46,
+            },
+            "texture_bake": True,
+            "texture_resolution": 128,
+            "lod_ratios": [0.5],
+        },
+        {
+            "name": damaged.name,
+            "repair": True,
+            "repair_merge_distance": 1e-5,
+            "uv": True,
+            "material": {
+                "name": "Benchmark_Repaired_PBR",
+                "material_class": "repaired_test_surface",
+                "base_color": [0.18, 0.24, 0.3, 1.0],
+                "metallic": 0.1,
+                "roughness": 0.55,
+            },
+        },
+    ]
+    checkpoint = save_checkpoint(root, {"output_path": str(output)})
+    return {
+        **checkpoint,
+        "benchmark_id": "asset-preparation-v1",
+        "rights_state": "SYNTHETIC_OWNED_CC0",
+        "objects": [obj.name for obj in (product, curved, organic, character, textured, damaged)],
+        "targets": targets,
+        "expected_capabilities": [
+            "retopology",
+            "uv_generation",
+            "pbr_material_generation",
+            "texture_projection_and_baking",
+            "rigging",
+            "object_animation",
+            "character_lite_animation",
+            "lod_generation",
+            "collision_generation",
+            "mesh_repair",
+        ],
+        "network_used": False,
+    }
 
 
 def generate_lod(root: Path, parameters: dict[str, object]) -> dict[str, object]:
@@ -6894,6 +7923,8 @@ def main() -> None:
         result = export_blend(root, parameters)
     elif operation == "generate_lod":
         result = generate_lod(root, parameters)
+    elif operation == "prepare_asset":
+        result = prepare_asset(root, parameters)
     elif operation == "save_checkpoint":
         result = save_checkpoint(root, parameters)
     elif operation == "repair_degenerate_geometry_candidate":
@@ -6918,6 +7949,8 @@ def main() -> None:
         result = generate_synthetic_dataset(root, parameters)
     elif operation == "generate_calibration_benchmark":
         result = generate_calibration_benchmark(root, parameters)
+    elif operation == "generate_asset_preparation_benchmark":
+        result = generate_asset_preparation_benchmark(root, parameters)
     else:
         raise AssertionError(operation)
     encoded = json.dumps(result, indent=2, sort_keys=True)

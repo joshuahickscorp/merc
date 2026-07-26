@@ -223,6 +223,21 @@ uv run bvmcp vision list-evidence --project "$PROJECT"
 uv run bvmcp vision compare-backends --project "$PROJECT"
 ```
 
+Editable production candidates can be prepared through a bounded Blender transaction:
+
+```bash
+uv run bvmcp blender prepare-asset \
+  --project "$PROJECT" \
+  --targets preparation-targets.json
+uv run bvmcp benchmark bootstrap-asset-preparation \
+  --output artifacts/asset-preparation-run
+```
+
+This lane executes named retopology candidates, UVs, explicit PBR materials, real texture baking,
+character-lite rigging/animation, object animation, LODs, collision hulls, and mesh repair. It then
+audits the candidate BLEND, structurally validates its GLB, and audits a fresh GLB reimport.
+Outputs remain review candidates; a successful operation receipt is not perceptual acceptance.
+
 Opaque references use automatic segmentation only as diagnostic evidence. To make a silhouette
 authoritative for L3, import a same-size binary mask after a named human boundary review:
 

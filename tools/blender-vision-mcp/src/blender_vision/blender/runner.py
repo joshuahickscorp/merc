@@ -13,7 +13,13 @@ from typing import Any
 
 from blender_vision.core.config import discover_blender
 from blender_vision.core.errors import BackendUnavailable, JobCancelled, SecurityError
-from blender_vision.core.util import atomic_write_json, canonical_json
+from blender_vision.core.util import (
+    atomic_write_json,
+    canonical_json,
+    code_revision,
+    runtime_revision,
+    sha256_file,
+)
 from blender_vision.projects.store import ProjectStore
 from blender_vision.security.paths import confined_path, safe_mode
 
@@ -31,6 +37,7 @@ ALLOWED_OPERATIONS = {
     "export_glb",
     "export_blend",
     "generate_lod",
+    "prepare_asset",
     "save_checkpoint",
     "repair_degenerate_geometry_candidate",
     "repair_mac_studio_grille",
@@ -43,6 +50,7 @@ ALLOWED_OPERATIONS = {
     "generate_semantic_seed",
     "generate_synthetic_dataset",
     "generate_calibration_benchmark",
+    "generate_asset_preparation_benchmark",
 }
 
 
@@ -98,6 +106,7 @@ class BlenderRunner:
         ]
         if operation not in {
             "generate_calibration_benchmark",
+            "generate_asset_preparation_benchmark",
             "generate_semantic_seed",
             "import_asset",
         }:
@@ -188,6 +197,11 @@ class BlenderRunner:
         result = json.loads(result_path.read_text(encoding="utf-8"))
         result["worker"] = {
             "executable": self.executable,
+            "worker_entry": str(self.worker_entry),
+            "worker_entry_sha256": sha256_file(self.worker_entry)[0],
+            "manifest_hash": manifest["manifest_hash"],
+            "source_git_head": code_revision(Path(__file__).resolve().parents[3]),
+            "runtime_revision": runtime_revision(),
             "safe_mode": safe_mode(),
             "log": str(log_path.relative_to(self.project.root)),
             "duration_seconds": round(time.monotonic() - started, 6),

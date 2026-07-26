@@ -59,7 +59,9 @@ def test_blender_worker_exposes_the_complete_safe_operation_vocabulary() -> None
         "export_glb",
         "export_blend",
         "generate_lod",
+        "prepare_asset",
         "generate_synthetic_dataset",
+        "generate_asset_preparation_benchmark",
         "save_checkpoint",
     }
     assert required <= worker_operations
