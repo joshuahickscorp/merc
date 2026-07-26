@@ -49,6 +49,7 @@ ALLOWED_OPERATIONS = {
     "generate_synthetic_dataset",
     "generate_calibration_benchmark",
     "generate_asset_preparation_benchmark",
+    "generate_appearance_benchmark",
 }
 
 AUDIT_MAX_EXACT_MESH_ELEMENTS = 500_000
@@ -169,6 +170,171 @@ def mesh_topology(mesh: bpy.types.Mesh) -> dict[str, object]:
         "element_count": element_count,
         "maximum_exact_elements": AUDIT_MAX_EXACT_MESH_ELEMENTS,
     }
+
+
+def _json_socket_value(value: object) -> object:
+    if isinstance(value, (int, float, bool, str)):
+        return value
+    try:
+        return [float(item) for item in value]
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _node_input(node, *names: str) -> object | None:
+    for name in names:
+        if name in node.inputs:
+            return _json_socket_value(node.inputs[name].default_value)
+    return None
+
+
+def _material_inspection(root: Path, material) -> dict[str, object]:
+    nodes = list(material.node_tree.nodes) if material.use_nodes and material.node_tree else []
+    principled = next(
+        (node for node in nodes if node.bl_idname == "ShaderNodeBsdfPrincipled"),
+        None,
+    )
+    image_records = []
+    for node in nodes:
+        image = getattr(node, "image", None)
+        if image is None:
+            continue
+        absolute_path = (
+            Path(bpy.path.abspath(image.filepath)).resolve()
+            if image.filepath
+            else None
+        )
+        confined_to_project = bool(
+            absolute_path
+            and (absolute_path == root or root in absolute_path.parents)
+        )
+        file_exists = bool(absolute_path and absolute_path.is_file())
+        image_records.append(
+            {
+                "node": node.name,
+                "image": image.name,
+                "source": image.source,
+                "packed": image.packed_file is not None,
+                "filepath": (
+                    str(absolute_path.relative_to(root))
+                    if confined_to_project and absolute_path
+                    else None
+                ),
+                "project_confined": confined_to_project,
+                "file_exists": file_exists,
+                "file_sha256": (
+                    hashlib.sha256(absolute_path.read_bytes()).hexdigest()
+                    if file_exists and absolute_path
+                    else None
+                ),
+                "size": [int(image.size[0]), int(image.size[1])],
+                "colorspace": image.colorspace_settings.name,
+            }
+        )
+    principled_values = (
+        {
+            "base_color": _node_input(principled, "Base Color"),
+            "metallic": _node_input(principled, "Metallic"),
+            "roughness": _node_input(principled, "Roughness"),
+            "ior": _node_input(principled, "IOR"),
+            "alpha": _node_input(principled, "Alpha"),
+            "transmission": _node_input(
+                principled, "Transmission Weight", "Transmission"
+            ),
+            "emission_color": _node_input(
+                principled, "Emission Color", "Emission"
+            ),
+            "emission_strength": _node_input(principled, "Emission Strength"),
+            "anisotropic": _node_input(
+                principled, "Anisotropic IOR Level", "Anisotropic"
+            ),
+            "coat_weight": _node_input(principled, "Coat Weight", "Clearcoat"),
+        }
+        if principled is not None
+        else None
+    )
+    record = {
+        "name": material.name,
+        "material_class": str(
+            material.get("bvmcp_material_class", "unclassified")
+        ),
+        "use_nodes": bool(material.use_nodes),
+        "node_types": sorted(node.bl_idname for node in nodes),
+        "principled": principled_values,
+        "images": image_records,
+        "diffuse_color": [float(value) for value in material.diffuse_color],
+        "surface_render_method": getattr(material, "surface_render_method", None),
+        "pbr_authority": material.get("bvmcp_pbr_authority"),
+    }
+    record["structural_sha256"] = hashlib.sha256(
+        json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return record
+
+
+def _camera_inspection(camera) -> dict[str, object]:
+    data = camera.data
+    scene = bpy.context.scene
+    width = int(scene.render.resolution_x * scene.render.resolution_percentage / 100)
+    height = int(scene.render.resolution_y * scene.render.resolution_percentage / 100)
+    sensor_width = float(data.sensor_width)
+    fx = float(data.lens) / sensor_width * width if sensor_width else None
+    record = {
+        "name": camera.name,
+        "type": data.type,
+        "world_from_camera": [
+            [float(camera.matrix_world[row][column]) for column in range(4)]
+            for row in range(4)
+        ],
+        "lens_mm": float(data.lens),
+        "sensor_width_mm": sensor_width,
+        "sensor_height_mm": float(data.sensor_height),
+        "sensor_fit": data.sensor_fit,
+        "shift_x": float(data.shift_x),
+        "shift_y": float(data.shift_y),
+        "clip_start": float(data.clip_start),
+        "clip_end": float(data.clip_end),
+        "render_resolution": [width, height],
+        "derived_intrinsics": (
+            {
+                "fx": fx,
+                "fy": fx
+                * float(scene.render.pixel_aspect_x)
+                / max(float(scene.render.pixel_aspect_y), 1e-12),
+                "cx": width * (0.5 - float(data.shift_x)),
+                "cy": height / 2.0 + width * float(data.shift_y),
+            }
+            if fx is not None
+            else None
+        ),
+    }
+    record["structural_sha256"] = hashlib.sha256(
+        json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return record
+
+
+def _light_inspection(light) -> dict[str, object]:
+    data = light.data
+    record = {
+        "name": light.name,
+        "type": data.type,
+        "world_from_light": [
+            [float(light.matrix_world[row][column]) for column in range(4)]
+            for row in range(4)
+        ],
+        "color": [float(value) for value in data.color],
+        "energy": float(data.energy),
+        "use_shadow": bool(data.use_shadow),
+        "shape": getattr(data, "shape", None),
+        "size": float(getattr(data, "size", 0.0)),
+        "size_y": float(getattr(data, "size_y", 0.0)),
+        "angle": float(getattr(data, "angle", 0.0)),
+    }
+    record["structural_sha256"] = hashlib.sha256(
+        json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return record
 
 
 def inspect_scene(root: Path, safe: bool) -> dict[str, object]:
@@ -394,6 +560,34 @@ def inspect_scene(root: Path, safe: bool) -> dict[str, object]:
         {"severity": "error", "code": "SAFE_MODE_VIOLATION", "detail": detail}
         for detail in violations
     )
+    world_record: dict[str, object] = {
+        "name": bpy.context.scene.world.name if bpy.context.scene.world else None,
+        "use_nodes": bool(
+            bpy.context.scene.world and bpy.context.scene.world.use_nodes
+        ),
+        "background_color": None,
+        "background_strength": None,
+        "environment_images": [],
+    }
+    world = bpy.context.scene.world
+    if world and world.use_nodes and world.node_tree:
+        background = world.node_tree.nodes.get("Background")
+        if background:
+            world_record["background_color"] = _json_socket_value(
+                background.inputs["Color"].default_value
+            )
+            world_record["background_strength"] = float(
+                background.inputs["Strength"].default_value
+            )
+        world_record["environment_images"] = sorted(
+            node.image.name
+            for node in world.node_tree.nodes
+            if node.bl_idname == "ShaderNodeTexEnvironment"
+            and getattr(node, "image", None) is not None
+        )
+    world_record["structural_sha256"] = hashlib.sha256(
+        json.dumps(world_record, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     return {
         "blender_version": bpy.app.version_string,
         "scene": bpy.context.scene.name,
@@ -430,6 +624,25 @@ def inspect_scene(root: Path, safe: bool) -> dict[str, object]:
             ),
         },
         "materials": [material.name for material in bpy.data.materials],
+        "material_details": [
+            _material_inspection(root, material)
+            for material in sorted(bpy.data.materials, key=lambda item: item.name)
+        ],
+        "camera_details": [
+            _camera_inspection(camera)
+            for camera in sorted(
+                (item for item in bpy.context.scene.objects if item.type == "CAMERA"),
+                key=lambda item: item.name,
+            )
+        ],
+        "light_details": [
+            _light_inspection(light)
+            for light in sorted(
+                (item for item in bpy.context.scene.objects if item.type == "LIGHT"),
+                key=lambda item: item.name,
+            )
+        ],
+        "environment": world_record,
         "linked_libraries": libraries,
         "missing_images": missing_images,
         "safe_mode_violations": violations,
@@ -7474,6 +7687,368 @@ def generate_asset_preparation_benchmark(
     }
 
 
+def _appearance_camera_state(
+    name: str,
+    position: tuple[float, float, float],
+    target: tuple[float, float, float],
+    *,
+    width: int,
+    height: int,
+    horizontal_fov_degrees: float,
+) -> dict[str, object]:
+    camera_data = bpy.data.cameras.new(f"{name}_Data")
+    camera = bpy.data.objects.new(name, camera_data)
+    bpy.context.scene.collection.objects.link(camera)
+    camera.location = position
+    point_camera(camera, Vector(target))
+    camera_data.sensor_fit = "HORIZONTAL"
+    camera_data.sensor_width = 36.0
+    fx = width / (2.0 * math.tan(math.radians(horizontal_fov_degrees) / 2.0))
+    camera_data.lens = fx / width * camera_data.sensor_width
+    matrix = [
+        [float(camera.matrix_world[row][column]) for column in range(4)]
+        for row in range(4)
+    ]
+    bpy.data.objects.remove(camera, do_unlink=True)
+    bpy.data.cameras.remove(camera_data)
+    state: dict[str, object] = {
+        "reference_id": name,
+        "model": "PINHOLE",
+        "width": width,
+        "height": height,
+        "intrinsics": {
+            "fx": fx,
+            "fy": fx,
+            "cx": width / 2.0,
+            "cy": height / 2.0,
+        },
+        "world_from_camera": matrix,
+        "extrinsics": {"world_from_camera": matrix},
+        "registration_class": "metric_camera_solution",
+        "evidence_class": "MEASURED",
+        "confidence": 1.0,
+        "distortion_model": {
+            "type": "PINHOLE",
+            "parameters": {},
+            "render_policy": "undistorted_input",
+        },
+        "sensor_model": {
+            "type": "virtual_pinhole",
+            "sensor_width_mm": 36.0,
+            "pixel_aspect_x": 1.0,
+            "pixel_aspect_y": 1.0,
+        },
+        "crop": {
+            "x": 0,
+            "y": 0,
+            "width": width,
+            "height": height,
+            "source": "full_frame",
+        },
+        "resolution": {"width": width, "height": height},
+        "clipping": {"near": 0.1, "far": 5000.0},
+        "coordinate_transform": {
+            "matrix": matrix,
+            "matrix_semantics": "world_from_camera",
+            "world_handedness": "right",
+            "world_up_axis": "Z",
+            "camera_forward_axis": "-Z",
+            "camera_up_axis": "Y",
+        },
+        "camera_source_identity": {
+            "reference_id": name,
+            "artifact_digest": None,
+            "original_name": f"{name}.synthetic",
+        },
+        "solve_method": {
+            "backend": "procedural_ground_truth",
+            "registration_class": "metric_camera_solution",
+        },
+        "approval_state": "approved_procedural_ground_truth",
+    }
+    state["immutable_sha256"] = hashlib.sha256(
+        json.dumps(state, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return state
+
+
+def _appearance_area_light(
+    name: str,
+    location: tuple[float, float, float],
+    target: tuple[float, float, float],
+    *,
+    energy: float,
+    color: tuple[float, float, float],
+    size: float,
+):
+    data = bpy.data.lights.new(name, "AREA")
+    data.energy = energy
+    data.color = color
+    data.shape = "DISK"
+    data.size = size
+    light = bpy.data.objects.new(name, data)
+    bpy.context.scene.collection.objects.link(light)
+    light.location = location
+    point_camera(light, Vector(target))
+    light["bvmcp_lighting_authority"] = "procedural_ground_truth"
+    return light
+
+
+def generate_appearance_benchmark(
+    root: Path, parameters: dict[str, object]
+) -> dict[str, object]:
+    """Create a deterministic reflective, translucent, and emissive appearance fixture."""
+    if set(parameters) != {"output_path"}:
+        raise ValueError("appearance benchmark requires only output_path")
+    output = confined(root, str(parameters["output_path"]))
+    if output.suffix.lower() != ".blend":
+        raise ValueError("appearance benchmark output must use .blend")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    for item in list(bpy.data.objects):
+        bpy.data.objects.remove(item, do_unlink=True)
+    for material in list(bpy.data.materials):
+        bpy.data.materials.remove(material)
+    scene = bpy.context.scene
+    scene.unit_settings.system = "METRIC"
+    scene.unit_settings.scale_length = 0.001
+    scene.unit_settings.length_unit = "MILLIMETERS"
+    scene.render.engine = "BLENDER_EEVEE_NEXT"
+    scene.render.resolution_x = 320
+    scene.render.resolution_y = 256
+    scene.render.resolution_percentage = 100
+    scene.render.dither_intensity = 0.0
+    scene.view_settings.view_transform = "AgX"
+    scene.view_settings.look = "AgX - Medium High Contrast"
+    scene.view_settings.exposure = -0.35
+    scene["bvmcp_benchmark_id"] = "appearance-authority-v1"
+    scene["bvmcp_rights_state"] = "SYNTHETIC_OWNED_CC0"
+    scene["bvmcp_lighting_hypothesis"] = "procedural_ground_truth"
+    scene["bvmcp_candidate_accepted"] = False
+    scene.world = bpy.data.worlds.new("Appearance_Benchmark_World")
+    scene.world.use_nodes = True
+    background = scene.world.node_tree.nodes.get("Background")
+    background.inputs["Color"].default_value = (0.012, 0.016, 0.028, 1.0)
+    background.inputs["Strength"].default_value = 0.09
+
+    bpy.ops.mesh.primitive_cube_add(location=(0.0, 0.0, 24.0))
+    shell = bpy.context.active_object
+    shell.name = "Appearance_AnodizedShell"
+    shell.scale = (92.0, 58.0, 24.0)
+    _apply_fixture_scale(shell)
+    bevel = shell.modifiers.new("Appearance_Shell_Bevel", "BEVEL")
+    bevel.width = 12.0
+    bevel.segments = 10
+    _activate_object(shell)
+    bpy.ops.object.modifier_apply(modifier=bevel.name)
+    shell_material, shell_report = _create_asset_pbr_material(
+        shell,
+        {
+            "name": "Appearance_AnodizedMetal",
+            "material_class": "anodized_metal",
+            "base_color": [0.025, 0.035, 0.055, 1.0],
+            "metallic": 0.92,
+            "roughness": 0.23,
+        },
+    )
+
+    bpy.ops.mesh.primitive_uv_sphere_add(
+        segments=64,
+        ring_count=32,
+        location=(0.0, -18.0, 88.0),
+    )
+    core = bpy.context.active_object
+    core.name = "Appearance_FrostedCore"
+    core.scale = (42.0, 32.0, 70.0)
+    _apply_fixture_scale(core)
+    core_material, core_report = _create_asset_pbr_material(
+        core,
+        {
+            "name": "Appearance_FrostedGlass",
+            "material_class": "translucent",
+            "base_color": [0.55, 0.72, 0.88, 0.68],
+            "metallic": 0.0,
+            "roughness": 0.32,
+            "transmission": 0.76,
+            "alpha": 0.68,
+        },
+    )
+    principled = core_material.node_tree.nodes.get("Principled BSDF")
+    if principled and "IOR" in principled.inputs:
+        principled.inputs["IOR"].default_value = 1.46
+
+    bpy.ops.mesh.primitive_cylinder_add(
+        vertices=64,
+        radius=28.0,
+        depth=5.0,
+        location=(0.0, -52.0, 92.0),
+        rotation=(math.pi / 2.0, 0.0, 0.0),
+    )
+    disk = bpy.context.active_object
+    disk.name = "Appearance_EmissiveDisk"
+    disk_material, disk_report = _create_asset_pbr_material(
+        disk,
+        {
+            "name": "Appearance_Emissive",
+            "material_class": "emissive",
+            "base_color": [0.08, 0.01, 0.002, 1.0],
+            "metallic": 0.0,
+            "roughness": 0.4,
+            "emission_color": [1.0, 0.055, 0.005, 1.0],
+            "emission_strength": 9.0,
+        },
+    )
+
+    bpy.ops.mesh.primitive_torus_add(
+        major_radius=72.0,
+        minor_radius=5.0,
+        major_segments=96,
+        minor_segments=16,
+        location=(0.0, 0.0, 88.0),
+        rotation=(math.pi / 2.0, 0.0, 0.0),
+    )
+    membrane = bpy.context.active_object
+    membrane.name = "Appearance_AcousticMembrane"
+    membrane_material, membrane_report = _create_asset_pbr_material(
+        membrane,
+        {
+            "name": "Appearance_Textile",
+            "material_class": "textile",
+            "base_color": [0.035, 0.025, 0.055, 1.0],
+            "metallic": 0.0,
+            "roughness": 0.88,
+        },
+    )
+    del shell_material, disk_material, membrane_material
+    for obj in (shell, core, disk, membrane):
+        obj["bvmcp_component_id"] = obj.name
+        obj["bvmcp_appearance_authority"] = "procedural_ground_truth"
+
+    target = (0.0, 0.0, 70.0)
+    lights = [
+        _appearance_area_light(
+            "Appearance_Key",
+            (-170.0, -230.0, 250.0),
+            target,
+            energy=850.0,
+            color=(1.0, 0.78, 0.62),
+            size=95.0,
+        ),
+        _appearance_area_light(
+            "Appearance_Fill",
+            (190.0, -150.0, 140.0),
+            target,
+            energy=520.0,
+            color=(0.52, 0.68, 1.0),
+            size=120.0,
+        ),
+        _appearance_area_light(
+            "Appearance_Rim",
+            (0.0, 170.0, 230.0),
+            target,
+            energy=1100.0,
+            color=(0.7, 0.82, 1.0),
+            size=80.0,
+        ),
+    ]
+    cameras = [
+        {
+            "id": "public-front",
+            "visibility": "public",
+            "camera_state": _appearance_camera_state(
+                "public-front",
+                (250.0, -360.0, 190.0),
+                target,
+                width=320,
+                height=256,
+                horizontal_fov_degrees=48.0,
+            ),
+        },
+        {
+            "id": "public-side",
+            "visibility": "public",
+            "camera_state": _appearance_camera_state(
+                "public-side",
+                (-300.0, -250.0, 150.0),
+                target,
+                width=320,
+                height=256,
+                horizontal_fov_degrees=52.0,
+            ),
+        },
+        {
+            "id": "public-high",
+            "visibility": "public",
+            "camera_state": _appearance_camera_state(
+                "public-high",
+                (80.0, -300.0, 330.0),
+                target,
+                width=320,
+                height=256,
+                horizontal_fov_degrees=46.0,
+            ),
+        },
+        {
+            "id": "holdout-rear-quarter",
+            "visibility": "holdout",
+            "camera_state": _appearance_camera_state(
+                "holdout-rear-quarter",
+                (285.0, 260.0, 175.0),
+                target,
+                width=320,
+                height=256,
+                horizontal_fov_degrees=50.0,
+            ),
+        },
+    ]
+    checkpoint = save_checkpoint(root, {"output_path": str(output)})
+    return {
+        **checkpoint,
+        "benchmark_id": "appearance-authority-v1",
+        "rights_state": "SYNTHETIC_OWNED_CC0",
+        "cameras": cameras,
+        "materials": {
+            "Appearance_AnodizedMetal": {
+                **shell_report,
+                "ior": 1.5,
+            },
+            "Appearance_FrostedGlass": {
+                **core_report,
+                "ior": 1.46,
+            },
+            "Appearance_Emissive": {
+                **disk_report,
+                "ior": 1.5,
+            },
+            "Appearance_Textile": {
+                **membrane_report,
+                "ior": 1.5,
+            },
+        },
+        "lighting": {
+            "hypothesis_class": "procedural_ground_truth",
+            "lights": [_light_inspection(light) for light in lights],
+            "environment": {
+                "kind": "constant_world",
+                "color": _json_socket_value(
+                    background.inputs["Color"].default_value
+                ),
+                "strength": float(background.inputs["Strength"].default_value),
+                "hdr_supplied": False,
+            },
+            "uncertainty": {
+                "classification": "none_procedural_ground_truth",
+            },
+        },
+        "required_separate_objects": [
+            "Appearance_AnodizedShell",
+            "Appearance_FrostedCore",
+            "Appearance_EmissiveDisk",
+            "Appearance_AcousticMembrane",
+        ],
+        "network_used": False,
+    }
+
+
 def generate_lod(root: Path, parameters: dict[str, object]) -> dict[str, object]:
     ratio = float(parameters.get("ratio", 0.5))
     if not 0.01 <= ratio <= 1.0:
@@ -7951,6 +8526,8 @@ def main() -> None:
         result = generate_calibration_benchmark(root, parameters)
     elif operation == "generate_asset_preparation_benchmark":
         result = generate_asset_preparation_benchmark(root, parameters)
+    elif operation == "generate_appearance_benchmark":
+        result = generate_appearance_benchmark(root, parameters)
     else:
         raise AssertionError(operation)
     encoded = json.dumps(result, indent=2, sort_keys=True)

@@ -51,6 +51,7 @@ ALLOWED_OPERATIONS = {
     "generate_synthetic_dataset",
     "generate_calibration_benchmark",
     "generate_asset_preparation_benchmark",
+    "generate_appearance_benchmark",
 }
 
 
@@ -107,6 +108,7 @@ class BlenderRunner:
         if operation not in {
             "generate_calibration_benchmark",
             "generate_asset_preparation_benchmark",
+            "generate_appearance_benchmark",
             "generate_semantic_seed",
             "import_asset",
         }:

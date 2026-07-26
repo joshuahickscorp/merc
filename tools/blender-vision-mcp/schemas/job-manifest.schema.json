@@ -45,7 +45,8 @@
         "generate_semantic_seed",
         "generate_synthetic_dataset",
         "generate_calibration_benchmark",
-        "generate_asset_preparation_benchmark"
+        "generate_asset_preparation_benchmark",
+        "generate_appearance_benchmark"
       ]
     },
     "project_root": { "type": "string", "minLength": 1 },

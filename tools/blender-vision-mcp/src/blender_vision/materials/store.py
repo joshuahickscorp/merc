@@ -8,7 +8,27 @@ from blender_vision.core.models import EvidenceClass
 from blender_vision.core.util import utc_now
 from blender_vision.projects.store import ProjectStore
 
-SCALAR_PROPERTIES = ("roughness", "metallic", "anisotropy", "clearcoat")
+UNIT_SCALAR_PROPERTIES = (
+    "roughness",
+    "metallic",
+    "anisotropy",
+    "clearcoat",
+    "transmission",
+    "alpha",
+    "specular_ior_level",
+)
+MATERIAL_CLASSES = {
+    "unclassified",
+    "anodized_metal",
+    "reflective_metal",
+    "painted_metal",
+    "dielectric",
+    "translucent",
+    "transparent",
+    "emissive",
+    "textile",
+    "organic_surface",
+}
 
 
 class MaterialStore:
@@ -41,6 +61,7 @@ class MaterialStore:
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("material confidence must be between zero and one")
         normalized = self._validate_properties(properties)
+        lighting_estimate = self._validate_lighting_estimate(lighting_estimate)
         reference_ids = sorted(set(reference_ids or []))
         artifact_digests = sorted(set(artifact_digests or []))
         reflective_region_masks = sorted(set(reflective_region_masks or []))
@@ -83,7 +104,7 @@ class MaterialStore:
             "confidence": float(confidence),
             "uncertainty": uncertainty or {},
             "color_calibration": color_calibration or {"state": "unreported"},
-            "lighting_estimate": lighting_estimate or {"state": "unreported"},
+            "lighting_estimate": lighting_estimate,
             "authority": {
                 "appearance_only": True,
                 "may_establish_geometry": False,
@@ -130,6 +151,28 @@ class MaterialStore:
             or evidence["multi_light_reference_ids"]
         ):
             raise ValueError("material approval requires bound evidence")
+        material_class = record["properties"]["material_class"]
+        needs_multi_light = (
+            material_class in {"anodized_metal", "reflective_metal", "translucent", "transparent"}
+            or record["properties"]["metallic"] >= 0.5
+            or record["properties"]["transmission"] > 0.0
+        )
+        if approved and needs_multi_light and not (
+            evidence["multi_light_reference_ids"]
+            or evidence["reflective_region_mask_digests"]
+        ):
+            raise ValueError(
+                "reflective or transmissive material approval requires multi-light "
+                "references or reflective-region masks"
+            )
+        if (
+            approved
+            and material_class in {"translucent", "transparent", "emissive"}
+            and record["lighting_estimate"]["state"] == "unreported"
+        ):
+            raise ValueError(
+                "translucent, transparent, or emissive approval requires a lighting estimate"
+            )
         now = utc_now()
         status = "approved" if approved else "rejected"
         record["status"] = status
@@ -169,7 +212,14 @@ class MaterialStore:
             raise ValueError("material properties must be a JSON object")
         allowed = {
             "base_color",
-            *SCALAR_PROPERTIES,
+            *UNIT_SCALAR_PROPERTIES,
+            "material_class",
+            "ior",
+            "emission_color",
+            "emission_strength",
+            "thin_walled",
+            "volume",
+            "reflectance_constraints",
             "normal_detail",
             "procedural_texture",
         }
@@ -187,15 +237,116 @@ class MaterialStore:
             )
         ):
             raise ValueError("base_color must contain three or four normalized channels")
-        normalized: dict[str, Any] = {"base_color": [float(value) for value in base_color]}
-        for name in SCALAR_PROPERTIES:
-            value = properties.get(name, 0.0 if name != "roughness" else 0.5)
+        material_class = str(properties.get("material_class", "unclassified"))
+        if material_class not in MATERIAL_CLASSES:
+            raise ValueError(
+                "material_class must be one of: " + ", ".join(sorted(MATERIAL_CLASSES))
+            )
+        normalized: dict[str, Any] = {
+            "base_color": [float(value) for value in base_color],
+            "material_class": material_class,
+        }
+        defaults = {
+            "roughness": 0.5,
+            "metallic": 0.0,
+            "anisotropy": 0.0,
+            "clearcoat": 0.0,
+            "transmission": 0.0,
+            "alpha": float(base_color[3]) if len(base_color) == 4 else 1.0,
+            "specular_ior_level": 0.5,
+        }
+        for name in UNIT_SCALAR_PROPERTIES:
+            value = properties.get(name, defaults[name])
             if not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between zero and one")
             normalized[name] = float(value)
-        for name in ("normal_detail", "procedural_texture"):
+        ior = properties.get("ior", 1.5)
+        if not isinstance(ior, (int, float)) or not 1.0 <= float(ior) <= 3.0:
+            raise ValueError("ior must be between 1.0 and 3.0")
+        normalized["ior"] = float(ior)
+        emission_strength = properties.get("emission_strength", 0.0)
+        if (
+            not isinstance(emission_strength, (int, float))
+            or not 0.0 <= float(emission_strength) <= 1000.0
+        ):
+            raise ValueError("emission_strength must be between zero and 1000")
+        normalized["emission_strength"] = float(emission_strength)
+        emission_color = properties.get("emission_color", [0.0, 0.0, 0.0, 1.0])
+        if (
+            not isinstance(emission_color, list)
+            or len(emission_color) not in {3, 4}
+            or not all(
+                isinstance(value, (int, float)) and 0.0 <= value <= 1.0
+                for value in emission_color
+            )
+        ):
+            raise ValueError("emission_color must contain three or four normalized channels")
+        normalized["emission_color"] = [float(value) for value in emission_color]
+        thin_walled = properties.get("thin_walled", False)
+        if not isinstance(thin_walled, bool):
+            raise ValueError("thin_walled must be boolean")
+        normalized["thin_walled"] = thin_walled
+        for name in (
+            "volume",
+            "reflectance_constraints",
+            "normal_detail",
+            "procedural_texture",
+        ):
             value = properties.get(name, {})
             if not isinstance(value, dict):
                 raise ValueError(f"{name} must be a JSON object")
             normalized[name] = value
+        if (
+            material_class in {"translucent", "transparent"}
+            and normalized["transmission"] <= 0.0
+        ):
+            raise ValueError(
+                "translucent or transparent material_class requires positive transmission"
+            )
+        if material_class == "emissive" and normalized["emission_strength"] <= 0.0:
+            raise ValueError("emissive material_class requires positive emission_strength")
+        if (
+            material_class in {"anodized_metal", "reflective_metal", "painted_metal"}
+            and normalized["metallic"] <= 0.0
+        ):
+            raise ValueError("metal material_class requires positive metallic response")
+        return normalized
+
+    @staticmethod
+    def _validate_lighting_estimate(value: dict[str, Any] | None) -> dict[str, Any]:
+        if value is None:
+            return {"state": "unreported"}
+        if not isinstance(value, dict):
+            raise ValueError("lighting_estimate must be a JSON object")
+        allowed = {
+            "state",
+            "method",
+            "environment_artifact_digest",
+            "environment_kind",
+            "directions",
+            "intensities",
+            "color_temperatures_kelvin",
+            "exposure",
+            "confidence",
+            "uncertainty",
+            "source",
+        }
+        unknown = set(value) - allowed
+        if unknown:
+            raise ValueError("unknown lighting estimate fields: " + ", ".join(sorted(unknown)))
+        state = str(value.get("state", "unreported"))
+        if state not in {"unreported", "estimated", "measured", "procedural_ground_truth"}:
+            raise ValueError("lighting estimate state is invalid")
+        if state != "unreported" and not str(value.get("method") or value.get("source") or ""):
+            raise ValueError("reported lighting estimates require a method or source")
+        confidence = value.get("confidence")
+        if confidence is not None and (
+            not isinstance(confidence, (int, float))
+            or not 0.0 <= float(confidence) <= 1.0
+        ):
+            raise ValueError("lighting estimate confidence must be between zero and one")
+        normalized = dict(value)
+        normalized["state"] = state
+        if confidence is not None:
+            normalized["confidence"] = float(confidence)
         return normalized
