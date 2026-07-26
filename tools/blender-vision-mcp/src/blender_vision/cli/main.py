@@ -82,6 +82,38 @@ def build_parser() -> argparse.ArgumentParser:
     capabilities = sub.add_parser("capabilities", help="show registered model backends")
     capabilities.set_defaults(action="capabilities")
 
+    capability = sub.add_parser(
+        "capability", help="evaluate the evidence-bound 0–110 capability authority"
+    )
+    capability_sub = capability.add_subparsers(dest="capability_command", required=True)
+    capability_list = capability_sub.add_parser("list")
+    capability_list.add_argument("--domain", choices=("app", "3d", "system"))
+    capability_show = capability_sub.add_parser("show")
+    capability_show.add_argument("facet")
+    capability_evaluate = capability_sub.add_parser("evaluate")
+    capability_evaluate.add_argument("selector", help="facet ID, app, 3d, system, or all")
+    capability_evaluate.add_argument(
+        "--evidence", action="append", default=[], help="capability evidence JSON"
+    )
+    capability_report = capability_sub.add_parser("report")
+    capability_report.add_argument(
+        "--evidence", action="append", default=[], help="capability evidence JSON"
+    )
+    capability_report.add_argument(
+        "--evidence-dir", help="directory containing capability evidence JSON files"
+    )
+    capability_report.add_argument(
+        "--output",
+        default="artifacts/100-plus/capability-report.json",
+        help="receipt-bound report destination",
+    )
+    capability_verify = capability_sub.add_parser("verify-report")
+    capability_verify.add_argument(
+        "path",
+        nargs="?",
+        default="artifacts/100-plus/capability-report.json",
+    )
+
     model = sub.add_parser("model", help="govern manually acquired model checkpoints")
     model_sub = model.add_subparsers(dest="model_command", required=True)
     model_approve = model_sub.add_parser("approve-source")
@@ -561,6 +593,50 @@ def dispatch(args: argparse.Namespace) -> Any:
         return doctor_report()
     if args.command == "capabilities":
         return {"backends": BackendRegistry().as_dict()}
+    if args.command == "capability":
+        from blender_vision.scoring import CapabilityAuthority
+
+        authority = CapabilityAuthority()
+        if args.capability_command == "list":
+            return {
+                "catalog_sha256": authority.catalog.catalog_sha256,
+                "registry_sha256": authority.catalog.registry_sha256,
+                "facets": [
+                    facet.model_dump(mode="json") for facet in authority.catalog.list(args.domain)
+                ],
+            }
+        if args.capability_command == "show":
+            return authority.catalog.get(args.facet).model_dump(mode="json")
+        if args.capability_command == "verify-report":
+            return authority.verify_report(Path(args.path))
+
+        evidence_paths = [Path(path) for path in args.evidence]
+        if args.capability_command == "report":
+            if args.evidence_dir:
+                evidence_paths.extend(sorted(Path(args.evidence_dir).glob("*.json")))
+            return authority.report(
+                evidence_paths,
+                output_path=Path(args.output),
+            ).model_dump(mode="json")
+
+        evidence_by_facet = {}
+        for path in evidence_paths:
+            evidence = authority.load_evidence(path)
+            if evidence.facet_id in evidence_by_facet:
+                raise ValueError(f"duplicate evidence for facet {evidence.facet_id}")
+            evidence_by_facet[evidence.facet_id] = evidence
+        return {
+            "selector": args.selector,
+            "catalog_sha256": authority.catalog.catalog_sha256,
+            "registry_sha256": authority.catalog.registry_sha256,
+            "evaluations": [
+                evaluation.model_dump(mode="json")
+                for evaluation in authority.evaluate_selector(
+                    args.selector,
+                    evidence_by_facet,
+                )
+            ],
+        }
     if args.command == "model":
         from blender_vision.models.store import ModelStore
 
@@ -877,9 +953,7 @@ def dispatch(args: argparse.Namespace) -> Any:
                 square_size_measurement_id=args.square_size_measurement_id,
             )
         if args.vision_command == "solve-vanishing-points":
-            return CameraSolver(_project(args.project)).solve_vanishing_points(
-                args.grid_id or None
-            )
+            return CameraSolver(_project(args.project)).solve_vanishing_points(args.grid_id or None)
         if args.vision_command == "run":
             return _run(
                 _project(args.project),
@@ -998,9 +1072,7 @@ def dispatch(args: argparse.Namespace) -> Any:
             from blender_vision.benchmarks.devices import bootstrap_device_benchmark
 
             benchmark = (
-                "dgx_spark"
-                if args.benchmark_command == "bootstrap-dgx-spark"
-                else "rtx_5090_fe"
+                "dgx_spark" if args.benchmark_command == "bootstrap-dgx-spark" else "rtx_5090_fe"
             )
             return bootstrap_device_benchmark(
                 Path(args.project),
