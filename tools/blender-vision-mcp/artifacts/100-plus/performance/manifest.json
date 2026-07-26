@@ -1,0 +1,83 @@
+{
+  "schema_version": "1",
+  "authority": "performance-repair-authority-v1",
+  "source_git_head": "e7e99ce77b298759a52f43a29a7b5bb8f9c4bb38",
+  "implementation_commit": "e7e99ce77b298759a52f43a29a7b5bb8f9c4bb38",
+  "functional_run": "e7e99ce-functional-pass",
+  "status": "PASS",
+  "functional_passed": true,
+  "degraded_rejected": true,
+  "repaired_accepted": true,
+  "degraded_failed_gate_count": 15,
+  "repaired_assertion_count": 31,
+  "global_suite": {
+    "passed": 386,
+    "skipped": 15,
+    "failed": 0
+  },
+  "runtime": {
+    "browser_engine": "chromium",
+    "browser_version": "150.0.7871.183",
+    "browser_executable_sha256": "088973e4c3e8aa13393f0dc1bc30d1847a74c4bf77d549a3736b0b2f6032adbb",
+    "playwright_version": "1.61.0",
+    "database": "3.50.4",
+    "graphics_instrumentation": "GraphicsRuntimeAdapter/v1",
+    "glb_validator": "visionmcp-glb-validator/v1",
+    "network_scope": "loopback-only",
+    "external_network_used": false
+  },
+  "repaired_metrics": {
+    "initial_transfer_bytes": 7845,
+    "javascript_execution_ms": 19.915,
+    "selected_glb_bytes": 33308,
+    "texture_memory_bytes": 16384,
+    "shader_compilation_ms": 2.0,
+    "frame_p95_ms": 17.5,
+    "dropped_frame_ratio": 0.0,
+    "long_task_count": 0,
+    "cumulative_layout_shift": 0.0,
+    "interaction_p95_ms": 25.80000001192093,
+    "javascript_heap_growth_bytes": 75404,
+    "retained_allocation_bytes": 0,
+    "api_p95_ms": 5.400000035762787,
+    "database_query_p95_ms": 0.002834014594554901,
+    "database_uses_index": true,
+    "adaptive_dpr": true,
+    "reduced_motion_honored": true,
+    "no_webgl_fallback": true
+  },
+  "preservation": {
+    "screenshot_equal": true,
+    "screenshot_max_channel_error": 0,
+    "aria_equal": true,
+    "behavior_equal": true,
+    "api_contract_equal": true,
+    "glb_named_identity_equal": true,
+    "degraded_glb_valid": true,
+    "repaired_glb_valid": true
+  },
+  "negative_controls": {
+    "transfer_budget": true,
+    "lazy_load": true,
+    "glb_structure": true,
+    "preservation_gate": true
+  },
+  "receipt": {
+    "path": "e7e99ce-functional-pass/performance.receipt.json",
+    "sha256": "1951629add7fff98e6d87cc99a9d424aa434a4641202ee5f396d5868d83f7e61"
+  },
+  "archive": {
+    "path": "archives/e7e99ce-functional-pass.tar.gz",
+    "sha256": "78bebdcd67b36b999147e4e1f7d4c3a47576c1c980ced003c848171993ad6b6e",
+    "bytes": 557305,
+    "regular_members": 22,
+    "contains_links": false
+  },
+  "reproduction_command": "uv run bvmcp benchmark bootstrap-performance --output artifacts/100-plus/performance/e7e99ce-functional-pass",
+  "claim_boundary": [
+    "Proves measured rejection and bounded repair on the owned fixed fixture.",
+    "Does not prove universal performance on arbitrary applications, devices, networks, databases, or unseen 3D scenes.",
+    "No physical mobile runtime is claimed.",
+    "GLB validation is structural and named-identity based, not perceptual equivalence."
+  ]
+}

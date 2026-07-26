@@ -1,0 +1,798 @@
+{
+  "benchmark_id": "performance-repair-authority-v1",
+  "claim_boundary": [
+    "Proves measured rejection and bounded repair on the owned fixed fixture.",
+    "Does not prove universal performance on arbitrary applications, devices, networks, databases, or unseen 3D scenes.",
+    "Browser measurements use installed Chromium on this host; no mobile physical-device runtime is claimed.",
+    "GLB validation is structural and named-identity based, not a perceptual equivalence claim."
+  ],
+  "completed_at": "2026-07-26T02:38:19.445721+00:00",
+  "degraded": {
+    "adaptive_dpr": false,
+    "api_contract_sha256": "a00205a5d3b5391cd56e32fd1e3d4bdcaba73fc4d47131bd56ada746675657b5",
+    "api_p95_ms": 5.0,
+    "api_samples_ms": [
+      4.800000011920929,
+      4.600000023841858,
+      4.300000011920929,
+      4.5,
+      4.599999964237213,
+      5.0,
+      4.199999988079071,
+      4.300000011920929
+    ],
+    "aria_sha256": "8beeff814af7217490fcccbd4b28aa7cd7ea77ed595255b38fa6fd2a1ed43133",
+    "behavior_sha256": "b263dc597d7431bd59e23562ea3cb482a45d29c4eebcda257edc34672a183246",
+    "browser_engine": "chromium",
+    "browser_executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "browser_executable_sha256": "088973e4c3e8aa13393f0dc1bc30d1847a74c4bf77d549a3736b0b2f6032adbb",
+    "browser_version": "150.0.7871.183",
+    "cdp_script_duration_ms": 93.789,
+    "console_errors": [],
+    "cumulative_layout_shift": 0.0,
+    "database_query_p95_ms": 0.0014579854905605316,
+    "database_query_plan": [
+      "SEARCH items USING INDEX sqlite_autoindex_items_1 (slug=?)"
+    ],
+    "database_query_samples_ms": [
+      0.019208004232496023,
+      0.0024170149117708206,
+      0.001125037670135498,
+      0.0008749775588512421,
+      0.000833999365568161,
+      0.0009160139597952366,
+      0.000792031642049551,
+      0.0007919734343886375,
+      0.0009170034900307655,
+      0.0009580398909747601,
+      0.0008330098353326321,
+      0.0007919734343886375,
+      0.0009170034900307655,
+      0.00100000761449337,
+      0.0009160139597952366,
+      0.0007909839041531086,
+      0.0012500095181167126,
+      0.0007919734343886375,
+      0.0010830117389559746,
+      0.0007499475032091141,
+      0.0007909839041531086,
+      0.0007500057108700275,
+      0.000792031642049551,
+      0.0007919734343886375,
+      0.0011249794624745846,
+      0.0007500057108700275,
+      0.0007919734343886375,
+      0.0008329516276717186,
+      0.000833999365568161,
+      0.000833999365568161,
+      0.0008749775588512421,
+      0.0008329516276717186,
+      0.0008330098353326321,
+      0.000833999365568161,
+      0.0007919734343886375,
+      0.000792031642049551,
+      0.001207983586937189,
+      0.0009170034900307655,
+      0.0007919734343886375,
+      0.0007500057108700275,
+      0.0007499475032091141,
+      0.000792031642049551,
+      0.0007500057108700275,
+      0.0007500057108700275,
+      0.0007909839041531086,
+      0.0007500057108700275,
+      0.0007500057108700275,
+      0.0007919734343886375,
+      0.0014579854905605316,
+      0.0007919734343886375,
+      0.0008750357665121555,
+      0.0007500057108700275,
+      0.0007500057108700275,
+      0.0007919734343886375,
+      0.0007079797796905041,
+      0.0007500057108700275,
+      0.0007919734343886375,
+      0.000792031642049551,
+      0.000792031642049551,
+      0.000792031642049551,
+      0.0030830269679427147,
+      0.0007910421118140221,
+      0.000792031642049551,
+      0.0007919734343886375
+    ],
+    "database_uses_index": true,
+    "draw_call_count": 1,
+    "dropped_frame_ratio": 1.0,
+    "eager_3d_asset_on_initial_load": true,
+    "effective_dpr": 2.0,
+    "frame_p95_ms": 74.29999995231628,
+    "frame_sample_count": 24,
+    "initial_resource_paths": [
+      "/app.js",
+      "/index.html",
+      "/scene-high.glb",
+      "/styles.css",
+      "/texture-high.bin"
+    ],
+    "initial_transfer_bytes": 794820,
+    "intent_resource_paths": [
+      "/api/items"
+    ],
+    "interaction_p95_ms": 84.60000002384186,
+    "interaction_samples_ms": [
+      78.89999997615814,
+      84.60000002384186,
+      79.30000001192093,
+      81.0,
+      72.79999995231628
+    ],
+    "javascript_execution_ms": 97.10000002384186,
+    "javascript_heap_growth_bytes": 6233148,
+    "lazy_3d_asset_after_intent": false,
+    "lod_level": "HIGH",
+    "long_task_count": 30,
+    "long_task_total_ms": 2149.0,
+    "no_webgl_fallback": true,
+    "reduced_motion_honored": false,
+    "retained_allocation_bytes": 14000000,
+    "schema_version": "1",
+    "screenshot_sha256": "40a48b54021d086788534005e10f9cdd15e3548e6e383a1205e8663525aa8d41",
+    "selected_glb": "scene-high.glb",
+    "selected_glb_bytes": 524828,
+    "selected_glb_mesh_names": [
+      "GovernedTriangleMesh"
+    ],
+    "selected_glb_node_names": [
+      "GovernedTriangle"
+    ],
+    "selected_glb_sha256": "d27065bf01b3d6e68eee3a218790d40a046e6063c4544d69c049768c1a1da6bf",
+    "selected_glb_valid": true,
+    "shader_compilation_ms": 2.900000035762787,
+    "shader_source_count": 2,
+    "texture_memory_bytes": 262144,
+    "variant": "degraded",
+    "webgl_observed": true
+  },
+  "degraded_assertions": [
+    {
+      "expected": {
+        "maximum": 65536
+      },
+      "id": "initial_transfer_bytes",
+      "observed": 794820,
+      "passed": false
+    },
+    {
+      "expected": {
+        "maximum": 45.0
+      },
+      "id": "javascript_execution_ms",
+      "observed": 97.10000002384186,
+      "passed": false
+    },
+    {
+      "expected": {
+        "maximum": 65536
+      },
+      "id": "selected_glb_bytes",
+      "observed": 524828,
+      "passed": false
+    },
+    {
+      "expected": {
+        "maximum": 32768
+      },
+      "id": "texture_memory_bytes",
+      "observed": 262144,
+      "passed": false
+    },
+    {
+      "expected": {
+        "maximum": 30.0
+      },
+      "id": "shader_compilation_ms",
+      "observed": 2.900000035762787,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 40.0
+      },
+      "id": "frame_p95_ms",
+      "observed": 74.29999995231628,
+      "passed": false
+    },
+    {
+      "expected": {
+        "maximum": 0.1
+      },
+      "id": "dropped_frame_ratio",
+      "observed": 1.0,
+      "passed": false
+    },
+    {
+      "expected": {
+        "maximum": 1
+      },
+      "id": "long_task_count",
+      "observed": 30,
+      "passed": false
+    },
+    {
+      "expected": {
+        "maximum": 0.01
+      },
+      "id": "cumulative_layout_shift",
+      "observed": 0.0,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 80.0
+      },
+      "id": "interaction_p95_ms",
+      "observed": 84.60000002384186,
+      "passed": false
+    },
+    {
+      "expected": {
+        "maximum": 4194304
+      },
+      "id": "javascript_heap_growth_bytes",
+      "observed": 6233148,
+      "passed": false
+    },
+    {
+      "expected": {
+        "maximum": 1048576
+      },
+      "id": "retained_allocation_bytes",
+      "observed": 14000000,
+      "passed": false
+    },
+    {
+      "expected": {
+        "maximum": 25.0
+      },
+      "id": "api_p95_ms",
+      "observed": 5.0,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 5.0
+      },
+      "id": "database_query_p95_ms",
+      "observed": 0.0014579854905605316,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 2.0
+      },
+      "id": "effective_dpr",
+      "observed": 2.0,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "database_uses_index",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "initial_3d_asset_is_lazy",
+      "observed": false,
+      "passed": false
+    },
+    {
+      "expected": true,
+      "id": "intent_loads_3d_asset",
+      "observed": false,
+      "passed": false
+    },
+    {
+      "expected": true,
+      "id": "adaptive_low_lod",
+      "observed": false,
+      "passed": false
+    },
+    {
+      "expected": true,
+      "id": "adaptive_dpr",
+      "observed": false,
+      "passed": false
+    },
+    {
+      "expected": true,
+      "id": "reduced_motion_honored",
+      "observed": false,
+      "passed": false
+    },
+    {
+      "expected": true,
+      "id": "no_webgl_fallback",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "webgl_observed",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "glb_structurally_valid",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "console_is_clean",
+      "observed": true,
+      "passed": true
+    }
+  ],
+  "degraded_rejected": true,
+  "elapsed_seconds": 12.413073292002082,
+  "failure": null,
+  "fixture_sha256": "2003190968444668c1993b389e1f28001b86ed525ec5216a0323cb8aad950bc4",
+  "functional_passed": true,
+  "host": {
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "python": "3.12.13"
+  },
+  "manifest_sha256": "a76fdf06fb1770adcfdde0756038c9e163d0832255af79bf509e5bc091585bba",
+  "negative_controls": {
+    "glb_structure": true,
+    "lazy_load": true,
+    "preservation_gate": true,
+    "transfer_budget": true
+  },
+  "output_digests": {
+    "degraded.measurement.json": "5f11469bcb58cb0d09d322e9b9ce3d1037192bfb1dcc716f9fc062c49b7eb29e",
+    "degraded.png": "40a48b54021d086788534005e10f9cdd15e3548e6e383a1205e8663525aa8d41",
+    "negative-controls.json": "d3abfe012ca24ca951039ae923ccbce619bc99530f2ac54f3b2cbea5e9259c3e",
+    "preservation.json": "1e1b8970b74195efe8d0f2d7e3e497fac543352e699c397fefbcdeb74e9c013c",
+    "repair.receipt.json": "77130053626ebb6b14b6befcdd427c13e569cfbdbf737dfc4f4b531735b8666e",
+    "repaired.measurement.json": "8d690b76f1ba25b9ab95f1f8d9567254a11a395608c10ef94497aad6e6e60186",
+    "repaired.png": "40a48b54021d086788534005e10f9cdd15e3548e6e383a1205e8663525aa8d41"
+  },
+  "preservation": {
+    "api_contract_equal": true,
+    "aria_equal": true,
+    "behavior_equal": true,
+    "degraded_glb_valid": true,
+    "glb_named_identity_equal": true,
+    "repaired_glb_valid": true,
+    "screenshot_equal": true,
+    "screenshot_max_channel_error": 0
+  },
+  "repair": {
+    "after_sha256": "c5ca689e22f59033560d3a96cfa8a4cc82a004b714d526f726f847a1074a04f4",
+    "allowed_replacements": [
+      {
+        "after": "const LOAD_POLICY = \"intent\";",
+        "before": "const LOAD_POLICY = \"eager\";"
+      },
+      {
+        "after": "const LOD_POLICY = \"adaptive\";",
+        "before": "const LOD_POLICY = \"full\";"
+      },
+      {
+        "after": "const DPR_CAP = 2;",
+        "before": "const DPR_CAP = 4;"
+      },
+      {
+        "after": "const FRAME_WORK_MS = 1;",
+        "before": "const FRAME_WORK_MS = 72;"
+      },
+      {
+        "after": "const INTERACTION_WORK_MS = 1;",
+        "before": "const INTERACTION_WORK_MS = 58;"
+      },
+      {
+        "after": "const RETAINED_NUMBERS_PER_INTERACTION = 0;",
+        "before": "const RETAINED_NUMBERS_PER_INTERACTION = 350000;"
+      },
+      {
+        "after": "const RESPECT_REDUCED_MOTION = true;",
+        "before": "const RESPECT_REDUCED_MOTION = false;"
+      }
+    ],
+    "before_sha256": "93ac6169313fb21f4d2313d64f289188e90b750de8d2c82c1cd02528447f01ee",
+    "changed_paths": [
+      "app.js"
+    ],
+    "repair_id": "4886ac3a93ca6cc8fa8f758171c73cae5ded2c0d265d3c5a6ece0fea45843489",
+    "replacement_count": 7,
+    "schema_version": "1",
+    "source_relative_path": "app.js",
+    "unified_diff": "--- a/app.js\n+++ b/app.js\n@@ -1,10 +1,10 @@\n-const LOAD_POLICY = \"eager\";\n-const LOD_POLICY = \"full\";\n-const DPR_CAP = 4;\n-const FRAME_WORK_MS = 72;\n-const INTERACTION_WORK_MS = 58;\n-const RETAINED_NUMBERS_PER_INTERACTION = 350000;\n-const RESPECT_REDUCED_MOTION = false;\n+const LOAD_POLICY = \"intent\";\n+const LOD_POLICY = \"adaptive\";\n+const DPR_CAP = 2;\n+const FRAME_WORK_MS = 1;\n+const INTERACTION_WORK_MS = 1;\n+const RETAINED_NUMBERS_PER_INTERACTION = 0;\n+const RESPECT_REDUCED_MOTION = true;\n \n const bootStarted = performance.now();\n const search = new URLSearchParams(location.search);\n",
+    "unified_diff_sha256": "507d902ac9bbe0104b35b71b049f7de38cd726a16995486b437aaecb913f9d8e"
+  },
+  "repaired": {
+    "adaptive_dpr": true,
+    "api_contract_sha256": "a00205a5d3b5391cd56e32fd1e3d4bdcaba73fc4d47131bd56ada746675657b5",
+    "api_p95_ms": 5.400000035762787,
+    "api_samples_ms": [
+      5.199999988079071,
+      4.399999976158142,
+      5.400000035762787,
+      4.399999976158142,
+      4.600000023841858,
+      4.599999964237213,
+      5.300000011920929,
+      4.300000011920929
+    ],
+    "aria_sha256": "8beeff814af7217490fcccbd4b28aa7cd7ea77ed595255b38fa6fd2a1ed43133",
+    "behavior_sha256": "b263dc597d7431bd59e23562ea3cb482a45d29c4eebcda257edc34672a183246",
+    "browser_engine": "chromium",
+    "browser_executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "browser_executable_sha256": "088973e4c3e8aa13393f0dc1bc30d1847a74c4bf77d549a3736b0b2f6032adbb",
+    "browser_version": "150.0.7871.183",
+    "cdp_script_duration_ms": 19.915,
+    "console_errors": [],
+    "cumulative_layout_shift": 0.0,
+    "database_query_p95_ms": 0.002834014594554901,
+    "database_query_plan": [
+      "SEARCH items USING INDEX sqlite_autoindex_items_1 (slug=?)"
+    ],
+    "database_query_samples_ms": [
+      0.031167000997811556,
+      0.0036249984987080097,
+      0.0021249870769679546,
+      0.0018750433810055256,
+      0.0018330174498260021,
+      0.0019169528968632221,
+      0.0019170111045241356,
+      0.0019169528968632221,
+      0.0021669548004865646,
+      0.0021249870769679546,
+      0.00208395067602396,
+      0.0021249870769679546,
+      0.0019999570213258266,
+      0.0021659652702510357,
+      0.0022500171326100826,
+      0.00200001522898674,
+      0.002707995008677244,
+      0.002292043063789606,
+      0.0021249870769679546,
+      0.002167013008147478,
+      0.0022090389393270016,
+      0.002040993422269821,
+      0.0020830193534493446,
+      0.0019579892978072166,
+      0.002707995008677244,
+      0.0022919848561286926,
+      0.002207991201430559,
+      0.002208980731666088,
+      0.002374988980591297,
+      0.0022909953258931637,
+      0.00204198295250535,
+      0.002208980731666088,
+      0.0021249870769679546,
+      0.0022500171326100826,
+      0.002249958924949169,
+      0.00200001522898674,
+      0.002667016815394163,
+      0.0021249870769679546,
+      0.002167013008147478,
+      0.002249958924949169,
+      0.0019999570213258266,
+      0.0022909953258931637,
+      0.00204198295250535,
+      0.002167013008147478,
+      0.0019579892978072166,
+      0.0018330174498260021,
+      0.0019999570213258266,
+      0.0019160215742886066,
+      0.002834014594554901,
+      0.002040993422269821,
+      0.0020840088836848736,
+      0.0019170111045241356,
+      0.002040993422269821,
+      0.00200001522898674,
+      0.002166023477911949,
+      0.0019170111045241356,
+      0.0021249870769679546,
+      0.0024170149117708206,
+      0.0018749851733446121,
+      0.0019169528968632221,
+      0.004792003892362118,
+      0.002125045284628868,
+      0.0018749851733446121,
+      0.0018329592421650887
+    ],
+    "database_uses_index": true,
+    "draw_call_count": 1,
+    "dropped_frame_ratio": 0.0,
+    "eager_3d_asset_on_initial_load": false,
+    "effective_dpr": 2.0,
+    "frame_p95_ms": 17.5,
+    "frame_sample_count": 24,
+    "initial_resource_paths": [
+      "/app.js",
+      "/index.html",
+      "/styles.css"
+    ],
+    "initial_transfer_bytes": 7845,
+    "intent_resource_paths": [
+      "/api/items",
+      "/scene-low.glb",
+      "/texture-low.bin"
+    ],
+    "interaction_p95_ms": 25.80000001192093,
+    "interaction_samples_ms": [
+      21.399999976158142,
+      22.69999998807907,
+      12.5,
+      25.80000001192093,
+      25.799999952316284
+    ],
+    "javascript_execution_ms": 19.915,
+    "javascript_heap_growth_bytes": 75404,
+    "lazy_3d_asset_after_intent": true,
+    "lod_level": "LOW",
+    "long_task_count": 0,
+    "long_task_total_ms": 0.0,
+    "no_webgl_fallback": true,
+    "reduced_motion_honored": true,
+    "retained_allocation_bytes": 0,
+    "schema_version": "1",
+    "screenshot_sha256": "40a48b54021d086788534005e10f9cdd15e3548e6e383a1205e8663525aa8d41",
+    "selected_glb": "scene-low.glb",
+    "selected_glb_bytes": 33308,
+    "selected_glb_mesh_names": [
+      "GovernedTriangleMesh"
+    ],
+    "selected_glb_node_names": [
+      "GovernedTriangle"
+    ],
+    "selected_glb_sha256": "d961f7a9674b13860fc90fca281214566f66afd33be53668f01d17c700992a9e",
+    "selected_glb_valid": true,
+    "shader_compilation_ms": 2.0,
+    "shader_source_count": 2,
+    "texture_memory_bytes": 16384,
+    "variant": "repaired",
+    "webgl_observed": true
+  },
+  "repaired_accepted": true,
+  "repaired_assertions": [
+    {
+      "expected": {
+        "maximum": 65536
+      },
+      "id": "initial_transfer_bytes",
+      "observed": 7845,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 45.0
+      },
+      "id": "javascript_execution_ms",
+      "observed": 19.915,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 65536
+      },
+      "id": "selected_glb_bytes",
+      "observed": 33308,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 32768
+      },
+      "id": "texture_memory_bytes",
+      "observed": 16384,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 30.0
+      },
+      "id": "shader_compilation_ms",
+      "observed": 2.0,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 40.0
+      },
+      "id": "frame_p95_ms",
+      "observed": 17.5,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 0.1
+      },
+      "id": "dropped_frame_ratio",
+      "observed": 0.0,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 1
+      },
+      "id": "long_task_count",
+      "observed": 0,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 0.01
+      },
+      "id": "cumulative_layout_shift",
+      "observed": 0.0,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 80.0
+      },
+      "id": "interaction_p95_ms",
+      "observed": 25.80000001192093,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 4194304
+      },
+      "id": "javascript_heap_growth_bytes",
+      "observed": 75404,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 1048576
+      },
+      "id": "retained_allocation_bytes",
+      "observed": 0,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 25.0
+      },
+      "id": "api_p95_ms",
+      "observed": 5.400000035762787,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 5.0
+      },
+      "id": "database_query_p95_ms",
+      "observed": 0.002834014594554901,
+      "passed": true
+    },
+    {
+      "expected": {
+        "maximum": 2.0
+      },
+      "id": "effective_dpr",
+      "observed": 2.0,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "database_uses_index",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "initial_3d_asset_is_lazy",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "intent_loads_3d_asset",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "adaptive_low_lod",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "adaptive_dpr",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "reduced_motion_honored",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "no_webgl_fallback",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "webgl_observed",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "glb_structurally_valid",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "console_is_clean",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "visual_gate_preserved",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "aria_gate_preserved",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "behavior_gate_preserved",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "api_contract_preserved",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "glb_identity_preserved",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "id": "all_preservation_gates",
+      "observed": true,
+      "passed": true
+    }
+  ],
+  "runtime": {
+    "browser_engine": "chromium",
+    "browser_executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "browser_executable_sha256": "088973e4c3e8aa13393f0dc1bc30d1847a74c4bf77d549a3736b0b2f6032adbb",
+    "browser_version": "150.0.7871.183",
+    "database": "3.50.4",
+    "external_network_used": false,
+    "glb_validator": "visionmcp-glb-validator/v1",
+    "graphics_instrumentation": "GraphicsRuntimeAdapter/v1",
+    "network_scope": "loopback-only",
+    "playwright_version": "1.61.0"
+  },
+  "schema_version": "1",
+  "source_git_head": "e7e99ce77b298759a52f43a29a7b5bb8f9c4bb38",
+  "started_at": "2026-07-26T02:38:07.032459+00:00",
+  "status": "PASS",
+  "workspace": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-100plus-sandbox/tools/blender-vision-mcp/artifacts/100-plus/performance/e7e99ce-functional-pass/workspace"
+}
