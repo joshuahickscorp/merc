@@ -32,6 +32,12 @@ BVMCP_RUN_BLENDER_TESTS=1 uv run pytest tests/test_blender_integration.py
 BVMCP_RUN_BLENDER_TESTS=1 uv run pytest tests/test_calibration_benchmark.py
 ```
 
+The Mac Studio vertical slice is an optional owned external benchmark rather than a distributable
+fixture. Set `BVMCP_MAC_STUDIO_SCENE` to a BLEND file with SHA-256
+`22ea2562cc92d44b2df084f0009b3faca6ab37f6ff81e21e55136ac6871e6dae` to execute that slice.
+Without it, the test reports an exact `BLOCKED_EXTERNAL` skip while the standalone Blender
+integration and calibration tests continue to run.
+
 The calibration test must report L3, six approved metric cameras, complete comparison coverage,
 silhouette IoU at least 0.95, all five calibration gates, two identical GLB hashes, and a valid JSON
 receipt with a Markdown rendering.
@@ -46,6 +52,7 @@ receipt with a Markdown rendering.
 - The MCP server discovers every documented high-level tool, resource, workflow, and prompt.
 - Linux, macOS, and Windows run the fast suite on Python 3.11 and 3.13 in CI.
 - Blender extension validation succeeds on the installed Blender version.
+- The extension build output directory is created before passing it to Blender.
 - The source archive can build the same wheel without the parent repository.
 - `MODEL_LICENSES.json`, `SECURITY.md`, and `docs/SECURITY_REVIEW.md` have been reviewed for the
   exact release date.

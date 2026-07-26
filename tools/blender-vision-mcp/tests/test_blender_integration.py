@@ -16,6 +16,7 @@ from blender_vision.blender.passes import (
 )
 from blender_vision.blender.runner import BlenderRunner
 from blender_vision.core.models import EvidenceClass
+from blender_vision.core.util import sha256_file
 from blender_vision.datasets.store import DatasetStore
 from blender_vision.evidence.measurements import MeasurementStore
 from blender_vision.parametric.components import ComponentSpec, ComponentType
@@ -32,9 +33,20 @@ from blender_vision.workflows.service import ReconstructionService
 )
 def test_mac_studio_vertical_slice(tmp_path: Path) -> None:
     repository = Path(__file__).resolve().parents[3]
-    scene = repository / "models" / "mac_studio" / "final_packed.blend"
+    scene = Path(
+        os.environ.get(
+            "BVMCP_MAC_STUDIO_SCENE",
+            repository / "models" / "mac_studio" / "final_packed.blend",
+        )
+    ).expanduser()
     reference = repository / "web" / "assets" / "site" / "mac-studio@3x.png"
-    assert scene.is_file()
+    if not scene.is_file():
+        pytest.skip(
+            "BLOCKED_EXTERNAL: set BVMCP_MAC_STUDIO_SCENE to the owned BLEND fixture with "
+            "SHA-256 22ea2562cc92d44b2df084f0009b3faca6ab37f6ff81e21e55136ac6871e6dae"
+        )
+    scene_digest, _scene_size = sha256_file(scene)
+    assert scene_digest == "22ea2562cc92d44b2df084f0009b3faca6ab37f6ff81e21e55136ac6871e6dae"
     assert reference.is_file()
     project = ProjectStore.create(tmp_path / "mac-studio", "Mac Studio")
     result = Coordinator(project).run(

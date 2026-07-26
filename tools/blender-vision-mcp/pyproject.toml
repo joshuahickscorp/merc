@@ -43,6 +43,11 @@ Repository = "https://github.com/joshuahickscorp/blender-vision-mcp"
 [tool.hatch.build.targets.wheel]
 packages = ["src/blender_vision"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/artifacts",
+]
+
 [tool.hatch.build.targets.wheel.force-include]
 "blender_worker/entry.py" = "blender_vision/blender/standalone_worker.py"
 "benchmarks/mac_studio/benchmark.json" = "blender_vision/benchmarks/data/mac_studio.json"
