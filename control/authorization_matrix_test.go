@@ -63,10 +63,12 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 			checked++
 		}
 	}
+	// 62 after the image lane: POST /v1/images/generations is buyer-owned and
+	// must reject an anonymous caller like every other buyer route.
 	// 61 after the [KEEP-RT] reversal: the five realtime routes (chat/completions,
 	// the receipt read, two worker offer endpoints and the admin refund) returned
 	// with the lane once CUDA hardware admission made it servable.
-	if checked != 61 {
-		t.Fatalf("checked %d protected routes, want 61", checked)
+	if checked != 62 {
+		t.Fatalf("checked %d protected routes, want 62", checked)
 	}
 }

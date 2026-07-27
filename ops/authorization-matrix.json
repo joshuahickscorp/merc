@@ -107,6 +107,7 @@
         "GET /v1/supplier/worker-credentials",
         "POST /v1/billing/setup",
         "POST /v1/chat/completions",
+        "POST /v1/images/generations",
         "POST /v1/jobs",
         "POST /v1/jobs/{id}/dispute",
         "POST /v1/keys",

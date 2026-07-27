@@ -63,6 +63,8 @@ type metricsState struct {
 	payoutReversalsCompleted      atomic.Int64 // supplier payouts reversed via transfer reversal or charge refund
 	payoutReversalFailures        atomic.Int64 // reverse attempts that failed after claiming (money incident)
 	realtimeAuthorized            atomic.Int64
+	imageRequestsRefused          atomic.Int64
+	imageRequestsAuthorized       atomic.Int64
 	realtimeVerified              atomic.Int64
 	realtimeFailed                atomic.Int64
 	realtimeCancelled             atomic.Int64
@@ -318,6 +320,10 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeCounter(w, "merc_tasks_dispatched_total", "Tasks claimed by workers via poll.", metrics.tasksDispatched.Load())
 	writeCounter(w, "merc_tasks_completed_total", "Tasks committed and verified.", metrics.tasksCompleted.Load())
 	writeCounter(w, "merc_realtime_contracts_authorized_total", "Realtime execution contracts admitted to a worker.", metrics.realtimeAuthorized.Load())
+	// Counted, never labelled with the prompt: the point of a refusal is not to
+	// keep the thing it refused.
+	writeCounter(w, "merc_image_requests_refused_total", "Image requests refused by merc's generation policy.", metrics.imageRequestsRefused.Load())
+	writeCounter(w, "merc_image_requests_authorized_total", "Image requests that passed policy and reached a contract.", metrics.imageRequestsAuthorized.Load())
 	writeCounter(w, "merc_realtime_contracts_verified_total", "Realtime execution contracts finalized with V0 verification and settlement.", metrics.realtimeVerified.Load())
 	writeCounter(w, "merc_realtime_contracts_failed_total", "Realtime execution contracts finalized as failed, including crash recovery.", metrics.realtimeFailed.Load())
 	writeCounter(w, "merc_realtime_contracts_cancelled_total", "Realtime execution contracts cancelled by their client context.", metrics.realtimeCancelled.Load())
