@@ -6,8 +6,8 @@ Four fixture classes per Bible-6.5 event type under calibration:
   near_threshold — just barely the event / just barely not
   confounder     — superficially similar but a different event
 
-Ground truth lives only in the sealed evaluator path (manifests). The runtime
-detector never reads these labels.
+Ground truth lives only under sealed_gt/ and is read exclusively by the
+sealed evaluator. The runtime detector path sees frames/ pixels only.
 """
 
 from __future__ import annotations

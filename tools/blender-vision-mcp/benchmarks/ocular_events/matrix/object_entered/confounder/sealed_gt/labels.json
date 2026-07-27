@@ -1,0 +1,15 @@
+{
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "event_type": "OBJECT_ENTERED",
+  "expect_fire": false,
+  "fixture_class": "confounder",
+  "forbidden_events": [
+    "OBJECT_ENTERED"
+  ],
+  "image_height": 240,
+  "image_width": 320,
+  "measured_quantity": "unmatched_motion_blob",
+  "n_frames": 6,
+  "notes": "object reappearing from behind occluder is REAPPEARED, not ENTERED",
+  "onset_frame": null
+}

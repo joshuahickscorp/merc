@@ -1,0 +1,6 @@
+{
+  "event_type": "OBJECT_ENTERED",
+  "fixture_class": "true_negative",
+  "ground_truth": "sealed_gt/labels.json",
+  "n_frames": 5
+}

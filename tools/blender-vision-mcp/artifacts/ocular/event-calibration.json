@@ -1,0 +1,1497 @@
+{
+  "cells": [
+    {
+      "confidence": 0.854042132695516,
+      "confounder_violation": false,
+      "event_type": "OBJECT_MOVED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_LEFT",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 1,
+      "fixture_class": "true_positive",
+      "forbidden_events": [
+        "CAMERA_MOVED"
+      ],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.6154045909643173,
+      "n_frames": 6,
+      "notes": "blob translates ~18px/frame",
+      "onset_frame": 1,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "OBJECT_MOVED",
+      "event_types_seen": [],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "true_negative",
+      "forbidden_events": [
+        "OBJECT_MOVED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 6,
+      "notes": "static blob, no residual motion",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.3177401026089986,
+      "confounder_violation": false,
+      "event_type": "OBJECT_MOVED",
+      "event_types_seen": [
+        "OBJECT_MOVED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 1,
+      "fixture_class": "near_threshold",
+      "forbidden_events": [
+        "CAMERA_MOVED"
+      ],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.24369323253631592,
+      "n_frames": 6,
+      "notes": "2px/frame translation near the residual floor",
+      "onset_frame": 1,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "OBJECT_MOVED",
+      "event_types_seen": [
+        "CAMERA_MOVED"
+      ],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "confounder",
+      "forbidden_events": [
+        "OBJECT_MOVED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 6,
+      "notes": "camera pan with world-static scene is CAMERA_MOVED, not OBJECT_MOVED",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.6248690486071055,
+      "confounder_violation": false,
+      "event_type": "CAMERA_MOVED",
+      "event_types_seen": [
+        "CAMERA_MOVED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 1,
+      "fixture_class": "true_positive",
+      "forbidden_events": [
+        "OBJECT_MOVED"
+      ],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.6248756408779362,
+      "n_frames": 6,
+      "notes": "global pan of textured scene",
+      "onset_frame": 1,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "CAMERA_MOVED",
+      "event_types_seen": [],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "true_negative",
+      "forbidden_events": [
+        "CAMERA_MOVED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 6,
+      "notes": "static textured scene",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.12530772965221929,
+      "confounder_violation": false,
+      "event_type": "CAMERA_MOVED",
+      "event_types_seen": [
+        "CAMERA_MOVED",
+        "TEXT_CHANGED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 1,
+      "fixture_class": "near_threshold",
+      "forbidden_events": [
+        "OBJECT_MOVED"
+      ],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.12524935680239638,
+      "n_frames": 6,
+      "notes": "slow pan just above coverage floor",
+      "onset_frame": 1,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "CAMERA_MOVED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_LEFT",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "confounder",
+      "forbidden_events": [
+        "CAMERA_MOVED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 6,
+      "notes": "large object transit is not a camera pan",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.85,
+      "confounder_violation": false,
+      "event_type": "OBJECT_ENTERED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_LEFT",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 2,
+      "fixture_class": "true_positive",
+      "forbidden_events": [],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.85,
+      "n_frames": 5,
+      "notes": "blob appears after empty frames",
+      "onset_frame": 2,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "OBJECT_ENTERED",
+      "event_types_seen": [],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "true_negative",
+      "forbidden_events": [
+        "OBJECT_ENTERED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 5,
+      "notes": "empty scene stays empty",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.85,
+      "confounder_violation": false,
+      "event_type": "OBJECT_ENTERED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 2,
+      "fixture_class": "near_threshold",
+      "forbidden_events": [],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.85,
+      "n_frames": 4,
+      "notes": "small but above min-area blob partial entry",
+      "onset_frame": 2,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.85,
+      "confounder_violation": true,
+      "event_type": "OBJECT_ENTERED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED",
+        "OBJECT_REAPPEARED"
+      ],
+      "expect_fire": false,
+      "fired": true,
+      "first_fire_frame": 2,
+      "fixture_class": "confounder",
+      "forbidden_events": [
+        "OBJECT_ENTERED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": 0.85,
+      "n_frames": 6,
+      "notes": "object reappearing from behind occluder is REAPPEARED, not ENTERED",
+      "onset_frame": null,
+      "outcome": "fp",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.8,
+      "confounder_violation": false,
+      "event_type": "OBJECT_LEFT",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_LEFT",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 5,
+      "fixture_class": "true_positive",
+      "forbidden_events": [],
+      "latency_frames": 2.0,
+      "mean_confidence": 0.8,
+      "n_frames": 6,
+      "notes": "blob present then gone for >=2 frames (left frame)",
+      "onset_frame": 3,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "OBJECT_LEFT",
+      "event_types_seen": [],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "true_negative",
+      "forbidden_events": [
+        "OBJECT_LEFT"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 6,
+      "notes": "blob stays",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.8,
+      "confounder_violation": false,
+      "event_type": "OBJECT_LEFT",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_LEFT",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 5,
+      "fixture_class": "near_threshold",
+      "forbidden_events": [],
+      "latency_frames": 2.0,
+      "mean_confidence": 0.8,
+      "n_frames": 6,
+      "notes": "exactly two frames of absence (LEFT threshold)",
+      "onset_frame": 3,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.8,
+      "confounder_violation": true,
+      "event_type": "OBJECT_LEFT",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_LEFT",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": false,
+      "fired": true,
+      "first_fire_frame": 5,
+      "fixture_class": "confounder",
+      "forbidden_events": [
+        "OBJECT_LEFT"
+      ],
+      "latency_frames": null,
+      "mean_confidence": 0.8,
+      "n_frames": 6,
+      "notes": "full occlusion is not a leave \u2014 object remains in scene",
+      "onset_frame": null,
+      "outcome": "fp",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.65,
+      "confounder_violation": false,
+      "event_type": "OBJECT_OCCLUDED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_LEFT",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 3,
+      "fixture_class": "true_positive",
+      "forbidden_events": [],
+      "latency_frames": 1.0,
+      "mean_confidence": 0.65,
+      "n_frames": 5,
+      "notes": "area collapses below occlusion ratio (partial occlude)",
+      "onset_frame": 2,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "OBJECT_OCCLUDED",
+      "event_types_seen": [],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "true_negative",
+      "forbidden_events": [
+        "OBJECT_OCCLUDED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 6,
+      "notes": "steady area",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.65,
+      "confounder_violation": false,
+      "event_type": "OBJECT_OCCLUDED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 3,
+      "fixture_class": "near_threshold",
+      "forbidden_events": [],
+      "latency_frames": 1.0,
+      "mean_confidence": 0.65,
+      "n_frames": 4,
+      "notes": "area ratio just under the collapse floor",
+      "onset_frame": 2,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.65,
+      "confounder_violation": true,
+      "event_type": "OBJECT_OCCLUDED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_LEFT",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": false,
+      "fired": true,
+      "first_fire_frame": 4,
+      "fixture_class": "confounder",
+      "forbidden_events": [
+        "OBJECT_OCCLUDED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": 0.65,
+      "n_frames": 6,
+      "notes": "complete leave is OBJECT_LEFT, not OCCLUDED",
+      "onset_frame": null,
+      "outcome": "fp",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.75,
+      "confounder_violation": false,
+      "event_type": "OBJECT_REAPPEARED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED",
+        "OBJECT_REAPPEARED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 4,
+      "fixture_class": "true_positive",
+      "forbidden_events": [],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.75,
+      "n_frames": 8,
+      "notes": "area collapse then same object recovers",
+      "onset_frame": 6,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "OBJECT_REAPPEARED",
+      "event_types_seen": [],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "true_negative",
+      "forbidden_events": [
+        "OBJECT_REAPPEARED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 6,
+      "notes": "never occluded",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.75,
+      "confounder_violation": false,
+      "event_type": "OBJECT_REAPPEARED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED",
+        "OBJECT_REAPPEARED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 4,
+      "fixture_class": "near_threshold",
+      "forbidden_events": [],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.75,
+      "n_frames": 6,
+      "notes": "brief occlusion then recovery",
+      "onset_frame": 4,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.75,
+      "confounder_violation": true,
+      "event_type": "OBJECT_REAPPEARED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_LEFT",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED",
+        "OBJECT_REAPPEARED"
+      ],
+      "expect_fire": false,
+      "fired": true,
+      "first_fire_frame": 6,
+      "fixture_class": "confounder",
+      "forbidden_events": [
+        "OBJECT_REAPPEARED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": 0.75,
+      "n_frames": 8,
+      "notes": "similar impostor at same locus must not count as reappearance",
+      "onset_frame": null,
+      "outcome": "fp",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.7,
+      "confounder_violation": false,
+      "event_type": "NEW_UNKNOWN_REGION",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_LEFT",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 2,
+      "fixture_class": "true_positive",
+      "forbidden_events": [
+        "CAMERA_MOVED"
+      ],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.7,
+      "n_frames": 5,
+      "notes": "materialised region, no prior correspondence",
+      "onset_frame": 2,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "NEW_UNKNOWN_REGION",
+      "event_types_seen": [],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "true_negative",
+      "forbidden_events": [
+        "NEW_UNKNOWN_REGION"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 5,
+      "notes": "static scene \u2014 no residual regions",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "NEW_UNKNOWN_REGION",
+      "event_types_seen": [
+        "OBJECT_MOVED"
+      ],
+      "expect_fire": true,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "near_threshold",
+      "forbidden_events": [],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 5,
+      "notes": "small novel region just above area floor",
+      "onset_frame": 2,
+      "outcome": "fn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.7,
+      "confounder_violation": true,
+      "event_type": "NEW_UNKNOWN_REGION",
+      "event_types_seen": [
+        "LIGHT_CHANGED",
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_MOVED",
+        "OBJECT_OCCLUDED",
+        "OBJECT_REAPPEARED"
+      ],
+      "expect_fire": false,
+      "fired": true,
+      "first_fire_frame": 2,
+      "fixture_class": "confounder",
+      "forbidden_events": [
+        "NEW_UNKNOWN_REGION"
+      ],
+      "latency_frames": null,
+      "mean_confidence": 0.7,
+      "n_frames": 6,
+      "notes": "known object pose/lighting change is not NEW_UNKNOWN_REGION",
+      "onset_frame": null,
+      "outcome": "fp",
+      "tn_violation": false
+    },
+    {
+      "confidence": 1.0,
+      "confounder_violation": false,
+      "event_type": "LIGHT_CHANGED",
+      "event_types_seen": [
+        "LIGHT_CHANGED",
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_OCCLUDED",
+        "TEXT_CHANGED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 2,
+      "fixture_class": "true_positive",
+      "forbidden_events": [],
+      "latency_frames": 0.0,
+      "mean_confidence": 1.0,
+      "n_frames": 4,
+      "notes": "global +90 luma step",
+      "onset_frame": 2,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "LIGHT_CHANGED",
+      "event_types_seen": [],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "true_negative",
+      "forbidden_events": [
+        "LIGHT_CHANGED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 4,
+      "notes": "stable exposure",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.5467991536458332,
+      "confounder_violation": false,
+      "event_type": "LIGHT_CHANGED",
+      "event_types_seen": [
+        "LIGHT_CHANGED",
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_OCCLUDED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 2,
+      "fixture_class": "near_threshold",
+      "forbidden_events": [],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.5467991536458332,
+      "n_frames": 4,
+      "notes": "+22 luma just above LIGHT_DELTA_MIN",
+      "onset_frame": 2,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "LIGHT_CHANGED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED",
+        "OBJECT_MOVED",
+        "TEXT_CHANGED"
+      ],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "confounder",
+      "forbidden_events": [
+        "LIGHT_CHANGED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 5,
+      "notes": "large bright entrant is not a global light change",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.369453125,
+      "confounder_violation": false,
+      "event_type": "SURFACE_CHANGED",
+      "event_types_seen": [
+        "SURFACE_CHANGED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 2,
+      "fixture_class": "true_positive",
+      "forbidden_events": [
+        "CAMERA_MOVED"
+      ],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.369453125,
+      "n_frames": 4,
+      "notes": "distributed residual tint, |\u0394luma| under light floor",
+      "onset_frame": 2,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "SURFACE_CHANGED",
+      "event_types_seen": [],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "true_negative",
+      "forbidden_events": [
+        "SURFACE_CHANGED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 4,
+      "notes": "static surface",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    },
+    {
+      "confidence": 0.2926171875,
+      "confounder_violation": false,
+      "event_type": "SURFACE_CHANGED",
+      "event_types_seen": [
+        "SURFACE_CHANGED"
+      ],
+      "expect_fire": true,
+      "fired": true,
+      "first_fire_frame": 2,
+      "fixture_class": "near_threshold",
+      "forbidden_events": [],
+      "latency_frames": 0.0,
+      "mean_confidence": 0.2926171875,
+      "n_frames": 4,
+      "notes": "subtle tint near SURFACE_SCORE_MIN",
+      "onset_frame": 2,
+      "outcome": "tp",
+      "tn_violation": false
+    },
+    {
+      "confidence": null,
+      "confounder_violation": false,
+      "event_type": "SURFACE_CHANGED",
+      "event_types_seen": [
+        "NEW_UNKNOWN_REGION",
+        "OBJECT_ENTERED"
+      ],
+      "expect_fire": false,
+      "fired": false,
+      "first_fire_frame": null,
+      "fixture_class": "confounder",
+      "forbidden_events": [
+        "SURFACE_CHANGED"
+      ],
+      "latency_frames": null,
+      "mean_confidence": null,
+      "n_frames": 6,
+      "notes": "moving specular on static surface is not SURFACE_CHANGED",
+      "onset_frame": null,
+      "outcome": "tn",
+      "tn_violation": false
+    }
+  ],
+  "fixture_counts": {
+    "CAMERA_MOVED": {
+      "confounder": 1,
+      "near_threshold": 1,
+      "true_negative": 1,
+      "true_positive": 1
+    },
+    "LIGHT_CHANGED": {
+      "confounder": 1,
+      "near_threshold": 1,
+      "true_negative": 1,
+      "true_positive": 1
+    },
+    "NEW_UNKNOWN_REGION": {
+      "confounder": 1,
+      "near_threshold": 1,
+      "true_negative": 1,
+      "true_positive": 1
+    },
+    "OBJECT_ENTERED": {
+      "confounder": 1,
+      "near_threshold": 1,
+      "true_negative": 1,
+      "true_positive": 1
+    },
+    "OBJECT_LEFT": {
+      "confounder": 1,
+      "near_threshold": 1,
+      "true_negative": 1,
+      "true_positive": 1
+    },
+    "OBJECT_MOVED": {
+      "confounder": 1,
+      "near_threshold": 1,
+      "true_negative": 1,
+      "true_positive": 1
+    },
+    "OBJECT_OCCLUDED": {
+      "confounder": 1,
+      "near_threshold": 1,
+      "true_negative": 1,
+      "true_positive": 1
+    },
+    "OBJECT_REAPPEARED": {
+      "confounder": 1,
+      "near_threshold": 1,
+      "true_negative": 1,
+      "true_positive": 1
+    },
+    "SURFACE_CHANGED": {
+      "confounder": 1,
+      "near_threshold": 1,
+      "true_negative": 1,
+      "true_positive": 1
+    }
+  },
+  "fixture_root": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/benchmarks/ocular_events/matrix",
+  "method": {
+    "authority": "PROCEDURAL_GROUND_TRUTH",
+    "correctness_label_note": "Retina receipts stamp correctness_label='observed' on every emission; true/false labelling exists only in this sealed evaluator, never in the detector path.",
+    "detection_sees": "frames/*.png only",
+    "detector": "blender_vision.ocular.retina.process_frame",
+    "ece_definition": "expected calibration error over 5 equal-width confidence bins",
+    "fpr_definition": "false-positive rate = fires on (true_negative \u222a confounder) / |true_negative \u222a confounder|",
+    "labels_path": "sealed_gt/labels.json (evaluator only)",
+    "latency_definition": "frames between sealed onset_frame and first fire of event type"
+  },
+  "n_fixtures": 36,
+  "per_event": {
+    "CAMERA_MOVED": {
+      "confidence_calibration": {
+        "bins": [
+          {
+            "accuracy": 1.0,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_conf": 0.12530772965221929,
+            "n": 1
+          },
+          {
+            "accuracy": null,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 1.0,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_conf": 0.6248690486071055,
+            "n": 1
+          },
+          {
+            "accuracy": null,
+            "hi": 1.01,
+            "lo": 0.8,
+            "mean_conf": null,
+            "n": 0
+          }
+        ],
+        "expected_calibration_error": 0.6249116108703376,
+        "n_samples": 2
+      },
+      "expected_calibration_error": 0.6249116108703376,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "fpr": 0.0,
+      "fpr_denominator": "true_negative+confounder",
+      "latency_frames_samples": [
+        0.0,
+        0.0
+      ],
+      "mean_latency_frames": 0.0,
+      "neg_fp": 0,
+      "neg_total": 2,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tn": 2,
+      "tp": 2,
+      "unfit_reasons": []
+    },
+    "LIGHT_CHANGED": {
+      "confidence_calibration": {
+        "bins": [
+          {
+            "accuracy": null,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 1.0,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_conf": 0.5467991536458332,
+            "n": 1
+          },
+          {
+            "accuracy": null,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 1.0,
+            "hi": 1.01,
+            "lo": 0.8,
+            "mean_conf": 1.0,
+            "n": 1
+          }
+        ],
+        "expected_calibration_error": 0.2266004231770834,
+        "n_samples": 2
+      },
+      "expected_calibration_error": 0.2266004231770834,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "fpr": 0.0,
+      "fpr_denominator": "true_negative+confounder",
+      "latency_frames_samples": [
+        0.0,
+        0.0
+      ],
+      "mean_latency_frames": 0.0,
+      "neg_fp": 0,
+      "neg_total": 2,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tn": 2,
+      "tp": 2,
+      "unfit_reasons": []
+    },
+    "NEW_UNKNOWN_REGION": {
+      "confidence_calibration": {
+        "bins": [
+          {
+            "accuracy": null,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 0.5,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_conf": 0.7,
+            "n": 2
+          },
+          {
+            "accuracy": null,
+            "hi": 1.01,
+            "lo": 0.8,
+            "mean_conf": null,
+            "n": 0
+          }
+        ],
+        "expected_calibration_error": 0.19999999999999996,
+        "n_samples": 2
+      },
+      "expected_calibration_error": 0.19999999999999996,
+      "f1": 0.5,
+      "fn": 1,
+      "fp": 1,
+      "fpr": 0.5,
+      "fpr_denominator": "true_negative+confounder",
+      "latency_frames_samples": [
+        0.0
+      ],
+      "mean_latency_frames": 0.0,
+      "neg_fp": 1,
+      "neg_total": 2,
+      "precision": 0.5,
+      "recall": 0.5,
+      "tn": 1,
+      "tp": 1,
+      "unfit_reasons": [
+        "FPR=0.50 on TN+confounder (1/2)"
+      ]
+    },
+    "OBJECT_ENTERED": {
+      "confidence_calibration": {
+        "bins": [
+          {
+            "accuracy": null,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 0.6666666666666666,
+            "hi": 1.01,
+            "lo": 0.8,
+            "mean_conf": 0.85,
+            "n": 3
+          }
+        ],
+        "expected_calibration_error": 0.18333333333333335,
+        "n_samples": 3
+      },
+      "expected_calibration_error": 0.18333333333333335,
+      "f1": 0.8,
+      "fn": 0,
+      "fp": 1,
+      "fpr": 0.5,
+      "fpr_denominator": "true_negative+confounder",
+      "latency_frames_samples": [
+        0.0,
+        0.0
+      ],
+      "mean_latency_frames": 0.0,
+      "neg_fp": 1,
+      "neg_total": 2,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "tn": 1,
+      "tp": 2,
+      "unfit_reasons": [
+        "FPR=0.50 on TN+confounder (1/2)"
+      ]
+    },
+    "OBJECT_LEFT": {
+      "confidence_calibration": {
+        "bins": [
+          {
+            "accuracy": null,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 0.6666666666666666,
+            "hi": 1.01,
+            "lo": 0.8,
+            "mean_conf": 0.8000000000000002,
+            "n": 3
+          }
+        ],
+        "expected_calibration_error": 0.13333333333333353,
+        "n_samples": 3
+      },
+      "expected_calibration_error": 0.13333333333333353,
+      "f1": 0.8,
+      "fn": 0,
+      "fp": 1,
+      "fpr": 0.5,
+      "fpr_denominator": "true_negative+confounder",
+      "latency_frames_samples": [
+        2.0,
+        2.0
+      ],
+      "mean_latency_frames": 2.0,
+      "neg_fp": 1,
+      "neg_total": 2,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "tn": 1,
+      "tp": 2,
+      "unfit_reasons": [
+        "FPR=0.50 on TN+confounder (1/2)"
+      ]
+    },
+    "OBJECT_MOVED": {
+      "confidence_calibration": {
+        "bins": [
+          {
+            "accuracy": null,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 1.0,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_conf": 0.3177401026089986,
+            "n": 1
+          },
+          {
+            "accuracy": null,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 1.0,
+            "hi": 1.01,
+            "lo": 0.8,
+            "mean_conf": 0.854042132695516,
+            "n": 1
+          }
+        ],
+        "expected_calibration_error": 0.41410888234774273,
+        "n_samples": 2
+      },
+      "expected_calibration_error": 0.41410888234774273,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "fpr": 0.0,
+      "fpr_denominator": "true_negative+confounder",
+      "latency_frames_samples": [
+        0.0,
+        0.0
+      ],
+      "mean_latency_frames": 0.0,
+      "neg_fp": 0,
+      "neg_total": 2,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tn": 2,
+      "tp": 2,
+      "unfit_reasons": []
+    },
+    "OBJECT_OCCLUDED": {
+      "confidence_calibration": {
+        "bins": [
+          {
+            "accuracy": null,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 0.6666666666666666,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_conf": 0.65,
+            "n": 3
+          },
+          {
+            "accuracy": null,
+            "hi": 1.01,
+            "lo": 0.8,
+            "mean_conf": null,
+            "n": 0
+          }
+        ],
+        "expected_calibration_error": 0.016666666666666607,
+        "n_samples": 3
+      },
+      "expected_calibration_error": 0.016666666666666607,
+      "f1": 0.8,
+      "fn": 0,
+      "fp": 1,
+      "fpr": 0.5,
+      "fpr_denominator": "true_negative+confounder",
+      "latency_frames_samples": [
+        1.0,
+        1.0
+      ],
+      "mean_latency_frames": 1.0,
+      "neg_fp": 1,
+      "neg_total": 2,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "tn": 1,
+      "tp": 2,
+      "unfit_reasons": [
+        "FPR=0.50 on TN+confounder (1/2)"
+      ]
+    },
+    "OBJECT_REAPPEARED": {
+      "confidence_calibration": {
+        "bins": [
+          {
+            "accuracy": null,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 0.6666666666666666,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_conf": 0.75,
+            "n": 3
+          },
+          {
+            "accuracy": null,
+            "hi": 1.01,
+            "lo": 0.8,
+            "mean_conf": null,
+            "n": 0
+          }
+        ],
+        "expected_calibration_error": 0.08333333333333337,
+        "n_samples": 3
+      },
+      "expected_calibration_error": 0.08333333333333337,
+      "f1": 0.8,
+      "fn": 0,
+      "fp": 1,
+      "fpr": 0.5,
+      "fpr_denominator": "true_negative+confounder",
+      "latency_frames_samples": [
+        0.0,
+        0.0
+      ],
+      "mean_latency_frames": 0.0,
+      "neg_fp": 1,
+      "neg_total": 2,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "tn": 1,
+      "tp": 2,
+      "unfit_reasons": [
+        "FPR=0.50 on TN+confounder (1/2)"
+      ]
+    },
+    "SURFACE_CHANGED": {
+      "confidence_calibration": {
+        "bins": [
+          {
+            "accuracy": null,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": 1.0,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_conf": 0.33103515625,
+            "n": 2
+          },
+          {
+            "accuracy": null,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_conf": null,
+            "n": 0
+          },
+          {
+            "accuracy": null,
+            "hi": 1.01,
+            "lo": 0.8,
+            "mean_conf": null,
+            "n": 0
+          }
+        ],
+        "expected_calibration_error": 0.66896484375,
+        "n_samples": 2
+      },
+      "expected_calibration_error": 0.66896484375,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "fpr": 0.0,
+      "fpr_denominator": "true_negative+confounder",
+      "latency_frames_samples": [
+        0.0,
+        0.0
+      ],
+      "mean_latency_frames": 0.0,
+      "neg_fp": 0,
+      "neg_total": 2,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tn": 2,
+      "tp": 2,
+      "unfit_reasons": []
+    }
+  },
+  "threshold_adjustments": {
+    "after": null,
+    "after_attempt": {
+      "OBJECT_OCCLUDED_drop_missing1": {
+        "fpr": 0.0,
+        "note": "area-collapse path never fires under motion-only tracks",
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      "OBJECT_REAPPEARED_color_gate": {
+        "fpr": 0.0,
+        "note": "impostor FPR fixed, but motion-mask boxes yield washed mean colour so true reappearances after a gap often fail",
+        "precision": 1.0,
+        "recall": 0.5
+      }
+    },
+    "before": {
+      "OBJECT_OCCLUDED": {
+        "fpr": 0.5,
+        "precision": 0.67,
+        "recall": 1.0
+      },
+      "OBJECT_REAPPEARED": {
+        "fpr": 0.5,
+        "precision": 0.67,
+        "recall": 1.0
+      }
+    },
+    "changed": false,
+    "principle": "Attempted (1) drop OBJECT_OCCLUDED on missing==1 so only area-collapse counts as occlusion; (2) mean-BGR L2 gate on reappearance so impostors at the same locus fail. Both derived from event definitions / appearance signal, not sealed labels.",
+    "statement": "No threshold was retained. Both principled attempts either collapsed recall to zero or cut near-threshold recall in half; per standing instruction they were reverted. Numbers above are the honest post-revert matrix. Adjustments were not fitted to sealed labels."
+  },
+  "unfit_event_types": [
+    "OBJECT_ENTERED",
+    "OBJECT_LEFT",
+    "OBJECT_OCCLUDED",
+    "OBJECT_REAPPEARED",
+    "NEW_UNKNOWN_REGION"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "event_type": "CAMERA_MOVED",
+  "expect_fire": false,
+  "fixture_class": "confounder",
+  "forbidden_events": [
+    "CAMERA_MOVED"
+  ],
+  "image_height": 240,
+  "image_width": 320,
+  "measured_quantity": "moving_fraction",
+  "n_frames": 6,
+  "notes": "large object transit is not a camera pan",
+  "onset_frame": null
+}

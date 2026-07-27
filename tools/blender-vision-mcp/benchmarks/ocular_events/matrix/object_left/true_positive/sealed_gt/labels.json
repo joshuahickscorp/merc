@@ -1,0 +1,13 @@
+{
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "event_type": "OBJECT_LEFT",
+  "expect_fire": true,
+  "fixture_class": "true_positive",
+  "forbidden_events": [],
+  "image_height": 240,
+  "image_width": 320,
+  "measured_quantity": "track_missing_frames",
+  "n_frames": 6,
+  "notes": "blob present then gone for >=2 frames (left frame)",
+  "onset_frame": 3
+}
