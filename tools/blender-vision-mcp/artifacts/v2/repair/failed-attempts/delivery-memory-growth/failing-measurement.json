@@ -1,0 +1,27 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "del-memory-growth:memory-growth"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "javascript_heap_growth_bytes <= 8000000",
+      "blast_radius": [
+        "performance",
+        "memory"
+      ],
+      "critic_role": "performance_engineer",
+      "diagnosis": "JavaScript heap growth exceeds budget",
+      "finding_id": "del-memory-growth:memory-growth",
+      "measured": {
+        "javascript_heap_growth_bytes": 12002600
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "javascript_heap_growth_bytes": 12002600
+  },
+  "runtime_used": "process-measure",
+  "subject_id": "del-memory-growth"
+}

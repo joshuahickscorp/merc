@@ -1,0 +1,26 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "cin-left-turn-overshoot:turn-intent"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "turn_intent_score >= 0.55",
+      "blast_radius": [
+        "camera_path"
+      ],
+      "critic_role": "cinematographer",
+      "diagnosis": "camera turn does not read as intentional",
+      "finding_id": "cin-left-turn-overshoot:turn-intent",
+      "measured": {
+        "turn_intent_score": 0.2
+      },
+      "severity": "minor"
+    }
+  ],
+  "measured": {
+    "turn_intent_score": 0.2
+  },
+  "runtime_used": "cinematic-path",
+  "subject_id": "cin-left-turn-overshoot"
+}

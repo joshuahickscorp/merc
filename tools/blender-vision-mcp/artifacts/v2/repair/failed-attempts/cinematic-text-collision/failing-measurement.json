@@ -1,0 +1,27 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "cin-text-collision:contrast-ratio"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "contrast_ratio >= 4.5",
+      "blast_radius": [
+        "theme",
+        "typography"
+      ],
+      "critic_role": "accessibility_reviewer",
+      "diagnosis": "text/icon contrast ratio below WCAG AA 4.5:1",
+      "finding_id": "cin-text-collision:contrast-ratio",
+      "measured": {
+        "contrast_ratio": 1.7556549172510898
+      },
+      "severity": "critical"
+    }
+  ],
+  "measured": {
+    "contrast_ratio": 1.7556549172510898
+  },
+  "runtime_used": "cinematic-path",
+  "subject_id": "cin-text-collision"
+}

@@ -1,0 +1,44 @@
+[
+  {
+    "view_id": "view_004",
+    "psnr_db": 21.837107370493925,
+    "ssim": 0.34289778354759753,
+    "held_out": true
+  },
+  {
+    "view_id": "view_008",
+    "psnr_db": 22.078758685810477,
+    "ssim": 0.34153940879663264,
+    "held_out": true
+  },
+  {
+    "view_id": "view_012",
+    "psnr_db": 22.087878249988407,
+    "ssim": 0.3445829625091581,
+    "held_out": true
+  },
+  {
+    "view_id": "view_016",
+    "psnr_db": 22.4695990223239,
+    "ssim": 0.3526815711683573,
+    "held_out": true
+  },
+  {
+    "view_id": "view_020",
+    "psnr_db": 22.19187750457933,
+    "ssim": 0.3457797276290227,
+    "held_out": true
+  },
+  {
+    "view_id": "view_024",
+    "psnr_db": 22.217758956604467,
+    "ssim": 0.3464583559534556,
+    "held_out": true
+  },
+  {
+    "view_id": "view_028",
+    "psnr_db": 21.78260318172837,
+    "ssim": 0.3447132409064262,
+    "held_out": true
+  }
+]

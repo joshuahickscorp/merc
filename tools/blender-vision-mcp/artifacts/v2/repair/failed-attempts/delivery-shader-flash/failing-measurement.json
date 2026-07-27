@@ -1,0 +1,26 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "del-shader-flash:frame-p95"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "frame_time_p95_ms <= 33.4",
+      "blast_radius": [
+        "performance"
+      ],
+      "critic_role": "performance_engineer",
+      "diagnosis": "frame time p95 exceeds 30 fps tail budget",
+      "finding_id": "del-shader-flash:frame-p95",
+      "measured": {
+        "frame_time_p95_ms": 37.40064995954742
+      },
+      "severity": "critical"
+    }
+  ],
+  "measured": {
+    "frame_time_p95_ms": 37.40064995954742
+  },
+  "runtime_used": "process-measure",
+  "subject_id": "del-shader-flash"
+}

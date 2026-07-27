@@ -1,0 +1,1371 @@
+{
+  "authority": "UNRESOLVED",
+  "candidates": [
+    {
+      "artifacts": {
+        "mesh_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/visual_hull/visual_hull.ply"
+      },
+      "authority": "SENSOR_DERIVED",
+      "backend": "visual_hull",
+      "candidate_id": "visual_hull-605f424d0a9f",
+      "coverage": {
+        "grid_resolution": 48,
+        "method": "silhouette_intersection",
+        "occupancy_fraction": 0.4993851273148148,
+        "occupied_voxels": 55228,
+        "total_voxels": 110592,
+        "view_count": 12
+      },
+      "dimensional_score": null,
+      "editability": "voxel-grid; not parametric",
+      "executed": true,
+      "execution_log": "carved 55228/110592 voxels from 12 views; mesh V=10484 F=20964",
+      "failure_modes": [
+        "cannot recover concavities hidden from all silhouettes",
+        "metric accuracy requires metric cameras and bounds"
+      ],
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "hidden_surface_assumptions": [
+        "visual hull is the intersection of silhouette cones; unobserved concavities are filled as solid"
+      ],
+      "inputs": [
+        "truth:draped_cloth"
+      ],
+      "licensing": "PROCEDURAL_OWNED",
+      "material_state": "none",
+      "runtime_cost": {
+        "executed": true,
+        "seconds": 0.08381004200782627,
+        "wall_clock_basis": "process_time"
+      },
+      "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+      "scale_state": "metric",
+      "topology_state": {
+        "boundary_edge_count": 0,
+        "edge_count": 31446,
+        "euler_characteristic": 2,
+        "face_count": 20964,
+        "genus_estimate": 0,
+        "manifold": true,
+        "non_manifold_edge_count": 0,
+        "surface_area": 0.5275462647816249,
+        "vertex_count": 10484,
+        "volume": 0.021997026674471634,
+        "watertight": true
+      },
+      "visual_score": null
+    },
+    {
+      "artifacts": {
+        "mesh_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/depth_fusion/depth_fusion.ply"
+      },
+      "authority": "SENSOR_DERIVED",
+      "backend": "depth_fusion",
+      "candidate_id": "depth_fusion-e2f0f9739fe3",
+      "coverage": {
+        "depth_frame_count": 12,
+        "truncation": 0.03,
+        "volume_resolution": [
+          50,
+          50,
+          18
+        ],
+        "voxel_size": 0.01,
+        "weighted_voxels": 12645
+      },
+      "dimensional_score": null,
+      "editability": "implicit-volume; remesh required for edit",
+      "executed": true,
+      "execution_log": "fused 12 depth maps; voxel_size=0.01 truncation=0.03; mesh V=9363 F=16470",
+      "failure_modes": [
+        "depth noise thicker than truncation yields soft surfaces",
+        "missing views leave free-space holes or open boundaries"
+      ],
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "hidden_surface_assumptions": [
+        "unobserved voxels retain free-space prior (TSDF=+1)",
+        "truncation limits the influence of each depth sample"
+      ],
+      "inputs": [
+        "truth:draped_cloth"
+      ],
+      "licensing": "PROCEDURAL_OWNED",
+      "material_state": "none",
+      "runtime_cost": {
+        "executed": true,
+        "seconds": 0.06703758297953755,
+        "wall_clock_basis": "process_time"
+      },
+      "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+      "scale_state": "metric",
+      "topology_state": {
+        "boundary_edge_count": 2608,
+        "edge_count": 26009,
+        "euler_characteristic": -176,
+        "face_count": 16470,
+        "genus_estimate": null,
+        "manifold": true,
+        "non_manifold_edge_count": 0,
+        "surface_area": 0.6620579282214634,
+        "truncation": 0.03,
+        "vertex_count": 9363,
+        "volume": 0.006355673583227352,
+        "voxel_size": 0.01,
+        "watertight": false,
+        "weighted_voxels": 12645
+      },
+      "visual_score": null
+    },
+    {
+      "artifacts": {
+        "mesh_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/parametric/parametric_box.ply",
+        "parameters_json": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/parametric/parametric_box.json"
+      },
+      "authority": "MODEL_DERIVED",
+      "backend": "parametric",
+      "candidate_id": "parametric-699091af8f9d",
+      "coverage": {
+        "inlier_ratio": 1.0,
+        "point_count": 2200,
+        "primitive_kind": "box"
+      },
+      "dimensional_score": 1.0,
+      "editability": "parametric-primitive",
+      "executed": true,
+      "execution_log": "RANSAC box: inlier_ratio=1.0000 rmse=0 n=2200",
+      "failure_modes": [
+        "RANSAC fails on multi-primitive or non-primitive geometry",
+        "threshold sensitivity on noisy clouds"
+      ],
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "hidden_surface_assumptions": [
+        "surface assumed to be a single box; outliers discarded"
+      ],
+      "inputs": [
+        "truth:draped_cloth"
+      ],
+      "licensing": "PROCEDURAL_OWNED",
+      "material_state": "none",
+      "runtime_cost": {
+        "executed": true,
+        "seconds": 0.029375874903053045,
+        "wall_clock_basis": "process_time"
+      },
+      "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+      "scale_state": "metric",
+      "topology_state": {
+        "boundary_edge_count": 0,
+        "edge_count": 18,
+        "euler_characteristic": 2,
+        "face_count": 12,
+        "genus_estimate": 0,
+        "inlier_ratio": 1.0,
+        "manifold": true,
+        "non_manifold_edge_count": 0,
+        "primitive_kind": "box",
+        "residual_rmse": 0.0,
+        "surface_area": 0.4321529991204093,
+        "vertex_count": 8,
+        "volume": 0.011239235889525667,
+        "watertight": true
+      },
+      "visual_score": null
+    },
+    {
+      "artifacts": {
+        "metadata_json": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/point_representation/oriented_points.json",
+        "osplat": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/point_representation/oriented_points.osplat",
+        "ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/point_representation/oriented_points.ply"
+      },
+      "authority": "SENSOR_DERIVED",
+      "backend": "point_representation",
+      "candidate_id": "point_representation-03916ed9c8f7",
+      "coverage": {
+        "point_count": 2200,
+        "representation": "oriented-point-archive; not a trained NeRF; not a trained Gaussian splat",
+        "source": "input_points"
+      },
+      "dimensional_score": null,
+      "editability": "point-edit; not mesh-topology",
+      "executed": true,
+      "execution_log": "wrote 2200 oriented points (oriented-point-archive; not a trained NeRF; not a trained Gaussian splat)",
+      "failure_modes": [
+        "not a continuous surface",
+        "not a trained NeRF or Gaussian splat"
+      ],
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "hidden_surface_assumptions": [
+        "only back-projected observed depth samples are stored",
+        "no hallucinated free-space fill"
+      ],
+      "inputs": [
+        "truth:draped_cloth"
+      ],
+      "licensing": "PROCEDURAL_OWNED",
+      "material_state": "none",
+      "runtime_cost": {
+        "executed": true,
+        "seconds": 0.004253749968484044,
+        "wall_clock_basis": "process_time"
+      },
+      "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+      "scale_state": "metric",
+      "topology_state": {
+        "manifold": false,
+        "point_count": 2200,
+        "representation": "oriented_point_archive",
+        "surface_mesh": false,
+        "trained_gaussian_splat": false,
+        "trained_radiance_field": false,
+        "watertight": false
+      },
+      "visual_score": null
+    },
+    {
+      "artifacts": {},
+      "authority": "UNRESOLVED",
+      "backend": "colmap_sfm",
+      "candidate_id": "colmap_sfm-95a1818affa0",
+      "coverage": {
+        "reason": "COLMAP mapper failed with exit 1",
+        "status": "unavailable"
+      },
+      "dimensional_score": null,
+      "editability": "none",
+      "executed": false,
+      "execution_log": "UNAVAILABLE: COLMAP mapper failed with exit 1",
+      "failure_modes": [
+        "COLMAP mapper failed with exit 1"
+      ],
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "hidden_surface_assumptions": [],
+      "inputs": [
+        "truth:draped_cloth"
+      ],
+      "licensing": "PROCEDURAL_OWNED",
+      "material_state": "none",
+      "runtime_cost": {
+        "executed": false,
+        "seconds": 0.0
+      },
+      "scale_authority": "UNRESOLVED",
+      "scale_state": "unresolved",
+      "topology_state": {
+        "status": "unavailable"
+      },
+      "visual_score": null
+    },
+    {
+      "artifacts": {
+        "mesh_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/retrieval/retrieved_box_unit.obj",
+        "mesh_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/retrieval/retrieved_box_unit.ply"
+      },
+      "authority": "MODEL_DERIVED",
+      "backend": "retrieval",
+      "candidate_id": "retrieval-43186d9b1ce3",
+      "coverage": {
+        "archetype_id": "box_unit",
+        "library": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/benchmarks/reconstruction/fixtures/archetypes",
+        "source_mesh": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/benchmarks/reconstruction/fixtures/archetypes/box_unit/mesh.obj",
+        "visibility_state": "RETRIEVED_MODEL"
+      },
+      "dimensional_score": null,
+      "editability": "archetype-instance; parametric if source was parametric",
+      "executed": true,
+      "execution_log": "retrieved box_unit rights=PROCEDURAL_OWNED; anisotropic scale=(1,1,1); visibility=RETRIEVED_MODEL",
+      "failure_modes": [
+        "retrieved geometry is prior, not evidence",
+        "unreviewed rights are refused"
+      ],
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "hidden_surface_assumptions": [
+        "entire surface is RETRIEVED_MODEL, not observed",
+        "non-rigid adaptation limited to anisotropic scale + landmark affine"
+      ],
+      "inputs": [
+        "truth:draped_cloth"
+      ],
+      "licensing": "PROCEDURAL_OWNED",
+      "material_state": "none",
+      "runtime_cost": {
+        "executed": true,
+        "seconds": 0.0007537499768659472,
+        "wall_clock_basis": "process_time"
+      },
+      "scale_authority": "MODEL_DERIVED",
+      "scale_state": "adapted-anisotropic-scale",
+      "topology_state": {
+        "adaptation": {
+          "affine": null,
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "summary": "anisotropic scale=(1,1,1)"
+        },
+        "archetype_id": "box_unit",
+        "boundary_edge_count": 0,
+        "edge_count": 18,
+        "euler_characteristic": 2,
+        "face_count": 12,
+        "genus_estimate": 0,
+        "manifold": true,
+        "non_manifold_edge_count": 0,
+        "surface_area": 6.0,
+        "vertex_count": 8,
+        "visibility_state": "RETRIEVED_MODEL",
+        "volume": 1.0,
+        "watertight": true
+      },
+      "visual_score": null
+    },
+    {
+      "artifacts": {
+        "gltf": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/browser_runtime/browser_runtime.gltf",
+        "mesh_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/reconstruction/work/browser_runtime/browser_runtime.ply"
+      },
+      "authority": "SENSOR_DERIVED",
+      "backend": "browser_runtime",
+      "candidate_id": "browser_runtime-f0454f1d49d6",
+      "coverage": {
+        "has_camera": true,
+        "object_count": 1,
+        "revision": "fixture-1"
+      },
+      "dimensional_score": null,
+      "editability": "runtime-extracted-mesh",
+      "executed": true,
+      "execution_log": "compiled runtime scene with 1 objects via RuntimeGltfCompiler; mesh V=8",
+      "failure_modes": [
+        "requires explicit __VISIONMCP_SCENE__ style hook data",
+        "no photogrammetric registration of browser pixels"
+      ],
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "PROCEDURAL_GROUND_TRUTH",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "hidden_surface_assumptions": [
+        "only geometry present in the runtime scene hook is recovered",
+        "materials/lighting are structural only"
+      ],
+      "inputs": [
+        "truth:draped_cloth"
+      ],
+      "licensing": "SYNTHETIC_OWNED",
+      "material_state": "none",
+      "runtime_cost": {
+        "executed": true,
+        "seconds": 0.0006578330649062991,
+        "wall_clock_basis": "process_time"
+      },
+      "scale_authority": "RUNTIME_OBSERVED",
+      "scale_state": "runtime-scene-units",
+      "topology_state": {
+        "boundary_edge_count": 0,
+        "edge_count": 18,
+        "euler_characteristic": 2,
+        "face_count": 12,
+        "genus_estimate": 0,
+        "manifold": true,
+        "non_manifold_edge_count": 0,
+        "runtime_object_count": 1,
+        "source": "perception.graphics.RuntimeGltfCompiler",
+        "surface_area": 0.06400000000000002,
+        "vertex_count": 8,
+        "volume": 0.0008000000000000003,
+        "watertight": true
+      },
+      "visual_score": null
+    }
+  ],
+  "comparison": {
+    "candidate_count": 7,
+    "executed_count": 6,
+    "note": "No single scalar score; inspect per-metric winners and disagreements.",
+    "pair_count": 15,
+    "pairs": [
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "SENSOR_DERIVED"
+        },
+        "both_executed": true,
+        "chamfer_distance": {
+          "a_to_b": 0.030812948569199004,
+          "b_to_a": 0.02639416692262097,
+          "chamfer": 0.028603557745909988
+        },
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [
+          "volume_ratio=3.461 indicates substantial volume disagreement",
+          "watertight disagreement"
+        ],
+        "frame_compatible": true,
+        "left_backend": "visual_hull",
+        "left_id": "visual_hull-605f424d0a9f",
+        "right_backend": "depth_fusion",
+        "right_id": "depth_fusion-e2f0f9739fe3",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "PROCEDURAL_GROUND_TRUTH"
+        },
+        "surface_area": {
+          "left": 0.5275462660159973,
+          "right": 0.6620579284571362
+        },
+        "surface_area_ratio": 0.7968279561962113,
+        "topology": {
+          "left": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          },
+          "right": {
+            "boundary_edge_count": 2608,
+            "genus_estimate": null,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": false
+          }
+        },
+        "volume": {
+          "left": 0.021997026676632142,
+          "right": 0.006355673581457284
+        },
+        "volume_ratio": 3.461006358288852,
+        "winners": {
+          "chamfer_agreement": "tie",
+          "fewer_non_manifold_edges": "tie",
+          "manifold": "tie",
+          "surface_area_closer_to_peer": "tie",
+          "volume_closer_to_peer": "tie",
+          "watertight": "visual_hull-605f424d0a9f"
+        }
+      },
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "MODEL_DERIVED"
+        },
+        "both_executed": true,
+        "chamfer_distance": {
+          "a_to_b": 0.027140617247179505,
+          "b_to_a": 0.02624674378289537,
+          "chamfer": 0.026693680515037437
+        },
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [
+          "volume_ratio=1.957 indicates substantial volume disagreement"
+        ],
+        "frame_compatible": true,
+        "left_backend": "visual_hull",
+        "left_id": "visual_hull-605f424d0a9f",
+        "right_backend": "parametric",
+        "right_id": "parametric-699091af8f9d",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "PROCEDURAL_GROUND_TRUTH"
+        },
+        "surface_area": {
+          "left": 0.5275462660159973,
+          "right": 0.4321529979787469
+        },
+        "surface_area_ratio": 1.220739572520429,
+        "topology": {
+          "left": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          },
+          "right": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          }
+        },
+        "volume": {
+          "left": 0.021997026676632142,
+          "right": 0.011239235852485303
+        },
+        "volume_ratio": 1.9571639002279677,
+        "winners": {
+          "chamfer_agreement": "tie",
+          "fewer_non_manifold_edges": "tie",
+          "manifold": "tie",
+          "surface_area_closer_to_peer": "tie",
+          "volume_closer_to_peer": "tie",
+          "watertight": "tie"
+        }
+      },
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "SENSOR_DERIVED"
+        },
+        "both_executed": true,
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [],
+        "frame_compatible": true,
+        "left_backend": "visual_hull",
+        "left_id": "visual_hull-605f424d0a9f",
+        "mesh_comparison": "unavailable",
+        "reason": "one or both candidates lack mesh artifacts",
+        "right_backend": "point_representation",
+        "right_id": "point_representation-03916ed9c8f7",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "PROCEDURAL_GROUND_TRUTH"
+        },
+        "winners": {}
+      },
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "MODEL_DERIVED"
+        },
+        "both_executed": true,
+        "chamfer_distance": {
+          "a_to_b": 0.3430130702604801,
+          "b_to_a": 0.4384563857760381,
+          "chamfer": 0.39073472801825915
+        },
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [
+          "volume_ratio=0.022 indicates substantial volume disagreement",
+          "surface_area_ratio=0.088 indicates substantial area disagreement",
+          "chamfer=0.3907 exceeds 0.05 unit threshold"
+        ],
+        "frame_compatible": true,
+        "left_backend": "visual_hull",
+        "left_id": "visual_hull-605f424d0a9f",
+        "right_backend": "retrieval",
+        "right_id": "retrieval-43186d9b1ce3",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "MODEL_DERIVED"
+        },
+        "surface_area": {
+          "left": 0.5275462660159973,
+          "right": 6.0
+        },
+        "surface_area_ratio": 0.08792437766933288,
+        "topology": {
+          "left": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          },
+          "right": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          }
+        },
+        "volume": {
+          "left": 0.021997026676632142,
+          "right": 1.0
+        },
+        "volume_ratio": 0.021997026676632142,
+        "winners": {
+          "chamfer_agreement": "tie",
+          "fewer_non_manifold_edges": "tie",
+          "manifold": "tie",
+          "surface_area_closer_to_peer": "tie",
+          "volume_closer_to_peer": "tie",
+          "watertight": "tie"
+        }
+      },
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "SENSOR_DERIVED"
+        },
+        "both_executed": true,
+        "chamfer_distance": {
+          "a_to_b": 0.11034357643288797,
+          "b_to_a": 0.06799441795887594,
+          "chamfer": 0.08916899719588195
+        },
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [
+          "volume_ratio=27.496 indicates substantial volume disagreement",
+          "surface_area_ratio=8.243 indicates substantial area disagreement",
+          "chamfer=0.08917 exceeds 0.05 unit threshold"
+        ],
+        "frame_compatible": true,
+        "left_backend": "visual_hull",
+        "left_id": "visual_hull-605f424d0a9f",
+        "right_backend": "browser_runtime",
+        "right_id": "browser_runtime-f0454f1d49d6",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "RUNTIME_OBSERVED"
+        },
+        "surface_area": {
+          "left": 0.5275462660159973,
+          "right": 0.06400000000000002
+        },
+        "surface_area_ratio": 8.242910406499956,
+        "topology": {
+          "left": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          },
+          "right": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          }
+        },
+        "volume": {
+          "left": 0.021997026676632142,
+          "right": 0.0008000000000000003
+        },
+        "volume_ratio": 27.496283345790168,
+        "winners": {
+          "chamfer_agreement": "tie",
+          "fewer_non_manifold_edges": "tie",
+          "manifold": "tie",
+          "surface_area_closer_to_peer": "tie",
+          "volume_closer_to_peer": "tie",
+          "watertight": "tie"
+        }
+      },
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "MODEL_DERIVED"
+        },
+        "both_executed": true,
+        "chamfer_distance": {
+          "a_to_b": 0.018726737266231083,
+          "b_to_a": 0.021132774196969503,
+          "chamfer": 0.019929755731600295
+        },
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [
+          "volume_ratio=0.565 indicates substantial volume disagreement",
+          "surface_area_ratio=1.532 indicates substantial area disagreement",
+          "watertight disagreement"
+        ],
+        "frame_compatible": true,
+        "left_backend": "depth_fusion",
+        "left_id": "depth_fusion-e2f0f9739fe3",
+        "right_backend": "parametric",
+        "right_id": "parametric-699091af8f9d",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "PROCEDURAL_GROUND_TRUTH"
+        },
+        "surface_area": {
+          "left": 0.6620579284571362,
+          "right": 0.4321529979787469
+        },
+        "surface_area_ratio": 1.5319989252734418,
+        "topology": {
+          "left": {
+            "boundary_edge_count": 2608,
+            "genus_estimate": null,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": false
+          },
+          "right": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          }
+        },
+        "volume": {
+          "left": 0.006355673581457284,
+          "right": 0.011239235852485303
+        },
+        "volume_ratio": 0.5654898308813291,
+        "winners": {
+          "chamfer_agreement": "tie",
+          "fewer_non_manifold_edges": "tie",
+          "manifold": "tie",
+          "surface_area_closer_to_peer": "tie",
+          "volume_closer_to_peer": "tie",
+          "watertight": "parametric-699091af8f9d"
+        }
+      },
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "SENSOR_DERIVED"
+        },
+        "both_executed": true,
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [],
+        "frame_compatible": true,
+        "left_backend": "depth_fusion",
+        "left_id": "depth_fusion-e2f0f9739fe3",
+        "mesh_comparison": "unavailable",
+        "reason": "one or both candidates lack mesh artifacts",
+        "right_backend": "point_representation",
+        "right_id": "point_representation-03916ed9c8f7",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "PROCEDURAL_GROUND_TRUTH"
+        },
+        "winners": {}
+      },
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "MODEL_DERIVED"
+        },
+        "both_executed": true,
+        "chamfer_distance": {
+          "a_to_b": 0.3345686836727247,
+          "b_to_a": 0.42266206147083996,
+          "chamfer": 0.37861537257178235
+        },
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [
+          "volume_ratio=0.006 indicates substantial volume disagreement",
+          "surface_area_ratio=0.110 indicates substantial area disagreement",
+          "chamfer=0.3786 exceeds 0.05 unit threshold",
+          "watertight disagreement"
+        ],
+        "frame_compatible": true,
+        "left_backend": "depth_fusion",
+        "left_id": "depth_fusion-e2f0f9739fe3",
+        "right_backend": "retrieval",
+        "right_id": "retrieval-43186d9b1ce3",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "MODEL_DERIVED"
+        },
+        "surface_area": {
+          "left": 0.6620579284571362,
+          "right": 6.0
+        },
+        "surface_area_ratio": 0.11034298807618936,
+        "topology": {
+          "left": {
+            "boundary_edge_count": 2608,
+            "genus_estimate": null,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": false
+          },
+          "right": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          }
+        },
+        "volume": {
+          "left": 0.006355673581457284,
+          "right": 1.0
+        },
+        "volume_ratio": 0.006355673581457284,
+        "winners": {
+          "chamfer_agreement": "tie",
+          "fewer_non_manifold_edges": "tie",
+          "manifold": "tie",
+          "surface_area_closer_to_peer": "tie",
+          "volume_closer_to_peer": "tie",
+          "watertight": "retrieval-43186d9b1ce3"
+        }
+      },
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "SENSOR_DERIVED"
+        },
+        "both_executed": true,
+        "chamfer_distance": {
+          "a_to_b": 0.10970970956494826,
+          "b_to_a": 0.022696758715131087,
+          "chamfer": 0.06620323414003967
+        },
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [
+          "volume_ratio=7.945 indicates substantial volume disagreement",
+          "surface_area_ratio=10.345 indicates substantial area disagreement",
+          "chamfer=0.0662 exceeds 0.05 unit threshold",
+          "watertight disagreement"
+        ],
+        "frame_compatible": true,
+        "left_backend": "depth_fusion",
+        "left_id": "depth_fusion-e2f0f9739fe3",
+        "right_backend": "browser_runtime",
+        "right_id": "browser_runtime-f0454f1d49d6",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "RUNTIME_OBSERVED"
+        },
+        "surface_area": {
+          "left": 0.6620579284571362,
+          "right": 0.06400000000000002
+        },
+        "surface_area_ratio": 10.34465513214275,
+        "topology": {
+          "left": {
+            "boundary_edge_count": 2608,
+            "genus_estimate": null,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": false
+          },
+          "right": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          }
+        },
+        "volume": {
+          "left": 0.006355673581457284,
+          "right": 0.0008000000000000003
+        },
+        "volume_ratio": 7.944591976821603,
+        "winners": {
+          "chamfer_agreement": "tie",
+          "fewer_non_manifold_edges": "tie",
+          "manifold": "tie",
+          "surface_area_closer_to_peer": "tie",
+          "volume_closer_to_peer": "tie",
+          "watertight": "browser_runtime-f0454f1d49d6"
+        }
+      },
+      {
+        "authority": {
+          "left": "MODEL_DERIVED",
+          "right": "SENSOR_DERIVED"
+        },
+        "both_executed": true,
+        "coverage_overlap": {
+          "jaccard_keys": 0.2,
+          "numeric_agreement": {
+            "point_count": 1.0
+          },
+          "shared_keys": [
+            "point_count"
+          ]
+        },
+        "disagreements": [],
+        "frame_compatible": true,
+        "left_backend": "parametric",
+        "left_id": "parametric-699091af8f9d",
+        "mesh_comparison": "unavailable",
+        "reason": "one or both candidates lack mesh artifacts",
+        "right_backend": "point_representation",
+        "right_id": "point_representation-03916ed9c8f7",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "PROCEDURAL_GROUND_TRUTH"
+        },
+        "winners": {}
+      },
+      {
+        "authority": {
+          "left": "MODEL_DERIVED",
+          "right": "MODEL_DERIVED"
+        },
+        "both_executed": true,
+        "chamfer_distance": {
+          "a_to_b": 0.35146900356281585,
+          "b_to_a": 0.44591640563141255,
+          "chamfer": 0.3986927045971142
+        },
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [
+          "volume_ratio=0.011 indicates substantial volume disagreement",
+          "surface_area_ratio=0.072 indicates substantial area disagreement",
+          "chamfer=0.3987 exceeds 0.05 unit threshold"
+        ],
+        "frame_compatible": true,
+        "left_backend": "parametric",
+        "left_id": "parametric-699091af8f9d",
+        "right_backend": "retrieval",
+        "right_id": "retrieval-43186d9b1ce3",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "MODEL_DERIVED"
+        },
+        "surface_area": {
+          "left": 0.4321529979787469,
+          "right": 6.0
+        },
+        "surface_area_ratio": 0.07202549966312448,
+        "topology": {
+          "left": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          },
+          "right": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          }
+        },
+        "volume": {
+          "left": 0.011239235852485303,
+          "right": 1.0
+        },
+        "volume_ratio": 0.011239235852485303,
+        "winners": {
+          "chamfer_agreement": "tie",
+          "fewer_non_manifold_edges": "tie",
+          "manifold": "tie",
+          "surface_area_closer_to_peer": "tie",
+          "volume_closer_to_peer": "tie",
+          "watertight": "tie"
+        }
+      },
+      {
+        "authority": {
+          "left": "MODEL_DERIVED",
+          "right": "SENSOR_DERIVED"
+        },
+        "both_executed": true,
+        "chamfer_distance": {
+          "a_to_b": 0.09273207680925213,
+          "b_to_a": 0.020832860380344417,
+          "chamfer": 0.056782468594798276
+        },
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [
+          "volume_ratio=14.049 indicates substantial volume disagreement",
+          "surface_area_ratio=6.752 indicates substantial area disagreement",
+          "chamfer=0.05678 exceeds 0.05 unit threshold"
+        ],
+        "frame_compatible": true,
+        "left_backend": "parametric",
+        "left_id": "parametric-699091af8f9d",
+        "right_backend": "browser_runtime",
+        "right_id": "browser_runtime-f0454f1d49d6",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "RUNTIME_OBSERVED"
+        },
+        "surface_area": {
+          "left": 0.4321529979787469,
+          "right": 0.06400000000000002
+        },
+        "surface_area_ratio": 6.7523905934179185,
+        "topology": {
+          "left": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          },
+          "right": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          }
+        },
+        "volume": {
+          "left": 0.011239235852485303,
+          "right": 0.0008000000000000003
+        },
+        "volume_ratio": 14.049044815606624,
+        "winners": {
+          "chamfer_agreement": "tie",
+          "fewer_non_manifold_edges": "tie",
+          "manifold": "tie",
+          "surface_area_closer_to_peer": "tie",
+          "volume_closer_to_peer": "tie",
+          "watertight": "tie"
+        }
+      },
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "MODEL_DERIVED"
+        },
+        "both_executed": true,
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [],
+        "frame_compatible": true,
+        "left_backend": "point_representation",
+        "left_id": "point_representation-03916ed9c8f7",
+        "mesh_comparison": "unavailable",
+        "reason": "one or both candidates lack mesh artifacts",
+        "right_backend": "retrieval",
+        "right_id": "retrieval-43186d9b1ce3",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "MODEL_DERIVED"
+        },
+        "winners": {}
+      },
+      {
+        "authority": {
+          "left": "SENSOR_DERIVED",
+          "right": "SENSOR_DERIVED"
+        },
+        "both_executed": true,
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [],
+        "frame_compatible": true,
+        "left_backend": "point_representation",
+        "left_id": "point_representation-03916ed9c8f7",
+        "mesh_comparison": "unavailable",
+        "reason": "one or both candidates lack mesh artifacts",
+        "right_backend": "browser_runtime",
+        "right_id": "browser_runtime-f0454f1d49d6",
+        "scale_authority": {
+          "left": "PROCEDURAL_GROUND_TRUTH",
+          "right": "RUNTIME_OBSERVED"
+        },
+        "winners": {}
+      },
+      {
+        "authority": {
+          "left": "MODEL_DERIVED",
+          "right": "SENSOR_DERIVED"
+        },
+        "both_executed": true,
+        "chamfer_distance": {
+          "a_to_b": 0.5553334704650194,
+          "b_to_a": 0.43869143041430564,
+          "chamfer": 0.49701245043966247
+        },
+        "coverage_overlap": {
+          "jaccard_keys": 0.0,
+          "numeric_agreement": {},
+          "shared_keys": []
+        },
+        "disagreements": [
+          "volume_ratio=1250.000 indicates substantial volume disagreement",
+          "surface_area_ratio=93.750 indicates substantial area disagreement",
+          "chamfer=0.497 exceeds 0.05 unit threshold"
+        ],
+        "frame_compatible": true,
+        "left_backend": "retrieval",
+        "left_id": "retrieval-43186d9b1ce3",
+        "right_backend": "browser_runtime",
+        "right_id": "browser_runtime-f0454f1d49d6",
+        "scale_authority": {
+          "left": "MODEL_DERIVED",
+          "right": "RUNTIME_OBSERVED"
+        },
+        "surface_area": {
+          "left": 6.0,
+          "right": 0.06400000000000002
+        },
+        "surface_area_ratio": 93.74999999999997,
+        "topology": {
+          "left": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          },
+          "right": {
+            "boundary_edge_count": 0,
+            "genus_estimate": 0,
+            "manifold": true,
+            "non_manifold_edge_count": 0,
+            "watertight": true
+          }
+        },
+        "volume": {
+          "left": 1.0,
+          "right": 0.0008000000000000003
+        },
+        "volume_ratio": 1249.9999999999995,
+        "winners": {
+          "chamfer_agreement": "tie",
+          "fewer_non_manifold_edges": "tie",
+          "manifold": "tie",
+          "surface_area_closer_to_peer": "tie",
+          "volume_closer_to_peer": "tie",
+          "watertight": "tie"
+        }
+      }
+    ]
+  },
+  "created_at": "2026-07-27T04:13:53.731678+00:00",
+  "digest": "4dd91dae9350a1134404b209267396348e6073cae21ea21c96ad0d0d12cbeaf2",
+  "fusion": [],
+  "hidden_surface_ledger": [
+    {
+      "assumption": "visual hull is the intersection of silhouette cones; unobserved concavities are filled as solid",
+      "authority": "SENSOR_DERIVED",
+      "backend": "visual_hull",
+      "executed": true,
+      "region": "candidate:visual_hull-605f424d0a9f",
+      "source_candidate": "visual_hull-605f424d0a9f"
+    },
+    {
+      "assumption": "unobserved voxels retain free-space prior (TSDF=+1)",
+      "authority": "SENSOR_DERIVED",
+      "backend": "depth_fusion",
+      "executed": true,
+      "region": "candidate:depth_fusion-e2f0f9739fe3",
+      "source_candidate": "depth_fusion-e2f0f9739fe3"
+    },
+    {
+      "assumption": "truncation limits the influence of each depth sample",
+      "authority": "SENSOR_DERIVED",
+      "backend": "depth_fusion",
+      "executed": true,
+      "region": "candidate:depth_fusion-e2f0f9739fe3",
+      "source_candidate": "depth_fusion-e2f0f9739fe3"
+    },
+    {
+      "assumption": "surface assumed to be a single box; outliers discarded",
+      "authority": "MODEL_DERIVED",
+      "backend": "parametric",
+      "executed": true,
+      "region": "candidate:parametric-699091af8f9d",
+      "source_candidate": "parametric-699091af8f9d"
+    },
+    {
+      "assumption": "only back-projected observed depth samples are stored",
+      "authority": "SENSOR_DERIVED",
+      "backend": "point_representation",
+      "executed": true,
+      "region": "candidate:point_representation-03916ed9c8f7",
+      "source_candidate": "point_representation-03916ed9c8f7"
+    },
+    {
+      "assumption": "no hallucinated free-space fill",
+      "authority": "SENSOR_DERIVED",
+      "backend": "point_representation",
+      "executed": true,
+      "region": "candidate:point_representation-03916ed9c8f7",
+      "source_candidate": "point_representation-03916ed9c8f7"
+    },
+    {
+      "assumption": "entire surface is RETRIEVED_MODEL, not observed",
+      "authority": "MODEL_DERIVED",
+      "backend": "retrieval",
+      "executed": true,
+      "region": "candidate:retrieval-43186d9b1ce3",
+      "source_candidate": "retrieval-43186d9b1ce3"
+    },
+    {
+      "assumption": "non-rigid adaptation limited to anisotropic scale + landmark affine",
+      "authority": "MODEL_DERIVED",
+      "backend": "retrieval",
+      "executed": true,
+      "region": "candidate:retrieval-43186d9b1ce3",
+      "source_candidate": "retrieval-43186d9b1ce3"
+    },
+    {
+      "assumption": "only geometry present in the runtime scene hook is recovered",
+      "authority": "SENSOR_DERIVED",
+      "backend": "browser_runtime",
+      "executed": true,
+      "region": "candidate:browser_runtime-f0454f1d49d6",
+      "source_candidate": "browser_runtime-f0454f1d49d6"
+    },
+    {
+      "assumption": "materials/lighting are structural only",
+      "authority": "SENSOR_DERIVED",
+      "backend": "browser_runtime",
+      "executed": true,
+      "region": "candidate:browser_runtime-f0454f1d49d6",
+      "source_candidate": "browser_runtime-f0454f1d49d6"
+    }
+  ],
+  "id": "portfolio-7d510dc4f036",
+  "lifecycle": "CANDIDATE",
+  "lineage": {
+    "environment": {},
+    "hardware": {},
+    "input_authorities": [
+      "SENSOR_DERIVED",
+      "SENSOR_DERIVED",
+      "MODEL_DERIVED",
+      "SENSOR_DERIVED",
+      "UNRESOLVED",
+      "MODEL_DERIVED",
+      "SENSOR_DERIVED"
+    ],
+    "inputs": [
+      "truth:draped_cloth"
+    ],
+    "limitations": [
+      "portfolio is a set of hypotheses, not a single truth",
+      "fusion is bounded and may be empty"
+    ],
+    "model_versions": {},
+    "operation": "reconstruction.ensemble",
+    "parameters": {
+      "backends": [
+        "visual_hull",
+        "depth_fusion",
+        "parametric",
+        "point_representation",
+        "colmap_sfm",
+        "retrieval",
+        "browser_runtime"
+      ],
+      "executed": [
+        "visual_hull",
+        "depth_fusion",
+        "parametric",
+        "point_representation",
+        "retrieval",
+        "browser_runtime"
+      ],
+      "unavailable": [
+        "colmap_sfm"
+      ]
+    },
+    "retrieved_at": "",
+    "rights_state": "mixed",
+    "tool": "blender-vision-mcp",
+    "tool_version": "0.1.0"
+  },
+  "notes": [],
+  "record_kind": "v2.reconstruction-portfolio",
+  "schema_version": "2",
+  "selected_candidate_id": null,
+  "superseded_by": null,
+  "supersedes": [],
+  "target_id": "draped_cloth",
+  "uncertainty": {
+    "basis": "6/7 backends executed; 15 pairwise comparisons",
+    "interval": [],
+    "kind": "ensemble-disagreement",
+    "samples": 6,
+    "sigma": null,
+    "units": "unitless"
+  }
+}

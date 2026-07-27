@@ -1,0 +1,25 @@
+{
+  "inlier_count": 2200,
+  "inlier_ratio": 1.0,
+  "kind": "box",
+  "note": "Geometric RANSAC fit. Scalar project measurement fitting remains in blender_vision.parametric.fitting.ComponentFitter.",
+  "parameters": {
+    "maximum": [
+      0.19997370394277858,
+      0.19987906026507216,
+      0.031829550785075114
+    ],
+    "minimum": [
+      -0.1999511154892683,
+      -0.19983307147287532,
+      -0.03847947804087683
+    ],
+    "size": [
+      0.3999248194320469,
+      0.3997121317379475,
+      0.07030902882595194
+    ]
+  },
+  "residual_rmse": 0.0,
+  "sample_count": 2200
+}

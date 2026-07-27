@@ -1,0 +1,27 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "cin-reduced-motion:reduced-motion"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "reduced_motion_equivalence >= 0.95",
+      "blast_radius": [
+        "a11y",
+        "motion"
+      ],
+      "critic_role": "accessibility_reviewer",
+      "diagnosis": "reduced-motion path loses content relative to animated path",
+      "finding_id": "cin-reduced-motion:reduced-motion",
+      "measured": {
+        "reduced_motion_equivalence": 0.4
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "reduced_motion_equivalence": 0.4
+  },
+  "runtime_used": "cinematic-path",
+  "subject_id": "cin-reduced-motion"
+}

@@ -1,0 +1,27 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "mat-flat-foam:flat-texture-depth"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "flat_depth_pretence <= 25.0",
+      "blast_radius": [
+        "materials",
+        "normals"
+      ],
+      "critic_role": "material_artist",
+      "diagnosis": "flat texture is pretending to be geometric depth",
+      "finding_id": "mat-flat-foam:flat-texture-depth",
+      "measured": {
+        "flat_depth_pretence": 550.0
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "flat_depth_pretence": 550.0
+  },
+  "runtime_used": "material-render",
+  "subject_id": "mat-flat-foam"
+}

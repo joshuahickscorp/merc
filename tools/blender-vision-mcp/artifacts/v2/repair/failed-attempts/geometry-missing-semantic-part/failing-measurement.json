@@ -1,0 +1,29 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "geo-missing-part:part-count"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "part_count >= 4",
+      "blast_radius": [
+        "geometry",
+        "semantic_parts"
+      ],
+      "critic_role": "industrial_designer",
+      "diagnosis": "part count below plausible assembly minimum",
+      "finding_id": "geo-missing-part:part-count",
+      "measured": {
+        "expected_min_parts": 4,
+        "part_count": 3
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "expected_min_parts": 4,
+    "part_count": 3
+  },
+  "runtime_used": "mesh",
+  "subject_id": "geo-missing-part"
+}

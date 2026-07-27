@@ -1,0 +1,1186 @@
+[
+  {
+    "name": "view_000",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_000.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.012529265561108697,
+        -0.42858968538127723,
+        0.9034123638124935,
+        0.3794331928012472
+      ],
+      [
+        0.9999215056715698,
+        -0.005370335525774589,
+        0.011319981971778392,
+        0.004754392428146924
+      ],
+      [
+        0.0,
+        0.9034832821259717,
+        0.4286233298817058,
+        0.18002179855031641
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_001",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_001.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.2001248669945474,
+        -0.399501015796431,
+        0.8946222532376636,
+        0.3757413463598187
+      ],
+      [
+        0.9797704004563593,
+        -0.0816008399653715,
+        0.1827327702042825,
+        0.07674776348579865
+      ],
+      [
+        0.0,
+        0.9130937746445135,
+        0.4077496274743048,
+        0.17125484353920803
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_002",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_002.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.39505873954215454,
+        -0.3446000692749065,
+        0.8515746500261112,
+        0.3576613530109667
+      ],
+      [
+        0.9186558617411441,
+        -0.14819180357251563,
+        0.3662111372453886,
+        0.15380867764306322
+      ],
+      [
+        0.0,
+        0.9269789542431126,
+        0.3751133407256338,
+        0.15754760310476618
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_003",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_003.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.567129616950109,
+        -0.32083709138278393,
+        0.7585694156575638,
+        0.3185991545761768
+      ],
+      [
+        0.8236285555868147,
+        -0.2209202382616107,
+        0.5223315525108649,
+        0.2193792520545633
+      ],
+      [
+        0.0,
+        0.9210091254268158,
+        0.38954100025611127,
+        0.16360722010756676
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_004",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/holdout/view_004.png",
+    "held_out": true,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.6995730804269651,
+        -0.28985504752520724,
+        0.6531321126434428,
+        0.27431548731024596
+      ],
+      [
+        0.7145610576724196,
+        -0.2837753139459117,
+        0.6394326125972715,
+        0.268561697290854
+      ],
+      [
+        0.0,
+        0.9140326157304559,
+        0.4056406998575721,
+        0.1703690939401803
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_005",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_005.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.8397493184345494,
+        -0.21483378544745588,
+        0.4986657465868559,
+        0.20943961356647947
+      ],
+      [
+        0.5429742923828991,
+        -0.3322561075856511,
+        0.7712229228850257,
+        0.3239136276117108
+      ],
+      [
+        0.0,
+        0.9183966047423895,
+        0.39566106252403865,
+        0.16617764626009623
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_006",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_006.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.9267743644322192,
+        -0.12892873556527729,
+        0.352798325643412,
+        0.14817529677023306
+      ],
+      [
+        0.37561852647500793,
+        -0.3181095673898016,
+        0.8704694283568015,
+        0.3655971599098567
+      ],
+      [
+        0.0,
+        0.9392463384440803,
+        0.343243813810807,
+        0.14416240180053894
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_007",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_007.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.9782777951738276,
+        -0.08563346259980505,
+        0.18878417717860355,
+        0.07928935441501347
+      ],
+      [
+        0.20729822833259956,
+        -0.40411978268732546,
+        0.8909066425675107,
+        0.37418078987835446
+      ],
+      [
+        0.0,
+        0.9106888114630137,
+        0.41309307507640863,
+        0.1734990915320916
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_008",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/holdout/view_008.png",
+    "held_out": true,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.9995995436971384,
+        -0.010069616115019888,
+        0.02644532230411797,
+        0.011107035367729548
+      ],
+      [
+        0.028297565981415213,
+        -0.35570492813374593,
+        0.93416981960503,
+        0.39235132423411256
+      ],
+      [
+        0.0,
+        0.9345440636656266,
+        0.3558474294797382,
+        0.14945592038149003
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_009",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_009.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.9791477114824882,
+        0.07451225113859368,
+        -0.18899122606318267,
+        -0.07937631494653671
+      ],
+      [
+        -0.20314959783028338,
+        -0.3591368181822044,
+        0.9109066838745647,
+        0.3825808072273172
+      ],
+      [
+        0.0,
+        0.9303056864580702,
+        0.3667851274844423,
+        0.15404975354346576
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_010",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_010.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.9251692252701523,
+        0.15500305767066955,
+        -0.3464620566898623,
+        -0.14551406380974216
+      ],
+      [
+        -0.3795548769453849,
+        -0.3778216734659764,
+        0.8445051085969479,
+        0.3546921456107181
+      ],
+      [
+        0.0,
+        0.9128115003504899,
+        0.4083811514111392,
+        0.17152008359267845
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_011",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_011.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.8226306029950585,
+        0.18721265803865733,
+        -0.5368708519617051,
+        -0.22548575782391617
+      ],
+      [
+        -0.5685761963149586,
+        -0.2708640684727811,
+        0.7767584987590327,
+        0.3262385694787937
+      ],
+      [
+        0.0,
+        0.944237299136437,
+        0.3292657329870916,
+        0.13829160785457847
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_012",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/holdout/view_012.png",
+    "held_out": true,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.7198644924433294,
+        0.24588727793856152,
+        -0.6491028878901036,
+        -0.2726232129138435
+      ],
+      [
+        -0.6941146249138596,
+        -0.2550090636016797,
+        0.6731829357326927,
+        0.28273683300773095
+      ],
+      [
+        0.0,
+        0.9351522999110675,
+        0.35424592583548636,
+        0.14878328885090428
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_013",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_013.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.5479727508540925,
+        0.35636315304620464,
+        -0.7567900418691872,
+        -0.3178518175850586
+      ],
+      [
+        -0.8364961830883622,
+        -0.2334467284199656,
+        0.4957587726592603,
+        0.20821868451688932
+      ],
+      [
+        0.0,
+        0.9047142798370005,
+        0.42601886326666083,
+        0.17892792257199755
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_014",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_014.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.39917400246599744,
+        0.3791303779977152,
+        -0.8348175083421439,
+        -0.3506233535037004
+      ],
+      [
+        -0.9168751909367359,
+        -0.16505953257081515,
+        0.3634490816499997,
+        0.15264861429299986
+      ],
+      [
+        0.0,
+        0.9105028869733547,
+        0.41350271197803096,
+        0.173671139030773
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_015",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_015.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        -0.18097978523305774,
+        0.3371497726311762,
+        -0.923891956968856,
+        -0.3880346219269195
+      ],
+      [
+        -0.9834868160463547,
+        -0.06204180111682208,
+        0.17001322765356935,
+        0.07140555561449913
+      ],
+      [
+        0.0,
+        0.9394045165576578,
+        0.34281066825738243,
+        0.14398048066810062
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_016",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/holdout/view_016.png",
+    "held_out": true,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.0183424697377386,
+        0.42483795136494307,
+        -0.9050835701104945,
+        -0.38013509944640766
+      ],
+      [
+        -0.9998317627500739,
+        0.007793888488719904,
+        -0.016604261450159585,
+        -0.006973789809067025
+      ],
+      [
+        0.0,
+        0.9052358645028729,
+        0.4249094369600849,
+        0.17846196352323565
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_017",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_017.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.16907514475692814,
+        0.3344138991845109,
+        -0.9271358797164716,
+        -0.389397069480918
+      ],
+      [
+        -0.9856031632586332,
+        0.057366981480063445,
+        -0.15904538349302147,
+        -0.06679906106706901
+      ],
+      [
+        0.0,
+        0.9406786770561337,
+        0.3392987275719173,
+        0.14250546558020524
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_018",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_018.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.38696560233654026,
+        0.3817987333646395,
+        -0.8393374469243436,
+        -0.3525217277082243
+      ],
+      [
+        -0.9220941506203791,
+        0.16022547884982818,
+        -0.3522359625578068,
+        -0.14793910427427887
+      ],
+      [
+        0.0,
+        0.910251351621353,
+        0.41405612768258826,
+        0.17390357362668707
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_019",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_019.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.5727042843580925,
+        0.3121198657597912,
+        -0.7580178045903507,
+        -0.3183674779279473
+      ],
+      [
+        -0.819762040276253,
+        0.21805399075769238,
+        -0.5295683661594215,
+        -0.22241871378695702
+      ],
+      [
+        0.0,
+        0.9246802942167277,
+        0.380744472694307,
+        0.15991267853160893
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_020",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/holdout/view_020.png",
+    "held_out": true,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.6980837616815796,
+        0.3173052413497105,
+        -0.6418694925672177,
+        -0.2695851868782314
+      ],
+      [
+        -0.7160161043415822,
+        0.30935845596151007,
+        -0.6257941227341584,
+        -0.2628335315483465
+      ],
+      [
+        0.0,
+        0.8964456088001729,
+        0.4431537774440015,
+        0.18612458652648062
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_021",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_021.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.8356485088062046,
+        0.2008851455813721,
+        -0.5112110405837471,
+        -0.2147086370451738
+      ],
+      [
+        -0.5492645717047173,
+        0.30562570570569564,
+        -0.7777540474224026,
+        -0.3266566999174091
+      ],
+      [
+        0.0,
+        0.9307191232034755,
+        0.3657347586754007,
+        0.15360859864366827
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_022",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_022.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.9266689434341961,
+        0.16100998721617277,
+        -0.33964754274276476,
+        -0.1426519679519612
+      ],
+      [
+        -0.37587852994624515,
+        0.39694460536839377,
+        -0.8373471866522152,
+        -0.35168581839393037
+      ],
+      [
+        0.0,
+        0.9036098518086098,
+        0.42835643536011225,
+        0.17990970285124713
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_023",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_023.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.982310248324509,
+        0.07034900194229371,
+        -0.173544213278244,
+        -0.07288856957686246
+      ],
+      [
+        -0.18726071674711028,
+        0.3690285222000908,
+        -0.9103578273218591,
+        -0.38235028747518074
+      ],
+      [
+        0.0,
+        0.9267518371864932,
+        0.37567410380735555,
+        0.1577831235990893
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_024",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/holdout/view_024.png",
+    "held_out": true,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.9998295181273031,
+        0.007408396372056323,
+        -0.01691302292670644,
+        -0.007103469629216705
+      ],
+      [
+        -0.018464416625628737,
+        0.4011571838391028,
+        -0.9158231156576883,
+        -0.38464570857622904
+      ],
+      [
+        0.0,
+        0.9159792735195894,
+        0.40122558552829757,
+        0.16851474592188498
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_025",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_025.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.9819116331644291,
+        -0.08091957025428885,
+        0.17117700723585755,
+        0.07189434303906017
+      ],
+      [
+        0.1893397598402502,
+        0.419647027388178,
+        -0.8877200165299316,
+        -0.37284240694257126
+      ],
+      [
+        -0.0,
+        0.9040732246638691,
+        0.42737759001364706,
+        0.17949858780573175
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_026",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_026.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.921386907475579,
+        -0.12909131400496504,
+        0.366580958835917,
+        0.15396400271108512
+      ],
+      [
+        0.38864658332807805,
+        0.3060442358053287,
+        -0.8690746567457504,
+        -0.3650113558332151
+      ],
+      [
+        -0.0,
+        0.9432244475090773,
+        0.3321560501047604,
+        0.13950554104399934
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_027",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_027.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.8245969650712119,
+        -0.20223947657467484,
+        0.5283361044923468,
+        0.22190116388678563
+      ],
+      [
+        0.5657206423627712,
+        0.2947851750725542,
+        -0.770105093712603,
+        -0.3234441393592932
+      ],
+      [
+        -0.0,
+        0.9339169634781483,
+        0.35749000731174974,
+        0.15014580307093486
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_028",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/holdout/view_028.png",
+    "held_out": true,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.6928072968042476,
+        -0.272434835861806,
+        0.6676805446497165,
+        0.2804258287528809
+      ],
+      [
+        0.7211227700570766,
+        0.26173746000807546,
+        -0.6414635239308076,
+        -0.2694146800509392
+      ],
+      [
+        -0.0,
+        0.9258902538840508,
+        0.3777925856373151,
+        0.15867288596767234
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_029",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_029.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.5325150939434956,
+        -0.336718139551222,
+        0.7765620189138237,
+        0.3261560479438059
+      ],
+      [
+        0.8464205070308434,
+        0.2118420929386392,
+        -0.4885644818619411,
+        -0.20519708238201526
+      ],
+      [
+        -0.0,
+        0.9174659787461008,
+        0.3978142504278338,
+        0.1670819851796902
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_030",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_030.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.3684307731952307,
+        -0.35416755252735693,
+        0.8595487828503664,
+        0.36101048879715386
+      ],
+      [
+        0.9296551862721815,
+        0.14035980990064983,
+        -0.3406469703401,
+        -0.143071727542842
+      ],
+      [
+        -0.0,
+        0.9245888104998001,
+        0.38096657530361466,
+        0.16000596162751815
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "name": "view_031",
+    "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/images/train/view_031.png",
+    "held_out": false,
+    "width": 256,
+    "height": 256,
+    "fx": 345.6,
+    "fy": 345.6,
+    "cx": 128.0,
+    "cy": 128.0,
+    "world_from_camera": [
+      [
+        0.19961230638598812,
+        -0.40839482175231556,
+        0.8907124096503656,
+        0.37409921205315355
+      ],
+      [
+        0.9798749548484573,
+        0.08319493409103594,
+        -0.18144882419658107,
+        -0.07620850616256404
+      ],
+      [
+        -0.0,
+        0.9090062004780177,
+        0.416782590198436,
+        0.1750486878833431
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  }
+]
