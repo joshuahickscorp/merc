@@ -21,8 +21,8 @@ regardless of how much code is written. This is one external action.
 
 | lane | status | evidence |
 |---|---|---|
-| OpenAI-compatible realtime | `NOT_IMPLEMENTED` | Deliberately deleted by `[KILL-RT]`. No `chat/completions` route, no SSE anywhere in `control/`. Reversal proposed in `DECISION_ZERO_REVERSAL.md`, **not** executed. |
-| RunPod-backed pinned vLLM | `NOT_IMPLEMENTED` | `control/types.go` admits no CUDA class; an NVIDIA worker is refused at registration. Same lane as realtime. |
+| OpenAI-compatible realtime | `TESTED` | `[KILL-RT]` reversed and executed (`DECISION_ZERO_REVERSAL.md`). `control/realtime.go`, `chat/completions` routed, 5 routes in the authorization matrix, integration test green. Not `REAL_RUNTIME_PROVEN`: every measurement so far is against an httptest fake, and `scripts/realtime-parity-benchmark.py` reports `UNATTESTED_HARNESS_RUN` and refuses `public_claim_allowed` for exactly that reason. |
+| RunPod-backed pinned vLLM | `IMPLEMENTED` | `control/types.go` now admits `nvidia_24gb/48gb/80gb/180gb` and the `vllm` engine, paired by `EngineAdmissibleFor` so an engine cannot claim hardware that cannot serve it. An NVIDIA worker registers. No RunPod pod has yet served a real job through routing, verification and settlement. |
 | Object storage | `IMPLEMENTED` | 4 presign/multipart references in `control/storage.go`. Retention, tenant isolation and worker credentials not separately proven. |
 | Image generation | `NOT_IMPLEMENTED` | No reference in `control/`. |
 | Video | `NOT_IMPLEMENTED` | Goal correctly gates this behind image. |
@@ -31,9 +31,9 @@ regardless of how much code is written. This is one external action.
 | Single-host multi-GPU | `NOT_IMPLEMENTED` | No tensor-parallel or multi-GPU reference. |
 | Buyer dashboard | `IMPLEMENTED` | `web/buyer.html`. |
 | Supplier console | `TESTED` | `web/supplier.html`, route `GET /supplier`. Loaded against a live local control plane with a real worker token; shows paid / lifetime / carried at ledger granularity, four distinct payout-rail states and verification standing. Gated by `scripts/test-supplier-console.mjs` (mutation-checked 3/3). Not `REAL_RUNTIME_PROVEN`: the figures it rendered came from a hand-seeded accrual, not from a job a worker actually served. |
-| Public price board | `NOT_IMPLEMENTED` | `pricing/board.json` exists and is governed, but nothing publishes it. |
+| Public price board | `IMPLEMENTED` | `web/prices.html` behind `GET /prices`, recomputing the confidence-weighted median client-side and naming each observation's provider and source. Not `TESTED`: it has no gate of its own. |
 | Python SDK | `TESTED` | `sdk/python/merc/`, clean-room install verified. |
-| TypeScript SDK | `NOT_IMPLEMENTED` | No directory. |
+| TypeScript SDK | `TESTED` | `sdk/typescript/`, built to `dist/`, 12 tests covering the binary embeddings decoder, path encoding, bearer auth and `wait()` timeout. Never run against a deployed merc. |
 
 ## Money and operations
 
