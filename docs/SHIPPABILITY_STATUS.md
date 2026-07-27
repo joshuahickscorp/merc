@@ -167,6 +167,56 @@ image — is now tracked as its own lane rather than hidden inside "realtime". N
 Apple Silicon engine substitutes for it. Same for image generation, LoRA and
 multi-GPU.
 
+## Money defect found by running the SDK against a live merc
+
+Running the shipped Python SDK against a running control plane — something no
+test had ever done — surfaced a defect in merc's pricing that no unit test could
+have, because it only appears after the catalogue is repriced from a **real**
+supplier's measured throughput.
+
+### The supplier is paid zero while the buyer is charged
+
+| units | buyer charged | supplier paid |
+|---|---|---|
+| 1–4 | *rejected*: `base_compute_usd must be finite and positive` |
+| 10 | $0.000124 | **$0.000000** |
+| 100 | $0.000125 | $0.000001 |
+| 1,000,000 | $0.018000 | $0.014400 |
+
+Between roughly 5 and 99 units the plan is executable, the buyer **is** charged,
+and `SupplierPayoutPerTaskUSD` is **exactly zero**. This is not the sub-cent
+carry the accrual path handles — the payout is 0, so nothing is accrued at all
+and merc records no obligation to whoever performed the work.
+`roundEconomicUSD(computePerTask * SupplierShare)` rounds 0.0000000144 to zero.
+
+### The causal chain is perverse
+
+```
+a real supplier benchmarks at 1,980 embeddings/sec on an M3 Ultra
+  → merc reprices the catalogue from measured supplier throughput
+  → the per-1k price falls to $0.000018
+  → small jobs' base compute rounds to zero at micro-USD granularity
+  → the supplier is paid nothing, or the job is rejected outright
+```
+
+**A faster supplier makes small jobs unpayable, then unbuyable.** Nobody chose
+that; it falls out of rounding.
+
+### This is the third instance of one failure class
+
+1. LoRA compute floor truncating to zero at small quotes — **fixed**, with a
+   minimum quote derived from the share constants.
+2. Supplier share collapsing to 0.8% on a 3-row job — fixed per-task
+   control-plane cost dominating. **Recorded.**
+3. Supplier payout rounding to exactly zero between 5 and 99 units.
+   **Characterised, not fixed.**
+
+`control/small_job_economics_test.go` pins the current behaviour so the window
+cannot widen unnoticed, and fails loudly with `GOOD NEWS, ACTION REQUIRED` the
+moment someone fixes it. **Not fixed here because the remedy — a minimum
+billable job size, a supplier payout floor, or amortising the per-task cost —
+is a pricing decision, not a bug fix.**
+
 ## Repository boundary and rename
 
 | item | status | evidence |
