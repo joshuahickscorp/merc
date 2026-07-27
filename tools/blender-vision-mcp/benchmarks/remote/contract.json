@@ -1,0 +1,59 @@
+{
+  "acceptance_thresholds": {
+    "dense_mvs_without_cuda": "blocked",
+    "hidden_chamfer_m_maximum": 0.003,
+    "minimum_input_views": 24,
+    "public_chamfer_m_maximum": 0.002,
+    "require_portfolio_not_single_guess": true,
+    "scale_relative_error_maximum": 0.02,
+    "sparse_reprojection_rmse_px_maximum": 1.5
+  },
+  "blocked_requirements": [
+    {
+      "id": "real_remote_multiview_capture",
+      "reason": "No authorized physical multiview capture of a remote body has been supplied to this repository. A synthetic remote body would silently change the claim from OBSERVED to PROCEDURAL_GROUND_TRUTH and is therefore refused for this target.",
+      "required_to_unblock": "≥24 rights-cleared consumer multiview images of a real remote body, EXIF/capture receipt, approximate scale anchor (MEASURED or MANUFACTURER_SPEC), and an explicit rights_state of OWNED or LICENSED. Dense COLMAP MVS remains separately blocked without CUDA."
+    },
+    {
+      "id": "colmap_dense_mvs_cuda",
+      "reason": "Host COLMAP is 4.0.4 without CUDA. Sparse SfM can run when images exist; dense MVS cannot and must be reported blocked, never faked.",
+      "required_to_unblock": "CUDA-capable COLMAP dense MVS build, or an alternative dense backend with a measured accuracy receipt on this target."
+    }
+  ],
+  "builder_inputs_digest": "ecbf7d781ba91dd13193fba145501d4a63133bd213fa8d494dfcf7f9f7d7bffe",
+  "digest": "776a96f551c43ccf3f519e379c92d8fa324755f9b6d04302ee4dedfc278c407a",
+  "evaluator_digest": "50e7a790fcd776cd00f8d8f6c25463c2cd9fad4a64ef176eebf7845c0985167c",
+  "frozen_at": "2026-07-26T00:00:00+00:00",
+  "kind": "v2.sealed-benchmark-contract",
+  "lineage": {
+    "environment": {},
+    "hardware": {},
+    "input_authorities": [
+      "PROCEDURAL_GROUND_TRUTH",
+      "HUMAN_REVIEWED"
+    ],
+    "inputs": [
+      "oracle:67c7235355404504a348a20acfd189ed671cddddce6b83dfb2375cf8b1fa3f98",
+      "evaluator:50e7a790fcd776cd00f8d8f6c25463c2cd9fad4a64ef176eebf7845c0985167c",
+      "builder_inputs:ecbf7d781ba91dd13193fba145501d4a63133bd213fa8d494dfcf7f9f7d7bffe"
+    ],
+    "limitations": [
+      "Filesystem digests bind committed trees only.",
+      "Blocked targets declare exact requirements; no synthetic substitution."
+    ],
+    "model_versions": {},
+    "operation": "seal_benchmark_contract",
+    "parameters": {
+      "authority_ceiling": "INFERRED",
+      "evidence_status": "blocked",
+      "target_id": "remote"
+    },
+    "retrieved_at": "2026-07-26T00:00:00+00:00",
+    "rights_state": "unreviewed",
+    "tool": "blender-vision-mcp",
+    "tool_version": "0.1.0"
+  },
+  "oracle_digest": "67c7235355404504a348a20acfd189ed671cddddce6b83dfb2375cf8b1fa3f98",
+  "schema_version": "1",
+  "target_id": "remote"
+}

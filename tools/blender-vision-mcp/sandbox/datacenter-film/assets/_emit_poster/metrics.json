@@ -1,9 +1,9 @@
 {
-  "blend_bytes": 3951936,
+  "blend_bytes": 5614560,
   "blend_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/sandbox/datacenter-film/assets/_emit_poster/scene.blend",
-  "glb_bytes": 803424,
+  "glb_bytes": 3504868,
   "glb_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/sandbox/datacenter-film/assets/_emit_poster/scene.glb",
-  "instances": 59,
+  "instances": 464,
   "prototypes": {
     "proto_0000_threshold": {
       "archetype": "threshold",
@@ -310,7 +310,284 @@
       ],
       "triangle_count": 2292
     },
-    "proto_0004_cable_tray": {
+    "proto_0004_blanking_panel": {
+      "archetype": "blanking_panel",
+      "bbox_max": [
+        0.24130000174045563,
+        0.003000000026077032,
+        0.044199999421834946
+      ],
+      "bbox_min": [
+        -0.24130000174045563,
+        -0.003000000026077032,
+        -0.044199999421834946
+      ],
+      "bbox_size": [
+        0.48260000348091125,
+        0.006000000052154064,
+        0.08839999884366989
+      ],
+      "lod": "near",
+      "object_count": 2,
+      "part_names": [
+        "panel",
+        "finger_grip"
+      ],
+      "triangle_count": 24
+    },
+    "proto_0005_server_drawer": {
+      "archetype": "server_drawer",
+      "bbox_max": [
+        0.24130000174045563,
+        0.3499999940395355,
+        0.044200003147125244
+      ],
+      "bbox_min": [
+        -0.24130000174045563,
+        -0.3499999940395355,
+        -0.044200003147125244
+      ],
+      "bbox_size": [
+        0.48260000348091125,
+        0.699999988079071,
+        0.08840000629425049
+      ],
+      "lod": "near",
+      "object_count": 76,
+      "part_names": [
+        "chassis.001",
+        "chassis_nx.001",
+        "chassis_py.001",
+        "chassis_pz.001",
+        "chassis_nz.001",
+        "front_bezel.001",
+        "front_vent_field.001",
+        "front_vent_field_1_0.001",
+        "front_vent_field_2_0.001",
+        "front_vent_field_3_0.001",
+        "front_vent_field_4_0.001",
+        "front_vent_field_5_0.001",
+        "front_vent_field_6_0.001",
+        "front_vent_field_7_0.001",
+        "front_vent_field_8_0.001",
+        "front_vent_field_9_0.001",
+        "front_vent_field_10_0.001",
+        "front_vent_field_11_0.001",
+        "front_vent_field_12_0.001",
+        "front_vent_field_13_0.001",
+        "front_vent_field_0_1.001",
+        "front_vent_field_1_1.001",
+        "front_vent_field_2_1.001",
+        "front_vent_field_3_1.001",
+        "front_vent_field_4_1.001",
+        "front_vent_field_5_1.001",
+        "front_vent_field_6_1.001",
+        "front_vent_field_7_1.001",
+        "front_vent_field_8_1.001",
+        "front_vent_field_9_1.001",
+        "front_vent_field_10_1.001",
+        "front_vent_field_11_1.001",
+        "front_vent_field_12_1.001",
+        "front_vent_field_13_1.001",
+        "front_vent_field_0_2.001",
+        "front_vent_field_1_2.001",
+        "front_vent_field_2_2.001",
+        "front_vent_field_3_2.001",
+        "front_vent_field_4_2.001",
+        "front_vent_field_5_2.001",
+        "front_vent_field_6_2.001",
+        "front_vent_field_7_2.001",
+        "front_vent_field_8_2.001",
+        "front_vent_field_9_2.001",
+        "front_vent_field_10_2.001",
+        "front_vent_field_11_2.001",
+        "front_vent_field_12_2.001",
+        "front_vent_field_13_2.001",
+        "front_vent_field_0_3.001",
+        "front_vent_field_1_3.001",
+        "front_vent_field_2_3.001",
+        "front_vent_field_3_3.001",
+        "front_vent_field_4_3.001",
+        "front_vent_field_5_3.001",
+        "front_vent_field_6_3.001",
+        "front_vent_field_7_3.001",
+        "front_vent_field_8_3.001",
+        "front_vent_field_9_3.001",
+        "front_vent_field_10_3.001",
+        "front_vent_field_11_3.001",
+        "front_vent_field_12_3.001",
+        "front_vent_field_13_3.001",
+        "handle_left.001",
+        "handle_right.001",
+        "drive_bay_01",
+        "drive_bay_02",
+        "drive_bay_03",
+        "drive_bay_04",
+        "drive_bay_05",
+        "drive_bay_06",
+        "rear_psu_1.001",
+        "rear_psu_2.001",
+        "rear_nic_1",
+        "rear_nic_2",
+        "rear_mgmt.001",
+        "status_led_strip"
+      ],
+      "triangle_count": 912
+    },
+    "proto_0006_switch": {
+      "archetype": "switch",
+      "bbox_max": [
+        0.24130000174045563,
+        0.20000000298023224,
+        0.044199999421834946
+      ],
+      "bbox_min": [
+        -0.24130000174045563,
+        -0.20000000298023224,
+        -0.044199999421834946
+      ],
+      "bbox_size": [
+        0.48260000348091125,
+        0.4000000059604645,
+        0.08839999884366989
+      ],
+      "lod": "near",
+      "object_count": 53,
+      "part_names": [
+        "chassis.002",
+        "front_panel",
+        "port_001",
+        "port_002",
+        "port_003",
+        "port_004",
+        "port_005",
+        "port_006",
+        "port_007",
+        "port_008",
+        "port_009",
+        "port_010",
+        "port_011",
+        "port_012",
+        "port_013",
+        "port_014",
+        "port_015",
+        "port_016",
+        "port_017",
+        "port_018",
+        "port_019",
+        "port_020",
+        "port_021",
+        "port_022",
+        "port_023",
+        "port_024",
+        "port_025",
+        "port_026",
+        "port_027",
+        "port_028",
+        "port_029",
+        "port_030",
+        "port_031",
+        "port_032",
+        "port_033",
+        "port_034",
+        "port_035",
+        "port_036",
+        "port_037",
+        "port_038",
+        "port_039",
+        "port_040",
+        "port_041",
+        "port_042",
+        "port_043",
+        "port_044",
+        "port_045",
+        "port_046",
+        "port_047",
+        "port_048",
+        "rear_fan_1",
+        "rear_fan_2",
+        "rear_fan_3"
+      ],
+      "triangle_count": 636
+    },
+    "proto_0007_pdu": {
+      "archetype": "pdu",
+      "bbox_max": [
+        0.027499999850988388,
+        0.029999999329447746,
+        0.9334499835968018
+      ],
+      "bbox_min": [
+        -0.027499999850988388,
+        -0.029999999329447746,
+        -0.9334499835968018
+      ],
+      "bbox_size": [
+        0.054999999701976776,
+        0.05999999865889549,
+        1.8668999671936035
+      ],
+      "lod": "near",
+      "object_count": 26,
+      "part_names": [
+        "body",
+        "outlet_01",
+        "outlet_02",
+        "outlet_03",
+        "outlet_04",
+        "outlet_05",
+        "outlet_06",
+        "outlet_07",
+        "outlet_08",
+        "outlet_09",
+        "outlet_10",
+        "outlet_11",
+        "outlet_12",
+        "outlet_13",
+        "outlet_14",
+        "outlet_15",
+        "outlet_16",
+        "outlet_17",
+        "outlet_18",
+        "outlet_19",
+        "outlet_20",
+        "outlet_21",
+        "outlet_22",
+        "outlet_23",
+        "outlet_24",
+        "breaker_bank"
+      ],
+      "triangle_count": 312
+    },
+    "proto_0008_cable_tray": {
+      "archetype": "cable_tray",
+      "bbox_max": [
+        0.08500000089406967,
+        0.30000001192092896,
+        0.029999999329447746
+      ],
+      "bbox_min": [
+        -0.08500000089406967,
+        -0.30000001192092896,
+        -0.029999999329447746
+      ],
+      "bbox_size": [
+        0.17000000178813934,
+        0.6000000238418579,
+        0.05999999865889549
+      ],
+      "lod": "near",
+      "object_count": 5,
+      "part_names": [
+        "rail_left.001",
+        "rail_right.001",
+        "rung_00",
+        "rung_01",
+        "rung_02"
+      ],
+      "triangle_count": 60
+    },
+    "proto_0009_cable_tray": {
       "archetype": "cable_tray",
       "bbox_max": [
         0.13500000536441803,
@@ -330,11 +607,11 @@
       "lod": "near",
       "object_count": 43,
       "part_names": [
-        "rail_left.001",
-        "rail_right.001",
-        "rung_00",
-        "rung_01",
-        "rung_02",
+        "rail_left.002",
+        "rail_right.002",
+        "rung_00.001",
+        "rung_01.001",
+        "rung_02.001",
         "rung_03",
         "rung_04",
         "rung_05",
@@ -376,7 +653,7 @@
       ],
       "triangle_count": 516
     },
-    "proto_0005_cable_bundle": {
+    "proto_0010_cable_bundle": {
       "archetype": "cable_bundle",
       "bbox_max": [
         0.029999999329447746,
@@ -412,7 +689,7 @@
       ],
       "triangle_count": 396
     },
-    "proto_0006_floor_tile": {
+    "proto_0011_floor_tile": {
       "archetype": "floor_tile",
       "bbox_max": [
         0.30000001192092896,
@@ -500,7 +777,7 @@
       ],
       "triangle_count": 780
     },
-    "proto_0007_status_light_matrix": {
+    "proto_0012_status_light_matrix": {
       "archetype": "status_light_matrix",
       "bbox_max": [
         0.1850000023841858,
@@ -556,7 +833,7 @@
       ],
       "triangle_count": 396
     },
-    "proto_0008_junction": {
+    "proto_0013_junction": {
       "archetype": "junction",
       "bbox_max": [
         1.600000023841858,
@@ -582,7 +859,7 @@
       ],
       "triangle_count": 36
     },
-    "proto_0009_aisle": {
+    "proto_0014_aisle": {
       "archetype": "aisle",
       "bbox_max": [
         0.6000000238418579,
@@ -609,7 +886,7 @@
       ],
       "triangle_count": 48
     },
-    "proto_0010_cable_tray": {
+    "proto_0015_cable_tray": {
       "archetype": "cable_tray",
       "bbox_max": [
         0.13500000536441803,
@@ -629,11 +906,11 @@
       "lod": "near",
       "object_count": 29,
       "part_names": [
-        "rail_left.002",
-        "rail_right.002",
-        "rung_00.001",
-        "rung_01.001",
-        "rung_02.001",
+        "rail_left.003",
+        "rail_right.003",
+        "rung_00.002",
+        "rung_01.002",
+        "rung_02.002",
         "rung_03.001",
         "rung_04.001",
         "rung_05.001",
@@ -661,7 +938,7 @@
       ],
       "triangle_count": 348
     },
-    "proto_0011_containment_door": {
+    "proto_0016_containment_door": {
       "archetype": "containment_door",
       "bbox_max": [
         0.6000000238418579,
@@ -688,7 +965,7 @@
       ],
       "triangle_count": 48
     },
-    "proto_0012_terminal_wall": {
+    "proto_0017_terminal_wall": {
       "archetype": "terminal_wall",
       "bbox_max": [
         1.600000023841858,
@@ -715,7 +992,7 @@
       ],
       "triangle_count": 48
     },
-    "proto_0013_cooling_face": {
+    "proto_0018_cooling_face": {
       "archetype": "cooling_face",
       "bbox_max": [
         0.6000000238418579,
@@ -755,7 +1032,7 @@
       ],
       "triangle_count": 204
     },
-    "proto_0014_column": {
+    "proto_0019_column": {
       "archetype": "column",
       "bbox_max": [
         0.20000000298023224,
@@ -784,7 +1061,7 @@
   },
   "renders": [
     {
-      "bytes": 1304951,
+      "bytes": 1304842,
       "location": [
         0.0,
         -7.2,
@@ -798,5 +1075,5 @@
       ]
     }
   ],
-  "unique_meshes": 15
+  "unique_meshes": 20
 }

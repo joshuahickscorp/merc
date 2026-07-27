@@ -2,7 +2,7 @@
   "record_kind": "v2.delivery-manifest",
   "id": "datacenter-film",
   "schema_version": "2",
-  "created_at": "2026-07-27T03:18:48.071823+00:00",
+  "created_at": "2026-07-27T03:41:37.939736+00:00",
   "authority": "INFERRED",
   "lifecycle": "DRAFT",
   "lineage": {
@@ -65,8 +65,8 @@
       "asset_id": "datacenter-detail",
       "role": "detail",
       "path": "datacenter-detail.glb",
-      "digest": "8a4c11b33d2210fa5712901b1dfd84453c9b7fab038d01ca4197df5422911f42",
-      "bytes": 401640,
+      "digest": "1af612297b62316c7e8e72684c007510a61f85a0cda9d51e42407763705cb323",
+      "bytes": 3073572,
       "compression": "gzip",
       "lod": "L0",
       "decode_ms": null,
@@ -78,8 +78,8 @@
       "asset_id": "datacenter-network",
       "role": "network",
       "path": "datacenter-network.glb",
-      "digest": "3834e7dfe321b2cc4d8c7d47127a05d900fb16ae9cd8bd7ecfc0b700f499ed28",
-      "bytes": 148784,
+      "digest": "f1086d485b4ba1fb09fe82533f6c5a6ed45999f04db37778a447da0c858656dc",
+      "bytes": 170388,
       "compression": "gzip",
       "lod": "L0",
       "decode_ms": null,
@@ -104,8 +104,8 @@
       "asset_id": "datacenter-poster",
       "role": "poster",
       "path": "poster.png",
-      "digest": "cc892b4b9706b7e390a4123842592d67ee2f65376f8a4d862a98ab4c5d70a55f",
-      "bytes": 1304951,
+      "digest": "5038730cf8ef221932494b88c398cd9548c31eac44efd08322e333b758b2e2c7",
+      "bytes": 1304842,
       "compression": "gzip",
       "lod": "L0",
       "decode_ms": null,
@@ -123,11 +123,11 @@
   },
   "measured": {
     "asset_count": 5,
-    "total_bytes": 2354239,
+    "total_bytes": 5047666,
     "by_role": {
       "detail": {
         "count": 1,
-        "bytes": 401640
+        "bytes": 3073572
       },
       "mobile": {
         "count": 1,
@@ -135,11 +135,11 @@
       },
       "network": {
         "count": 1,
-        "bytes": 148784
+        "bytes": 170388
       },
       "poster": {
         "count": 1,
-        "bytes": 1304951
+        "bytes": 1304842
       },
       "shell": {
         "count": 1,
@@ -147,7 +147,7 @@
       }
     },
     "compression": {},
-    "evaluated_at": "2026-07-27T03:18:48.071743+00:00",
+    "evaluated_at": "2026-07-27T03:41:37.939627+00:00",
     "streaming_plan": {
       "path_id": "flagship-datacentre-path",
       "stages": [
@@ -271,9 +271,9 @@
         "native scroll only; no custom scroll driver"
       ]
     },
-    "initial_js_compressed_bytes": 3897
+    "initial_js_compressed_bytes": 4512
   },
   "budget_violations": [],
   "receipts": [],
-  "digest": "b4a669ffacff5b520e1e90f752c411105a8cf104bdc70549dff8d6e89da56a11"
+  "digest": "0e0e4404d84bb839766f3785b7104bba3cc015a5e6617098726f95f90bcb214f"
 }

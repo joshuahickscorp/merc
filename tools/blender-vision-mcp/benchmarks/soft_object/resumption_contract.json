@@ -1,0 +1,18 @@
+{
+  "schema": "visionmcp.object-benchmark-resumption/v1",
+  "target_id": "draped_cloth",
+  "phase": "P_soft",
+  "status": "synthetic_construction_complete",
+  "claim": "Draped cloth target uses procedural cloth simulation ground truth when Blender runs; software envelope is a blocked-stage substitute only.",
+  "required_to_resume": {
+    "blender": "4.2.x LTS with working GPU/CPU backend (no Metal init crash)",
+    "organic_lane": "scripts/run-organic-fur-lane.py producing organic-fur-receipt.json",
+    "optional_real_capture": {
+      "multiview_images_min": 24,
+      "include_fold_undersides": true,
+      "scale_reference": true
+    }
+  },
+  "known_open_gates": [],
+  "command": "python scripts/run-object-benchmarks.py --output artifacts/v2/object-benchmarks"
+}

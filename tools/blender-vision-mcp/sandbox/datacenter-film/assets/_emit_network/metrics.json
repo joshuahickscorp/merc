@@ -1,11 +1,39 @@
 {
-  "blend_bytes": 1360352,
+  "blend_bytes": 1418724,
   "blend_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/sandbox/datacenter-film/assets/_emit_network/scene.blend",
-  "glb_bytes": 148784,
+  "glb_bytes": 170388,
   "glb_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/sandbox/datacenter-film/assets/_emit_network/scene.glb",
-  "instances": 3,
+  "instances": 27,
   "prototypes": {
-    "proto_0004_cable_tray": {
+    "proto_0008_cable_tray": {
+      "archetype": "cable_tray",
+      "bbox_max": [
+        0.08500000089406967,
+        0.30000001192092896,
+        0.029999999329447746
+      ],
+      "bbox_min": [
+        -0.08500000089406967,
+        -0.30000001192092896,
+        -0.029999999329447746
+      ],
+      "bbox_size": [
+        0.17000000178813934,
+        0.6000000238418579,
+        0.05999999865889549
+      ],
+      "lod": "near",
+      "object_count": 5,
+      "part_names": [
+        "rail_left",
+        "rail_right",
+        "rung_00",
+        "rung_01",
+        "rung_02"
+      ],
+      "triangle_count": 60
+    },
+    "proto_0009_cable_tray": {
       "archetype": "cable_tray",
       "bbox_max": [
         0.13500000536441803,
@@ -25,11 +53,11 @@
       "lod": "near",
       "object_count": 43,
       "part_names": [
-        "rail_left",
-        "rail_right",
-        "rung_00",
-        "rung_01",
-        "rung_02",
+        "rail_left.001",
+        "rail_right.001",
+        "rung_00.001",
+        "rung_01.001",
+        "rung_02.001",
         "rung_03",
         "rung_04",
         "rung_05",
@@ -71,7 +99,7 @@
       ],
       "triangle_count": 516
     },
-    "proto_0005_cable_bundle": {
+    "proto_0010_cable_bundle": {
       "archetype": "cable_bundle",
       "bbox_max": [
         0.029999999329447746,
@@ -107,7 +135,7 @@
       ],
       "triangle_count": 396
     },
-    "proto_0010_cable_tray": {
+    "proto_0015_cable_tray": {
       "archetype": "cable_tray",
       "bbox_max": [
         0.13500000536441803,
@@ -127,11 +155,11 @@
       "lod": "near",
       "object_count": 29,
       "part_names": [
-        "rail_left.001",
-        "rail_right.001",
-        "rung_00.001",
-        "rung_01.001",
-        "rung_02.001",
+        "rail_left.002",
+        "rail_right.002",
+        "rung_00.002",
+        "rung_01.002",
+        "rung_02.002",
         "rung_03.001",
         "rung_04.001",
         "rung_05.001",
@@ -161,5 +189,5 @@
     }
   },
   "renders": [],
-  "unique_meshes": 3
+  "unique_meshes": 4
 }

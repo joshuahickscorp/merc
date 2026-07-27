@@ -1,0 +1,119 @@
+{
+  "acceptance_thresholds": {
+    "critical_critic_findings_maximum": 0,
+    "delivery_budget_violations_maximum": 0,
+    "detail_glb_gzip_bytes_maximum": 2500000,
+    "hidden_silhouette_iou_minimum": 0.9,
+    "public_silhouette_iou_minimum": 0.94,
+    "require_reduced_motion_path": true,
+    "require_streaming_plan": true,
+    "shell_glb_gzip_bytes_maximum": 1500000
+  },
+  "anti_cheat_rules": [
+    "builder_cannot_read_oracle_source",
+    "builder_cannot_read_hidden_cameras",
+    "builder_cannot_path_escape_to_oracle",
+    "builder_cannot_symlink_into_oracle",
+    "thresholds_are_digest_bound_before_builder_execution",
+    "evaluator_is_frozen_before_builder_and_reverified_after",
+    "hidden_evidence_never_appears_in_builder_inputs",
+    "failed_attempts_are_preserved",
+    "blocked_evidence_is_declared_exactly_never_substituted"
+  ],
+  "blocked_requirements": [],
+  "builder_inputs": [
+    {
+      "builder_visible": true,
+      "description": "Public narrative beats and delivery budget ceilings",
+      "path": "builder_inputs/public_brief.json",
+      "required": true,
+      "role": "brief"
+    },
+    {
+      "builder_visible": true,
+      "description": "Declared public camera front view metadata",
+      "path": "builder_inputs/public_views/front.json",
+      "required": true,
+      "role": "public_view"
+    },
+    {
+      "builder_visible": true,
+      "description": "Declared public hero view metadata",
+      "path": "builder_inputs/public_views/hero.json",
+      "required": true,
+      "role": "public_view"
+    },
+    {
+      "builder_visible": true,
+      "description": "Public archetype names only \u2014 no hidden placements",
+      "path": "builder_inputs/archetype_catalogue.json",
+      "required": true,
+      "role": "catalogue"
+    }
+  ],
+  "claim_boundary": [
+    "Thresholds apply to the owned procedural data-centre film only.",
+    "Passing does not claim general cinematic reconstruction quality.",
+    "Hidden holdouts remain evaluator-only during builder execution."
+  ],
+  "description": "Procedural data-centre corridor film: shell/detail/network GLB tiers, cinematic camera path, delivery budgets, and perceptual critics. Oracle owns the procedural seed, hidden holdout cameras, and measured delivery metrics. Builder receives public references and the governed delivery brief only.",
+  "display_name": "Data-centre flagship film",
+  "evaluator": {
+    "entry": "evaluator/gates.json",
+    "roles": [
+      "geometry",
+      "silhouette",
+      "delivery",
+      "critics"
+    ],
+    "root": "evaluator"
+  },
+  "evidence_status": "available",
+  "hidden_evidence": [
+    {
+      "builder_visible": false,
+      "description": "Evaluator-only holdout camera A",
+      "path": "oracle/hidden/cameras/holdout_01.json",
+      "required": true,
+      "role": "hidden_camera"
+    },
+    {
+      "builder_visible": false,
+      "description": "Evaluator-only holdout camera B",
+      "path": "oracle/hidden/cameras/holdout_02.json",
+      "required": true,
+      "role": "hidden_camera"
+    },
+    {
+      "builder_visible": false,
+      "description": "Oracle-measured GLB and motion digests",
+      "path": "oracle/hidden/measurements/delivery_metrics.json",
+      "required": true,
+      "role": "hidden_measurement"
+    },
+    {
+      "builder_visible": false,
+      "description": "Oracle material node values for rack shells",
+      "path": "oracle/hidden/materials/rack_finish.json",
+      "required": true,
+      "role": "hidden_material"
+    },
+    {
+      "builder_visible": false,
+      "description": "Leakage canary \u2014 must never appear in builder tree",
+      "path": "oracle/hidden/ORACLE_CANARY.txt",
+      "required": true,
+      "role": "canary"
+    }
+  ],
+  "kind": "v2.sealed-benchmark-manifest",
+  "schema_version": "1",
+  "subsystems": [
+    "procedural",
+    "cinematic",
+    "delivery",
+    "critics",
+    "lighting"
+  ],
+  "target_id": "datacenter_film"
+}

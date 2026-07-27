@@ -1,0 +1,22 @@
+{
+  "acceptance_thresholds": {
+    "critical_critic_findings_maximum": 0,
+    "delivery_budget_violations_maximum": 0,
+    "detail_glb_gzip_bytes_maximum": 2500000,
+    "hidden_silhouette_iou_minimum": 0.9,
+    "public_silhouette_iou_minimum": 0.94,
+    "require_reduced_motion_path": true,
+    "require_streaming_plan": true,
+    "shell_glb_gzip_bytes_maximum": 1500000
+  },
+  "entry": "gates.json",
+  "frozen": true,
+  "note": "Evaluator tree is digest-bound before any builder run.",
+  "roles": [
+    "geometry",
+    "silhouette",
+    "delivery",
+    "critics"
+  ],
+  "target_id": "datacenter_film"
+}

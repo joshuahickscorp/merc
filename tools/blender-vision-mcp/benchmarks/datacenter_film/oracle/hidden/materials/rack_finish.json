@@ -1,0 +1,9 @@
+{
+  "authority": "SEALED_ORACLE_ONLY",
+  "builder_visible": false,
+  "canary": "SEALED-V2-ORACLE-CANARY-datacenter_film",
+  "note": "Oracle material node values for rack shells",
+  "path": "oracle/hidden/materials/rack_finish.json",
+  "role": "hidden_material",
+  "target_id": "datacenter_film"
+}

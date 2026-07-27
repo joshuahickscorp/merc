@@ -1,0 +1,99 @@
+{
+  "acceptance_thresholds": {
+    "dense_mvs_without_cuda": "blocked",
+    "hidden_chamfer_m_maximum": 0.003,
+    "minimum_input_views": 24,
+    "public_chamfer_m_maximum": 0.002,
+    "require_portfolio_not_single_guess": true,
+    "scale_relative_error_maximum": 0.02,
+    "sparse_reprojection_rmse_px_maximum": 1.5
+  },
+  "anti_cheat_rules": [
+    "builder_cannot_read_oracle_source",
+    "builder_cannot_read_hidden_cameras",
+    "builder_cannot_path_escape_to_oracle",
+    "builder_cannot_symlink_into_oracle",
+    "thresholds_are_digest_bound_before_builder_execution",
+    "evaluator_is_frozen_before_builder_and_reverified_after",
+    "hidden_evidence_never_appears_in_builder_inputs",
+    "failed_attempts_are_preserved",
+    "blocked_evidence_is_declared_exactly_never_substituted"
+  ],
+  "blocked_requirements": [
+    {
+      "id": "real_remote_multiview_capture",
+      "reason": "No authorized physical multiview capture of a remote body has been supplied to this repository. A synthetic remote body would silently change the claim from OBSERVED to PROCEDURAL_GROUND_TRUTH and is therefore refused for this target.",
+      "required_to_unblock": "\u226524 rights-cleared consumer multiview images of a real remote body, EXIF/capture receipt, approximate scale anchor (MEASURED or MANUFACTURER_SPEC), and an explicit rights_state of OWNED or LICENSED. Dense COLMAP MVS remains separately blocked without CUDA."
+    },
+    {
+      "id": "colmap_dense_mvs_cuda",
+      "reason": "Host COLMAP is 4.0.4 without CUDA. Sparse SfM can run when images exist; dense MVS cannot and must be reported blocked, never faked.",
+      "required_to_unblock": "CUDA-capable COLMAP dense MVS build, or an alternative dense backend with a measured accuracy receipt on this target."
+    }
+  ],
+  "builder_inputs": [
+    {
+      "builder_visible": true,
+      "description": "Public capture protocol the builder must satisfy",
+      "path": "builder_inputs/capture_requirements.json",
+      "required": true,
+      "role": "requirements"
+    },
+    {
+      "builder_visible": true,
+      "description": "How scale anchors must be declared \u2014 no numbers from oracle",
+      "path": "builder_inputs/scale_protocol.json",
+      "required": true,
+      "role": "protocol"
+    }
+  ],
+  "claim_boundary": [
+    "This target is BLOCKED until real multiview evidence is supplied.",
+    "No synthetic remote may be substituted for a scored pass.",
+    "Dense MVS without CUDA is a named blocker, not a soft skip."
+  ],
+  "description": "Multiview reconstruction of a physical remote-control body. Requires \u226524 rights-cleared consumer images with known approximate scale. No authorized real capture has been supplied; synthetic stand-ins are forbidden for scored runs of this target.",
+  "display_name": "Consumer multiview remote body",
+  "evaluator": {
+    "entry": "evaluator/gates.json",
+    "roles": [
+      "reconstruction",
+      "scale",
+      "portfolio"
+    ],
+    "root": "evaluator"
+  },
+  "evidence_status": "blocked",
+  "hidden_evidence": [
+    {
+      "builder_visible": false,
+      "description": "Holdout view indices reserved for evaluator",
+      "path": "oracle/hidden/cameras/holdout_views.json",
+      "required": true,
+      "role": "hidden_camera"
+    },
+    {
+      "builder_visible": false,
+      "description": "Oracle scale once real capture exists",
+      "path": "oracle/hidden/measurements/scale_anchor.json",
+      "required": true,
+      "role": "hidden_measurement"
+    },
+    {
+      "builder_visible": false,
+      "description": "Leakage canary",
+      "path": "oracle/hidden/ORACLE_CANARY.txt",
+      "required": true,
+      "role": "canary"
+    }
+  ],
+  "kind": "v2.sealed-benchmark-manifest",
+  "schema_version": "1",
+  "subsystems": [
+    "reconstruction",
+    "spatial",
+    "materials",
+    "critics"
+  ],
+  "target_id": "remote"
+}
