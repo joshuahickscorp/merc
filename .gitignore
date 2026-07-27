@@ -30,6 +30,7 @@ scripts/*.log
 
 # ── Secrets / local config ───────────────────────────────────────────────────
 .env
+.env.bak*
 .env.go-closure
 .env.local
 .secrets/

@@ -418,6 +418,15 @@ func (s *Store) QuarantineSupplier(ctx context.Context, supplierID uuid.UUID) er
 	return nil
 }
 
+// WorkerEarnings reports what a supplier has been paid, earned in total, and
+// still carries.
+//
+// CarriedUSD reads the account-level accrual, NOT a sum over per-entry
+// settlement rows. Under account accrual each settlement records the carry
+// AFTER that entry -- a running balance -- so summing them counts the same
+// money once per entry. That bug reported five 0.4-cent credits, all of which
+// had been paid, as $0.02 permanently carried: a supplier being told their
+// entire earnings were stuck when the cash had already been sent.
 func (s *Store) WorkerEarnings(ctx context.Context, supplierID uuid.UUID) (Earnings, error) {
 	var e Earnings
 	err := s.pool.QueryRow(ctx,
@@ -426,11 +435,10 @@ func (s *Store) WorkerEarnings(ctx context.Context, supplierID uuid.UUID) (Earni
 		     WHERE le.payout_status = 'released' AND op.cash_moved = true
 		       AND op.sent_cents > 0), 0)::float8 / 100.0,
 		   COALESCE(SUM(le.amount_usd) FILTER (WHERE le.amount_usd > 0), 0),
-		   COALESCE(SUM(mu.remainder_microusd) FILTER (
-		     WHERE le.payout_status NOT IN ('clawed_back','reversal_required')),0)::float8 / 1000000.0
+		   COALESCE((SELECT a.accrued_microusd FROM supplier_payout_accruals a
+		              WHERE a.supplier_id = $1), 0)::float8 / 1000000.0
 		 FROM ledger_entries le
 		 LEFT JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
-		 LEFT JOIN supplier_minor_unit_settlements mu ON mu.ledger_entry_id=le.id
 		 WHERE le.supplier_id = $1 AND le.kind = 'supplier_credit'`,
 		supplierID,
 	).Scan(&e.BalanceUSD, &e.LifetimeUSD, &e.CarriedUSD)
