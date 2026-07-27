@@ -1,0 +1,377 @@
+{
+  "policy": "no-download; REVIEW_PENDING until human acceptance and pinned digest",
+  "entries": [
+    {
+      "model_id": "classical-segment-track",
+      "family": "classical",
+      "display_name": "Classical segment+track (local OpenCV)",
+      "version": "ocular-classical-1",
+      "source": "in-tree:blender_vision.ocular.segment/track",
+      "license": "Apache-2.0",
+      "checkpoint_digest": "sha256:none-classical-no-weights",
+      "allowed_use": [
+        "sensor_derived_segmentation",
+        "sensor_derived_tracking",
+        "object_permanence"
+      ],
+      "hardware": [
+        "cpu"
+      ],
+      "dependencies": [
+        "numpy",
+        "opencv-python-headless",
+        "scipy",
+        "scikit-image"
+      ],
+      "benchmark": "ocular-tabletop-tracking",
+      "failure_profile": [
+        "colour-similar object confusion under pure appearance association",
+        "no open-vocabulary concepts without local concept table",
+        "GrabCut needs a box; region grow needs seeds"
+      ],
+      "authority_ceiling": "SENSOR_DERIVED",
+      "privacy_implications": [
+        "operates only on caller-supplied frames; no network"
+      ],
+      "replacement_path": "learned families above once accepted with pinned digests",
+      "review_state": "REVIEW_PENDING",
+      "checkpoint_path": null,
+      "notes": [
+        "Not a weight checkpoint. Exposed for intake completeness.",
+        "Physical selection still requires review_state ACCEPTED and a real file when treated as a registry model; the segment/track modules run directly."
+      ],
+      "backend_state": "DOWNLOAD_REQUIRED",
+      "selectable_for_physical": false
+    },
+    {
+      "model_id": "cotracker3-point",
+      "family": "point_tracking",
+      "display_name": "CoTracker3 point tracking",
+      "version": "cotracker3@intake",
+      "source": "https://github.com/facebookresearch/co-tracker",
+      "license": "CC-BY-NC-4.0",
+      "checkpoint_digest": "sha256:pending-local-checkpoint-not-present",
+      "allowed_use": [
+        "dense_point_track_candidate",
+        "research_only"
+      ],
+      "hardware": [
+        "cuda>=12"
+      ],
+      "dependencies": [
+        "torch"
+      ],
+      "benchmark": "ocular-tabletop-tracking / not-run",
+      "failure_profile": [
+        "occlusion long-horizon drift",
+        "non-commercial license"
+      ],
+      "authority_ceiling": "MODEL_DERIVED",
+      "privacy_implications": [
+        "tracks motion of people/objects in private video"
+      ],
+      "replacement_path": "ocular.track classical IoU+histogram+Kalman",
+      "review_state": "REVIEW_PENDING",
+      "checkpoint_path": null,
+      "notes": [],
+      "backend_state": "DOWNLOAD_REQUIRED",
+      "selectable_for_physical": false
+    },
+    {
+      "model_id": "dino-v2-vitb14",
+      "family": "dense_features",
+      "display_name": "DINOv2 ViT-B/14",
+      "version": "dinov2_vitb14@2023-04",
+      "source": "https://github.com/facebookresearch/dinov2",
+      "license": "Apache-2.0",
+      "checkpoint_digest": "sha256:pending-local-checkpoint-not-present",
+      "allowed_use": [
+        "dense_descriptor",
+        "correspondence_candidate",
+        "diagnostic_only"
+      ],
+      "hardware": [
+        "cuda>=12",
+        "metal-mps",
+        "cpu-slow"
+      ],
+      "dependencies": [
+        "torch>=2.1",
+        "torchvision"
+      ],
+      "benchmark": "ocular-descriptor-transfer / not-run",
+      "failure_profile": [
+        "domain shift on synthetic CAD textures",
+        "specular collapse of descriptors",
+        "no metric scale"
+      ],
+      "authority_ceiling": "MODEL_DERIVED",
+      "privacy_implications": [
+        "descriptors can reconstruct approximate image content",
+        "do not export descriptors from private captures without review"
+      ],
+      "replacement_path": "classical.colour_histogram + optical_flow",
+      "review_state": "REVIEW_PENDING",
+      "checkpoint_path": null,
+      "notes": [
+        "Download nothing until REVIEW_PENDING clears and a digest is pinned."
+      ],
+      "backend_state": "DOWNLOAD_REQUIRED",
+      "selectable_for_physical": false
+    },
+    {
+      "model_id": "gaussian-splatting",
+      "family": "radiance",
+      "display_name": "3D Gaussian Splatting",
+      "version": "3dgs@intake",
+      "source": "https://github.com/graphdeco-inria/gaussian-splatting",
+      "license": "unreviewed",
+      "checkpoint_digest": "sha256:pending-local-checkpoint-not-present",
+      "allowed_use": [
+        "novel_view_candidate"
+      ],
+      "hardware": [
+        "cuda>=11"
+      ],
+      "dependencies": [
+        "torch",
+        "diff-gaussian-rasterization"
+      ],
+      "benchmark": "ocular-radiance / not-run",
+      "failure_profile": [
+        "editability poor",
+        "metric scale external",
+        "VRAM"
+      ],
+      "authority_ceiling": "MODEL_DERIVED",
+      "privacy_implications": [
+        "photoreal private scene reconstruction"
+      ],
+      "replacement_path": "mesh + baked textures from reconstruction portfolio",
+      "review_state": "REVIEW_PENDING",
+      "checkpoint_path": null,
+      "notes": [],
+      "backend_state": "DOWNLOAD_REQUIRED",
+      "selectable_for_physical": false
+    },
+    {
+      "model_id": "mast3r-geometry",
+      "family": "geometry",
+      "display_name": "MASt3R matching/geometry",
+      "version": "mast3r@intake",
+      "source": "https://github.com/naver/mast3r",
+      "license": "CC-BY-NC-4.0",
+      "checkpoint_digest": "sha256:pending-local-checkpoint-not-present",
+      "allowed_use": [
+        "pair_matching_candidate",
+        "research_only"
+      ],
+      "hardware": [
+        "cuda>=12"
+      ],
+      "dependencies": [
+        "torch",
+        "dust3r"
+      ],
+      "benchmark": "ocular-geometry-ensemble / not-run",
+      "failure_profile": [
+        "non-commercial license blocks product path",
+        "pair-scale ambiguity"
+      ],
+      "authority_ceiling": "MODEL_DERIVED",
+      "privacy_implications": [
+        "dense matches from private imagery"
+      ],
+      "replacement_path": "COLMAP feature matching",
+      "review_state": "REVIEW_PENDING",
+      "checkpoint_path": null,
+      "notes": [],
+      "backend_state": "DOWNLOAD_REQUIRED",
+      "selectable_for_physical": false
+    },
+    {
+      "model_id": "moge-geometry",
+      "family": "geometry",
+      "display_name": "MoGe monocular geometry",
+      "version": "moge@intake",
+      "source": "https://github.com/microsoft/MoGe",
+      "license": "unreviewed",
+      "checkpoint_digest": "sha256:pending-local-checkpoint-not-present",
+      "allowed_use": [
+        "monocular_depth_candidate"
+      ],
+      "hardware": [
+        "cuda>=11",
+        "cpu-slow"
+      ],
+      "dependencies": [
+        "torch"
+      ],
+      "benchmark": "ocular-geometry-ensemble / not-run",
+      "failure_profile": [
+        "metric scale unresolved",
+        "specular bias"
+      ],
+      "authority_ceiling": "MODEL_DERIVED",
+      "privacy_implications": [
+        "depth of private spaces"
+      ],
+      "replacement_path": "COLMAP sparse + classical depth_fusion when multi-view",
+      "review_state": "REVIEW_PENDING",
+      "checkpoint_path": null,
+      "notes": [],
+      "backend_state": "DOWNLOAD_REQUIRED",
+      "selectable_for_physical": false
+    },
+    {
+      "model_id": "sam2-hiera-large",
+      "family": "promptable_segmentation",
+      "display_name": "SAM 2 Hiera-Large",
+      "version": "sam2_hiera_large@2024-07",
+      "source": "https://github.com/facebookresearch/sam2",
+      "license": "Apache-2.0",
+      "checkpoint_digest": "sha256:pending-local-checkpoint-not-present",
+      "allowed_use": [
+        "promptable_mask",
+        "video_masklet_candidate"
+      ],
+      "hardware": [
+        "cuda>=12",
+        "metal-mps"
+      ],
+      "dependencies": [
+        "torch>=2.3",
+        "sam2"
+      ],
+      "benchmark": "ocular-tabletop-segmentation / not-run",
+      "failure_profile": [
+        "prompt ambiguity on similar objects",
+        "temporal flicker under heavy occlusion",
+        "VRAM pressure on long masklets"
+      ],
+      "authority_ceiling": "MODEL_DERIVED",
+      "privacy_implications": [
+        "masks reveal object presence in private scenes"
+      ],
+      "replacement_path": "ocular.segment classical region_grow/watershed/grabcut",
+      "review_state": "REVIEW_PENDING",
+      "checkpoint_path": null,
+      "notes": [],
+      "backend_state": "DOWNLOAD_REQUIRED",
+      "selectable_for_physical": false
+    },
+    {
+      "model_id": "sam3-class-placeholder",
+      "family": "promptable_segmentation",
+      "display_name": "SAM 3 class (placeholder intake)",
+      "version": "sam3-unreleased-intake",
+      "source": "https://github.com/facebookresearch/sam2",
+      "license": "unreviewed",
+      "checkpoint_digest": "sha256:pending-local-checkpoint-not-present",
+      "allowed_use": [
+        "promptable_mask_candidate"
+      ],
+      "hardware": [
+        "cuda>=12"
+      ],
+      "dependencies": [
+        "torch",
+        "sam3-when-released"
+      ],
+      "benchmark": "ocular-tabletop-segmentation / not-run",
+      "failure_profile": [
+        "unreleased; cannot execute"
+      ],
+      "authority_ceiling": "MODEL_DERIVED",
+      "privacy_implications": [
+        "same class as SAM2 once weights exist"
+      ],
+      "replacement_path": "ocular.segment classical contour_parts",
+      "review_state": "REVIEW_PENDING",
+      "checkpoint_path": null,
+      "notes": [
+        "Registered so intake tracks the family; no weights exist here."
+      ],
+      "backend_state": "DOWNLOAD_REQUIRED",
+      "selectable_for_physical": false
+    },
+    {
+      "model_id": "vggt-geometry",
+      "family": "geometry",
+      "display_name": "VGGT geometry backbone",
+      "version": "vggt@intake",
+      "source": "https://github.com/facebookresearch/vggt",
+      "license": "unreviewed",
+      "checkpoint_digest": "sha256:pending-local-checkpoint-not-present",
+      "allowed_use": [
+        "multiview_geometry_candidate"
+      ],
+      "hardware": [
+        "cuda>=12"
+      ],
+      "dependencies": [
+        "torch"
+      ],
+      "benchmark": "ocular-geometry-ensemble / not-run",
+      "failure_profile": [
+        "scale ambiguity",
+        "textureless failure",
+        "license unreviewed"
+      ],
+      "authority_ceiling": "MODEL_DERIVED",
+      "privacy_implications": [
+        "reconstructs private scenes in 3D"
+      ],
+      "replacement_path": "COLMAP sparse SfM (CPU) + visual hull",
+      "review_state": "REVIEW_PENDING",
+      "checkpoint_path": null,
+      "notes": [],
+      "backend_state": "DOWNLOAD_REQUIRED",
+      "selectable_for_physical": false
+    },
+    {
+      "model_id": "vjepa-prediction",
+      "family": "prediction",
+      "display_name": "V-JEPA video prediction",
+      "version": "vjepa@intake",
+      "source": "https://github.com/facebookresearch/jepa",
+      "license": "unreviewed",
+      "checkpoint_digest": "sha256:pending-local-checkpoint-not-present",
+      "allowed_use": [
+        "future_latent_candidate",
+        "surprise_diagnostic"
+      ],
+      "hardware": [
+        "cuda>=12"
+      ],
+      "dependencies": [
+        "torch"
+      ],
+      "benchmark": "ocular-prediction / not-run",
+      "failure_profile": [
+        "latent not geometric",
+        "no physical authority"
+      ],
+      "authority_ceiling": "MODEL_DERIVED",
+      "privacy_implications": [
+        "video embeddings of private activity"
+      ],
+      "replacement_path": "constant-velocity Kalman + occlusion permanence in ocular.track",
+      "review_state": "REVIEW_PENDING",
+      "checkpoint_path": null,
+      "notes": [],
+      "backend_state": "DOWNLOAD_REQUIRED",
+      "selectable_for_physical": false
+    }
+  ],
+  "physical_candidates": [],
+  "families_covered": [
+    "classical",
+    "dense_features",
+    "geometry",
+    "point_tracking",
+    "prediction",
+    "promptable_segmentation",
+    "radiance"
+  ]
+}
