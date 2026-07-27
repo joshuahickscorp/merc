@@ -82,11 +82,18 @@ for `KILL-RT` before concluding anything is missing.
   unattested upstream reports `UNATTESTED_HARNESS_RUN` and refuses
   `public_claim_allowed`.
 
-Three other harnesses (`realtime-openai-python-conformance.py`,
-`realtime-openai-node-conformance.mjs`, `realtime-sdk-conformance.sh`) were also
-destroyed and are NOT recovered. They are optional in the integration test,
-gated behind `MERC_TEST_OPENAI_PYTHON` / `MERC_TEST_OPENAI_NODE`, so the suite
-passes without them — but official-SDK conformance is currently unproven.
+**Resolved 2026-07-27.** `realtime-openai-python-conformance.py` and
+`realtime-openai-node-conformance.mjs` were rewritten from their call sites in
+`control/realtime_integration_test.go`, which specifies the full contract: seven
+capability flags, all required, plus `status == "PASS"`. Both now pass against
+the real `openai` Python 2.48.0 and JavaScript 6.49.0 clients.
+
+`realtime-sdk-conformance.sh` is NOT reconstructed. Unlike the other two it left
+no call site carrying assertions - only a Makefile target name - so rebuilding
+it would mean inventing a contract and calling the invention a recovery. The
+`realtime-sdk-conformance` target now runs the two harnesses that do have a
+specified contract, and fails loudly rather than skipping when the SDKs are not
+configured.
 
 ## Bug this uncovered
 

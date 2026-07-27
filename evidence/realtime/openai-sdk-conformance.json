@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "kind": "official_openai_sdk_conformance",
+  "commit": "7d78f2fc128072ce14f14ee9f6f11c9221fab915",
+  "clients": [
+    {
+      "language": "python",
+      "package": "openai",
+      "version": "2.48.0"
+    },
+    {
+      "language": "javascript",
+      "package": "openai",
+      "version": "6.49.0"
+    }
+  ],
+  "capabilities_asserted": [
+    "json_completion",
+    "streaming_completion",
+    "receipt_verified",
+    "authorization_receipt",
+    "models_list",
+    "parallel_tool_calls",
+    "structured_output"
+  ],
+  "both_clients_passed": true,
+  "evidence_level": "WIRE_SURFACE_CONFORMANT",
+  "real_runtime_attested": false,
+  "public_claim_allowed": false,
+  "note": "Both official OpenAI clients drive merc's realtime surface end to end: completion, streaming, merc's receipt headers, credential rejection, model listing, tool-call and structured-output request shapes. The UPSTREAM in this run is an httptest fake, so this is evidence about the wire surface only -- it says nothing about latency, throughput or any GPU, and no performance claim may cite it."
+}

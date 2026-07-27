@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test
+.PHONY: realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test
 
 up:
 	docker compose up -d --build
@@ -202,3 +202,22 @@ approvals-check:
 # tests. Kept out of `ci` because it runs the full suite once per mutation.
 mutation-test:
 	bash scripts/mutation-test.sh
+
+# Official-SDK conformance: drives merc's realtime surface with the real
+# `openai` Python and JavaScript clients, not merc's own. merc agreeing with
+# merc proves self-consistency; the claim being made to buyers is that code
+# already written against `openai` works by changing base_url, and only the
+# official clients can show that.
+#
+# Kept out of `ci` because it needs both SDKs installed and pinned. It fails
+# loudly on missing configuration rather than skipping: a conformance target
+# that quietly passes when it ran nothing is worse than no target.
+realtime-sdk-conformance:
+	@test -n "$(OPENAI_PYTHON)" || { echo "set OPENAI_PYTHON=/path/to/venv/bin/python"; exit 2; }
+	@test -n "$(OPENAI_NODE_MODULE)" || { echo "set OPENAI_NODE_MODULE=/path/to/node_modules/openai/index.mjs"; exit 2; }
+	@test -n "$(OPENAI_NODE_VERSION)" || { echo "set OPENAI_NODE_VERSION=<installed openai version>"; exit 2; }
+	cd control && MERC_TEST_OPENAI_PYTHON="$(OPENAI_PYTHON)" \
+	  MERC_TEST_OPENAI_NODE="$$(command -v node)" \
+	  MERC_TEST_OPENAI_NODE_MODULE="$(OPENAI_NODE_MODULE)" \
+	  MERC_TEST_OPENAI_NODE_VERSION="$(OPENAI_NODE_VERSION)" \
+	  go test -count=1 -v -run TestRealtimeStreamContractVerificationSettlementAndReceipt .

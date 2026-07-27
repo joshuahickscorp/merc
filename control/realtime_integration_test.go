@@ -179,7 +179,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	if !strings.Contains(string(streamBody), "hello") || !strings.Contains(string(streamBody), "[DONE]") {
 		t.Fatalf("compatible stream was not relayed: %s", streamBody)
 	}
-	contractID, err := uuid.Parse(response.Header.Get("X-CX-Contract-ID"))
+	contractID, err := uuid.Parse(response.Header.Get("X-Merc-Contract-ID"))
 	if err != nil {
 		t.Fatalf("missing contract header: %v", err)
 	}
@@ -244,8 +244,8 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	replayResponse.Body.Close()
-	if replayResponse.StatusCode != http.StatusConflict || replayResponse.Header.Get("X-CX-Contract-ID") != contractID.String() {
-		t.Fatalf("idempotent replay status=%d contract=%q", replayResponse.StatusCode, replayResponse.Header.Get("X-CX-Contract-ID"))
+	if replayResponse.StatusCode != http.StatusConflict || replayResponse.Header.Get("X-Merc-Contract-ID") != contractID.String() {
+		t.Fatalf("idempotent replay status=%d contract=%q", replayResponse.StatusCode, replayResponse.Header.Get("X-Merc-Contract-ID"))
 	}
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE execution_contract_id=$1`, contractID).Scan(&rows); err != nil || rows != 3 {
 		t.Fatalf("idempotent replay changed money effects: rows=%d err=%v", rows, err)
@@ -523,7 +523,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	}
 	_, _ = io.ReadAll(failedResponse.Body)
 	failedResponse.Body.Close()
-	failedContractID, err := uuid.Parse(failedResponse.Header.Get("X-CX-Contract-ID"))
+	failedContractID, err := uuid.Parse(failedResponse.Header.Get("X-Merc-Contract-ID"))
 	if err != nil {
 		t.Fatalf("worker-death request did not create a contract: %v", err)
 	}

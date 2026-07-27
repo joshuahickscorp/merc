@@ -324,7 +324,7 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 	if strings.TrimSpace(headerCeiling) != "" {
 		ceiling, err := strconv.ParseFloat(strings.TrimSpace(headerCeiling), 64)
 		if err != nil || ceiling <= 0 {
-			return preparedRealtimeRequest{}, errors.New("X-CX-Max-USD must be a positive number")
+			return preparedRealtimeRequest{}, errors.New("X-Merc-Max-USD must be a positive number")
 		}
 		if requestCeiling == 0 || ceiling < requestCeiling {
 			requestCeiling = ceiling
@@ -555,7 +555,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusRequestEntityTooLarge, "request body exceeds the realtime limit", "invalid_request_error", "request_too_large")
 		return
 	}
-	prepared, err := prepareRealtimeRequest(raw, r.Header.Get("X-CX-Max-USD"))
+	prepared, err := prepareRealtimeRequest(raw, r.Header.Get("X-Merc-Max-USD"))
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error", "invalid_request")
 		return
@@ -597,11 +597,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	receiptPath := "/v1/realtime/requests/" + contract.ID.String() + "/receipt"
-	w.Header().Set("X-CX-Contract-ID", contract.ID.String())
-	w.Header().Set("X-CX-Receipt", receiptPath)
-	w.Header().Set("X-CX-Max-USD", fmt.Sprintf("%.6f", contract.MaximumPriceUSD))
+	w.Header().Set("X-Merc-Contract-ID", contract.ID.String())
+	w.Header().Set("X-Merc-Receipt", receiptPath)
+	w.Header().Set("X-Merc-Max-USD", fmt.Sprintf("%.6f", contract.MaximumPriceUSD))
 	if replay {
-		writeOpenAIError(w, http.StatusConflict, "idempotent request already has a contract; inspect X-CX-Receipt", "invalid_request_error", "idempotent_replay")
+		writeOpenAIError(w, http.StatusConflict, "idempotent request already has a contract; inspect X-Merc-Receipt", "invalid_request_error", "idempotent_replay")
 		return
 	}
 	metrics.realtimeAuthorized.Add(1)
