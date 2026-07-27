@@ -68,6 +68,12 @@ REID_THRESHOLD_OCCLUDED = 0.70
 REID_THRESHOLD_LOST = 0.92
 # Re-id also requires kinematic plausibility above this soft score.
 REID_KINEMATIC_THRESHOLD = 0.25
+# ACTIVE tracks with near-zero IoU must still clear this appearance floor.
+# Prevents a nearby occluder/slab from stealing identity via position alone
+# when the true object is fully covered (IoU collapses, appearance diverges).
+ACTIVE_LOW_IOU_APPEARANCE_GATE = 0.45
+# IoU at or below this is "collapsed" for the active appearance gate.
+ACTIVE_LOW_IOU = 0.05
 # Hard spatial gate: never associate a detection farther than this many bbox
 # scales from the predicted centre. Prevents teleport re-id onto new objects.
 MAX_ASSOCIATION_DIST_SCALES = 2.5
@@ -592,10 +598,25 @@ def associate_hungarian(
                 det.appearance_hist,
                 det.appearance_embedding,
             )
+            iou = bbox_iou(trk.bbox_xywh, det.bbox_xywh)
             if trk.state is TrackState.LOST and app < REID_THRESHOLD_LOST:
                 continue
             if trk.state is TrackState.OCCLUDED and app < REID_THRESHOLD_OCCLUDED:
                 continue
+            # ACTIVE/REAPPEARED: refuse pure position matches that look like
+            # occluder capture — either IoU has collapsed, or the detection is
+            # much larger than the track (slab covering the object). Weak
+            # appearance then leaves the track unmatched → OCCLUDED + uncertainty
+            # growth, which is the correct permanence behaviour.
+            if trk.state in {TrackState.ACTIVE, TrackState.REAPPEARED}:
+                trk_area = max(trk.bbox_xywh[2] * trk.bbox_xywh[3], 1.0)
+                det_area = max(det.area_px, det.bbox_xywh[2] * det.bbox_xywh[3], 1.0)
+                occluder_like = det_area > 2.5 * trk_area
+                if (
+                    (iou <= ACTIVE_LOW_IOU or occluder_like)
+                    and app < ACTIVE_LOW_IOU_APPEARANCE_GATE
+                ):
+                    continue
             # LOST also needs kinematic plausibility (re-id dual gate).
             if trk.state is TrackState.LOST:
                 kin = _position_score(pred, det.centroid_xy, scale_px=scale * 2.0)
@@ -645,10 +666,20 @@ def associate_greedy(
             det.appearance_hist,
             det.appearance_embedding,
         )
+        iou = bbox_iou(trk.bbox_xywh, det.bbox_xywh)
         if trk.state is TrackState.LOST and app < REID_THRESHOLD_LOST:
             continue
         if trk.state is TrackState.OCCLUDED and app < REID_THRESHOLD_OCCLUDED:
             continue
+        if trk.state in {TrackState.ACTIVE, TrackState.REAPPEARED}:
+            trk_area = max(trk.bbox_xywh[2] * trk.bbox_xywh[3], 1.0)
+            det_area = max(det.area_px, det.bbox_xywh[2] * det.bbox_xywh[3], 1.0)
+            occluder_like = det_area > 2.5 * trk_area
+            if (
+                (iou <= ACTIVE_LOW_IOU or occluder_like)
+                and app < ACTIVE_LOW_IOU_APPEARANCE_GATE
+            ):
+                continue
         assigned_t.add(trk.track_id)
         assigned_d.add(det.detection_id)
         matches.append((trk, det, score))

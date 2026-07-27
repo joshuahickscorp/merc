@@ -672,3 +672,116 @@ def test_tracker_shaped_id_reports_minted_by_tracker() -> None:
     assert entity.identity_provenance["minted_by"] == "tracker"
     assert entity.identity_provenance["track_source"] == "perception"
     assert entity.identity_provenance["source_observation_frames"] == [0]
+
+
+def test_entity_belief_record_channels_populated() -> None:
+    """Every belief channel is present and queryable without ground truth."""
+    eid = "trk-0007"
+    world = build_world_model(
+        [
+            _obs(
+                0,
+                [
+                    {
+                        "entity_id": eid,
+                        "track_id": eid,
+                        "class_label": "block",
+                        "pose_m": [0.0, 0.0, 0.1],
+                        "visible": True,
+                        "detection_id": "det-0-a",
+                        "appearance_embedding": [0.1, 0.2, 0.3, 0.4],
+                        "bbox_xywh": [10.0, 20.0, 30.0, 40.0],
+                        "area_px": 1200.0,
+                        "identity_confidence": 0.9,
+                        "surfaces": [
+                            {
+                                "surface_id": "front",
+                                "provenance": SurfaceProvenance.DIRECTLY_OBSERVED.value,
+                                "visibility": VisibilityState.DIRECTLY_VISIBLE.value,
+                                "centroid_m": [0.0, 0.0, 0.1],
+                                "authority": "OBSERVED",
+                            },
+                            {
+                                "surface_id": "back",
+                                "provenance": SurfaceProvenance.SYMMETRY_INFERRED.value,
+                                "visibility": VisibilityState.SYMMETRY_DERIVED.value,
+                                "centroid_m": [0.0, 0.0, -0.1],
+                                "authority": "INFERRED",
+                            },
+                        ],
+                    }
+                ],
+            ),
+            # Occlusion frame: entity missing → occlusion_state + confidence drop.
+            _obs(1, []),
+            # Return with a competing pose so contradiction_history grows.
+            _obs(
+                2,
+                [
+                    {
+                        "entity_id": eid,
+                        "track_id": eid,
+                        "class_label": "block",
+                        "pose_m": [1.5, 0.0, 0.1],
+                        "visible": True,
+                        "detection_id": "det-2-a",
+                        "appearance_embedding": [0.11, 0.19, 0.31, 0.39],
+                        "bbox_xywh": [12.0, 22.0, 28.0, 38.0],
+                        "area_px": 1064.0,
+                        "identity_confidence": 0.8,
+                    }
+                ],
+            ),
+        ],
+        scene_id="belief-channels",
+    )
+    entity = world.entities[eid]
+
+    # Source observations name frames + detections/tracks.
+    assert entity.source_observations
+    assert entity.source_observations[0]["frame_index"] == 0
+    assert entity.source_observations[0]["detection_id"] == "det-0-a"
+    assert entity.source_observations[0]["track_id"] == eid
+
+    # Appearance embedding is carried, not inventable from a class label.
+    assert entity.appearance_embedding == [0.11, 0.19, 0.31, 0.39]
+
+    # Geometry extent / mask summary.
+    assert entity.geometry.get("bbox_xywh") == [12.0, 22.0, 28.0, 38.0]
+    assert entity.geometry.get("area_px") == pytest.approx(1064.0)
+
+    # Pose packages units + frame.
+    assert entity.pose["units"] == "m"
+    assert entity.pose["frame"]["name"]
+    assert entity.pose["position_m"][0] == pytest.approx(1.5)
+
+    # Trajectory is the observed history, not only the tip.
+    assert len(entity.trajectory) >= 3
+
+    # Identity confidence trajectory exists and moved under occlusion.
+    assert entity.identity_confidence_history
+    confs = [row["identity_confidence"] for row in entity.identity_confidence_history]
+    assert confs[0] >= confs[1]  # dropped while unobserved
+
+    # Contradiction on the large pose jump.
+    assert entity.contradiction_history
+    assert any(row["slot"] == BeliefSlot.POSE.value for row in entity.contradiction_history)
+
+    # Occlusion state was held and then cleared on reappearance.
+    assert entity.occlusion_state["state"] in {"visible", "partially_visible"}
+    assert entity.frames_since_seen == 0
+
+    # Observed vs inferred surfaces are separable.
+    assert "front" in entity.observed_surface_ids
+    assert "back" in entity.inferred_surface_ids
+    surfaces = query_world(world, {"type": "surfaces", "entity_id": eid})
+    assert surfaces["found"] is True
+    assert surfaces["surfaces"]["n_observed"] >= 1
+    assert surfaces["surfaces"]["n_inferred"] >= 1
+    explained = explain_belief(world, eid, "surfaces")
+    statuses = {row["status"] for row in explained}
+    assert "observed" in statuses
+    assert "inferred" in statuses
+    belief = query_world(world, {"type": "belief_record", "entity_id": eid})
+    assert belief["found"] is True
+    assert belief["belief_record"]["appearance_embedding_dim"] == 4
