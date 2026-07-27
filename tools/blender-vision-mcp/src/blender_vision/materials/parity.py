@@ -2,11 +2,13 @@
 
 Targets:
   (a) Blender Cycles (headless)
-  (b) Browser three.js/WebGL via Playwright (one browser at a time)
-  (c) Mobile LOD WebGL variant
+  (b) Browser raw WebGL via Playwright (one browser at a time)
+  (c) Mobile LOD WebGL / offline variant
   (d) Fixed poster path (offline analytic GGX sphere)
 
-A material that passes offline but fails in the browser is rejected.
+All four consume a single ProbeRig so camera, light, background, exposure and
+sphere parameters cannot drift. A material that passes offline but fails in the
+browser is rejected.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import subprocess
 import tempfile
 import threading
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -39,6 +41,129 @@ class ParityTarget(StrEnum):
     BROWSER = "browser"
     MOBILE_LOD = "mobile_lod"
     POSTER = "poster"
+
+
+@dataclass(slots=True)
+class ProbeRig:
+    """Shared probe constants for every parity target.
+
+    No target may hardcode its own value for anything declared here.
+    """
+
+    resolution: int = 128
+    sphere_radius: float = 1.0
+    sphere_segments: int = 48
+    sphere_rings: int = 24
+    # Camera: perspective, look-at target, vertical FOV in degrees.
+    camera_position: tuple[float, float, float] = (0.0, -3.2, 0.9)
+    camera_target: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    camera_fov_y_deg: float = 35.0
+    # Cycles AREA light (square). Analytic targets use the conversion below.
+    light_position: tuple[float, float, float] = (2.5, 1.8, 3.2)
+    light_energy: float = 250.0
+    light_size: float = 1.2
+    light_rotation_euler_deg: tuple[float, float, float] = (45.0, 0.0, 35.0)
+    # World background (linear RGB) and Background-node strength.
+    background_colour: tuple[float, float, float] = (0.12, 0.13, 0.15)
+    background_strength: float = 0.4
+    # Blender view_settings.exposure (EV). Analytic path multiplies linear by 2^exposure.
+    # Both targets then apply the Standard linear→sRGB transfer (not Filmic/AgX).
+    exposure: float = 0.0
+    cycles_samples: int = 32
+
+    def with_resolution(self, size: int) -> ProbeRig:
+        if size == self.resolution:
+            return self
+        return replace(self, resolution=int(size))
+
+    def exposure_gain(self) -> float:
+        return float(2.0 ** self.exposure)
+
+    def light_distance(self) -> float:
+        x, y, z = self.light_position
+        return float(math.sqrt(x * x + y * y + z * z))
+
+    def light_direction_from_origin(self) -> tuple[float, float, float]:
+        """Unit vector from sphere origin toward the area-light centre."""
+        d = self.light_distance()
+        x, y, z = self.light_position
+        return (x / d, y / d, z / d)
+
+    def direct_irradiance_scale(self) -> float:
+        """Approximate irradiance scale for the AREA light at the sphere origin.
+
+        Cycles AREA energy is total power (W). For a square Lambert emitter of
+        side ``light_size`` the exitance is energy / (π · size²). At distance d
+        from light centre to sphere origin, a facing surface sees solid angle
+        ≈ size² · cosθ / d², so irradiance ≈ energy · cosθ / (π · d²).
+
+        Analytic targets fold cosθ into N·L and use the facing scale:
+
+            E0 = energy / (π · d²)
+
+        Arithmetic for the default rig (energy=250, pos=(2.5,1.8,3.2)):
+            d = sqrt(2.5²+1.8²+3.2²) ≈ 4.44185
+            E0 = 250 / (π · d²) ≈ 4.0333
+        """
+        d = self.light_distance()
+        return float(self.light_energy / (math.pi * d * d + 1e-12))
+
+    def background_linear(self) -> tuple[float, float, float]:
+        s = self.background_strength
+        r, g, b = self.background_colour
+        return (r * s, g * s, b * s)
+
+    def camera_basis(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Return (eye, right, up, forward) in world space.
+
+        Blender camera looks along local -Z with local Y as up. ``forward`` is
+        the unit vector from eye toward the target (world direction of -Z).
+        """
+        eye = np.asarray(self.camera_position, dtype=np.float64)
+        target = np.asarray(self.camera_target, dtype=np.float64)
+        forward = target - eye
+        fl = float(np.linalg.norm(forward))
+        if fl < 1e-12:
+            raise ValueError("camera_position and camera_target must differ")
+        forward = forward / fl
+        world_up = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        right = np.cross(forward, world_up)
+        # Degenerate when looking along world up: fall back to +X as up hint.
+        if float(np.linalg.norm(right)) < 1e-8:
+            right = np.cross(forward, np.array([1.0, 0.0, 0.0], dtype=np.float64))
+        right = right / (float(np.linalg.norm(right)) + 1e-12)
+        # right = forward × up  ⇒  up = right × forward keeps a right-handed frame
+        # with -Z = forward when the camera basis is (right, up, -forward).
+        up = np.cross(right, forward)
+        up = up / (float(np.linalg.norm(up)) + 1e-12)
+        # Rebuild right so the triad stays orthonormal.
+        right = np.cross(forward, up)
+        right = right / (float(np.linalg.norm(right)) + 1e-12)
+        return eye, right, up, forward
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "resolution": self.resolution,
+            "sphere_radius": self.sphere_radius,
+            "sphere_segments": self.sphere_segments,
+            "sphere_rings": self.sphere_rings,
+            "camera_position": list(self.camera_position),
+            "camera_target": list(self.camera_target),
+            "camera_fov_y_deg": self.camera_fov_y_deg,
+            "light_position": list(self.light_position),
+            "light_energy": self.light_energy,
+            "light_size": self.light_size,
+            "light_rotation_euler_deg": list(self.light_rotation_euler_deg),
+            "background_colour": list(self.background_colour),
+            "background_strength": self.background_strength,
+            "exposure": self.exposure,
+            "cycles_samples": self.cycles_samples,
+            "direct_irradiance_scale": self.direct_irradiance_scale(),
+            "exposure_gain": self.exposure_gain(),
+        }
+
+
+DEFAULT_PROBE_RIG = ProbeRig()
 
 
 @dataclass(slots=True)
@@ -154,56 +279,146 @@ def compare_images(image_a: np.ndarray, image_b: np.ndarray) -> ParityMetrics:
     )
 
 
-def _ggx_sphere(
-    size: int,
+def _linear_to_srgb(linear: np.ndarray) -> np.ndarray:
+    """Standard IEC 61966-2-1 transfer, matching Blender view_transform='Standard'."""
+    x = np.clip(np.asarray(linear, dtype=np.float64), 0.0, None)
+    low = 12.92 * x
+    high = 1.055 * np.power(np.clip(x, 1e-10, None), 1.0 / 2.4) - 0.055
+    return np.where(x <= 0.0031308, low, high)
+
+
+def _shade_ggx(
+    normal: np.ndarray,
+    view: np.ndarray,
+    light_dir: np.ndarray,
+    *,
+    base_colour: np.ndarray,
+    roughness: float,
+    metalness: float,
+    irradiance: float | np.ndarray,
+    ambient_linear: np.ndarray,
+) -> np.ndarray:
+    """Cook-Torrance GGX with Lambert diffuse under a single directional sample."""
+    n = normal / (np.linalg.norm(normal, axis=-1, keepdims=True) + 1e-8)
+    v = view / (np.linalg.norm(view, axis=-1, keepdims=True) + 1e-8)
+    light_n = light_dir / (np.linalg.norm(light_dir, axis=-1, keepdims=True) + 1e-8)
+    h = v + light_n
+    h = h / (np.linalg.norm(h, axis=-1, keepdims=True) + 1e-8)
+    n_dot_l = np.clip(np.sum(n * light_n, axis=-1), 0.0, 1.0)
+    n_dot_v = np.clip(np.sum(n * v, axis=-1), 0.0, 1.0)
+    n_dot_h = np.clip(np.sum(n * h, axis=-1), 0.0, 1.0)
+    v_dot_h = np.clip(np.sum(v * h, axis=-1), 0.0, 1.0)
+
+    alpha = max(0.02, min(1.0, roughness)) ** 2
+    a2 = alpha * alpha
+    denom = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0
+    d = a2 / (math.pi * denom * denom + 1e-8)
+
+    # Schlick-GGX geometry (Smith joint approximation).
+    k = (roughness + 1.0) ** 2 / 8.0
+    g_v = n_dot_v / (n_dot_v * (1.0 - k) + k + 1e-8)
+    g_l = n_dot_l / (n_dot_l * (1.0 - k) + k + 1e-8)
+    g = g_v * g_l
+
+    base = np.asarray(base_colour[:3], dtype=np.float64)
+    f0 = base * metalness + (1.0 - metalness) * 0.04
+    fresnel = f0 + (1.0 - f0) * (1.0 - v_dot_h[..., None]) ** 5
+
+    spec = (d * g)[..., None] * fresnel / (4.0 * n_dot_v * n_dot_l + 1e-4)[..., None]
+    diffuse = base * (1.0 - metalness) / math.pi * (1.0 - fresnel)
+    irr = np.asarray(irradiance, dtype=np.float64)
+    if irr.ndim == 0:
+        irr_term = float(irr) * n_dot_l[..., None]
+    else:
+        irr_term = irr[..., None] * n_dot_l[..., None]
+    direct = irr_term * (diffuse + spec)
+
+    # Constant environment: hemisphere of radiance ≈ ambient_linear.
+    ambient = ambient_linear * (base * (1.0 - metalness) + f0 * metalness)
+    return direct + ambient
+
+
+def _render_probe_ggx(
     *,
     base_colour: list[float],
     roughness: float,
     metalness: float,
-    light_dir: tuple[float, float, float] = (0.45, 0.65, 0.6),
+    rig: ProbeRig,
     lod_bias: float = 0.0,
 ) -> np.ndarray:
-    """Offline analytic GGX-ish sphere used for poster / reference fallback."""
-    y, x = np.mgrid[0:size, 0:size].astype(np.float64)
-    nx = (x + 0.5) / size * 2.0 - 1.0
-    ny = 1.0 - (y + 0.5) / size * 2.0
-    r2 = nx * nx + ny * ny
-    mask = r2 <= 1.0
-    nz = np.sqrt(np.clip(1.0 - r2, 0.0, 1.0))
-    normal = np.stack([nx, ny, nz], axis=-1)
-    view = np.array([0.0, 0.0, 1.0])
-    light = np.array(light_dir, dtype=np.float64)
-    light = light / (np.linalg.norm(light) + 1e-8)
-    n_dot_l = np.clip(normal @ light, 0.0, 1.0)
-    half = light + view
-    half = half / (np.linalg.norm(half) + 1e-8)
-    n_dot_h = np.clip(normal @ half, 0.0, 1.0)
-    alpha = max(0.02, min(1.0, roughness + lod_bias)) ** 2
-    denom = (n_dot_h * n_dot_h * (alpha - 1.0) + 1.0) ** 2
-    d = alpha / (math.pi * denom + 1e-8)
-    base = np.array(base_colour[:3], dtype=np.float64)
-    diffuse = base * (1.0 - metalness) / math.pi
-    f0 = base * metalness + (1.0 - metalness) * 0.04
-    specular = f0[None, None, :] * d[..., None]
-    ambient = 0.08 * base
-    colour = ambient + n_dot_l[..., None] * (diffuse + specular)
-    colour = np.clip(colour, 0.0, 1.0)
-    colour[~mask] = 0.12
-    return colour
+    """Perspective ray-sphere GGX probe used by poster and mobile-LOD offline."""
+    size = int(rig.resolution)
+    eye, right, up, forward = rig.camera_basis()
+    tan_half = math.tan(math.radians(rig.camera_fov_y_deg) * 0.5)
+    y_i, x_i = np.mgrid[0:size, 0:size].astype(np.float64)
+    ndc_x = (x_i + 0.5) / size * 2.0 - 1.0
+    ndc_y = 1.0 - (y_i + 0.5) / size * 2.0
+    # Camera looks along -Z ≡ forward; pixel ray in camera space then world.
+    ray_dir = (
+        forward[None, None, :]
+        + ndc_x[..., None] * tan_half * right[None, None, :]
+        + ndc_y[..., None] * tan_half * up[None, None, :]
+    )
+    ray_dir = ray_dir / (np.linalg.norm(ray_dir, axis=-1, keepdims=True) + 1e-8)
+
+    # Ray-sphere: |eye + t d|^2 = r^2, sphere at origin.
+    radius = float(rig.sphere_radius)
+    b = 2.0 * np.sum(eye[None, None, :] * ray_dir, axis=-1)
+    c = float(np.dot(eye, eye)) - radius * radius
+    disc = b * b - 4.0 * c
+    hit = disc >= 0.0
+    sqrt_disc = np.sqrt(np.clip(disc, 0.0, None))
+    t0 = (-b - sqrt_disc) * 0.5
+    t1 = (-b + sqrt_disc) * 0.5
+    t = np.where(t0 > 1e-4, t0, t1)
+    hit = hit & (t > 1e-4)
+
+    pos = eye[None, None, :] + t[..., None] * ray_dir
+    normal = pos / (radius + 1e-8)
+    view = -ray_dir
+    light_pos = np.asarray(rig.light_position, dtype=np.float64)
+    to_light = light_pos[None, None, :] - pos
+    light_dist = np.linalg.norm(to_light, axis=-1, keepdims=True) + 1e-8
+    light_dir = to_light / light_dist
+    # Per-point inverse-square relative to the origin-facing scale E0.
+    d0 = rig.light_distance()
+    irradiance = rig.direct_irradiance_scale() * (d0 * d0) / (light_dist[..., 0] ** 2)
+
+    rough = float(min(1.0, max(0.0, roughness + lod_bias)))
+    ambient = np.asarray(rig.background_linear(), dtype=np.float64)
+    shaded = _shade_ggx(
+        normal,
+        view,
+        light_dir,
+        base_colour=np.asarray(base_colour[:3], dtype=np.float64),
+        roughness=rough,
+        metalness=float(metalness),
+        irradiance=irradiance,
+        ambient_linear=ambient,
+    )
+    gain = rig.exposure_gain()
+    linear = shaded * gain
+    bg = np.asarray(rig.background_linear(), dtype=np.float64) * gain
+    linear = np.where(hit[..., None], linear, bg[None, None, :])
+    srgb = _linear_to_srgb(np.clip(linear, 0.0, None))
+    return np.clip(srgb, 0.0, 1.0)
 
 
 def render_poster(
     hypothesis: MaterialHypothesis,
     *,
-    size: int = 128,
+    size: int | None = None,
     output_path: Path | None = None,
     lod_bias: float = 0.0,
+    rig: ProbeRig | None = None,
 ) -> Path:
-    image = _ggx_sphere(
-        size,
+    base_rig = rig or DEFAULT_PROBE_RIG
+    active = base_rig.with_resolution(size or base_rig.resolution)
+    image = _render_probe_ggx(
         base_colour=list(hypothesis.base_colour),
         roughness=hypothesis.roughness,
         metalness=hypothesis.metalness,
+        rig=active,
         lod_bias=lod_bias,
     )
     path = output_path or Path(tempfile.mkdtemp()) / f"poster-{hypothesis.hypothesis_id}.png"
@@ -250,32 +465,33 @@ def blender_probe() -> tuple[bool, str]:
     return False, f"Blender probe failed (returncode={completed.returncode}): {combined[-400:]}"
 
 
-def render_cycles(
+def build_cycles_script(
     hypothesis: MaterialHypothesis,
+    output_path: Path,
     *,
-    size: int = 128,
-    output_path: Path | None = None,
-    samples: int = 32,
-) -> Path:
-    """Render a probe sphere with the hypothesis under fixed key light in Cycles."""
-    available, reason = blender_probe()
-    if not available:
-        raise BackendUnavailable(reason)
-    blender = _blender_executable()
-    out = output_path or Path(tempfile.mkdtemp()) / f"cycles-{hypothesis.hypothesis_id}.png"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    script = f"""
+    rig: ProbeRig,
+    samples: int | None = None,
+) -> str:
+    """Generate the Cycles probe script from ProbeRig (no free-floating constants)."""
+    cam = rig.camera_position
+    tgt = rig.camera_target
+    light = rig.light_position
+    lrot = rig.light_rotation_euler_deg
+    bg = rig.background_colour
+    n_samples = int(samples if samples is not None else rig.cycles_samples)
+    return f"""
 import bpy
 import math
+from mathutils import Vector
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
 scene.render.engine = "CYCLES"
-scene.cycles.samples = {int(samples)}
+scene.cycles.samples = {n_samples}
 scene.cycles.use_denoising = False
-scene.render.resolution_x = {int(size)}
-scene.render.resolution_y = {int(size)}
-scene.render.filepath = {json.dumps(str(out))}
+scene.render.resolution_x = {int(rig.resolution)}
+scene.render.resolution_y = {int(rig.resolution)}
+scene.render.filepath = {json.dumps(str(output_path))}
 scene.render.image_settings.file_format = "PNG"
 scene.render.film_transparent = False
 try:
@@ -283,7 +499,18 @@ try:
 except Exception:
     pass
 
-bpy.ops.mesh.primitive_uv_sphere_add(segments=48, ring_count=24, radius=1.0)
+# Standard (not Filmic/AgX): plain linear→sRGB, exposure in EV (gain = 2^exposure).
+scene.view_settings.view_transform = "Standard"
+scene.view_settings.look = "None"
+scene.view_settings.exposure = {float(rig.exposure)}
+scene.view_settings.gamma = 1.0
+scene.display_settings.display_device = "sRGB"
+
+bpy.ops.mesh.primitive_uv_sphere_add(
+    segments={int(rig.sphere_segments)},
+    ring_count={int(rig.sphere_rings)},
+    radius={float(rig.sphere_radius)},
+)
 sphere = bpy.context.active_object
 bpy.ops.object.shade_smooth()
 
@@ -313,26 +540,54 @@ if "Subsurface Weight" in bsdf.inputs:
 links.new(bsdf.outputs["BSDF"], out_n.inputs["Surface"])
 sphere.data.materials.append(mat)
 
-bpy.ops.object.light_add(type="AREA", location=(2.5, 1.8, 3.2))
+bpy.ops.object.light_add(type="AREA", location=({light[0]}, {light[1]}, {light[2]}))
 key = bpy.context.active_object
-key.data.energy = 250.0
-key.data.size = 1.2
-key.rotation_euler = (math.radians(45), 0.0, math.radians(35))
+key.data.energy = {float(rig.light_energy)}
+key.data.size = {float(rig.light_size)}
+key.rotation_euler = (
+    math.radians({float(lrot[0])}),
+    math.radians({float(lrot[1])}),
+    math.radians({float(lrot[2])}),
+)
+
 
 world = bpy.data.worlds.new("World")
 scene.world = world
 world.use_nodes = True
-bg = world.node_tree.nodes["Background"]
-bg.inputs[0].default_value = (0.12, 0.13, 0.15, 1.0)
-bg.inputs[1].default_value = 0.4
+bg_node = world.node_tree.nodes["Background"]
+bg_node.inputs[0].default_value = ({bg[0]}, {bg[1]}, {bg[2]}, 1.0)
+bg_node.inputs[1].default_value = {float(rig.background_strength)}
 
-bpy.ops.object.camera_add(location=(0.0, -3.2, 0.9))
+bpy.ops.object.camera_add(location=({cam[0]}, {cam[1]}, {cam[2]}))
 cam = bpy.context.active_object
-cam.rotation_euler = (math.radians(74), 0.0, 0.0)
+direction = Vector(({tgt[0]}, {tgt[1]}, {tgt[2]})) - cam.location
+cam.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+cam.data.sensor_fit = "VERTICAL"
+cam.data.angle = math.radians({float(rig.camera_fov_y_deg)})
 scene.camera = cam
 
 bpy.ops.render.render(write_still=True)
 """
+
+
+def render_cycles(
+    hypothesis: MaterialHypothesis,
+    *,
+    size: int | None = None,
+    output_path: Path | None = None,
+    samples: int | None = None,
+    rig: ProbeRig | None = None,
+) -> Path:
+    """Render a probe sphere with the hypothesis under the shared ProbeRig in Cycles."""
+    available, reason = blender_probe()
+    if not available:
+        raise BackendUnavailable(reason)
+    blender = _blender_executable()
+    base_rig = rig or DEFAULT_PROBE_RIG
+    active = base_rig.with_resolution(size or base_rig.resolution)
+    out = output_path or Path(tempfile.mkdtemp()) / f"cycles-{hypothesis.hypothesis_id}.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    script = build_cycles_script(hypothesis, out, rig=active, samples=samples)
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as handle:
         handle.write(script)
         script_path = handle.name
@@ -362,24 +617,86 @@ bpy.ops.render.render(write_still=True)
         Path(script_path).unlink(missing_ok=True)
 
 
-_WEBGL_HTML = """<!DOCTYPE html>
+def _browser_material_params(
+    hypothesis: MaterialHypothesis,
+    *,
+    lod_bias: float = 0.0,
+    force_wrong: bool = False,
+) -> tuple[list[float], float, float]:
+    """Browser-side material. force_wrong perturbs only this path, not Cycles/poster."""
+    base = [
+        float(hypothesis.base_colour[0]),
+        float(hypothesis.base_colour[1]),
+        float(hypothesis.base_colour[2]),
+    ]
+    rough = float(min(1.0, max(0.0, hypothesis.roughness + lod_bias)))
+    metal = float(hypothesis.metalness)
+    if force_wrong:
+        # Invert albedo, raise roughness, flip metalness so whole-image metrics
+        # (including background dilution) still fire the published gate.
+        base = [float(max(0.0, min(1.0, 1.0 - c))) for c in base]
+        rough = float(min(1.0, rough + 0.4))
+        metal = float(1.0 - metal)
+    return base, rough, metal
+
+
+def build_browser_html(
+    hypothesis: MaterialHypothesis,
+    *,
+    rig: ProbeRig,
+    lod_bias: float = 0.0,
+    force_wrong: bool = False,
+) -> str:
+    """Build raw-WebGL HTML from ProbeRig (same camera/light/background/exposure)."""
+    base, rough, metal = _browser_material_params(
+        hypothesis, lod_bias=lod_bias, force_wrong=force_wrong
+    )
+    eye, right, up, forward = rig.camera_basis()
+    bg = rig.background_linear()
+    gain = rig.exposure_gain()
+    e0 = rig.direct_irradiance_scale()
+    d0 = rig.light_distance()
+    return f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
 <title>material-parity</title>
 <style>
-  html,body{{margin:0;background:#1e1f22;overflow:hidden}}
-  canvas{{display:block;width:{size}px;height:{size}px}}
+  html,body{{margin:0;background:#000;overflow:hidden}}
+  canvas{{display:block;width:{rig.resolution}px;height:{rig.resolution}px}}
 </style>
 </head>
 <body>
-<canvas id="c" width="{size}" height="{size}"></canvas>
+<canvas id="c" width="{rig.resolution}" height="{rig.resolution}"></canvas>
 <script>
-const baseColour = [{bc0}, {bc1}, {bc2}];
-const roughness = {roughness};
-const metalness = {metalness};
-const lodBias = {lod_bias};
-const size = {size};
+// ProbeRig constants (must match Cycles script / offline poster).
+const cameraPosition = [
+  {float(eye[0])}, {float(eye[1])}, {float(eye[2])}];
+const cameraTarget = [
+  {float(rig.camera_target[0])},
+  {float(rig.camera_target[1])},
+  {float(rig.camera_target[2])}];
+const cameraFovYDeg = {float(rig.camera_fov_y_deg)};
+const lightPosition = [
+  {float(rig.light_position[0])},
+  {float(rig.light_position[1])},
+  {float(rig.light_position[2])}];
+const sphereRadius = {float(rig.sphere_radius)};
+const baseColour = [{base[0]}, {base[1]}, {base[2]}];
+const roughness = {float(rough)};
+const metalness = {float(metal)};
+const size = {int(rig.resolution)};
+const camRight = [
+  {float(right[0])}, {float(right[1])}, {float(right[2])}];
+const camUp = [
+  {float(up[0])}, {float(up[1])}, {float(up[2])}];
+const camForward = [
+  {float(forward[0])}, {float(forward[1])}, {float(forward[2])}];
+const bgLinear = [
+  {float(bg[0])}, {float(bg[1])}, {float(bg[2])}];
+const exposureGain = {float(gain)};
+const irradianceE0 = {float(e0)};
+const lightDist0 = {float(d0)};
 const canvas = document.getElementById('c');
 const gl = canvas.getContext('webgl', {{antialias:true, preserveDrawingBuffer:true}});
 if (!gl) throw new Error('WebGL unavailable');
@@ -396,29 +713,75 @@ varying vec2 vUv;
 uniform vec3 uBase;
 uniform float uRough;
 uniform float uMetal;
+uniform vec3 uEye;
+uniform vec3 uRight;
+uniform vec3 uUp;
+uniform vec3 uForward;
+uniform float uTanHalfFov;
+uniform float uRadius;
+uniform vec3 uLightPos;
+uniform vec3 uBgLinear;
+uniform float uExposureGain;
+uniform float uIrradianceE0;
+uniform float uLightDist0;
+
+vec3 linearToSrgb(vec3 c) {{
+  bvec3 cutoff = lessThanEqual(c, vec3(0.0031308));
+  vec3 low = c * 12.92;
+  vec3 high = 1.055 * pow(max(c, vec3(0.0)), vec3(1.0/2.4)) - 0.055;
+  return mix(high, low, vec3(cutoff));
+}}
+
 void main() {{
-  vec2 p = vUv * 2.0 - 1.0;
-  float r2 = dot(p, p);
-  if (r2 > 1.0) {{
-    gl_FragColor = vec4(0.12, 0.12, 0.12, 1.0);
+  // WebGL vUv.y=1 is canvas top → ndc.y=+1 matches offline probe top rows.
+  vec2 ndc = vUv * 2.0 - 1.0;
+  vec3 rayDir = normalize(uForward + ndc.x * uTanHalfFov * uRight + ndc.y * uTanHalfFov * uUp);
+  // Ray-sphere at origin.
+  float b = 2.0 * dot(uEye, rayDir);
+  float c = dot(uEye, uEye) - uRadius * uRadius;
+  float disc = b * b - 4.0 * c;
+  vec3 bg = linearToSrgb(uBgLinear * uExposureGain);
+  if (disc < 0.0) {{
+    gl_FragColor = vec4(bg, 1.0);
     return;
   }}
-  vec3 n = normalize(vec3(p, sqrt(max(0.0, 1.0 - r2))));
-  vec3 l = normalize(vec3(0.45, 0.65, 0.6));
-  vec3 v = vec3(0.0, 0.0, 1.0);
-  vec3 h = normalize(l + v);
+  float sdisc = sqrt(disc);
+  float t0 = (-b - sdisc) * 0.5;
+  float t1 = (-b + sdisc) * 0.5;
+  float t = t0 > 1e-4 ? t0 : t1;
+  if (t <= 1e-4) {{
+    gl_FragColor = vec4(bg, 1.0);
+    return;
+  }}
+  vec3 pos = uEye + t * rayDir;
+  vec3 n = normalize(pos);
+  vec3 v = normalize(-rayDir);
+  vec3 toLight = uLightPos - pos;
+  float ldist = length(toLight);
+  vec3 l = toLight / max(ldist, 1e-6);
+  float irradiance = uIrradianceE0 * (uLightDist0 * uLightDist0) / max(ldist * ldist, 1e-6);
+  vec3 h = normalize(v + l);
   float ndl = max(dot(n, l), 0.0);
+  float ndv = max(dot(n, v), 0.0);
   float ndh = max(dot(n, h), 0.0);
-  float a = max(0.02, min(1.0, uRough));
-  a = a * a;
-  float denom = (ndh * ndh * (a - 1.0) + 1.0);
-  denom = 3.14159265 * denom * denom;
-  float D = a / max(denom, 1e-4);
-  vec3 diffuse = uBase * (1.0 - uMetal) / 3.14159265;
+  float vdh = max(dot(v, h), 0.0);
+  float alpha = max(0.02, min(1.0, uRough));
+  alpha = alpha * alpha;
+  float a2 = alpha * alpha;
+  float denom = ndh * ndh * (a2 - 1.0) + 1.0;
+  float D = a2 / max(3.14159265 * denom * denom, 1e-6);
+  float k = (uRough + 1.0) * (uRough + 1.0) / 8.0;
+  float Gv = ndv / max(ndv * (1.0 - k) + k, 1e-6);
+  float Gl = ndl / max(ndl * (1.0 - k) + k, 1e-6);
+  float G = Gv * Gl;
   vec3 f0 = mix(vec3(0.04), uBase, uMetal);
-  vec3 specular = f0 * D;
-  vec3 color = 0.08 * uBase + ndl * (diffuse + specular);
-  gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+  vec3 F = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
+  vec3 spec = (D * G) * F / max(4.0 * ndv * ndl, 1e-4);
+  vec3 diffuse = uBase * (1.0 - uMetal) / 3.14159265 * (1.0 - F);
+  vec3 direct = irradiance * ndl * (diffuse + spec);
+  vec3 ambient = uBgLinear * (uBase * (1.0 - uMetal) + f0 * uMetal);
+  vec3 linear = (direct + ambient) * uExposureGain;
+  gl_FragColor = vec4(linearToSrgb(max(linear, vec3(0.0))), 1.0);
 }}`;
 function compile(type, src) {{
   const s = gl.createShader(type);
@@ -431,6 +794,7 @@ const prog = gl.createProgram();
 gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
 gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
 gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
 gl.useProgram(prog);
 const buf = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -438,9 +802,22 @@ gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.ST
 const loc = gl.getAttribLocation(prog, 'p');
 gl.enableVertexAttribArray(loc);
 gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-gl.uniform3f(gl.getUniformLocation(prog, 'uBase'), baseColour[0], baseColour[1], baseColour[2]);
-gl.uniform1f(gl.getUniformLocation(prog, 'uRough'), Math.min(1.0, roughness + lodBias));
-gl.uniform1f(gl.getUniformLocation(prog, 'uMetal'), metalness);
+function uni3(name, v) {{ gl.uniform3f(gl.getUniformLocation(prog, name), v[0], v[1], v[2]); }}
+function uni1(name, v) {{ gl.uniform1f(gl.getUniformLocation(prog, name), v); }}
+uni3('uBase', baseColour);
+uni1('uRough', roughness);
+uni1('uMetal', metalness);
+uni3('uEye', cameraPosition);
+uni3('uRight', camRight);
+uni3('uUp', camUp);
+uni3('uForward', camForward);
+uni1('uTanHalfFov', Math.tan(cameraFovYDeg * Math.PI / 180.0 * 0.5));
+uni1('uRadius', sphereRadius);
+uni3('uLightPos', lightPosition);
+uni3('uBgLinear', bgLinear);
+uni1('uExposureGain', exposureGain);
+uni1('uIrradianceE0', irradianceE0);
+uni1('uLightDist0', lightDist0);
 gl.viewport(0, 0, size, size);
 gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 window.__parityReady = true;
@@ -453,10 +830,11 @@ window.__parityReady = true;
 def render_browser(
     hypothesis: MaterialHypothesis,
     *,
-    size: int = 128,
+    size: int | None = None,
     output_path: Path | None = None,
     lod_bias: float = 0.0,
     force_wrong: bool = False,
+    rig: ProbeRig | None = None,
 ) -> Path:
     """Render the probe in a real browser WebGL context. Serialised globally."""
     global _BROWSER_HELD
@@ -470,19 +848,12 @@ def render_browser(
         _BROWSER_LOCK.release()
         raise BackendUnavailable("playwright is not installed") from error
 
+    base_rig = rig or DEFAULT_PROBE_RIG
+    active = base_rig.with_resolution(size or base_rig.resolution)
     out = output_path or Path(tempfile.mkdtemp()) / f"browser-{hypothesis.hypothesis_id}.png"
     out.parent.mkdir(parents=True, exist_ok=True)
-    # Optional deliberate browser-wrong path for gate tests.
-    rough = min(1.0, hypothesis.roughness + (0.55 if force_wrong else 0.0))
-    metal = 0.0 if force_wrong else hypothesis.metalness
-    html = _WEBGL_HTML.format(
-        size=int(size),
-        bc0=float(hypothesis.base_colour[0]),
-        bc1=float(hypothesis.base_colour[1]),
-        bc2=float(hypothesis.base_colour[2]),
-        roughness=float(rough),
-        metalness=float(metal),
-        lod_bias=float(lod_bias),
+    html = build_browser_html(
+        hypothesis, rig=active, lod_bias=lod_bias, force_wrong=force_wrong
     )
     html_path = out.with_suffix(".html")
     html_path.write_text(html, encoding="utf-8")
@@ -490,7 +861,9 @@ def render_browser(
         with sync_playwright() as playwright:
             browser = _launch_playwright_browser(playwright)
             try:
-                page = browser.new_page(viewport={"width": size, "height": size})
+                page = browser.new_page(
+                    viewport={"width": active.resolution, "height": active.resolution}
+                )
                 page.goto(html_path.resolve().as_uri(), wait_until="load")
                 page.wait_for_function("() => window.__parityReady === true", timeout=10000)
                 page.locator("canvas").screenshot(path=str(out), type="png")
@@ -543,10 +916,12 @@ def run_parity(
     run_cycles: bool | None = None,
     run_browser: bool | None = None,
     browser_force_wrong: bool = False,
+    rig: ProbeRig | None = None,
 ) -> ParityReport:
     """Render across targets and enforce the browser gate."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    active = (rig or DEFAULT_PROBE_RIG).with_resolution(size)
     if run_cycles is None:
         run_cycles = os.environ.get("BVMCP_RUN_BLENDER_TESTS") == "1"
     if run_browser is None:
@@ -556,7 +931,7 @@ def run_parity(
     images: dict[ParityTarget, np.ndarray] = {}
 
     poster_path = render_poster(
-        hypothesis, size=size, output_path=output_dir / "poster.png"
+        hypothesis, size=size, output_path=output_dir / "poster.png", rig=active
     )
     images[ParityTarget.POSTER] = _load_rgb(poster_path)
     results.append(
@@ -573,6 +948,7 @@ def run_parity(
         size=size,
         output_path=output_dir / "mobile_lod.png",
         lod_bias=0.18,
+        rig=active,
     )
     images[ParityTarget.MOBILE_LOD] = _load_rgb(mobile_path)
     mobile_metrics = compare_images(images[ParityTarget.POSTER], images[ParityTarget.MOBILE_LOD])
@@ -583,14 +959,14 @@ def run_parity(
             metrics_vs_reference=mobile_metrics,
             passed=mobile_metrics.delta_e2000 <= delta_e_limit * 1.5
             and mobile_metrics.structural <= structural_limit * 1.5,
-            notes=["mobile LOD uses increased roughness bias"],
+            notes=["mobile LOD uses increased roughness bias on shared ProbeRig"],
         )
     )
 
     if run_cycles:
         try:
             cycles_path = render_cycles(
-                hypothesis, size=size, output_path=output_dir / "cycles.png"
+                hypothesis, size=size, output_path=output_dir / "cycles.png", rig=active
             )
             images[ParityTarget.CYCLES] = _load_rgb(cycles_path)
             metrics = compare_images(images[ParityTarget.POSTER], images[ParityTarget.CYCLES])
@@ -633,25 +1009,28 @@ def run_parity(
                 size=size,
                 output_path=output_dir / "browser.png",
                 force_wrong=browser_force_wrong,
+                rig=active,
             )
             images[ParityTarget.BROWSER] = _load_rgb(browser_path)
             # Prefer Cycles as offline reference when available; else poster.
             ref = images.get(ParityTarget.CYCLES, images[ParityTarget.POSTER])
             metrics = compare_images(ref, images[ParityTarget.BROWSER])
-            # Browser gate: must stay within perceptual limits vs offline reference.
+            # Gate is purely metric-driven. force_wrong only perturbs the browser
+            # material; it must not short-circuit the comparison.
             browser_pass = (
                 metrics.delta_e2000 <= delta_e_limit and metrics.structural <= structural_limit
             )
-            if browser_force_wrong:
-                browser_pass = False
             browser_gate_failed = not browser_pass
+            notes = ["browser gate enforced against offline reference via ProbeRig"]
+            if browser_force_wrong:
+                notes.append("browser material deliberately perturbed (roughness/metalness)")
             results.append(
                 ParityTargetResult(
                     target=ParityTarget.BROWSER,
                     image_path=browser_path,
                     metrics_vs_reference=metrics,
                     passed=browser_pass,
-                    notes=["browser gate enforced against offline reference"],
+                    notes=notes,
                 )
             )
         except (BackendUnavailable, BrowserBusyError) as error:
@@ -691,7 +1070,6 @@ def run_parity(
     overall = offline_ok and not browser_gate_failed and (
         browser_result.blocked or browser_result.passed
     )
-    # When browser was requested and failed, overall must be false.
     if run_browser and browser_gate_failed:
         overall = False
 
@@ -706,5 +1084,8 @@ def run_parity(
     )
     (output_dir / "parity_report.json").write_text(
         json.dumps(report.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (output_dir / "probe_rig.json").write_text(
+        json.dumps(active.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return report
