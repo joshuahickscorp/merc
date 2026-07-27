@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "runtime_concurrency_sweep",
+  "label": "CUDA RTX A5000 / vLLM 0.26 TUNED / Qwen2.5-1.5B fp16 / ceiling probe",
+  "model": "merc-vllm",
+  "max_tokens": 128,
+  "cost_per_hour_usd": 0.27,
+  "levels": {
+    "64": {
+      "requests": 128,
+      "errors": 0,
+      "error_samples": [],
+      "wall_seconds": 3.221,
+      "aggregate_tokens_per_sec": 4782.45,
+      "ttft_ms_p50": 571.3,
+      "ttft_ms_p95": 726.6,
+      "latency_s_p50": 1.462,
+      "latency_s_p95": 1.686,
+      "completion_tokens_total": 15403
+    },
+    "128": {
+      "requests": 256,
+      "errors": 0,
+      "error_samples": [],
+      "wall_seconds": 4.231,
+      "aggregate_tokens_per_sec": 7081.56,
+      "ttft_ms_p50": 770.6,
+      "ttft_ms_p95": 992.8,
+      "latency_s_p50": 1.91,
+      "latency_s_p95": 2.096,
+      "completion_tokens_total": 29960
+    }
+  },
+  "peak_aggregate_tokens_per_sec": 7081.56,
+  "usd_per_million_tokens_at_peak": 0.0106,
+  "comparability_warning": "Valid only against another sweep with the SAME model, precision and max_tokens. Metal/GGUF-Q4 and CUDA/fp16 are different weights at different precision; quoting one number across them is not a measurement, it is a slogan."
+}
