@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test
+.PHONY: credentials credentials-check droplet-deploy private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test
 
 up:
 	docker compose up -d --build
@@ -206,6 +206,15 @@ approvals-check:
 # The private canary. Exercises every lane and reports what is actually proven.
 # Exit 2 means a lane could not run because a capability is missing -- that is a
 # blocked lane, not a defect, and the report names what is missing.
+# Blind-drop the RunPod and Stripe TEST credentials the canary needs. Prompts
+# with hidden input, verifies each key against the live API, refuses a live
+# Stripe key, and writes a chmod-600 gitignored file. Never prints a secret.
+credentials:
+	bash scripts/merc-credentials.sh
+
+credentials-check:
+	bash scripts/merc-credentials.sh --check
+
 private-canary:
 	python3 scripts/private-canary.py --out evidence/canary/private-canary.json
 
@@ -230,3 +239,10 @@ realtime-sdk-conformance:
 	  MERC_TEST_OPENAI_NODE_MODULE="$(OPENAI_NODE_MODULE)" \
 	  MERC_TEST_OPENAI_NODE_VERSION="$(OPENAI_NODE_VERSION)" \
 	  go test -count=1 -v -run TestRealtimeStreamContractVerificationSettlementAndReceipt .
+
+# Production droplet deploy. Runs ON the droplet, not from here. Preflight,
+# backup, deploy, off-box verify, auto-rollback. --dry-run changes nothing.
+droplet-deploy:
+	@echo "Run this ON the droplet, not from a workstation:"
+	@echo "  scp scripts/droplet-deploy.sh root@<droplet>:/opt/merc/"
+	@echo "  ssh root@<droplet> 'cd /opt/merc && bash droplet-deploy.sh --dry-run'"
