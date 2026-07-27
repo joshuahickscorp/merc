@@ -1,0 +1,134 @@
+{
+  "frame_index": 1,
+  "blender_frame": 2,
+  "image": "frame_0002.png",
+  "condition": "visually_similar",
+  "objects": [
+    {
+      "id": "obj_a",
+      "visible": true,
+      "hidden_flag": false,
+      "world_xyz_m": [
+        -0.2151612937450409,
+        0.0,
+        0.07999999821186066
+      ],
+      "image_uv_px": [
+        101.8028450012207,
+        139.89952325820923
+      ],
+      "bbox_xywh_px": [
+        83.8028450012207,
+        121.89952325820923,
+        36.0,
+        36.0
+      ],
+      "in_camera_view": true
+    },
+    {
+      "id": "obj_b",
+      "visible": true,
+      "hidden_flag": false,
+      "world_xyz_m": [
+        0.0,
+        0.04741935431957245,
+        0.07999999821186066
+      ],
+      "image_uv_px": [
+        160.0,
+        132.133047580719
+      ],
+      "bbox_xywh_px": [
+        142.0,
+        114.133047580719,
+        36.0,
+        36.0
+      ],
+      "in_camera_view": true
+    },
+    {
+      "id": "obj_c",
+      "visible": true,
+      "hidden_flag": false,
+      "world_xyz_m": [
+        0.21677419543266296,
+        -0.029999999329447746,
+        0.07999999821186066
+      ],
+      "image_uv_px": [
+        219.91348266601562,
+        145.0898265838623
+      ],
+      "bbox_xywh_px": [
+        201.91348266601562,
+        127.0898265838623,
+        36.0,
+        36.0
+      ],
+      "in_camera_view": true
+    },
+    {
+      "id": "obj_distractor",
+      "visible": false,
+      "hidden_flag": true,
+      "world_xyz_m": [
+        0.699999988079071,
+        0.20000000298023224,
+        0.07999999821186066
+      ],
+      "image_uv_px": [
+        325.73116302490234,
+        110.25866031646729
+      ],
+      "bbox_xywh_px": [
+        307.73116302490234,
+        92.25866031646729,
+        36.0,
+        36.0
+      ],
+      "in_camera_view": false
+    },
+    {
+      "id": "obj_unknown",
+      "visible": false,
+      "hidden_flag": true,
+      "world_xyz_m": [
+        0.699999988079071,
+        -0.20000000298023224,
+        0.07999999821186066
+      ],
+      "image_uv_px": [
+        380.7844924926758,
+        179.386625289917
+      ],
+      "bbox_xywh_px": [
+        362.7844924926758,
+        161.386625289917,
+        36.0,
+        36.0
+      ],
+      "in_camera_view": false
+    },
+    {
+      "id": "occluder_slab",
+      "visible": false,
+      "hidden_flag": true,
+      "world_xyz_m": [
+        0.550000011920929,
+        0.05000000074505806,
+        0.11999999731779099
+      ],
+      "image_uv_px": [
+        306.47085189819336,
+        123.22922945022583
+      ],
+      "bbox_xywh_px": [
+        288.47085189819336,
+        105.22922945022583,
+        36.0,
+        36.0
+      ],
+      "in_camera_view": true
+    }
+  ]
+}
