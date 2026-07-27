@@ -94,9 +94,9 @@ func accrueSupplierLiability(
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO supplier_minor_unit_settlements
 		  (ledger_entry_id,policy,carry_in_microusd,liability_microusd,cash_cents,remainder_microusd,currency)
-		VALUES ($1,$2,$3,$4,$5,$6,'usd')`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 		entryID, supplierSettlementPolicyAccountAccrualV2,
-		accrual.AccruedMicros, liabilityMicros, cashCents, carryOut,
+		accrual.AccruedMicros, liabilityMicros, cashCents, carryOut, SettlementCurrencyCode(),
 	); err != nil {
 		return 0, 0, fmt.Errorf("recording accrual settlement for %s: %w", entryID, err)
 	}

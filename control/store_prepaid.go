@@ -46,9 +46,9 @@ func (s *Store) BeginPrepaidTopup(ctx context.Context, operationKey string, buye
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO prepaid_topup_operations
 		  (operation_key,buyer_id,amount_cents,currency,status)
-		VALUES ($1,$2,$3,'usd','pending')
+		VALUES ($1,$2,$3,$4,'pending')
 		ON CONFLICT (operation_key) DO NOTHING`,
-		operationKey, buyerID, amountCents)
+		operationKey, buyerID, amountCents, SettlementCurrencyCode())
 	return err
 }
 
@@ -58,7 +58,7 @@ func (s *Store) BeginPrepaidTopup(ctx context.Context, operationKey string, buye
 func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buyerID uuid.UUID, charge ChargeResult) error {
 	operationKey = strings.TrimSpace(operationKey)
 	if operationKey == "" || buyerID == uuid.Nil || charge.PaymentIntentID == "" || charge.ChargeID == "" ||
-		charge.ReceivedCents <= 0 || charge.ReceivedCents != charge.RequestedCents || charge.Currency != "usd" {
+		charge.ReceivedCents <= 0 || charge.ReceivedCents != charge.RequestedCents || RequireSettlementCurrency(charge.Currency) != nil {
 		return fmt.Errorf("invalid prepaid top-up credit")
 	}
 	micros := charge.ReceivedCents * microUSDPerCent
@@ -80,8 +80,8 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO prepaid_topup_operations
 			  (operation_key,buyer_id,amount_cents,currency,status)
-			VALUES ($1,$2,$3,'usd','pending')`,
-			operationKey, buyerID, charge.ReceivedCents); err != nil {
+			VALUES ($1,$2,$3,$4,'pending')`,
+			operationKey, buyerID, charge.ReceivedCents, SettlementCurrencyCode()); err != nil {
 			return err
 		}
 		storedBuyer, amountCents, status = buyerID, charge.ReceivedCents, "pending"
@@ -120,10 +120,10 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 		INSERT INTO buyer_cash_collections
 		  (payment_intent,charge_id,buyer_id,source_kind,job_id,charge_batch_id,
 		   requested_cents,received_cents,currency)
-		VALUES ($1,$2,$3,'topup',NULL,NULL,$4,$5,'usd')
+		VALUES ($1,$2,$3,'topup',NULL,NULL,$4,$5,$6)
 		ON CONFLICT (payment_intent) DO NOTHING`,
 		charge.PaymentIntentID, charge.ChargeID, buyerID,
-		charge.RequestedCents, charge.ReceivedCents); err != nil {
+		charge.RequestedCents, charge.ReceivedCents, SettlementCurrencyCode()); err != nil {
 		return err
 	}
 	ct, err := tx.Exec(ctx, `
@@ -215,9 +215,9 @@ func (s *Store) DebitPrepaidRefund(ctx context.Context, operationKey string, buy
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO prepaid_refund_operations
 		  (operation_key,buyer_id,amount_cents,currency,status,stripe_refund_id)
-		VALUES ($1,$2,$3,'usd','succeeded',$4)
+		VALUES ($1,$2,$3,$4,'succeeded',$5)
 		ON CONFLICT (operation_key) DO NOTHING`,
-		operationKey, buyerID, amountMicros/microUSDPerCent, stripeRefundIDs); err != nil {
+		operationKey, buyerID, amountMicros/microUSDPerCent, SettlementCurrencyCode(), stripeRefundIDs); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

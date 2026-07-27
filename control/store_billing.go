@@ -116,24 +116,27 @@ func (s *Store) EnsureJobSLAPremiumCharge(ctx context.Context, jobID uuid.UUID) 
 }
 
 type InvoiceView struct {
-	JobID            uuid.UUID `json:"job_id"`
-	BuyerID          uuid.UUID `json:"buyer_id"`
-	Status           string    `json:"status"`
-	JobType          string    `json:"job_type"`
-	CreatedAt        time.Time `json:"created_at"`
-	EstimatedUSD     float64   `json:"estimated_usd"`
-	ActualUSD        float64   `json:"actual_usd"`
-	ChargedUSD       float64   `json:"charged_usd"`
-	SupplierPaidUSD  float64   `json:"supplier_credit_usd"`
-	PlatformTakeUSD  float64   `json:"platform_take_usd"`
-	QuotedUSD        *float64  `json:"quoted_usd,omitempty"`
-	FirmQuote        bool      `json:"firm_quote,omitempty"`
-	FirmQuoteMaxUSD  *float64  `json:"firm_quote_max_usd,omitempty"`
-	BilledUSD        *float64  `json:"billed_usd,omitempty"`
-	SLAGuaranteeSecs int       `json:"sla_guarantee_secs,omitempty"`
-	SLAPremiumUSD    *float64  `json:"sla_premium_usd,omitempty"`
-	SLARefundUSD     *float64  `json:"sla_refund_usd,omitempty"`
-	SLAMet           *bool     `json:"sla_met,omitempty"`
+	JobID     uuid.UUID `json:"job_id"`
+	BuyerID   uuid.UUID `json:"buyer_id"`
+	Status    string    `json:"status"`
+	JobType   string    `json:"job_type"`
+	CreatedAt time.Time `json:"created_at"`
+	// Currency is the settlement currency of this invoice's cash (ISO code).
+	// Historical rows keep the currency they settled in.
+	Currency         string   `json:"currency"`
+	EstimatedUSD     float64  `json:"estimated_usd"`
+	ActualUSD        float64  `json:"actual_usd"`
+	ChargedUSD       float64  `json:"charged_usd"`
+	SupplierPaidUSD  float64  `json:"supplier_credit_usd"`
+	PlatformTakeUSD  float64  `json:"platform_take_usd"`
+	QuotedUSD        *float64 `json:"quoted_usd,omitempty"`
+	FirmQuote        bool     `json:"firm_quote,omitempty"`
+	FirmQuoteMaxUSD  *float64 `json:"firm_quote_max_usd,omitempty"`
+	BilledUSD        *float64 `json:"billed_usd,omitempty"`
+	SLAGuaranteeSecs int      `json:"sla_guarantee_secs,omitempty"`
+	SLAPremiumUSD    *float64 `json:"sla_premium_usd,omitempty"`
+	SLARefundUSD     *float64 `json:"sla_refund_usd,omitempty"`
+	SLAMet           *bool    `json:"sla_met,omitempty"`
 }
 
 func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*InvoiceView, error) {
@@ -173,18 +176,26 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 		}
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT le.kind, COALESCE(SUM(le.amount_usd),0)
+		`SELECT le.kind, COALESCE(SUM(le.amount_usd),0), le.currency
 		 FROM ledger_entries le JOIN tasks t ON t.id = le.task_id
-		 WHERE t.job_id = $1 GROUP BY le.kind`, jobID)
+		 WHERE t.job_id = $1 GROUP BY le.kind, le.currency`, jobID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var kind string
+		var kind, currency string
 		var amt float64
-		if err := rows.Scan(&kind, &amt); err != nil {
+		if err := rows.Scan(&kind, &amt, &currency); err != nil {
 			return nil, err
+		}
+		if iv.Currency == "" {
+			iv.Currency = currency
+		} else if currency != "" && currency != iv.Currency {
+			// Distinct currencies on one job's ledger is a configuration bug;
+			// surface the first and refuse to silently sum across them.
+			return nil, fmt.Errorf("%w: job %s ledger mixes %s and %s",
+				errCurrencyMismatch, jobID, iv.Currency, currency)
 		}
 		switch kind {
 		case "supplier_credit", "clawback":
@@ -204,6 +215,11 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	if iv.Currency == "" {
+		// Pre-settlement invoice: no ledger rows yet — report the deployment
+		// settlement currency (the only currency new charges will use).
+		iv.Currency = SettlementCurrencyCode()
 	}
 	if quoted, ok, qerr := s.QuotedUSDForJob(ctx, jobID); qerr != nil {
 		return nil, qerr

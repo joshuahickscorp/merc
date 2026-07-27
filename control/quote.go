@@ -731,15 +731,15 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		    cost_expected_usd, cost_min_usd, cost_max_usd, eta_p50_secs, eta_p90_secs,
 		    oom_risk, confidence, quote_json, expires_at, input_sha256,
 		    sla_guaranteed_secs, sla_premium_usd,
-		    economic_schedule_version, economic_plan, economic_executable)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)`,
+		    economic_schedule_version, economic_plan, economic_executable, currency)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)`,
 		q.bareID, buyerID, q.JobType, q.Model, q.Tier, q.Input.Records, q.Input.Bytes,
 		q.Input.EstimatedTokens, q.Input.MalformedRecords, q.Execution.RecommendedSplitSize,
 		q.Execution.EstimatedTasks, q.Execution.EligibleWorkersNow,
 		q.Cost.ExpectedUSD, q.Cost.MinUSD, q.Cost.MaxUSD, q.Time.P50Secs, q.Time.P90Secs,
 		q.Execution.OOMRisk, q.Confidence.Score, blob, q.ExpiresAt, q.InputSHA256,
 		slaSecs, slaPremium,
-		q.Economics.Schedule.Version, planBlob, q.Economics.Executable,
+		q.Economics.Schedule.Version, planBlob, q.Economics.Executable, SettlementCurrencyCode(),
 	)
 	return err
 }

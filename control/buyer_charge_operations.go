@@ -24,7 +24,7 @@ func (s *Store) BeginBuyerChargeOperation(
 	customerID = strings.TrimSpace(customerID)
 	paymentMethodID = strings.TrimSpace(paymentMethodID)
 	if operationKey == "" || sourceID == uuid.Nil || buyerID == uuid.Nil ||
-		customerID == "" || paymentMethodID == "" || amountCents <= 0 || currency != "usd" {
+		customerID == "" || paymentMethodID == "" || amountCents <= 0 || RequireSettlementCurrency(currency) != nil {
 		return false, errors.New("invalid buyer charge operation identity")
 	}
 	var jobID, batchID *uuid.UUID

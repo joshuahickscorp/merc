@@ -1157,12 +1157,13 @@ func persistMinorUnitSettlement(
 	if err != nil {
 		return 0, 0, err
 	}
+	settleCode := SettlementCurrencyCode()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO supplier_minor_unit_settlements
 		  (ledger_entry_id,policy,liability_microusd,cash_cents,remainder_microusd,currency)
-		VALUES ($1,$2,$3,$4,$5,'usd')
+		VALUES ($1,$2,$3,$4,$5,$6)
 		ON CONFLICT (ledger_entry_id) DO NOTHING`,
-		entryID, supplierSettlementPolicyFloorCentCarryV1, liabilityMicros, cashCents, remainderMicros,
+		entryID, supplierSettlementPolicyFloorCentCarryV1, liabilityMicros, cashCents, remainderMicros, settleCode,
 	); err != nil {
 		return 0, 0, err
 	}
@@ -1176,7 +1177,7 @@ func persistMinorUnitSettlement(
 	}
 	if existingPolicy != supplierSettlementPolicyFloorCentCarryV1 ||
 		existingLiability != liabilityMicros || existingCash != cashCents ||
-		existingRemainder != remainderMicros || currency != "usd" {
+		existingRemainder != remainderMicros || RequireSettlementCurrency(currency) != nil {
 		return 0, 0, fmt.Errorf(
 			"minor-unit settlement for ledger entry %s changed: policy=%s liability=%d cash=%d remainder=%d currency=%s",
 			entryID, existingPolicy, existingLiability, existingCash, existingRemainder, currency)

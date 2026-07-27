@@ -248,6 +248,11 @@ func main() {
 	if err := validateAdminAccessConfig(os.Getenv("MERC_ENV"), os.Getenv("MERC_ADMIN_CIDRS")); err != nil {
 		log.Fatal(err)
 	}
+	settlementCur, err := LoadSettlementCurrencyFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("settlement currency: %s (exponent=%d)", settlementCur.Code(), settlementCur.Exponent())
 	if err := validateLiveMoneyConfig(
 		os.Getenv("MERC_ENV"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		os.Getenv("MERC_CONNECT_WEBHOOK_SECRET"),
@@ -354,9 +359,10 @@ func main() {
 		payout = sp
 		log.Print("payout rail: Stripe Connect (STRIPE_SECRET_KEY set)")
 
-		// The ledger settles in USD only. A platform that cannot hold USD
-		// accepts every transfer request and fails it at the moment money
-		// moves, so refuse here rather than discovering it per payout.
+		// The ledger settles in MERC_SETTLEMENT_CURRENCY. A platform that
+		// cannot hold that currency accepts every transfer request and fails
+		// it at the moment money moves, so refuse here rather than discovering
+		// it per payout.
 		probeCtx, cancelProbe := context.WithTimeout(ctx, 15*time.Second)
 		err := sp.verifySettlementCurrency(probeCtx)
 		if err != nil {

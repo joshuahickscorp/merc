@@ -119,10 +119,10 @@ func (s *Store) CreateSubsidyFund(
 			Kind: "subsidy_fund_authorized", TargetKind: "subsidy_fund",
 			TargetID: existingFundID, FundID: existingFundID, FundRef: fundRef,
 			ExternalTreasuryRef: externalTreasuryRef, AmountCents: authorizedCents,
-			Currency: "usd", Reason: reason, CorrelationRef: fundRef,
+			Currency: SettlementCurrencyCode(), Reason: reason, CorrelationRef: fundRef,
 		}
 		if existingTreasuryRef != externalTreasuryRef || existingAuthorizedCents != authorizedCents ||
-			existingCurrency != "usd" || existingReason != reason || existingStatus != "active" {
+			RequireSettlementCurrency(existingCurrency) != nil || existingReason != reason || existingStatus != "active" {
 			return false, errSubsidyFundConflict
 		}
 		if err := assertMoneyAuthorityAction(ctx, tx, actor, existingActionID, intent); err != nil {
@@ -142,7 +142,7 @@ func (s *Store) CreateSubsidyFund(
 		Kind: "subsidy_fund_authorized", TargetKind: "subsidy_fund",
 		TargetID: fundID, FundID: fundID, FundRef: fundRef,
 		ExternalTreasuryRef: externalTreasuryRef, AmountCents: authorizedCents,
-		Currency: "usd", Reason: reason, CorrelationRef: fundRef,
+		Currency: SettlementCurrencyCode(), Reason: reason, CorrelationRef: fundRef,
 	}
 	if _, err := insertMoneyAuthorityAction(ctx, tx, actor, actionID, intent, nil); err != nil {
 		if isPayoutFundingUniqueViolation(err) {
@@ -154,8 +154,8 @@ func (s *Store) CreateSubsidyFund(
 		INSERT INTO platform_subsidy_funds
 		  (id,authorization_action_id,fund_ref,external_treasury_ref,
 		   authorized_cents,currency,reason,status)
-		VALUES ($1,$2,$3,$4,$5,'usd',$6,'active')`,
-		fundID, actionID, fundRef, externalTreasuryRef, authorizedCents, reason); err != nil {
+		VALUES ($1,$2,$3,$4,$5,$6,$7,'active')`,
+		fundID, actionID, fundRef, externalTreasuryRef, authorizedCents, SettlementCurrencyCode(), reason); err != nil {
 		if isPayoutFundingUniqueViolation(err) {
 			return false, errSubsidyFundConflict
 		}
@@ -253,12 +253,12 @@ func (s *Store) AuthorizePayoutSubsidy(
 	if err == nil {
 		if existingSource == payoutFundingPlatformSubsidy && existingFundRef == fundRef &&
 			existingRef == authorizationRef && existingReason == reason &&
-			existingAmount == amountCents && existingCurrency == "usd" {
+			existingAmount == amountCents && RequireSettlementCurrency(existingCurrency) == nil {
 			intent := moneyAuthorityIntent{
 				Kind: "payout_subsidy_authorized", TargetKind: "supplier_liability",
 				TargetID: entryID, FundID: existingFundID, FundRef: fundRef,
 				AuthorizationRef: authorizationRef, AmountCents: amountCents,
-				Currency: "usd", Reason: reason, CorrelationRef: authorizationRef,
+				Currency: SettlementCurrencyCode(), Reason: reason, CorrelationRef: authorizationRef,
 			}
 			if err := assertMoneyAuthorityAction(ctx, tx, actor, existingActionID, intent); err != nil {
 				return false, err
@@ -289,8 +289,8 @@ func (s *Store) AuthorizePayoutSubsidy(
 		SELECT id,COALESCE(authorization_action_id,'00000000-0000-0000-0000-000000000000'::uuid),
 		       external_treasury_ref,authorized_cents,currency,reason
 		  FROM platform_subsidy_funds
-		 WHERE fund_ref=$1 AND status='active' AND currency='usd'
-		 FOR UPDATE`, fundRef,
+		 WHERE fund_ref=$1 AND status='active' AND currency=$2
+		 FOR UPDATE`, fundRef, SettlementCurrencyCode(),
 	).Scan(&fundID, &fundActionID, &fundTreasuryRef, &capacity, &fundCurrency, &fundReason); errors.Is(err, pgx.ErrNoRows) {
 		return false, errSubsidyFundUnavailable
 	} else if err != nil {
@@ -330,7 +330,7 @@ func (s *Store) AuthorizePayoutSubsidy(
 		Kind: "payout_subsidy_authorized", TargetKind: "supplier_liability",
 		TargetID: entryID, FundID: fundID, FundRef: fundRef,
 		AuthorizationRef: authorizationRef, AmountCents: amountCents,
-		Currency: "usd", Reason: reason, CorrelationRef: authorizationRef,
+		Currency: SettlementCurrencyCode(), Reason: reason, CorrelationRef: authorizationRef,
 	}
 	if _, err := insertMoneyAuthorityAction(ctx, tx, actor, actionID, intent, &supplierID); err != nil {
 		if isPayoutFundingUniqueViolation(err) {
@@ -342,8 +342,8 @@ func (s *Store) AuthorizePayoutSubsidy(
 		INSERT INTO supplier_payout_funding
 		  (authorization_action_id,ledger_entry_id,source_kind,liability_job_id,
 		   subsidy_fund_id,subsidy_authorization_ref,subsidy_reason,amount_cents,currency)
-		VALUES ($1,$2,'platform_subsidy',$3,$4,$5,$6,$7,'usd')`,
-		actionID, entryID, liabilityJobID, fundID, authorizationRef, reason, amountCents); err != nil {
+		VALUES ($1,$2,'platform_subsidy',$3,$4,$5,$6,$7,$8)`,
+		actionID, entryID, liabilityJobID, fundID, authorizationRef, reason, amountCents, SettlementCurrencyCode()); err != nil {
 		if isPayoutFundingUniqueViolation(err) {
 			return false, errPayoutFundingAlreadyBound
 		}
@@ -684,7 +684,7 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 	}
 	out.LiabilityMicros = liabilityMicros
 	out.SettlementPolicy = supplierSettlementPolicyAccountAccrualV2
-	out.Currency = "usd"
+	out.Currency = SettlementCurrencyCode()
 	// Account-level accrual: this entry's liability joins the supplier's carry,
 	// and we pay whatever whole cents the combined total supports. Flooring the
 	// entry on its own is what made every sub-cent credit unpayable forever.

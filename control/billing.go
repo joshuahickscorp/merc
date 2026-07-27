@@ -213,7 +213,7 @@ func parseStripeSucceededPaymentIntent(object json.RawMessage) (string, ChargeRe
 	}
 	pi.ID, chargeID = strings.TrimSpace(pi.ID), strings.TrimSpace(chargeID)
 	if pi.ID == "" || chargeID == "" || pi.Status != "succeeded" ||
-		pi.Amount <= 0 || pi.AmountReceived != pi.Amount || pi.Currency != "usd" {
+		pi.Amount <= 0 || pi.AmountReceived != pi.Amount || RequireSettlementCurrency(pi.Currency) != nil {
 		return "", ChargeResult{}, true, errors.New("owned successful PaymentIntent has invalid cash evidence")
 	}
 	return operationKey, ChargeResult{
@@ -230,9 +230,16 @@ func chargeBuyer(
 	idemKey, sourceKind string,
 	sourceID uuid.UUID,
 ) (ChargeResult, error) {
-	cents := int64(math.Round(usd * 100))
+	settle, err := SettlementCurrency()
+	if err != nil {
+		return ChargeResult{}, err
+	}
+	cents, err := settle.MajorToMinor(usd)
+	if err != nil {
+		return ChargeResult{}, err
+	}
 	if cents <= 0 {
-		return ChargeResult{}, fmt.Errorf("non-positive charge amount %.6f USD", usd)
+		return ChargeResult{}, fmt.Errorf("non-positive charge amount %.6f %s", usd, settle.Code())
 	}
 	cust, err := ensureStripeCustomer(ctx, store, buyerID)
 	if err != nil {
@@ -243,7 +250,7 @@ func chargeBuyer(
 		return ChargeResult{}, fmt.Errorf("buyer has no saved payment method")
 	}
 	armed, err := store.BeginBuyerChargeOperation(
-		ctx, idemKey, sourceKind, sourceID, buyerID, cust, pm, cents, "usd",
+		ctx, idemKey, sourceKind, sourceID, buyerID, cust, pm, cents, settle.Code(),
 	)
 	if err != nil {
 		return ChargeResult{}, err
@@ -252,7 +259,7 @@ func chargeBuyer(
 		return ChargeResult{}, fmt.Errorf("%w: operation %s already crossed its durable request boundary",
 			errBuyerChargeOutcomeUnknown, idemKey)
 	}
-	charge, err := chargePaymentIntent(ctx, cust, pm, cents, "usd", idemKey)
+	charge, err := chargePaymentIntent(ctx, cust, pm, cents, settle.Code(), idemKey)
 	if err != nil {
 		_ = store.NoteBuyerChargeOutcomeUnknown(ctx, idemKey, err)
 		return ChargeResult{}, fmt.Errorf("%w: operation %s requires Stripe reconciliation: %v",
