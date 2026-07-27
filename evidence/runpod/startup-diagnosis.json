@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "kind": "runpod_startup_diagnosis",
+  "attempts": [
+    {
+      "pod": "pww27g05kgd6zy",
+      "gpu": "A100 80GB PCIe",
+      "api": "graphql",
+      "cloud": "ALL",
+      "image": "vllm/vllm-openai:v0.6.3.post1",
+      "runtime": "null",
+      "outcome": "never started",
+      "cost_usd": 0.26
+    },
+    {
+      "pod": "bwwg34zwuq9idd",
+      "gpu": "A100 80GB PCIe",
+      "api": "graphql",
+      "cloud": "ALL",
+      "image": "vllm/vllm-openai:v0.26.0-cu129-ubuntu2404",
+      "runtime": "null",
+      "outcome": "never started",
+      "cost_usd": 0.2
+    },
+    {
+      "pod": "c4oqcp8b14tirf",
+      "gpu": "RTX A5000",
+      "api": "rest",
+      "cloud": "SECURE",
+      "image": "nvidia/cuda:12.4.1-base-ubuntu22.04",
+      "runtime": "null",
+      "outcome": "machine allocated, container never reported",
+      "cost_per_hr": 0.27
+    }
+  ],
+  "root_causes": [
+    {
+      "id": "graphql_silent_failure",
+      "finding": "podFindAndDeployOnDemand returns a pod id even when no machine is allocated. The REST API returns 500 'There are no instances currently available' for the same request. GraphQL's silent success is why two A100 attempts looked deployed and billed while never starting.",
+      "fix": "use rest.runpod.io for creation; it fails loudly"
+    },
+    {
+      "id": "community_capacity",
+      "finding": "cloudType COMMUNITY (and ALL, which resolves to it first) had no capacity for any probed GPU; SECURE had capacity immediately.",
+      "fix": "probe SECURE, do not assume ALL finds anything"
+    },
+    {
+      "id": "entrypoint_override_breaks_runtime_reporting",
+      "finding": "RunPod populates pod.runtime from an agent it runs inside the container. Overriding dockerEntrypoint (or passing dockerArgs that replace the command) means that agent never runs, so runtime stays null permanently even when the container itself is healthy. Waiting on runtime is therefore the wrong readiness signal.",
+      "fix": "do not override dockerEntrypoint; poll the HTTP proxy endpoint for readiness instead of pod.runtime"
+    }
+  ],
+  "cost_usd_total": 0.46
+}

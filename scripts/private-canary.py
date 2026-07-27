@@ -75,7 +75,7 @@ def cap_real_inference_runtime():
                        "MERC_REALTIME_UPSTREAM_KEY (llama-server on Metal satisfies this)")
     try:
         req = urllib.request.Request(endpoint.rstrip("/") + "/models",
-                                     headers={"authorization": f"Bearer {key}"})
+                                     headers={"authorization": f"Bearer {key}", "User-Agent": MERC_UA})
         with urllib.request.urlopen(req, timeout=10) as resp:
             if resp.status != 200:
                 return False, f"inference runtime answered HTTP {resp.status}"
@@ -84,6 +84,22 @@ def cap_real_inference_runtime():
         return False, f"inference runtime unreachable at {endpoint}: {exc}"
 
 
+# RunPod's edge blocks default library User-Agents. Python's urllib sends
+# "Python-urllib/3.x" and gets 403 from the pod proxy even with a valid key and
+# URL -- identical request via curl returns 200. A probe that omits this reports
+# "no CUDA runtime" while a healthy vLLM is serving.
+MERC_UA = "merc-canary/1.0"
+
+def _models_url(endpoint):
+    """Model-list URL for an endpoint that may or may not already end in /v1.
+
+    MERC_GPU_ENDPOINT is conventionally written with the /v1 suffix (that is what
+    OpenAI clients take as base_url), so blindly appending it produced
+    /v1/v1/models and a 404 that looked like an unreachable runtime.
+    """
+    base = endpoint.rstrip("/")
+    return base + "/models" if base.endswith("/v1") else base + "/v1/models"
+
 def cap_cuda_runtime():
     """CUDA supply specifically, for the RunPod-backed pinned vLLM lane.
 
@@ -91,7 +107,11 @@ def cap_cuda_runtime():
     merc has admitted and a pinned, digest-addressed vLLM image, and no Apple
     Silicon engine substitutes for it.
     """
-    key = os.environ.get("RUNPOD_API_KEY", "") or os.environ.get("MERC_GPU_API_KEY", "")
+    # The ENDPOINT key wins over the RunPod account key. They are different
+    # credentials: RUNPOD_API_KEY authenticates to RunPod's control API, while
+    # the vLLM server has its own --api-key. Sending the account key to the
+    # engine returns 403, which reads as "no CUDA runtime" when one is serving.
+    key = os.environ.get("MERC_GPU_API_KEY", "") or os.environ.get("RUNPOD_API_KEY", "")
     endpoint = os.environ.get("MERC_GPU_ENDPOINT", "")
     if not key and not endpoint:
         return False, ("no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned "
@@ -102,8 +122,8 @@ def cap_cuda_runtime():
     if not endpoint:
         return False, "a GPU API key is configured but MERC_GPU_ENDPOINT names no runtime"
     try:
-        request = urllib.request.Request(endpoint.rstrip("/") + "/v1/models",
-                                         headers={"authorization": f"Bearer {key}"})
+        request = urllib.request.Request(_models_url(endpoint),
+                                         headers={"authorization": f"Bearer {key}", "User-Agent": MERC_UA})
         with urllib.request.urlopen(request, timeout=10) as resp:
             if resp.status != 200:
                 return False, f"GPU runtime answered HTTP {resp.status}"
