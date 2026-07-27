@@ -114,6 +114,35 @@ def _pose_from_centroid(
     return [float(x), float(y), 0.5, 1.0, 0.0, 0.0, 0.0]
 
 
+def account_stream_drops(
+    *,
+    drops_reported: int,
+    dropped_before_series: list[int],
+    frames_emitted: int,
+    frames_offered: int,
+    frames_processed: int,
+    buffer_occupancy: int = 0,
+) -> bool:
+    """Return True only when drop markers and stream counters reconcile.
+
+    No vacuous escape clause. Requires:
+    - every per-frame gap is non-negative
+    - sum(dropped_before) == frames_dropped
+    - frames_emitted + frames_dropped + buffer_occupancy == frames_offered
+    - frames_processed == frames_emitted (this script delivers every emit)
+    """
+    if any(d < 0 for d in dropped_before_series):
+        return False
+    drops_from_frames = sum(dropped_before_series)
+    if drops_reported != drops_from_frames:
+        return False
+    if frames_emitted + drops_reported + buffer_occupancy != frames_offered:
+        return False
+    if frames_processed != frames_emitted:
+        return False
+    return True
+
+
 def run_loop(
     video_path: Path,
     *,
@@ -338,17 +367,26 @@ def run_loop(
     plan = planner.plan(target)
 
     # Timestamp / drop accounting checks.
+    # Contract: dropped_before is a per-frame gap; total drops = sum(series).
+    # The gate has no escape clause — reported total, per-frame sum, and the
+    # offered/emitted/dropped identity must all agree.
     non_monotonic = [
         i
         for i in range(1, len(timestamps))
         if timestamps[i] <= timestamps[i - 1]
     ]
     drops_reported = int(final_state["stats"]["frames_dropped"])
-    drops_from_frames = max(dropped_at_emit) if dropped_at_emit else 0
-    # Drops are accounted when the final stream stats and per-frame
-    # dropped_before markers agree on the same total.
-    drops_accounted = drops_reported == drops_from_frames or (
-        drops_reported >= 0 and all(d >= 0 for d in dropped_at_emit)
+    drops_from_frames = sum(dropped_at_emit)
+    frames_emitted = int(final_state["stats"]["frames_emitted"])
+    frames_offered = int(final_state["stats"].get("frames_offered", frames_emitted + drops_reported))
+    buffer_occupancy = int(final_state["stats"].get("buffer_occupancy", 0))
+    drops_accounted = account_stream_drops(
+        drops_reported=drops_reported,
+        dropped_before_series=dropped_at_emit,
+        frames_emitted=frames_emitted,
+        frames_offered=frames_offered,
+        frames_processed=frames_processed,
+        buffer_occupancy=buffer_occupancy,
     )
 
     summary = query_world(world, {"type": "scene_summary"})
@@ -376,8 +414,10 @@ def run_loop(
         "dropped_frames": drops_reported,
         "dropped_frames_accounted": drops_accounted,
         "dropped_before_series": dropped_at_emit,
+        "dropped_before_sum": drops_from_frames,
         "buffer_capacity": final_state["stats"]["buffer_capacity"],
-        "frames_emitted": final_state["stats"]["frames_emitted"],
+        "frames_emitted": frames_emitted,
+        "frames_offered": frames_offered,
         "frame_digests_head": frame_digests[:3],
         "frame_digests_tail": frame_digests[-3:],
         "fixation_count": fixation_count,
@@ -471,6 +511,9 @@ def main(argv: list[str] | None = None) -> int:
     args.receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     print(f"frames_processed={receipt['frames_processed']}")
+    print(f"frames_emitted={receipt['frames_emitted']}")
+    print(f"frames_offered={receipt.get('frames_offered', '?')}")
+    print(f"fixation_count={receipt['fixation_count']}")
     print(f"timestamps_monotonic={receipt['timestamps_monotonic']}")
     print(f"dropped_frames={receipt['dropped_frames']}")
     print(f"dropped_frames_accounted={receipt['dropped_frames_accounted']}")
@@ -483,6 +526,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if not receipt["dropped_frames_accounted"]:
         print("FAIL: dropped frames unaccounted", file=sys.stderr)
+        return 1
+    if receipt["status"] != "ok":
+        print(f"FAIL: receipt status={receipt['status']!r}", file=sys.stderr)
         return 1
     if receipt["frames_processed"] < 2:
         print("FAIL: need at least 2 frames for a continuous stream", file=sys.stderr)

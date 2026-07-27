@@ -63,7 +63,8 @@ are part of the ocular nineteen by name. The other seventeen are additive.
 3. **Never blame hardware you did not observe.** Use `classify_failure()`.
 4. **Webcam frames are never fabricated.** Missing camera → `BLOCKED`.
 5. **Streams are consumed incrementally.** Timestamps are monotonic; drops are
-   counted in stream stats and per-frame `dropped_before`.
+   counted in stream stats and per-frame `dropped_before` (per-frame gap, not
+   cumulative — total drops = sum of markers = `frames_dropped`).
 
 ## Proof scripts
 

@@ -75,7 +75,14 @@ class SensorCalibration(V2Record):
 
 @dataclass(slots=True, kw_only=True)
 class OcularFrame(V2Record):
-    """One calibrated sample from an ocular stream. Immutable after seal."""
+    """One calibrated sample from an ocular stream. Immutable after seal.
+
+    ``dropped_before`` is a **per-frame gap**: the number of frames lost to
+    ring-buffer overflow *immediately before* this delivered frame (not a
+    running total). The stream-wide drop count is therefore
+    ``sum(frame.dropped_before for delivered frames)``, and must equal
+    ``StreamStats.frames_dropped``. A keep-up consumer always sees ``0``.
+    """
 
     RECORD_KIND: ClassVar[str] = "ocular.frame"
 
