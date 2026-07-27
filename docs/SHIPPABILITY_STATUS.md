@@ -121,6 +121,47 @@ works for free. merc should enforce a minimum billable job size the way
   seeded for this workload`) rather than running it unverified. Fail-closed,
   confirmed by hitting it.
 
+## REAL_RUNTIME_PROVEN: OpenAI-compatible realtime, 2026-07-27
+
+I had reported this lane blocked on CUDA. It was not. **"Real runtime" and
+"CUDA" are different capabilities**, and conflating them is what made me report
+a lane blocked that a locally installed engine could serve.
+
+`llama-server` (llama.cpp, already installed) loaded the exact GGUF merc's
+catalogue pins — `Llama-3.2-1B-Instruct-Q4_K_M`, already in the HF cache from
+the agent's own benchmark — and served merc's realtime lane on Metal.
+
+| step | result |
+|---|---|
+| worker offer | registered `ACTIVE`, profile sha256 matched |
+| buyer request | `POST /v1/chat/completions`, idempotency-keyed, `X-Merc-Max-USD` |
+| merc contract | `b59d6380`, authorized $0.000035 |
+| **real runtime** | llama.cpp on Metal, real weights, real tokens |
+| result | a real 31-token completion |
+| verification | `PASSED`, receipt state `VERIFIED` |
+| authorization | `CAPTURED` — $0.000019 captured, $0.000016 released |
+| buyer debit | $0.000019 |
+| supplier payable | $0.000002 |
+| merc contribution | **$0.000017 (positive)** |
+| receipt | `rcp_559d4988…`, with `stream_root_sha256` and `output_commitment` |
+
+### Measured overhead: merc adds 3.9 ms
+
+merc median 58.4 ms vs 54.4 ms straight at the engine, over 5 samples.
+
+**Not publishable, and the harness says so itself.**
+`scripts/realtime-parity-benchmark.py` reports `UNATTESTED_HARNESS_RUN` and
+`public_claim_allowed: false`, because llama-server presents no runtime
+attestation header. The number is real; the gate that stops it becoming a
+marketing claim is also real, and it fired without being asked to.
+
+### What is still genuinely CUDA-blocked
+
+The `runpod_vllm` lane — NVIDIA hardware and a pinned, digest-addressed vLLM
+image — is now tracked as its own lane rather than hidden inside "realtime". No
+Apple Silicon engine substitutes for it. Same for image generation, LoRA and
+multi-GPU.
+
 ## Repository boundary and rename
 
 | item | status | evidence |
