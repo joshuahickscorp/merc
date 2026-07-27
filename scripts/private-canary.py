@@ -237,9 +237,10 @@ LANES = [
     {"id": "backup_restore", "needs": [],
      "cmd": ["bash", "scripts/test-backup-schedule.sh"], "cwd": ".",
      "full_path": True, "note": "backup scheduling and envelope"},
-    {"id": "buyer_dashboard", "needs": [],
-     "cmd": ["node", "scripts/site-build.mjs"], "cwd": ".", "full_path": False,
-     "note": "web/buyer.html renders and is CSP hash-bound; not driven by a real buyer session"},
+    {"id": "buyer_dashboard", "needs": ["database"],
+     "cmd": ["node", "scripts/buyer-dashboard-live.mjs"], "cwd": ".", "full_path": True,
+     "note": "the page's own script signs in against a running merc and opens its "
+             "workspace; every route it calls must be one merc serves"},
     {"id": "supplier_console", "needs": [],
      "cmd": ["node", "scripts/test-supplier-console.mjs"], "cwd": ".", "full_path": True,
      "note": "worker-token auth, sub-cent money at ledger granularity, 4 payout-rail "
