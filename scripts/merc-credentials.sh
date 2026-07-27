@@ -69,10 +69,14 @@ check_runpod() {
   [ -z "$key" ] && { skip "RunPod: no key supplied"; return 1; }
   # RunPod's GraphQL endpoint. Authorization goes in a header, never the URL:
   # a key in a query string lands in every proxy and access log in between.
+  # The key goes in via --config on stdin, never as an argument. A header on the
+  # command line is visible in `ps auxww` to every local user for the life of the
+  # request -- verified empirically, not assumed.
   local code
-  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 \
+  code=$(printf 'header = "Authorization: Bearer %s"\n' "$key" | curl -sS \
+    --config - -o /dev/null -w '%{http_code}' --max-time 20 \
     -X POST https://api.runpod.io/graphql \
-    -H "Authorization: Bearer $key" -H 'content-type: application/json' \
+    -H 'content-type: application/json' \
     -d '{"query":"query { myself { id } }"}' 2>/dev/null) || {
       bad "RunPod: could not reach api.runpod.io"; return 1; }
   case "$code" in
@@ -94,9 +98,11 @@ check_stripe() {
     sk_test_*|rk_test_*) ;;
     *) bad "Stripe: key does not look like a Stripe secret key"; return 1 ;;
   esac
+  # -u "$key:" would put the secret in argv. --config on stdin keeps it out.
   local code
-  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 \
-    https://api.stripe.com/v1/balance -u "$key:" 2>/dev/null) || {
+  code=$(printf 'user = "%s:"\n' "$key" | curl -sS --config - \
+    -o /dev/null -w '%{http_code}' --max-time 20 \
+    https://api.stripe.com/v1/balance 2>/dev/null) || {
       bad "Stripe: could not reach api.stripe.com"; return 1; }
   case "$code" in
     200) ;;
@@ -107,19 +113,23 @@ check_stripe() {
   # payout with balance_insufficient, and that is worth knowing now rather than
   # in the middle of a canary.
   local body currencies
-  body=$(curl -sS --max-time 20 https://api.stripe.com/v1/balance -u "$key:" 2>/dev/null)
+  body=$(printf 'user = "%s:"\n' "$key" | curl -sS --config - --max-time 20 \
+    https://api.stripe.com/v1/balance 2>/dev/null)
   currencies=$(printf '%s' "$body" | python3 -c '
 import json,sys
 d=json.load(sys.stdin)
 print(",".join(sorted({b["currency"] for b in d.get("available",[])+d.get("pending",[])})))' 2>/dev/null || printf '')
   ok "Stripe: test key accepted; settlement currencies: ${currencies:-none reported}"
   case ",$currencies," in
-    *,usd,*) ok "Stripe: usd is enabled" ;;
+    *,usd,*) ok "Stripe: usd is enabled"; return 0 ;;
     *) bad "Stripe: NO usd bucket. merc settles in USD, so payouts will fail with
         balance_insufficient. Enable USD on the test account before the payout lane
-        can pass." ;;
+        can pass."
+       # Returns FAILURE. Previously this printed the warning and then returned
+       # 0, so the caller set stripe_ok=1 and the summary announced the payout
+       # lane unblocked when the very thing that lane does would fail.
+       return 1 ;;
   esac
-  return 0
 }
 
 # -------------------------------------------------------------------- main
@@ -142,8 +152,16 @@ if [ "$CHECK_ONLY" -eq 0 ]; then
     read_secret "Stripe TEST secret key (sk_test_...)" STRIPE_SECRET_KEY "${STRIPE_SECRET_KEY:-}"
   fi
   if [ -t 0 ]; then
-    printf 'vLLM endpoint URL, if a pod is already serving (blank to skip): '
+    _existing_endpoint="${MERC_GPU_ENDPOINT:-}"
+    if [ -n "$_existing_endpoint" ]; then
+      printf 'vLLM endpoint [keep %s]: ' "$_existing_endpoint"
+    else
+      printf 'vLLM endpoint URL, if a pod is already serving (blank to skip): '
+    fi
     read -r MERC_GPU_ENDPOINT || true
+    # Blank keeps what is stored. Without this, re-running the script to update
+    # only the Stripe key silently erased a working endpoint.
+    [ -z "$MERC_GPU_ENDPOINT" ] && MERC_GPU_ENDPOINT="$_existing_endpoint"
   fi
 
   # Validate the SHAPE before anything touches disk. The first version of this
@@ -179,8 +197,22 @@ check_stripe "${STRIPE_SECRET_KEY:-}" && stripe_ok=1 || true
 
 say ""
 say "canary lanes"
-if [ "$runpod_ok" -eq 1 ] && [ -n "${MERC_GPU_ENDPOINT:-}" ]; then
-  ok "runpod_vllm, image_generation, lora, multi_gpu: a pod endpoint is set"
+pod_serving=0
+if [ -n "${MERC_GPU_ENDPOINT:-}" ]; then
+  # "a variable is set" is not "a pod is serving". The canary checks the endpoint
+  # answers /v1/models with this key; claiming the lane unblocked without doing
+  # the same check tells the operator something this script never verified.
+  if printf 'header = "Authorization: Bearer %s"\n' "${RUNPOD_API_KEY:-}" | curl -sS \
+       --config - -o /dev/null --max-time 15 -f \
+       "${MERC_GPU_ENDPOINT%/}/models" 2>/dev/null; then
+    pod_serving=1
+  fi
+fi
+if [ "$runpod_ok" -eq 1 ] && [ "$pod_serving" -eq 1 ]; then
+  ok "runpod_vllm, image_generation, lora, multi_gpu: pod is serving at $MERC_GPU_ENDPOINT"
+elif [ "$runpod_ok" -eq 1 ] && [ -n "${MERC_GPU_ENDPOINT:-}" ]; then
+  bad "MERC_GPU_ENDPOINT is set but did not answer /models with this key.
+        Those lanes stay blocked until it does."
 elif [ "$runpod_ok" -eq 1 ]; then
   skip "runpod_vllm, image_generation, lora, multi_gpu: key works, but no pod is
         serving yet. Start one and re-run with MERC_GPU_ENDPOINT=https://<pod>/v1"
