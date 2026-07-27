@@ -640,18 +640,29 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 	defer inputReader.Close()
 
+	// Always sample the leading bytes once: adaptive split sizing and the
+	// warm-prefix chain both need them. The sample is teed back into the
+	// reader so streamSplitAndUpload still sees the full input.
+	prefixSample, rest, serr := peekInputSample(inputReader, inputSampleBytes)
+	if serr != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "reading input: " + serr.Error()}
+	}
+	inputReader = rest
+	prefixChain := prefixChainFromInputBytes(prefixSample)
+	prefixID := ""
+	if len(prefixChain) > 0 {
+		// Shallowest node: the widest match a later job can share. Deeper
+		// nodes live only in job_prefix_chain and drive warm_prefix_depth.
+		prefixID = prefixChain[0].PrefixID
+	}
+
 	splitSize := splitSizeOf(sub.Params)
 	if splitSize == defaultSplitSize && !hasExplicitSplitSize(sub.Params) {
-		sample, rest, serr := peekInputSample(inputReader, inputSampleBytes)
-		if serr != nil {
-			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "reading input: " + serr.Error()}
-		}
-		inputReader = rest
 		avgLineBytes := 0.0
 		totalRecords := 0
-		if scan := scanJSONL(sample); scan.Records > 0 {
+		if scan := scanJSONL(prefixSample); scan.Records > 0 {
 			avgLineBytes = float64(scan.Bytes) / float64(scan.Records)
-			if len(sample) < inputSampleBytes {
+			if len(prefixSample) < inputSampleBytes {
 				totalRecords = scan.Records
 			}
 		}
@@ -940,6 +951,8 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		WebhookSigningSecretSealed: webhookSecretSealed,
 		SubmitIdempotencyKey:       sub.IdempotencyKey,
 		SubmitRequestSHA256:        sub.RequestSHA256,
+		PrefixID:                   prefixID,
+		PrefixChain:                prefixChain,
 	}
 	if err := s.store.SubmitJobTx(ctx, jr, tasks); err != nil {
 		if sub.IdempotencyKey != "" && isUniqueViolation(err) {

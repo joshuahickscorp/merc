@@ -150,10 +150,10 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    offered_rate_usd_hr, eta_secs, max_usd, budget_state, quote_id, min_reputation,
 		    deadline_secs, firm_quote, firm_quote_max_usd, sla_guarantee_secs, sla_premium_usd,
 		    economic_input_records, economic_input_bytes, economic_input_source,
-		    submit_idempotency_key, submit_request_sha256)
+		    submit_idempotency_key, submit_request_sha256, prefix_id)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
 		         $11,$12,$13,$14,$15,$16,$17,$18,$19,'tracking',$20,$21,$22,$23,$24,$25,$26,
-		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''))`,
+		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''),NULLIF($32,''))`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
@@ -162,10 +162,25 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		j.DeadlineSecs, j.FirmQuote, nullPosFloat(j.FirmQuoteMaxUSD),
 		nullPosInt(j.SLAGuaranteeSecs), nullPosFloat(j.SLAPremiumUSD),
 		economicInputRecords, economicInputBytes, economicInputSource,
-		j.SubmitIdempotencyKey, j.SubmitRequestSHA256,
+		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID,
 	)
 	if err != nil {
 		return err
+	}
+	// Prefix chain is recorded in the same transaction as the job so a
+	// claimable job never exists without the routing hint the claim SQL
+	// reads. Empty chain is a no-op (short/cold inputs).
+	for _, e := range j.PrefixChain {
+		if !ValidPrefixID(e.PrefixID) || e.Depth <= 0 {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO job_prefix_chain (job_id, depth, prefix_id)
+			VALUES ($1,$2,$3)
+			ON CONFLICT (job_id, depth) DO UPDATE SET prefix_id = EXCLUDED.prefix_id`,
+			j.ID, e.Depth, e.PrefixID); err != nil {
+			return fmt.Errorf("recording prefix chain for job %s: %w", j.ID, err)
+		}
 	}
 	if hasWebhook {
 		if _, err := tx.Exec(ctx, `
@@ -251,6 +266,12 @@ type jobRow struct {
 	WebhookSigningSecretSealed string
 	SubmitIdempotencyKey       string
 	SubmitRequestSHA256        string
+	// PrefixID is the shallowest chain node (or empty). Advisory routing
+	// hint only; never selects model, runtime or price.
+	PrefixID string
+	// PrefixChain is the nested trie recorded into job_prefix_chain at
+	// submit. Empty when the input is shorter than the shallowest depth.
+	PrefixChain []PrefixChainEntry
 }
 
 type JobView struct {

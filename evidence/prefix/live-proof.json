@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "kind": "warm_prefix_routing_live_proof",
+  "method": "three batch jobs sharing a long leading system prompt with different tails, submitted to a running control plane served by a real Apple Silicon worker",
+  "observed": {
+    "job_prefix_chain_rows": 12,
+    "worker_prefix_state_rows": 6,
+    "shared_prefix_nodes": [
+      {
+        "depth": 128,
+        "jobs_sharing": 3
+      },
+      {
+        "depth": 64,
+        "jobs_sharing": 3
+      },
+      {
+        "depth": 32,
+        "jobs_sharing": 3
+      }
+    ]
+  },
+  "meaning": "Three independent jobs converged on the same prefix ids at three depths, so the scheduler can route a later job to whichever supplier already holds that KV cache instead of paying prefill again. A centralized host does this inside its own fleet; this does it across independent suppliers.",
+  "ordering_verified": "cheaper_class_online ASC and cheaper_ask_online ASC sort ABOVE warm_prefix_depth DESC in the claim ORDER BY, so a warm expensive worker never displaces a cold cheap one. Warmth is order-only and never a WHERE predicate, so a cold job is never starved.",
+  "not_demonstrated_live": "Preference BETWEEN workers needs two workers of the same cost class; only one worker was connected. Grok's wiring tests cover that case, and this run proves the state those tests depend on is actually produced by real traffic.",
+  "not_wired": "batch_policy.go remains unwired. Workers claim one task per poll and intra-task batching lives in the Rust agent, so there is no control-plane call site. Reported rather than fake-wired."
+}

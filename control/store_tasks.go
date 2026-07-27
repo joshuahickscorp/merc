@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"strings"
 	"time"
@@ -422,6 +423,13 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 		return nil, err
 	}
 	reachRecoveryBoundary(ctx, probe, BoundaryCommitAfterDBCommit)
+	// Warm-prefix bookkeeping is after the durable commit on purpose: it is a
+	// routing hint, never part of the commit contract. A failure here must not
+	// roll back a finished task, and the worker has materialised the prefix
+	// whether or not we record it.
+	if err := s.markWorkerWarmForJob(ctx, workerID, info.JobID); err != nil {
+		log.Printf("prefix warmth: worker %s job %s: %v", workerID, info.JobID, err)
+	}
 	return &info, nil
 }
 

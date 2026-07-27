@@ -77,6 +77,11 @@ const (
 	// ALPHA_REQUEST_RETENTION_DAYS (positive integer days).
 	defaultAlphaRequestRetention = 90 * 24 * time.Hour
 	objectDeletionClaimLease     = 5 * time.Minute
+	// Stale prefix-state sweep: well above prefixWarmTTL (90s) so a recently
+	// used node is never deleted mid-window, short enough that a worker that
+	// dropped its KV cache cannot stay marked warm for long after the
+	// 20×TTL retention window SweepStalePrefixState enforces.
+	prefixStateSweepInterval = 5 * time.Minute
 )
 
 var telemetryTables = []string{"worker_memory_samples", "task_durations", "job_events"}
@@ -193,6 +198,7 @@ func (wk *Workers) Run(ctx context.Context) {
 		{chargeCollectInterval, "charge-collect", wk.collectCharges},
 		{telemetryRetentionInterval, "telemetry-retention", wk.sweepTelemetryRetention},
 		{jobObjectRetentionSweep, "object-retention", wk.sweepJobObjectRetention},
+		{prefixStateSweepInterval, "prefix-state-retention", wk.sweepStalePrefixState},
 		{budgetStopInterval, "budget-stop-sweep", wk.sweepBudgetStops},
 		{realtimeRecoveryInterval, "realtime-contract-recovery", wk.recoverRealtimeContracts},
 		{noPeerWatchdogInterval, "no-peer-watchdog", wk.reapNoPeerWedged},
@@ -1060,6 +1066,22 @@ func (wk *Workers) sweepBudgetStops(ctx context.Context) error {
 	}
 	if stopped > 0 {
 		metrics.budgetStops.Add(int64(stopped))
+	}
+	return nil
+}
+
+// sweepStalePrefixState drops worker_prefix_state rows whose last_seen_warm is
+// well past the routing TTL. Without this a worker that flushed its KV cache
+// would keep attracting work it must recompute and is paid as if it had not.
+// Aggregate row counts may be logged; never individual prefix ids (those are
+// a statement about other buyers' content).
+func (wk *Workers) sweepStalePrefixState(ctx context.Context) error {
+	n, err := wk.store.SweepStalePrefixState(ctx)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		log.Printf("workers: prefix-state-retention: swept %d stale warm-prefix row(s)", n)
 	}
 	return nil
 }

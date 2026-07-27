@@ -485,11 +485,37 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 	         WHERE wms.worker_id = $1 AND wms.model_id = j.model_ref
 	           AND wms.last_seen_warm > now() - interval '60 seconds'
 	     )) AS warm_for_task,
-	     (j.prefix_id IS NOT NULL AND EXISTS (
-	       SELECT 1 FROM worker_prefix_state wps
-	         WHERE wps.worker_id = $1 AND wps.prefix_id = j.prefix_id
-	           AND wps.last_seen_warm > now() - interval '90 seconds'
-	     )) AS warm_for_prefix
+	     -- Warm-prefix preference (selection only, never a hard filter): how many
+	     -- prompt tokens THIS claiming worker can skip for this job, from the
+	     -- deepest job_prefix_chain node still warm on worker_prefix_state.
+	     -- Zero means cold  -  the job remains claimable with unchanged latency
+	     -- (warmth is a PREFERENCE in ORDER BY, never a WHERE predicate).
+	     --
+	     -- Depth, not a boolean: two workers of the same cost class must be
+	     -- distinguishable when one holds a 32-token node and the other a 256-
+	     -- token node. The GREATEST(..., legacy) arm keeps jobs that only set
+	     -- jobs.prefix_id (no trie chain) from becoming invisible to warmth.
+	     --
+	     -- ORDER BY places this AFTER cheaper_class_online / cheaper_ask_online
+	     -- on purpose: a warm expensive worker must not outrank a cold cheap one
+	     -- without arithmetic that quantifies prefill saved vs class cost delta.
+	     -- We do not have that arithmetic measured per (depth, class) pair, so
+	     -- cost rank wins and warmth only breaks ties within a cost class.
+	     GREATEST(
+	       COALESCE((
+	         SELECT MAX(c.depth)
+	           FROM job_prefix_chain c
+	           JOIN worker_prefix_state wps
+	             ON wps.prefix_id = c.prefix_id AND wps.worker_id = $1
+	          WHERE c.job_id = j.id
+	            AND wps.last_seen_warm > now() - interval '90 seconds'
+	       ), 0),
+	       CASE WHEN j.prefix_id IS NOT NULL AND EXISTS (
+	         SELECT 1 FROM worker_prefix_state wps
+	          WHERE wps.worker_id = $1 AND wps.prefix_id = j.prefix_id
+	            AND wps.last_seen_warm > now() - interval '90 seconds'
+	       ) THEN 1 ELSE 0 END
+	     ) AS warm_prefix_depth
 	   FROM jobs j
 	   CROSS JOIN me
 	   -- Resolve the ONE exact server-authorized runtime tuple that will be frozen
@@ -590,7 +616,7 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 	     ej.cheaper_class_online,
 	     ej.worker_tps,
 	     ej.warm_for_task,
-	     ej.warm_for_prefix,
+	     ej.warm_prefix_depth,
 	     ej.job_dispatched_count,
 	     ej.runtime_cell_id,
 	     ej.runtime_id,
@@ -734,7 +760,7 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 		            END DESC,
 		            (ej.tier = 'priority') DESC,
 		            cheaper_class_online ASC, cheaper_ask_online ASC, worker_tps DESC,
-		            warm_for_prefix DESC, warm_for_task DESC,
+		            warm_prefix_depth DESC, warm_for_task DESC,
 	            job_dispatched_count ASC, t.created_at ASC
 	   FOR UPDATE OF t SKIP LOCKED
 	   LIMIT 1
