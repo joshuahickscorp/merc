@@ -364,8 +364,10 @@ def detections_from_proposals(
     )
 
     cfg = config or DetectionConfig()
+    bgr = _as_bgr(image)
+    frame_h, frame_w = bgr.shape[:2]
     result = propose(
-        image,
+        bgr,
         frame_index=frame_index,
         context=ProposalContext(
             previous_image=previous_image,
@@ -375,17 +377,43 @@ def detections_from_proposals(
     )
     graph = result.graph
     assert_no_ground_truth_in_proposals(graph.proposals)
-    pool = list(graph.fused) if graph.fused else [
-        p
-        for p in graph.proposals
-        if p.status is ProposalStatus.ACTIVE and p.area_px > 0 and p.mask is not None
-    ]
+    # Prefer fused object-scale proposals. Fall back to raw active proposals,
+    # still rejecting dominant support surfaces so a table band cannot replace
+    # the empty fused set.
+    from blender_vision.ocular.proposals import _is_support_surface, _objectness_rank
+
+    def _object_pool(props: list[Any]) -> list[Any]:
+        usable = [
+            p
+            for p in props
+            if p.mask is not None
+            and p.area_px > 0
+            and int(p.mask.sum()) >= cfg.min_area
+            and not _is_support_surface(p.bbox_xywh, p.area_px, frame_h, frame_w)
+        ]
+        usable.sort(key=lambda p: _objectness_rank(p, frame_h, frame_w), reverse=True)
+        return usable
+
+    if graph.fused:
+        pool = _object_pool(list(graph.fused))
+    else:
+        pool = []
+    if not pool:
+        pool = _object_pool(
+            [
+                p
+                for p in graph.proposals
+                if p.status is ProposalStatus.ACTIVE
+                and p.area_px > 0
+                and p.mask is not None
+            ]
+        )
     detections: list[Detection] = []
     for i, prop in enumerate(pool[: cfg.max_regions]):
         if prop.mask is None or int(prop.mask.sum()) < cfg.min_area:
             continue
         det = detection_from_mask(
-            image,
+            bgr,
             prop.mask,
             detection_id=prop.proposal_id or f"prop-{frame_index}-{i}",
             frame_index=frame_index,
