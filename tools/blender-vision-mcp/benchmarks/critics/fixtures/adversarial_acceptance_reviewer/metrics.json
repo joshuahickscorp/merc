@@ -1,0 +1,10 @@
+{
+  "budget_claim_met": true,
+  "detail_removed_fraction": 0.55,
+  "hidden_view_score_delta": 0.4,
+  "reference_class_actual": "training_views_only",
+  "reference_class_declared": "held_out_multiview_v1",
+  "threshold_applied": 0.15,
+  "threshold_higher_is_easier": true,
+  "threshold_original": 0.02
+}
