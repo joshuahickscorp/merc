@@ -35,6 +35,13 @@ regardless of how much code is written. This is one external action.
 | Python SDK | `TESTED` | `sdk/python/merc/`, clean-room install verified. |
 | TypeScript SDK | `TESTED` | `sdk/typescript/`, built to `dist/`, 12 tests covering the binary embeddings decoder, path encoding, bearer auth and `wait()` timeout. Never run against a deployed merc. |
 
+## Repository boundary and rename
+
+| item | status | evidence |
+|---|---|---|
+| VisionMCP extracted | `TESTED` | Already a standalone git repository at `~/Downloads/visionmcp` (3,297 tracked files, own history), with **zero** files tracked by merc. Its internals were not modified. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree, so it cannot be re-absorbed by a `git add -A` from the wrong directory. merc's owned LOC is **70,708**, and none of it is VisionMCP. **`EXTERNALLY_BLOCKED` on one step**: the repository has no remote — creating and pushing to a GitHub repository is an account action. |
+| Rename zero-residue audit | `TESTED` | `scripts/rename-residue-audit.py`, in `make ci`. FROZEN 158 / BLOCKED 346 / **RESIDUE 0**. Frozen and blocked classes are itemised with a per-identifier reason in `docs/RENAME_REGISTER.md` §5. |
+
 ## Money and operations
 
 | item | status | evidence |
