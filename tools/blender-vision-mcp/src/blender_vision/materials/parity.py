@@ -70,11 +70,39 @@ class ProbeRig:
     # Both targets then apply the Standard linear→sRGB transfer (not Filmic/AgX).
     exposure: float = 0.0
     cycles_samples: int = 32
+    # Optional surface detail driven by sensitivity sweeps (no-op at zero).
+    normal_strength: float = 0.0
+    displacement_scale: float = 0.0
+    anisotropy: float = 0.0
 
     def with_resolution(self, size: int) -> ProbeRig:
         if size == self.resolution:
             return self
         return replace(self, resolution=int(size))
+
+    def with_light_size(self, size: float) -> ProbeRig:
+        return replace(self, light_size=float(size))
+
+    def with_light_energy(self, energy: float) -> ProbeRig:
+        return replace(self, light_energy=float(energy))
+
+    def with_exposure(self, exposure: float) -> ProbeRig:
+        return replace(self, exposure=float(exposure))
+
+    def with_samples(self, samples: int) -> ProbeRig:
+        return replace(self, cycles_samples=int(samples))
+
+    def with_light_position(self, position: tuple[float, float, float]) -> ProbeRig:
+        return replace(self, light_position=tuple(float(v) for v in position))  # type: ignore[arg-type]
+
+    def with_normal_strength(self, strength: float) -> ProbeRig:
+        return replace(self, normal_strength=float(strength))
+
+    def with_displacement_scale(self, scale: float) -> ProbeRig:
+        return replace(self, displacement_scale=float(scale))
+
+    def with_anisotropy(self, amount: float) -> ProbeRig:
+        return replace(self, anisotropy=float(amount))
 
     def exposure_gain(self) -> float:
         return float(2.0 ** self.exposure)
@@ -158,6 +186,9 @@ class ProbeRig:
             "background_strength": self.background_strength,
             "exposure": self.exposure,
             "cycles_samples": self.cycles_samples,
+            "normal_strength": self.normal_strength,
+            "displacement_scale": self.displacement_scale,
+            "anisotropy": self.anisotropy,
             "direct_irradiance_scale": self.direct_irradiance_scale(),
             "exposure_gain": self.exposure_gain(),
         }
@@ -165,18 +196,66 @@ class ProbeRig:
 
 DEFAULT_PROBE_RIG = ProbeRig()
 
+# Sensitivity rig: same light/camera framing as the default (specular lands in
+# frame) but higher angular resolution and a tighter area light so low-roughness
+# lobes stay resolvable under Cycles. Thresholds are unchanged; only geometry of
+# the measurement improves. Analytic GGX ignores light_size (point sample).
+SENSITIVITY_PROBE_RIG = ProbeRig(
+    resolution=256,
+    sphere_segments=64,
+    sphere_rings=32,
+    light_size=0.35,
+    light_energy=320.0,
+    cycles_samples=64,
+    camera_fov_y_deg=32.0,
+    camera_position=(0.0, -3.0, 0.85),
+)
+
 
 @dataclass(slots=True)
 class ParityMetrics:
     delta_e2000: float
     structural: float
     mean_abs_error: float
+    # Highlight-specific measures (optional; 0 when not computed).
+    specular_peak_energy: float = 0.0
+    specular_lobe_width: float = 0.0
+    specular_peak_delta: float = 0.0
+    specular_lobe_width_delta: float = 0.0
+    highlight_delta_e2000: float = 0.0
 
     def to_dict(self) -> dict[str, float]:
         return {
             "delta_e2000": self.delta_e2000,
             "structural": self.structural,
             "mean_abs_error": self.mean_abs_error,
+            "specular_peak_energy": self.specular_peak_energy,
+            "specular_lobe_width": self.specular_lobe_width,
+            "specular_peak_delta": self.specular_peak_delta,
+            "specular_lobe_width_delta": self.specular_lobe_width_delta,
+            "highlight_delta_e2000": self.highlight_delta_e2000,
+        }
+
+
+@dataclass(slots=True)
+class HighlightMetrics:
+    """Specular-lobe measures that whole-image means wash out."""
+
+    peak_energy: float
+    floor_energy: float
+    contrast: float
+    lobe_width_px: float
+    lobe_fwhm_px: float
+    lobe_fraction: float
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "peak_energy": self.peak_energy,
+            "floor_energy": self.floor_energy,
+            "contrast": self.contrast,
+            "lobe_width_px": self.lobe_width_px,
+            "lobe_fwhm_px": self.lobe_fwhm_px,
+            "lobe_fraction": self.lobe_fraction,
         }
 
 
@@ -263,6 +342,114 @@ def structural_difference(image_a: np.ndarray, image_b: np.ndarray) -> float:
     return float(1.0 - ssim)
 
 
+def _luminance(rgb: np.ndarray) -> np.ndarray:
+    a = np.asarray(rgb, dtype=np.float64)
+    if a.max() > 1.0 + 1e-6:
+        a = a / 255.0
+    a = np.clip(a[..., :3], 0.0, 1.0)
+    return 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
+
+
+def _sphere_mask(shape: tuple[int, ...], radius_fraction: float = 0.42) -> np.ndarray:
+    height, width = int(shape[0]), int(shape[1])
+    y_i, x_i = np.mgrid[0:height, 0:width]
+    cy = (height - 1) * 0.5
+    cx = (width - 1) * 0.5
+    radius = min(height, width) * float(radius_fraction)
+    return (x_i - cx) ** 2 + (y_i - cy) ** 2 < radius * radius
+
+
+def measure_highlight(image: np.ndarray) -> HighlightMetrics:
+    """Measure specular peak energy and lobe width on the probe sphere.
+
+    Whole-image means dilute roughness changes into the diffuse body and the
+    background. These measures isolate the highlight so a meaningful roughness
+    step produces a measurable response.
+    """
+    lum = _luminance(image)
+    sphere = _sphere_mask(lum.shape)
+    if not bool(np.any(sphere)):
+        return HighlightMetrics(
+            peak_energy=0.0,
+            floor_energy=0.0,
+            contrast=0.0,
+            lobe_width_px=0.0,
+            lobe_fwhm_px=0.0,
+            lobe_fraction=0.0,
+        )
+    values = lum[sphere]
+    floor = float(np.percentile(values, 40))
+    peak = float(np.max(values))
+    contrast = float(peak - floor)
+    # Low-contrast surfaces have no resolvable specular lobe; report zero width
+    # rather than letting half-max flood the whole sphere (which fabricates span).
+    if contrast < 0.04:
+        return HighlightMetrics(
+            peak_energy=peak,
+            floor_energy=floor,
+            contrast=contrast,
+            lobe_width_px=0.0,
+            lobe_fwhm_px=0.0,
+            lobe_fraction=0.0,
+        )
+    thr = floor + 0.5 * contrast
+    lobe = sphere & (lum >= thr)
+    area = float(np.count_nonzero(lobe))
+    sphere_area = float(np.count_nonzero(sphere))
+    # Cap: a lobe covering >60% of the sphere is not a specular highlight.
+    if area / max(sphere_area, 1.0) > 0.6:
+        thr = floor + 0.75 * contrast
+        lobe = sphere & (lum >= thr)
+        area = float(np.count_nonzero(lobe))
+    eq_diam = float(2.0 * math.sqrt(area / math.pi)) if area > 0.0 else 0.0
+    # Horizontal FWHM through the peak pixel (stable under mild noise).
+    peak_idx = np.argmax(np.where(sphere, lum, -1.0))
+    peak_y, _peak_x = np.unravel_index(int(peak_idx), lum.shape)
+    row = lum[int(peak_y), :]
+    above = row >= thr
+    if bool(np.any(above)):
+        xs = np.flatnonzero(above)
+        fwhm = float(xs[-1] - xs[0] + 1)
+    else:
+        fwhm = 0.0
+    return HighlightMetrics(
+        peak_energy=peak,
+        floor_energy=floor,
+        contrast=contrast,
+        lobe_width_px=eq_diam,
+        lobe_fwhm_px=fwhm,
+        lobe_fraction=area / max(sphere_area, 1.0),
+    )
+
+
+def highlight_delta_e2000(image_a: np.ndarray, image_b: np.ndarray) -> float:
+    """Mean CIEDE2000 restricted to the union of specular lobes (or sphere)."""
+    from skimage.color import deltaE_ciede2000, rgb2lab
+
+    a = np.asarray(image_a, dtype=np.float64)
+    b = np.asarray(image_b, dtype=np.float64)
+    if a.max() > 1.0 + 1e-6:
+        a = a / 255.0
+    if b.max() > 1.0 + 1e-6:
+        b = b / 255.0
+    a = np.clip(a[..., :3], 0.0, 1.0)
+    b = np.clip(b[..., :3], 0.0, 1.0)
+    ha = measure_highlight(a)
+    hb = measure_highlight(b)
+    lum_a = _luminance(a)
+    lum_b = _luminance(b)
+    sphere = _sphere_mask(lum_a.shape)
+    thr_a = ha.floor_energy + 0.35 * max(ha.contrast, 1e-6)
+    thr_b = hb.floor_energy + 0.35 * max(hb.contrast, 1e-6)
+    mask = sphere & ((lum_a >= thr_a) | (lum_b >= thr_b))
+    if not bool(np.any(mask)):
+        mask = sphere
+    lab_a = rgb2lab(a)
+    lab_b = rgb2lab(b)
+    de = deltaE_ciede2000(lab_a, lab_b)
+    return float(np.mean(de[mask]))
+
+
 def compare_images(image_a: np.ndarray, image_b: np.ndarray) -> ParityMetrics:
     a = np.asarray(image_a, dtype=np.float64)
     b = np.asarray(image_b, dtype=np.float64)
@@ -272,10 +459,17 @@ def compare_images(image_a: np.ndarray, image_b: np.ndarray) -> ParityMetrics:
         b = b / 255.0
     a = np.clip(a[..., :3], 0.0, 1.0)
     b = np.clip(b[..., :3], 0.0, 1.0)
+    ha = measure_highlight(a)
+    hb = measure_highlight(b)
     return ParityMetrics(
         delta_e2000=delta_e2000(a, b),
         structural=structural_difference(a, b),
         mean_abs_error=float(np.mean(np.abs(a - b))),
+        specular_peak_energy=hb.peak_energy,
+        specular_lobe_width=hb.lobe_fwhm_px,
+        specular_peak_delta=float(abs(ha.peak_energy - hb.peak_energy)),
+        specular_lobe_width_delta=float(abs(ha.lobe_fwhm_px - hb.lobe_fwhm_px)),
+        highlight_delta_e2000=highlight_delta_e2000(a, b),
     )
 
 
@@ -537,6 +731,32 @@ elif "Transmission" in bsdf.inputs:
     bsdf.inputs["Transmission"].default_value = {float(hypothesis.transmission)}
 if "Subsurface Weight" in bsdf.inputs:
     bsdf.inputs["Subsurface Weight"].default_value = {float(hypothesis.subsurface)}
+_aniso = {float(max(hypothesis.anisotropy, rig.anisotropy))}
+if "Anisotropic" in bsdf.inputs:
+    bsdf.inputs["Anisotropic"].default_value = _aniso
+elif "Anisotropy" in bsdf.inputs:
+    bsdf.inputs["Anisotropy"].default_value = _aniso
+# Optional procedural normal / displacement for sensitivity sweeps.
+_normal_strength = {float(rig.normal_strength)}
+_disp_scale = {float(rig.displacement_scale)}
+if _normal_strength > 1e-8 or _disp_scale > 1e-8:
+    tex = nodes.new("ShaderNodeTexNoise")
+    tex.inputs["Scale"].default_value = 12.0
+    tex.inputs["Detail"].default_value = 8.0
+    if _normal_strength > 1e-8:
+        bump = nodes.new("ShaderNodeBump")
+        bump.inputs["Strength"].default_value = _normal_strength
+        links.new(tex.outputs["Fac"], bump.inputs["Height"])
+        links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    if _disp_scale > 1e-8:
+        disp = nodes.new("ShaderNodeDisplacement")
+        disp.inputs["Scale"].default_value = _disp_scale
+        links.new(tex.outputs["Fac"], disp.inputs["Height"])
+        links.new(disp.outputs["Displacement"], out_n.inputs["Displacement"])
+        try:
+            mat.displacement_method = "BOTH"
+        except Exception:
+            pass
 links.new(bsdf.outputs["BSDF"], out_n.inputs["Surface"])
 sphere.data.materials.append(mat)
 
@@ -882,23 +1102,33 @@ def render_browser(
 
 
 def _launch_playwright_browser(playwright: Any) -> Any:
-    """Launch a single Chromium browser. Never leave a second instance alive.
+    """Launch a single browser. Never leave a second instance alive.
 
-    Uses the installed Chrome channel when present (matches BrowserAdapter).
-    Does not fan out to WebKit/Firefox: those engines can hang in restricted
-    sandboxes and would violate the one-browser-at-a-time rule under retry.
+    Prefer Chrome/Chromium; fall back to Firefox when Chrome is denied by the
+    host sandbox (Crashpad/bootstrap). WebKit is not tried: it can hang under
+    restricted sandboxes and would violate the one-browser rule under retry.
+    Exactly one engine is launched — never parallel engines.
     """
     chrome = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     launch_kwargs: dict[str, Any] = {"headless": True, "timeout": 20_000}
+    errors: list[str] = []
     if chrome.is_file():
-        launch_kwargs["channel"] = "chrome"
+        try:
+            return playwright.chromium.launch(**{**launch_kwargs, "channel": "chrome"})
+        except Exception as error:  # noqa: BLE001 — try next engine
+            errors.append(f"chrome: {error}")
     try:
         return playwright.chromium.launch(**launch_kwargs)
+    except Exception as error:  # noqa: BLE001 — try Firefox
+        errors.append(f"chromium: {error}")
+    try:
+        return playwright.firefox.launch(**launch_kwargs)
     except Exception as error:  # noqa: BLE001 — map to explicit blocker
+        errors.append(f"firefox: {error}")
         raise BackendUnavailable(
-            "browser launch failed (Chrome/Chromium). "
+            "browser launch failed (Chrome/Chromium/Firefox). "
             "Blocked environments often deny Crashpad/bootstrap access: "
-            f"{error}"
+            + " | ".join(errors)
         ) from error
 
 

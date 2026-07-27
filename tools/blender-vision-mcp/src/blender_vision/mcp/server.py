@@ -16,7 +16,9 @@ from blender_vision.active_perception import (
     NextBestViewPlanner,
     PerceptionTarget,
     PlannerConfig,
+    ProposedView,
     SurfaceCell,
+    estimate_information_gain,
 )
 from blender_vision.app_build.benchmark import ApplicationBenchmarkRunner
 from blender_vision.artifacts.store import ArtifactStore
@@ -78,6 +80,53 @@ from blender_vision.materials.inverse import SurfaceObservation, SurfaceRegion, 
 from blender_vision.materials.store import MaterialStore
 from blender_vision.materials.textures import generate_texture_set
 from blender_vision.models.store import ModelStore
+from blender_vision.ocular.calibration import calibrate_sensor as ocular_calibrate_sensor
+from blender_vision.ocular.gaze import GazeController
+from blender_vision.ocular.predict import list_surprises as ocular_list_surprises
+from blender_vision.ocular.predict import predict_next as ocular_predict_next
+from blender_vision.ocular.stream import (
+    close_stream as ocular_close_stream,
+)
+from blender_vision.ocular.stream import (
+    get_stream_state as ocular_get_stream_state,
+)
+from blender_vision.ocular.stream import (
+    open_stream_or_attest,
+)
+from blender_vision.ocular.track import (
+    Detection,
+    KalmanCV2,
+    TrackerState,
+    TrackTargetKind,
+    VisualTrack,
+)
+from blender_vision.ocular.track import (
+    reidentify as ocular_reidentify,
+)
+from blender_vision.ocular.track import (
+    track as ocular_track,
+)
+from blender_vision.ocular.world import (
+    WorldState,
+)
+from blender_vision.ocular.world import (
+    build_world_model as ocular_build_world_model,
+)
+from blender_vision.ocular.world import (
+    compare_worlds as ocular_compare_worlds,
+)
+from blender_vision.ocular.world import (
+    explain_belief as ocular_explain_belief,
+)
+from blender_vision.ocular.world import (
+    list_uncertainties as ocular_list_uncertainties,
+)
+from blender_vision.ocular.world import (
+    query_world as ocular_query_world,
+)
+from blender_vision.ocular.world import (
+    update_world_model as ocular_update_world_model,
+)
 from blender_vision.optimization.engine import OptimizationEngine
 from blender_vision.optimization.search import MultiviewSearchStore
 from blender_vision.orchestration.campaigns import CampaignStore
@@ -5590,6 +5639,501 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             "status": "promoted",
             "record": promoted.to_dict(),
             "path": str(path),
+        }
+
+    # ------------------------------------------------------------------
+    # Ocular OS surface (V2.1 continuous perception loop)
+    # Additive only: existing V1/V2 tool names above stay untouched.
+    # ------------------------------------------------------------------
+
+    _ocular_gaze: dict[str, GazeController] = {}
+    _ocular_trackers: dict[str, TrackerState] = {}
+    _ocular_worlds: dict[str, WorldState] = {}
+
+    def _ocular_gaze_for(stream_id: str) -> GazeController:
+        key = stream_id or "default"
+        controller = _ocular_gaze.get(key)
+        if controller is None:
+            controller = GazeController(stream_id=key)
+            _ocular_gaze[key] = controller
+        return controller
+
+    def _detection_from_dict(payload: dict[str, Any]) -> Detection:
+        kind_raw = payload.get("kind", TrackTargetKind.OBJECT.value)
+        bbox = payload.get("bbox_xywh") or payload.get("bbox") or [0.0, 0.0, 1.0, 1.0]
+        if len(bbox) < 4:
+            raise ValidationError("detection.bbox_xywh must be [x, y, w, h]")
+        cx = payload.get("centroid_xy")
+        if cx is None:
+            centroid = (
+                float(bbox[0]) + float(bbox[2]) / 2.0,
+                float(bbox[1]) + float(bbox[3]) / 2.0,
+            )
+        else:
+            centroid = (float(cx[0]), float(cx[1]))
+        hist = [float(v) for v in (payload.get("appearance_hist") or [1.0])]
+        return Detection(
+            detection_id=str(payload.get("detection_id") or payload.get("id") or "det-0"),
+            kind=TrackTargetKind(str(kind_raw)),
+            bbox_xywh=(float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])),
+            centroid_xy=centroid,
+            appearance_hist=hist,
+            area_px=float(payload.get("area_px", float(bbox[2]) * float(bbox[3]))),
+            frame_index=int(payload.get("frame_index", 0)),
+            conf=float(payload.get("conf", 1.0)),
+            meta=dict(payload.get("meta") or {}),
+        )
+
+    def _tracker_to_dict(state: TrackerState) -> dict[str, Any]:
+        return {
+            "tracks": [track.to_dict() for track in state.tracks],
+            "filters": {tid: filt.to_dict() for tid, filt in state.filters.items()},
+            "next_id": state.next_id,
+            "frame_index": state.frame_index,
+        }
+
+    def _tracker_from_dict(payload: dict[str, Any] | None) -> TrackerState | None:
+        if not payload:
+            return None
+        tracks = [
+            VisualTrack.from_dict(item) if isinstance(item, dict) else item
+            for item in (payload.get("tracks") or [])
+        ]
+        filters: dict[str, KalmanCV2] = {}
+        for tid, raw in (payload.get("filters") or {}).items():
+            if isinstance(raw, dict):
+                filters[str(tid)] = KalmanCV2(
+                    x=float(raw.get("x", 0.0)),
+                    y=float(raw.get("y", 0.0)),
+                    vx=float(raw.get("vx", 0.0)),
+                    vy=float(raw.get("vy", 0.0)),
+                    p_pos=float(raw.get("p_pos", 25.0)),
+                    p_vel=float(raw.get("p_vel", 50.0)),
+                )
+        return TrackerState(
+            tracks=list(tracks),
+            filters=filters,
+            next_id=int(payload.get("next_id", 1)),
+            frame_index=int(payload.get("frame_index", -1)),
+        )
+
+    def _world_from_payload(payload: dict[str, Any] | str) -> WorldState:
+        if isinstance(payload, str):
+            if payload not in _ocular_worlds:
+                raise ValidationError(f"unknown world_id: {payload}")
+            return _ocular_worlds[payload]
+        world = WorldState.from_dict(payload)
+        # Cache by sealed id so subsequent tools can pass world_id alone.
+        if world.id:
+            _ocular_worlds[world.id] = world
+        return world
+
+    def _cache_world(world: WorldState) -> WorldState:
+        sealed = world if world.digest else world.seal()
+        _ocular_worlds[sealed.id] = sealed
+        return sealed
+
+    def _proposed_view(payload: dict[str, Any]) -> ProposedView:
+        return ProposedView(
+            view_id=str(payload.get("view_id") or payload.get("id") or "view-0"),
+            kind=str(payload.get("kind", "side")),
+            regions=list(payload.get("regions") or []),
+            signature=str(payload.get("signature") or ""),
+            capture_instructions=dict(payload.get("capture_instructions") or {}),
+            human_instructions=str(payload.get("human_instructions") or ""),
+            required_calibration=list(payload.get("required_calibration") or []),
+            acceptable_alternatives=list(payload.get("acceptable_alternatives") or []),
+            reason=str(payload.get("reason") or ""),
+            covers_scale_reference=bool(payload.get("covers_scale_reference", False)),
+            covers_diffuse_light=bool(payload.get("covers_diffuse_light", False)),
+            covers_grazing_light=bool(payload.get("covers_grazing_light", False)),
+            covers_lens_metadata=bool(payload.get("covers_lens_metadata", False)),
+            covers_calibration_target=bool(payload.get("covers_calibration_target", False)),
+        )
+
+    @mcp.tool(name="vision.open_stream")
+    def vision_open_stream(
+        source: str,
+        source_type: str = "video_file",
+        stream_id: str | None = None,
+        sensor_id: str | None = None,
+        buffer_size: int = 32,
+        allow_webcam: bool = False,
+        webcam_index: int = 0,
+        frame_rate: float = 30.0,
+        calibration_receipt: str = "",
+    ) -> dict[str, Any]:
+        """Open a calibrated ocular stream (video, sequence, screen, render, or opt-in webcam).
+
+        Webcam opens require allow_webcam=True. Missing hardware returns BLOCKED
+        with an attestation — live frames are never fabricated.
+        """
+        _handle, _attestation, status = open_stream_or_attest(
+            source,
+            source_type=source_type,
+            stream_id=stream_id,
+            sensor_id=sensor_id,
+            buffer_size=buffer_size,
+            allow_webcam=allow_webcam,
+            webcam_index=webcam_index,
+            frame_rate=frame_rate,
+            calibration_receipt=calibration_receipt,
+        )
+        if status.get("status") == "open" and status.get("stream_id"):
+            sid = str(status["stream_id"])
+            _ocular_gaze[sid] = GazeController(stream_id=sid)
+            _ocular_trackers[sid] = TrackerState()
+        return status
+
+    @mcp.tool(name="vision.close_stream")
+    def vision_close_stream(stream_id: str) -> dict[str, Any]:
+        """Close an open ocular stream and release capture resources."""
+        state = ocular_close_stream(stream_id)
+        _ocular_gaze.pop(stream_id, None)
+        _ocular_trackers.pop(stream_id, None)
+        return {"status": "closed", **state}
+
+    @mcp.tool(name="vision.get_stream_state")
+    def vision_get_stream_state(stream_id: str) -> dict[str, Any]:
+        """Return buffer occupancy, timestamps, drops, and execution class for a stream."""
+        return ocular_get_stream_state(stream_id)
+
+    @mcp.tool(name="vision.calibrate_sensor")
+    def vision_calibrate_sensor(
+        image_paths: list[str],
+        sensor_id: str,
+        board_cols: int = 9,
+        board_rows: int = 6,
+        square_m: float | None = None,
+        physical_scale_m: float | None = None,
+        timestamps: list[float] | None = None,
+        stream_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Calibrate lens/principal-point from checkerboard images.
+
+        MEASURED authority requires square_m or physical_scale_m. Without a
+        physical scale the receipt stays SENSOR_DERIVED / INFERRED.
+        """
+        calibration = ocular_calibrate_sensor(
+            image_paths,
+            sensor_id=sensor_id,
+            board_size=(int(board_cols), int(board_rows)),
+            square_m=square_m,
+            physical_scale_m=physical_scale_m,
+            timestamps=timestamps,
+        )
+        sealed = calibration.seal() if not calibration.digest else calibration
+        if stream_id:
+            try:
+                state = ocular_get_stream_state(stream_id)
+                state_id = str(state.get("stream_id") or stream_id)
+                # Soft-bind calibration receipt id onto stream handle if open.
+                from blender_vision.ocular.stream import get_stream
+
+                handle = get_stream(state_id)
+                handle.calibration_receipt = sealed.id
+                if sealed.camera_matrix:
+                    handle._intrinsics = {
+                        "camera_matrix": sealed.camera_matrix,
+                        "distortion_coefficients": sealed.distortion_coefficients,
+                        "principal_point": sealed.principal_point,
+                        "image_size": sealed.image_size,
+                    }
+            except ValidationError:
+                pass
+        return {
+            "status": "calibrated",
+            "calibration": sealed.to_dict(),
+            "authority": sealed.authority.value
+            if hasattr(sealed.authority, "value")
+            else str(sealed.authority),
+            "method": sealed.method,
+            "limitations": list(sealed.limitations),
+        }
+
+    @mcp.tool(name="vision.fixate")
+    def vision_fixate(
+        region: list[float],
+        stream_id: str = "",
+        reason: str = "salience",
+        expected_information: float = 0.5,
+        duration_ms: float = 100.0,
+        target: str = "",
+        frame_id: str = "",
+        uncertainty: float = 0.0,
+        evidence_changed: bool = False,
+        critic_requested: bool = False,
+    ) -> dict[str, Any]:
+        """Fixate gaze on a region with inhibition-of-return and attention budget."""
+        controller = _ocular_gaze_for(stream_id)
+        controller.tick()
+        fixation = controller.fixate(
+            region,
+            reason=reason,
+            expected_information=expected_information,
+            duration_ms=duration_ms,
+            target=target,
+            frame_id=frame_id,
+            uncertainty=uncertainty,
+            evidence_changed=evidence_changed,
+            critic_requested=critic_requested,
+        )
+        return {
+            "status": "ok",
+            "fixation": fixation.to_dict(),
+            "outcome": fixation.outcome.value
+            if hasattr(fixation.outcome, "value")
+            else str(fixation.outcome),
+            "stream_id": stream_id,
+        }
+
+    @mcp.tool(name="vision.saccade")
+    def vision_saccade(
+        to_region: list[float],
+        stream_id: str = "",
+        reason: str = "salience",
+        expected_information: float = 0.5,
+        from_region: list[float] | None = None,
+        uncertainty: float = 0.0,
+        evidence_changed: bool = False,
+        critic_requested: bool = False,
+        duration_ms: float = 40.0,
+    ) -> dict[str, Any]:
+        """Plan and commit a saccade to a new region (IOR-aware)."""
+        controller = _ocular_gaze_for(stream_id)
+        controller.tick()
+        plan = controller.saccade(
+            to_region,
+            reason=reason,
+            expected_information=expected_information,
+            from_region=from_region,
+            uncertainty=uncertainty,
+            evidence_changed=evidence_changed,
+            critic_requested=critic_requested,
+            duration_ms=duration_ms,
+        )
+        return {
+            "status": "ok",
+            "saccade": plan.to_dict(),
+            "inhibited": bool(plan.inhibited),
+            "stream_id": stream_id,
+        }
+
+    @mcp.tool(name="vision.track")
+    def vision_track(
+        detections: list[dict[str, Any]],
+        tracker_state: dict[str, Any] | None = None,
+        frame_index: int | None = None,
+        stream_id: str = "",
+    ) -> dict[str, Any]:
+        """Associate detections to tracks for one frame (IoU + appearance + Kalman).
+
+        Identity is derived from image evidence alone. Pass tracker_state to
+        continue a multi-frame association, or stream_id to use the server cache.
+        """
+        state = _tracker_from_dict(tracker_state)
+        if state is None and stream_id and stream_id in _ocular_trackers:
+            state = _ocular_trackers[stream_id]
+        dets = [_detection_from_dict(item) for item in detections]
+        updated = ocular_track(dets, state, frame_index=frame_index)
+        if stream_id:
+            _ocular_trackers[stream_id] = updated
+        return {
+            "status": "ok",
+            "frame_index": updated.frame_index,
+            "n_tracks": len(updated.tracks),
+            "tracks": [track.to_dict() for track in updated.tracks],
+            "tracker_state": _tracker_to_dict(updated),
+            "stream_id": stream_id,
+        }
+
+    @mcp.tool(name="vision.reidentify")
+    def vision_reidentify(
+        detection: dict[str, Any],
+        tracks: list[dict[str, Any]] | None = None,
+        tracker_state: dict[str, Any] | None = None,
+        stream_id: str = "",
+        min_score: float | None = None,
+        require_lost_or_occluded: bool = True,
+    ) -> dict[str, Any]:
+        """Attempt re-identification of a detection against lost/occluded tracks.
+
+        Refusal below the appearance threshold is a first-class result, not an error.
+        """
+        det = _detection_from_dict(detection)
+        pool: list[VisualTrack] = []
+        if tracks:
+            pool = [
+                VisualTrack.from_dict(item) if isinstance(item, dict) else item for item in tracks
+            ]
+        else:
+            state = _tracker_from_dict(tracker_state)
+            if state is None and stream_id and stream_id in _ocular_trackers:
+                state = _ocular_trackers[stream_id]
+            if state is not None:
+                pool = list(state.tracks)
+        decision = ocular_reidentify(
+            det,
+            pool,
+            min_score=min_score,
+            require_lost_or_occluded=require_lost_or_occluded,
+        )
+        return {"status": "ok", "decision": decision.to_dict(), "stream_id": stream_id}
+
+    @mcp.tool(name="vision.observe_change")
+    def vision_observe_change(
+        prior_world: dict[str, Any],
+        current_world: dict[str, Any],
+        move_tol_m: float = 0.05,
+        lighting_tol: float = 0.08,
+    ) -> dict[str, Any]:
+        """Classify session-to-session world changes (moved/removed/new/lighting)."""
+        prior = _world_from_payload(prior_world)
+        current = _world_from_payload(current_world)
+        report = ocular_compare_worlds(
+            prior,
+            current,
+            move_tolerance_m=move_tol_m,
+            lighting_tolerance=lighting_tol,
+        )
+        return {"status": "ok", "report": report}
+
+    @mcp.tool(name="vision.build_world_model")
+    def vision_build_world_model(
+        observations: list[dict[str, Any]],
+        scene_id: str,
+        session_id: str = "session-0",
+    ) -> dict[str, Any]:
+        """Build a persistent world model from ordered frame observations.
+
+        Observations must carry perception-derived entity ids (track_id/entity_id),
+        not sealed evaluator ground truth.
+        """
+        world = ocular_build_world_model(
+            observations,
+            scene_id=scene_id,
+            session_id=session_id,
+        )
+        sealed = _cache_world(world)
+        return {
+            "status": "ok",
+            "world_id": sealed.id,
+            "world": sealed.to_dict(),
+            "n_entities": len(sealed.entities),
+            "beliefs_digest": sealed.beliefs_digest(),
+        }
+
+    @mcp.tool(name="vision.update_world_model")
+    def vision_update_world_model(
+        world: dict[str, Any],
+        observation: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Incorporate one frame observation into an existing world (append-only)."""
+        current = _world_from_payload(world)
+        updated = ocular_update_world_model(current, observation)
+        sealed = _cache_world(updated)
+        return {
+            "status": "ok",
+            "world_id": sealed.id,
+            "world": sealed.to_dict(),
+            "current_frame": sealed.current_frame,
+            "n_entities": len(sealed.entities),
+        }
+
+    @mcp.tool(name="vision.query_world")
+    def vision_query_world(
+        world: dict[str, Any],
+        query: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Query entities, relations, or a scene summary from a world model."""
+        current = _world_from_payload(world)
+        result = ocular_query_world(current, dict(query or {"type": "scene_summary"}))
+        return {"status": "ok", "result": result}
+
+    @mcp.tool(name="vision.explain_belief")
+    def vision_explain_belief(
+        world: dict[str, Any],
+        entity_id: str,
+        slot: str = "pose",
+    ) -> dict[str, Any]:
+        """Return the append-only belief history for one entity slot."""
+        current = _world_from_payload(world)
+        history = ocular_explain_belief(current, entity_id, slot)
+        return {
+            "status": "ok",
+            "entity_id": entity_id,
+            "slot": slot,
+            "history": history,
+            "count": len(history),
+        }
+
+    @mcp.tool(name="vision.list_uncertainties")
+    def vision_list_uncertainties(world: dict[str, Any]) -> dict[str, Any]:
+        """List entities ordered by uncertainty (lowest confidence first)."""
+        current = _world_from_payload(world)
+        rows = ocular_list_uncertainties(current)
+        return {"status": "ok", "uncertainties": rows, "count": len(rows)}
+
+    @mcp.tool(name="vision.predict_next")
+    def vision_predict_next(
+        world: dict[str, Any],
+        frame_index: int | None = None,
+        horizon: int = 1,
+        pose_tolerance_m: float = 0.05,
+        store_on_world: bool = True,
+    ) -> dict[str, Any]:
+        """Predict pose/visibility/existence for the next horizon frames."""
+        current = _world_from_payload(world)
+        predictions = ocular_predict_next(
+            current,
+            frame_index=frame_index,
+            horizon=horizon,
+            pose_tolerance_m=pose_tolerance_m,
+        )
+        payloads = [item.to_dict() for item in predictions]
+        if store_on_world:
+            current.predictions = list(current.predictions) + payloads
+            sealed = _cache_world(current)
+        else:
+            sealed = current
+        return {
+            "status": "ok",
+            "world_id": sealed.id,
+            "predictions": payloads,
+            "count": len(payloads),
+            "world": sealed.to_dict() if store_on_world else None,
+        }
+
+    @mcp.tool(name="vision.list_surprises")
+    def vision_list_surprises(
+        world: dict[str, Any],
+        entity_id: str | None = None,
+    ) -> dict[str, Any]:
+        """List recorded surprise events for a world (optionally filtered)."""
+        current = _world_from_payload(world)
+        rows = ocular_list_surprises(current, entity_id=entity_id)
+        return {"status": "ok", "surprises": rows, "count": len(rows)}
+
+    @mcp.tool(name="vision.measure_information_gain")
+    def vision_measure_information_gain(
+        target: dict[str, Any],
+        view: dict[str, Any],
+        gain_threshold: float = 0.02,
+    ) -> dict[str, Any]:
+        """Estimate expected information gain for a proposed view on a target."""
+        perception_target = _perception_target(target)
+        proposed = _proposed_view(view)
+        estimate = estimate_information_gain(
+            perception_target,
+            proposed,
+            gain_threshold=gain_threshold,
+        )
+        return {
+            "status": "ok",
+            "estimate": estimate.to_dict(),
+            "expected_reduction": estimate.expected_reduction,
+            "redundant": estimate.redundant,
+            "reason": estimate.reason,
         }
 
     return mcp
