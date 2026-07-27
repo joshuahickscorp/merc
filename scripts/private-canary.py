@@ -217,10 +217,13 @@ LANES = [
      "cmd": go_test("TestAdmittedPlansAlwaysFit|TestHostTopologyFromRegistration"),
      "cwd": "control", "full_path": False,
      "note": "admission only; no tensor-parallel runtime has served a request"},
-    {"id": "external_model_onboarding", "needs": [],
-     "cmd": go_test("TestShippedCatalogueSatisfiesOnboardingPolicy|TestCatalogueAttribution"),
-     "cwd": "control", "full_path": False,
-     "note": "licence and remote-code policy; smoke test and benchmark need a runtime"},
+    {"id": "external_model_onboarding", "needs": ["real_inference_runtime"],
+     "cmd": ["bash", "scripts/onboard-model-canary.sh"], "cwd": ".",
+     "full_path": False,
+     "note": ("a real external model taken through policy, identity, smoke, "
+              "determinism and a measured benchmark against a live runtime, plus "
+              "four refusal cases: non-commercial licence, remote_code, an alias "
+              "the runtime does not serve, and an unpinned revision")},
     {"id": "refunds_disputes", "needs": ["database"],
      "cmd": go_test("TestResolveDispute|TestReversal"), "cwd": "control",
      "full_path": True, "note": "dispute filing, freeze, resolution and payout control"},

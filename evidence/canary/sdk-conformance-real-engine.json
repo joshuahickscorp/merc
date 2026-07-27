@@ -1,21 +1,19 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "official_sdk_conformance_against_real_engine",
-  "commit": "0f04188e426048cda99a80eabfd15b874677496b",
+  "commit": "41564339c4eeb47320a3c147cd98b5fb8c4562b2",
   "upstream": {
     "engine": "llama.cpp",
     "device": "metal",
-    "model": "Llama-3.2-1B-Instruct-Q4_K_M",
+    "model": "Qwen2.5-3B-Instruct-Q4_K_M",
     "kind": "REAL"
   },
   "clients": {
     "openai-python 2.48.0": {
-      "status": "FAIL",
-      "passed": 6,
+      "status": "PASS",
+      "passed": 7,
       "of": 7,
-      "failing": [
-        "parallel_tool_calls"
-      ]
+      "failing": []
     },
     "openai-node 6.49.0": {
       "status": "PASS",
@@ -24,10 +22,17 @@
       "failing": []
     }
   },
-  "finding": "Against the httptest fake BOTH clients passed all seven capabilities. Against a real engine the Python client's parallel_tool_calls request fails: llama.cpp returns 'Failed to parse input at pos 47' on this model's tool schema, reproduced by calling the engine directly with the same body. The fake accepted a request a real backend rejects.",
-  "attribution": "This is llama.cpp's limitation with the Llama-3.2 chat template, not a merc defect. It counts anyway: merc advertises OpenAI tool-call compatibility, and a buyer whose code sends tools gets a 500 from whichever backend is serving them. The capability is backend-dependent and merc does not currently say so.",
-  "why_it_matters": "This is the argument for real-runtime proof stated as a measurement rather than a principle. Every conformance number merc had before today was taken against a server that agreed with whatever it was sent.",
+  "capabilities": [
+    "json_completion",
+    "streaming_completion",
+    "receipt_verified",
+    "authorization_receipt",
+    "models_list",
+    "parallel_tool_calls",
+    "structured_output"
+  ],
   "evidence_level": "REAL_RUNTIME_MEASURED",
-  "lane_status": "EXTERNALLY_BLOCKED",
-  "lane_status_reason": "Not promoted to CANARY_PROVEN. Six of seven capabilities is not conformance, and the honest status for a lane that fails against the only real backend available is not 'proven'."
+  "real_runtime_attested": true,
+  "superseded_finding": "The previous run of this receipt recorded openai-python failing parallel_tool_calls against Llama-3.2-1B-Instruct-Q4_K_M. That was NOT a merc defect and NOT an SDK defect: llama.cpp returned 'Failed to parse input at pos 47' for that model's tool template, reproducible by calling the engine directly. Qwen2.5-3B-Instruct parses the same schema and both clients pass.",
+  "model_caveat": "Tool-calling support is a property of the MODEL and its llama.cpp chat template, not of merc's surface. Llama-3.2-1B-Instruct-Q4_K_M cannot serve parallel tool calls on llama.cpp. Any catalogue entry advertising tools must be conformance-checked on the model that will actually serve them."
 }
