@@ -57,6 +57,9 @@ class DetectionMethod(StrEnum):
     REGION_GROW = "region_grow"
     MOTION_COMPONENTS = "motion_components"
     FUSED = "fused"
+    #: Multi-source proposal fusion (see ocular.proposals). Preferred path when
+    #: a single segmentation method collapses multiple objects into one region.
+    PROPOSAL_FUSION = "proposal_fusion"
 
 
 @dataclass(slots=True)
@@ -338,12 +341,72 @@ def detect_with_background(
     return detections
 
 
+def detections_from_proposals(
+    image: NDArray[Any],
+    *,
+    frame_index: int = 0,
+    previous_image: NDArray[Any] | None = None,
+    background_model: BackgroundModel | None = None,
+    depth: NDArray[Any] | None = None,
+    config: DetectionConfig | None = None,
+) -> list[Detection]:
+    """Build detections from the multi-source proposal ensemble.
+
+    Prefer fused atomic proposals; fall back to raw active proposals when fusion
+    is empty. Ground truth never enters this path.
+    """
+    # Local import avoids a circular import at module load (proposals → detect).
+    from blender_vision.ocular.proposals import (
+        ProposalContext,
+        ProposalStatus,
+        assert_no_ground_truth_in_proposals,
+        propose,
+    )
+
+    cfg = config or DetectionConfig()
+    result = propose(
+        image,
+        frame_index=frame_index,
+        context=ProposalContext(
+            previous_image=previous_image,
+            background_model=background_model,
+            depth=depth,
+        ),
+    )
+    graph = result.graph
+    assert_no_ground_truth_in_proposals(graph.proposals)
+    pool = list(graph.fused) if graph.fused else [
+        p
+        for p in graph.proposals
+        if p.status is ProposalStatus.ACTIVE and p.area_px > 0 and p.mask is not None
+    ]
+    detections: list[Detection] = []
+    for i, prop in enumerate(pool[: cfg.max_regions]):
+        if prop.mask is None or int(prop.mask.sum()) < cfg.min_area:
+            continue
+        det = detection_from_mask(
+            image,
+            prop.mask,
+            detection_id=prop.proposal_id or f"prop-{frame_index}-{i}",
+            frame_index=frame_index,
+            conf=float(prop.confidence),
+            method=DetectionMethod.PROPOSAL_FUSION,
+        )
+        if det is not None:
+            det.meta["supporting_sources"] = list(prop.supporting_sources)
+            det.meta["hypothesis_kind"] = prop.hypothesis_kind.value
+            detections.append(det)
+    assert_no_ground_truth_in_detections(detections)
+    return detections
+
+
 def detect(
     image: NDArray[Any],
     *,
     frame_index: int = 0,
     config: DetectionConfig | None = None,
     previous_image: NDArray[Any] | None = None,
+    background_model: BackgroundModel | None = None,
 ) -> list[Detection]:
     """Segment the image and emit one Detection per region with embeddings.
 
@@ -352,6 +415,22 @@ def detect(
     """
     cfg = config or DetectionConfig()
     bgr = _as_bgr(image)
+    if cfg.method is DetectionMethod.PROPOSAL_FUSION:
+        return detections_from_proposals(
+            bgr,
+            frame_index=frame_index,
+            previous_image=previous_image,
+            background_model=background_model,
+            config=cfg,
+        )
+    if cfg.method is DetectionMethod.BACKGROUND_MODEL:
+        if background_model is None:
+            raise ValidationError(
+                "DetectionMethod.BACKGROUND_MODEL requires background_model="
+            )
+        return detect_with_background(
+            bgr, background_model, frame_index=frame_index, config=cfg
+        )
     method_map = {
         DetectionMethod.WATERSHED: SegmentationMethod.WATERSHED,
         DetectionMethod.REGION_GROW: SegmentationMethod.REGION_GROW,
