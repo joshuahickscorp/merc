@@ -70,7 +70,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "left",
@@ -96,7 +98,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "left",
@@ -121,7 +125,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "left",
@@ -146,7 +152,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "warn"
+      },
       "tags": [
         "rack",
         "left",
@@ -171,7 +179,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "left",
@@ -196,7 +206,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "left",
@@ -221,7 +233,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "fault"
+      },
       "tags": [
         "rack",
         "left",
@@ -246,7 +260,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "left",
@@ -271,7 +287,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "left",
@@ -296,7 +314,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "left",
@@ -321,7 +341,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "warn"
+      },
       "tags": [
         "rack",
         "left",
@@ -346,7 +368,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "left",
@@ -371,7 +395,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "right",
@@ -397,7 +423,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "right",
@@ -422,7 +450,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "right",
@@ -447,7 +477,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "warn"
+      },
       "tags": [
         "rack",
         "right",
@@ -472,7 +504,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "right",
@@ -497,7 +531,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "right",
@@ -522,7 +558,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "fault"
+      },
       "tags": [
         "rack",
         "right",
@@ -547,7 +585,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "right",
@@ -572,7 +612,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "right",
@@ -597,7 +639,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "right",
@@ -622,7 +666,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "warn"
+      },
       "tags": [
         "rack",
         "right",
@@ -647,7 +693,9 @@
         1.0,
         1.0
       ],
-      "state": {},
+      "state": {
+        "status": "ok"
+      },
       "tags": [
         "rack",
         "right",
@@ -661,7 +709,7 @@
         0.3,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -686,7 +734,7 @@
         0.8999999999999999,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -710,7 +758,7 @@
         1.5,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -734,7 +782,7 @@
         2.0999999999999996,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -758,7 +806,7 @@
         2.6999999999999997,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -782,7 +830,7 @@
         3.3,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -806,7 +854,7 @@
         3.8999999999999995,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -830,7 +878,7 @@
         4.5,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -854,7 +902,7 @@
         5.1,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -878,7 +926,7 @@
         5.699999999999999,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -902,7 +950,7 @@
         6.3,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -926,7 +974,7 @@
         6.8999999999999995,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -950,7 +998,7 @@
         7.499999999999999,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -974,7 +1022,7 @@
         8.1,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -998,7 +1046,7 @@
         8.700000000000001,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -1022,7 +1070,7 @@
         9.3,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -1046,7 +1094,7 @@
         9.9,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -1070,7 +1118,7 @@
         10.5,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -1094,7 +1142,7 @@
         11.1,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -1118,7 +1166,7 @@
         11.700000000000001,
         0.0
       ],
-      "prototype_id": "proto_0006_floor_tile",
+      "prototype_id": "proto_0011_floor_tile",
       "rotation_euler": [
         0.0,
         0.0,
@@ -1142,7 +1190,7 @@
         13.2,
         0.0
       ],
-      "prototype_id": "proto_0008_junction",
+      "prototype_id": "proto_0013_junction",
       "rotation_euler": [
         0.0,
         0.0,
@@ -1166,7 +1214,7 @@
         13.2,
         0.0
       ],
-      "prototype_id": "proto_0009_aisle",
+      "prototype_id": "proto_0014_aisle",
       "rotation_euler": [
         0.0,
         0.0,
@@ -1191,7 +1239,7 @@
         13.2,
         0.0
       ],
-      "prototype_id": "proto_0011_containment_door",
+      "prototype_id": "proto_0016_containment_door",
       "rotation_euler": [
         0.0,
         0.0,
@@ -1214,7 +1262,7 @@
         13.2,
         0.0
       ],
-      "prototype_id": "proto_0012_terminal_wall",
+      "prototype_id": "proto_0017_terminal_wall",
       "rotation_euler": [
         0.0,
         0.0,
@@ -1238,7 +1286,7 @@
         11.7,
         0.0
       ],
-      "prototype_id": "proto_0014_column",
+      "prototype_id": "proto_0019_column",
       "rotation_euler": [
         0.0,
         0.0,
@@ -2503,7 +2551,7 @@
           }
         }
       ],
-      "prototype_id": "proto_0006_floor_tile"
+      "prototype_id": "proto_0011_floor_tile"
     },
     {
       "archetype": "junction",
@@ -2665,7 +2713,7 @@
           }
         }
       ],
-      "prototype_id": "proto_0008_junction"
+      "prototype_id": "proto_0013_junction"
     },
     {
       "archetype": "aisle",
@@ -2878,7 +2926,7 @@
           }
         }
       ],
-      "prototype_id": "proto_0009_aisle"
+      "prototype_id": "proto_0014_aisle"
     },
     {
       "archetype": "containment_door",
@@ -3090,7 +3138,7 @@
           }
         }
       ],
-      "prototype_id": "proto_0011_containment_door"
+      "prototype_id": "proto_0016_containment_door"
     },
     {
       "archetype": "terminal_wall",
@@ -3302,7 +3350,7 @@
           }
         }
       ],
-      "prototype_id": "proto_0012_terminal_wall"
+      "prototype_id": "proto_0017_terminal_wall"
     },
     {
       "archetype": "column",
@@ -3463,7 +3511,7 @@
           }
         }
       ],
-      "prototype_id": "proto_0014_column"
+      "prototype_id": "proto_0019_column"
     }
   ],
   "render_engine": "BLENDER_EEVEE_NEXT",

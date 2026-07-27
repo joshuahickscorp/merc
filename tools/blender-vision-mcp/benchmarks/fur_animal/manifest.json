@@ -1,0 +1,98 @@
+{
+  "acceptance_thresholds": {
+    "critical_groom_critic_findings_maximum": 0,
+    "groom_density_relative_error_maximum": 0.15,
+    "groom_length_relative_error_maximum": 0.12,
+    "hidden_silhouette_iou_minimum": 0.85,
+    "minimum_input_views": 16,
+    "public_silhouette_iou_minimum": 0.9,
+    "synthetic_bust_substitution": "forbidden"
+  },
+  "anti_cheat_rules": [
+    "builder_cannot_read_oracle_source",
+    "builder_cannot_read_hidden_cameras",
+    "builder_cannot_path_escape_to_oracle",
+    "builder_cannot_symlink_into_oracle",
+    "thresholds_are_digest_bound_before_builder_execution",
+    "evaluator_is_frozen_before_builder_and_reverified_after",
+    "hidden_evidence_never_appears_in_builder_inputs",
+    "failed_attempts_are_preserved",
+    "blocked_evidence_is_declared_exactly_never_substituted"
+  ],
+  "blocked_requirements": [
+    {
+      "id": "real_animal_capture",
+      "reason": "No rights-cleared multiview capture of a real animal has been supplied. The synthetic animal_bust from the organic/fur lane is PROCEDURAL_GROUND_TRUTH and must not be silently substituted for this OBSERVED-claim target.",
+      "required_to_unblock": "Rights-cleared multiview stills and/or video of a real animal, explicit rights_state OWNED or LICENSED, capture environment receipt, and an ethical-use attestation. Synthetic busts may only appear as a separate non-scored development fixture."
+    },
+    {
+      "id": "measured_groom_reference",
+      "reason": "Evaluator-grade groom reference (strand length distribution, clumping, density maps) does not exist for a real animal here.",
+      "required_to_unblock": "Measured or manufacturer-spec groom reference bound to the same capture session, or a human-reviewed reference groom with HUMAN_REVIEWED authority and a recorded reviewer."
+    }
+  ],
+  "builder_inputs": [
+    {
+      "builder_visible": true,
+      "description": "Public capture and ethics requirements",
+      "path": "builder_inputs/capture_requirements.json",
+      "required": true,
+      "role": "requirements"
+    },
+    {
+      "builder_visible": true,
+      "description": "How grooms will be scored \u2014 no oracle strand data",
+      "path": "builder_inputs/groom_evaluation_protocol.json",
+      "required": true,
+      "role": "protocol"
+    }
+  ],
+  "claim_boundary": [
+    "This target is BLOCKED until real-animal evidence is supplied.",
+    "Synthetic animal_bust results must never be reported as this target."
+  ],
+  "description": "Real-animal fur reconstruction and groom evaluation. The synthetic animal bust used in the organic/fur development lane is NOT a substitute for this target. Scored runs require rights-cleared capture of a real animal and measured groom parameters.",
+  "display_name": "Furred animal (real capture)",
+  "evaluator": {
+    "entry": "evaluator/gates.json",
+    "roles": [
+      "groom",
+      "silhouette",
+      "critics"
+    ],
+    "root": "evaluator"
+  },
+  "evidence_status": "blocked",
+  "hidden_evidence": [
+    {
+      "builder_visible": false,
+      "description": "Hidden groom holdout view indices",
+      "path": "oracle/hidden/cameras/holdout_groom.json",
+      "required": true,
+      "role": "hidden_camera"
+    },
+    {
+      "builder_visible": false,
+      "description": "Oracle groom reference once real capture exists",
+      "path": "oracle/hidden/measurements/groom_reference.json",
+      "required": true,
+      "role": "hidden_measurement"
+    },
+    {
+      "builder_visible": false,
+      "description": "Leakage canary",
+      "path": "oracle/hidden/ORACLE_CANARY.txt",
+      "required": true,
+      "role": "canary"
+    }
+  ],
+  "kind": "v2.sealed-benchmark-manifest",
+  "schema_version": "1",
+  "subsystems": [
+    "grooming",
+    "organic",
+    "materials",
+    "critics"
+  ],
+  "target_id": "fur_animal"
+}

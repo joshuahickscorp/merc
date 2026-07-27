@@ -12,6 +12,13 @@ from mcp.server.fastmcp import FastMCP
 
 from blender_vision.acceptance.regression import FixedCameraRegressionEvaluator
 from blender_vision.acceptance.transactions import CandidateTransactionStore
+from blender_vision.active_perception import (
+    NextBestViewPlanner,
+    PerceptionTarget,
+    PlannerConfig,
+    SurfaceCell,
+)
+from blender_vision.app_build.benchmark import ApplicationBenchmarkRunner
 from blender_vision.artifacts.store import ArtifactStore
 from blender_vision.artifacts.transfer import ArtifactTransfer
 from blender_vision.backends.generative3d import GenerativeProposalStore
@@ -29,9 +36,22 @@ from blender_vision.cameras.solver import CameraSolver
 from blender_vision.cameras.state import validate_complete_camera_state
 from blender_vision.capture.intelligence import VideoIntelligenceService
 from blender_vision.capture.service import CaptureService
+from blender_vision.cinematic.emit import bake_blender_camera, export_motion_table
+from blender_vision.cinematic.path import (
+    SolidGeometry,
+    compose_camera_path,
+    compose_flagship_datacentre_path,
+)
 from blender_vision.core.config import default_projects_root, doctor_report
+from blender_vision.core.errors import BackendUnavailable, ValidationError
 from blender_vision.core.models import EvidenceClass, FidelityLevel
+from blender_vision.critics import CriticWorkspace, CritiqueEvidence, CritiqueSubject
 from blender_vision.datasets.store import DatasetStore, TrainingStore
+from blender_vision.delivery.compress import measure_and_select_compression
+from blender_vision.delivery.lods import LodBudget
+from blender_vision.delivery.lods import generate_lods as delivery_generate_lods
+from blender_vision.delivery.manifest import build_delivery_manifest
+from blender_vision.delivery.stream import build_streaming_plan
 from blender_vision.evidence.acquisition import EvidenceAcquisitionStore
 from blender_vision.evidence.adoption import LegacyReferenceAdoptionStore
 from blender_vision.evidence.conflicts import EvidenceConflictStore
@@ -49,9 +69,14 @@ from blender_vision.geometry.portfolio_executor import PortfolioExecutor
 from blender_vision.geometry.scenes import SceneStore
 from blender_vision.geometry.semantic_graph import SemanticTwinGraph
 from blender_vision.geometry.synthetic_views import SyntheticViewStore
+from blender_vision.grooming.fur import FurGroomer, GroomParameters
 from blender_vision.intelligence.active_learning import ActiveLearningStore
 from blender_vision.intelligence.packs import CategoryPackRegistry
+from blender_vision.lighting.joint import joint_solve
+from blender_vision.lighting.solve import GeometryContext, LightingObservation, solve_lighting
+from blender_vision.materials.inverse import SurfaceObservation, SurfaceRegion, infer_materials
 from blender_vision.materials.store import MaterialStore
+from blender_vision.materials.textures import generate_texture_set
 from blender_vision.models.store import ModelStore
 from blender_vision.optimization.engine import OptimizationEngine
 from blender_vision.optimization.search import MultiviewSearchStore
@@ -61,6 +86,7 @@ from blender_vision.orchestration.locality import LocalityPlanner
 from blender_vision.orchestration.resources import PROFILES, discover_resources
 from blender_vision.orchestration.roles import RoleTaskStore
 from blender_vision.orchestration.services import WarmServiceRegistry
+from blender_vision.organic.topology import TopologyService
 from blender_vision.parametric.components import ComponentSpec, ComponentType
 from blender_vision.parametric.fitting import ComponentFitter
 from blender_vision.parametric.store import ComponentStore
@@ -81,11 +107,48 @@ from blender_vision.perception import (
     default_adapter_registry,
     default_capture_bus,
 )
+from blender_vision.procedural.archetype import mesh_fingerprint
+from blender_vision.procedural.emit import emit_archetype
+from blender_vision.procedural.grammar import SceneProgram, datacenter_flagship_program
+from blender_vision.procedural.library import default_library, list_archetypes
+from blender_vision.procedural.scene import build_flagship_scene, compile_scene
 from blender_vision.projects.store import ProjectStore, slugify
+from blender_vision.reconstruction.base import (
+    CameraView,
+    ReconstructionInputs,
+)
+from blender_vision.reconstruction.base import (
+    PointCloud as ReconstructionPointCloud,
+)
+from blender_vision.reconstruction.browser_runtime import BrowserRuntimeBackend
+from blender_vision.reconstruction.colmap_sfm import ColmapSfMBackend
+from blender_vision.reconstruction.compare import compare_all, compare_candidates
+from blender_vision.reconstruction.depth_fusion import DepthFusionBackend
+from blender_vision.reconstruction.parametric import ParametricBackend, fit_primitive
+from blender_vision.reconstruction.point_representation import PointRepresentationBackend
+from blender_vision.reconstruction.portfolio import build_portfolio
+from blender_vision.reconstruction.retrieval import RetrievalBackend
+from blender_vision.reconstruction.visual_hull import VisualHullBackend
 from blender_vision.repairs.store import RepairStore
 from blender_vision.review.service import ReviewService
 from blender_vision.scheduling.coordinator import Coordinator
 from blender_vision.scheduling.distributed import DistributedScheduler
+from blender_vision.spatial.capture_plan import plan_capture
+from blender_vision.spatial.coverage import CoverageAtlas
+from blender_vision.spatial.depth import DepthKind, DepthMap
+from blender_vision.spatial.pointcloud import PointCloud as SpatialPointCloud
+from blender_vision.v2.authority import (
+    AuthorityClass,
+    AuthorityPromotionError,
+    Units,
+)
+from blender_vision.v2.records import (
+    DeliveryAsset,
+    MaterialHypothesis,
+    NarrativeBeat,
+    ReconstructionCandidate,
+    load_record,
+)
 from blender_vision.vision.pipeline import GeometryPipeline
 from blender_vision.vision.store import GeometryEvidenceStore
 from blender_vision.visual.oracle import VisualOracleStore
@@ -105,6 +168,16 @@ from blender_vision.workflows.autonomous import (
 )
 from blender_vision.workflows.executor import AutonomousWorkflowExecutor
 from blender_vision.workflows.progress import WorkflowProgressReporter
+
+_V2_RECONSTRUCTION_BACKENDS: dict[str, type] = {
+    "colmap_sfm": ColmapSfMBackend,
+    "visual_hull": VisualHullBackend,
+    "depth_fusion": DepthFusionBackend,
+    "parametric": ParametricBackend,
+    "retrieval": RetrievalBackend,
+    "browser_runtime": BrowserRuntimeBackend,
+    "point_representation": PointRepresentationBackend,
+}
 
 
 def create_server(projects_root: Path | None = None) -> FastMCP:
@@ -4482,6 +4555,1042 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             "residuals, coverage, and the review queue. Keep incompatible scale hypotheses "
             "separate and request new evidence where acceptance authority is insufficient."
         )
+
+    # ------------------------------------------------------------------ V2 MCP surface
+    # Bible 18.2 tools. Each delegates to an existing V2 subsystem; none reimplements
+    # authority rules. Sealed V2 records are returned via to_dict() so digests travel.
+
+    def _v2_project_dir(project: ProjectStore, *parts: str) -> Path:
+        path = project.root / "v2" / Path(*parts)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _authority(value: str | None, default: AuthorityClass) -> AuthorityClass:
+        if value is None or value == "":
+            return default
+        return AuthorityClass(value)
+
+    def _surface_cell(payload: dict[str, Any]) -> SurfaceCell:
+        return SurfaceCell(
+            region=str(payload["region"]),
+            area_m2=float(payload.get("area_m2", 1.0)),
+            covered=bool(payload.get("covered", False)),
+            incidence_angle_deg=payload.get("incidence_angle_deg"),
+            resolution_px=int(payload.get("resolution_px", 0)),
+            occlusion_fraction=float(payload.get("occlusion_fraction", 1.0)),
+            view_ids=list(payload.get("view_ids") or []),
+            candidate_predictions=[
+                float(item) for item in (payload.get("candidate_predictions") or [])
+            ],
+        )
+
+    def _perception_target(payload: dict[str, Any]) -> PerceptionTarget:
+        cells = [_surface_cell(item) for item in payload.get("cells") or []]
+        signatures = payload.get("existing_view_signatures") or []
+        return PerceptionTarget(
+            target_id=str(payload["target_id"]),
+            cells=cells,
+            scale_authority=_authority(
+                payload.get("scale_authority"), AuthorityClass.UNRESOLVED
+            ),
+            material_confidences=[
+                float(item) for item in (payload.get("material_confidences") or [])
+            ],
+            portfolio_predictions=dict(payload.get("portfolio_predictions") or {}),
+            has_scale_reference=bool(payload.get("has_scale_reference", False)),
+            has_diffuse_light_view=bool(payload.get("has_diffuse_light_view", False)),
+            has_grazing_light_view=bool(payload.get("has_grazing_light_view", False)),
+            has_lens_metadata=bool(payload.get("has_lens_metadata", False)),
+            has_calibration_target=bool(payload.get("has_calibration_target", False)),
+            gates_satisfied=bool(payload.get("gates_satisfied", False)),
+            user_declined=bool(payload.get("user_declined", False)),
+            existing_view_signatures=set(str(item) for item in signatures),
+        )
+
+    def _surface_observation(payload: dict[str, Any]) -> SurfaceObservation:
+        import numpy as np
+
+        return SurfaceObservation(
+            view_id=str(payload["view_id"]),
+            rgb=np.asarray(payload["rgb"], dtype=np.float64),
+            mask=None if payload.get("mask") is None else np.asarray(payload["mask"]),
+            highlight_mask=(
+                None
+                if payload.get("highlight_mask") is None
+                else np.asarray(payload["highlight_mask"])
+            ),
+            view_direction=tuple(payload.get("view_direction") or (0.0, 0.0, 1.0)),
+            light_direction=(
+                None
+                if payload.get("light_direction") is None
+                else tuple(payload["light_direction"])
+            ),
+            authority=_authority(payload.get("authority"), AuthorityClass.OBSERVED),
+        )
+
+    def _lighting_observation(payload: dict[str, Any]) -> LightingObservation:
+        import numpy as np
+
+        return LightingObservation(
+            view_id=str(payload["view_id"]),
+            rgb=np.asarray(payload["rgb"], dtype=np.float64),
+            mask=None if payload.get("mask") is None else np.asarray(payload["mask"]),
+            normals=(
+                None if payload.get("normals") is None else np.asarray(payload["normals"])
+            ),
+            authority=_authority(payload.get("authority"), AuthorityClass.OBSERVED),
+        )
+
+    def _reconstruction_candidate(payload: dict[str, Any]) -> ReconstructionCandidate:
+        return ReconstructionCandidate.from_dict(payload)
+
+    def _camera_view(payload: dict[str, Any]) -> CameraView:
+        import numpy as np
+
+        return CameraView(
+            name=str(payload.get("name", "cam")),
+            width=int(payload["width"]),
+            height=int(payload["height"]),
+            fx=float(payload["fx"]),
+            fy=float(payload["fy"]),
+            cx=float(payload["cx"]),
+            cy=float(payload["cy"]),
+            world_from_camera=np.asarray(payload["world_from_camera"], dtype=np.float64),
+            near=float(payload.get("near", 0.01)),
+            far=float(payload.get("far", 100.0)),
+        )
+
+    def _blocked(reason: str, **extra: Any) -> dict[str, Any]:
+        return {"status": "blocked", "reason": reason, **extra}
+
+    @mcp.tool(name="vision.capture_world")
+    def vision_capture_world(
+        project_path: str,
+        target_id: str,
+        target: dict[str, Any],
+        cameras: list[dict[str, Any]] | None = None,
+        observation_bundle_ids: list[str] | None = None,
+        resolution: int = 6,
+    ) -> dict[str, Any]:
+        """Evaluate coverage and seal a SceneEvidenceGraph with visibility-capped authority."""
+        import numpy as np
+
+        project = open_project(project_path)
+        cameras = list(cameras or [])
+        atlas = CoverageAtlas()
+        if "bounds_min" in target and "bounds_max" in target:
+            patches = atlas.sample_box_patches(
+                np.asarray(target["bounds_min"], dtype=np.float64),
+                np.asarray(target["bounds_max"], dtype=np.float64),
+                resolution=resolution,
+            )
+        elif "center" in target and "radius" in target:
+            patches = atlas.sample_sphere_patches(
+                np.asarray(target["center"], dtype=np.float64),
+                float(target["radius"]),
+                n_lat=max(4, resolution),
+                n_lon=max(8, resolution * 2),
+            )
+        else:
+            raise ValidationError(
+                "target must provide bounds_min/bounds_max or center/radius"
+            )
+        report = atlas.evaluate(patches, cameras)
+        graph = report.seal_scene_evidence(
+            target_id=target_id,
+            observation_bundle_ids=observation_bundle_ids,
+            operation="vision.capture_world",
+        )
+        graph.cameras = list(cameras)
+        graph.digest = ""
+        graph.seal()
+        out = _v2_project_dir(project, "spatial")
+        path = out / f"{graph.id}.json"
+        path.write_text(
+            json.dumps(graph.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return {
+            "project": str(project.root),
+            "coverage": report.to_dict(),
+            "record": graph.to_dict(),
+            "path": str(path),
+        }
+
+    @mcp.tool(name="vision.import_depth")
+    def vision_import_depth(
+        project_path: str,
+        target_id: str,
+        path: str,
+        intrinsics: dict[str, float],
+        format: str = "npy",
+        authority: str = "SENSOR_DERIVED",
+        kind: str = "METRIC",
+        depth_scale: float = 0.001,
+        units: str = "m",
+    ) -> dict[str, Any]:
+        """Ingest a depth map and seal an ObservationBundle at the declared authority."""
+        project = open_project(project_path)
+        auth = _authority(authority, AuthorityClass.SENSOR_DERIVED)
+        depth_kind = DepthKind(kind)
+        unit = Units(units)
+        source = Path(path)
+        if format == "npy":
+            depth_map = DepthMap.from_npy(
+                source,
+                intrinsics=intrinsics,
+                kind=depth_kind,
+                units=unit,
+                authority=auth,
+            )
+        elif format in {"png16", "png"}:
+            depth_map = DepthMap.from_16bit_png(
+                source,
+                intrinsics=intrinsics,
+                depth_scale=depth_scale,
+                kind=depth_kind,
+                units=unit,
+                authority=auth,
+            )
+        else:
+            raise ValidationError(f"unsupported depth format: {format!r}")
+        bundle = depth_map.seal_observation_bundle(
+            target_id=target_id, operation="vision.import_depth"
+        )
+        out = _v2_project_dir(project, "spatial", "depth")
+        record_path = out / f"{bundle.id}.json"
+        record_path.write_text(
+            json.dumps(bundle.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return {
+            "project": str(project.root),
+            "summary": depth_map.summary(),
+            "record": bundle.to_dict(),
+            "path": str(record_path),
+        }
+
+    @mcp.tool(name="vision.import_point_cloud")
+    def vision_import_point_cloud(
+        project_path: str,
+        target_id: str,
+        path: str,
+        authority: str = "SENSOR_DERIVED",
+    ) -> dict[str, Any]:
+        """Load a PLY point cloud and seal an ObservationBundle preserving source authority."""
+        project = open_project(project_path)
+        cloud = SpatialPointCloud.read_ply(
+            Path(path),
+            authority=_authority(authority, AuthorityClass.SENSOR_DERIVED),
+        )
+        cloud.source_path = str(Path(path).resolve())
+        bundle = cloud.seal_observation_bundle(
+            target_id=target_id, operation="vision.import_point_cloud"
+        )
+        out = _v2_project_dir(project, "spatial", "pointclouds")
+        record_path = out / f"{bundle.id}.json"
+        record_path.write_text(
+            json.dumps(bundle.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return {
+            "project": str(project.root),
+            "point_count": len(cloud),
+            "bounds": cloud.bounds(),
+            "record": bundle.to_dict(),
+            "path": str(record_path),
+        }
+
+    @mcp.tool(name="vision.plan_capture")
+    def vision_plan_capture(
+        project_path: str,
+        target_id: str,
+        target: dict[str, Any],
+        budget: int,
+        existing_views: list[dict[str, Any]] | None = None,
+        candidate_views: list[dict[str, Any]] | None = None,
+        resolution: int = 6,
+        n_candidates: int = 24,
+    ) -> dict[str, Any]:
+        """Propose coverage-maximising views; sealed plan carries HYPOTHETICAL authority."""
+        project = open_project(project_path)
+        plan = plan_capture(
+            target,
+            list(existing_views or []),
+            budget,
+            candidate_views=candidate_views,
+            resolution=resolution,
+            n_candidates=n_candidates,
+        )
+        bundle = plan.seal_observation_bundle(
+            target_id=target_id, operation="vision.plan_capture"
+        )
+        return {
+            "project": str(project.root),
+            "plan": plan.to_dict(),
+            "record": bundle.to_dict(),
+        }
+
+    @mcp.tool(name="vision.ask_next_view")
+    def vision_ask_next_view(
+        project_path: str,
+        target: dict[str, Any],
+        gain_threshold: float | None = None,
+        max_requests: int | None = None,
+    ) -> dict[str, Any]:
+        """Return ordered NextViewRequest records ranked by expected information gain."""
+        project = open_project(project_path)
+        cfg_kwargs: dict[str, Any] = {}
+        if gain_threshold is not None:
+            cfg_kwargs["gain_threshold"] = float(gain_threshold)
+        if max_requests is not None:
+            cfg_kwargs["max_requests"] = int(max_requests)
+        planner = NextBestViewPlanner(PlannerConfig(**cfg_kwargs) if cfg_kwargs else None)
+        result = planner.plan(_perception_target(target))
+        return {
+            "project": str(project.root),
+            "stop_reason": result.stop_reason.value if result.stop_reason else None,
+            "uncertainty_before": result.uncertainty_before,
+            "notes": list(result.notes),
+            "requests": [item.to_dict() for item in result.requests],
+        }
+
+    @mcp.tool(name="vision.build_reconstruction_portfolio")
+    def vision_build_reconstruction_portfolio(
+        project_path: str,
+        target_id: str,
+        backends: list[str] | None = None,
+        image_dir: str | None = None,
+        points: list[list[float]] | None = None,
+        cameras: list[dict[str, Any]] | None = None,
+        bounds_min: list[float] | None = None,
+        bounds_max: list[float] | None = None,
+        primitive_kind: str | None = None,
+        library_dir: str | None = None,
+        archetype_id: str | None = None,
+        browser_scene: dict[str, Any] | None = None,
+        metric_anchor_m: float | None = None,
+        selected_candidate_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Run requested reconstruction backends and seal a ReconstructionPortfolio."""
+        import numpy as np
+
+        project = open_project(project_path)
+        names = list(backends or list(_V2_RECONSTRUCTION_BACKENDS))
+        unknown = [name for name in names if name not in _V2_RECONSTRUCTION_BACKENDS]
+        if unknown:
+            raise ValidationError(f"unknown reconstruction backends: {unknown}")
+        backend_objs = [_V2_RECONSTRUCTION_BACKENDS[name]() for name in names]
+        work_dir = _v2_project_dir(project, "reconstruction", target_id)
+        recon_points = None
+        if points is not None:
+            arr = np.asarray(points, dtype=np.float64)
+            recon_points = ReconstructionPointCloud(positions=arr)
+        inputs = ReconstructionInputs(
+            target_id=target_id,
+            work_dir=work_dir,
+            image_dir=Path(image_dir) if image_dir else None,
+            cameras=[_camera_view(item) for item in (cameras or [])],
+            bounds_min=None if bounds_min is None else np.asarray(bounds_min, dtype=np.float64),
+            bounds_max=None if bounds_max is None else np.asarray(bounds_max, dtype=np.float64),
+            points=recon_points,
+            primitive_kind=primitive_kind,
+            library_dir=Path(library_dir) if library_dir else None,
+            archetype_id=archetype_id,
+            browser_scene=browser_scene,
+            metric_anchor_m=metric_anchor_m,
+        )
+        portfolio = build_portfolio(
+            target_id=target_id,
+            backends=backend_objs,
+            inputs_for=inputs,
+            selected_candidate_id=selected_candidate_id,
+        )
+        path = work_dir / f"{portfolio.id}.json"
+        path.write_text(
+            json.dumps(portfolio.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return {
+            "project": str(project.root),
+            "record": portfolio.to_dict(),
+            "path": str(path),
+        }
+
+    @mcp.tool(name="vision.compare_reconstruction_backends")
+    def vision_compare_reconstruction_backends(
+        project_path: str,
+        candidates: list[dict[str, Any]],
+        samples: int = 1500,
+    ) -> dict[str, Any]:
+        """Compare reconstruction candidates metric-by-metric without a single fused score."""
+        project = open_project(project_path)
+        parsed = [_reconstruction_candidate(item) for item in candidates]
+        if len(parsed) < 2:
+            raise ValidationError(
+                "compare_reconstruction_backends requires at least two candidates"
+            )
+        if len(parsed) == 2:
+            comparison = compare_candidates(parsed[0], parsed[1], samples=samples)
+        else:
+            comparison = compare_all(parsed)
+        return {"project": str(project.root), "comparison": comparison}
+
+    @mcp.tool(name="vision.fit_parametric_model")
+    def vision_fit_parametric_model(
+        project_path: str,
+        points: list[list[float]],
+        kind: str = "auto",
+        iterations: int = 400,
+        threshold: float = 0.01,
+        seed: int = 0,
+    ) -> dict[str, Any]:
+        """Fit a RANSAC plane/box/cylinder/sphere; result authority is MODEL_DERIVED."""
+        import numpy as np
+
+        project = open_project(project_path)
+        fit = fit_primitive(
+            np.asarray(points, dtype=np.float64),
+            kind=kind,
+            iterations=iterations,
+            threshold=threshold,
+            seed=seed,
+        )
+        return {
+            "project": str(project.root),
+            "fit": {
+                "kind": fit.kind,
+                "parameters": fit.parameters,
+                "inlier_ratio": fit.inlier_ratio,
+                "residual_rmse": fit.residual_rmse,
+                "inlier_count": fit.inlier_count,
+                "sample_count": fit.sample_count,
+            },
+            "authority": AuthorityClass.MODEL_DERIVED.value,
+        }
+
+    @mcp.tool(name="vision.generate_procedural_scene")
+    def vision_generate_procedural_scene(
+        project_path: str,
+        scene_id: str | None = None,
+        flagship: bool = True,
+        program: dict[str, Any] | None = None,
+        text_safe_zones: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Compile a sealed ProceduralSceneGraph at PROCEDURAL_GROUND_TRUTH authority."""
+        project = open_project(project_path)
+        if flagship and program is None:
+            compiled = build_flagship_scene(scene_id=scene_id)
+        else:
+            scene_program = (
+                SceneProgram.from_dict(program)
+                if program is not None
+                else datacenter_flagship_program()
+            )
+            compiled = compile_scene(
+                scene_program,
+                scene_id=scene_id,
+                text_safe_zones=text_safe_zones,
+            )
+        out = _v2_project_dir(project, "procedural")
+        path = out / f"{compiled.record.id}.json"
+        path.write_text(
+            json.dumps(compiled.record.to_dict(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return {
+            "project": str(project.root),
+            "instance_count": len(compiled.instances),
+            "bounds_m": compiled.bounds_m,
+            "record": compiled.record.to_dict(),
+            "path": str(path),
+        }
+
+    @mcp.tool(name="vision.generate_archetype")
+    def vision_generate_archetype(
+        project_path: str,
+        name: str,
+        params: dict[str, Any] | None = None,
+        emit_blender: bool = False,
+        output_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Instantiate a procedural archetype at PROCEDURAL_GROUND_TRUTH; optional Blender emit."""
+        project = open_project(project_path)
+        library = default_library()
+        if name not in library:
+            raise ValidationError(
+                f"unknown archetype {name!r}; known: {list_archetypes()}"
+            )
+        arch = library.create(name, params)
+        arch.assert_dimensions(tolerance_m=0.001)
+        parts = arch.build()
+        payload: dict[str, Any] = {
+            "project": str(project.root),
+            "archetype": arch.to_manifest_entry(),
+            "fingerprint": mesh_fingerprint(parts),
+            "declared_dimensions": arch.declared_dimensions().to_dict(),
+            "measured_dimensions": arch.measured_dimensions().to_dict(),
+            "dimension_deltas_m": arch.dimension_deltas_m(),
+            "authority": AuthorityClass.PROCEDURAL_GROUND_TRUTH.value,
+            "known_archetypes": list_archetypes(),
+        }
+        if emit_blender:
+            out = _v2_project_dir(project, "procedural", "archetypes", output_name or name)
+            try:
+                emit_result = emit_archetype(name, out, params=params, library=library)
+                payload["emit"] = emit_result.to_dict()
+            except BackendUnavailable as error:
+                payload["emit"] = _blocked(str(error))
+            except Exception as error:  # noqa: BLE001 — report exact failure, never fake success
+                payload["emit"] = _blocked(
+                    f"{type(error).__name__}: {error}",
+                    note="Python/runtime failure, not attributed to hardware",
+                )
+        return payload
+
+    @mcp.tool(name="vision.infer_materials")
+    def vision_infer_materials(
+        project_path: str,
+        observations: list[dict[str, Any]],
+        surfaces: list[dict[str, Any]],
+        surface_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Infer a MaterialHypothesisSet capped by derive() over observation authorities."""
+        project = open_project(project_path)
+        obs = [_surface_observation(item) for item in observations]
+        regions = [
+            SurfaceRegion(
+                surface_id=str(item["surface_id"]),
+                label=str(item.get("label", "")),
+                normal=tuple(item.get("normal") or (0.0, 0.0, 1.0)),
+                known_geometry=bool(item.get("known_geometry", True)),
+            )
+            for item in surfaces
+        ]
+        record = infer_materials(obs, regions, surface_id=surface_id)
+        out = _v2_project_dir(project, "materials")
+        path = out / f"{record.id}.json"
+        path.write_text(
+            json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return {"project": str(project.root), "record": record.to_dict(), "path": str(path)}
+
+    @mcp.tool(name="vision.solve_lighting")
+    def vision_solve_lighting(
+        project_path: str,
+        observations: list[dict[str, Any]],
+        geometry: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Solve a LightingHypothesisSet capped by derive() over inputs."""
+        project = open_project(project_path)
+        obs = [_lighting_observation(item) for item in observations]
+        geom = GeometryContext(
+            scene_id=str(geometry.get("scene_id", "scene")),
+            shape=str(geometry.get("shape", "sphere")),
+            center=tuple(geometry.get("center") or (0.0, 0.0, 0.0)),
+            radius=float(geometry.get("radius", 1.0)),
+            authority=_authority(
+                geometry.get("authority"), AuthorityClass.PROCEDURAL_GROUND_TRUTH
+            ),
+            metadata=dict(geometry.get("metadata") or {}),
+        )
+        record = solve_lighting(obs, geom)
+        out = _v2_project_dir(project, "lighting")
+        path = out / f"{record.id}.json"
+        path.write_text(
+            json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return {"project": str(project.root), "record": record.to_dict(), "path": str(path)}
+
+    @mcp.tool(name="vision.optimize_inverse_render")
+    def vision_optimize_inverse_render(
+        project_path: str,
+        observations: list[dict[str, Any]],
+        surfaces: list[dict[str, Any]],
+        geometry: dict[str, Any],
+        max_iterations: int = 4,
+        lighting_observations: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Joint material/light solve; records stay separate and never share authority."""
+        project = open_project(project_path)
+        mat_obs = [_surface_observation(item) for item in observations]
+        regions = [
+            SurfaceRegion(
+                surface_id=str(item["surface_id"]),
+                label=str(item.get("label", "")),
+                normal=tuple(item.get("normal") or (0.0, 0.0, 1.0)),
+                known_geometry=bool(item.get("known_geometry", True)),
+            )
+            for item in surfaces
+        ]
+        geom = GeometryContext(
+            scene_id=str(geometry.get("scene_id", "scene")),
+            shape=str(geometry.get("shape", "sphere")),
+            center=tuple(geometry.get("center") or (0.0, 0.0, 0.0)),
+            radius=float(geometry.get("radius", 1.0)),
+            authority=_authority(
+                geometry.get("authority"), AuthorityClass.PROCEDURAL_GROUND_TRUTH
+            ),
+            metadata=dict(geometry.get("metadata") or {}),
+        )
+        light_obs = (
+            [_lighting_observation(item) for item in lighting_observations]
+            if lighting_observations is not None
+            else None
+        )
+        result = joint_solve(
+            mat_obs,
+            regions,
+            geom,
+            max_iterations=max_iterations,
+            lighting_observations=light_obs,
+        )
+        return {
+            "project": str(project.root),
+            "material_record": result.material_record.to_dict(),
+            "lighting_record": result.lighting_record.to_dict(),
+            "residual_history": list(result.residual_history),
+            "iterations": result.iterations,
+            "joint_metadata": dict(result.joint_metadata),
+        }
+
+    @mcp.tool(name="vision.generate_texture_set")
+    def vision_generate_texture_set(
+        project_path: str,
+        hypothesis: dict[str, Any],
+        size: int = 256,
+        seed: int = 0,
+        output_subdir: str = "textures",
+    ) -> dict[str, Any]:
+        """Generate tileable PBR maps from a MaterialHypothesis (not observed textures)."""
+        project = open_project(project_path)
+        hyp = MaterialHypothesis.from_dict(hypothesis)
+        out = _v2_project_dir(project, "materials", output_subdir, hyp.hypothesis_id)
+        texture_set = generate_texture_set(hyp, size=size, output_dir=out, seed=seed)
+        return {
+            "project": str(project.root),
+            "texture_set": texture_set.to_dict(),
+            "authority": hyp.authority.value,
+        }
+
+    @mcp.tool(name="vision.retopologize")
+    def vision_retopologize(
+        project_path: str,
+        source_blend: str,
+        object_name: str,
+        remesh: dict[str, Any] | None = None,
+        export_glb: bool = True,
+    ) -> dict[str, Any]:
+        """Retopologize via real Blender; blocked state is reported if Blender cannot run."""
+        project = open_project(project_path)
+        out = _v2_project_dir(project, "organic", "retopo", object_name)
+        try:
+            result = TopologyService().process(
+                Path(source_blend),
+                object_name,
+                output_dir=out,
+                remesh=remesh or {"mode": "voxel", "voxel_size": 0.01},
+                unwrap=None,
+                lods=None,
+                export_glb=export_glb,
+            )
+        except BackendUnavailable as error:
+            return _blocked(str(error), project=str(project.root), operation="vision.retopologize")
+        except Exception as error:  # noqa: BLE001
+            return _blocked(
+                f"{type(error).__name__}: {error}",
+                project=str(project.root),
+                operation="vision.retopologize",
+                note="Python/runtime failure, not attributed to hardware",
+            )
+        return {
+            "project": str(project.root),
+            "source": result["source"].to_dict(),
+            "retopologized": (
+                result["retopologized"].to_dict() if result["retopologized"] else None
+            ),
+            "blend_path": str(result["blend_path"]),
+            "glb_path": str(result["glb_path"]) if result["glb_path"] else None,
+            "report_path": str(result["report_path"]),
+        }
+
+    @mcp.tool(name="vision.generate_uvs")
+    def vision_generate_uvs(
+        project_path: str,
+        source_blend: str,
+        object_name: str,
+        unwrap: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Generate UVs in Blender; return measured quality or a blocked state."""
+        project = open_project(project_path)
+        out = _v2_project_dir(project, "organic", "uvs", object_name)
+        try:
+            result = TopologyService().process(
+                Path(source_blend),
+                object_name,
+                output_dir=out,
+                remesh=None,
+                unwrap=unwrap or {"method": "smart_project", "angle_limit": 66.0},
+                lods=None,
+                export_glb=False,
+            )
+        except BackendUnavailable as error:
+            return _blocked(str(error), project=str(project.root), operation="vision.generate_uvs")
+        except Exception as error:  # noqa: BLE001
+            return _blocked(
+                f"{type(error).__name__}: {error}",
+                project=str(project.root),
+                operation="vision.generate_uvs",
+                note="Python/runtime failure, not attributed to hardware",
+            )
+        return {
+            "project": str(project.root),
+            "uv": result["uv"].to_dict() if result["uv"] else None,
+            "blend_path": str(result["blend_path"]),
+            "report_path": str(result["report_path"]),
+        }
+
+    @mcp.tool(name="vision.generate_lods")
+    def vision_generate_lods(
+        project_path: str,
+        mesh_path: str,
+        budgets: list[dict[str, Any]],
+        min_silhouette_iou: float = 0.85,
+        allow_python_fallback: bool = True,
+    ) -> dict[str, Any]:
+        """Generate measured LODs; report blender_used=false when Blender is blocked."""
+        project = open_project(project_path)
+        out = _v2_project_dir(project, "delivery", "lods")
+        try:
+            report = delivery_generate_lods(
+                Path(mesh_path),
+                [LodBudget(**item) if "name" in item else item for item in budgets],
+                out,
+                min_silhouette_iou=min_silhouette_iou,
+                allow_python_fallback=allow_python_fallback,
+            )
+        except BackendUnavailable as error:
+            return _blocked(str(error), project=str(project.root), operation="vision.generate_lods")
+        except Exception as error:  # noqa: BLE001
+            return _blocked(
+                f"{type(error).__name__}: {error}",
+                project=str(project.root),
+                operation="vision.generate_lods",
+                note="Python/runtime failure, not attributed to hardware",
+            )
+        return {"project": str(project.root), "report": report.to_dict()}
+
+    @mcp.tool(name="vision.generate_fur")
+    def vision_generate_fur(
+        project_path: str,
+        source_blend: str,
+        object_name: str,
+        parameters: dict[str, Any] | None = None,
+        seed: int = 20260726,
+    ) -> dict[str, Any]:
+        """Groom fur in Blender; returns measured groom report or an explicit blocked state."""
+        project = open_project(project_path)
+        out = _v2_project_dir(project, "grooming", object_name)
+        params = GroomParameters(**parameters) if parameters else GroomParameters()
+        try:
+            result = FurGroomer().groom(
+                Path(source_blend),
+                object_name,
+                out,
+                parameters=params,
+                seed=seed,
+            )
+        except BackendUnavailable as error:
+            return _blocked(str(error), project=str(project.root), operation="vision.generate_fur")
+        except Exception as error:  # noqa: BLE001
+            return _blocked(
+                f"{type(error).__name__}: {error}",
+                project=str(project.root),
+                operation="vision.generate_fur",
+                note="Python/runtime failure, not attributed to hardware",
+            )
+        return {"project": str(project.root), "groom": result.to_dict()}
+
+    @mcp.tool(name="vision.compose_camera_path")
+    def vision_compose_camera_path(
+        project_path: str,
+        path_id: str,
+        control_points: list[list[float]] | None = None,
+        beats: list[dict[str, Any]] | None = None,
+        flagship: bool = False,
+        focus_targets: list[dict[str, Any]] | None = None,
+        focal_length_mm: list[list[float]] | None = None,
+        exposure_curve: list[list[float]] | None = None,
+        solids: list[dict[str, Any]] | None = None,
+        input_authorities: list[str] | None = None,
+        damping: float = 0.12,
+        sample_count: int = 256,
+    ) -> dict[str, Any]:
+        """Compose a sealed CameraPathGraph; authority is derive() of declared inputs."""
+        project = open_project(project_path)
+        if flagship or (control_points is None and beats is None):
+            graph = compose_flagship_datacentre_path(path_id=path_id)
+        else:
+            if control_points is None or beats is None:
+                raise ValidationError(
+                    "compose_camera_path requires control_points and beats unless flagship=True"
+                )
+            solid_objs = [
+                SolidGeometry(
+                    name=str(item["name"]),
+                    minimum=tuple(item["minimum"]),
+                    maximum=tuple(item["maximum"]),
+                )
+                for item in (solids or [])
+            ]
+            graph = compose_camera_path(
+                path_id=path_id,
+                control_points=control_points,
+                focus_targets=focus_targets,
+                focal_length_mm=focal_length_mm,
+                exposure_curve=exposure_curve,
+                beats=[NarrativeBeat.from_dict(item) for item in beats],
+                solids=solid_objs,
+                damping=damping,
+                sample_count=sample_count,
+                input_authorities=input_authorities
+                or [AuthorityClass.PROCEDURAL_GROUND_TRUTH.value],
+            )
+        out = _v2_project_dir(project, "cinematic")
+        path = out / f"{graph.id}.json"
+        path.write_text(
+            json.dumps(graph.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return {
+            "project": str(project.root),
+            "record": graph.to_dict(),
+            "path": str(path),
+        }
+
+    @mcp.tool(name="vision.compile_cinematic_scene")
+    def vision_compile_cinematic_scene(
+        project_path: str,
+        path_id: str = "flagship-datacentre-path",
+        camera_path: dict[str, Any] | None = None,
+        bake_blender: bool = False,
+        sample_rate_hz: float = 30.0,
+        duration_s: float = 20.0,
+    ) -> dict[str, Any]:
+        """Export browser motion table from a CameraPathGraph; optional Blender bake is honest."""
+        from blender_vision.v2.records import CameraPathGraph
+
+        project = open_project(project_path)
+        if camera_path is not None:
+            graph = CameraPathGraph.from_dict(camera_path)
+            if not graph.digest:
+                graph.seal()
+        else:
+            graph = compose_flagship_datacentre_path(path_id=path_id)
+        out = _v2_project_dir(project, "cinematic", graph.id)
+        motion = export_motion_table(
+            graph,
+            out / "motion-table.json",
+            sample_rate_hz=sample_rate_hz,
+            duration_s=duration_s,
+        )
+        path_file = out / "camera_path_graph.json"
+        path_file.write_text(
+            json.dumps(graph.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        payload: dict[str, Any] = {
+            "project": str(project.root),
+            "record": graph.to_dict(),
+            "motion_table": motion,
+            "path": str(path_file),
+        }
+        if bake_blender:
+            try:
+                payload["blender_bake"] = bake_blender_camera(graph, out / "camera-bake.blend")
+            except BackendUnavailable as error:
+                payload["blender_bake"] = _blocked(str(error))
+            except Exception as error:  # noqa: BLE001
+                payload["blender_bake"] = _blocked(
+                    f"{type(error).__name__}: {error}",
+                    note="Python/runtime failure, not attributed to hardware",
+                )
+        return payload
+
+    @mcp.tool(name="vision.compile_web_scene")
+    def vision_compile_web_scene(
+        project_path: str,
+        manifest_id: str,
+        source_scene: str,
+        assets: list[dict[str, Any]],
+        camera_path: dict[str, Any] | None = None,
+        measure_compression: bool = False,
+        initial_js_compressed_bytes: int | None = None,
+        input_authorities: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Seal a DeliveryManifest with measured budgets; violations are recorded, never raised."""
+        from blender_vision.v2.records import CameraPathGraph
+
+        project = open_project(project_path)
+        asset_objs = [DeliveryAsset.from_dict(item) for item in assets]
+        streaming = None
+        if camera_path is not None:
+            graph = CameraPathGraph.from_dict(camera_path)
+            streaming = build_streaming_plan(graph)
+        compression_selections = []
+        if measure_compression:
+            for asset in asset_objs:
+                asset_path = Path(asset.path)
+                if asset_path.is_file():
+                    compression_selections.append(
+                        measure_and_select_compression(asset_path, asset_id=asset.asset_id)
+                    )
+        record = build_delivery_manifest(
+            manifest_id=manifest_id,
+            source_scene=source_scene,
+            assets=asset_objs,
+            compression_selections=compression_selections or None,
+            streaming_plan=streaming,
+            initial_js_compressed_bytes=initial_js_compressed_bytes,
+            input_authorities=input_authorities,
+        )
+        out = _v2_project_dir(project, "delivery")
+        path = out / f"{record.id}.json"
+        path.write_text(
+            json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return {
+            "project": str(project.root),
+            "record": record.to_dict(),
+            "streaming_plan": streaming.to_dict() if streaming else None,
+            "path": str(path),
+        }
+
+    @mcp.tool(name="vision.stream_scene_assets")
+    def vision_stream_scene_assets(
+        project_path: str,
+        camera_path: dict[str, Any] | None = None,
+        path_id: str = "flagship-datacentre-path",
+        asset_ids_by_role: dict[str, list[str]] | None = None,
+    ) -> dict[str, Any]:
+        """Build a scroll-gated streaming plan (poster→shell→detail→prefetch→terminal)."""
+        from blender_vision.v2.records import CameraPathGraph
+
+        project = open_project(project_path)
+        if camera_path is not None:
+            graph = CameraPathGraph.from_dict(camera_path)
+        else:
+            graph = compose_flagship_datacentre_path(path_id=path_id)
+        plan = build_streaming_plan(graph, asset_ids_by_role=asset_ids_by_role)
+        return {
+            "project": str(project.root),
+            "path_id": graph.id,
+            "path_digest": graph.digest,
+            "plan": plan.to_dict(),
+        }
+
+    @mcp.tool(name="vision.run_perceptual_critics")
+    def vision_run_perceptual_critics(
+        project_path: str,
+        subject: dict[str, Any],
+        evidence_references: list[str],
+        evidence_payloads: dict[str, Any] | None = None,
+        roles: list[str] | None = None,
+        input_authorities: list[str] | None = None,
+        critique_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Run specialist critics and seal a PerceptualCritique with measured findings."""
+        project = open_project(project_path)
+        critique_subject = CritiqueSubject(
+            subject_id=str(subject["subject_id"]),
+            kind=str(subject.get("kind", "scene")),
+            metrics=dict(subject.get("metrics") or {}),
+            media=dict(subject.get("media") or {}),
+            tags=frozenset(subject.get("tags") or []),
+        )
+        evidence = CritiqueEvidence(
+            references=list(evidence_references),
+            payloads=dict(evidence_payloads or {}),
+        )
+        workspace = CriticWorkspace()
+        if roles:
+            record = workspace.run_roles(critique_subject, evidence, roles)
+        else:
+            record = workspace.run(
+                critique_subject,
+                evidence,
+                critique_id=critique_id,
+                input_authorities=input_authorities,
+            )
+        out = _v2_project_dir(project, "critics")
+        path = out / f"{record.id}.json"
+        path.write_text(
+            json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return {"project": str(project.root), "record": record.to_dict(), "path": str(path)}
+
+    @mcp.tool(name="vision.benchmark_target")
+    def vision_benchmark_target(
+        project_path: str,
+        output_subdir: str = "benchmarks",
+        case_ids: list[str] | None = None,
+        manifest_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Run the owned application benchmark; external gates report blocked rather than pass."""
+        project = open_project(project_path)
+        out = _v2_project_dir(project, output_subdir)
+        runner_kwargs: dict[str, Any] = {}
+        if manifest_path is not None:
+            runner_kwargs["manifest_path"] = Path(manifest_path)
+        try:
+            runner = ApplicationBenchmarkRunner(**runner_kwargs)
+            receipt = runner.run(
+                out,
+                case_ids=set(case_ids) if case_ids is not None else None,
+            )
+        except Exception as error:  # noqa: BLE001 — benchmark may require node/npm/docker
+            return _blocked(
+                f"{type(error).__name__}: {error}",
+                project=str(project.root),
+                operation="vision.benchmark_target",
+                note="Benchmark dependency or environment failure; not reclassified as hardware",
+            )
+        payload = receipt.model_dump() if hasattr(receipt, "model_dump") else dict(receipt)
+        return {"project": str(project.root), "receipt": payload, "output": str(out)}
+
+    @mcp.tool(name="vision.promote_candidate")
+    def vision_promote_candidate(
+        project_path: str,
+        record: dict[str, Any],
+        target_authority: str,
+        reviewer: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Promote a V2 record via V2Record.promote(); refuses system/auto reviewers."""
+        project = open_project(project_path)
+        try:
+            candidate = load_record(record)
+            if record.get("digest"):
+                candidate.digest = str(record["digest"])
+                candidate.verify()
+            promoted = candidate.promote(
+                AuthorityClass(target_authority),
+                reviewer=reviewer,
+                reason=reason,
+            )
+        except AuthorityPromotionError as error:
+            return {
+                "project": str(project.root),
+                "status": "refused",
+                "reason": str(error),
+                "reviewer": reviewer,
+                "target_authority": target_authority,
+            }
+        out = _v2_project_dir(project, "promotions")
+        path = out / f"{promoted.id}.json"
+        path.write_text(
+            json.dumps(promoted.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return {
+            "project": str(project.root),
+            "status": "promoted",
+            "record": promoted.to_dict(),
+            "path": str(path),
+        }
 
     return mcp
 

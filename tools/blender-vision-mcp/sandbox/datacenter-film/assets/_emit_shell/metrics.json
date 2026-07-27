@@ -1,5 +1,5 @@
 {
-  "blend_bytes": 1928588,
+  "blend_bytes": 1936964,
   "blend_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/sandbox/datacenter-film/assets/_emit_shell/scene.blend",
   "glb_bytes": 249432,
   "glb_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/sandbox/datacenter-film/assets/_emit_shell/scene.glb",
@@ -96,7 +96,7 @@
       ],
       "triangle_count": 144
     },
-    "proto_0006_floor_tile": {
+    "proto_0011_floor_tile": {
       "archetype": "floor_tile",
       "bbox_max": [
         0.30000001192092896,
@@ -184,7 +184,7 @@
       ],
       "triangle_count": 780
     },
-    "proto_0008_junction": {
+    "proto_0013_junction": {
       "archetype": "junction",
       "bbox_max": [
         1.600000023841858,
@@ -210,7 +210,7 @@
       ],
       "triangle_count": 36
     },
-    "proto_0009_aisle": {
+    "proto_0014_aisle": {
       "archetype": "aisle",
       "bbox_max": [
         0.6000000238418579,
@@ -237,7 +237,7 @@
       ],
       "triangle_count": 48
     },
-    "proto_0011_containment_door": {
+    "proto_0016_containment_door": {
       "archetype": "containment_door",
       "bbox_max": [
         0.6000000238418579,
@@ -264,7 +264,7 @@
       ],
       "triangle_count": 48
     },
-    "proto_0012_terminal_wall": {
+    "proto_0017_terminal_wall": {
       "archetype": "terminal_wall",
       "bbox_max": [
         1.600000023841858,
@@ -291,7 +291,7 @@
       ],
       "triangle_count": 48
     },
-    "proto_0014_column": {
+    "proto_0019_column": {
       "archetype": "column",
       "bbox_max": [
         0.20000000298023224,

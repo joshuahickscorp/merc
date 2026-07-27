@@ -1,0 +1,9 @@
+{
+  "authority": "SEALED_ORACLE_ONLY",
+  "builder_visible": false,
+  "canary": "SEALED-V2-ORACLE-CANARY-fur_animal",
+  "note": "Oracle groom reference once real capture exists",
+  "path": "oracle/hidden/measurements/groom_reference.json",
+  "role": "hidden_measurement",
+  "target_id": "fur_animal"
+}

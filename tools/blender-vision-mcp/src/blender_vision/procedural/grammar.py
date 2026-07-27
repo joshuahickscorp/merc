@@ -235,6 +235,8 @@ class SceneProgram:
         params: dict[str, Any] | None = None,
         gap_ranges: list[tuple[int, int]] | None = None,
         id_prefix: str | None = None,
+        state: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
     ) -> SceneProgram:
         self.operations.append(
             GrammarOp(
@@ -248,6 +250,8 @@ class SceneProgram:
                     "params": dict(params or {}),
                     "gap_ranges": [list(g) for g in (gap_ranges or [])],
                     "id_prefix": id_prefix or f"{rack_id}_{archetype}",
+                    "state": dict(state or {}),
+                    "tags": list(tags or []),
                 },
             )
         )
@@ -426,6 +430,8 @@ def evaluate_program(program: SceneProgram) -> list[InstanceRef]:
             params = dict(p.get("params") or {})
             params.setdefault("u_height", u_height)
             prefix = str(p.get("id_prefix") or f"{rack.instance_id}_eq")
+            extra_tags = list(p.get("tags") or [])
+            state = dict(p.get("state") or {})
             cursor = u_start
             slot = 0
             while cursor + u_height - 1 <= u_end:
@@ -435,7 +441,7 @@ def evaluate_program(program: SceneProgram) -> list[InstanceRef]:
                     continue
                 z = u_to_z(cursor)
                 rx, ry, rz = rack.transform.location
-                # Equipment sits inside rack, front-aligned, Z at U bottom.
+                # Equipment sits inside rack, front-aligned, Z at U bottom boundary.
                 add(
                     InstanceRef(
                         instance_id=f"{prefix}_{slot:02d}",
@@ -445,8 +451,9 @@ def evaluate_program(program: SceneProgram) -> list[InstanceRef]:
                             location=(rx, ry, rz + z),
                             rotation_euler=rack.transform.rotation_euler,
                         ),
+                        state=dict(state),
                         parent_id=rack.instance_id,
-                        tags=["equipment", "rack_populated"],
+                        tags=["equipment", "rack_populated", *extra_tags],
                         u_start=cursor,
                         u_end=end_u,
                     )
@@ -483,6 +490,124 @@ def empty_u_slots(
     return [u for u in range(1, u_count + 1) if u not in occupied]
 
 
+# Bible-standard rack fill: six 4U GPU drawers in U3–U26, three blanking
+# regions, server drawers above, top-of-rack switch. Geometry params are
+# identical across racks so instancing stays valid; only state varies.
+RACK_GPU_U_START = 3
+RACK_GPU_U_END = 26
+RACK_GPU_U_HEIGHT = 4
+RACK_GPU_COUNT = 6  # (26 - 3 + 1) / 4
+RACK_BLANKING_RANGES: tuple[tuple[int, int], ...] = (
+    (1, 2),
+    (27, 28),
+    (29, 30),
+)
+RACK_SERVER_U_START = 31
+RACK_SERVER_U_END = 40
+RACK_SERVER_U_HEIGHT = 2
+RACK_SWITCH_U_START = 41
+RACK_SWITCH_U_END = 42
+
+
+def equip_rack(
+    program: SceneProgram,
+    rack_id: str,
+    *,
+    status: str = "ok",
+    frame_width_m: float = 0.6,
+    rack_depth_m: float = 1.0,
+    location: tuple[float, float, float] | None = None,
+    rotation_euler: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> SceneProgram:
+    """Populate one rack from the Bible semantic instruction.
+
+    "populate U3–U28 with six repeated GPU drawer types, leave three blanking
+    regions, add top-of-rack switching and rear cable trays". GPU drawers pack
+    solidly into U3–U26 (six × 4U); blanking fills U1–2 and U27–30; servers
+    occupy U31–40; a 2U switch sits at U41–42. A vertical PDU and a short rear
+    cable-tray segment are placed relative to the rack shell when ``location``
+    is supplied.
+    """
+    drawer_state = {"status": status}
+    program.populate_rack(
+        rack_id,
+        u_start=RACK_GPU_U_START,
+        u_end=RACK_GPU_U_END,
+        archetype="gpu_drawer",
+        u_height=RACK_GPU_U_HEIGHT,
+        params={"u_height": RACK_GPU_U_HEIGHT, "gpu_count": 8, "depth_m": 0.85},
+        id_prefix=f"{rack_id}_gpu",
+        state=drawer_state,
+        tags=["gpu", f"status_{status}"],
+    )
+    for gap_i, (b0, b1) in enumerate(RACK_BLANKING_RANGES):
+        program.populate_rack(
+            rack_id,
+            u_start=b0,
+            u_end=b1,
+            archetype="blanking_panel",
+            u_height=(b1 - b0 + 1),
+            params={"u_height": b1 - b0 + 1, "thickness_m": 0.006},
+            id_prefix=f"{rack_id}_blank_{gap_i}",
+            tags=["blanking"],
+        )
+    program.populate_rack(
+        rack_id,
+        u_start=RACK_SERVER_U_START,
+        u_end=RACK_SERVER_U_END,
+        archetype="server_drawer",
+        u_height=RACK_SERVER_U_HEIGHT,
+        params={"u_height": RACK_SERVER_U_HEIGHT, "drive_bays": 8, "depth_m": 0.7},
+        id_prefix=f"{rack_id}_srv",
+        state=drawer_state,
+        tags=["server", f"status_{status}"],
+    )
+    program.populate_rack(
+        rack_id,
+        u_start=RACK_SWITCH_U_START,
+        u_end=RACK_SWITCH_U_END,
+        archetype="switch",
+        u_height=2,
+        params={"u_height": 2, "port_count": 48, "depth_m": 0.4},
+        id_prefix=f"{rack_id}_tor",
+        state=drawer_state,
+        tags=["switch", "top_of_rack"],
+    )
+
+    if location is not None:
+        rx, ry, rz = location
+        yaw = rotation_euler[2]
+        # PDU on the rack's local -X post (rotated into world).
+        pdu_local_x = -(frame_width_m * 0.5 - 0.03)
+        pdu_local_y = rack_depth_m * 0.15
+        cos_y = math.cos(yaw)
+        sin_y = math.sin(yaw)
+        pdu_x = rx + pdu_local_x * cos_y - pdu_local_y * sin_y
+        pdu_y = ry + pdu_local_x * sin_y + pdu_local_y * cos_y
+        program.place(
+            "pdu",
+            f"{rack_id}_pdu",
+            location=(pdu_x, pdu_y, rz),
+            rotation_euler=rotation_euler,
+            params={"u_count": 42, "outlet_count": 24, "width_m": 0.055, "depth_m": 0.06},
+            tags=["equipment", "pdu", "rack_populated"],
+            state=drawer_state,
+        )
+        # Short rear cable tray above the rack (detail-tier structure).
+        tray_local_y = rack_depth_m * 0.45
+        tray_x = rx - tray_local_y * sin_y
+        tray_y = ry + tray_local_y * cos_y
+        program.place(
+            "cable_tray",
+            f"{rack_id}_rear_tray",
+            location=(tray_x, tray_y, rz + 1.95),
+            rotation_euler=rotation_euler,
+            params={"length_m": frame_width_m, "width_m": 0.2, "height_m": 0.06},
+            tags=["overhead", "tray", "rear_tray", "rack_populated"],
+        )
+    return program
+
+
 def datacenter_flagship_program(
     *,
     aisle_length_m: float = 12.0,
@@ -493,8 +618,10 @@ def datacenter_flagship_program(
     """threshold -> main aisle -> left-turn junction -> second aisle -> terminal wall."""
     program = SceneProgram(name="datacenter_flagship")
     rack_depth = 1.0
+    frame_width = 0.6
     half_aisle = aisle_width_m * 0.5
-    rack_y = half_aisle + rack_depth * 0.5
+    rack_x = half_aisle + rack_depth * 0.5
+    rack_seed_y = 1.2
 
     program.place(
         "threshold",
@@ -520,8 +647,8 @@ def datacenter_flagship_program(
     program.place(
         "rack_shell",
         "rack_L_00",
-        location=(-rack_y, 1.2, 0.0),
-        params={"u_count": 42, "frame_width_m": 0.6, "depth_m": rack_depth},
+        location=(-rack_x, rack_seed_y, 0.0),
+        params={"u_count": 42, "frame_width_m": frame_width, "depth_m": rack_depth},
         tags=["rack", "left"],
     )
     program.repeat_along(
@@ -534,9 +661,9 @@ def datacenter_flagship_program(
     program.place(
         "rack_shell",
         "rack_R_00",
-        location=(rack_y, 1.2, 0.0),
+        location=(rack_x, rack_seed_y, 0.0),
         rotation_euler=(0.0, 0.0, math.pi),
-        params={"u_count": 42, "frame_width_m": 0.6, "depth_m": rack_depth},
+        params={"u_count": 42, "frame_width_m": frame_width, "depth_m": rack_depth},
         tags=["rack", "right"],
     )
     program.repeat_along(
@@ -547,17 +674,26 @@ def datacenter_flagship_program(
         id_prefix="rack_R",
     )
 
-    # Populate first left rack: U3–U28 with 4U GPU drawers, three blanking gaps.
-    program.leave_gap("rack_L_00", [(9, 10), (17, 18), (25, 26)])
-    program.populate_rack(
-        "rack_L_00",
-        u_start=3,
-        u_end=28,
-        archetype="gpu_drawer",
-        u_height=4,
-        params={"u_height": 4, "gpu_count": 8, "depth_m": 0.85},
-        id_prefix="rack_L_00_gpu",
-    )
+    # Every rack carries real equipment. Status varies; mesh params do not.
+    # Near-entry racks read healthy; a few mid-aisle racks warn/fault so the
+    # corridor is not a uniform grid of identical indicators.
+    status_cycle = ("ok", "ok", "ok", "warn", "ok", "ok", "fault", "ok", "ok", "ok", "warn", "ok")
+    for side, sign, yaw in (("L", -1.0, 0.0), ("R", 1.0, math.pi)):
+        for i in range(rack_count_per_side):
+            rack_id = f"rack_{side}_{i:02d}"
+            status = status_cycle[i % len(status_cycle)]
+            loc = (sign * rack_x, rack_seed_y + i * rack_pitch_m, 0.0)
+            equip_rack(
+                program,
+                rack_id,
+                status=status,
+                frame_width_m=frame_width,
+                rack_depth_m=rack_depth,
+                location=loc,
+                rotation_euler=(0.0, 0.0, yaw),
+            )
+            # State-only variation on the shell itself (LED colour etc.).
+            program.vary_state(rack_id, {"status": status})
 
     # Overhead infrastructure along main aisle.
     program.place(

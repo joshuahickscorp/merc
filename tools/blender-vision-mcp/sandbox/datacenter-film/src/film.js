@@ -55,14 +55,23 @@ function buildTranscript(beats) {
   }));
 }
 
+/** Map compiler zone ids (left_upper) onto CSS data-zone tokens (left-upper). */
+function zoneToken(zone) {
+  return String(zone || 'centre').replace(/_/g, '-');
+}
+
 function buildScript(beats) {
   const host = document.getElementById('script');
+  // Fixed chrome height must match --chrome-h in film.css (56 px). Text is
+  // placed in a safe band below it so chapter nav never covers beat copy.
+  const chromeH = 56;
+  const safeTopPx = chromeH + 20;
   host.replaceChildren(...beats.map(beat => {
     const section = document.createElement('section');
     section.className = 'beat';
     section.id = `beat-${beat.id}`;
     section.dataset.beat = beat.id;
-    section.dataset.zone = beat.text_zone || 'centre';
+    section.dataset.zone = zoneToken(beat.text_zone);
     // Scroll distance is the beat's own share of the path, so document length
     // and camera arc length stay in agreement.
     const span = Math.max(0.02, beat.scroll_end - beat.scroll_start);
@@ -70,6 +79,14 @@ function buildScript(beats) {
 
     const inner = document.createElement('div');
     inner.className = 'beat-inner';
+    // Explicit safe-area top (CSS is the source of truth; this mirrors it for
+    // zones that sticky-position at the top of the viewport).
+    const zone = section.dataset.zone;
+    if (zone === 'left-upper' || zone === 'right-upper' || zone === 'edge') {
+      inner.style.top = `${safeTopPx}px`;
+    } else if (zone === 'centre') {
+      inner.style.top = `max(${safeTopPx}px, 28vh)`;
+    }
     const index = document.createElement('span');
     index.className = 'index';
     index.textContent = beat.id;
@@ -175,21 +192,36 @@ async function main() {
   const scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x07080a, 0.045);
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 260);
+  // The world is Blender Z-up after the load-time conversion. three.js defaults
+  // camera.up to Y-up, and lookAt() derives roll from it, so leaving it default
+  // rolls the whole shot onto its side.
+  camera.up.set(0, 0, 1);
 
   // Corridor lighting: cool ambient wash plus a warm practical down the aisle.
   // Restrained, and no per-status point lights — indicator state is emissive
   // material on instanced geometry, not hundreds of lights.
   scene.add(new THREE.HemisphereLight(0x24303c, 0x05070a, 0.55));
   const key = new THREE.DirectionalLight(0xbcd4ff, 0.85);
-  key.position.set(3.5, -6, 7);
+  key.position.set(3.5, 2.0, 6.0);
   scene.add(key);
-  const warm = new THREE.PointLight(0xffd9a8, 18, 22, 2);
-  warm.position.set(0, 12.5, 2.2);
+  const warm = new THREE.PointLight(0xffd9a8, 26, 26, 2);
+  warm.position.set(0, 6.0, 2.4);
   scene.add(warm);
 
   const loader = new GLTFLoader();
+  // glTF is Y-up; the motion table is in Blender world coordinates, which are
+  // Z-up. Blender (x, y, z) exports as glTF (x, z, -y), so rotating the loaded
+  // root by +90 degrees about X puts the asset back in the frame the camera is
+  // driving in. Without this the camera flies through a wall it reads as a
+  // floor. The two frames are declared in blender_vision.v2.authority as
+  // BLENDER_WORLD and GLTF_WORLD; this is that conversion, applied once at load.
+  const BLENDER_FROM_GLTF_X_ROTATION = Math.PI / 2;
   const loadGLB = name => new Promise((resolve, reject) =>
-    loader.load(ASSETS + name, gltf => resolve(gltf.scene), undefined, reject));
+    loader.load(ASSETS + name, gltf => {
+      gltf.scene.rotation.x = BLENDER_FROM_GLTF_X_ROTATION;
+      gltf.scene.updateMatrixWorld(true);
+      resolve(gltf.scene);
+    }, undefined, reject));
 
   const tiers = { shell: await loadGLB('datacenter-shell.glb') };
   scene.add(tiers.shell);
