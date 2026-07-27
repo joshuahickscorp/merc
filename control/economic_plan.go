@@ -217,6 +217,31 @@ func blockedEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule, reason
 	}
 }
 
+// minBillableSupplierMicros is the smallest non-zero liability the ledger can
+// represent. A supplier credit of 0 is not "carried for later" — nothing is
+// accrued — so work performed against a $0 reservation is unpaid forever.
+const minBillableSupplierMicros int64 = 1
+
+// minBillableBaseComputeMicros is the smallest total base_compute (micro-USD)
+// such that after dividing across tasks and applying supplier share, each
+// task's supplier payout rounds to at least one micro-USD.
+//
+// Derived by search, not hardcoded — same pattern as minLoRAQuoteMicros. A
+// change to SupplierShare cannot silently reintroduce a zero-payout window.
+func minBillableBaseComputeMicros(share float64, tasks int) int64 {
+	if tasks < 1 || share <= 0 || share > 1 || math.IsNaN(share) || math.IsInf(share, 0) {
+		return minBillableSupplierMicros
+	}
+	for total := int64(1); total < 10_000_000; total++ {
+		computePerTask := microsToUSD(total) / float64(tasks)
+		supplier := roundEconomicUSD(computePerTask * share)
+		if usdToMicros(supplier) >= minBillableSupplierMicros {
+			return total
+		}
+	}
+	panic("no base compute can pay the supplier; share constants are inconsistent")
+}
+
 func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) EconomicPlan {
 	if reason := validateEconomicSchedule(schedule); reason != "" {
 		return blockedEconomicPlan(in, schedule, reason)
@@ -237,8 +262,32 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 		return blockedEconomicPlan(in, schedule, "SLA premium and firm quote max must be finite and non-negative")
 	}
 
-	computePerTask := in.BaseComputeUSD / float64(in.InitialTaskCount)
+	// Minimum billable job size: raise base compute when the supplier share would
+	// otherwise round to zero while the buyer is still charged the control-plane
+	// floor. Same failure class as minLoRAQuoteMicros — derived by search so a
+	// share change cannot reintroduce a $0 supplier liability for real work.
+	baseComputeUSD := in.BaseComputeUSD
+	if minTotal := minBillableBaseComputeMicros(in.SupplierShare, in.InitialTaskCount); usdToMicros(baseComputeUSD) < minTotal {
+		baseComputeUSD = microsToUSD(minTotal)
+	}
+	// Rebuild input so ValidateEconomicPlanSnapshot still round-trips: the
+	// floored base is what the plan actually prices, so it is what we freeze.
+	in = EconomicPlanInput{
+		BaseComputeUSD:   baseComputeUSD,
+		InitialTaskCount: in.InitialTaskCount,
+		ExtraTaskReserve: in.ExtraTaskReserve,
+		SupplierShare:    in.SupplierShare,
+		SLAPremiumUSD:    in.SLAPremiumUSD,
+		FirmQuoteMaxUSD:  in.FirmQuoteMaxUSD,
+	}
+
+	computePerTask := baseComputeUSD / float64(in.InitialTaskCount)
 	supplierPerTask := roundEconomicUSD(computePerTask * in.SupplierShare)
+	if usdToMicros(supplierPerTask) < minBillableSupplierMicros {
+		// Defensive: the search above is the authority; this branch only fires
+		// if share arithmetic and roundEconomicUSD disagree on the boundary.
+		supplierPerTask = microsToUSD(minBillableSupplierMicros)
+	}
 	processorRate, processorPerTaskFixed := schedule.processorFloorTerms()
 	denominator := 1 - processorRate - schedule.TargetMarginRate
 	minimumBuyerPerTask := (supplierPerTask + processorPerTaskFixed + schedule.ControlPlanePerTaskUSD) / denominator
@@ -262,6 +311,7 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 			"extra accepted work is billable only while atomically consuming the frozen reserve",
 			"SLA premium is excluded from supplier liability and may be fully refunded",
 			"actual processor fees and contribution margin are reconciled from Stripe and ledger facts",
+			"base compute is floored to the minimum billable size so a supplier who performed work is never reserved $0 while the buyer is charged",
 		},
 	}
 

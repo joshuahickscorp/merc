@@ -5,29 +5,14 @@ import (
 	"testing"
 )
 
-// merc's money arithmetic degrades at small magnitudes, and it does so in three
-// different places for three different reasons. This file pins the third one,
-// which is the only one that makes a job outright unbuyable.
+// Small-job economics: a minimum billable job size floors base compute so a
+// supplier who performed work is never reserved $0 while the buyer is charged.
 //
-// Found by running the Python SDK against a live merc: a job of fewer than
-// about five units is rejected with "base_compute_usd must be finite and
-// positive". Not throttled, not priced at a minimum -- rejected.
-//
-// The causal chain is worth stating because it is perverse:
-//
-//	a real supplier benchmarks at 1,980 embeddings/sec on an M3 Ultra
-//	  -> merc reprices the catalogue from measured supplier throughput
-//	  -> the per-1k price falls to $0.000018
-//	  -> a 1-unit job's base compute rounds to zero at micro-USD granularity
-//	  -> BuildEconomicPlan rejects it as not economically executable
-//
-// So a FASTER supplier makes small jobs impossible to buy. Nobody chose that;
-// it falls out of rounding.
-//
-// These tests do not assert the current boundary is correct -- it is not. They
-// assert it is where it is, so that changing it is a deliberate act with a
-// visible diff, and so the day someone adds a minimum billable job size this
-// file is what tells them what they changed.
+// History: catalogue prices from a real M3 Ultra (1,980 emb/s → $0.000018/1k)
+// made sub-100-unit jobs either unbuyable (base rounded to $0) or charge the
+// buyer while SupplierPayoutPerTaskUSD was exactly zero. That characterisation
+// lived here until the floor landed; these tests now assert the corrected
+// behaviour.
 
 func economicScheduleForTest(t *testing.T) EconomicSchedule {
 	t.Helper()
@@ -43,9 +28,8 @@ func economicScheduleForTest(t *testing.T) EconomicSchedule {
 	return schedule
 }
 
-// A base compute cost that rounds to zero blocks the job. This is the exact
-// condition a small job hits after repricing.
-func TestSmallJobsAreRejectedNotPricedAtAFloor(t *testing.T) {
+// Small jobs are priced at the minimum billable floor, not rejected.
+func TestSmallJobsArePricedAtAFloor(t *testing.T) {
 	schedule := economicScheduleForTest(t)
 
 	// $0.000018 per 1,000 units is the catalogue price after repricing from a
@@ -64,11 +48,19 @@ func TestSmallJobsAreRejectedNotPricedAtAFloor(t *testing.T) {
 			t.Fatalf("%d units produced a non-positive base compute (%v) before the plan "+
 				"was even built", units, base)
 		}
-		if !plan.Executable && plan.BlockReason == "" {
-			t.Fatalf("%d units: not executable with no reason given", units)
+		if !plan.Executable {
+			t.Fatalf("%d units: not executable after the minimum-billable floor: %s",
+				units, plan.BlockReason)
 		}
-		t.Logf("units=%-6d base_compute=$%.12f executable=%v %s",
-			units, base, plan.Executable, plan.BlockReason)
+		if plan.SupplierPayoutPerTaskUSD <= 0 {
+			t.Fatalf("%d units: supplier payout is $0 while the plan is executable", units)
+		}
+		if plan.BuyerChargePerTaskUSD <= 0 {
+			t.Fatalf("%d units: buyer is not charged", units)
+		}
+		t.Logf("units=%-6d raw_base=$%.12f floored_base=$%.9f buyer=$%.9f supplier=$%.9f",
+			units, base, plan.Input.BaseComputeUSD,
+			plan.BuyerChargePerTaskUSD, plan.SupplierPayoutPerTaskUSD)
 	}
 }
 
@@ -137,58 +129,93 @@ func TestSupplierShareCollapsesAtSmallJobSizes(t *testing.T) {
 		"per-task control-plane cost", small*100, large*100)
 }
 
-// KNOWN DEFECT, characterised not fixed.
-//
-// Between roughly 5 and 99 units the economic plan is executable, the buyer IS
-// charged, and the supplier payout is EXACTLY ZERO:
-//
-//	units=10   buyer=$0.000124000  supplier=$0.000000000
-//	units=100  buyer=$0.000125000  supplier=$0.000001000
-//
-// This is not the sub-cent carry the accrual path handles. SupplierPayoutPerTaskUSD
-// is 0, so nothing is accrued at all -- merc bills a buyer for work and records
-// no obligation to whoever performed it. roundEconomicUSD(computePerTask *
-// SupplierShare) rounds 0.0000000144 to zero.
-//
-// This test asserts the CURRENT behaviour so the defect cannot widen unnoticed
-// and so fixing it produces a visible, deliberate diff. When a minimum billable
-// job size or a supplier payout floor lands, INVERT this test -- do not delete
-// it.
-func TestKnownDefectSupplierPaidZeroWhileBuyerIsCharged(t *testing.T) {
+// Whenever the buyer is charged for work a supplier performed, supplier
+// liability is strictly positive. Property-style across the sizes that used to
+// round the supplier share to exactly zero.
+func TestSupplierLiabilityStrictlyPositiveWhenBuyerCharged(t *testing.T) {
 	schedule := economicScheduleForTest(t)
 	const pricePer1K = 0.000018
 
-	plan := BuildEconomicPlan(EconomicPlanInput{
-		BaseComputeUSD:   10.0 / 1000.0 * pricePer1K,
-		InitialTaskCount: 1,
-		SupplierShare:    0.8,
-	}, schedule)
+	for units := 1; units <= 200; units++ {
+		base := float64(units) / 1000.0 * pricePer1K
+		plan := BuildEconomicPlan(EconomicPlanInput{
+			BaseComputeUSD:   base,
+			InitialTaskCount: 1,
+			SupplierShare:    0.8,
+		}, schedule)
+		if !plan.Executable {
+			t.Fatalf("units=%d: plan not executable: %s", units, plan.BlockReason)
+		}
+		if plan.BuyerChargePerTaskUSD <= 0 {
+			t.Fatalf("units=%d: buyer charge is not positive", units)
+		}
+		if plan.SupplierPayoutPerTaskUSD <= 0 {
+			t.Fatalf("units=%d: buyer charged $%.9f but supplier liability is $0",
+				units, plan.BuyerChargePerTaskUSD)
+		}
+		// Micro-USD conservation on the per-task floor: buyer covers supplier +
+		// control plane (processor is modelled at scenario level).
+		if plan.BuyerChargePerTaskUSD+1e-12 < plan.SupplierPayoutPerTaskUSD+schedule.ControlPlanePerTaskUSD {
+			t.Fatalf("units=%d: buyer $%.9f does not cover supplier $%.9f + control $%.9f",
+				units, plan.BuyerChargePerTaskUSD, plan.SupplierPayoutPerTaskUSD,
+				schedule.ControlPlanePerTaskUSD)
+		}
+	}
 
-	if !plan.Executable {
-		t.Fatalf("a 10-unit job is no longer executable; the defect window moved and this "+
-			"characterisation is stale: %s", plan.BlockReason)
+	// Also over multi-task and multi-share shapes that used to hit the hole.
+	for _, share := range []float64{0.1, 0.5, 0.8, 0.97, 1.0} {
+		for _, tasks := range []int{1, 2, 7, 64} {
+			for _, micros := range []int64{1, 2, 5, 10, 100, 1000} {
+				plan := BuildEconomicPlan(EconomicPlanInput{
+					BaseComputeUSD:   microsToUSD(micros),
+					InitialTaskCount: tasks,
+					SupplierShare:    share,
+				}, schedule)
+				if !plan.Executable {
+					continue
+				}
+				if plan.BuyerChargePerTaskUSD > 0 && plan.SupplierPayoutPerTaskUSD <= 0 {
+					t.Fatalf("share=%.2f tasks=%d base_micros=%d: buyer $%.9f supplier $0",
+						share, tasks, micros, plan.BuyerChargePerTaskUSD)
+				}
+			}
+		}
 	}
-	if plan.BuyerChargePerTaskUSD <= 0 {
-		t.Fatal("a 10-unit job no longer charges the buyer; re-characterise")
-	}
-	if plan.SupplierPayoutPerTaskUSD > 0 {
-		t.Fatalf("GOOD NEWS, ACTION REQUIRED: a 10-unit job now pays the supplier $%.9f. "+
-			"The zero-payout defect is fixed. Invert this test to assert the supplier is "+
-			"always paid something whenever the buyer is charged.",
-			plan.SupplierPayoutPerTaskUSD)
-	}
+}
 
-	// And the first size at which the supplier is paid anything.
-	paid := BuildEconomicPlan(EconomicPlanInput{
-		BaseComputeUSD:   100.0 / 1000.0 * pricePer1K,
-		InitialTaskCount: 1,
-		SupplierShare:    0.8,
-	}, schedule)
-	if paid.SupplierPayoutPerTaskUSD <= 0 {
-		t.Fatal("even a 100-unit job pays the supplier nothing; the defect is WIDER than " +
-			"characterised")
+// Scenario-level micro-USD conservation: for every modelled scenario,
+// net billed equals supplier + processor + control + contribution margin.
+func TestEconomicPlanScenarioConservation(t *testing.T) {
+	schedule := economicScheduleForTest(t)
+	const pricePer1K = 0.000018
+
+	for _, units := range []int{1, 10, 100, 1000, 100000} {
+		plan := BuildEconomicPlan(EconomicPlanInput{
+			BaseComputeUSD:   float64(units) / 1000.0 * pricePer1K,
+			InitialTaskCount: 1,
+			SupplierShare:    0.8,
+		}, schedule)
+		if !plan.Executable {
+			t.Fatalf("units=%d blocked: %s", units, plan.BlockReason)
+		}
+		for _, sc := range plan.Scenarios {
+			// net = supplier + processor + control + margin, in micro-USD.
+			lhs := usdToMicros(sc.NetBilledUSD)
+			rhs := usdToMicros(sc.SupplierLiabilityUSD) +
+				usdToMicros(sc.ProcessorFeeUSD) +
+				usdToMicros(sc.ControlPlaneCostUSD) +
+				usdToMicros(sc.ContributionMarginUSD)
+			if lhs != rhs {
+				// Allow 1 micro of residual from independent rounding of terms.
+				if d := lhs - rhs; d > 1 || d < -1 {
+					t.Fatalf("units=%d scenario %s: net %d != parts %d (supplier %d + proc %d + ctrl %d + margin %d)",
+						units, sc.Name, lhs, rhs,
+						usdToMicros(sc.SupplierLiabilityUSD),
+						usdToMicros(sc.ProcessorFeeUSD),
+						usdToMicros(sc.ControlPlaneCostUSD),
+						usdToMicros(sc.ContributionMarginUSD))
+				}
+			}
+		}
 	}
-	t.Logf("defect window characterised: 10 units pays the supplier $0.000000000 while "+
-		"charging the buyer $%.9f; 100 units pays $%.9f",
-		plan.BuyerChargePerTaskUSD, paid.SupplierPayoutPerTaskUSD)
 }

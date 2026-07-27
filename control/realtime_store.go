@@ -144,19 +144,38 @@ func (s *Store) HeartbeatRealtimeOffer(ctx context.Context, worker WorkerAuth, h
 
 func scanRealtimeContract(row pgx.Row) (RealtimeContract, error) {
 	var contract RealtimeContract
-	var sealed string
+	var sealed *string
+	var workerID, supplierID *uuid.UUID
+	var upstream *string
 	err := row.Scan(
 		&contract.ID, &contract.RequestID, &contract.BuyerID, &contract.ModelAlias,
 		&contract.RuntimeProfileID, &contract.RuntimeProfileSHA256,
 		&contract.MaximumPriceUSD, &contract.EstimatedPriceUSD,
 		&contract.BuyerInputUSDPerMillionTokens, &contract.BuyerOutputUSDPerMillionTokens,
 		&contract.SupplierInputUSDPerMillionTokens, &contract.SupplierOutputUSDPerMillionTokens,
-		&contract.DeadlineAt, &contract.State, &contract.WorkerID, &contract.SupplierID,
-		&contract.UpstreamBaseURL, &sealed)
+		&contract.DeadlineAt, &contract.State, &workerID, &supplierID,
+		&upstream, &sealed)
 	if err != nil {
 		return RealtimeContract{}, err
 	}
-	contract.UpstreamToken = openToken(sealed)
+	if workerID != nil {
+		contract.WorkerID = *workerID
+	}
+	if supplierID != nil {
+		contract.SupplierID = *supplierID
+	}
+	if upstream != nil {
+		contract.UpstreamBaseURL = *upstream
+	}
+	// Reuse contracts have no upstream credential: the answer is served from
+	// the exact-result cache and no worker is contacted.
+	if sealed == nil || *sealed == "" {
+		if contract.WorkerID == uuid.Nil && contract.SupplierID == uuid.Nil {
+			return contract, nil
+		}
+		return RealtimeContract{}, errors.New("vLLM upstream credential cannot be opened")
+	}
+	contract.UpstreamToken = openToken(*sealed)
 	if contract.UpstreamToken == "" {
 		return RealtimeContract{}, errors.New("vLLM upstream credential cannot be opened")
 	}
@@ -186,20 +205,38 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			auth.BuyerID, auth.IdempotencyKey)
 		var requestSHA string
 		var contract RealtimeContract
-		var sealed string
+		var sealed *string
+		var workerID, supplierID *uuid.UUID
+		var upstream *string
 		err := row.Scan(
 			&contract.ID, &contract.RequestID, &contract.BuyerID, &contract.ModelAlias,
 			&contract.RuntimeProfileID, &contract.RuntimeProfileSHA256,
 			&contract.MaximumPriceUSD, &contract.EstimatedPriceUSD,
 			&contract.BuyerInputUSDPerMillionTokens, &contract.BuyerOutputUSDPerMillionTokens,
 			&contract.SupplierInputUSDPerMillionTokens, &contract.SupplierOutputUSDPerMillionTokens,
-			&contract.DeadlineAt, &contract.State, &contract.WorkerID, &contract.SupplierID,
-			&contract.UpstreamBaseURL, &sealed, &requestSHA)
+			&contract.DeadlineAt, &contract.State, &workerID, &supplierID,
+			&upstream, &sealed, &requestSHA)
 		if err == nil {
 			if requestSHA != auth.RequestSHA256 {
 				return RealtimeContract{}, false, errRealtimeIdempotencyConflict
 			}
-			contract.UpstreamToken = openToken(sealed)
+			if workerID != nil {
+				contract.WorkerID = *workerID
+			}
+			if supplierID != nil {
+				contract.SupplierID = *supplierID
+			}
+			if upstream != nil {
+				contract.UpstreamBaseURL = *upstream
+			}
+			// Exact-reuse contracts have no upstream credential.
+			if sealed == nil || *sealed == "" {
+				if contract.WorkerID == uuid.Nil && contract.SupplierID == uuid.Nil {
+					return contract, true, nil
+				}
+				return RealtimeContract{}, false, errors.New("vLLM upstream credential cannot be opened")
+			}
+			contract.UpstreamToken = openToken(*sealed)
 			if contract.UpstreamToken == "" {
 				return RealtimeContract{}, false, errors.New("vLLM upstream credential cannot be opened")
 			}
@@ -397,6 +434,166 @@ func releaseRealtimeCapacity(ctx context.Context, tx pgx.Tx, workerID uuid.UUID,
 		   SET available_sequences=LEAST(max_active_sequences,available_sequences+1),updated_at=now()
 		 WHERE worker_id=$1 AND runtime_profile_id=$2`, workerID, profileID)
 	return err
+}
+
+// SettleRealtimeExactReuse records a cache-hit settlement: buyer pays the reuse
+// class price, no supplier is credited, no worker capacity is reserved. Money
+// conservation is buyer = platform exactly (supplier = 0).
+func (s *Store) SettleRealtimeExactReuse(
+	ctx context.Context,
+	auth RealtimeContractAuthorization,
+	hit ExactCacheHit,
+	money ReuseHitSettlement,
+	outputCommitment string,
+) (RealtimeContract, RealtimeSettlement, error) {
+	if !money.Conserved() {
+		return RealtimeContract{}, RealtimeSettlement{}, fmt.Errorf(
+			"reuse settlement not conserved: buyer=%d supplier=%d platform=%d",
+			money.BuyerDebitMicros, money.SupplierLiabilityMicros, money.PlatformMicros)
+	}
+	if money.SupplierLiabilityMicros != 0 {
+		return RealtimeContract{}, RealtimeSettlement{}, errors.New("exact reuse must not credit a supplier")
+	}
+	if money.BuyerDebitMicros <= 0 {
+		return RealtimeContract{}, RealtimeSettlement{}, errors.New("exact reuse must bill the buyer a positive reuse charge")
+	}
+	buyerCharge := microsToUSD(money.BuyerDebitMicros)
+	platformMargin := microsToUSD(money.PlatformMicros)
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Same fund gate as live authorization, against the reuse charge (not the
+	// full-rate maximum) so a cache hit cannot fail for want of capacity money
+	// that physical execution would have reserved.
+	{
+		var freeCredit, spent, batchReserved, realtimeReserved float64
+		var hasPaymentMethod bool
+		err := tx.QueryRow(ctx, `
+			SELECT b.free_credit_usd::float8,
+			       EXISTS(SELECT 1 FROM billing_customers bc
+			               WHERE bc.buyer_id=b.id AND COALESCE(bc.default_payment_method,'')<>''),
+			       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
+			                 WHERE le.buyer_id=b.id
+			                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8,
+			       COALESCE((SELECT sum(j.estimated_usd) FROM jobs j
+			                 WHERE j.buyer_id=b.id AND j.status IN ('queued','running','verifying')),0)::float8,
+			       COALESCE((SELECT sum(c.maximum_price_usd) FROM execution_contracts c
+			                 WHERE c.buyer_id=b.id AND c.state='EXECUTING'),0)::float8
+			  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, auth.BuyerID).
+			Scan(&freeCredit, &hasPaymentMethod, &spent, &batchReserved, &realtimeReserved)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RealtimeContract{}, RealtimeSettlement{}, errNotFound
+		}
+		if err != nil {
+			return RealtimeContract{}, RealtimeSettlement{}, err
+		}
+		providerFunded := stripeKey() != "" && hasPaymentMethod
+		if !providerFunded && freeCredit-spent-batchReserved-realtimeReserved < buyerCharge {
+			return RealtimeContract{}, RealtimeSettlement{}, errRealtimeInsufficientFunds
+		}
+	}
+
+	contractID := uuid.New()
+	executionID := uuid.New()
+	// No worker, no supplier, no upstream: capacity is not reserved.
+	_, err = tx.Exec(ctx, `
+		INSERT INTO execution_contracts
+		 (id,request_id,buyer_id,workload_type,route,model_alias,runtime_profile_id,
+		  runtime_profile_sha256,input_commitment,request_sha256,maximum_price_usd,
+		  estimated_price_usd,buyer_input_usd_per_million_tokens,
+		  buyer_output_usd_per_million_tokens,supplier_input_usd_per_million_tokens,
+		  supplier_output_usd_per_million_tokens,deadline_at,verification_tier,
+		  idempotency_key,state,worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
+		  finalized_at)
+		VALUES ($1,$2,$3,'CHAT_COMPLETION','/v1/chat/completions',$4,$5,$6,$7,$8,
+		        $9,$9,$10,$11,0,0,$12,'V0',$13,'VERIFIED',NULL,NULL,NULL,NULL,now())`,
+		contractID, auth.RequestID, auth.BuyerID, auth.Profile.ModelAlias,
+		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
+		auth.InputCommitment, auth.RequestSHA256, buyerCharge,
+		auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens,
+		auth.DeadlineAt, realtimeNullIfEmpty(auth.IdempotencyKey))
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+
+	// Delivered tokens are all logical reuse; physical is zero. We still record
+	// the cached completion size on the execution so the receipt can separate
+	// physical from delivered via the billing-class accounting.
+	delivered := money.DeliveredTokens
+	if delivered <= 0 {
+		delivered = hit.OutputTokens
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO realtime_executions
+		 (id,contract_id,worker_id,supplier_id,upstream_request_id,http_status,
+		  stream_event_count,stream_root_sha256,output_commitment,prompt_tokens,
+		  completion_tokens,total_tokens,time_to_first_event_ms,duration_ms,
+		  verification_state)
+		VALUES ($1,$2,NULL,NULL,$3,200,0,$4,$5,0,$6,$6,0,0,'PASSED')`,
+		executionID, contractID, "exact_reuse:"+hit.ResultRef,
+		outputCommitment, outputCommitment, delivered)
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+
+	// Buyer debit + platform take only. No supplier_credit row at all.
+	entries := []struct {
+		kind   string
+		buyer  *uuid.UUID
+		amount int64
+	}{
+		{KindBuyerCharge, &auth.BuyerID, -money.BuyerDebitMicros},
+		{KindPlatformTake, nil, money.PlatformMicros},
+	}
+	for _, entry := range entries {
+		contract := contractID
+		if _, err := insertLedgerEntryTx(ctx, tx, ledgerInsert{
+			Kind:                entry.kind,
+			BuyerID:             entry.buyer,
+			ExecutionContractID: &contract,
+			AmountMicros:        entry.amount,
+			PayoutStatus:        PayoutReleased,
+		}); err != nil {
+			return RealtimeContract{}, RealtimeSettlement{}, err
+		}
+	}
+
+	settlementID := uuid.New()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO realtime_settlements
+		 (id,contract_id,authoritative_execution_id,receipt_id,buyer_charge_usd,
+		  supplier_gross_usd,platform_margin_usd,verification_cost_usd)
+		VALUES ($1,$2,$3,$4,$5,0,$6,0)`,
+		settlementID, contractID, executionID, "rcp_"+executionID.String(),
+		buyerCharge, platformMargin); err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
+		VALUES ($1,'RESERVED',$2),($1,'CAPTURED',$2),($1,'RELEASED',0)`,
+		contractID, buyerCharge); err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+	contract := RealtimeContract{
+		ID: contractID, RequestID: auth.RequestID, BuyerID: auth.BuyerID,
+		ModelAlias: auth.Profile.ModelAlias, RuntimeProfileID: auth.Profile.RuntimeProfileID,
+		RuntimeProfileSHA256: auth.Profile.ProfileSHA256,
+		MaximumPriceUSD:      buyerCharge, EstimatedPriceUSD: buyerCharge,
+		BuyerInputUSDPerMillionTokens:  auth.Profile.BuyerInputUSDPerMillionTokens,
+		BuyerOutputUSDPerMillionTokens: auth.Profile.BuyerOutputUSDPerMillionTokens,
+		DeadlineAt:                     auth.DeadlineAt, State: "VERIFIED",
+	}
+	return contract, RealtimeSettlement{
+		ID: settlementID, BuyerChargeUSD: buyerCharge,
+		SupplierPayableUSD: 0, PlatformMarginUSD: platformMargin,
+	}, nil
 }
 
 func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUID, evidence RealtimeExecutionEvidence) (RealtimeSettlement, error) {

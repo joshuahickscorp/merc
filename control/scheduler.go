@@ -173,13 +173,32 @@ func hwClassCostRank(hwClass string) int {
 	}
 }
 
+// hwClassCostRankSQL ranks a hardware class by MARGINAL COST TO MERC, cheapest
+// first. The claim predicate defers a task when some cheaper class could also
+// take it, so this ordering decides where work actually lands.
+//
+// The CUDA classes were missing and fell through to ELSE 0, which ranked an
+// A100 at $1.19/hr as cheap as a base Mac. The consequence ran the wrong way and
+// cost real money: an owned apple_silicon_ultra (rank 3) saw a rented
+// nvidia_80gb at rank 0, concluded a cheaper class was available, and DEFERRED
+// to it. Owned hardware stepped back for rented hardware on every claim.
+//
+// Owned Apple Silicon is cheapest because its marginal cost is electricity;
+// rented NVIDIA is billed by the hour whether or not it is busy, and the bigger
+// the card the more it costs. An unknown class ranks LAST, not first: assuming
+// an unrecognised class is free is the mistake that produced this bug, and the
+// fail-safe direction is to treat what we cannot price as expensive.
 func hwClassCostRankSQL(col string) string {
 	return `CASE ` + col + `
 	          WHEN 'apple_silicon_base' THEN 0
 	          WHEN 'apple_silicon_pro' THEN 1
 	          WHEN 'apple_silicon_max' THEN 2
 	          WHEN 'apple_silicon_ultra' THEN 3
-	          ELSE 0
+	          WHEN 'nvidia_24gb' THEN 4
+	          WHEN 'nvidia_48gb' THEN 5
+	          WHEN 'nvidia_80gb' THEN 6
+	          WHEN 'nvidia_180gb' THEN 7
+	          ELSE 99
 	        END`
 }
 

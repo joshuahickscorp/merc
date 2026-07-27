@@ -700,6 +700,45 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		boundQuoteID = qBind.ID
 	}
 
+	// Exact deterministic reuse for batch: identical input+model+policy serves
+	// the prior result, bills the reuse class, and schedules no supplier.
+	// Identity is derived server-side only (never from a client field).
+	modelRevision := ""
+	pricePer1K := 0.002
+	if m, merr := s.store.GetModel(ctx, sub.Model.Ref); merr == nil {
+		modelRevision = m.ID // catalogue id is the revision pin for batch models
+		pricePer1K = modelPrice(*m)
+	}
+	if identity := batchRequestIdentity(sub.Model.Ref, modelRevision, sub.JobType.Type, inputSHA256, sub.JobType.MaxTokens, float64(sub.JobType.Temperature)); identity != "" {
+		hit, money, ok, lerr := s.store.tryBatchExactReuse(ctx, identity, batchFullPricePer1K(pricePer1K*tierMultiplier(sub.Tier)))
+		if lerr != nil {
+			log.Printf("exact reuse batch lookup failed, executing live: %v", lerr)
+		} else if ok {
+			reuseOut := fmt.Sprintf("jobs/%s/output.jsonl", jobID)
+			if cerr := s.store.CopyExactReuseResultToJobOutput(ctx, s.storage, hit, reuseOut); cerr != nil {
+				log.Printf("exact reuse materialise failed, executing live: %v", cerr)
+			} else if serr := s.store.SubmitExactReuseBatchJob(ctx, buyerID, jobID,
+				sub.JobType.Type, sub.Model.Ref, inputKey, reuseOut, sub.Tier,
+				hit, money, int64(totalRecords), int64(exactInputBytes),
+				sub.IdempotencyKey, sub.RequestSHA256); serr != nil {
+				if errors.Is(serr, errRealtimeInsufficientFunds) {
+					return JobSubmitResponse{}, &httpError{http.StatusPaymentRequired, serr.Error()}
+				}
+				log.Printf("exact reuse batch settle failed, executing live: %v", serr)
+			} else {
+				metrics.jobsSubmitted.Add(1)
+				_ = s.store.InsertJobEvent(ctx, jobID, nil, "job_exact_reuse",
+					fmt.Sprintf("Exact reuse hit: delivered %d tokens, physical 0, buyer $%.6f, supplier $0",
+						money.DeliveredTokens, microsToUSD(money.BuyerDebitMicros)), nil)
+				return JobSubmitResponse{
+					JobID: jobID, TaskCount: 0, EstimatedUSD: microsToUSD(money.BuyerDebitMicros),
+					ETASecs: 0, EstimatedCompletion: time.Now().UTC().Format(time.RFC3339),
+					TierSemantics: serviceTierSemantics(sub.Tier),
+				}, nil
+			}
+		}
+	}
+
 	outputKey := fmt.Sprintf("jobs/%s/output.jsonl", jobID)
 
 	nRedundancy := fracCount(nPrimary, sub.Verification.RedundancyFrac)
@@ -1190,6 +1229,14 @@ func mergeJobResultsWithProbe(
 	reachRecoveryBoundary(ctx, probe, BoundaryMergeBeforePublish)
 	if err := store.MarkResultsMerged(ctx, jobID, outputRecords, outputBytes); err != nil {
 		return int(outputBytes), fmt.Errorf("merge: writing output %q succeeded but marking results_merged_at failed: %w", info.OutputRef, err)
+	}
+	// Best-effort: cache the merged output under a content-addressed key so a
+	// later identical deterministic submission hits exact reuse. Never write a
+	// jobs/ path into the shared cache.
+	if body, gerr := storage.GetObject(ctx, info.OutputRef); gerr == nil {
+		if id, ierr := store.batchIdentityForJob(ctx, storage, jobID); ierr == nil && id != "" {
+			store.maybeCacheCompletedBatchJob(ctx, storage, id, body, outputRecords)
+		}
 	}
 	reachRecoveryBoundary(ctx, probe, BoundaryMergeAfterPublish)
 	return int(outputBytes), nil
@@ -2766,7 +2813,16 @@ func (s *Server) estimateJobUSD(ctx context.Context, jobType, modelRef string, i
 		units += float64(nLines) * float64(outTokensPerRecord)
 	}
 	est := units / 1000.0 * price * tierMultiplier(tier)
-	return roundUSD(est)
+	rounded := roundUSD(est)
+	// Positive work must never price at $0: roundUSD of a sub-micro amount is
+	// exactly the hole that left small jobs either unbuyable or paying the
+	// supplier nothing. Floor to one micro-USD; BuildEconomicPlan then raises
+	// further to the minimum billable size if the supplier share still rounds
+	// to zero.
+	if rounded == 0 && units > 0 && price > 0 {
+		return microsToUSD(1)
+	}
+	return rounded
 }
 
 func splitSizeOf(params json.RawMessage) int {

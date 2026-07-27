@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -574,6 +575,32 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if requestID == "" {
 		requestID = "req_" + uuid.NewString()
 	}
+
+	// Exact deterministic reuse: when the request is cacheable and a prior
+	// result exists, bill the reuse class and serve without scheduling a
+	// supplier. Non-deterministic sampling is simply not eligible (miss).
+	if reuseContract, reuseBody, reuseHit, err := s.tryRealtimeExactReuse(
+		r.Context(), auth.BuyerID, requestID, idempotencyKey, prepared); err != nil {
+		if errors.Is(err, errRealtimeInsufficientFunds) {
+			writeOpenAIError(w, http.StatusPaymentRequired, err.Error(), "insufficient_quota", "insufficient_quota")
+			return
+		}
+		// Cache/storage faults fall through to live execution rather than 5xx
+		// the buyer for an optimization path.
+		log.Printf("exact reuse lookup failed, executing live: %v", err)
+	} else if reuseHit {
+		receiptPath := "/v1/realtime/requests/" + reuseContract.ID.String() + "/receipt"
+		w.Header().Set("X-Merc-Contract-ID", reuseContract.ID.String())
+		w.Header().Set("X-Merc-Receipt", receiptPath)
+		w.Header().Set("X-Merc-Max-USD", fmt.Sprintf("%.6f", reuseContract.MaximumPriceUSD))
+		w.Header().Set("X-Merc-Exact-Reuse", "1")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(reuseBody)
+		metrics.realtimeVerified.Add(1)
+		return
+	}
+
 	contract, replay, err := s.store.AuthorizeRealtimeContract(r.Context(), RealtimeContractAuthorization{
 		RequestID: requestID, BuyerID: auth.BuyerID, Profile: prepared.Profile,
 		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
@@ -717,9 +744,83 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	metrics.realtimeVerified.Add(1)
+	// Populate the exact-result cache so a later identical deterministic
+	// request pays the reuse class instead of re-running the model.
+	s.maybeStoreRealtimeExactResult(r.Context(), prepared, body, completion.Usage.CompletionTokens)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+// tryRealtimeExactReuse serves a prior identical deterministic response from
+// the exact-result cache. Returns reuseHit=false when the request is not
+// cacheable or the cache misses — the caller then runs live inference.
+func (s *Server) tryRealtimeExactReuse(
+	ctx context.Context,
+	buyerID uuid.UUID,
+	requestID, idempotencyKey string,
+	prepared preparedRealtimeRequest,
+) (RealtimeContract, []byte, bool, error) {
+	payload, err := decodeRealtimePayload(prepared.Body)
+	if err != nil {
+		return RealtimeContract{}, nil, false, nil
+	}
+	identity, err := realtimeIdentityFromPayload(prepared.Profile, payload)
+	if err != nil {
+		// Non-deterministic or incomplete identity: not eligible for reuse.
+		return RealtimeContract{}, nil, false, nil
+	}
+	hit, ok, err := s.store.LookupExactResult(ctx, identity)
+	if err != nil || !ok {
+		return RealtimeContract{}, nil, false, err
+	}
+	body, err := s.store.LoadExactResultBytes(ctx, s.storage, hit.ResultRef)
+	if err != nil {
+		return RealtimeContract{}, nil, false, err
+	}
+	fullPer1K := fullPricePer1KFromRealtime(
+		prepared.Profile.BuyerInputUSDPerMillionTokens,
+		prepared.Profile.BuyerOutputUSDPerMillionTokens,
+	)
+	// Delivered tokens for a pure result hit are the cached completion size.
+	// Physical is zero — PriceAccounting charges the reuse class only.
+	delivered := hit.OutputTokens
+	if delivered <= 0 {
+		delivered = 1
+	}
+	money := SettleReuseHitMoney(delivered, fullPer1K)
+	if !money.Conserved() || money.SupplierLiabilityMicros != 0 {
+		return RealtimeContract{}, nil, false, fmt.Errorf("reuse money invariant broken: %+v", money)
+	}
+	sum := sha256.Sum256(body)
+	contract, _, err := s.store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
+		RequestID: requestID, BuyerID: buyerID, Profile: prepared.Profile,
+		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
+		MaximumPriceUSD:   microsToUSD(money.BuyerDebitMicros),
+		EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
+		DeadlineAt:        time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+	}, hit, money, hex.EncodeToString(sum[:]))
+	if err != nil {
+		return RealtimeContract{}, nil, false, err
+	}
+	return contract, body, true, nil
+}
+
+// maybeStoreRealtimeExactResult caches a verified live response under its
+// request identity when sampling is deterministic. Failures are logged only:
+// a cache-write miss must not fail a successful buyer response.
+func (s *Server) maybeStoreRealtimeExactResult(ctx context.Context, prepared preparedRealtimeRequest, body []byte, completionTokens int64) {
+	payload, err := decodeRealtimePayload(prepared.Body)
+	if err != nil {
+		return
+	}
+	identity, err := realtimeIdentityFromPayload(prepared.Profile, payload)
+	if err != nil {
+		return
+	}
+	if _, err := s.store.StoreExactResultBytes(ctx, s.storage, identity, body, completionTokens); err != nil {
+		log.Printf("exact reuse store failed: %v", err)
+	}
 }
 
 func (s *Server) handleRealtimeReceipt(w http.ResponseWriter, r *http.Request) {
