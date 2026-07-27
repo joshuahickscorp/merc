@@ -40,9 +40,15 @@ inventing hardware.
 | Blender render | Image sequence produced by an attested Blender run |
 | Webcam | **Opt-in only** (`allow_webcam=True`). Missing camera → `ExecutionClass.BLOCKED`, never a fabricated frame |
 
-Frames live in a bounded ring buffer. Overflow increments `frames_dropped` and
-discards the oldest sample. Timestamps are forced strictly monotonic even when
-the source stalls.
+Frames live in a bounded ring buffer of *undelivered* samples. Overflow
+increments `frames_dropped` and discards the oldest undelivered sample.
+`read_frame` / `iter_frames` ingest then immediately pop, so a keep-up consumer
+reports `frames_dropped == 0`. Genuine overrun requires the producer to push
+faster than the consumer pops. Per-frame `OcularFrame.dropped_before` is the
+gap since the previous delivered frame (not a running total); the stream total
+is `sum(dropped_before)` and must equal `frames_dropped`. Counter identity:
+`frames_emitted + frames_dropped + buffer_occupancy == frames_offered`.
+Timestamps are forced strictly monotonic even when the source stalls.
 
 ## `OcularFrame`
 

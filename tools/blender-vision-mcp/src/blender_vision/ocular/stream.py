@@ -54,8 +54,18 @@ class StreamState(StrEnum):
 
 @dataclass(slots=True)
 class StreamStats:
+    """Stream counters.
+
+    Invariant once the buffer is drained:
+    ``frames_emitted + frames_dropped == frames_offered``.
+
+    While frames still sit in the ring,
+    ``frames_emitted + frames_dropped + buffer_occupancy == frames_offered``.
+    """
+
     frames_emitted: int = 0
     frames_dropped: int = 0
+    frames_offered: int = 0
     buffer_capacity: int = 0
     buffer_occupancy: int = 0
     last_timestamp: float = 0.0
@@ -65,7 +75,13 @@ class StreamStats:
 
 @dataclass(slots=True)
 class StreamHandle:
-    """Live stream handle. Frames sit in a bounded ring; overflow drops oldest."""
+    """Live stream handle. Frames sit in a bounded ring; overflow drops oldest.
+
+    Drops count only when an *undelivered* buffered frame is overwritten.
+    ``read_frame`` ingests then immediately pops, so a keep-up consumer never
+    drops. A genuine overrun requires the producer to push faster than the
+    consumer pops (multiple ``push_frame`` / source ingests without ``pop_frame``).
+    """
 
     stream_id: str
     sensor: SensorDescriptor
@@ -91,31 +107,45 @@ class StreamHandle:
     _sequence_index: int = 0
     _intrinsics: dict[str, Any] = field(default_factory=dict)
     _closed: bool = True
+    # Frames lost to overflow since the last delivered frame; stamped onto the
+    # next pop as OcularFrame.dropped_before (per-frame gap, not cumulative).
+    _pending_gap: int = 0
 
     @property
     def buffer_capacity(self) -> int:
         return int(self._buffer.maxlen or 0)
 
     def push_frame(self, frame: OcularFrame, image: np.ndarray | None = None) -> None:
+        """Enqueue an undelivered frame. Overflow drops the oldest undelivered sample."""
         with self._lock:
-            if len(self._buffer) == self._buffer.maxlen:
+            self.stats.frames_offered += 1
+            if self._buffer.maxlen is not None and len(self._buffer) == self._buffer.maxlen:
+                # Genuine loss: an undelivered frame is about to be overwritten.
                 self.stats.frames_dropped += 1
+                self._pending_gap += 1
             self._buffer.append(frame)
+            # Keep the raw ring the same capacity/eviction policy as the frame ring.
             if image is not None:
-                if len(self._raw_buffer) == self._raw_buffer.maxlen:
-                    pass  # capacity shared with frame buffer drops
                 self._raw_buffer.append(image)
+            else:
+                # Placeholder so pop indices stay aligned if a caller omits pixels.
+                self._raw_buffer.append(None)  # type: ignore[arg-type]
             self.stats.buffer_occupancy = len(self._buffer)
-            self.stats.frames_emitted += 1
             self.stats.last_timestamp = frame.timestamp
 
     def pop_frame(self) -> tuple[OcularFrame, np.ndarray | None] | None:
+        """Deliver the oldest buffered frame, stamping per-frame ``dropped_before``."""
         with self._lock:
             if not self._buffer:
                 return None
             frame = self._buffer.popleft()
             image = self._raw_buffer.popleft() if self._raw_buffer else None
+            gap = self._pending_gap
+            self._pending_gap = 0
+            frame = _stamp_dropped_before(frame, gap)
+            self.stats.frames_emitted += 1
             self.stats.buffer_occupancy = len(self._buffer)
+            self.stats.last_timestamp = frame.timestamp
             return frame, image
 
     def snapshot_state(self) -> dict[str, Any]:
@@ -131,6 +161,7 @@ class StreamHandle:
                 "stats": {
                     "frames_emitted": self.stats.frames_emitted,
                     "frames_dropped": self.stats.frames_dropped,
+                    "frames_offered": self.stats.frames_offered,
                     "buffer_capacity": self.buffer_capacity,
                     "buffer_occupancy": self.stats.buffer_occupancy,
                     "last_timestamp": self.stats.last_timestamp,
@@ -162,6 +193,21 @@ def _next_monotonic(handle: StreamHandle, preferred: float | None = None) -> flo
     return candidate
 
 
+def _stamp_dropped_before(frame: OcularFrame, gap: int) -> OcularFrame:
+    """Set per-frame gap and seal. Safe on unsealed or previously sealed frames."""
+    gap = int(gap)
+    if gap < 0:
+        gap = 0
+    if getattr(frame, "_locked", False):
+        if int(frame.dropped_before) == gap and frame.digest:
+            return frame
+        object.__setattr__(frame, "_locked", False)
+    object.__setattr__(frame, "dropped_before", gap)
+    # Clear prior digest so seal recomputes over the updated payload.
+    object.__setattr__(frame, "digest", "")
+    return frame.seal()
+
+
 def _make_frame(
     handle: StreamHandle,
     image: np.ndarray,
@@ -169,11 +215,12 @@ def _make_frame(
     timestamp: float | None = None,
     pose: dict[str, Any] | None = None,
 ) -> OcularFrame:
+    """Build an unsealed frame. ``dropped_before`` is stamped at delivery (pop)."""
     h, w = image.shape[:2]
     ts = _next_monotonic(handle, timestamp)
     index = handle._sequence_index
     handle._sequence_index += 1
-    frame = OcularFrame(
+    return OcularFrame(
         id=f"{handle.stream_id}-f{index:06d}",
         frame_id=f"{handle.stream_id}-f{index:06d}",
         stream_id=handle.stream_id,
@@ -191,14 +238,13 @@ def _make_frame(
         calibration_receipt=handle.calibration_receipt,
         coordinate_frame=handle.coordinate_frame,
         sequence_index=index,
-        dropped_before=handle.stats.frames_dropped,
+        dropped_before=0,
         authority=AuthorityClass.SENSOR_DERIVED,
         lineage=default_lineage(
             "ocular.stream.emit",
             inputs=[handle.sensor.sensor_id, handle.stream_id],
         ),
     )
-    return frame.seal()
 
 
 def _list_sequence(path: Path) -> list[Path]:
@@ -391,26 +437,23 @@ def open_stream(
     return handle
 
 
-def read_frame(handle: StreamHandle) -> tuple[OcularFrame, np.ndarray] | None:
-    """Pull the next frame from the underlying source into the ring and return it."""
+def _read_source(handle: StreamHandle) -> tuple[np.ndarray, float | None] | None:
+    """Decode the next sample from the underlying source without buffering it."""
     if handle.state not in {StreamState.OPEN, StreamState.EXHAUSTED}:
         return None
     if handle._closed:
         return None
-
-    image: np.ndarray | None = None
-    media_ts: float | None = None
 
     if handle.source_type is SourceType.VIDEO_FILE and handle._capture is not None:
         ok, array = handle._capture.read()
         if not ok or array is None:
             handle.state = StreamState.EXHAUSTED
             return None
-        image = array
         pos_ms = float(handle._capture.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
         media_ts = pos_ms / 1000.0 if pos_ms > 0 else None
+        return array, media_ts
 
-    elif handle.source_type in {SourceType.IMAGE_SEQUENCE, SourceType.BLENDER_RENDER}:
+    if handle.source_type in {SourceType.IMAGE_SEQUENCE, SourceType.BLENDER_RENDER}:
         if handle._path_index >= len(handle._paths):
             handle.state = StreamState.EXHAUSTED
             return None
@@ -419,30 +462,58 @@ def read_frame(handle: StreamHandle) -> tuple[OcularFrame, np.ndarray] | None:
         array = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if array is None:
             raise ValidationError(f"failed to read image: {path}")
-        image = array
         # Frame-index timebase so sequences are deterministic across hosts.
         media_ts = (handle._path_index - 1) / max(handle.sensor.frame_rate, 1e-6)
+        return array, media_ts
 
-    elif handle.source_type is SourceType.SCREEN_CAPTURE:
+    if handle.source_type is SourceType.SCREEN_CAPTURE:
         array = _screen_grab()
         if array is None:
             handle.state = StreamState.ERROR
             return None
-        image = array
+        return array, None
 
-    elif handle.source_type is SourceType.WEBCAM and handle._capture is not None:
+    if handle.source_type is SourceType.WEBCAM and handle._capture is not None:
         ok, array = handle._capture.read()
         if not ok or array is None:
             handle.state = StreamState.ERROR
             return None
-        image = array
+        return array, None
 
-    else:
-        return None
+    return None
 
-    assert image is not None
+
+def ingest_frame(handle: StreamHandle) -> bool:
+    """Pull one sample from the source into the ring without delivering it.
+
+    Returns True when a frame was enqueued. Used to create genuine buffer
+    overrun (producer ahead of consumer). Keep-up callers should use
+    ``read_frame`` instead, which ingests then immediately pops.
+    """
+    item = _read_source(handle)
+    if item is None:
+        return False
+    image, media_ts = item
     frame = _make_frame(handle, image, timestamp=media_ts)
     handle.push_frame(frame, image)
+    return True
+
+
+def read_frame(handle: StreamHandle) -> tuple[OcularFrame, np.ndarray] | None:
+    """Pull the next frame from the source, buffer it, and deliver it (FIFO).
+
+    Keep-up path: ingest + immediate pop, so the ring never holds undelivered
+    frames and ``frames_dropped`` stays 0. For deliberate overrun accounting,
+    call ``ingest_frame`` repeatedly without ``pop_frame``.
+    """
+    if not ingest_frame(handle):
+        return None
+    delivered = handle.pop_frame()
+    if delivered is None:
+        return None
+    frame, image = delivered
+    if image is None:
+        raise ValidationError(f"stream {handle.stream_id} delivered a frame without pixels")
     return frame, image
 
 

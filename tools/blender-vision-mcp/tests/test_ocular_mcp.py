@@ -409,7 +409,7 @@ def test_stream_timestamps_monotonic_and_drops_accounted(
         video_path,
         source_type="video_file",
         stream_id="mono-test",
-        buffer_size=2,  # small buffer forces drop accounting under push pressure
+        buffer_size=2,  # keep-up iter_frames must not invent drops from a small ring
     )
     assert hasattr(handle, "stream_id")
     timestamps: list[float] = []
@@ -421,13 +421,12 @@ def test_stream_timestamps_monotonic_and_drops_accounted(
     assert len(timestamps) >= 2
     assert all(timestamps[i] > timestamps[i - 1] for i in range(1, len(timestamps)))
     drops = int(state["stats"]["frames_dropped"])
-    assert drops >= 0
-    # dropped_before is stamped before push; a drop on the final push can leave
-    # stats one ahead of the last frame marker. Both must still be accounted.
-    assert all(d >= 0 for d in dropped_before)
-    peak = max(dropped_before) if dropped_before else 0
-    assert abs(drops - peak) <= 1
+    # Keep-up consumer: every offered frame is delivered; no genuine loss.
+    assert drops == 0
+    assert all(d == 0 for d in dropped_before)
+    assert sum(dropped_before) == drops
     assert state["stats"]["frames_emitted"] == len(timestamps)
+    assert state["stats"]["frames_offered"] == state["stats"]["frames_emitted"]
 
 
 def test_webcam_attested_blocked_not_fabricated() -> None:
