@@ -20,7 +20,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 [ -f "$ROOT/.merc-credentials.env" ] && { set -a; . "$ROOT/.merc-credentials.env"; set +a; }
 : "${RUNPOD_API_KEY:?RUNPOD_API_KEY is required (run scripts/merc-credentials.sh)}"
 
-GPU_TYPE="${MERC_RUNPOD_GPU:-NVIDIA A100 80GB PCIe}"
+GPU_TYPE="${MERC_RUNPOD_GPU:-NVIDIA RTX A5000}"
+# SECURE, not ALL. COMMUNITY had no capacity for any probed GPU class, and
+# ALL resolves to community first, so ALL silently found nothing.
+CLOUD="${MERC_RUNPOD_CLOUD:-SECURE}"
 # Pinned, not :latest. A floating tag means the runtime that served a receipt
 # cannot be identified later, which is the whole point of a pinned profile.
 IMAGE="${MERC_VLLM_IMAGE:-vllm/vllm-openai:v0.26.0-cu129-ubuntu2404}"
@@ -37,12 +40,29 @@ gql() {
         -X POST https://api.runpod.io/graphql -d "$1"
 }
 
+# REST, not GraphQL, for anything that creates or destroys. podFindAndDeployOnDemand
+# returns a pod id even when no machine was allocated -- two A100s billed for
+# 25 minutes each without ever starting because of that silent success. The REST
+# API answers 500 "There are no instances currently available" for the same
+# request.
+rest() {
+  local method="$1" path="$2" body="${3:-}"
+  if [ -n "$body" ]; then
+    printf 'header = "Authorization: Bearer %s"\n' "$RUNPOD_API_KEY" \
+      | curl -sS --config - -H 'content-type: application/json' --max-time 60 \
+          -X "$method" "https://rest.runpod.io/v1$path" -d "$body"
+  else
+    printf 'header = "Authorization: Bearer %s"\n' "$RUNPOD_API_KEY" \
+      | curl -sS --config - --max-time 60 -X "$method" "https://rest.runpod.io/v1$path"
+  fi
+}
+
 json() { python3 -c "import json,sys;print(json.dumps(json.load(sys.stdin)))"; }
 
 terminate() {
   local id="$1"
   [ -z "$id" ] && return 0
-  gql "$(printf '{"query":"mutation { podTerminate(input:{podId:\\"%s\\"}) }"}' "$id")" >/dev/null 2>&1 || true
+  rest DELETE "/pods/$id" >/dev/null 2>&1 || true
   say "  terminated $id"
 }
 
@@ -93,61 +113,34 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 say "provisioning"
-say "  gpu    $GPU_TYPE"
+say "  gpu    $GPU_TYPE ($CLOUD)"
 say "  image  $IMAGE"
 say "  model  $MODEL"
 
-CREATE=$(python3 - "$GPU_TYPE" "$IMAGE" "$MODEL" "$VLLM_KEY" "$POD_NAME" <<'PY'
-import json,sys
-gpu,image,model,key,name = sys.argv[1:6]
-args = (f"--model {model} --host 0.0.0.0 --port 8000 "
-        f"--api-key {key} --max-model-len 8192 --served-model-name merc-vllm")
-q = ("mutation { podFindAndDeployOnDemand(input:{"
-     f'cloudType: ALL, gpuCount: 1, volumeInGb: 40, containerDiskInGb: 40, '
-     f'minVcpuCount: 8, minMemoryInGb: 32, gpuTypeId: {json.dumps(gpu)}, '
-     f'name: {json.dumps(name)}, imageName: {json.dumps(image)}, '
-     f'ports: "8000/http", dockerArgs: {json.dumps(args)}'
-     "}) { id imageName machineId } }")
-print(json.dumps({"query": q}))
-PY
-)
+CREATE=$(python3 "$ROOT/scripts/runpod-create-payload.py" \
+           "$GPU_TYPE" "$IMAGE" "$MODEL" "$VLLM_KEY" "$POD_NAME" "$CLOUD")
 
-RESP=$(gql "$CREATE")
+RESP=$(rest POST /pods "$CREATE")
 POD_ID=$(printf '%s' "$RESP" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-if d.get('errors'):
-    print('', end=''); sys.stderr.write('runpod: '+json.dumps(d['errors'])[:400]+'\n'); raise SystemExit
-print(((d.get('data') or {}).get('podFindAndDeployOnDemand') or {}).get('id') or '')
+if d.get('error'):
+    sys.stderr.write('runpod: '+str(d['error'])[:200]+chr(10))
+print(d.get('id') or '')
 ")
-[ -n "$POD_ID" ] || die "pod was not created (no capacity for $GPU_TYPE, or the API refused). Nothing is billing."
+[ -n "$POD_ID" ] || die "pod was not created. RunPod reported no capacity for $GPU_TYPE on $CLOUD.
+       Nothing is billing. Try another GPU (MERC_RUNPOD_GPU=) or cloud (MERC_RUNPOD_CLOUD=)."
 say "  pod    $POD_ID"
 
 ENDPOINT="https://${POD_ID}-8000.proxy.runpod.net/v1"
 say ""
-say "waiting for vLLM to serve (model download + load, usually 3-8 minutes)"
-# A pod whose runtime stays null is not starting -- the image pull stalled or the
-# container died on launch. Catch that in ~3 minutes instead of burning 25 on a
-# poll loop that only ever sees 404 from the proxy.
-say "  checking the container actually starts"
-STARTED=0
-for i in $(seq 1 18); do
-  rt=$(gql "$(printf '{"query":"query { pod(input:{podId:\"%s\"}) { runtime { uptimeInSeconds } } }"}' "$POD_ID")" \
-       | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-r=(((d.get('data') or {}).get('pod') or {}).get('runtime') or {})
-print(r.get('uptimeInSeconds') if r.get('uptimeInSeconds') is not None else '')
-" 2>/dev/null)
-  [ -n "$rt" ] && { STARTED=1; say "  container up (${rt}s)"; break; }
-  sleep 10
-done
-[ "$STARTED" -eq 1 ] || die "container never started after 3 minutes (runtime stayed null).
-       The image probably failed to pull. Pod torn down; nothing is billing.
-       Try MERC_VLLM_IMAGE=<a tag RunPod caches> and re-run."
-
+say "waiting for vLLM to serve (image pull + model download, 5-10 minutes)"
+# Readiness is the PROXY answering 200, never pod.runtime. runtime is populated
+# by RunPod's in-container agent; an image that does not run that agent leaves it
+# null forever, so polling it waits out a perfectly healthy engine. Two A100s
+# were torn down as "never started" for exactly that reason.
 READY=0
-for i in $(seq 1 150); do
+for i in $(seq 1 90); do
   code=$(printf 'header = "Authorization: Bearer %s"\n' "$VLLM_KEY" \
          | curl -sS --config - -o /dev/null -w '%{http_code}' --max-time 10 \
              "$ENDPOINT/models" 2>/dev/null || printf '000')

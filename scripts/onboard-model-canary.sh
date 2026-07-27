@@ -8,7 +8,16 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ENDPOINT="${MERC_REALTIME_UPSTREAM:?MERC_REALTIME_UPSTREAM is required}"
 export MERC_ONBOARD_API_KEY="${MERC_REALTIME_UPSTREAM_KEY:?MERC_REALTIME_UPSTREAM_KEY is required}"
 ALIAS="${MERC_ONBOARD_ALIAS:-cx-chat-1b}"
-REV=aa8e72537993ba99e69dfaafa59ed015b17504d1
+# Revision and repo follow the alias the runtime actually serves. Hardcoding a
+# 3B revision while the CUDA pod serves 1.5B pins a profile to a model that is
+# not the one being measured.
+if [ "$ALIAS" = "merc-vllm" ]; then
+  REPO=Qwen/Qwen2.5-1.5B-Instruct
+  REV=989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+else
+  REPO=Qwen/Qwen2.5-3B-Instruct
+  REV=aa8e72537993ba99e69dfaafa59ed015b17504d1
+fi
 OUT=evidence/onboarding/canary.json
 mkdir -p evidence/onboarding
 
@@ -18,8 +27,8 @@ mkdir -p evidence/onboarding
     -run 'TestShippedCatalogueSatisfiesOnboardingPolicy|TestCatalogueAttribution|TestOnboardingPolicyRefuses' . >/dev/null )
 
 python3 scripts/onboard-model.py --endpoint "$ENDPOINT" --alias "$ALIAS" \
-  --license Apache-2.0 --license-url https://huggingface.co/Qwen/Qwen2.5-3B-Instruct \
-  --repo Qwen/Qwen2.5-3B-Instruct --revision "$REV" --samples 3 --out "$OUT" >/dev/null
+  --license Apache-2.0 --license-url "https://huggingface.co/$REPO" \
+  --repo "$REPO" --revision "$REV" --samples 3 --out "$OUT" >/dev/null
 
 python3 - "$OUT" <<'PY'
 import json,sys

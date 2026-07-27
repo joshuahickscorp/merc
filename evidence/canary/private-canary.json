@@ -8,7 +8,7 @@
     },
     "real_inference_runtime": {
       "present": true,
-      "detail": "real inference runtime serving at http://127.0.0.1:8095/v1"
+      "detail": "real inference runtime serving at https://s5ufe0wuiu3fw7-8000.proxy.runpod.net/v1"
     },
     "database": {
       "present": true,
@@ -19,12 +19,12 @@
       "detail": "object store reachable at 127.0.0.1:9123"
     },
     "cuda_runtime": {
-      "present": false,
-      "detail": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine"
+      "present": true,
+      "detail": "GPU runtime serving at https://s5ufe0wuiu3fw7-8000.proxy.runpod.net/v1"
     },
     "stripe_sandbox": {
-      "present": false,
-      "detail": "STRIPE_SECRET_KEY is not set"
+      "present": true,
+      "detail": "Stripe sandbox credential configured"
     },
     "openai_sdks": {
       "present": true,
@@ -52,11 +52,8 @@
     },
     {
       "lane": "runpod_vllm",
-      "status": "EXTERNALLY_BLOCKED",
-      "missing_capabilities": [
-        "cuda_runtime"
-      ],
-      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
       "note": "NVIDIA hardware and a pinned digest-addressed vLLM image; no Apple Silicon engine substitutes for this"
     },
     {
@@ -67,35 +64,26 @@
     },
     {
       "lane": "object_storage",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "FAILED",
+      "reason": "testing.tRunner(0x2ef2459fab48, 0x1033e01f8)\n\t/Users/scammermike/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.darwin-arm64/src/testing/testing.go:2036 +0xc4\ncreated by testing.(*T).Run in goroutine 1\n\t/Users/scammermike/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.darwin-arm64/src/testing/testing.go:2101 +0x3a8\nFAIL\tmerc/control\t0.444s\nFAIL",
       "note": "retention, deletion, tenant isolation against a live store"
     },
     {
       "lane": "image_generation",
-      "status": "EXTERNALLY_BLOCKED",
-      "missing_capabilities": [
-        "cuda_runtime"
-      ],
-      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "status": "TESTED",
+      "reason": "passed",
       "note": "governance only; no image runtime exists"
     },
     {
       "lane": "lora",
-      "status": "EXTERNALLY_BLOCKED",
-      "missing_capabilities": [
-        "cuda_runtime"
-      ],
-      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "status": "TESTED",
+      "reason": "passed",
       "note": "settlement arithmetic only; no trainer, no evaluator dispatch"
     },
     {
       "lane": "multi_gpu",
-      "status": "EXTERNALLY_BLOCKED",
-      "missing_capabilities": [
-        "cuda_runtime"
-      ],
-      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "status": "TESTED",
+      "reason": "passed",
       "note": "admission only; no tensor-parallel runtime has served a request"
     },
     {
@@ -106,17 +94,14 @@
     },
     {
       "lane": "refunds_disputes",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "FAILED",
+      "reason": "testing.tRunner(0x6287a3078b48, 0x1016004f0)\n\t/Users/scammermike/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.darwin-arm64/src/testing/testing.go:2036 +0xc4\ncreated by testing.(*T).Run in goroutine 1\n\t/Users/scammermike/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.darwin-arm64/src/testing/testing.go:2101 +0x3a8\nFAIL\tmerc/control\t0.501s\nFAIL",
       "note": "dispute filing, freeze, resolution and payout control"
     },
     {
       "lane": "payouts",
-      "status": "EXTERNALLY_BLOCKED",
-      "missing_capabilities": [
-        "stripe_sandbox"
-      ],
-      "reason": "STRIPE_SECRET_KEY is not set",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
       "note": "accrual and reconciliation; a real transfer needs the sandbox"
     },
     {
@@ -181,25 +166,25 @@
       "buyer_dashboard",
       "embeddings",
       "failure_recovery",
-      "object_storage",
+      "payouts",
       "price_board",
       "python_sdk",
       "realtime",
       "receipt_verification",
-      "refunds_disputes",
+      "runpod_vllm",
       "supplier_console",
       "typescript_sdk"
     ],
-    "EXTERNALLY_BLOCKED": [
-      "image_generation",
-      "lora",
-      "multi_gpu",
-      "payouts",
-      "runpod_vllm"
+    "FAILED": [
+      "object_storage",
+      "refunds_disputes"
     ],
     "TESTED": [
       "alerts",
       "external_model_onboarding",
+      "image_generation",
+      "lora",
+      "multi_gpu",
       "openai_sdk_conformance"
     ]
   },

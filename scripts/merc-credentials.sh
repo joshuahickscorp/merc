@@ -182,7 +182,10 @@ if [ "$CHECK_ONLY" -eq 0 ]; then
     [ -n "${RUNPOD_API_KEY:-}" ]     && printf 'export RUNPOD_API_KEY=%q\n' "$RUNPOD_API_KEY"
     [ -n "${STRIPE_SECRET_KEY:-}" ]  && printf 'export STRIPE_SECRET_KEY=%q\n' "$STRIPE_SECRET_KEY"
     [ -n "${MERC_GPU_ENDPOINT:-}" ]  && printf 'export MERC_GPU_ENDPOINT=%q\n' "$MERC_GPU_ENDPOINT"
-    printf 'export MERC_GPU_API_KEY="${RUNPOD_API_KEY:-}"\n'
+    # NOT aliased to RUNPOD_API_KEY. The RunPod account key authenticates to
+    # RunPod's control API; the engine on a pod has its own --api-key. Aliasing
+    # them sends the account key to vLLM, which answers 401. scripts/runpod-vllm.sh
+    # writes the real engine key into .merc-runpod.env.
   } > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
   say ""

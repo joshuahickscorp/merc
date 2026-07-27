@@ -45,13 +45,21 @@ RESALE_ALLOWED = {
 }
 
 
+# RunPod's edge blocks default library User-Agents: urllib's "Python-urllib/3.x"
+# gets 403 from a pod proxy even with a valid key and URL, while the identical
+# request via curl returns 200. Without this every stage below reports a healthy
+# CUDA engine as unreachable.
+MERC_UA = "merc-onboard/1.0"
+
+
 def post(endpoint, key, path, payload, timeout=120):
     req = urllib.request.Request(
         endpoint.rstrip("/") + path,
         data=json.dumps(payload).encode(),
         method="POST",
         headers={"content-type": "application/json",
-                 "authorization": f"Bearer {key}"},
+                 "authorization": f"Bearer {key}",
+                 "User-Agent": MERC_UA},
     )
     start = time.perf_counter()
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -62,7 +70,7 @@ def post(endpoint, key, path, payload, timeout=120):
 def get(endpoint, key, path, timeout=30):
     req = urllib.request.Request(
         endpoint.rstrip("/") + path,
-        headers={"authorization": f"Bearer {key}"},
+        headers={"authorization": f"Bearer {key}", "User-Agent": MERC_UA},
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
