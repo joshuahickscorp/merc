@@ -1319,15 +1319,33 @@ def _upsert_entity(
         )
         _maybe_add_surface(world, entity, raw, frame_index=frame_index, observed=True)
 
-    entity.trajectory.append(
-        {
-            "frame_index": frame_index,
-            "pose_m": list(entity.pose_m),
-            "visible": visible,
-            "confidence": entity.confidence,
-            "identity_confidence": entity.identity_confidence,
+    traj_row: dict[str, Any] = {
+        "frame_index": frame_index,
+        "pose_m": list(entity.pose_m),
+        "visible": visible,
+        "confidence": entity.confidence,
+        "identity_confidence": entity.identity_confidence,
+    }
+    # Image-space kinematics for frame-region / reappearance predictions.
+    # Never ground truth — only what the perception path stamped on the observation.
+    if raw.get("image_xy") is not None:
+        traj_row["image_xy"] = [float(raw["image_xy"][0]), float(raw["image_xy"][1])]
+    elif appearance.get("centroid_xy") is not None:
+        c = appearance["centroid_xy"]
+        traj_row["image_xy"] = [float(c[0]), float(c[1])]
+    if raw.get("bbox_xywh") is not None:
+        b = raw["bbox_xywh"]
+        traj_row["bbox_xywh"] = [float(b[0]), float(b[1]), float(b[2]), float(b[3])]
+    elif appearance.get("bbox_xywh") is not None:
+        b = appearance["bbox_xywh"]
+        traj_row["bbox_xywh"] = [float(b[0]), float(b[1]), float(b[2]), float(b[3])]
+    if appearance:
+        traj_row["appearance"] = {
+            k: appearance[k]
+            for k in ("centroid_xy", "bbox_xywh", "area_px", "image_xy")
+            if k in appearance
         }
-    )
+    entity.trajectory.append(traj_row)
     entity.digest = ""
     return entity
 
