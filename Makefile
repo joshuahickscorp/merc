@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test
+.PHONY: private-canary realtime-sdk-conformance up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test
 
 up:
 	docker compose up -d --build
@@ -81,6 +81,7 @@ ci:
 	bash scripts/test-readiness-gaming.sh
 	bash scripts/test-agent-review-gaming.sh
 	bash scripts/test-technical-exercises-fail-closed.sh
+	bash scripts/test-canary-gaming.sh
 	node scripts/site-build.mjs
 	node scripts/test-supplier-console.mjs
 	bash -n scripts/*.sh
@@ -202,6 +203,12 @@ approvals-check:
 # Mutation testing: injects deliberate defects into the money and reuse paths
 # and asserts the suite FAILS for each. A surviving mutation is a hole in the
 # tests. Kept out of `ci` because it runs the full suite once per mutation.
+# The private canary. Exercises every lane and reports what is actually proven.
+# Exit 2 means a lane could not run because a capability is missing -- that is a
+# blocked lane, not a defect, and the report names what is missing.
+private-canary:
+	python3 scripts/private-canary.py --out evidence/canary/private-canary.json
+
 mutation-test:
 	bash scripts/mutation-test.sh
 
