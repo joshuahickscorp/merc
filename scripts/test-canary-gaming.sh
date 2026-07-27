@@ -11,15 +11,24 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 out="$tmp/canary.json"
 
-# 1. A fabricated GPU endpoint must not satisfy the capability. If merc cannot
+# 1. A fabricated GPU endpoint must not satisfy the capability. Also covers
+#    real_inference_runtime, which is a separate capability -- llama.cpp on
+#    Metal satisfies that one and no CUDA lane may borrow it. If merc cannot
 #    reach and authenticate to a runtime, the lane is blocked -- pointing at a
 #    dead host is exactly how a canary gets talked into passing.
 MERC_GPU_ENDPOINT="http://127.0.0.1:9" RUNPOD_API_KEY="not-a-key" \
+MERC_REALTIME_UPSTREAM="http://127.0.0.1:9/v1" MERC_REALTIME_UPSTREAM_KEY="not-a-key" \
   python3 scripts/private-canary.py --out "$out" >/dev/null 2>&1 || true
-python3 - "$out" <<'PY' || fail "an unreachable GPU endpoint satisfied the gpu_runtime capability"
+
+python3 - "$out" <<'PY' || fail "an unreachable endpoint satisfied real_inference_runtime"
 import json,sys
 d=json.load(open(sys.argv[1]))
-gpu=d["capabilities"]["gpu_runtime"]
+sys.exit(0 if not d["capabilities"]["real_inference_runtime"]["present"] else 1)
+PY
+python3 - "$out" <<'PY' || fail "an unreachable GPU endpoint satisfied the cuda_runtime capability"
+import json,sys
+d=json.load(open(sys.argv[1]))
+gpu=d["capabilities"]["cuda_runtime"]
 sys.exit(0 if not gpu["present"] else 1)
 PY
 
