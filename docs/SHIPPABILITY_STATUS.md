@@ -217,6 +217,28 @@ moment someone fixes it. **Not fixed here because the remedy — a minimum
 billable job size, a supplier payout floor, or amortising the per-task cost —
 is a pricing decision, not a bug fix.**
 
+## Three TypeScript SDK defects, found by running it against a live merc
+
+The TS SDK had 12 passing unit tests. Every one used a stub `fetch` that
+accepted whatever it was sent, so none could catch a client speaking a shape
+merc rejects. **The shipped client could not submit a job at all.**
+
+| defect | what merc did | why the tests missed it |
+|---|---|---|
+| No `Idempotency-Key` header | `400` on every `submitJob` | the stub never inspected headers |
+| `input` sent as an array | `400 input must be a JSONL string` | a test asserted the array shape as correct, calling it "matching the Python SDK" — it never matched; Python has always serialised to JSONL |
+| `cancelJob` → `POST /v1/jobs/{id}/cancel` | route not served | the stub answered any URL |
+
+All three fixed, the test that pinned the wrong shape rewritten, and three new
+tests added that assert the header, the JSONL serialisation and the cancel
+route. 12 tests → 15.
+
+Both SDKs now have a **live** lane: `scripts/sdk-live-python.py` and
+`scripts/sdk-live-typescript.mjs` submit a real job to a running merc, wait for
+a real Metal worker, and validate the real result. That is what promoted
+`python_sdk` and `typescript_sdk` to `CANARY_PROVEN` — not a relaxed bar, a
+harder test.
+
 ## Repository boundary and rename
 
 | item | status | evidence |
