@@ -102,7 +102,7 @@
       "lane": "external_model_onboarding",
       "status": "TESTED",
       "reason": "passed",
-      "note": "licence and remote-code policy; smoke test and benchmark need a runtime"
+      "note": "a real external model taken through policy, identity, smoke, determinism and a measured benchmark against a live runtime, plus four refusal cases: non-commercial licence, remote_code, an alias the runtime does not serve, and an unpinned revision"
     },
     {
       "lane": "refunds_disputes",
