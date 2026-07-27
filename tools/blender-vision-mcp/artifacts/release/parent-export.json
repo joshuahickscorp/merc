@@ -1,0 +1,22 @@
+{
+  "schema": "visionmcp.parent-export/1",
+  "parent_repository": "/Users/scammermike/Downloads/visionmcp-authority",
+  "branch": "goal/visionmcp-v2-ocular-os",
+  "sha": "9656c790e6de00cfca1f7537f7cf5cad05a9b82a",
+  "tag": "visionmcp-parent-export-v2.1",
+  "source_path": "tools/blender-vision-mcp",
+  "tests": {"passed": 914, "failed": 5, "skipped": 37, "failures_are_deliberate": true},
+  "artifacts": {
+    "wheel": {"name": "blender_vision_mcp-0.1.0-py3-none-any.whl", "sha256": "3d38f4beae6355b5788abc95b8493c780da2a44b7c81a02344a7b0fcef02298e"},
+    "sdist": {"name": "blender_vision_mcp-0.1.0.tar.gz", "sha256": "074f15fe72282bf047f1ceeaac4eba93b1c5ba24d0889f17965a067187692e60"}
+  },
+  "known_limitations": [
+    "Ocular capability is EXPERIMENTAL; the release-critical gate fails on recall, precision, IDF1, MOTA, occlusion lifecycle, leave-and-return and distractor rejection",
+    "five tests fail deliberately and are preserved",
+    "COLMAP dense MVS BLOCKED (no CUDA build)",
+    "Gaussian/radiance BLOCKED (no weights, download forbidden)",
+    "no physical webcam on this host; recorded streams only",
+    "data-centre beat metric and art direction both unrepaired"
+  ],
+  "honest_baseline_tag": "ocular-honest-baseline-270ee69"
+}
