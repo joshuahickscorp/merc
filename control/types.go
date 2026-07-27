@@ -279,6 +279,11 @@ type JobResults struct {
 	Status     string    `json:"status"`
 	ResultsURL string    `json:"results_url,omitempty"` // presigned merged output (if any)
 	ResultURLs []string  `json:"result_urls"`           // presigned per-task results
+	// Set when payload objects have passed retention and been removed. Without
+	// it a caller sees an empty results_url and cannot tell "not ready yet"
+	// from "deleted", and would poll forever for bytes that no longer exist.
+	ResultsExpired bool   `json:"results_expired,omitempty"`
+	RetentionNote  string `json:"retention_note,omitempty"`
 }
 
 type ModelInfo struct {

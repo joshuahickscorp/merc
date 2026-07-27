@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -294,6 +295,32 @@ var objectDeleteMissingCodes = map[string]struct{}{
 	"NoSuchKey":     {},
 	"NoSuchVersion": {},
 	"NotFound":      {},
+}
+
+// RemovePrefix deletes every object under a key prefix.
+//
+// Used by the job-object retention sweep, where the caller knows the prefix
+// ("jobs/<id>/") but not the full key set: four call sites construct job keys
+// independently, and enumerating them here would silently miss whichever one is
+// added next. Listing is authoritative about what is actually in the bucket.
+//
+// The prefix must be non-empty. An empty prefix lists the whole bucket, and a
+// bug that produced one would delete every object merc holds.
+func (s *Storage) RemovePrefix(ctx context.Context, prefix string) error {
+	if strings.TrimSpace(prefix) == "" {
+		return errors.New("RemovePrefix: refusing an empty prefix (it would match the entire bucket)")
+	}
+	var keys []string
+	for obj := range s.internal.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	}) {
+		if obj.Err != nil {
+			return fmt.Errorf("RemovePrefix: listing %q: %w", prefix, obj.Err)
+		}
+		keys = append(keys, obj.Key)
+	}
+	return s.RemoveObjects(ctx, keys)
 }
 
 // RemoveObjects bulk-deletes object keys from the configured bucket.

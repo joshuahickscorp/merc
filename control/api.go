@@ -1075,6 +1075,18 @@ func (s *Server) handleJobResults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := JobResults{JobID: j.ID, Status: j.Status, ResultURLs: urls}
+	// Past retention the pointers still exist but the bytes do not. Presigning
+	// one would hand back a URL that 404s and read as a merc failure.
+	if j.ObjectsPurgedAt != nil {
+		res.ResultsExpired = true
+		res.ResultURLs = []string{}
+		res.RetentionNote = fmt.Sprintf(
+			"payload objects for this job were removed on %s under merc's job-object retention policy; "+
+				"the receipt and billing record are retained",
+			j.ObjectsPurgedAt.UTC().Format(time.RFC3339))
+		writeJSON(w, http.StatusOK, res)
+		return
+	}
 	if j.OutputRef != "" {
 		if j.ResultsMergedAt == nil {
 			if _, merr := s.MergeJobResults(ctx, j.ID); merr != nil {
