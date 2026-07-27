@@ -53,7 +53,7 @@ def auth_matrix_complete(doc: Any) -> bool:
     routes = 0
     for route_class in doc.get("route_classes", []):
         routes += len(route_class.get("routes", []))
-    return routes == 80 and doc.get("policy", {}).get("default") == "deny"
+    return routes == 81 and doc.get("policy", {}).get("default") == "deny"
 
 
 def technical_break_glass(doc: Any) -> bool:

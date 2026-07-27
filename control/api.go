@@ -107,6 +107,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/jobs/{id}/dispute", s.authBuyer(http.HandlerFunc(s.handleFileDispute))) // buyer-dispute seam (optimistic-verification / payout-guarantee foundation)
 	mux.Handle("DELETE /v1/jobs/{id}", s.authBuyer(http.HandlerFunc(s.handleCancelJob)))
 	mux.Handle("POST /v1/chat/completions", s.authBuyer(http.HandlerFunc(s.handleChatCompletions)))
+	mux.Handle("POST /v1/images/generations", s.authBuyer(http.HandlerFunc(s.handleImageGenerations)))
 	mux.Handle("GET /v1/realtime/requests/{id}/receipt", s.authBuyer(http.HandlerFunc(s.handleRealtimeReceipt)))
 	mux.Handle("GET /v1/models", s.authBuyer(http.HandlerFunc(s.handleModels)))
 	mux.Handle("GET /v1/price-estimate", s.authBuyer(http.HandlerFunc(s.handlePriceEstimate)))
