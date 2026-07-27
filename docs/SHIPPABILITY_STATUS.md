@@ -35,25 +35,25 @@ regardless of how much code is written. This is one external action.
 | Python SDK | `TESTED` | `sdk/python/merc/`, clean-room install verified. |
 | TypeScript SDK | `TESTED` | `sdk/typescript/`, built to `dist/`, 12 tests covering the binary embeddings decoder, path encoding, bearer auth and `wait()` timeout. Never run against a deployed merc. |
 
-## Private canary — 5/15 lanes CANARY_PROVEN
+## Private canary — 10/21 lanes CANARY_PROVEN
 
-`make private-canary` (A lane is CANARY_PROVEN only when its command walks the full chain). Report: `evidence/canary/private-canary.json`.
+`make private-canary`. Report: `evidence/canary/private-canary.json`.
 
 A lane is `CANARY_PROVEN` only when its command walks the whole chain — buyer
 request, contract, scheduler, real runtime, verification, buyer debit, supplier
-payable, receipt. A lane that passed a partial test is `TESTED`. A lane whose
-capability is missing is `EXTERNALLY_BLOCKED` and names what is missing. There
-is no override, and `scripts/test-canary-gaming.sh` (in `make ci`) proves it:
-an unreachable GPU endpoint does not satisfy the runtime capability, no
-partial-chain lane can promote itself, and `public_capability_allowed` stays
-false unless every lane is proven.
+payable, receipt. Partial chain is `TESTED`. Missing capability is
+`EXTERNALLY_BLOCKED` and names what is missing. `scripts/test-canary-gaming.sh`
+(in `make ci`) proves neither runtime capability can be satisfied by an
+unreachable endpoint, that no partial-chain lane self-promotes, and that
+`public_capability_allowed` stays false unless every lane is proven.
 
 | lane | status | note |
 |---|---|---|
-| batch_inference | `TESTED` | money path proven against the local scheduler; no real GPU worker served it |
-| embeddings | `TESTED` | no real runtime produced the embeddings |
-| realtime | `EXTERNALLY_BLOCKED` | with a real runtime this walks contract, stream, verification, settlement and receipt |
-| openai_sdk_conformance | `EXTERNALLY_BLOCKED` | wire-surface conformance; says nothing about any GPU |
+| batch_inference | `CANARY_PROVEN` | proven end to end against a real Apple Silicon worker (evidence/canary/real-runtime-embed.json) |
+| embeddings | `CANARY_PROVEN` | real 384-dim embeddings computed on Metal, honeypot-verified, settled |
+| realtime | `CANARY_PROVEN` | proven against a real llama.cpp/Metal engine: contract, real completion, VERIFIED receipt, CAPTURED authorization, positive margin (evidence/canary/real-runtime-realtime.json) |
+| runpod_vllm | `EXTERNALLY_BLOCKED` | NVIDIA hardware and a pinned digest-addressed vLLM image; no Apple Silicon engine substitutes for this |
+| openai_sdk_conformance | `EXTERNALLY_BLOCKED` | official openai Python 2.48.0 and JS 6.49.0 against merc. Against a REAL engine the JS client passes all seven capabilities and Python passes six: parallel_tool_calls fails because llama.cpp cannot parse this model's tool schema. Against the httptest fake it passed -- the fake was masking a real incompatibility, which is the whole argument for real-runtime proof |
 | object_storage | `CANARY_PROVEN` | retention, deletion, tenant isolation against a live store |
 | image_generation | `EXTERNALLY_BLOCKED` | governance only; no image runtime exists |
 | lora | `EXTERNALLY_BLOCKED` | settlement arithmetic only; no trainer, no evaluator dispatch |
@@ -64,15 +64,20 @@ false unless every lane is proven.
 | failure_recovery | `CANARY_PROVEN` | stuck-job rescue and cancellation |
 | receipt_verification | `CANARY_PROVEN` | ledger conservation and sole-writer enforcement |
 | backup_restore | `CANARY_PROVEN` | backup scheduling and envelope |
+| buyer_dashboard | `TESTED` | web/buyer.html renders and is CSP hash-bound; not driven by a real buyer session |
+| supplier_console | `CANARY_PROVEN` | worker-token auth, sub-cent money at ledger granularity, 4 payout-rail states and the refusal path, against recorded control-plane responses |
+| price_board | `CANARY_PROVEN` | the published page's own arithmetic must match the server's, including where the confidence weights decide the answer |
+| python_sdk | `TESTED` | clean-room install of the built wheel; never run against a deployed merc |
+| typescript_sdk | `TESTED` | binary embeddings decoder, path encoding, auth and wait() timeout; never run against a deployed merc |
 | alerts | `TESTED` | alert and dashboard validation only; no delivery to a receiver |
 
-**Missing capabilities blocking the rest:**
+**Missing capabilities:**
 
-- `gpu_runtime` — no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine
+- `cuda_runtime` — no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine
 - `openai_sdks` — official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)
 - `stripe_sandbox` — STRIPE_SECRET_KEY is not set
 
-`public_capability_allowed` is **false**. merc may not make a public capability claim for any lane until every lane is `CANARY_PROVEN`.
+`public_capability_allowed` is **false**. No public capability claim is permitted for any lane until every lane is `CANARY_PROVEN`.
 
 ## REAL_RUNTIME_PROVEN: batch embeddings, 2026-07-27
 

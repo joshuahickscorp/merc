@@ -198,7 +198,11 @@ LANES = [
     {"id": "openai_sdk_conformance", "needs": ["database", "openai_sdks"],
      "cmd": go_test("TestRealtimeStreamContractVerificationSettlementAndReceipt"),
      "cwd": "control", "full_path": False,
-     "note": "wire-surface conformance; says nothing about any GPU"},
+     "note": ("official openai Python 2.48.0 and JS 6.49.0 against merc. Against a REAL "
+              "engine the JS client passes all seven capabilities and Python passes six: "
+              "parallel_tool_calls fails because llama.cpp cannot parse this model's tool "
+              "schema. Against the httptest fake it passed -- the fake was masking a real "
+              "incompatibility, which is the whole argument for real-runtime proof")},
     {"id": "object_storage", "needs": ["database", "object_store"],
      "cmd": go_test("TestJobObjectRetention|TestBuyerObjectDeletion|TestBuyerCannotReach"),
      "cwd": "control", "full_path": True,
@@ -233,6 +237,26 @@ LANES = [
     {"id": "backup_restore", "needs": [],
      "cmd": ["bash", "scripts/test-backup-schedule.sh"], "cwd": ".",
      "full_path": True, "note": "backup scheduling and envelope"},
+    {"id": "buyer_dashboard", "needs": [],
+     "cmd": ["node", "scripts/site-build.mjs"], "cwd": ".", "full_path": False,
+     "note": "web/buyer.html renders and is CSP hash-bound; not driven by a real buyer session"},
+    {"id": "supplier_console", "needs": [],
+     "cmd": ["node", "scripts/test-supplier-console.mjs"], "cwd": ".", "full_path": True,
+     "note": "worker-token auth, sub-cent money at ledger granularity, 4 payout-rail "
+             "states and the refusal path, against recorded control-plane responses"},
+    {"id": "price_board", "needs": ["database"],
+     "cmd": go_test("TestPublicPriceBoardPage|TestPriceBoardObservations|TestPriceBoardWeighting"),
+     "cwd": "control", "full_path": True,
+     "note": "the published page's own arithmetic must match the server's, including "
+             "where the confidence weights decide the answer"},
+    {"id": "python_sdk", "needs": [],
+     "cmd": ["bash", "scripts/verify-python-sdk-package.sh"], "cwd": ".", "full_path": False,
+     "note": "clean-room install of the built wheel; never run against a deployed merc"},
+    {"id": "typescript_sdk", "needs": [],
+     "cmd": ["node", "--test", "test/client.test.js"], "cwd": "sdk/typescript",
+     "full_path": False,
+     "note": "binary embeddings decoder, path encoding, auth and wait() timeout; "
+             "never run against a deployed merc"},
     {"id": "alerts", "needs": [],
      "cmd": ["node", "scripts/site-build.mjs"], "cwd": ".",
      "full_path": False, "note": "alert and dashboard validation only; no delivery to a receiver"},
