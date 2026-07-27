@@ -1,34 +1,27 @@
 {
-  "attestation_id": "attest-blender-1785136924013",
+  "attestation_id": "attest-blender-1785185686354",
   "authority": "RUNTIME_OBSERVED",
-  "background_occupancy": 0.6562905317769131,
+  "background_occupancy": 0.594306049822064,
   "beat_id": "01",
   "beat_label": "CAPACITY",
   "camera_position": [
     0.0,
-    -3.685873808685,
-    1.60063738624
+    -2.466794510841,
+    1.576703234657
   ],
   "camera_target": [
     0.0,
-    6.0,
+    1.0,
     1.45
   ],
-  "created_at": "2026-07-27T07:22:04.239731+00:00",
-  "depth_spread": 12.17917081778059,
-  "digest": "4ddf676851f640444e867949c8d6de01a1d4442b8e8c68b634f3c51cd1989f30",
+  "created_at": "2026-07-27T20:54:46.582060+00:00",
+  "depth_spread": 11.864822145532749,
+  "digest": "8f61c7996e9f9de1a30e0cfdf0046905506d1346be7fe0913e95317733774c77",
   "execution_class": "PHYSICAL",
-  "failures": [
-    "visible_instances 0 < 6",
-    "visible_racks 0 < 2",
-    "visible_drawers 0 < 6",
-    "non_background_fraction 0.0001 < 0.1800",
-    "frustum_render_mismatch: geometry in frustum but render is empty/near-empty",
-    "frustum_render_mismatch: racks in frustum but none confirmed visible"
-  ],
+  "failures": [],
   "focal_length_mm": 28.945454545455,
   "focal_subject": "rack_L_00",
-  "foreground_occupancy": 0.0012970168612191958,
+  "foreground_occupancy": 0.0035587188612099642,
   "frame": {
     "forward_axis": "-Y",
     "handedness": "right",
@@ -38,8 +31,8 @@
     "units": "m",
     "up_axis": "+Z"
   },
-  "frustum_drawer_count": 600,
-  "frustum_instance_count": 771,
+  "frustum_drawer_count": 660,
+  "frustum_instance_count": 843,
   "frustum_instance_ids": [
     "threshold_entry",
     "aisle_main",
@@ -106,19 +99,19 @@
     "rack_L_02_gpu_02",
     "rack_L_02_gpu_03"
   ],
-  "frustum_rack_count": 40,
-  "frustum_render_mismatch": true,
+  "frustum_rack_count": 44,
+  "frustum_render_mismatch": false,
   "id": "beat-coverage-01-0130",
   "lifecycle": "DRAFT",
-  "light_key_fill_ratio": 1.0440423239135994,
-  "light_rim_ratio": 0.9522280201981516,
+  "light_key_fill_ratio": 1.5035638454396418,
+  "light_rim_ratio": 0.47060542752844486,
   "lineage": {
     "environment": {},
     "hardware": {},
     "input_authorities": [],
     "inputs": [
       "beat:01",
-      "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/artifacts/ocular/beats/renders/beat_01.png"
+      "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/renders/beat_01.png"
     ],
     "limitations": [
       "Frustum uses conservative AABBs; occlusion is inferred from pixel density.",
@@ -137,11 +130,11 @@
     "tool_version": "0.1.0"
   },
   "luminance_histogram": [
-    0.9830859375,
-    0.0169140625,
-    0.0,
-    0.0,
-    0.0,
+    0.03909288194444444,
+    0.34789171006944447,
+    0.39335286458333335,
+    0.20599500868055556,
+    0.013667534722222222,
     0.0,
     0.0,
     0.0,
@@ -154,7 +147,7 @@
     0.0,
     0.0
   ],
-  "midground_occupancy": 0.3424124513618677,
+  "midground_occupancy": 0.40213523131672596,
   "minimums": {
     "min_depth_spread": 0.5,
     "min_frustum_instances": 8,
@@ -164,14 +157,14 @@
     "min_visible_instances": 6,
     "min_visible_racks": 2
   },
-  "non_background_pixel_fraction": 0.0001388888888888889,
+  "non_background_pixel_fraction": 0.9575271267361111,
   "notes": [],
-  "occlusion_fraction": 1.0,
-  "passed": false,
-  "performance_ms": 5987.674148222949,
+  "occlusion_fraction": 0.0,
+  "passed": true,
+  "performance_ms": 11274.282055557705,
   "record_kind": "ocular.beat-coverage",
-  "render_digest": "b0b024af14496ffd608af25e950ab1af874b0198b3b3ae451a8ce3da5fd4674b",
-  "render_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/artifacts/ocular/beats/renders/beat_01.png",
+  "render_digest": "f1ff85a158d831d566ac3b331ffc9ab7afa7465112bcb43cbe30ba5356d01fa1",
+  "render_path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/renders/beat_01.png",
   "schema_version": "2",
   "scroll": 0.13,
   "superseded_by": null,
@@ -182,8 +175,8 @@
     0.38,
     0.28
   ],
-  "text_safe_contrast": 11.470024258254588,
-  "text_safe_readable": true,
+  "text_safe_contrast": 4.297622403400422,
+  "text_safe_readable": false,
   "text_safe_zone": "left_upper",
   "uncertainty": {
     "basis": "frustum-cull + luminance histogram",
@@ -193,7 +186,7 @@
     "sigma": null,
     "units": "unitless"
   },
-  "visible_drawers": 0,
-  "visible_instances": 0,
-  "visible_racks": 0
+  "visible_drawers": 660,
+  "visible_instances": 843,
+  "visible_racks": 44
 }

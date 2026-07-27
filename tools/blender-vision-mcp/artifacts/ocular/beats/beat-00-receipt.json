@@ -1,22 +1,22 @@
 {
-  "attestation_id": "attest-blender-1785136924013",
+  "attestation_id": "attest-blender-1785185686354",
   "authority": "RUNTIME_OBSERVED",
-  "background_occupancy": 0.8495460440985733,
+  "background_occupancy": 0.7473309608540926,
   "beat_id": "00",
   "beat_label": "THRESHOLD",
   "camera_position": [
     0.0,
-    -6.118728526396,
-    1.601706157076
+    -4.774391159742,
+    1.593786526474
   ],
   "camera_target": [
     0.0,
     1.0,
     1.45
   ],
-  "created_at": "2026-07-27T07:22:04.179008+00:00",
-  "depth_spread": 12.170713150681818,
-  "digest": "efe024700782d9f6a81d594ed336b4d6666ae68affad3d21b660ef7d458dc28b",
+  "created_at": "2026-07-27T20:54:46.526913+00:00",
+  "depth_spread": 11.86181885375287,
+  "digest": "7ecc8eb8998430e4e48fd9662fc957d411ccc92de932878c006b4fdbd42b8fe3",
   "execution_class": "PHYSICAL",
   "failures": [],
   "focal_length_mm": 28.290909090909,
@@ -31,8 +31,8 @@
     "units": "m",
     "up_axis": "+Z"
   },
-  "frustum_drawer_count": 600,
-  "frustum_instance_count": 771,
+  "frustum_drawer_count": 660,
+  "frustum_instance_count": 843,
   "frustum_instance_ids": [
     "threshold_entry",
     "aisle_main",
@@ -99,19 +99,19 @@
     "rack_L_02_gpu_02",
     "rack_L_02_gpu_03"
   ],
-  "frustum_rack_count": 40,
+  "frustum_rack_count": 44,
   "frustum_render_mismatch": false,
   "id": "beat-coverage-00-0040",
   "lifecycle": "DRAFT",
-  "light_key_fill_ratio": 1.3422952860153823,
-  "light_rim_ratio": 0.5694581605644929,
+  "light_key_fill_ratio": 2.5647725178640823,
+  "light_rim_ratio": 0.28788383185290456,
   "lineage": {
     "environment": {},
     "hardware": {},
     "input_authorities": [],
     "inputs": [
       "beat:00",
-      "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/artifacts/ocular/beats/renders/beat_00.png"
+      "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/renders/beat_00.png"
     ],
     "limitations": [
       "Frustum uses conservative AABBs; occlusion is inferred from pixel density.",
@@ -130,14 +130,14 @@
     "tool_version": "0.1.0"
   },
   "luminance_histogram": [
-    0.7190972222222223,
-    0.1664019097222222,
-    0.109619140625,
-    0.004851345486111111,
-    0.0,
-    3.2552083333333335e-06,
-    2.712673611111111e-05,
-    0.0,
+    0.0674392361111111,
+    0.5824815538194444,
+    0.1414474826388889,
+    0.07617513020833333,
+    0.05990234375,
+    0.05065646701388889,
+    0.02026584201388889,
+    0.0016319444444444445,
     0.0,
     0.0,
     0.0,
@@ -147,7 +147,7 @@
     0.0,
     0.0
   ],
-  "midground_occupancy": 0.1504539559014267,
+  "midground_occupancy": 0.2526690391459075,
   "minimums": {
     "min_depth_spread": 0.4,
     "min_frustum_instances": 2,
@@ -157,14 +157,14 @@
     "min_visible_instances": 3,
     "min_visible_racks": 0
   },
-  "non_background_pixel_fraction": 0.23573133680555555,
+  "non_background_pixel_fraction": 0.7261924913194444,
   "notes": [],
-  "occlusion_fraction": 0.32648189484126977,
+  "occlusion_fraction": 0.0,
   "passed": true,
-  "performance_ms": 5987.674148222949,
+  "performance_ms": 11274.282055557705,
   "record_kind": "ocular.beat-coverage",
-  "render_digest": "d4c66ad5af0415040dec149d276152a6c42d34045d082e6f3d9636c2786aeb5c",
-  "render_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/artifacts/ocular/beats/renders/beat_00.png",
+  "render_digest": "460d6dadb7798e52207032e7b2d589a79057d1b3a0f351f893931bca29ce5d56",
+  "render_path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/renders/beat_00.png",
   "schema_version": "2",
   "scroll": 0.04,
   "superseded_by": null,
@@ -175,7 +175,7 @@
     0.7,
     0.55
   ],
-  "text_safe_contrast": 14.825092852068526,
+  "text_safe_contrast": 4.956599361103141,
   "text_safe_readable": true,
   "text_safe_zone": "centre",
   "uncertainty": {
@@ -186,7 +186,7 @@
     "sigma": null,
     "units": "unitless"
   },
-  "visible_drawers": 404,
-  "visible_instances": 519,
-  "visible_racks": 27
+  "visible_drawers": 660,
+  "visible_instances": 843,
+  "visible_racks": 44
 }

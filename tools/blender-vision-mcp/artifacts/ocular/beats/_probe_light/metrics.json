@@ -1,8 +1,8 @@
 {
   "blend_bytes": 6434564,
-  "blend_path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/scene.blend",
+  "blend_path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_probe_light/scene.blend",
   "glb_bytes": 5714516,
-  "glb_path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/scene.glb",
+  "glb_path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_probe_light/scene.glb",
   "instances": 843,
   "lighting": {
     "design": "datacentre_ceiling_runs_key_fill_rim",
@@ -1170,98 +1170,18 @@
   },
   "render_device": "CPU",
   "render_engine": "CYCLES",
-  "render_samples": 32,
+  "render_samples": 28,
   "renders": [
     {
-      "bytes": 903470,
-      "engine": "CYCLES",
-      "location": [
-        0.0,
-        -4.774391159742,
-        1.593786526474
-      ],
-      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/beat_00.png",
-      "samples": 32,
-      "target": [
-        0.0,
-        1.0,
-        1.45
-      ]
-    },
-    {
-      "bytes": 887007,
-      "engine": "CYCLES",
-      "location": [
-        0.0,
-        -2.466794510841,
-        1.576703234657
-      ],
-      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/beat_01.png",
-      "samples": 32,
-      "target": [
-        0.0,
-        1.0,
-        1.45
-      ]
-    },
-    {
-      "bytes": 996491,
-      "engine": "CYCLES",
-      "location": [
-        0.0,
-        0.353358489802,
-        1.535149072989
-      ],
-      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/beat_02.png",
-      "samples": 32,
-      "target": [
-        0.0,
-        9.0,
-        1.45
-      ]
-    },
-    {
-      "bytes": 965552,
-      "engine": "CYCLES",
-      "location": [
-        0.0,
-        3.429879180527,
-        1.495768075692
-      ],
-      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/beat_03.png",
-      "samples": 32,
-      "target": [
-        0.0,
-        9.0,
-        1.45
-      ]
-    },
-    {
-      "bytes": 913533,
-      "engine": "CYCLES",
-      "location": [
-        0.0,
-        6.634960754756,
-        1.5
-      ],
-      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/beat_04.png",
-      "samples": 32,
-      "target": [
-        0.0,
-        13.2,
-        1.45
-      ]
-    },
-    {
-      "bytes": 885356,
+      "bytes": 888283,
       "engine": "CYCLES",
       "location": [
         -0.039759556062,
         9.967679719151,
         1.5
       ],
-      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/beat_05.png",
-      "samples": 32,
+      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_probe_light/probe_05.png",
+      "samples": 28,
       "target": [
         0.0,
         13.2,
@@ -1269,15 +1189,15 @@
       ]
     },
     {
-      "bytes": 939774,
+      "bytes": 945778,
       "engine": "CYCLES",
       "location": [
         0.408964088582,
         13.108416881653,
         1.501618077756
       ],
-      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/beat_06.png",
-      "samples": 32,
+      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_probe_light/probe_06.png",
+      "samples": 28,
       "target": [
         4.5,
         13.35,
@@ -1285,15 +1205,15 @@
       ]
     },
     {
-      "bytes": 772537,
+      "bytes": 791127,
       "engine": "CYCLES",
       "location": [
         3.154702961066,
         13.2,
         1.434814570694
       ],
-      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/beat_07.png",
-      "samples": 32,
+      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_probe_light/probe_07.png",
+      "samples": 28,
       "target": [
         7.2,
         13.35,
@@ -1301,15 +1221,15 @@
       ]
     },
     {
-      "bytes": 903809,
+      "bytes": 906751,
       "engine": "CYCLES",
       "location": [
         5.71839910049,
         13.2,
         1.39331700688
       ],
-      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/beat_08.png",
-      "samples": 32,
+      "path": "/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_probe_light/probe_08.png",
+      "samples": 28,
       "target": [
         8.2,
         13.25,
