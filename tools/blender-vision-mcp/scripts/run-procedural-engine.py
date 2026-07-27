@@ -319,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if blender_blocked:
         failures.append(
-            "Blender headless backend BLOCKED (Metal SIGSEGV during WM_init); "
+            "Blender headless backend BLOCKED; "
             f"reason: {blender_block_reason}"
         )
 
