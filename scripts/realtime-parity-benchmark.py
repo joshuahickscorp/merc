@@ -80,7 +80,7 @@ def sample(base_url, api_key, samples, warmups, max_tokens, model):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cx-base-url", required=True, help="merc OpenAI-compatible base URL")
+    ap.add_argument("--merc-base-url", required=True, help="merc OpenAI-compatible base URL")
     ap.add_argument("--direct-base-url", required=True, help="upstream engine base URL")
     ap.add_argument("--samples", type=int, default=20)
     ap.add_argument("--warmups", type=int, default=2)
@@ -101,7 +101,7 @@ def main() -> int:
         return 2
 
     merc_lat, merc_headers, merc_err = sample(
-        args.cx_base_url, merc_key, args.samples, args.warmups, args.max_completion_tokens, args.model)
+        args.merc_base_url, merc_key, args.samples, args.warmups, args.max_completion_tokens, args.model)
     direct_lat, direct_headers, direct_err = sample(
         args.direct_base_url, direct_key, args.samples, args.warmups, args.max_completion_tokens, args.model)
 

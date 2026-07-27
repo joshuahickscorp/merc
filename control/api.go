@@ -1141,7 +1141,7 @@ func mergeJobResultsWithProbe(
 		return 0, fmt.Errorf("job %s has no output_ref to merge into", jobID)
 	}
 
-	tmp, err := os.CreateTemp("", "computexchange-result-merge-*.tmp")
+	tmp, err := os.CreateTemp("", "merc-result-merge-*.tmp")
 	if err != nil {
 		return 0, fmt.Errorf("merge: create temporary output: %w", err)
 	}

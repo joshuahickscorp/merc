@@ -19,7 +19,7 @@ LDFLAGS="-s -w -X main.cliVersion=$VERSION -X main.cliCommit=$COMMIT -X main.cli
 TARGETS=(darwin/arm64 darwin/amd64 linux/arm64 linux/amd64)
 
 mkdir -p "$OUT"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cx-cli-release.XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/merc-cli-release.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 checksum() {

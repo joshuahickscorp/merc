@@ -1,4 +1,4 @@
-name: cx-local-production-rehearsal
+name: merc-local-production-rehearsal
 
 x-logs: &logs
   driver: json-file

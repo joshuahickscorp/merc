@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${1:-v0.0.0-local}"
-OUT="$(mktemp -d "${TMPDIR:-/tmp}/cx-cli-proof.XXXXXX")"
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/merc-cli-proof.XXXXXX")"
 trap 'rm -rf "$OUT"' EXIT
 
 "$ROOT/scripts/build-cli-release.sh" "$VERSION" "$OUT/release"

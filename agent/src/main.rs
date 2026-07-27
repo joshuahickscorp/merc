@@ -1848,7 +1848,7 @@ async fn put_via_encrypted_staging(
         .encrypt(nonce, plaintext)
         .map_err(|e| anyhow::anyhow!("staging encryption failed: {e}"))?;
 
-    let path = std::env::temp_dir().join(format!("cx-stage-{}.bin", uuid::Uuid::new_v4()));
+    let path = std::env::temp_dir().join(format!("merc-stage-{}.bin", uuid::Uuid::new_v4()));
     tokio::fs::write(&path, &ciphertext)
         .await
         .with_context(|| format!("writing encrypted staging file {}", path.display()))?;

@@ -275,7 +275,7 @@ func stripeIdempotencyKey(supplierID uuid.UUID, cents int64, payoutKey string) s
 }
 
 func stripeReversalIdempotencyKey(reverseKey string) string {
-	return "cx-rev-" + reverseKey
+	return "merc-rev-" + reverseKey
 }
 
 // ReverseTransfer creates a Stripe Connect transfer reversal. Uses the same

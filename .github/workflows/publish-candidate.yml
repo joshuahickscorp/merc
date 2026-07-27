@@ -91,7 +91,7 @@ jobs:
             --arg ref "$GITHUB_REF" --arg commit "$GITHUB_SHA" \
             --arg builder "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/.github/workflows/publish-candidate.yml@$GITHUB_REF" \
             --arg invocation "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" '
-            {buildDefinition:{buildType:"https://computexchange.invalid/buildtypes/docker-control/v1",
+            {buildDefinition:{buildType:"https://mercmerc.invalid/buildtypes/docker-control/v1",
               externalParameters:{repository:$repo,ref:$ref,commit:$commit,dockerfile:"Dockerfile.control"},
               internalParameters:{workflow:"publish-candidate"},
               resolvedDependencies:[{uri:("git+"+$repo+"@"+$ref),digest:{gitCommit:$commit}}]},

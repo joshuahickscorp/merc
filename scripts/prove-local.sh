@@ -62,7 +62,7 @@ cleanup() {
   done
   if [ "$KEEP" != "1" ]; then
     if [ "$USE_DOCKER" = "1" ]; then
-      if [[ "$MERC_PROOF_COMPOSE_PROJECT" =~ ^cx-proof-[0-9]+-[0-9]+$ ]]; then
+      if [[ "$MERC_PROOF_COMPOSE_PROJECT" =~ ^merc-proof-[0-9]+-[0-9]+$ ]]; then
         docker compose down --volumes --remove-orphans >/dev/null 2>&1 || true
       else
         echo "refusing to remove proof volumes for unexpected Compose project" >&2
@@ -140,7 +140,7 @@ if [ "$USE_DOCKER" = "1" ]; then
   # A proof must never inherit jobs, workers, object bytes, or idempotency keys
   # from a prior run. The unique project owns disposable volumes that cleanup
   # can remove without touching the developer's ordinary Compose project.
-  MERC_PROOF_COMPOSE_PROJECT="cx-proof-$$-$(date +%s)"
+  MERC_PROOF_COMPOSE_PROJECT="merc-proof-$$-$(date +%s)"
   export COMPOSE_PROJECT_NAME="$MERC_PROOF_COMPOSE_PROJECT"
   docker compose up -d postgres minio createbuckets
   export DATABASE_URL="postgres://cx:cx@127.0.0.1:5432/cx?sslmode=disable"

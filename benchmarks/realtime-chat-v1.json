@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "fixture_id": "cx-realtime-chat-v1",
+  "fixture_id": "merc-realtime-chat-v1",
   "prompts": [
     "Reply with exactly three words describing reliable distributed systems.",
     "In one sentence, explain why idempotency matters in payment processing.",

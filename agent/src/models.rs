@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn model_file_verification_fails_closed() {
-        let path = std::env::temp_dir().join(format!("cx-model-check-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("merc-model-check-{}", std::process::id()));
         std::fs::write(&path, b"pinned model bytes").expect("write fixture");
         let valid = ModelFile {
             name: "fixture",

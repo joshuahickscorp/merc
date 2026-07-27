@@ -31,7 +31,7 @@ type Verifier struct {
 	planning     bool
 }
 
-const insecureDevelopmentSamplingSecret = "cx-insecure-development-sampling-secret"
+const insecureDevelopmentSamplingSecret = "merc-insecure-development-sampling-secret"
 
 // verificationSampleSecretFromEnv returns the sampling secret. The published
 // development default is refused whenever any Stripe key is configured —

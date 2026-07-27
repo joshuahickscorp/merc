@@ -75,6 +75,7 @@ ci:
 	python3 scripts/validate-readiness.py
 	python3 scripts/assert-soak-claims.py
 	python3 scripts/validate-claim-surfaces.py
+	python3 scripts/rename-residue-audit.py
 	python3 scripts/test-bench-accounting.py
 	bash scripts/test-readiness-gaming.sh
 	bash scripts/test-agent-review-gaming.sh

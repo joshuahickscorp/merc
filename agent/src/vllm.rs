@@ -441,7 +441,7 @@ mod tests {
             container_image: "docker.io/vllm/vllm-openai:v0.23.0".into(),
             container_platform: "linux/amd64".into(),
             container_digest: format!("sha256:{}", "a".repeat(64)),
-            model_alias: "cx-test".into(),
+            model_alias: "merc-test".into(),
             model_repository: "org/model".into(),
             model_revision: "b".repeat(40),
             tokenizer_revision: "c".repeat(40),

@@ -24,13 +24,13 @@ grant, and you hold no defensive terms. It also blocks item 4, which blocks PyPI
 which caps developer experience.
 
 ```bash
-gh repo edit joshuahickscorp/computexchange --visibility private
+gh repo edit joshuahickscorp/merc --visibility private
 ```
 
 Check first if you care about forks:
 
 ```bash
-gh repo view joshuahickscorp/computexchange --json forkCount,stargazerCount
+gh repo view joshuahickscorp/merc --json forkCount,stargazerCount
 ```
 
 **Unblocks:** the only open legal exposure. Prerequisite for item 4.
@@ -221,7 +221,7 @@ webhook egress path has a DNS-rebinding-safe pinned dial, CI runs `govulncheck`,
 
 ## 10. The name — external, and the clock is running
 
-`compute.exchange` is a live, funded GPU-compute marketplace. Press, SEO and
+`mercmerc.net` is a live, funded GPU-compute marketplace. Press, SEO and
 enterprise legal review all reach them first. This costs more the longer you
 build brand on the current name.
 

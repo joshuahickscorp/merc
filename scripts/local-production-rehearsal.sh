@@ -7,7 +7,7 @@ exec > >(tee "$ROOT/.artifacts/local-production-rehearsal-last.log") 2>&1
 COMPOSE="$ROOT/ops/local/compose.rehearsal.yml"
 ART="${MERC_LOCAL_ARTIFACT_DIR:-$ROOT/.artifacts/local-production-rehearsal}"
 EVIDENCE="${MERC_LOCAL_EVIDENCE_FILE:-$ROOT/evidence/autonomous/local-production-tls.json}"
-PROJECT="${MERC_LOCAL_PROJECT:-cx-local-production-rehearsal}"
+PROJECT="${MERC_LOCAL_PROJECT:-merc-local-production-rehearsal}"
 CANDIDATE="${MERC_LOCAL_CONTROL_IMAGE:-ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563}"
 KEEP="${KEEP:-0}"
 KEEP_AGENTS="${KEEP_AGENTS:-0}"
@@ -221,7 +221,7 @@ until "${CURL[@]}" https://cx.localhost:18443/healthz >/dev/null 2>&1; do
 done
 "${CURL[@]}" https://cx.localhost:18443/readyz >/dev/null
 site_body="$("${CURL[@]}" https://cx.localhost:18443/)"
-rg -qi 'computexchange' <<< "$site_body"
+rg -qi 'merc' <<< "$site_body"
 if curl --noproxy '*' --silent --fail --cacert "$ART/tls/ca.crt" \
   --resolve wrong.localhost:18443:127.0.0.1 https://wrong.localhost:18443/healthz >/dev/null 2>&1; then
   die "wrong-hostname TLS request succeeded"

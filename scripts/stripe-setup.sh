@@ -205,7 +205,7 @@ else
 fi
 chmod 600 "$ENV_FILE"
 
-tmp="$(mktemp "${TMPDIR:-/tmp}/cx-env.XXXXXX")"; chmod 600 "$tmp"
+tmp="$(mktemp "${TMPDIR:-/tmp}/merc-env.XXXXXX")"; chmod 600 "$tmp"
 cp "$ENV_FILE" "$tmp"
 for i in "${!PENDING_NAMES[@]}"; do
   n="${PENDING_NAMES[$i]}"; v="${PENDING_VALUES[$i]}"

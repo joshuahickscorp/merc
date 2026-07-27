@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 COMPOSE_FILE="$ROOT/docker-compose.observability.yml"
-PROJECT="cx-alert-delivery-$$"
+PROJECT="merc-alert-delivery-$$"
 ART="${MERC_ALERT_DELIVERY_DIR:-$ROOT/.artifacts/alert-delivery}/$PROJECT"
 EVIDENCE_OUT="${MERC_ALERT_DELIVERY_EVIDENCE:-$ROOT/evidence/autonomous/alert-delivery.json}"
 SINK_PID=""
