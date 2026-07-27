@@ -192,6 +192,7 @@ func (wk *Workers) Run(ctx context.Context) {
 		{disputeInterval, "dispute-resolve", wk.resolveDisputes},
 		{chargeCollectInterval, "charge-collect", wk.collectCharges},
 		{telemetryRetentionInterval, "telemetry-retention", wk.sweepTelemetryRetention},
+		{jobObjectRetentionSweep, "object-retention", wk.sweepJobObjectRetention},
 		{budgetStopInterval, "budget-stop-sweep", wk.sweepBudgetStops},
 		{realtimeRecoveryInterval, "realtime-contract-recovery", wk.recoverRealtimeContracts},
 		{noPeerWatchdogInterval, "no-peer-watchdog", wk.reapNoPeerWedged},

@@ -271,6 +271,7 @@ type JobView struct {
 	ChargeStatus     string
 	Verification     Verification
 	ResultsMergedAt  *time.Time
+	ObjectsPurgedAt  *time.Time
 	SLAGuaranteeSecs int
 	SLAPremiumUSD    float64
 	SLAMet           *bool
@@ -332,13 +333,13 @@ func (s *Store) GetJob(ctx context.Context, jobID, buyerID uuid.UUID) (*JobView,
 		        COALESCE(estimated_usd,0), COALESCE(actual_usd,0),
 		        COALESCE(eta_secs,0), created_at,
 		        COALESCE(max_usd,0), COALESCE(budget_state,'tracking'),
-		        COALESCE(charge_status,'not_attempted'), results_merged_at,
+		        COALESCE(charge_status,'not_attempted'), results_merged_at, objects_purged_at,
 		        COALESCE(sla_guarantee_secs,0), COALESCE(sla_premium_usd,0)::float8, sla_met
 		 FROM jobs WHERE id = $1 AND buyer_id = $2`,
 		jobID, buyerID,
 	).Scan(&j.ID, &j.BuyerID, &j.Status, &j.JobType, &j.Tier, &j.OutputRef,
 		&j.TaskCount, &j.TasksDone, &j.EstimatedUSD, &j.ActualUSD, &j.ETASecs, &j.CreatedAt,
-		&j.MaxUSD, &j.BudgetState, &j.ChargeStatus, &j.ResultsMergedAt,
+		&j.MaxUSD, &j.BudgetState, &j.ChargeStatus, &j.ResultsMergedAt, &j.ObjectsPurgedAt,
 		&j.SLAGuaranteeSecs, &j.SLAPremiumUSD, &j.SLAMet)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound

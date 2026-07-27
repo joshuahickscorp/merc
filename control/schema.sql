@@ -1233,6 +1233,15 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- Ordinary retention: job payload objects are removed a bounded time after the
+-- job goes terminal. input_ref is NOT NULL and stays as the historical pointer;
+-- this column is what says the bytes behind it are gone, so the API refuses to
+-- presign a dead key instead of handing out a URL that 404s.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS objects_purged_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS jobs_object_retention_idx
+    ON jobs (terminal_at)
+    WHERE objects_purged_at IS NULL AND terminal_at IS NOT NULL;
+
 DROP TRIGGER IF EXISTS jobs_terminal_at_stamp ON jobs;
 CREATE TRIGGER jobs_terminal_at_stamp
 BEFORE INSERT OR UPDATE OF status ON jobs
