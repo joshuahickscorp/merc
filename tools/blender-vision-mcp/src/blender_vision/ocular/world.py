@@ -276,7 +276,19 @@ class Relation(V2Record):
 
 @dataclass(slots=True, kw_only=True)
 class Entity(V2Record):
-    """A persistent object hypothesis with identity, pose, and belief sets."""
+    """A persistent object hypothesis with identity, pose, and belief sets.
+
+    Belief record channels (Bible §12 / permanence loop):
+      - source_observations: frames + detections/tracks that produced this entity
+      - appearance_embedding: perception descriptor carried forward (not label-derived)
+      - geometry: extent / mask summary with units
+      - pose_m + frame: position/orientation with declared frame and units
+      - trajectory: observed (and persistence) history
+      - identity_confidence + identity_confidence_history: value and how it moved
+      - contradiction_history: every disagreeing evidence event
+      - occlusion_state: occlusion/lost status and how long it has held
+      - observed_surface_ids / inferred_surface_ids: seen vs filled-in surfaces
+    """
 
     RECORD_KIND: ClassVar[str] = "ocular.entity"
 
@@ -285,16 +297,37 @@ class Entity(V2Record):
     class_label: str = ""
     parts: list[str] = field(default_factory=list)
     state: str = "active"
-    # Pose is [x, y, z, qw, qx, qy, qz] in the world frame.
+    # Pose is [x, y, z, qw, qx, qy, qz] in the world frame (metres, see frame.units).
     pose_m: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+    # Explicit pose packaging: position, orientation, units, and coordinate frame.
+    pose: dict[str, Any] = field(default_factory=dict)
     trajectory: list[dict[str, Any]] = field(default_factory=list)
     geometry_hypotheses: list[dict[str, Any]] = field(default_factory=list)
+    # Extent / mask summary from perception (bbox, area, centroid, units).
+    geometry: dict[str, Any] = field(default_factory=dict)
     material_hypotheses: list[dict[str, Any]] = field(default_factory=list)
     observed_surface_ids: list[str] = field(default_factory=list)
     inferred_surface_ids: list[str] = field(default_factory=list)
     measurements: list[dict[str, Any]] = field(default_factory=list)
     source_bindings: list[str] = field(default_factory=list)
+    # Per-observation refs: which frames and detections/tracks minted/updated this.
+    source_observations: list[dict[str, Any]] = field(default_factory=list)
     confidence: float = 0.5
+    # Identity confidence (0..1) and the append-only history of how it moved.
+    identity_confidence: float = 0.5
+    identity_confidence_history: list[dict[str, Any]] = field(default_factory=list)
+    # Every time evidence disagreed with a prior belief (entity-local log).
+    contradiction_history: list[dict[str, Any]] = field(default_factory=list)
+    # Occlusion / absence state and how long the current state has held.
+    occlusion_state: dict[str, Any] = field(
+        default_factory=lambda: {
+            "state": "never_observed",
+            "frames_held": 0,
+            "since_frame": -1,
+            "reason": None,
+            "occluder_track_id": None,
+        }
+    )
     rights: dict[str, Any] = field(default_factory=dict)
     visibility: VisibilityState = VisibilityState.NEVER_OBSERVED
     # slot -> list of competing posterior dicts (append-only within the entity).
@@ -302,6 +335,8 @@ class Entity(V2Record):
     last_observed_frame: int = -1
     frames_since_seen: int = 0
     appearance: dict[str, Any] = field(default_factory=dict)
+    # Perception embedding carried forward; never recomputed from a class label.
+    appearance_embedding: list[float] = field(default_factory=list)
     # Identity provenance: track_source, source_observation_frames, minted_by.
     identity_provenance: dict[str, Any] = field(default_factory=dict)
     frame: CoordinateFrame = field(
@@ -640,6 +675,175 @@ def _record_entity_identity_provenance(
     }
 
 
+def _pose_record(
+    pose_m: list[float],
+    frame: CoordinateFrame,
+) -> dict[str, Any]:
+    """Package pose with units and coordinate frame for belief queries."""
+    units = frame.units.value if hasattr(frame.units, "value") else str(frame.units or "m")
+    return {
+        "position_m": list(pose_m[:3]),
+        "orientation_wxyz": list(pose_m[3:7]) if len(pose_m) >= 7 else [1.0, 0.0, 0.0, 0.0],
+        "pose_m": list(pose_m),
+        "units": units,
+        "frame": {
+            "name": frame.name,
+            "up_axis": frame.up_axis,
+            "forward_axis": frame.forward_axis,
+            "units": units,
+        },
+    }
+
+
+def _extract_appearance_embedding(raw: dict[str, Any]) -> list[float]:
+    """Carry the perception embedding forward; never invent one from a label."""
+    emb = raw.get("appearance_embedding")
+    if isinstance(emb, list | tuple) and emb:
+        return [float(v) for v in emb]
+    appearance = raw.get("appearance")
+    if isinstance(appearance, dict):
+        nested = appearance.get("embedding") or appearance.get("appearance_embedding")
+        if isinstance(nested, list | tuple) and nested:
+            return [float(v) for v in nested]
+    return []
+
+
+def _extract_geometry_summary(
+    raw: dict[str, Any],
+    *,
+    pose_m: list[float],
+    frame: CoordinateFrame,
+) -> dict[str, Any]:
+    """Extent / mask summary from the observation, with declared units."""
+    prior = dict(raw.get("geometry") or {})
+    bbox = raw.get("bbox_xywh") or prior.get("bbox_xywh")
+    area_px = raw.get("area_px", prior.get("area_px"))
+    mask_summary = raw.get("mask_summary") or prior.get("mask_summary")
+    extent_m = raw.get("extent_m") or prior.get("extent_m")
+    centroid = raw.get("centroid_xy") or prior.get("centroid_xy")
+    units = prior.get("units")
+    if units is None:
+        units = (
+            frame.units.value if hasattr(frame.units, "value") else str(frame.units or "m")
+        )
+    summary: dict[str, Any] = {
+        "centroid_m": list(pose_m[:3]),
+        "units": units,
+        "frame": frame.name,
+    }
+    if bbox is not None:
+        summary["bbox_xywh"] = [float(v) for v in bbox]
+        summary["bbox_units"] = "px"
+    if area_px is not None:
+        summary["area_px"] = float(area_px)
+    if mask_summary is not None:
+        summary["mask_summary"] = mask_summary
+    if extent_m is not None:
+        summary["extent_m"] = [float(v) for v in extent_m]
+    if centroid is not None:
+        summary["centroid_xy"] = [float(v) for v in centroid]
+        summary["image_units"] = "px"
+    # Preserve any extra keys from an explicit geometry payload.
+    for key, value in prior.items():
+        summary.setdefault(key, value)
+    return summary
+
+
+def _record_source_observation(
+    entity: Entity,
+    *,
+    frame_index: int,
+    raw: dict[str, Any],
+    observation_ids: list[str],
+) -> None:
+    detection_id = raw.get("detection_id") or raw.get("observation_id")
+    if detection_id is None and observation_ids:
+        detection_id = observation_ids[0]
+    entry = {
+        "frame_index": frame_index,
+        "detection_id": str(detection_id) if detection_id is not None else None,
+        "track_id": str(raw.get("track_id") or entity.track_id or entity.entity_id),
+        "entity_id": entity.entity_id,
+        "observation_ids": list(observation_ids),
+    }
+    # Avoid exact duplicate frame+detection rows while keeping history append-only.
+    for existing in entity.source_observations:
+        if (
+            existing.get("frame_index") == entry["frame_index"]
+            and existing.get("detection_id") == entry["detection_id"]
+            and existing.get("track_id") == entry["track_id"]
+        ):
+            return
+    entity.source_observations.append(entry)
+
+
+def _record_identity_confidence(
+    entity: Entity,
+    *,
+    frame_index: int,
+    value: float,
+    reason: str,
+) -> None:
+    conf = _clamp_confidence(value)
+    entity.identity_confidence = conf
+    entity.identity_confidence_history.append(
+        {
+            "frame_index": frame_index,
+            "identity_confidence": conf,
+            "reason": reason,
+            "frames_since_seen": entity.frames_since_seen,
+        }
+    )
+
+
+def _record_contradiction(
+    entity: Entity,
+    *,
+    frame_index: int,
+    slot: str,
+    prior: dict[str, Any],
+    evidence: dict[str, Any],
+    model: str,
+) -> None:
+    entity.contradiction_history.append(
+        {
+            "frame_index": frame_index,
+            "slot": slot,
+            "prior": prior,
+            "evidence": evidence,
+            "model": model,
+        }
+    )
+
+
+def _set_occlusion_state(
+    entity: Entity,
+    *,
+    state: str,
+    frame_index: int,
+    reason: str | None = None,
+    occluder_track_id: str | None = None,
+) -> None:
+    prior = dict(entity.occlusion_state or {})
+    prior_state = str(prior.get("state") or "never_observed")
+    if prior_state == state and prior.get("since_frame", -1) >= 0:
+        frames_held = int(prior.get("frames_held") or 0) + 1
+        since_frame = int(prior.get("since_frame"))
+    else:
+        frames_held = 0 if state in {"visible", "active"} else 1
+        since_frame = frame_index
+    entity.occlusion_state = {
+        "state": state,
+        "frames_held": frames_held,
+        "since_frame": since_frame,
+        "reason": reason,
+        "occluder_track_id": occluder_track_id
+        if occluder_track_id is not None
+        else prior.get("occluder_track_id"),
+        "last_frame": frame_index,
+    }
+
+
 def build_world_model(
     observations: list[dict[str, Any]],
     *,
@@ -779,24 +983,35 @@ def _upsert_entity(
         VisibilityState.DIRECTLY_VISIBLE if visible else VisibilityState.PARTIALLY_VISIBLE
     )
     appearance = dict(raw.get("appearance") or {})
+    appearance_embedding = _extract_appearance_embedding(raw)
     observation_ids = [str(item) for item in raw.get("observation_ids", [])] or [
         f"obs-{frame_index}-{entity_id}"
     ]
     input_auth = AuthorityClass(
         raw.get("authority", AuthorityClass.SENSOR_DERIVED.value)
     )
+    # Optional identity confidence from the tracker; fall back to observation conf.
+    raw_id_conf = raw.get("identity_confidence", raw.get("confidence", 0.7))
+    occluder_track_id = raw.get("occluder_track_id")
 
     entity = world.entities.get(entity_id)
     if entity is None:
+        conf = _clamp_confidence(float(raw_id_conf))
+        geom0 = _extract_geometry_summary(raw, pose_m=pose_m, frame=world.frame)
         entity = Entity(
             id=f"entity-{entity_id}",
             entity_id=entity_id,
             track_id=track_id,
             class_label=class_label,
             pose_m=pose_m,
-            confidence=_clamp_confidence(float(raw.get("confidence", 0.7))),
+            pose=_pose_record(pose_m, world.frame),
+            confidence=conf,
+            identity_confidence=conf,
             visibility=visibility,
             appearance=appearance,
+            appearance_embedding=list(appearance_embedding),
+            geometry=geom0,
+            geometry_hypotheses=[dict(geom0)],
             frame=world.frame,
             authority=derive([input_auth], proposed=AuthorityClass.SENSOR_DERIVED),
             lineage=Lineage(
@@ -820,7 +1035,22 @@ def _upsert_entity(
         _record_entity_identity_provenance(
             entity, track_source=track_source, frame_index=frame_index
         )
-        conf = entity.confidence
+        _record_source_observation(
+            entity,
+            frame_index=frame_index,
+            raw=raw,
+            observation_ids=observation_ids,
+        )
+        _record_identity_confidence(
+            entity, frame_index=frame_index, value=conf, reason="spawn"
+        )
+        _set_occlusion_state(
+            entity,
+            state="visible" if visible else "partially_visible",
+            frame_index=frame_index,
+            reason="direct_observation",
+            occluder_track_id=str(occluder_track_id) if occluder_track_id else None,
+        )
         _append_belief(
             world,
             entity,
@@ -866,14 +1096,22 @@ def _upsert_entity(
             frame_index=frame_index,
             authority=entity.authority,
         )
-        if appearance:
+        if appearance or appearance_embedding:
             _append_belief(
                 world,
                 entity,
                 slot=BeliefSlot.APPEARANCE.value,
                 prior={},
-                evidence={"observation_ids": observation_ids, "appearance": appearance},
-                posterior={"appearance": appearance, "confidence": conf},
+                evidence={
+                    "observation_ids": observation_ids,
+                    "appearance": appearance,
+                    "appearance_embedding_dim": len(appearance_embedding),
+                },
+                posterior={
+                    "appearance": appearance,
+                    "appearance_embedding_dim": len(appearance_embedding),
+                    "confidence": conf,
+                },
                 model="direct_observation",
                 contradiction=False,
                 competing=False,
@@ -882,28 +1120,54 @@ def _upsert_entity(
                 frame_index=frame_index,
                 authority=entity.authority,
             )
+        _append_belief(
+            world,
+            entity,
+            slot=BeliefSlot.GEOMETRY.value,
+            prior={},
+            evidence={"observation_ids": observation_ids, "geometry": entity.geometry},
+            posterior={"geometry": entity.geometry, "confidence": conf},
+            model="direct_observation",
+            contradiction=False,
+            competing=False,
+            confidence_before=0.0,
+            confidence_after=conf,
+            frame_index=frame_index,
+            authority=entity.authority,
+        )
         _maybe_add_surface(world, entity, raw, frame_index=frame_index, observed=True)
     else:
         _record_entity_identity_provenance(
             entity, track_source=track_source, frame_index=frame_index
         )
+        _record_source_observation(
+            entity,
+            frame_index=frame_index,
+            raw=raw,
+            observation_ids=observation_ids,
+        )
         prior_pose = list(entity.pose_m)
         prior_conf = entity.confidence
         conf_after = _clamp_confidence(prior_conf + _CONFIRM_CONFIDENCE_GAIN * 0.5)
+        # Prefer explicit tracker identity confidence when provided.
+        if raw.get("identity_confidence") is not None:
+            conf_after = _clamp_confidence(float(raw["identity_confidence"]))
 
         if _poses_contradict(prior_pose, pose_m):
             # Never overwrite: add a competing pose belief.
             conf_after = _clamp_confidence(prior_conf - 0.05)
+            prior_belief = _pose_belief_value(prior_pose)
+            evidence = {
+                "observation_ids": observation_ids,
+                "pose_m": pose_m,
+                "delta_m": _pose_distance(prior_pose, pose_m),
+            }
             _append_belief(
                 world,
                 entity,
                 slot=BeliefSlot.POSE.value,
-                prior=_pose_belief_value(prior_pose),
-                evidence={
-                    "observation_ids": observation_ids,
-                    "pose_m": pose_m,
-                    "delta_m": _pose_distance(prior_pose, pose_m),
-                },
+                prior=prior_belief,
+                evidence=evidence,
                 posterior=_pose_belief_value(pose_m) | {"confidence": conf_after},
                 model="competing_observation",
                 contradiction=True,
@@ -912,6 +1176,14 @@ def _upsert_entity(
                 confidence_after=conf_after,
                 frame_index=frame_index,
                 authority=derive([input_auth, entity.authority]),
+            )
+            _record_contradiction(
+                entity,
+                frame_index=frame_index,
+                slot=BeliefSlot.POSE.value,
+                prior=prior_belief,
+                evidence=evidence,
+                model="competing_observation",
             )
             # Preferred pose follows the latest observation for tracking continuity,
             # but the prior remains in belief_sets and history.
@@ -934,13 +1206,20 @@ def _upsert_entity(
             )
             entity.pose_m = pose_m
 
+        entity.pose = _pose_record(entity.pose_m, entity.frame)
+
         if class_label and class_label != entity.class_label and class_label != "unknown":
+            prior_class = {"class_label": entity.class_label}
+            class_evidence = {
+                "observation_ids": observation_ids,
+                "class_label": class_label,
+            }
             _append_belief(
                 world,
                 entity,
                 slot=BeliefSlot.CLASS.value,
-                prior={"class_label": entity.class_label},
-                evidence={"observation_ids": observation_ids, "class_label": class_label},
+                prior=prior_class,
+                evidence=class_evidence,
                 posterior={"class_label": class_label, "confidence": conf_after},
                 model="competing_observation",
                 contradiction=True,
@@ -950,19 +1229,38 @@ def _upsert_entity(
                 frame_index=frame_index,
                 authority=derive([input_auth, entity.authority]),
             )
+            _record_contradiction(
+                entity,
+                frame_index=frame_index,
+                slot=BeliefSlot.CLASS.value,
+                prior=prior_class,
+                evidence=class_evidence,
+                model="competing_observation",
+            )
         elif class_label and class_label != "unknown":
             entity.class_label = class_label
 
-        if appearance:
+        if appearance or appearance_embedding:
             prior_app = dict(entity.appearance)
-            app_contradicts = bool(prior_app) and prior_app != appearance
+            app_contradicts = bool(prior_app) and prior_app != appearance and bool(appearance)
+            app_evidence = {
+                "observation_ids": observation_ids,
+                "appearance": appearance,
+                "appearance_embedding_dim": len(appearance_embedding),
+            }
             _append_belief(
                 world,
                 entity,
                 slot=BeliefSlot.APPEARANCE.value,
                 prior={"appearance": prior_app},
-                evidence={"observation_ids": observation_ids, "appearance": appearance},
-                posterior={"appearance": appearance, "confidence": conf_after},
+                evidence=app_evidence,
+                posterior={
+                    "appearance": appearance or prior_app,
+                    "appearance_embedding_dim": len(
+                        appearance_embedding or entity.appearance_embedding
+                    ),
+                    "confidence": conf_after,
+                },
                 model="appearance_update",
                 contradiction=app_contradicts,
                 competing=app_contradicts,
@@ -971,7 +1269,26 @@ def _upsert_entity(
                 frame_index=frame_index,
                 authority=derive([input_auth, entity.authority]),
             )
-            entity.appearance = appearance
+            if app_contradicts:
+                _record_contradiction(
+                    entity,
+                    frame_index=frame_index,
+                    slot=BeliefSlot.APPEARANCE.value,
+                    prior={"appearance": prior_app},
+                    evidence=app_evidence,
+                    model="appearance_update",
+                )
+            if appearance:
+                entity.appearance = appearance
+            # Carry the perception embedding forward when provided; do not clear.
+            if appearance_embedding:
+                entity.appearance_embedding = list(appearance_embedding)
+
+        geom = _extract_geometry_summary(raw, pose_m=entity.pose_m, frame=entity.frame)
+        if geom:
+            entity.geometry = geom
+            if geom not in entity.geometry_hypotheses:
+                entity.geometry_hypotheses.append(dict(geom))
 
         entity.confidence = conf_after
         entity.visibility = visibility
@@ -987,6 +1304,19 @@ def _upsert_entity(
             basis="confirming-observation",
             samples=(entity.uncertainty.samples or 0) + 1,
         )
+        _record_identity_confidence(
+            entity,
+            frame_index=frame_index,
+            value=conf_after,
+            reason="confirming_observation",
+        )
+        _set_occlusion_state(
+            entity,
+            state="visible" if visible else "partially_visible",
+            frame_index=frame_index,
+            reason="direct_observation",
+            occluder_track_id=str(occluder_track_id) if occluder_track_id else None,
+        )
         _maybe_add_surface(world, entity, raw, frame_index=frame_index, observed=True)
 
     entity.trajectory.append(
@@ -995,6 +1325,7 @@ def _upsert_entity(
             "pose_m": list(entity.pose_m),
             "visible": visible,
             "confidence": entity.confidence,
+            "identity_confidence": entity.identity_confidence,
         }
     )
     entity.digest = ""
@@ -1121,6 +1452,32 @@ def _mark_unobserved(
         basis=f"unobserved-{reason}",
         samples=entity.uncertainty.samples or 0,
     )
+    _record_identity_confidence(
+        entity,
+        frame_index=frame_index,
+        value=conf_after,
+        reason=f"unobserved_{reason}",
+    )
+    occ_state = "occluded" if reason == "occlusion" else "absent"
+    # Long occlusions become lost once confidence bottoms near the floor.
+    if entity.frames_since_seen > 12 and conf_after <= _MIN_CONFIDENCE + 0.01:
+        occ_state = "lost"
+    _set_occlusion_state(
+        entity,
+        state=occ_state,
+        frame_index=frame_index,
+        reason=reason,
+    )
+    # Surfaces that persist without new evidence remain observed if they were
+    # seen; ensure at least one inferred placeholder when nothing was ever seen.
+    if not entity.observed_surface_ids and not entity.inferred_surface_ids:
+        _maybe_add_surface(
+            world,
+            entity,
+            {},
+            frame_index=frame_index,
+            observed=False,
+        )
     _append_belief(
         world,
         entity,
@@ -1131,6 +1488,7 @@ def _mark_unobserved(
             "visibility": entity.visibility.value,
             "frames_since_seen": entity.frames_since_seen,
             "confidence": conf_after,
+            "occlusion_state": dict(entity.occlusion_state),
         },
         model=f"persistence_{reason}",
         contradiction=False,
@@ -1146,7 +1504,9 @@ def _mark_unobserved(
             "pose_m": list(entity.pose_m),
             "visible": False,
             "confidence": entity.confidence,
+            "identity_confidence": entity.identity_confidence,
             "reason": reason,
+            "occlusion_state": dict(entity.occlusion_state),
         }
     )
     entity.digest = ""
@@ -1168,6 +1528,90 @@ def _apply_absent_frame(world: WorldState, observation: dict[str, Any]) -> World
 # ---------------------------------------------------------------------------
 
 
+def _entity_surface_split(world: WorldState, entity: Entity) -> dict[str, Any]:
+    """Which surfaces were actually seen versus filled in (inferred)."""
+    observed: list[dict[str, Any]] = []
+    inferred: list[dict[str, Any]] = []
+    for sid in entity.observed_surface_ids:
+        surf = world.surfaces.get(sid)
+        observed.append(
+            {
+                "surface_id": sid,
+                "provenance": (
+                    surf.provenance.value
+                    if surf is not None and isinstance(surf.provenance, SurfaceProvenance)
+                    else (surf.provenance if surf is not None else SurfaceProvenance.DIRECTLY_OBSERVED.value)
+                ),
+                "visibility": (
+                    surf.visibility.value
+                    if surf is not None and isinstance(surf.visibility, VisibilityState)
+                    else (surf.visibility if surf is not None else None)
+                ),
+                "status": "observed",
+            }
+        )
+    for sid in entity.inferred_surface_ids:
+        surf = world.surfaces.get(sid)
+        inferred.append(
+            {
+                "surface_id": sid,
+                "provenance": (
+                    surf.provenance.value
+                    if surf is not None and isinstance(surf.provenance, SurfaceProvenance)
+                    else (
+                        surf.provenance
+                        if surf is not None
+                        else SurfaceProvenance.PROCEDURALLY_INFERRED.value
+                    )
+                ),
+                "visibility": (
+                    surf.visibility.value
+                    if surf is not None and isinstance(surf.visibility, VisibilityState)
+                    else (surf.visibility if surf is not None else None)
+                ),
+                "status": "inferred",
+            }
+        )
+    return {
+        "observed_surface_ids": list(entity.observed_surface_ids),
+        "inferred_surface_ids": list(entity.inferred_surface_ids),
+        "observed_surfaces": observed,
+        "inferred_surfaces": inferred,
+        "n_observed": len(observed),
+        "n_inferred": len(inferred),
+    }
+
+
+def _entity_belief_summary(world: WorldState, entity: Entity) -> dict[str, Any]:
+    """Compact belief record for query_world consumers."""
+    return {
+        "entity_id": entity.entity_id,
+        "track_id": entity.track_id,
+        "class_label": entity.class_label,
+        "source_observations": list(entity.source_observations),
+        "appearance_embedding_dim": len(entity.appearance_embedding),
+        "appearance_embedding": list(entity.appearance_embedding),
+        "geometry": dict(entity.geometry),
+        "pose": dict(entity.pose) if entity.pose else _pose_record(entity.pose_m, entity.frame),
+        "pose_m": list(entity.pose_m),
+        "trajectory_len": len(entity.trajectory),
+        "trajectory": list(entity.trajectory),
+        "identity_confidence": entity.identity_confidence,
+        "identity_confidence_history": list(entity.identity_confidence_history),
+        "contradiction_history": list(entity.contradiction_history),
+        "occlusion_state": dict(entity.occlusion_state),
+        "surfaces": _entity_surface_split(world, entity),
+        "identity_provenance": dict(entity.identity_provenance),
+        "confidence": entity.confidence,
+        "frames_since_seen": entity.frames_since_seen,
+        "visibility": (
+            entity.visibility.value
+            if isinstance(entity.visibility, VisibilityState)
+            else entity.visibility
+        ),
+    }
+
+
 def query_world(world: WorldState, query: dict[str, Any]) -> dict[str, Any]:
     """Query entities, relations, or change reports.
 
@@ -1175,13 +1619,30 @@ def query_world(world: WorldState, query: dict[str, Any]) -> dict[str, Any]:
       {"type": "entity", "entity_id": "..."}
       {"type": "class", "class_label": "..."}
       {"type": "relations", "kind": "same_as"}
+      {"type": "surfaces", "entity_id": "..."}  — observed vs inferred split
+      {"type": "belief_record", "entity_id": "..."}  — full belief channels
       {"type": "scene_summary"}
       {"type": "compare_sessions", "prior": WorldState|dict, "move_tol_m": 0.05}
     """
     qtype = str(query.get("type", "scene_summary"))
     if qtype == "entity":
         entity = world.entities.get(str(query["entity_id"]))
-        return {"found": entity is not None, "entity": entity.to_dict() if entity else None}
+        if entity is None:
+            return {"found": False, "entity": None}
+        payload = entity.to_dict()
+        payload["belief_record"] = _entity_belief_summary(world, entity)
+        payload["surfaces_split"] = _entity_surface_split(world, entity)
+        return {"found": True, "entity": payload}
+    if qtype == "belief_record":
+        entity = world.entities.get(str(query["entity_id"]))
+        if entity is None:
+            return {"found": False, "belief_record": None}
+        return {"found": True, "belief_record": _entity_belief_summary(world, entity)}
+    if qtype == "surfaces":
+        entity = world.entities.get(str(query["entity_id"]))
+        if entity is None:
+            return {"found": False, "surfaces": None}
+        return {"found": True, "surfaces": _entity_surface_split(world, entity)}
     if qtype == "class":
         label = str(query["class_label"])
         hits = [e.to_dict() for e in world.entities.values() if e.class_label == label]
@@ -1225,7 +1686,52 @@ def query_world(world: WorldState, query: dict[str, Any]) -> dict[str, Any]:
 
 
 def explain_belief(world: WorldState, entity_id: str, slot: str) -> list[dict[str, Any]]:
-    """Return the append-only belief history for one entity slot."""
+    """Return the append-only belief history for one entity slot.
+
+    Special slots:
+      - "surfaces": observed vs inferred surface classification (not belief_history)
+      - "identity_confidence": entity-local confidence trajectory
+      - "contradictions": entity-local contradiction log
+      - "occlusion": occlusion_state trajectory from belief history + current state
+      - "source_observations": which frames/detections produced the entity
+    """
+    entity = world.entities.get(entity_id)
+    if slot == "surfaces":
+        if entity is None:
+            return []
+        split = _entity_surface_split(world, entity)
+        rows: list[dict[str, Any]] = []
+        for item in split["observed_surfaces"]:
+            rows.append({**item, "observed": True, "inferred": False})
+        for item in split["inferred_surfaces"]:
+            rows.append({**item, "observed": False, "inferred": True})
+        return rows
+    if slot == "identity_confidence":
+        if entity is None:
+            return []
+        return list(entity.identity_confidence_history)
+    if slot == "contradictions":
+        if entity is None:
+            return []
+        return list(entity.contradiction_history)
+    if slot == "occlusion":
+        if entity is None:
+            return []
+        hist = [
+            update.to_dict()
+            for update in world.belief_history
+            if update.entity_id == entity_id and update.slot == BeliefSlot.VISIBILITY.value
+        ]
+        return [
+            {
+                "current": dict(entity.occlusion_state),
+                "visibility_history": hist,
+            }
+        ]
+    if slot == "source_observations":
+        if entity is None:
+            return []
+        return list(entity.source_observations)
     return [
         update.to_dict()
         for update in world.belief_history
@@ -1609,6 +2115,18 @@ def raise_uncertainty(
         basis=f"surprise:{reason}",
         samples=entity.uncertainty.samples or 0,
     )
+    fi = frame_index if frame_index is not None else world.current_frame
+    _record_identity_confidence(
+        entity, frame_index=fi, value=after, reason=f"surprise:{reason}"
+    )
+    _record_contradiction(
+        entity,
+        frame_index=fi,
+        slot=BeliefSlot.POSE.value,
+        prior={"confidence": prior, "pose_m": list(entity.pose_m)},
+        evidence=evidence or {"reason": reason, "magnitude": magnitude},
+        model="surprise_update",
+    )
     _append_belief(
         world,
         entity,
@@ -1625,7 +2143,7 @@ def raise_uncertainty(
         competing=True,
         confidence_before=prior,
         confidence_after=after,
-        frame_index=frame_index if frame_index is not None else world.current_frame,
+        frame_index=fi,
         authority=AuthorityClass.INFERRED,
     )
     entity.digest = ""
@@ -1656,6 +2174,10 @@ def lower_uncertainty(
         basis=reason,
         samples=(entity.uncertainty.samples or 0) + 1,
     )
+    fi = frame_index if frame_index is not None else world.current_frame
+    _record_identity_confidence(
+        entity, frame_index=fi, value=after, reason=reason
+    )
     _append_belief(
         world,
         entity,
@@ -1672,7 +2194,7 @@ def lower_uncertainty(
         competing=False,
         confidence_before=prior,
         confidence_after=after,
-        frame_index=frame_index if frame_index is not None else world.current_frame,
+        frame_index=fi,
         authority=AuthorityClass.SENSOR_DERIVED,
     )
     entity.digest = ""
