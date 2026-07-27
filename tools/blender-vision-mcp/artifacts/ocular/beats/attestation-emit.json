@@ -5,12 +5,12 @@
     "/Applications/Blender.app/Contents/MacOS/Blender",
     "--version"
   ],
-  "created_at": "2026-07-27T07:22:04.094302+00:00",
-  "digest": "0157bc29e24eaf6810047b109c98f7b95f6e17599a1d97d1ee09ca302df97074",
-  "elapsed_seconds": 53.88906733400654,
-  "ended_at": "2026-07-27T07:22:04.091127+00:00",
+  "created_at": "2026-07-27T20:54:46.449441+00:00",
+  "digest": "7907efed05c644cbbf33a7610adf0b0eb9401621813067b2307b25790a2e12d0",
+  "elapsed_seconds": 101.46853850001935,
+  "ended_at": "2026-07-27T20:54:46.442959+00:00",
   "environment": {
-    "PATH": "/Users/scammermike/.grok/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/usr/local/go/bin:/Users/scammermike/.nvm/versions/node/v23.2.0/bin:/Users/scammermike/.cargo/bin:/Users/scammermike/go/bin:/Users/scammermike/Library/pnpm:/Users/scammermike/.local/bin:/Users/scammermike/.claude/plugins/cache/caveman/caveman/0d95a81d35a9/bin:/Users/scammermike/.claude/plugins/cache/cloudflare/cloudflare/1.0.0/bin:/Users/scammermike/.claude/plugins/cache/ponytail/ponytail/4.8.4/bin:/Users/scammermike/Library/Application Support/Claude/local-agent-mode-sessions/381ef320-0df1-422f-a56a-df320fb36e5a/6dd4bf67-30bf-4cde-85e3-ba11ba558394/rpm/plugin_0155zZVATbJU3jHUmPP9NvMC/bin:/Users/scammermike/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/6dd4bf67-30bf-4cde-85e3-ba11ba558394/381ef320-0df1-422f-a56a-df320fb36e5a/bin"
+    "PATH": "/Users/scammermike/.grok/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/usr/local/go/bin:/Users/scammermike/.nvm/versions/node/v23.2.0/bin:/Users/scammermike/.cargo/bin:/Users/scammermike/go/bin:/Users/scammermike/Library/pnpm:/Users/scammermike/.local/bin:/Users/scammermike/.claude/plugins/cache/caveman/caveman/0d95a81d35a9/bin:/Users/scammermike/.claude/plugins/cache/cloudflare/cloudflare/1.0.0/bin:/Users/scammermike/.claude/plugins/cache/ponytail/ponytail/4.8.4/bin:/Users/scammermike/Library/Application Support/Claude/local-agent-mode-sessions/381ef320-0df1-422f-a56a-df320fb36e5a/6dd4bf67-30bf-4cde-85e3-ba11ba558394/rpm/plugin_0155zZVATbJU3jHUmPP9NvMC/bin:/Users/scammermike/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/6dd4bf67-30bf-4cde-85e3-ba11ba558394/381ef320-0df1-422f-a56a-df320fb36e5a/bin:/Users/scammermike/.orbstack/bin"
   },
   "executable": "/Applications/Blender.app/Contents/MacOS/Blender",
   "executable_sha256": "b5737da97b0e164cc18e227be115c4ea2791d11e9577f7e302c73f4871f9249c",
@@ -23,7 +23,7 @@
     "python": "3.13.13",
     "release": "27.0.0"
   },
-  "id": "attest-blender-1785136924013",
+  "id": "attest-blender-1785185686354",
   "lifecycle": "DRAFT",
   "lineage": {
     "environment": {},
@@ -41,23 +41,23 @@
   },
   "notes": [],
   "output_digests": {
-    "beat_00.png": "d4c66ad5af0415040dec149d276152a6c42d34045d082e6f3d9636c2786aeb5c",
-    "beat_01.png": "b0b024af14496ffd608af25e950ab1af874b0198b3b3ae451a8ce3da5fd4674b",
-    "beat_02.png": "19f36e37b1ba20b96da215382384f1a853108cd9183e1412c1b1688bbc6ae4c4",
-    "beat_03.png": "25ea254f1394c6c3bd6e9e50d4fa202bd47d548a9e7f3400866a8b0040cbeb09",
-    "beat_04.png": "8fc833f6d38421a96edb96b8728f5d3ff25296efae1085213140071729ecd8be",
-    "beat_05.png": "dea1b8d8c82b27ce76c4be5d73e9132da6d64a009c6a25caea81e297deeca727",
-    "beat_06.png": "534b80d9a9ee937396ba5fd507298fa41283a0db6f6674714fe2dda74b547d32",
-    "beat_07.png": "c372d1c15d56d909a8cf022269d5b024947f6febed8824d73e1ab6e9321519e7",
-    "beat_08.png": "b8f15cf1d4350fcc93e114969286229b5680dd64e6fff70acc4821e38edc0757",
-    "glb": "d01b4f6698ab2af8c59ec5fc416a48354b194f297e69acafcdb5fd7976d22ae7"
+    "beat_00.png": "460d6dadb7798e52207032e7b2d589a79057d1b3a0f351f893931bca29ce5d56",
+    "beat_01.png": "f1ff85a158d831d566ac3b331ffc9ab7afa7465112bcb43cbe30ba5356d01fa1",
+    "beat_02.png": "04eb0a9d8e164ebae31694a5653ce3770cc4c42170a90d0c8b94a8628671554e",
+    "beat_03.png": "3c04bdfbdb3d561a33446338163c4b0c7a36183f12e217362894f039bd6d24ce",
+    "beat_04.png": "26563e2417f8fa144577160ea2b73707bb6a540603789252af2594c32b369a15",
+    "beat_05.png": "a22a8c3f4ed17b5f428f610c22647de5f0058c94cf534de164753ee5ba900b66",
+    "beat_06.png": "b3f539a387eaa68edaf9c42a93007993af114ffecbb913218dffd793d614dab3",
+    "beat_07.png": "fd58f1b8d5c15821fa87ef073fb32c62769caffc3ea9f54b6f74363d2e87d158",
+    "beat_08.png": "940d38b9f471852ce535d8b43b13118e5b4f148e977e63131efa39410ee23a91",
+    "glb": "5485bbef959f03abf95e0cde6323e75668cf4b8e4fb96f5445df1a8d64848f4a"
   },
-  "process_id": 76379,
+  "process_id": 18921,
   "record_kind": "ocular.runtime-attestation",
   "returncode": 0,
   "runtime": "blender",
   "schema_version": "2",
-  "started_at": "2026-07-27T07:22:03.818881+00:00",
+  "started_at": "2026-07-27T20:54:46.173025+00:00",
   "stderr_tail": "",
   "stdout_tail": "Blender 4.2.1 LTS\n\tbuild date: 2024-08-19\n\tbuild time: 23:53:04\n\tbuild commit date: 2024-08-19\n\tbuild commit time: 11:21\n\tbuild hash: 396f546c9d82\n\tbuild branch: blender-v4.2-release\n\tbuild platform: Darwin\n\tbuild type: Release\n\tbuild c flags:  -Wall -Werror=implicit-function-declaration -Werror=return-type -Wno-tautological-compare -Wno-unknown-pragmas -Wno-char-subscripts -Wstrict-prototypes -Wmissing-prototypes -Wunused-parameter -Wundef -Wundef-prefix -Werror=unguarded-availability-new  -mmacosx-version-min=11.2 -Xclang -fopenmp -I'/Users/blender/git/blender-v420/blender.git/lib/macos_arm64/openmp/include' -std=gnu11  -pipe -funsigned-char -fno-strict-aliasing -ffp-contract=off  \n\tbuild c++ flags:  -Wall -Wc++20-designator -Wno-tautological-compare -Wno-unknown-pragmas -Wno-char-subscripts -Wno-overloaded-virtual -Wno-sign-compare -Wno-invalid-offsetof -Wno-suggest-override -Wundef -Wundef-prefix -Wunused-parameter -Wmismatched-tags -Werror=unguarded-availability-new  -mmacosx-version-min=11.2 -ftemplate-depth=1024 -Xclang -fopenmp -I'/Users/blender/git/blender-v420/blender.git/lib/macos_arm64/openmp/include'  -pipe -funsigned-char -fno-strict-aliasing -ffp-contract=off  \n\tbuild link flags: -fexceptions -framework CoreServices -framework Foundation -framework IOKit -framework AppKit -framework Cocoa -framework Carbon -framework AudioUnit -framework AudioToolbox -framework CoreAudio -framework Metal -framework QuartzCore -framework Accelerate -framework ForceFeedback -framework GameController -framework CoreHaptics -liconv -Wl,-unexported_symbols_list,'/Users/blender/git/blender-v420/blender.git/source/creator/symbols_apple.map' -Xlinker -no_warn_duplicate_libraries\n\tbuild system: CMake\n",
   "substituted_by": "",

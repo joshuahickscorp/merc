@@ -12,16 +12,6 @@
   },
   {
     "beat_id": "01",
-    "diagnosis": "repeated procedural sameness across instances",
-    "finding_id": "beat-01:procedural-sameness",
-    "measured": {
-      "instance_variation_entropy": 0.8112781244591328
-    },
-    "role": "environment_artist",
-    "severity": "major"
-  },
-  {
-    "beat_id": "01",
     "diagnosis": "composition is generic (dead-center, template-like framing)",
     "finding_id": "beat-01:generic-composition",
     "measured": {
@@ -29,16 +19,6 @@
       "thirds_distance": 0.187409237291608
     },
     "role": "editorial_art_director",
-    "severity": "major"
-  },
-  {
-    "beat_id": "02",
-    "diagnosis": "repeated procedural sameness across instances",
-    "finding_id": "beat-02:procedural-sameness",
-    "measured": {
-      "instance_variation_entropy": 0.8112781244591328
-    },
-    "role": "environment_artist",
     "severity": "major"
   },
   {
@@ -54,16 +34,6 @@
   },
   {
     "beat_id": "03",
-    "diagnosis": "repeated procedural sameness across instances",
-    "finding_id": "beat-03:procedural-sameness",
-    "measured": {
-      "instance_variation_entropy": 0.8112781244591328
-    },
-    "role": "environment_artist",
-    "severity": "major"
-  },
-  {
-    "beat_id": "03",
     "diagnosis": "composition is generic (dead-center, template-like framing)",
     "finding_id": "beat-03:generic-composition",
     "measured": {
@@ -71,16 +41,6 @@
       "thirds_distance": 0.187409237291608
     },
     "role": "editorial_art_director",
-    "severity": "major"
-  },
-  {
-    "beat_id": "04",
-    "diagnosis": "repeated procedural sameness across instances",
-    "finding_id": "beat-04:procedural-sameness",
-    "measured": {
-      "instance_variation_entropy": 0.8112781244591328
-    },
-    "role": "environment_artist",
     "severity": "major"
   },
   {
@@ -96,26 +56,6 @@
   },
   {
     "beat_id": "05",
-    "diagnosis": "repeated procedural sameness across instances",
-    "finding_id": "beat-05:procedural-sameness",
-    "measured": {
-      "instance_variation_entropy": 0.8112781244591327
-    },
-    "role": "environment_artist",
-    "severity": "major"
-  },
-  {
-    "beat_id": "05",
-    "diagnosis": "depth complexity along camera path is too flat",
-    "finding_id": "beat-05:depth-complexity",
-    "measured": {
-      "mean_depth_complexity": 1.4393118955727682
-    },
-    "role": "environment_artist",
-    "severity": "minor"
-  },
-  {
-    "beat_id": "05",
     "diagnosis": "composition is generic (dead-center, template-like framing)",
     "finding_id": "beat-05:generic-composition",
     "measured": {
@@ -123,16 +63,6 @@
       "thirds_distance": 0.187409237291608
     },
     "role": "editorial_art_director",
-    "severity": "major"
-  },
-  {
-    "beat_id": "06",
-    "diagnosis": "repeated procedural sameness across instances",
-    "finding_id": "beat-06:procedural-sameness",
-    "measured": {
-      "instance_variation_entropy": 0.8112781244591328
-    },
-    "role": "environment_artist",
     "severity": "major"
   },
   {
@@ -148,26 +78,6 @@
   },
   {
     "beat_id": "07",
-    "diagnosis": "repeated procedural sameness across instances",
-    "finding_id": "beat-07:procedural-sameness",
-    "measured": {
-      "instance_variation_entropy": 0.8112781244591327
-    },
-    "role": "environment_artist",
-    "severity": "major"
-  },
-  {
-    "beat_id": "07",
-    "diagnosis": "depth complexity along camera path is too flat",
-    "finding_id": "beat-07:depth-complexity",
-    "measured": {
-      "mean_depth_complexity": 1.177174214759263
-    },
-    "role": "environment_artist",
-    "severity": "minor"
-  },
-  {
-    "beat_id": "07",
     "diagnosis": "composition is generic (dead-center, template-like framing)",
     "finding_id": "beat-07:generic-composition",
     "measured": {
@@ -176,26 +86,6 @@
     },
     "role": "editorial_art_director",
     "severity": "major"
-  },
-  {
-    "beat_id": "08",
-    "diagnosis": "repeated procedural sameness across instances",
-    "finding_id": "beat-08:procedural-sameness",
-    "measured": {
-      "instance_variation_entropy": 0.8112781244591328
-    },
-    "role": "environment_artist",
-    "severity": "major"
-  },
-  {
-    "beat_id": "08",
-    "diagnosis": "depth complexity along camera path is too flat",
-    "finding_id": "beat-08:depth-complexity",
-    "measured": {
-      "mean_depth_complexity": 0.6939113080042795
-    },
-    "role": "environment_artist",
-    "severity": "minor"
   },
   {
     "beat_id": "08",

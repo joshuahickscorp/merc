@@ -7,7 +7,7 @@ from pathlib import Path
 import bpy
 from mathutils import Euler, Matrix, Vector
 
-SPEC_PATH = Path(r"""/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/emit_spec.json""")
+SPEC_PATH = Path(r"""/Users/scammermike/.claude-grok/worktrees/ocular-beat-lighting-20260727-160959/tools/blender-vision-mcp/artifacts/ocular/beats/_emit_flagship/emit_spec.json""")
 spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
 out = Path(spec["output_dir"])
 out.mkdir(parents=True, exist_ok=True)
@@ -41,59 +41,72 @@ def ensure_material(name):
         bsdf = nodes.get("Principled BSDF")
         if bsdf:
             # Neutral placeholder; inverse-materials subsystem owns real shading.
+            # Mid-dark set palette: resolvable under ceiling practicals, but
+            # dark enough that declared text-safe zones keep ≥3:1 contrast.
             colour = {
-                "steel": (0.35, 0.37, 0.40, 1),
-                "chassis": (0.18, 0.18, 0.20, 1),
-                "bezel": (0.12, 0.12, 0.13, 1),
-                "vent": (0.08, 0.08, 0.09, 1),
-                "metal": (0.55, 0.55, 0.58, 1),
-                "drive": (0.22, 0.22, 0.25, 1),
-                "gpu": (0.15, 0.25, 0.18, 1),
-                "heatsink": (0.45, 0.45, 0.48, 1),
-                "connector": (0.05, 0.05, 0.05, 1),
+                "steel": (0.22, 0.24, 0.26, 1),
+                "chassis": (0.055, 0.055, 0.06, 1),
+                "bezel": (0.04, 0.04, 0.045, 1),
+                "vent": (0.05, 0.05, 0.06, 1),
+                "metal": (0.32, 0.32, 0.34, 1),
+                "drive": (0.14, 0.14, 0.16, 1),
+                "gpu": (0.10, 0.16, 0.12, 1),
+                "heatsink": (0.28, 0.28, 0.30, 1),
+                "connector": (0.04, 0.04, 0.04, 1),
                 "led": (0.1, 0.8, 0.2, 1),
-                "port": (0.4, 0.55, 0.2, 1),
-                "fan": (0.1, 0.1, 0.1, 1),
-                "blanking": (0.2, 0.2, 0.22, 1),
-                "pdu": (0.1, 0.15, 0.35, 1),
-                "outlet": (0.7, 0.7, 0.75, 1),
-                "breaker": (0.6, 0.15, 0.1, 1),
-                "tray": (0.4, 0.35, 0.2, 1),
-                "cable": (0.05, 0.05, 0.05, 1),
-                "cooling": (0.7, 0.75, 0.8, 1),
-                "louvre": (0.55, 0.6, 0.65, 1),
-                "floor": (0.3, 0.3, 0.32, 1),
-                "ceiling": (0.85, 0.85, 0.88, 1),
-                "grid": (0.5, 0.5, 0.52, 1),
-                "wall": (0.75, 0.75, 0.78, 1),
-                "concrete": (0.55, 0.55, 0.55, 1),
-                "threshold": (0.4, 0.35, 0.3, 1),
-                "door": (0.25, 0.28, 0.35, 1),
-                "aisle_cold": (0.2, 0.35, 0.55, 1),
-                "aisle_hot": (0.55, 0.25, 0.2, 1),
-                "guide": (0.9, 0.85, 0.2, 1),
-                "volume": (0.5, 0.5, 0.5, 1),
-                "junction": (0.35, 0.35, 0.38, 1),
-                "structure": (0.45, 0.45, 0.45, 1),
-                "containment": (0.6, 0.65, 0.7, 1),
-                "glass": (0.7, 0.85, 0.9, 1),
-                "seal": (0.1, 0.1, 0.1, 1),
-                "panel": (0.3, 0.3, 0.32, 1),
-                "baseboard": (0.4, 0.4, 0.42, 1),
-                "cornice": (0.7, 0.7, 0.72, 1),
+                "port": (0.28, 0.38, 0.14, 1),
+                "fan": (0.06, 0.06, 0.06, 1),
+                "blanking": (0.12, 0.12, 0.13, 1),
+                "pdu": (0.08, 0.10, 0.22, 1),
+                "outlet": (0.4, 0.4, 0.42, 1),
+                "breaker": (0.4, 0.12, 0.08, 1),
+                "tray": (0.22, 0.20, 0.14, 1),
+                "cable": (0.04, 0.04, 0.04, 1),
+                "cooling": (0.35, 0.38, 0.42, 1),
+                "louvre": (0.28, 0.30, 0.32, 1),
+                "floor": (0.14, 0.14, 0.15, 1),
+                "ceiling": (0.18, 0.18, 0.20, 1),
+                "grid": (0.28, 0.28, 0.30, 1),
+                "wall": (0.12, 0.13, 0.15, 1),
+                "concrete": (0.20, 0.20, 0.21, 1),
+                "threshold": (0.16, 0.15, 0.14, 1),
+                "door": (0.10, 0.11, 0.13, 1),
+                "aisle_cold": (0.08, 0.10, 0.14, 1),
+                "aisle_hot": (0.14, 0.08, 0.07, 1),
+                "guide": (0.35, 0.32, 0.12, 1),
+                "volume": (0.18, 0.18, 0.20, 1),
+                "junction": (0.12, 0.12, 0.13, 1),
+                "structure": (0.16, 0.16, 0.17, 1),
+                "containment": (0.14, 0.16, 0.18, 1),
+                "glass": (0.35, 0.42, 0.45, 1),
+                "seal": (0.06, 0.06, 0.06, 1),
+                "panel": (0.14, 0.14, 0.15, 1),
+                "baseboard": (0.18, 0.18, 0.19, 1),
+                "cornice": (0.32, 0.32, 0.34, 1),
                 "status_ok": (0.1, 0.9, 0.2, 1),
                 "status_warn": (0.95, 0.75, 0.1, 1),
                 "status_fault": (0.95, 0.15, 0.1, 1),
-                "status_off": (0.15, 0.15, 0.15, 1),
+                "status_off": (0.10, 0.10, 0.10, 1),
                 "status_maintenance": (0.2, 0.4, 0.9, 1),
                 "status_cell": (0.2, 0.8, 0.3, 1),
-                "neutral": (0.5, 0.5, 0.5, 1),
-            }.get(name, (0.5, 0.5, 0.5, 1))
+                "neutral": (0.28, 0.28, 0.28, 1),
+            }.get(name, (0.28, 0.28, 0.28, 1))
             bsdf.inputs["Base Color"].default_value = colour
+            # Keep materials matte so ceiling fixtures model hierarchy instead of
+            # mirror-blooming into the text-safe zone.
+            if "Roughness" in bsdf.inputs:
+                bsdf.inputs["Roughness"].default_value = 0.55 if name in {
+                    "metal", "heatsink", "tray", "cooling", "louvre",
+                } else 0.72
+            if "Specular IOR Level" in bsdf.inputs:
+                bsdf.inputs["Specular IOR Level"].default_value = 0.25
+            elif "Specular" in bsdf.inputs:
+                bsdf.inputs["Specular"].default_value = 0.25
             if name.startswith("status_") or name == "led":
                 bsdf.inputs["Emission Color"].default_value = colour
                 if "Emission Strength" in bsdf.inputs:
-                    bsdf.inputs["Emission Strength"].default_value = 3.0
+                    # Practical rack/status LEDs — local accents, not the aisle key.
+                    bsdf.inputs["Emission Strength"].default_value = 5.0
     return mat
 
 
@@ -425,34 +438,224 @@ metrics["glb_bytes"] = glb_path.stat().st_size if glb_path.is_file() else 0
 # ---- Renders ----
 renders = spec.get("renders") or []
 if renders:
-    # Simple world lighting
+    # Data-centre practical lighting: light the *set*, not one spot.
+    # Flagship bounds: main aisle along Y (≈ -1..12, x=0), second aisle along
+    # +X (≈ 0..8.5, y≈13.2), ceiling at ~2.7–3.0 m. Two fixed lamps cannot
+    # cover a 19 m walk; inverse-square collapses beat brightness as the
+    # camera leaves the key. Ceiling runs + terminal rim keep every beat
+    # camera inside a lit volume with a real key/fill/rim hierarchy.
+    light_col = ensure_collection("set_lighting", scene.collection)
+
     world = bpy.data.worlds.new("World")
     scene.world = world
     world.use_nodes = True
     bg = world.node_tree.nodes["Background"]
-    bg.inputs[0].default_value = (0.05, 0.06, 0.08, 1)
-    bg.inputs[1].default_value = 0.4
+    # Cool dim ambient only — hierarchy comes from local lamps, not the world.
+    bg.inputs[0].default_value = (0.04, 0.045, 0.055, 1)
+    bg.inputs[1].default_value = 0.22
 
-    # Key light
-    bpy.ops.object.light_add(type="AREA", location=(4, -6, 5))
-    key = bpy.context.active_object
-    key.data.energy = 800
-    key.data.size = 4
+    def add_area(name, location, energy, size, *, size_y=None, color=(1.0, 0.97, 0.92),
+                 rot_euler=(0.0, 0.0, 0.0), shape="RECTANGLE"):
+        bpy.ops.object.light_add(type="AREA", location=location)
+        lamp = bpy.context.active_object
+        lamp.name = name
+        lamp.data.name = name + "_data"
+        lamp.data.energy = float(energy)
+        lamp.data.color = color
+        if hasattr(lamp.data, "shape") and shape:
+            try:
+                lamp.data.shape = shape
+            except Exception:
+                pass
+        if size_y is not None and hasattr(lamp.data, "size_y"):
+            lamp.data.size = float(size)
+            lamp.data.size_y = float(size_y)
+        else:
+            lamp.data.size = float(size)
+        lamp.rotation_euler = Euler(rot_euler, "XYZ")
+        link_object(lamp, light_col)
+        return lamp
 
-    bpy.ops.object.light_add(type="AREA", location=(-3, 4, 4))
-    fill = bpy.context.active_object
-    fill.data.energy = 250
-    fill.data.size = 3
+    # Point area lights straight down (local -Z).
+    down = (0.0, 0.0, 0.0)
+    # Main-aisle ceiling run: paired key/fill strips every 2 m.
+    # Key slightly offset +X (warmer), fill −X (cooler, weaker).
+    # Overhead only — no side-fire lamps (those blast rack faces at 0.5 m
+    # and blow the text-safe zone to white).
+    main_ys = [float(y) for y in range(-1, 13, 2)]
+    for idx, y in enumerate(main_ys):
+        add_area(
+            f"ceil_main_key_{idx:02d}",
+            (0.18, y, 2.95),
+            energy=62.0,
+            size=1.8,
+            size_y=0.35,
+            color=(1.0, 0.97, 0.92),
+            rot_euler=down,
+        )
+        add_area(
+            f"ceil_main_fill_{idx:02d}",
+            (-0.18, y, 2.95),
+            energy=30.0,
+            size=1.8,
+            size_y=0.35,
+            color=(0.88, 0.93, 1.0),
+            rot_euler=down,
+        )
 
-    scene.render.engine = spec.get("render_engine", "BLENDER_EEVEE_NEXT")
-    # Fall back for Blender 4.2 naming
+    # Second-aisle ceiling run along +X. Key biased north (+Y); south fill weaker.
+    second_xs = [1.2, 3.0, 4.8, 6.6, 8.0]
+    for idx, x in enumerate(second_xs):
+        add_area(
+            f"ceil_second_key_{idx:02d}",
+            (x, 13.20 + 0.20, 2.95),
+            energy=58.0,
+            size=1.6,
+            size_y=0.35,
+            color=(1.0, 0.96, 0.90),
+            rot_euler=down,
+        )
+        add_area(
+            f"ceil_second_fill_{idx:02d}",
+            (x, 13.20 - 0.20, 2.95),
+            energy=10.0,
+            size=1.6,
+            size_y=0.35,
+            color=(0.88, 0.93, 1.0),
+            rot_euler=down,
+        )
+
+    # South-side light baffles: deep soffit that shadows the VERIFY right_upper
+    # band on the south rack faces while the aisle floor stays lit.
+    baffle_mat = ensure_material("bezel")
+    for idx, x in enumerate([2.5, 4.0, 5.5, 7.0]):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(x, 12.70, 2.35))
+        baffle = bpy.context.active_object
+        baffle.name = f"text_baffle_s_{idx:02d}"
+        baffle.scale = Vector((1.6, 0.45, 0.35))
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        if baffle_mat and baffle.data.materials is not None:
+            baffle.data.materials.clear()
+            baffle.data.materials.append(baffle_mat)
+        link_object(baffle, light_col)
+
+    # Entry key: stronger practical over the threshold approach.
+    add_area(
+        "entry_key",
+        (0.0, -3.2, 3.0),
+        energy=400.0,
+        size=2.8,
+        size_y=1.4,
+        color=(1.0, 0.97, 0.92),
+        rot_euler=down,
+    )
+    # Soft fill behind the threshold so the approach is not a black void.
+    add_area(
+        "entry_fill",
+        (0.0, -5.5, 2.6),
+        energy=180.0,
+        size=3.2,
+        size_y=2.2,
+        color=(0.9, 0.94, 1.0),
+        rot_euler=down,
+    )
+    # Bridge the threshold → first ceiling fixture so beat 01 is not a dark gap.
+    add_area(
+        "entry_bridge",
+        (0.0, -1.8, 2.85),
+        energy=120.0,
+        size=2.0,
+        size_y=1.0,
+        color=(1.0, 0.97, 0.92),
+        rot_euler=down,
+    )
+    add_area(
+        "entry_forward",
+        (0.0, 0.6, 2.85),
+        energy=100.0,
+        size=1.8,
+        size_y=1.0,
+        color=(1.0, 0.96, 0.9),
+        rot_euler=down,
+    )
+    # Junction soft bounce so the turn is not a black corner.
+    add_area(
+        "junction_soft",
+        (0.8, 13.0, 2.9),
+        energy=45.0,
+        size=2.2,
+        size_y=2.2,
+        color=(0.95, 0.97, 1.0),
+        rot_euler=down,
+    )
+    # Terminal rim: soft back-light for ACCESS / RECEIPT depth (keep wall dark
+    # enough for terminal_wall text contrast ≥ 3.5:1).
+    add_area(
+        "terminal_rim",
+        (7.6, 13.20, 2.5),
+        energy=28.0,
+        size=1.4,
+        size_y=0.8,
+        color=(0.85, 0.9, 1.0),
+        rot_euler=(0.0, math.radians(55.0), math.radians(180.0)),
+    )
+
+    # Engine: Cycles on CPU only. EEVEE_NEXT aborts headless on this host (exit 134).
+    requested = str(spec.get("render_engine") or "CYCLES")
+    if requested.upper() in {"BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "EEVEE", "EEVEE_NEXT"}:
+        requested = "CYCLES"
+    scene.render.engine = requested
     engines = bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items.keys()
     if scene.render.engine not in engines:
-        scene.render.engine = "BLENDER_EEVEE"
+        scene.render.engine = "CYCLES"
+
+    samples = int(spec.get("samples", 32))
+    if scene.render.engine == "CYCLES":
+        scene.cycles.device = "CPU"
+        scene.cycles.samples = samples
+        scene.cycles.use_denoising = True
+        # Prefer OIDN when present; ignore if the build lacks it.
+        try:
+            scene.cycles.denoiser = "OPENIMAGEDENOISE"
+        except Exception:
+            pass
+        try:
+            prefs = bpy.context.preferences.addons["cycles"].preferences
+            prefs.compute_device_type = "NONE"
+            prefs.get_devices()
+            for dev in prefs.devices:
+                dev.use = (dev.type == "CPU")
+        except Exception:
+            pass
+
+    metrics["render_engine"] = scene.render.engine
+    metrics["render_samples"] = samples
+    metrics["render_device"] = "CPU" if scene.render.engine == "CYCLES" else "n/a"
+    metrics["lighting"] = {
+        "design": "datacentre_ceiling_runs_key_fill_rim",
+        "main_aisle_fixtures": len(main_ys) * 2,
+        "second_aisle_fixtures": len(second_xs) * 2,
+        "practicals": [
+            "entry_key",
+            "entry_fill",
+            "entry_forward",
+            "entry_bridge",
+            "junction_soft",
+            "terminal_rim",
+        ],
+        "world_strength": 0.22,
+        "notes": "Overhead ceiling runs only; no side-fire lamps against rack faces.",
+    }
+
     scene.render.resolution_x = int(spec.get("resolution", [1280, 720])[0])
     scene.render.resolution_y = int(spec.get("resolution", [1280, 720])[1])
     scene.render.filepath = str(out / "render_")
     scene.render.image_settings.file_format = "PNG"
+    # Do not raise film exposure / gamma to fake resolvability.
+    if hasattr(scene.view_settings, "exposure"):
+        scene.view_settings.exposure = float(spec.get("exposure", 0.0))
+    if hasattr(scene.view_settings, "gamma"):
+        scene.view_settings.gamma = float(spec.get("gamma", 1.0))
 
     cam_data = bpy.data.cameras.new("PreviewCam")
     cam_obj = bpy.data.objects.new("PreviewCam", cam_data)
@@ -460,12 +663,20 @@ if renders:
     scene.camera = cam_obj
     cam_data.lens = 35
 
+    # Persist the lit scene before the first render so a crash-restart keeps lights.
+    blend_path = out / spec.get("blend_name", "scene.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+    metrics["blend_path"] = str(blend_path)
+    metrics["blend_bytes"] = blend_path.stat().st_size if blend_path.is_file() else 0
+
     for i, view in enumerate(renders):
         loc = view.get("location", [6, -8, 3])
         target = view.get("target", [0, 6, 1.2])
         cam_obj.location = Vector(loc)
         direction = Vector(target) - cam_obj.location
         cam_obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+        if "focal_length_mm" in view:
+            cam_data.lens = float(view["focal_length_mm"])
         path = out / view.get("filename", f"view_{i:02d}.png")
         scene.render.filepath = str(path)
         bpy.ops.render.render(write_still=True)
@@ -474,7 +685,12 @@ if renders:
             "bytes": path.stat().st_size if path.is_file() else 0,
             "location": loc,
             "target": target,
+            "engine": scene.render.engine,
+            "samples": samples,
         })
+        # Checkpoint after each beat so a mid-run crash keeps prior frames + lights.
+        if i == 0 or i == len(renders) - 1:
+            bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
 
 metrics_path = out / "metrics.json"
 metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True), encoding="utf-8")

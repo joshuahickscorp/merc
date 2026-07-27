@@ -614,8 +614,18 @@ def datacenter_flagship_program(
     rack_count_per_side: int = 12,
     rack_pitch_m: float = 0.6,
     aisle_width_m: float = 1.2,
+    second_rack_count_per_side: int | None = None,
 ) -> SceneProgram:
-    """threshold -> main aisle -> left-turn junction -> second aisle -> terminal wall."""
+    """threshold -> main aisle -> left-turn junction -> second aisle -> terminal wall.
+
+    Full flagship defaults populate the second aisle. Reduced scenes
+    (``aisle_length_m < 10``) leave it bare unless ``second_rack_count_per_side``
+    is set explicitly, so main-aisle unit tests stay exact.
+    """
+    if second_rack_count_per_side is None:
+        # Ten per flank reaches near the terminal wall so ACCESS still resolves
+        # racks ahead of the camera, not only the blank wall.
+        second_rack_count_per_side = 10 if aisle_length_m >= 10.0 else 0
     program = SceneProgram(name="datacenter_flagship")
     rack_depth = 1.0
     frame_width = 0.6
@@ -770,15 +780,87 @@ def datacenter_flagship_program(
         location=(second_len * 0.5, junction_y, 2.7),
         rotation_euler=(0.0, 0.0, math.pi * 0.5),
         params={"length_m": second_len, "width_m": 0.3, "height_m": 0.08},
-        tags=["overhead", "tray"],
+        tags=["overhead", "tray", "second"],
+    )
+    program.place(
+        "cable_bundle",
+        "bundle_second",
+        location=(second_len * 0.5, junction_y + 0.05, 2.65),
+        rotation_euler=(0.0, 0.0, math.pi * 0.5),
+        params={"length_m": second_len * 0.9, "diameter_m": 0.06, "strand_count": 12},
+        tags=["overhead", "cable", "second"],
     )
     program.place(
         "containment_door",
         "containment_mid",
         location=(second_len * 0.35, junction_y, 0.0),
         params={"width_m": aisle_width_m, "height_m": 2.2, "thickness_m": 0.04},
-        tags=["containment"],
+        tags=["containment", "second"],
     )
+
+    # Floor tiles under the second aisle (along +X).
+    program.place(
+        "floor_tile",
+        "tile_s_00",
+        location=(1.0, junction_y - aisle_width_m * 0.25, 0.0),
+        params={"size_m": 0.6, "thickness_m": 0.035, "perforated": True},
+        tags=["floor", "second"],
+    )
+    program.repeat_along(
+        "tile_s_00",
+        axis="x",
+        count=max(1, int(second_len / 0.6)),
+        pitch_m=0.6,
+        id_prefix="tile_s",
+    )
+
+    # Equipped racks on both flanks of the second aisle (N/S of the corridor).
+    # Default open face is +X; rotate so each row faces the aisle centreline.
+    # Lateral offset uses the front face of a 1 m deep rack just outside the
+    # clear volume so late-beat cameras still resolve drawers in frustum.
+    if second_rack_count_per_side > 0:
+        second_seed_x = 2.2  # past the containment door
+        second_lateral = half_aisle + rack_depth * 0.45  # ≈ 1.05 m from centreline
+        for side, y_sign, yaw in (
+            ("N", 1.0, -math.pi * 0.5),  # north row faces -Y
+            ("S", -1.0, math.pi * 0.5),  # south row faces +Y
+        ):
+            seed_id = f"rack_{side}_00"
+            seed_loc = (second_seed_x, junction_y + y_sign * second_lateral, 0.0)
+            program.place(
+                "rack_shell",
+                seed_id,
+                location=seed_loc,
+                rotation_euler=(0.0, 0.0, yaw),
+                params={"u_count": 42, "frame_width_m": frame_width, "depth_m": rack_depth},
+                tags=["rack", "second", side.lower()],
+            )
+            program.repeat_along(
+                seed_id,
+                axis="x",
+                count=second_rack_count_per_side,
+                pitch_m=rack_pitch_m,
+                id_prefix=f"rack_{side}",
+            )
+            for i in range(second_rack_count_per_side):
+                rack_id = f"rack_{side}_{i:02d}"
+                status = status_cycle[i % len(status_cycle)]
+                loc = (
+                    second_seed_x + i * rack_pitch_m,
+                    junction_y + y_sign * second_lateral,
+                    0.0,
+                )
+                equip_rack(
+                    program,
+                    rack_id,
+                    status=status,
+                    frame_width_m=frame_width,
+                    rack_depth_m=rack_depth,
+                    location=loc,
+                    rotation_euler=(0.0, 0.0, yaw),
+                )
+                program.vary_state(rack_id, {"status": status})
+
     program.place(
         "terminal_wall",
         "terminal",
@@ -790,12 +872,44 @@ def datacenter_flagship_program(
         },
         tags=["path", "terminal"],
     )
+    # Terminal wall treatment: paired ribs + restrained status matrix.
+    program.place(
+        "column",
+        "rib_terminal_n",
+        location=(second_len + 0.35, junction_y + aisle_width_m * 0.45, 0.0),
+        params={"height_m": 2.8, "section_m": 0.2},
+        tags=["structure", "terminal", "second"],
+    )
+    program.place(
+        "column",
+        "rib_terminal_s",
+        location=(second_len + 0.35, junction_y - aisle_width_m * 0.45, 0.0),
+        params={"height_m": 2.8, "section_m": 0.2},
+        tags=["structure", "terminal", "second"],
+    )
+    program.place(
+        "status_light_matrix",
+        "status_terminal",
+        location=(second_len + 0.38, junction_y, 2.1),
+        params={"cols": 4, "rows": 2, "pitch_m": 0.05, "cell_m": 0.02, "status": "ok"},
+        tags=["status", "signage", "terminal", "second"],
+        state={"status": "ok"},
+    )
+
     program.place(
         "cooling_face",
         "cooling_terminal",
         location=(second_len * 0.7, junction_y + aisle_width_m * 0.5 + 0.15, 0.0),
         params={"width_m": 1.2, "height_m": 2.2, "depth_m": 0.2, "louvre_count": 16},
-        tags=["cooling"],
+        tags=["cooling", "second"],
+    )
+    program.place(
+        "cooling_face",
+        "cooling_terminal_s",
+        location=(second_len * 0.7, junction_y - aisle_width_m * 0.5 - 0.15, 0.0),
+        rotation_euler=(0.0, 0.0, math.pi),
+        params={"width_m": 1.2, "height_m": 2.2, "depth_m": 0.2, "louvre_count": 16},
+        tags=["cooling", "second"],
     )
     program.place(
         "column",
@@ -803,6 +917,13 @@ def datacenter_flagship_program(
         location=(-1.5, junction_y - 1.5, 0.0),
         params={"height_m": 3.6, "section_m": 0.4},
         tags=["structure"],
+    )
+    program.place(
+        "column",
+        "col_terminal",
+        location=(second_len - 0.8, junction_y + 1.8, 0.0),
+        params={"height_m": 3.6, "section_m": 0.4},
+        tags=["structure", "second", "terminal"],
     )
     return program
 
