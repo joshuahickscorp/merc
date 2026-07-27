@@ -1,0 +1,571 @@
+"""Tests for the Ocular persistent world model and predictive loop."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from blender_vision.core.errors import ValidationError
+from blender_vision.ocular.predict import (
+    PredictionKind,
+    evaluate_prediction,
+    evaluate_prediction_detailed,
+    list_surprises,
+    make_prediction,
+    predict_next,
+    uncertainty_trajectory,
+)
+from blender_vision.ocular.world import (
+    BeliefSlot,
+    ChangeClass,
+    RelationKind,
+    SurfaceProvenance,
+    beliefs_bytes,
+    build_world_model,
+    compare_worlds,
+    explain_belief,
+    list_uncertainties,
+    load_world,
+    promote_same_as,
+    propose_candidate_same_as,
+    query_world,
+    same_as_from_candidate_alone,
+    save_world,
+    update_world_model,
+)
+from blender_vision.v2.authority import VisibilityState
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _obs(
+    frame_index: int,
+    entities: list[dict],
+    *,
+    lighting: dict | None = None,
+    absent: bool = False,
+    track_source: str = "ground_truth",
+) -> dict:
+    payload: dict = {
+        "frame_index": frame_index,
+        "entities": entities,
+        "track_source": track_source,
+        "absent": absent,
+    }
+    if lighting is not None:
+        payload["lighting"] = lighting
+    return payload
+
+
+def _entity(
+    entity_id: str,
+    pose: list[float],
+    *,
+    class_label: str = "mug",
+    visible: bool = True,
+    appearance: dict | None = None,
+) -> dict:
+    row: dict = {
+        "entity_id": entity_id,
+        "track_id": entity_id,
+        "class_label": class_label,
+        "pose_m": pose,
+        "visible": visible,
+    }
+    if appearance is not None:
+        row["appearance"] = appearance
+    return row
+
+
+def test_contradicting_evidence_adds_competing_belief() -> None:
+    world = build_world_model(
+        [
+            _obs(0, [_entity("cup", [0.0, 0.0, 0.1])]),
+            _obs(1, [_entity("cup", [0.0, 0.0, 0.11])]),  # within tolerance
+        ],
+        scene_id="room-a",
+    )
+    entity = world.entities["cup"]
+    prior_pose_beliefs = len(entity.all_beliefs(BeliefSlot.POSE.value))
+    prior_history = len(world.belief_history)
+
+    # Large jump: competing belief, not overwrite.
+    update_world_model(world, _obs(2, [_entity("cup", [1.5, 0.0, 0.1])]))
+
+    beliefs = entity.all_beliefs(BeliefSlot.POSE.value)
+    assert len(beliefs) > prior_pose_beliefs
+    assert len(world.belief_history) > prior_history
+
+    history = explain_belief(world, "cup", BeliefSlot.POSE.value)
+    contradictions = [item for item in history if item["contradiction"]]
+    assert contradictions, "contradicting observation must record contradiction=True"
+
+    # Prior pose must still be present in the belief set (not silently replaced).
+    pose_values = [tuple(item["pose_m"][:3]) for item in beliefs if "pose_m" in item]
+    assert (0.0, 0.0, 0.11) in pose_values or (0.0, 0.0, 0.1) in pose_values
+    assert (1.5, 0.0, 0.1) in pose_values
+
+
+def test_belief_history_is_append_only() -> None:
+    world = build_world_model(
+        [_obs(0, [_entity("a", [0.0, 0.0, 0.0])]), _obs(1, [_entity("a", [0.01, 0.0, 0.0])])],
+        scene_id="append",
+    )
+    snapshot = [item.id for item in world.belief_history]
+    n = len(snapshot)
+    update_world_model(world, _obs(2, [_entity("a", [0.02, 0.0, 0.0])]))
+    assert len(world.belief_history) > n
+    # Earlier entries untouched (ids and order preserved as a prefix).
+    assert [item.id for item in world.belief_history[:n]] == snapshot
+
+
+def test_world_reload_across_two_processes_byte_identical(tmp_path: Path) -> None:
+    world_path = tmp_path / "world.json"
+    world = build_world_model(
+        [
+            _obs(
+                0,
+                [
+                    _entity("lamp", [0.2, 0.1, 0.5], class_label="lamp"),
+                    _entity("book", [0.4, 0.1, 0.05], class_label="book"),
+                ],
+                lighting={"mean_luminance": 0.55},
+            ),
+            _obs(
+                1,
+                [
+                    _entity("lamp", [0.2, 0.1, 0.5], class_label="lamp"),
+                    _entity("book", [0.41, 0.1, 0.05], class_label="book"),
+                ],
+                lighting={"mean_luminance": 0.55},
+            ),
+        ],
+        scene_id="persist",
+        session_id="s1",
+    )
+    digest = save_world(world, world_path)
+    original_belief_bytes = beliefs_bytes(world)
+
+    # Separate process reloads and re-emits the canonical beliefs slice.
+    script = f"""
+from pathlib import Path
+import sys
+from blender_vision.ocular.world import load_world, beliefs_bytes
+
+world = load_world(Path({str(world_path)!r}))
+assert world.beliefs_digest() == {digest!r}
+sys.stdout.buffer.write(beliefs_bytes(world))
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(REPO),
+        capture_output=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr.decode()
+    assert proc.stdout == original_belief_bytes
+
+    reloaded = load_world(world_path)
+    assert reloaded.beliefs_digest() == digest
+    assert beliefs_bytes(reloaded) == original_belief_bytes
+    assert set(reloaded.entities) == set(world.entities)
+    assert reloaded.entities["lamp"].track_id == world.entities["lamp"].track_id
+
+
+def test_occluded_entity_persists_with_growing_uncertainty() -> None:
+    world = build_world_model(
+        [
+            _obs(0, [_entity("ball", [0.0, 0.0, 0.2]), _entity("box", [1.0, 0.0, 0.1])]),
+            # ball occluded (missing), box still visible
+            _obs(1, [_entity("box", [1.0, 0.0, 0.1])]),
+            _obs(2, [_entity("box", [1.0, 0.0, 0.1])]),
+            _obs(3, [_entity("box", [1.0, 0.0, 0.1])]),
+        ],
+        scene_id="occlusion",
+    )
+    assert "ball" in world.entities
+    ball = world.entities["ball"]
+    assert ball.frames_since_seen >= 3
+    assert ball.confidence < 0.7
+    assert (ball.uncertainty.sigma or 0.0) > 0.02
+    assert ball.visibility in {
+        VisibilityState.INFERRED_SURFACE,
+        VisibilityState.PARTIALLY_VISIBLE,
+    }
+    # Pose retained (persistence through occlusion).
+    assert ball.pose_m[0] == pytest.approx(0.0)
+    rows = list_uncertainties(world)
+    ball_row = next(item for item in rows if item["entity_id"] == "ball")
+    box_row = next(item for item in rows if item["entity_id"] == "box")
+    assert ball_row["confidence"] < box_row["confidence"]
+
+
+def test_absent_frame_grows_uncertainty_without_dropping_identity() -> None:
+    world = build_world_model(
+        [
+            _obs(0, [_entity("vase", [0.3, 0.0, 0.2])]),
+            _obs(1, [], absent=True),
+            _obs(2, [], absent=True),
+        ],
+        scene_id="absent",
+    )
+    vase = world.entities["vase"]
+    assert vase.entity_id == "vase"
+    assert vase.frames_since_seen >= 2
+    assert vase.confidence < 0.7
+
+
+def test_lighting_only_change_classified_as_appearance_not_geometry() -> None:
+    session1 = build_world_model(
+        [
+            _obs(
+                0,
+                [
+                    _entity("table", [0.0, 0.0, 0.0], class_label="table"),
+                    _entity("chair", [1.0, 0.0, 0.0], class_label="chair"),
+                ],
+                lighting={"mean_luminance": 0.4, "temperature_k": 5000},
+            )
+        ],
+        scene_id="room-m",
+        session_id="s1",
+    )
+    session2 = build_world_model(
+        [
+            _obs(
+                0,
+                [
+                    _entity("table", [0.0, 0.0, 0.0], class_label="table"),
+                    _entity("chair", [1.0, 0.0, 0.0], class_label="chair"),
+                ],
+                lighting={"mean_luminance": 0.85, "temperature_k": 3200},
+            )
+        ],
+        scene_id="room-m",
+        session_id="s2",
+    )
+    report = compare_worlds(session1, session2)
+    lighting = report["change_classes"][ChangeClass.LIGHTING_ONLY.value]
+    moved = report["change_classes"][ChangeClass.MOVED_OBJECT.value]
+    assert lighting["detected"] is True
+    assert lighting["geometry_change"] is False
+    assert moved["detected"] is False
+    assert report["geometry_change"] is False
+    assert report["lighting_reported_as_geometry"] is False
+
+
+def test_dynamic_room_five_change_classes() -> None:
+    s1 = build_world_model(
+        [
+            _obs(
+                0,
+                [
+                    _entity("sofa", [0.0, 0.0, 0.0], class_label="sofa"),
+                    _entity("lamp", [1.0, 0.0, 0.4], class_label="lamp"),
+                    _entity("book", [0.5, 0.2, 0.1], class_label="book"),
+                ],
+                lighting={"mean_luminance": 0.5},
+            )
+        ],
+        scene_id="dyn",
+        session_id="s1",
+    )
+    # Move lamp, remove book, add plant, change lighting.
+    s2 = build_world_model(
+        [
+            _obs(
+                0,
+                [
+                    _entity("sofa", [0.0, 0.0, 0.0], class_label="sofa"),
+                    _entity("lamp", [1.8, 0.3, 0.4], class_label="lamp"),
+                    _entity("plant", [0.2, -0.5, 0.2], class_label="plant"),
+                ],
+                lighting={"mean_luminance": 0.9},
+            )
+        ],
+        scene_id="dyn",
+        session_id="s2",
+    )
+    report = compare_worlds(s1, s2)
+    classes = report["change_classes"]
+    assert classes[ChangeClass.SAME_SCENE.value]["detected"]
+    assert classes[ChangeClass.MOVED_OBJECT.value]["detected"]
+    assert classes[ChangeClass.REMOVED_OBJECT.value]["detected"]
+    assert classes[ChangeClass.NEW_OBJECT.value]["detected"]
+    assert classes[ChangeClass.LIGHTING_ONLY.value]["detected"]
+    assert classes[ChangeClass.LIGHTING_ONLY.value]["geometry_change"] is False
+    moved_ids = [item["entity_id"] for item in classes[ChangeClass.MOVED_OBJECT.value]["items"]]
+    removed_ids = [item["entity_id"] for item in classes[ChangeClass.REMOVED_OBJECT.value]["items"]]
+    new_ids = [item["entity_id"] for item in classes[ChangeClass.NEW_OBJECT.value]["items"]]
+    assert "lamp" in moved_ids
+    assert "book" in removed_ids
+    assert "plant" in new_ids
+
+
+def test_surprise_fires_outside_tolerance_not_inside() -> None:
+    world = build_world_model(
+        [
+            _obs(0, [_entity("car", [0.0, 0.0, 0.0])]),
+            _obs(1, [_entity("car", [0.1, 0.0, 0.0])]),  # v = 0.1 m/frame
+        ],
+        scene_id="pred",
+    )
+    preds = predict_next(world, horizon=1, pose_tolerance_m=0.05)
+    pose_preds = [p for p in preds if p.kind == PredictionKind.POSE.value and p.entity_id == "car"]
+    assert pose_preds
+    pose_pred = pose_preds[0]
+    # Expected ≈ [0.2, 0, 0]
+    expected = pose_pred.expected["pose_m"]
+    assert expected[0] == pytest.approx(0.2, abs=1e-6)
+
+    inside = evaluate_prediction(
+        world,
+        pose_pred,
+        {"pose_m": [0.22, 0.0, 0.0]},
+        update_uncertainty=False,
+    )
+    assert inside is None
+
+    outside = evaluate_prediction(
+        world,
+        pose_pred,
+        {"pose_m": [1.0, 0.0, 0.0]},
+        update_uncertainty=False,
+    )
+    assert outside is not None
+    assert outside.fired is True
+    assert outside.magnitude > pose_pred.tolerance
+
+    detailed_inside = evaluate_prediction_detailed(
+        world,
+        pose_pred,
+        {"pose_m": [0.21, 0.0, 0.0]},
+        update_uncertainty=False,
+    )
+    assert detailed_inside.fired is False
+
+
+def test_uncertainty_rises_after_surprise() -> None:
+    world = build_world_model(
+        [
+            _obs(0, [_entity("drone", [0.0, 0.0, 1.0])]),
+            _obs(1, [_entity("drone", [0.05, 0.0, 1.0])]),
+        ],
+        scene_id="unc",
+    )
+    before = world.entities["drone"].confidence
+    pred = make_prediction(
+        entity_id="drone",
+        kind=PredictionKind.POSE.value,
+        expected={"pose_m": [0.1, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0]},
+        tolerance=0.05,
+        valid_from_frame=1,
+        tolerance_units="m",
+    )
+    event = evaluate_prediction(
+        world,
+        pred,
+        {"pose_m": [2.0, 0.0, 1.0]},
+        frame_index=2,
+        update_uncertainty=True,
+    )
+    assert event is not None
+    after = world.entities["drone"].confidence
+    assert after < before
+    traj = uncertainty_trajectory(world, "drone")
+    assert any(row["confidence_after"] < row["confidence_before"] for row in traj)
+    assert list_surprises(world, entity_id="drone")
+
+
+def test_uncertainty_falls_after_confirming_evidence() -> None:
+    world = build_world_model(
+        [_obs(0, [_entity("cup", [0.0, 0.0, 0.1])]), _obs(1, [_entity("cup", [0.0, 0.0, 0.1])])],
+        scene_id="confirm",
+    )
+    # Induce a surprise first.
+    pred = make_prediction(
+        entity_id="cup",
+        kind=PredictionKind.POSE.value,
+        expected={"pose_m": [0.0, 0.0, 0.1, 1, 0, 0, 0]},
+        tolerance=0.02,
+        valid_from_frame=1,
+    )
+    evaluate_prediction(world, pred, {"pose_m": [1.0, 0.0, 0.1]}, frame_index=2)
+    mid = world.entities["cup"].confidence
+    # Confirming prediction.
+    pred2 = make_prediction(
+        entity_id="cup",
+        kind=PredictionKind.POSE.value,
+        expected={"pose_m": [1.0, 0.0, 0.1, 1, 0, 0, 0]},
+        tolerance=0.05,
+        valid_from_frame=2,
+    )
+    event = evaluate_prediction_detailed(
+        world, pred2, {"pose_m": [1.01, 0.0, 0.1]}, frame_index=3
+    )
+    assert event.fired is False
+    assert world.entities["cup"].confidence > mid
+
+
+def test_same_as_never_inferred_from_candidate_without_evidence() -> None:
+    world = build_world_model(
+        [
+            _obs(
+                0,
+                [
+                    _entity("a", [0.0, 0.0, 0.0], class_label="mug"),
+                    _entity("b", [0.01, 0.0, 0.0], class_label="mug"),
+                ],
+            )
+        ],
+        scene_id="id",
+    )
+    cand = propose_candidate_same_as(world, "a", "b", confidence=0.6)
+    assert cand.kind is RelationKind.CANDIDATE_SAME_AS
+    with pytest.raises(ValidationError, match="recorded evidence"):
+        same_as_from_candidate_alone(world, cand)
+    # Explicit evidence path works.
+    rel = promote_same_as(
+        world,
+        "a",
+        "b",
+        evidence=["shared-serial-number-scan", "multi-view-reproj"],
+        reviewer="human-reviewer",
+    )
+    assert rel.kind is RelationKind.SAME_AS
+    assert rel.evidence_recorded is True
+
+
+def test_surface_provenance_classifiable() -> None:
+    world = build_world_model(
+        [
+            _obs(
+                0,
+                [
+                    {
+                        "entity_id": "block",
+                        "class_label": "block",
+                        "pose_m": [0.0, 0.0, 0.0],
+                        "surfaces": [
+                            {
+                                "surface_id": "block-top",
+                                "provenance": SurfaceProvenance.DIRECTLY_OBSERVED.value,
+                                "visibility": VisibilityState.DIRECTLY_VISIBLE.value,
+                                "centroid_m": [0.0, 0.0, 0.05],
+                                "authority": "OBSERVED",
+                            },
+                            {
+                                "surface_id": "block-bottom",
+                                "provenance": SurfaceProvenance.SYMMETRY_INFERRED.value,
+                                "visibility": VisibilityState.SYMMETRY_DERIVED.value,
+                                "centroid_m": [0.0, 0.0, -0.05],
+                                "authority": "INFERRED",
+                            },
+                        ],
+                    }
+                ],
+            )
+        ],
+        scene_id="surf",
+    )
+    assert world.surfaces["block-top"].provenance is SurfaceProvenance.DIRECTLY_OBSERVED
+    assert world.surfaces["block-bottom"].provenance is SurfaceProvenance.SYMMETRY_INFERRED
+    assert "block-top" in world.entities["block"].observed_surface_ids
+    assert "block-bottom" in world.entities["block"].inferred_surface_ids
+
+
+def test_query_world_and_scene_summary() -> None:
+    world = build_world_model(
+        [_obs(0, [_entity("x", [0.0, 0.0, 0.0], class_label="cube")])],
+        scene_id="q",
+    )
+    summary = query_world(world, {"type": "scene_summary"})
+    assert summary["n_entities"] == 1
+    assert summary["beliefs_digest"]
+    hit = query_world(world, {"type": "entity", "entity_id": "x"})
+    assert hit["found"] is True
+
+
+def test_camera_motion_and_object_motion_survive() -> None:
+    """World retains entities through camera motion and object motion frames."""
+    frames = []
+    for i in range(5):
+        # Camera motion is external; objects shift slowly (object motion).
+        frames.append(
+            _obs(
+                i,
+                [
+                    _entity("mug", [0.1 * i, 0.0, 0.1]),
+                    _entity("plate", [0.5, 0.1 * i, 0.0]),
+                ],
+            )
+        )
+    world = build_world_model(frames, scene_id="motion")
+    assert set(world.entities) == {"mug", "plate"}
+    assert world.entities["mug"].pose_m[0] == pytest.approx(0.4)
+    assert len(world.entities["mug"].trajectory) == 5
+
+
+def test_prediction_kinds_for_benchmarks() -> None:
+    world = build_world_model([_obs(0, [_entity("obj", [0.0, 0.0, 0.0])])], scene_id="bench")
+    cases = [
+        (
+            PredictionKind.BROWSER_ANIMATION.value,
+            {"animation_phase": 0.0},
+            {"animation_phase": 0.9},
+            0.1,
+        ),
+        (
+            PredictionKind.CAMERA_PATH.value,
+            {"camera_position": [0.0, 0.0, 1.0]},
+            {"camera_position": [0.0, 0.0, 2.5]},
+            0.2,
+        ),
+        (
+            PredictionKind.MATERIAL_RESPONSE.value,
+            {"specular_peak": 0.2},
+            {"specular_peak": 0.9},
+            0.1,
+        ),
+        (
+            PredictionKind.EXISTENCE.value,
+            {"exists": True},
+            {"exists": False},
+            0.5,
+        ),
+    ]
+    for kind, expected, observed, tol in cases:
+        pred = make_prediction(entity_id="obj", kind=kind, expected=expected, tolerance=tol)
+        event = evaluate_prediction(world, pred, observed, update_uncertainty=False)
+        assert event is not None, f"{kind} should surprise"
+        assert event.magnitude > tol
+
+
+def test_world_seal_and_verify_round_trip(tmp_path: Path) -> None:
+    world = build_world_model(
+        [_obs(0, [_entity("z", [0.0, 0.0, 0.0])])], scene_id="seal", session_id="s"
+    )
+    world.verify()
+    path = tmp_path / "w.json"
+    save_world(world, path)
+    loaded = load_world(path)
+    loaded.verify()
+    assert beliefs_bytes(loaded) == beliefs_bytes(world)
+
+
+def test_same_as_requires_evidence_on_construction() -> None:
+    from blender_vision.ocular.world import Relation
+
+    with pytest.raises(ValidationError):
+        Relation(
+            id="bad",
+            relation_id="bad",
+            kind=RelationKind.SAME_AS,
+            source_id="a",
+            target_id="b",
+            evidence=[],
+            evidence_recorded=False,
+        ).seal()
