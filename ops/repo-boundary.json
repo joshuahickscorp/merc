@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "kind": "repo_boundary",
+  "tracked_files": 443,
+  "owned_loc": 70708,
+  "census_scope": "maintained first-party text; compiled binaries and upstream vendor excluded",
+  "foreign_paths": [],
+  "boundary_clean": true,
+  "note": "VisionMCP is a separate repository. merc neither tracks nor builds it, and its LOC is not merc's."
+}
