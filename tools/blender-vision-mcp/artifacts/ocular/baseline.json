@@ -1,0 +1,47 @@
+{
+  "schema": "ocular.baseline/1",
+  "recorded_at": "2026-07-27T02:40:00-04:00",
+  "recovered_from": {
+    "branch": "goal/visionmcp-v2-all-seeing-eye",
+    "claimed_sha": "247431e2c0d70174b7b043caafee6edaf55c5809",
+    "verified": "claimed SHA is the branch head exactly; no commits after it"
+  },
+  "ocular_branch": "goal/visionmcp-v2-ocular-os",
+  "ocular_worktree": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular",
+  "environment": {
+    "python": "3.13.13",
+    "blender": "Blender 4.2.1 LTS",
+    "colmap": "4.0.4 (no CUDA; dense MVS BLOCKED)",
+    "chrome": "150", "firefox": "151", "webkit": "26.5",
+    "host": {"platform": "darwin", "arch": "arm64", "cores": 28, "memory_gb": 96}
+  },
+  "reproduced": {
+    "fast": {"passed": 720, "skipped": 33, "failed": 0, "matches_claim": true},
+    "physical_clean_checkout": {"passed": 322, "failed": 1, "matches_claim": false},
+    "physical_after_organic_lane": {"passed": 323, "failed": 0, "matches_claim": true},
+    "release_verifier": "valid",
+    "scorecard_verifier": {"status": "PASS", "facets": 28, "numeric_claims": 128, "receipts": 62}
+  },
+  "reproducibility_defect": {
+    "id": "organic-receipt-untracked",
+    "test": "tests/test_v2_organic.py::test_real_organic_lane_receipt_is_present_and_passed",
+    "detail": "artifacts/v2/organic/organic-fur-receipt.json is not tracked in git while 390 other artifacts/v2 files are; the 323 figure required a prior local run of scripts/run-organic-fur-lane.py",
+    "severity": "reporting",
+    "resolution": "lane executed physically in this worktree; baseline records both the clean-checkout and post-run figures"
+  },
+  "open_failures_carried_forward": [
+    {"id": "uv-packing", "detail": "~29% vs 35% gate on organic_sculpture and plant", "may_relax": false},
+    {"id": "roughness-blindness", "detail": "dE 2.82->3.07 across roughness 0.1->0.9; every step passes", "may_relax": false},
+    {"id": "second-aisle-empty", "detail": "8 of 464 instances; beats 05-08 bare", "may_relax": false},
+    {"id": "colmap-dense-mvs", "detail": "no CUDA build", "external": true},
+    {"id": "real-animal-capture", "detail": "fur lane synthetic only", "external": true},
+    {"id": "user-remote-photographs", "detail": "governed self-captured fixture only", "external": true},
+    {"id": "mac-studio-blend", "detail": "owned BLEND with SHA-256 22ea2562...e6dae absent", "external": true}
+  ],
+  "fallback_audit": {
+    "modules_with_substitution": ["procedural/emit.py", "procedural/mesh_offline.py", "benchmarks/objects.py"],
+    "physical_pass_reachable_from_fallback": false,
+    "enforcement": "src/blender_vision/ocular/attestation.py ExecutionClass + require_physical()"
+  },
+  "production_site_modified": false
+}

@@ -1,0 +1,43 @@
+........................................................................ [ 22%]
+................s....................................F.................. [ 44%]
+........................................................................ [ 66%]
+........................................................................ [ 88%]
+...........................s.........                                    [100%]
+=================================== FAILURES ===================================
+_____________ test_real_organic_lane_receipt_is_present_and_passed _____________
+
+    @BLENDER_GATE
+    def test_real_organic_lane_receipt_is_present_and_passed() -> None:
+        """The lane must have been executed; this asserts on its real receipt."""
+        receipt_path = REPO / "artifacts" / "v2" / "organic" / "organic-fur-receipt.json"
+        if not receipt_path.is_file():
+>           pytest.fail(
+                "run `python scripts/run-organic-fur-lane.py` before this test; "
+                f"{receipt_path} is missing"
+            )
+E           Failed: run `python scripts/run-organic-fur-lane.py` before this test; /Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/artifacts/v2/organic/organic-fur-receipt.json is missing
+
+tests/test_v2_organic.py:170: Failed
+=============================== warnings summary ===============================
+tests/test_v2_object_benchmarks.py::test_image_metrics_identity_is_high
+  /Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/.venv/lib/python3.13/site-packages/skimage/metrics/simple_metrics.py:171: RuntimeWarning: divide by zero encountered in scalar divide
+    return 10 * np.log10((data_range**2) / err)
+
+tests/test_v2_object_benchmarks.py: 48 warnings
+  /Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/.venv/lib/python3.13/site-packages/skimage/measure/_marching_cubes_lewiner.py:237: DeprecationWarning: Setting the shape on a NumPy array has been deprecated in NumPy 2.5.
+  As an alternative, you can create a new view using np.reshape (with copy=False if needed).
+    ar.shape = shape
+
+tests/test_v2_object_benchmarks.py: 28 warnings
+tests/test_v2_reconstruction.py: 4 warnings
+  /Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/.venv/lib/python3.13/site-packages/skimage/measure/_marching_cubes_lewiner.py:213: DeprecationWarning: Setting the shape on a NumPy array has been deprecated in NumPy 2.5.
+  As an alternative, you can create a new view using np.reshape (with copy=False if needed).
+    faces.shape = -1, 3
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_v2_materials.py:338: set BVMCP_RUN_BROWSER_TESTS=1 for real browser WebGL parity
+SKIPPED [1] tests/test_blender_integration.py:44: BLOCKED_EXTERNAL: set BVMCP_MAC_STUDIO_SCENE to the owned BLEND fixture with SHA-256 22ea2562cc92d44b2df084f0009b3faca6ab37f6ff81e21e55136ac6871e6dae
+FAILED tests/test_v2_organic.py::test_real_organic_lane_receipt_is_present_and_passed
+1 failed, 322 passed, 2 skipped, 81 warnings in 328.92s (0:05:28)
+physical exit=1
