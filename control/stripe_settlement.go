@@ -8,22 +8,19 @@ import (
 	"strings"
 )
 
-// The ledger is USD-only: Send rejects any other currency (payment.go). That
-// invariant is only half enforced, because a Stripe platform can accept the
-// USD transfer request and then fail it with `balance_insufficient` when the
-// account cannot settle USD at all.
+// The ledger settles in the configured MERC_SETTLEMENT_CURRENCY. Send rejects
+// any other currency (payment.go). That invariant is only half enforced,
+// because a Stripe platform can accept a transfer request and then fail it with
+// `balance_insufficient` when the account cannot hold the configured currency.
 //
 // A Canadian platform is the case that motivated this: a USD top-up settles
-// into the CAD balance, so every supplier payout fails at the moment money is
-// supposed to move, with an error that reads like a funding problem rather
-// than a configuration one.
+// into the CAD balance while the code was hardcoded to USD, so every supplier
+// payout failed at the moment money was supposed to move.
 //
 // GET /v1/balance lists one bucket per *enabled settlement currency*, including
-// currencies whose balance is zero. So the presence of a `usd` bucket is a
-// direct answer to "can this platform pay a supplier in USD", and its absence
-// predicts the failure before any money is at stake.
-
-const settlementCurrency = "usd"
+// currencies whose balance is zero. So the presence of a bucket for the
+// CONFIGURED currency is a direct answer to "can this platform pay a supplier",
+// and its absence predicts the failure before any money is at stake.
 
 // Pinned so this probe's parsing cannot drift when Stripe changes the account
 // default. NOTE: the rest of control's Stripe calls send no Stripe-Version at
@@ -111,18 +108,23 @@ func (e errSettlementCurrencyUnsupported) Error() string {
 		strings.ToUpper(e.Want), have, strings.ToUpper(e.Want))
 }
 
-// verifySettlementCurrency fails closed when the platform cannot settle USD.
+// verifySettlementCurrency fails closed when the platform cannot settle the
+// configured MERC_SETTLEMENT_CURRENCY.
 func (p StripePayout) verifySettlementCurrency(ctx context.Context) error {
+	want, err := SettlementCurrency()
+	if err != nil {
+		return err
+	}
 	have, err := p.settlementCurrencies(ctx)
 	if err != nil {
 		return err
 	}
 	for _, c := range have {
-		if c == settlementCurrency {
+		if c == want.Code() {
 			return nil
 		}
 	}
-	return errSettlementCurrencyUnsupported{Want: settlementCurrency, Have: have}
+	return errSettlementCurrencyUnsupported{Want: want.Code(), Have: have}
 }
 
 // stripeAccountCountry is reported alongside a failure so the operator knows

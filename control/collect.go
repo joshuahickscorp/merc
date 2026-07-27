@@ -180,7 +180,7 @@ func (s *Store) AttemptingChargeBatches(ctx context.Context, limit int) ([]Charg
 
 func (s *Store) MarkChargeBatchCharged(ctx context.Context, batchID uuid.UUID, charge ChargeResult) error {
 	if charge.PaymentIntentID == "" || charge.ChargeID == "" || charge.RequestedCents <= 0 ||
-		charge.ReceivedCents != charge.RequestedCents || charge.Currency != "usd" {
+		charge.ReceivedCents != charge.RequestedCents || RequireSettlementCurrency(charge.Currency) != nil {
 		return fmt.Errorf("refusing invalid batch charge confirmation: %+v", charge)
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -482,7 +482,7 @@ func (s *Store) BumpChargeBatchRetry(ctx context.Context, batchID uuid.UUID, bac
 
 func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge ChargeResult) error {
 	if charge.PaymentIntentID == "" || charge.ChargeID == "" || charge.RequestedCents <= 0 ||
-		charge.ReceivedCents != charge.RequestedCents || charge.Currency != "usd" {
+		charge.ReceivedCents != charge.RequestedCents || RequireSettlementCurrency(charge.Currency) != nil {
 		return fmt.Errorf("refusing invalid job charge confirmation: %+v", charge)
 	}
 	tx, err := s.pool.Begin(ctx)

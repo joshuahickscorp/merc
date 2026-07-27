@@ -350,7 +350,7 @@ ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_money_shape CHECK (
      AND correlation_ref IS NOT NULL AND btrim(correlation_ref) <> ''
      AND target_kind IS NOT NULL AND target_id IS NOT NULL
      AND fund_id IS NOT NULL AND fund_ref IS NOT NULL AND btrim(fund_ref) <> ''
-     AND amount_cents > 0 AND currency = 'usd'
+     AND amount_cents > 0 AND currency IN ('usd','cad','jpy')
      AND reason IS NOT NULL AND btrim(reason) <> '')
 ) NOT VALID;
 ALTER TABLE admin_actions DROP CONSTRAINT IF EXISTS admin_actions_privileged_mutation_shape;
@@ -1495,7 +1495,7 @@ CREATE TABLE IF NOT EXISTS buyer_charge_operations (
     stripe_customer      TEXT NOT NULL CHECK (btrim(stripe_customer) <> ''),
     stripe_payment_method TEXT NOT NULL CHECK (btrim(stripe_payment_method) <> ''),
     amount_cents         BIGINT NOT NULL CHECK (amount_cents > 0),
-    currency             TEXT NOT NULL CHECK (currency='usd'),
+    currency             TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
     status               TEXT NOT NULL CHECK (status IN ('outcome_unknown','succeeded')),
     payment_intent       TEXT UNIQUE,
     charge_id            TEXT UNIQUE,
@@ -1649,7 +1649,7 @@ CREATE TABLE IF NOT EXISTS buyer_cash_collections (
     charge_batch_id UUID UNIQUE REFERENCES charge_batches(id),
     requested_cents BIGINT NOT NULL CHECK (requested_cents > 0),
     received_cents  BIGINT NOT NULL CHECK (received_cents > 0),
-    currency        TEXT NOT NULL CHECK (currency = 'usd'),
+    currency        TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
     recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (requested_cents = received_cents),
     CHECK ((source_kind = 'job' AND job_id IS NOT NULL AND charge_batch_id IS NULL)
@@ -1738,7 +1738,7 @@ CREATE TABLE IF NOT EXISTS platform_subsidy_funds (
     fund_ref              TEXT NOT NULL UNIQUE CHECK (btrim(fund_ref) <> ''),
     external_treasury_ref TEXT NOT NULL UNIQUE CHECK (btrim(external_treasury_ref) <> ''),
     authorized_cents      BIGINT NOT NULL CHECK (authorized_cents > 0),
-    currency              TEXT NOT NULL CHECK (currency = 'usd'),
+    currency              TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
     reason                TEXT NOT NULL CHECK (btrim(reason) <> ''),
     status                TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','closed')),
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -1765,7 +1765,7 @@ CREATE TABLE IF NOT EXISTS supplier_payout_funding (
     subsidy_authorization_ref    TEXT UNIQUE,
     subsidy_reason               TEXT,
     amount_cents                 BIGINT NOT NULL CHECK (amount_cents > 0),
-    currency                     TEXT NOT NULL CHECK (currency = 'usd'),
+    currency                     TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
     created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT supplier_payout_funding_source_valid CHECK (
       (source_kind='buyer_collection'
@@ -1833,7 +1833,7 @@ CREATE TABLE IF NOT EXISTS supplier_minor_unit_settlements (
     cash_cents         BIGINT NOT NULL CHECK (cash_cents >= 0),
     remainder_microusd BIGINT NOT NULL CHECK (
                           remainder_microusd >= 0 AND remainder_microusd < 10000),
-    currency           TEXT NOT NULL DEFAULT 'usd' CHECK (currency = 'usd'),
+    currency           TEXT NOT NULL DEFAULT 'usd' CHECK (currency IN ('usd','cad','jpy')),
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (liability_microusd = cash_cents * 10000 + remainder_microusd)
 );
@@ -1895,7 +1895,7 @@ CREATE TABLE IF NOT EXISTS supplier_payout_operations (
     supplier_id      UUID NOT NULL REFERENCES suppliers(id),
     requested_cents  BIGINT NOT NULL CHECK (requested_cents > 0),
     sent_cents       BIGINT CHECK (sent_cents > 0),
-    currency         TEXT NOT NULL DEFAULT 'usd' CHECK (currency = 'usd'),
+    currency         TEXT NOT NULL DEFAULT 'usd' CHECK (currency IN ('usd','cad','jpy')),
     status           TEXT NOT NULL CHECK (status IN (
                        'sending','ready','outcome_unknown','released','exported',
                        'clawed_back','reversal_required','reversing','reversed')),
@@ -2310,7 +2310,7 @@ CREATE TABLE IF NOT EXISTS prepaid_topup_operations (
     operation_key   TEXT PRIMARY KEY CHECK (btrim(operation_key) <> ''),
     buyer_id        UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
     amount_cents    BIGINT NOT NULL CHECK (amount_cents > 0),
-    currency        TEXT NOT NULL CHECK (currency = 'usd'),
+    currency        TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
     status          TEXT NOT NULL CHECK (status IN ('pending','succeeded','refunded')),
     payment_intent  TEXT UNIQUE,
     charge_id       TEXT,
@@ -2326,7 +2326,7 @@ CREATE TABLE IF NOT EXISTS prepaid_refund_operations (
     operation_key   TEXT PRIMARY KEY CHECK (btrim(operation_key) <> ''),
     buyer_id        UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
     amount_cents    BIGINT NOT NULL CHECK (amount_cents > 0),
-    currency        TEXT NOT NULL CHECK (currency = 'usd'),
+    currency        TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
     status          TEXT NOT NULL CHECK (status IN ('succeeded')),
     stripe_refund_id TEXT UNIQUE,
     payment_intent  TEXT,
@@ -2883,3 +2883,108 @@ DROP TRIGGER IF EXISTS admin_action_realtime_refund_binding ON admin_actions;
 CREATE CONSTRAINT TRIGGER admin_action_realtime_refund_binding
 AFTER INSERT ON admin_actions DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION validate_realtime_refund_admin_binding();
+
+-- ---------------------------------------------------------------------------
+-- Settlement currency (configurable; not a code literal)
+--
+-- Historical rows settled in USD remain valid. New writes must match the
+-- process settlement currency (MERC_SETTLEMENT_CURRENCY), enforced in Go.
+-- Schema only admits the supported registry so an unknown code cannot land.
+-- ---------------------------------------------------------------------------
+
+-- Add currency columns once. Historical rows backfill to 'usd' and stay valid.
+-- Avoid SET NOT NULL / SET DEFAULT on every migrate: those take ACCESS EXCLUSIVE
+-- locks on hot money tables and deadlock concurrent test writers.
+DO $cur$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='ledger_entries' AND column_name='currency'
+    ) THEN
+        ALTER TABLE ledger_entries ADD COLUMN currency TEXT NOT NULL DEFAULT 'usd';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='quotes' AND column_name='currency'
+    ) THEN
+        ALTER TABLE quotes ADD COLUMN currency TEXT NOT NULL DEFAULT 'usd';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='execution_contracts' AND column_name='currency'
+    ) THEN
+        ALTER TABLE execution_contracts ADD COLUMN currency TEXT NOT NULL DEFAULT 'usd';
+    END IF;
+END $cur$;
+
+-- Drop legacy currency='usd'-only CHECKs (auto-named or explicit) and install
+-- the supported-currency CHECK. Idempotent: never touch an already-correct
+-- constraint, so concurrent Migrate() under tests does not thrash locks.
+-- Use tagged dollar-quotes ($cur$) so nested quotes do not terminate the DO body.
+DO $cur$
+DECLARE
+    r RECORD;
+    def TEXT;
+    tables TEXT[] := ARRAY[
+        'ledger_entries',
+        'quotes',
+        'execution_contracts',
+        'buyer_charge_operations',
+        'buyer_cash_collections',
+        'platform_subsidy_funds',
+        'supplier_payout_funding',
+        'supplier_minor_unit_settlements',
+        'supplier_payout_operations',
+        'prepaid_topup_operations',
+        'prepaid_refund_operations'
+    ];
+    t TEXT;
+    has_supported BOOLEAN;
+BEGIN
+    FOREACH t IN ARRAY tables LOOP
+        -- Drop only the OLD single-currency pin (currency = 'usd' / currency='usd').
+        -- Leave multi-currency supported CHECKs and unrelated constraints alone.
+        FOR r IN
+            SELECT c.conname, pg_get_constraintdef(c.oid) AS cdef
+              FROM pg_constraint c
+              JOIN pg_class rel ON rel.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = rel.relnamespace
+             WHERE n.nspname = 'public'
+               AND rel.relname = t
+               AND c.contype = 'c'
+        LOOP
+            def := lower(r.cdef);
+            IF def LIKE '%currency%'
+               AND (
+                 def LIKE '%currency = ''usd''%'
+                 OR def LIKE '%currency=''usd''%'
+                 OR def LIKE '%(currency=''usd'')%'
+               )
+               AND def NOT LIKE '%cad%'
+            THEN
+                EXECUTE format('ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I', t, r.conname);
+            END IF;
+        END LOOP;
+
+        SELECT EXISTS (
+            SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class rel ON rel.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = rel.relnamespace
+             WHERE n.nspname = 'public'
+               AND rel.relname = t
+               AND c.contype = 'c'
+               AND lower(pg_get_constraintdef(c.oid)) LIKE '%currency%in%usd%cad%jpy%'
+        ) INTO has_supported;
+
+        IF NOT has_supported THEN
+            BEGIN
+                EXECUTE format(
+                    'ALTER TABLE %I ADD CONSTRAINT %I CHECK (currency IN (''usd'',''cad'',''jpy''))',
+                    t, t || '_currency_supported');
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
+            END;
+        END IF;
+    END LOOP;
+END $cur$;

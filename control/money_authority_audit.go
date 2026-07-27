@@ -58,8 +58,8 @@ func (in moneyAuthorityIntent) validate() error {
 	if in.FundRef == "" || in.CorrelationRef == "" || in.Reason == "" {
 		return errors.New("money authority fund, correlation, and reason are required")
 	}
-	if in.AmountCents <= 0 || in.Currency != "usd" {
-		return errors.New("money authority requires positive integer USD cents")
+	if in.AmountCents <= 0 || RequireSettlementCurrency(in.Currency) != nil {
+		return errors.New("money authority requires positive integer amount in the settlement currency")
 	}
 	switch in.Kind {
 	case "subsidy_fund_authorized":

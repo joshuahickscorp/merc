@@ -92,11 +92,14 @@ func takeRateFromEnv() float64 {
 }
 
 type LedgerEntry struct {
-	Kind         string
-	SupplierID   *uuid.UUID
-	BuyerID      *uuid.UUID
-	TaskID       *uuid.UUID
-	AmountUSD    float64
+	Kind       string
+	SupplierID *uuid.UUID
+	BuyerID    *uuid.UUID
+	TaskID     *uuid.UUID
+	AmountUSD  float64
+	// Currency is the ISO code this row settles in. Empty means "use the
+	// process settlement currency" at write time.
+	Currency     string
 	PayoutStatus string
 	ReleaseAt    *time.Time
 }
@@ -215,8 +218,8 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 	if cents <= 0 {
 		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("non-positive payout amount %d cents", cents))
 	}
-	if currency != "usd" {
-		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("unsupported payout currency %q", currency))
+	if err := RequireSettlementCurrency(currency); err != nil {
+		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("payout currency refused before Stripe call: %w", err))
 	}
 	form := url.Values{}
 	form.Set("amount", strconv.FormatInt(cents, 10))
@@ -258,12 +261,12 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 		return PayoutResult{}, payoutOutcomeUnknown(
 			fmt.Errorf("stripe transfer: unparseable success response: %s", strings.TrimSpace(string(body))))
 	}
-	if out.Amount != cents || out.Currency != currency {
+	if out.Amount != cents || !strings.EqualFold(out.Currency, currency) {
 		return PayoutResult{}, payoutOutcomeUnknown(fmt.Errorf(
-			"stripe transfer %s amount/currency mismatch: requested=%d usd response=%d %s",
-			out.ID, cents, out.Amount, out.Currency))
+			"stripe transfer %s amount/currency mismatch: requested=%d %s response=%d %s",
+			out.ID, cents, currency, out.Amount, out.Currency))
 	}
-	return PayoutResult{Ref: out.ID, SentCents: out.Amount, Currency: out.Currency, CashMoved: true}, nil
+	return PayoutResult{Ref: out.ID, SentCents: out.Amount, Currency: strings.ToLower(out.Currency), CashMoved: true}, nil
 }
 
 func stripeIdempotencyKey(supplierID uuid.UUID, cents int64, payoutKey string) string {
@@ -292,8 +295,8 @@ func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, c
 	if cents <= 0 {
 		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("non-positive reversal amount %d cents", cents))
 	}
-	if currency != "usd" {
-		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("unsupported reversal currency %q", currency))
+	if err := RequireSettlementCurrency(currency); err != nil {
+		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("reversal currency refused before Stripe call: %w", err))
 	}
 	if strings.TrimSpace(reverseKey) == "" {
 		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("reversal idempotency key is required"))
@@ -336,12 +339,12 @@ func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, c
 		return ReversalResult{}, payoutOutcomeUnknown(
 			fmt.Errorf("stripe transfer reversal: unparseable success response: %s", strings.TrimSpace(string(body))))
 	}
-	if out.Amount != cents || out.Currency != currency {
+	if out.Amount != cents || !strings.EqualFold(out.Currency, currency) {
 		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf(
-			"stripe transfer reversal %s amount/currency mismatch: requested=%d usd response=%d %s",
-			out.ID, cents, out.Amount, out.Currency))
+			"stripe transfer reversal %s amount/currency mismatch: requested=%d %s response=%d %s",
+			out.ID, cents, currency, out.Amount, out.Currency))
 	}
-	return ReversalResult{Ref: out.ID, Cents: out.Amount, Currency: out.Currency, Instrument: "transfer_reversal"}, nil
+	return ReversalResult{Ref: out.ID, Cents: out.Amount, Currency: strings.ToLower(out.Currency), Instrument: "transfer_reversal"}, nil
 }
 
 // RefundCharge creates a Stripe charge refund against a PaymentIntent. Use when
@@ -358,8 +361,8 @@ func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, ce
 	if cents <= 0 {
 		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("non-positive refund amount %d cents", cents))
 	}
-	if currency != "usd" {
-		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("unsupported refund currency %q", currency))
+	if err := RequireSettlementCurrency(currency); err != nil {
+		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("refund currency refused before Stripe call: %w", err))
 	}
 	if strings.TrimSpace(reverseKey) == "" {
 		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("refund idempotency key is required"))
@@ -402,12 +405,12 @@ func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, ce
 		return ReversalResult{}, payoutOutcomeUnknown(
 			fmt.Errorf("stripe refund: unparseable success response: %s", strings.TrimSpace(string(body))))
 	}
-	if out.Amount != cents || out.Currency != currency {
+	if out.Amount != cents || !strings.EqualFold(out.Currency, currency) {
 		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf(
-			"stripe refund %s amount/currency mismatch: requested=%d usd response=%d %s",
-			out.ID, cents, out.Amount, out.Currency))
+			"stripe refund %s amount/currency mismatch: requested=%d %s response=%d %s",
+			out.ID, cents, currency, out.Amount, out.Currency))
 	}
-	return ReversalResult{Ref: out.ID, Cents: out.Amount, Currency: out.Currency, Instrument: "charge_refund"}, nil
+	return ReversalResult{Ref: out.ID, Cents: out.Amount, Currency: strings.ToLower(out.Currency), Instrument: "charge_refund"}, nil
 }
 
 func (p *ManualExportPayout) ReverseTransfer(_ context.Context, _ string, _ int64, _, _ string) (ReversalResult, error) {
@@ -429,8 +432,8 @@ func (p *ManualExportPayout) Send(_ context.Context, supplierID uuid.UUID, cents
 	if cents <= 0 {
 		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("non-positive payout amount %d cents", cents))
 	}
-	if currency != "usd" {
-		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("unsupported payout currency %q", currency))
+	if err := RequireSettlementCurrency(currency); err != nil {
+		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("payout currency refused before export: %w", err))
 	}
 	if strings.TrimSpace(payoutKey) == "" {
 		return PayoutResult{}, payoutDefinitelyNotSent(errors.New("manual export payout key is required"))
@@ -487,5 +490,5 @@ func (p *ManualExportPayout) Send(_ context.Context, supplierID uuid.UUID, cents
 			return PayoutResult{}, fmt.Errorf("closing payout export directory: %w", err)
 		}
 	}
-	return PayoutResult{Ref: "manual-export:" + p.path, Currency: "usd", CashMoved: false}, nil
+	return PayoutResult{Ref: "manual-export:" + p.path, Currency: currency, CashMoved: false}, nil
 }

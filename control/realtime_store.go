@@ -343,15 +343,17 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		  estimated_price_usd,buyer_input_usd_per_million_tokens,
 		  buyer_output_usd_per_million_tokens,supplier_input_usd_per_million_tokens,
 		  supplier_output_usd_per_million_tokens,deadline_at,verification_tier,
-		  idempotency_key,state,worker_id,supplier_id,upstream_base_url,upstream_token_sealed)
+		  idempotency_key,state,worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
+		  currency)
 		VALUES ($1,$2,$3,'CHAT_COMPLETION','/v1/chat/completions',$4,$5,$6,$7,$8,
-		        $9,$10,$11,$12,$13,$14,$15,'V0',$16,'EXECUTING',$17,$18,$19,$20)`,
+		        $9,$10,$11,$12,$13,$14,$15,'V0',$16,'EXECUTING',$17,$18,$19,$20,$21)`,
 		contractID, auth.RequestID, auth.BuyerID, auth.Profile.ModelAlias,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
 		auth.InputCommitment, auth.RequestSHA256, auth.MaximumPriceUSD,
 		auth.EstimatedPriceUSD, auth.Profile.BuyerInputUSDPerMillionTokens,
 		auth.Profile.BuyerOutputUSDPerMillionTokens, supplierInput, supplierOutput,
-		auth.DeadlineAt, realtimeNullIfEmpty(auth.IdempotencyKey), workerID, supplierID, baseURL, sealed)
+		auth.DeadlineAt, realtimeNullIfEmpty(auth.IdempotencyKey), workerID, supplierID, baseURL, sealed,
+		SettlementCurrencyCode())
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
@@ -508,14 +510,14 @@ func (s *Store) SettleRealtimeExactReuse(
 		  buyer_output_usd_per_million_tokens,supplier_input_usd_per_million_tokens,
 		  supplier_output_usd_per_million_tokens,deadline_at,verification_tier,
 		  idempotency_key,state,worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
-		  finalized_at)
+		  finalized_at,currency)
 		VALUES ($1,$2,$3,'CHAT_COMPLETION','/v1/chat/completions',$4,$5,$6,$7,$8,
-		        $9,$9,$10,$11,0,0,$12,'V0',$13,'VERIFIED',NULL,NULL,NULL,NULL,now())`,
+		        $9,$9,$10,$11,0,0,$12,'V0',$13,'VERIFIED',NULL,NULL,NULL,NULL,now(),$14)`,
 		contractID, auth.RequestID, auth.BuyerID, auth.Profile.ModelAlias,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
 		auth.InputCommitment, auth.RequestSHA256, buyerCharge,
 		auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens,
-		auth.DeadlineAt, realtimeNullIfEmpty(auth.IdempotencyKey))
+		auth.DeadlineAt, realtimeNullIfEmpty(auth.IdempotencyKey), SettlementCurrencyCode())
 	if err != nil {
 		return RealtimeContract{}, RealtimeSettlement{}, err
 	}

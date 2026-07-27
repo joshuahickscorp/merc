@@ -100,7 +100,7 @@ func (s *Server) handleBillingTopup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "recording top-up: "+err.Error())
 		return
 	}
-	charge, err := chargePaymentIntent(r.Context(), cust, pm, cents, "usd", opKey)
+	charge, err := chargePaymentIntent(r.Context(), cust, pm, cents, SettlementCurrencyCode(), opKey)
 	if err != nil {
 		log.Printf("billing: top-up charge failed buyer=%s op=%s: %v", auth.BuyerID, opKey, err)
 		writeErr(w, http.StatusPaymentRequired, "top-up charge failed: "+err.Error())
