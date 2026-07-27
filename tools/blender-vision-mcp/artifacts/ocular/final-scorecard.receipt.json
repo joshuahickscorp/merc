@@ -1,0 +1,16 @@
+{
+  "details": {
+    "blockers_checked": 39,
+    "facets_checked": 35,
+    "numeric_claims_checked": 116,
+    "receipt_count": 82,
+    "unknown_or_blocked_facets": []
+  },
+  "failure_count": 0,
+  "failures": [],
+  "passed": true,
+  "schema": "ocular.final-scorecard-receipt/1",
+  "scorecard_path": "artifacts/ocular/final-scorecard.json",
+  "scorecard_sha256": "234325a3a09c1813da99034735d3371404d38e2bf96c379fa4facba8a570548f",
+  "verified_at": "2026-07-27T20:59:09.959379+00:00"
+}
