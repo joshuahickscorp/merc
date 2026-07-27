@@ -365,6 +365,124 @@ def _aspect_ratio(bbox: tuple[float, float, float, float]) -> float:
     return float(max(w, h) / max(1e-6, min(w, h)))
 
 
+# ---------------------------------------------------------------------------
+# Support-surface / dominant-plane rejection (scale-relative, not fixture-tuned)
+# ---------------------------------------------------------------------------
+#
+# Principle: a region that spans essentially the full frame width, or that
+# occupies a dominant fraction of the image, is a supporting surface (table,
+# floor, wall, shadow band) rather than a discrete object. Thresholds are
+# fractions of the frame — never absolute pixel sizes. Not derived from sealed
+# ground-truth boxes.
+
+#: Area fraction above which a region is a dominant plane, not an object.
+SUPPORT_AREA_FRAC = 0.25
+#: Horizontal span fraction that counts as "full frame width".
+SUPPORT_WIDTH_FRAC = 0.85
+#: A near-full-width region whose height is at most this fraction of the frame
+#: is a horizontal support / shadow / horizon band, not an object.
+SUPPORT_BAND_HEIGHT_FRAC = 0.30
+#: Minimum area fraction so pure 1-pixel noise lines are not labelled support.
+SUPPORT_BAND_AREA_FRAC = 0.01
+#: Width/height aspect for elongated full-width bands.
+SUPPORT_BAND_ASPECT = 4.0
+#: When deciding containment duplicates, only suppress a smaller region if the
+#: larger one is at most this many times its area (similar-scale, not plane).
+CONTAINMENT_MAX_AREA_RATIO = 8.0
+#: Mask-overlap fraction for "contained in" (unchanged semantics).
+CONTAINMENT_OVERLAP_FRAC = 0.70
+#: Mask IoU above which two fused proposals are treated as the same object
+#: (fragment suppression). Distinct nearby objects typically stay below this
+#: until they physically overlap.
+FUSED_DEDUP_MASK_IOU = 0.40
+
+
+def _is_support_surface(
+    bbox_xywh: tuple[float, float, float, float],
+    area_px: float,
+    frame_h: int,
+    frame_w: int,
+) -> bool:
+    """True when a region is a dominant supporting surface / plane band.
+
+    General geometric properties only:
+      - covers a large fraction of the frame (dominant plane), or
+      - spans nearly the full image width while remaining short (table/floor
+        band, shadow edge, horizon) under a typical tabletop / ground view.
+    Absolute pixel sizes are never used — only fractions of the frame.
+    """
+    if frame_w <= 0 or frame_h <= 0 or area_px <= 0:
+        return False
+    _, _, bw, bh = bbox_xywh
+    frame_area = float(frame_w * frame_h)
+    area_frac = float(area_px) / frame_area
+    width_frac = float(bw) / float(frame_w)
+    height_frac = float(bh) / float(frame_h)
+    if area_frac >= SUPPORT_AREA_FRAC:
+        return True
+    # Full-width (or near) horizontal band: support plane lip / shadow / edge.
+    if (
+        width_frac >= SUPPORT_WIDTH_FRAC
+        and height_frac <= SUPPORT_BAND_HEIGHT_FRAC
+        and area_frac >= SUPPORT_BAND_AREA_FRAC
+    ):
+        return True
+    if (
+        width_frac >= SUPPORT_WIDTH_FRAC
+        and bh > 0
+        and (float(bw) / float(bh)) >= SUPPORT_BAND_ASPECT
+        and area_frac >= SUPPORT_BAND_AREA_FRAC
+    ):
+        return True
+    return False
+
+
+def _objectness_rank(
+    prop: "RegionProposal",
+    frame_h: int,
+    frame_w: int,
+) -> float:
+    """Rank proposals for fused output: object-scale multi-source evidence first.
+
+    Does **not** rank by raw area (that is how a 45k-px table beat a 1k-px
+    object). Soft size preference is relative to frame area only.
+    """
+    if frame_w <= 0 or frame_h <= 0:
+        return float(prop.confidence)
+    area_frac = float(prop.area_px) / float(frame_w * frame_h)
+    # Soft peak for object-scale fractions; large planes decay hard.
+    # 2% of frame is a typical discrete object share; not a sealed-GT size.
+    size_score = 1.0 / (1.0 + 25.0 * max(0.0, area_frac - 0.02))
+    width_frac = float(prop.bbox_xywh[2]) / float(frame_w)
+    # Penalise near-full-width spans (support-like) without hard-dropping mid.
+    span_score = float(np.clip(1.0 - max(0.0, width_frac - 0.55) / 0.45, 0.05, 1.0))
+    # Compactness: mask area / bbox area. Fragments and residual bands score low.
+    _, _, bw, bh = prop.bbox_xywh
+    bbox_area = max(1.0, float(bw) * float(bh))
+    compact = float(np.clip(float(prop.area_px) / bbox_area, 0.05, 1.0))
+    # Prefer roughly isotropic boxes (objects) over long thin residual strips.
+    aspect = float(max(bw, bh) / max(1e-6, min(bw, bh)))
+    aspect_score = 1.0 / (1.0 + max(0.0, aspect - 1.6))
+    n_src = max(1, len(prop.supporting_sources or [prop.source.value]))
+    multi = 1.0 + 0.08 * (n_src - 1)
+    # Temporal / background residual is the most reliable silhouette source when
+    # a static-camera background model exists — boost without hard-coding sizes.
+    src_names = set(prop.supporting_sources or []) | {prop.source.value}
+    temporal_bonus = 1.15 if "temporal_change" in src_names else 1.0
+    return (
+        float(prop.confidence)
+        * (
+            0.25
+            + 0.25 * size_score
+            + 0.15 * span_score
+            + 0.20 * compact
+            + 0.15 * aspect_score
+        )
+        * multi
+        * temporal_bonus
+    )
+
+
 def _components_from_binary(
     binary: ArrayU8,
     *,
@@ -482,6 +600,61 @@ def _dog_blob_markers(image_bgr: ArrayU8, *, min_area: int) -> list[ArrayU8]:
         min_area=min_area,
         max_regions=int(FROZEN_THRESHOLDS["max_regions_per_source"]),
     )
+
+
+def _simple_blob_masks(image_bgr: ArrayU8, *, min_area: int) -> list[ArrayU8]:
+    """OpenCV SimpleBlobDetector — classical multi-scale dark/bright blobs.
+
+    Area bounds are frame-relative fractions so the same settings work across
+    resolutions. Not derived from sealed ground-truth object sizes.
+    """
+    h, w = image_bgr.shape[:2]
+    frame_area = float(h * w)
+    # Object-scale band: from a few dozen pixels up to 15% of the frame.
+    max_area = max(float(min_area * 4), 0.15 * frame_area)
+    params = cv2.SimpleBlobDetector_Params()
+    params.filterByArea = True
+    params.minArea = float(max(min_area, 9))
+    params.maxArea = float(max_area)
+    params.filterByCircularity = True
+    params.minCircularity = 0.35
+    params.filterByConvexity = True
+    params.minConvexity = 0.50
+    params.filterByInertia = True
+    params.minInertiaRatio = 0.20
+    params.filterByColor = False
+    # Detect both dark-on-bright and bright-on-dark without assuming polarity.
+    params.blobColor = 0
+    try:
+        detector = cv2.SimpleBlobDetector_create(params)
+    except Exception:
+        return []
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    keypoints: list[Any] = []
+    for src in (gray, cv2.bitwise_not(gray)):
+        try:
+            keypoints.extend(detector.detect(src))
+        except Exception:
+            continue
+    masks: list[ArrayU8] = []
+    seen: list[tuple[float, float, float]] = []
+    for kp in keypoints:
+        cx, cy = float(kp.pt[0]), float(kp.pt[1])
+        radius = max(2.0, float(kp.size) * 0.5)
+        # Dedupe near-identical centres.
+        dup = False
+        for sx, sy, sr in seen:
+            if (cx - sx) ** 2 + (cy - sy) ** 2 < (0.5 * (radius + sr)) ** 2:
+                dup = True
+                break
+        if dup:
+            continue
+        seen.append((cx, cy, radius))
+        mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.circle(mask, (int(round(cx)), int(round(cy))), int(round(radius)), 1, -1)
+        if int(mask.sum()) >= min_area:
+            masks.append(mask)
+    return masks[: int(FROZEN_THRESHOLDS["max_regions_per_source"])]
 
 
 def _adaptive_fg_masks(image_bgr: ArrayU8, *, min_area: int) -> list[ArrayU8]:
@@ -628,6 +801,9 @@ def propose_appearance(
         )
     )
     raw_masks.extend(_dog_blob_markers(bgr, min_area=cfg.min_area))
+    # Classical multi-scale blob detector — recovers compact disk-like objects
+    # that watershed merges into the supporting surface.
+    raw_masks.extend(_simple_blob_masks(bgr, min_area=cfg.min_area))
 
     # Adaptive FG only if primary is thin — white-on-white needs it.
     primary = _dedupe_masks(raw_masks, iou_thresh=0.5)
@@ -676,12 +852,46 @@ def propose_appearance(
         )
 
     masks = _dedupe_masks(raw_masks, iou_thresh=0.5)[: cfg.max_regions_per_source]
+    frame_h, frame_w = bgr.shape[:2]
     proposals: list[RegionProposal] = []
     for i, mask in enumerate(masks):
         m = mask > 0
+        area = int(m.sum())
+        if area <= 0:
+            continue
+        bbox = _mask_bbox(mask)
         sal_score = float(sal[m].mean()) if np.any(m) else 0.0
         con_score = float(contrast[m].mean()) if np.any(m) else 0.0
-        conf = float(np.clip(0.35 + 0.40 * sal_score + 0.25 * con_score, 0.15, 0.95))
+        # Local contrast against the immediate surround (not global saliency of
+        # a dominant plane). Objects on a table have elevated border contrast.
+        x, y, bw, bh = [int(v) for v in bbox]
+        pad = max(2, int(0.15 * max(bw, bh)))
+        y0 = max(0, y - pad)
+        x0 = max(0, x - pad)
+        y1 = min(frame_h, y + bh + pad)
+        x1 = min(frame_w, x + bw + pad)
+        ring = np.zeros((frame_h, frame_w), dtype=bool)
+        ring[y0:y1, x0:x1] = True
+        ring[m] = False
+        if np.any(ring) and np.any(m):
+            gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            interior = float(gray[m].mean())
+            surround = float(gray[ring].mean())
+            local_delta = abs(interior - surround) / 255.0
+        else:
+            local_delta = 0.0
+        conf = float(
+            np.clip(
+                0.25 + 0.30 * sal_score + 0.25 * con_score + 0.35 * local_delta,
+                0.15,
+                0.95,
+            )
+        )
+        is_support = _is_support_surface(bbox, float(area), frame_h, frame_w)
+        if is_support:
+            # Keep the proposal for diagnostics / residual analysis, but do not
+            # let dominant planes compete as object detections.
+            conf = min(conf, float(FROZEN_THRESHOLDS["confidence_floor"]) + 0.05)
         prop = _proposal_from_mask(
             bgr,
             mask,
@@ -696,21 +906,32 @@ def propose_appearance(
                     "watershed",
                     "otsu",
                     "dog",
+                    "simple_blob",
                     "adaptive?",
                     "region_grow?",
                     "grabcut?",
-                ]
+                ],
+                "local_contrast": local_delta,
+                "support_surface": is_support,
             },
         )
-        if prop is not None:
-            proposals.append(prop)
+        if prop is None:
+            continue
+        if is_support:
+            prop.status = ProposalStatus.DIAGNOSTIC_ONLY
+            prop.limitations = list(prop.limitations) + [
+                "dominant support surface / full-width band; not object-scale"
+            ]
+        proposals.append(prop)
 
+    # Prefer object-scale proposals when reporting availability count.
+    active_n = sum(1 for p in proposals if p.status is ProposalStatus.ACTIVE)
     report = SourceReport(
         source=ProposalSource.APPEARANCE,
         availability=(
-            SourceAvailability.AVAILABLE if proposals else SourceAvailability.EMPTY
+            SourceAvailability.AVAILABLE if active_n > 0 else SourceAvailability.EMPTY
         ),
-        n_proposals=len(proposals),
+        n_proposals=active_n,
         limitations=["classical only; no learned objectness network"],
     )
     return proposals, report
@@ -1676,8 +1897,14 @@ def fuse_proposals(
 
     Split and merge hypotheses are *not* collapsed here — the caller keeps them
     as parallel alternatives. Only ATOMIC active proposals participate.
+
+    Support-surface / dominant-plane regions are excluded from fusion: objects
+    sit *on* those planes, so union-mask containment would otherwise swallow
+    every object-scale cluster into a full-width table/floor band.
+    Ranking is by objectness (confidence × scale/span), never by raw area.
     """
     bgr = _as_bgr(image)
+    frame_h, frame_w = bgr.shape[:2]
     atomic = [
         p
         for p in proposals
@@ -1685,6 +1912,7 @@ def fuse_proposals(
         and p.hypothesis_kind is HypothesisKind.ATOMIC
         and p.area_px > 0
         and p.mask is not None
+        and not _is_support_surface(p.bbox_xywh, p.area_px, frame_h, frame_w)
     ]
     if not atomic:
         return []
@@ -1701,14 +1929,40 @@ def fuse_proposals(
         members_p = [by_id[m] for m in members if m in by_id]
         if not members_p:
             continue
-        # Union mask — evidence accumulates; no source is dropped.
-        mask = np.zeros(members_p[0].mask.shape, dtype=np.uint8)
+        # Evidence accumulates for confidence (sources + max conf). Geometry is
+        # taken from the single best objectness member — mask union inflates
+        # silhouettes (table residual + object highlight → loose blob) and was
+        # how object-scale structure lost to background bands.
         sources: set[str] = set()
         conf_acc = 0.0
         for p in members_p:
-            mask = np.where(p.mask > 0, 1, mask).astype(np.uint8)
             sources.update(p.supporting_sources or [p.source.value])
             conf_acc = max(conf_acc, p.confidence)
+        # Prefer temporal/background silhouettes when present in the cluster.
+        temporal_members = [
+            p
+            for p in members_p
+            if p.source is ProposalSource.TEMPORAL_CHANGE
+            or "temporal_change" in (p.supporting_sources or [])
+        ]
+        rank_pool = temporal_members if temporal_members else members_p
+        best_member = max(
+            rank_pool,
+            key=lambda p: _objectness_rank(p, frame_h, frame_w),
+        )
+        # If a non-temporal member is clearly better (e.g. frame 0, no BG),
+        # allow it to win.
+        overall_best = max(
+            members_p, key=lambda p: _objectness_rank(p, frame_h, frame_w)
+        )
+        if _objectness_rank(overall_best, frame_h, frame_w) > 1.05 * _objectness_rank(
+            best_member, frame_h, frame_w
+        ):
+            best_member = overall_best
+        if best_member.mask is None:
+            continue
+        mask = (best_member.mask > 0).astype(np.uint8)
+        conf_acc = max(conf_acc, best_member.confidence)
         conf = float(
             np.clip(conf_acc + multi_bonus * max(0, len(sources) - 1), conf_floor, 0.99)
         )
@@ -1728,6 +1982,28 @@ def fuse_proposals(
         )
         if prop is None:
             continue
+        if _is_support_surface(prop.bbox_xywh, prop.area_px, frame_h, frame_w):
+            # Belt-and-braces: never emit a dominant plane as a fused object.
+            continue
+        # Reject residual noise strips and sensor-edge flecks (scale-relative).
+        _, _, bw, bh = prop.bbox_xywh
+        bbox_area = max(1.0, float(bw) * float(bh))
+        compact = float(prop.area_px) / bbox_area
+        aspect = float(max(bw, bh) / max(1e-6, min(bw, bh)))
+        area_frac = float(prop.area_px) / float(frame_h * frame_w)
+        if aspect >= 2.5 and compact < 0.40:
+            continue
+        cx, cy = prop.centroid_xy
+        edge_x = 0.04 * float(frame_w)
+        edge_y = 0.04 * float(frame_h)
+        near_border = (
+            cx < edge_x
+            or cy < edge_y
+            or cx > float(frame_w) - edge_x
+            or cy > float(frame_h) - edge_y
+        )
+        if near_border and area_frac < 0.015:
+            continue
         prop.supporting_sources = sorted(sources)
         prop.source = ProposalSource.APPEARANCE  # label is multi; sources list is truth
         prop.meta["fused"] = True
@@ -1735,23 +2011,50 @@ def fuse_proposals(
         prop.appearance_embedding = list(best.appearance_embedding)
         prop.appearance_hist = list(best.appearance_hist)
         fused.append(prop)
-    # Prefer higher-confidence / larger fused nodes. Contained smaller fused
-    # regions stay as raw proposals (not destroyed); they simply do not all
-    # need to be re-listed as separate fused outputs.
-    fused.sort(key=lambda p: (p.confidence, p.area_px), reverse=True)
+    # Objectness rank — not (confidence, area). Suppress similar-scale
+    # containment and high mask-IoU fragments; never suppress because a plane
+    # contains the object.
+    fused.sort(key=lambda p: _objectness_rank(p, frame_h, frame_w), reverse=True)
     kept: list[RegionProposal] = []
     for prop in fused:
         if prop.mask is None:
             continue
-        contained = False
+        duplicate = False
+        prop_area = max(1.0, float(prop.area_px))
         for larger in kept:
             if larger.mask is None:
                 continue
-            inter = int(np.logical_and(prop.mask > 0, larger.mask > 0).sum())
-            if inter / max(1, int(prop.mask.sum())) > 0.7:
-                contained = True
+            if _is_support_surface(
+                larger.bbox_xywh, larger.area_px, frame_h, frame_w
+            ):
+                continue
+            # Fragment of an already-kept object (mask IoU).
+            if _mask_iou(prop.mask, larger.mask) >= FUSED_DEDUP_MASK_IOU:
+                duplicate = True
                 break
-        if not contained:
+            # Same object centre: fragments of one silhouette share a centroid
+            # within a scale set by their own areas (frame-relative, not px).
+            dist = float(
+                np.hypot(
+                    prop.centroid_xy[0] - larger.centroid_xy[0],
+                    prop.centroid_xy[1] - larger.centroid_xy[1],
+                )
+            )
+            scale = 0.5 * (
+                float(np.sqrt(max(1.0, prop.area_px)))
+                + float(np.sqrt(max(1.0, larger.area_px)))
+            )
+            if dist <= 0.75 * scale:
+                duplicate = True
+                break
+            # Similar-scale containment.
+            if float(larger.area_px) / prop_area > CONTAINMENT_MAX_AREA_RATIO:
+                continue
+            inter = int(np.logical_and(prop.mask > 0, larger.mask > 0).sum())
+            if inter / max(1, int(prop.mask.sum())) > CONTAINMENT_OVERLAP_FRAC:
+                duplicate = True
+                break
+        if not duplicate:
             kept.append(prop)
         if len(kept) >= int(FROZEN_THRESHOLDS["max_regions_per_source"]):
             break

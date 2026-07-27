@@ -201,7 +201,13 @@ def run_tracker_on_condition(condition_dir: Path) -> dict[str, Any]:
     prev_image: np.ndarray | None = None
     track_history: list[VisualTrack] = []
     per_frame: list[dict[str, Any]] = []
-    cfg = DetectionConfig(method=DetectionMethod.FUSED, min_area=35, max_regions=20)
+    # PROPOSAL_FUSION, not FUSED: the two are different paths and the names do not
+    # say so. FUSED maps to classical watershed, which returns the table as one
+    # 57%-of-frame region and never sees a 36px object. PROPOSAL_FUSION carries
+    # the support-surface rejection and objectness ranking.
+    cfg = DetectionConfig(
+        method=DetectionMethod.PROPOSAL_FUSION, min_area=35, max_regions=20
+    )
 
     for frame_meta in manifest["frames"]:
         fi = int(frame_meta["frame_index"])
