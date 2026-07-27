@@ -158,9 +158,11 @@ def test_keyboard_journey_skips_webkit_body_sentinel_before_controls() -> None:
                 ]
             )
 
-        def evaluate(self, script: str) -> dict[str, Any] | None:
+        def evaluate(self, script: str) -> Any:
             if "blur()" in script:
                 return None
+            if "querySelectorAll" in script:
+                return ["#action"]
             return next(self.focus)
 
     page = Page()
@@ -173,6 +175,34 @@ def test_keyboard_journey_skips_webkit_body_sentinel_before_controls() -> None:
     assert journey["navigation_keys"] == ["Tab", "Alt+Tab"]
     assert page.keyboard.keys == ["Tab", "Tab", "Alt+Tab", "Alt+Tab"]
     assert journey["unique_focus_targets"] == ["#action"]
+    assert journey["unreached_focusable_targets"] == []
+
+
+def test_keyboard_journey_reports_a_trap_when_controls_are_unreachable() -> None:
+    class Keyboard:
+        def press(self, key: str) -> None:
+            del key
+
+    class Page:
+        def __init__(self) -> None:
+            self.keyboard = Keyboard()
+            self.focus = iter(
+                [{"selector": "#trapped", "tag": "button", "role": None, "name": "T"}] * 6
+            )
+
+        def evaluate(self, script: str) -> Any:
+            if "blur()" in script:
+                return None
+            if "querySelectorAll" in script:
+                return ["#trapped", "#unreachable"]
+            return next(self.focus)
+
+    journey = BrowserAdapter._keyboard_journey(
+        Page(), {"keyboard_step_limit": 8, "engine": "chromium"}
+    )
+
+    assert journey["status"] == "FOCUS_TRAPPED"
+    assert journey["unreached_focusable_targets"] == ["#unreachable"]
 
 
 @pytest.mark.skipif(

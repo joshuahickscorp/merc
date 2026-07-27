@@ -431,6 +431,51 @@ _SEMANTIC_ACCESSIBILITY_SCRIPT = r"""
 }
 """
 
+_FOCUSABLE_SELECTORS_SCRIPT = r"""
+() => {
+  const escape = value => globalThis.CSS && CSS.escape
+    ? CSS.escape(value)
+    : value.replace(/[^a-zA-Z0-9_-]/g, ch => `\\${ch}`);
+  const selectorFor = target => {
+    if (target.id) return `#${escape(target.id)}`;
+    const parts = [];
+    for (
+      let current = target;
+      current && current !== document.documentElement;
+      current = current.parentElement
+    ) {
+      let index = 1;
+      for (
+        let sibling = current.previousElementSibling;
+        sibling;
+        sibling = sibling.previousElementSibling
+      ) {
+        if (sibling.localName === current.localName) index += 1;
+      }
+      parts.unshift(`${current.localName}:nth-of-type(${index})`);
+    }
+    return `html > ${parts.join(" > ")}`;
+  };
+  const candidates = document.querySelectorAll(
+    'a[href],button,input,select,textarea,summary,[tabindex],[contenteditable=""],' +
+    '[contenteditable="true"]'
+  );
+  const out = [];
+  for (const element of candidates) {
+    if (element.hasAttribute("disabled")) continue;
+    if (element.getAttribute("tabindex") === "-1") continue;
+    if (element.getAttribute("aria-hidden") === "true") continue;
+    if (element.type === "hidden") continue;
+    const style = globalThis.getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden") continue;
+    if (element.offsetParent === null && style.position !== "fixed") continue;
+    out.push(selectorFor(element));
+  }
+  return Array.from(new Set(out));
+}
+"""
+
+
 _ACTIVE_ELEMENT_SCRIPT = r"""
 () => {
   const element = document.activeElement;
@@ -949,6 +994,13 @@ class BrowserAdapter:
                 "--metrics-recording-only",
                 "--no-first-run",
             ]
+        if config["engine"] == "firefox":
+            # Firefox on macOS defaults accessibility.tabfocus to text fields
+            # only, mirroring the system "Full Keyboard Access" setting being
+            # off. Value 7 is the documented all-elements mode, which is what a
+            # keyboard user with full keyboard access actually experiences.
+            # This configures the engine; it does not relax the journey gate.
+            launch["firefox_user_prefs"] = {"accessibility.tabfocus": 7}
         if config["executable_path"]:
             launch["executable_path"] = config["executable_path"]
         elif config["channel"]:
@@ -990,12 +1042,42 @@ class BrowserAdapter:
         cls, page: Any, config: dict[str, Any]
     ) -> dict[str, Any]:
         page.evaluate("() => document.activeElement && document.activeElement.blur()")
+        enumerated = page.evaluate(_FOCUSABLE_SELECTORS_SCRIPT)
+        # Only a real list of selectors licenses a trap claim. If the document
+        # could not be enumerated, the traversal is still recorded but no trap
+        # is asserted, because an unenumerated document is unknown, not trapped.
+        focusable: list[str] = (
+            [item for item in enumerated if isinstance(item, str)]
+            if isinstance(enumerated, list)
+            else []
+        )
         steps: list[dict[str, Any]] = []
         first_selector: str | None = None
+        previous_selector: str | None = None
         status = "BOUNDED"
         navigation_key = "Tab"
         navigation_keys = ["Tab"]
         body_sentinels = 0
+
+        def escalate_webkit() -> bool:
+            """Switch WebKit to the macOS "all controls" navigation path.
+
+            Safari exposes only text fields to plain Tab unless Full Keyboard
+            Access is on; Option-Tab is the user-selected all-controls path.
+            Escalate whenever plain Tab has stalled and controls remain
+            unreached, rather than claiming the journey finished.
+            """
+            nonlocal navigation_key, first_selector, previous_selector
+            if config.get("engine") != "webkit" or navigation_key != "Tab":
+                return False
+            if not [item for item in focusable if item not in {s["selector"] for s in steps}]:
+                return False
+            navigation_key = "Alt+Tab"
+            navigation_keys.append(navigation_key)
+            first_selector = None
+            previous_selector = None
+            return True
+
         for index in range(config["keyboard_step_limit"]):
             page.keyboard.press(navigation_key)
             active = page.evaluate(_ACTIVE_ELEMENT_SCRIPT)
@@ -1006,34 +1088,50 @@ class BrowserAdapter:
             selector = active["selector"]
             if selector in {"body", "html > body:nth-of-type(1)"}:
                 if steps:
+                    if escalate_webkit():
+                        continue
                     status = "COMPLETE_DOCUMENT"
                     break
                 body_sentinels += 1
-                if (
-                    config.get("engine") == "webkit"
-                    and navigation_key == "Tab"
-                    and body_sentinels >= 2
-                ):
-                    # Safari/WebKit on macOS uses Option-Tab for the
-                    # user-selected "all controls" navigation path. Record
-                    # that fallback rather than claiming plain Tab reached
-                    # controls when the engine exposes only body sentinels.
-                    navigation_key = "Alt+Tab"
-                    navigation_keys.append(navigation_key)
+                if body_sentinels >= 2:
+                    escalate_webkit()
                 continue
             if first_selector is None:
                 first_selector = selector
             elif selector == first_selector:
+                if escalate_webkit():
+                    continue
                 status = "COMPLETE_CYCLE"
                 break
+            elif selector == previous_selector:
+                if escalate_webkit():
+                    continue
+                # Focus stopped advancing. Headless Firefox parks on the last
+                # control instead of wrapping into browser chrome. That is the
+                # end of the document's sequential focus order only if every
+                # focusable control was actually reached; otherwise focus is
+                # trapped, which is a real accessibility defect and must not be
+                # recorded as a completed journey.
+                status = "COMPLETE_DOCUMENT"
+                break
+            previous_selector = selector
             steps.append(active)
+        visited_selectors = sorted({step["selector"] for step in steps})
+        unreached_selectors = [item for item in focusable if item not in set(visited_selectors)]
+        if status in {"COMPLETE_CYCLE", "COMPLETE_DOCUMENT"} and unreached_selectors:
+            # The traversal terminated, but focusable controls were never
+            # reached. Sequential navigation is trapped, which is a real
+            # accessibility defect regardless of how the traversal ended.
+            status = "FOCUS_TRAPPED"
         return {
             "schema": "vision.keyboard-journey/v1",
             "status": status,
             "step_limit": config["keyboard_step_limit"],
             "navigation_keys": navigation_keys,
             "steps": steps,
-            "unique_focus_targets": sorted({step["selector"] for step in steps}),
+            "unique_focus_targets": visited_selectors,
+            "document_focusable_targets": focusable,
+            "unreached_focusable_targets": unreached_selectors,
             "authority": "OBSERVED",
         }
 

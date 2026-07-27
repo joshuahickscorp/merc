@@ -20,3 +20,7 @@ class EvidenceUnavailable(BlenderVisionError):
 
 class JobCancelled(BlenderVisionError):
     """A cooperative job cancellation was observed."""
+
+
+class ValidationError(BlenderVisionError):
+    """A record, schema, or contract failed validation."""
