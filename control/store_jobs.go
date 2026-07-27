@@ -437,26 +437,6 @@ func (s *Store) CancelJob(ctx context.Context, jobID, buyerID uuid.UUID) error {
 
 const webhookRegistrationLimitPerJob = 32
 
-func (s *Store) JobWebhooks(ctx context.Context, jobID, buyerID uuid.UUID) ([]string, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT url FROM webhooks
-		 WHERE job_id = $1 AND buyer_id = $2`,
-		jobID, buyerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var u string
-		if err := rows.Scan(&u); err != nil {
-			return nil, err
-		}
-		out = append(out, u)
-	}
-	return out, rows.Err()
-}
-
 func (s *Store) JobVerification(ctx context.Context, jobID uuid.UUID) (Verification, error) {
 	var v Verification
 	rows, err := s.pool.Query(ctx,
