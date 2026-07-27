@@ -1,0 +1,64 @@
+{
+  "schema": "v2.baseline/1",
+  "recorded_at": "2026-07-26T22:00:00-04:00",
+  "selected_base": {
+    "branch": "codex/visionmcp-live-sandbox-acceptance",
+    "sha": "84d8f9716e6663d970b58fcf2f827c9b0f994407",
+    "reason": "strict superset: contains feature/blender-vision-mcp plus 37 commits and goal/visionmcp-100plus-sandbox plus 1; no divergence, so nothing accepted is lost by choosing it"
+  },
+  "v2_branch": "goal/visionmcp-v2-all-seeing-eye",
+  "v2_worktree": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2",
+  "branch_heads": {
+    "feature/blender-vision-mcp": "e0f8df6708cb3fdebec9298f33804e5d3def9260",
+    "goal/visionmcp-100plus-sandbox": "75fc1c9308e5f346fe74aa6b59595e94af2ac30d",
+    "codex/visionmcp-live-sandbox-acceptance": "84d8f9716e6663d970b58fcf2f827c9b0f994407"
+  },
+  "ancestry": {
+    "feature..100plus": {"behind": 0, "ahead": 36},
+    "feature..live": {"behind": 0, "ahead": 37},
+    "100plus..live": {"behind": 0, "ahead": 1},
+    "linear": true
+  },
+  "dirty_worktrees_preserved": {
+    "/Users/scammermike/Downloads/computexchange": {"branch": "release/rc1-go-closure", "dirty_paths": 213, "action": "untouched"},
+    "/Users/scammermike/Downloads/computexchange-worktrees/live-instrument": {"branch": "design/computexchange-live-instrument", "dirty_paths": 2, "action": "untouched"}
+  },
+  "environment": {
+    "python": "3.13.13",
+    "blender": "Blender 4.2.1 LTS",
+    "node": "v20.17.0",
+    "colmap": "4.0.4 (built WITHOUT CUDA)",
+    "browsers": {"chromium": "150.0.7871.183 (channel=chrome)", "firefox": "151.0", "webkit": "26.5"},
+    "host": {"platform": "darwin", "arch": "arm64", "cores": 28, "memory_gb": 96}
+  },
+  "baseline_suites": {
+    "fast": {"passed": 416, "skipped": 22, "failed": 0, "exit": 0},
+    "blender_real_runtime": {"passed": 9, "skipped": 1, "failed": 0, "exit": 0},
+    "browser_real_runtime": {"passed": 29, "skipped": 1, "failed": 0, "exit": 0},
+    "process_app_adversarial": {"passed": 17, "skipped": 0, "failed": 0, "exit": 0}
+  },
+  "baseline_defect_found_and_fixed": {
+    "id": "keyboard-journey-false-pass",
+    "severity": "major",
+    "found_in": "baseline recovery run of tests/test_browser_benchmark.py",
+    "symptom": "firefox engine reported FAIL; investigation showed WebKit was reporting COMPLETE_CYCLE after reaching 1 of 7 focusable controls",
+    "root_cause": "the journey had no notion of document coverage; it terminated on repeat-of-first or a body sentinel, and the WebKit Option-Tab escalation fired only on body sentinels",
+    "fix": "enumerate the document focusable set, escalate WebKit whenever plain Tab stalls with controls unreached, add FOCUS_TRAPPED when a traversal terminates without covering the document, and launch Firefox with accessibility.tabfocus=7",
+    "direction": "strengthening: a new failure state was added, no threshold was relaxed",
+    "verified": "chromium/firefox/webkit all traverse 7/7 controls on the experience fixture and all three detect the deliberate trap fixture"
+  },
+  "external_blockers": [
+    {
+      "id": "mac-studio-owned-blend-fixture",
+      "blocks": "tests/test_blender_integration.py::real Mac Studio scene",
+      "requirement": "BVMCP_MAC_STUDIO_SCENE pointing at the owned BLEND with SHA-256 22ea2562cc92d44b2df084f0009b3faca6ab37f6ff81e21e55136ac6871e6dae",
+      "state": "BLOCKED_EXTERNAL, pre-existing, not introduced by V2"
+    },
+    {
+      "id": "colmap-dense-mvs",
+      "blocks": "dense multi-view stereo reconstruction",
+      "requirement": "a CUDA-capable COLMAP build; the installed 4.0.4 is CPU-only so patch_match_stereo cannot run",
+      "state": "BLOCKED_EXTERNAL on this host"
+    }
+  ]
+}
