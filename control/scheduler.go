@@ -332,7 +332,13 @@ type ClaimedTask struct {
 	IsHoneypot       bool
 }
 
+// ClaimTaskSQL builds the claim query. pref selects the measured hardware-shape
+// preference; shapeNoPreference reproduces the previous ordering exactly.
 func ClaimTaskSQL(claimedByPredicate string) string {
+	return ClaimTaskSQLForShape(claimedByPredicate, shapeNoPreference)
+}
+
+func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) string {
 	return fmt.Sprintf(`WITH me AS (
 	   -- The ONE claiming worker + its supplier, resolved ONCE (w.id = $1). Every
 	   -- per-JOB hard filter below (memory, hw_classes, exact runtime capability,
@@ -759,7 +765,15 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 		                 ELSE (ej.tier = 'priority')
 		            END DESC,
 		            (ej.tier = 'priority') DESC,
-		            cheaper_class_online ASC, cheaper_ask_online ASC, worker_tps DESC,
+		            cheaper_class_online ASC, cheaper_ask_online ASC,
+		            -- Shape fitness sits directly below the cost-class terms and
+		            -- above raw throughput: measured suitability for the task's
+		            -- shape should break a cost tie, but must not override the
+		            -- cheapest-sufficient-class rule. Constant 0 when
+		            -- MERC_SHAPE_AWARE_ROUTING is off, so the ordering is then
+		            -- byte-for-byte what it was before.
+		            `+shapeRankSQL("me.hw_class", pref)+` ASC,
+		            worker_tps DESC,
 		            warm_prefix_depth DESC, warm_for_task DESC,
 	            job_dispatched_count ASC, t.created_at ASC
 	   FOR UPDATE OF t SKIP LOCKED
