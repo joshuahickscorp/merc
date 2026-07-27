@@ -1,0 +1,27 @@
+drill_id                                   status   detect  repair  accept  regress 
+------------------------------------------------------------------------------------------
+browser-blank-first-frame                  PASS     True    True    True    False   
+browser-dom-pixel-contradiction            PASS     True    True    True    False   
+browser-focus-trap                         PASS     True    True    True    False   
+browser-scroll-lag                         PASS     True    True    True    False   
+cinematic-bad-turn                         PASS     True    True    True    False   
+cinematic-camera-freeze                    PASS     True    True    True    False   
+cinematic-empty-beat                       PASS     True    True    True    False   
+cinematic-text-collision                   PASS     True    True    True    False   
+geometry-coordinate-frame-error            PASS     True    True    True    False   
+geometry-hidden-surface-hallucination      PASS     True    True    True    False   
+geometry-scale-error                       PASS     True    True    True    False   
+material-lighting-confusion                PASS     True    True    True    False   
+material-plastic-metal                     PASS     True    True    True    False   
+material-roughness-error                   PASS     True    True    True    False   
+sensor-axis-mismatch                       PASS     True    True    True    False   
+sensor-colour-mismatch                     PASS     True    True    True    False   
+sensor-time-skew                           PASS     True    True    True    False   
+sensor-wrong-intrinsics                    PASS     True    True    True    False   
+tracking-false-reid                        PASS     True    True    True    False   
+tracking-identity-swap                     PASS     True    True    True    False   
+tracking-occlusion-loss                    PASS     True    True    True    False   
+world-cross-session-mismatch               PASS     True    True    True    False   
+world-erased-object                        PASS     True    True    True    False   
+------------------------------------------------------------------------------------------
+passed=23 failed=0 blocked=0 total=23

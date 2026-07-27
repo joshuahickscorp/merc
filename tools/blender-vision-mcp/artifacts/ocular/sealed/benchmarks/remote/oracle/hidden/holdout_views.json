@@ -1,0 +1,14 @@
+{
+  "hidden_indices": [
+    3,
+    7,
+    11,
+    15,
+    19,
+    23,
+    27,
+    31
+  ],
+  "note": "Evaluator only. Builder must not read this file.",
+  "target_id": "remote"
+}

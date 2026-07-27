@@ -1,0 +1,10 @@
+{
+  "acceptance_thresholds": {
+    "min_contradiction_detectors": 7
+  },
+  "blocked_requirements": [],
+  "claim_boundary": [
+    "Physical browser runs via with-one-browser.sh; demo detectors always run."
+  ],
+  "target_id": "browser_page"
+}

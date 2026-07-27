@@ -1,0 +1,15 @@
+{
+  "acceptance_thresholds": {
+    "groom_not_mesh_only": true
+  },
+  "blocked_requirements": [
+    {
+      "id": "real_animal_capture",
+      "reason": "Synthetic fur is not evidence about a real animal."
+    }
+  ],
+  "claim_boundary": [
+    "Synthetic fur only."
+  ],
+  "target_id": "organic_fur"
+}

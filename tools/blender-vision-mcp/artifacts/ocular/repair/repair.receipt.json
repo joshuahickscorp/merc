@@ -1,0 +1,747 @@
+{
+  "blocked_count": 0,
+  "completed_at": "2026-07-27T12:36:28.494434+00:00",
+  "drill_count": 23,
+  "drills": [
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "browser",
+      "detector_fired": true,
+      "drill_id": "browser-blank-first-frame",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {},
+      "measured_injected": {
+        "mean_luma": 255.0
+      },
+      "measured_repaired": {
+        "mean_luma": 167.109375
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "ocular.browser_eyeball",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "browser",
+      "detector_fired": true,
+      "drill_id": "browser-dom-pixel-contradiction",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {},
+      "measured_injected": {
+        "dom_pixel_missing": true
+      },
+      "measured_repaired": {
+        "ghost_still_missing": false
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "ocular.browser_eyeball",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "browser",
+      "detector_fired": true,
+      "drill_id": "browser-focus-trap",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {
+        "kinds": [
+          "browser_blender_mismatch",
+          "canvas_scroll_trap",
+          "dom_visible_pixels_missing",
+          "focus_order_mismatch",
+          "loading_state_stall",
+          "pixels_without_semantics",
+          "source_rendered_mismatch"
+        ]
+      },
+      "measured_injected": {
+        "focus_mismatch": true
+      },
+      "measured_repaired": {
+        "focus_mismatch": false
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "ocular.browser_eyeball",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "browser",
+      "detector_fired": true,
+      "drill_id": "browser-scroll-lag",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {},
+      "measured_injected": {
+        "scroll_trap": true
+      },
+      "measured_repaired": {
+        "scroll_trap": false
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "ocular.browser_eyeball",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "cinematic",
+      "detector_fired": true,
+      "drill_id": "cinematic-bad-turn",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {},
+      "measured_injected": {
+        "max_delta": 170.0,
+        "yaws": [
+          0.0,
+          10.0,
+          180.0,
+          190.0
+        ]
+      },
+      "measured_repaired": {
+        "max_delta": 10.0,
+        "yaws": [
+          0.0,
+          10.0,
+          20.0,
+          30.0
+        ]
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "camera-path",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "cinematic",
+      "detector_fired": true,
+      "drill_id": "cinematic-camera-freeze",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {},
+      "measured_injected": {
+        "positions": [
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0,
+            0,
+            1
+          ]
+        ]
+      },
+      "measured_repaired": {
+        "positions": [
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0.1,
+            0,
+            1
+          ],
+          [
+            0.2,
+            0,
+            1
+          ],
+          [
+            0.3,
+            0,
+            1
+          ]
+        ]
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "camera-path",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "cinematic",
+      "detector_fired": true,
+      "drill_id": "cinematic-empty-beat",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {
+        "instance_count": 0,
+        "min_instances": 3,
+        "name": "hero_orbit"
+      },
+      "measured_injected": {
+        "instance_count": 0,
+        "min_instances": 3,
+        "name": "hero_orbit"
+      },
+      "measured_repaired": {
+        "instance_count": 5,
+        "min_instances": 3,
+        "name": "hero_orbit"
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "beat-coverage",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "cinematic",
+      "detector_fired": true,
+      "drill_id": "cinematic-text-collision",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {},
+      "measured_injected": {
+        "labels": [
+          {
+            "bbox": [
+              10,
+              10,
+              80,
+              20
+            ],
+            "text": "Rack A"
+          },
+          {
+            "bbox": [
+              40,
+              15,
+              80,
+              20
+            ],
+            "text": "Rack B"
+          }
+        ]
+      },
+      "measured_repaired": {
+        "labels": [
+          {
+            "bbox": [
+              10,
+              10,
+              80,
+              20
+            ],
+            "text": "Rack A"
+          },
+          {
+            "bbox": [
+              10,
+              40,
+              80,
+              20
+            ],
+            "text": "Rack B"
+          }
+        ]
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "label-layout",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "geometry",
+      "detector_fired": true,
+      "drill_id": "geometry-coordinate-frame-error",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "normal": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      "measured_injected": {
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "measured_repaired": {
+        "normal": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "frame-roundtrip",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "geometry",
+      "detector_fired": true,
+      "drill_id": "geometry-hidden-surface-hallucination",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "ledger": [
+          {
+            "observed": false,
+            "region": "underside",
+            "visibility": "NEVER_OBSERVED"
+          },
+          {
+            "observed": false,
+            "region": "internals",
+            "visibility": "NEVER_OBSERVED"
+          }
+        ]
+      },
+      "measured_injected": {
+        "ledger": [
+          {
+            "observed": true,
+            "region": "underside",
+            "visibility": "DIRECTLY_VISIBLE"
+          },
+          {
+            "observed": false,
+            "region": "internals",
+            "visibility": "NEVER_OBSERVED"
+          }
+        ]
+      },
+      "measured_repaired": {
+        "ledger": [
+          {
+            "observed": false,
+            "region": "underside",
+            "visibility": "NEVER_OBSERVED"
+          },
+          {
+            "observed": false,
+            "region": "internals",
+            "visibility": "NEVER_OBSERVED"
+          }
+        ]
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "hidden-surface-ledger",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "geometry",
+      "detector_fired": true,
+      "drill_id": "geometry-scale-error",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "length_m": 0.18
+      },
+      "measured_injected": {
+        "length_m": 0.09,
+        "relative_error": 0.5
+      },
+      "measured_repaired": {
+        "length_m": 0.18,
+        "scale": 2.0
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "metric-anchor",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "material",
+      "detector_fired": true,
+      "drill_id": "material-lighting-confusion",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {
+        "albedo": [
+          0.2,
+          0.2,
+          0.22
+        ]
+      },
+      "measured_injected": {
+        "naive_delta": 0.35832945734337834
+      },
+      "measured_repaired": {
+        "material_stable": true,
+        "ratio_std": 0.0
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "ratio-invariance",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "material",
+      "detector_fired": true,
+      "drill_id": "material-plastic-metal",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {
+        "label": "plastic",
+        "metallic": 0.0
+      },
+      "measured_injected": {
+        "label": "metal",
+        "metallic": 1.0
+      },
+      "measured_repaired": {
+        "label": "plastic",
+        "metallic": 0.0
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "grazing-colour",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "material",
+      "detector_fired": true,
+      "drill_id": "material-roughness-error",
+      "execution_class": "DIAGNOSTIC_ONLY",
+      "global_regression": false,
+      "measured_baseline": {
+        "roughness": 0.45
+      },
+      "measured_injected": {
+        "roughness": 0.05
+      },
+      "measured_repaired": {
+        "roughness": 0.4
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "highlight-width-proxy",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "sensor",
+      "detector_fired": true,
+      "drill_id": "sensor-axis-mismatch",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "frame": "blender",
+        "up": "+Z"
+      },
+      "measured_injected": {
+        "assumed_frame": "gltf",
+        "point": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "measured_repaired": {
+        "point_y_up": [
+          0.0,
+          1.0,
+          -0.0
+        ]
+      },
+      "notes": [
+        "Declare and round-trip frames; never mix Blender Z-up with glTF Y-up silently."
+      ],
+      "repaired": true,
+      "runtime_used": "coordinate-frame",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "sensor",
+      "detector_fired": true,
+      "drill_id": "sensor-colour-mismatch",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "mean_bgr": [
+          100.0,
+          120.0,
+          140.0
+        ]
+      },
+      "measured_injected": {
+        "delta": 63.7808748764079,
+        "mean_bgr": [
+          100.0,
+          72.0,
+          182.0
+        ]
+      },
+      "measured_repaired": {
+        "gains": [
+          1.0,
+          1.6666666666666667,
+          0.7692307692307693
+        ],
+        "mean_bgr": [
+          100.0,
+          120.0,
+          140.0
+        ]
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "colour-gains",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "sensor",
+      "detector_fired": true,
+      "drill_id": "sensor-time-skew",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "median_dt": 0.033,
+        "timestamps": [
+          0.0,
+          0.033,
+          0.066,
+          0.2,
+          0.233
+        ]
+      },
+      "measured_injected": {
+        "skew_s": 0.101
+      },
+      "measured_repaired": {
+        "timestamps": [
+          0.0,
+          0.033,
+          0.066,
+          0.099,
+          0.132
+        ]
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "timestamp-series",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "sensor",
+      "detector_fired": true,
+      "drill_id": "sensor-wrong-intrinsics",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "cx": 320.0,
+        "cy": 240.0,
+        "fx": 500.0,
+        "fy": 500.0
+      },
+      "measured_injected": {
+        "error_px": 25.0,
+        "intrinsics": {
+          "cx": 320.0,
+          "cy": 240.0,
+          "fx": 250.0,
+          "fy": 250.0
+        }
+      },
+      "measured_repaired": {
+        "cx": 320.0,
+        "cy": 240.0,
+        "fx": 500.0,
+        "fy": 500.0
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "calibration-math",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "tracking",
+      "detector_fired": true,
+      "drill_id": "tracking-false-reid",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "threshold": 0.92,
+        "track_id": "trk-0001"
+      },
+      "measured_injected": {
+        "impostor_matched": false,
+        "score": 0.23572265692744065
+      },
+      "measured_repaired": {
+        "accepted_impostor": false
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "ocular.track.reidentify",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "tracking",
+      "detector_fired": true,
+      "drill_id": "tracking-identity-swap",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "id_a": "trk-0001",
+        "id_b": "trk-0002"
+      },
+      "measured_injected": {
+        "post_assoc_ok": false,
+        "swapped_map": {
+          "trk-0001": "trk-0002",
+          "trk-0002": "trk-0001"
+        }
+      },
+      "measured_repaired": {
+        "map": {
+          "trk-0001": "trk-0001",
+          "trk-0002": "trk-0002"
+        }
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "ocular.track",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "tracking",
+      "detector_fired": true,
+      "drill_id": "tracking-occlusion-loss",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "track_id": "trk-0001"
+      },
+      "measured_injected": {
+        "state": "OCCLUDED",
+        "uncertainty": 0.41
+      },
+      "measured_repaired": {
+        "state": "REAPPEARED",
+        "track_id": "trk-0001"
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "ocular.track",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "world_memory",
+      "detector_fired": true,
+      "drill_id": "world-cross-session-mismatch",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "session_a": [
+          "lamp"
+        ]
+      },
+      "measured_injected": {
+        "session_b": [
+          "lamp-WRONG"
+        ]
+      },
+      "measured_repaired": {
+        "canonical_ids": [
+          "lamp"
+        ]
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "ocular.world",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "category": "world_memory",
+      "detector_fired": true,
+      "drill_id": "world-erased-object",
+      "execution_class": "PHYSICAL",
+      "global_regression": false,
+      "measured_baseline": {
+        "entities": [
+          "book",
+          "cup"
+        ]
+      },
+      "measured_injected": {
+        "entities": [
+          "cup"
+        ]
+      },
+      "measured_repaired": {
+        "entities": [
+          "book",
+          "cup"
+        ]
+      },
+      "notes": [],
+      "repaired": true,
+      "runtime_used": "ocular.world",
+      "status": "PASS"
+    }
+  ],
+  "failed_count": 0,
+  "passed_count": 23,
+  "schema": "ocular.repair-corpus-receipt/1",
+  "status": "PASS"
+}

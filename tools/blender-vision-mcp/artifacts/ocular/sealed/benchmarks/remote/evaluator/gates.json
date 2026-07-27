@@ -1,0 +1,10 @@
+{
+  "acceptance_thresholds": {
+    "min_views": 24,
+    "require_perception_identity": true
+  },
+  "require_canary_absent_from_builder": true,
+  "require_split_digest_match": true,
+  "split_digest": "1ac7e909fcf68cab56bad0d4b12965ef9dd13d9e88281b483cd1367389844bff",
+  "target_id": "remote"
+}

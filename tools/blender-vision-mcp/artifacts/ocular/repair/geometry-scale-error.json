@@ -1,0 +1,24 @@
+{
+  "acceptance_passed": true,
+  "block_reason": "",
+  "category": "geometry",
+  "detector_fired": true,
+  "drill_id": "geometry-scale-error",
+  "execution_class": "PHYSICAL",
+  "global_regression": false,
+  "measured_baseline": {
+    "length_m": 0.18
+  },
+  "measured_injected": {
+    "length_m": 0.09,
+    "relative_error": 0.5
+  },
+  "measured_repaired": {
+    "length_m": 0.18,
+    "scale": 2.0
+  },
+  "notes": [],
+  "repaired": true,
+  "runtime_used": "metric-anchor",
+  "status": "PASS"
+}
