@@ -25,6 +25,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -287,6 +288,39 @@ LANES = [
 ]
 
 
+# Go prints the panic FIRST and a goroutine dump after it, often hundreds of
+# lines. Taking the last N lines therefore captures the dump's tail and discards
+# the only part that says what broke -- every failed lane reported an identical,
+# useless "testing.tRunner(...)" trace. Pull the diagnostic lines instead.
+_FAILURE_MARKERS = (
+    "panic:", "--- FAIL:", "FAIL\t", "fatal error:", "DATA RACE",
+    "no such", "connection refused", "permission denied",
+)
+
+
+def failure_summary(output, limit=12):
+    lines = output.strip().split("\n")
+    keep = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if any(m in line for m in _FAILURE_MARKERS) or re.match(r"^\s+\S+\.go:\d+: ", line):
+            keep.append(stripped)
+            # A "--- FAIL" line is followed by the assertion that produced it.
+            if "--- FAIL:" in line and i + 1 < len(lines):
+                nxt = lines[i + 1].strip()
+                if nxt and not nxt.startswith("---"):
+                    keep.append(nxt)
+        if len(keep) >= limit:
+            break
+    if not keep:
+        keep = [l.strip() for l in lines[-6:] if l.strip()]
+    seen, out = set(), []
+    for k in keep:
+        if k not in seen:
+            seen.add(k)
+            out.append(k)
+    return "\n".join(out[:limit])
+
 def run_lane(lane, capabilities, timeout):
     missing = [c for c in lane["needs"] if not capabilities[c][0]]
     if missing:
@@ -306,9 +340,9 @@ def run_lane(lane, capabilities, timeout):
                 "reason": f"{type(exc).__name__}: {exc}", "note": lane["note"]}
 
     if proc.returncode != 0:
-        tail = (proc.stdout + proc.stderr).strip().split("\n")[-6:]
         return {"lane": lane["id"], "status": "FAILED",
-                "reason": "\n".join(tail), "note": lane["note"]}
+                "reason": failure_summary(proc.stdout + proc.stderr),
+                "note": lane["note"]}
 
     # Ran and passed. CANARY_PROVEN only if the command walks the whole chain;
     # otherwise TESTED. A lane cannot promote itself by passing a partial test.

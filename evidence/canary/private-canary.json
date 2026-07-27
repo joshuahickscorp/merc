@@ -64,8 +64,8 @@
     },
     {
       "lane": "object_storage",
-      "status": "FAILED",
-      "reason": "testing.tRunner(0x2ef2459fab48, 0x1033e01f8)\n\t/Users/scammermike/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.darwin-arm64/src/testing/testing.go:2036 +0xc4\ncreated by testing.(*T).Run in goroutine 1\n\t/Users/scammermike/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.darwin-arm64/src/testing/testing.go:2101 +0x3a8\nFAIL\tmerc/control\t0.444s\nFAIL",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
       "note": "retention, deletion, tenant isolation against a live store"
     },
     {
@@ -94,8 +94,8 @@
     },
     {
       "lane": "refunds_disputes",
-      "status": "FAILED",
-      "reason": "testing.tRunner(0x6287a3078b48, 0x1016004f0)\n\t/Users/scammermike/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.darwin-arm64/src/testing/testing.go:2036 +0xc4\ncreated by testing.(*T).Run in goroutine 1\n\t/Users/scammermike/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.darwin-arm64/src/testing/testing.go:2101 +0x3a8\nFAIL\tmerc/control\t0.501s\nFAIL",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
       "note": "dispute filing, freeze, resolution and payout control"
     },
     {
@@ -166,18 +166,16 @@
       "buyer_dashboard",
       "embeddings",
       "failure_recovery",
+      "object_storage",
       "payouts",
       "price_board",
       "python_sdk",
       "realtime",
       "receipt_verification",
+      "refunds_disputes",
       "runpod_vllm",
       "supplier_console",
       "typescript_sdk"
-    ],
-    "FAILED": [
-      "object_storage",
-      "refunds_disputes"
     ],
     "TESTED": [
       "alerts",
@@ -189,7 +187,7 @@
     ]
   },
   "lanes_total": 21,
-  "lanes_canary_proven": 13,
+  "lanes_canary_proven": 15,
   "all_lanes_canary_proven": false,
   "public_capability_allowed": false,
   "note": "A lane is CANARY_PROVEN only when its command walks the full chain -- buyer request, contract, scheduler, real runtime, verification, buyer debit, supplier payable, receipt. A lane that passed a partial test is TESTED. A lane whose capability is missing is EXTERNALLY_BLOCKED and names what is missing. There is no override."
