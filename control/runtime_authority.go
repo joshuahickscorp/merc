@@ -14,6 +14,30 @@ import (
 //go:embed runtime-authority.json
 var runtimeAuthorityJSON []byte
 
+type authorityModel struct {
+	ID          string  `json:"id"`
+	WireKind    string  `json:"wire_kind"`
+	Job         string  `json:"job_type"`
+	MinMemoryGB float64 `json:"min_memory_gb"`
+	HFRepo      string  `json:"hf_repo"`
+	HFRevision  string  `json:"hf_revision"`
+	// Onboarding posture. Enforced by validateModelOnboarding; see
+	// control/model_onboarding.go for why each one is a hard gate.
+	License             string `json:"license"`
+	LicenseURL          string `json:"license_url"`
+	CommercialUse       bool   `json:"commercial_use"`
+	AttributionRequired bool   `json:"attribution_required"`
+	AttributionText     string `json:"attribution_text"`
+	RemoteCode          bool   `json:"remote_code"`
+	Artifacts           []struct {
+		Repo     string `json:"repo,omitempty"`
+		Revision string `json:"revision,omitempty"`
+		Path     string `json:"path"`
+		SHA256   string `json:"sha256"`
+		Bytes    int64  `json:"bytes"`
+	} `json:"artifacts"`
+}
+
 type runtimeAuthorityDocument struct {
 	SchemaVersion int    `json:"schema_version"`
 	MatrixVersion string `json:"matrix_version"`
@@ -23,22 +47,8 @@ type runtimeAuthorityDocument struct {
 		Device          string   `json:"device"`
 		HardwareClasses []string `json:"hardware_classes"`
 	} `json:"runtime"`
-	Models []struct {
-		ID          string  `json:"id"`
-		WireKind    string  `json:"wire_kind"`
-		Job         string  `json:"job_type"`
-		MinMemoryGB float64 `json:"min_memory_gb"`
-		HFRepo      string  `json:"hf_repo"`
-		HFRevision  string  `json:"hf_revision"`
-		Artifacts   []struct {
-			Repo     string `json:"repo,omitempty"`
-			Revision string `json:"revision,omitempty"`
-			Path     string `json:"path"`
-			SHA256   string `json:"sha256"`
-			Bytes    int64  `json:"bytes"`
-		} `json:"artifacts"`
-	} `json:"models"`
-	Cells []struct {
+	Models []authorityModel `json:"models"`
+	Cells  []struct {
 		ID           string  `json:"id"`
 		Job          string  `json:"job"`
 		Model        string  `json:"model"`
@@ -79,6 +89,13 @@ func loadRuntimeAuthority() runtimeAuthorityDocument {
 		authority.Runtime.Device == "" || len(authority.Runtime.HardwareClasses) == 0 ||
 		len(authority.Models) != 2 || len(authority.Cells) != 2 {
 		panic("embedded runtime authority is incomplete")
+	}
+	if err := validateModelOnboarding(authority); err != nil {
+		// Fail closed at process start. A model whose licence merc cannot
+		// resell under, or which wants to run repo-supplied code on a
+		// supplier's machine, must not reach a catalogue that suppliers serve
+		// and buyers are charged for.
+		panic(fmt.Sprintf("runtime authority onboarding policy: %v", err))
 	}
 	return authority
 }
