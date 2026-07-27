@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-for env_file in "$ROOT/.env" "${CX_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"; do
+for env_file in "$ROOT/.env" "${MERC_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"; do
   [ -f "$env_file" ] || continue
   set -a
   # shellcheck disable=SC1090
@@ -24,29 +24,29 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$WHICH" ] || die "specify a timestamp or --latest. List: aws s3 ls \$CX_BACKUP_OFFSITE/"
+[ -n "$WHICH" ] || die "specify a timestamp or --latest. List: aws s3 ls \$MERC_BACKUP_OFFSITE/"
 
-OFFSITE="${CX_BACKUP_OFFSITE:-}"
-[ -n "$OFFSITE" ] || die "CX_BACKUP_OFFSITE unset (see .env.example)."
+OFFSITE="${MERC_BACKUP_OFFSITE:-}"
+[ -n "$OFFSITE" ] || die "MERC_BACKUP_OFFSITE unset (see .env.example)."
 [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] \
   || die "offsite creds (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) not set."
 
-COMPOSE_FILE="${CX_COMPOSE_FILE:-$ROOT/docker-compose.prod.yml}"
-PG_SERVICE="${CX_PG_SERVICE:-postgres}"
+COMPOSE_FILE="${MERC_COMPOSE_FILE:-$ROOT/docker-compose.prod.yml}"
+PG_SERVICE="${MERC_PG_SERVICE:-postgres}"
 PG_USER="${POSTGRES_USER:-cx}"
 PG_DB="${POSTGRES_DB:-cx}"
 RESTORE_DB="${TARGET_DB:-$PG_DB}"
 S3_BUCKET="${S3_BUCKET:-cx-jobs}"
 
 AWS_ARGS=()
-[ -n "${CX_BACKUP_S3_ENDPOINT:-}" ] && AWS_ARGS+=(--endpoint-url "$CX_BACKUP_S3_ENDPOINT")
+[ -n "${MERC_BACKUP_S3_ENDPOINT:-}" ] && AWS_ARGS+=(--endpoint-url "$MERC_BACKUP_S3_ENDPOINT")
 
 command -v docker >/dev/null 2>&1 || die "docker not found"
 command -v aws >/dev/null 2>&1 || die "aws CLI not found"
 command -v age >/dev/null 2>&1 || die "age not found"
-IDENTITY="${CX_BACKUP_DECRYPTION_IDENTITY_FILE:-}"
+IDENTITY="${MERC_BACKUP_DECRYPTION_IDENTITY_FILE:-}"
 [ -n "$IDENTITY" ] && [ -r "$IDENTITY" ] \
-  || die "CX_BACKUP_DECRYPTION_IDENTITY_FILE must name a readable age identity"
+  || die "MERC_BACKUP_DECRYPTION_IDENTITY_FILE must name a readable age identity"
 
 dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
 

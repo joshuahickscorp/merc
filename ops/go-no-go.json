@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-07-20T04:35:30Z",
+  "generated_at": "2026-07-20T06:25:00Z",
   "decisions": {
     "software_candidate": "GO",
     "supervised_stripe_test_mode_private_canary": "NO_GO",
@@ -19,7 +19,7 @@
     {
       "id": "P1-RECOVERY-SOAK",
       "owner": "operations",
-      "blocker": "Local source-equivalent rollback/forward and seeded restart-storm receipts pass, but they do not substitute for a qualifying 24-hour run against persistent staging state and two distinct external Metal devices.",
+      "blocker": "Local source-equivalent rollback/forward, seeded restart-storm, and continuous 15-minute/two-hour soak receipts pass, but they do not substitute for a qualifying 24-hour run against persistent staging state and two distinct external Metal devices.",
       "exit_criterion": "Run the exact published candidate and retained prior digest against persistent staging, preserve source/state/restart receipts, and complete the configured 24-hour invariant and SLO window on two distinct external devices."
     },
     {

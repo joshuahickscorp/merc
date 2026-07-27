@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "kind": "alert_delivery",
+  "status": "PASS",
+  "completed_at": "2026-07-26T19:01:30Z",
+  "compose_file": "docker-compose.observability.yml",
+  "compose_project": "cx-alert-delivery-28402",
+  "alertname": "ComputeExchangeSyntheticLocalDelivery",
+  "receiver": {
+    "transport": "alertmanager_webhook",
+    "url_host": "http://host.docker.internal",
+    "secret_values_recorded": false
+  },
+  "delivery": {
+    "firing_received_at": "2026-07-26T19:01:25Z",
+    "resolved_received_at": "2026-07-26T19:01:30Z",
+    "firing_fingerprint": "c812f6ad24fc0de0",
+    "resolved_fingerprint": "c812f6ad24fc0de0",
+    "sink_event_count": 2,
+    "sink_log": "/Users/scammermike/.claude-grok/worktrees/p3-20260726-144808/.artifacts/alert-delivery/cx-alert-delivery-28402/sink-events.jsonl"
+  },
+  "observations": {
+    "firing": {
+      "received_at": "2026-07-26T19:01:25Z",
+      "path": "/alertmanager",
+      "content_type": "application/json",
+      "body": {
+        "receiver": "real-canary-receiver",
+        "status": "firing",
+        "alerts": [
+          {
+            "status": "firing",
+            "labels": {
+              "alertname": "ComputeExchangeSyntheticLocalDelivery",
+              "instance": "cx-local-alert-delivery-28402",
+              "job": "alert-delivery-proof",
+              "severity": "page"
+            },
+            "annotations": {
+              "runbook": "docs/RUNBOOKS.md#control-plane-or-database-outage",
+              "summary": "synthetic local alert delivery proof"
+            },
+            "startsAt": "2026-07-26T19:01:22Z",
+            "endsAt": "0001-01-01T00:00:00Z",
+            "generatorURL": "",
+            "fingerprint": "c812f6ad24fc0de0"
+          }
+        ],
+        "groupLabels": {
+          "alertname": "ComputeExchangeSyntheticLocalDelivery",
+          "severity": "page"
+        },
+        "commonLabels": {
+          "alertname": "ComputeExchangeSyntheticLocalDelivery",
+          "instance": "cx-local-alert-delivery-28402",
+          "job": "alert-delivery-proof",
+          "severity": "page"
+        },
+        "commonAnnotations": {
+          "runbook": "docs/RUNBOOKS.md#control-plane-or-database-outage",
+          "summary": "synthetic local alert delivery proof"
+        },
+        "externalURL": "http://e7397b98883d:9093",
+        "version": "4",
+        "groupKey": "{}/{severity=\"page\"}:{alertname=\"ComputeExchangeSyntheticLocalDelivery\", severity=\"page\"}",
+        "truncatedAlerts": 0
+      }
+    },
+    "resolved": {
+      "received_at": "2026-07-26T19:01:30Z",
+      "path": "/alertmanager",
+      "content_type": "application/json",
+      "body": {
+        "receiver": "real-canary-receiver",
+        "status": "resolved",
+        "alerts": [
+          {
+            "status": "resolved",
+            "labels": {
+              "alertname": "ComputeExchangeSyntheticLocalDelivery",
+              "instance": "cx-local-alert-delivery-28402",
+              "job": "alert-delivery-proof",
+              "severity": "page"
+            },
+            "annotations": {
+              "runbook": "docs/RUNBOOKS.md#control-plane-or-database-outage",
+              "summary": "synthetic local alert delivery proof"
+            },
+            "startsAt": "2026-07-26T19:01:22Z",
+            "endsAt": "2026-07-26T19:01:25Z",
+            "generatorURL": "",
+            "fingerprint": "c812f6ad24fc0de0"
+          }
+        ],
+        "groupLabels": {
+          "alertname": "ComputeExchangeSyntheticLocalDelivery",
+          "severity": "page"
+        },
+        "commonLabels": {
+          "alertname": "ComputeExchangeSyntheticLocalDelivery",
+          "instance": "cx-local-alert-delivery-28402",
+          "job": "alert-delivery-proof",
+          "severity": "page"
+        },
+        "commonAnnotations": {
+          "runbook": "docs/RUNBOOKS.md#control-plane-or-database-outage",
+          "summary": "synthetic local alert delivery proof"
+        },
+        "externalURL": "http://e7397b98883d:9093",
+        "version": "4",
+        "groupKey": "{}/{severity=\"page\"}:{alertname=\"ComputeExchangeSyntheticLocalDelivery\", severity=\"page\"}",
+        "truncatedAlerts": 0
+      }
+    }
+  },
+  "assertions_derived_from_sink": [
+    "firing webhook body.status observed",
+    "resolved webhook body.status observed",
+    "sink_event_count >= 2"
+  ]
+}

@@ -9,7 +9,10 @@ import (
 const (
 	verificationDBHeadroom int32 = 2
 
-	verificationArtifactMemoryCeiling int64 = (1 << 30) + (64 << 20) // 1.0625 GiB
+	// One maximum-sized primary and one maximum-sized redundancy artifact,
+	// plus digest/headroom, fit below this ceiling. Competing processors fail
+	// busy and retry instead of collectively exceeding the 1 GiB container.
+	verificationArtifactMemoryCeiling int64 = 192 << 20
 )
 
 var (

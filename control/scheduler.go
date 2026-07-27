@@ -153,6 +153,11 @@ func containsStr(xs []string, x string) bool {
 	return false
 }
 
+// askDeferralWindow is how long a task waits for a cheaper-asking worker before
+// any eligible worker may claim it.  Short enough that a quiet fleet barely
+// notices, long enough that a polling worker gets a turn.
+var askDeferralWindow = 20 * time.Second
+
 func hwClassCostRank(hwClass string) int {
 	switch hwClass {
 	case "apple_silicon_base":
@@ -386,6 +391,41 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 	              AND wac2.matrix_sha256 = $4
 	         )
 	     ) AS cheaper_class_online,
+	     -- Same shape as cheaper_class_online, but on the supplier's OWN ASK
+	     -- rather than the platform's hardware-class ranking ($5 = this claiming
+	     -- worker's min_payout_usd_hr).
+	     --
+	     -- min_payout_usd_hr was previously read only as an exclusion filter
+	     -- (a worker asking more than the job offers cannot claim), so a supplier
+	     -- who priced themselves cheaply gained nothing by it: allocation ignored
+	     -- the ask entirely once the filter passed. That is a price list, not an
+	     -- exchange. Deferring a task when a cheaper-asking, equally-capable
+	     -- worker is online makes the ask actually compete, using the mechanism
+	     -- and the MATERIALIZED cost profile already proven for hardware class.
+	     --
+	     -- Like cheaper_class_online this depends only on j.* and the claiming
+	     -- worker's own parameters, never on t, so it stays correct computed once
+	     -- per candidate job.
+	     EXISTS (
+	       SELECT 1 FROM workers w3
+	         JOIN suppliers s3 ON s3.id = w3.supplier_id
+	       WHERE w3.id <> me.worker_id
+	         AND w3.last_seen_at IS NOT NULL
+	         AND w3.last_seen_at > now() - interval '60 seconds'
+	         AND s3.status = 'active'
+	         AND NOT COALESCE(w3.throttled, false)
+	         AND COALESCE(w3.min_payout_usd_hr, 0) < $5
+	         AND COALESCE(j.offered_rate_usd_hr, 1e9) >= COALESCE(w3.min_payout_usd_hr, 0)
+	         AND COALESCE(j.min_memory_gb,0) <= COALESCE(w3.effective_memory_gb, w3.memory_gb, 0)
+	         AND (j.hw_classes IS NULL OR w3.hw_class = ANY(j.hw_classes))
+	         AND EXISTS (
+	           SELECT 1 FROM worker_authorized_capabilities wac3
+	            WHERE wac3.worker_id = w3.id
+	              AND wac3.job_type = j.job_type
+	              AND wac3.model_ref = COALESCE(j.model_ref,'')
+	              AND wac3.matrix_sha256 = $4
+	         )
+	     ) AS cheaper_ask_online,
 	     -- Dispatch-interleave fairness (Scheduling & Matching Engine 6.5->7,
 	     -- docs/internal/CREED_AND_PATH_TO_TEN.md): how many of THIS job's own
 	     -- tasks have already been dispatched (running or complete). Ordered
@@ -425,7 +465,12 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 	       SELECT 1 FROM worker_model_state wms
 	         WHERE wms.worker_id = $1 AND wms.model_id = j.model_ref
 	           AND wms.last_seen_warm > now() - interval '60 seconds'
-	     )) AS warm_for_task
+	     )) AS warm_for_task,
+	     (j.prefix_id IS NOT NULL AND EXISTS (
+	       SELECT 1 FROM worker_prefix_state wps
+	         WHERE wps.worker_id = $1 AND wps.prefix_id = j.prefix_id
+	           AND wps.last_seen_warm > now() - interval '90 seconds'
+	     )) AS warm_for_prefix
 	   FROM jobs j
 	   CROSS JOIN me
 	   -- Resolve the ONE exact server-authorized runtime tuple that will be frozen
@@ -526,6 +571,7 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 	     ej.cheaper_class_online,
 	     ej.worker_tps,
 	     ej.warm_for_task,
+	     ej.warm_for_prefix,
 	     ej.job_dispatched_count,
 	     ej.runtime_cell_id,
 	     ej.runtime_id,
@@ -544,6 +590,20 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 	     JOIN eligible_jobs ej ON ej.job_id = t.job_id
 	   WHERE t.status IN ('queued','retrying')
 	     AND COALESCE(t.visible_at, t.created_at) <= now()
+	     -- First refusal for the cheaper ask.  ORDER BY alone cannot express this:
+	     -- ordering picks WHICH task a polling worker takes, never whether it
+	     -- should take one at all, so with a single queued task an expensive
+	     -- worker claims it regardless of who else is online.  A brief hold gives
+	     -- a cheaper, equally-capable worker the chance to claim first and makes
+	     -- min_payout_usd_hr compete instead of merely gating.
+	     --
+	     -- Bounded on purpose: after askDeferralWindow the task is claimable by
+	     -- anyone who passes the hard filter, so a cheap worker that advertises
+	     -- itself and then never polls cannot starve the queue.  cheaper_ask_online
+	     -- already requires the rival to be seen within 60s, active, unthrottled,
+	     -- capability-matched and affordable to this job.
+	     AND (NOT ej.cheaper_ask_online
+	          OR COALESCE(t.visible_at, t.created_at) <= now() - $6::interval)
 	     -- claimable when unclaimed, OR pre-claimed (pinned) to THIS worker and
 	     -- not yet started (a tiebreak/hedge dispatch pinned to a chosen peer).
 	     -- PATCH (P-splitclaim, docs/CREED_AND_PATH_TO_TEN.md "Control plane hot
@@ -654,7 +714,8 @@ func ClaimTaskSQL(claimedByPredicate string) string {
 		                 ELSE (ej.tier = 'priority')
 		            END DESC,
 		            (ej.tier = 'priority') DESC,
-		            cheaper_class_online ASC, worker_tps DESC, warm_for_task DESC,
+		            cheaper_class_online ASC, cheaper_ask_online ASC, worker_tps DESC,
+		            warm_for_prefix DESC, warm_for_task DESC,
 	            job_dispatched_count ASC, t.created_at ASC
 	   FOR UPDATE OF t SKIP LOCKED
 	   LIMIT 1
@@ -700,9 +761,11 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 	defer tx.Rollback(ctx)
 
 	var hwClass string
+	var selfMinPayoutUsdHr float64
 	if err := tx.QueryRow(ctx,
-		`SELECT COALESCE(hw_class,'') FROM workers WHERE id = $1 FOR UPDATE`, w.WorkerID,
-	).Scan(&hwClass); errors.Is(err, pgx.ErrNoRows) {
+		`SELECT COALESCE(hw_class,''), COALESCE(min_payout_usd_hr, 0)
+		   FROM workers WHERE id = $1 FOR UPDATE`, w.WorkerID,
+	).Scan(&hwClass, &selfMinPayoutUsdHr); errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	} else if err != nil {
 		return nil, err
@@ -724,6 +787,7 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 	scanClaim := func(claimedByPredicate string) error {
 		return tx.QueryRow(ctx, claimTaskQuery(claimedByPredicate),
 			w.WorkerID, int(tier), selfCostRank, generatedRuntimeMatrixSHA256,
+			selfMinPayoutUsdHr, askDeferralWindow.String(),
 		).Scan(&c.TaskID, &c.Attempt, &c.JobID, &c.JobType, &c.ModelRef, &c.ModelKind,
 			&c.RuntimeCellID, &c.RuntimeID, &c.RuntimeMatrixSHA, &c.InputRef, &c.ResultKey,
 			&c.OutputRef, &c.Tier, &c.MinMemoryGB, &c.HWClasses, &c.MaxDurationSecs,

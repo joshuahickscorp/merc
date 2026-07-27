@@ -196,9 +196,12 @@ func (s *Store) BuyerFreeCreditRemaining(ctx context.Context, buyerID uuid.UUID)
 		`SELECT GREATEST(
 		          b.free_credit_usd
 		          - COALESCE((SELECT -SUM(amount_usd) FROM ledger_entries
-		                       WHERE buyer_id = b.id AND kind = 'buyer_charge'), 0)
+		                       WHERE buyer_id = b.id
+		                         AND kind IN ('buyer_charge','buyer_refund')), 0)
 		          - COALESCE((SELECT SUM(estimated_usd) FROM jobs
-		                       WHERE buyer_id = b.id AND status IN ('queued','running','verifying')), 0),
+		                       WHERE buyer_id = b.id AND status IN ('queued','running','verifying')), 0)
+		          - COALESCE((SELECT SUM(maximum_price_usd) FROM execution_contracts
+		                       WHERE buyer_id = b.id AND state = 'EXECUTING'), 0),
 		          0)::float8
 		   FROM buyers b WHERE b.id = $1`, buyerID,
 	).Scan(&remaining)
@@ -267,7 +270,7 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	grant := sandboxFreeCreditUSD
-	if v := envFloat("CX_SANDBOX_CREDIT_USD", grant); v >= 0 {
+	if v := envFloat("MERC_SANDBOX_CREDIT_USD", grant); v >= 0 {
 		grant = v
 	}
 	buyerID, err := s.store.CreateBuyerAccount(r.Context(), email, req.Password, grant)

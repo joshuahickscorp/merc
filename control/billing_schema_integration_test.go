@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -14,10 +13,7 @@ import (
 // CI and prove-local opt in with a disposable PostgreSQL URL; ordinary unit
 // test runs remain hermetic.
 func TestBillingCustomerCanonicalSchema(t *testing.T) {
-	databaseURL := os.Getenv("CX_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("CX_TEST_DATABASE_URL is not set")
-	}
+	databaseURL := requireTestDatabase(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

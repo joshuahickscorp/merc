@@ -3,12 +3,12 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const pageNames = ['web/index.html', 'web/buyer.html', 'web/admin.html'];
+const pageNames = ['web/index.html', 'web/buyer.html', 'web/admin.html', 'web/prices.html', 'web/supplier.html'];
 const pages = new Map();
 for (const name of pageNames) {
   const html = fs.readFileSync(path.join(root, name), 'utf8');
   pages.set(name, html);
-  if (!html.includes('<!doctype html>') || !html.includes('computexchange')) {
+  if (!html.includes('<!doctype html>') || !html.includes('merc')) {
     throw new Error(`${name}: invalid static page`);
   }
   if (/\b\d+\s+(?:passed|checks)\b/i.test(html)) {

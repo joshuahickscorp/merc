@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://computexchange.invalid/schemas/governance-approval-bundle.schema.json",
-  "title": "ComputExchange exact-candidate governance approval bundle",
+  "title": "merc exact-candidate governance approval bundle",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "candidate_commit", "scope", "approvals", "exercises"],

@@ -5,7 +5,7 @@
 
 GC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 GC_COMPOSE="$GC_ROOT/ops/staging/compose.go-closure.yml"
-GC_ENV_FILE="${CX_GO_CLOSURE_ENV_FILE:-$GC_ROOT/.env.go-closure}"
+GC_ENV_FILE="${MERC_GO_CLOSURE_ENV_FILE:-$GC_ROOT/.env.go-closure}"
 GC_INPUTS="$GC_ROOT/ops/go-closure-inputs.json"
 
 gc_die() {
@@ -65,7 +65,7 @@ gc_reject_live_stripe_environment() {
         ;;
     esac
   done
-  [ "${CX_PAYMENT_PROVIDER:-}" != simulator ] \
+  [ "${MERC_PAYMENT_PROVIDER:-}" != simulator ] \
     || gc_die "the payment simulator is CLI/test-only and cannot be selected by staging"
 }
 
@@ -129,14 +129,14 @@ gc_validate_host_config() {
   gc_require_command docker
   docker compose version >/dev/null 2>&1 || gc_die "Docker Compose v2 is required"
   gc_require_declared_inputs STAGING_TLS_HOSTNAME STAGING_DEPLOYMENT_ROOT \
-    STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET CX_CONNECT_WEBHOOK_SECRET \
-    CX_CONNECT_CLIENT_ID ALERT_RECEIVER_WEBHOOK_URL ALERT_RECEIVER_NAME \
+    STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET MERC_CONNECT_WEBHOOK_SECRET \
+    MERC_CONNECT_CLIENT_ID ALERT_RECEIVER_WEBHOOK_URL ALERT_RECEIVER_NAME \
     STAGING_STORAGE_TLS_HOSTNAME STAGING_BIND_ADDRESS ACME_EMAIL \
     POSTGRES_PASSWORD MINIO_ROOT_USER MINIO_ROOT_PASSWORD \
-    GF_SECURITY_ADMIN_PASSWORD CX_TOKEN_KEY CX_VERIFICATION_SAMPLE_SECRET \
-    CX_CANDIDATE_CONTROL_IMAGE CX_CANDIDATE_COMMIT \
-    CX_PRIOR_CONTROL_IMAGE CX_PRIOR_COMMIT \
-    CX_PROMETHEUS_IMAGE CX_ALERTMANAGER_IMAGE CX_GRAFANA_IMAGE CX_NODE_EXPORTER_IMAGE
+    GF_SECURITY_ADMIN_PASSWORD MERC_TOKEN_KEY MERC_VERIFICATION_SAMPLE_SECRET \
+    MERC_CANDIDATE_CONTROL_IMAGE MERC_CANDIDATE_COMMIT \
+    MERC_PRIOR_CONTROL_IMAGE MERC_PRIOR_COMMIT \
+    MERC_PROMETHEUS_IMAGE MERC_ALERTMANAGER_IMAGE MERC_GRAFANA_IMAGE MERC_NODE_EXPORTER_IMAGE
   gc_validate_hostname STAGING_TLS_HOSTNAME
   gc_validate_hostname STAGING_STORAGE_TLS_HOSTNAME
   gc_validate_absolute_path STAGING_DEPLOYMENT_ROOT
@@ -155,28 +155,28 @@ gc_validate_host_config() {
   [[ "$STRIPE_SECRET_KEY" == sk_test_* || "$STRIPE_SECRET_KEY" == rk_test_* ]] \
     || gc_die "STRIPE_SECRET_KEY must be sk_test_* or a sufficiently scoped rk_test_*"
   [[ "$STRIPE_WEBHOOK_SECRET" == whsec_* ]] || gc_die "STRIPE_WEBHOOK_SECRET must be whsec_*"
-  [[ "$CX_CONNECT_WEBHOOK_SECRET" == whsec_* ]] || gc_die "CX_CONNECT_WEBHOOK_SECRET must be whsec_*"
-  [[ "$CX_CONNECT_CLIENT_ID" == ca_* ]] || gc_die "CX_CONNECT_CLIENT_ID must be a test-mode ca_* identifier"
-  [ "$STRIPE_WEBHOOK_SECRET" != "$CX_CONNECT_WEBHOOK_SECRET" ] \
+  [[ "$MERC_CONNECT_WEBHOOK_SECRET" == whsec_* ]] || gc_die "MERC_CONNECT_WEBHOOK_SECRET must be whsec_*"
+  [[ "$MERC_CONNECT_CLIENT_ID" == ca_* ]] || gc_die "MERC_CONNECT_CLIENT_ID must be a test-mode ca_* identifier"
+  [ "$STRIPE_WEBHOOK_SECRET" != "$MERC_CONNECT_WEBHOOK_SECRET" ] \
     || gc_die "Stripe billing and Connect webhook secrets must be distinct"
   [[ "$ALERT_RECEIVER_WEBHOOK_URL" == https://* ]] \
     || gc_die "ALERT_RECEIVER_WEBHOOK_URL must use HTTPS"
-  gc_validate_image_ref CX_CANDIDATE_CONTROL_IMAGE
-  gc_validate_image_ref CX_PRIOR_CONTROL_IMAGE
-  gc_validate_image_ref CX_PROMETHEUS_IMAGE
-  gc_validate_image_ref CX_ALERTMANAGER_IMAGE
-  gc_validate_image_ref CX_GRAFANA_IMAGE
-  gc_validate_image_ref CX_NODE_EXPORTER_IMAGE
-  gc_validate_commit CX_CANDIDATE_COMMIT
-  gc_validate_commit CX_PRIOR_COMMIT
-  [ "$CX_CANDIDATE_CONTROL_IMAGE" != "$CX_PRIOR_CONTROL_IMAGE" ] \
+  gc_validate_image_ref MERC_CANDIDATE_CONTROL_IMAGE
+  gc_validate_image_ref MERC_PRIOR_CONTROL_IMAGE
+  gc_validate_image_ref MERC_PROMETHEUS_IMAGE
+  gc_validate_image_ref MERC_ALERTMANAGER_IMAGE
+  gc_validate_image_ref MERC_GRAFANA_IMAGE
+  gc_validate_image_ref MERC_NODE_EXPORTER_IMAGE
+  gc_validate_commit MERC_CANDIDATE_COMMIT
+  gc_validate_commit MERC_PRIOR_COMMIT
+  [ "$MERC_CANDIDATE_CONTROL_IMAGE" != "$MERC_PRIOR_CONTROL_IMAGE" ] \
     || gc_die "candidate and prior image digests must differ"
-  [ "$CX_CANDIDATE_COMMIT" != "$CX_PRIOR_COMMIT" ] \
+  [ "$MERC_CANDIDATE_COMMIT" != "$MERC_PRIOR_COMMIT" ] \
     || gc_die "candidate and prior commits must differ"
-  [ "${#CX_TOKEN_KEY}" -ge 32 ] || gc_die "CX_TOKEN_KEY must contain at least 32 bytes"
-  [ "${#CX_VERIFICATION_SAMPLE_SECRET}" -ge 32 ] \
-    || gc_die "CX_VERIFICATION_SAMPLE_SECRET must contain at least 32 bytes"
-  [ "$CX_TOKEN_KEY" != "$CX_VERIFICATION_SAMPLE_SECRET" ] \
+  [ "${#MERC_TOKEN_KEY}" -ge 32 ] || gc_die "MERC_TOKEN_KEY must contain at least 32 bytes"
+  [ "${#MERC_VERIFICATION_SAMPLE_SECRET}" -ge 32 ] \
+    || gc_die "MERC_VERIFICATION_SAMPLE_SECRET must contain at least 32 bytes"
+  [ "$MERC_TOKEN_KEY" != "$MERC_VERIFICATION_SAMPLE_SECRET" ] \
     || gc_die "token and verification secrets must be distinct"
   [[ "$POSTGRES_PASSWORD" =~ ^[A-Za-z0-9._~-]{32,}$ ]] \
     || gc_die "POSTGRES_PASSWORD must be at least 32 URL-safe characters"
@@ -187,28 +187,28 @@ gc_validate_host_config() {
   [ "${#GF_SECURITY_ADMIN_PASSWORD}" -ge 32 ] \
     || gc_die "GF_SECURITY_ADMIN_PASSWORD must contain at least 32 bytes"
   [[ "$ACME_EMAIL" == *@*.* ]] || gc_die "ACME_EMAIL must be an email address"
-  gc_require_declared_inputs CX_CANARY_APPROVED_BUYER_EMAILS CX_CANARY_APPROVED_WORKER_IDS \
-    CX_CANARY_APPROVED_AGENT_VERSIONS CX_CANARY_APPROVED_BUILD_HASHES
-  [ "$(jq -Rn --arg value "$CX_CANARY_APPROVED_BUYER_EMAILS" \
+  gc_require_declared_inputs MERC_CANARY_APPROVED_BUYER_EMAILS MERC_CANARY_APPROVED_WORKER_IDS \
+    MERC_CANARY_APPROVED_AGENT_VERSIONS MERC_CANARY_APPROVED_BUILD_HASHES
+  [ "$(jq -Rn --arg value "$MERC_CANARY_APPROVED_BUYER_EMAILS" \
       '$value | split(",") | map(ascii_downcase | gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | unique | length')" -eq 2 ] \
-    || gc_die "CX_CANARY_APPROVED_BUYER_EMAILS must contain exactly two distinct buyers"
-  jq -en --arg value "$CX_CANARY_APPROVED_WORKER_IDS" '
+    || gc_die "MERC_CANARY_APPROVED_BUYER_EMAILS must contain exactly two distinct buyers"
+  jq -en --arg value "$MERC_CANARY_APPROVED_WORKER_IDS" '
     ($value | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))) as $ids |
     ($ids | length) == 2 and ($ids | unique | length) == 2 and
     all($ids[]; test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"))
-  ' >/dev/null || gc_die "CX_CANARY_APPROVED_WORKER_IDS must contain exactly two distinct UUIDs"
-  jq -en --arg value "$CX_CANARY_APPROVED_AGENT_VERSIONS" '
+  ' >/dev/null || gc_die "MERC_CANARY_APPROVED_WORKER_IDS must contain exactly two distinct UUIDs"
+  jq -en --arg value "$MERC_CANARY_APPROVED_AGENT_VERSIONS" '
     ($value | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))) as $items |
     ($items | length) >= 1 and ($items | length) <= 4 and
     ($items | unique | length) == ($items | length) and
     all($items[]; test("^[0-9]+[.][0-9]+[.][0-9]+([+-][0-9A-Za-z.-]+)?$"))
-  ' >/dev/null || gc_die "CX_CANARY_APPROVED_AGENT_VERSIONS must contain one to four distinct reviewed semvers"
-  jq -en --arg value "$CX_CANARY_APPROVED_BUILD_HASHES" '
+  ' >/dev/null || gc_die "MERC_CANARY_APPROVED_AGENT_VERSIONS must contain one to four distinct reviewed semvers"
+  jq -en --arg value "$MERC_CANARY_APPROVED_BUILD_HASHES" '
     ($value | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))) as $items |
     ($items | length) >= 1 and ($items | length) <= 4 and
     ($items | unique | length) == ($items | length) and
     all($items[]; test("^[0-9a-f]{16}$"))
-  ' >/dev/null || gc_die "CX_CANARY_APPROVED_BUILD_HASHES must contain one to four distinct reviewed 16-hex hashes"
+  ' >/dev/null || gc_die "MERC_CANARY_APPROVED_BUILD_HASHES must contain one to four distinct reviewed 16-hex hashes"
   [ -f "$GC_COMPOSE" ] || gc_die "missing compose manifest: $GC_COMPOSE"
 }
 

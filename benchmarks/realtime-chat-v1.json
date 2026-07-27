@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "fixture_id": "cx-realtime-chat-v1",
+  "prompts": [
+    "Reply with exactly three words describing reliable distributed systems.",
+    "In one sentence, explain why idempotency matters in payment processing.",
+    "Return a JSON object with keys status and count, using status ready and count 3.",
+    "List four failure modes of a streaming inference gateway, separated by commas.",
+    "Write one concise sentence about measuring time to first token."
+  ]
+}

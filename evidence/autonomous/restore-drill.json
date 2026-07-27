@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "kind": "restore_drill",
+  "status": "PASS",
+  "drill_id": "20260726T190058Z-27937",
+  "completed_at": "2026-07-26T19:01:03Z",
+  "runtime": "docker",
+  "rto_seconds_measured": 1.386,
+  "thresholds": {
+    "min_jobs": 10000,
+    "min_ledger_entries": 1000,
+    "min_objects": 1000
+  },
+  "source": {
+    "buyers": 1,
+    "jobs": 10000,
+    "tasks": 1,
+    "ledger_entries": 1000,
+    "marker": "queued"
+  },
+  "restored": {
+    "buyers": 1,
+    "jobs": 10000,
+    "tasks": 1,
+    "ledger_entries": 1000,
+    "marker": "queued"
+  },
+  "source_object_count": 1000,
+  "restored_object_count": 1000,
+  "db_dump_sha256": "63866db5335064d9c52834d3ab834fd8dabf49ec7e0a2a4285b6fb2886e9f52c",
+  "restored_state_sha256": "f02ada7dd23758f6b143abb1d3d2df21fca3976715be1f871fac5688982811a1",
+  "restored_object_manifest_sha256": "552d03ff74f49566905be14249485b678f502f3763cf234bf03e7c35ccb541a7",
+  "corrupt_backup_evidence": "evidence/autonomous/corrupt-backup-refused.json",
+  "assertions_derived_from_observation": [
+    "source and restored row-count JSON match",
+    "jobs/ledger/objects meet production-shaped minima",
+    "database and object content hashes match",
+    "RTO measured wall-clock around pg_restore + object mirror"
+  ]
+}

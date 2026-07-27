@@ -1,0 +1,23 @@
+# Computexchange vulnerability disclosure contact.
+#
+# CONTACTS ARE NOT SET. The value below is a deliberate template placeholder so
+# readiness/go-closure checks keep failing until a real operator contact is
+# installed. Do not treat this as a staffed security mailbox.
+#
+# Validator that keeps this gap visible:
+#   scripts/lib/go-closure-common.sh  (gc_require_value rejects *example.invalid*)
+# Operational contact register (also unset):
+#   docs/SUPPORT_AND_INCIDENT_RUNBOOK.md  ([CONTACT REQUIRED] lines)
+#
+# Replace both the Contact URI and the runbook entries before claiming a
+# staffed private-canary support surface.
+
+Contact: mailto:security-contact@example.invalid
+Contact: https://github.com/joshuahickscorp/computexchange/issues
+Preferred-Languages: en
+Canonical: https://mercmerc.net/.well-known/security.txt
+Policy: https://mercmerc.net/docs/SECURITY.md
+Acknowledgments: https://github.com/joshuahickscorp/computexchange/security/advisories
+
+# [CONTACT REQUIRED]
+# [SECURITY CONTACT REQUIRED]

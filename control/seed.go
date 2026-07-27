@@ -69,10 +69,17 @@ func seedDemo(ctx context.Context, pool *pgxpool.Pool, storage *Storage) error {
 		{`INSERT INTO api_keys (buyer_id, key_hash, is_admin, revoked)
 		  VALUES ($1, $2, false, false)
 		  ON CONFLICT (key_hash) DO NOTHING`, []any{demoBuyerID, hashKey(demoAPIKey)}},
+		// Primary offline-minted operator credential (admin_credentials class).
+		{`INSERT INTO admin_credentials (key_hash, label, revoked)
+		  VALUES ($1, 'local-rehearsal-operator', false)
+		  ON CONFLICT (key_hash) DO UPDATE SET label=EXCLUDED.label, revoked=false`,
+			[]any{hashKey(demoAdminAPIKey)}},
+		// Legacy break-glass is_admin key kept so migration-path proofs still work.
 		{`INSERT INTO api_keys (buyer_id, key_hash, is_admin, revoked, name, masked)
-		  VALUES ($1, $2, true, false, 'local-rehearsal-operator', 'dev-...0001')
+		  VALUES ($1, $2, true, false, 'local-rehearsal-break-glass', 'dev-...0001')
 		  ON CONFLICT (key_hash) DO UPDATE
-		  SET name=EXCLUDED.name,masked=EXCLUDED.masked`, []any{demoAdminBuyerID, hashKey(demoAdminAPIKey)}},
+		  SET name=EXCLUDED.name,masked=EXCLUDED.masked,is_admin=true,revoked=false`,
+			[]any{demoAdminBuyerID, hashKey(demoAdminAPIKey)}},
 		{`INSERT INTO honeypots (job_type, input_ref, known_answer)
 		  SELECT 'embed', $1, $2
 		  WHERE NOT EXISTS (SELECT 1 FROM honeypots WHERE job_type='embed' AND input_ref=$1)`,

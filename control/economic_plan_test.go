@@ -261,3 +261,63 @@ func FuzzBuildEconomicPlanNeverAuthorizesNegativeMargin(f *testing.F) {
 		}
 	})
 }
+
+// The per-task price floor must not be made of a card-network fee.
+//
+// Charges are batched -- chargeOrDeferJob defers a job until the buyer's
+// outstanding total reaches chargeMinUSD and FormChargeBatch then settles the
+// group on one PaymentIntent -- so a task is never charged alone.  Loading a
+// whole ProcessorFixedUSD into every task's floor produced a hard $0.344547
+// minimum per task no matter how cheap the compute, which is a floor that
+// cannot fall as compute gets cheaper and which priced small workloads roughly
+// two orders of magnitude above market.
+func TestBuildEconomicPlanAmortisesProcessorFixedFeeOverChargeBatch(t *testing.T) {
+	schedule := EconomicSchedule{
+		Version: "test", ProcessorPercent: 0.029, ProcessorFixedUSD: 0.30,
+		MinChargeBatchUSD: 5.00, ControlPlanePerTaskUSD: 0.0001, TargetMarginRate: 0.10,
+	}
+	in := EconomicPlanInput{
+		BaseComputeUSD: 0.01, InitialTaskCount: 1000, SupplierShare: 0.97,
+	}
+	plan := BuildEconomicPlan(in, schedule)
+	if !plan.Executable {
+		t.Fatalf("plan blocked: %s", plan.BlockReason)
+	}
+
+	// The old model floored every task at (0.30 + 0.0001) / (1 - 0.029 - 0.10).
+	const oldFloor = 0.344547
+	if plan.BuyerChargePerTaskUSD >= oldFloor {
+		t.Fatalf("buyer charge per task = %.6f, still at or above the old fixed-fee floor %.6f",
+			plan.BuyerChargePerTaskUSD, oldFloor)
+	}
+
+	// A 1000-task job costing a cent in total should be priced from compute plus
+	// margin, not from a $0.30 fee.  Anything above a cent a task means the fee
+	// is still dominating.
+	if plan.BuyerChargePerTaskUSD > 0.01 {
+		t.Fatalf("buyer charge per task = %.6f, want <= 0.01 for a $0.01 job", plan.BuyerChargePerTaskUSD)
+	}
+
+	// And the whole job must still clear the margin target in every scenario.
+	if plan.MinimumMarginHeadroomUSD < -0.000001 {
+		t.Fatalf("scenario %s misses the margin floor by %.6f",
+			plan.MinimumScenario, -plan.MinimumMarginHeadroomUSD)
+	}
+}
+
+// With no batching floor configured the conservative original behaviour must
+// survive: each task is assumed to trigger its own charge and must cover a whole
+// fixed fee.
+func TestBuildEconomicPlanKeepsStandaloneFixedFeeWhenNoBatchFloor(t *testing.T) {
+	schedule := EconomicSchedule{
+		Version: "test", ProcessorPercent: 0.029, ProcessorFixedUSD: 0.30,
+		MinChargeBatchUSD: 0, ControlPlanePerTaskUSD: 0.0001, TargetMarginRate: 0.10,
+	}
+	plan := BuildEconomicPlan(EconomicPlanInput{
+		BaseComputeUSD: 0.01, InitialTaskCount: 1000, SupplierShare: 0.97,
+	}, schedule)
+	if plan.BuyerChargePerTaskUSD < 0.344547 {
+		t.Fatalf("buyer charge per task = %.6f, want the standalone floor when no batch size is known",
+			plan.BuyerChargePerTaskUSD)
+	}
+}

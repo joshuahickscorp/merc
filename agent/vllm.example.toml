@@ -1,0 +1,12 @@
+control_url = "https://control.compute.exchange"
+worker_token = "cxw_replace_me"
+runtime_profile_path = "../control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json"
+public_base_url = "https://this-worker-private-origin.example/v1"
+model_cache_dir = "/var/lib/computeexchange/models"
+container_runtime = "docker"
+listen_host = "127.0.0.1"
+listen_port = 8000
+max_active_sequences = 128
+startup_timeout_secs = 900
+supplier_input_usd_per_million_tokens = 0.08
+supplier_output_usd_per_million_tokens = 0.30

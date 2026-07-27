@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "backup_age_metric",
+  "status": "PASS",
+  "completed_at": "2026-07-26T18:54:44Z",
+  "alert": {
+    "name": "ComputeExchangeBackupStale",
+    "expr": "cx_backup_age_seconds > 93600",
+    "threshold_seconds": 93600
+  },
+  "observations": {
+    "after_backup_signal": {
+      "configured": true,
+      "valid": true,
+      "last_success": 1785092083,
+      "age_seconds": 0.800,
+      "observed_at_unix": 1785092083,
+      "path_configured": true
+    },
+    "after_no_backup_stale_signal": {
+      "configured": true,
+      "valid": true,
+      "last_success": 1784994883,
+      "age_seconds": 97201.639,
+      "observed_at_unix": 1785092084,
+      "path_configured": true
+    }
+  },
+  "derived": {
+    "age_moved": true,
+    "fresh_age_seconds": 0.800,
+    "stale_age_seconds": 97201.639,
+    "stale_would_fire_alert": true,
+    "backup_sh_dry_run_status_written": true
+  },
+  "secret_values_recorded": false
+}

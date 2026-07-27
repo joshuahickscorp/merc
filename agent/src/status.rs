@@ -380,7 +380,7 @@ fn apply_throttle(i: &mut Inner, t: &ThrottleDecision) {
 }
 
 fn status_path() -> PathBuf {
-    if let Ok(p) = std::env::var("CX_STATUS_PATH") {
+    if let Ok(p) = std::env::var("MERC_STATUS_PATH") {
         if !p.is_empty() {
             return PathBuf::from(p);
         }
@@ -394,7 +394,7 @@ fn status_path() -> PathBuf {
 }
 
 fn model_cache_dir() -> PathBuf {
-    if let Ok(d) = std::env::var("CX_MODEL_CACHE") {
+    if let Ok(d) = std::env::var("MERC_MODEL_CACHE") {
         if !d.is_empty() {
             return PathBuf::from(d);
         }

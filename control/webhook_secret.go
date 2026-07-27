@@ -27,7 +27,7 @@ type WebhookRegistration struct {
 
 func requireWebhookSigningKey() error {
 	if len(tokenKey()) == 0 {
-		return fmt.Errorf("%w: CX_TOKEN_KEY is required", errWebhookSigningKeyUnavailable)
+		return fmt.Errorf("%w: MERC_TOKEN_KEY is required", errWebhookSigningKeyUnavailable)
 	}
 	return nil
 }

@@ -31,7 +31,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://cx:cx@localhost:5432/cx?sslmode=disable
-      CX_TEST_DATABASE_URL: postgres://cx:cx@localhost:5432/cx?sslmode=disable
+      MERC_TEST_DATABASE_URL: postgres://cx:cx@localhost:5432/cx?sslmode=disable
       PGPASSWORD: cx
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -56,6 +56,11 @@ jobs:
           go vet ./...
           go test ./...
           go test -race ./...
+      # A skipped test is an assertion nobody made.  MERC_TEST_DATABASE_URL is set
+      # for this job, so the money and scheduling suite must actually run; this
+      # step fails if any test skips without being allowlisted.
+      - name: no silent test skips
+        run: bash scripts/assert-no-test-skips.sh
       - name: build and census
         run: |
           cd control
@@ -101,7 +106,7 @@ jobs:
           cd agent
           time cargo build --release
           cd ..
-          bash macapp/ComputeExchangeAgent/sandbox-profile-test.sh
+          bash macapp/MercAgent/sandbox-profile-test.sh
       - name: Package agent evidence
         run: |
           mkdir -p "$RUNNER_TEMP/agent-evidence"
@@ -148,8 +153,9 @@ jobs:
           python3 scripts/validate-governance.py
           python3 scripts/validate-readiness.py
           node scripts/site-build.mjs
-          bash -n scripts/backup.sh scripts/restore.sh scripts/release-doctor.sh
+          bash -n scripts/*.sh
           bash scripts/test-backup-envelope.sh
+          bash scripts/test-backup-schedule.sh
       - name: Python SDK package
         run: bash scripts/verify-python-sdk-package.sh
       - name: CLI release archive
@@ -198,9 +204,9 @@ jobs:
           CANDIDATE_EPOCH="$(git show -s --format=%ct "$CANDIDATE_SHA")"
           CANDIDATE_DATE="$(date -u -d "@$CANDIDATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
           docker build \
-            --build-arg CX_BUILD_VERSION=v0.1.0-rc.1 \
-            --build-arg CX_BUILD_COMMIT="$CANDIDATE_SHA" \
-            --build-arg CX_BUILD_DATE="$CANDIDATE_DATE" \
+            --build-arg MERC_BUILD_VERSION=v0.1.0-rc.1 \
+            --build-arg MERC_BUILD_COMMIT="$CANDIDATE_SHA" \
+            --build-arg MERC_BUILD_DATE="$CANDIDATE_DATE" \
             --tag "computexchange/control:sha-$CANDIDATE_SHA" \
             --file Dockerfile.control .
           mkdir -p "$RUNNER_TEMP/prior-source"
@@ -208,9 +214,9 @@ jobs:
           PRIOR_EPOCH="$(git show -s --format=%ct "$PRIOR_SHA")"
           PRIOR_DATE="$(date -u -d "@$PRIOR_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
           docker build \
-            --build-arg CX_BUILD_VERSION=sha-${PRIOR_SHA:0:7} \
-            --build-arg CX_BUILD_COMMIT="$PRIOR_SHA" \
-            --build-arg CX_BUILD_DATE="$PRIOR_DATE" \
+            --build-arg MERC_BUILD_VERSION=sha-${PRIOR_SHA:0:7} \
+            --build-arg MERC_BUILD_COMMIT="$PRIOR_SHA" \
+            --build-arg MERC_BUILD_DATE="$PRIOR_DATE" \
             --tag "computexchange/control:sha-$PRIOR_SHA" \
             --file "$RUNNER_TEMP/prior-source/Dockerfile.control" \
             "$RUNNER_TEMP/prior-source"

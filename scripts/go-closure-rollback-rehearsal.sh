@@ -12,7 +12,7 @@ usage() {
 
 activate_and_probe() {
   local image="$1" commit="$2" label="$3" start end cid configured
-  export CX_ACTIVE_CONTROL_IMAGE="$image"
+  export MERC_ACTIVE_CONTROL_IMAGE="$image"
   gc_validate_compose_images
   gc_pull_exact "$image"
   start="$(date +%s)"
@@ -31,21 +31,21 @@ host_rehearsal() {
   gc_validate_host_config
   gc_require_command age
   gc_require_command aws
-  gc_require_declared_inputs CX_BACKUP_OFFSITE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY \
-    CX_BACKUP_ENCRYPTION_RECIPIENT CX_BACKUP_DECRYPTION_IDENTITY_FILE
-  [[ "$CX_BACKUP_OFFSITE" == s3://* ]] || gc_die "CX_BACKUP_OFFSITE must use s3://"
-  [[ "$CX_BACKUP_ENCRYPTION_RECIPIENT" == age1* ]] \
-    || gc_die "CX_BACKUP_ENCRYPTION_RECIPIENT must be an age recipient"
-  [ -r "$CX_BACKUP_DECRYPTION_IDENTITY_FILE" ] \
-    || gc_die "CX_BACKUP_DECRYPTION_IDENTITY_FILE is not readable"
+  gc_require_declared_inputs MERC_BACKUP_OFFSITE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY \
+    MERC_BACKUP_ENCRYPTION_RECIPIENT MERC_BACKUP_DECRYPTION_IDENTITY_FILE
+  [[ "$MERC_BACKUP_OFFSITE" == s3://* ]] || gc_die "MERC_BACKUP_OFFSITE must use s3://"
+  [[ "$MERC_BACKUP_ENCRYPTION_RECIPIENT" == age1* ]] \
+    || gc_die "MERC_BACKUP_ENCRYPTION_RECIPIENT must be an age recipient"
+  [ -r "$MERC_BACKUP_DECRYPTION_IDENTITY_FILE" ] \
+    || gc_die "MERC_BACKUP_DECRYPTION_IDENTITY_FILE is not readable"
 
-  export CX_ACTIVE_CONTROL_IMAGE="$CX_CANDIDATE_CONTROL_IMAGE"
+  export MERC_ACTIVE_CONTROL_IMAGE="$MERC_CANDIDATE_CONTROL_IMAGE"
   gc_validate_compose_images
-  gc_probe_release "$CX_CANDIDATE_COMMIT" >/dev/null
+  gc_probe_release "$MERC_CANDIDATE_COMMIT" >/dev/null
   local initial_cid initial_image
   initial_cid="$(gc_compose ps -q control)"
   initial_image="$(docker inspect -f '{{.Config.Image}}' "$initial_cid")"
-  [ "$initial_image" = "$CX_CANDIDATE_CONTROL_IMAGE" ] \
+  [ "$initial_image" = "$MERC_CANDIDATE_CONTROL_IMAGE" ] \
     || gc_die "pre-rehearsal control image is $initial_image, not the candidate digest"
 
   local started_at snapshot_before snapshot_after snapshot_before_sha snapshot_after_sha
@@ -57,10 +57,10 @@ host_rehearsal() {
 
   gc_prepare_evidence rollback-working
   backup_log="$GC_EVIDENCE_DIR/$(date -u +%Y%m%dT%H%M%SZ)-pre-rollback-backup.log"
-  export CX_COMPOSE_FILE="$GC_COMPOSE"
-  export CX_BACKUP_STATUS_FILE="$GC_ROOT/.artifacts/go-closure-health/last-successful-offsite-backup.unixtime"
-  mkdir -p "$(dirname "$CX_BACKUP_STATUS_FILE")"
-  chmod 700 "$(dirname "$CX_BACKUP_STATUS_FILE")"
+  export MERC_COMPOSE_FILE="$GC_COMPOSE"
+  export MERC_BACKUP_STATUS_FILE="$GC_ROOT/.artifacts/go-closure-health/last-successful-offsite-backup.unixtime"
+  mkdir -p "$(dirname "$MERC_BACKUP_STATUS_FILE")"
+  chmod 700 "$(dirname "$MERC_BACKUP_STATUS_FILE")"
   if ! bash "$GC_ROOT/scripts/backup.sh" >"$backup_log" 2>&1; then
     gc_log "backup failed; non-secret command log retained at $backup_log"
     exit 1
@@ -72,8 +72,8 @@ host_rehearsal() {
   backup_ciphertext_sha="$(jq -er '.ciphertext_sha256 | select(test("^[0-9a-f]{64}$"))' "$latest_manifest")"
   backup_manifest_sha="$(gc_sha256 "$latest_manifest")"
 
-  rollback_rto="$(activate_and_probe "$CX_PRIOR_CONTROL_IMAGE" "$CX_PRIOR_COMMIT" prior)"
-  forward_rto="$(activate_and_probe "$CX_CANDIDATE_CONTROL_IMAGE" "$CX_CANDIDATE_COMMIT" candidate)"
+  rollback_rto="$(activate_and_probe "$MERC_PRIOR_CONTROL_IMAGE" "$MERC_PRIOR_COMMIT" prior)"
+  forward_rto="$(activate_and_probe "$MERC_CANDIDATE_CONTROL_IMAGE" "$MERC_CANDIDATE_COMMIT" candidate)"
 
   snapshot_after="$(gc_database_snapshot)"
   jq -e . <<< "$snapshot_after" >/dev/null || gc_die "post-rehearsal database snapshot is invalid"
@@ -86,10 +86,10 @@ host_rehearsal() {
   gc_prepare_evidence rollback-forward
   gc_atomic_json "$GC_EVIDENCE_FILE" -n \
     --arg started "$started_at" --arg finished "$finished_at" \
-    --arg candidate_image "$CX_CANDIDATE_CONTROL_IMAGE" \
-    --arg candidate_commit "$CX_CANDIDATE_COMMIT" \
-    --arg prior_image "$CX_PRIOR_CONTROL_IMAGE" \
-    --arg prior_commit "$CX_PRIOR_COMMIT" \
+    --arg candidate_image "$MERC_CANDIDATE_CONTROL_IMAGE" \
+    --arg candidate_commit "$MERC_CANDIDATE_COMMIT" \
+    --arg prior_image "$MERC_PRIOR_CONTROL_IMAGE" \
+    --arg prior_commit "$MERC_PRIOR_COMMIT" \
     --arg backup_id "$backup_id" \
     --arg backup_ciphertext_sha "$backup_ciphertext_sha" \
     --arg backup_manifest_sha "$backup_manifest_sha" \

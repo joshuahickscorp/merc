@@ -60,7 +60,7 @@ func (rl *rateLimiter) sweep() {
 
 func clientIP(r *http.Request) string {
 	peer := remoteIP(r.RemoteAddr)
-	if trustedProxy(peer, os.Getenv("CX_TRUSTED_PROXY_CIDRS")) {
+	if trustedProxy(peer, os.Getenv("MERC_TRUSTED_PROXY_CIDRS")) {
 		if xr := parseForwardedIP(r.Header.Get("X-Real-IP")); xr != "" {
 			return xr
 		}

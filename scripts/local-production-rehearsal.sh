@@ -5,17 +5,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 mkdir -p "$ROOT/.artifacts"
 exec > >(tee "$ROOT/.artifacts/local-production-rehearsal-last.log") 2>&1
 COMPOSE="$ROOT/ops/local/compose.rehearsal.yml"
-ART="${CX_LOCAL_ARTIFACT_DIR:-$ROOT/.artifacts/local-production-rehearsal}"
-EVIDENCE="${CX_LOCAL_EVIDENCE_FILE:-$ROOT/evidence/autonomous/local-production-tls.json}"
-PROJECT="${CX_LOCAL_PROJECT:-cx-local-production-rehearsal}"
-CANDIDATE="${CX_LOCAL_CONTROL_IMAGE:-ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563}"
+ART="${MERC_LOCAL_ARTIFACT_DIR:-$ROOT/.artifacts/local-production-rehearsal}"
+EVIDENCE="${MERC_LOCAL_EVIDENCE_FILE:-$ROOT/evidence/autonomous/local-production-tls.json}"
+PROJECT="${MERC_LOCAL_PROJECT:-cx-local-production-rehearsal}"
+CANDIDATE="${MERC_LOCAL_CONTROL_IMAGE:-ghcr.io/joshuahickscorp/computexchange-control@sha256:f848a8048af250f7135f54b15d8bf4455bd24af6d42fd4d380dd99e0c1b91563}"
 KEEP="${KEEP:-0}"
 KEEP_AGENTS="${KEEP_AGENTS:-0}"
-SOURCE_PROOF="${CX_LOCAL_SOURCE_PROOF:-0}"
+SOURCE_PROOF="${MERC_LOCAL_SOURCE_PROOF:-0}"
 AGENT_ONE=""
 AGENT_TWO=""
 STAGE="initialization"
-MODEL_CACHE="${CX_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
+MODEL_CACHE="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
 
 die() { printf 'local-production-rehearsal: %s\n' "$*" >&2; exit 1; }
 compose() { docker compose -p "$PROJECT" -f "$COMPOSE" "$@"; }
@@ -29,7 +29,7 @@ for name in STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY \
 done
 unset STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY \
   STRIPE_PUBLISHABLE_KEY NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY STRIPE_WEBHOOK_SECRET \
-  CX_CONNECT_WEBHOOK_SECRET CX_CONNECT_CLIENT_ID STRIPE_TEST_CONNECTED_ACCOUNT_ID
+  MERC_CONNECT_WEBHOOK_SECRET MERC_CONNECT_CLIENT_ID STRIPE_TEST_CONNECTED_ACCOUNT_ID
 
 for tool in docker openssl curl jq cargo; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
@@ -37,13 +37,13 @@ done
 if [ "$SOURCE_PROOF" = 1 ]; then
   [[ "$CANDIDATE" =~ ^sha256:[0-9a-f]{64}$ ]] \
     || die "local source proof image must use an immutable local image ID"
-  CX_LOCAL_CONTROL_HEALTHCHECK="${CX_LOCAL_CONTROL_HEALTHCHECK:-/cx-healthcheck}"
+  MERC_LOCAL_CONTROL_HEALTHCHECK="${MERC_LOCAL_CONTROL_HEALTHCHECK:-/cx-healthcheck}"
 else
   [[ "$CANDIDATE" =~ @sha256:[0-9a-f]{64}$ ]] \
     || die "candidate image must use an immutable registry digest"
   # The retained published images predate the dedicated probe. Keep the full
   # binary fallback narrowly scoped to immutable legacy registry images.
-  CX_LOCAL_CONTROL_HEALTHCHECK="${CX_LOCAL_CONTROL_HEALTHCHECK:-/cx}"
+  MERC_LOCAL_CONTROL_HEALTHCHECK="${MERC_LOCAL_CONTROL_HEALTHCHECK:-/cx}"
 fi
 
 cleanup() {
@@ -71,7 +71,7 @@ chmod 700 "$ART" "$ART/tls"
 
 openssl ecparam -name prime256v1 -genkey -noout -out "$ART/tls/ca.key"
 openssl req -x509 -new -sha256 -key "$ART/tls/ca.key" -days 2 \
-  -subj '/CN=ComputExchange local rehearsal CA' -out "$ART/tls/ca.crt"
+  -subj '/CN=merc local rehearsal CA' -out "$ART/tls/ca.crt"
 openssl ecparam -name prime256v1 -genkey -noout -out "$ART/tls/server.key"
 openssl req -new -sha256 -key "$ART/tls/server.key" -subj '/CN=cx.localhost' \
   -out "$ART/tls/server.csr"
@@ -149,30 +149,30 @@ receivers:
   - name: local-harness
 ALERTMANAGER
 
-export CX_LOCAL_ASSET_DIR="$ART"
-export CX_LOCAL_CONTROL_IMAGE="$CANDIDATE"
-export CX_LOCAL_CONTROL_PLATFORM="${CX_LOCAL_CONTROL_PLATFORM:-linux/amd64}"
-export CX_LOCAL_CONTROL_HEALTH_INTERVAL="${CX_LOCAL_CONTROL_HEALTH_INTERVAL:-5s}"
-export CX_LOCAL_CONTROL_HEALTHCHECK
-CX_LOCAL_POSTGRES_PASSWORD="local-pg-$(openssl rand -hex 24)"
-CX_LOCAL_MINIO_USER="localminio$(openssl rand -hex 8)"
-CX_LOCAL_MINIO_PASSWORD="local-minio-$(openssl rand -hex 24)"
-CX_LOCAL_TOKEN_KEY="$(openssl rand -hex 32)"
-CX_LOCAL_SAMPLE_SECRET="$(openssl rand -hex 32)"
-export CX_LOCAL_POSTGRES_PASSWORD CX_LOCAL_MINIO_USER CX_LOCAL_MINIO_PASSWORD
-export CX_LOCAL_TOKEN_KEY CX_LOCAL_SAMPLE_SECRET
+export MERC_LOCAL_ASSET_DIR="$ART"
+export MERC_LOCAL_CONTROL_IMAGE="$CANDIDATE"
+export MERC_LOCAL_CONTROL_PLATFORM="${MERC_LOCAL_CONTROL_PLATFORM:-linux/amd64}"
+export MERC_LOCAL_CONTROL_HEALTH_INTERVAL="${MERC_LOCAL_CONTROL_HEALTH_INTERVAL:-5s}"
+export MERC_LOCAL_CONTROL_HEALTHCHECK
+MERC_LOCAL_POSTGRES_PASSWORD="local-pg-$(openssl rand -hex 24)"
+MERC_LOCAL_MINIO_USER="localminio$(openssl rand -hex 8)"
+MERC_LOCAL_MINIO_PASSWORD="local-minio-$(openssl rand -hex 24)"
+MERC_LOCAL_TOKEN_KEY="$(openssl rand -hex 32)"
+MERC_LOCAL_SAMPLE_SECRET="$(openssl rand -hex 32)"
+export MERC_LOCAL_POSTGRES_PASSWORD MERC_LOCAL_MINIO_USER MERC_LOCAL_MINIO_PASSWORD
+export MERC_LOCAL_TOKEN_KEY MERC_LOCAL_SAMPLE_SECRET
 umask 077
 {
-  printf 'export CX_LOCAL_ASSET_DIR=%q\n' "$CX_LOCAL_ASSET_DIR"
-  printf 'export CX_LOCAL_CONTROL_IMAGE=%q\n' "$CX_LOCAL_CONTROL_IMAGE"
-  printf 'export CX_LOCAL_CONTROL_PLATFORM=%q\n' "$CX_LOCAL_CONTROL_PLATFORM"
-  printf 'export CX_LOCAL_CONTROL_HEALTHCHECK=%q\n' "$CX_LOCAL_CONTROL_HEALTHCHECK"
-  printf 'export CX_LOCAL_CONTROL_HEALTH_INTERVAL=%q\n' "$CX_LOCAL_CONTROL_HEALTH_INTERVAL"
-  printf 'export CX_LOCAL_POSTGRES_PASSWORD=%q\n' "$CX_LOCAL_POSTGRES_PASSWORD"
-  printf 'export CX_LOCAL_MINIO_USER=%q\n' "$CX_LOCAL_MINIO_USER"
-  printf 'export CX_LOCAL_MINIO_PASSWORD=%q\n' "$CX_LOCAL_MINIO_PASSWORD"
-  printf 'export CX_LOCAL_TOKEN_KEY=%q\n' "$CX_LOCAL_TOKEN_KEY"
-  printf 'export CX_LOCAL_SAMPLE_SECRET=%q\n' "$CX_LOCAL_SAMPLE_SECRET"
+  printf 'export MERC_LOCAL_ASSET_DIR=%q\n' "$MERC_LOCAL_ASSET_DIR"
+  printf 'export MERC_LOCAL_CONTROL_IMAGE=%q\n' "$MERC_LOCAL_CONTROL_IMAGE"
+  printf 'export MERC_LOCAL_CONTROL_PLATFORM=%q\n' "$MERC_LOCAL_CONTROL_PLATFORM"
+  printf 'export MERC_LOCAL_CONTROL_HEALTHCHECK=%q\n' "$MERC_LOCAL_CONTROL_HEALTHCHECK"
+  printf 'export MERC_LOCAL_CONTROL_HEALTH_INTERVAL=%q\n' "$MERC_LOCAL_CONTROL_HEALTH_INTERVAL"
+  printf 'export MERC_LOCAL_POSTGRES_PASSWORD=%q\n' "$MERC_LOCAL_POSTGRES_PASSWORD"
+  printf 'export MERC_LOCAL_MINIO_USER=%q\n' "$MERC_LOCAL_MINIO_USER"
+  printf 'export MERC_LOCAL_MINIO_PASSWORD=%q\n' "$MERC_LOCAL_MINIO_PASSWORD"
+  printf 'export MERC_LOCAL_TOKEN_KEY=%q\n' "$MERC_LOCAL_TOKEN_KEY"
+  printf 'export MERC_LOCAL_SAMPLE_SECRET=%q\n' "$MERC_LOCAL_SAMPLE_SECRET"
 } > "$ART/runtime.env"
 chmod 600 "$ART/runtime.env"
 
@@ -254,14 +254,14 @@ AGENT_BIN="$CARGO_TARGET_DIR/release/cx-agent"
 for n in 1 2; do
   printf 'control_url = "https://cx.localhost:18443"\nworker_token = "dev-worker-token-000%s"\n' "$n" > "$ART/agent$n/config.toml"
   printf 'supplier_id = "00000000-0000-0000-0000-0000000000a%s"\n' "$n" >> "$ART/agent$n/config.toml"
-  printf 'max_cpu_pct = 100.0\npower_only = false\nmin_payout_usd_per_hr = 0.0\n' >> "$ART/agent$n/config.toml"
+  printf 'power_only = false\nmin_payout_usd_per_hr = 0.0\n' >> "$ART/agent$n/config.toml"
   printf 'memory_headroom_gb = 0.0\nmax_memory_pct = 0.0\ndata_dir = "%s/home/.compute-exchange/agent%s"\n' "$ART" "$n" >> "$ART/agent$n/config.toml"
 done
 start_agent() {
   n="$1"
-  HOME="$ART/home" CX_MODEL_CACHE="$MODEL_CACHE" \
-    CX_TLS_CA_FILE="$ART/tls/ca.crt" CX_REQUIRE_SANDBOX=1 \
-    CX_SANDBOX_PROFILE="$ROOT/macapp/ComputeExchangeAgent/cx-agent.sb" \
+  HOME="$ART/home" MERC_MODEL_CACHE="$MODEL_CACHE" \
+    MERC_TLS_CA_FILE="$ART/tls/ca.crt" MERC_REQUIRE_SANDBOX=1 \
+    MERC_SANDBOX_PROFILE="$ROOT/macapp/MercAgent/cx-agent.sb" \
     "$AGENT_BIN" run --config "$ART/agent$n/config.toml" > "$ART/agent$n.log" 2>&1 &
   STARTED_AGENT_PID=$!
 }

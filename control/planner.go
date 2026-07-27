@@ -11,7 +11,7 @@ import (
 var fanoutPlannerEnabled atomic.Bool
 
 func init() {
-	fanoutPlannerEnabled.Store(os.Getenv("CX_DISABLE_FANOUT_PLANNER") == "")
+	fanoutPlannerEnabled.Store(os.Getenv("MERC_DISABLE_FANOUT_PLANNER") == "")
 }
 
 const (

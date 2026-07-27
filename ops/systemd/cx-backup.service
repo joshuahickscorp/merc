@@ -1,0 +1,22 @@
+[Unit]
+Description=ComputeExchange encrypted offsite backup
+Documentation=file:docs/RUNBOOKS.md
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Operator-provided environment: CX_BACKUP_OFFSITE, age recipient, AWS creds,
+# CX_BACKUP_STATUS_FILE (must match the path mounted into control), compose paths.
+EnvironmentFile=-/etc/computexchange/backup.env
+WorkingDirectory=/opt/computexchange
+ExecStart=/opt/computexchange/scripts/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+# Failures leave the previous status file untouched so ComputeExchangeBackupStale
+# pages after 26h when the 24h RPO is missed.
+
+[Install]
+WantedBy=multi-user.target

@@ -6,14 +6,55 @@ import (
 	"github.com/google/uuid"
 )
 
+// Hardware classes the control plane will register.
+//
+// Apple Silicon was the only admitted supply until 2026-07-27. That single fact
+// is what made the realtime lane unsellable and got it deleted by [KILL-RT]: an
+// NVIDIA worker was refused at registration with HTTP 400, so a latency SLA had
+// no hardware to run on. RunPod supply reverses that premise, so the CUDA
+// classes below are admitted and the lane is buildable again.
+//
+// Each class must also appear in sustainedWattsByHWClass, or supplier viability
+// silently falls back to a default wattage and the economics report lies.
 var validHWClasses = map[string]bool{
 	"apple_silicon_base": true, "apple_silicon_pro": true,
 	"apple_silicon_max": true, "apple_silicon_ultra": true,
+	// CUDA. Named by capability tier rather than by exact SKU so a supplier
+	// swapping one 24GB card for another does not need a catalogue change.
+	"nvidia_24gb": true, "nvidia_48gb": true,
+	"nvidia_80gb": true, "nvidia_180gb": true,
 }
 
 var validTiers = map[string]bool{"batch": true, "priority": true, "trusted": true}
 
-var validEngines = map[string]bool{"candle": true}
+// Engines the control plane will accept from a worker registration.
+//
+// `candle` is the in-process Apple Silicon path. `vllm` fronts a pinned,
+// digest-addressed vLLM server on CUDA hardware. The engine is server-authorised
+// at registration: a worker cannot self-declare an engine the matrix does not
+// carry for its hardware class.
+var validEngines = map[string]bool{"candle": true, "vllm": true}
+
+// cudaHWClasses is the subset that may run the vllm engine. Keeping this
+// explicit stops an Apple worker from claiming vllm and a CUDA worker from
+// claiming candle, either of which would route work to a runtime that cannot
+// serve it.
+var cudaHWClasses = map[string]bool{
+	"nvidia_24gb": true, "nvidia_48gb": true,
+	"nvidia_80gb": true, "nvidia_180gb": true,
+}
+
+// EngineAdmissibleFor reports whether an engine may run on a hardware class.
+func EngineAdmissibleFor(engine, hwClass string) bool {
+	if !validEngines[engine] || !validHWClasses[hwClass] {
+		return false
+	}
+	if engine == "vllm" {
+		return cudaHWClasses[hwClass]
+	}
+	// candle is Apple Silicon only; CUDA hosts must use vllm.
+	return !cudaHWClasses[hwClass]
+}
 
 const defaultEngine = "candle"
 
@@ -56,10 +97,9 @@ type JobConstraints struct {
 }
 
 type VerificationPolicy struct {
-	RedundancyFrac        float32 `json:"redundancy_frac"`
-	HoneypotFrac          float32 `json:"honeypot_frac"`
-	PayoutHoldSecs        uint32  `json:"payout_hold_secs"`
-	SkipVerificationFloor bool    `json:"skip_verification_floor,omitempty"`
+	RedundancyFrac float32 `json:"redundancy_frac"`
+	HoneypotFrac   float32 `json:"honeypot_frac"`
+	PayoutHoldSecs uint32  `json:"payout_hold_secs"`
 }
 
 type JobManifest struct {
@@ -124,6 +164,9 @@ type TaskCommit struct {
 	TokensUsed    uint64    `json:"tokens_used"`
 	ResultSHA256  string    `json:"result_sha256,omitempty"`
 	HardwareTempC *float32  `json:"hardware_temp_c"`
+	// InferenceBackend records which pluggable batch_infer path produced the
+	// result (candle | openai_http). Empty for embed / legacy agents.
+	InferenceBackend string `json:"inference_backend,omitempty"`
 }
 
 type Heartbeat struct {
@@ -254,6 +297,10 @@ type PriceEstimate struct {
 	Tier          string  `json:"tier"`
 }
 
+// APIError is the machine-readable buyer/supplier error envelope.
+// Error stays human prose; Code is a closed enum (see api_error.go).
 type APIError struct {
-	Error string `json:"error"`
+	Error  string       `json:"error"`
+	Code   APIErrorCode `json:"code"`
+	Action BuyerAction  `json:"action,omitempty"`
 }

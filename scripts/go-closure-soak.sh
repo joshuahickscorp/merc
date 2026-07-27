@@ -33,18 +33,18 @@ host_soak() {
 
   gc_load_env
   gc_validate_host_config
-  export CX_ACTIVE_CONTROL_IMAGE="$CX_CANDIDATE_CONTROL_IMAGE"
+  export MERC_ACTIVE_CONTROL_IMAGE="$MERC_CANDIDATE_CONTROL_IMAGE"
   gc_validate_compose_images
-  gc_probe_release "$CX_CANDIDATE_COMMIT" >/dev/null
+  gc_probe_release "$MERC_CANDIDATE_COMMIT" >/dev/null
 
-  local rss_limit="${CX_SOAK_MAX_RSS_GROWTH_BYTES:-134217728}"
-  local disk_limit="${CX_SOAK_MAX_DISK_GROWTH_KB:-1048576}"
-  local writable_limit="${CX_SOAK_MAX_WRITABLE_LAYER_GROWTH_BYTES:-67108864}"
-  local connection_limit="${CX_SOAK_MAX_CONNECTION_GROWTH:-4}"
-  integer_between "$rss_limit" 1 2147483648 CX_SOAK_MAX_RSS_GROWTH_BYTES
-  integer_between "$disk_limit" 1 104857600 CX_SOAK_MAX_DISK_GROWTH_KB
-  integer_between "$writable_limit" 1 1073741824 CX_SOAK_MAX_WRITABLE_LAYER_GROWTH_BYTES
-  integer_between "$connection_limit" 0 100 CX_SOAK_MAX_CONNECTION_GROWTH
+  local rss_limit="${MERC_SOAK_MAX_RSS_GROWTH_BYTES:-134217728}"
+  local disk_limit="${MERC_SOAK_MAX_DISK_GROWTH_KB:-1048576}"
+  local writable_limit="${MERC_SOAK_MAX_WRITABLE_LAYER_GROWTH_BYTES:-67108864}"
+  local connection_limit="${MERC_SOAK_MAX_CONNECTION_GROWTH:-4}"
+  integer_between "$rss_limit" 1 2147483648 MERC_SOAK_MAX_RSS_GROWTH_BYTES
+  integer_between "$disk_limit" 1 104857600 MERC_SOAK_MAX_DISK_GROWTH_KB
+  integer_between "$writable_limit" 1 1073741824 MERC_SOAK_MAX_WRITABLE_LAYER_GROWTH_BYTES
+  integer_between "$connection_limit" 0 100 MERC_SOAK_MAX_CONNECTION_GROWTH
 
   gc_prepare_evidence soak-working
   local samples
@@ -61,7 +61,7 @@ host_soak() {
   baseline_rss_kb="$(ps -o rss= -p "$pid" | tr -d ' ')"
   baseline_disk_kb="$(df -Pk "$GC_ROOT" | awk 'NR==2 {print $3}')"
   baseline_size_rw="$(docker inspect --size -f '{{.SizeRw}}' "$cid")"
-  baseline_connections="$(gc_prometheus_scalar 'cx_db_pool_connections{state="total"}')"
+  baseline_connections="$(gc_prometheus_scalar 'merc_db_pool_connections{state="total"}')"
   baseline_restarts="$(docker inspect -f '{{.RestartCount}}' "$cid")"
   integer_between "$baseline_rss_kb" 1 2147483647 baseline_rss_kb
   integer_between "$baseline_disk_kb" 1 9223372036854775807 baseline_disk_kb
@@ -80,7 +80,7 @@ host_soak() {
 
   while [ "$(date +%s)" -lt "$end_epoch" ]; do
     sample_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    gc_probe_release "$CX_CANDIDATE_COMMIT" >/dev/null
+    gc_probe_release "$MERC_CANDIDATE_COMMIT" >/dev/null
     cid="$(gc_compose ps -q control)"
     pid="$(docker inspect -f '{{.State.Pid}}' "$cid")"
     rss_kb="$(ps -o rss= -p "$pid" | tr -d ' ')"
@@ -88,11 +88,11 @@ host_soak() {
     size_rw="$(docker inspect --size -f '{{.SizeRw}}' "$cid")"
     restarts="$(docker inspect -f '{{.RestartCount}}' "$cid")"
     [ "$restarts" = "$baseline_restarts" ] || gc_die "control restart count changed during soak"
-    workers="$(gc_prometheus_scalar 'cx_active_workers')"
-    connections="$(gc_prometheus_scalar 'cx_db_pool_connections{state="total"}')"
-    acquired="$(gc_prometheus_scalar 'cx_db_pool_connections{state="acquired"}')"
+    workers="$(gc_prometheus_scalar 'merc_active_workers')"
+    connections="$(gc_prometheus_scalar 'merc_db_pool_connections{state="total"}')"
+    acquired="$(gc_prometheus_scalar 'merc_db_pool_connections{state="acquired"}')"
     page_alerts="$(gc_prometheus_scalar 'sum(ALERTS{alertstate="firing",severity="page"}) or vector(0)')"
-    dead_letters="$(gc_prometheus_scalar 'sum(cx_webhook_backlog{state="dead_letter"}) or vector(0)')"
+    dead_letters="$(gc_prometheus_scalar 'sum(merc_webhook_backlog{state="dead_letter"}) or vector(0)')"
     awk -v n="$workers" 'BEGIN { exit !(n >= 2) }' || gc_die "active workers dropped below two"
     awk -v n="$page_alerts" 'BEGIN { exit !(n == 0) }' || gc_die "a page alert fired during soak"
     awk -v n="$dead_letters" 'BEGIN { exit !(n == 0) }' || gc_die "webhook dead letters appeared during soak"
@@ -159,7 +159,7 @@ host_soak() {
   gc_atomic_json "$GC_EVIDENCE_FILE" -n \
     --arg started "$(date -u -r "$started_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$started_epoch" +%Y-%m-%dT%H:%M:%SZ)" \
     --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg image "$CX_CANDIDATE_CONTROL_IMAGE" --arg commit "$CX_CANDIDATE_COMMIT" \
+    --arg image "$MERC_CANDIDATE_CONTROL_IMAGE" --arg commit "$MERC_CANDIDATE_COMMIT" \
     --arg mode "$qualification" --arg samples_file "${samples#"$GC_ROOT"/}" \
     --arg samples_sha "$samples_sha" --argjson requested "$duration" \
     --argjson actual "$actual_duration" --argjson interval "$interval" \

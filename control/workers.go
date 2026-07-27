@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -54,6 +57,8 @@ const (
 	maxTaskRetries               = 3                // requeue this many times before failing
 	sweepBatch                   = 100              // max rows handled per tick
 	budgetStopInterval           = 7 * time.Second
+	realtimeRecoveryInterval     = 15 * time.Second
+	realtimeRecoveryGrace        = 30 * time.Second
 	hedgeAfter                   = 90 * time.Second // 2 × ~45s target per-task time
 	hedgeMaxInFlight             = 4                // concurrent hedges per job
 	hedgeBatch                   = 20               // max new hedges per tick
@@ -68,6 +73,10 @@ const (
 	workerMemorySampleRetention  = 14 * 24 * time.Hour
 	taskDurationRetention        = 30 * 24 * time.Hour
 	jobEventRetention            = 180 * 24 * time.Hour
+	// Default alpha lead retention for non-accepted rows. Overridable via
+	// ALPHA_REQUEST_RETENTION_DAYS (positive integer days).
+	defaultAlphaRequestRetention = 90 * 24 * time.Hour
+	objectDeletionClaimLease     = 5 * time.Minute
 )
 
 var telemetryTables = []string{"worker_memory_samples", "task_durations", "job_events"}
@@ -184,6 +193,7 @@ func (wk *Workers) Run(ctx context.Context) {
 		{chargeCollectInterval, "charge-collect", wk.collectCharges},
 		{telemetryRetentionInterval, "telemetry-retention", wk.sweepTelemetryRetention},
 		{budgetStopInterval, "budget-stop-sweep", wk.sweepBudgetStops},
+		{realtimeRecoveryInterval, "realtime-contract-recovery", wk.recoverRealtimeContracts},
 		{noPeerWatchdogInterval, "no-peer-watchdog", wk.reapNoPeerWedged},
 	}
 	var loops sync.WaitGroup
@@ -283,6 +293,21 @@ func (wk *Workers) releasePayouts(ctx context.Context) error {
 	if err != nil || paused {
 		return err
 	}
+	// Drain provider-boundary recoveries first so a successful reverse can lift
+	// the global payout pause within the same sweep.
+	if err := wk.processReversals(ctx); err != nil {
+		return err
+	}
+	outstanding, err := wk.store.CountReversalRequired(ctx)
+	if err != nil {
+		return err
+	}
+	if outstanding > 0 {
+		metrics.payoutsPausedReversalRequired.Add(1)
+		log.Printf("workers: supplier payouts paused: %d ledger row(s) in reversal_required/reversing; refusing new payout claims until recovered",
+			outstanding)
+		return nil
+	}
 	finishAttempt := func(claimed DueHeldEntry, resolvingUnknown bool) error {
 		result, sendErr := wk.payout.Send(ctx, claimed.SupplierID, claimed.RequestedCents,
 			claimed.Currency, claimed.ID.String())
@@ -346,6 +371,59 @@ func (wk *Workers) releasePayouts(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (wk *Workers) processReversals(ctx context.Context) error {
+	reverser, ok := wk.payout.(PayoutReverser)
+	if !ok {
+		return nil
+	}
+	claimed, err := wk.store.ClaimReversals(ctx, payoutSendingLease, sweepBatch)
+	if err != nil {
+		return err
+	}
+	for _, r := range claimed {
+		result, revErr := wk.executeReversal(ctx, reverser, r)
+		if revErr != nil {
+			metrics.payoutReversalFailures.Add(1)
+			if markErr := wk.store.MarkReversalFailed(ctx, r.ID, revErr); markErr != nil {
+				return markErr
+			}
+			log.Printf("workers: CRITICAL payout reversal failed for %s (transfer=%s pi=%s): %v",
+				r.ID, r.TransferRef, r.PaymentIntent, revErr)
+			continue
+		}
+		state, err := wk.store.FinalizeReversal(ctx, r.ID, result)
+		if err != nil {
+			metrics.payoutReversalFailures.Add(1)
+			log.Printf("workers: CRITICAL payout reversal finalize failed for %s: %v", r.ID, err)
+			if markErr := wk.store.MarkReversalFailed(ctx, r.ID, err); markErr != nil {
+				return markErr
+			}
+			continue
+		}
+		if state == PayoutReversed {
+			metrics.payoutReversalsCompleted.Add(1)
+			log.Printf("workers: payout %s reversed via %s ref=%s", r.ID, result.Instrument, result.Ref)
+		}
+	}
+	return nil
+}
+
+func (wk *Workers) executeReversal(ctx context.Context, reverser PayoutReverser, r DueReversal) (ReversalResult, error) {
+	reverseKey := r.ID.String()
+	// Prefer Connect transfer reversal when a transfer_ref exists — that is the
+	// instrument that moved supplier cash. Fall back to a charge refund only when
+	// there is no transfer but a collection payment_intent can return platform cash.
+	if strings.TrimSpace(r.TransferRef) != "" && !strings.HasPrefix(r.TransferRef, "manual-export:") {
+		return reverser.ReverseTransfer(ctx, r.TransferRef, r.RequestedCents, r.Currency, reverseKey)
+	}
+	if strings.TrimSpace(r.PaymentIntent) != "" {
+		return reverser.RefundCharge(ctx, r.PaymentIntent, r.RequestedCents, r.Currency, reverseKey)
+	}
+	return ReversalResult{}, payoutDefinitelyNotSent(
+		fmt.Errorf("no reversible instrument for ledger entry %s (transfer=%q pi=%q)",
+			r.ID, r.TransferRef, r.PaymentIntent))
 }
 
 func (wk *Workers) requeueStaleTasks(ctx context.Context) error {
@@ -860,8 +938,8 @@ func (wk *Workers) deliverWebhook(ctx context.Context, p PendingWebhook) error {
 		return permanentWebhookFailure(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-CX-Delivery-ID", p.ID.String())
-	req.Header.Set("X-CX-Signature", sig)
+	req.Header.Set("X-Merc-Delivery-ID", p.ID.String())
+	req.Header.Set("X-Merc-Signature", sig)
 	resp, err := wk.client.Do(req)
 	if err != nil {
 		if resp != nil && resp.Body != nil {
@@ -902,6 +980,75 @@ func (wk *Workers) sweepTelemetryRetention(ctx context.Context) error {
 	if je > 0 {
 		log.Printf("workers: telemetry-retention: pruned %d job_events row(s) older than %s", je, jobEventRetention)
 	}
+	// Fourth retention sweep: non-accepted alpha leads past TTL. Accepted
+	// applicants have no account yet to tombstone, so this is their only path.
+	alphaRetention := alphaRequestRetention()
+	ar, err := wk.store.DeleteOldAlphaRequests(ctx, time.Now().Add(-alphaRetention))
+	if err != nil {
+		return err
+	}
+	if ar > 0 {
+		log.Printf("workers: telemetry-retention: pruned %d alpha_requests row(s) older than %s (status<>accepted)", ar, alphaRetention)
+	}
+	// Crash-safe object-store deletion queue (same sweeper framework).
+	if err := wk.sweepPendingObjectDeletions(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func alphaRequestRetention() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("ALPHA_REQUEST_RETENTION_DAYS"))
+	if raw == "" {
+		return defaultAlphaRequestRetention
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil || days <= 0 {
+		log.Printf("workers: ALPHA_REQUEST_RETENTION_DAYS=%q invalid; using default %s", raw, defaultAlphaRequestRetention)
+		return defaultAlphaRequestRetention
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
+// sweepPendingObjectDeletions claims queued keys, gates each on the tombstone
+// digest list, deletes from object storage, and clears successful rows.
+func (wk *Workers) sweepPendingObjectDeletions(ctx context.Context) error {
+	if wk.storage == nil {
+		return nil
+	}
+	items, err := wk.store.ClaimPendingObjectDeletions(ctx, sweepBatch, objectDeletionClaimLease)
+	if err != nil {
+		return err
+	}
+	deleted := 0
+	refused := 0
+	for _, item := range items {
+		authorized, aerr := wk.store.TombstoneAuthorizesObjectKey(ctx, item.TombstoneID, item.ObjectKey)
+		if aerr != nil {
+			_ = wk.store.FailPendingObjectDeletion(ctx, item.ID, item.ClaimToken, aerr.Error())
+			return aerr
+		}
+		if !authorized {
+			if rerr := wk.store.RefusePendingObjectDeletion(ctx, item.ID, item.ClaimToken,
+				"object key digest not in tombstone artifact_ref_sha256s"); rerr != nil {
+				return rerr
+			}
+			refused++
+			log.Printf("workers: object-deletion: refused unauthorized key for tombstone %s", item.TombstoneID)
+			continue
+		}
+		if err := wk.storage.RemoveObjects(ctx, []string{item.ObjectKey}); err != nil {
+			_ = wk.store.FailPendingObjectDeletion(ctx, item.ID, item.ClaimToken, err.Error())
+			return err
+		}
+		if err := wk.store.CompletePendingObjectDeletion(ctx, item.ID, item.ClaimToken); err != nil {
+			return err
+		}
+		deleted++
+	}
+	if deleted > 0 || refused > 0 {
+		log.Printf("workers: object-deletion: deleted=%d refused=%d", deleted, refused)
+	}
 	return nil
 }
 
@@ -912,6 +1059,22 @@ func (wk *Workers) sweepBudgetStops(ctx context.Context) error {
 	}
 	if stopped > 0 {
 		metrics.budgetStops.Add(int64(stopped))
+	}
+	return nil
+}
+
+// recoverRealtimeContracts fails stale EXECUTING contracts closed. A control
+// crash can leave a contract holding buyer funds with no worker attached; the
+// sweep creates failure evidence once and never a financial effect.
+func (wk *Workers) recoverRealtimeContracts(ctx context.Context) error {
+	recovered, err := wk.store.RecoverStaleRealtimeContracts(ctx, realtimeRecoveryGrace, sweepBatch)
+	if err != nil {
+		return err
+	}
+	if recovered > 0 {
+		metrics.realtimeRecovered.Add(int64(recovered))
+		metrics.realtimeFailed.Add(int64(recovered))
+		log.Printf("workers: recovered %d stale realtime execution contract(s)", recovered)
 	}
 	return nil
 }

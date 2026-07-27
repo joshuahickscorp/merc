@@ -32,7 +32,7 @@ case "$SK" in
 esac
 
 HOST="${HOST:-$(envval SITE_HOST)}"
-HOST="${HOST:-computexchange.net}"
+HOST="${HOST:-mercmerc.net}"
 HOST="${HOST#http://}"; HOST="${HOST#https://}"; HOST="${HOST%%/*}"   # tolerate a pasted URL
 info "target host: https://$HOST"
 
@@ -94,7 +94,7 @@ ensure_endpoint() {
 }
 
 ensure_endpoint "https://$HOST/v1/stripe/webhook"         "STRIPE_WEBHOOK_SECRET"     "setup_intent.succeeded,payment_method.attached,payment_intent.succeeded,charge.refunded,charge.dispute.created,charge.dispute.funds_withdrawn,charge.dispute.funds_reinstated,charge.dispute.closed" false
-ensure_endpoint "https://$HOST/v1/stripe/connect-webhook" "CX_CONNECT_WEBHOOK_SECRET" "account.updated" true
+ensure_endpoint "https://$HOST/v1/stripe/connect-webhook" "MERC_CONNECT_WEBHOOK_SECRET" "account.updated" true
 
 hr "done"
 info "If secrets were written to .env, restart the control plane so it loads them:"

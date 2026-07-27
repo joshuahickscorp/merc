@@ -38,9 +38,9 @@ jobs:
           BUILD_DATE="$(date -u -d "@$BUILD_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
           REF="$IMAGE:sha-$GITHUB_SHA"
           docker build \
-            --build-arg CX_BUILD_VERSION=v0.1.0-rc.1 \
-            --build-arg CX_BUILD_COMMIT="$GITHUB_SHA" \
-            --build-arg CX_BUILD_DATE="$BUILD_DATE" \
+            --build-arg MERC_BUILD_VERSION=v0.1.0-rc.1 \
+            --build-arg MERC_BUILD_COMMIT="$GITHUB_SHA" \
+            --build-arg MERC_BUILD_DATE="$BUILD_DATE" \
             --tag "$REF" \
             --file Dockerfile.control .
           docker push "$REF"
@@ -56,9 +56,9 @@ jobs:
           PRIOR_DATE="$(date -u -d "@$PRIOR_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
           PRIOR_TAG="$IMAGE:sha-$PRIOR_SHA"
           docker build \
-            --build-arg CX_BUILD_VERSION=sha-${PRIOR_SHA:0:7} \
-            --build-arg CX_BUILD_COMMIT="$PRIOR_SHA" \
-            --build-arg CX_BUILD_DATE="$PRIOR_DATE" \
+            --build-arg MERC_BUILD_VERSION=sha-${PRIOR_SHA:0:7} \
+            --build-arg MERC_BUILD_COMMIT="$PRIOR_SHA" \
+            --build-arg MERC_BUILD_DATE="$PRIOR_DATE" \
             --tag "$PRIOR_TAG" \
             --file "$PRIOR_DIR/Dockerfile.control" "$PRIOR_DIR"
           docker push "$PRIOR_TAG"

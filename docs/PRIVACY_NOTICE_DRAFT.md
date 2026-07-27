@@ -1,4 +1,4 @@
-# ComputExchange Privacy Notice
+# merc Privacy Notice
 
 > **DRAFT — PENDING PRIVACY COUNSEL REVIEW — DO NOT PUBLISH**
 >

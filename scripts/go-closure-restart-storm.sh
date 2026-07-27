@@ -12,7 +12,7 @@ usage() {
 
 wait_release() {
   local deadline=$(( $(date +%s) + 300 ))
-  while ! gc_probe_release "$CX_CANDIDATE_COMMIT" >/dev/null 2>&1; do
+  while ! gc_probe_release "$MERC_CANDIDATE_COMMIT" >/dev/null 2>&1; do
     [ "$(date +%s)" -lt "$deadline" ] || gc_die "candidate did not recover within 300s"
     sleep 3
   done
@@ -45,14 +45,14 @@ host_storm() {
   local operation="$1"
   gc_load_env
   gc_validate_host_config
-  export CX_ACTIVE_CONTROL_IMAGE="$CX_CANDIDATE_CONTROL_IMAGE"
+  export MERC_ACTIVE_CONTROL_IMAGE="$MERC_CANDIDATE_CONTROL_IMAGE"
   gc_validate_compose_images
-  gc_probe_release "$CX_CANDIDATE_COMMIT" >/dev/null
+  gc_probe_release "$MERC_CANDIDATE_COMMIT" >/dev/null
 
-  gc_require_declared_inputs CX_AGENT_RESTART_DRIVER
-  [[ "$CX_AGENT_RESTART_DRIVER" == /* ]] || gc_die "CX_AGENT_RESTART_DRIVER must be an absolute path"
-  [ -x "$CX_AGENT_RESTART_DRIVER" ] || gc_die "CX_AGENT_RESTART_DRIVER is not executable"
-  local interruption_seconds="${CX_REHEARSAL_NETWORK_INTERRUPTION_SECONDS:-5}"
+  gc_require_declared_inputs MERC_AGENT_RESTART_DRIVER
+  [[ "$MERC_AGENT_RESTART_DRIVER" == /* ]] || gc_die "MERC_AGENT_RESTART_DRIVER must be an absolute path"
+  [ -x "$MERC_AGENT_RESTART_DRIVER" ] || gc_die "MERC_AGENT_RESTART_DRIVER is not executable"
+  local interruption_seconds="${MERC_REHEARSAL_NETWORK_INTERRUPTION_SECONDS:-5}"
   [[ "$interruption_seconds" =~ ^[0-9]+$ ]] || gc_die "network interruption seconds must be an integer"
   [ "$interruption_seconds" -ge 1 ] && [ "$interruption_seconds" -le 30 ] \
     || gc_die "network interruption seconds must be between 1 and 30"
@@ -70,7 +70,7 @@ host_storm() {
   started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   umask 077
-  if ! "$CX_AGENT_RESTART_DRIVER" restart-all 2 > "$agent_receipt"; then
+  if ! "$MERC_AGENT_RESTART_DRIVER" restart-all 2 > "$agent_receipt"; then
     rm -f -- "$agent_receipt"
     gc_die "agent restart driver failed"
   fi
@@ -118,14 +118,14 @@ host_storm() {
   trap - EXIT INT TERM
 
   configured_image="$(docker inspect -f '{{.Config.Image}}' "$cid")"
-  [ "$configured_image" = "$CX_CANDIDATE_CONTROL_IMAGE" ] \
+  [ "$configured_image" = "$MERC_CANDIDATE_CONTROL_IMAGE" ] \
     || gc_die "restart storm changed the active control image"
   finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   gc_prepare_evidence restart-storm
   gc_atomic_json "$GC_EVIDENCE_FILE" -n \
     --arg started "$started_at" --arg finished "$finished_at" \
-    --arg image "$CX_CANDIDATE_CONTROL_IMAGE" --arg commit "$CX_CANDIDATE_COMMIT" \
+    --arg image "$MERC_CANDIDATE_CONTROL_IMAGE" --arg commit "$MERC_CANDIDATE_COMMIT" \
     --argjson controls "$control_count" --argjson databases "$database_count" \
     --argjson storages "$storage_count" --argjson alerts "$alert_count" \
     --argjson networks "$network_count" --argjson seconds "$interruption_seconds" \

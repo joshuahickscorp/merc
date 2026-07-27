@@ -27,27 +27,29 @@ import (
 )
 
 type Server struct {
-	store         *Store
-	storage       *Storage
-	verifier      *Verifier
-	verification  *VerificationProcessor
-	payout        Payout
-	ipLimiter     *rateLimiter
-	buyerLimiter  *rateLimiter
-	workerLimiter *rateLimiter
-	signupLimiter *rateLimiter
-	canary        CanaryPolicy
+	store              *Store
+	storage            *Storage
+	verifier           *Verifier
+	verification       *VerificationProcessor
+	payout             Payout
+	ipLimiter          *rateLimiter
+	buyerLimiter       *rateLimiter
+	workerLimiter      *rateLimiter
+	signupLimiter      *rateLimiter
+	canary             CanaryPolicy
+	realtimeHTTPClient *http.Client
 }
 
 func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout) *Server {
 	return &Server{
 		store: store, storage: storage, verifier: verifier,
 		verification: NewVerificationProcessor(store, storage, verifier), payout: payout,
-		ipLimiter:     newRateLimiter(30, 60), // 30 req/s, burst 60, per IP
-		buyerLimiter:  newRateLimiter(20, 40), // 20 req/s, burst 40, per api key
-		workerLimiter: newRateLimiter(30, 60), // 30 req/s, burst 60, per worker token
-		signupLimiter: newRateLimiter(signupsPerIPPerDay/86400.0, signupsPerIPPerDay),
-		canary:        loadCanaryPolicyFromEnv(),
+		ipLimiter:          newRateLimiter(30, 60), // 30 req/s, burst 60, per IP
+		buyerLimiter:       newRateLimiter(20, 40), // 20 req/s, burst 40, per api key
+		workerLimiter:      newRateLimiter(30, 60), // 30 req/s, burst 60, per worker token
+		signupLimiter:      newRateLimiter(signupsPerIPPerDay/86400.0, signupsPerIPPerDay),
+		canary:             loadCanaryPolicyFromEnv(),
+		realtimeHTTPClient: newRealtimeHTTPClient(),
 	}
 }
 
@@ -70,9 +72,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("GET /{$}", s.handleRoot)
 	mux.HandleFunc("GET /buyer", s.handleBuyerRoom)
+	mux.HandleFunc("GET /prices", s.handlePriceBoard)
+	mux.HandleFunc("GET /supplier", s.handleSupplierConsole)
+	mux.HandleFunc("GET /pricing/board.json", s.handlePriceBoardData)
 	mux.HandleFunc("GET /admin", s.handleAdminRoom)
 	mux.HandleFunc("GET /assets/site/{path...}", s.handleSiteAsset) // whitelisted public static assets
 	mux.HandleFunc("GET /favicon.ico", s.handleFavicon)
+	mux.HandleFunc("GET /.well-known/security.txt", s.handleSecurityTxt)
 
 	mux.HandleFunc("POST /v1/signup", s.handleSignup)
 	mux.HandleFunc("POST /v1/login", s.handleLogin)
@@ -100,6 +106,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /v1/jobs/{id}/failures", s.authBuyer(http.HandlerFunc(s.handleJobFailures))) // Plane C/D: typed failure history
 	mux.Handle("POST /v1/jobs/{id}/dispute", s.authBuyer(http.HandlerFunc(s.handleFileDispute))) // buyer-dispute seam (optimistic-verification / payout-guarantee foundation)
 	mux.Handle("DELETE /v1/jobs/{id}", s.authBuyer(http.HandlerFunc(s.handleCancelJob)))
+	mux.Handle("POST /v1/chat/completions", s.authBuyer(http.HandlerFunc(s.handleChatCompletions)))
+	mux.Handle("GET /v1/realtime/requests/{id}/receipt", s.authBuyer(http.HandlerFunc(s.handleRealtimeReceipt)))
 	mux.Handle("GET /v1/models", s.authBuyer(http.HandlerFunc(s.handleModels)))
 	mux.Handle("GET /v1/price-estimate", s.authBuyer(http.HandlerFunc(s.handlePriceEstimate)))
 	mux.Handle("POST /v1/quote", s.authBuyer(http.HandlerFunc(s.handleQuote))) // Plane C: scan + price, no spend
@@ -115,6 +123,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /v1/keys/{id}", s.authBuyer(http.HandlerFunc(s.handleRevokeKey)))
 
 	mux.Handle("POST /v1/worker/register", s.authWorker(http.HandlerFunc(s.handleWorkerRegister)))
+	mux.Handle("POST /v1/worker/realtime/register", s.authWorker(http.HandlerFunc(s.handleRealtimeWorkerRegister)))
+	mux.Handle("POST /v1/worker/realtime/heartbeat", s.authWorker(http.HandlerFunc(s.handleRealtimeWorkerHeartbeat)))
 	mux.Handle("POST /v1/worker/heartbeat", s.authWorker(http.HandlerFunc(s.handleWorkerHeartbeat)))
 	mux.Handle("GET /v1/worker/poll", s.authWorker(http.HandlerFunc(s.handleWorkerPoll)))
 	mux.Handle("POST /v1/worker/task/{id}/start", s.authWorker(http.HandlerFunc(s.handleWorkerStart)))
@@ -125,6 +135,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /v1/worker/connect/status", s.authWorker(http.HandlerFunc(s.handleWorkerConnectStatus)))
 
 	mux.Handle("GET /admin/workers", s.authAdmin(http.HandlerFunc(s.handleAdminWorkers)))
+	mux.Handle("POST /admin/realtime/contracts/{id}/refund", s.authAdmin(http.HandlerFunc(s.handleAdminRefundRealtimeContract)))
 	mux.Handle("GET /admin/jobs", s.authAdmin(http.HandlerFunc(s.handleAdminJobs)))
 	mux.Handle("GET /admin/payouts", s.authAdmin(http.HandlerFunc(s.handleAdminPayouts)))
 	mux.Handle("GET /admin/fraud-flags", s.authAdmin(http.HandlerFunc(s.handleAdminFraudFlags)))
@@ -273,19 +284,34 @@ func (s *Server) authBuyer(next http.Handler) http.Handler {
 }
 
 func (s *Server) authAdmin(next http.Handler) http.Handler {
-	return s.authBuyer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Context().Value(ctxBuyer).(*AuthResult)
-		if !auth.IsAdmin {
-			writeErr(w, http.StatusForbidden, "admin privilege required")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Credential presence first so anonymous probes get 401 (not an IP
+		// allowlist oracle). Source allowlisting still applies before lookup.
+		key, ok := bearer(r)
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "missing or malformed Authorization bearer token")
 			return
 		}
-		actor := AdminActor{
-			Mode: AdminAuthBreakGlassAPIKey, PrincipalID: auth.APIKeyID,
-			AttributionScope: AdminAttributionNamedOperatorKey, Label: auth.APIKeyLabel,
+		if !adminSourceAllowed(clientIP(r)) {
+			writeErr(w, http.StatusForbidden, "admin source address not allowlisted")
+			return
+		}
+		if s.store == nil {
+			writeErr(w, http.StatusUnauthorized, "invalid credential")
+			return
+		}
+		actor, err := s.store.AuthenticateAdmin(r.Context(), key)
+		if err != nil {
+			writeErr(w, http.StatusUnauthorized, "invalid credential")
+			return
+		}
+		if err := validateAdminActorShape(actor); err != nil {
+			writeErr(w, http.StatusUnauthorized, "invalid credential")
+			return
 		}
 		ctx := context.WithValue(r.Context(), ctxAdmin, actor)
 		next.ServeHTTP(w, r.WithContext(ctx))
-	}))
+	})
 }
 
 func (s *Server) authWorker(next http.Handler) http.Handler {
@@ -420,6 +446,45 @@ type httpError struct {
 
 func (e *httpError) Error() string { return e.msg }
 
+// discardOrphanedJobObjects removes the input objects a failed submission left
+// behind.
+//
+// streamSplitAndUpload writes the buyer's chunks to object storage before
+// SubmitJobTx runs.  If that transaction fails there is no row anywhere
+// referencing those keys, so no reader, no sweeper and no tombstone will ever
+// find them -- they are storage the buyer is billed for and nobody can reach.
+//
+// Best-effort by design: the submission has already failed and the buyer is
+// getting an error either way, so a cleanup failure is logged rather than
+// surfaced.  Keys are taken from what this call actually built, never from a
+// prefix scan, so a concurrent idempotent replay that legitimately owns the
+// same job id cannot have its objects deleted out from under it.
+func (s *Server) discardOrphanedJobObjects(ctx context.Context, jobID uuid.UUID, inputKey string, tasks []taskRow) {
+	if s.storage == nil {
+		return
+	}
+	keys := make([]string, 0, len(tasks)+1)
+	if inputKey != "" {
+		keys = append(keys, inputKey)
+	}
+	for _, task := range tasks {
+		if task.InputRef != "" {
+			keys = append(keys, task.InputRef)
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+	// Detach from the request context: the client is already gone by the time
+	// this runs, and a cancelled context would skip the cleanup entirely.
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	if err := s.storage.RemoveObjects(cleanupCtx, keys); err != nil {
+		log.Printf("createJob: job %s failed to submit and %d orphaned input object(s) could not be removed: %v",
+			jobID, len(keys), err)
+	}
+}
+
 func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit) (JobSubmitResponse, *httpError) {
 	if sub.IdempotencyKey != "" {
 		if replay, found, err := s.store.JobSubmissionReplay(ctx, buyerID, sub.IdempotencyKey, sub.RequestSHA256); err != nil {
@@ -462,7 +527,6 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		// Buyers cannot weaken verification or accelerate payout release in the
 		// supervised canary. Every primary receives a same-shape redundancy run,
 		// at least one honeypot is requested, and payout remains manually gated.
-		sub.Verification.SkipVerificationFloor = false
 		if sub.Verification.RedundancyFrac < 1 {
 			sub.Verification.RedundancyFrac = 1
 		}
@@ -473,23 +537,13 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			sub.Verification.PayoutHoldSecs = 7 * 24 * 60 * 60
 		}
 	}
-	if sub.JobType.Type == "" {
-		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "job_type.type is required"}
+	// Every request-only check lives in one tested function; the store-dependent
+	// checks below stay here because they are not pure.
+	normalized, verr := normalizeAndValidateJobSubmit(sub)
+	if verr != nil {
+		return JobSubmitResponse{}, verr
 	}
-	if !validJobTypes[sub.JobType.Type] {
-		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "invalid job_type.type: " + sub.JobType.Type}
-	}
-	if sub.Tier == "" {
-		sub.Tier = "batch"
-	}
-	if !validTiers[sub.Tier] {
-		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "invalid tier: " + sub.Tier}
-	}
-	canonicalModel, err := normalizeAdvertisedRuntimeModelRef(sub.JobType.Type, sub.Model)
-	if err != nil {
-		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, err.Error()}
-	}
-	sub.Model = canonicalModel
+	sub = normalized
 	paused, err := s.store.OperationalControlPaused(ctx, controlIntake)
 	if err != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable, "intake control unavailable"}
@@ -501,11 +555,6 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	if err != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable, "economic schedule unavailable: " + err.Error()}
 	}
-	for _, c := range sub.Constraints.HWClasses {
-		if !validHWClasses[c] {
-			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "invalid hw_class: " + c}
-		}
-	}
 	if sub.WebhookURL != "" {
 		sub.WebhookURL = strings.TrimSpace(sub.WebhookURL)
 		if _, err := validateWebhookURLSyntax(sub.WebhookURL, false); err != nil {
@@ -516,13 +565,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 				"webhook registration unavailable: encrypted signing-secret storage is not configured"}
 		}
 	}
-	if sub.DeadlineSecs != 0 && sub.DeadlineSecs != -1 &&
-		(sub.DeadlineSecs < 60 || sub.DeadlineSecs > 604800) {
-		return JobSubmitResponse{}, &httpError{http.StatusBadRequest,
-			"deadline_secs must be -1 (run to completion), 0 (default watchdog), or 60..604800 seconds"}
-	}
-	wantVerificationFloor := !sub.Verification.SkipVerificationFloor &&
-		sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0
+	wantVerificationFloor := sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0
 
 	if stripeKey() != "" {
 		_, pm, berr := s.store.GetBillingCustomer(ctx, buyerID)
@@ -716,7 +759,19 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			})
 		}
 	}
-	if s.canary.Enabled {
+	// The verification floor fails closed everywhere, not only under canary.
+	// nHoneypot > 0 means this job is required to carry a known-answer probe:
+	// either the buyer asked for one, or the floor injected it because no other
+	// verification was requested. Attaching zero probes anyway would charge the
+	// buyer for a "verified" job whose only correctness check is a record-count
+	// and dimension test, which is exactly the gap the floor exists to close.
+	//
+	// The common cause is an empty honeypot corpus: InsertHoneypot has no
+	// production caller and `seed` is refused outside development, so a
+	// production deployment has nothing to draw from. Refusing the submit
+	// surfaces that as an operator error instead of silently degrading every
+	// job on the platform to shape-only validation.
+	if nHoneypot > 0 {
 		actualHoneypots := 0
 		for _, task := range tasks {
 			if task.IsHoneypot {
@@ -725,7 +780,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		}
 		if actualHoneypots == 0 {
 			return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable,
-				"private-canary verification floor unavailable: no usable honeypot"}
+				"verification floor unavailable: no usable honeypot is seeded for this workload"}
 		}
 	}
 	if s.canary.Enabled && len(tasks) > s.canary.MaxTasksPerJob {
@@ -761,6 +816,26 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		return JobSubmitResponse{}, &httpError{http.StatusConflict, "job is not economically executable: " + economicPlan.BlockReason}
 	}
 	estimate := economicPlan.InitialBuyerChargeUSD
+	// Reject amounts that cannot be represented in the money column domain
+	// (NUMERIC(12,6) → ±999999.999999) before any durable side effects.
+	for _, v := range []struct {
+		name string
+		val  float64
+	}{
+		{"estimate", estimate},
+		{"reserved_buyer_charge", economicPlan.ReservedBuyerChargeUSD},
+		{"max_usd", sub.MaxUSD},
+		{"firm_quote_max_usd", firmQuoteMaxUSD},
+		{"sla_premium_usd", slaPremiumUSD},
+	} {
+		if v.val == 0 {
+			continue
+		}
+		if !moneyUSDInDomain(v.val) {
+			return JobSubmitResponse{}, &httpError{http.StatusBadRequest,
+				fmt.Sprintf("%s $%.6f exceeds money column domain (±%.6f)", v.name, v.val, maxMoneyUSD)}
+		}
+	}
 	vp, _ := json.Marshal(sub.Verification)
 	spec, _ := json.Marshal(sub.JobType)
 	offeredRate := s.offeredRateUsdHrForSubmission(ctx, sub)
@@ -828,13 +903,24 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 	if err := s.store.SubmitJobTx(ctx, jr, tasks); err != nil {
 		if sub.IdempotencyKey != "" && isUniqueViolation(err) {
-			if replay, found, replayErr := s.store.JobSubmissionReplay(ctx, buyerID, sub.IdempotencyKey, sub.RequestSHA256); replayErr == nil && found {
+			// An idempotent replay of a job that already exists must never reach
+			// the cleanup below: the objects belong to the winning submission.
+			replay, found, replayErr := s.store.JobSubmissionReplay(ctx, buyerID, sub.IdempotencyKey, sub.RequestSHA256)
+			if replayErr == nil && found {
 				replay.IdempotentReplay = true
 				return replay, nil
-			} else if errors.Is(replayErr, errIdempotencyConflict) {
+			}
+			if errors.Is(replayErr, errIdempotencyConflict) {
 				return JobSubmitResponse{}, &httpError{http.StatusConflict, replayErr.Error()}
 			}
+			return JobSubmitResponse{}, &httpError{http.StatusInternalServerError, "failed to create job: " + err.Error()}
 		}
+		// The input chunks were streamed to object storage before this
+		// transaction ran (streamSplitAndUpload above).  When the transaction
+		// fails there is no row referencing them, so nothing will ever read or
+		// delete them: they are billable storage nobody can find.  Best-effort
+		// cleanup, scoped to this job's own key prefix.
+		s.discardOrphanedJobObjects(ctx, jobID, inputKey, tasks)
 		return JobSubmitResponse{}, &httpError{http.StatusInternalServerError, "failed to create job: " + err.Error()}
 	}
 
@@ -1400,7 +1486,17 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := make([]ModelInfo, 0, len(rows))
+	type compatibleModel struct {
+		ModelInfo
+		Object               string   `json:"object"`
+		Created              int64    `json:"created"`
+		OwnedBy              string   `json:"owned_by"`
+		Capabilities         []string `json:"cx_capabilities"`
+		RuntimeProfileID     string   `json:"cx_runtime_profile_id,omitempty"`
+		RuntimeProfileSHA256 string   `json:"cx_runtime_profile_sha256,omitempty"`
+	}
+	out := make([]compatibleModel, 0, len(rows))
+	seen := make(map[string]bool, len(rows))
 	for _, m := range rows {
 		if !advertisedRuntimeModel(m.ID) {
 			continue
@@ -1412,9 +1508,14 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			JobType:     m.JobType,
 		}
 		info.PricePer1KUSD = modelPrice(m)
-		out = append(out, info)
+		out = append(out, compatibleModel{
+			ModelInfo: info, Object: "model", OwnedBy: "merc",
+			Capabilities: []string{"batch:" + m.JobType},
+		})
+		seen[m.ID] = true
 	}
-	writeJSON(w, http.StatusOK, out)
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": out})
 }
 
 func (s *Server) handlePriceEstimate(w http.ResponseWriter, r *http.Request) {
@@ -2430,6 +2531,46 @@ func (s *Server) handleBuyerRoom(w http.ResponseWriter, r *http.Request) {
 	serveHTML(w, path)
 }
 
+// handlePriceBoard serves the public price board. Unauthenticated on purpose:
+// a price a buyer cannot read before signing up is not a public price.
+func (s *Server) handlePriceBoard(w http.ResponseWriter, r *http.Request) {
+	path := os.Getenv("PRICES_PATH")
+	if path == "" {
+		path = "web/prices.html"
+	}
+	serveHTML(w, path)
+}
+
+// handleSupplierConsole serves the supplier console. The page itself is public;
+// every figure on it requires a worker token, which the page holds in memory
+// only and never persists.
+func (s *Server) handleSupplierConsole(w http.ResponseWriter, r *http.Request) {
+	path := os.Getenv("SUPPLIER_PATH")
+	if path == "" {
+		path = "web/supplier.html"
+	}
+	serveHTML(w, path)
+}
+
+// handlePriceBoardData serves the governed board the catalogue is priced from,
+// so the published price and the evidence behind it come from one file rather
+// than from a number typed into a page.
+func (s *Server) handlePriceBoardData(w http.ResponseWriter, r *http.Request) {
+	path := os.Getenv("PRICE_BOARD_PATH")
+	if path == "" {
+		path = "pricing/board.json"
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "price board unavailable")
+		return
+	}
+	secureHTMLHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(b)
+}
+
 func serveHTML(w http.ResponseWriter, path string) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -2554,6 +2695,23 @@ func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", "image/x-icon")
 	h.Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(b)
+}
+
+func (s *Server) handleSecurityTxt(w http.ResponseWriter, r *http.Request) {
+	path := os.Getenv("SECURITY_TXT_PATH")
+	if path == "" {
+		path = "web/.well-known/security.txt"
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "security.txt not found")
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "text/plain; charset=utf-8")
+	h.Set("Cache-Control", "public, max-age=3600")
+	h.Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(b)
 }
 
@@ -2980,8 +3138,6 @@ func fracCount(n int, frac float32) int {
 	return c
 }
 
-func roundUSD(v float64) float64 { return math.Round(v*1e6) / 1e6 }
-
 func redundancySelectionHash(jobID, taskID uuid.UUID) uint64 {
 	h := sha256.New()
 	h.Write(jobID[:])
@@ -3063,6 +3219,45 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, APIError{Error: msg})
+func (s *Server) handleAdminRefundRealtimeContract(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r)
+	if !ok {
+		return
+	}
+	body, err := decodeAdminActionBody(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request json: "+err.Error())
+		return
+	}
+	actor, ok := adminActorFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "authenticated admin identity is required")
+		return
+	}
+	refund, created, err := s.store.RefundRealtimeContract(
+		r.Context(), actor, id, body.Reason, body.RequestID)
+	switch {
+	case errors.Is(err, errNotFound):
+		writeErr(w, http.StatusNotFound, "verified realtime settlement not found")
+		return
+	case errors.Is(err, errRealtimeNotRefundable):
+		writeErr(w, http.StatusConflict, "realtime settlement is not eligible for a new internal refund")
+		return
+	case errors.Is(err, errRealtimeRefundNeedsReversal):
+		writeErr(w, http.StatusConflict, "supplier funding or transfer has started; external refund and transfer-reversal workflow is required")
+		return
+	}
+	if writeAdminMutationInputOrAuthError(w, err) {
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "recording realtime refund: "+err.Error())
+		return
+	}
+	if created {
+		metrics.realtimeRefunded.Add(1)
+		writeJSON(w, http.StatusCreated, refund)
+		return
+	}
+	writeJSON(w, http.StatusOK, refund)
 }

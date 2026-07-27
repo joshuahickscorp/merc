@@ -12,6 +12,9 @@ money or unrestricted public access.
 - Actor-bound, reason-required, transactional audit records cover privileged
   worker, task, reputation, payout, and operational-control mutations.
 - Durable intake, dispatch, payments, and webhook pause controls fail closed.
+- Unknown-length S3 uploads use an explicit 16 MiB multipart buffer instead of
+  the provider client's implicit ~537 MiB allocation; concurrent verification
+  memory is independently capped below the control-container limit.
 - Private-canary allowlists and bounded job, resource, retry, and shadow-value
   admission are enforced by the server.
 - Supplier payout release requires explicit operator approval in canary mode.

@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-.PHONY: up down dev-up dev-down migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check
+.PHONY: up down dev-up dev-down test-unit license-register release-gates alert-delivery-test backup-age-metric-test migrate seed control agent-run agent-bench agent-characterize prove-local metrics build fmt test ci audit loc docker-build install uninstall backup restore-drill backup-envelope-test local-independent-restore local-production-tls local-rollback restart-storm-local technical-exercises alert-check alert-page render-staging validate-staging soak-15m soak-2h soak-24h soak-24h-persistent soak-24h-status release-doctor stripe-simulate stripe-check stripe-matrix secret-audit approvals-check mutation-test
 
 up:
 	docker compose up -d --build
@@ -46,13 +46,26 @@ fmt:
 	cd control && gofmt -w .
 	cd agent && cargo fmt --all
 
+# MERC_TEST_DATABASE_URL defaults to the `make dev-up` Compose database so that
+# `make ci` runs the integration suite instead of skipping it.  Override it to
+# point at another instance; the tests fail closed when it is unreachable.
+MERC_TEST_DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
+
 test:
-	cd control && go test ./...
+	cd control && MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" go test ./...
 	cd agent && cargo test
 	bash scripts/verify-python-sdk-package.sh
 
+# The fast loop: unit tests only, database suite explicitly opted out.  CI never
+# sets MERC_ALLOW_SKIPPING_DB_TESTS, so the money and scheduling tests cannot stop
+# running there without someone noticing.
+test-unit:
+	cd control && MERC_ALLOW_SKIPPING_DB_TESTS=1 go test ./...
+
 ci:
-	cd control && test -z "$$(gofmt -l .)" && go vet ./... && go test ./...
+	cd control && test -z "$$(gofmt -l .)" && go vet ./... && \
+	  MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" go test ./...
+	@bash scripts/assert-no-test-skips.sh
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
 	python3 -m json.tool proto/manifest.schema.json >/dev/null
 	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
@@ -60,8 +73,34 @@ ci:
 	python3 scripts/validate-independent-reviews.py
 	python3 scripts/validate-governance.py
 	python3 scripts/validate-readiness.py
+	python3 scripts/assert-soak-claims.py
+	python3 scripts/validate-claim-surfaces.py
+	python3 scripts/test-bench-accounting.py
+	bash scripts/test-readiness-gaming.sh
+	bash scripts/test-agent-review-gaming.sh
+	bash scripts/test-technical-exercises-fail-closed.sh
 	node scripts/site-build.mjs
+	node scripts/test-supplier-console.mjs
+	bash -n scripts/*.sh
+	bash scripts/test-backup-schedule.sh
 	bash scripts/verify-python-sdk-package.sh
+
+# Release gates that are SUPPOSED to fail right now.  They mark work that is not
+# engineering -- a human has to supply a value -- so they run as their own target
+# rather than reddening every pull request on unrelated changes.  `make
+# release-gates` is the pre-GO check; do not silence either by editing the thing
+# it inspects.
+release-gates:
+	python3 scripts/validate-runbook-contacts.py
+	python3 scripts/validate-license-register.py
+
+# Fails until counsel clears the register.  Both catalogue models are marked
+# BLOCKED in docs/THIRD_PARTY_LICENSES.md while the binary prices and serves
+# them, which is a legal question rather than an engineering one -- so this runs
+# as its own target rather than blocking every build, and it must not be
+# silenced by editing the register.
+license-register:
+	python3 scripts/validate-license-register.py
 
 audit:
 	cd control && go run . audit codebase --out census
@@ -85,6 +124,12 @@ restore-drill:
 
 backup-envelope-test:
 	bash scripts/test-backup-envelope.sh
+
+alert-delivery-test:
+	bash scripts/test-alert-delivery.sh
+
+backup-age-metric-test:
+	bash scripts/test-backup-age-metric.sh
 
 local-independent-restore:
 	bash scripts/local-independent-restore.sh
@@ -151,3 +196,9 @@ secret-audit:
 
 approvals-check:
 	cd control && go run . release approvals-check $(if $(BUNDLE),--bundle $(BUNDLE),)
+
+# Mutation testing: injects deliberate defects into the money and reuse paths
+# and asserts the suite FAILS for each. A surviving mutation is a hole in the
+# tests. Kept out of `ci` because it runs the full suite once per mutation.
+mutation-test:
+	bash scripts/mutation-test.sh

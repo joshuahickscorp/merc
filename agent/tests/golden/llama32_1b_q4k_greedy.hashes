@@ -19,7 +19,7 @@
 #
 # State: SEEDED for class (device_label=metal, engine=candle, build_hash=29788fb25f948522).
 # Recorded 2026-06-30 on an Apple M3 Pro (macOS 26.6), candle 0.10.2 + Metal, agent 0.1.0,
-# infer_content_id=c9a43b499231c46b. The harness RECORDS missing rows (CX_GOLDEN_RECORD=1)
+# infer_content_id=c9a43b499231c46b. The harness RECORDS missing rows (MERC_GOLDEN_RECORD=1)
 # and GATES against them otherwise (proven: no-record re-runs passed on build_hash 29788fb25f948522).
 # These same hash VALUES were first recorded under build_hash cb257fe8535ef6c7 and re-verified
 # green after the rope_dim fallback edit moved build_hash to 29788fb25f948522  -  i.e. the edit is

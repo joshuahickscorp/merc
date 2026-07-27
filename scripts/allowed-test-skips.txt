@@ -1,0 +1,7 @@
+# Tests permitted to skip, one exact name per line, each with a reason above it.
+#
+# Needs a MinIO/S3 endpoint as well as Postgres to prove objects are really gone
+# from the bucket.  CI has Postgres but no object store; when one is added this
+# line must be deleted, because deletable_data_removed in the DSAR receipt is
+# derived from this test's result.
+TestBuyerObjectDeletionQueueAndSweep

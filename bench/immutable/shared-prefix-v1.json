@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "merc-shared-prefix-v1",
+  "frozen_at": "2026-07-27",
+  "purpose": "Immutable shared-prefix profile. Any speed claim against merc MUST cite this id.",
+  "binding": {
+    "hardware": "Apple M3 Ultra, 60-core GPU, 96GB unified",
+    "runtime": "mlx-lm 0.31.3 / mlx 0.32.0",
+    "model": "mlx-community/Llama-3.2-1B-Instruct-4bit",
+    "model_revision": "main@2026-07-27",
+    "tokenizer": "bundled with model repo",
+    "chat_template": "none - raw token ids, no template applied",
+    "quantization": "4bit (NOTE: 2.1% greedy agreement with bf16 - NOT quality-approved)",
+    "sampling": "greedy argmax, no temperature, no top-p",
+    "batch": 128,
+    "prompt_tokens": 192,
+    "shared_prefix_tokens": 160,
+    "unique_suffix_tokens": 32,
+    "output_tokens": 32,
+    "quality_suite": "NOT ESTABLISHED - see docs/FRONTIER_300X.md"
+  },
+  "accounting": {
+    "rule": "A token counts as PHYSICAL only if it was actually computed. A shared prefix computed once and reused by N streams contributes its length ONCE, not N times.",
+    "physical_tokens": "shared_prefix + batch*unique_suffix + batch*output",
+    "billed_tokens": "batch*(prompt + output)",
+    "forbidden": [
+      "counting reused prefix tokens as inferred",
+      "counting proposed-but-rejected speculative tokens",
+      "counting exact cache hits as inference",
+      "shortening output to raise tokens/s",
+      "changing quantization without disclosing the quality tier"
+    ]
+  },
+  "measured_2026_07_27": {
+    "billed_tokens_per_s": 18469,
+    "physical_tokens_per_s": 5380,
+    "prefix_reuse_inflation": 3.43,
+    "baseline_tokens_per_s": 138.7,
+    "billed_multiple": 133.2,
+    "physical_multiple": 38.8,
+    "energy": "NOT MEASURED - powermetrics requires root on this host"
+  }
+}

@@ -18,6 +18,18 @@ fn default_checkpoint_secs() -> u64 {
     30
 }
 
+fn default_inference_backend() -> String {
+    "candle".to_string()
+}
+
+fn default_openai_base_url() -> String {
+    "http://127.0.0.1:8099/v1".to_string()
+}
+
+fn default_openai_model() -> String {
+    "cx-chat-1b".to_string()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThermalPressure {
@@ -44,7 +56,6 @@ pub struct AgentConfig {
     pub control_url: String,
     pub worker_token: String,
     pub supplier_id: Uuid,
-    pub max_cpu_pct: f32,
     pub quiet_hours: Option<(u8, u8)>,
     pub power_only: bool,
     pub min_payout_usd_per_hr: f32,
@@ -57,6 +68,18 @@ pub struct AgentConfig {
     pub max_concurrent_tasks: Option<usize>,
     #[serde(default = "default_checkpoint_secs")]
     pub checkpoint_secs: u64,
+    /// `candle` (default, in-process) or `openai_http` (OpenAI-compatible engine).
+    #[serde(default = "default_inference_backend")]
+    pub inference_backend: String,
+    /// Base URL including `/v1` for the OpenAI-compatible engine (openai_http only).
+    #[serde(default = "default_openai_base_url")]
+    pub openai_base_url: String,
+    /// Model id/alias the engine advertises (openai_http only).
+    #[serde(default = "default_openai_model")]
+    pub openai_model: String,
+    /// Optional bearer token for the engine (openai_http only).
+    #[serde(default)]
+    pub openai_api_key: Option<String>,
     #[serde(skip, default)]
     pub thermal_pressure: Option<ThermalPressure>,
     #[serde(skip, default)]
@@ -69,7 +92,6 @@ pub struct OperatorPrefs {
     pub min_payout_usd_per_hr: Option<f32>,
     pub memory_headroom_gb: Option<f32>,
     pub max_memory_pct: Option<f32>,
-    pub max_cpu_pct: Option<f32>,
     pub quiet_hours: Option<(u8, u8)>,
     pub max_concurrent_tasks: Option<usize>,
     pub thermal_pressure: Option<ThermalPressure>,
@@ -167,23 +189,46 @@ impl AgentConfig {
         let mut cfg: AgentConfig =
             toml::from_str(&text).with_context(|| format!("parsing TOML {}", path.display()))?;
 
-        if let Ok(url) = std::env::var("CX_CONTROL_URL") {
+        if let Ok(url) = std::env::var("MERC_CONTROL_URL") {
             if !url.is_empty() {
                 cfg.control_url = url;
             }
         }
-        if let Ok(token) = std::env::var("CX_WORKER_TOKEN") {
+        if let Ok(token) = std::env::var("MERC_WORKER_TOKEN") {
             if !token.is_empty() {
                 cfg.worker_token = token;
             }
         }
-        if let Ok(secs) = std::env::var("CX_CHECKPOINT_SECS") {
+        if let Ok(secs) = std::env::var("MERC_CHECKPOINT_SECS") {
             if !secs.is_empty() {
                 cfg.checkpoint_secs = secs
                     .parse()
-                    .with_context(|| format!("parsing CX_CHECKPOINT_SECS {secs:?}"))?;
+                    .with_context(|| format!("parsing MERC_CHECKPOINT_SECS {secs:?}"))?;
             }
         }
+        if let Ok(backend) = std::env::var("MERC_INFERENCE_BACKEND") {
+            if !backend.is_empty() {
+                cfg.inference_backend = backend;
+            }
+        }
+        if let Ok(url) = std::env::var("MERC_OPENAI_BASE_URL") {
+            if !url.is_empty() {
+                cfg.openai_base_url = url;
+            }
+        }
+        if let Ok(model) = std::env::var("MERC_OPENAI_MODEL") {
+            if !model.is_empty() {
+                cfg.openai_model = model;
+            }
+        }
+        if let Ok(key) = std::env::var("MERC_OPENAI_API_KEY") {
+            if !key.is_empty() {
+                cfg.openai_api_key = Some(key);
+            }
+        }
+
+        // Reject unknown backends at config load so a typo cannot silently fall back.
+        crate::inference::BackendKind::parse(&cfg.inference_backend).map_err(anyhow::Error::msg)?;
 
         if let Some(pp) = Self::resolve_prefs_path(path) {
             cfg.apply_prefs(&OperatorPrefs::load(&pp)?);
@@ -193,8 +238,12 @@ impl AgentConfig {
         Ok(cfg)
     }
 
+    pub fn inference_backend_kind(&self) -> Result<crate::inference::BackendKind, String> {
+        crate::inference::BackendKind::parse(&self.inference_backend)
+    }
+
     fn resolve_prefs_path(config_path: &Path) -> Option<PathBuf> {
-        match std::env::var("CX_AGENT_PREFS") {
+        match std::env::var("MERC_AGENT_PREFS") {
             Ok(p) if !p.is_empty() => Some(PathBuf::from(p)),
             _ => {
                 let sidecar = config_path.with_file_name("agent.prefs.toml");
@@ -224,9 +273,6 @@ impl AgentConfig {
         }
         if let Some(v) = prefs.max_memory_pct {
             self.max_memory_pct = v;
-        }
-        if let Some(v) = prefs.max_cpu_pct {
-            self.max_cpu_pct = v;
         }
         if let Some(v) = prefs.quiet_hours {
             self.quiet_hours = Some(v);
@@ -273,7 +319,6 @@ mod tests {
             control_url: "http://localhost".into(),
             worker_token: "t".into(),
             supplier_id: Uuid::nil(),
-            max_cpu_pct: 80.0,
             quiet_hours,
             power_only,
             min_payout_usd_per_hr: 0.0,
@@ -282,6 +327,10 @@ mod tests {
             data_dir: PathBuf::from("/tmp"),
             max_concurrent_tasks: None,
             checkpoint_secs: default_checkpoint_secs(),
+            inference_backend: default_inference_backend(),
+            openai_base_url: default_openai_base_url(),
+            openai_model: default_openai_model(),
+            openai_api_key: None,
             thermal_pressure: None,
             prefs_path: None,
         }
@@ -451,7 +500,6 @@ mod tests {
             control_url = "http://localhost:8080"
             worker_token = "t"
             supplier_id = "00000000-0000-0000-0000-000000000000"
-            max_cpu_pct = 90.0
             power_only = false
             min_payout_usd_per_hr = 0.0
             data_dir = "/tmp/cx-agent"
@@ -465,6 +513,28 @@ mod tests {
             c.checkpoint_secs, 0,
             "explicit 0 disables, not defaulted over"
         );
+    }
+
+    #[test]
+    fn inference_backend_defaults_to_candle() {
+        let base = r#"
+            control_url = "http://localhost:8080"
+            worker_token = "t"
+            supplier_id = "00000000-0000-0000-0000-000000000000"
+            max_cpu_pct = 90.0
+            power_only = false
+            min_payout_usd_per_hr = 0.0
+            data_dir = "/tmp/cx-agent"
+        "#;
+        let c: AgentConfig = toml::from_str(base).unwrap();
+        assert_eq!(c.inference_backend, "candle");
+        assert_eq!(c.openai_base_url, "http://127.0.0.1:8099/v1");
+        assert_eq!(c.openai_model, "cx-chat-1b");
+        let c: AgentConfig =
+            toml::from_str(&format!("{base}\ninference_backend = \"openai_http\"\nopenai_base_url = \"http://127.0.0.1:9000/v1\"\nopenai_model = \"my-alias\"\n")).unwrap();
+        assert_eq!(c.inference_backend, "openai_http");
+        assert_eq!(c.openai_base_url, "http://127.0.0.1:9000/v1");
+        assert_eq!(c.openai_model, "my-alias");
     }
 
     #[test]

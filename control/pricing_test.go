@@ -50,7 +50,7 @@ func TestRepriceFromSupplierEconomicsUnknownHWClassFallsBackConservatively(t *te
 func TestRepriceCatalogueFromSupplierEconomicsOmitsUnmeasuredModels(t *testing.T) {
 	results := RepriceCatalogueFromSupplierEconomics(0.97)
 	if len(results) == 0 {
-		t.Fatal("expected at least the two really-measured models")
+		t.Fatal("expected at least the two board-mapped measured models")
 	}
 	seen := map[string]bool{}
 	for _, r := range results {
@@ -58,12 +58,50 @@ func TestRepriceCatalogueFromSupplierEconomicsOmitsUnmeasuredModels(t *testing.T
 		if r.PricePer1K <= 0 {
 			t.Fatalf("repriced model %s has non-positive price %v", r.ModelID, r.PricePer1K)
 		}
+		if !strings.Contains(r.Formula, "confidence_weighted_median(board[") {
+			t.Fatalf("catalogue reprice must cite market board, formula: %s", r.Formula)
+		}
 	}
 	if !seen["all-minilm-l6-v2"] || !seen["llama-3.2-1b-instruct-q4"] {
-		t.Fatalf("expected the two really-measured models in the result, got %v", seen)
+		t.Fatalf("expected the two board-mapped models in the result, got %v", seen)
 	}
 	if seen["unsupported-model"] {
 		t.Fatal("unmeasured model must never be repriced")
+	}
+}
+
+func TestMarketBoardIsMinTimesMultiplier(t *testing.T) {
+	board, err := loadPriceBoard()
+	if err != nil {
+		t.Fatalf("load price board: %v", err)
+	}
+	class := board.Classes["embed_small"]
+	minPx, _, _, _, ok := minBoardPriceUSDPer1K(class)
+	if !ok {
+		t.Fatal("embed_small has no positive observations")
+	}
+	r, ok := repriceFromMarketBoard("all-minilm-l6-v2", "embed", board)
+	if !ok {
+		t.Fatal("expected board price for all-minilm-l6-v2")
+	}
+	want := minPx * board.PositioningMultiplier
+	if diff := r.PricePer1K - want; diff > 1e-12 || diff < -1e-12 {
+		t.Fatalf("price = %.12f, want min×mult = %.12f", r.PricePer1K, want)
+	}
+}
+
+func TestCostFloorExceedsMarketBoard(t *testing.T) {
+	// Document the economic finding: laptop cost-plus at $2/hr cannot meet
+	// observed hyperscaler list prices for these model classes.
+	gaps := CompareCostFloorToMarketBoard(0.97)
+	if len(gaps) == 0 {
+		t.Fatal("expected cost/market comparison rows")
+	}
+	for _, g := range gaps {
+		if g.GapRatio <= 1 {
+			t.Fatalf("%s: expected cost-plus floor above market board (gap_ratio=%v cost=%v market=%v)",
+				g.ModelID, g.GapRatio, g.CostPlusPer1K, g.MarketBoardPer1K)
+		}
 	}
 }
 

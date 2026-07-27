@@ -300,8 +300,7 @@ func (s *Server) quoteInitialEconomicTaskCount(ctx context.Context, sub jobSubmi
 	}
 	redundancy := fracCount(primaryTasks, sub.Verification.RedundancyFrac)
 	honeypots := fracCount(primaryTasks, sub.Verification.HoneypotFrac)
-	if !sub.Verification.SkipVerificationFloor &&
-		sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0 && honeypots == 0 {
+	if sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0 && honeypots == 0 {
 		honeypots = 1
 	}
 	if honeypots > 0 {
@@ -335,8 +334,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 
 	expected := s.estimateJobUSD(ctx, sub.JobType.Type, sub.Model.Ref, len(inputBytes), scan.Records, sub.JobType.MaxTokens, sub.Tier)
 	verifOverhead := roundUSD(expected * float64(sub.Verification.RedundancyFrac+sub.Verification.HoneypotFrac))
-	wantVerificationFloor := !sub.Verification.SkipVerificationFloor &&
-		sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0
+	wantVerificationFloor := sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0
 	if wantVerificationFloor && tasks > 0 && fracCount(tasks, sub.Verification.HoneypotFrac) == 0 {
 		verifOverhead = roundUSD(math.Max(verifOverhead, expected/float64(tasks)))
 	}

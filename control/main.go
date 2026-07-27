@@ -21,20 +21,28 @@ func validateHardeningSecretConfig(
 	cxEnv, stripeSecret, tokenKey, verificationSampleSecret string,
 ) (bool, error) {
 	tokenKeyUnsafe := len(tokenKey) < 32
-	verificationSecretUnsafe := len(verificationSampleSecret) < 32 ||
+	verificationUsesPublishedDefault := verificationSampleSecret == "" ||
 		verificationSampleSecret == insecureDevelopmentSamplingSecret
+	verificationSecretUnsafe := len(verificationSampleSecret) < 32 || verificationUsesPublishedDefault
 	missing := tokenKeyUnsafe || verificationSecretUnsafe
 	if !missing {
 		return false, nil
 	}
+	// Any Stripe key (including sk_test_) refuses the published sampling default:
+	// test money still buys fraud practice against a known sampling oracle.
+	if verificationUsesPublishedDefault && strings.TrimSpace(stripeSecret) != "" {
+		return true, fmt.Errorf(
+			"MERC_VERIFICATION_SAMPLE_SECRET missing or is the published development default while STRIPE_SECRET_KEY is set  -  refusing to start: verification sampling would be unhardened with money rails present; set MERC_VERIFICATION_SAMPLE_SECRET to at least 32 unpredictable bytes",
+		)
+	}
 	liveStripe := isLiveStripeCredential(stripeSecret)
-	if strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod") || liveStripe {
-		reason := "CX_ENV=" + cxEnv
+	if isProductionEnv(cxEnv) || liveStripe {
+		reason := "MERC_ENV=" + cxEnv
 		if liveStripe {
 			reason = "STRIPE_SECRET_KEY is a LIVE key (sk_live_...)"
 		}
 		return true, fmt.Errorf(
-			"CX_TOKEN_KEY and/or CX_VERIFICATION_SAMPLE_SECRET missing or unsafe with %s  -  refusing to start: OAuth token storage, webhook signing-secret storage, or verification sampling would be unhardened; set both to at least 32 unpredictable bytes",
+			"MERC_TOKEN_KEY and/or MERC_VERIFICATION_SAMPLE_SECRET missing or unsafe with %s  -  refusing to start: OAuth token storage, webhook signing-secret storage, or verification sampling would be unhardened; set both to at least 32 unpredictable bytes",
 			reason,
 		)
 	}
@@ -57,8 +65,13 @@ func parseDBMaxConns(raw string) (int32, error) {
 	return int32(n), nil
 }
 
+// isProductionEnv matches the same spellings the hardening refusal accepts.
+func isProductionEnv(cxEnv string) bool {
+	return strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod")
+}
+
 func validateSeedAllowed(cxEnv, stripeSecret string) error {
-	production := strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod")
+	production := isProductionEnv(cxEnv)
 	if production || isLiveStripeCredential(stripeSecret) {
 		return fmt.Errorf("control seed is disabled in production/live-money mode; refusing to install public development credentials")
 	}
@@ -91,13 +104,13 @@ func validateLiveMoneyConfig(cxEnv, stripeSecret, billingWebhookSecret, connectW
 		missing = append(missing, "STRIPE_WEBHOOK_SECRET")
 	}
 	if strings.TrimSpace(connectWebhookSecret) == "" {
-		missing = append(missing, "CX_CONNECT_WEBHOOK_SECRET")
+		missing = append(missing, "MERC_CONNECT_WEBHOOK_SECRET")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("live money configuration invalid: %s required; refusing to start", strings.Join(missing, ", "))
 	}
 	if billingWebhookSecret == connectWebhookSecret {
-		return fmt.Errorf("live money configuration invalid: STRIPE_WEBHOOK_SECRET and CX_CONNECT_WEBHOOK_SECRET must be distinct endpoint secrets; refusing to start")
+		return fmt.Errorf("live money configuration invalid: STRIPE_WEBHOOK_SECRET and MERC_CONNECT_WEBHOOK_SECRET must be distinct endpoint secrets; refusing to start")
 	}
 	if _, err := LoadEconomicScheduleFromEnv(); err != nil {
 		return fmt.Errorf("live money configuration invalid: economic schedule: %w; refusing to start", err)
@@ -150,7 +163,7 @@ func validatePaymentProviderMode(cxEnv, provider string) error {
 		}
 		return errors.New("test-only payment simulator is CLI/test-only and cannot back the server")
 	}
-	return fmt.Errorf("unsupported CX_PAYMENT_PROVIDER %q", provider)
+	return fmt.Errorf("unsupported MERC_PAYMENT_PROVIDER %q", provider)
 }
 
 func validateCanaryMoneyMode(
@@ -158,7 +171,7 @@ func validateCanaryMoneyMode(
 ) error {
 	enabled, err := strconv.ParseBool(strings.TrimSpace(canaryRaw))
 	if err != nil && strings.TrimSpace(canaryRaw) != "" {
-		return fmt.Errorf("CX_CANARY_MODE must be a boolean")
+		return fmt.Errorf("MERC_CANARY_MODE must be a boolean")
 	}
 	if !enabled {
 		return nil
@@ -172,10 +185,10 @@ func validateCanaryMoneyMode(
 		return fmt.Errorf("private canary requires distinct cash and Connect whsec_* endpoint secrets")
 	}
 	if !strings.HasPrefix(connectClientID, "ca_") {
-		return fmt.Errorf("private canary requires a test-mode CX_CONNECT_CLIENT_ID")
+		return fmt.Errorf("private canary requires a test-mode MERC_CONNECT_CLIENT_ID")
 	}
 	if strings.TrimSpace(payoutExport) != "" {
-		return fmt.Errorf("private canary refuses CX_PAYOUT_EXPORT; supplier value movement is test-mode only")
+		return fmt.Errorf("private canary refuses MERC_PAYOUT_EXPORT; supplier value movement is test-mode only")
 	}
 	return nil
 }
@@ -223,34 +236,37 @@ func main() {
 	}
 
 	missingHardeningSecret, hardeningErr := validateHardeningSecretConfig(
-		os.Getenv("CX_ENV"), stripeKey(), os.Getenv("CX_TOKEN_KEY"),
-		os.Getenv("CX_VERIFICATION_SAMPLE_SECRET"),
+		os.Getenv("MERC_ENV"), stripeKey(), os.Getenv("MERC_TOKEN_KEY"),
+		os.Getenv("MERC_VERIFICATION_SAMPLE_SECRET"),
 	)
 	if hardeningErr != nil {
 		log.Fatal(hardeningErr)
 	}
 	if missingHardeningSecret {
-		log.Print("WARNING: CX_TOKEN_KEY and/or CX_VERIFICATION_SAMPLE_SECRET missing or unsafe  -  OAuth token/webhook-secret storage or verification sampling is unhardened; set both to at least 32 unpredictable bytes before production")
+		log.Print("WARNING: MERC_TOKEN_KEY and/or MERC_VERIFICATION_SAMPLE_SECRET missing or unsafe  -  OAuth token/webhook-secret storage or verification sampling is unhardened; set both to at least 32 unpredictable bytes before production")
+	}
+	if err := validateAdminAccessConfig(os.Getenv("MERC_ENV"), os.Getenv("MERC_ADMIN_CIDRS")); err != nil {
+		log.Fatal(err)
 	}
 	if err := validateLiveMoneyConfig(
-		os.Getenv("CX_ENV"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
-		os.Getenv("CX_CONNECT_WEBHOOK_SECRET"),
+		os.Getenv("MERC_ENV"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		os.Getenv("MERC_CONNECT_WEBHOOK_SECRET"),
 	); err != nil {
 		log.Fatal(err)
 	}
-	if err := validatePaymentProviderMode(os.Getenv("CX_ENV"), os.Getenv("CX_PAYMENT_PROVIDER")); err != nil {
+	if err := validatePaymentProviderMode(os.Getenv("MERC_ENV"), os.Getenv("MERC_PAYMENT_PROVIDER")); err != nil {
 		log.Fatal(err)
 	}
 	if err := validateCanaryMoneyMode(
-		os.Getenv("CX_CANARY_MODE"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
-		os.Getenv("CX_CONNECT_WEBHOOK_SECRET"), os.Getenv("CX_CONNECT_CLIENT_ID"),
-		os.Getenv("CX_PAYOUT_EXPORT"),
+		os.Getenv("MERC_CANARY_MODE"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		os.Getenv("MERC_CONNECT_WEBHOOK_SECRET"), os.Getenv("MERC_CONNECT_CLIENT_ID"),
+		os.Getenv("MERC_PAYOUT_EXPORT"),
 	); err != nil {
 		log.Fatal(err)
 	}
 	if err := validateLiveConnectURLConfig(
-		os.Getenv("CX_ENV"), stripeKey(), os.Getenv("CX_CONNECT_RETURN_URL"),
-		os.Getenv("CX_CONNECT_REFRESH_URL"), os.Getenv("SITE_HOST"),
+		os.Getenv("MERC_ENV"), stripeKey(), os.Getenv("MERC_CONNECT_RETURN_URL"),
+		os.Getenv("MERC_CONNECT_REFRESH_URL"), os.Getenv("SITE_HOST"),
 	); err != nil {
 		log.Fatal(err)
 	}
@@ -282,7 +298,7 @@ func main() {
 	store := NewStore(pool)
 
 	if len(os.Args) > 1 && os.Args[1] == "seed" {
-		if err := validateSeedAllowed(os.Getenv("CX_ENV"), stripeKey()); err != nil {
+		if err := validateSeedAllowed(os.Getenv("MERC_ENV"), stripeKey()); err != nil {
 			log.Fatal(err)
 		}
 		if err := store.Migrate(ctx); err != nil {
@@ -308,6 +324,21 @@ func main() {
 	} else if n > 0 {
 		log.Printf("repricing from supplier economics: %d catalogue price(s) updated from measured throughput", n)
 	}
+	// SupplierViabilityReport computes, per catalogue model, whether a supplier
+	// clears their own electricity at the price we advertise. It existed but was
+	// only ever called from a test, so an underwater supply side was discoverable
+	// only by a supplier reading their power bill. Say it out loud at boot.
+	for _, v := range SupplierViabilityReport(supplierShareRate) {
+		if v.Viable {
+			continue
+		}
+		log.Printf("WARNING: supplier economics underwater: model=%s job=%s hw=%s "+
+			"gross=$%.6f/hr electricity=$%.6f/hr net=$%.6f/hr; "+
+			"break-even needs %.1f units/s, measured %.1f",
+			v.ModelID, v.JobType, v.HWClass, v.SupplierGrossUSDHr, v.ElectricityUSDHr,
+			v.NetUSDHr, v.BreakEvenUnitsPerSec, v.MeasuredUnitsPerSec)
+	}
+
 	if err := store.ValidateAdvertisedRuntimeCatalog(ctx); err != nil {
 		log.Fatalf("runtime catalog validation failed: %v", err)
 	}
@@ -319,9 +350,28 @@ func main() {
 
 	var payout Payout = stubPayout{}
 	if key := os.Getenv("STRIPE_SECRET_KEY"); key != "" {
-		payout = newStripePayout(store, key)
+		sp := newStripePayout(store, key)
+		payout = sp
 		log.Print("payout rail: Stripe Connect (STRIPE_SECRET_KEY set)")
-	} else if path := os.Getenv("CX_PAYOUT_EXPORT"); path != "" {
+
+		// The ledger settles in USD only. A platform that cannot hold USD
+		// accepts every transfer request and fails it at the moment money
+		// moves, so refuse here rather than discovering it per payout.
+		probeCtx, cancelProbe := context.WithTimeout(ctx, 15*time.Second)
+		err := sp.verifySettlementCurrency(probeCtx)
+		if err != nil {
+			where := sp.accountCountry(probeCtx)
+			if where != "" {
+				where = " [account " + where + "]"
+			}
+			if isProductionEnv(os.Getenv("MERC_ENV")) {
+				cancelProbe()
+				log.Fatalf("stripe settlement preflight failed%s: %v", where, err)
+			}
+			log.Printf("WARNING: stripe settlement preflight failed%s: %v", where, err)
+		}
+		cancelProbe()
+	} else if path := os.Getenv("MERC_PAYOUT_EXPORT"); path != "" {
 		payout = newManualExportPayout(path)
 		log.Printf("payout rail: manual export (alpha) -> %s  -  owed credits appended for out-of-band settlement", path)
 	} else {
@@ -333,12 +383,12 @@ func main() {
 	workersCtx, stopWorkers := context.WithCancel(ctx)
 	defer stopWorkers()
 	workers := NewWorkers(store, storage, payout)
-	if os.Getenv("CX_RUN_WORKERS") != "false" {
+	if os.Getenv("MERC_RUN_WORKERS") != "false" {
 		setWorkerElectionReadinessEnabled(true)
 		go runWorkerLeader(workersCtx, pool, workers)
 	} else {
 		setWorkerElectionReadinessEnabled(false)
-		log.Print("CX_RUN_WORKERS=false · background workers explicitly disabled on this instance")
+		log.Print("MERC_RUN_WORKERS=false · background workers explicitly disabled on this instance")
 	}
 	go server.startRateLimitSweeper(workersCtx) // evict idle rate-limit buckets
 	go startTaskWakeListener(workersCtx, pool)

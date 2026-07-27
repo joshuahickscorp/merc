@@ -33,12 +33,34 @@ type CanaryPolicy struct {
 	configError            error
 }
 
+// canaryDisableDecisionEnv is required when MERC_CANARY_MODE is explicitly false.
+// Disabling canary also opens self-serve signup; one recorded decision gates both.
+const canaryDisableDecisionEnv = "MERC_CANARY_DISABLE_DECISION_REF"
+
 func loadCanaryPolicyFromEnv() CanaryPolicy {
-	enabled, err := strconv.ParseBool(strings.TrimSpace(os.Getenv("CX_CANARY_MODE")))
-	if err != nil && strings.TrimSpace(os.Getenv("CX_CANARY_MODE")) != "" {
-		return CanaryPolicy{Enabled: true, configError: fmt.Errorf("CX_CANARY_MODE: %w", err)}
+	raw := strings.TrimSpace(os.Getenv("MERC_CANARY_MODE"))
+	if raw == "" {
+		// Unset is off for local tooling. Production compose defaults the env to
+		// true; turning it off requires an explicit false plus a decision ref.
+		return CanaryPolicy{}
+	}
+	enabled, err := strconv.ParseBool(raw)
+	if err != nil {
+		return CanaryPolicy{Enabled: true, configError: fmt.Errorf("MERC_CANARY_MODE: %w", err)}
 	}
 	if !enabled {
+		decision := strings.TrimSpace(os.Getenv(canaryDisableDecisionEnv))
+		if decision == "" {
+			// Fail closed: keep canary enforcement on until the disable decision
+			// is recorded. Self-serve signup stays gated by the same flag.
+			return CanaryPolicy{
+				Enabled: true,
+				configError: fmt.Errorf(
+					"MERC_CANARY_MODE=false requires %s (recorded decision that also opens self-serve signup)",
+					canaryDisableDecisionEnv,
+				),
+			}
+		}
 		return CanaryPolicy{}
 	}
 
@@ -49,94 +71,94 @@ func loadCanaryPolicyFromEnv() CanaryPolicy {
 		ApprovedAgentVersions: make(map[string]struct{}),
 		ApprovedBuildHashes:   make(map[string]struct{}),
 	}
-	for _, email := range splitCanaryCSV(os.Getenv("CX_CANARY_APPROVED_BUYER_EMAILS")) {
+	for _, email := range splitCanaryCSV(os.Getenv("MERC_CANARY_APPROVED_BUYER_EMAILS")) {
 		email = normalizeEmail(email)
 		if email != "" {
 			p.ApprovedBuyerEmails[email] = struct{}{}
 		}
 	}
-	for _, raw := range splitCanaryCSV(os.Getenv("CX_CANARY_APPROVED_WORKER_IDS")) {
+	for _, raw := range splitCanaryCSV(os.Getenv("MERC_CANARY_APPROVED_WORKER_IDS")) {
 		id, parseErr := uuid.Parse(raw)
 		if parseErr != nil {
-			p.configError = fmt.Errorf("CX_CANARY_APPROVED_WORKER_IDS contains %q: %w", raw, parseErr)
+			p.configError = fmt.Errorf("MERC_CANARY_APPROVED_WORKER_IDS contains %q: %w", raw, parseErr)
 			return p
 		}
 		p.ApprovedWorkerIDs[id] = struct{}{}
 	}
-	for _, version := range splitCanaryCSV(os.Getenv("CX_CANARY_APPROVED_AGENT_VERSIONS")) {
+	for _, version := range splitCanaryCSV(os.Getenv("MERC_CANARY_APPROVED_AGENT_VERSIONS")) {
 		if err := validateWorkerTextField("approved agent version", version, maxWorkerVersionBytes); err != nil {
-			p.configError = fmt.Errorf("CX_CANARY_APPROVED_AGENT_VERSIONS contains an invalid value: %w", err)
+			p.configError = fmt.Errorf("MERC_CANARY_APPROVED_AGENT_VERSIONS contains an invalid value: %w", err)
 			return p
 		}
 		p.ApprovedAgentVersions[version] = struct{}{}
 	}
-	for _, buildHash := range splitCanaryCSV(os.Getenv("CX_CANARY_APPROVED_BUILD_HASHES")) {
+	for _, buildHash := range splitCanaryCSV(os.Getenv("MERC_CANARY_APPROVED_BUILD_HASHES")) {
 		if len(buildHash) != 16 {
-			p.configError = fmt.Errorf("CX_CANARY_APPROVED_BUILD_HASHES contains %q: expected the agent's 16-character lowercase hex build hash", buildHash)
+			p.configError = fmt.Errorf("MERC_CANARY_APPROVED_BUILD_HASHES contains %q: expected the agent's 16-character lowercase hex build hash", buildHash)
 			return p
 		}
 		if _, err := hex.DecodeString(buildHash); err != nil || strings.ToLower(buildHash) != buildHash {
-			p.configError = fmt.Errorf("CX_CANARY_APPROVED_BUILD_HASHES contains %q: expected lowercase hex", buildHash)
+			p.configError = fmt.Errorf("MERC_CANARY_APPROVED_BUILD_HASHES contains %q: expected lowercase hex", buildHash)
 			return p
 		}
 		p.ApprovedBuildHashes[buildHash] = struct{}{}
 	}
 
 	var fieldErr error
-	p.MaxActiveBuyers, fieldErr = requiredPositiveInt("CX_CANARY_MAX_ACTIVE_BUYERS")
+	p.MaxActiveBuyers, fieldErr = requiredPositiveInt("MERC_CANARY_MAX_ACTIVE_BUYERS")
 	if fieldErr == nil {
-		p.MaxActiveWorkers, fieldErr = requiredPositiveInt("CX_CANARY_MAX_ACTIVE_WORKERS")
+		p.MaxActiveWorkers, fieldErr = requiredPositiveInt("MERC_CANARY_MAX_ACTIVE_WORKERS")
 	}
 	if fieldErr == nil {
-		p.MaxQueuedJobs, fieldErr = requiredPositiveInt("CX_CANARY_MAX_QUEUED_JOBS")
+		p.MaxQueuedJobs, fieldErr = requiredPositiveInt("MERC_CANARY_MAX_QUEUED_JOBS")
 	}
 	if fieldErr == nil {
-		p.MaxTasksPerJob, fieldErr = requiredPositiveInt("CX_CANARY_MAX_TASKS_PER_JOB")
+		p.MaxTasksPerJob, fieldErr = requiredPositiveInt("MERC_CANARY_MAX_TASKS_PER_JOB")
 	}
 	if fieldErr == nil {
-		p.MaxArtifactBytes, fieldErr = requiredPositiveInt64("CX_CANARY_MAX_ARTIFACT_BYTES")
+		p.MaxArtifactBytes, fieldErr = requiredPositiveInt64("MERC_CANARY_MAX_ARTIFACT_BYTES")
 	}
 	if fieldErr == nil {
-		p.MaxInputBytes, fieldErr = requiredPositiveInt64("CX_CANARY_MAX_INPUT_BYTES")
+		p.MaxInputBytes, fieldErr = requiredPositiveInt64("MERC_CANARY_MAX_INPUT_BYTES")
 	}
 	if fieldErr == nil {
-		v, err := requiredPositiveInt("CX_CANARY_MAX_OUTPUT_TOKENS")
+		v, err := requiredPositiveInt("MERC_CANARY_MAX_OUTPUT_TOKENS")
 		fieldErr = err
 		p.MaxOutputTokens = uint32(v)
 	}
 	if fieldErr == nil {
-		v, err := requiredPositiveInt("CX_CANARY_MAX_JOB_DURATION_SECS")
+		v, err := requiredPositiveInt("MERC_CANARY_MAX_JOB_DURATION_SECS")
 		fieldErr = err
 		p.MaxJobDurationSecs = uint32(v)
 	}
 	if fieldErr == nil {
-		p.MaxRetries, fieldErr = requiredPositiveInt("CX_CANARY_MAX_RETRIES")
+		p.MaxRetries, fieldErr = requiredPositiveInt("MERC_CANARY_MAX_RETRIES")
 	}
 	if fieldErr == nil {
-		p.MaxDailyJobs, fieldErr = requiredPositiveInt("CX_CANARY_MAX_DAILY_JOBS")
+		p.MaxDailyJobs, fieldErr = requiredPositiveInt("MERC_CANARY_MAX_DAILY_JOBS")
 	}
 	if fieldErr == nil {
-		p.MaxShadowValueUSD, fieldErr = requiredPositiveFloat("CX_CANARY_MAX_SHADOW_VALUE_USD")
+		p.MaxShadowValueUSD, fieldErr = requiredPositiveFloat("MERC_CANARY_MAX_SHADOW_VALUE_USD")
 	}
 	if fieldErr == nil {
-		p.MaxHeldShadowPayoutUSD, fieldErr = requiredPositiveFloat("CX_CANARY_MAX_HELD_SHADOW_PAYOUT_USD")
+		p.MaxHeldShadowPayoutUSD, fieldErr = requiredPositiveFloat("MERC_CANARY_MAX_HELD_SHADOW_PAYOUT_USD")
 	}
 	if fieldErr != nil {
 		p.configError = fieldErr
 	} else if len(p.ApprovedBuyerEmails) == 0 {
-		p.configError = fmt.Errorf("CX_CANARY_APPROVED_BUYER_EMAILS must contain at least one approved participant")
+		p.configError = fmt.Errorf("MERC_CANARY_APPROVED_BUYER_EMAILS must contain at least one approved participant")
 	} else if len(p.ApprovedWorkerIDs) == 0 {
-		p.configError = fmt.Errorf("CX_CANARY_APPROVED_WORKER_IDS must contain at least one approved worker")
+		p.configError = fmt.Errorf("MERC_CANARY_APPROVED_WORKER_IDS must contain at least one approved worker")
 	} else if len(p.ApprovedAgentVersions) == 0 {
-		p.configError = fmt.Errorf("CX_CANARY_APPROVED_AGENT_VERSIONS must contain at least one reviewed agent version")
+		p.configError = fmt.Errorf("MERC_CANARY_APPROVED_AGENT_VERSIONS must contain at least one reviewed agent version")
 	} else if len(p.ApprovedBuildHashes) == 0 {
-		p.configError = fmt.Errorf("CX_CANARY_APPROVED_BUILD_HASHES must contain at least one reviewed source-bound build hash")
+		p.configError = fmt.Errorf("MERC_CANARY_APPROVED_BUILD_HASHES must contain at least one reviewed source-bound build hash")
 	} else if p.MaxActiveBuyers > len(p.ApprovedBuyerEmails) {
-		p.configError = fmt.Errorf("CX_CANARY_MAX_ACTIVE_BUYERS exceeds the buyer allowlist")
+		p.configError = fmt.Errorf("MERC_CANARY_MAX_ACTIVE_BUYERS exceeds the buyer allowlist")
 	} else if p.MaxActiveWorkers > len(p.ApprovedWorkerIDs) {
-		p.configError = fmt.Errorf("CX_CANARY_MAX_ACTIVE_WORKERS exceeds the worker allowlist")
+		p.configError = fmt.Errorf("MERC_CANARY_MAX_ACTIVE_WORKERS exceeds the worker allowlist")
 	} else if p.MaxRetries > maxTaskRetries {
-		p.configError = fmt.Errorf("CX_CANARY_MAX_RETRIES cannot exceed the server safety ceiling %d", maxTaskRetries)
+		p.configError = fmt.Errorf("MERC_CANARY_MAX_RETRIES cannot exceed the server safety ceiling %d", maxTaskRetries)
 	}
 	return p
 }
@@ -222,6 +244,34 @@ func (p CanaryPolicy) validateJobShape(sub jobSubmit) error {
 		return fmt.Errorf("max_usd must be positive and no greater than %.6f in the canary", p.MaxShadowValueUSD)
 	}
 	return nil
+}
+
+// defaultMaxJobDurationSecs is the unconditional platform ceiling for a job's
+// max_duration_secs (canary may be stricter). Four hours bounds wall-clock
+// exposure on a supplier Mac; override with MERC_MAX_JOB_DURATION_SECS.
+const defaultMaxJobDurationSecs uint32 = 4 * 60 * 60
+
+func maxJobDurationSecsFromEnv() uint32 {
+	raw := strings.TrimSpace(os.Getenv("MERC_MAX_JOB_DURATION_SECS"))
+	if raw == "" {
+		return defaultMaxJobDurationSecs
+	}
+	v, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil || v == 0 {
+		return defaultMaxJobDurationSecs
+	}
+	return uint32(v)
+}
+
+// clampMaxDurationSecs enforces the platform ceiling outside (and under) canary.
+// 0 ("runner default" / unbounded) becomes the ceiling so a task always has a
+// finite wall-clock budget on the supplier device.
+func clampMaxDurationSecs(secs uint32) uint32 {
+	ceiling := maxJobDurationSecsFromEnv()
+	if secs == 0 || secs > ceiling {
+		return ceiling
+	}
+	return secs
 }
 
 func canaryArtifactLimit(computed int64) (int64, error) {

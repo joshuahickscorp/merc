@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ART="${CX_PROOF_ARTIFACT_DIR:-$ROOT/.artifacts/prove-local}"
+ART="${MERC_PROOF_ARTIFACT_DIR:-$ROOT/.artifacts/prove-local}"
 PGDATA="$ART/pgdata"
 LEDGER="$ART/ledger.jsonl"
 PGPORT="${PGPORT:-55432}"
@@ -14,7 +14,7 @@ CONTROL_URL="http://127.0.0.1:$CONTROL_PORT"
 KEEP="${KEEP:-0}"
 SKIP_LIVE="${SKIP_LIVE:-0}"
 USE_DOCKER="${USE_DOCKER:-0}"
-CX_PROOF_COMPOSE_PROJECT=""
+MERC_PROOF_COMPOSE_PROJECT=""
 CONTROL_PID=""
 AGENT_PID=""
 AGENT2_PID=""
@@ -23,7 +23,7 @@ PG_STARTED=0
 SANDBOX_ROOT=""
 
 export DATABASE_URL="postgres://cx@127.0.0.1:$PGPORT/cx?sslmode=disable"
-export CX_ENV="development"
+export MERC_ENV="development"
 export S3_ENDPOINT="http://127.0.0.1:$MINIO_PORT"
 export S3_PUBLIC_ENDPOINT="$S3_ENDPOINT"
 export S3_BUCKET="cx-jobs"
@@ -31,11 +31,11 @@ export S3_ACCESS_KEY="minioadmin"
 export S3_SECRET_KEY="minioadmin"
 export S3_REGION="us-east-1"
 export LISTEN_ADDR="127.0.0.1:$CONTROL_PORT"
-export CX_ECON_SCHEDULE_VERSION="prove-v1"
-export CX_PROCESSOR_PERCENT_BPS="290"
-export CX_PROCESSOR_FIXED_USD="0.30"
-export CX_CONTROL_PLANE_PER_TASK_USD="0.0001"
-export CX_TARGET_MARGIN_BPS="1000"
+export MERC_ECON_SCHEDULE_VERSION="prove-v1"
+export MERC_PROCESSOR_PERCENT_BPS="290"
+export MERC_PROCESSOR_FIXED_USD="0.30"
+export MERC_CONTROL_PLANE_PER_TASK_USD="0.0001"
+export MERC_TARGET_MARGIN_BPS="1000"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/.artifacts/prove-cache/cargo-target}"
 export GOCACHE="${GOCACHE:-$ROOT/.artifacts/prove-cache/go-cache}"
 
@@ -46,7 +46,7 @@ DEV_BUYER_AUTH='Authorization: Bearer dev-api-key-0001'   # gitleaks:allow -- se
 # Stripe-enabled .env.  The live processor boundary is exercised by the Go
 # webhook/financial model tests; this local E2E intentionally runs the shadow
 # ledger and must never inherit credentials or contact Stripe.
-unset STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET CX_CONNECT_WEBHOOK_SECRET
+unset STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET MERC_CONNECT_WEBHOOK_SECRET
 
 record() {
   jq -nc --arg status "$1" --arg gate "$2" --arg detail "$3" \
@@ -62,7 +62,7 @@ cleanup() {
   done
   if [ "$KEEP" != "1" ]; then
     if [ "$USE_DOCKER" = "1" ]; then
-      if [[ "$CX_PROOF_COMPOSE_PROJECT" =~ ^cx-proof-[0-9]+-[0-9]+$ ]]; then
+      if [[ "$MERC_PROOF_COMPOSE_PROJECT" =~ ^cx-proof-[0-9]+-[0-9]+$ ]]; then
         docker compose down --volumes --remove-orphans >/dev/null 2>&1 || true
       else
         echo "refusing to remove proof volumes for unexpected Compose project" >&2
@@ -140,8 +140,8 @@ if [ "$USE_DOCKER" = "1" ]; then
   # A proof must never inherit jobs, workers, object bytes, or idempotency keys
   # from a prior run. The unique project owns disposable volumes that cleanup
   # can remove without touching the developer's ordinary Compose project.
-  CX_PROOF_COMPOSE_PROJECT="cx-proof-$$-$(date +%s)"
-  export COMPOSE_PROJECT_NAME="$CX_PROOF_COMPOSE_PROJECT"
+  MERC_PROOF_COMPOSE_PROJECT="cx-proof-$$-$(date +%s)"
+  export COMPOSE_PROJECT_NAME="$MERC_PROOF_COMPOSE_PROJECT"
   docker compose up -d postgres minio createbuckets
   export DATABASE_URL="postgres://cx:cx@127.0.0.1:5432/cx?sslmode=disable"
   export S3_ENDPOINT="http://127.0.0.1:9000"
@@ -166,7 +166,7 @@ record PASS dependencies "PostgreSQL and MinIO are healthy"
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
-(cd control && CX_TEST_DATABASE_URL="$DATABASE_URL" go test ./... -run '^(TestBillingCustomerCanonicalSchema|TestListWorkersToleratesLegacyNullTelemetry|TestRuntimeCatalogPriceIsStableAcrossMigration|TestPrivilegedAdminMutationsHaveCompleteAtomicAudit|TestPrivilegedMutationIdempotentConcurrentReplay|TestConcurrentNamedOperatorsRetainIndependentAttribution|TestRevocationWinsRaceBeforePrivilegedMutation|TestAdminMutationRollsBackWhenAuditInsertFails|TestOperationalControlsAreDurableAndActorAudited|TestOperationalControlMutationFailsClosed|TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout|TestDisputeFilingOwnershipTerminalReasonAndWindowBoundaries|TestDisputeAPIUsesAuthenticatedOwnerAndStrictBoundedReason|TestConcurrentDisputeFilingsCreateOnlyOneActiveCase|TestDisputeFilingWinsQueuedPayoutClaimRace|TestDSARDeletionTombstoneAndRestoreReplay|TestSupportAndSecurityTechnicalTabletops)$' -count=1)
+(cd control && MERC_TEST_DATABASE_URL="$DATABASE_URL" go test ./... -run '^(TestBillingCustomerCanonicalSchema|TestListWorkersToleratesLegacyNullTelemetry|TestRuntimeCatalogPriceIsStableAcrossMigration|TestPrivilegedAdminMutationsHaveCompleteAtomicAudit|TestPrivilegedMutationIdempotentConcurrentReplay|TestConcurrentNamedOperatorsRetainIndependentAttribution|TestRevocationWinsRaceBeforePrivilegedMutation|TestAdminMutationRollsBackWhenAuditInsertFails|TestOperationalControlsAreDurableAndActorAudited|TestOperationalControlMutationFailsClosed|TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout|TestDisputeFilingOwnershipTerminalReasonAndWindowBoundaries|TestDisputeAPIUsesAuthenticatedOwnerAndStrictBoundedReason|TestConcurrentDisputeFilingsCreateOnlyOneActiveCase|TestDisputeFilingWinsQueuedPayoutClaimRace|TestDSARDeletionTombstoneAndRestoreReplay|TestSupportAndSecurityTechnicalTabletops)$' -count=1)
 record PASS schema "canonical schema applies twice"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 DO $$
@@ -188,8 +188,8 @@ record PASS lifecycle "central reducer accepted a legal transition and rejected 
 
 SAMPLE_SECRET="$(openssl rand -hex 32)"
 TOKEN_KEY="$(openssl rand -hex 32)"
-CX_VERIFICATION_SAMPLE_SECRET="$SAMPLE_SECRET" CX_TOKEN_KEY="$TOKEN_KEY" "$ART/cx" seed >"$ART/seed.log"
-CX_VERIFICATION_SAMPLE_SECRET="$SAMPLE_SECRET" CX_TOKEN_KEY="$TOKEN_KEY" "$ART/cx" >"$ART/control.log" 2>&1 &
+MERC_VERIFICATION_SAMPLE_SECRET="$SAMPLE_SECRET" MERC_TOKEN_KEY="$TOKEN_KEY" "$ART/cx" seed >"$ART/seed.log"
+MERC_VERIFICATION_SAMPLE_SECRET="$SAMPLE_SECRET" MERC_TOKEN_KEY="$TOKEN_KEY" "$ART/cx" >"$ART/control.log" 2>&1 &
 CONTROL_PID=$!
 wait_for 30 curl -fsS "$CONTROL_URL/readyz"
 record PASS control "ready endpoint passed"
@@ -199,9 +199,9 @@ if [ "$SKIP_LIVE" != "1" ]; then
   SANDBOX_ROOT="$(mktemp -d /private/tmp/cx-prove.XXXXXX)"
   mkdir -p "$SANDBOX_ROOT/home/.compute-exchange"
   cp "$CARGO_TARGET_DIR/release/cx-agent" "$SANDBOX_ROOT/cx-agent"
-  cp macapp/ComputeExchangeAgent/cx-agent.sb "$SANDBOX_ROOT/cx-agent.sb"
+  cp macapp/MercAgent/cx-agent.sb "$SANDBOX_ROOT/cx-agent.sb"
   AGENT_BIN="$SANDBOX_ROOT/cx-agent"
-  MODEL_CACHE="${CX_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
+  MODEL_CACHE="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
   for n in 1 2; do
     token="dev-worker-token-000$n"
     supplier="00000000-0000-0000-0000-0000000000a$n"
@@ -216,16 +216,16 @@ if [ "$SKIP_LIVE" != "1" ]; then
     } >"$SANDBOX_ROOT/agent$n.toml"
   done
 
-  HOME="$SANDBOX_ROOT/home" CX_MODEL_CACHE="$MODEL_CACHE" \
-    CX_SANDBOX_PROFILE="$SANDBOX_ROOT/cx-agent.sb" CX_REQUIRE_SANDBOX=1 \
-    CX_CONTROL_URL="$CONTROL_URL" CX_WORKER_TOKEN=dev-worker-token-0001 \
+  HOME="$SANDBOX_ROOT/home" MERC_MODEL_CACHE="$MODEL_CACHE" \
+    MERC_SANDBOX_PROFILE="$SANDBOX_ROOT/cx-agent.sb" MERC_REQUIRE_SANDBOX=1 \
+    MERC_CONTROL_URL="$CONTROL_URL" MERC_WORKER_TOKEN=dev-worker-token-0001 \
     "$AGENT_BIN" run --config "$SANDBOX_ROOT/agent1.toml" >"$ART/agent1.log" 2>&1 &
   AGENT_PID=$!
   wait_for 300 workers_ready 1
 
-  HOME="$SANDBOX_ROOT/home" CX_MODEL_CACHE="$MODEL_CACHE" \
-    CX_SANDBOX_PROFILE="$SANDBOX_ROOT/cx-agent.sb" CX_REQUIRE_SANDBOX=1 \
-    CX_CONTROL_URL="$CONTROL_URL" CX_WORKER_TOKEN=dev-worker-token-0002 \
+  HOME="$SANDBOX_ROOT/home" MERC_MODEL_CACHE="$MODEL_CACHE" \
+    MERC_SANDBOX_PROFILE="$SANDBOX_ROOT/cx-agent.sb" MERC_REQUIRE_SANDBOX=1 \
+    MERC_CONTROL_URL="$CONTROL_URL" MERC_WORKER_TOKEN=dev-worker-token-0002 \
     "$AGENT_BIN" run --config "$SANDBOX_ROOT/agent2.toml" >"$ART/agent2.log" 2>&1 &
   AGENT2_PID=$!
   wait_for 300 workers_ready 2
@@ -235,7 +235,7 @@ if [ "$SKIP_LIVE" != "1" ]; then
     body="$(jq -nc --arg model "$1" --argjson job_type "$2" --arg input "$3" \
       '{job_type:$job_type,model:{ref:$model},params:{split_size:1},
         constraints:{min_memory_gb:0,hw_classes:null,data_residency:null},
-        verification:{redundancy_frac:0,honeypot_frac:0,payout_hold_secs:0,skip_verification_floor:true},
+        verification:{redundancy_frac:1.0,honeypot_frac:0.5,payout_hold_secs:0},
         tier:"batch",input:$input}')"
     response="$(curl -sS "$CONTROL_URL/v1/jobs" -H "$DEV_BUYER_AUTH" \
       -H "Idempotency-Key: proof-$1" \

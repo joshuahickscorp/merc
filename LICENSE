@@ -1,0 +1,47 @@
+Copyright © 2026 Joshua Hicks. All rights reserved.
+
+SCOPED LICENSING
+================
+
+This repository is licensed component-by-component, not as a whole.
+
+Components located in a directory that contains its own LICENSE file are
+licensed under the terms stated in that file. As of this writing those are:
+
+    agent/          Apache License 2.0   supplier agent (distributed to suppliers)
+    sdk/python/     Apache License 2.0   buyer client library
+    cli/            Apache License 2.0   buyer command-line client
+    proto/          Apache License 2.0   wire schemas and runtime matrix
+
+All other source code and materials in this repository -- including but not
+limited to the control plane, scheduler, verification, settlement, pricing and
+operational tooling -- are proprietary and may not be copied, modified,
+distributed, sublicensed, or used without prior written permission.
+
+WHY IT IS SPLIT
+===============
+
+The agent, the SDKs and the wire schemas have to be distributable: a supplier
+must be able to run the agent on their own hardware and a buyer must be able to
+install and inspect the client. Apache-2.0 is used for those rather than MIT
+because it carries an explicit patent grant and defined attribution terms.
+
+The marketplace itself is the product. Placing a permissive licence at the
+repository root would grant permission to copy the control plane, which is the
+part that is not intended to be copied.
+
+Neither Apache-2.0 nor MIT prevents a third party from operating or reselling
+the components they cover. That is understood and accepted for the client-side
+components; it is the reason the server-side components are not covered.
+
+THIRD-PARTY AND MODEL TERMS
+===========================
+
+See NOTICE for required attribution, and docs/THIRD_PARTY_LICENSES.md for the
+status of third-party dependencies and model weights. Model weights are governed
+by their own licences, which are NOT granted by this file and which are tracked
+separately -- a model appearing in this repository is not a representation that
+it has been cleared for commercial service.
+
+This notice is a statement of intent pending review by counsel. It is not legal
+advice and the final wording is subject to that review.

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use tokenizers::Tokenizer;
 
 use crate::deadline::DeadlineError;
+use crate::inference::{GenerateParams, InferenceBackend};
 use crate::models;
 use crate::pool::ModelPool;
 use crate::types::{JobManifest, JobType, ModelKind, WorkerCapability};
@@ -18,6 +19,9 @@ pub struct JobOutput {
     pub binary: bool,
     pub duration_ms: u64,
     pub tokens_used: u64,
+    /// Which pluggable inference backend produced this result (`candle`, `openai_http`, …).
+    /// Empty for non-inference jobs (embed).
+    pub inference_backend: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -286,6 +290,8 @@ pub struct Completion {
 pub struct BatchInferResult {
     pub job_type: &'static str, // "batch_infer"
     pub model: String,
+    /// Which pluggable backend executed this job (`candle` | `openai_http`).
+    pub inference_backend: String,
     pub completions: Vec<Completion>,
 }
 
@@ -449,6 +455,7 @@ impl JobRunner for EmbedRunner {
             binary: is_binary,
             duration_ms: started.elapsed().as_millis() as u64,
             tokens_used: count as u64,
+            inference_backend: String::new(),
         })
     }
 
@@ -897,7 +904,9 @@ fn short_model_id(model_ref: &str, fallback: &str) -> String {
     }
 }
 
-pub struct BatchInferRunner;
+pub struct BatchInferRunner {
+    pub inference: std::sync::Arc<dyn InferenceBackend>,
+}
 
 #[async_trait]
 impl JobRunner for BatchInferRunner {
@@ -925,17 +934,29 @@ impl JobRunner for BatchInferRunner {
         ckpt: &Checkpointer,
     ) -> Result<JobOutput, RunError> {
         let started = std::time::Instant::now();
-        let max_tokens = match manifest.job_type {
-            JobType::BatchInfer { max_tokens, .. } => max_tokens,
-            _ => 256,
+        let (max_tokens, temperature) = match &manifest.job_type {
+            JobType::BatchInfer {
+                max_tokens,
+                temperature,
+            } => (*max_tokens, *temperature),
+            _ => (256, 0.0),
         };
+        if temperature != 0.0 {
+            return Err(RunError::Inference {
+                backend: "batch_infer",
+                msg: format!(
+                    "non-zero temperature {temperature} rejected: batch lane is greedy-only"
+                ),
+            });
+        }
+        let params = GenerateParams::greedy(max_tokens);
+        let backend_name = self.inference.name().to_string();
         let items: Vec<TextItem> = parse_jsonl(input, "batch_infer")?;
         let prompts: Vec<String> = items
             .iter()
             .map(|it| it.body().unwrap_or("").to_string())
             .collect();
 
-        let model = pool.llama(&manifest.model.model_ref).await?;
         let slice = checkpoint_slice(prompts.len(), ckpt);
         let mut completions: Vec<Completion> = Vec::with_capacity(prompts.len());
         let mut total_tokens: usize = 0;
@@ -951,6 +972,7 @@ impl JobRunner for BatchInferRunner {
                             &manifest.model.model_ref,
                             "llama-3.2-1b-instruct-q4",
                         ),
+                        inference_backend: backend_name.clone(),
                         completions: completions.clone(),
                     };
                     ckpt.flush_partial(&partial).await;
@@ -967,24 +989,20 @@ impl JobRunner for BatchInferRunner {
                     msg: reason,
                 });
             }
-            let model = model.clone();
-            let chunk_prompts: Vec<String> = chunk.to_vec();
             let slice_started = std::time::Instant::now();
-            let results = tokio::task::spawn_blocking(move || -> Result<_, RunError> {
-                let mut backend = model.blocking_lock();
-                backend.generate_batch(&chunk_prompts, max_tokens)
-            })
-            .await
-            .map_err(infer_err("batch_infer"))??;
+            let results = self
+                .inference
+                .generate_batch(&manifest.model.model_ref, chunk, params, pool)
+                .await?;
             let slice_dt = slice_started.elapsed().as_secs_f64().max(1e-6);
             let mut slice_tokens: usize = 0;
-            for (text, tokens) in results {
-                total_tokens += tokens;
-                slice_tokens += tokens;
+            for c in results {
+                total_tokens += c.tokens;
+                slice_tokens += c.tokens;
                 completions.push(Completion {
                     index: completions.len(),
-                    text,
-                    tokens,
+                    text: c.text,
+                    tokens: c.tokens,
                 });
             }
             if live_monitor.record(slice_tokens as f64 / slice_dt) {
@@ -1001,6 +1019,7 @@ impl JobRunner for BatchInferRunner {
                 let partial = BatchInferResult {
                     job_type: "batch_infer",
                     model: short_model_id(&manifest.model.model_ref, "llama-3.2-1b-instruct-q4"),
+                    inference_backend: backend_name.clone(),
                     completions: completions.clone(),
                 };
                 ckpt.flush_partial(&partial).await;
@@ -1011,6 +1030,7 @@ impl JobRunner for BatchInferRunner {
         let result = BatchInferResult {
             job_type: "batch_infer",
             model: short_model_id(&manifest.model.model_ref, "llama-3.2-1b-instruct-q4"),
+            inference_backend: backend_name.clone(),
             completions,
         };
         let bytes = serde_json::to_vec(&result).map_err(infer_err("batch_infer"))?;
@@ -1019,6 +1039,7 @@ impl JobRunner for BatchInferRunner {
             binary: false,
             duration_ms: started.elapsed().as_millis() as u64,
             tokens_used: total_tokens as u64,
+            inference_backend: backend_name,
         })
     }
 
@@ -1027,8 +1048,11 @@ impl JobRunner for BatchInferRunner {
     }
 }
 
-pub fn default_runners() -> Vec<Box<dyn JobRunner>> {
-    vec![Box::new(EmbedRunner), Box::new(BatchInferRunner)]
+pub fn default_runners(inference: std::sync::Arc<dyn InferenceBackend>) -> Vec<Box<dyn JobRunner>> {
+    vec![
+        Box::new(EmbedRunner),
+        Box::new(BatchInferRunner { inference }),
+    ]
 }
 
 pub async fn dispatch<'a>(

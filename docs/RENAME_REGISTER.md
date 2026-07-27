@@ -1,0 +1,105 @@
+# merc rename register
+
+The rebrand from ComputeXchange to **merc** is not one operation. This file records
+what has landed, what is blocked on a change outside this repository, and what must
+never be renamed at all.
+
+Classification came from a 14-agent pass (7 identifier families, each paired with an
+adversarial verifier whose brief was to find a RENAME that is really a receipt or a
+hash input). Every FREEZE below was confirmed against the file it names.
+
+---
+
+## 1. Landed — repo-internal, gates green
+
+| Change | Where |
+|---|---|
+| Brand prose | `README.md`, `NOTICE` title, `cli/README.md`, `sdk/python/README.md`, `Dockerfile.control` label, `agent/Cargo.toml` description, `agent/src/main.rs` `about`, `control/buyer.go` CLI header, 6 `docs/*.md`, 3 `ops/*.json` titles, `proto/manifest.schema.json` title, 4 `scripts/*.sh` |
+| Python SDK | `sdk/python/computeexchange/` → `sdk/python/merc/`, distribution name, `packages`, version attr, tests, `scripts/verify-python-sdk-package.sh`. Clean-room install reports `installed merc 0.1.0 from merc` |
+| Go module | `computeexchange/control` → `merc/control` |
+| Website copy | titles, og:title, wordmark, footer, claims-ledger label, `site.webmanifest`, and the `site-build.mjs` brand assertion |
+| Model owner | `control/api.go` `OwnedBy` |
+
+`make ci` exits 0 after each step.
+
+## 2. Blocked — needs a change outside this repository first
+
+Renaming these in-repo before the external change produces a dangling reference that
+still looks plausible.
+
+| Item | External prerequisite |
+|---|---|
+| `github.com/joshuahickscorp/computexchange` (in `web/index.html`, `web/buyer.html`, `Dockerfile.control`) | Rename the GitHub repository. GitHub redirects old URLs, so this is low-risk once done. |
+| `ghcr.io/…/computexchange-control`, `computexchange/control` image tags | Rename/republish the registry package. **Recorded digests in `evidence/` must not follow** — see §3. |
+| `CX_*` environment variables (~180 names) | The droplet `.env`, GitHub Actions secrets, and systemd units supply the values. Rename code and environment in the same cutover. **`CX_TOKEN_KEY` must be copied byte-identically** — `control/crypto.go` derives the AES key as `sha256(value)`, so regenerating it makes every sealed OAuth token and webhook secret in Postgres permanently undecryptable. |
+| `CX_ENV` specifically | `control/main.go` gates the production hardening refusal on `EqualFold(cxEnv, "production")`. If the binary reads `MERC_ENV` while the droplet still sets `CX_ENV`, the value resolves empty, the refusal is skipped, and control boots with a warning while writing `plain:`-prefixed secrets. |
+| Prometheus `job="computexchange-control"` and `external_labels.service` | These are part of the alert label set Alertmanager fingerprints and ships to the operator receiver. Update the receiver's filters first or pages vanish silently while both services look healthy. |
+| `ComputeExchange*` alert names (24) + the 72 `cx_*` metric names | Must land in one commit with the receiver update. `validate-observability.mjs` only checks each name exists in its own file — it never checks an alert's expr references a metric that is actually emitted. Verify with `promtool check rules` and a live scrape. |
+| `macapp/ComputeExchangeAgent/` | Real directory with 8 consumers including a live claim gate (`proof/claims/claim-policy.json`). Needs `git mv` plus all consumers in one commit. |
+| `/opt/computexchange`, `/etc/computexchange`, `/var/lib/computexchange`, `~/.compute-exchange` | Real directories on the droplet and on supplier machines. |
+| `cx-backup.service` / `cx-backup.timer` | Installed under those names. `systemctl disable --now` the old timer before reinstalling, or the old unit keeps running the old script path. |
+| `dev.computeexchange.agent` launchd label | Already-installed agents carry the old label; renaming it means `uninstall.sh` no longer finds them. |
+| Postgres role/database `cx` | `ALTER DATABASE` needs no active connections, or keep the name and treat it as configuration. |
+| `cx-agent` binary, `control/cx` binary | Named in `Dockerfile.control`, CI `SHA256SUMS`, `.gitignore`, `.dockerignore`, and the retained rollback image's `/cx` entrypoint. All must move together. |
+
+## 3. Frozen — never rename
+
+**Receipts.** Everything under `evidence/`, plus `ops/asset-provenance.json`,
+`ops/readiness.json`, `ops/legal-review.json`, `census/`. These record which image
+digest was actually pulled, which cosign certificate actually verified, and which
+file had which sha256. Rewriting a name inside one makes the repo claim it verified
+an image that was never built.
+
+**Hash domain separators.** Renaming any of these silently changes every value
+derived from it, with nothing failing:
+
+- `control/evidence.go` — `computexchange-source-fingerprint-v1`
+- `control/store.go` — `computeexchange-control-schema-v1` (schema migration advisory lock)
+- `control/worker_leader.go` — `computeexchange-background-workers-v1` (leader election)
+- `control/schema.sql` — the matching `hashtextextended(...)` call
+
+Note the two spellings differ: the module path was `computeexchange` (two e), the
+fingerprint domain is `computexchange` (one e). A pattern written for one misses the other.
+
+**Fixed-width binary magic.** `CXEM` is a 4-byte header shared by `control/api.go`,
+`agent/src/executor.rs` and `sdk/python/merc/__init__.py`, and it prefixes embedding
+blobs already written to object storage. `CXIN`/`CXPL` in `control/store.go` are
+4-byte ASCII encoded as hex advisory-lock namespaces (`0x4358494e`).
+
+**Live credential prefixes.** `cx_sess_` routes credential class in `control/api.go`;
+`cx_live_`/`cx_test_` prefix keys already in the `api_keys` table; `cx_whsec_`,
+`cx_admin_`. `maskKey` locates the displayed prefix by scanning to the *second*
+underscore — a replacement with fewer underscores writes part of the raw secret into
+the `masked` column.
+
+**Stripe metadata keys.** `cx_operation_key`, `cx_payout_*` already exist on live
+PaymentIntents and Transfers; renaming breaks idempotency matching against them.
+
+**Third-party attribution.** `NOTICE` beyond line 1 — Llama 3.2 / Meta Platforms,
+sentence-transformers, Geist / Vercel / basement.studio. Legally required verbatim.
+
+**Dated findings.** `docs/WEBSITE_3D_BLENDER_STATUS_2026-07-19.md` observes that
+`computexchange.net` was serving on that date. That was true. Append a note rather
+than editing it.
+
+**Signed workflow path.** The sigstore certificate identity recorded in evidence
+contains `.github/workflows/publish-candidate.yml`. Moving or renaming that file
+breaks `cosign verify --certificate-identity` for every image already signed.
+
+## 4. Method
+
+Any mechanical pass must be scoped to `git ls-files`. A `find`/`sed` sweep also hits
+`.artifacts/` (gitignored, holds signed CI evidence whose own `SHA256SUMS` then stop
+matching), `agent/target/`, `review/pass6/` (539 frozen occurrences, plus a 29 MB
+binary archive and a base85 patch blob containing the literal `qCX_HL7Jp5i`), and the
+`*.orig` patch backups.
+
+Anchor `CX_` substitutions as `\bCX_[A-Z0-9_]+`. A bare `s/CX_/MERC_/g` corrupts that
+patch blob — it is the only place in the repo where `CX_` is preceded by a word
+character.
+
+One expected consequence: `control/evidence.go` hashes every tracked path *and* its
+content, so any rebrand commit changes the repo source fingerprint. The recorded
+values in `ops/readiness.json` will not reproduce afterwards. That is honest only if
+the domain constant stays at `v1` — changing both at once makes the divergence
+unattributable.

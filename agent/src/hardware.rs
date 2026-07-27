@@ -19,7 +19,7 @@ struct BenchCache {
 }
 
 fn bench_cache_path() -> PathBuf {
-    if let Ok(p) = std::env::var("CX_BENCH_CACHE_PATH") {
+    if let Ok(p) = std::env::var("MERC_BENCH_CACHE_PATH") {
         if !p.is_empty() {
             return PathBuf::from(p);
         }
@@ -179,19 +179,19 @@ fn inference_runtime_tuning_identity(engine: &str) -> String {
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| default.to_string())
     };
-    let spec_mode = value("CX_SPEC_DECODE", "off");
+    let spec_mode = value("MERC_SPEC_DECODE", "off");
     let (spec_window, spec_order) = if matches!(spec_mode.trim(), "1" | "on" | "ngram") {
         (
-            value("CX_SPEC_DECODE_WINDOW", "32"),
-            value("CX_SPEC_DECODE_NGRAM_ORDER", "3"),
+            value("MERC_SPEC_DECODE_WINDOW", "32"),
+            value("MERC_SPEC_DECODE_NGRAM_ORDER", "3"),
         )
     } else {
         ("inactive".to_string(), "inactive".to_string())
     };
     format!(
         "spec={spec_mode};window={spec_window};order={spec_order};q4k_splitk={};q4k_skinny_m={};dequant_f16={};fast_math={};metal_compute_per_buffer={};metal_command_pool_size={}",
-        value("CX_Q4K_SPLITK", "0"),
-        value("CX_Q4K_SKINNY_M", "0"),
+        value("MERC_Q4K_SPLITK", "0"),
+        value("MERC_Q4K_SKINNY_M", "0"),
         value("CANDLE_DEQUANTIZE_ALL_F16", "0"),
         value("CANDLE_METAL_ENABLE_FAST_MATH", "default"),
         value("CANDLE_METAL_COMPUTE_PER_BUFFER", "default"),

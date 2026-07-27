@@ -1,4 +1,4 @@
-"""Dependency-free buyer client for the Computexchange native API."""
+"""Dependency-free buyer client for the merc native API."""
 
 import json
 import struct
@@ -184,7 +184,10 @@ class Client:
         return self._request("GET", f"/v1/jobs/{job_id}/invoice")
 
     def models(self):
-        return self._request("GET", "/v1/models")
+        response = self._request("GET", "/v1/models")
+        if isinstance(response, dict) and response.get("object") == "list":
+            return response.get("data", [])
+        return response
 
     def estimate(self, model, units, tier="batch"):
         return self._request("GET", "/v1/price-estimate",

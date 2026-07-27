@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>merc price board</title>
+<style>
+:root{color-scheme:dark;--bg:#070707;--panel:#111;--line:#3f3f3f;--text:#f2f2ef;--muted:#ababab;--good:#74c69d;--bad:#f08c7d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,sans-serif}
+a{color:var(--good)}
+header,main{width:min(1120px,calc(100% - 32px));margin:auto}
+header{display:flex;align-items:center;gap:18px;padding:22px 0;border-bottom:1px solid var(--line)}
+header strong{letter-spacing:.04em}header nav{margin-left:auto;display:flex;gap:14px}
+.muted{color:var(--muted)}
+.notice{padding:14px 0;color:var(--muted)}.notice b{color:var(--text)}
+.card{border:1px solid var(--line);background:var(--panel);padding:18px;margin:14px 0;min-width:0}
+h1,h2{margin:0 0 14px}h1{font-size:20px}h2{font-size:15px;color:var(--good)}
+table{width:100%;border-collapse:collapse;font:13px/1.5 ui-monospace,monospace}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--good);font-weight:600}
+td.num{text-align:right}
+.src{color:var(--muted);word-break:break-all}
+.tag{border:1px solid var(--line);padding:2px 6px;color:var(--muted);font:11px ui-monospace,monospace}
+.scroll{overflow-x:auto}
+footer{padding:24px 0 48px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <strong>merc</strong>
+  <span class="muted">price board</span>
+  <nav>
+    <a href="/">overview</a>
+    <a href="/buyer">buyer</a>
+  </nav>
+</header>
+
+<main>
+  <p class="notice">
+    <b>How merc prices.</b> A catalogue price is the confidence-weighted median of
+    observed provider list prices for its class, multiplied by a positioning
+    factor. It is not a quote we invented: every observation below names its
+    provider and its source, and observations sourced from the vendor's own
+    pricing page are weighted higher than third-party write-ups.
+  </p>
+
+  <div class="card">
+    <h2>Why a median and not the lowest price</h2>
+    <p class="muted">
+      Taking the minimum lets one stale, promotional or mistyped observation set
+      the price for every supplier in a class. That is not a hypothetical: this
+      board previously priced its inference class from a figure attributed to a
+      vendor but sourced from a competitor's blog post, which put supplier
+      earnings below the cost of the electricity to produce them. The selector
+      is a weighted median so no single row can do that again.
+    </p>
+    <p class="muted">
+      A price is also refused outright if it cannot pay the supplier's
+      electricity and leave merc a positive contribution, unless an operator has
+      recorded an explicit subsidy authorisation. Prices that cannot sustain the
+      people producing the work are not published.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Catalogue</h2>
+    <div class="scroll">
+      <table id="catalogue">
+        <thead>
+          <tr>
+            <th>class</th><th>job type</th><th>models</th>
+            <th class="num">observations</th><th class="num">price / 1k units</th>
+          </tr>
+        </thead>
+        <tbody id="catalogue-rows">
+          <tr><td colspan="5" class="muted">loading board…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted" id="board-meta"></p>
+  </div>
+
+  <div class="card">
+    <h2>Observations behind each price</h2>
+    <div class="scroll">
+      <table id="observations">
+        <thead>
+          <tr>
+            <th>class</th><th>provider</th><th>model</th>
+            <th class="num">list / 1M</th><th>weight</th><th>source</th>
+          </tr>
+        </thead>
+        <tbody id="observation-rows">
+          <tr><td colspan="6" class="muted">loading observations…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>What a receipt covers</h2>
+    <p class="muted">
+      Every completed job produces a receipt recording the tokens merc actually
+      computed, the tokens delivered to you, and what each was charged at.
+      Delivered tokens that came from a reused prefix or an exact prior result
+      are billed at a lower rate than tokens the model had to compute, and a
+      job's charge can never exceed what full-rate billing would have cost.
+    </p>
+  </div>
+</main>
+
+<footer>
+  merc · prices are quoted per 1,000 billable units · a unit is approximately one token
+</footer>
+
+<script>
+(async () => {
+  const catalogueRows = document.getElementById("catalogue-rows");
+  const observationRows = document.getElementById("observation-rows");
+  const meta = document.getElementById("board-meta");
+
+  const cell = (text, cls) => {
+    const td = document.createElement("td");
+    if (cls) td.className = cls;
+    td.textContent = text;
+    return td;
+  };
+  const fail = (tbody, cols, message) => {
+    tbody.replaceChildren();
+    const tr = document.createElement("tr");
+    const td = cell(message, "muted");
+    td.colSpan = cols;
+    tr.append(td);
+    tbody.append(tr);
+  };
+
+  let board;
+  try {
+    const resp = await fetch("/pricing/board.json", { headers: { accept: "application/json" } });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    board = await resp.json();
+  } catch (err) {
+    // Say the board is unavailable rather than rendering a stale or invented
+    // number: a wrong price is worse than a missing one.
+    fail(catalogueRows, 5, "price board unavailable: " + err.message);
+    fail(observationRows, 6, "price board unavailable");
+    return;
+  }
+
+  const multiplier = Number(board.positioning_multiplier) || 1;
+  const perThousand = (obs) => {
+    const v = Number(obs.usd_per_1k) > 0
+      ? Number(obs.usd_per_1k)
+      : Number(obs.usd_per_1m) / 1000;
+    return Number.isFinite(v) && v > 0 ? v : null;
+  };
+
+  // Confidence weight mirrors the server: a vendor quoting its own price sheet
+  // outranks a third party describing it.
+  const weightOf = (obs) => {
+    let host = "";
+    try { host = new URL(obs.source_url || "").host.toLowerCase().replace(/^www\./, ""); }
+    catch { return { label: "unattributed", value: 0.2 }; }
+    const provider = String(obs.provider || "").toLowerCase();
+    if (!host || !provider) return { label: "unattributed", value: 0.2 };
+    return host.includes(provider)
+      ? { label: "vendor", value: 1.0 }
+      : { label: "third-party", value: 0.35 };
+  };
+
+  const weightedMedian = (rows) => {
+    const usable = rows
+      .map((o) => ({ price: perThousand(o), w: weightOf(o).value }))
+      .filter((r) => r.price !== null)
+      .sort((a, b) => a.price - b.price);
+    const total = usable.reduce((s, r) => s + r.w, 0);
+    if (!usable.length || total <= 0) return null;
+    let run = 0;
+    for (const r of usable) {
+      run += r.w;
+      if (run >= total / 2) return r.price;
+    }
+    return usable[usable.length - 1].price;
+  };
+
+  catalogueRows.replaceChildren();
+  observationRows.replaceChildren();
+
+  for (const [name, cls] of Object.entries(board.classes || {})) {
+    const observations = cls.observations || [];
+    const median = weightedMedian(observations);
+    const price = median === null ? null : median * multiplier;
+
+    const tr = document.createElement("tr");
+    tr.append(
+      cell(name),
+      cell(cls.job_type || "—"),
+      cell((cls.model_ids || []).join(", ") || "—"),
+      cell(String(observations.length), "num"),
+      cell(price === null ? "not priced" : "$" + price.toFixed(8), "num"),
+    );
+    catalogueRows.append(tr);
+
+    for (const obs of observations) {
+      const w = weightOf(obs);
+      const row = document.createElement("tr");
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = w.label;
+      const weightCell = document.createElement("td");
+      weightCell.append(tag);
+
+      row.append(
+        cell(name),
+        cell(obs.provider || "—"),
+        cell(obs.model || "—"),
+        cell(obs.usd_per_1m !== undefined ? "$" + obs.usd_per_1m : "—", "num"),
+      );
+      row.append(weightCell);
+      row.append(cell(obs.source_url || "unattributed", "src"));
+      observationRows.append(row);
+    }
+  }
+
+  meta.textContent =
+    "observations fetched " + (board.fetched_at || "unknown") +
+    " · positioning multiplier " + multiplier +
+    " · prices are the confidence-weighted median of the class, times the multiplier";
+})();
+</script>
+</body>
+</html>

@@ -1,15 +1,17 @@
-ComputExchange Notices
-=======================
+merc Notices
+============
 
 Project license status
 ----------------------
 
-This repository does not currently contain a project-level LICENSE file or a
-complete license grant from the copyright owner. The Rust package metadata
-declares `MIT`, but the corresponding license text and ownership approval are
-not present. This NOTICE does not create or expand a license grant. Public
-source or binary distribution remains blocked pending an owner-approved project
-license and complete third-party notices.
+This repository is licensed component-by-component; see LICENSE at the root.
+Components with their own LICENSE file (agent/, sdk/python/, cli/, proto/) are
+Apache-2.0 and are intended for distribution. Everything else -- the control
+plane, scheduler, verification and settlement -- is proprietary.
+
+Model weights are governed by their own licences and are NOT covered by either.
+docs/THIRD_PARTY_LICENSES.md tracks their status; a model present in this
+repository has not thereby been cleared for commercial service.
 
 Built with Llama
 ----------------

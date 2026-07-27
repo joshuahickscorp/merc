@@ -54,8 +54,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     output_ref          TEXT,                   -- object storage key
     tier                TEXT DEFAULT 'batch',   -- batch|priority|trusted
     verification_policy JSONB,
-    estimated_usd       NUMERIC(10,6),
-    actual_usd          NUMERIC(10,6),
+    estimated_usd       NUMERIC(12,6),
+    actual_usd          NUMERIC(12,6),
     task_count          INT,
     tasks_done          INT DEFAULT 0,
     max_duration_secs   BIGINT NOT NULL DEFAULT 0
@@ -129,11 +129,21 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
     supplier_id   UUID REFERENCES suppliers,
     buyer_id      UUID,
     task_id       UUID REFERENCES tasks,
-    amount_usd    NUMERIC(10,6) NOT NULL,  -- positive = credit, negative = debit
-    payout_status TEXT DEFAULT 'pending',  -- pending|held|awaiting_funding|ready|sending|outcome_unknown|carried|released|exported|clawed_back|reversal_required
+    amount_usd    NUMERIC(12,6) NOT NULL,  -- positive = credit, negative = debit; domain ±999999.999999
+    payout_status TEXT DEFAULT 'pending',  -- pending|held|awaiting_funding|ready|sending|outcome_unknown|carried|released|exported|clawed_back|reversal_required|reversing|reversed
     release_at    TIMESTAMPTZ,             -- when payout hold expires
     payout_ref    TEXT                     -- Stripe/Trolley transfer ID
 );
+-- Expand-only widen for deployments created before NUMERIC(12,6) (charge_batches
+-- already widened at line ~1416; ledger component rows must match aggregate domain).
+-- Widening a column that a trigger's WHEN clause references requires dropping
+-- the trigger first: Postgres refuses "cannot alter type of a column used in a
+-- trigger definition".  These are recreated verbatim further down this file, so
+-- dropping them here is safe on a fresh apply and on a re-apply alike.
+DROP TRIGGER IF EXISTS settled_ledger_money_immutable ON ledger_entries;
+DROP TRIGGER IF EXISTS payouts_lifecycle_guard        ON ledger_entries;
+DROP TRIGGER IF EXISTS payouts_active_dispute_guard   ON ledger_entries;
+ALTER TABLE ledger_entries ALTER COLUMN amount_usd TYPE NUMERIC(12,6);
 
 ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_released_requires_ref;
 ALTER TABLE ledger_entries ADD CONSTRAINT ledger_released_requires_ref
@@ -171,6 +181,31 @@ ALTER TABLE buyers DROP CONSTRAINT IF EXISTS buyers_deletion_tombstone_fkey;
 ALTER TABLE buyers ADD CONSTRAINT buyers_deletion_tombstone_fkey
     FOREIGN KEY (deletion_tombstone_id) REFERENCES buyer_identity_tombstones(id)
     ON DELETE RESTRICT NOT VALID;
+
+-- Crash-safe object-store deletion queue. Rows are inserted inside the buyer
+-- tombstone transaction *before* job/task object pointers are nulled, then
+-- deleted by the sweeper after object storage removal succeeds. Every delete
+-- is gated on buyer_identity_tombstones.artifact_ref_sha256s (written in the
+-- same transaction) — there is no buyer key namespace to assert.
+CREATE TABLE IF NOT EXISTS pending_object_deletions (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tombstone_id       UUID NOT NULL REFERENCES buyer_identity_tombstones(id) ON DELETE RESTRICT,
+    buyer_id           UUID NOT NULL,
+    object_key         TEXT NOT NULL CHECK (btrim(object_key) <> ''),
+    object_key_sha256  TEXT NOT NULL CHECK (object_key_sha256 ~ '^[0-9a-f]{64}$'),
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Delay claims until in-flight PresignGet URLs (up to 1h) can expire.
+    not_before         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    attempts           INT NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    last_error         TEXT,
+    claimed_at         TIMESTAMPTZ,
+    claim_token        UUID,
+    refused_at         TIMESTAMPTZ,
+    UNIQUE (tombstone_id, object_key)
+);
+CREATE INDEX IF NOT EXISTS pending_object_deletions_claim_idx
+    ON pending_object_deletions (not_before, created_at, id)
+    WHERE refused_at IS NULL;
 
 -- Buyer-to-processor identity is canonical schema state.  Keeping this table
 -- here (rather than creating it lazily in the billing path) makes a fresh
@@ -236,12 +271,26 @@ CREATE TABLE IF NOT EXISTS api_keys (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     buyer_id   UUID,
     key_hash   TEXT UNIQUE NOT NULL,      -- store a hash, never the raw key
-    is_admin   BOOLEAN DEFAULT false,
+    is_admin   BOOLEAN DEFAULT false,     -- break-glass only; never set via CreateAPIKey
     created_at TIMESTAMPTZ DEFAULT now(),
     revoked    BOOLEAN DEFAULT false
 );
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS name   TEXT;
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS masked TEXT;
+
+-- Primary operator credential class. Distinct from buyer api_keys; minted offline
+-- (scripts/mint-admin-key.sh). Break-glass is_admin rows on api_keys remain as a
+-- migration fallback until revoked.
+CREATE TABLE IF NOT EXISTS admin_credentials (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    key_hash   TEXT UNIQUE NOT NULL,      -- SHA-256 hex of the raw cx_admin_ key
+    label      TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    revoked    BOOLEAN DEFAULT false,
+    CONSTRAINT admin_credentials_label_nonempty CHECK (btrim(label) <> '' AND length(label) <= 200)
+);
+CREATE INDEX IF NOT EXISTS admin_credentials_active_idx
+    ON admin_credentials (id) WHERE revoked = false;
 
 CREATE TABLE IF NOT EXISTS admin_actions (
     id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -287,7 +336,7 @@ ALTER TABLE admin_actions DROP CONSTRAINT IF EXISTS admin_actions_actor_shape;
 ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_actor_shape CHECK (
     (actor_mode IS NULL AND actor_principal_id IS NULL AND actor_session_id IS NULL
      AND attribution_scope IS NULL)
- OR (actor_mode = 'break_glass_api_key' AND actor_principal_id IS NOT NULL
+ OR (actor_mode IN ('operator_key', 'break_glass_api_key') AND actor_principal_id IS NOT NULL
      AND actor_session_id IS NULL AND (
        attribution_scope = 'shared_credential_only'
        OR (attribution_scope = 'named_operator_key' AND btrim(COALESCE(actor_label,'')) <> '')
@@ -308,9 +357,9 @@ ALTER TABLE admin_actions DROP CONSTRAINT IF EXISTS admin_actions_privileged_mut
 ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_privileged_mutation_shape CHECK (
     kind NOT IN ('worker_suspended','worker_reinstated','task_requeued',
                  'reputation_adjusted','payout_released','operational_control_changed',
-                 'buyer_tombstoned')
+                 'buyer_tombstoned','realtime_refunded')
  OR COALESCE((
-    actor_mode = 'break_glass_api_key'
+    actor_mode IN ('operator_key', 'break_glass_api_key')
     AND actor_principal_id IS NOT NULL AND actor_session_id IS NULL
     AND attribution_scope = 'named_operator_key'
     AND btrim(COALESCE(actor_label,'')) <> ''
@@ -345,6 +394,9 @@ ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_privileged_mutation_shape
           WHEN 'buyer_tombstoned' THEN
             target_kind = 'buyer'
               AND supplier_id IS NULL AND task_id IS NULL AND ledger_entry_id IS NULL
+          WHEN 'realtime_refunded' THEN
+            target_kind = 'execution_contract'
+              AND supplier_id IS NOT NULL AND task_id IS NULL AND ledger_entry_id IS NULL
           ELSE false
         END
  ), false)
@@ -368,7 +420,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS admin_actions_privileged_correlation_uniq
     ON admin_actions (kind, correlation_ref)
     WHERE kind IN ('worker_suspended','worker_reinstated','task_requeued',
                    'reputation_adjusted','payout_released','operational_control_changed',
-                   'buyer_tombstoned');
+                   'buyer_tombstoned','realtime_refunded');
 CREATE OR REPLACE FUNCTION reject_admin_action_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -1410,7 +1462,10 @@ CREATE TABLE IF NOT EXISTS charge_batches (
     charged_at TIMESTAMPTZ
 );
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS deferred_at TIMESTAMPTZ;
-ALTER TABLE jobs ADD COLUMN IF NOT EXISTS charge_attempt_usd NUMERIC(10,6);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS charge_attempt_usd NUMERIC(12,6);
+ALTER TABLE jobs ALTER COLUMN estimated_usd TYPE NUMERIC(12,6);
+ALTER TABLE jobs ALTER COLUMN actual_usd TYPE NUMERIC(12,6);
+ALTER TABLE jobs ALTER COLUMN charge_attempt_usd TYPE NUMERIC(12,6);
 ALTER TABLE charge_batches ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0;
 ALTER TABLE charge_batches ADD COLUMN IF NOT EXISTS next_at TIMESTAMPTZ;
 ALTER TABLE charge_batches ALTER COLUMN amount_usd TYPE NUMERIC(12,6);
@@ -1539,7 +1594,15 @@ CREATE TABLE IF NOT EXISTS alpha_requests (
     note       TEXT,   -- optional free-text ("what would you run", etc.)
     source_ip  TEXT    -- for the same per-IP abuse-rate reasoning as signupLimiter
 );
+ALTER TABLE alpha_requests ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ;
+ALTER TABLE alpha_requests ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE alpha_requests DROP CONSTRAINT IF EXISTS alpha_requests_status_check;
+ALTER TABLE alpha_requests ADD CONSTRAINT alpha_requests_status_check
+    CHECK (status IN ('pending', 'accepted', 'rejected'));
 CREATE INDEX IF NOT EXISTS alpha_requests_created_at_idx ON alpha_requests (created_at);
+CREATE INDEX IF NOT EXISTS alpha_requests_retention_idx
+    ON alpha_requests (created_at)
+    WHERE status <> 'accepted';
 
 ALTER TABLE models ADD COLUMN IF NOT EXISTS price_source  TEXT DEFAULT 'seed';
 ALTER TABLE models ADD COLUMN IF NOT EXISTS price_formula TEXT;
@@ -1756,7 +1819,7 @@ CREATE INDEX IF NOT EXISTS supplier_payout_funding_state_compromised_idx
 
 CREATE TABLE IF NOT EXISTS supplier_minor_unit_settlements (
     ledger_entry_id    UUID PRIMARY KEY REFERENCES ledger_entries(id) ON DELETE RESTRICT,
-    policy             TEXT NOT NULL CHECK (policy = 'floor_cent_carry_v1'),
+    policy             TEXT NOT NULL CHECK (policy IN ('floor_cent_carry_v1','account_accrual_v2')),
     liability_microusd BIGINT NOT NULL CHECK (liability_microusd >= 0),
     cash_cents         BIGINT NOT NULL CHECK (cash_cents >= 0),
     remainder_microusd BIGINT NOT NULL CHECK (
@@ -1826,10 +1889,11 @@ CREATE TABLE IF NOT EXISTS supplier_payout_operations (
     currency         TEXT NOT NULL DEFAULT 'usd' CHECK (currency = 'usd'),
     status           TEXT NOT NULL CHECK (status IN (
                        'sending','ready','outcome_unknown','released','exported',
-                       'clawed_back','reversal_required','reversed')),
+                       'clawed_back','reversal_required','reversing','reversed')),
     cash_moved       BOOLEAN NOT NULL DEFAULT false,
     outcome_unknown  BOOLEAN NOT NULL DEFAULT false,
     transfer_ref     TEXT,
+    reverse_ref      TEXT,
     last_error       TEXT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1844,10 +1908,13 @@ ALTER TABLE supplier_payout_operations ADD COLUMN IF NOT EXISTS funding_id UUID
     REFERENCES supplier_payout_funding(id);
 ALTER TABLE supplier_payout_operations ADD COLUMN IF NOT EXISTS outcome_unknown BOOLEAN
     NOT NULL DEFAULT false;
+ALTER TABLE supplier_payout_operations ADD COLUMN IF NOT EXISTS reverse_ref TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS supplier_payout_operations_reverse_ref_uniq
+    ON supplier_payout_operations (reverse_ref) WHERE reverse_ref IS NOT NULL;
 ALTER TABLE supplier_payout_operations DROP CONSTRAINT IF EXISTS supplier_payout_operations_status_check;
 ALTER TABLE supplier_payout_operations ADD CONSTRAINT supplier_payout_operations_status_check
     CHECK (status IN ('sending','ready','outcome_unknown','released','exported',
-                      'clawed_back','reversal_required','reversed'));
+                      'clawed_back','reversal_required','reversing','reversed'));
 ALTER TABLE supplier_payout_operations DROP CONSTRAINT IF EXISTS supplier_payout_operations_outcome_unknown_check;
 ALTER TABLE supplier_payout_operations ADD CONSTRAINT supplier_payout_operations_outcome_unknown_check
     CHECK (NOT outcome_unknown OR NOT cash_moved);
@@ -1937,6 +2004,11 @@ DECLARE
 BEGIN
     IF NEW.kind IN ('subsidy_fund_authorized','payout_subsidy_authorized') THEN
         SELECT EXISTS (
+            SELECT 1 FROM admin_credentials c
+             WHERE NEW.actor_mode = 'operator_key'
+               AND c.id = NEW.actor_principal_id
+               AND c.revoked = false
+        ) OR EXISTS (
             SELECT 1 FROM api_keys k
              WHERE NEW.actor_mode = 'break_glass_api_key'
                AND k.id = NEW.actor_principal_id
@@ -2093,6 +2165,9 @@ INSERT INTO lifecycle_transitions (entity,from_state,to_state) VALUES
 ('job_charge','deferred','failed'),('job_charge','deferred','no_payment_method'),('job_charge','deferred','outcome_unknown'),
 ('job_charge','no_payment_method','deferred'),('job_charge','no_payment_method','outcome_unknown'),
 ('job_charge','failed','not_attempted'),('job_charge','failed','charged'),('job_charge','failed','outcome_unknown'),
+('job_charge','failed','manual_review'),('job_charge','failed','deferred'),
+('job_charge','manual_review','deferred'),('job_charge','manual_review','charged'),
+('job_charge','manual_review','abandoned'),
 ('job_charge','outcome_unknown','charged'),('job_charge','outcome_unknown','failed'),('job_charge','outcome_unknown','deferred'),
 ('charge_batch','attempting','charged'),('charge_batch','attempting','outcome_unknown'),('charge_batch','outcome_unknown','charged'),
 ('charge_operation','outcome_unknown','succeeded'),
@@ -2106,10 +2181,20 @@ INSERT INTO lifecycle_transitions (entity,from_state,to_state) VALUES
 ('payout','ready','clawed_back'),('payout','ready','reversal_required'),
 ('payout','sending','ready'),('payout','sending','released'),('payout','sending','outcome_unknown'),
 ('payout','sending','reversal_required'),
+-- Manual-export settlement rail.  FinalizePayout's non-cash branch requires the
+-- ledger row to be in 'sending' (or 'outcome_unknown') and then writes
+-- 'exported', but neither edge existed here, so the lifecycle trigger rejected
+-- every export with "illegal payout lifecycle transition: sending -> exported".
+-- An operator running MERC_PAYOUT_EXPORT -- settlement by hand, no Stripe -- could
+-- therefore never finalize a single payout.  Found by the first test ever to
+-- exercise FinalizePayout.
+('payout','sending','exported'),('payout','outcome_unknown','exported'),
 ('payout','outcome_unknown','ready'),('payout','outcome_unknown','released'),('payout','outcome_unknown','reversal_required'),
 ('payout','released','clawed_back'),('payout','released','reversal_required'),('payout','exported','reversal_required'),
 ('payout','carried','held'),('payout','carried','awaiting_funding'),
 ('payout','carried','clawed_back'),('payout','carried','reversal_required'),
+('payout','reversal_required','reversing'),
+('payout','reversing','reversed'),('payout','reversing','reversal_required'),
 ('webhook','pending','leased'),('webhook','pending','delivered'),('webhook','pending','dead'),
 ('webhook','leased','pending'),('webhook','leased','delivered'),('webhook','leased','dead');
 
@@ -2198,8 +2283,560 @@ CREATE TRIGGER webhooks_lifecycle_guard
 BEFORE UPDATE OF delivered_at,dead_lettered_at,lease_token,lease_expires_at ON webhooks
 FOR EACH ROW EXECUTE FUNCTION cx_webhook_lifecycle_guard();
 
+-- ---------------------------------------------------------------------------
+-- Prepaid buyer balance (WS-10b)
+--
+-- free_credit_usd on buyers is a sandbox spend grant that does not represent
+-- collected cash (see accounts.go). Prepaid balance is a platform liability in
+-- integer micro-USD: cash taken via Stripe top-up, reconcilable to ledger kinds
+-- prepaid_topup / prepaid_debit / prepaid_refund. Keep the two systems distinct.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS buyer_prepaid_balances (
+    buyer_id        UUID PRIMARY KEY REFERENCES buyers(id) ON DELETE RESTRICT,
+    balance_micros  BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS prepaid_topup_operations (
+    operation_key   TEXT PRIMARY KEY CHECK (btrim(operation_key) <> ''),
+    buyer_id        UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    amount_cents    BIGINT NOT NULL CHECK (amount_cents > 0),
+    currency        TEXT NOT NULL CHECK (currency = 'usd'),
+    status          TEXT NOT NULL CHECK (status IN ('pending','succeeded','refunded')),
+    payment_intent  TEXT UNIQUE,
+    charge_id       TEXT,
+    credited_at     TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (status <> 'succeeded' OR (payment_intent IS NOT NULL AND charge_id IS NOT NULL AND credited_at IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS prepaid_topup_buyer_idx
+    ON prepaid_topup_operations (buyer_id, status, created_at);
+
+CREATE TABLE IF NOT EXISTS prepaid_refund_operations (
+    operation_key   TEXT PRIMARY KEY CHECK (btrim(operation_key) <> ''),
+    buyer_id        UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    amount_cents    BIGINT NOT NULL CHECK (amount_cents > 0),
+    currency        TEXT NOT NULL CHECK (currency = 'usd'),
+    status          TEXT NOT NULL CHECK (status IN ('succeeded')),
+    stripe_refund_id TEXT UNIQUE,
+    payment_intent  TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_topup_ref_uniq
+    ON ledger_entries (payout_ref) WHERE kind = 'prepaid_topup';
+CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_refund_ref_uniq
+    ON ledger_entries (payout_ref) WHERE kind = 'prepaid_refund';
+
+-- Top-up cash is a first-class collection source (not a job/batch charge).
+-- Inline CHECKs on CREATE TABLE get auto-generated names; drop any source_kind
+-- / source-shape checks so the expanded forms can be installed idempotently.
+DO $$
+DECLARE r RECORD;
+BEGIN
+    FOR r IN
+        SELECT c.conname
+          FROM pg_constraint c
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+         WHERE c.conrelid = 'buyer_cash_collections'::regclass
+           AND c.contype = 'c'
+           AND a.attname IN ('source_kind','job_id','charge_batch_id')
+    LOOP
+        EXECUTE format('ALTER TABLE buyer_cash_collections DROP CONSTRAINT IF EXISTS %I', r.conname);
+    END LOOP;
+END $$;
+ALTER TABLE buyer_cash_collections
+    DROP CONSTRAINT IF EXISTS buyer_cash_collections_source_kind_check;
+ALTER TABLE buyer_cash_collections
+    DROP CONSTRAINT IF EXISTS buyer_cash_collections_source_shape_check;
+DO $$ BEGIN
+    ALTER TABLE buyer_cash_collections
+        ADD CONSTRAINT buyer_cash_collections_source_kind_check
+        CHECK (source_kind IN ('job','batch','topup'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE buyer_cash_collections
+        ADD CONSTRAINT buyer_cash_collections_source_shape_check
+        CHECK (
+          (source_kind = 'job' AND job_id IS NOT NULL AND charge_batch_id IS NULL)
+          OR (source_kind = 'batch' AND charge_batch_id IS NOT NULL AND job_id IS NULL)
+          OR (source_kind = 'topup' AND job_id IS NULL AND charge_batch_id IS NULL)
+        );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 DROP TABLE IF EXISTS admin_sessions;
-DROP TABLE IF EXISTS admin_credentials;
 DROP TABLE IF EXISTS private_pool_members;
 DROP TABLE IF EXISTS job_economic_facts;
 DROP TABLE IF EXISTS site_events;
+
+CREATE INDEX IF NOT EXISTS ledger_buyer_kind_idx
+    ON ledger_entries (buyer_id, kind) INCLUDE (amount_usd)
+    WHERE buyer_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS jobs_buyer_status_idx
+    ON jobs (buyer_id, status) INCLUDE (estimated_usd);
+
+-- ---------------------------------------------------------------------------
+-- Account-level supplier payout accrual.
+--
+-- Payouts used to floor each ledger entry to whole cents independently. At
+-- catalogue prices a supplier credit is worth a fraction of a cent, so every
+-- entry floored to zero, moved to payout_status='carried', and was never
+-- revisited: `carried` had exactly one writer and nothing ever moved it back,
+-- so supplier lifetime cash was structurally $0.00.
+--
+-- The residue is now accrued against the SUPPLIER rather than discarded per
+-- entry. An entry whose value cannot pay a whole cent on its own is absorbed
+-- into the accrual (payout_status='carried' now means "absorbed"), and the
+-- next entry that pushes the accrual over one cent pays out the whole
+-- accumulated amount.
+--
+-- Invariant, enforced below and asserted by test:
+--   lifetime_absorbed_microusd = lifetime_paid_cents * 10000 + accrued_microusd
+CREATE TABLE IF NOT EXISTS supplier_payout_accruals (
+    supplier_id                UUID PRIMARY KEY REFERENCES suppliers(id) ON DELETE RESTRICT,
+    -- Always drained to whole cents on every claim, so this is a true remainder.
+    accrued_microusd           BIGINT NOT NULL DEFAULT 0
+                               CHECK (accrued_microusd >= 0 AND accrued_microusd < 10000),
+    lifetime_absorbed_microusd BIGINT NOT NULL DEFAULT 0 CHECK (lifetime_absorbed_microusd >= 0),
+    lifetime_paid_cents        BIGINT NOT NULL DEFAULT 0 CHECK (lifetime_paid_cents >= 0),
+    updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (lifetime_absorbed_microusd = lifetime_paid_cents * 10000 + accrued_microusd)
+);
+
+-- The settlement row now records the accrual arithmetic rather than a per-entry
+-- floor: carry_in + liability = cash*10000 + carry_out. FinalizePayout asserts
+-- the same equation, so a lost or invented micro-USD fails the payout closed.
+ALTER TABLE supplier_minor_unit_settlements
+    ADD COLUMN IF NOT EXISTS carry_in_microusd BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE supplier_minor_unit_settlements
+    DROP CONSTRAINT IF EXISTS supplier_minor_unit_settlements_check;
+ALTER TABLE supplier_minor_unit_settlements
+    DROP CONSTRAINT IF EXISTS supplier_minor_unit_settlements_policy_check;
+ALTER TABLE supplier_minor_unit_settlements
+    DROP CONSTRAINT IF EXISTS settlement_accrual_balances;
+ALTER TABLE supplier_minor_unit_settlements
+    ADD CONSTRAINT settlement_accrual_balances
+    CHECK (carry_in_microusd + liability_microusd = cash_cents * 10000 + remainder_microusd);
+
+
+-- ---------------------------------------------------------------------------
+-- Prefix identity and cache-aware routing.
+--
+-- Measured on an M3 Ultra: recomputing a shared system prompt once per stream
+-- caps at ~6.5k tok/s, while prefilling it once and reusing the KV reaches
+-- ~20k tok/s -- the single largest throughput lever found, and it only pays if
+-- work that shares a prefix lands on a worker that already holds it.
+--
+-- prefix_id is a content hash of the shared prefix supplied by the buyer. It is
+-- an opaque routing hint: it never selects a different model, runtime or price,
+-- so a forged or colliding value can only cost a cache miss.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS prefix_id TEXT;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_prefix_id_shape;
+ALTER TABLE jobs ADD CONSTRAINT jobs_prefix_id_shape
+    CHECK (prefix_id IS NULL OR prefix_id ~ '^pfx_[0-9a-f]{32}$');
+
+CREATE INDEX IF NOT EXISTS jobs_prefix_id_idx ON jobs (prefix_id)
+    WHERE prefix_id IS NOT NULL;
+
+-- Which worker currently holds which prefix warm. Mirrors worker_model_state:
+-- advisory, TTL-bounded, and never authoritative over admission.
+CREATE TABLE IF NOT EXISTS worker_prefix_state (
+    worker_id      UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    prefix_id      TEXT NOT NULL CHECK (prefix_id ~ '^pfx_[0-9a-f]{32}$'),
+    last_seen_warm TIMESTAMPTZ NOT NULL DEFAULT now(),
+    hits           BIGINT NOT NULL DEFAULT 0 CHECK (hits >= 0),
+    PRIMARY KEY (worker_id, prefix_id)
+);
+
+CREATE INDEX IF NOT EXISTS worker_prefix_state_warm_idx
+    ON worker_prefix_state (prefix_id, last_seen_warm DESC);
+
+-- ---------------------------------------------------------------------------
+-- Billing classes.
+--
+-- A token the buyer receives is not always a token merc computed. Prefix reuse,
+-- exact caching and coalescing all deliver value for less physical work, and a
+-- single undifferentiated "tokens" number cannot express that -- it is the same
+-- conflation that inflated the retired 145x claim.
+--
+-- Each class is priced separately so a saving can be shared: the buyer pays
+-- less, the supplier still earns on the work actually done, and merc keeps a
+-- transparent positive contribution.
+CREATE TABLE IF NOT EXISTS billing_token_classes (
+    class            TEXT PRIMARY KEY,
+    physical_work    BOOLEAN NOT NULL,
+    description      TEXT NOT NULL
+);
+
+INSERT INTO billing_token_classes (class, physical_work, description) VALUES
+  ('uncached_input',    true,  'Prompt tokens prefilled for this request alone.'),
+  ('prefix_reused_input', false, 'Prompt tokens served from a shared prefix computed once for many requests.'),
+  ('exact_cached_input', false, 'Prompt tokens whose entire result was already computed for an identical request.'),
+  ('generated_output',  true,  'Tokens decoded by the model for this request.'),
+  ('exact_result_reuse', false, 'A complete prior result returned without any model execution.')
+ON CONFLICT (class) DO UPDATE
+  SET physical_work = EXCLUDED.physical_work, description = EXCLUDED.description;
+
+-- Per-job token accounting by class. The physical/logical split here is the
+-- same one the benchmark harness enforces, so pricing and measurement cannot
+-- drift apart.
+CREATE TABLE IF NOT EXISTS job_token_accounting (
+    job_id      UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    class       TEXT NOT NULL REFERENCES billing_token_classes(class),
+    tokens      BIGINT NOT NULL CHECK (tokens >= 0),
+    PRIMARY KEY (job_id, class)
+);
+
+CREATE INDEX IF NOT EXISTS job_token_accounting_class_idx
+    ON job_token_accounting (class);
+
+-- ---------------------------------------------------------------------------
+-- Prefix trie: deepest-valid-prefix reuse.
+--
+-- Measured bottleneck: at the batch-256 operating point prefill is 76% of wall
+-- time (4.67s of 6.16s). Exact-prefix-only matching reuses nothing unless two
+-- requests share their whole prompt, so almost all of that prefill is paid
+-- again per request.
+--
+-- A request now registers one id per nested prefix depth. Two requests sharing
+-- a system prompt but differing later still match at the shared depth, and the
+-- scheduler routes to the worker holding the DEEPEST match.
+ALTER TABLE worker_prefix_state ADD COLUMN IF NOT EXISTS depth INT NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS worker_prefix_state_depth_idx
+    ON worker_prefix_state (prefix_id, depth DESC, last_seen_warm DESC);
+
+-- The chain of prefix ids a job can match at, deepest last.
+CREATE TABLE IF NOT EXISTS job_prefix_chain (
+    job_id    UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    depth     INT  NOT NULL CHECK (depth > 0),
+    prefix_id TEXT NOT NULL CHECK (prefix_id ~ '^pfx_[0-9a-f]{32}$'),
+    PRIMARY KEY (job_id, depth)
+);
+
+CREATE INDEX IF NOT EXISTS job_prefix_chain_lookup_idx
+    ON job_prefix_chain (prefix_id, depth DESC);
+
+-- ---------------------------------------------------------------------------
+-- Exact deterministic result reuse and in-flight coalescing.
+--
+-- The cheapest compute is compute that never runs. When the complete effective
+-- request identity matches -- model, revision, input, sampling, seed, policy --
+-- a prior result is not an approximation of the answer, it IS the answer.
+--
+-- Eligibility is deliberately narrow: any sampling that is not deterministic,
+-- or any difference in model or policy, produces a different identity and
+-- therefore a miss. A near-miss must never silently replace fresh inference.
+CREATE TABLE IF NOT EXISTS exact_result_cache (
+    request_identity TEXT PRIMARY KEY CHECK (request_identity ~ '^req_[0-9a-f]{64}$'),
+    result_ref       TEXT NOT NULL CHECK (btrim(result_ref) <> ''),
+    output_tokens    BIGINT NOT NULL CHECK (output_tokens >= 0),
+    hits             BIGINT NOT NULL DEFAULT 0 CHECK (hits >= 0),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_hit_at      TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS exact_result_cache_hits_idx
+    ON exact_result_cache (hits DESC, last_hit_at DESC NULLS LAST);
+
+-- In-flight coalescing: identical deterministic requests arriving while one is
+-- already executing wait for it rather than each paying full inference.
+CREATE TABLE IF NOT EXISTS inflight_requests (
+    request_identity TEXT PRIMARY KEY CHECK (request_identity ~ '^req_[0-9a-f]{64}$'),
+    leader_job_id    UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    started_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    followers        BIGINT NOT NULL DEFAULT 0 CHECK (followers >= 0)
+);
+
+-- Realtime inference is a separate contract lifecycle from retained batch
+-- jobs. The control plane remains authoritative: worker offers only advertise
+-- capacity, while contracts, V0 evidence, and money effects are committed in
+-- one PostgreSQL transaction after the delivered response verifies.
+CREATE TABLE IF NOT EXISTS realtime_worker_offers (
+    worker_id                    UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    supplier_id                  UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    runtime_profile_id           TEXT NOT NULL,
+    runtime_profile_sha256       TEXT NOT NULL CHECK (runtime_profile_sha256 ~ '^[0-9a-f]{64}$'),
+    upstream_base_url            TEXT NOT NULL CHECK (btrim(upstream_base_url) <> ''),
+    upstream_token_sealed        TEXT NOT NULL CHECK (upstream_token_sealed LIKE 'enc:%'),
+    warmth                       TEXT NOT NULL CHECK (warmth IN ('HOT','WARM','CACHED','COLD')),
+    max_active_sequences         INT NOT NULL CHECK (max_active_sequences > 0),
+    available_sequences          INT NOT NULL CHECK (available_sequences BETWEEN 0 AND max_active_sequences),
+    supplier_input_usd_per_million_tokens  NUMERIC(12,6) NOT NULL CHECK (supplier_input_usd_per_million_tokens >= 0),
+    supplier_output_usd_per_million_tokens NUMERIC(12,6) NOT NULL CHECK (supplier_output_usd_per_million_tokens >= 0),
+    status                       TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','DRAINING','FAILED','QUARANTINED')),
+    last_seen_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (worker_id,runtime_profile_id)
+);
+CREATE INDEX IF NOT EXISTS realtime_worker_offer_route_idx
+    ON realtime_worker_offers (runtime_profile_id,status,last_seen_at DESC)
+    WHERE status='ACTIVE' AND available_sequences > 0;
+
+CREATE TABLE IF NOT EXISTS execution_contracts (
+    id                    UUID PRIMARY KEY,
+    request_id            TEXT NOT NULL UNIQUE CHECK (btrim(request_id) <> ''),
+    buyer_id              UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    workload_type         TEXT NOT NULL CHECK (workload_type IN ('CHAT_COMPLETION')),
+    route                 TEXT NOT NULL CHECK (route='/v1/chat/completions'),
+    model_alias           TEXT NOT NULL,
+    runtime_profile_id    TEXT NOT NULL,
+    runtime_profile_sha256 TEXT NOT NULL CHECK (runtime_profile_sha256 ~ '^[0-9a-f]{64}$'),
+    input_commitment      TEXT NOT NULL CHECK (input_commitment ~ '^[0-9a-f]{64}$'),
+    request_sha256        TEXT NOT NULL CHECK (request_sha256 ~ '^[0-9a-f]{64}$'),
+    maximum_price_usd     NUMERIC(12,6) NOT NULL CHECK (maximum_price_usd > 0),
+    estimated_price_usd   NUMERIC(12,6) NOT NULL CHECK (estimated_price_usd > 0 AND estimated_price_usd <= maximum_price_usd),
+    buyer_input_usd_per_million_tokens NUMERIC(12,6) NOT NULL CHECK (buyer_input_usd_per_million_tokens > 0),
+    buyer_output_usd_per_million_tokens NUMERIC(12,6) NOT NULL CHECK (buyer_output_usd_per_million_tokens > 0),
+    supplier_input_usd_per_million_tokens NUMERIC(12,6) NOT NULL CHECK (supplier_input_usd_per_million_tokens >= 0 AND supplier_input_usd_per_million_tokens <= buyer_input_usd_per_million_tokens),
+    supplier_output_usd_per_million_tokens NUMERIC(12,6) NOT NULL CHECK (supplier_output_usd_per_million_tokens >= 0 AND supplier_output_usd_per_million_tokens <= buyer_output_usd_per_million_tokens),
+    deadline_at           TIMESTAMPTZ NOT NULL,
+    verification_tier     TEXT NOT NULL DEFAULT 'V0' CHECK (verification_tier='V0'),
+    idempotency_key       TEXT,
+    state                 TEXT NOT NULL CHECK (state IN ('AUTHORIZED','EXECUTING','VERIFIED','FAILED','CANCELLED')),
+    worker_id             UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    supplier_id           UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    upstream_base_url     TEXT NOT NULL CHECK (btrim(upstream_base_url) <> ''),
+    upstream_token_sealed TEXT NOT NULL CHECK (upstream_token_sealed LIKE 'enc:%'),
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finalized_at          TIMESTAMPTZ,
+    CHECK (idempotency_key IS NULL OR char_length(idempotency_key) BETWEEN 8 AND 128),
+    CHECK ((state IN ('VERIFIED','FAILED','CANCELLED')) = (finalized_at IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS execution_contracts_buyer_idempotency_uniq
+    ON execution_contracts (buyer_id,idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS execution_contracts_buyer_created_idx
+    ON execution_contracts (buyer_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS realtime_executions (
+    id                    UUID PRIMARY KEY,
+    contract_id           UUID NOT NULL UNIQUE REFERENCES execution_contracts(id) ON DELETE RESTRICT,
+    worker_id             UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    supplier_id           UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    upstream_request_id   TEXT,
+    http_status           INT CHECK (http_status BETWEEN 100 AND 599),
+    stream_event_count    BIGINT NOT NULL DEFAULT 0 CHECK (stream_event_count >= 0),
+    stream_root_sha256    TEXT CHECK (stream_root_sha256 IS NULL OR stream_root_sha256 ~ '^[0-9a-f]{64}$'),
+    output_commitment     TEXT CHECK (output_commitment IS NULL OR output_commitment ~ '^[0-9a-f]{64}$'),
+    prompt_tokens         BIGINT CHECK (prompt_tokens IS NULL OR prompt_tokens >= 0),
+    completion_tokens     BIGINT CHECK (completion_tokens IS NULL OR completion_tokens >= 0),
+    total_tokens          BIGINT CHECK (total_tokens IS NULL OR total_tokens >= 0),
+    time_to_first_event_ms BIGINT CHECK (time_to_first_event_ms IS NULL OR time_to_first_event_ms >= 0),
+    duration_ms           BIGINT NOT NULL CHECK (duration_ms >= 0),
+    verification_state    TEXT NOT NULL CHECK (verification_state IN ('PASSED','FAILED')),
+    failure_code          TEXT,
+    failure_detail        TEXT,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((verification_state='PASSED'
+            AND http_status BETWEEN 200 AND 299
+            AND stream_root_sha256 IS NOT NULL
+            AND output_commitment IS NOT NULL
+            AND prompt_tokens IS NOT NULL
+            AND completion_tokens IS NOT NULL
+            AND total_tokens=prompt_tokens+completion_tokens
+            AND failure_code IS NULL)
+        OR (verification_state='FAILED' AND failure_code IS NOT NULL))
+);
+
+ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS execution_contract_id UUID;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='ledger_entries'::regclass
+           AND conname='ledger_execution_contract_fkey'
+    ) THEN
+        ALTER TABLE ledger_entries ADD CONSTRAINT ledger_execution_contract_fkey
+            FOREIGN KEY (execution_contract_id) REFERENCES execution_contracts(id)
+            ON DELETE RESTRICT NOT VALID;
+    END IF;
+END $$;
+ALTER TABLE ledger_entries VALIDATE CONSTRAINT ledger_execution_contract_fkey;
+CREATE UNIQUE INDEX IF NOT EXISTS ledger_execution_contract_kind_uniq
+    ON ledger_entries (execution_contract_id,kind)
+    WHERE execution_contract_id IS NOT NULL;
+
+-- Realtime money authority is explicit and append-only. A contract first
+-- records its maximum-cost reservation. Verified completion atomically records
+-- the captured amount and unused release; every non-payable terminal outcome
+-- voids the entire reservation. These are internal account facts, not claims
+-- that provider cash moved.
+CREATE TABLE IF NOT EXISTS realtime_settlements (
+    id                     UUID PRIMARY KEY,
+    contract_id            UUID NOT NULL UNIQUE REFERENCES execution_contracts(id) ON DELETE RESTRICT,
+    authoritative_execution_id UUID NOT NULL UNIQUE REFERENCES realtime_executions(id) ON DELETE RESTRICT,
+    receipt_id             TEXT NOT NULL UNIQUE CHECK (receipt_id ~ '^rcp_[0-9a-f-]{36}$'),
+    buyer_charge_usd       NUMERIC(12,6) NOT NULL CHECK (buyer_charge_usd > 0),
+    supplier_gross_usd     NUMERIC(12,6) NOT NULL CHECK (supplier_gross_usd >= 0),
+    platform_margin_usd    NUMERIC(12,6) NOT NULL CHECK (platform_margin_usd >= 0),
+    verification_cost_usd  NUMERIC(12,6) NOT NULL DEFAULT 0 CHECK (verification_cost_usd >= 0),
+    initial_transfer_state TEXT NOT NULL DEFAULT 'VERIFICATION_HOLD'
+                           CHECK (initial_transfer_state='VERIFICATION_HOLD'),
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (buyer_charge_usd = supplier_gross_usd + platform_margin_usd + verification_cost_usd)
+);
+
+CREATE TABLE IF NOT EXISTS realtime_refunds (
+    id                       UUID PRIMARY KEY,
+    contract_id              UUID NOT NULL UNIQUE REFERENCES execution_contracts(id) ON DELETE RESTRICT,
+    admin_action_id          UUID NOT NULL UNIQUE REFERENCES admin_actions(id) ON DELETE RESTRICT,
+    refund_mode              TEXT NOT NULL CHECK (refund_mode='FULL_INTERNAL_CREDIT'),
+    reason_code              TEXT NOT NULL CHECK (reason_code='OPERATOR_CONFIRMED_PLATFORM_FAULT'),
+    reason                   TEXT NOT NULL CHECK (btrim(reason) <> ''),
+    correlation_ref          TEXT NOT NULL UNIQUE CHECK (btrim(correlation_ref) <> ''),
+    buyer_refund_usd         NUMERIC(12,6) NOT NULL CHECK (buyer_refund_usd > 0),
+    supplier_clawback_usd    NUMERIC(12,6) NOT NULL CHECK (supplier_clawback_usd >= 0),
+    platform_refund_usd      NUMERIC(12,6) NOT NULL CHECK (platform_refund_usd >= 0),
+    internal_credit_state    TEXT NOT NULL CHECK (internal_credit_state='RECORDED'),
+    external_cash_state      TEXT NOT NULL CHECK (external_cash_state='NOT_REQUESTED'),
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (buyer_refund_usd = supplier_clawback_usd + platform_refund_usd)
+);
+
+CREATE TABLE IF NOT EXISTS realtime_authorization_events (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    contract_id    UUID NOT NULL REFERENCES execution_contracts(id) ON DELETE RESTRICT,
+    kind           TEXT NOT NULL CHECK (kind IN ('RESERVED','CAPTURED','RELEASED','VOIDED','REFUNDED')),
+    amount_usd     NUMERIC(12,6) NOT NULL CHECK (amount_usd >= 0),
+    authority_basis TEXT NOT NULL DEFAULT 'INTERNAL_ACCOUNT_V1'
+                    CHECK (authority_basis='INTERNAL_ACCOUNT_V1'),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (contract_id,kind),
+    CHECK (kind='RELEASED' OR amount_usd > 0)
+);
+CREATE INDEX IF NOT EXISTS realtime_authorization_events_contract_idx
+    ON realtime_authorization_events (contract_id,created_at);
+
+-- Preserve truthful money history when this additive migration is applied to
+-- a database that already contains realtime contracts from an earlier build.
+INSERT INTO realtime_settlements
+  (id,contract_id,authoritative_execution_id,receipt_id,buyer_charge_usd,
+   supplier_gross_usd,platform_margin_usd,verification_cost_usd)
+SELECT gen_random_uuid(),c.id,e.id,'rcp_'||e.id::text,
+       -sum(le.amount_usd) FILTER (WHERE le.kind='buyer_charge'),
+       sum(le.amount_usd) FILTER (WHERE le.kind='supplier_credit'),
+       sum(le.amount_usd) FILTER (WHERE le.kind='platform_take'),0
+  FROM execution_contracts c
+  JOIN realtime_executions e ON e.contract_id=c.id AND e.verification_state='PASSED'
+  JOIN ledger_entries le ON le.execution_contract_id=c.id
+ WHERE c.state='VERIFIED'
+ GROUP BY c.id,e.id
+ON CONFLICT (contract_id) DO NOTHING;
+
+INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
+SELECT id,'RESERVED',maximum_price_usd FROM execution_contracts
+ON CONFLICT (contract_id,kind) DO NOTHING;
+INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
+SELECT contract_id,'CAPTURED',buyer_charge_usd FROM realtime_settlements
+ON CONFLICT (contract_id,kind) DO NOTHING;
+INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
+SELECT s.contract_id,'RELEASED',c.maximum_price_usd-s.buyer_charge_usd
+  FROM realtime_settlements s JOIN execution_contracts c ON c.id=s.contract_id
+ON CONFLICT (contract_id,kind) DO NOTHING;
+INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
+SELECT id,'VOIDED',maximum_price_usd FROM execution_contracts
+ WHERE state IN ('FAILED','CANCELLED')
+ON CONFLICT (contract_id,kind) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION reject_realtime_money_fact_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'realtime money facts are append-only';
+END;
+$$;
+DROP TRIGGER IF EXISTS realtime_settlements_append_only ON realtime_settlements;
+CREATE TRIGGER realtime_settlements_append_only
+BEFORE UPDATE OR DELETE ON realtime_settlements
+FOR EACH ROW EXECUTE FUNCTION reject_realtime_money_fact_mutation();
+DROP TRIGGER IF EXISTS realtime_refunds_append_only ON realtime_refunds;
+CREATE TRIGGER realtime_refunds_append_only
+BEFORE UPDATE OR DELETE ON realtime_refunds
+FOR EACH ROW EXECUTE FUNCTION reject_realtime_money_fact_mutation();
+DROP TRIGGER IF EXISTS realtime_authorization_events_append_only ON realtime_authorization_events;
+CREATE TRIGGER realtime_authorization_events_append_only
+BEFORE UPDATE OR DELETE ON realtime_authorization_events
+FOR EACH ROW EXECUTE FUNCTION reject_realtime_money_fact_mutation();
+
+CREATE OR REPLACE FUNCTION validate_realtime_authorization_event()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    contract_max NUMERIC(12,6);
+    contract_state TEXT;
+    captured NUMERIC(12,6);
+    refunded NUMERIC(12,6);
+BEGIN
+    SELECT maximum_price_usd,state INTO contract_max,contract_state
+      FROM execution_contracts WHERE id=NEW.contract_id;
+    IF NEW.kind='RESERVED' THEN
+        IF NEW.amount_usd IS DISTINCT FROM contract_max THEN
+            RAISE EXCEPTION 'realtime reservation does not equal the contract maximum';
+        END IF;
+    ELSIF NEW.kind='CAPTURED' THEN
+        SELECT buyer_charge_usd INTO captured FROM realtime_settlements
+         WHERE contract_id=NEW.contract_id;
+        IF contract_state <> 'VERIFIED' OR NEW.amount_usd IS DISTINCT FROM captured THEN
+            RAISE EXCEPTION 'realtime capture is not bound to verified settlement';
+        END IF;
+    ELSIF NEW.kind='RELEASED' THEN
+        SELECT buyer_charge_usd INTO captured FROM realtime_settlements
+         WHERE contract_id=NEW.contract_id;
+        IF contract_state <> 'VERIFIED' OR NEW.amount_usd IS DISTINCT FROM contract_max-captured THEN
+            RAISE EXCEPTION 'realtime release does not reconcile reservation and capture';
+        END IF;
+    ELSIF NEW.kind='VOIDED' THEN
+        IF contract_state NOT IN ('FAILED','CANCELLED') OR NEW.amount_usd IS DISTINCT FROM contract_max THEN
+            RAISE EXCEPTION 'realtime void is not bound to a non-payable terminal contract';
+        END IF;
+    ELSIF NEW.kind='REFUNDED' THEN
+        SELECT buyer_refund_usd INTO refunded FROM realtime_refunds
+         WHERE contract_id=NEW.contract_id;
+        IF contract_state <> 'VERIFIED' OR NEW.amount_usd IS DISTINCT FROM refunded THEN
+            RAISE EXCEPTION 'realtime refund authorization event lacks exact refund binding';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS realtime_authorization_event_binding ON realtime_authorization_events;
+CREATE CONSTRAINT TRIGGER realtime_authorization_event_binding
+AFTER INSERT ON realtime_authorization_events DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_realtime_authorization_event();
+
+CREATE OR REPLACE FUNCTION validate_realtime_refund_admin_binding()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE binding_ok BOOLEAN;
+BEGIN
+    IF TG_TABLE_NAME='realtime_refunds' THEN
+        SELECT EXISTS (
+            SELECT 1 FROM admin_actions a
+             WHERE a.id=NEW.admin_action_id AND a.kind='realtime_refunded'
+               AND a.target_kind='execution_contract' AND a.target_id=NEW.contract_id
+               AND a.correlation_ref=NEW.correlation_ref AND a.reason=NEW.reason
+               AND a.supplier_id IS NOT NULL
+        ) INTO binding_ok;
+    ELSE
+        IF NEW.kind <> 'realtime_refunded' THEN RETURN NEW; END IF;
+        SELECT EXISTS (
+            SELECT 1 FROM realtime_refunds r
+             WHERE r.admin_action_id=NEW.id AND r.contract_id=NEW.target_id
+               AND r.correlation_ref=NEW.correlation_ref AND r.reason=NEW.reason
+        ) INTO binding_ok;
+    END IF;
+    IF NOT COALESCE(binding_ok,false) THEN
+        RAISE EXCEPTION 'realtime refund and privileged action are not exactly bound';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS realtime_refund_admin_binding ON realtime_refunds;
+CREATE CONSTRAINT TRIGGER realtime_refund_admin_binding
+AFTER INSERT ON realtime_refunds DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_realtime_refund_admin_binding();
+DROP TRIGGER IF EXISTS admin_action_realtime_refund_binding ON admin_actions;
+CREATE CONSTRAINT TRIGGER admin_action_realtime_refund_binding
+AFTER INSERT ON admin_actions DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_realtime_refund_admin_binding();

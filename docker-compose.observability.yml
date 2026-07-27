@@ -1,0 +1,139 @@
+# Observability stack for local proof and production canary hosts.
+#
+# Standalone (alert delivery proof; control scrape will soft-fail):
+#   CX_ALERT_RECEIVER_URL_FILE=/abs/path/to/url.txt \
+#     docker compose -f docker-compose.observability.yml up -d prometheus alertmanager
+#
+# With the application stack:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml up -d
+#
+# Required operator inputs (fail closed when absent):
+#   CX_ALERT_RECEIVER_URL_FILE  absolute path to a file whose sole contents are the
+#                               webhook URL Alertmanager posts to (http or https)
+#   GF_SECURITY_ADMIN_PASSWORD  Grafana admin password (only when starting grafana)
+#
+# Optional immutable image overrides (digest form preferred):
+#   CX_PROMETHEUS_IMAGE CX_ALERTMANAGER_IMAGE CX_GRAFANA_IMAGE CX_NODE_EXPORTER_IMAGE
+#
+# See monitoring/README.md and scripts/test-alert-delivery.sh.
+
+x-logging: &logs
+  driver: json-file
+  options: {max-size: "10m", max-file: "5"}
+
+services:
+  prometheus:
+    image: ${CX_PROMETHEUS_IMAGE:-quay.io/prometheus/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      alertmanager:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 4s
+      retries: 12
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    logging: *logs
+
+  alertmanager:
+    image: ${CX_ALERTMANAGER_IMAGE:-quay.io/prometheus/alertmanager@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba}
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    secrets:
+      - source: alert_receiver_url
+        target: cx_alert_receiver_url
+        mode: 0400
+    ports:
+      - "127.0.0.1:9093:9093"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, "http://localhost:9093/-/ready"]
+      interval: 10s
+      timeout: 4s
+      retries: 12
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    logging: *logs
+
+  grafana:
+    image: ${CX_GRAFANA_IMAGE:-docker.io/grafana/grafana@sha256:fa801ab6e1ae035135309580891e09f7eb94d1abdbd2106bdc288030b028158c}
+    profiles: [full]
+    environment:
+      GF_SECURITY_ADMIN_USER: cx-admin
+      # Required when starting the "full" profile; left optional at parse time so
+      # prometheus+alertmanager proofs can start without Grafana.
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 384m
+    cpus: 0.5
+    pids_limit: 128
+    logging: *logs
+
+  node-exporter:
+    image: ${CX_NODE_EXPORTER_IMAGE:-quay.io/prometheus/node-exporter@sha256:4032c6d5bfd752342c3e631c2f1de93ba6b86c41db6b167b9a35372c139e7706}
+    profiles: [full]
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    expose:
+      - "9100"
+    restart: unless-stopped
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    logging: *logs
+
+secrets:
+  # Compose refuses to start when this path is unset or the file is missing.
+  # Contents: a single webhook URL, no trailing commentary.
+  alert_receiver_url:
+    file: ${CX_ALERT_RECEIVER_URL_FILE:?required — absolute path to file containing the alert receiver webhook URL (see monitoring/README.md)}
+
+volumes:
+  prometheus_data:
+  alertmanager_data:
+  grafana_data:

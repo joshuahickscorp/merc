@@ -34,7 +34,7 @@ done
 
 [[ "${STRIPE_SECRET_KEY:-}" =~ ^(sk_test_|rk_test_)[A-Za-z0-9_]+$ ]] || { echo "stripe-sandbox-scenarios: test key required" >&2; exit 1; }
 [[ "${STRIPE_WEBHOOK_SECRET:-}" =~ ^whsec_[A-Za-z0-9_]+$ ]] || { echo "stripe-sandbox-scenarios: billing webhook secret required" >&2; exit 1; }
-[[ "${CX_CONNECT_WEBHOOK_SECRET:-}" =~ ^whsec_[A-Za-z0-9_]+$ ]] || { echo "stripe-sandbox-scenarios: Connect webhook secret required" >&2; exit 1; }
+[[ "${MERC_CONNECT_WEBHOOK_SECRET:-}" =~ ^whsec_[A-Za-z0-9_]+$ ]] || { echo "stripe-sandbox-scenarios: Connect webhook secret required" >&2; exit 1; }
 [[ "$RUN_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "stripe-sandbox-scenarios: run id required" >&2; exit 1; }
 [[ "$PAYMENT_INTENT" =~ ^pi_[A-Za-z0-9]+$ && "$CHARGE" =~ ^ch_[A-Za-z0-9]+$ && "$TRANSFER" =~ ^tr_[A-Za-z0-9]+$ ]] || {
   echo "stripe-sandbox-scenarios: provider object identifiers required" >&2; exit 1;
@@ -115,7 +115,7 @@ sys.stdout.write(hmac.new(secret, timestamp + b"." + payload, hashlib.sha256).he
 # and one with an invalid signature; the real handler must accept only the
 # former. This transmits an HMAC, never the secret itself.
 verify_endpoint_secret "$billing_endpoint" STRIPE_WEBHOOK_SECRET billing
-verify_endpoint_secret "$connect_endpoint" CX_CONNECT_WEBHOOK_SECRET connect
+verify_endpoint_secret "$connect_endpoint" MERC_CONNECT_WEBHOOK_SECRET connect
 
 event_for_object() {
   local event_type="$1" object_id="$2" account_scope="${3:-platform}" deadline now response found
@@ -256,7 +256,7 @@ released="$(connected_api POST payouts \
   --header "Idempotency-Key: cx-matrix-$RUN_ID-payout-release" \
   --data-urlencode amount=40 --data-urlencode currency=usd \
   --data-urlencode destination="$success_bank" \
-  --data-urlencode "description=ComputExchange Sandbox release $RUN_ID")"
+  --data-urlencode "description=merc Sandbox release $RUN_ID")"
 payout_release_id="$(jq -er '.id | select(startswith("po_"))' <<< "$released")"
 hold_event="$(event_for_object payout.created "$payout_release_id" connected)"
 wait_delivered "$(jq -r .id <<< "$hold_event")" connected
@@ -275,7 +275,7 @@ failed="$(connected_api POST payouts \
   --header "Idempotency-Key: cx-matrix-$RUN_ID-payout-failure" \
   --data-urlencode amount=30 --data-urlencode currency=usd \
   --data-urlencode destination="$failure_bank" \
-  --data-urlencode "description=ComputExchange Sandbox failure $RUN_ID")"
+  --data-urlencode "description=merc Sandbox failure $RUN_ID")"
 payout_failure_id="$(jq -er '.id | select(startswith("po_"))' <<< "$failed")"
 wait_payout_status "$payout_failure_id" failed >/dev/null
 failed_event="$(event_for_object payout.failed "$payout_failure_id" connected)"

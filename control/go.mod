@@ -1,4 +1,4 @@
-module computeexchange/control
+module merc/control
 
 go 1.26.5 // patched stdlib (crypto/tls and prior net/http/x509 fixes)  -  see govulncheck
 

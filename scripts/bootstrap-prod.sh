@@ -24,23 +24,27 @@ set -a
 set +a
 
 required=(POSTGRES_PASSWORD MINIO_ROOT_USER MINIO_ROOT_PASSWORD ACME_EMAIL SITE_HOST
-  S3_PUBLIC_ENDPOINT CX_PUBLIC_CONTROL_ORIGIN STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET
-  CX_CONNECT_WEBHOOK_SECRET CX_CONNECT_RETURN_URL CX_CONNECT_REFRESH_URL CX_TOKEN_KEY
-  CX_VERIFICATION_SAMPLE_SECRET CX_ECON_SCHEDULE_VERSION CX_PROCESSOR_PERCENT_BPS
-  CX_PROCESSOR_FIXED_USD CX_CONTROL_PLANE_PER_TASK_USD CX_TARGET_MARGIN_BPS)
+  S3_PUBLIC_ENDPOINT MERC_PUBLIC_CONTROL_ORIGIN STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET
+  MERC_CONNECT_WEBHOOK_SECRET MERC_CONNECT_RETURN_URL MERC_CONNECT_REFRESH_URL MERC_TOKEN_KEY
+  MERC_VERIFICATION_SAMPLE_SECRET MERC_ECON_SCHEDULE_VERSION MERC_PROCESSOR_PERCENT_BPS
+  MERC_PROCESSOR_FIXED_USD MERC_CONTROL_PLANE_PER_TASK_USD MERC_TARGET_MARGIN_BPS
+  MERC_ALERT_RECEIVER_URL_FILE GF_SECURITY_ADMIN_PASSWORD)
 for name in "${required[@]}"; do [ -n "${!name:-}" ] || die "$name is required"; done
 [[ "$STRIPE_SECRET_KEY" == sk_live_* ]] || die "production requires a live Stripe key"
 [[ "$STRIPE_WEBHOOK_SECRET" == whsec_* ]] || die "invalid billing webhook secret"
-[[ "$CX_CONNECT_WEBHOOK_SECRET" == whsec_* ]] || die "invalid Connect webhook secret"
-[ "$STRIPE_WEBHOOK_SECRET" != "$CX_CONNECT_WEBHOOK_SECRET" ] || die "webhook secrets must differ"
-[ "${#CX_TOKEN_KEY}" -ge 32 ] || die "CX_TOKEN_KEY is too short"
-[ "${#CX_VERIFICATION_SAMPLE_SECRET}" -ge 32 ] || die "verification secret is too short"
-docker compose -f docker-compose.prod.yml config -q || die "invalid production compose"
+[[ "$MERC_CONNECT_WEBHOOK_SECRET" == whsec_* ]] || die "invalid Connect webhook secret"
+[ "$STRIPE_WEBHOOK_SECRET" != "$MERC_CONNECT_WEBHOOK_SECRET" ] || die "webhook secrets must differ"
+[ "${#MERC_TOKEN_KEY}" -ge 32 ] || die "MERC_TOKEN_KEY is too short"
+[ "${#MERC_VERIFICATION_SAMPLE_SECRET}" -ge 32 ] || die "verification secret is too short"
+[ -f "$MERC_ALERT_RECEIVER_URL_FILE" ] && [ -s "$MERC_ALERT_RECEIVER_URL_FILE" ] \
+  || die "MERC_ALERT_RECEIVER_URL_FILE must exist and contain the HTTPS alert webhook URL (see monitoring/README.md)"
+docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml config -q \
+  || die "invalid production+observability compose"
 
 echo "Deploy ${SITE_HOST} from $(git rev-parse --short HEAD); backup=$((1-SKIP_BACKUP))"
 if [ "$YES" -eq 0 ]; then read -r -p 'Type yes to continue: ' answer; [ "$answer" = yes ] || exit 1; fi
 if [ "$PULL" -eq 1 ]; then git pull --ff-only; fi
-if [ "$SKIP_BACKUP" -eq 0 ] && docker compose -f docker-compose.prod.yml ps -q postgres | grep -q .; then
+if [ "$SKIP_BACKUP" -eq 0 ] && docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml ps -q postgres | grep -q .; then
   bash scripts/backup.sh
 fi
 bash scripts/deploy.sh

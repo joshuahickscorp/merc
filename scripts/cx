@@ -35,7 +35,7 @@ cx release commands:
   render-staging                   render a secret-free deployment summary
   validate-staging                 validate the one supported staging manifest
   alert-check                      exercise the local alert delivery pipeline
-  alert-page [--real-receiver-env CX_ALERT_RECEIVER_NAME]
+  alert-page [--real-receiver-env MERC_ALERT_RECEIVER_NAME]
                                    exercise local delivery; optionally page an approved HTTPS receiver
   approvals-check [--bundle PATH]  validate commit-bound governance receipts
 EOF

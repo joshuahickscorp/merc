@@ -23,6 +23,9 @@ const (
 	KindSupplierCredit = "supplier_credit"
 	KindPlatformTake   = "platform_take"
 	KindClawback       = "clawback"
+	KindPrepaidTopup   = "prepaid_topup"
+	KindPrepaidDebit   = "prepaid_debit"
+	KindPrepaidRefund  = "prepaid_refund"
 	KindStripeFee      = "stripe_fee"
 )
 
@@ -38,6 +41,8 @@ const (
 	PayoutExported         = "exported"
 	PayoutClawedBack       = "clawed_back"
 	PayoutReversalRequired = "reversal_required"
+	PayoutReversing        = "reversing"
+	PayoutReversed         = "reversed"
 )
 
 const (
@@ -72,7 +77,7 @@ var (
 func takeRateFromEnv() float64 {
 	const def, lo, hi = 3.0, 1.0, 5.0
 	pct := def
-	if s := strings.TrimSpace(os.Getenv("CX_PLATFORM_TAKE_PCT")); s != "" {
+	if s := strings.TrimSpace(os.Getenv("MERC_PLATFORM_TAKE_PCT")); s != "" {
 		if v, err := strconv.ParseFloat(s, 64); err == nil {
 			pct = v
 		}
@@ -123,8 +128,24 @@ type PayoutResult struct {
 	CashMoved bool
 }
 
+// ReversalResult is the durable provider evidence for a completed recovery.
+type ReversalResult struct {
+	Ref      string // transfer reversal id or refund id
+	Cents    int64
+	Currency string
+	// Instrument is "transfer_reversal" or "charge_refund".
+	Instrument string
+}
+
 type Payout interface {
 	Send(ctx context.Context, supplierID uuid.UUID, cents int64, currency, payoutKey string) (PayoutResult, error)
+}
+
+// PayoutReverser recovers cash that already crossed the provider boundary.
+// Implementations must be idempotent under the same reverseKey.
+type PayoutReverser interface {
+	ReverseTransfer(ctx context.Context, transferRef string, cents int64, currency, reverseKey string) (ReversalResult, error)
+	RefundCharge(ctx context.Context, paymentIntent string, cents int64, currency, reverseKey string) (ReversalResult, error)
 }
 
 var errPayoutUnconfigured = errors.New("payout rail not configured (Stripe Connect/Trolley)  -  Phase 3")
@@ -151,6 +172,14 @@ type stubPayout struct{}
 
 func (stubPayout) Send(_ context.Context, _ uuid.UUID, _ int64, _, _ string) (PayoutResult, error) {
 	return PayoutResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
+}
+
+func (stubPayout) ReverseTransfer(_ context.Context, _ string, _ int64, _, _ string) (ReversalResult, error) {
+	return ReversalResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
+}
+
+func (stubPayout) RefundCharge(_ context.Context, _ string, _ int64, _, _ string) (ReversalResult, error) {
+	return ReversalResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
 }
 
 type StripePayout struct {
@@ -243,6 +272,150 @@ func stripeIdempotencyKey(supplierID uuid.UUID, cents int64, payoutKey string) s
 		key += "-" + payoutKey
 	}
 	return key
+}
+
+func stripeReversalIdempotencyKey(reverseKey string) string {
+	return "cx-rev-" + reverseKey
+}
+
+// ReverseTransfer creates a Stripe Connect transfer reversal. Uses the same
+// outcome-classification discipline as Send: 5xx/timeout/conflict → unknown,
+// 4xx (except already-reversed success paths) → definite failure.
+func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, cents int64, currency, reverseKey string) (ReversalResult, error) {
+	if p.secret == "" {
+		return ReversalResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
+	}
+	transferRef = strings.TrimSpace(transferRef)
+	if transferRef == "" {
+		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("empty transfer ref for reversal"))
+	}
+	if cents <= 0 {
+		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("non-positive reversal amount %d cents", cents))
+	}
+	if currency != "usd" {
+		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("unsupported reversal currency %q", currency))
+	}
+	if strings.TrimSpace(reverseKey) == "" {
+		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("reversal idempotency key is required"))
+	}
+	form := url.Values{}
+	form.Set("amount", strconv.FormatInt(cents, 10))
+	form.Set("metadata[cx_reverse_key]", reverseKey)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.stripe.com/v1/transfers/"+url.PathEscape(transferRef)+"/reversals",
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		return ReversalResult{}, payoutDefinitelyNotSent(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+p.secret)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Idempotency-Key", stripeReversalIdempotencyKey(reverseKey))
+	resp, err := p.http.Do(req)
+	if err != nil {
+		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("stripe transfer reversal request: %w", err))
+	}
+	defer resp.Body.Close()
+	body, readErr := readStripePayoutResponseBody(resp.Body)
+	if readErr != nil {
+		return ReversalResult{}, readErr
+	}
+	if resp.StatusCode/100 != 2 {
+		err := fmt.Errorf("stripe transfer reversal failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		if resp.StatusCode >= http.StatusInternalServerError ||
+			resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusConflict {
+			return ReversalResult{}, payoutOutcomeUnknown(err)
+		}
+		return ReversalResult{}, payoutDefinitelyNotSent(err)
+	}
+	var out struct {
+		ID       string `json:"id"`
+		Amount   int64  `json:"amount"`
+		Currency string `json:"currency"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil || out.ID == "" {
+		return ReversalResult{}, payoutOutcomeUnknown(
+			fmt.Errorf("stripe transfer reversal: unparseable success response: %s", strings.TrimSpace(string(body))))
+	}
+	if out.Amount != cents || out.Currency != currency {
+		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf(
+			"stripe transfer reversal %s amount/currency mismatch: requested=%d usd response=%d %s",
+			out.ID, cents, out.Amount, out.Currency))
+	}
+	return ReversalResult{Ref: out.ID, Cents: out.Amount, Currency: out.Currency, Instrument: "transfer_reversal"}, nil
+}
+
+// RefundCharge creates a Stripe charge refund against a PaymentIntent. Use when
+// recovery must return buyer cash rather than reverse a Connect transfer
+// (for example platform-held funds with no transfer_ref).
+func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, cents int64, currency, reverseKey string) (ReversalResult, error) {
+	if p.secret == "" {
+		return ReversalResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
+	}
+	paymentIntent = strings.TrimSpace(paymentIntent)
+	if paymentIntent == "" {
+		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("empty payment_intent for refund"))
+	}
+	if cents <= 0 {
+		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("non-positive refund amount %d cents", cents))
+	}
+	if currency != "usd" {
+		return ReversalResult{}, payoutDefinitelyNotSent(fmt.Errorf("unsupported refund currency %q", currency))
+	}
+	if strings.TrimSpace(reverseKey) == "" {
+		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("refund idempotency key is required"))
+	}
+	form := url.Values{}
+	form.Set("payment_intent", paymentIntent)
+	form.Set("amount", strconv.FormatInt(cents, 10))
+	form.Set("metadata[cx_reverse_key]", reverseKey)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.stripe.com/v1/refunds", strings.NewReader(form.Encode()))
+	if err != nil {
+		return ReversalResult{}, payoutDefinitelyNotSent(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+p.secret)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Idempotency-Key", stripeReversalIdempotencyKey(reverseKey))
+	resp, err := p.http.Do(req)
+	if err != nil {
+		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("stripe refund request: %w", err))
+	}
+	defer resp.Body.Close()
+	body, readErr := readStripePayoutResponseBody(resp.Body)
+	if readErr != nil {
+		return ReversalResult{}, readErr
+	}
+	if resp.StatusCode/100 != 2 {
+		err := fmt.Errorf("stripe refund failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		if resp.StatusCode >= http.StatusInternalServerError ||
+			resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusConflict {
+			return ReversalResult{}, payoutOutcomeUnknown(err)
+		}
+		return ReversalResult{}, payoutDefinitelyNotSent(err)
+	}
+	var out struct {
+		ID       string `json:"id"`
+		Amount   int64  `json:"amount"`
+		Currency string `json:"currency"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil || out.ID == "" {
+		return ReversalResult{}, payoutOutcomeUnknown(
+			fmt.Errorf("stripe refund: unparseable success response: %s", strings.TrimSpace(string(body))))
+	}
+	if out.Amount != cents || out.Currency != currency {
+		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf(
+			"stripe refund %s amount/currency mismatch: requested=%d usd response=%d %s",
+			out.ID, cents, out.Amount, out.Currency))
+	}
+	return ReversalResult{Ref: out.ID, Cents: out.Amount, Currency: out.Currency, Instrument: "charge_refund"}, nil
+}
+
+func (p *ManualExportPayout) ReverseTransfer(_ context.Context, _ string, _ int64, _, _ string) (ReversalResult, error) {
+	return ReversalResult{}, payoutDefinitelyNotSent(errors.New("manual export transfer cannot be reversed via Stripe"))
+}
+
+func (p *ManualExportPayout) RefundCharge(_ context.Context, _ string, _ int64, _, _ string) (ReversalResult, error) {
+	return ReversalResult{}, payoutDefinitelyNotSent(errors.New("manual export refund is not automated"))
 }
 
 type ManualExportPayout struct {

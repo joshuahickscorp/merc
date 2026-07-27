@@ -87,10 +87,10 @@
     "payments": "SIMULATED PASS only: 4096 deterministic generated event sequences; Stripe test mode remains NOT EXECUTED and live mode PROHIBITED"
   },
   "independent_review": {
-    "artifact": "ops/independent-reviews.json",
+    "artifact": "ops/agent-review-notes.json",
     "domains": 14,
     "required_fields_complete": true,
-    "result": "local controls reviewed and repaired; external/governance outcomes remain NO_GO where no exercise or authority exists"
+    "result": "local controls reviewed by parallel agents and repaired; independence is not claimed; external/governance outcomes remain NO_GO where no exercise or authority exists"
   },
   "remote_evidence": {
     "verified_functional_predecessor_commit": "7502d1d5f87c76953b7d1f626251021101d4532d",

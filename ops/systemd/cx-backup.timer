@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily ComputeExchange offsite backup (24h RPO)
+Documentation=file:docs/RUNBOOKS.md
+
+[Timer]
+# Aim for once per calendar day; RandomizedDelay spreads multi-host load.
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+RandomizedDelaySec=900
+Unit=cx-backup.service
+
+[Install]
+WantedBy=timers.target

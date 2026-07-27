@@ -8,7 +8,7 @@ import (
 )
 
 func TestClientIPResistsXFFSpoofing(t *testing.T) {
-	t.Setenv("CX_TRUSTED_PROXY_CIDRS", "")
+	t.Setenv("MERC_TRUSTED_PROXY_CIDRS", "")
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "198.51.100.20:1234"
 	r.Header.Set("X-Forwarded-For", "203.0.113.9")
@@ -19,7 +19,7 @@ func TestClientIPResistsXFFSpoofing(t *testing.T) {
 	r2 := httptest.NewRequest(http.MethodGet, "/", nil)
 	r2.RemoteAddr = "172.20.0.2:4321"
 	r2.Header.Set("X-Forwarded-For", "6.6.6.6, 203.0.113.9")
-	t.Setenv("CX_TRUSTED_PROXY_CIDRS", "172.16.0.0/12")
+	t.Setenv("MERC_TRUSTED_PROXY_CIDRS", "172.16.0.0/12")
 	if got := clientIP(r2); got != "203.0.113.9" {
 		t.Fatalf("trusted normalized XFF: want 203.0.113.9, got %q", got)
 	}
@@ -40,7 +40,7 @@ func TestClientIPResistsXFFSpoofing(t *testing.T) {
 }
 
 func TestIsRemoteRejectsUntrustedXFFLoopbackClaim(t *testing.T) {
-	_ = os.Unsetenv("CX_TRUSTED_PROXY_CIDRS")
+	_ = os.Unsetenv("MERC_TRUSTED_PROXY_CIDRS")
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "203.0.113.9:1234"
 	r.Header.Set("X-Forwarded-For", "127.0.0.1")

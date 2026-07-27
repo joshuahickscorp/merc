@@ -96,5 +96,5 @@ func TestStripeCredentialClassificationDoesNotExposeValues(t *testing.T) {
 	if !isLiveStripeCredential("rk_live_example") || !isLiveStripeCredential("pk_live_example") {
 		t.Fatal("live restricted/publishable classes were not refused")
 	}
-	_ = os.Unsetenv("CX_PAYMENT_PROVIDER")
+	_ = os.Unsetenv("MERC_PAYMENT_PROVIDER")
 }

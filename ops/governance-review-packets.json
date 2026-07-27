@@ -4,7 +4,7 @@
   "scope": "supervised_stripe_test_mode_private_canary",
   "candidate_binding": {
     "kind": "exact_git_commit_at_review",
-    "required_environment": "CX_APPROVAL_CANDIDATE_COMMIT",
+    "required_environment": "MERC_APPROVAL_CANDIDATE_COMMIT",
     "format": "40 lowercase hexadecimal characters",
     "verification_command": "git rev-parse HEAD",
     "rule": "Every reviewer must record the same exact clean commit. Any reviewed-content change invalidates every signature."
@@ -17,7 +17,7 @@
       "status": "PENDING",
       "qualified_reviewer_required": true,
       "review_scope": ["authentication and authorization", "tenant isolation and artifact access", "privileged action attribution", "secret handling", "incident containment"],
-      "required_evidence": ["evidence/autonomous/technical-exercises.json", "ops/authorization-matrix.json", "evidence/autonomous/local-production-tls.json", "ops/independent-reviews.json"],
+      "required_evidence": ["evidence/autonomous/technical-exercises.json", "ops/authorization-matrix.json", "evidence/autonomous/local-production-tls.json", "ops/agent-review-notes.json"],
       "decision_required": "approve or reject the exact candidate for the supervised private canary"
     },
     {
@@ -65,7 +65,7 @@
       "status": "PENDING",
       "qualified_reviewer_required": true,
       "review_scope": ["operator-controlled devices", "worker enrollment and revocation", "egress and data handling", "verification and payout holds", "prohibited supplier expansion"],
-      "required_evidence": ["docs/CANARY_TERMS.md", "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md", "evidence/autonomous/hardware-characterization.json", "ops/independent-reviews.json"],
+      "required_evidence": ["docs/CANARY_TERMS.md", "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md", "evidence/autonomous/hardware-characterization.json", "ops/agent-review-notes.json"],
       "decision_required": "approve or reject only the operator-controlled supplier cohort"
     },
     {

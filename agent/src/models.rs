@@ -16,12 +16,34 @@ static DEVICE: OnceLock<Device> = OnceLock::new();
 pub fn device() -> &'static Device {
     DEVICE.get_or_init(|| {
         #[cfg(feature = "metal")]
-        match Device::new_metal(0) {
-            Ok(device) => {
-                tracing::info!("compute device: Metal");
-                return device;
+        {
+            // Candle's Metal init can panic (not just Err) when another process
+            // already owns the GPU — e.g. llama-server during dual-backend bench.
+            // Catch that so we fall back to CPU instead of taking down the agent.
+            if std::env::var("MERC_FORCE_CPU")
+                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(false)
+            {
+                tracing::info!("compute device: CPU (MERC_FORCE_CPU)");
+                return Device::Cpu;
             }
-            Err(error) => tracing::warn!(%error, "Metal unavailable; using CPU"),
+            // Suppress the default panic printer: candle panics (does not Err)
+            // when Metal is already owned by another process.
+            let prev_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(|_| {}));
+            let metal =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Device::new_metal(0)));
+            std::panic::set_hook(prev_hook);
+            match metal {
+                Ok(Ok(device)) => {
+                    tracing::info!("compute device: Metal");
+                    return device;
+                }
+                Ok(Err(error)) => tracing::warn!(%error, "Metal unavailable; using CPU"),
+                Err(_) => tracing::warn!(
+                    "Metal device init panicked (GPU likely held by another process); using CPU"
+                ),
+            }
         }
         #[cfg(not(feature = "metal"))]
         tracing::info!("compute device: CPU");
@@ -113,7 +135,7 @@ pub fn llama_gguf_spec(_model_ref: &str) -> ModelSpec {
 
 fn api() -> Result<Api> {
     let mut builder = ApiBuilder::new();
-    if let Ok(dir) = std::env::var("CX_MODEL_CACHE") {
+    if let Ok(dir) = std::env::var("MERC_MODEL_CACHE") {
         if !dir.is_empty() {
             builder = builder.with_cache_dir(PathBuf::from(dir));
         }

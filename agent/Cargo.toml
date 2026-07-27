@@ -2,8 +2,8 @@
 name = "cx-agent"
 version = "0.1.0"
 edition = "2021"
-description = "Compute Exchange Apple Silicon supplier agent"
-license = "MIT"
+description = "merc Apple Silicon supplier agent"
+license = "Apache-2.0"
 
 [[bin]]
 name = "cx-agent"
@@ -28,7 +28,7 @@ sha2 = "0.10"
 sysinfo = "0.31"
 thiserror = "1.0"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
-tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "signal", "sync", "fs"] }
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "signal", "sync", "fs", "process"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

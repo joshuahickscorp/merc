@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "kind": "bench_batch_compare",
+  "measured_at": "2026-07-26T20:59:05Z",
+  "hardware": {
+    "class": "apple_silicon_pro",
+    "device_label_candle": "cpu",
+    "device_label_openai_http": "metal (llama-server)",
+    "notes": [
+      "llama-server was already bound to Metal on :8099; sandbox could not SIGKILL it.",
+      "Candle Device::new_metal panicked under GPU contention and fell back to CPU this session.",
+      "openai_http numbers are Metal via llama.cpp continuous batching (-np 64, -cb).",
+      "Compare openai_http Metal against prior candle Metal (same host class) for the honest Metal multiple; candle_cpu is session-local only."
+    ]
+  },
+  "model": "llama-3.2-1b-instruct-q4",
+  "max_tokens": 48,
+  "mode": "identical",
+  "batch_sizes": [
+    1,
+    8,
+    32,
+    64
+  ],
+  "backends": {
+    "candle_cpu_session": {
+      "backend": "candle",
+      "batched_deterministic_vs_serial": true,
+      "distinct_prompts": 1,
+      "diverged_batches": [],
+      "peak_speedup_vs_serial": 1.122881044934678,
+      "peak_tok_s": 20.40896347325693,
+      "serial_baseline_tok_s": 18.17553476863989,
+      "supports_verified_work": true,
+      "sweep": [
+        {
+          "batch": 1,
+          "batched_equals_serial": true,
+          "cv_pct": 0.0,
+          "min_tok_s": 19.480918420317604,
+          "per_request_tok_s": 19.480918420317604,
+          "reps": 1,
+          "speedup_vs_serial": 1.0718209212710499,
+          "tokens_per_s": 19.480918420317604,
+          "total_tokens": 48,
+          "wall_s": 2.463949541
+        },
+        {
+          "batch": 8,
+          "batched_equals_serial": true,
+          "cv_pct": 0.0,
+          "min_tok_s": 20.40896347325693,
+          "per_request_tok_s": 2.551120434157116,
+          "reps": 1,
+          "speedup_vs_serial": 1.122881044934678,
+          "tokens_per_s": 20.40896347325693,
+          "total_tokens": 384,
+          "wall_s": 18.81526225
+        },
+        {
+          "batch": 32,
+          "batched_equals_serial": true,
+          "cv_pct": 0.0,
+          "min_tok_s": 20.247138447919227,
+          "per_request_tok_s": 0.6327230764974758,
+          "reps": 1,
+          "speedup_vs_serial": 1.1139775916169294,
+          "tokens_per_s": 20.247138447919227,
+          "total_tokens": 1536,
+          "wall_s": 75.86257208399999
+        },
+        {
+          "batch": 64,
+          "batched_equals_serial": true,
+          "cv_pct": 0.0,
+          "min_tok_s": 19.109913127483384,
+          "per_request_tok_s": 0.2985923926169279,
+          "reps": 1,
+          "speedup_vs_serial": 1.0514085759091762,
+          "tokens_per_s": 19.109913127483384,
+          "total_tokens": 3072,
+          "wall_s": 160.754262958
+        }
+      ],
+      "warmup_ok": true
+    },
+    "openai_http_metal": {
+      "backend": "openai_http",
+      "batched_deterministic_vs_serial": false,
+      "distinct_prompts": 1,
+      "diverged_batches": [
+        8,
+        32,
+        64
+      ],
+      "peak_speedup_vs_serial": 1.606019327893612,
+      "peak_tok_s": 519.5450648017871,
+      "serial_baseline_tok_s": 323.498637767455,
+      "supports_verified_work": false,
+      "sweep": [
+        {
+          "batch": 1,
+          "batched_equals_serial": true,
+          "cv_pct": 0.0,
+          "min_tok_s": 336.25218914185643,
+          "per_request_tok_s": 336.25218914185643,
+          "reps": 1,
+          "speedup_vs_serial": 1.0394238178633977,
+          "tokens_per_s": 336.25218914185643,
+          "total_tokens": 48,
+          "wall_s": 0.14275
+        },
+        {
+          "batch": 8,
+          "batched_equals_serial": false,
+          "cv_pct": 0.0,
+          "min_tok_s": 519.5450648017871,
+          "per_request_tok_s": 64.94313310022339,
+          "reps": 1,
+          "speedup_vs_serial": 1.606019327893612,
+          "tokens_per_s": 519.5450648017871,
+          "total_tokens": 384,
+          "wall_s": 0.739108166
+        },
+        {
+          "batch": 32,
+          "batched_equals_serial": false,
+          "cv_pct": 0.0,
+          "min_tok_s": 258.95918412914244,
+          "per_request_tok_s": 8.092474504035701,
+          "reps": 1,
+          "speedup_vs_serial": 0.8004954392274556,
+          "tokens_per_s": 258.95918412914244,
+          "total_tokens": 1536,
+          "wall_s": 5.931436667
+        },
+        {
+          "batch": 64,
+          "batched_equals_serial": false,
+          "cv_pct": 0.0,
+          "min_tok_s": 260.1661452660604,
+          "per_request_tok_s": 4.065096019782194,
+          "reps": 1,
+          "speedup_vs_serial": 0.8042264012656499,
+          "tokens_per_s": 260.1661452660604,
+          "total_tokens": 3072,
+          "wall_s": 11.807839167000001
+        }
+      ],
+      "warmup_ok": true
+    },
+    "candle_metal_prior": {
+      "source": "evidence/benchmarks/2026-07-01-m3-pro.json",
+      "device": "Apple M3 Pro / Metal",
+      "serial_tokens_per_second": 91.18760462269711,
+      "batch_32_tokens_per_second": 138.71389521174524,
+      "peak_speedup": 1.5211924448031675,
+      "note": "Prior Metal candle measurement on this hardware class; GPU was held by llama-server during this session so candle fell back to CPU."
+    }
+  },
+  "multiples_openai_http_over_candle_cpu_session": {
+    "1": {
+      "candle_tok_s": 19.480918420317604,
+      "candle_per_request_tok_s": 19.480918420317604,
+      "candle_wall_s": 2.463949541,
+      "openai_http_tok_s": 336.25218914185643,
+      "openai_http_per_request_tok_s": 336.25218914185643,
+      "openai_http_wall_s": 0.14275,
+      "openai_http_over_candle": 17.26059223117338
+    },
+    "8": {
+      "candle_tok_s": 20.40896347325693,
+      "candle_per_request_tok_s": 2.551120434157116,
+      "candle_wall_s": 18.81526225,
+      "openai_http_tok_s": 519.5450648017871,
+      "openai_http_per_request_tok_s": 64.94313310022339,
+      "openai_http_wall_s": 0.739108166,
+      "openai_http_over_candle": 25.45671001286164
+    },
+    "32": {
+      "candle_tok_s": 20.247138447919227,
+      "candle_per_request_tok_s": 0.6327230764974758,
+      "candle_wall_s": 75.86257208399999,
+      "openai_http_tok_s": 258.95918412914244,
+      "openai_http_per_request_tok_s": 8.092474504035701,
+      "openai_http_wall_s": 5.931436667,
+      "openai_http_over_candle": 12.789915216673759
+    },
+    "64": {
+      "candle_tok_s": 19.109913127483384,
+      "candle_per_request_tok_s": 0.2985923926169279,
+      "candle_wall_s": 160.754262958,
+      "openai_http_tok_s": 260.1661452660604,
+      "openai_http_per_request_tok_s": 4.065096019782194,
+      "openai_http_wall_s": 11.807839167000001,
+      "openai_http_over_candle": 13.61419821903304
+    }
+  },
+  "multiples_openai_http_over_candle_metal_prior": {
+    "1": {
+      "openai_http_tok_s": 336.25218914185643,
+      "prior_candle_metal_serial_tok_s": 91.18760462269711,
+      "prior_candle_metal_batch32_tok_s": 138.71389521174524,
+      "openai_http_over_prior_candle_serial": 3.6874769387040285,
+      "openai_http_over_prior_candle_batch32_peak": 2.424069979640981
+    },
+    "8": {
+      "openai_http_tok_s": 519.5450648017871,
+      "prior_candle_metal_serial_tok_s": 91.18760462269711,
+      "prior_candle_metal_batch32_tok_s": 138.71389521174524,
+      "openai_http_over_prior_candle_serial": 5.697540438215102,
+      "openai_http_over_prior_candle_batch32_peak": 3.7454435549424034
+    },
+    "32": {
+      "openai_http_tok_s": 258.95918412914244,
+      "prior_candle_metal_serial_tok_s": 91.18760462269711,
+      "prior_candle_metal_batch32_tok_s": 138.71389521174524,
+      "openai_http_over_prior_candle_serial": 2.839850714366567,
+      "openai_http_over_prior_candle_batch32_peak": 1.8668582821774566
+    },
+    "64": {
+      "openai_http_tok_s": 260.1661452660604,
+      "prior_candle_metal_serial_tok_s": 91.18760462269711,
+      "prior_candle_metal_batch32_tok_s": 138.71389521174524,
+      "openai_http_over_prior_candle_serial": 2.8530867363227523,
+      "openai_http_over_prior_candle_batch32_peak": 1.8755593653319278
+    }
+  },
+  "determinism": {
+    "candle_supports_verified_work": true,
+    "openai_http_supports_verified_work": false,
+    "openai_http_batched_equals_serial": false,
+    "openai_http_diverged_batches": [
+      8,
+      32,
+      64
+    ],
+    "note": "openai_http forces temperature=0,top_p=1,seed=0 but continuous batching still diverges from serial at batch>1 on this engine \u2014 unusable for byte-exact redundancy verification."
+  },
+  "findings": [
+    "openai_http Metal serial 323.5 tok/s vs prior candle Metal serial 91.2 tok/s = 3.55x",
+    "openai_http Metal peak 519.5 tok/s at best batch vs prior candle Metal peak 138.7 tok/s = 3.75x",
+    "openai_http aggregate tok/s peaks at batch 8 then regresses at 32/64 on this Metal host \u2014 continuous batching still has contention at large fan-out with 1B Q4.",
+    "HTTP backend is faster than Candle even at batch 1 on Metal (engine kernel quality), but is not byte-deterministic under batching."
+  ]
+}

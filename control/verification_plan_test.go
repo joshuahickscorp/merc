@@ -177,6 +177,119 @@ func TestVerifyTaskResultStillWritesThrough(t *testing.T) {
 	}
 }
 
+// Honeypot known-answer checks must not be gated by verification sampling.
+// Sampling only applies to expensive redundancy/tiebreak paths.
+func TestHoneypotAlwaysCheckedWhenSampleDecisionFalse(t *testing.T) {
+	taskID := uuid.New()
+	supplierID := uuid.New()
+	store := &verificationStoreDouble{
+		honeypotAnswer:      []byte("known answer"),
+		honeypotAnswerClass: "engine-a|build-a",
+	}
+	v := (&Verifier{store: store}).WithSamplingSecret([]byte("honeypot-always-secret"))
+	sampled := false
+	info := &CommitTaskInfo{
+		TaskID:                   taskID,
+		JobID:                    uuid.New(),
+		SupplierID:               supplierID,
+		IsHoneypot:               true,
+		InputRef:                 "inputs/probe",
+		Attempt:                  1,
+		jobType:                  "batch_infer",
+		engine:                   "engine-a",
+		buildHash:                "build-a",
+		verificationCheckSampled: &sampled,
+	}
+
+	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("wrong answer"), nil)
+	if err != nil {
+		t.Fatalf("PlanTaskResult: %v", err)
+	}
+	if decision.Outcome != OutcomeFail {
+		t.Fatalf("outcome = %q, want %q (honeypot must run even when sample is false)", decision.Outcome, OutcomeFail)
+	}
+
+	wantKinds := []VerificationEffectKind{
+		VerificationEffectDockReputation,
+		VerificationEffectRecordEvent,
+		VerificationEffectClawbackCredit,
+		VerificationEffectQuarantine,
+		VerificationEffectRequeue,
+	}
+	if len(decision.Effects) != len(wantKinds) {
+		t.Fatalf("effects = %#v, want %d effects covering dock/clawback/quarantine", decision.Effects, len(wantKinds))
+	}
+	for i, kind := range wantKinds {
+		if decision.Effects[i].Kind != kind {
+			t.Fatalf("effect %d = %q, want %q", i, decision.Effects[i].Kind, kind)
+		}
+	}
+	if decision.Effects[0].ReputationEvent != EventHoneypotFail {
+		t.Fatalf("reputation event = %q, want %q", decision.Effects[0].ReputationEvent, EventHoneypotFail)
+	}
+	if decision.Effects[1].EventKind != "honeypot_fail" {
+		t.Fatalf("event kind = %q, want honeypot_fail", decision.Effects[1].EventKind)
+	}
+	if store.mutationCalls != 0 {
+		t.Fatalf("planner delegated %d mutations to the store", store.mutationCalls)
+	}
+}
+
+// Worker-declared engine/build_hash must not disarm a byte-exact honeypot.
+// Class mismatch fails closed rather than skipping the known-answer compare.
+func TestHoneypotClassMismatchFailsClosed(t *testing.T) {
+	taskID := uuid.New()
+	supplierID := uuid.New()
+	store := &verificationStoreDouble{
+		honeypotAnswer:      []byte("known answer"),
+		honeypotAnswerClass: "candle|abc",
+	}
+	v := (&Verifier{store: store}).WithSamplingSecret([]byte("class-mismatch-secret"))
+	info := &CommitTaskInfo{
+		TaskID:     taskID,
+		JobID:      uuid.New(),
+		SupplierID: supplierID,
+		IsHoneypot: true,
+		InputRef:   "inputs/probe",
+		Attempt:    2,
+		jobType:    "batch_infer",
+		engine:     "candle",
+		buildHash:  "nope",
+	}
+
+	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("known answer"), nil)
+	if err != nil {
+		t.Fatalf("PlanTaskResult: %v", err)
+	}
+	if decision.Outcome != OutcomeFail {
+		t.Fatalf("outcome = %q, want %q (class mismatch must fail closed, not pass)", decision.Outcome, OutcomeFail)
+	}
+	// OutcomeFail with honeypot sanctions — never the success path that later
+	// writes supplier_credit.
+	if len(decision.Effects) == 0 {
+		t.Fatal("expected fail effects; got none")
+	}
+	for _, effect := range decision.Effects {
+		if effect.ReputationEvent == EventTaskSuccess || effect.ReputationEvent == EventHoneypotPass {
+			t.Fatalf("success-path reputation event on class mismatch: %#v", effect)
+		}
+		if effect.EventKind == "honeypot_pass" || effect.EventKind == "supplier_credit" {
+			t.Fatalf("must not record pass/credit on class mismatch: %#v", effect)
+		}
+	}
+	if decision.Effects[0].ReputationEvent != EventHoneypotFail {
+		t.Fatalf("dock event = %q, want %q", decision.Effects[0].ReputationEvent, EventHoneypotFail)
+	}
+	if decision.Effects[1].EventKind != "honeypot_class_mismatch" {
+		t.Fatalf("event kind = %q, want honeypot_class_mismatch", decision.Effects[1].EventKind)
+	}
+	// Wrong answer with matching class still fails as honeypot_fail; matching
+	// class + matching bytes would pass. Class mismatch fails even with correct bytes.
+	if store.mutationCalls != 0 {
+		t.Fatalf("planner delegated %d mutations to the store", store.mutationCalls)
+	}
+}
+
 type verificationStoreDouble struct {
 	honeypotAnswer      []byte
 	honeypotAnswerClass string
@@ -238,4 +351,42 @@ func (s *verificationStoreDouble) RequeueTask(context.Context, uuid.UUID) error 
 func (s *verificationStoreDouble) InsertTiebreakTask(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string, int) (uuid.UUID, error) {
 	s.mutationCalls++
 	return uuid.New(), nil
+}
+
+// A task dispatched as a honeypot whose known answer is not stored must not
+// pay.  Before the floor was made to fail closed at submit time, an unseeded
+// deployment -- which is every production deployment, since InsertHoneypot has
+// no production caller and `seed` is refused outside development -- silently
+// fell through to OutcomePass, so the one check that distinguishes correct work
+// from shape-valid garbage never ran.  The supplier is not at fault here, so
+// this path must not dock reputation or quarantine.
+func TestHoneypotWithoutStoredAnswerFailsClosedWithoutSanctioningSupplier(t *testing.T) {
+	taskID := uuid.New()
+	store := &verificationStoreDouble{} // no honeypotAnswer seeded
+	v := (&Verifier{store: store}).WithSamplingSecret([]byte("honeypot-missing-secret"))
+	info := &CommitTaskInfo{
+		TaskID:     taskID,
+		JobID:      uuid.New(),
+		SupplierID: uuid.New(),
+		IsHoneypot: true,
+		InputRef:   "inputs/probe-with-no-answer",
+		Attempt:    1,
+		jobType:    "batch_infer",
+		engine:     "engine-a",
+		buildHash:  "build-a",
+	}
+
+	decision, err := v.PlanTaskResult(context.Background(), info, TaskCommit{TaskID: taskID}, []byte("anything"), nil)
+	if err != nil {
+		t.Fatalf("PlanTaskResult: %v", err)
+	}
+	if decision.Outcome != OutcomeFail {
+		t.Fatalf("outcome = %q, want %q (an unbacked probe must not pass)", decision.Outcome, OutcomeFail)
+	}
+	if len(decision.Effects) != 1 || decision.Effects[0].Kind != VerificationEffectRecordEvent {
+		t.Fatalf("effects = %#v, want exactly one record-event effect", decision.Effects)
+	}
+	if got := decision.Effects[0].EventKind; got != "honeypot_answer_missing" {
+		t.Fatalf("event = %q, want honeypot_answer_missing", got)
+	}
 }

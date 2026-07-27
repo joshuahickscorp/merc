@@ -17,7 +17,8 @@ const (
 	economicOutputSourceMergedArtifact = "merged_artifact_exact_bytes_and_records"
 )
 
-func roundEconomicUSD(v float64) float64 { return math.Round(v*1_000_000) / 1_000_000 }
+// roundEconomicUSD is an alias for the single micro-USD rounding helper.
+func roundEconomicUSD(v float64) float64 { return roundUSD(v) }
 
 type batchFeeWeight struct {
 	JobID        uuid.UUID

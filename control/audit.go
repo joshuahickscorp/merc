@@ -27,6 +27,7 @@ type fileRecord struct {
 	Binary    bool   `json:"-"`
 	Generated bool   `json:"-"`
 	Vendored  bool   `json:"-"`
+	Untracked bool   `json:"-"` // present in the working tree but not in the git index
 }
 
 type sumLOC struct {
@@ -93,8 +94,9 @@ func cmdAudit(args []string) {
 	}
 	records := scanTracked(root)
 	totals := auditTotals(records)
-	fmt.Printf("cx audit codebase: GLOBAL_OWNED_LOC=%d files=%d bytes=%d\n",
-		totals.GlobalOwnedLOC, len(records), sumBytes(records))
+	tracked := countTracked(records)
+	fmt.Printf("cx audit codebase: GLOBAL_OWNED_LOC=%d tracked=%d untracked=%d bytes=%d\n",
+		totals.GlobalOwnedLOC, tracked, len(records)-tracked, sumBytes(records))
 	fmt.Printf("ledger: %s\nsummary: %s\n",
 		filepath.Join(out, "CODEBASE_CENSUS.json"), filepath.Join(out, "CODEBASE_CENSUS.md"))
 }
@@ -107,10 +109,8 @@ func repoRoot() string {
 	return strings.TrimSpace(string(o))
 }
 
-func gitTracked(root string) []string {
-	// Include non-ignored new files so a readiness proof cannot omit newly
-	// created source merely because the operator has not staged it yet.
-	cmd := exec.Command("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+func gitLsFiles(root string, args ...string) []string {
+	cmd := exec.Command("git", append([]string{"ls-files", "-z"}, args...)...)
 	cmd.Dir = root
 	o, err := cmd.Output()
 	if err != nil {
@@ -125,9 +125,28 @@ func gitTracked(root string) []string {
 	return files
 }
 
+// gitTracked returns every first-party file the census walks, and the subset of
+// those paths that git does NOT have in its index.
+//
+// Untracked-but-not-ignored files are still walked, so a readiness proof cannot
+// omit newly created source merely because the operator has not staged it yet.
+// They are reported separately: a file that is not in the index was in no CI
+// run and can back no gate, so counting it as "tracked" is how uncommitted code
+// comes to appear in a release ledger as gate-passing.
+func gitTracked(root string) (all []string, untracked map[string]struct{}) {
+	cached := gitLsFiles(root, "--cached")
+	others := gitLsFiles(root, "--others", "--exclude-standard")
+	untracked = make(map[string]struct{}, len(others))
+	for _, p := range others {
+		untracked[p] = struct{}{}
+	}
+	return append(cached, others...), untracked
+}
+
 func scanTracked(root string) []fileRecord {
 	var records []fileRecord
-	for _, rel := range gitTracked(root) {
+	paths, untracked := gitTracked(root)
+	for _, rel := range paths {
 		abs := filepath.Join(root, rel)
 		info, err := os.Stat(abs)
 		if err != nil || !info.Mode().IsRegular() {
@@ -138,6 +157,7 @@ func scanTracked(root string) []fileRecord {
 			continue
 		}
 		r := fileRecord{Path: rel, Language: languageOf(rel), Subsystem: subsystemOf(rel), Bytes: info.Size()}
+		_, r.Untracked = untracked[rel]
 		r.Vendored = strings.Contains(rel, "/vendor/") || strings.HasPrefix(rel, "vendor/")
 		r.Binary = looksBinary(rel, data)
 		r.Generated = isGenerated(rel, data)
@@ -420,6 +440,16 @@ func sumBytes(records []fileRecord) int64 {
 	return n
 }
 
+func countTracked(records []fileRecord) int {
+	n := 0
+	for _, r := range records {
+		if !r.Untracked {
+			n++
+		}
+	}
+	return n
+}
+
 func writeAudit(root, dir string, records []fileRecord) {
 	files := map[string]int{}
 	for _, r := range records {
@@ -430,8 +460,10 @@ func writeAudit(root, dir string, records []fileRecord) {
 	ledger := map[string]any{
 		"schema_version":     1,
 		"authority_sha256":   sourceIdentity(root, records),
-		"scope":              "tracked maintained first-party text; compiled binaries and upstream vendor excluded",
-		"tracked_files":      len(records),
+		"scope":              "maintained first-party text; compiled binaries and upstream vendor excluded",
+		"tracked_files":      countTracked(records),
+		"untracked_files":    len(records) - countTracked(records),
+		"walked_files":       len(records),
 		"tracked_bytes":      sumBytes(records),
 		"ownership":          auditTotals(records),
 		"owned_by_language":  rollup(records, func(r fileRecord) string { return r.Language }),
@@ -456,7 +488,12 @@ func writeAudit(root, dir string, records []fileRecord) {
 	byLang := rollup(records, func(r fileRecord) string { return r.Language })
 	bySub := rollup(records, func(r fileRecord) string { return r.Subsystem })
 	var md strings.Builder
-	fmt.Fprintf(&md, "# Codebase census\n\nGLOBAL_OWNED_LOC: **%d** across %d tracked files (%.2f MB).\n\n", totals.GlobalOwnedLOC, len(records), float64(sumBytes(records))/1e6)
+	tracked := countTracked(records)
+	fmt.Fprintf(&md, "# Codebase census\n\nGLOBAL_OWNED_LOC: **%d** across %d tracked files (%.2f MB).\n\n", totals.GlobalOwnedLOC, tracked, float64(sumBytes(records))/1e6)
+	if untracked := len(records) - tracked; untracked > 0 {
+		fmt.Fprintf(&md, "> %d additional file(s) are present in the working tree but **not in the git index**. "+
+			"They were in no CI run and can back no release gate.\n\n", untracked)
+	}
 	fmt.Fprintf(&md, "Non-design production core: %d LOC · tests: %d LOC · documentation: %d LOC · Python: %d LOC · generated: %d LOC · vendored upstream: %d LOC.\n\n", totals.NonDesignProductionCoreLOC, totals.TestLOC, totals.DocumentationLOC, totals.PythonLOC, totals.GeneratedLOC, totals.VendoredLOC)
 	md.WriteString("## Owned LOC by language\n\n| language | files | loc |\n|---|--:|--:|\n")
 	for _, k := range sortedKeys(byLang) {

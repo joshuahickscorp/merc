@@ -1,0 +1,6 @@
+go test fuzz v1
+int64(6)
+int64(31)
+int64(114)
+int64(10)
+float64(6e-06)

@@ -21,16 +21,16 @@ host_deploy() {
   gc_validate_host_config
   case "$activation" in
     candidate)
-      active_image="$CX_CANDIDATE_CONTROL_IMAGE"
-      expected_commit="$CX_CANDIDATE_COMMIT"
+      active_image="$MERC_CANDIDATE_CONTROL_IMAGE"
+      expected_commit="$MERC_CANDIDATE_COMMIT"
       ;;
     prior)
-      active_image="$CX_PRIOR_CONTROL_IMAGE"
-      expected_commit="$CX_PRIOR_COMMIT"
+      active_image="$MERC_PRIOR_CONTROL_IMAGE"
+      expected_commit="$MERC_PRIOR_COMMIT"
       ;;
     *) gc_die "activation must be candidate or prior" ;;
   esac
-  export CX_ACTIVE_CONTROL_IMAGE="$active_image"
+  export MERC_ACTIVE_CONTROL_IMAGE="$active_image"
   gc_validate_compose_images
   if [ "$operation" = check ]; then
     gc_log "target configuration is valid for $activation (no changes made)"
