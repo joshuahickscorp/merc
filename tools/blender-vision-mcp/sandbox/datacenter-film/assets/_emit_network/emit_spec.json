@@ -1,0 +1,3825 @@
+{
+  "blend_name": "scene.blend",
+  "glb_name": "scene.glb",
+  "output_dir": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/sandbox/datacenter-film/assets/_emit_network",
+  "placements": [
+    {
+      "instance_id": "tray_main",
+      "location": [
+        0.0,
+        6.0,
+        2.7
+      ],
+      "prototype_id": "proto_0004_cable_tray",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "overhead",
+        "tray"
+      ]
+    },
+    {
+      "instance_id": "bundle_main",
+      "location": [
+        0.05,
+        6.0,
+        2.65
+      ],
+      "prototype_id": "proto_0005_cable_bundle",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "overhead",
+        "cable"
+      ]
+    },
+    {
+      "instance_id": "tray_second",
+      "location": [
+        4.0,
+        13.2,
+        2.7
+      ],
+      "prototype_id": "proto_0010_cable_tray",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        1.5707963267948966
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "overhead",
+        "tray"
+      ]
+    }
+  ],
+  "prototypes": [
+    {
+      "archetype": "cable_tray",
+      "lod": "near",
+      "params": {
+        "height_m": 0.08,
+        "length_m": 12.0,
+        "width_m": 0.3
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.015,
+              12.0,
+              0.08
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "tray",
+          "name": "rail_left",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              -0.1425,
+              0.0,
+              0.04
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.015,
+              12.0,
+              0.08
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "tray",
+          "name": "rail_right",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.1425,
+              0.0,
+              0.04
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_00",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -5.9925,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_01",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -5.692875,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_02",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -5.39325,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_03",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -5.093624999999999,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_04",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -4.794,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_05",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -4.494375,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_06",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -4.19475,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_07",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -3.8951249999999997,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_08",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -3.5955,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_09",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -3.295875,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_10",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -2.99625,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_11",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -2.696625,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_12",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -2.3970000000000002,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_13",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -2.097375,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_14",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -1.7977499999999997,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_15",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -1.498125,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_16",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -1.1985000000000001,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_17",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -0.8988750000000003,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_18",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -0.5992500000000005,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_19",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -0.2996249999999998,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_20",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_21",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.2996249999999998,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_22",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.5992499999999996,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_23",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.8988749999999994,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_24",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              1.1984999999999992,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_25",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              1.498125,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_26",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              1.7977499999999997,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_27",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              2.0973749999999995,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_28",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              2.3970000000000002,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_29",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              2.696624999999999,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_30",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              2.99625,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_31",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              3.2958749999999988,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_32",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              3.5954999999999995,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_33",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              3.895125,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_34",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              4.194749999999999,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_35",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              4.494375,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_36",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              4.793999999999999,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_37",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              5.093624999999999,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_38",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              5.39325,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_39",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              5.692874999999999,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_40",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              5.9925,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0004_cable_tray"
+    },
+    {
+      "archetype": "cable_bundle",
+      "lod": "near",
+      "params": {
+        "diameter_m": 0.06,
+        "length_m": 10.8,
+        "strand_count": 12
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 12,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {
+              "strand_count": 12
+            },
+            "kind": "bundle",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.06,
+              0.06,
+              10.8
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "cable",
+          "name": "bundle_core",
+          "role": "cable",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_euler": [
+              1.5707963267948966,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "cylinder",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 16,
+            "size": [
+              0.06,
+              0.06,
+              10.8
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "cable",
+          "name": "sheath",
+          "role": "cable",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_euler": [
+              1.5707963267948966,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0005_cable_bundle"
+    },
+    {
+      "archetype": "cable_tray",
+      "lod": "near",
+      "params": {
+        "height_m": 0.08,
+        "length_m": 8.0,
+        "width_m": 0.3
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.015,
+              8.0,
+              0.08
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "tray",
+          "name": "rail_left",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              -0.1425,
+              0.0,
+              0.04
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.015,
+              8.0,
+              0.08
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "tray",
+          "name": "rail_right",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.1425,
+              0.0,
+              0.04
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_00",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -3.9925,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_01",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -3.6853846153846157,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_02",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -3.378269230769231,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_03",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -3.0711538461538463,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_04",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -2.764038461538462,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_05",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -2.456923076923077,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_06",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -2.1498076923076925,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_07",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -1.8426923076923076,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_08",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -1.5355769230769232,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_09",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -1.2284615384615387,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_10",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -0.9213461538461538,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_11",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -0.6142307692307694,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_12",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -0.3071153846153849,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_13",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_14",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.3071153846153849,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_15",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.6142307692307694,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_16",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.9213461538461538,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_17",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              1.2284615384615383,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_18",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              1.5355769230769227,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_19",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              1.842692307692308,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_20",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              2.1498076923076925,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_21",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              2.456923076923077,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_22",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              2.7640384615384614,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_23",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              3.071153846153846,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_24",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              3.3782692307692304,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_25",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              3.6853846153846157,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.27,
+              0.015,
+              0.009
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "tray",
+          "name": "rung_26",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              3.9925,
+              0.0045
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0010_cable_tray"
+    }
+  ],
+  "render_engine": "BLENDER_EEVEE_NEXT",
+  "renders": [],
+  "resolution": [
+    1280,
+    720
+  ]
+}

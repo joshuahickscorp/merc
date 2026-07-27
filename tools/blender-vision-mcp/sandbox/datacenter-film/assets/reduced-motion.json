@@ -1,0 +1,308 @@
+[
+  {
+    "beat": "00",
+    "state": {
+      "scroll": 0.04,
+      "position": [
+        0.0,
+        -6.106734964875,
+        1.601811298434
+      ],
+      "orientation_wxyz": [
+        0.001216261662,
+        -0.999999260354,
+        -0.0,
+        -0.0
+      ],
+      "focal_length_mm": 28.509090909091,
+      "exposure": -0.26,
+      "focus_target": [
+        0.0,
+        1.0,
+        1.45
+      ],
+      "light_state": {
+        "scroll": 0.0,
+        "state": "threshold_dim",
+        "key_intensity": 0.4
+      },
+      "beat_id": "00",
+      "beat_label": "THRESHOLD",
+      "text_zone": "centre",
+      "arc_length_m": 27.331671650043,
+      "distance_along_m": 1.093266866002
+    }
+  },
+  {
+    "beat": "01",
+    "state": {
+      "scroll": 0.13,
+      "position": [
+        0.0,
+        -3.646896493961,
+        1.600379704993
+      ],
+      "orientation_wxyz": [
+        0.004907751841,
+        0.999987956913,
+        0.0,
+        0.0
+      ],
+      "focal_length_mm": 29.654545454545,
+      "exposure": -0.17,
+      "focus_target": [
+        0.0,
+        1.0,
+        1.45
+      ],
+      "light_state": {
+        "scroll": 0.0,
+        "state": "threshold_dim",
+        "key_intensity": 0.4
+      },
+      "beat_id": "01",
+      "beat_label": "CAPACITY",
+      "text_zone": "left_upper",
+      "arc_length_m": 27.331671650043,
+      "distance_along_m": 3.553117314506
+    }
+  },
+  {
+    "beat": "02",
+    "state": {
+      "scroll": 0.24,
+      "position": [
+        0.0,
+        -0.640840266914,
+        1.550685455659
+      ],
+      "orientation_wxyz": [
+        0.008916831932,
+        0.999960244264,
+        0.0,
+        0.0
+      ],
+      "focal_length_mm": 31.054545454545,
+      "exposure": -0.06,
+      "focus_target": [
+        0.0,
+        9.0,
+        1.45
+      ],
+      "light_state": {
+        "scroll": 0.18,
+        "state": "aisle_work",
+        "key_intensity": 0.9
+      },
+      "beat_id": "02",
+      "beat_label": "INFERENCE",
+      "text_zone": "right_upper",
+      "arc_length_m": 27.331671650043,
+      "distance_along_m": 6.55960119601
+    }
+  },
+  {
+    "beat": "03",
+    "state": {
+      "scroll": 0.36,
+      "position": [
+        0.0,
+        2.638516709961,
+        1.498288127162
+      ],
+      "orientation_wxyz": [
+        0.00233993146,
+        0.999997262357,
+        0.0,
+        0.0
+      ],
+      "focal_length_mm": 32.581818181818,
+      "exposure": 0.024,
+      "focus_target": [
+        0.0,
+        9.0,
+        1.45
+      ],
+      "light_state": {
+        "scroll": 0.18,
+        "state": "aisle_work",
+        "key_intensity": 0.9
+      },
+      "beat_id": "03",
+      "beat_label": "DISPATCH",
+      "text_zone": "edge",
+      "arc_length_m": 27.331671650043,
+      "distance_along_m": 9.839401794016
+    }
+  },
+  {
+    "beat": "04",
+    "state": {
+      "scroll": 0.485,
+      "position": [
+        0.0,
+        6.054966282463,
+        1.5
+      ],
+      "orientation_wxyz": [
+        7.7436157e-05,
+        -0.999999997002,
+        -0.0,
+        -0.0
+      ],
+      "focal_length_mm": 34.172727272727,
+      "exposure": 0.074,
+      "focus_target": [
+        0.0,
+        13.2,
+        1.45
+      ],
+      "light_state": {
+        "scroll": 0.18,
+        "state": "aisle_work",
+        "key_intensity": 0.9
+      },
+      "beat_id": "04",
+      "beat_label": "EXECUTION",
+      "text_zone": "centre",
+      "arc_length_m": 27.331671650043,
+      "distance_along_m": 13.255860750271
+    }
+  },
+  {
+    "beat": "05",
+    "state": {
+      "scroll": 0.615,
+      "position": [
+        -3.925379e-06,
+        9.608084164411,
+        1.5
+      ],
+      "orientation_wxyz": [
+        0.0,
+        0.9999391108,
+        0.011035157107,
+        0.0
+      ],
+      "focal_length_mm": 35.722222222222,
+      "exposure": 0.126,
+      "focus_target": [
+        0.0,
+        13.2,
+        1.45
+      ],
+      "light_state": {
+        "scroll": 0.55,
+        "state": "turn_accent",
+        "key_intensity": 0.7
+      },
+      "beat_id": "05",
+      "beat_label": "TURN",
+      "text_zone": "centre",
+      "arc_length_m": 27.331671650043,
+      "distance_along_m": 16.808978064777
+    }
+  },
+  {
+    "beat": "06",
+    "state": {
+      "scroll": 0.74,
+      "position": [
+        0.325546972001,
+        12.964782167094,
+        1.5
+      ],
+      "orientation_wxyz": [
+        -0.0,
+        0.906876543075,
+        -0.421396411494,
+        0.0
+      ],
+      "focal_length_mm": 37.111111111111,
+      "exposure": 0.176,
+      "focus_target": [
+        3.0,
+        13.2,
+        1.45
+      ],
+      "light_state": {
+        "scroll": 0.55,
+        "state": "turn_accent",
+        "key_intensity": 0.7
+      },
+      "beat_id": "06",
+      "beat_label": "VERIFY",
+      "text_zone": "right_upper",
+      "arc_length_m": 27.331671650043,
+      "distance_along_m": 20.225437021032
+    }
+  },
+  {
+    "beat": "07",
+    "state": {
+      "scroll": 0.85,
+      "position": [
+        3.200351230094,
+        13.2,
+        1.500501597499
+      ],
+      "orientation_wxyz": [
+        0.000445460902,
+        -0.707106640872,
+        0.707106640872,
+        -0.000445460902
+      ],
+      "focal_length_mm": 38.333333333333,
+      "exposure": 0.175,
+      "focus_target": [
+        3.0,
+        13.2,
+        1.45
+      ],
+      "light_state": {
+        "scroll": 0.8,
+        "state": "terminal_verify",
+        "key_intensity": 1.0
+      },
+      "beat_id": "07",
+      "beat_label": "RECEIPT",
+      "text_zone": "terminal_wall",
+      "arc_length_m": 27.331671650043,
+      "distance_along_m": 23.231920902537
+    }
+  },
+  {
+    "beat": "08",
+    "state": {
+      "scroll": 0.95,
+      "position": [
+        5.933494439808,
+        13.2,
+        1.49457422371
+      ],
+      "orientation_wxyz": [
+        0.003612981736,
+        0.707097550811,
+        -0.707097550811,
+        -0.003612981736
+      ],
+      "focal_length_mm": 39.444444444444,
+      "exposure": 0.125,
+      "focus_target": [
+        8.5,
+        13.2,
+        1.4
+      ],
+      "light_state": {
+        "scroll": 0.8,
+        "state": "terminal_verify",
+        "key_intensity": 1.0
+      },
+      "beat_id": "08",
+      "beat_label": "ACCESS",
+      "text_zone": "terminal_wall",
+      "arc_length_m": 27.331671650043,
+      "distance_along_m": 25.965088067541
+    }
+  }
+]

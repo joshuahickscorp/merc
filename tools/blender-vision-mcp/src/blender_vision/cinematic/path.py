@@ -310,26 +310,34 @@ def compose_flagship_datacentre_path(
     solids: Sequence[SolidGeometry] | None = None,
 ) -> CameraPathGraph:
     """Nine-beat flagship path: threshold through one continuous left turn to terminal."""
-    # Corridor along +Y, single continuous left turn into +X second aisle.
+    # Waypoints are taken from the procedural flagship scene rather than
+    # invented: threshold sits at y=-1, the main aisle runs along x=0 between
+    # rack rows at x=+/-1.1, the junction is at y=13.2, and the second aisle
+    # runs along +X to the terminal wall at x=8.5. The camera and the
+    # architecture are the same design; a path authored independently of the
+    # scene puts the lens inside a rack row.
     control_points = [
-        [0.0, -18.0, 1.6],  # threshold exterior
-        [0.0, -12.0, 1.6],  # approach
-        [0.0, -6.0, 1.55],  # entry
-        [0.0, 0.0, 1.5],  # main aisle
-        [0.0, 6.0, 1.5],  # activation / mid aisle
-        [0.0, 10.0, 1.5],  # deceleration before turn
-        [-0.5, 13.5, 1.5],  # enter left turn (continuous, not a cut)
-        [-4.0, 15.0, 1.5],  # mid turn
-        [-8.0, 15.0, 1.5],  # second aisle
-        [-14.0, 15.0, 1.45],  # verification terminal
+        [0.0, -7.20, 1.60],   # exterior, facing the threshold
+        [0.0, -3.60, 1.60],   # approach
+        [0.0, -0.60, 1.55],   # entry, passing the threshold frame
+        [0.0, 2.40, 1.50],    # main aisle begins, racks both sides
+        [0.0, 6.00, 1.50],    # dispatch / mid aisle
+        [0.0, 9.60, 1.50],    # execution
+        [0.0, 11.90, 1.50],   # deceleration before the turn
+        [0.55, 13.20, 1.50],  # the turn: one continuous arc, not a cut
+        [2.60, 13.20, 1.50],  # through the containment door
+        [5.20, 13.20, 1.50],  # second aisle
+        [7.30, 13.20, 1.48],  # verification terminal approach
     ]
-    # Rack rows sit beside the aisle; camera stays in the clear volume.
+    # Rack rows sit beside the aisle; the camera stays in the clear volume.
+    # 0.6 m deep rows centred on x = +/-1.1, so the clear aisle is x in
+    # (-0.8, 0.8) and the camera runs down its centre.
     default_solids = solids
     if default_solids is None:
         default_solids = [
-            SolidGeometry("rack_row_left", (-3.2, -10.0, 0.0), (-1.2, 12.0, 2.4)),
-            SolidGeometry("rack_row_right", (1.2, -10.0, 0.0), (3.2, 12.0, 2.4)),
-            SolidGeometry("rack_row_second", (-12.0, 16.2, 0.0), (-4.0, 18.2, 2.4)),
+            SolidGeometry("rack_row_left", (-1.45, 0.9, 0.0), (-0.80, 8.7, 2.0)),
+            SolidGeometry("rack_row_right", (0.80, 0.9, 0.0), (1.45, 8.7, 2.0)),
+            SolidGeometry("terminal_wall", (8.20, 12.4, 0.0), (8.80, 14.0, 2.6)),
         ]
 
     beats = [
@@ -347,11 +355,14 @@ def compose_flagship_datacentre_path(
         for beat_id, label, start, end, zone in FLAGSHIP_BEAT_SPECS
     ]
 
+    # Focus follows the same architecture as the control points: down the aisle
+    # to the junction, then round onto the terminal wall at x=8.5.
     focus_targets = [
-        {"scroll": 0.0, "target": [0.0, -6.0, 1.4], "label": "entry"},
-        {"scroll": 0.42, "target": [0.0, 8.0, 1.4], "label": "aisle_activation"},
-        {"scroll": 0.62, "target": [-6.0, 15.0, 1.4], "label": "turn_apex"},
-        {"scroll": 1.0, "target": [-16.0, 15.0, 1.3], "label": "terminal"},
+        {"scroll": 0.00, "target": [0.0, 1.0, 1.45], "label": "threshold_frame"},
+        {"scroll": 0.30, "target": [0.0, 9.0, 1.45], "label": "aisle_depth"},
+        {"scroll": 0.55, "target": [0.0, 13.2, 1.45], "label": "junction"},
+        {"scroll": 0.70, "target": [3.0, 13.2, 1.45], "label": "turn_apex"},
+        {"scroll": 1.00, "target": [8.5, 13.2, 1.40], "label": "terminal_wall"},
     ]
     light_states = [
         {"scroll": 0.0, "state": "threshold_dim", "key_intensity": 0.4},
@@ -371,8 +382,8 @@ def compose_flagship_datacentre_path(
         solids=default_solids,
         skip_points=[0.55, 0.80],
         reduced_motion_views=[
-            {"beat_id": "00", "position": [0.0, -18.0, 1.6], "label": "threshold_static"},
-            {"beat_id": "08", "position": [-14.0, 15.0, 1.45], "label": "terminal_static"},
+            {"beat_id": "00", "position": [0.0, -7.2, 1.6], "label": "threshold_static"},
+            {"beat_id": "08", "position": [7.3, 13.2, 1.48], "label": "terminal_static"},
         ],
         damping=0.12,
         sample_count=256,
