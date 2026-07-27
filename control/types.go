@@ -125,13 +125,21 @@ type BenchResult struct {
 }
 
 type WorkerCapability struct {
-	WorkerID        uuid.UUID     `json:"worker_id"`
-	SupplierID      uuid.UUID     `json:"supplier_id"`
-	HWClass         string        `json:"hw_class"`
-	Engine          string        `json:"engine,omitempty"`
-	BuildHash       string        `json:"build_hash,omitempty"`
-	MemoryGB        float32       `json:"memory_gb"`
-	MemoryBwGbps    float32       `json:"memory_bw_gbps"`
+	WorkerID     uuid.UUID `json:"worker_id"`
+	SupplierID   uuid.UUID `json:"supplier_id"`
+	HWClass      string    `json:"hw_class"`
+	Engine       string    `json:"engine,omitempty"`
+	BuildHash    string    `json:"build_hash,omitempty"`
+	MemoryGB     float32   `json:"memory_gb"`
+	MemoryBwGbps float32   `json:"memory_bw_gbps"`
+	// Single-host topology. Absent means one GPU: an agent that predates these
+	// fields is a single-GPU host as far as admission is concerned, which is
+	// what it was before the fields existed. A worker claiming more than one
+	// GPU must also declare its interconnect -- see validateHostTopology, which
+	// refuses to guess.
+	GPUCount        int           `json:"gpu_count,omitempty"`
+	MemoryGBPerGPU  float32       `json:"memory_gb_per_gpu,omitempty"`
+	Interconnect    string        `json:"interconnect,omitempty"`
 	SupportedJobs   []string      `json:"supported_jobs"`
 	SupportedModels []string      `json:"supported_models"`
 	MinPayoutUsdHr  float32       `json:"min_payout_usd_hr"`

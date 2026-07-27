@@ -211,3 +211,63 @@ func allDegreesIndivisible(heads, maxDegree int) bool {
 	}
 	return true
 }
+
+// hostTopologyFromRegistration reads what a worker declared.
+//
+// Absent fields mean one GPU. An agent built before these fields existed is a
+// single-GPU host as far as admission is concerned, which is exactly what it
+// was before -- defaulting the other way would silently reinterpret every
+// existing worker as multi-GPU on the day the field shipped.
+//
+// A worker cannot talk its way into more capacity than its class allows: the
+// declared per-GPU memory is capped at the class ceiling, so claiming 900 GB on
+// an 80 GB class is clamped rather than believed.
+func hostTopologyFromRegistration(reg WorkerCapability) (hostTopology, error) {
+	count := reg.GPUCount
+	if count == 0 {
+		count = 1
+	}
+	perGPU := float64(reg.MemoryGBPerGPU)
+	if perGPU == 0 {
+		// A single-GPU host may report only its total, which is the same number.
+		perGPU = float64(reg.MemoryGB)
+	}
+	if ceiling := hwClassMemoryCeilingGB(reg.HWClass); ceiling > 0 && perGPU > ceiling {
+		perGPU = ceiling
+	}
+	topology := hostTopology{
+		HWClass:        reg.HWClass,
+		GPUCount:       count,
+		MemoryGBPerGPU: perGPU,
+		Interconnect:   gpuInterconnect(reg.Interconnect),
+	}
+	if topology.Interconnect != interconnectUnknown &&
+		topology.Interconnect != interconnectNVLink &&
+		topology.Interconnect != interconnectPCIe {
+		return hostTopology{}, fmt.Errorf("%w: interconnect %q is not recognised",
+			errTopologyUndeclared, reg.Interconnect)
+	}
+	if err := validateHostTopology(topology); err != nil {
+		return hostTopology{}, err
+	}
+	return topology, nil
+}
+
+// hwClassMemoryCeilingGB is the most memory one GPU of a class can have. A
+// worker's self-declaration is clamped to it: registration is the one place a
+// supplier controls the numbers merc schedules on.
+func hwClassMemoryCeilingGB(hwClass string) float64 {
+	switch hwClass {
+	case "nvidia_24gb":
+		return 24
+	case "nvidia_48gb":
+		return 48
+	case "nvidia_80gb":
+		return 80
+	case "nvidia_180gb":
+		return 180
+	}
+	// Apple Silicon is unified memory with no per-GPU split; the existing
+	// memory admission path governs it.
+	return 0
+}
