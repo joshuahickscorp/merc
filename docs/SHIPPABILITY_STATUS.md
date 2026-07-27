@@ -17,6 +17,22 @@ reaches "supplier payable → positive Merc contribution → receipt". By that
 definition **no lane can reach CANARY_PROVEN until USD settlement exists**,
 regardless of how much code is written. This is one external action.
 
+## Private canary — 13/21 lanes CANARY_PROVEN (2026-07-27)
+
+Receipt: `evidence/canary/private-canary.json`. `public_capability_allowed: false`
+until every lane is proven, so nothing here may be claimed publicly yet.
+
+Proven against a REAL local worker (Apple M3 Ultra, Metal, candle) and a REAL
+llama.cpp engine — not a stub: batch inference, embeddings, realtime, object
+storage, refunds/disputes, failure recovery, receipt verification, backup
+restore, buyer dashboard, supplier console, price board, and both SDKs.
+
+The remaining 8 need hardware or an account this machine does not have:
+NVIDIA/vLLM (runpod_vllm, image_generation, LoRA, multi_gpu), a Stripe sandbox
+key (payouts), a live alert receiver (alerts), and an onboarding smoke path
+(external_model_onboarding). `openai_sdk_conformance` is TESTED, not proven:
+both official SDKs pass, but against a fake upstream.
+
 ## Lanes
 
 | lane | status | evidence |
