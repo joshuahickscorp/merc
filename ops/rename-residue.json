@@ -3,12 +3,12 @@
   "kind": "rename_residue_audit",
   "counts": {
     "FROZEN": 239,
-    "BLOCKED": 346,
+    "BLOCKED": 350,
     "RESIDUE": 0
   },
   "blocked_by_prerequisite": {
     "metric name in the alert label set; must land with the receiver update": 96,
-    "binary name in Dockerfile.control, CI SHA256SUMS, .gitignore, .dockerignore and the rollback image entrypoint": 65,
+    "binary name in Dockerfile.control, CI SHA256SUMS, .gitignore, .dockerignore and the rollback image entrypoint": 69,
     "object storage bucket name in a running deployment": 23,
     "model alias inside the sha256'd vLLM runtime profile; workers must re-attest in the same cutover": 20,
     "systemd unit installed under this name; disable the old timer first": 17,

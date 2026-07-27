@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "kind": "real_runtime_end_to_end",
+  "commit": "58f33e665949e3d0449e9d379a7c097b1bada5af",
+  "lane": "batch_embeddings",
+  "runtime": {
+    "kind": "REAL",
+    "engine": "candle",
+    "device": "metal",
+    "hardware": "Apple M3 Ultra",
+    "hw_class": "apple_silicon_ultra",
+    "memory_gb": 103.08,
+    "measured_embeddings_per_sec": 1980.79,
+    "note": "merc's own supported Apple Silicon supply. Not a fake, not a stub, not an httptest server -- the shipped cx-agent binary executing all-MiniLM-L6-v2 through candle on Metal."
+  },
+  "chain": {
+    "buyer_request": true,
+    "merc_contract": true,
+    "scheduler": true,
+    "real_worker_runtime": true,
+    "result": true,
+    "verification": true,
+    "buyer_debit": true,
+    "supplier_payable": true,
+    "positive_merc_contribution": true,
+    "receipt": true
+  },
+  "job_id": "fd1999ac-9b76-590c-afbf-cdc10e18ba14",
+  "task_count": 2,
+  "output": {
+    "rows": 3,
+    "vector_dim": 384
+  },
+  "verification": {
+    "label": "honeypot-checked",
+    "honeypots_passed": 1,
+    "honeypots_failed": 0
+  },
+  "money_usd": {
+    "buyer_charge": -0.00025,
+    "platform_take": 0.000248,
+    "supplier_credit": 2e-06
+  },
+  "evidence_level": "REAL_RUNTIME_PROVEN",
+  "public_claim_allowed": false,
+  "public_claim_note": "REAL_RUNTIME_PROVEN, not CANARY_PROVEN. This is one lane on one local host; the goal's canary requires every lane.",
+  "supplier_share_is_size_dependent": {
+    "measured": [
+      {
+        "rows": 3,
+        "buyer_usd": 0.00025,
+        "merc_usd": 0.000248,
+        "supplier_usd": 2e-06,
+        "supplier_share_pct": 0.8
+      },
+      {
+        "rows": 400,
+        "buyer_usd": 0.00062,
+        "merc_usd": 0.000318,
+        "supplier_usd": 0.000302,
+        "supplier_share_pct": 48.7
+      }
+    ],
+    "finding": "MERC_CONTROL_PLANE_PER_TASK_USD is a FIXED 100 micro-USD per task. On a 3-row job the buyer charge is 125 micro-USD per task, so fixed cost eats 80% before anything is split and the supplier's share rounds to 1 micro-USD -- 0.8%. At 400 rows the fixed cost amortises and the split is 49/51. The 99.2% take is a degenerate small-job artifact, measured rather than assumed.",
+    "consequence": "A supplier serving only minimum-size jobs works for approximately nothing. This is the same failure class as the LoRA compute floor truncating to zero: a fixed cost dominating a small quote leaves a party with ~0, through arithmetic rather than policy. merc should enforce a minimum billable job size the way settleLoRARun now enforces a minimum quote. NOT yet implemented."
+  }
+}

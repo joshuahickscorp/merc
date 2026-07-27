@@ -74,6 +74,53 @@ false unless every lane is proven.
 
 `public_capability_allowed` is **false**. merc may not make a public capability claim for any lane until every lane is `CANARY_PROVEN`.
 
+## REAL_RUNTIME_PROVEN: batch embeddings, 2026-07-27
+
+merc's original supply is Apple Silicon running candle on Metal, and this machine
+is an M3 Ultra — an admitted `apple_silicon_ultra` host. A real GPU rental was
+never required to prove the batch lane. I had been treating every lane as
+GPU-blocked, which under-reported what merc can actually do.
+
+The shipped `cx-agent` binary registered (1,980 embeddings/sec measured on
+Metal), claimed a real buyer job, and the whole chain completed:
+
+| step | result |
+|---|---|
+| buyer request | `POST /v1/jobs`, 3 rows, idempotency-keyed |
+| merc contract | job `fd1999ac`, 2 tasks, estimate $0.000250 |
+| scheduler | dispatched to worker `…b1` |
+| **real runtime** | candle on Metal, Apple M3 Ultra — not a fake, stub or httptest server |
+| result | 3 × 384-dim embeddings, fetched through a presigned URL |
+| verification | `honeypot-checked`, 1 passed / 0 failed |
+| buyer debit | −$0.000250 |
+| supplier payable | +$0.000002 |
+| merc contribution | +$0.000248 (positive) |
+| receipt | `evidence/canary/real-runtime-embed.json` |
+
+### The supplier's share is size-dependent, and that is a real finding
+
+The 3-row job gave merc **99.2%** of the buyer charge. Measured rather than
+assumed: `MERC_CONTROL_PLANE_PER_TASK_USD` is a fixed 100 micro-USD per task
+against a 125 micro-USD per-task charge, so fixed cost eats 80% before anything
+is split and the supplier's share rounds to 1 micro-USD. A 400-row job on the
+same worker splits **49/51**.
+
+This is the same failure class as the LoRA compute floor truncating to zero: a
+fixed cost dominating a small quote leaves a party with approximately nothing,
+through arithmetic rather than policy. A supplier serving only minimum-size jobs
+works for free. merc should enforce a minimum billable job size the way
+`settleLoRARun` now enforces a minimum quote. **Not yet implemented.**
+
+### Two bugs this run surfaced
+
+- A stale control binary dispatched under an older runtime-authority matrix than
+  the worker had attested to, and the agent refused every task. That gate works,
+  and it is exactly the re-attestation consequence recorded when `matrix_version`
+  was bumped — but nothing had exercised it until a real worker did.
+- The control plane refuses a job it cannot verify (`no usable honeypot is
+  seeded for this workload`) rather than running it unverified. Fail-closed,
+  confirmed by hitting it.
+
 ## Repository boundary and rename
 
 | item | status | evidence |

@@ -2,6 +2,10 @@
   "schema_version": 1,
   "kind": "merc_private_canary",
   "capabilities": {
+    "local_runtime": {
+      "present": true,
+      "detail": "local Apple Silicon worker (candle/Metal) available"
+    },
     "database": {
       "present": true,
       "detail": "database configured"
@@ -26,15 +30,15 @@
   "lanes": [
     {
       "lane": "batch_inference",
-      "status": "TESTED",
+      "status": "CANARY_PROVEN",
       "reason": "passed",
-      "note": "money path proven against the local scheduler; no real GPU worker served it"
+      "note": "proven end to end against a real Apple Silicon worker (evidence/canary/real-runtime-embed.json)"
     },
     {
       "lane": "embeddings",
-      "status": "TESTED",
+      "status": "CANARY_PROVEN",
       "reason": "passed",
-      "note": "no real runtime produced the embeddings"
+      "note": "real 384-dim embeddings computed on Metal, honeypot-verified, settled"
     },
     {
       "lane": "realtime",
@@ -136,6 +140,8 @@
   "summary": {
     "CANARY_PROVEN": [
       "backup_restore",
+      "batch_inference",
+      "embeddings",
       "failure_recovery",
       "object_storage",
       "receipt_verification",
@@ -151,13 +157,11 @@
     ],
     "TESTED": [
       "alerts",
-      "batch_inference",
-      "embeddings",
       "external_model_onboarding"
     ]
   },
   "lanes_total": 15,
-  "lanes_canary_proven": 5,
+  "lanes_canary_proven": 7,
   "all_lanes_canary_proven": false,
   "public_capability_allowed": false,
   "note": "A lane is CANARY_PROVEN only when its command walks the full chain -- buyer request, contract, scheduler, real runtime, verification, buyer debit, supplier payable, receipt. A lane that passed a partial test is TESTED. A lane whose capability is missing is EXTERNALLY_BLOCKED and names what is missing. There is no override."
