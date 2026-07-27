@@ -22,7 +22,10 @@ from blender_vision.materials.inverse import (
     infer_materials,
 )
 from blender_vision.materials.parity import (
+    DEFAULT_PROBE_RIG,
     ParityTarget,
+    build_browser_html,
+    build_cycles_script,
     compare_images,
     delta_e2000,
     render_browser,
@@ -134,9 +137,87 @@ def test_parity_metrics_identical_images() -> None:
     assert metrics.structural == pytest.approx(0.0, abs=1e-6)
 
 
+def test_probe_rig_shared_constants() -> None:
+    """Cycles script and browser HTML both embed the same ProbeRig camera/FOV."""
+    rig = DEFAULT_PROBE_RIG.with_resolution(64)
+    hypothesis = MaterialHypothesis(
+        hypothesis_id="rig-const",
+        label="probe",
+        base_colour=[0.5, 0.5, 0.5],
+        roughness=0.4,
+        metalness=0.0,
+        authority=AuthorityClass.INFERRED,
+    )
+    script = build_cycles_script(hypothesis, Path("/tmp/cycles-probe.png"), rig=rig)
+    html = build_browser_html(hypothesis, rig=rig)
+    cam = rig.camera_position
+    cam_token = f"{cam[0]}, {cam[1]}, {cam[2]}"
+    assert cam_token in script
+    assert cam_token in html
+    assert f"math.radians({float(rig.camera_fov_y_deg)})" in script
+    assert f"cameraFovYDeg = {float(rig.camera_fov_y_deg)}" in html
+    light = rig.light_position
+    light_token = f"{light[0]}, {light[1]}, {light[2]}"
+    assert light_token in script
+    # HTML may wrap the vector; every component and the symbol must still appear.
+    for component in light:
+        assert str(float(component)) in html
+    assert "lightPosition" in html
+    assert 'view_transform = "Standard"' in script
+    assert "linearToSrgb" in html
+    # No target may invent a divergent camera pose.
+    assert "location=(0.0, -3.2, 0.9)" in script
+    assert "0.0, -3.2, 0.9" in html
+    assert "cameraPosition" in html
+
+
+def test_matched_material_passes_parity_gate(tmp_path: Path) -> None:
+    """Same material under the shared ProbeRig stays within published limits."""
+    from PIL import Image as PilImage
+
+    hypothesis = MaterialHypothesis(
+        hypothesis_id="matched-plastic",
+        label="matte-plastic",
+        base_colour=[0.82, 0.18, 0.12],
+        roughness=0.58,
+        metalness=0.0,
+        authority=AuthorityClass.INFERRED,
+    )
+    a = render_poster(hypothesis, size=64, output_path=tmp_path / "a.png")
+    b = render_poster(hypothesis, size=64, output_path=tmp_path / "b.png")
+    metrics = compare_images(
+        np.asarray(PilImage.open(a).convert("RGB")),
+        np.asarray(PilImage.open(b).convert("RGB")),
+    )
+    assert metrics.delta_e2000 <= 8.0
+    assert metrics.structural <= 0.15
+    assert metrics.mean_abs_error <= 1e-6
+
+    if os.environ.get("BVMCP_RUN_BROWSER_TESTS") == "1":
+        report = run_parity(
+            hypothesis,
+            output_dir=tmp_path / "parity-matched",
+            size=64,
+            run_cycles=False,
+            run_browser=True,
+            browser_force_wrong=False,
+            delta_e_limit=8.0,
+            structural_limit=0.15,
+        )
+        browser = next(item for item in report.results if item.target is ParityTarget.BROWSER)
+        if not browser.blocked:
+            assert browser.passed is True
+            assert report.browser_gate_failed is False
+            assert browser.metrics_vs_reference is not None
+            assert browser.metrics_vs_reference.delta_e2000 <= 8.0
+            assert browser.metrics_vs_reference.structural <= 0.15
+
+
 def test_parity_harness_rejects_browser_wrong(tmp_path: Path) -> None:
     """A material fine offline but wrong in the browser must fail the gate."""
     from PIL import Image as PilImage
+
+    from blender_vision.materials.parity import _browser_material_params
 
     hypothesis = MaterialHypothesis(
         hypothesis_id="parity-metal",
@@ -165,25 +246,29 @@ def test_parity_harness_rejects_browser_wrong(tmp_path: Path) -> None:
             assert report.browser_gate_failed is True
             assert report.overall_passed is False
             assert browser.passed is False
+            assert browser.metrics_vs_reference is not None
+            assert (
+                browser.metrics_vs_reference.delta_e2000 > 8.0
+                or browser.metrics_vs_reference.structural > 0.15
+            )
             return
 
-    # Constructed offline proof of the gate rule: offline reference diverges from
-    # a deliberately wrong material image beyond perceptual thresholds.
-    good = np.asarray(PilImage.open(poster).convert("RGB"))
+    # Offline proof: browser-side perturbation of the same ProbeRig probe exceeds limits.
+    good = np.asarray(PilImage.open(poster).convert("RGB"), dtype=np.float64) / 255.0
+    base, rough, metal = _browser_material_params(hypothesis, force_wrong=True)
     wrong_h = MaterialHypothesis(
         hypothesis_id="wrong",
         label="wrong",
-        base_colour=[0.8, 0.1, 0.1],
-        roughness=0.9,
-        metalness=0.0,
+        base_colour=base,
+        roughness=rough,
+        metalness=metal,
         authority=AuthorityClass.INFERRED,
     )
     wrong_path = render_poster(wrong_h, size=64, output_path=tmp_path / "wrong.png")
-    wrong = np.asarray(PilImage.open(wrong_path).convert("RGB"))
+    wrong = np.asarray(PilImage.open(wrong_path).convert("RGB"), dtype=np.float64) / 255.0
     de = delta_e2000(good, wrong)
     struct = structural_difference(good, wrong)
     assert de > 8.0 or struct > 0.15
-    # Encode the pass rule: offline-ok + browser-wrong => overall fail.
     offline_ok = True
     browser_wrong = de > 8.0 or struct > 0.15
     overall_passed = offline_ok and not browser_wrong
