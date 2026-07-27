@@ -215,3 +215,68 @@ def test_the_browser_lock_harness_exists_and_reaps_on_interrupt() -> None:
     # ten engines survived the V2 session.
     assert "trap 'reap' EXIT INT TERM HUP" in source
     assert "BROWSER LEAK" in source, "the harness does not fail on a leak"
+
+
+# ------------------------------------------- no steering the failure classifier
+
+
+def test_no_runner_injects_hardware_signatures_into_the_classifier() -> None:
+    """A runner must classify from the runtime's own output, never a synthesised
+    haystack.
+
+    `scripts/run-ocular-tracking.py` once appended invented
+    "metal_is_supported ... WM_init" text to stderr before calling
+    classify_failure, steering it to a hardware verdict. The real fault was an
+    AttributeError in the fixture script, Blender rendered a frame in 4.8s, and
+    the lane silently ran on a synthetic substitute while reporting PASS.
+    """
+    scripts = (Path(__file__).resolve().parents[1] / "scripts").glob("run-ocular-*.py")
+    offenders: list[str] = []
+    for script in scripts:
+        source = script.read_text(encoding="utf-8")
+        for marker in ("metal_is_supported", "segmentation fault sigsegv"):
+            # A comment explaining the past defect is fine; building the string
+            # into a value that reaches classify_failure is not.
+            for line in source.splitlines():
+                stripped = line.strip()
+                if marker in stripped and not stripped.startswith("#"):
+                    offenders.append(f"{script.name}: {stripped[:70]}")
+    assert not offenders, f"hardware signature injected into classification: {offenders}"
+
+
+def test_a_lane_pass_requires_a_physical_attestation() -> None:
+    """A receipt that claims a pass must carry a PHYSICAL render attestation.
+
+    The tracking lane reported occlusion_survival_rate 1.0 and PASS while its
+    render attestation was DIAGNOSTIC_ONLY with a synthetic substitute. The
+    attestation was recorded correctly and simply did not gate the verdict.
+    """
+    import json
+
+    root = Path(__file__).resolve().parents[1] / "artifacts" / "ocular"
+    if not root.is_dir():
+        pytest.skip("no ocular artifacts in this checkout")
+
+    failures: list[str] = []
+    for receipt_path in root.rglob("*.json"):
+        try:
+            payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        status = str(payload.get("status", "")).upper()
+        if status not in {"PASS", "PASSED"}:
+            continue
+        siblings = list(receipt_path.parent.glob("*attestation*.json"))
+        for sibling in siblings:
+            try:
+                attestation = json.loads(sibling.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                continue
+            klass = attestation.get("execution_class")
+            if klass and klass != ExecutionClass.PHYSICAL.value:
+                failures.append(
+                    f"{receipt_path.name} claims {status} beside {sibling.name}={klass}"
+                )
+    assert not failures, "non-physical attestation beside a passing receipt: " + "; ".join(failures)

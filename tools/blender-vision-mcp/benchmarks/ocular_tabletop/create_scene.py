@@ -60,11 +60,13 @@ def _box(name: str, location: tuple[float, float, float], scale: tuple[float, fl
 
 def _project_world_to_camera(scene, cam, world_co: Vector) -> tuple[float, float, bool]:
     """Return OpenCV-style pixel (u, v) and whether the point is in front of the camera."""
-    co_ndc = world_co.transformed_by(cam.matrix_world.inverted())
-    # Camera space in Blender: -Z forward.
-    if co_ndc.z >= 0:
-        return 0.0, 0.0, False
+    # mathutils.Vector has no transformed_by(); a matrix is applied with @.
+    # The previous call raised AttributeError on every frame after the first,
+    # which aborted the fixture and sent the lane to a synthetic substitute.
     co_cam = cam.matrix_world.inverted() @ world_co
+    # Camera space in Blender: -Z forward, so a point in front has negative z.
+    if co_cam.z >= 0:
+        return 0.0, 0.0, False
     # Use render projection.
     render = scene.render
     deps = bpy.context.evaluated_depsgraph_get()
