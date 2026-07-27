@@ -1,0 +1,353 @@
+{
+  "thresholds": {
+    "id_switch_threshold": 6,
+    "min_occlusion_survival": 0.5,
+    "reid_threshold_lost": 0.92
+  },
+  "gt_to_track": {
+    "obj_move": "trk-0001",
+    "obj_occlude": "trk-0002",
+    "obj_leave": "trk-0003",
+    "obj_depart": "trk-0004",
+    "obj_replace": "trk-0002"
+  },
+  "metrics": {
+    "id_switches": 1,
+    "mota": 0.7685185185185185,
+    "matches": 84,
+    "misses": 24,
+    "false_positives": 0,
+    "fragmentation": {
+      "obj_move": 0,
+      "obj_occlude": 1,
+      "obj_leave": 0
+    },
+    "track_fragmentation_total": 1,
+    "confusion": {
+      "obj_move": {
+        "obj_move": 36,
+        "obj_occlude": 0,
+        "obj_leave": 0
+      },
+      "obj_occlude": {
+        "obj_move": 0,
+        "obj_occlude": 27,
+        "obj_leave": 0
+      },
+      "obj_leave": {
+        "obj_move": 0,
+        "obj_occlude": 0,
+        "obj_leave": 21
+      }
+    },
+    "reid_precision": 1.0,
+    "reid_recall": 1.0,
+    "reid_tp": 11,
+    "reid_fp": 0,
+    "reid_fn": 0,
+    "gt_to_tracks": {
+      "obj_move": [
+        "trk-0001"
+      ],
+      "obj_occlude": [
+        "trk-0002",
+        "trk-0004"
+      ],
+      "obj_leave": [
+        "trk-0003"
+      ]
+    }
+  },
+  "confusion_primary_ids": {
+    "obj_move": {
+      "obj_move": 36,
+      "obj_occlude": 0,
+      "obj_leave": 0
+    },
+    "obj_occlude": {
+      "obj_move": 0,
+      "obj_occlude": 27,
+      "obj_leave": 0
+    },
+    "obj_leave": {
+      "obj_move": 0,
+      "obj_occlude": 0,
+      "obj_leave": 21
+    }
+  },
+  "occlusion_survival_rate": 1.0,
+  "occlusion_frames": [
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+  ],
+  "permanence_log": [
+    {
+      "frame": 9,
+      "track_id": "trk-0002",
+      "state": "ACTIVE",
+      "identity_uncertainty": 0.05,
+      "occluder_track_id": null,
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 10,
+      "track_id": "trk-0002",
+      "state": "ACTIVE",
+      "identity_uncertainty": 0.05,
+      "occluder_track_id": null,
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 11,
+      "track_id": "trk-0002",
+      "state": "ACTIVE",
+      "identity_uncertainty": 0.05,
+      "occluder_track_id": null,
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 12,
+      "track_id": "trk-0002",
+      "state": "ACTIVE",
+      "identity_uncertainty": 0.05,
+      "occluder_track_id": null,
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 13,
+      "track_id": "trk-0002",
+      "state": "OCCLUDED",
+      "identity_uncertainty": 0.09,
+      "occluder_track_id": null,
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 14,
+      "track_id": "trk-0002",
+      "state": "OCCLUDED",
+      "identity_uncertainty": 0.13,
+      "occluder_track_id": null,
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 15,
+      "track_id": "trk-0002",
+      "state": "OCCLUDED",
+      "identity_uncertainty": 0.16999999999999998,
+      "occluder_track_id": "trk-0001",
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 16,
+      "track_id": "trk-0002",
+      "state": "OCCLUDED",
+      "identity_uncertainty": 0.21000000000000002,
+      "occluder_track_id": "trk-0001",
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 17,
+      "track_id": "trk-0002",
+      "state": "OCCLUDED",
+      "identity_uncertainty": 0.25,
+      "occluder_track_id": "trk-0001",
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 18,
+      "track_id": "trk-0002",
+      "state": "OCCLUDED",
+      "identity_uncertainty": 0.29,
+      "occluder_track_id": "trk-0001",
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 19,
+      "track_id": "trk-0002",
+      "state": "OCCLUDED",
+      "identity_uncertainty": 0.33,
+      "occluder_track_id": "trk-0001",
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 20,
+      "track_id": "trk-0002",
+      "state": "OCCLUDED",
+      "identity_uncertainty": 0.37,
+      "occluder_track_id": "trk-0001",
+      "predicted_xy": [
+        159.0,
+        96.0
+      ]
+    },
+    {
+      "frame": 21,
+      "track_id": "trk-0002",
+      "state": "REAPPEARED",
+      "identity_uncertainty": 0.185,
+      "occluder_track_id": null,
+      "predicted_xy": [
+        285.2849670627731,
+        78.10134325094555
+      ]
+    }
+  ],
+  "uncertainty_monotone_during_occlusion": true,
+  "uncertainty_grew_during_occlusion": true,
+  "uncertainty_series_occluded": [
+    0.09,
+    0.13,
+    0.16999999999999998,
+    0.21000000000000002,
+    0.25,
+    0.29,
+    0.33,
+    0.37
+  ],
+  "leave_return_same_id": true,
+  "leave_reid_events": [
+    {
+      "frame": 25,
+      "result": "tp",
+      "track_id": "trk-0003"
+    },
+    {
+      "frame": 26,
+      "result": "tp",
+      "track_id": "trk-0003"
+    },
+    {
+      "frame": 27,
+      "result": "tp",
+      "track_id": "trk-0003"
+    },
+    {
+      "frame": 28,
+      "result": "tp",
+      "track_id": "trk-0003"
+    },
+    {
+      "frame": 29,
+      "result": "tp",
+      "track_id": "trk-0003"
+    },
+    {
+      "frame": 30,
+      "result": "tp",
+      "track_id": "trk-0003"
+    },
+    {
+      "frame": 31,
+      "result": "tp",
+      "track_id": "trk-0003"
+    },
+    {
+      "frame": 32,
+      "result": "tp",
+      "track_id": "trk-0003"
+    },
+    {
+      "frame": 33,
+      "result": "tp",
+      "track_id": "trk-0003"
+    },
+    {
+      "frame": 34,
+      "result": "tp",
+      "track_id": "trk-0003"
+    },
+    {
+      "frame": 35,
+      "result": "tp",
+      "track_id": "trk-0003"
+    }
+  ],
+  "negative_replaced_object": {
+    "false_reid": false,
+    "depart_track_id": "trk-0004",
+    "replace_track_id": "trk-0002",
+    "decision": {
+      "matched": false,
+      "track_id": "trk-0004",
+      "score": 0.7539633326190635,
+      "threshold": 0.92,
+      "reason": "below-threshold appearance=0.9840 score=0.7540 required=0.9200",
+      "appearance_score": 0.9839625872614994,
+      "identity_uncertainty": 0.05
+    }
+  },
+  "final_tracks": [
+    {
+      "track_id": "trk-0004",
+      "state": "ACTIVE",
+      "identity_uncertainty": 0.05,
+      "last_seen_frame": 35,
+      "frames_since_seen": 0
+    },
+    {
+      "track_id": "trk-0002",
+      "state": "ACTIVE",
+      "identity_uncertainty": 0.05,
+      "last_seen_frame": 35,
+      "frames_since_seen": 0
+    },
+    {
+      "track_id": "trk-0003",
+      "state": "ACTIVE",
+      "identity_uncertainty": 0.05,
+      "last_seen_frame": 35,
+      "frames_since_seen": 0
+    },
+    {
+      "track_id": "trk-0001",
+      "state": "ACTIVE",
+      "identity_uncertainty": 0.05,
+      "last_seen_frame": 35,
+      "frames_since_seen": 0
+    }
+  ]
+}

@@ -238,7 +238,7 @@ port = server.server_address[1]
 Thread(target=server.serve_forever, daemon=True).start()
 try:
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, channel="chrome")
         page = browser.new_page(viewport={{"width": 1280, "height": 720}})
         page.goto(f"http://127.0.0.1:{{port}}/index.html", wait_until="networkidle", timeout=60000)
         # Native scroll through each beat midpoint; no hijacking.
