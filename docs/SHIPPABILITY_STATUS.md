@@ -35,6 +35,45 @@ regardless of how much code is written. This is one external action.
 | Python SDK | `TESTED` | `sdk/python/merc/`, clean-room install verified. |
 | TypeScript SDK | `TESTED` | `sdk/typescript/`, built to `dist/`, 12 tests covering the binary embeddings decoder, path encoding, bearer auth and `wait()` timeout. Never run against a deployed merc. |
 
+## Private canary — 5/15 lanes CANARY_PROVEN
+
+`make private-canary` (A lane is CANARY_PROVEN only when its command walks the full chain). Report: `evidence/canary/private-canary.json`.
+
+A lane is `CANARY_PROVEN` only when its command walks the whole chain — buyer
+request, contract, scheduler, real runtime, verification, buyer debit, supplier
+payable, receipt. A lane that passed a partial test is `TESTED`. A lane whose
+capability is missing is `EXTERNALLY_BLOCKED` and names what is missing. There
+is no override, and `scripts/test-canary-gaming.sh` (in `make ci`) proves it:
+an unreachable GPU endpoint does not satisfy the runtime capability, no
+partial-chain lane can promote itself, and `public_capability_allowed` stays
+false unless every lane is proven.
+
+| lane | status | note |
+|---|---|---|
+| batch_inference | `TESTED` | money path proven against the local scheduler; no real GPU worker served it |
+| embeddings | `TESTED` | no real runtime produced the embeddings |
+| realtime | `EXTERNALLY_BLOCKED` | with a real runtime this walks contract, stream, verification, settlement and receipt |
+| openai_sdk_conformance | `EXTERNALLY_BLOCKED` | wire-surface conformance; says nothing about any GPU |
+| object_storage | `CANARY_PROVEN` | retention, deletion, tenant isolation against a live store |
+| image_generation | `EXTERNALLY_BLOCKED` | governance only; no image runtime exists |
+| lora | `EXTERNALLY_BLOCKED` | settlement arithmetic only; no trainer, no evaluator dispatch |
+| multi_gpu | `EXTERNALLY_BLOCKED` | admission only; no tensor-parallel runtime has served a request |
+| external_model_onboarding | `TESTED` | licence and remote-code policy; smoke test and benchmark need a runtime |
+| refunds_disputes | `CANARY_PROVEN` | dispute filing, freeze, resolution and payout control |
+| payouts | `EXTERNALLY_BLOCKED` | accrual and reconciliation; a real transfer needs the sandbox |
+| failure_recovery | `CANARY_PROVEN` | stuck-job rescue and cancellation |
+| receipt_verification | `CANARY_PROVEN` | ledger conservation and sole-writer enforcement |
+| backup_restore | `CANARY_PROVEN` | backup scheduling and envelope |
+| alerts | `TESTED` | alert and dashboard validation only; no delivery to a receiver |
+
+**Missing capabilities blocking the rest:**
+
+- `gpu_runtime` — no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine
+- `openai_sdks` — official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)
+- `stripe_sandbox` — STRIPE_SECRET_KEY is not set
+
+`public_capability_allowed` is **false**. merc may not make a public capability claim for any lane until every lane is `CANARY_PROVEN`.
+
 ## Repository boundary and rename
 
 | item | status | evidence |

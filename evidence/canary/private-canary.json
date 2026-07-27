@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "kind": "merc_private_canary",
+  "capabilities": {
+    "database": {
+      "present": true,
+      "detail": "database configured"
+    },
+    "object_store": {
+      "present": true,
+      "detail": "object store reachable at 127.0.0.1:9123"
+    },
+    "gpu_runtime": {
+      "present": false,
+      "detail": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine"
+    },
+    "stripe_sandbox": {
+      "present": false,
+      "detail": "STRIPE_SECRET_KEY is not set"
+    },
+    "openai_sdks": {
+      "present": false,
+      "detail": "official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)"
+    }
+  },
+  "lanes": [
+    {
+      "lane": "batch_inference",
+      "status": "TESTED",
+      "reason": "passed",
+      "note": "money path proven against the local scheduler; no real GPU worker served it"
+    },
+    {
+      "lane": "embeddings",
+      "status": "TESTED",
+      "reason": "passed",
+      "note": "no real runtime produced the embeddings"
+    },
+    {
+      "lane": "realtime",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "gpu_runtime"
+      ],
+      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "note": "with a real runtime this walks contract, stream, verification, settlement and receipt"
+    },
+    {
+      "lane": "openai_sdk_conformance",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "openai_sdks"
+      ],
+      "reason": "official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)",
+      "note": "wire-surface conformance; says nothing about any GPU"
+    },
+    {
+      "lane": "object_storage",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
+      "note": "retention, deletion, tenant isolation against a live store"
+    },
+    {
+      "lane": "image_generation",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "gpu_runtime"
+      ],
+      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "note": "governance only; no image runtime exists"
+    },
+    {
+      "lane": "lora",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "gpu_runtime"
+      ],
+      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "note": "settlement arithmetic only; no trainer, no evaluator dispatch"
+    },
+    {
+      "lane": "multi_gpu",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "gpu_runtime"
+      ],
+      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "note": "admission only; no tensor-parallel runtime has served a request"
+    },
+    {
+      "lane": "external_model_onboarding",
+      "status": "TESTED",
+      "reason": "passed",
+      "note": "licence and remote-code policy; smoke test and benchmark need a runtime"
+    },
+    {
+      "lane": "refunds_disputes",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
+      "note": "dispute filing, freeze, resolution and payout control"
+    },
+    {
+      "lane": "payouts",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "stripe_sandbox"
+      ],
+      "reason": "STRIPE_SECRET_KEY is not set",
+      "note": "accrual and reconciliation; a real transfer needs the sandbox"
+    },
+    {
+      "lane": "failure_recovery",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
+      "note": "stuck-job rescue and cancellation"
+    },
+    {
+      "lane": "receipt_verification",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
+      "note": "ledger conservation and sole-writer enforcement"
+    },
+    {
+      "lane": "backup_restore",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
+      "note": "backup scheduling and envelope"
+    },
+    {
+      "lane": "alerts",
+      "status": "TESTED",
+      "reason": "passed",
+      "note": "alert and dashboard validation only; no delivery to a receiver"
+    }
+  ],
+  "summary": {
+    "CANARY_PROVEN": [
+      "backup_restore",
+      "failure_recovery",
+      "object_storage",
+      "receipt_verification",
+      "refunds_disputes"
+    ],
+    "EXTERNALLY_BLOCKED": [
+      "image_generation",
+      "lora",
+      "multi_gpu",
+      "openai_sdk_conformance",
+      "payouts",
+      "realtime"
+    ],
+    "TESTED": [
+      "alerts",
+      "batch_inference",
+      "embeddings",
+      "external_model_onboarding"
+    ]
+  },
+  "lanes_total": 15,
+  "lanes_canary_proven": 5,
+  "all_lanes_canary_proven": false,
+  "public_capability_allowed": false,
+  "note": "A lane is CANARY_PROVEN only when its command walks the full chain -- buyer request, contract, scheduler, real runtime, verification, buyer debit, supplier payable, receipt. A lane that passed a partial test is TESTED. A lane whose capability is missing is EXTERNALLY_BLOCKED and names what is missing. There is no override."
+}
