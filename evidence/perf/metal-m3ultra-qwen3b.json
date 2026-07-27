@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "runtime_concurrency_sweep",
+  "label": "Metal M3 Ultra / llama.cpp / Qwen2.5-3B-Instruct Q4_K_M",
+  "model": "cx-chat-1b",
+  "max_tokens": 128,
+  "cost_per_hour_usd": 0.0,
+  "levels": {
+    "1": {
+      "requests": 3,
+      "errors": 0,
+      "error_samples": [],
+      "wall_seconds": 3.218,
+      "aggregate_tokens_per_sec": 119.33,
+      "ttft_ms_p50": 14.4,
+      "ttft_ms_p95": 14.4,
+      "latency_s_p50": 1.075,
+      "latency_s_p95": 1.112,
+      "completion_tokens_total": 384
+    },
+    "4": {
+      "requests": 12,
+      "errors": 0,
+      "error_samples": [],
+      "wall_seconds": 7.449,
+      "aggregate_tokens_per_sec": 206.19,
+      "ttft_ms_p50": 85.3,
+      "ttft_ms_p95": 188.0,
+      "latency_s_p50": 2.468,
+      "latency_s_p95": 2.516,
+      "completion_tokens_total": 1536
+    },
+    "16": {
+      "requests": 48,
+      "errors": 0,
+      "error_samples": [],
+      "wall_seconds": 29.044,
+      "aggregate_tokens_per_sec": 211.54,
+      "ttft_ms_p50": 5001.6,
+      "ttft_ms_p95": 7354.7,
+      "latency_s_p50": 7.362,
+      "latency_s_p95": 9.756,
+      "completion_tokens_total": 6144
+    }
+  },
+  "peak_aggregate_tokens_per_sec": 211.54,
+  "usd_per_million_tokens_at_peak": null,
+  "comparability_warning": "Valid only against another sweep with the SAME model, precision and max_tokens. Metal/GGUF-Q4 and CUDA/fp16 are different weights at different precision; quoting one number across them is not a measurement, it is a slogan."
+}
