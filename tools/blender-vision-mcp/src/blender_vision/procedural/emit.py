@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 import bpy
-from mathutils import Euler, Vector
+from mathutils import Euler, Matrix, Vector
 
 SPEC_PATH = Path(r"""__SPEC_PATH__""")
 spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
@@ -180,19 +180,19 @@ def make_hollow_box(name, size, wall, open_face, collection, material):
         if open_face in (f"{'+' if sign>0 else '-'}X",):
             continue
         o = make_box(f"{name}_{label}", (t, sy, sz), collection, material)
-        o.location.x = sign * (sx * 0.5 - t * 0.5)
+        o.data.transform(Matrix.Translation((sign * (sx * 0.5 - t * 0.5), 0.0, 0.0)))
         parts.append(o)
     for sign, label in ((1, "py"), (-1, "ny")):
         if open_face in (f"{'+' if sign>0 else '-'}Y",):
             continue
         o = make_box(f"{name}_{label}", (sx, t, sz), collection, material)
-        o.location.y = sign * (sy * 0.5 - t * 0.5)
+        o.data.transform(Matrix.Translation((0.0, sign * (sy * 0.5 - t * 0.5), 0.0)))
         parts.append(o)
     for sign, label in ((1, "pz"), (-1, "nz")):
         if open_face in (f"{'+' if sign>0 else '-'}Z",):
             continue
         o = make_box(f"{name}_{label}", (sx, sy, t), collection, material)
-        o.location.z = sign * (sz * 0.5 - t * 0.5)
+        o.data.transform(Matrix.Translation((0.0, 0.0, sign * (sz * 0.5 - t * 0.5))))
         parts.append(o)
     if not parts:
         return make_box(name, size, collection, material)
@@ -220,7 +220,11 @@ def make_vent_field(name, geom, collection, material):
             x = (ix - (cx - 1) * 0.5) * pitch[0]
             z = (iz - (cz - 1) * 0.5) * pitch[2]
             o = make_box(f"{name}_{ix}_{iz}", cell, collection, material)
-            o.location = Vector((x, 0.0, z))
+            # Offset the mesh data, not the object. join() adopts the first
+            # object's origin, so moving objects here would put the joined
+            # origin on a corner cell and the part transform would be applied
+            # relative to that instead of to the field centre.
+            o.data.transform(Matrix.Translation((x, 0.0, z)))
             parts.append(o)
     if not parts:
         return make_box(name, geom["size"], collection, material)
@@ -254,10 +258,13 @@ def make_bundle(name, geom, collection, material):
             vertices=8,
             radius=strand_r,
             depth=length,
-            location=(math.cos(ang) * r, math.sin(ang) * r, 0.0),
+            location=(0.0, 0.0, 0.0),
         )
         o = bpy.context.active_object
         o.name = f"{name}_s{i}"
+        # Mesh-data offset, not object location: join() adopts the first
+        # strand's origin, which would shift the whole bundle.
+        o.data.transform(Matrix.Translation((math.cos(ang) * r, math.sin(ang) * r, 0.0)))
         if material:
             o.data.materials.append(ensure_material(material))
         link_object(o, collection)
@@ -320,17 +327,30 @@ def triangle_count(objects):
 
 
 def world_bbox(objects):
+    # Measure evaluated vertices, not obj.bound_box. bound_box is a cached,
+    # pre-modifier value that is stale until the depsgraph catches up, which
+    # reported this rack 10 mm taller than the geometry actually was.
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
     mins = Vector((1e9, 1e9, 1e9))
     maxs = Vector((-1e9, -1e9, -1e9))
     any_mesh = False
     for obj in objects:
         if obj.type != "MESH":
             continue
-        any_mesh = True
-        for corner in obj.bound_box:
-            w = obj.matrix_world @ Vector(corner)
-            mins.x = min(mins.x, w.x); mins.y = min(mins.y, w.y); mins.z = min(mins.z, w.z)
-            maxs.x = max(maxs.x, w.x); maxs.y = max(maxs.y, w.y); maxs.z = max(maxs.z, w.z)
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        try:
+            if not mesh.vertices:
+                continue
+            any_mesh = True
+            matrix = evaluated.matrix_world
+            for vertex in mesh.vertices:
+                w = matrix @ vertex.co
+                mins.x = min(mins.x, w.x); mins.y = min(mins.y, w.y); mins.z = min(mins.z, w.z)
+                maxs.x = max(maxs.x, w.x); maxs.y = max(maxs.y, w.y); maxs.z = max(maxs.z, w.z)
+        finally:
+            evaluated.to_mesh_clear()
     if not any_mesh:
         return [0, 0, 0], [0, 0, 0]
     return list(mins), list(maxs)
@@ -592,8 +612,12 @@ def emit_to_blender(
     timeout_seconds: int = 600,
 ) -> EmitResult:
     """Run headless Blender against a generated emission script."""
-    output_dir = Path(output_dir)
+    # Absolute, because the subprocess runs with cwd=output_dir: a relative
+    # script path would resolve against the new cwd and Blender would exit 1
+    # having never found its own script.
+    output_dir = Path(output_dir).resolve()
     _, script_path = write_emit_script(emit_spec, output_dir)
+    script_path = Path(script_path).resolve()
     log_path = output_dir / "emit.log"
 
     executable = _blender_executable()
@@ -633,8 +657,12 @@ def emit_to_blender(
         encoding="utf-8",
     )
     if result.returncode != 0:
+        # Carry the decisive stderr line. A bare exit code gets misread as a
+        # hardware block when it is usually a script error.
+        tail = (result.stderr or "").strip().splitlines()
+        detail = tail[-1] if tail else "(no stderr)"
         raise RuntimeError(
-            f"Blender emit failed with exit code {result.returncode}; see {log_path}"
+            f"Blender emit failed with exit code {result.returncode}: {detail}; see {log_path}"
         )
 
     metrics_path = output_dir / "metrics.json"
