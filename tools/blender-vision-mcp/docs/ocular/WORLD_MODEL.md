@@ -53,12 +53,12 @@ All subclass `V2Record` and seal with content digests. Authority is capped by
 ```json
 {
   "frame_index": 0,
-  "track_source": "ground_truth",
+  "track_source": "perception",
   "absent": false,
   "lighting": {"mean_luminance": 0.5},
   "entities": [
     {
-      "entity_id": "cup",
+      "entity_id": "trk-0001",
       "class_label": "cup",
       "pose_m": [x, y, z, qw, qx, qy, qz],
       "visible": true,
@@ -69,8 +69,13 @@ All subclass `V2Record` and seal with content digests. Authority is capped by
 }
 ```
 
-When a live tracker is unavailable, set `track_source` to `ground_truth` and
-state that in the receipt. This task does not implement segmentation/tracking.
+`track_source` must be `perception` or `perception_derived` on the builder path
+(MCP always enforces this). Ground-truth identity belongs in the sealed
+evaluator (`scripts/run-ocular-tracking.py::sealed_evaluate`,
+`track.track_metrics`) — never as runtime `Entity.entity_id` values. Diagnostic
+fixtures that deliberately inject pre-labelled tracks must pass
+`allow_ground_truth=True` in-process and record
+`meta.identity_provenance == "ground_truth"` so consumers can tell.
 
 ## Dynamic-room change classes
 

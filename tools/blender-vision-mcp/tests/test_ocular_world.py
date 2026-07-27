@@ -47,7 +47,7 @@ def _obs(
     *,
     lighting: dict | None = None,
     absent: bool = False,
-    track_source: str = "ground_truth",
+    track_source: str = "perception",
 ) -> dict:
     payload: dict = {
         "frame_index": frame_index,
@@ -81,25 +81,26 @@ def _entity(
 
 
 def test_contradicting_evidence_adds_competing_belief() -> None:
+    eid = "trk-0001"
     world = build_world_model(
         [
-            _obs(0, [_entity("cup", [0.0, 0.0, 0.1])]),
-            _obs(1, [_entity("cup", [0.0, 0.0, 0.11])]),  # within tolerance
+            _obs(0, [_entity(eid, [0.0, 0.0, 0.1])]),
+            _obs(1, [_entity(eid, [0.0, 0.0, 0.11])]),  # within tolerance
         ],
         scene_id="room-a",
     )
-    entity = world.entities["cup"]
+    entity = world.entities[eid]
     prior_pose_beliefs = len(entity.all_beliefs(BeliefSlot.POSE.value))
     prior_history = len(world.belief_history)
 
     # Large jump: competing belief, not overwrite.
-    update_world_model(world, _obs(2, [_entity("cup", [1.5, 0.0, 0.1])]))
+    update_world_model(world, _obs(2, [_entity(eid, [1.5, 0.0, 0.1])]))
 
     beliefs = entity.all_beliefs(BeliefSlot.POSE.value)
     assert len(beliefs) > prior_pose_beliefs
     assert len(world.belief_history) > prior_history
 
-    history = explain_belief(world, "cup", BeliefSlot.POSE.value)
+    history = explain_belief(world, eid, BeliefSlot.POSE.value)
     contradictions = [item for item in history if item["contradiction"]]
     assert contradictions, "contradicting observation must record contradiction=True"
 
@@ -110,35 +111,38 @@ def test_contradicting_evidence_adds_competing_belief() -> None:
 
 
 def test_belief_history_is_append_only() -> None:
+    eid = "trk-0001"
     world = build_world_model(
-        [_obs(0, [_entity("a", [0.0, 0.0, 0.0])]), _obs(1, [_entity("a", [0.01, 0.0, 0.0])])],
+        [_obs(0, [_entity(eid, [0.0, 0.0, 0.0])]), _obs(1, [_entity(eid, [0.01, 0.0, 0.0])])],
         scene_id="append",
     )
     snapshot = [item.id for item in world.belief_history]
     n = len(snapshot)
-    update_world_model(world, _obs(2, [_entity("a", [0.02, 0.0, 0.0])]))
+    update_world_model(world, _obs(2, [_entity(eid, [0.02, 0.0, 0.0])]))
     assert len(world.belief_history) > n
     # Earlier entries untouched (ids and order preserved as a prefix).
     assert [item.id for item in world.belief_history[:n]] == snapshot
 
 
 def test_world_reload_across_two_processes_byte_identical(tmp_path: Path) -> None:
+    lamp = "trk-0001"
+    book = "trk-0002"
     world_path = tmp_path / "world.json"
     world = build_world_model(
         [
             _obs(
                 0,
                 [
-                    _entity("lamp", [0.2, 0.1, 0.5], class_label="lamp"),
-                    _entity("book", [0.4, 0.1, 0.05], class_label="book"),
+                    _entity(lamp, [0.2, 0.1, 0.5], class_label="lamp"),
+                    _entity(book, [0.4, 0.1, 0.05], class_label="book"),
                 ],
                 lighting={"mean_luminance": 0.55},
             ),
             _obs(
                 1,
                 [
-                    _entity("lamp", [0.2, 0.1, 0.5], class_label="lamp"),
-                    _entity("book", [0.41, 0.1, 0.05], class_label="book"),
+                    _entity(lamp, [0.2, 0.1, 0.5], class_label="lamp"),
+                    _entity(book, [0.41, 0.1, 0.05], class_label="book"),
                 ],
                 lighting={"mean_luminance": 0.55},
             ),
@@ -172,60 +176,65 @@ sys.stdout.buffer.write(beliefs_bytes(world))
     assert reloaded.beliefs_digest() == digest
     assert beliefs_bytes(reloaded) == original_belief_bytes
     assert set(reloaded.entities) == set(world.entities)
-    assert reloaded.entities["lamp"].track_id == world.entities["lamp"].track_id
+    assert reloaded.entities[lamp].track_id == world.entities[lamp].track_id
 
 
 def test_occluded_entity_persists_with_growing_uncertainty() -> None:
+    ball = "trk-0001"
+    box = "trk-0002"
     world = build_world_model(
         [
-            _obs(0, [_entity("ball", [0.0, 0.0, 0.2]), _entity("box", [1.0, 0.0, 0.1])]),
+            _obs(0, [_entity(ball, [0.0, 0.0, 0.2]), _entity(box, [1.0, 0.0, 0.1])]),
             # ball occluded (missing), box still visible
-            _obs(1, [_entity("box", [1.0, 0.0, 0.1])]),
-            _obs(2, [_entity("box", [1.0, 0.0, 0.1])]),
-            _obs(3, [_entity("box", [1.0, 0.0, 0.1])]),
+            _obs(1, [_entity(box, [1.0, 0.0, 0.1])]),
+            _obs(2, [_entity(box, [1.0, 0.0, 0.1])]),
+            _obs(3, [_entity(box, [1.0, 0.0, 0.1])]),
         ],
         scene_id="occlusion",
     )
-    assert "ball" in world.entities
-    ball = world.entities["ball"]
-    assert ball.frames_since_seen >= 3
-    assert ball.confidence < 0.7
-    assert (ball.uncertainty.sigma or 0.0) > 0.02
-    assert ball.visibility in {
+    assert ball in world.entities
+    ball_ent = world.entities[ball]
+    assert ball_ent.frames_since_seen >= 3
+    assert ball_ent.confidence < 0.7
+    assert (ball_ent.uncertainty.sigma or 0.0) > 0.02
+    assert ball_ent.visibility in {
         VisibilityState.INFERRED_SURFACE,
         VisibilityState.PARTIALLY_VISIBLE,
     }
     # Pose retained (persistence through occlusion).
-    assert ball.pose_m[0] == pytest.approx(0.0)
+    assert ball_ent.pose_m[0] == pytest.approx(0.0)
     rows = list_uncertainties(world)
-    ball_row = next(item for item in rows if item["entity_id"] == "ball")
-    box_row = next(item for item in rows if item["entity_id"] == "box")
+    ball_row = next(item for item in rows if item["entity_id"] == ball)
+    box_row = next(item for item in rows if item["entity_id"] == box)
     assert ball_row["confidence"] < box_row["confidence"]
 
 
 def test_absent_frame_grows_uncertainty_without_dropping_identity() -> None:
+    vase = "trk-0001"
     world = build_world_model(
         [
-            _obs(0, [_entity("vase", [0.3, 0.0, 0.2])]),
+            _obs(0, [_entity(vase, [0.3, 0.0, 0.2])]),
             _obs(1, [], absent=True),
             _obs(2, [], absent=True),
         ],
         scene_id="absent",
     )
-    vase = world.entities["vase"]
-    assert vase.entity_id == "vase"
-    assert vase.frames_since_seen >= 2
-    assert vase.confidence < 0.7
+    vase_ent = world.entities[vase]
+    assert vase_ent.entity_id == vase
+    assert vase_ent.frames_since_seen >= 2
+    assert vase_ent.confidence < 0.7
 
 
 def test_lighting_only_change_classified_as_appearance_not_geometry() -> None:
+    table = "trk-0001"
+    chair = "trk-0002"
     session1 = build_world_model(
         [
             _obs(
                 0,
                 [
-                    _entity("table", [0.0, 0.0, 0.0], class_label="table"),
-                    _entity("chair", [1.0, 0.0, 0.0], class_label="chair"),
+                    _entity(table, [0.0, 0.0, 0.0], class_label="table"),
+                    _entity(chair, [1.0, 0.0, 0.0], class_label="chair"),
                 ],
                 lighting={"mean_luminance": 0.4, "temperature_k": 5000},
             )
@@ -238,8 +247,8 @@ def test_lighting_only_change_classified_as_appearance_not_geometry() -> None:
             _obs(
                 0,
                 [
-                    _entity("table", [0.0, 0.0, 0.0], class_label="table"),
-                    _entity("chair", [1.0, 0.0, 0.0], class_label="chair"),
+                    _entity(table, [0.0, 0.0, 0.0], class_label="table"),
+                    _entity(chair, [1.0, 0.0, 0.0], class_label="chair"),
                 ],
                 lighting={"mean_luminance": 0.85, "temperature_k": 3200},
             )
@@ -258,14 +267,18 @@ def test_lighting_only_change_classified_as_appearance_not_geometry() -> None:
 
 
 def test_dynamic_room_five_change_classes() -> None:
+    sofa = "trk-0001"
+    lamp = "trk-0002"
+    book = "trk-0003"
+    plant = "trk-0004"
     s1 = build_world_model(
         [
             _obs(
                 0,
                 [
-                    _entity("sofa", [0.0, 0.0, 0.0], class_label="sofa"),
-                    _entity("lamp", [1.0, 0.0, 0.4], class_label="lamp"),
-                    _entity("book", [0.5, 0.2, 0.1], class_label="book"),
+                    _entity(sofa, [0.0, 0.0, 0.0], class_label="sofa"),
+                    _entity(lamp, [1.0, 0.0, 0.4], class_label="lamp"),
+                    _entity(book, [0.5, 0.2, 0.1], class_label="book"),
                 ],
                 lighting={"mean_luminance": 0.5},
             )
@@ -279,9 +292,9 @@ def test_dynamic_room_five_change_classes() -> None:
             _obs(
                 0,
                 [
-                    _entity("sofa", [0.0, 0.0, 0.0], class_label="sofa"),
-                    _entity("lamp", [1.8, 0.3, 0.4], class_label="lamp"),
-                    _entity("plant", [0.2, -0.5, 0.2], class_label="plant"),
+                    _entity(sofa, [0.0, 0.0, 0.0], class_label="sofa"),
+                    _entity(lamp, [1.8, 0.3, 0.4], class_label="lamp"),
+                    _entity(plant, [0.2, -0.5, 0.2], class_label="plant"),
                 ],
                 lighting={"mean_luminance": 0.9},
             )
@@ -300,21 +313,22 @@ def test_dynamic_room_five_change_classes() -> None:
     moved_ids = [item["entity_id"] for item in classes[ChangeClass.MOVED_OBJECT.value]["items"]]
     removed_ids = [item["entity_id"] for item in classes[ChangeClass.REMOVED_OBJECT.value]["items"]]
     new_ids = [item["entity_id"] for item in classes[ChangeClass.NEW_OBJECT.value]["items"]]
-    assert "lamp" in moved_ids
-    assert "book" in removed_ids
-    assert "plant" in new_ids
+    assert lamp in moved_ids
+    assert book in removed_ids
+    assert plant in new_ids
 
 
 def test_surprise_fires_outside_tolerance_not_inside() -> None:
+    car = "trk-0001"
     world = build_world_model(
         [
-            _obs(0, [_entity("car", [0.0, 0.0, 0.0])]),
-            _obs(1, [_entity("car", [0.1, 0.0, 0.0])]),  # v = 0.1 m/frame
+            _obs(0, [_entity(car, [0.0, 0.0, 0.0])]),
+            _obs(1, [_entity(car, [0.1, 0.0, 0.0])]),  # v = 0.1 m/frame
         ],
         scene_id="pred",
     )
     preds = predict_next(world, horizon=1, pose_tolerance_m=0.05)
-    pose_preds = [p for p in preds if p.kind == PredictionKind.POSE.value and p.entity_id == "car"]
+    pose_preds = [p for p in preds if p.kind == PredictionKind.POSE.value and p.entity_id == car]
     assert pose_preds
     pose_pred = pose_preds[0]
     # Expected ≈ [0.2, 0, 0]
@@ -349,16 +363,17 @@ def test_surprise_fires_outside_tolerance_not_inside() -> None:
 
 
 def test_uncertainty_rises_after_surprise() -> None:
+    drone = "trk-0001"
     world = build_world_model(
         [
-            _obs(0, [_entity("drone", [0.0, 0.0, 1.0])]),
-            _obs(1, [_entity("drone", [0.05, 0.0, 1.0])]),
+            _obs(0, [_entity(drone, [0.0, 0.0, 1.0])]),
+            _obs(1, [_entity(drone, [0.05, 0.0, 1.0])]),
         ],
         scene_id="unc",
     )
-    before = world.entities["drone"].confidence
+    before = world.entities[drone].confidence
     pred = make_prediction(
-        entity_id="drone",
+        entity_id=drone,
         kind=PredictionKind.POSE.value,
         expected={"pose_m": [0.1, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0]},
         tolerance=0.05,
@@ -373,31 +388,32 @@ def test_uncertainty_rises_after_surprise() -> None:
         update_uncertainty=True,
     )
     assert event is not None
-    after = world.entities["drone"].confidence
+    after = world.entities[drone].confidence
     assert after < before
-    traj = uncertainty_trajectory(world, "drone")
+    traj = uncertainty_trajectory(world, drone)
     assert any(row["confidence_after"] < row["confidence_before"] for row in traj)
-    assert list_surprises(world, entity_id="drone")
+    assert list_surprises(world, entity_id=drone)
 
 
 def test_uncertainty_falls_after_confirming_evidence() -> None:
+    cup = "trk-0001"
     world = build_world_model(
-        [_obs(0, [_entity("cup", [0.0, 0.0, 0.1])]), _obs(1, [_entity("cup", [0.0, 0.0, 0.1])])],
+        [_obs(0, [_entity(cup, [0.0, 0.0, 0.1])]), _obs(1, [_entity(cup, [0.0, 0.0, 0.1])])],
         scene_id="confirm",
     )
     # Induce a surprise first.
     pred = make_prediction(
-        entity_id="cup",
+        entity_id=cup,
         kind=PredictionKind.POSE.value,
         expected={"pose_m": [0.0, 0.0, 0.1, 1, 0, 0, 0]},
         tolerance=0.02,
         valid_from_frame=1,
     )
     evaluate_prediction(world, pred, {"pose_m": [1.0, 0.0, 0.1]}, frame_index=2)
-    mid = world.entities["cup"].confidence
+    mid = world.entities[cup].confidence
     # Confirming prediction.
     pred2 = make_prediction(
-        entity_id="cup",
+        entity_id=cup,
         kind=PredictionKind.POSE.value,
         expected={"pose_m": [1.0, 0.0, 0.1, 1, 0, 0, 0]},
         tolerance=0.05,
@@ -407,31 +423,33 @@ def test_uncertainty_falls_after_confirming_evidence() -> None:
         world, pred2, {"pose_m": [1.01, 0.0, 0.1]}, frame_index=3
     )
     assert event.fired is False
-    assert world.entities["cup"].confidence > mid
+    assert world.entities[cup].confidence > mid
 
 
 def test_same_as_never_inferred_from_candidate_without_evidence() -> None:
+    a = "trk-0001"
+    b = "trk-0002"
     world = build_world_model(
         [
             _obs(
                 0,
                 [
-                    _entity("a", [0.0, 0.0, 0.0], class_label="mug"),
-                    _entity("b", [0.01, 0.0, 0.0], class_label="mug"),
+                    _entity(a, [0.0, 0.0, 0.0], class_label="mug"),
+                    _entity(b, [0.01, 0.0, 0.0], class_label="mug"),
                 ],
             )
         ],
         scene_id="id",
     )
-    cand = propose_candidate_same_as(world, "a", "b", confidence=0.6)
+    cand = propose_candidate_same_as(world, a, b, confidence=0.6)
     assert cand.kind is RelationKind.CANDIDATE_SAME_AS
     with pytest.raises(ValidationError, match="recorded evidence"):
         same_as_from_candidate_alone(world, cand)
     # Explicit evidence path works.
     rel = promote_same_as(
         world,
-        "a",
-        "b",
+        a,
+        b,
         evidence=["shared-serial-number-scan", "multi-view-reproj"],
         reviewer="human-reviewer",
     )
@@ -440,13 +458,14 @@ def test_same_as_never_inferred_from_candidate_without_evidence() -> None:
 
 
 def test_surface_provenance_classifiable() -> None:
+    block = "trk-0001"
     world = build_world_model(
         [
             _obs(
                 0,
                 [
                     {
-                        "entity_id": "block",
+                        "entity_id": block,
                         "class_label": "block",
                         "pose_m": [0.0, 0.0, 0.0],
                         "surfaces": [
@@ -473,24 +492,27 @@ def test_surface_provenance_classifiable() -> None:
     )
     assert world.surfaces["block-top"].provenance is SurfaceProvenance.DIRECTLY_OBSERVED
     assert world.surfaces["block-bottom"].provenance is SurfaceProvenance.SYMMETRY_INFERRED
-    assert "block-top" in world.entities["block"].observed_surface_ids
-    assert "block-bottom" in world.entities["block"].inferred_surface_ids
+    assert "block-top" in world.entities[block].observed_surface_ids
+    assert "block-bottom" in world.entities[block].inferred_surface_ids
 
 
 def test_query_world_and_scene_summary() -> None:
+    eid = "trk-0001"
     world = build_world_model(
-        [_obs(0, [_entity("x", [0.0, 0.0, 0.0], class_label="cube")])],
+        [_obs(0, [_entity(eid, [0.0, 0.0, 0.0], class_label="cube")])],
         scene_id="q",
     )
     summary = query_world(world, {"type": "scene_summary"})
     assert summary["n_entities"] == 1
     assert summary["beliefs_digest"]
-    hit = query_world(world, {"type": "entity", "entity_id": "x"})
+    hit = query_world(world, {"type": "entity", "entity_id": eid})
     assert hit["found"] is True
 
 
 def test_camera_motion_and_object_motion_survive() -> None:
     """World retains entities through camera motion and object motion frames."""
+    mug = "trk-0001"
+    plate = "trk-0002"
     frames = []
     for i in range(5):
         # Camera motion is external; objects shift slowly (object motion).
@@ -498,19 +520,20 @@ def test_camera_motion_and_object_motion_survive() -> None:
             _obs(
                 i,
                 [
-                    _entity("mug", [0.1 * i, 0.0, 0.1]),
-                    _entity("plate", [0.5, 0.1 * i, 0.0]),
+                    _entity(mug, [0.1 * i, 0.0, 0.1]),
+                    _entity(plate, [0.5, 0.1 * i, 0.0]),
                 ],
             )
         )
     world = build_world_model(frames, scene_id="motion")
-    assert set(world.entities) == {"mug", "plate"}
-    assert world.entities["mug"].pose_m[0] == pytest.approx(0.4)
-    assert len(world.entities["mug"].trajectory) == 5
+    assert set(world.entities) == {mug, plate}
+    assert world.entities[mug].pose_m[0] == pytest.approx(0.4)
+    assert len(world.entities[mug].trajectory) == 5
 
 
 def test_prediction_kinds_for_benchmarks() -> None:
-    world = build_world_model([_obs(0, [_entity("obj", [0.0, 0.0, 0.0])])], scene_id="bench")
+    eid = "trk-0001"
+    world = build_world_model([_obs(0, [_entity(eid, [0.0, 0.0, 0.0])])], scene_id="bench")
     cases = [
         (
             PredictionKind.BROWSER_ANIMATION.value,
@@ -538,7 +561,7 @@ def test_prediction_kinds_for_benchmarks() -> None:
         ),
     ]
     for kind, expected, observed, tol in cases:
-        pred = make_prediction(entity_id="obj", kind=kind, expected=expected, tolerance=tol)
+        pred = make_prediction(entity_id=eid, kind=kind, expected=expected, tolerance=tol)
         event = evaluate_prediction(world, pred, observed, update_uncertainty=False)
         assert event is not None, f"{kind} should surprise"
         assert event.magnitude > tol
@@ -546,7 +569,7 @@ def test_prediction_kinds_for_benchmarks() -> None:
 
 def test_world_seal_and_verify_round_trip(tmp_path: Path) -> None:
     world = build_world_model(
-        [_obs(0, [_entity("z", [0.0, 0.0, 0.0])])], scene_id="seal", session_id="s"
+        [_obs(0, [_entity("trk-0001", [0.0, 0.0, 0.0])])], scene_id="seal", session_id="s"
     )
     world.verify()
     path = tmp_path / "w.json"
@@ -569,3 +592,83 @@ def test_same_as_requires_evidence_on_construction() -> None:
             evidence=[],
             evidence_recorded=False,
         ).seal()
+
+
+# ---------------------------------------------------------------------------
+# Identity provenance gate
+# ---------------------------------------------------------------------------
+
+
+def test_build_world_model_rejects_ground_truth_track_source_by_default() -> None:
+    with pytest.raises(ValueError, match="ground-truth identity is forbidden.*cup"):
+        build_world_model(
+            [
+                {
+                    "frame_index": 0,
+                    "track_source": "ground_truth",
+                    "entities": [
+                        {
+                            "entity_id": "cup",
+                            "class_label": "cup",
+                            "pose_m": [0.0, 0.0, 0.1, 1, 0, 0, 0],
+                        }
+                    ],
+                }
+            ],
+            scene_id="gt-reject",
+        )
+
+
+def test_build_world_model_rejects_missing_track_source_by_default() -> None:
+    with pytest.raises(ValueError, match="missing track_source"):
+        build_world_model(
+            [
+                {
+                    "frame_index": 0,
+                    "entities": [
+                        {
+                            "entity_id": "sofa",
+                            "class_label": "sofa",
+                            "pose_m": [0.0, 0.0, 0.0, 1, 0, 0, 0],
+                        }
+                    ],
+                }
+            ],
+            scene_id="silent-reject",
+        )
+
+
+def test_build_world_model_allow_ground_truth_records_provenance() -> None:
+    world = build_world_model(
+        [
+            {
+                "frame_index": 0,
+                "track_source": "ground_truth",
+                "entities": [
+                    {
+                        "entity_id": "lamp",
+                        "class_label": "lamp",
+                        "pose_m": [0.0, 0.0, 0.5, 1, 0, 0, 0],
+                    }
+                ],
+            }
+        ],
+        scene_id="gt-allowed",
+        allow_ground_truth=True,
+    )
+    assert world.meta["identity_provenance"] == "ground_truth"
+    assert world.entities["lamp"].identity_provenance["track_source"] == "ground_truth"
+    assert world.entities["lamp"].identity_provenance["minted_by"] == "caller"
+    assert 0 in world.entities["lamp"].identity_provenance["source_observation_frames"]
+
+
+def test_tracker_shaped_id_reports_minted_by_tracker() -> None:
+    world = build_world_model(
+        [_obs(0, [_entity("trk-0042", [0.1, 0.0, 0.0])])],
+        scene_id="mint-tracker",
+    )
+    assert world.meta["identity_provenance"] == "perception"
+    entity = world.entities["trk-0042"]
+    assert entity.identity_provenance["minted_by"] == "tracker"
+    assert entity.identity_provenance["track_source"] == "perception"
+    assert entity.identity_provenance["source_observation_frames"] == [0]
