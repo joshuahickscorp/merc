@@ -54,9 +54,17 @@ perms=$(stat -c '%a' "$ROOT/.env" 2>/dev/null || stat -f '%Lp' "$ROOT/.env")
 # The image records MERC_BUILD_COMMIT and reports modified:false regardless of
 # whether the tree was dirty, so an image built from uncommitted work claims a
 # provenance it does not have.
-[ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ] \
-  && ok "worktree clean, /version will be true" \
-  || { bad "worktree is dirty; commit first or /version lies about what is running"; FAILED=1; }
+# 2>/dev/null on its own would turn a git FAILURE into an empty string, which
+# reads as "clean". Check git works first, then check the tree.
+if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  bad "not a git repository (or git failed); cannot confirm what will be built"
+  FAILED=1
+elif [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
+  bad "worktree is dirty; commit first or /version lies about what is running"
+  FAILED=1
+else
+  ok "worktree clean, /version will be true"
+fi
 
 # ------------------------------------------------------- the env cutover trap
 # CX_TOKEN_KEY is the one that cannot be regenerated: control/crypto.go derives
@@ -125,6 +133,10 @@ else
   FAILED=1
 fi
 
+[ -n "${SITE_HOST:-}" ] && ok "SITE_HOST=$SITE_HOST" \
+  || { bad "SITE_HOST is unset. Every verification URL below interpolates it, and
+        under 'set -u' the script would abort mid-deploy."; FAILED=1; }
+
 # --------------------------------------------------------------- compose sane
 docker compose -f "$ROOT/docker-compose.prod.yml" -f "$ROOT/docker-compose.observability.yml" \
   config -q 2>/dev/null && ok "compose files validate" \
@@ -137,8 +149,12 @@ printf '\n  preflight passed\n\n'
 [ "$DRY" -eq 1 ] && { printf 'dry run: stopping before any change.\n'; exit 0; }
 
 # ------------------------------------------------------------------- confirm
-current=$(curl -fsS --max-time 5 "https://${SITE_HOST:-localhost}/version" 2>/dev/null \
-          | jq -r '.commit // "unknown"' 2>/dev/null || printf 'unreachable')
+# The commit currently serving. scripts/rollback.sh takes a COMMIT, not an
+# image id, so this is the value a rollback actually needs -- capturing an image
+# id instead is why the first version of this script could not roll back at all.
+previous_commit=$(curl -fsS --max-time 5 "https://${SITE_HOST}/version" 2>/dev/null \
+          | jq -r '.commit // empty' 2>/dev/null || printf '')
+current="${previous_commit:-unreachable}"
 printf 'about to deploy\n'
 printf '  host:        %s\n' "${SITE_HOST:-unset}"
 printf '  from commit: %s\n' "$(git -C "$ROOT" rev-parse --short HEAD)"
@@ -157,37 +173,69 @@ else die "backup FAILED. Not deploying: without a good backup a bad deploy has n
        way back."; fi
 
 # --------------------------------------------------------------------- deploy
-previous=$(docker compose -f "$ROOT/docker-compose.prod.yml" images -q control 2>/dev/null | head -1)
 printf '\ndeploying\n'
 if bash "$ROOT/scripts/deploy.sh"; then ok "containers up"
-else die "deploy failed. The previous image is still ${previous:-unknown}; run
-       scripts/deploy.sh by hand to see the error."; fi
+else die "deploy failed. Nothing was rolled back because nothing replaced the
+       running container yet; run scripts/deploy.sh by hand to see the error."; fi
 
 # --------------------------------------------------------------------- verify
-printf '\nverifying from off-box\n'
+printf '\nverifying\n'
 verify_failed=0
-for i in $(seq 1 30); do
+want=$(git -C "$ROOT" rev-parse HEAD)
+
+# /healthz, not /health. control/api.go serves GET /healthz and GET /readyz;
+# there is no /health route, so the first version of this check failed on EVERY
+# deploy and took the rollback branch on deploys that had actually succeeded.
+health_ok=0
+for _ in $(seq 1 30); do
   sleep 4
-  body=$(curl -fsS --max-time 10 "https://${SITE_HOST}/version" 2>/dev/null) || continue
-  got=$(printf '%s' "$body" | jq -r '.commit // empty')
-  want=$(git -C "$ROOT" rev-parse HEAD)
-  if [ "$got" = "$want" ] || [ "$got" = "${want:0:${#got}}" ]; then
-    ok "/version reports the commit just deployed"
-    break
+  if curl -fsS --max-time 10 "https://${SITE_HOST}/healthz" >/dev/null 2>&1; then
+    health_ok=1; break
   fi
-  [ "$i" -eq 30 ] && { bad "/version still reports '$got', wanted '$want'"; verify_failed=1; }
 done
-curl -fsS --max-time 10 "https://${SITE_HOST}/health" >/dev/null 2>&1 \
-  && ok "/health responds over TLS" || { bad "/health did not respond"; verify_failed=1; }
+[ "$health_ok" -eq 1 ] && ok "/healthz responds over TLS" \
+  || { bad "/healthz did not respond within 120s"; verify_failed=1; }
+
+# The commit check must REQUIRE a commit. `${want:0:${#got}}` with an empty got
+# expands to the empty string and matches anything, so a /version answering {}
+# -- including an OLD container still serving -- passed as "the commit just
+# deployed". That was the sole condition gating rollback.
+commit_ok=0
+for _ in $(seq 1 15); do
+  body=$(curl -fsS --max-time 10 "https://${SITE_HOST}/version" 2>/dev/null) || { sleep 4; continue; }
+  got=$(printf '%s' "$body" | jq -r '.commit // empty' 2>/dev/null || printf '')
+  if [ "${#got}" -ge 7 ] && [ "$got" = "${want:0:${#got}}" ]; then
+    ok "/version reports ${got}, the commit just deployed"
+    commit_ok=1; break
+  fi
+  sleep 4
+done
+if [ "$commit_ok" -ne 1 ]; then
+  bad "/version never reported the deployed commit (${want:0:12}); last saw '${got:-nothing}'"
+  verify_failed=1
+fi
 
 if [ "$verify_failed" -ne 0 ]; then
-  printf '\nverification FAILED — rolling back\n'
-  if [ -n "$previous" ] && bash "$ROOT/scripts/deploy.sh" 2>/dev/null; then
-    warn "rolled back to $previous; the new build is NOT live"
+  printf '\nverification FAILED\n'
+  if [ -z "$previous_commit" ]; then
+    die "cannot roll back: the commit serving before this deploy was never
+       readable from https://${SITE_HOST}/version, so there is no target. Roll
+       back by hand:  bash scripts/rollback.sh <previous-40-char-commit>"
+  fi
+  # A REAL rollback. Re-running deploy.sh would rebuild the same commit from the
+  # same worktree and redeploy the identical broken build while reporting that
+  # it had rolled back.
+  printf 'rolling back to %s\n' "${previous_commit:0:12}"
+  if bash "$ROOT/scripts/rollback.sh" "$previous_commit"; then
+    if curl -fsS --max-time 10 "https://${SITE_HOST}/healthz" >/dev/null 2>&1; then
+      warn "rolled back to ${previous_commit:0:12} and it is serving; the new build is NOT live"
+    else
+      die "rolled back to ${previous_commit:0:12} but /healthz is still not
+       responding. THE SITE MAY BE DOWN. Investigate now."
+    fi
   else
-    die "verification failed AND rollback did not run cleanly. The site may be
-       down. Roll back by hand: docker compose -f docker-compose.prod.yml up -d
-       with the previous image ${previous:-unknown}."
+    die "rollback FAILED. THE SITE MAY BE DOWN, running a build that did not
+       verify. Roll back by hand:  bash scripts/rollback.sh $previous_commit"
   fi
   exit 1
 fi
