@@ -1,0 +1,1714 @@
+{
+  "camera_sequence": {
+    "attestation": {
+      "authority": "RUNTIME_OBSERVED",
+      "blocked_reason": "",
+      "command": [
+        "/Applications/Blender.app/Contents/MacOS/Blender",
+        "--background",
+        "--factory-startup",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/benchmarks/ocular_retina/generate_fixture.py",
+        "--",
+        "artifacts/ocular/retina/camera_motion/blender",
+        "camera_motion"
+      ],
+      "created_at": "2026-07-27T07:10:03.845668+00:00",
+      "digest": "a01bb7c8af79aa8fc8fa9304607a38c9e9dc0d5cf013d3d0c2c226d88d61b5d6",
+      "elapsed_seconds": 7.394268250092864,
+      "ended_at": "2026-07-27T07:10:03.845353+00:00",
+      "environment": {
+        "PATH": "/Users/scammermike/.grok/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/usr/local/go/bin:/Users/scammermike/.nvm/versions/node/v23.2.0/bin:/Users/scammermike/.cargo/bin:/Users/scammermike/go/bin:/Users/scammermike/Library/pnpm:/Users/scammermike/.local/bin:/Users/scammermike/.claude/plugins/cache/caveman/caveman/0d95a81d35a9/bin:/Users/scammermike/.claude/plugins/cache/cloudflare/cloudflare/1.0.0/bin:/Users/scammermike/.claude/plugins/cache/ponytail/ponytail/4.8.4/bin:/Users/scammermike/Library/Application Support/Claude/local-agent-mode-sessions/381ef320-0df1-422f-a56a-df320fb36e5a/6dd4bf67-30bf-4cde-85e3-ba11ba558394/rpm/plugin_0155zZVATbJU3jHUmPP9NvMC/bin:/Users/scammermike/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/6dd4bf67-30bf-4cde-85e3-ba11ba558394/381ef320-0df1-422f-a56a-df320fb36e5a/bin"
+      },
+      "executable": "/Applications/Blender.app/Contents/MacOS/Blender",
+      "executable_sha256": "b5737da97b0e164cc18e227be115c4ea2791d11e9577f7e302c73f4871f9249c",
+      "execution_class": "PHYSICAL",
+      "failure_kind": null,
+      "host": {
+        "cpu_count": 28,
+        "machine": "arm64",
+        "platform": "darwin",
+        "python": "3.13.13",
+        "release": "27.0.0"
+      },
+      "id": "attest-blender-1785136203766",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "unspecified",
+        "parameters": {},
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "notes": [],
+      "output_digests": {
+        "manifest": "0913d09fbd860d84fb9af8fdcff6e3afe9dd2a8142bedf43f6adee31686087f2"
+      },
+      "process_id": 70548,
+      "record_kind": "ocular.runtime-attestation",
+      "returncode": 0,
+      "runtime": "blender",
+      "schema_version": "2",
+      "started_at": "2026-07-27T07:09:56.451073+00:00",
+      "stderr_tail": "",
+      "stdout_tail": " Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0010.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:11 Mem:45.74M (Peak 46.97M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:11 Mem:45.85M (Peak 46.97M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0011.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:12 Mem:45.80M (Peak 47.02M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:12 Mem:45.90M (Peak 47.02M) | Time:00:00.08 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0012.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:13 Mem:45.85M (Peak 47.08M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:13 Mem:46.02M (Peak 47.08M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0013.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:14 Mem:45.97M (Peak 47.20M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:14 Mem:46.08M (Peak 47.20M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0014.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:15 Mem:46.03M (Peak 47.25M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:15 Mem:46.13M (Peak 47.25M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0015.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:16 Mem:46.08M (Peak 47.31M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:16 Mem:46.19M (Peak 47.31M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0016.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:17 Mem:46.14M (Peak 47.36M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:17 Mem:46.25M (Peak 47.36M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0017.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:18 Mem:46.19M (Peak 47.42M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:18 Mem:46.30M (Peak 47.42M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0018.png'\nTime: 00:00.08 (Saving: 00:00.00)\n\nFra:19 Mem:46.25M (Peak 47.47M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:19 Mem:46.36M (Peak 47.47M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0019.png'\nTime: 00:00.08 (Saving: 00:00.00)\n\nFra:20 Mem:46.30M (Peak 47.53M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:20 Mem:46.41M (Peak 47.53M) | Time:00:00.08 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0020.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:21 Mem:46.36M (Peak 47.58M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:21 Mem:46.47M (Peak 47.58M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0021.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:22 Mem:46.42M (Peak 47.64M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:22 Mem:46.52M (Peak 47.64M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0022.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:23 Mem:46.47M (Peak 47.70M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:23 Mem:46.58M (Peak 47.70M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0023.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:24 Mem:46.53M (Peak 47.75M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:24 Mem:46.63M (Peak 47.75M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/camera_motion/blender/frames/frame_0024.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nOCULAR_FIXTURE_OK mode=camera_motion frames=24 out=artifacts/ocular/retina/camera_motion/blender\n\nBlender quit\nError: Not freed memory blocks: 1, total unfreed memory 0.062584 MB\n",
+      "substituted_by": "",
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "version": "Blender 4.2.1 LTS"
+    },
+    "event_counts": {
+      "CAMERA_MOVED": 23
+    },
+    "events": [
+      {
+        "confidence": 0.9523954266823635,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000001",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.041666666666666664,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000002",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.08333333333333333,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000003",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.125,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000004",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.16666666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.9523449563860168,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000005",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.20833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.9638820019099386,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000006",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.25,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000007",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.2916666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000008",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.3333333333333333,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.9667583059362812,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000009",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.375,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000010",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.4166666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.9708249976662657,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000011",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.4583333333333333,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000012",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.5,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000013",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.5416666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000014",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.5833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000015",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.625,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000016",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.6666666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000017",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.7083333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000018",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.75,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000019",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.7916666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000020",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.8333333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000021",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.875,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000022",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.9166666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "CAMERA_MOVED",
+        "frame_id": "camera-motion-f000023",
+        "region": [
+          0.0,
+          0.0,
+          320.0,
+          240.0
+        ],
+        "timestamp": 0.9583333333333334,
+        "written_by_lane": "attentive"
+      }
+    ],
+    "run": {
+      "attentive_latency_ms": {
+        "n": 24,
+        "p50": 10.194916976615787,
+        "p95": 10.910082957707345
+      },
+      "dropped_frames": 0,
+      "event_counts": {
+        "CAMERA_MOVED": 23
+      },
+      "n_frames": 24,
+      "reflex_latency_ms": {
+        "n": 24,
+        "p50": 0.17970800399780273,
+        "p95": 0.198333989828825
+      },
+      "stream_state": {
+        "attestation_id": "",
+        "calibration_receipt": "",
+        "coordinate_frame": {
+          "forward_axis": "+Z",
+          "handedness": "right",
+          "name": "opencv-camera",
+          "origin_semantics": "camera-centre",
+          "scale_authority": "UNRESOLVED",
+          "units": "m",
+          "up_axis": "-Y"
+        },
+        "execution_class": "PHYSICAL",
+        "sensor_id": "sensor-blender_render-camera-motion",
+        "source_type": "blender_render",
+        "state": "closed",
+        "stats": {
+          "buffer_capacity": 32,
+          "buffer_occupancy": 24,
+          "closed_at": "2026-07-27T07:10:04.128078+00:00",
+          "frames_dropped": 0,
+          "frames_emitted": 24,
+          "last_timestamp": 0.9583333333333334,
+          "opened_at": "2026-07-27T07:10:03.846245+00:00"
+        },
+        "stream_id": "camera-motion"
+      }
+    },
+    "source": "blender"
+  },
+  "hard_events": [
+    "OBJECT_ENTERED",
+    "OBJECT_LEFT",
+    "OBJECT_OCCLUDED"
+  ],
+  "object_sequence": {
+    "attestation": {
+      "authority": "RUNTIME_OBSERVED",
+      "blocked_reason": "",
+      "command": [
+        "/Applications/Blender.app/Contents/MacOS/Blender",
+        "--background",
+        "--factory-startup",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/benchmarks/ocular_retina/generate_fixture.py",
+        "--",
+        "artifacts/ocular/retina/object_motion/blender",
+        "object_motion"
+      ],
+      "created_at": "2026-07-27T07:09:55.965396+00:00",
+      "digest": "82bfa76899edba7f90ecc6002d6ae9d0af12650165fc77fb2e69954e1da76b9b",
+      "elapsed_seconds": 7.41428712499328,
+      "ended_at": "2026-07-27T07:09:55.964820+00:00",
+      "environment": {
+        "PATH": "/Users/scammermike/.grok/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/usr/local/go/bin:/Users/scammermike/.nvm/versions/node/v23.2.0/bin:/Users/scammermike/.cargo/bin:/Users/scammermike/go/bin:/Users/scammermike/Library/pnpm:/Users/scammermike/.local/bin:/Users/scammermike/.claude/plugins/cache/caveman/caveman/0d95a81d35a9/bin:/Users/scammermike/.claude/plugins/cache/cloudflare/cloudflare/1.0.0/bin:/Users/scammermike/.claude/plugins/cache/ponytail/ponytail/4.8.4/bin:/Users/scammermike/Library/Application Support/Claude/local-agent-mode-sessions/381ef320-0df1-422f-a56a-df320fb36e5a/6dd4bf67-30bf-4cde-85e3-ba11ba558394/rpm/plugin_0155zZVATbJU3jHUmPP9NvMC/bin:/Users/scammermike/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/6dd4bf67-30bf-4cde-85e3-ba11ba558394/381ef320-0df1-422f-a56a-df320fb36e5a/bin"
+      },
+      "executable": "/Applications/Blender.app/Contents/MacOS/Blender",
+      "executable_sha256": "b5737da97b0e164cc18e227be115c4ea2791d11e9577f7e302c73f4871f9249c",
+      "execution_class": "PHYSICAL",
+      "failure_kind": null,
+      "host": {
+        "cpu_count": 28,
+        "machine": "arm64",
+        "platform": "darwin",
+        "python": "3.13.13",
+        "release": "27.0.0"
+      },
+      "id": "attest-blender-1785136195887",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "unspecified",
+        "parameters": {},
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "notes": [],
+      "output_digests": {
+        "manifest": "33ccdf134c70b882ac0e3f9934203916d0e97580598c4cad66aa321dcbf748ea"
+      },
+      "process_id": 70548,
+      "record_kind": "ocular.runtime-attestation",
+      "returncode": 0,
+      "runtime": "blender",
+      "schema_version": "2",
+      "started_at": "2026-07-27T07:09:48.550517+00:00",
+      "stderr_tail": "",
+      "stdout_tail": " Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0010.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:11 Mem:45.73M (Peak 46.95M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:11 Mem:45.84M (Peak 46.95M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0011.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:12 Mem:45.78M (Peak 47.01M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:12 Mem:45.89M (Peak 47.01M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0012.png'\nTime: 00:00.08 (Saving: 00:00.00)\n\nFra:13 Mem:45.84M (Peak 47.07M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:13 Mem:46.01M (Peak 47.07M) | Time:00:00.08 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0013.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:14 Mem:45.96M (Peak 47.18M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:14 Mem:46.07M (Peak 47.18M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0014.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:15 Mem:46.01M (Peak 47.24M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:15 Mem:46.12M (Peak 47.24M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0015.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:16 Mem:46.07M (Peak 47.29M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:16 Mem:46.18M (Peak 47.29M) | Time:00:00.08 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0016.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:17 Mem:46.13M (Peak 47.35M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:17 Mem:46.23M (Peak 47.35M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0017.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:18 Mem:46.18M (Peak 47.41M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:18 Mem:46.29M (Peak 47.41M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0018.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:19 Mem:46.24M (Peak 47.46M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:19 Mem:46.34M (Peak 47.46M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0019.png'\nTime: 00:00.08 (Saving: 00:00.00)\n\nFra:20 Mem:46.29M (Peak 47.52M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:20 Mem:46.40M (Peak 47.52M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0020.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:21 Mem:46.35M (Peak 47.57M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:21 Mem:46.46M (Peak 47.57M) | Time:00:00.08 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0021.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:22 Mem:46.40M (Peak 47.63M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:22 Mem:46.51M (Peak 47.63M) | Time:00:00.07 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0022.png'\nTime: 00:00.08 (Saving: 00:00.00)\n\nFra:23 Mem:46.46M (Peak 47.68M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:23 Mem:46.57M (Peak 47.68M) | Time:00:00.08 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0023.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nFra:24 Mem:46.51M (Peak 47.74M) | Time:00:00.03 | Rendering 1 / 16 samples\nFra:24 Mem:46.62M (Peak 47.74M) | Time:00:00.08 | Rendering 16 / 16 samples\nSaved: 'artifacts/ocular/retina/object_motion/blender/frames/frame_0024.png'\nTime: 00:00.09 (Saving: 00:00.00)\n\nOCULAR_FIXTURE_OK mode=object_motion frames=24 out=artifacts/ocular/retina/object_motion/blender\n\nBlender quit\nError: Not freed memory blocks: 1, total unfreed memory 0.062584 MB\n",
+      "substituted_by": "",
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "version": "Blender 4.2.1 LTS"
+    },
+    "events": [
+      {
+        "confidence": 0.48855618635813397,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000004",
+        "region": [
+          0.0,
+          103.0,
+          55.0,
+          64.0
+        ],
+        "timestamp": 0.16666666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000004",
+        "region": [
+          0.0,
+          125.0,
+          44.0,
+          34.0
+        ],
+        "timestamp": 0.16666666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000004",
+        "region": [
+          0.0,
+          125.0,
+          44.0,
+          34.0
+        ],
+        "timestamp": 0.16666666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000004",
+        "region": [
+          0.0,
+          99.0,
+          50.0,
+          42.0
+        ],
+        "timestamp": 0.16666666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000004",
+        "region": [
+          0.0,
+          99.0,
+          50.0,
+          42.0
+        ],
+        "timestamp": 0.16666666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.6219448645909628,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000005",
+        "region": [
+          0.0,
+          101.0,
+          97.0,
+          65.0
+        ],
+        "timestamp": 0.20833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000005",
+        "region": [
+          13.0,
+          149.0,
+          19.0,
+          7.0
+        ],
+        "timestamp": 0.20833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000005",
+        "region": [
+          13.0,
+          149.0,
+          19.0,
+          7.0
+        ],
+        "timestamp": 0.20833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000005",
+        "region": [
+          0.0,
+          125.0,
+          15.0,
+          34.0
+        ],
+        "timestamp": 0.20833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000005",
+        "region": [
+          0.0,
+          125.0,
+          15.0,
+          34.0
+        ],
+        "timestamp": 0.20833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000005",
+        "region": [
+          40.0,
+          99.0,
+          48.0,
+          60.0
+        ],
+        "timestamp": 0.20833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000005",
+        "region": [
+          40.0,
+          99.0,
+          48.0,
+          60.0
+        ],
+        "timestamp": 0.20833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000005",
+        "region": [
+          17.0,
+          99.0,
+          19.0,
+          8.0
+        ],
+        "timestamp": 0.20833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000005",
+        "region": [
+          17.0,
+          99.0,
+          19.0,
+          8.0
+        ],
+        "timestamp": 0.20833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.49421560764312744,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000006",
+        "region": [
+          0.0,
+          100.0,
+          131.0,
+          67.0
+        ],
+        "timestamp": 0.25,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000006",
+        "region": [
+          82.0,
+          99.0,
+          44.0,
+          60.0
+        ],
+        "timestamp": 0.25,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000006",
+        "region": [
+          82.0,
+          99.0,
+          44.0,
+          60.0
+        ],
+        "timestamp": 0.25,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000006",
+        "region": [
+          0.0,
+          102.0,
+          30.0,
+          23.0
+        ],
+        "timestamp": 0.25,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000006",
+        "region": [
+          0.0,
+          125.0,
+          15.0,
+          34.0
+        ],
+        "timestamp": 0.25,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.4656566381454468,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000007",
+        "region": [
+          65.0,
+          100.0,
+          106.0,
+          72.0
+        ],
+        "timestamp": 0.2916666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000007",
+        "region": [
+          125.0,
+          125.0,
+          40.0,
+          34.0
+        ],
+        "timestamp": 0.2916666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000007",
+        "region": [
+          125.0,
+          125.0,
+          40.0,
+          34.0
+        ],
+        "timestamp": 0.2916666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000007",
+        "region": [
+          0.0,
+          102.0,
+          30.0,
+          23.0
+        ],
+        "timestamp": 0.2916666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000007",
+        "region": [
+          13.0,
+          149.0,
+          19.0,
+          7.0
+        ],
+        "timestamp": 0.2916666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000007",
+        "region": [
+          0.0,
+          125.0,
+          15.0,
+          34.0
+        ],
+        "timestamp": 0.2916666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000007",
+        "region": [
+          17.0,
+          99.0,
+          19.0,
+          8.0
+        ],
+        "timestamp": 0.2916666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000008",
+        "region": [
+          185.0,
+          150.0,
+          15.0,
+          9.0
+        ],
+        "timestamp": 0.3333333333333333,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000008",
+        "region": [
+          185.0,
+          150.0,
+          15.0,
+          9.0
+        ],
+        "timestamp": 0.3333333333333333,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000008",
+        "region": [
+          89.0,
+          99.0,
+          28.0,
+          8.0
+        ],
+        "timestamp": 0.3333333333333333,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.17477877934773764,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000009",
+        "region": [
+          145.0,
+          93.0,
+          92.0,
+          73.0
+        ],
+        "timestamp": 0.375,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000009",
+        "region": [
+          224.0,
+          113.0,
+          8.0,
+          12.0
+        ],
+        "timestamp": 0.375,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000009",
+        "region": [
+          224.0,
+          113.0,
+          8.0,
+          12.0
+        ],
+        "timestamp": 0.375,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000009",
+        "region": [
+          86.0,
+          99.0,
+          79.0,
+          60.0
+        ],
+        "timestamp": 0.375,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000009",
+        "region": [
+          89.0,
+          99.0,
+          28.0,
+          8.0
+        ],
+        "timestamp": 0.375,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000009",
+        "region": [
+          185.0,
+          150.0,
+          15.0,
+          9.0
+        ],
+        "timestamp": 0.375,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.75,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_REAPPEARED",
+        "frame_id": "object-motion-f000010",
+        "region": [
+          180.0,
+          102.0,
+          8.0,
+          15.0
+        ],
+        "timestamp": 0.4166666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000010",
+        "region": [
+          86.0,
+          99.0,
+          79.0,
+          60.0
+        ],
+        "timestamp": 0.4166666666666667,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.2636771599451701,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000011",
+        "region": [
+          186.0,
+          96.0,
+          63.0,
+          71.0
+        ],
+        "timestamp": 0.4583333333333333,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.20917868614196777,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000012",
+        "region": [
+          194.0,
+          92.0,
+          126.0,
+          75.0
+        ],
+        "timestamp": 0.5,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000012",
+        "region": [
+          259.0,
+          99.0,
+          61.0,
+          60.0
+        ],
+        "timestamp": 0.5,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000012",
+        "region": [
+          259.0,
+          99.0,
+          61.0,
+          60.0
+        ],
+        "timestamp": 0.5,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000012",
+        "region": [
+          222.0,
+          99.0,
+          16.0,
+          8.0
+        ],
+        "timestamp": 0.5,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000012",
+        "region": [
+          222.0,
+          99.0,
+          16.0,
+          8.0
+        ],
+        "timestamp": 0.5,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7379304567972819,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000013",
+        "region": [
+          267.0,
+          100.0,
+          53.0,
+          66.0
+        ],
+        "timestamp": 0.5416666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000013",
+        "region": [
+          190.0,
+          107.0,
+          8.0,
+          34.0
+        ],
+        "timestamp": 0.5416666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000013",
+        "region": [
+          220.0,
+          133.0,
+          23.0,
+          25.0
+        ],
+        "timestamp": 0.5416666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000013",
+        "region": [
+          221.0,
+          107.0,
+          23.0,
+          26.0
+        ],
+        "timestamp": 0.5416666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8097445964813232,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000014",
+        "region": [
+          310.0,
+          117.0,
+          10.0,
+          31.0
+        ],
+        "timestamp": 0.5833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000014",
+        "region": [
+          190.0,
+          107.0,
+          8.0,
+          34.0
+        ],
+        "timestamp": 0.5833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000014",
+        "region": [
+          220.0,
+          133.0,
+          23.0,
+          25.0
+        ],
+        "timestamp": 0.5833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000014",
+        "region": [
+          193.0,
+          149.0,
+          7.0,
+          9.0
+        ],
+        "timestamp": 0.5833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000014",
+        "region": [
+          221.0,
+          107.0,
+          23.0,
+          26.0
+        ],
+        "timestamp": 0.5833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000014",
+        "region": [
+          222.0,
+          99.0,
+          16.0,
+          8.0
+        ],
+        "timestamp": 0.5833333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000015",
+        "region": [
+          309.0,
+          102.0,
+          11.0,
+          46.0
+        ],
+        "timestamp": 0.625,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.8,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_LEFT",
+        "frame_id": "object-motion-f000016",
+        "region": [
+          309.0,
+          102.0,
+          11.0,
+          46.0
+        ],
+        "timestamp": 0.6666666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.5342826445897421,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000020",
+        "region": [
+          0.0,
+          131.0,
+          6.0,
+          13.0
+        ],
+        "timestamp": 0.8333333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.75,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_REAPPEARED",
+        "frame_id": "object-motion-f000020",
+        "region": [
+          0.0,
+          119.0,
+          6.0,
+          22.0
+        ],
+        "timestamp": 0.8333333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 1.0,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000021",
+        "region": [
+          0.0,
+          111.0,
+          52.0,
+          55.0
+        ],
+        "timestamp": 0.875,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.5549111763636271,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000022",
+        "region": [
+          0.0,
+          100.0,
+          101.0,
+          68.0
+        ],
+        "timestamp": 0.9166666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.75,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_REAPPEARED",
+        "frame_id": "object-motion-f000022",
+        "region": [
+          0.0,
+          125.0,
+          14.0,
+          16.0
+        ],
+        "timestamp": 0.9166666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.75,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_REAPPEARED",
+        "frame_id": "object-motion-f000022",
+        "region": [
+          40.0,
+          99.0,
+          54.0,
+          60.0
+        ],
+        "timestamp": 0.9166666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000022",
+        "region": [
+          0.0,
+          149.0,
+          8.0,
+          10.0
+        ],
+        "timestamp": 0.9166666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000022",
+        "region": [
+          0.0,
+          149.0,
+          8.0,
+          10.0
+        ],
+        "timestamp": 0.9166666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000022",
+        "region": [
+          19.0,
+          128.0,
+          19.0,
+          13.0
+        ],
+        "timestamp": 0.9166666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000022",
+        "region": [
+          19.0,
+          128.0,
+          19.0,
+          13.0
+        ],
+        "timestamp": 0.9166666666666666,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.21739737192789713,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_MOVED",
+        "frame_id": "object-motion-f000023",
+        "region": [
+          0.0,
+          100.0,
+          147.0,
+          69.0
+        ],
+        "timestamp": 0.9583333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.75,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_REAPPEARED",
+        "frame_id": "object-motion-f000023",
+        "region": [
+          88.0,
+          99.0,
+          50.0,
+          60.0
+        ],
+        "timestamp": 0.9583333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.85,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_ENTERED",
+        "frame_id": "object-motion-f000023",
+        "region": [
+          72.0,
+          149.0,
+          12.0,
+          10.0
+        ],
+        "timestamp": 0.9583333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.7,
+        "correctness_label": "observed",
+        "event_type": "NEW_UNKNOWN_REGION",
+        "frame_id": "object-motion-f000023",
+        "region": [
+          72.0,
+          149.0,
+          12.0,
+          10.0
+        ],
+        "timestamp": 0.9583333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000023",
+        "region": [
+          0.0,
+          125.0,
+          14.0,
+          16.0
+        ],
+        "timestamp": 0.9583333333333334,
+        "written_by_lane": "attentive"
+      },
+      {
+        "confidence": 0.65,
+        "correctness_label": "observed",
+        "event_type": "OBJECT_OCCLUDED",
+        "frame_id": "object-motion-f000023",
+        "region": [
+          19.0,
+          128.0,
+          19.0,
+          13.0
+        ],
+        "timestamp": 0.9583333333333334,
+        "written_by_lane": "attentive"
+      }
+    ],
+    "run": {
+      "attentive_latency_ms": {
+        "n": 24,
+        "p50": 10.189959080889821,
+        "p95": 11.124584008939564
+      },
+      "dropped_frames": 0,
+      "event_counts": {
+        "NEW_UNKNOWN_REGION": 15,
+        "OBJECT_ENTERED": 15,
+        "OBJECT_LEFT": 12,
+        "OBJECT_MOVED": 13,
+        "OBJECT_OCCLUDED": 11,
+        "OBJECT_REAPPEARED": 5
+      },
+      "n_frames": 24,
+      "reflex_latency_ms": {
+        "n": 24,
+        "p50": 0.18462492153048515,
+        "p95": 0.21570792887359858
+      },
+      "stream_state": {
+        "attestation_id": "",
+        "calibration_receipt": "",
+        "coordinate_frame": {
+          "forward_axis": "+Z",
+          "handedness": "right",
+          "name": "opencv-camera",
+          "origin_semantics": "camera-centre",
+          "scale_authority": "UNRESOLVED",
+          "units": "m",
+          "up_axis": "-Y"
+        },
+        "execution_class": "PHYSICAL",
+        "sensor_id": "sensor-blender_render-object-motion",
+        "source_type": "blender_render",
+        "state": "closed",
+        "stats": {
+          "buffer_capacity": 32,
+          "buffer_occupancy": 24,
+          "closed_at": "2026-07-27T07:09:56.254204+00:00",
+          "frames_dropped": 0,
+          "frames_emitted": 24,
+          "last_timestamp": 0.9583333333333334,
+          "opened_at": "2026-07-27T07:09:55.965879+00:00"
+        },
+        "stream_id": "object-motion"
+      }
+    },
+    "score": {
+      "expected_totals": {
+        "OBJECT_ENTERED": 2,
+        "OBJECT_LEFT": 1,
+        "OBJECT_MOVED": 6,
+        "OBJECT_OCCLUDED": 2,
+        "OBJECT_REAPPEARED": 1
+      },
+      "per_type": {
+        "NEW_UNKNOWN_REGION": {
+          "expected": 0,
+          "fn": 0,
+          "fp": 15,
+          "precision": 0.0,
+          "predicted": 15,
+          "recall": 0.0,
+          "tp": 0
+        },
+        "OBJECT_ENTERED": {
+          "expected": 2,
+          "fn": 0,
+          "fp": 13,
+          "precision": 0.13333333333333333,
+          "predicted": 15,
+          "recall": 1.0,
+          "tp": 2
+        },
+        "OBJECT_LEFT": {
+          "expected": 1,
+          "fn": 0,
+          "fp": 11,
+          "precision": 0.08333333333333333,
+          "predicted": 12,
+          "recall": 1.0,
+          "tp": 1
+        },
+        "OBJECT_MOVED": {
+          "expected": 6,
+          "fn": 0,
+          "fp": 7,
+          "precision": 0.46153846153846156,
+          "predicted": 13,
+          "recall": 1.0,
+          "tp": 6
+        },
+        "OBJECT_OCCLUDED": {
+          "expected": 2,
+          "fn": 0,
+          "fp": 9,
+          "precision": 0.18181818181818182,
+          "predicted": 11,
+          "recall": 1.0,
+          "tp": 2
+        },
+        "OBJECT_REAPPEARED": {
+          "expected": 1,
+          "fn": 0,
+          "fp": 4,
+          "precision": 0.2,
+          "predicted": 5,
+          "recall": 1.0,
+          "tp": 1
+        }
+      },
+      "predicted_totals": {
+        "NEW_UNKNOWN_REGION": 15,
+        "OBJECT_ENTERED": 15,
+        "OBJECT_LEFT": 12,
+        "OBJECT_MOVED": 13,
+        "OBJECT_OCCLUDED": 11,
+        "OBJECT_REAPPEARED": 5
+      }
+    },
+    "source": "blender"
+  },
+  "peak_rss_mb": 118.3125,
+  "recall_threshold": 0.5,
+  "webcam": {
+    "attestation": {
+      "authority": "UNRESOLVED",
+      "blocked_reason": "webcam index 0 could not be opened (no camera present, permission denied, or device busy)",
+      "command": [],
+      "created_at": "2026-07-27T07:10:04.262498+00:00",
+      "digest": "01705372861dbc93af4c47017287b16407f3c19e79b37686e03035488891d708",
+      "elapsed_seconds": 0.0,
+      "ended_at": "",
+      "environment": {},
+      "executable": "",
+      "executable_sha256": "",
+      "execution_class": "BLOCKED",
+      "failure_kind": null,
+      "host": {
+        "cpu_count": 28,
+        "machine": "arm64",
+        "platform": "darwin",
+        "python": "3.13.13",
+        "release": "27.0.0"
+      },
+      "id": "attest-webcam-blocked-1785136204262",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "unspecified",
+        "parameters": {},
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "notes": [],
+      "output_digests": {},
+      "process_id": 0,
+      "record_kind": "ocular.runtime-attestation",
+      "returncode": null,
+      "runtime": "webcam",
+      "schema_version": "2",
+      "started_at": "",
+      "stderr_tail": "",
+      "stdout_tail": "",
+      "substituted_by": "",
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "version": ""
+    },
+    "status": "blocked"
+  }
+}
