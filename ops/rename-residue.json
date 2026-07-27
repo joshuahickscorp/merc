@@ -3,7 +3,7 @@
   "kind": "rename_residue_audit",
   "counts": {
     "FROZEN": 242,
-    "BLOCKED": 350,
+    "BLOCKED": 348,
     "RESIDUE": 0
   },
   "blocked_by_prerequisite": {
@@ -14,7 +14,7 @@
     "systemd unit installed under this name; disable the old timer first": 17,
     "published image tag": 13,
     "real directory on supplier machines": 13,
-    "droplet .env, GitHub Actions secrets and systemd units supply these; CX_TOKEN_KEY must be copied byte-identically or every sealed secret in Postgres becomes undecryptable": 13,
+    "droplet .env, GitHub Actions secrets and systemd units supply these; CX_TOKEN_KEY must be copied byte-identically or every sealed secret in Postgres becomes undecryptable": 11,
     "rename the GitHub repository first": 10,
     "static binary baked into the published image and named in the compose healthcheck; must move with the image": 9,
     "real directory on the droplet": 8,

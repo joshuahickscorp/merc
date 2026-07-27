@@ -1,14 +1,14 @@
 # Observability stack for local proof and production canary hosts.
 #
 # Standalone (alert delivery proof; control scrape will soft-fail):
-#   CX_ALERT_RECEIVER_URL_FILE=/abs/path/to/url.txt \
+#   MERC_ALERT_RECEIVER_URL_FILE=/abs/path/to/url.txt \
 #     docker compose -f docker-compose.observability.yml up -d prometheus alertmanager
 #
 # With the application stack:
 #   docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml up -d
 #
 # Required operator inputs (fail closed when absent):
-#   CX_ALERT_RECEIVER_URL_FILE  absolute path to a file whose sole contents are the
+#   MERC_ALERT_RECEIVER_URL_FILE  absolute path to a file whose sole contents are the
 #                               webhook URL Alertmanager posts to (http or https)
 #   GF_SECURITY_ADMIN_PASSWORD  Grafana admin password (only when starting grafana)
 #
@@ -131,7 +131,12 @@ secrets:
   # Compose refuses to start when this path is unset or the file is missing.
   # Contents: a single webhook URL, no trailing commentary.
   alert_receiver_url:
-    file: ${CX_ALERT_RECEIVER_URL_FILE:?required — absolute path to file containing the alert receiver webhook URL (see monitoring/README.md)}
+    # MERC_ first, CX_ as the pre-cutover fallback. scripts/bootstrap-prod.sh and
+    # monitoring/README.md both use MERC_, and this file required CX_ only --
+    # so a production deploy that followed its own bootstrap script failed at
+    # compose up. Accepting both is also what the env-var cutover needs: the
+    # droplet can be switched over without a flag-day.
+    file: ${MERC_ALERT_RECEIVER_URL_FILE:-${CX_ALERT_RECEIVER_URL_FILE:?required — absolute path to file containing the alert receiver webhook URL; set MERC_ALERT_RECEIVER_URL_FILE (see monitoring/README.md)}}
 
 volumes:
   prometheus_data:
