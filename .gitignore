@@ -128,3 +128,6 @@ tmp/
 # TypeScript SDK build output and local deps
 sdk/typescript/dist/
 sdk/typescript/node_modules/
+
+# Local canary credentials. Never commit.
+.merc-credentials.env

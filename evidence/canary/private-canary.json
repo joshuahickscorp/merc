@@ -142,9 +142,9 @@
     },
     {
       "lane": "buyer_dashboard",
-      "status": "TESTED",
+      "status": "CANARY_PROVEN",
       "reason": "passed",
-      "note": "web/buyer.html renders and is CSP hash-bound; not driven by a real buyer session"
+      "note": "the page's own script signs in against a running merc and opens its workspace; every route it calls must be one merc serves"
     },
     {
       "lane": "supplier_console",
@@ -181,6 +181,7 @@
     "CANARY_PROVEN": [
       "backup_restore",
       "batch_inference",
+      "buyer_dashboard",
       "embeddings",
       "failure_recovery",
       "object_storage",
@@ -202,12 +203,11 @@
     ],
     "TESTED": [
       "alerts",
-      "buyer_dashboard",
       "external_model_onboarding"
     ]
   },
   "lanes_total": 21,
-  "lanes_canary_proven": 12,
+  "lanes_canary_proven": 13,
   "all_lanes_canary_proven": false,
   "public_capability_allowed": false,
   "note": "A lane is CANARY_PROVEN only when its command walks the full chain -- buyer request, contract, scheduler, real runtime, verification, buyer debit, supplier payable, receipt. A lane that passed a partial test is TESTED. A lane whose capability is missing is EXTERNALLY_BLOCKED and names what is missing. There is no override."
