@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "kind": "runtime_concurrency_sweep",
+  "label": "CUDA RTX A5000 / vLLM 0.26 TUNED (prefix-cache, chunked-prefill, max-num-seqs 256, util 0.95) / Qwen2.5-1.5B fp16",
+  "model": "merc-vllm",
+  "max_tokens": 128,
+  "cost_per_hour_usd": 0.27,
+  "levels": {
+    "1": {
+      "requests": 3,
+      "errors": 0,
+      "error_samples": [],
+      "wall_seconds": 2.798,
+      "aggregate_tokens_per_sec": 137.25,
+      "ttft_ms_p50": 185.1,
+      "ttft_ms_p95": 185.2,
+      "latency_s_p50": 0.933,
+      "latency_s_p95": 0.935,
+      "completion_tokens_total": 384
+    },
+    "4": {
+      "requests": 12,
+      "errors": 0,
+      "error_samples": [],
+      "wall_seconds": 3.331,
+      "aggregate_tokens_per_sec": 421.54,
+      "ttft_ms_p50": 377.7,
+      "ttft_ms_p95": 671.2,
+      "latency_s_p50": 1.062,
+      "latency_s_p95": 1.455,
+      "completion_tokens_total": 1404
+    },
+    "16": {
+      "requests": 48,
+      "errors": 0,
+      "error_samples": [],
+      "wall_seconds": 3.683,
+      "aggregate_tokens_per_sec": 1596.23,
+      "ttft_ms_p50": 389.8,
+      "ttft_ms_p95": 460.5,
+      "latency_s_p50": 1.186,
+      "latency_s_p95": 1.281,
+      "completion_tokens_total": 5879
+    },
+    "32": {
+      "requests": 96,
+      "errors": 0,
+      "error_samples": [],
+      "wall_seconds": 4.093,
+      "aggregate_tokens_per_sec": 2841.82,
+      "ttft_ms_p50": 443.2,
+      "ttft_ms_p95": 537.9,
+      "latency_s_p50": 1.285,
+      "latency_s_p95": 1.402,
+      "completion_tokens_total": 11632
+    }
+  },
+  "peak_aggregate_tokens_per_sec": 2841.82,
+  "usd_per_million_tokens_at_peak": 0.0264,
+  "comparability_warning": "Valid only against another sweep with the SAME model, precision and max_tokens. Metal/GGUF-Q4 and CUDA/fp16 are different weights at different precision; quoting one number across them is not a measurement, it is a slogan."
+}

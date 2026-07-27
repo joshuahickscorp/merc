@@ -29,11 +29,29 @@ def main() -> int:
         "imageName": image,
         "gpuTypeIds": [gpu],
         "gpuCount": 1,
-        "containerDiskInGb": 40,
-        "volumeInGb": 40,
+        # Disk, not GPU, is what actually gets refused. A create asking 40GB
+        # container + 40GB volume returned "no instances currently available"
+        # for every GPU class while a 5GB probe on the SAME class succeeded --
+        # the message names the GPU and means the machine cannot satisfy the
+        # whole request. Keep the container lean and let the volume hold the
+        # model cache.
+        "containerDiskInGb": 20,
+        "volumeInGb": 25,
         "volumeMountPath": "/root/.cache/huggingface",
         "ports": ["8000/http"],
         "cloudType": cloud,
+        # Tuning, not defaults. The first sweep ran stock vLLM and left real
+        # throughput unclaimed, which matters because throughput is the
+        # SUPPLIER's margin: they pay the electricity either way, so tokens per
+        # kilowatt-hour is what makes a rig worth attaching to merc.
+        #
+        #   enable-prefix-caching   reuses KV across requests sharing a prefix,
+        #                           compounding with merc's warm-prefix routing
+        #   enable-chunked-prefill  stops a long prompt stalling decode for
+        #                           everyone else in the batch
+        #   max-num-seqs            stock caps concurrency well below what the
+        #                           card can hold
+        #   gpu-memory-utilization  more KV cache means a deeper batch
         "dockerStartCmd": [
             "--model", model,
             "--host", "0.0.0.0",
@@ -41,7 +59,10 @@ def main() -> int:
             "--api-key", key,
             "--max-model-len", "8192",
             "--served-model-name", "merc-vllm",
-            "--gpu-memory-utilization", "0.90",
+            "--gpu-memory-utilization", "0.95",
+            "--enable-prefix-caching",
+            "--enable-chunked-prefill",
+            "--max-num-seqs", "256",
         ],
         "env": {"HF_HUB_ENABLE_HF_TRANSFER": "1"},
     }))
