@@ -27,8 +27,8 @@
       "detail": "STRIPE_SECRET_KEY is not set"
     },
     "openai_sdks": {
-      "present": true,
-      "detail": "official OpenAI SDKs available"
+      "present": false,
+      "detail": "official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)"
     }
   },
   "lanes": [
@@ -61,9 +61,12 @@
     },
     {
       "lane": "openai_sdk_conformance",
-      "status": "TESTED",
-      "reason": "passed",
-      "note": "wire-surface conformance; says nothing about any GPU"
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "openai_sdks"
+      ],
+      "reason": "official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)",
+      "note": "official openai Python 2.48.0 and JS 6.49.0 against merc. Against a REAL engine the JS client passes all seven capabilities and Python passes six: parallel_tool_calls fails because llama.cpp cannot parse this model's tool schema. Against the httptest fake it passed -- the fake was masking a real incompatibility, which is the whole argument for real-runtime proof"
     },
     {
       "lane": "object_storage",
@@ -138,6 +141,36 @@
       "note": "backup scheduling and envelope"
     },
     {
+      "lane": "buyer_dashboard",
+      "status": "TESTED",
+      "reason": "passed",
+      "note": "web/buyer.html renders and is CSP hash-bound; not driven by a real buyer session"
+    },
+    {
+      "lane": "supplier_console",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
+      "note": "worker-token auth, sub-cent money at ledger granularity, 4 payout-rail states and the refusal path, against recorded control-plane responses"
+    },
+    {
+      "lane": "price_board",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
+      "note": "the published page's own arithmetic must match the server's, including where the confidence weights decide the answer"
+    },
+    {
+      "lane": "python_sdk",
+      "status": "TESTED",
+      "reason": "passed",
+      "note": "clean-room install of the built wheel; never run against a deployed merc"
+    },
+    {
+      "lane": "typescript_sdk",
+      "status": "TESTED",
+      "reason": "passed",
+      "note": "binary embeddings decoder, path encoding, auth and wait() timeout; never run against a deployed merc"
+    },
+    {
       "lane": "alerts",
       "status": "TESTED",
       "reason": "passed",
@@ -151,25 +184,30 @@
       "embeddings",
       "failure_recovery",
       "object_storage",
+      "price_board",
       "realtime",
       "receipt_verification",
-      "refunds_disputes"
+      "refunds_disputes",
+      "supplier_console"
     ],
     "EXTERNALLY_BLOCKED": [
       "image_generation",
       "lora",
       "multi_gpu",
+      "openai_sdk_conformance",
       "payouts",
       "runpod_vllm"
     ],
     "TESTED": [
       "alerts",
+      "buyer_dashboard",
       "external_model_onboarding",
-      "openai_sdk_conformance"
+      "python_sdk",
+      "typescript_sdk"
     ]
   },
-  "lanes_total": 16,
-  "lanes_canary_proven": 8,
+  "lanes_total": 21,
+  "lanes_canary_proven": 10,
   "all_lanes_canary_proven": false,
   "public_capability_allowed": false,
   "note": "A lane is CANARY_PROVEN only when its command walks the full chain -- buyer request, contract, scheduler, real runtime, verification, buyer debit, supplier payable, receipt. A lane that passed a partial test is TESTED. A lane whose capability is missing is EXTERNALLY_BLOCKED and names what is missing. There is no override."
