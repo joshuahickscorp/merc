@@ -26,10 +26,17 @@ product.
 
 ## What changed
 
-**RunPod is set up.** The shippability goal's second lane is "RunPod-backed
-pinned vLLM workers through Merc routing, verification and money". That is
-precisely the CUDA supply whose absence justified the kill. The premise is now
-false, so the conclusion drawn from it no longer holds.
+**The goal directs CUDA supply.** The shippability goal's second lane is
+"RunPod-backed pinned vLLM workers through Merc routing, verification and
+money", which is precisely the CUDA supply whose absence justified the kill.
+
+**Correction, 2026-07-27.** An earlier version of this paragraph asserted
+"RunPod is set up." That was inferred from the goal text and never checked. It
+is false: there is no RunPod API key in the environment, no `~/.runpod`, no
+`runpodctl`, and no credential in any `.env`. The reversal is still right — the
+admission change is worth making and the realtime surface is worth having — but
+it was justified partly on a premise I had not verified, and the lane cannot
+reach `REAL_RUNTIME_PROVEN` until a funded RunPod credential exists.
 
 ## What the reversal actually costs
 

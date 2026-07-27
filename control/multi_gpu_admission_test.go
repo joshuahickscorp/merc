@@ -210,3 +210,87 @@ func TestAdmittedPlansAlwaysFit(t *testing.T) {
 	}
 	t.Logf("admitted %d, refused %d", admitted, refused)
 }
+
+// A worker declaring its own topology is a supplier controlling the numbers
+// merc schedules on. These are the ways that goes wrong.
+func TestHostTopologyFromRegistrationDoesNotTrustTheWorker(t *testing.T) {
+	t.Run("absent fields mean one GPU", func(t *testing.T) {
+		// An agent built before these fields existed must keep being treated as
+		// what it was. Defaulting the other way would silently reinterpret every
+		// existing worker as multi-GPU on the day the field shipped.
+		reg := WorkerCapability{HWClass: "nvidia_80gb", MemoryGB: 80}
+		topology, err := hostTopologyFromRegistration(reg)
+		if err != nil {
+			t.Fatalf("a pre-topology registration was refused: %v", err)
+		}
+		if topology.GPUCount != 1 {
+			t.Fatalf("GPUCount %d for a registration that declared none", topology.GPUCount)
+		}
+		if topology.MemoryGBPerGPU != 80 {
+			t.Fatalf("per-GPU memory %v, want the declared total for a single GPU",
+				topology.MemoryGBPerGPU)
+		}
+	})
+
+	t.Run("declared memory is clamped to the class ceiling", func(t *testing.T) {
+		// Believing this would schedule a 700 GB model onto an 80 GB card.
+		reg := WorkerCapability{
+			HWClass: "nvidia_80gb", GPUCount: 2,
+			MemoryGBPerGPU: 900, Interconnect: "nvlink",
+		}
+		topology, err := hostTopologyFromRegistration(reg)
+		if err != nil {
+			t.Fatalf("registration refused: %v", err)
+		}
+		if topology.MemoryGBPerGPU != 80 {
+			t.Fatalf("worker claimed 900 GB on an 80 GB class and merc recorded %v",
+				topology.MemoryGBPerGPU)
+		}
+		// And the clamp must actually bind admission, not just the struct.
+		huge := modelPlacement{
+			ModelID: "huge", WeightsGB: 300, PerRankOverheadGB: 10, AttentionHeads: 32,
+		}
+		if _, err := planTensorParallel(topology, huge); !errors.Is(err, errNoMultiGPUCapacity) {
+			t.Fatalf("a 300 GB model was admitted onto clamped 80 GB GPUs: %v", err)
+		}
+	})
+
+	t.Run("multi-GPU without an interconnect is refused", func(t *testing.T) {
+		reg := WorkerCapability{HWClass: "nvidia_80gb", GPUCount: 4, MemoryGBPerGPU: 80}
+		if _, err := hostTopologyFromRegistration(reg); !errors.Is(err, errTopologyUndeclared) {
+			t.Fatalf("an uncharacterised multi-GPU worker registered: %v", err)
+		}
+	})
+
+	t.Run("an unrecognised interconnect is refused, not ignored", func(t *testing.T) {
+		reg := WorkerCapability{
+			HWClass: "nvidia_80gb", GPUCount: 2,
+			MemoryGBPerGPU: 80, Interconnect: "infiniband-probably",
+		}
+		if _, err := hostTopologyFromRegistration(reg); !errors.Is(err, errTopologyUndeclared) {
+			t.Fatalf("an unrecognised interconnect was accepted: %v", err)
+		}
+	})
+
+	t.Run("a real multi-GPU declaration is admitted", func(t *testing.T) {
+		reg := WorkerCapability{
+			HWClass: "nvidia_80gb", GPUCount: 4,
+			MemoryGBPerGPU: 80, Interconnect: "nvlink",
+		}
+		topology, err := hostTopologyFromRegistration(reg)
+		if err != nil {
+			t.Fatalf("a valid 4x80GB NVLink host was refused: %v", err)
+		}
+		// 140 GB weights + 18 GB per-rank overhead: 140/4 + 18 = 53 <= 80.
+		plan, err := planTensorParallel(topology, modelPlacement{
+			ModelID: "llama-70b-ish", WeightsGB: 140,
+			PerRankOverheadGB: 18, AttentionHeads: 64,
+		})
+		if err != nil {
+			t.Fatalf("plan: %v", err)
+		}
+		if plan.Degree != 4 {
+			t.Fatalf("degree %d, want 4", plan.Degree)
+		}
+	})
+}
