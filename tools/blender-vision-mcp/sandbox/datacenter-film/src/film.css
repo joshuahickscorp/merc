@@ -159,13 +159,23 @@ body[data-mode="text"] #stage { position: static; height: 0; }
 .beat[data-zone="edge"] .beat-inner {
   top: calc(var(--chrome-h) + 20px);
 }
+/* Terminal wall: lower third over the verification surface, with a soft
+   scrim so white copy keeps contrast against bright wall panels. */
 .beat[data-zone="terminal-wall"],
 .beat[data-zone="terminal_wall"] { justify-content: center; text-align: center; align-items: flex-end; }
 .beat[data-zone="terminal-wall"] .beat-inner,
 .beat[data-zone="terminal_wall"] .beat-inner {
   top: auto;
-  bottom: 12vh;
+  bottom: 14vh;
   position: sticky;
+  max-width: 28ch;
+  padding: 14px 18px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to top,
+    rgba(7, 8, 10, 0.72),
+    rgba(7, 8, 10, 0.28)
+  );
 }
 
 .beat .index {
