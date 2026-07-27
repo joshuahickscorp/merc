@@ -1,0 +1,13 @@
+{
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "event_type": "NEW_UNKNOWN_REGION",
+  "expect_fire": true,
+  "fixture_class": "near_threshold",
+  "forbidden_events": [],
+  "image_height": 240,
+  "image_width": 320,
+  "measured_quantity": "global_compensated_residual_no_prior",
+  "n_frames": 5,
+  "notes": "small novel region just above area floor",
+  "onset_frame": 2
+}

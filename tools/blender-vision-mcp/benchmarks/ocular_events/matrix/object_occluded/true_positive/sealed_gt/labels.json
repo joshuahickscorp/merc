@@ -1,0 +1,13 @@
+{
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "event_type": "OBJECT_OCCLUDED",
+  "expect_fire": true,
+  "fixture_class": "true_positive",
+  "forbidden_events": [],
+  "image_height": 240,
+  "image_width": 320,
+  "measured_quantity": "area_ratio",
+  "n_frames": 5,
+  "notes": "area collapses below occlusion ratio (partial occlude)",
+  "onset_frame": 2
+}
