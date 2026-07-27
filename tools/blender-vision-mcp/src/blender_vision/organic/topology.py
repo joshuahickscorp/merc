@@ -69,6 +69,12 @@ class UVReport:
     max_angle_distortion_deg: float
     overlapping_faces: int
     texel_density_variance: float
+    p99_angle_distortion_deg: float = 0.0
+    p95_angle_distortion_deg: float = 0.0
+    median_angle_distortion_deg: float = 0.0
+    angle_corner_count: int = 0
+    degenerate_corner_count: int = 0
+    corners_over_70deg_fraction: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
