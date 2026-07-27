@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "rename_residue_audit",
   "counts": {
-    "FROZEN": 239,
+    "FROZEN": 241,
     "BLOCKED": 350,
     "RESIDUE": 0
   },

@@ -6,6 +6,10 @@
       "present": true,
       "detail": "local Apple Silicon worker (candle/Metal) available"
     },
+    "real_inference_runtime": {
+      "present": true,
+      "detail": "real inference runtime serving at http://127.0.0.1:8099/v1"
+    },
     "database": {
       "present": true,
       "detail": "database configured"
@@ -14,7 +18,7 @@
       "present": true,
       "detail": "object store reachable at 127.0.0.1:9123"
     },
-    "gpu_runtime": {
+    "cuda_runtime": {
       "present": false,
       "detail": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine"
     },
@@ -23,8 +27,8 @@
       "detail": "STRIPE_SECRET_KEY is not set"
     },
     "openai_sdks": {
-      "present": false,
-      "detail": "official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)"
+      "present": true,
+      "detail": "official OpenAI SDKs available"
     }
   },
   "lanes": [
@@ -42,20 +46,23 @@
     },
     {
       "lane": "realtime",
+      "status": "CANARY_PROVEN",
+      "reason": "passed",
+      "note": "proven against a real llama.cpp/Metal engine: contract, real completion, VERIFIED receipt, CAPTURED authorization, positive margin (evidence/canary/real-runtime-realtime.json)"
+    },
+    {
+      "lane": "runpod_vllm",
       "status": "EXTERNALLY_BLOCKED",
       "missing_capabilities": [
-        "gpu_runtime"
+        "cuda_runtime"
       ],
       "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
-      "note": "with a real runtime this walks contract, stream, verification, settlement and receipt"
+      "note": "NVIDIA hardware and a pinned digest-addressed vLLM image; no Apple Silicon engine substitutes for this"
     },
     {
       "lane": "openai_sdk_conformance",
-      "status": "EXTERNALLY_BLOCKED",
-      "missing_capabilities": [
-        "openai_sdks"
-      ],
-      "reason": "official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)",
+      "status": "TESTED",
+      "reason": "passed",
       "note": "wire-surface conformance; says nothing about any GPU"
     },
     {
@@ -68,7 +75,7 @@
       "lane": "image_generation",
       "status": "EXTERNALLY_BLOCKED",
       "missing_capabilities": [
-        "gpu_runtime"
+        "cuda_runtime"
       ],
       "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
       "note": "governance only; no image runtime exists"
@@ -77,7 +84,7 @@
       "lane": "lora",
       "status": "EXTERNALLY_BLOCKED",
       "missing_capabilities": [
-        "gpu_runtime"
+        "cuda_runtime"
       ],
       "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
       "note": "settlement arithmetic only; no trainer, no evaluator dispatch"
@@ -86,7 +93,7 @@
       "lane": "multi_gpu",
       "status": "EXTERNALLY_BLOCKED",
       "missing_capabilities": [
-        "gpu_runtime"
+        "cuda_runtime"
       ],
       "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
       "note": "admission only; no tensor-parallel runtime has served a request"
@@ -144,6 +151,7 @@
       "embeddings",
       "failure_recovery",
       "object_storage",
+      "realtime",
       "receipt_verification",
       "refunds_disputes"
     ],
@@ -151,17 +159,17 @@
       "image_generation",
       "lora",
       "multi_gpu",
-      "openai_sdk_conformance",
       "payouts",
-      "realtime"
+      "runpod_vllm"
     ],
     "TESTED": [
       "alerts",
-      "external_model_onboarding"
+      "external_model_onboarding",
+      "openai_sdk_conformance"
     ]
   },
-  "lanes_total": 15,
-  "lanes_canary_proven": 7,
+  "lanes_total": 16,
+  "lanes_canary_proven": 8,
   "all_lanes_canary_proven": false,
   "public_capability_allowed": false,
   "note": "A lane is CANARY_PROVEN only when its command walks the full chain -- buyer request, contract, scheduler, real runtime, verification, buyer debit, supplier payable, receipt. A lane that passed a partial test is TESTED. A lane whose capability is missing is EXTERNALLY_BLOCKED and names what is missing. There is no override."

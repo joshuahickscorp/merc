@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "kind": "real_runtime_end_to_end",
+  "commit": "9e84292ffab4b51e15b4b8b4dcc2fd814ad18c82",
+  "lane": "openai_compatible_realtime",
+  "runtime": {
+    "kind": "REAL",
+    "engine": "llama.cpp",
+    "device": "metal",
+    "hardware": "Apple M3 Ultra",
+    "model": "Llama-3.2-1B-Instruct-Q4_K_M",
+    "note": "A real OpenAI-compatible engine loading real weights and generating real tokens. NOT CUDA and NOT pinned vLLM -- the RunPod lane is tracked separately and is still blocked. But 'real runtime' and 'CUDA' are not the same capability, and conflating them is why I reported this lane blocked when it was not."
+  },
+  "chain": {
+    "buyer_request": true,
+    "merc_contract": true,
+    "scheduler": true,
+    "real_worker_runtime": true,
+    "result_stream": true,
+    "verification": true,
+    "buyer_debit": true,
+    "supplier_payable": true,
+    "positive_merc_contribution": true,
+    "receipt": true
+  },
+  "receipt": {
+    "receipt_id": "rcp_559d4988-2be7-4dda-a7fa-bb420d162bcf",
+    "contract_id": "b59d6380-f317-47b7-94b8-6f19ca8e9bc2",
+    "state": "VERIFIED",
+    "verification": "PASSED",
+    "authorization_state": "CAPTURED",
+    "prompt_tokens": 43,
+    "completion_tokens": 31,
+    "time_to_first_event_ms": 140,
+    "buyer_charge_usd": 1.9e-05,
+    "supplier_payable_usd": 2e-06,
+    "platform_margin_usd": 1.7e-05,
+    "stream_root_sha256": "0b573bf037069f1838326f443616a24a2e36e5ac3a3ffe45446d76528c462ecf",
+    "output_commitment": "74a486a4855f05bbc0eecb3825ef15b16dac09b9d5c413cf3086334e9756c1dc",
+    "runtime_profile_sha256": "ade0a46a7dfce154634dcb9d2b5b30559a90182da5091be86fa25f5e0c29822d"
+  },
+  "measured_overhead": {
+    "merc_median_ms": 58.351,
+    "direct_median_ms": 54.438,
+    "merc_overhead_median_ms": 3.913,
+    "publishable": false,
+    "why_not": "scripts/realtime-parity-benchmark.py reports UNATTESTED_HARNESS_RUN: llama-server presents no runtime attestation header, so the figure is real but may not support a public performance claim."
+  },
+  "evidence_level": "REAL_RUNTIME_PROVEN",
+  "public_claim_allowed": false
+}

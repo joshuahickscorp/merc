@@ -58,13 +58,38 @@ def cap_object_store():
         return False, f"object store unreachable at {endpoint}: {exc}"
 
 
-def cap_gpu_runtime():
-    """A real CUDA runtime merc can route work to.
+def cap_real_inference_runtime():
+    """A real OpenAI-compatible engine merc can route realtime work to.
 
-    This is the capability five lanes share, and its absence is the single
-    reason merc cannot currently be canary-proven. Checked by asking for a
-    credential AND an endpoint: a key with nothing running behind it proves
-    nothing, and an endpoint merc cannot authenticate to is not merc's supply.
+    NOT the same as CUDA. llama.cpp on Metal is a real runtime by every
+    definition the goal uses -- it loads real weights, generates real tokens and
+    reports real usage -- and a realtime request served by it has genuinely
+    walked contract, stream, verification, settlement and receipt. Treating
+    "real runtime" and "CUDA" as one capability is what made me report the
+    realtime lane blocked when it was not.
+    """
+    endpoint = os.environ.get("MERC_REALTIME_UPSTREAM", "")
+    key = os.environ.get("MERC_REALTIME_UPSTREAM_KEY", "")
+    if not endpoint or not key:
+        return False, ("no real inference runtime: set MERC_REALTIME_UPSTREAM and "
+                       "MERC_REALTIME_UPSTREAM_KEY (llama-server on Metal satisfies this)")
+    try:
+        req = urllib.request.Request(endpoint.rstrip("/") + "/models",
+                                     headers={"authorization": f"Bearer {key}"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status != 200:
+                return False, f"inference runtime answered HTTP {resp.status}"
+            return True, f"real inference runtime serving at {endpoint}"
+    except (urllib.error.URLError, OSError) as exc:
+        return False, f"inference runtime unreachable at {endpoint}: {exc}"
+
+
+def cap_cuda_runtime():
+    """CUDA supply specifically, for the RunPod-backed pinned vLLM lane.
+
+    Distinct from cap_real_inference_runtime: that lane is about NVIDIA hardware
+    merc has admitted and a pinned, digest-addressed vLLM image, and no Apple
+    Silicon engine substitutes for it.
     """
     key = os.environ.get("RUNPOD_API_KEY", "") or os.environ.get("MERC_GPU_API_KEY", "")
     endpoint = os.environ.get("MERC_GPU_ENDPOINT", "")
@@ -128,9 +153,10 @@ def cap_local_runtime():
 
 CAPABILITIES = {
     "local_runtime": cap_local_runtime,
+    "real_inference_runtime": cap_real_inference_runtime,
     "database": cap_database,
     "object_store": cap_object_store,
-    "gpu_runtime": cap_gpu_runtime,
+    "cuda_runtime": cap_cuda_runtime,
     "stripe_sandbox": cap_stripe_sandbox,
     "openai_sdks": cap_openai_sdks,
 }
@@ -158,10 +184,17 @@ LANES = [
      "cmd": go_test("TestBillingSchema|TestExactReuse"), "cwd": "control",
      "full_path": True,
      "note": "real 384-dim embeddings computed on Metal, honeypot-verified, settled"},
-    {"id": "realtime", "needs": ["database", "gpu_runtime"],
+    {"id": "realtime", "needs": ["database", "real_inference_runtime"],
      "cmd": go_test("TestRealtimeStreamContractVerificationSettlementAndReceipt"),
      "cwd": "control", "full_path": True,
-     "note": "with a real runtime this walks contract, stream, verification, settlement and receipt"},
+     "note": "proven against a real llama.cpp/Metal engine: contract, real completion, "
+             "VERIFIED receipt, CAPTURED authorization, positive margin "
+             "(evidence/canary/real-runtime-realtime.json)"},
+    {"id": "runpod_vllm", "needs": ["database", "cuda_runtime"],
+     "cmd": go_test("TestCUDAAdmission|TestEngineAdmissible"), "cwd": "control",
+     "full_path": True,
+     "note": "NVIDIA hardware and a pinned digest-addressed vLLM image; no Apple "
+             "Silicon engine substitutes for this"},
     {"id": "openai_sdk_conformance", "needs": ["database", "openai_sdks"],
      "cmd": go_test("TestRealtimeStreamContractVerificationSettlementAndReceipt"),
      "cwd": "control", "full_path": False,
@@ -170,13 +203,13 @@ LANES = [
      "cmd": go_test("TestJobObjectRetention|TestBuyerObjectDeletion|TestBuyerCannotReach"),
      "cwd": "control", "full_path": True,
      "note": "retention, deletion, tenant isolation against a live store"},
-    {"id": "image_generation", "needs": ["gpu_runtime"],
+    {"id": "image_generation", "needs": ["cuda_runtime"],
      "cmd": go_test("TestImage"), "cwd": "control", "full_path": False,
      "note": "governance only; no image runtime exists"},
-    {"id": "lora", "needs": ["gpu_runtime"],
+    {"id": "lora", "needs": ["cuda_runtime"],
      "cmd": go_test("TestLoRA"), "cwd": "control", "full_path": False,
      "note": "settlement arithmetic only; no trainer, no evaluator dispatch"},
-    {"id": "multi_gpu", "needs": ["gpu_runtime"],
+    {"id": "multi_gpu", "needs": ["cuda_runtime"],
      "cmd": go_test("TestAdmittedPlansAlwaysFit|TestHostTopologyFromRegistration"),
      "cwd": "control", "full_path": False,
      "note": "admission only; no tensor-parallel runtime has served a request"},

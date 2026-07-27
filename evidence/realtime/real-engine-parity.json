@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "kind": "realtime_parity_benchmark",
+  "gate_passed": true,
+  "real_runtime_attested": false,
+  "public_claim_allowed": false,
+  "evidence_level": "UNATTESTED_HARNESS_RUN",
+  "attestation_header": "X-Merc-Runtime-Attestation",
+  "attestation_present": false,
+  "config": {
+    "samples": 5,
+    "warmups": 1,
+    "concurrency": 1,
+    "max_completion_tokens": 16,
+    "model": "cx-chat-1b"
+  },
+  "merc": {
+    "samples": 5,
+    "mean_ms": 59.074,
+    "median_ms": 58.351,
+    "p95_ms": 63.861
+  },
+  "direct": {
+    "samples": 5,
+    "mean_ms": 55.297,
+    "median_ms": 54.438,
+    "p95_ms": 60.146
+  },
+  "merc_overhead_median_ms": 3.913,
+  "errors": [],
+  "note": "Latency measured against an upstream that presented no runtime attestation. This is a harness self-check, not evidence about any GPU, and must not be published as a performance claim."
+}
