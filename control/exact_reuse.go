@@ -213,6 +213,20 @@ func SettleReuseHitMoney(deliveredTokens int64, fullPricePer1K float64) ReuseHit
 	acct := ExactReuseAccounting(deliveredTokens)
 	charge := PriceExactReuseHit(deliveredTokens, fullPricePer1K)
 	buyer := usdToMicros(charge)
+	// The reuse rate is a discount off the full rate, so on a small result it
+	// underflows micro-USD to exactly 0. The settle path then correctly refuses
+	// ("must charge the buyer" -- reuse is cheaper, never free) and the caller
+	// falls back to executing live at FULL price. The net effect was that reuse
+	// was wired, hit the cache, and still never saved anyone anything on the
+	// small repeated requests it exists to serve. Observed live: a 2-token embed
+	// job hit the cache and was billed the full $0.000125 anyway.
+	//
+	// Floor a hit that delivered tokens at one micro-USD, the same minimum
+	// billable treatment the supplier side and LoRA already use. Platform moves
+	// with it so buyer = supplier + platform stays exact.
+	if buyer <= 0 && deliveredTokens > 0 {
+		buyer = 1
+	}
 	// Pure reuse: no supplier performed work. Platform retains the whole charge
 	// (storage, lookup, delivery, verification still cost merc).
 	return ReuseHitSettlement{

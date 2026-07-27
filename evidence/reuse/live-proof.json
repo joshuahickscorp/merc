@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "kind": "exact_reuse_live_proof",
+  "method": "two identical 2-record embed jobs submitted to a live merc, second after the first completed",
+  "job_1": {
+    "tasks": 2,
+    "buyer_usd": 0.000125,
+    "supplier_credited": true,
+    "served": "live worker"
+  },
+  "job_2": {
+    "tasks": 0,
+    "buyer_usd": 1e-06,
+    "supplier_credited": false,
+    "served": "exact-result cache"
+  },
+  "ledger_on_hit": {
+    "buyer_charge": -1e-06,
+    "platform_take": 1e-06,
+    "supplier_credit": null
+  },
+  "reduction_factor": 125,
+  "defect_found_and_fixed": "Before the floor, the reuse charge underflowed micro-USD to 0 on a small result. SubmitExactReuseBatchJob then correctly refused it ('must charge the buyer' -- reuse is cheaper, never free) and the caller silently fell back to executing live at FULL price. The cache was hit and the hit counter incremented while the buyer paid the undiscounted amount. The only trace was one log line.",
+  "note": "Verified end to end against a running control plane and a real Apple Silicon worker, not in a unit test. The ledger on the hit has no supplier_credit row at all: no supplier was scheduled and none was paid."
+}
