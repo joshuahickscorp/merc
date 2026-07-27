@@ -1,0 +1,42 @@
+name: Support request (canary)
+description: Billing-model question, DSAR-style request pointer, or canary ops question.
+title: "[support] "
+labels: ["support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        There is **no staffed support mailbox** yet.
+
+        - Runbook contacts: `docs/SUPPORT_AND_INCIDENT_RUNBOOK.md` → still
+          `[CONTACT REQUIRED]` / `[CHANNEL REQUIRED]`
+        - Public security.txt: `web/.well-known/security.txt` → still
+          `security-contact@example.invalid`
+        - Readiness keeps the gap open: `scripts/lib/go-closure-common.sh`
+          (`gc_require_value` fails on `example.invalid` / `REPLACE`)
+
+        Use this form only for the private canary. Include a job ID when
+        relevant; never a credential or private input.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Request kind
+      options:
+        - failure / job stuck
+        - billing model question (test-mode)
+        - data export / deletion / restriction
+        - artifact-reference concern
+        - other
+    validations:
+      required: true
+  - type: input
+    id: job-id
+    attributes:
+      label: Job ID (if any)
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Facts only. No secrets, no private input content.
+    validations:
+      required: true

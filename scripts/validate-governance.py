@@ -48,7 +48,7 @@ def validate_documents() -> None:
         "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md": ("DRAFT", "Prohibited use", "operator-controlled"),
         "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md": ("DRAFT", "QUALIFIED HUMAN TABLETOP NOT EXECUTED", "Stripe"),
         "docs/THIRD_PARTY_LICENSES.md": ("INCOMPLETE", "RELEASE BLOCKING", "Llama"),
-        "NOTICE": ("Built with Llama", "does not currently contain a project-level LICENSE", "Apache-2.0"),
+        "NOTICE": ("Built with Llama", "licensed component-by-component", "Apache-2.0"),
     }
     for relative, needles in required.items():
         target = ROOT / relative

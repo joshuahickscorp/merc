@@ -8,7 +8,7 @@
     "secret_output": "forbidden"
   },
   "delivery": {
-    "destination": "/Users/scammermike/Downloads/computexchange/.env.go-closure (gitignored, chmod 600); CX_BACKUP_DECRYPTION_IDENTITY_FILE contains a path to a separate chmod-600 identity file, never the identity value",
+    "destination": "/Users/scammermike/Downloads/computexchange/.env.go-closure (gitignored, chmod 600); MERC_BACKUP_DECRYPTION_IDENTITY_FILE contains a path to a separate chmod-600 identity file, never the identity value",
     "format": "one NAME=VALUE assignment per requested input; do not place values in chat, git, CI logs, or evidence files",
     "verification_command": "make release-doctor",
     "expected_evidence": {
@@ -42,7 +42,7 @@
     },
     {
       "name": "STAGING_DEPLOYMENT_ROOT",
-      "accepted_form": "absolute host path dedicated to ComputExchange staging",
+      "accepted_form": "absolute host path dedicated to merc staging",
       "minimum_scope": "persistent compose state, evidence, and rollback manifests",
       "secret": false,
       "used_by": "staging deployment",
@@ -113,7 +113,7 @@
       "unblocks": ["persistent_staging", "observability"]
     },
     {
-      "name": "CX_TOKEN_KEY",
+      "name": "MERC_TOKEN_KEY",
       "accepted_form": "at least 32 unpredictable bytes, distinct from every other secret",
       "minimum_scope": "encrypt staging OAuth and webhook-secret state only",
       "secret": true,
@@ -122,8 +122,8 @@
       "unblocks": ["persistent_staging", "stripe_matrix"]
     },
     {
-      "name": "CX_VERIFICATION_SAMPLE_SECRET",
-      "accepted_form": "at least 32 unpredictable bytes distinct from CX_TOKEN_KEY",
+      "name": "MERC_VERIFICATION_SAMPLE_SECRET",
+      "accepted_form": "at least 32 unpredictable bytes distinct from MERC_TOKEN_KEY",
       "minimum_scope": "staging verification sampling only",
       "secret": true,
       "used_by": "hardened staging control plane",
@@ -131,7 +131,7 @@
       "unblocks": ["persistent_staging", "canary_rehearsal"]
     },
     {
-      "name": "CX_CANDIDATE_CONTROL_IMAGE",
+      "name": "MERC_CANDIDATE_CONTROL_IMAGE",
       "accepted_form": "published registry/repository@sha256:<64 lowercase hex> candidate reference",
       "minimum_scope": "pull access to the retained signed candidate image",
       "secret": false,
@@ -140,7 +140,7 @@
       "unblocks": ["persistent_staging", "forward_recovery", "soak"]
     },
     {
-      "name": "CX_CANDIDATE_COMMIT",
+      "name": "MERC_CANDIDATE_COMMIT",
       "accepted_form": "full 40-character lowercase source commit embedded in the candidate image",
       "minimum_scope": "exact release-source identity",
       "secret": false,
@@ -149,7 +149,7 @@
       "unblocks": ["persistent_staging", "forward_recovery", "soak"]
     },
     {
-      "name": "CX_PRIOR_CONTROL_IMAGE",
+      "name": "MERC_PRIOR_CONTROL_IMAGE",
       "accepted_form": "published registry/repository@sha256:<64 lowercase hex> prior reference",
       "minimum_scope": "pull access and retention through completion of the rollback gate",
       "secret": false,
@@ -158,7 +158,7 @@
       "unblocks": ["rollback"]
     },
     {
-      "name": "CX_PRIOR_COMMIT",
+      "name": "MERC_PRIOR_COMMIT",
       "accepted_form": "full 40-character lowercase source commit embedded in the prior image",
       "minimum_scope": "exact rollback source identity",
       "secret": false,
@@ -167,7 +167,7 @@
       "unblocks": ["rollback"]
     },
     {
-      "name": "CX_PROMETHEUS_IMAGE",
+      "name": "MERC_PROMETHEUS_IMAGE",
       "accepted_form": "reviewed Prometheus registry/repository@sha256:<64 lowercase hex> reference",
       "minimum_scope": "pull access and retention for the canary observation window",
       "secret": false,
@@ -176,7 +176,7 @@
       "unblocks": ["observability", "soak"]
     },
     {
-      "name": "CX_ALERTMANAGER_IMAGE",
+      "name": "MERC_ALERTMANAGER_IMAGE",
       "accepted_form": "reviewed Alertmanager registry/repository@sha256:<64 lowercase hex> reference",
       "minimum_scope": "pull access and retention for the canary observation window",
       "secret": false,
@@ -185,7 +185,7 @@
       "unblocks": ["observability", "real_alert_receiver"]
     },
     {
-      "name": "CX_GRAFANA_IMAGE",
+      "name": "MERC_GRAFANA_IMAGE",
       "accepted_form": "reviewed Grafana registry/repository@sha256:<64 lowercase hex> reference",
       "minimum_scope": "pull access and retention for the canary observation window",
       "secret": false,
@@ -194,7 +194,7 @@
       "unblocks": ["observability", "soak"]
     },
     {
-      "name": "CX_NODE_EXPORTER_IMAGE",
+      "name": "MERC_NODE_EXPORTER_IMAGE",
       "accepted_form": "reviewed node-exporter registry/repository@sha256:<64 lowercase hex> reference",
       "minimum_scope": "pull access and retention for the canary observation window",
       "secret": false,
@@ -203,7 +203,7 @@
       "unblocks": ["observability", "soak"]
     },
     {
-      "name": "CX_BACKUP_OFFSITE",
+      "name": "MERC_BACKUP_OFFSITE",
       "accepted_form": "s3://bucket/private-prefix at an independent provider or credential boundary",
       "minimum_scope": "put/get/list/delete only within the staging backup prefix",
       "secret": false,
@@ -230,7 +230,7 @@
       "unblocks": ["offsite_backup", "independent_restore"]
     },
     {
-      "name": "CX_BACKUP_ENCRYPTION_RECIPIENT",
+      "name": "MERC_BACKUP_ENCRYPTION_RECIPIENT",
       "accepted_form": "age1... public recipient",
       "minimum_scope": "encrypt the staging backup bundle before upload",
       "secret": false,
@@ -239,7 +239,7 @@
       "unblocks": ["offsite_backup"]
     },
     {
-      "name": "CX_BACKUP_DECRYPTION_IDENTITY_FILE",
+      "name": "MERC_BACKUP_DECRYPTION_IDENTITY_FILE",
       "accepted_form": "readable path to the matching age identity; never the identity value",
       "minimum_scope": "isolated restore of the uploaded staging backup",
       "secret": true,
@@ -266,7 +266,7 @@
       "unblocks": ["stripe_matrix"]
     },
     {
-      "name": "CX_CONNECT_WEBHOOK_SECRET",
+      "name": "MERC_CONNECT_WEBHOOK_SECRET",
       "accepted_form": "distinct whsec_* for the staging Connect endpoint",
       "minimum_scope": "test-mode staging Connect endpoint only",
       "secret": true,
@@ -275,7 +275,7 @@
       "unblocks": ["stripe_matrix", "provider_reconciliation"]
     },
     {
-      "name": "CX_CONNECT_CLIENT_ID",
+      "name": "MERC_CONNECT_CLIENT_ID",
       "accepted_form": "ca_* test platform client identifier",
       "minimum_scope": "test-mode Connect onboarding",
       "secret": false,
@@ -311,7 +311,7 @@
       "unblocks": ["stripe_matrix", "provider_reconciliation"]
     },
     {
-      "name": "CX_CANARY_APPROVED_BUYER_EMAILS",
+      "name": "MERC_CANARY_APPROVED_BUYER_EMAILS",
       "accepted_form": "exactly two comma-separated synthetic-data participant email addresses controlled by the project",
       "minimum_scope": "create and authenticate only the two supervised test buyers",
       "secret": false,
@@ -320,7 +320,7 @@
       "unblocks": ["approved_participants", "canary_rehearsal"]
     },
     {
-      "name": "CX_CANARY_APPROVED_WORKER_IDS",
+      "name": "MERC_CANARY_APPROVED_WORKER_IDS",
       "accepted_form": "exactly two distinct comma-separated UUIDs preassigned to two operator-controlled Metal agents",
       "minimum_scope": "mint credentials and dispatch only to the two supervised test workers",
       "secret": false,
@@ -329,7 +329,7 @@
       "unblocks": ["approved_participants", "canary_rehearsal"]
     },
     {
-      "name": "CX_CANARY_APPROVED_AGENT_VERSIONS",
+      "name": "MERC_CANARY_APPROVED_AGENT_VERSIONS",
       "accepted_form": "one to four distinct comma-separated reviewed cx-agent semantic versions",
       "minimum_scope": "admit only release-reviewed agent binaries during the private canary",
       "secret": false,
@@ -338,7 +338,7 @@
       "unblocks": ["approved_agent_artifacts", "canary_rehearsal"]
     },
     {
-      "name": "CX_CANARY_APPROVED_BUILD_HASHES",
+      "name": "MERC_CANARY_APPROVED_BUILD_HASHES",
       "accepted_form": "one to four distinct comma-separated lowercase 16-hex build hashes reported by reviewed Metal agent/runtime classes",
       "minimum_scope": "admit only reviewed runtime-authority, model, tuning, and hardware-class combinations",
       "secret": false,
@@ -347,7 +347,7 @@
       "unblocks": ["approved_agent_artifacts", "canary_rehearsal"]
     },
     {
-      "name": "CX_CANARY_SCENARIO_DRIVER",
+      "name": "MERC_CANARY_SCENARIO_DRIVER",
       "accepted_form": "absolute path on the staging host to the project-controlled executable implementing the documented strict JSON scenario protocol",
       "minimum_scope": "exercise only synthetic approved participants and Stripe test-mode fixtures",
       "secret": false,
@@ -356,7 +356,7 @@
       "unblocks": ["canary_rehearsal", "stripe_matrix", "independent_restore", "real_alert_receiver"]
     },
     {
-      "name": "CX_AGENT_RESTART_DRIVER",
+      "name": "MERC_AGENT_RESTART_DRIVER",
       "accepted_form": "absolute path on the staging host to the project-controlled executable implementing the documented strict JSON Metal-agent restart protocol",
       "minimum_scope": "restart exactly the two approved staging Metal agents",
       "secret": false,

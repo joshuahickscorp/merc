@@ -74,8 +74,12 @@ func dueContains(entries []DueHeldEntry, id uuid.UUID) bool {
 }
 
 func TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout(t *testing.T) {
-	ctx, store, pool := openAdminMutationTestStore(t)
-	t.Setenv("CX_CANARY_MODE", "false")
+	// Own database: DuePayouts and the dispute freeze are platform-wide, so a
+	// sibling test's held credit is indistinguishable from this one's. Under
+	// -race the interleaving shifts and the collision becomes visible.
+	ctx, store, pool := openIsolatedTestStore(t)
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "test:dispute-payout-fixture")
 	f := seedDisputePayoutFixture(t, ctx, pool, "complete")
 
 	due, err := store.DuePayouts(ctx, 100)
@@ -268,7 +272,8 @@ func TestConcurrentDisputeFilingsCreateOnlyOneActiveCase(t *testing.T) {
 
 func TestDisputeFilingWinsQueuedPayoutClaimRace(t *testing.T) {
 	ctx, store, pool := openAdminMutationTestStore(t)
-	t.Setenv("CX_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "test:dispute-payout-claim-race")
 	f := seedDisputePayoutFixture(t, ctx, pool, "complete")
 
 	blocker, err := pool.BeginTx(ctx, pgx.TxOptions{})

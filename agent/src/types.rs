@@ -193,6 +193,11 @@ pub struct TaskCommit {
     #[serde(default)]
     pub result_sha256: String,
     pub hardware_temp_c: Option<f32>,
+    /// Pluggable batch_infer backend that produced this result (`candle`, `openai_http`).
+    /// Empty for embed / non-inference jobs. A receipt that cannot say what executed
+    /// it is not evidence.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub inference_backend: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

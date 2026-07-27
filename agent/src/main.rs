@@ -3,6 +3,7 @@ mod deadline;
 mod executor;
 mod failure;
 mod hardware;
+mod inference;
 mod models;
 mod pool;
 mod protocol;
@@ -33,11 +34,11 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const MODEL_IDLE_EVICT_AFTER: Duration = Duration::from_secs(15 * 60);
 
-const CX_SANDBOXED_ENV: &str = "CX_SANDBOXED";
+const MERC_SANDBOXED_ENV: &str = "MERC_SANDBOXED";
 
-const CX_SANDBOX_PROFILE_ENV: &str = "CX_SANDBOX_PROFILE";
+const MERC_SANDBOX_PROFILE_ENV: &str = "MERC_SANDBOX_PROFILE";
 
-const CX_REQUIRE_SANDBOX_ENV: &str = "CX_REQUIRE_SANDBOX";
+const MERC_REQUIRE_SANDBOX_ENV: &str = "MERC_REQUIRE_SANDBOX";
 
 #[cfg(target_os = "macos")]
 fn sandbox_required_value(value: Option<&str>) -> bool {
@@ -51,14 +52,14 @@ fn sandbox_required_value(value: Option<&str>) -> bool {
 
 #[cfg(target_os = "macos")]
 fn sandbox_required() -> bool {
-    sandbox_required_value(std::env::var(CX_REQUIRE_SANDBOX_ENV).ok().as_deref())
+    sandbox_required_value(std::env::var(MERC_REQUIRE_SANDBOX_ENV).ok().as_deref())
 }
 
 #[cfg(target_os = "macos")]
 fn sandbox_wrap_failed(message: &str) {
     if sandbox_required() {
         tracing::error!(
-            "cx-agent refused to start: {message}. {CX_REQUIRE_SANDBOX_ENV}=1 requires the macOS seatbelt sandbox"
+            "cx-agent refused to start: {message}. {MERC_REQUIRE_SANDBOX_ENV}=1 requires the macOS seatbelt sandbox"
         );
         std::process::exit(78);
     }
@@ -69,7 +70,7 @@ fn sandbox_wrap_failed(message: &str) {
 fn reexec_under_sandbox_if_needed() {
     use std::os::unix::process::CommandExt;
 
-    if std::env::var(CX_SANDBOXED_ENV).as_deref() == Ok("1") {
+    if std::env::var(MERC_SANDBOXED_ENV).as_deref() == Ok("1") {
         return;
     }
 
@@ -77,7 +78,7 @@ fn reexec_under_sandbox_if_needed() {
         Some(p) => p,
         None => {
             sandbox_wrap_failed(&format!(
-                "no seatbelt profile found (set {CX_SANDBOX_PROFILE_ENV} to cx-agent.sb, or launch via the ComputeExchangeAgent .app); buyer-payload filesystem/network containment is not active"
+                "no seatbelt profile found (set {MERC_SANDBOX_PROFILE_ENV} to cx-agent.sb, or launch via the MercAgent .app); buyer-payload filesystem/network containment is not active"
             ));
             return;
         }
@@ -121,7 +122,7 @@ fn reexec_under_sandbox_if_needed() {
         .arg(format!("TMPDIR={tmpdir}"))
         .arg(&exe)
         .args(&args)
-        .env(CX_SANDBOXED_ENV, "1");
+        .env(MERC_SANDBOXED_ENV, "1");
 
     let err = cmd.exec();
     sandbox_wrap_failed(&format!("failed to re-exec under {SANDBOX_EXEC} ({err})"));
@@ -132,7 +133,7 @@ fn reexec_under_sandbox_if_needed() {}
 
 #[cfg(target_os = "macos")]
 fn resolve_sandbox_profile() -> Option<PathBuf> {
-    let override_path = std::env::var(CX_SANDBOX_PROFILE_ENV)
+    let override_path = std::env::var(MERC_SANDBOX_PROFILE_ENV)
         .ok()
         .filter(|p| !p.is_empty())
         .map(PathBuf::from);
@@ -163,7 +164,7 @@ fn pick_sandbox_profile(
 
 #[cfg(target_os = "macos")]
 fn sandbox_model_cache_dir() -> String {
-    if let Ok(d) = std::env::var("CX_MODEL_CACHE") {
+    if let Ok(d) = std::env::var("MERC_MODEL_CACHE") {
         if !d.is_empty() {
             return d;
         }
@@ -183,7 +184,7 @@ fn sandbox_data_dir(home: &str) -> String {
 }
 
 #[derive(Parser)]
-#[command(name = "cx-agent", version = AGENT_VERSION, about = "Computexchange supplier agent")]
+#[command(name = "cx-agent", version = AGENT_VERSION, about = "merc supplier agent")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -204,7 +205,7 @@ enum Command {
         model: String,
         #[arg(long, default_value_t = 48)]
         max_tokens: u32,
-        #[arg(long, default_value = "1,2,4,8,16,32")]
+        #[arg(long, default_value = "1,8,32,64")]
         batch_sizes: String,
         #[arg(
             long,
@@ -217,6 +218,15 @@ enum Command {
         reps: u32,
         #[arg(long, default_value = "identical")]
         mode: String,
+        /// Comma-separated backends to sweep: `candle`, `openai_http`.
+        #[arg(long, default_value = "candle")]
+        backends: String,
+        #[arg(long, default_value = "http://127.0.0.1:8099/v1")]
+        openai_base_url: String,
+        #[arg(long, default_value = "cx-chat-1b")]
+        openai_model: String,
+        #[arg(long, default_value = "")]
+        openai_api_key: String,
     },
     BenchSustained {
         #[arg(long, default_value = "llama-3.2-1b-instruct-q4")]
@@ -319,6 +329,10 @@ async fn main() -> Result<()> {
             require_deterministic,
             reps,
             mode,
+            backends,
+            openai_base_url,
+            openai_model,
+            openai_api_key,
         } => {
             init_tracing();
             run_bench_batch(
@@ -329,7 +343,12 @@ async fn main() -> Result<()> {
                 require_deterministic,
                 reps,
                 &mode,
+                &backends,
+                &openai_base_url,
+                &openai_model,
+                &openai_api_key,
             )
+            .await
         }
         Command::BenchSustained {
             model,
@@ -390,7 +409,7 @@ struct CharacterizationReceipt {
 }
 
 async fn run_characterize() -> Result<()> {
-    let benchmark_cache = std::env::var("CX_BENCH_CACHE_PATH")
+    let benchmark_cache = std::env::var("MERC_BENCH_CACHE_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             PathBuf::from(std::env::var("HOME").unwrap_or_default())
@@ -572,7 +591,8 @@ fn build_bench_prompts(stem: &str, b: usize, mode: BenchMode) -> Vec<String> {
     }
 }
 
-fn run_bench_batch(
+#[allow(clippy::too_many_arguments)]
+async fn run_bench_batch(
     model: &str,
     max_tokens: u32,
     batch_sizes: &str,
@@ -580,11 +600,13 @@ fn run_bench_batch(
     require_deterministic: bool,
     reps: u32,
     mode: &str,
+    backends: &str,
+    openai_base_url: &str,
+    openai_model: &str,
+    openai_api_key: &str,
 ) -> Result<()> {
-    use std::time::Instant;
-
     let mode = BenchMode::parse(mode)?;
-    let reps = reps.max(1) as usize; // never 0 reps  -  that would sweep nothing and divide by zero below
+    let reps = reps.max(1) as usize; // never 0 reps — that would sweep nothing and divide by zero below
 
     let sizes: Vec<usize> = batch_sizes
         .split(',')
@@ -601,24 +623,235 @@ fn run_bench_batch(
         })
         .collect::<Result<Vec<_>>>()?;
     if sizes.is_empty() {
-        anyhow::bail!("no batch sizes given (e.g. --batch-sizes 1,2,4,8,16,32)");
+        anyhow::bail!("no batch sizes given (e.g. --batch-sizes 1,8,32,64)");
+    }
+
+    let backend_kinds: Vec<inference::BackendKind> = backends
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| inference::BackendKind::parse(s).map_err(|e| anyhow::anyhow!(e)))
+        .collect::<Result<Vec<_>>>()?;
+    if backend_kinds.is_empty() {
+        anyhow::bail!("no backends given (e.g. --backends candle,openai_http)");
+    }
+
+    // Device label for the receipt. On Metal, candle and a concurrent llama-server
+    // cannot both own the GPU — dual sweeps stop/start the real engine around candle.
+    let wants_candle = backend_kinds.contains(&inference::BackendKind::Candle);
+    let wants_http = backend_kinds.contains(&inference::BackendKind::OpenAiHttp);
+    if wants_candle && wants_http {
+        eprintln!(
+            "note: dual-backend Metal sweep will stop the OpenAI engine while candle runs \
+             (they cannot share the GPU), then restart it for openai_http"
+        );
+        let _ = run_real_engine_script("stop");
+        // Brief settle so Metal is released before candle opens a device.
+        std::thread::sleep(Duration::from_secs(2));
     }
 
     let device = models::device_label();
-    let engine = "candle";
-    let build_hash = hardware::engine_build_hash(engine, AGENT_VERSION);
+    let build_hash = hardware::engine_build_hash("candle", AGENT_VERSION);
     eprintln!("== cx-agent bench-batch ==");
     eprintln!(
-        "device={device} model={model} max_tokens={max_tokens} mode={} build_hash={build_hash}",
-        mode.label()
+        "device={device} model={model} max_tokens={max_tokens} mode={} build_hash={build_hash} backends={:?}",
+        mode.label(),
+        backend_kinds.iter().map(|b| b.as_str()).collect::<Vec<_>>(),
     );
 
-    let mut be =
-        executor::LlamaBackend::load(model).map_err(|e| anyhow::anyhow!("load {model}: {e}"))?;
+    let api_key = if openai_api_key.is_empty() {
+        None
+    } else {
+        Some(openai_api_key)
+    };
 
-    let (warm_text, _) = be
-        .generate(prompt, max_tokens)
-        .map_err(|e| anyhow::anyhow!("warmup generate: {e}"))?;
+    let mut backend_records = serde_json::Map::new();
+    let mut peak_by_backend: std::collections::BTreeMap<&'static str, f64> =
+        std::collections::BTreeMap::new();
+    let mut any_determinism_fail = false;
+    let mut diverged_all: Vec<serde_json::Value> = Vec::new();
+
+    // Candle first (while GPU is free), then openai_http (after engine restart).
+    let mut ordered: Vec<inference::BackendKind> = Vec::with_capacity(backend_kinds.len());
+    for k in &backend_kinds {
+        if *k == inference::BackendKind::Candle {
+            ordered.push(*k);
+        }
+    }
+    for k in &backend_kinds {
+        if *k != inference::BackendKind::Candle {
+            ordered.push(*k);
+        }
+    }
+
+    for kind in &ordered {
+        if *kind == inference::BackendKind::OpenAiHttp && wants_candle && wants_http {
+            eprintln!("starting real engine for openai_http…");
+            run_real_engine_script("start")?;
+        }
+        // Fresh pool per backend so Candle's Metal tensors are dropped before
+        // llama-server reclaims the GPU for openai_http.
+        let pool = ModelPool::new();
+        let be = inference::build_backend(*kind, openai_base_url, openai_model, api_key)
+            .map_err(|e| anyhow::anyhow!("build backend {}: {e}", kind.as_str()))?;
+        eprintln!(
+            "\n-- backend={} verified_work={} --",
+            kind.as_str(),
+            kind.supports_verified_work()
+        );
+        let record = sweep_backend(
+            be.as_ref(),
+            &pool,
+            model,
+            max_tokens,
+            &sizes,
+            prompt,
+            mode,
+            reps,
+        )
+        .await?;
+        drop(be);
+        drop(pool);
+        if let Some(peak) = record.get("peak_tok_s").and_then(|v| v.as_f64()) {
+            peak_by_backend.insert(kind.as_str(), peak);
+        }
+        let det = record
+            .get("batched_deterministic_vs_serial")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        if !det {
+            any_determinism_fail = true;
+            if let Some(div) = record.get("diverged_batches") {
+                diverged_all.push(serde_json::json!({
+                    "backend": kind.as_str(),
+                    "batches": div,
+                }));
+            }
+        }
+        backend_records.insert(kind.as_str().to_string(), record);
+    }
+
+    // Honest cross-backend multiples at each batch size (openai_http / candle when both present).
+    let mut multiples = serde_json::Map::new();
+    if backend_records.contains_key("candle") && backend_records.contains_key("openai_http") {
+        let candle_sweep = backend_records["candle"]["sweep"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let http_sweep = backend_records["openai_http"]["sweep"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        for row in &candle_sweep {
+            let b = row.get("batch").and_then(|v| v.as_u64()).unwrap_or(0);
+            let candle_tps = row
+                .get("tokens_per_s")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let http_tps = http_sweep
+                .iter()
+                .find(|r| r.get("batch").and_then(|v| v.as_u64()) == Some(b))
+                .and_then(|r| r.get("tokens_per_s").and_then(|v| v.as_f64()))
+                .unwrap_or(0.0);
+            let multiple = if candle_tps > 0.0 {
+                http_tps / candle_tps
+            } else {
+                0.0
+            };
+            multiples.insert(
+                b.to_string(),
+                serde_json::json!({
+                    "candle_tok_s": candle_tps,
+                    "openai_http_tok_s": http_tps,
+                    "openai_http_over_candle": multiple,
+                }),
+            );
+            eprintln!(
+                "multiple batch={b}: openai_http/candle = {multiple:.3}x  (candle={candle_tps:.1}  http={http_tps:.1} tok/s)"
+            );
+        }
+    }
+
+    let kind_label = if backend_kinds.len() > 1 {
+        "bench_batch_compare"
+    } else {
+        "bench_batch"
+    };
+    let record = serde_json::json!({
+        "kind": kind_label,
+        "device": device,
+        "build_hash": build_hash,
+        "model": model,
+        "max_tokens": max_tokens,
+        "mode": mode.label(),
+        "prompt_preview": prompt.chars().take(60).collect::<String>(),
+        "batch_sizes": sizes,
+        "backends": backend_records,
+        "peak_by_backend": peak_by_backend,
+        "multiples_openai_http_over_candle": multiples,
+        "notes": [
+            "openai_http fans out concurrent /v1/chat/completions so the ENGINE continuous-batches",
+            "candle path is the in-process baseline (static length-bucket batching)",
+            "openai_http is NOT marked verified-work-capable: continuous batching is not byte-deterministic"
+        ],
+    });
+    println!("{}", serde_json::to_string_pretty(&record)?);
+
+    if require_deterministic && any_determinism_fail {
+        anyhow::bail!(
+            "batched decode diverged from serial ({diverged_all:?}) and \
+             --require-deterministic was set — failing the determinism gate"
+        );
+    }
+    Ok(())
+}
+
+/// Locate and invoke `scripts/real-engine.sh` from the repo root or CWD.
+fn run_real_engine_script(action: &str) -> Result<()> {
+    let candidates = [
+        PathBuf::from("scripts/real-engine.sh"),
+        PathBuf::from("../scripts/real-engine.sh"),
+        // When the binary is invoked via absolute path from elsewhere.
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/real-engine.sh"),
+    ];
+    let script = candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "scripts/real-engine.sh not found (cwd={:?}); start llama-server manually",
+                std::env::current_dir().ok()
+            )
+        })?;
+    let status = std::process::Command::new("bash")
+        .arg(&script)
+        .arg(action)
+        .status()
+        .map_err(|e| anyhow::anyhow!("{} {action}: {e}", script.display()))?;
+    if !status.success() {
+        anyhow::bail!("{} {action} failed with {status}", script.display());
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn sweep_backend(
+    backend: &dyn inference::InferenceBackend,
+    pool: &ModelPool,
+    model: &str,
+    max_tokens: u32,
+    sizes: &[usize],
+    prompt: &str,
+    mode: BenchMode,
+    reps: usize,
+) -> Result<serde_json::Value> {
+    use std::time::Instant;
+
+    let params = inference::GenerateParams::greedy(max_tokens);
+    let warm = backend
+        .generate(model, prompt, params, pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("[{}] warmup: {e}", backend.name()))?;
 
     let widest = *sizes
         .iter()
@@ -641,22 +874,24 @@ fn run_bench_batch(
     let mut serial_total_dt = 0.0f64;
     for p in &distinct_prompts {
         let t = Instant::now();
-        let (text, tok) = be
-            .generate(p, max_tokens)
-            .map_err(|e| anyhow::anyhow!("serial generate: {e}"))?;
+        let c = backend
+            .generate(model, p, params, pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("[{}] serial generate: {e}", backend.name()))?;
         serial_total_dt += t.elapsed().as_secs_f64();
-        serial_total_tok += tok;
-        expected.insert(p.clone(), text);
+        serial_total_tok += c.tokens;
+        expected.insert(p.clone(), c.text);
     }
     if serial_total_tok == 0 {
         anyhow::bail!(
-            "serial baseline produced 0 tokens for model {model:?}  -  cannot benchmark \
-             (check the model ref and prompt)"
+            "[{}] serial baseline produced 0 tokens for model {model:?} — cannot benchmark",
+            backend.name()
         );
     }
     let serial_tps = serial_total_tok as f64 / serial_total_dt;
     eprintln!(
-        "serial baseline ({} distinct prompt(s)): {serial_total_tok} tok in {serial_total_dt:.2}s = {serial_tps:.1} tok/s",
+        "[{}] serial baseline ({} distinct): {serial_total_tok} tok in {serial_total_dt:.2}s = {serial_tps:.1} tok/s",
+        backend.name(),
         distinct_prompts.len()
     );
 
@@ -676,7 +911,7 @@ fn run_bench_batch(
 
     let mut rows: Vec<SweepRow> = Vec::with_capacity(sizes.len());
     let mut peak_tps = serial_tps;
-    for &b in &sizes {
+    for &b in sizes {
         let prompts: Vec<String> = build_bench_prompts(prompt, b, mode);
         let mut tps_samples = Vec::with_capacity(reps);
         let mut last_wall = 0.0;
@@ -684,21 +919,24 @@ fn run_bench_batch(
         let mut all_equal_serial = true;
         for rep in 0..reps {
             let t = Instant::now();
-            let res = be
-                .generate_batch(&prompts, max_tokens)
-                .map_err(|e| anyhow::anyhow!("generate_batch b={b} rep={rep}: {e}"))?;
-            if let Ok(extra_ms) = std::env::var("CX_BENCH_SYNTHETIC_DELAY_MS") {
+            let res = backend
+                .generate_batch(model, &prompts, params, pool)
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("[{}] generate_batch b={b} rep={rep}: {e}", backend.name())
+                })?;
+            if let Ok(extra_ms) = std::env::var("MERC_BENCH_SYNTHETIC_DELAY_MS") {
                 if let Ok(ms) = extra_ms.parse::<u64>() {
                     std::thread::sleep(Duration::from_millis(ms));
                 }
             }
             let wall = t.elapsed().as_secs_f64();
-            let total_tok: usize = res.iter().map(|(_, n)| n).sum();
-            let tps = total_tok as f64 / wall;
+            let total_tok: usize = res.iter().map(|c| c.tokens).sum();
+            let tps = total_tok as f64 / wall.max(1e-9);
             all_equal_serial &= res
                 .iter()
                 .zip(&prompts)
-                .all(|((text, _), p)| expected.get(p).is_some_and(|exp| exp == text));
+                .all(|(c, p)| expected.get(p).is_some_and(|exp| exp == &c.text));
             tps_samples.push(tps);
             last_wall = wall;
             last_total_tok = total_tok;
@@ -727,7 +965,8 @@ fn run_bench_batch(
             String::new()
         };
         eprintln!(
-            "batch={b:>3}: {:>5} tok in {:>6.2}s = {:>7.1} tok/s (median of {reps}, min={tps_min:.1}, CV={cv_pct:.1}%)  ({:.2}x serial){}{}",
+            "[{}] batch={b:>3}: {:>5} tok in {:>6.2}s = {:>7.1} tok/s (median of {reps}, min={tps_min:.1}, CV={cv_pct:.1}%)  ({:.2}x serial){}{}",
+            backend.name(),
             row.total_tokens,
             row.wall_s,
             row.tokens_per_s,
@@ -746,41 +985,28 @@ fn run_bench_batch(
         .map(|r| r.batch)
         .collect();
     eprintln!(
-        "peak {peak_tps:.1} tok/s = {:.2}x serial · byte-determinism vs serial: {}",
+        "[{}] peak {peak_tps:.1} tok/s = {:.2}x serial · byte-determinism vs serial: {}",
+        backend.name(),
         peak_tps / serial_tps,
         if all_deterministic {
             "IDENTICAL at every batch size".to_string()
         } else {
-            format!("DIVERGES at batch {diverged:?} (GPU reduction-order tie-flip; throughput still valid)")
+            format!("DIVERGES at batch {diverged:?}")
         }
     );
 
-    let record = serde_json::json!({
-        "kind": "bench_batch",
-        "device": device,
-        "build_hash": build_hash,
-        "model": model,
-        "max_tokens": max_tokens,
-        "mode": mode.label(),
+    Ok(serde_json::json!({
+        "backend": backend.name(),
+        "supports_verified_work": backend.supports_verified_work(),
         "distinct_prompts": distinct_prompts.len(),
-        "prompt_preview": prompt.chars().take(60).collect::<String>(),
-        "warmup_ok": !warm_text.is_empty(),
+        "warmup_ok": !warm.text.is_empty(),
         "serial_baseline_tok_s": serial_tps,
         "peak_tok_s": peak_tps,
         "peak_speedup_vs_serial": peak_tps / serial_tps,
         "batched_deterministic_vs_serial": all_deterministic,
         "diverged_batches": diverged,
         "sweep": rows,
-    });
-    println!("{}", serde_json::to_string_pretty(&record)?);
-
-    if require_deterministic && !all_deterministic {
-        anyhow::bail!(
-            "batched decode diverged from serial at batch {diverged:?} and \
-             --require-deterministic was set  -  failing the determinism gate"
-        );
-    }
-    Ok(())
+    }))
 }
 
 fn sustained_summary(windows: &[f64]) -> (f64, f64, f64) {
@@ -1041,6 +1267,8 @@ async fn run_bench_concurrency(
     let llama_input: Vec<u8> =
         b"{\"id\":\"0\",\"prompt\":\"Write one sentence about the weather:\"}\n".to_vec();
 
+    let candle_backend: std::sync::Arc<dyn inference::InferenceBackend> =
+        std::sync::Arc::new(inference::CandleBackend);
     eprintln!("warming models (cold load happens once, not counted in any sweep point)...");
     {
         let warm_pool = ModelPool::new();
@@ -1048,10 +1276,12 @@ async fn run_bench_concurrency(
             .run(&embed_manifest, &embed_input, &warm_pool)
             .await
             .map_err(|e| anyhow::anyhow!("warmup embed: {e}"))?;
-        executor::BatchInferRunner
-            .run(&llama_manifest, &llama_input, &warm_pool)
-            .await
-            .map_err(|e| anyhow::anyhow!("warmup batch_infer: {e}"))?;
+        executor::BatchInferRunner {
+            inference: candle_backend.clone(),
+        }
+        .run(&llama_manifest, &llama_input, &warm_pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("warmup batch_infer: {e}"))?;
     }
 
     #[derive(serde::Serialize, Clone)]
@@ -1079,10 +1309,12 @@ async fn run_bench_concurrency(
             .run(&embed_manifest, &embed_input, &pool)
             .await
             .map_err(|e| anyhow::anyhow!("re-warm embed: {e}"))?;
-        executor::BatchInferRunner
-            .run(&llama_manifest, &llama_input, &pool)
-            .await
-            .map_err(|e| anyhow::anyhow!("re-warm batch_infer: {e}"))?;
+        executor::BatchInferRunner {
+            inference: candle_backend.clone(),
+        }
+        .run(&llama_manifest, &llama_input, &pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("re-warm batch_infer: {e}"))?;
 
         let sem = Arc::new(Semaphore::new(permits));
         let embed_manifest = Arc::new(embed_manifest.clone());
@@ -1111,10 +1343,11 @@ async fn run_bench_concurrency(
             let pool = pool.clone();
             let manifest = llama_manifest.clone();
             let input = llama_input.clone();
+            let inference = candle_backend.clone();
             set.spawn(async move {
                 let permit = sem.acquire_owned().await.expect("semaphore never closed");
                 let t = Instant::now();
-                let res = executor::BatchInferRunner
+                let res = executor::BatchInferRunner { inference }
                     .run(&manifest, &input, &pool)
                     .await;
                 drop(permit);
@@ -1326,6 +1559,7 @@ async fn execute_task(
         tokens_used,
         result_sha256,
         hardware_temp_c: None,
+        inference_backend: output.inference_backend,
     };
 
     wipe(&mut result);
@@ -1664,6 +1898,26 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
     let advertised_worker_id = cap.worker_id;
     let permits = cfg.concurrency(cap.memory_gb);
 
+    let backend_kind = cfg.inference_backend_kind().map_err(anyhow::Error::msg)?;
+    let inference = inference::build_backend(
+        backend_kind,
+        &cfg.openai_base_url,
+        &cfg.openai_model,
+        cfg.openai_api_key.as_deref(),
+    )
+    .map_err(|e| anyhow::anyhow!("inference backend: {e}"))?;
+    if !backend_kind.supports_verified_work() {
+        tracing::warn!(
+            backend = backend_kind.as_str(),
+            "inference backend is not verified-work-capable (byte-exact redundancy not guaranteed); use candle for canary/verified lanes"
+        );
+    }
+    tracing::info!(
+        inference_backend = backend_kind.as_str(),
+        openai_base_url = %cfg.openai_base_url,
+        "batch_infer will use the configured pluggable backend"
+    );
+
     let client = ControlPlaneClient::new(cfg.control_url.clone(), cfg.worker_token.clone())
         .context("building control-plane client (is worker_token set?)")?;
     let s3 = tls::client_builder()?
@@ -1691,7 +1945,7 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
     let ctx = WorkCtx {
         client: Arc::new(client),
         cap: Arc::new(cap),
-        runners: Arc::new(default_runners()),
+        runners: Arc::new(default_runners(inference)),
         pool,
         s3,
         min_payout_usd_per_hr: cfg.min_payout_usd_per_hr,
@@ -1913,11 +2167,35 @@ async fn poll_and_spawn(
         now_unix(),
     );
 
+    // Snapshot supplier prefs for the in-flight guard. New claims already check
+    // eligibility; this re-evaluates while the task runs and aborts via the same
+    // deadline cancellation path the wall-clock watchdog uses.
+    let eligibility_cfg = cfg.clone();
+    let eligibility_interval = eligibility_watch_interval(cfg.checkpoint_secs);
+
     let ctx = ctx.clone();
     inflight.spawn(async move {
         let _permit = permit;
         let task_id = task.task_id;
         let started = received_at;
+
+        let guard_deadline = deadline.clone();
+        let eligibility_guard = tokio::spawn(async move {
+            guard_deadline
+                .cancel_when_ineligible(eligibility_interval, move || {
+                    let lost =
+                        !eligibility_cfg.is_eligible_to_run(current_hour_local(), on_battery());
+                    if lost {
+                        tracing::info!(
+                            task = %task_id,
+                            "supplier eligibility lost (quiet hours / battery); cancelling in-flight task"
+                        );
+                    }
+                    lost
+                })
+                .await;
+        });
+
         match execute_task(
             &task,
             &deadline,
@@ -1953,8 +2231,19 @@ async fn poll_and_spawn(
                 report_task_error(&ctx, &task, started, &e).await;
             }
         }
+        eligibility_guard.abort();
     });
     Ok(())
+}
+
+/// How often an in-flight task re-checks quiet hours / battery. Mirrors the
+/// checkpoint cadence so an abort lands within one checkpoint interval.
+fn eligibility_watch_interval(checkpoint_secs: u64) -> Duration {
+    if checkpoint_secs == 0 {
+        Duration::from_secs(30)
+    } else {
+        Duration::from_secs(checkpoint_secs)
+    }
 }
 
 async fn report_task_error(
@@ -1987,6 +2276,7 @@ async fn report_task_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
     #[test]
     fn compressed_memory_fallback_is_bounded_and_fails_closed_without_stats() {
@@ -1994,6 +2284,150 @@ mod tests {
         assert_eq!(hardware::resolved_available_memory(100, 0, 80), 20);
         assert_eq!(hardware::resolved_available_memory(100, 0, 0), 0);
         assert_eq!(hardware::resolved_available_memory(100, 0, 100), 0);
+    }
+
+    #[test]
+    fn eligibility_watch_interval_follows_checkpoint_secs() {
+        assert_eq!(eligibility_watch_interval(7), Duration::from_secs(7));
+        assert_eq!(eligibility_watch_interval(0), Duration::from_secs(30));
+        assert_eq!(eligibility_watch_interval(30), Duration::from_secs(30));
+    }
+
+    /// Mid-run power_only / quiet-hours loss must abort via the deadline
+    /// cancellation path and classify as the same recoverable `timeout` the
+    /// wall-clock watchdog reports (control plane requeues).
+    #[tokio::test]
+    async fn mid_run_battery_loss_aborts_within_checkpoint_interval_as_timeout() {
+        let power_only = true;
+        let quiet_hours: Option<(u8, u8)> = None;
+        let hour = Arc::new(AtomicU8::new(12));
+        let on_battery = Arc::new(AtomicBool::new(false));
+
+        let deadline = TaskDeadline::for_test(Duration::from_secs(30));
+        let interval = Duration::from_millis(40);
+
+        let watch = deadline.clone();
+        let hour_w = hour.clone();
+        let batt_w = on_battery.clone();
+        let guard = tokio::spawn(async move {
+            watch
+                .cancel_when_ineligible(interval, move || {
+                    let cfg_hour = hour_w.load(Ordering::Acquire);
+                    let cfg_batt = batt_w.load(Ordering::Acquire);
+                    // Same predicate as AgentConfig::is_eligible_to_run.
+                    if power_only && cfg_batt {
+                        return true;
+                    }
+                    if let Some((start, end)) = quiet_hours {
+                        let in_quiet = if start <= end {
+                            cfg_hour >= start && cfg_hour < end
+                        } else {
+                            cfg_hour >= start || cfg_hour < end
+                        };
+                        if in_quiet {
+                            return true;
+                        }
+                    }
+                    false
+                })
+                .await;
+        });
+
+        let run_deadline = deadline.clone();
+        let work = tokio::spawn(async move {
+            run_deadline
+                .run("model load and execution", std::future::pending::<()>())
+                .await
+        });
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        on_battery.store(true, Ordering::Release);
+
+        let flipped = std::time::Instant::now();
+        let result = work.await.unwrap();
+        assert!(
+            flipped.elapsed() < interval + Duration::from_millis(250),
+            "abort must land within one checkpoint interval; elapsed {:?}",
+            flipped.elapsed()
+        );
+        let err = result.expect_err("ineligible supplier must abort the in-flight phase");
+        assert!(matches!(err, deadline::DeadlineError::Expired { .. }));
+
+        let run_err = RunError::from(err);
+        assert_eq!(
+            failure::classify(&run_err, false),
+            "timeout",
+            "must match the deadline-abort recoverable-failure class"
+        );
+        assert!(deadline.is_cancelled());
+        let _ = guard.await;
+        let _ = hour; // keep sources alive for the guard
+    }
+
+    #[tokio::test]
+    async fn mid_run_quiet_hours_aborts_via_same_deadline_path() {
+        let power_only = false;
+        let quiet_hours = Some((22u8, 6u8));
+        let hour = Arc::new(AtomicU8::new(21));
+        let on_battery = Arc::new(AtomicBool::new(false));
+
+        let deadline = TaskDeadline::for_test(Duration::from_secs(30));
+        let interval = Duration::from_millis(40);
+
+        let watch = deadline.clone();
+        let hour_w = hour.clone();
+        let batt_w = on_battery.clone();
+        let guard = tokio::spawn(async move {
+            watch
+                .cancel_when_ineligible(interval, move || {
+                    !eligible_for_test(
+                        power_only,
+                        quiet_hours,
+                        hour_w.load(Ordering::Acquire),
+                        batt_w.load(Ordering::Acquire),
+                    )
+                })
+                .await;
+        });
+
+        let run_deadline = deadline.clone();
+        let work = tokio::spawn(async move {
+            run_deadline
+                .run("model load and execution", std::future::pending::<()>())
+                .await
+        });
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        hour.store(22, Ordering::Release); // enter quiet window mid-run
+
+        let flipped = std::time::Instant::now();
+        let result = work.await.unwrap();
+        assert!(flipped.elapsed() < interval + Duration::from_millis(250));
+        let err = result.expect_err("quiet hours must abort");
+        assert_eq!(failure::classify(&RunError::from(err), false), "timeout");
+        let _ = guard.await;
+    }
+
+    fn eligible_for_test(
+        power_only: bool,
+        quiet_hours: Option<(u8, u8)>,
+        now_hour: u8,
+        on_battery: bool,
+    ) -> bool {
+        if power_only && on_battery {
+            return false;
+        }
+        if let Some((start, end)) = quiet_hours {
+            let in_quiet = if start <= end {
+                now_hour >= start && now_hour < end
+            } else {
+                now_hour >= start || now_hour < end
+            };
+            if in_quiet {
+                return false;
+            }
+        }
+        true
     }
 
     #[test]

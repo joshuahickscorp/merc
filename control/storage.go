@@ -210,11 +210,24 @@ func (s *Storage) GetObject(ctx context.Context, key string) ([]byte, error) {
 	return data, err
 }
 
+// boundedStreamingUploadPartBytes caps the buffer minio-go allocates per part
+// for an upload whose total size is unknown.
+//
+// With no PartSize set, OptimalPartInfo picks a part size from the maximum
+// possible object size, which for an unknown-size stream means the control
+// plane reserves a very large buffer per concurrent upload.  Job inputs arrive
+// as unknown-size streams, so that is a memory ceiling set by the largest
+// object anyone could theoretically send rather than by what is being sent.
+const boundedStreamingUploadPartBytes uint64 = 16 << 20
+
 func (s *Storage) PutObjectStream(ctx context.Context, key string, r io.Reader, contentType string) error {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	_, err := s.internal.PutObject(ctx, s.bucket, key, r, -1, minio.PutObjectOptions{ContentType: contentType})
+	_, err := s.internal.PutObject(ctx, s.bucket, key, r, -1, minio.PutObjectOptions{
+		ContentType: contentType,
+		PartSize:    boundedStreamingUploadPartBytes,
+	})
 	if err != nil {
 		return fmt.Errorf("put object stream %q: %w", key, err)
 	}
@@ -273,4 +286,69 @@ func (s *Storage) GetObjectReader(ctx context.Context, key string) (io.ReadClose
 	}
 	s.breaker.record(time.Now(), false)
 	return nil, lastErr
+}
+
+// objectDeleteMissingCodes are treated as success: a crash-safe deletion
+// sweeper retries, so a key that is already gone must not fail the batch.
+var objectDeleteMissingCodes = map[string]struct{}{
+	"NoSuchKey":     {},
+	"NoSuchVersion": {},
+	"NotFound":      {},
+}
+
+// RemoveObjects bulk-deletes object keys from the configured bucket.
+// Missing keys succeed so the pending-deletion sweeper can retry safely.
+// Uses the same circuit breaker and withRetry discipline as the other
+// mutating Storage methods.
+func (s *Storage) RemoveObjects(ctx context.Context, keys []string) error {
+	unique := uniqueNonEmptyKeys(keys)
+	if len(unique) == 0 {
+		return nil
+	}
+	return s.withRetry(ctx, func() (bool, error) {
+		objectsCh := make(chan minio.ObjectInfo, len(unique))
+		for _, key := range unique {
+			objectsCh <- minio.ObjectInfo{Key: key}
+		}
+		close(objectsCh)
+
+		var first error
+		errorCh := s.internal.RemoveObjects(ctx, s.bucket, objectsCh, minio.RemoveObjectsOptions{})
+		for remErr := range errorCh {
+			if remErr.Err == nil {
+				continue
+			}
+			code := minio.ToErrorResponse(remErr.Err).Code
+			if _, missing := objectDeleteMissingCodes[code]; missing {
+				continue
+			}
+			if first == nil {
+				first = fmt.Errorf("remove object %q: %w", remErr.ObjectName, remErr.Err)
+			}
+		}
+		if first != nil {
+			return true, first
+		}
+		return false, nil
+	})
+}
+
+func uniqueNonEmptyKeys(keys []string) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(keys))
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	return out
 }

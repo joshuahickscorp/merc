@@ -4,8 +4,8 @@ worker_token = "REPLACE_WITH_WORKER_TOKEN"
 
 supplier_id = "00000000-0000-0000-0000-000000000000"
 
-max_cpu_pct = 90.0          # cap CPU the agent may use
 power_only = false          # true = refuse to run on battery
+# quiet_hours = [22, 6]     # local hours [start, end); wraps midnight; agent aborts in-flight work too
 min_payout_usd_per_hr = 0.0 # decline work paying less than this
 data_dir = "/tmp/cx-agent"  # scratch dir (job data is wiped post-commit)
 
@@ -13,3 +13,14 @@ memory_headroom_gb = 8.0    # GB reserved for YOUR use; lower it on a dedicated 
 max_memory_pct = 85.0       # pause new work once physical memory use hits this %
 
 checkpoint_secs = 30
+
+# batch_infer execution backend:
+#   candle       — in-process Candle/Metal (default; verified-work capable)
+#   openai_http  — any OpenAI-compatible engine (llama-server, vLLM, SGLang).
+#                  The ENGINE continuous-batches; this agent only fans out requests.
+# openai_http is NOT guaranteed byte-deterministic under continuous batching —
+# do not use it for redundancy-verified work.
+inference_backend = "candle"
+# openai_base_url = "http://127.0.0.1:8099/v1"   # scripts/real-engine.sh default
+# openai_model    = "cx-chat-1b"
+# openai_api_key  = ""

@@ -1045,47 +1045,6 @@ func fenceHedgeSettlementTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInfo
 	return entries, true, nil
 }
 
-func insertNewLedgerEntryTx(ctx context.Context, tx pgx.Tx, entry LedgerEntry) error {
-	ct, err := tx.Exec(ctx, `
-		INSERT INTO ledger_entries
-		  (kind,supplier_id,buyer_id,task_id,amount_usd,payout_status,release_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (task_id,kind) DO NOTHING`,
-		entry.Kind, entry.SupplierID, entry.BuyerID, entry.TaskID,
-		entry.AmountUSD, entry.PayoutStatus, entry.ReleaseAt)
-	if err != nil {
-		return err
-	}
-	if ct.RowsAffected() != 1 {
-		return fmt.Errorf("ledger row %s/%v existed before terminal transition", entry.Kind, entry.TaskID)
-	}
-	return nil
-}
-
-func insertLedgerEntryIfAbsentExactTx(ctx context.Context, tx pgx.Tx, entry LedgerEntry) error {
-	ct, err := tx.Exec(ctx, `
-		INSERT INTO ledger_entries
-		  (kind,supplier_id,buyer_id,task_id,amount_usd,payout_status,release_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (task_id,kind) DO NOTHING`,
-		entry.Kind, entry.SupplierID, entry.BuyerID, entry.TaskID,
-		entry.AmountUSD, entry.PayoutStatus, entry.ReleaseAt)
-	if err != nil || ct.RowsAffected() == 1 {
-		return err
-	}
-	var amount float64
-	var supplierID, taskID *uuid.UUID
-	var kind string
-	if err := tx.QueryRow(ctx, `
-		SELECT kind,supplier_id,task_id,amount_usd::float8 FROM ledger_entries
-		 WHERE task_id=$1 AND kind=$2`, entry.TaskID, entry.Kind).
-		Scan(&kind, &supplierID, &taskID, &amount); err != nil {
-		return err
-	}
-	if kind != entry.Kind || amount != entry.AmountUSD || !sameOptionalUUID(supplierID, entry.SupplierID) || !sameOptionalUUID(taskID, entry.TaskID) {
-		return fmt.Errorf("conflicting existing ledger row %s/%v", entry.Kind, entry.TaskID)
-	}
-	return nil
-}
-
 func sameOptionalUUID(a, b *uuid.UUID) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil

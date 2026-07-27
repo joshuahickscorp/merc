@@ -107,6 +107,9 @@ func validateTaskResultArtifact(info *CommitTaskInfo, body []byte) error {
 				return invalidResultArtifact(info.jobType, resultValidationDimension,
 					fmt.Sprintf("dimension %d does not match model dimension %d", h.Dim, expectedDim))
 			}
+			if err := rejectZeroBinaryEmbeddingRows(h); err != nil {
+				return err
+			}
 			return nil
 		}
 		vectors, err := parseEmbeddingJSONVectors(body, records.Max, expectedDim, true)
@@ -211,6 +214,32 @@ func parseEmbeddingBinaryEnvelope(obj []byte, maxRecords uint64) (embeddingBinar
 		}
 	}
 	return out, nil
+}
+
+// rejectZeroBinaryEmbeddingRows mirrors the JSON path's per-row non-zero check.
+// A single pass looking for any non-zero float32 per row is enough for the commit hot path.
+func rejectZeroBinaryEmbeddingRows(h embeddingBinaryEnvelope) error {
+	dim := int(h.Dim)
+	if dim <= 0 || int(h.Count) <= 0 {
+		return nil
+	}
+	rowBytes := dim * 4
+	for rowIndex := 0; rowIndex < int(h.Count); rowIndex++ {
+		base := rowIndex * rowBytes
+		nonzero := false
+		for off := 0; off < rowBytes; off += 4 {
+			v := math.Float32frombits(binary.LittleEndian.Uint32(h.Body[base+off : base+off+4]))
+			if v != 0 {
+				nonzero = true
+				break
+			}
+		}
+		if !nonzero {
+			return invalidResultArtifact("embed", resultValidationNumeric,
+				fmt.Sprintf("row %d is the zero vector", rowIndex))
+		}
+	}
+	return nil
 }
 
 type embeddingJSONResult struct {

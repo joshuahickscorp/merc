@@ -8,23 +8,23 @@ import (
 
 func setValidCanaryEnv(t *testing.T, workerID uuid.UUID) {
 	t.Helper()
-	t.Setenv("CX_CANARY_MODE", "true")
-	t.Setenv("CX_CANARY_APPROVED_BUYER_EMAILS", "buyer@example.test, second@example.test")
-	t.Setenv("CX_CANARY_APPROVED_WORKER_IDS", workerID.String()+","+uuid.NewString())
-	t.Setenv("CX_CANARY_APPROVED_AGENT_VERSIONS", "0.1.0")
-	t.Setenv("CX_CANARY_APPROVED_BUILD_HASHES", "0123456789abcdef")
-	t.Setenv("CX_CANARY_MAX_ACTIVE_BUYERS", "2")
-	t.Setenv("CX_CANARY_MAX_ACTIVE_WORKERS", "2")
-	t.Setenv("CX_CANARY_MAX_QUEUED_JOBS", "20")
-	t.Setenv("CX_CANARY_MAX_TASKS_PER_JOB", "64")
-	t.Setenv("CX_CANARY_MAX_ARTIFACT_BYTES", "33554432")
-	t.Setenv("CX_CANARY_MAX_INPUT_BYTES", "33554432")
-	t.Setenv("CX_CANARY_MAX_OUTPUT_TOKENS", "256")
-	t.Setenv("CX_CANARY_MAX_JOB_DURATION_SECS", "600")
-	t.Setenv("CX_CANARY_MAX_RETRIES", "3")
-	t.Setenv("CX_CANARY_MAX_DAILY_JOBS", "100")
-	t.Setenv("CX_CANARY_MAX_SHADOW_VALUE_USD", "10")
-	t.Setenv("CX_CANARY_MAX_HELD_SHADOW_PAYOUT_USD", "10")
+	t.Setenv("MERC_CANARY_MODE", "true")
+	t.Setenv("MERC_CANARY_APPROVED_BUYER_EMAILS", "buyer@example.test, second@example.test")
+	t.Setenv("MERC_CANARY_APPROVED_WORKER_IDS", workerID.String()+","+uuid.NewString())
+	t.Setenv("MERC_CANARY_APPROVED_AGENT_VERSIONS", "0.1.0")
+	t.Setenv("MERC_CANARY_APPROVED_BUILD_HASHES", "0123456789abcdef")
+	t.Setenv("MERC_CANARY_MAX_ACTIVE_BUYERS", "2")
+	t.Setenv("MERC_CANARY_MAX_ACTIVE_WORKERS", "2")
+	t.Setenv("MERC_CANARY_MAX_QUEUED_JOBS", "20")
+	t.Setenv("MERC_CANARY_MAX_TASKS_PER_JOB", "64")
+	t.Setenv("MERC_CANARY_MAX_ARTIFACT_BYTES", "33554432")
+	t.Setenv("MERC_CANARY_MAX_INPUT_BYTES", "33554432")
+	t.Setenv("MERC_CANARY_MAX_OUTPUT_TOKENS", "256")
+	t.Setenv("MERC_CANARY_MAX_JOB_DURATION_SECS", "600")
+	t.Setenv("MERC_CANARY_MAX_RETRIES", "3")
+	t.Setenv("MERC_CANARY_MAX_DAILY_JOBS", "100")
+	t.Setenv("MERC_CANARY_MAX_SHADOW_VALUE_USD", "10")
+	t.Setenv("MERC_CANARY_MAX_HELD_SHADOW_PAYOUT_USD", "10")
 }
 
 func TestCanaryPolicyIsFailClosedAndBounded(t *testing.T) {
@@ -81,7 +81,7 @@ func TestCanaryPolicyRejectsMalformedBuildAllowlist(t *testing.T) {
 	setValidCanaryEnv(t, uuid.New())
 	for _, value := range []string{"short", "0123456789ABCDEF", "0123456789abcdeg"} {
 		t.Run(value, func(t *testing.T) {
-			t.Setenv("CX_CANARY_APPROVED_BUILD_HASHES", value)
+			t.Setenv("MERC_CANARY_APPROVED_BUILD_HASHES", value)
 			if p := loadCanaryPolicyFromEnv(); p.configError == nil {
 				t.Fatal("malformed build hash allowlist was accepted")
 			}
@@ -90,10 +90,56 @@ func TestCanaryPolicyRejectsMalformedBuildAllowlist(t *testing.T) {
 }
 
 func TestCanaryPolicyRequiresExplicitAllowlistAndLimits(t *testing.T) {
-	t.Setenv("CX_CANARY_MODE", "true")
+	t.Setenv("MERC_CANARY_MODE", "true")
 	p := loadCanaryPolicyFromEnv()
 	if p.configError == nil || p.allowsBuyerEmail("any@example.test") || p.allowsWorker(uuid.New()) {
 		t.Fatal("incomplete canary policy did not fail closed")
+	}
+}
+
+func TestClampMaxDurationSecsPlatformCeiling(t *testing.T) {
+	t.Setenv("MERC_MAX_JOB_DURATION_SECS", "")
+	if got := clampMaxDurationSecs(0); got != defaultMaxJobDurationSecs {
+		t.Fatalf("0 (unbounded) must become default ceiling, got %d", got)
+	}
+	if got := clampMaxDurationSecs(defaultMaxJobDurationSecs + 1); got != defaultMaxJobDurationSecs {
+		t.Fatalf("over-ceiling must clamp, got %d", got)
+	}
+	if got := clampMaxDurationSecs(600); got != 600 {
+		t.Fatalf("in-range value must pass through, got %d", got)
+	}
+	t.Setenv("MERC_MAX_JOB_DURATION_SECS", "120")
+	if got := clampMaxDurationSecs(9999); got != 120 {
+		t.Fatalf("env ceiling must apply, got %d", got)
+	}
+	// A rejected env value must leave the default ceiling in force.  Probe with a
+	// duration ABOVE that default, otherwise the value passes through untouched
+	// and the assertion says nothing about which ceiling was used.
+	overDefault := defaultMaxJobDurationSecs + 1
+	t.Setenv("MERC_MAX_JOB_DURATION_SECS", "0")
+	if got := clampMaxDurationSecs(overDefault); got != defaultMaxJobDurationSecs {
+		t.Fatalf("zero env must fall back to the default ceiling, got %d", got)
+	}
+	if got := clampMaxDurationSecs(600); got != 600 {
+		t.Fatalf("zero env must still pass an in-range value through, got %d", got)
+	}
+	t.Setenv("MERC_MAX_JOB_DURATION_SECS", "nope")
+	if got := clampMaxDurationSecs(overDefault); got != defaultMaxJobDurationSecs {
+		t.Fatalf("malformed env must fall back to the default ceiling, got %d", got)
+	}
+}
+
+func TestCanaryDisableRequiresRecordedDecision(t *testing.T) {
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "")
+	p := loadCanaryPolicyFromEnv()
+	if !p.Enabled || p.configError == nil {
+		t.Fatal("MERC_CANARY_MODE=false without a decision ref must fail closed with canary still enabled")
+	}
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "INC-canary-exit-1")
+	p = loadCanaryPolicyFromEnv()
+	if p.Enabled || p.configError != nil {
+		t.Fatalf("explicit false with decision ref should disable canary: enabled=%v err=%v", p.Enabled, p.configError)
 	}
 }
 

@@ -1,7 +1,7 @@
-# Computexchange
+# merc
 
-Computexchange is a task-priced batch-compute exchange for Apple Silicon. Its
-production surface is intentionally narrow:
+merc is a verified AI execution network under active expansion. Its
+currently proven production candidate remains intentionally narrow:
 
 - workloads: `embed` and `batch_infer`
 - models: `all-minilm-l6-v2` and `llama-3.2-1b-instruct-q4`
@@ -42,7 +42,7 @@ make seed
 make control
 ```
 
-Put the printed worker token in `agent/agent.toml` or `CX_WORKER_TOKEN`, then run
+Put the printed worker token in `agent/agent.toml` or `MERC_WORKER_TOKEN`, then run
 `make agent-run` in another shell. The agent is native because Metal is not
 available inside the Linux control stack.
 
@@ -67,7 +67,7 @@ SDK generate a key unless the caller supplies one for an uncertain retry.
 The Python SDK wraps that API:
 
 ```python
-from computeexchange import Client
+from merc import Client
 
 cx = Client("http://localhost:8080", api_key="<buyer key>")
 job = cx.submit_job(

@@ -11,11 +11,50 @@ import (
 )
 
 type EconomicSchedule struct {
-	Version                string  `json:"version"`
-	ProcessorPercent       float64 `json:"processor_percent"`
-	ProcessorFixedUSD      float64 `json:"processor_fixed_usd"`
+	Version           string  `json:"version"`
+	ProcessorPercent  float64 `json:"processor_percent"`
+	ProcessorFixedUSD float64 `json:"processor_fixed_usd"`
+	// MinChargeBatchUSD is the smallest amount the collector will ever put on a
+	// single PaymentIntent.  The processor's fixed fee is charged once per that
+	// event, not once per task, so it amortises across everything in the batch.
+	// Sourced from chargeMinUSD() (control/collect.go) so the pricing model and
+	// the collector cannot drift apart.
+	MinChargeBatchUSD      float64 `json:"min_charge_batch_usd"`
 	ControlPlanePerTaskUSD float64 `json:"control_plane_per_task_usd"`
 	TargetMarginRate       float64 `json:"target_margin_rate"`
+}
+
+// processorFloorTerms splits the processor's cost into the percentage rate and
+// the per-task fixed component that the price floor has to cover.
+//
+// With a batching floor configured the fixed fee is spread across a
+// minimum-size charge, so it becomes part of the rate and nothing is charged
+// per task.  Without one, every task is assumed to trigger its own charge and
+// must cover a whole fixed fee -- the original, conservative behaviour.
+//
+// processorFeeFor below is the same model read forwards, and the two must stay
+// in agreement: solving the floor under one assumption while scoring scenarios
+// under another is what let this file hold a $0.344547 per-task floor while its
+// own scenarios charged the fixed fee once.
+func (s EconomicSchedule) processorFloorTerms() (rate, perTaskFixed float64) {
+	if s.MinChargeBatchUSD <= 0 {
+		return s.ProcessorPercent, s.ProcessorFixedUSD
+	}
+	return s.ProcessorPercent + s.ProcessorFixedUSD/s.MinChargeBatchUSD, 0
+}
+
+// processorFeeFor is the fee a charge of netUSD actually incurs.  A charge at or
+// above the batch floor stands alone and pays the whole fixed fee; a smaller one
+// rides along with other jobs in the same PaymentIntent and pays its share.
+func (s EconomicSchedule) processorFeeFor(netUSD float64) float64 {
+	if netUSD <= 0 {
+		return 0
+	}
+	fixedShare := 1.0
+	if s.MinChargeBatchUSD > 0 && netUSD < s.MinChargeBatchUSD {
+		fixedShare = netUSD / s.MinChargeBatchUSD
+	}
+	return ceilEconomicUSD(netUSD*s.ProcessorPercent + s.ProcessorFixedUSD*fixedShare)
 }
 
 type EconomicPlanInput struct {
@@ -70,11 +109,11 @@ func economicExtraTaskReserve(primaryTasks int) int {
 }
 
 const (
-	economicScheduleVersionEnv = "CX_ECON_SCHEDULE_VERSION"
-	processorPercentBPSEnv     = "CX_PROCESSOR_PERCENT_BPS"
-	processorFixedUSDEnv       = "CX_PROCESSOR_FIXED_USD"
-	controlPerTaskUSDEnv       = "CX_CONTROL_PLANE_PER_TASK_USD"
-	targetMarginBPSEnv         = "CX_TARGET_MARGIN_BPS"
+	economicScheduleVersionEnv = "MERC_ECON_SCHEDULE_VERSION"
+	processorPercentBPSEnv     = "MERC_PROCESSOR_PERCENT_BPS"
+	processorFixedUSDEnv       = "MERC_PROCESSOR_FIXED_USD"
+	controlPerTaskUSDEnv       = "MERC_CONTROL_PLANE_PER_TASK_USD"
+	targetMarginBPSEnv         = "MERC_TARGET_MARGIN_BPS"
 )
 
 func LoadEconomicScheduleFromEnv() (EconomicSchedule, error) {
@@ -110,9 +149,13 @@ func LoadEconomicScheduleFromEnv() (EconomicSchedule, error) {
 		return EconomicSchedule{}, err
 	}
 	schedule := EconomicSchedule{
-		Version:                version,
-		ProcessorPercent:       processorBPS / 10_000,
-		ProcessorFixedUSD:      fixed,
+		Version:           version,
+		ProcessorPercent:  processorBPS / 10_000,
+		ProcessorFixedUSD: fixed,
+		// Read from the collector rather than its own env var: the batch floor
+		// and the price floor describe the same event, and two settings that
+		// must agree will eventually disagree.
+		MinChargeBatchUSD:      chargeMinUSD(),
 		ControlPlanePerTaskUSD: controlPerTask,
 		TargetMarginRate:       marginBPS / 10_000,
 	}
@@ -153,8 +196,11 @@ func validateEconomicSchedule(s EconomicSchedule) string {
 	if !finiteNonNegative(s.TargetMarginRate) || s.TargetMarginRate >= 1 {
 		return "target_margin_rate must be finite and in [0,1)"
 	}
-	if s.ProcessorPercent+s.TargetMarginRate >= 1 {
-		return "processor_percent plus target_margin_rate must be below 1"
+	if !finiteNonNegative(s.MinChargeBatchUSD) {
+		return "min_charge_batch_usd must be finite and non-negative"
+	}
+	if rate, _ := s.processorFloorTerms(); rate+s.TargetMarginRate >= 1 {
+		return "effective processor rate plus target_margin_rate must be below 1"
 	}
 	return ""
 }
@@ -193,8 +239,9 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 
 	computePerTask := in.BaseComputeUSD / float64(in.InitialTaskCount)
 	supplierPerTask := roundEconomicUSD(computePerTask * in.SupplierShare)
-	denominator := 1 - schedule.ProcessorPercent - schedule.TargetMarginRate
-	minimumBuyerPerTask := (supplierPerTask + schedule.ProcessorFixedUSD + schedule.ControlPlanePerTaskUSD) / denominator
+	processorRate, processorPerTaskFixed := schedule.processorFloorTerms()
+	denominator := 1 - processorRate - schedule.TargetMarginRate
+	minimumBuyerPerTask := (supplierPerTask + processorPerTaskFixed + schedule.ControlPlanePerTaskUSD) / denominator
 	buyerPerTask := ceilEconomicUSD(math.Max(computePerTask, minimumBuyerPerTask))
 	safetyFee := roundEconomicUSD(math.Max(0, buyerPerTask-computePerTask))
 
@@ -211,7 +258,7 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 		Assumptions: []string{
 			"supplier payout is frozen from base compute, independent of buyer safety fee and refundable SLA premium",
 			"supplier liability is reserved at six decimals; provider cash floors to whole cents and every sub-cent remainder stays durably owed",
-			"one accepted task must cover a standalone processor fixed fee",
+			"the processor fixed fee is amortised over a minimum-size charge batch, matching how chargeOrDeferJob and FormChargeBatch actually settle",
 			"extra accepted work is billable only while atomically consuming the frozen reserve",
 			"SLA premium is excluded from supplier liability and may be fully refunded",
 			"actual processor fees and contribution margin are reconciled from Stripe and ledger facts",
@@ -230,10 +277,7 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 		}
 		net := roundEconomicUSD(gross - refund)
 		supplier := roundEconomicUSD(supplierPerTask * float64(tasks))
-		processor := 0.0
-		if net > 0 {
-			processor = ceilEconomicUSD(net*schedule.ProcessorPercent + schedule.ProcessorFixedUSD)
-		}
+		processor := schedule.processorFeeFor(net)
 		controlCost := roundEconomicUSD(schedule.ControlPlanePerTaskUSD * float64(tasks))
 		margin := roundEconomicUSD(net - supplier - processor - controlCost)
 		required := roundEconomicUSD(net * schedule.TargetMarginRate)

@@ -66,7 +66,7 @@ persistent external staging blocker.
 The canary scenario driver is invoked as:
 
 ```text
-$CX_CANARY_SCENARIO_DRIVER run <scenario> <minimum-count>
+$MERC_CANARY_SCENARIO_DRIVER run <scenario> <minimum-count>
 ```
 
 It must write exactly one JSON document to stdout. The document must contain
@@ -95,7 +95,7 @@ observation, and these safety booleans:
 The agent restart driver is invoked as:
 
 ```text
-$CX_AGENT_RESTART_DRIVER restart-all 2
+$MERC_AGENT_RESTART_DRIVER restart-all 2
 ```
 
 Its JSON receipt must report `status: "PASS"`, `requested: 2`,

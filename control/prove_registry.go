@@ -29,7 +29,7 @@ func cmdProve(args []string) {
 	}
 	cmd := exec.Command("bash", filepath.Join(root, "scripts", "prove-local.sh"))
 	cmd.Dir, cmd.Stdout, cmd.Stderr = root, os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), "CX_PROOF_ARTIFACT_DIR="+artifactDir)
+	cmd.Env = append(os.Environ(), "MERC_PROOF_ARTIFACT_DIR="+artifactDir)
 	if mode == "contract" {
 		cmd.Env = append(cmd.Env, "SKIP_LIVE=1")
 	}

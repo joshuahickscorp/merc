@@ -99,14 +99,7 @@ func (s *Store) FinalizeTaskVerification(ctx context.Context, info *CommitTaskIn
 	}
 
 	for _, entry := range entries {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO ledger_entries
-			   (kind, supplier_id, buyer_id, task_id, amount_usd, payout_status, release_at)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7)
-			 ON CONFLICT (task_id, kind) DO NOTHING`,
-			entry.Kind, entry.SupplierID, entry.BuyerID, entry.TaskID,
-			entry.AmountUSD, entry.PayoutStatus, entry.ReleaseAt,
-		); err != nil {
+		if _, err := insertLedgerEntryOnTaskConflictDoNothingTx(ctx, tx, ledgerInsertFromEntry(entry)); err != nil {
 			return err
 		}
 	}

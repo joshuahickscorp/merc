@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE="${CX_COMPOSE_FILE:-$ROOT/docker-compose.prod.yml}"
+COMPOSE="${MERC_COMPOSE_FILE:-$ROOT/docker-compose.prod.yml}"
 TARGET="${1:-}"
 
 die() { echo "rollback: $*" >&2; exit 1; }
@@ -15,7 +15,7 @@ command -v jq >/dev/null 2>&1 || die "jq is required"
 
 IMAGE="computexchange/control:$TARGET"
 docker image inspect "$IMAGE" >/dev/null 2>&1 || die "rollback image is not present locally: $IMAGE"
-export CX_BUILD_COMMIT="$TARGET"
+export MERC_BUILD_COMMIT="$TARGET"
 dc() { docker compose -f "$COMPOSE" "$@"; }
 dc config -q || die "invalid compose configuration"
 

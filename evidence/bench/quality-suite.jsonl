@@ -1,0 +1,26 @@
+{"kind": "prompt", "quant": "4bit", "task_class": "extraction", "prompt_index": 0, "agreement": 0.1719, "first_divergence_token": 10, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "4bit", "task_class": "extraction", "prompt_index": 1, "agreement": 0.0469, "first_divergence_token": 0, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "4bit", "task_class": "classification", "prompt_index": 2, "agreement": 1.0, "first_divergence_token": 64, "tokens_compared": 64, "outcome_correct": false}
+{"kind": "prompt", "quant": "4bit", "task_class": "classification", "prompt_index": 3, "agreement": 0.0938, "first_divergence_token": 4, "tokens_compared": 64, "outcome_correct": false}
+{"kind": "prompt", "quant": "4bit", "task_class": "summarization", "prompt_index": 4, "agreement": 0.0938, "first_divergence_token": 6, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "4bit", "task_class": "reasoning", "prompt_index": 5, "agreement": 0.0156, "first_divergence_token": 0, "tokens_compared": 64, "outcome_correct": false}
+{"kind": "prompt", "quant": "4bit", "task_class": "reasoning", "prompt_index": 6, "agreement": 0.1562, "first_divergence_token": 0, "tokens_compared": 64, "outcome_correct": false}
+{"kind": "prompt", "quant": "4bit", "task_class": "code", "prompt_index": 7, "agreement": 0.125, "first_divergence_token": 7, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "4bit", "task_class": "code", "prompt_index": 8, "agreement": 0.0, "first_divergence_token": 0, "tokens_compared": 64, "outcome_correct": false}
+{"kind": "prompt", "quant": "4bit", "task_class": "instruction", "prompt_index": 9, "agreement": 0.0781, "first_divergence_token": 2, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "4bit", "task_class": "instruction", "prompt_index": 10, "agreement": 0.0156, "first_divergence_token": 0, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "4bit", "task_class": "factual", "prompt_index": 11, "agreement": 0.0156, "first_divergence_token": 1, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "summary", "quant": "4bit", "reference": "mlx-community/Llama-3.2-1B-Instruct-bf16", "prompts": 12, "tokens_per_prompt": 64, "mean_agreement": 0.151, "exact_match_prompts": 1, "mean_first_divergence": 7.83, "worst_class": "factual", "per_class_agreement": {"extraction": 0.1094, "classification": 0.5469, "summarization": 0.0938, "reasoning": 0.0859, "code": 0.0625, "instruction": 0.0469, "factual": 0.0156}, "outcome_correct": 7, "outcome_score": 0.5833, "reference_outcome_correct": 9}
+{"kind": "prompt", "quant": "8bit", "task_class": "extraction", "prompt_index": 0, "agreement": 0.1719, "first_divergence_token": 10, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "8bit", "task_class": "extraction", "prompt_index": 1, "agreement": 1.0, "first_divergence_token": 64, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "8bit", "task_class": "classification", "prompt_index": 2, "agreement": 1.0, "first_divergence_token": 64, "tokens_compared": 64, "outcome_correct": false}
+{"kind": "prompt", "quant": "8bit", "task_class": "classification", "prompt_index": 3, "agreement": 0.7969, "first_divergence_token": 51, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "8bit", "task_class": "summarization", "prompt_index": 4, "agreement": 0.2344, "first_divergence_token": 15, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "8bit", "task_class": "reasoning", "prompt_index": 5, "agreement": 1.0, "first_divergence_token": 64, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "8bit", "task_class": "reasoning", "prompt_index": 6, "agreement": 1.0, "first_divergence_token": 64, "tokens_compared": 64, "outcome_correct": false}
+{"kind": "prompt", "quant": "8bit", "task_class": "code", "prompt_index": 7, "agreement": 0.6562, "first_divergence_token": 42, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "8bit", "task_class": "code", "prompt_index": 8, "agreement": 0.9219, "first_divergence_token": 4, "tokens_compared": 64, "outcome_correct": false}
+{"kind": "prompt", "quant": "8bit", "task_class": "instruction", "prompt_index": 9, "agreement": 0.0312, "first_divergence_token": 2, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "8bit", "task_class": "instruction", "prompt_index": 10, "agreement": 0.3906, "first_divergence_token": 24, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "prompt", "quant": "8bit", "task_class": "factual", "prompt_index": 11, "agreement": 0.2031, "first_divergence_token": 13, "tokens_compared": 64, "outcome_correct": true}
+{"kind": "summary", "quant": "8bit", "reference": "mlx-community/Llama-3.2-1B-Instruct-bf16", "prompts": 12, "tokens_per_prompt": 64, "mean_agreement": 0.6172, "exact_match_prompts": 4, "mean_first_divergence": 34.75, "worst_class": "factual", "per_class_agreement": {"extraction": 0.5859, "classification": 0.8984, "summarization": 0.2344, "reasoning": 1.0, "code": 0.7891, "instruction": 0.2109, "factual": 0.2031}, "outcome_correct": 9, "outcome_score": 0.75, "reference_outcome_correct": 9}

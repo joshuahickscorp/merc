@@ -1,6 +1,6 @@
-# computeexchange  -  Python buyer SDK
+# merc  -  Python buyer SDK
 
-A thin, **dependency-free** client for the Computexchange buyer REST API. The
+A thin, **dependency-free** client for the merc buyer REST API. The
 runtime uses only stdlib `urllib`; installing the package adds no third-party
 runtime dependencies.
 
@@ -10,11 +10,11 @@ The package is not published on PyPI yet. Install it from a repository checkout:
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install ./sdk/python
-python -c "from computeexchange import Client; print(Client.__module__)"
+python -c "from merc import Client; print(Client.__module__)"
 ```
 
 ```python
-from computeexchange import Client
+from merc import Client
 
 cx = Client("http://localhost:8080", api_key="<your buyer api key>")
 

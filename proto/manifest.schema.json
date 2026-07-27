@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://compute.exchange/proto/manifest.schema.json",
-  "title": "Compute Exchange wire contract",
+  "title": "merc wire contract",
   "$defs": {
     "uuid": {
       "type": "string",
@@ -84,8 +84,7 @@
       "properties": {
         "redundancy_frac": { "type": "number", "minimum": 0, "maximum": 1 },
         "honeypot_frac": { "type": "number", "minimum": 0, "maximum": 1 },
-        "payout_hold_secs": { "type": "integer", "minimum": 0 },
-        "skip_verification_floor": { "type": "boolean" }
+        "payout_hold_secs": { "type": "integer", "minimum": 0 }
       },
       "required": ["redundancy_frac", "honeypot_frac", "payout_hold_secs"],
       "additionalProperties": false
@@ -126,7 +125,7 @@
         "worker_id": { "$ref": "#/$defs/uuid" },
         "supplier_id": { "$ref": "#/$defs/uuid" },
         "hw_class": { "$ref": "#/$defs/hw_class" },
-        "engine": { "const": "candle" },
+        "engine": { "enum": ["candle", "vllm"] },
         "build_hash": { "type": "string" },
         "memory_gb": { "type": "number", "minimum": 0 },
         "memory_bw_gbps": { "type": "number", "minimum": 0 },

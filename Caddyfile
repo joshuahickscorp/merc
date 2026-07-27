@@ -4,7 +4,7 @@
 	metrics
 }
 
-{$SITE_HOST:computexchange.net} {
+{$SITE_HOST:mercmerc.net} {
 	encode zstd gzip
 
 	# Metrics remain available to an authorized scraper on the private service
@@ -14,7 +14,7 @@
 
 	header {
 		Strict-Transport-Security "max-age=31536000"
-		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; style-src 'self' 'sha256-wzPyOXShc9nAq0Cda7CuKQSaamiZEkR74x0iZTLEPw4=' 'sha256-mwtBOHaT4ajeQejQHvUpbkVjbZZ9/rwcaFrdtxGSd6U=' 'sha256-UYSRSfssU/0rDK5mWBDDUN3QHK07Sm36Uioa1YNHOuw=' 'sha256-Zij0fm1gkYp6TGSaMn/ECpwIjWMVJjd6heYTz1oGB6Q='; script-src 'self' 'sha256-AF9A9ibovGU5H65tmnSjv7CNjdNb8ECpp1jr8xQ7jSI=' 'sha256-OW4XaTv547jkV9JpltLl+d6pcOsUVrKK1YWKrZL1EJw=' 'sha256-UGSy4uI7gtAZL8VgDEjs5jWQoqXMKSy12cuGG/HvVIc='; upgrade-insecure-requests"
+		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; style-src 'self' 'sha256-wzPyOXShc9nAq0Cda7CuKQSaamiZEkR74x0iZTLEPw4=' 'sha256-mwtBOHaT4ajeQejQHvUpbkVjbZZ9/rwcaFrdtxGSd6U=' 'sha256-UYSRSfssU/0rDK5mWBDDUN3QHK07Sm36Uioa1YNHOuw=' 'sha256-Zij0fm1gkYp6TGSaMn/ECpwIjWMVJjd6heYTz1oGB6Q=' 'sha256-LgiOQvfIj9gguD1Jwu3M850LB9/5tLQeb3JjiYroQg0=' 'sha256-kBcx8+rfDisQ4ATW+WvBd6efyEy+goH+gdB1GymvJWQ='; script-src 'self' 'sha256-Wibn1i4VOkc0UELhaK1Zk7c4cfZ9+Q0VAv+MXY4GfHc=' 'sha256-OW4XaTv547jkV9JpltLl+d6pcOsUVrKK1YWKrZL1EJw=' 'sha256-UGSy4uI7gtAZL8VgDEjs5jWQoqXMKSy12cuGG/HvVIc=' 'sha256-cQZA1imSYKIS5JAAxThJ2Gu4wIHLxblFpYtUgSirtFU=' 'sha256-121lvLlT64GOVH+aMxs8xD/gs9wqMDwESGUYEeQ02u4='; upgrade-insecure-requests"
 		Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
 		Cross-Origin-Opener-Policy "same-origin"
 		X-Content-Type-Options "nosniff"
@@ -23,7 +23,7 @@
 		-Server
 	}
 
-	@html path / /buyer /admin
+	@html path / /buyer /admin /prices /supplier
 	header @html Cache-Control "no-store"
 
 	reverse_proxy control:8080 {
@@ -34,7 +34,7 @@
 	log { output stdout }
 }
 
-{$STORAGE_HOST:storage.computexchange.net} {
+{$STORAGE_HOST:storage.mercmerc.net} {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000"

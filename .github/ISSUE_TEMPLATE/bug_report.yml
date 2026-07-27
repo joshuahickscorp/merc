@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a defect in control, agent, SDK, or site (canary scope).
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Support is not staffed.** Contacts in
+        `docs/SUPPORT_AND_INCIDENT_RUNBOOK.md` and
+        `web/.well-known/security.txt` remain placeholders
+        (`[CONTACT REQUIRED]`, `example.invalid`).
+        `scripts/lib/go-closure-common.sh` rejects those placeholders on purpose.
+
+        Include a job ID when relevant. **Never** paste API keys, worker tokens,
+        session cookies, presigned URLs, or private job input.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - buyer API / control
+        - supplier agent
+        - Python SDK
+        - web buyer room
+        - install / release
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Observed behaviour, HTTP status, and stable error `code` if present.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: job-id
+    attributes:
+      label: Job ID (if any)
+      description: UUID only. No credentials.
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps or request shape. Redact secrets.

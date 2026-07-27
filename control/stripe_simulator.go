@@ -641,9 +641,9 @@ func cmdStripeCredentialCheck() {
 		"restricted_key":  stripeCredentialClass(getenvTrim("STRIPE_RESTRICTED_KEY")),
 		"publishable_key": stripeCredentialClass(getenvTrim("STRIPE_PUBLISHABLE_KEY")),
 		"billing_webhook": stripeCredentialClass(getenvTrim("STRIPE_WEBHOOK_SECRET")),
-		"connect_webhook": stripeCredentialClass(getenvTrim("CX_CONNECT_WEBHOOK_SECRET")),
+		"connect_webhook": stripeCredentialClass(getenvTrim("MERC_CONNECT_WEBHOOK_SECRET")),
 	}
-	ready := classes["secret_key"] == "sk_test" && classes["billing_webhook"] == "webhook_present" && classes["connect_webhook"] == "webhook_present" && getenvTrim("STRIPE_WEBHOOK_SECRET") != getenvTrim("CX_CONNECT_WEBHOOK_SECRET")
+	ready := classes["secret_key"] == "sk_test" && classes["billing_webhook"] == "webhook_present" && classes["connect_webhook"] == "webhook_present" && getenvTrim("STRIPE_WEBHOOK_SECRET") != getenvTrim("MERC_CONNECT_WEBHOOK_SECRET")
 	for _, class := range classes {
 		if class == "sk_live" || class == "rk_live" || class == "publishable_live" {
 			ready = false

@@ -5,7 +5,7 @@ Do not use a real card.
 Do not use sk_live.
 Do not use live connected accounts.
 
-This procedure is only for ComputExchange’s supervised no-value private canary.
+This procedure is only for merc’s supervised no-value private canary.
 It does not authorize production Stripe mode, real charges, transfers, payouts,
 or public enrollment.
 
@@ -17,8 +17,8 @@ them in chat, Git, CI output, screenshots, or evidence:
 
 - `STRIPE_SECRET_KEY`: `sk_test_*`, or a sufficiently scoped `rk_test_*` key.
 - `STRIPE_WEBHOOK_SECRET`: the `whsec_*` secret for the Sandbox cash-event endpoint.
-- `CX_CONNECT_WEBHOOK_SECRET`: a distinct `whsec_*` secret for the Sandbox Connect endpoint.
-- `CX_CONNECT_CLIENT_ID`: the Sandbox Connect client identifier.
+- `MERC_CONNECT_WEBHOOK_SECRET`: a distinct `whsec_*` secret for the Sandbox Connect endpoint.
+- `MERC_CONNECT_CLIENT_ID`: the Sandbox Connect client identifier.
 - `STRIPE_TEST_CONNECTED_ACCOUNT_ID`: a disposable `acct_*` Sandbox connected account.
   It must be a project-controlled US test account with payouts enabled; the
   bundled matrix temporarily installs Stripe's documented success/failure test

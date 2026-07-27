@@ -9,7 +9,7 @@ import (
 )
 
 func TestSealOpenRoundTrip(t *testing.T) {
-	t.Setenv("CX_TOKEN_KEY", "test-secret-key")
+	t.Setenv("MERC_TOKEN_KEY", "test-secret-key")
 	sealed := sealToken("ghp_secrettoken123")
 	if sealed == "ghp_secrettoken123" || len(sealed) < 5 || sealed[:4] != "enc:" {
 		t.Fatalf("token not sealed: %q", sealed)
@@ -20,7 +20,7 @@ func TestSealOpenRoundTrip(t *testing.T) {
 }
 
 func TestSealNoKeyIsHonestPlaintext(t *testing.T) {
-	t.Setenv("CX_TOKEN_KEY", "")
+	t.Setenv("MERC_TOKEN_KEY", "")
 	sealed := sealToken("abc")
 	if sealed != "plain:abc" {
 		t.Fatalf("expected plain: marker, got %q", sealed)

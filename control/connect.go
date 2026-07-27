@@ -35,8 +35,8 @@ func ensureConnectAccount(ctx context.Context, store *Store, supplierID uuid.UUI
 }
 
 func onboardingLink(ctx context.Context, acct string) (string, error) {
-	ret, refresh := strings.TrimSpace(os.Getenv("CX_CONNECT_RETURN_URL")),
-		strings.TrimSpace(os.Getenv("CX_CONNECT_REFRESH_URL"))
+	ret, refresh := strings.TrimSpace(os.Getenv("MERC_CONNECT_RETURN_URL")),
+		strings.TrimSpace(os.Getenv("MERC_CONNECT_REFRESH_URL"))
 	if err := validateConnectURLPair(ret, refresh, os.Getenv("SITE_HOST")); err != nil {
 		return "", err
 	}
@@ -59,13 +59,13 @@ func onboardingLink(ctx context.Context, acct string) (string, error) {
 func validateConnectURLPair(returnURL, refreshURL, siteHost string) error {
 	siteHost = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(siteHost), "."))
 	if returnURL == "" || refreshURL == "" {
-		return errors.New("CX_CONNECT_RETURN_URL and CX_CONNECT_REFRESH_URL are required")
+		return errors.New("MERC_CONNECT_RETURN_URL and MERC_CONNECT_REFRESH_URL are required")
 	}
 	if siteHost == "" {
 		return errors.New("SITE_HOST is required to validate Stripe Connect return origins")
 	}
 	for name, raw := range map[string]string{
-		"CX_CONNECT_RETURN_URL": returnURL, "CX_CONNECT_REFRESH_URL": refreshURL,
+		"MERC_CONNECT_RETURN_URL": returnURL, "MERC_CONNECT_REFRESH_URL": refreshURL,
 	} {
 		u, err := url.Parse(raw)
 		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {

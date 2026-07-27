@@ -31,7 +31,7 @@ esac
 gc_reject_live_stripe_environment
 unset STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY \
   STRIPE_PUBLISHABLE_KEY NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY STRIPE_WEBHOOK_SECRET \
-  CX_CONNECT_WEBHOOK_SECRET CX_CONNECT_CLIENT_ID STRIPE_TEST_CONNECTED_ACCOUNT_ID
+  MERC_CONNECT_WEBHOOK_SECRET MERC_CONNECT_CLIENT_ID STRIPE_TEST_CONNECTED_ACCOUNT_ID
 
 for tool in docker curl jq git openssl cargo python3; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is required" >&2; exit 1; }
@@ -90,19 +90,19 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if [ -n "${CX_LOCAL_PREBUILT_IMAGE_ID:-}" ]; then
-  [[ "$CX_LOCAL_PREBUILT_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] \
+if [ -n "${MERC_LOCAL_PREBUILT_IMAGE_ID:-}" ]; then
+  [[ "$MERC_LOCAL_PREBUILT_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] \
     || { echo "prebuilt local proof image must be an immutable image ID" >&2; exit 1; }
-  [ "${CX_LOCAL_PREBUILT_SOURCE_STATE_SHA256:-}" = "$SOURCE_STATE" ] \
+  [ "${MERC_LOCAL_PREBUILT_SOURCE_STATE_SHA256:-}" = "$SOURCE_STATE" ] \
     || { echo "prebuilt local proof image is not bound to the current source state" >&2; exit 1; }
-  docker image inspect "$CX_LOCAL_PREBUILT_IMAGE_ID" >/dev/null
-  LOCAL_IMAGE="$CX_LOCAL_PREBUILT_IMAGE_ID"
+  docker image inspect "$MERC_LOCAL_PREBUILT_IMAGE_ID" >/dev/null
+  LOCAL_IMAGE="$MERC_LOCAL_PREBUILT_IMAGE_ID"
 else
   LOCAL_TAG="cx-control-local-proof:${SOURCE_COMMIT:0:12}-${SOURCE_STATE:0:12}"
   docker build --platform "$PLATFORM" --provenance=false -f "$ROOT/Dockerfile.control" \
-    --build-arg "CX_BUILD_VERSION=local-proof" \
-    --build-arg "CX_BUILD_COMMIT=$SOURCE_COMMIT" \
-    --build-arg "CX_BUILD_DATE=$BUILD_DATE" -t "$LOCAL_TAG" "$ROOT" >/dev/null
+    --build-arg "MERC_BUILD_VERSION=local-proof" \
+    --build-arg "MERC_BUILD_COMMIT=$SOURCE_COMMIT" \
+    --build-arg "MERC_BUILD_DATE=$BUILD_DATE" -t "$LOCAL_TAG" "$ROOT" >/dev/null
   LOCAL_IMAGE="$(docker image inspect "$LOCAL_TAG" --format '{{.Id}}')"
 fi
 [[ "$LOCAL_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "local build lacks immutable image ID" >&2; exit 1; }
@@ -113,12 +113,12 @@ fi
 CONTROL_HEALTH_INTERVAL=5s
 [ "$MODE" != soak ] || CONTROL_HEALTH_INTERVAL=30s
 
-KEEP=1 KEEP_AGENTS=1 CX_LOCAL_SOURCE_PROOF=1 \
-  CX_LOCAL_PROJECT="$PROJECT" CX_LOCAL_ARTIFACT_DIR="$ART/topology" \
-  CX_LOCAL_EVIDENCE_FILE="$TOPOLOGY_RECEIPT" CX_LOCAL_CONTROL_IMAGE="$LOCAL_IMAGE" \
-  CX_LOCAL_CONTROL_HEALTHCHECK=/cx-healthcheck \
-  CX_LOCAL_CONTROL_HEALTH_INTERVAL="$CONTROL_HEALTH_INTERVAL" \
-  CX_LOCAL_CONTROL_PLATFORM="$PLATFORM" bash "$ROOT/scripts/local-production-rehearsal.sh"
+KEEP=1 KEEP_AGENTS=1 MERC_LOCAL_SOURCE_PROOF=1 \
+  MERC_LOCAL_PROJECT="$PROJECT" MERC_LOCAL_ARTIFACT_DIR="$ART/topology" \
+  MERC_LOCAL_EVIDENCE_FILE="$TOPOLOGY_RECEIPT" MERC_LOCAL_CONTROL_IMAGE="$LOCAL_IMAGE" \
+  MERC_LOCAL_CONTROL_HEALTHCHECK=/cx-healthcheck \
+  MERC_LOCAL_CONTROL_HEALTH_INTERVAL="$CONTROL_HEALTH_INTERVAL" \
+  MERC_LOCAL_CONTROL_PLATFORM="$PLATFORM" bash "$ROOT/scripts/local-production-rehearsal.sh"
 
 # The topology setup intentionally leaves these two local sandboxed agent
 # processes and its exact runtime environment for the fault exercise.
@@ -158,9 +158,9 @@ psql_value() {
 submit_job() {
   local kind="$1" sequence="${2:-single}" response job_id deadline body
   if [ "$kind" = embed ]; then
-    body='{"job_type":{"type":"embed","batch_size":8},"model":{"ref":"all-minilm-l6-v2"},"params":{"split_size":1},"constraints":{"min_memory_gb":0,"hw_classes":null,"data_residency":null},"verification":{"redundancy_frac":0,"honeypot_frac":0,"payout_hold_secs":0,"skip_verification_floor":true},"tier":"batch","input":"{\"text\":\"resilience proof\"}\n"}'
+    body='{"job_type":{"type":"embed","batch_size":8},"model":{"ref":"all-minilm-l6-v2"},"params":{"split_size":1},"constraints":{"min_memory_gb":0,"hw_classes":null,"data_residency":null},"verification":{"redundancy_frac":0,"honeypot_frac":0,"payout_hold_secs":0},"tier":"batch","input":"{\"text\":\"resilience proof\"}\n"}'
   else
-    body='{"job_type":{"type":"batch_infer","max_tokens":12,"temperature":0},"model":{"ref":"llama-3.2-1b-instruct-q4"},"params":{"split_size":1},"constraints":{"min_memory_gb":0,"hw_classes":null,"data_residency":null},"verification":{"redundancy_frac":0,"honeypot_frac":0,"payout_hold_secs":0,"skip_verification_floor":true},"tier":"batch","input":"{\"prompt\":\"Reply with only: resilient\"}\n"}'
+    body='{"job_type":{"type":"batch_infer","max_tokens":12,"temperature":0},"model":{"ref":"llama-3.2-1b-instruct-q4"},"params":{"split_size":1},"constraints":{"min_memory_gb":0,"hw_classes":null,"data_residency":null},"verification":{"redundancy_frac":0,"honeypot_frac":0,"payout_hold_secs":0},"tier":"batch","input":"{\"prompt\":\"Reply with only: resilient\"}\n"}'
   fi
   deadline=$(( $(date +%s) + 180 ))
   while :; do
@@ -211,10 +211,10 @@ run_simulator() {
 start_agent() {
   local n="$1"
   local output="$ART/restarted-agent$n.log"
-  local model_cache="${CX_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
-  HOME="$ART/topology/home" CX_MODEL_CACHE="$model_cache" \
-    CX_TLS_CA_FILE="$ART/topology/tls/ca.crt" CX_REQUIRE_SANDBOX=1 \
-    CX_SANDBOX_PROFILE="$ROOT/macapp/ComputeExchangeAgent/cx-agent.sb" \
+  local model_cache="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
+  HOME="$ART/topology/home" MERC_MODEL_CACHE="$model_cache" \
+    MERC_TLS_CA_FILE="$ART/topology/tls/ca.crt" MERC_REQUIRE_SANDBOX=1 \
+    MERC_SANDBOX_PROFILE="$ROOT/macapp/MercAgent/cx-agent.sb" \
     "$ROOT/.artifacts/local-production-cargo-target/release/cx-agent" run \
     --config "$ART/topology/agent$n/config.toml" > "$output" 2>&1 &
   STARTED_PID=$!
@@ -250,8 +250,8 @@ SQL
 
   prior='ghcr.io/joshuahickscorp/computexchange-control@sha256:098edaa7f97892724b9e62a7008f1b3aecae452a9e08c11e60525c05cc6fdacf'
   docker pull "$prior" >/dev/null
-  export CX_LOCAL_CONTROL_IMAGE="$prior" CX_LOCAL_CONTROL_PLATFORM=linux/amd64 \
-    CX_LOCAL_CONTROL_HEALTHCHECK=/cx
+  export MERC_LOCAL_CONTROL_IMAGE="$prior" MERC_LOCAL_CONTROL_PLATFORM=linux/amd64 \
+    MERC_LOCAL_CONTROL_HEALTHCHECK=/cx
   rollback_started="$(date +%s)"
   compose up -d --no-deps --force-recreate control >/dev/null
   wait_service control; wait_control
@@ -259,8 +259,8 @@ SQL
   prior_version="$("${CURL[@]}" https://cx.localhost:18443/version)"
   [ "$(jq -r .commit <<< "$prior_version")" = 0387766c5d0e8f9e5b64e8cbef215edcd07784bd ]
 
-  export CX_LOCAL_CONTROL_IMAGE="$LOCAL_IMAGE" CX_LOCAL_CONTROL_PLATFORM="$PLATFORM" \
-    CX_LOCAL_CONTROL_HEALTHCHECK=/cx-healthcheck
+  export MERC_LOCAL_CONTROL_IMAGE="$LOCAL_IMAGE" MERC_LOCAL_CONTROL_PLATFORM="$PLATFORM" \
+    MERC_LOCAL_CONTROL_HEALTHCHECK=/cx-healthcheck
   forward_started="$(date +%s)"
   compose up -d --no-deps --force-recreate control >/dev/null
   wait_service control; wait_control
@@ -361,7 +361,7 @@ while [ "$(date +%s)" -lt "$end_epoch" ]; do
   id="$(submit_job embed "embed-$sequence")"; wait_job "$id"
   [ $((sequence % 5)) -ne 0 ] || { infer="$(submit_job batch "batch-$sequence")"; wait_job "$infer"; }
   metrics="$(curl --silent --get http://127.0.0.1:19090/api/v1/query \
-    --data-urlencode 'query={__name__=~"cx_process_resident_memory_bytes|cx_process_open_file_descriptors|cx_go_.*|cx_db_pool_connections|cx_queue_age_seconds|cx_webhook_backlog|cx_reconcile_drift_total"}' | jq '.data.result')"
+    --data-urlencode 'query={__name__=~"merc_process_resident_memory_bytes|merc_process_open_file_descriptors|cx_go_.*|merc_db_pool_connections|merc_queue_age_seconds|merc_webhook_backlog|merc_reconcile_drift_total"}' | jq '.data.result')"
   database="$(psql_value "SELECT json_build_object(
     'connections',(SELECT count(*) FROM pg_stat_activity WHERE datname='cx'),
     'queue_age_seconds',(SELECT COALESCE(max(EXTRACT(EPOCH FROM now()-created_at)),0)::float8 FROM tasks WHERE status IN ('queued','retrying')),
@@ -371,7 +371,7 @@ while [ "$(date +%s)" -lt "$end_epoch" ]; do
     'reconciliation_mismatches',(SELECT count(*) FROM supplier_payout_operations WHERE status='outcome_unknown' OR outcome_unknown))::text")"
   artifact_bytes="$(compose run --rm --no-deps --entrypoint /bin/sh createbuckets -c \
     'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null; mc du --json local/cx-jobs | tail -1' 2>/dev/null | jq -r '.size // 0')"
-  model_cache_kb="$(du -sk "${CX_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}" 2>/dev/null | awk '{print $1}' || echo 0)"
+  model_cache_kb="$(du -sk "${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}" 2>/dev/null | awk '{print $1}' || echo 0)"
   backup_health="$(docker inspect --format '{{.State.Health.Status}}' "$(compose ps -q backup-worker)")"
   control_restarts="$(docker inspect --format '{{.RestartCount}}' "$CONTROL_CONTAINER")"
   control_oom="$(docker inspect --format '{{.State.OOMKilled}}' "$CONTROL_CONTAINER")"
@@ -400,17 +400,19 @@ summary="$(jq -s '
     {first:$values[0],last:$values[-1],min:($values|min),max:($values|max),
      delta:($values[-1]-$values[0])};
   . as $samples |
-  (metric_values("cx_process_resident_memory_bytes")) as $rss |
-  (metric_values("cx_process_open_file_descriptors")) as $fds |
-  (metric_values("cx_go_heap_alloc_bytes")) as $heap |
-  (metric_values("cx_go_sys_bytes")) as $go_sys |
-  (metric_values("cx_go_goroutines")) as $goroutines |
-  (metric_values("cx_go_gc_cycles_total")) as $gc_cycles |
+  (metric_values("merc_process_resident_memory_bytes")) as $rss |
+  (metric_values("merc_process_open_file_descriptors")) as $fds |
+  (metric_values("merc_go_heap_alloc_bytes")) as $heap |
+  (metric_values("merc_go_sys_bytes")) as $go_sys |
+  (metric_values("merc_go_memory_limit_bytes")) as $go_limit |
+  (metric_values("merc_go_goroutines")) as $goroutines |
+  (metric_values("merc_go_gc_cycles_total")) as $gc_cycles |
   {sample_count:length,
    rss_bytes:bounds($rss),
    open_file_descriptors:bounds($fds),
    go_heap_alloc_bytes:bounds($heap),
    go_sys_bytes:bounds($go_sys),
+   go_memory_limit_bytes:{min:($go_limit|min),max:($go_limit|max)},
    go_goroutines:bounds($goroutines),
    go_gc_cycles_total:bounds($gc_cycles),
    database_connections:{max:([$samples[].database.connections]|max)},
@@ -428,7 +430,9 @@ summary="$(jq -s '
 jq -e '.sample_count > 0 and .backup_unhealthy_samples == 0 and
   .webhook_backlog.max == 0 and .failed_finalizations.max == 0 and
   .reconciliation_mismatches.max == 0 and .control_restart_count.max == 0 and
-  .control_oom_samples == 0' <<< "$summary" >/dev/null
+  .control_oom_samples == 0 and .rss_bytes.max < 536870912 and
+  .go_heap_alloc_bytes.max < 268435456 and
+  .go_heap_alloc_bytes.max < .go_memory_limit_bytes.min' <<< "$summary" >/dev/null
 qualifies=false; [ "$actual" -ge 86400 ] && qualifies=true
 receipt="$EVIDENCE_DIR/local-soak-${DURATION}s.json"
 jq -n --arg started "$(date -u -r "$started_epoch" +%Y-%m-%dT%H:%M:%SZ)" \
@@ -451,6 +455,9 @@ jq -n --arg started "$(date -u -r "$started_epoch" +%Y-%m-%dT%H:%M:%SZ)" \
    assertions:{backup_healthy:($summary.backup_unhealthy_samples==0),
      control_never_restarted:($summary.control_restart_count.max==0),
      control_never_oom_killed:($summary.control_oom_samples==0),
+     bounded_rss:($summary.rss_bytes.max < 536870912),
+     bounded_go_heap:($summary.go_heap_alloc_bytes.max < 268435456 and
+       $summary.go_heap_alloc_bytes.max < $summary.go_memory_limit_bytes.min),
      webhook_backlog_zero:($summary.webhook_backlog.max==0),
      failed_finalizations_zero:($summary.failed_finalizations.max==0),
      reconciliation_mismatches_zero:($summary.reconciliation_mismatches.max==0)},

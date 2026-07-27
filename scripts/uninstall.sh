@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PREFIX="${CX_PREFIX:-$HOME/.local/bin}"
+PREFIX="${MERC_PREFIX:-$HOME/.local/bin}"
 BIN="$PREFIX/cx-agent"
 HOMEDIR="$HOME/.compute-exchange"
 PLIST="$HOME/Library/LaunchAgents/dev.computeexchange.agent.plist"

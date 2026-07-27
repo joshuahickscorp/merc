@@ -83,7 +83,7 @@ def event(event_id: str, fingerprint: str, status: str = "firing") -> dict:
         "fingerprint": fingerprint,
         "status": status,
         "severity": "page",
-        "alertname": "ComputeExchangeSyntheticPage",
+        "alertname": "MercSyntheticPage",
         "runbook": "docs/RUNBOOKS.md#control-plane-or-database-outage",
         "synthetic": True,
     }
@@ -101,8 +101,8 @@ def main() -> int:
 
     real_receiver_url = ""
     if args.real_receiver_env:
-        if args.profile != "page" or not re.fullmatch(r"CX_ALERT_RECEIVER_[A-Z0-9_]+", args.real_receiver_env):
-            parser.error("real receiver delivery requires page profile and a CX_ALERT_RECEIVER_* variable")
+        if args.profile != "page" or not re.fullmatch(r"MERC_ALERT_RECEIVER_[A-Z0-9_]+", args.real_receiver_env):
+            parser.error("real receiver delivery requires page profile and a MERC_ALERT_RECEIVER_* variable")
         real_receiver_url = os.environ.get(args.real_receiver_env, "").strip()
         parsed = urlparse(real_receiver_url)
         if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:

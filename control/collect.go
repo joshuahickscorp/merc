@@ -34,7 +34,7 @@ END - COALESCE((SELECT SUM(le.amount_usd) FROM ledger_entries le
 const stripeMinChargeUSD = 0.50
 
 func chargeMinUSD() float64 {
-	s := strings.TrimSpace(os.Getenv("CX_CHARGE_MIN_USD"))
+	s := strings.TrimSpace(os.Getenv("MERC_CHARGE_MIN_USD"))
 	if s == "" {
 		return defaultChargeMinUSD
 	}
@@ -51,6 +51,21 @@ func chargeMinUSD() float64 {
 func shouldDeferCharge(actualUSD, thresholdUSD float64) bool {
 	return actualUSD < thresholdUSD
 }
+
+// chargeMaxAttempts bounds automatic re-charging. Without a cap a permanently
+// dead card produced four Stripe PaymentIntent attempts per day, per job,
+// forever: the backoff capped the interval but nothing capped the count, and
+// IncrementChargeAttempts was recorded and logged but never compared to a
+// limit. After the cap the job stops retrying and waits for a human.
+const chargeMaxAttempts = 8
+
+// Charge statuses beyond the automatic path. `manual_review` is not terminal --
+// an operator can requeue it to `deferred` so it rejoins normal batching, or
+// write it off to `abandoned`.
+const (
+	chargeStatusManualReview = "manual_review"
+	chargeStatusAbandoned    = "abandoned"
+)
 
 func chargeRetryBackoff(attempts int) time.Duration {
 	if attempts < 1 {
@@ -250,15 +265,25 @@ func (s *Store) ReflipNoCardJobs(ctx context.Context) (int64, error) {
 	return tag.RowsAffected(), nil
 }
 
+// BuyersDueForBatch selects buyers whose deferred balance is worth charging.
+//
+// The age branch used to fire at Stripe's $0.50 API minimum. On a $0.50 charge
+// Stripe keeps 0.029*0.50 + 0.30 = $0.3145, i.e. 62.9% -- while the buyer price
+// floor was computed assuming the fixed fee is amortised over a full batch
+// (2.9% + 0.30/5.00 = 8.9%). Every age-triggered charge therefore lost about
+// $0.27 that the economic plan had already promised away.
+//
+// The balance is durable in the ledger, so a sub-threshold buyer is not lost by
+// waiting -- the receivable simply rolls forward until it is worth collecting.
 func (s *Store) BuyersDueForBatch(ctx context.Context, thresholdUSD float64, maxAge time.Duration, limit int) ([]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT buyer_id FROM jobs
 		 WHERE charge_status = 'deferred' AND charge_batch_id IS NULL
 		   AND COALESCE(actual_usd, 0) > 0
 		 GROUP BY buyer_id
-		 HAVING (SUM(actual_usd) >= $1
+		 HAVING SUM(actual_usd) >= $1 AND SUM(actual_usd) >= $4
+		    AND (SUM(actual_usd) >= $1
 		         OR MIN(COALESCE(deferred_at, created_at)) < now() - make_interval(secs => $2))
-		   AND SUM(actual_usd) >= $4
 		 ORDER BY MIN(COALESCE(deferred_at, created_at)) ASC LIMIT $3`,
 		thresholdUSD, maxAge.Seconds(), limit, stripeMinChargeUSD)
 	if err != nil {
@@ -523,11 +548,11 @@ func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge Charg
 }
 
 func (s *Store) InsertStripeFee(ctx context.Context, buyerID uuid.UUID, pi string, feeUSD float64) error {
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO ledger_entries (kind, buyer_id, amount_usd, payout_status, payout_ref)
-		 SELECT 'stripe_fee', $1, $2, 'released', $3
-		 WHERE NOT EXISTS (SELECT 1 FROM ledger_entries WHERE kind = 'stripe_fee' AND payout_ref = $3)`,
-		buyerID, -feeUSD, pi)
+	buyer := buyerID
+	_, err := insertLedgerEntryIfAbsentByRefTx(ctx, s.pool, ledgerInsert{
+		Kind: KindStripeFee, BuyerID: &buyer, AmountMicros: -usdToMicros(feeUSD),
+		PayoutStatus: PayoutReleased, PayoutRef: pi,
+	})
 	return err
 }
 
@@ -637,11 +662,11 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 
 	refund := slaRefundAmount(premium, chargeable)
 	if refund > 0 {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO ledger_entries (kind, buyer_id, amount_usd, payout_status, payout_ref)
-			 SELECT $1, $2, $3, 'released', $4
-			 WHERE NOT EXISTS (SELECT 1 FROM ledger_entries WHERE kind = $1 AND payout_ref = $4)`,
-			KindSLARefund, buyerID, refund, slaRefundRef(jobID)); err != nil {
+		buyer := buyerID
+		if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
+			Kind: KindSLARefund, BuyerID: &buyer, AmountMicros: usdToMicros(refund),
+			PayoutStatus: PayoutReleased, PayoutRef: slaRefundRef(jobID),
+		}); err != nil {
 			return res, err
 		}
 	}
@@ -851,6 +876,19 @@ func (wk *Workers) retryFailedSingle(ctx context.Context, jobID uuid.UUID) {
 			log.Printf("workers: charge-collect: bumping charge attempts for job %s: %v", jobID, aerr)
 			return
 		}
+		if attempts >= chargeMaxAttempts {
+			// Stop burning Stripe attempts on a card that is not going to work.
+			// FailedChargesDue selects only charge_status='failed', so moving the
+			// job out of that status ends the automatic loop by construction.
+			if merr := wk.store.MarkChargeManualReview(ctx, jobID); merr != nil {
+				log.Printf("workers: charge-collect: job %s hit %d attempts but could not be moved to manual review: %v",
+					jobID, attempts, merr)
+				return
+			}
+			log.Printf("workers: charge-collect: job %s abandoned automatic retry after %d attempts; charge_status=manual_review",
+				jobID, attempts)
+			return
+		}
 		next := time.Now().Add(chargeRetryBackoff(attempts))
 		if serr := wk.store.SetChargeNextAt(ctx, jobID, next); serr != nil {
 			log.Printf("workers: charge-collect: scheduling next retry for job %s: %v", jobID, serr)
@@ -868,4 +906,19 @@ func (wk *Workers) retryFailedSingle(ctx context.Context, jobID uuid.UUID) {
 	if ferr := recordStripeFee(ctx, wk.store, buyerID, charge.PaymentIntentID); ferr != nil {
 		log.Printf("workers: charge-collect: stripe fee for job %s (pi %s) not recorded yet: %v (backfilled next tick)", jobID, charge.PaymentIntentID, ferr)
 	}
+}
+
+// MarkChargeManualReview ends automatic re-charging for a job and hands it to an
+// operator. Returns false if the job was no longer in `failed`.
+func (s *Store) MarkChargeManualReview(ctx context.Context, jobID uuid.UUID) error {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE jobs SET charge_status=$2, charge_next_at=NULL
+		  WHERE id=$1 AND charge_status='failed'`, jobID, chargeStatusManualReview)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() != 1 {
+		return fmt.Errorf("job %s was not in charge_status=failed", jobID)
+	}
+	return nil
 }

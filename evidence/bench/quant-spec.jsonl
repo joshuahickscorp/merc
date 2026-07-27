@@ -1,0 +1,17 @@
+{"experiment": "quantization", "quant": "4bit", "batch": 1, "decode_tokens_per_s": 392.9, "sample_tokens": [4815, 567, 15166, 220, 16, 25, 71994, 279, 7434, 315, 5044, 34494], "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quantization", "quant": "4bit", "batch": 64, "decode_tokens_per_s": 4738.4, "sample_tokens": [4815, 567, 15166, 220, 16, 25, 71994, 279, 7434, 315, 5044, 34494], "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quantization", "quant": "4bit", "batch": 256, "decode_tokens_per_s": 5581.9, "sample_tokens": [4815, 567, 15166, 220, 16, 25, 71994, 279, 7434, 315, 5044, 34494], "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quantization", "quant": "8bit", "batch": 1, "decode_tokens_per_s": 292.5, "sample_tokens": [763, 832, 11914, 11, 10552, 3249, 5044, 34494, 13693, 43678, 48216, 382], "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quantization", "quant": "8bit", "batch": 64, "decode_tokens_per_s": 4633.2, "sample_tokens": [763, 832, 11914, 11, 10552, 3249, 5044, 34494, 13693, 43678, 48216, 382], "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quantization", "quant": "8bit", "batch": 256, "decode_tokens_per_s": 5328.8, "sample_tokens": [763, 832, 11914, 11, 10552, 3249, 5044, 34494, 13693, 43678, 48216, 382], "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quantization", "quant": "bf16", "batch": 1, "decode_tokens_per_s": 190.8, "sample_tokens": [763, 832, 11914, 11, 10552, 3249, 5044, 34494, 13693, 43678, 48216, 382], "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quantization", "quant": "bf16", "batch": 64, "decode_tokens_per_s": 4034.9, "sample_tokens": [763, 832, 11914, 11, 10552, 3249, 5044, 34494, 13693, 43678, 48216, 382], "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quantization", "quant": "bf16", "batch": 256, "decode_tokens_per_s": 5000.7, "sample_tokens": [763, 832, 11914, 11, 10552, 3249, 5044, 34494, 13693, 43678, 48216, 382], "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quality", "quant": "4bit", "greedy_agreement_vs_bf16": 0.0208, "compared_tokens": 48, "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quality", "quant": "8bit", "greedy_agreement_vs_bf16": 1.0, "compared_tokens": 48, "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "quality", "quant": "bf16", "greedy_agreement_vs_bf16": 1.0, "compared_tokens": 48, "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "speculative", "mode": "baseline_no_draft", "batch": 1, "tokens": 128, "decode_tokens_per_s": 198.2, "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "speculative", "mode": "draft_k2", "batch": 1, "tokens": 128, "decode_tokens_per_s": 219.1, "speedup_vs_baseline": 1.105, "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "speculative", "mode": "draft_k4", "batch": 1, "tokens": 128, "decode_tokens_per_s": 234.4, "speedup_vs_baseline": 1.183, "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "speculative", "mode": "draft_k6", "batch": 1, "tokens": 128, "decode_tokens_per_s": 238.7, "speedup_vs_baseline": 1.204, "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}
+{"experiment": "speculative", "mode": "batched_probe", "batch": 8, "supported": false, "error": "ValueError: too many values to unpack (expected 3, got 4)", "hardware": "Apple M3 Ultra / 96GB", "runtime": "mlx"}

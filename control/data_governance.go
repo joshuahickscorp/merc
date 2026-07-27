@@ -157,6 +157,29 @@ func artifactRefDigest(ref string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// objectDeletionGrace is how long a queued object key must wait before the
+// sweeper may claim it. Matches the longest common PresignGet TTL in this
+// control plane (1h), so a GET issued just before tombstone is very likely to
+// fail once the object is removed. Tests may set this to zero.
+var objectDeletionGrace = time.Hour
+
+// collectBuyerArtifactRefs returns the distinct object-storage keys that hold
+// this buyer's workload content and must be deleted after tombstone.
+//
+// Included (buyer-scoped content pointers):
+//   - jobs.input_ref, jobs.output_ref
+//   - tasks.input_ref, tasks.result_ref, tasks.result_key
+//   - verification_work.staged_result_key, verification_work.artifact_key
+//   - task_verdicts.artifact_key
+//   - chunk_artifact_resolutions.artifact_key
+//   - verification_work_plans.artifact_key
+//
+// Excluded deliberately:
+//   - Platform honeypot seed objects (honeypots.input_ref) — shared fixtures,
+//     not buyer data. Buyer-facing opaque copies under jobs/.../tasks/... are
+//     still collected via tasks.input_ref.
+//   - Keys that only exist as SHA-256 content digests without a storage path
+//     (result_sha256, artifact_sha256) — those are not object keys.
 func collectBuyerArtifactRefs(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID) ([]string, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT ref FROM (
@@ -165,6 +188,17 @@ func collectBuyerArtifactRefs(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID)
 		 UNION ALL SELECT t.input_ref FROM tasks t JOIN jobs j ON j.id=t.job_id WHERE j.buyer_id=$1
 		 UNION ALL SELECT t.result_ref FROM tasks t JOIN jobs j ON j.id=t.job_id WHERE j.buyer_id=$1
 		 UNION ALL SELECT t.result_key FROM tasks t JOIN jobs j ON j.id=t.job_id WHERE j.buyer_id=$1
+		 UNION ALL SELECT vw.staged_result_key FROM verification_work vw
+		   JOIN jobs j ON j.id=vw.job_id WHERE j.buyer_id=$1
+		 UNION ALL SELECT vw.artifact_key FROM verification_work vw
+		   JOIN jobs j ON j.id=vw.job_id WHERE j.buyer_id=$1
+		 UNION ALL SELECT tv.artifact_key FROM task_verdicts tv
+		   JOIN jobs j ON j.id=tv.job_id WHERE j.buyer_id=$1
+		 UNION ALL SELECT car.artifact_key FROM chunk_artifact_resolutions car
+		   JOIN jobs j ON j.id=car.job_id WHERE j.buyer_id=$1
+		 UNION ALL SELECT vwp.artifact_key FROM verification_work_plans vwp
+		   JOIN verification_work vw ON vw.id=vwp.work_id
+		   JOIN jobs j ON j.id=vw.job_id WHERE j.buyer_id=$1
 		) refs WHERE ref IS NOT NULL AND btrim(ref) <> ''`, buyerID)
 	if err != nil {
 		return nil, err
@@ -187,6 +221,149 @@ func collectBuyerArtifactRefs(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID)
 	}
 	sort.Strings(refs)
 	return refs, nil
+}
+
+func enqueueBuyerObjectDeletions(
+	ctx context.Context,
+	tx pgx.Tx,
+	tombstoneID, buyerID uuid.UUID,
+	refs []string,
+	notBefore time.Time,
+) error {
+	for _, ref := range refs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO pending_object_deletions
+			  (tombstone_id,buyer_id,object_key,object_key_sha256,not_before)
+			VALUES ($1,$2,$3,$4,$5)
+			ON CONFLICT (tombstone_id, object_key) DO NOTHING`,
+			tombstoneID, buyerID, ref, artifactRefDigest(ref), notBefore); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type pendingObjectDeletion struct {
+	ID              uuid.UUID
+	TombstoneID     uuid.UUID
+	BuyerID         uuid.UUID
+	ObjectKey       string
+	ObjectKeySHA256 string
+	ClaimToken      uuid.UUID
+}
+
+// ClaimPendingObjectDeletions leases ready queue rows with FOR UPDATE SKIP LOCKED.
+// Rows younger than not_before are left alone (in-flight presigned URL grace).
+func (s *Store) ClaimPendingObjectDeletions(
+	ctx context.Context,
+	limit int,
+	lease time.Duration,
+) ([]pendingObjectDeletion, error) {
+	if limit <= 0 || lease <= 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		WITH candidates AS (
+		  SELECT id
+		    FROM pending_object_deletions
+		   WHERE refused_at IS NULL
+		     AND not_before <= now()
+		     AND (claimed_at IS NULL OR claimed_at <= now() - make_interval(secs => $2))
+		   ORDER BY created_at, id
+		   FOR UPDATE SKIP LOCKED
+		   LIMIT $1
+		), claimed AS (
+		  UPDATE pending_object_deletions p
+		     SET claimed_at=now(),
+		         claim_token=gen_random_uuid(),
+		         attempts=p.attempts+1
+		    FROM candidates c
+		   WHERE p.id=c.id
+		   RETURNING p.id,p.tombstone_id,p.buyer_id,p.object_key,p.object_key_sha256,p.claim_token
+		)
+		SELECT id,tombstone_id,buyer_id,object_key,object_key_sha256,claim_token
+		  FROM claimed
+		 ORDER BY id`, limit, int64(lease/time.Second))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []pendingObjectDeletion
+	for rows.Next() {
+		var item pendingObjectDeletion
+		if err := rows.Scan(
+			&item.ID, &item.TombstoneID, &item.BuyerID,
+			&item.ObjectKey, &item.ObjectKeySHA256, &item.ClaimToken,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// TombstoneAuthorizesObjectKey reports whether the SHA-256 of objectKey is in
+// the tombstone's authorised artifact_ref_sha256s list written at deletion time.
+func (s *Store) TombstoneAuthorizesObjectKey(
+	ctx context.Context,
+	tombstoneID uuid.UUID,
+	objectKey string,
+) (bool, error) {
+	digest := artifactRefDigest(objectKey)
+	var ok bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(artifact_ref_sha256s ? $2, false)
+		  FROM buyer_identity_tombstones WHERE id=$1`, tombstoneID, digest).Scan(&ok)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return ok, err
+}
+
+func (s *Store) CompletePendingObjectDeletion(ctx context.Context, id, claimToken uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM pending_object_deletions
+		 WHERE id=$1 AND claim_token=$2 AND refused_at IS NULL`, id, claimToken)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("pending object deletion %s: claim lost or already finished", id)
+	}
+	return nil
+}
+
+func (s *Store) FailPendingObjectDeletion(ctx context.Context, id, claimToken uuid.UUID, failure string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE pending_object_deletions
+		   SET last_error=$3, claimed_at=NULL, claim_token=NULL
+		 WHERE id=$1 AND claim_token=$2 AND refused_at IS NULL`,
+		id, claimToken, truncateErr(failure, 1000))
+	return err
+}
+
+// RefusePendingObjectDeletion permanently parks a queue row whose digest is
+// not on the tombstone's authorised list. The object is not deleted.
+func (s *Store) RefusePendingObjectDeletion(ctx context.Context, id, claimToken uuid.UUID, reason string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE pending_object_deletions
+		   SET refused_at=now(), last_error=$3, claimed_at=NULL, claim_token=NULL
+		 WHERE id=$1 AND claim_token=$2 AND refused_at IS NULL`,
+		id, claimToken, truncateErr(reason, 1000))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("pending object deletion %s: claim lost or already refused", id)
+	}
+	return nil
+}
+
+func truncateErr(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max]
 }
 
 func enforceBuyerTombstone(ctx context.Context, tx pgx.Tx, buyerID, tombstoneID uuid.UUID, emailSHA256 string) error {
@@ -313,6 +490,13 @@ func (s *Store) TombstoneBuyer(
 		map[string]any{"active": false, "tombstone_id": tombstoneID,
 			"authentication_revoked": true, "artifact_refs_expired": true,
 			"financial_records_retained": true}); err != nil {
+		return BuyerDeletionResult{}, err
+	}
+	// Queue object deletions BEFORE nulling job/task pointers so a crash
+	// between commit and object-store removal still leaves findable keys.
+	// Ordering is load-bearing relative to enforceBuyerTombstone below.
+	if err := enqueueBuyerObjectDeletions(ctx, tx, tombstoneID, buyerID, refs,
+		time.Now().UTC().Add(objectDeletionGrace)); err != nil {
 		return BuyerDeletionResult{}, err
 	}
 	if err := enforceBuyerTombstone(ctx, tx, buyerID, tombstoneID, emailSHA256); err != nil {

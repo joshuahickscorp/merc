@@ -13,7 +13,7 @@ fi
 
 # Values may be supplied by the process or by a deliberately ignored operator
 # file.  The doctor reports only validity classes and booleans.
-for env_file in "$ROOT/.env" "${CX_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"; do
+for env_file in "$ROOT/.env" "${MERC_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"; do
   [ -f "$env_file" ] || continue
   set -a
   # shellcheck disable=SC1090
@@ -58,17 +58,17 @@ governance_ok=false
 present STAGING_SSH_TARGET && present STAGING_TLS_HOSTNAME && \
   matches STAGING_DEPLOYMENT_ROOT '/*' && staging_ok=true
 
-present CX_BACKUP_OFFSITE && matches CX_BACKUP_OFFSITE 's3://*' && \
+present MERC_BACKUP_OFFSITE && matches MERC_BACKUP_OFFSITE 's3://*' && \
   present AWS_ACCESS_KEY_ID && present AWS_SECRET_ACCESS_KEY && \
-  matches CX_BACKUP_ENCRYPTION_RECIPIENT 'age1*' && \
-  readable_path CX_BACKUP_DECRYPTION_IDENTITY_FILE && \
+  matches MERC_BACKUP_ENCRYPTION_RECIPIENT 'age1*' && \
+  readable_path MERC_BACKUP_DECRYPTION_IDENTITY_FILE && \
   command_present age && command_present aws && backup_ok=true
 
 (matches STRIPE_SECRET_KEY 'sk_test_*' || matches STRIPE_SECRET_KEY 'rk_test_*') && \
   matches STRIPE_WEBHOOK_SECRET 'whsec_*' && \
-  matches CX_CONNECT_WEBHOOK_SECRET 'whsec_*' && \
-  [ "${STRIPE_WEBHOOK_SECRET:-}" != "${CX_CONNECT_WEBHOOK_SECRET:-}" ] && \
-  matches CX_CONNECT_CLIENT_ID 'ca_*' && \
+  matches MERC_CONNECT_WEBHOOK_SECRET 'whsec_*' && \
+  [ "${STRIPE_WEBHOOK_SECRET:-}" != "${MERC_CONNECT_WEBHOOK_SECRET:-}" ] && \
+  matches MERC_CONNECT_CLIENT_ID 'ca_*' && \
   matches STRIPE_TEST_CONNECTED_ACCOUNT_ID 'acct_*' && \
   matches STRIPE_BILLING_WEBHOOK_ENDPOINT_ID 'we_*' && \
   matches STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID 'we_*' && \
@@ -76,10 +76,10 @@ present CX_BACKUP_OFFSITE && matches CX_BACKUP_OFFSITE 's3://*' && \
 
 matches ALERT_RECEIVER_WEBHOOK_URL 'https://*' && present ALERT_RECEIVER_NAME && alert_ok=true
 
-if present CX_CANARY_APPROVED_BUYER_EMAILS && present CX_CANARY_APPROVED_WORKER_IDS; then
-  buyer_count="$(printf '%s' "$CX_CANARY_APPROVED_BUYER_EMAILS" | awk -F, '{print NF}')"
-  worker_count="$(printf '%s' "$CX_CANARY_APPROVED_WORKER_IDS" | awk -F, '{print NF}')"
-  worker_valid_count="$(printf '%s' "$CX_CANARY_APPROVED_WORKER_IDS" | tr ',' '\n' | \
+if present MERC_CANARY_APPROVED_BUYER_EMAILS && present MERC_CANARY_APPROVED_WORKER_IDS; then
+  buyer_count="$(printf '%s' "$MERC_CANARY_APPROVED_BUYER_EMAILS" | awk -F, '{print NF}')"
+  worker_count="$(printf '%s' "$MERC_CANARY_APPROVED_WORKER_IDS" | awk -F, '{print NF}')"
+  worker_valid_count="$(printf '%s' "$MERC_CANARY_APPROVED_WORKER_IDS" | tr ',' '\n' | \
     awk '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/ {n++} END {print n+0}')"
   [ "$buyer_count" = 2 ] && [ "$worker_count" = 2 ] && [ "$worker_valid_count" = 2 ] && canary_ok=true
 fi

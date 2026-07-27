@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "unit": "usd_per_1k_units",
+  "unit_note": "Catalogue price_per_1k is USD per 1000 billable units (≈ tokens; see estimateJobUSD). Observations below are converted from published per-1M-token list prices: usd_per_1k = usd_per_1m / 1000.",
+  "fetched_at": "2026-07-26",
+  "positioning_multiplier": 0.9,
+  "positioning_note": "Catalogue price = min(observations in class) × positioning_multiplier. 0.9 aims ~10% under the cheapest observed list price for the class.",
+  "classes": {
+    "embed_small": {
+      "description": "Small general-purpose text embeddings (OpenAI text-embedding-3-small class / voyage-4-lite class). Maps to all-minilm-l6-v2.",
+      "job_type": "embed",
+      "model_ids": ["all-minilm-l6-v2"],
+      "observations": [
+        {
+          "provider": "openai",
+          "model": "text-embedding-3-small",
+          "usd_per_1m": 0.02,
+          "usd_per_1k": 0.00002,
+          "tier": "standard",
+          "source_url": "https://costgoat.com/pricing/openai-embeddings",
+          "fetched_at": "2026-07-26",
+          "notes": "Standard tier; batch is ~$0.01/1M. Used as the open-web list price for small embeddings."
+        },
+        {
+          "provider": "voyage",
+          "model": "voyage-4-lite",
+          "usd_per_1m": 0.02,
+          "usd_per_1k": 0.00002,
+          "tier": "standard",
+          "source_url": "https://docs.voyageai.com/docs/pricing",
+          "fetched_at": "2026-07-26",
+          "notes": "Published $0.00002 per thousand tokens = $0.02 per million."
+        },
+        {
+          "provider": "together",
+          "model": "multilingual-e5-large-instruct",
+          "usd_per_1m": 0.02,
+          "usd_per_1k": 0.00002,
+          "tier": "serverless",
+          "source_url": "https://www.together.ai/pricing",
+          "fetched_at": "2026-07-26",
+          "notes": "Together serverless embeddings list $0.02 per 1M tokens for Multilingual e5 large instruct."
+        }
+      ]
+    },
+    "infer_small": {
+      "description": "Small open-weight chat/completion (≤~3B / 1B-class Llama). Maps to llama-3.2-1b-instruct-q4.",
+      "job_type": "batch_infer",
+      "model_ids": ["llama-3.2-1b-instruct-q4"],
+      "observations": [
+        {
+          "provider": "fireworks",
+          "model": "llama-3.2-1b-instruct",
+          "usd_per_1m": 0.01,
+          "usd_per_1k": 0.00001,
+          "tier": "serverless",
+          "source_url": "https://www.generalcompute.com/blog/inference-api-pricing-guide-groq-vs-fireworks-vs-together-vs-generalcompute",
+          "fetched_at": "2026-07-26",
+          "notes": "Cited Fireworks Llama 3.2 1B Instruct at $0.01 / 1M input and output."
+        },
+        {
+          "provider": "generalcompute",
+          "model": "llama-3.2-1b",
+          "usd_per_1m": 0.04,
+          "usd_per_1k": 0.00004,
+          "tier": "serverless",
+          "source_url": "https://www.generalcompute.com/blog/inference-api-pricing-guide-groq-vs-fireworks-vs-together-vs-generalcompute",
+          "fetched_at": "2026-07-26",
+          "notes": "GeneralCompute list $0.04 / 1M input and output for Llama 3.2 1B."
+        },
+        {
+          "provider": "together",
+          "model": "gemma-3n-e4b-instruct",
+          "usd_per_1m": 0.06,
+          "usd_per_1k": 0.00006,
+          "tier": "serverless",
+          "source_url": "https://www.together.ai/pricing",
+          "fetched_at": "2026-07-26",
+          "notes": "Smallest serverless chat SKU currently listed on Together ($0.06 in / $0.12 out); proxy for sub-3B class when 1B is not published."
+        }
+      ]
+    }
+  }
+}

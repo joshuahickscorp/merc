@@ -1,4 +1,4 @@
-# ComputExchange Controlled Canary Terms
+# merc Controlled Canary Terms
 
 > **DRAFT — PENDING COUNSEL REVIEW — NOT APPROVED FOR ACCEPTANCE OR PUBLICATION**
 >
@@ -49,7 +49,7 @@ or consumer eligibility, sanctions screening, and export-control requirements.
 
 ## 3. Experimental service
 
-ComputExchange is a development preview. Work may fail, be delayed, be
+merc is a development preview. Work may fail, be delayed, be
 repeated for verification, produce nondeterministic or incorrect output, or be
 stopped without notice to protect participants or the service. No availability,
 performance, output-quality, or earnings commitment is made in this draft.

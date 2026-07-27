@@ -33,10 +33,27 @@ type Verifier struct {
 
 const insecureDevelopmentSamplingSecret = "cx-insecure-development-sampling-secret"
 
-func NewVerifier(s *Store) *Verifier {
-	secret := os.Getenv("CX_VERIFICATION_SAMPLE_SECRET")
+// verificationSampleSecretFromEnv returns the sampling secret. The published
+// development default is refused whenever any Stripe key is configured —
+// including sk_test_ — because test money still buys fraud practice.
+func verificationSampleSecretFromEnv() (string, error) {
+	secret := os.Getenv("MERC_VERIFICATION_SAMPLE_SECRET")
 	if secret == "" {
 		secret = insecureDevelopmentSamplingSecret
+	}
+	if (secret == insecureDevelopmentSamplingSecret || len(secret) < 32) && stripeKey() != "" {
+		return "", fmt.Errorf("MERC_VERIFICATION_SAMPLE_SECRET missing or is the published development default while STRIPE_SECRET_KEY is set; refusing unhardened verification sampling with money rails present")
+	}
+	return secret, nil
+}
+
+func NewVerifier(s *Store) *Verifier {
+	secret, err := verificationSampleSecretFromEnv()
+	if err != nil {
+		// Fail closed: main() already refuses via validateHardeningSecretConfig.
+		// Callers outside that gate (e.g. NewWorkers) must not construct a
+		// verifier with the published default while money rails are present.
+		panic(err.Error())
 	}
 	return &Verifier{store: s, sampleSecret: []byte(secret)}
 }
@@ -65,18 +82,37 @@ func (v *Verifier) verifyTaskResult(ctx context.Context, info *CommitTaskInfo, c
 		return v.checkSampled(info.TaskID, checkProb())
 	}
 
-	if info.IsHoneypot && checkSelected() {
+	// Known-answer honeypot checks are always run: the answer is already stored
+	// and the comparison is a byte compare. Sampling remains only for expensive
+	// redundancy/tiebreak paths via checkSelected() below.
+	if info.IsHoneypot {
 		known, answerClass, err := v.store.GetHoneypotAnswer(ctx, jobTypeOf(info), info.InputRef)
 		if err != nil && !errors.Is(err, errNotFound) {
 			return OutcomeFail, err
 		}
-		byteExactComparable := byteHoneypotComparable(info.jobType, answerClass, info.engine, info.buildHash)
-		if known != nil && byteExactComparable {
-			if !resultsAgree(info.jobType, commitBytes, known) {
+		if known == nil {
+			// The task was dispatched as a probe but no known answer is stored for
+			// it. That is a control-plane integrity failure, not supplier
+			// misconduct, so no reputation dock and no quarantine -- but it must
+			// not pay either, because the one check that distinguishes correct work
+			// from shape-valid garbage did not run. createJob refuses to attach a
+			// probe it cannot back, so reaching here means the alias was lost after
+			// dispatch; record it loudly rather than falling through to a pass.
+			if err := v.store.RecordVerificationEvent(ctx, info.JobID, info.TaskID, info.SupplierID, "honeypot_answer_missing"); err != nil {
+				return OutcomeFail, err
+			}
+			return OutcomeFail, nil
+		}
+		{
+			// Byte-exact honeypots with a stored answer_class fail closed on class
+			// mismatch. engine/buildHash are worker-declared; skipping the compare
+			// would let an unexpected build_hash disarm the probe.
+			if byteExactJobType(info.jobType) && answerClass != "" &&
+				answerClass != classKey(info.engine, info.buildHash) {
 				if err := v.store.DockReputation(ctx, info.SupplierID, EventHoneypotFail); err != nil {
 					return OutcomeFail, err
 				}
-				if err := v.store.RecordVerificationEvent(ctx, info.JobID, info.TaskID, info.SupplierID, "honeypot_fail"); err != nil {
+				if err := v.store.RecordVerificationEvent(ctx, info.JobID, info.TaskID, info.SupplierID, "honeypot_class_mismatch"); err != nil {
 					return OutcomeFail, err
 				}
 				if err := v.store.ClawbackTaskCredit(ctx, info.SupplierID, info.TaskID); err != nil {
@@ -90,13 +126,35 @@ func (v *Verifier) verifyTaskResult(ctx context.Context, info *CommitTaskInfo, c
 				}
 				return OutcomeFail, nil
 			}
-			if err := v.store.DockReputation(ctx, info.SupplierID, EventHoneypotPass); err != nil {
-				return OutcomePass, err
+			// Class-blind paths: non-byte-exact job types always compare; byte-exact
+			// honeypots seeded with blank answerClass keep intentional skip behaviour.
+			if byteHoneypotComparable(info.jobType, answerClass, info.engine, info.buildHash) {
+				if !resultsAgree(info.jobType, commitBytes, known) {
+					if err := v.store.DockReputation(ctx, info.SupplierID, EventHoneypotFail); err != nil {
+						return OutcomeFail, err
+					}
+					if err := v.store.RecordVerificationEvent(ctx, info.JobID, info.TaskID, info.SupplierID, "honeypot_fail"); err != nil {
+						return OutcomeFail, err
+					}
+					if err := v.store.ClawbackTaskCredit(ctx, info.SupplierID, info.TaskID); err != nil {
+						return OutcomeFail, err
+					}
+					if err := v.store.QuarantineSupplier(ctx, info.SupplierID); err != nil {
+						return OutcomeFail, err
+					}
+					if err := v.store.RequeueTask(ctx, taskIDOf(commit)); err != nil {
+						return OutcomeFail, err
+					}
+					return OutcomeFail, nil
+				}
+				if err := v.store.DockReputation(ctx, info.SupplierID, EventHoneypotPass); err != nil {
+					return OutcomePass, err
+				}
+				if err := v.store.RecordVerificationEvent(ctx, info.JobID, info.TaskID, info.SupplierID, "honeypot_pass"); err != nil {
+					return OutcomePass, err
+				}
+				return OutcomePass, nil
 			}
-			if err := v.store.RecordVerificationEvent(ctx, info.JobID, info.TaskID, info.SupplierID, "honeypot_pass"); err != nil {
-				return OutcomePass, err
-			}
-			return OutcomePass, nil
 		}
 	}
 

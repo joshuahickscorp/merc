@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-for env_file in "$ROOT/.env" "${CX_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"; do
+for env_file in "$ROOT/.env" "${MERC_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"; do
   [ -f "$env_file" ] || continue
   set -a
   # shellcheck disable=SC1090
@@ -11,24 +11,88 @@ for env_file in "$ROOT/.env" "${CX_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}";
 done
 
 DB_ONLY=0
-[ "${1:-}" = "--db-only" ] && DB_ONLY=1
+DRY_RUN=0
+for arg in "$@"; do
+  case "$arg" in
+    --db-only) DB_ONLY=1 ;;
+    --dry-run) DRY_RUN=1 ;;
+    *)
+      echo "usage: scripts/backup.sh [--db-only] [--dry-run]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 die() { echo "[backup] ERROR: $*" >&2; exit 1; }
 log() { echo "[backup] $*"; }
 
-OFFSITE="${CX_BACKUP_OFFSITE:-}"
-[ -n "$OFFSITE" ] || die "CX_BACKUP_OFFSITE is unset. Set it (and the offsite \
+write_backup_status() {
+  # Optional low-cardinality health input for the control-plane metrics endpoint.
+  # Mount its parent directory read-only into the control container and set the
+  # same MERC_BACKUP_STATUS_FILE path there.
+  if [ -z "${MERC_BACKUP_STATUS_FILE:-}" ]; then
+    return 0
+  fi
+  local status_dir status_tmp
+  status_dir="$(dirname -- "$MERC_BACKUP_STATUS_FILE")"
+  status_tmp="${MERC_BACKUP_STATUS_FILE}.tmp.$$"
+  mkdir -p "$status_dir"
+  umask 027
+  date -u +%s > "$status_tmp"
+  chmod 0640 "$status_tmp"
+  mv -f -- "$status_tmp" "$MERC_BACKUP_STATUS_FILE"
+  log "backup health timestamp updated: $MERC_BACKUP_STATUS_FILE"
+}
+
+OFFSITE="${MERC_BACKUP_OFFSITE:-}"
+[ -n "$OFFSITE" ] || die "MERC_BACKUP_OFFSITE is unset. Set it (and the offsite \
 S3 creds) in .env · see .env.example. Refusing to take a backup with nowhere \
 offsite to put it."
 
-COMPOSE_FILE="${CX_COMPOSE_FILE:-$ROOT/docker-compose.prod.yml}"
-PG_SERVICE="${CX_PG_SERVICE:-postgres}"
+COMPOSE_FILE="${MERC_COMPOSE_FILE:-$ROOT/docker-compose.prod.yml}"
+PG_SERVICE="${MERC_PG_SERVICE:-postgres}"
 PG_USER="${POSTGRES_USER:-cx}"
 PG_DB="${POSTGRES_DB:-cx}"
 
 AWS_ARGS=()
-if [ -n "${CX_BACKUP_S3_ENDPOINT:-}" ]; then
-  AWS_ARGS+=(--endpoint-url "$CX_BACKUP_S3_ENDPOINT")
+if [ -n "${MERC_BACKUP_S3_ENDPOINT:-}" ]; then
+  AWS_ARGS+=(--endpoint-url "$MERC_BACKUP_S3_ENDPOINT")
+fi
+
+RECIPIENT="${MERC_BACKUP_ENCRYPTION_RECIPIENT:-}"
+[[ "$RECIPIENT" == age1* ]] || die "MERC_BACKUP_ENCRYPTION_RECIPIENT must be an age1... public recipient"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  # Validates scheduler/metric wiring without docker, age, aws, or offsite I/O.
+  # Writes MERC_BACKUP_STATUS_FILE so the control metrics path can be exercised in CI.
+  # Do not run --dry-run against a production status path: it would falsely
+  # reset merc_backup_age_seconds without an offsite backup.
+  [ -n "${MERC_BACKUP_STATUS_FILE:-}" ] || die "--dry-run requires MERC_BACKUP_STATUS_FILE"
+  [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] \
+    || die "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY required even for dry-run (config presence check)"
+  log "dry-run: config ok (offsite=$OFFSITE recipient=age1… status=$MERC_BACKUP_STATUS_FILE)"
+  log "dry-run: WARNING writing status without offsite backup (test/wiring only)"
+  write_backup_status
+  log "dry-run: done (no dump, no upload)"
+  exit 0
+fi
+
+RECIPIENT="${MERC_BACKUP_ENCRYPTION_RECIPIENT:-}"
+[[ "$RECIPIENT" == age1* ]] || die "MERC_BACKUP_ENCRYPTION_RECIPIENT must be an age1... public recipient"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  # Validates scheduler/metric wiring without docker, age, aws, or offsite I/O.
+  # Writes MERC_BACKUP_STATUS_FILE so the control metrics path can be exercised.
+  # Do not run --dry-run against a production status path: it would falsely
+  # reset merc_backup_age_seconds without an offsite backup.
+  [ -n "${MERC_BACKUP_STATUS_FILE:-}" ] || die "--dry-run requires MERC_BACKUP_STATUS_FILE"
+  [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] \
+    || die "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY required even for dry-run (config presence check)"
+  log "dry-run: config ok (offsite=$OFFSITE recipient=age1… status=$MERC_BACKUP_STATUS_FILE)"
+  log "dry-run: WARNING writing status without offsite backup (test/wiring only)"
+  write_backup_status
+  log "dry-run: done (no dump, no upload)"
+  exit 0
 fi
 
 command -v docker >/dev/null 2>&1 || die "docker not found"
@@ -39,13 +103,11 @@ command -v age >/dev/null 2>&1 || die "age not found; refusing to upload a plain
 [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] \
   || die "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (offsite bucket creds) not \
 set. See .env.example. Refusing to back up with no way to authenticate offsite."
-RECIPIENT="${CX_BACKUP_ENCRYPTION_RECIPIENT:-}"
-[[ "$RECIPIENT" == age1* ]] || die "CX_BACKUP_ENCRYPTION_RECIPIENT must be an age1... public recipient"
 
 dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-STAGE="${CX_BACKUP_DIR:-$ROOT/.artifacts/backups}/$TS"
+STAGE="${MERC_BACKUP_DIR:-$ROOT/.artifacts/backups}/$TS"
 PAYLOAD="$STAGE/payload"
 mkdir -p "$PAYLOAD"
 
@@ -108,21 +170,9 @@ actual="$(shasum -a 256 "$VERIFY/backup.tar.age" | cut -d' ' -f1)"
 [ "$actual" = "$expected" ] || die "downloaded ciphertext checksum mismatch"
 log "offsite verified: $DEST/backup.tar.age sha256=$expected"
 
-# Optional low-cardinality health input for the control-plane metrics endpoint.
-# Mount its parent directory read-only into the control container and set the
-# same CX_BACKUP_STATUS_FILE path there.
-if [ -n "${CX_BACKUP_STATUS_FILE:-}" ]; then
-  STATUS_DIR="$(dirname -- "$CX_BACKUP_STATUS_FILE")"
-  STATUS_TMP="${CX_BACKUP_STATUS_FILE}.tmp.$$"
-  mkdir -p "$STATUS_DIR"
-  umask 027
-  date -u +%s > "$STATUS_TMP"
-  chmod 0640 "$STATUS_TMP"
-  mv -f -- "$STATUS_TMP" "$CX_BACKUP_STATUS_FILE"
-  log "backup health timestamp updated: $CX_BACKUP_STATUS_FILE"
-fi
+write_backup_status
 
-KEEP="${CX_BACKUP_KEEP_LOCAL:-7}"
+KEEP="${MERC_BACKUP_KEEP_LOCAL:-7}"
 BASE="$(dirname "$STAGE")"
 ls -1dt "$BASE"/*/ 2>/dev/null | tail -n +"$((KEEP + 1))" | while read -r old; do
   log "prune local $old"; rm -rf "$old"

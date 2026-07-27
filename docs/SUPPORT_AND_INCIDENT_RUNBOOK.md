@@ -6,12 +6,35 @@ This runbook covers the controlled synthetic-data, Stripe-test-mode canary. It
 does not authorize production or live-money response. Populate the contacts,
 decision authorities and jurisdiction-specific notification rules before use.
 
-- Incident commander: **[PRIMARY AND BACKUP REQUIRED]**
-- Security/privacy counsel: **[CONTACT REQUIRED]**
-- Payments owner: **[CONTACT REQUIRED]**
-- Supplier operations owner: **[CONTACT REQUIRED]**
-- Support intake: **[CONTACT REQUIRED]**
-- Status communication channel: **[CHANNEL REQUIRED]**
+Contacts are **role aliases**, not individuals. During founder-operated canary
+every alias forwards to the same mailbox and reaches one person; that is a
+staffing fact, not a documentation gap, and the roles stay separate so the
+runbook does not have to be rewritten when they diverge.
+
+No personal phone number appears in this repository. Paging escalates through
+the alerting system, whose destination lives in the deployment secret
+`/run/secrets/cx_alert_receiver_url` and never in version control.
+
+| Role | Alias | Currently reaches |
+|---|---|---|
+| Incident commander | `ops@[DOMAIN-PENDING-REBRAND]` | founder |
+| Security / privacy | `security@[DOMAIN-PENDING-REBRAND]` | founder + counsel when engaged |
+| Payments owner | `payments@[DOMAIN-PENDING-REBRAND]` | founder |
+| Supplier operations | `suppliers@[DOMAIN-PENDING-REBRAND]` | founder |
+| Support intake | `support@[DOMAIN-PENDING-REBRAND]` | founder |
+| Status channel | `https://status.[DOMAIN-PENDING-REBRAND]` | not yet published |
+
+`[DOMAIN-PENDING-REBRAND]` is deliberate: the current name collides with an
+active company operating a GPU-compute marketplace at `compute.exchange`, and
+publishing aliases under the current domain would have to be redone. See
+`docs/REBRAND.md`. The validator keeps failing until a real domain replaces this
+placeholder, which is the correct state — a fake-looking address that reaches
+nobody is worse than a marked gap.
+
+**Paging is not proven by a webhook alone.** A delivered message is not a woken
+human. Before relying on this, run the drill in `docs/RUNBOOKS.md`: fire a
+synthetic critical alert, confirm the notification actually reaches the phone,
+acknowledge it, confirm resolution, and retain the delivery evidence.
 
 ## Severity
 

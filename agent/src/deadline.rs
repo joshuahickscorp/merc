@@ -120,6 +120,18 @@ impl TaskDeadline {
         }
     }
 
+    /// External abort path used by supplier eligibility (quiet hours / battery)
+    /// and by the deadline watchdog. Matches the timeout failure class on the
+    /// control plane (retryable / requeued).
+    pub fn cancel(&self) {
+        self.cancellation.cancel();
+    }
+
+    #[cfg(test)]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
+    }
+
     pub fn check(&self, phase: &'static str) -> Result<(), DeadlineError> {
         if self.cancellation.is_cancelled() || tokio::time::Instant::now() >= self.at {
             self.cancellation.cancel();
@@ -128,35 +140,79 @@ impl TaskDeadline {
         Ok(())
     }
 
+    /// Poll until cancelled or the wall-clock budget elapses. Used by `run` so
+    /// an external `cancel()` aborts an in-flight phase without waiting for the
+    /// absolute timeout.
+    async fn wait_cancelled_or_due(&self) {
+        loop {
+            if self.cancellation.is_cancelled() {
+                return;
+            }
+            let now = tokio::time::Instant::now();
+            if now >= self.at {
+                return;
+            }
+            let remaining = self.at.saturating_duration_since(now);
+            let step = Duration::from_millis(50).min(remaining);
+            tokio::time::sleep(step).await;
+        }
+    }
+
+    /// Periodically evaluate `lost_eligibility`. On the first true result, call
+    /// [`cancel`] so any in-flight `run` / `check` fails as a normal deadline
+    /// expiry (recoverable timeout on the control plane).
+    pub async fn cancel_when_ineligible<F>(&self, interval: Duration, mut lost_eligibility: F)
+    where
+        F: FnMut() -> bool + Send,
+    {
+        let interval = interval.max(Duration::from_millis(1));
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // Skip the immediate first tick so a task that was eligible at claim
+        // gets a full interval before the first re-check; subsequent ticks are
+        // one interval apart (the abort bound for the supplier-safety test).
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            if self.cancellation.is_cancelled() {
+                return;
+            }
+            if lost_eligibility() {
+                self.cancel();
+                return;
+            }
+        }
+    }
+
     pub async fn run<F, T>(&self, phase: &'static str, future: F) -> Result<T, DeadlineError>
     where
         F: Future<Output = T>,
     {
         self.check(phase)?;
         let mut cancel_on_drop = CancelOnDrop::new(self.cancellation.clone());
-        let result = tokio::time::timeout_at(self.at, future).await;
-        cancel_on_drop.disarm();
-        match result {
-            Ok(value) => Ok(value),
-            Err(_) => {
+        tokio::pin!(future);
+        tokio::select! {
+            biased;
+            value = &mut future => {
+                cancel_on_drop.disarm();
+                Ok(value)
+            }
+            _ = self.wait_cancelled_or_due() => {
                 self.cancellation.cancel();
+                // future is dropped by select; CancelOnDrop still armed so Drop
+                // also marks cancelled (idempotent).
                 Err(Self::expired(phase, self.budget))
             }
         }
     }
 
     #[cfg(test)]
-    fn for_test(budget: Duration) -> Self {
+    pub fn for_test(budget: Duration) -> Self {
         Self {
             at: tokio::time::Instant::now() + budget,
             budget,
             cancellation: Cancellation::default(),
         }
-    }
-
-    #[cfg(test)]
-    fn is_cancelled(&self) -> bool {
-        self.cancellation.is_cancelled()
     }
 }
 
@@ -231,5 +287,71 @@ mod tests {
         tokio::task::yield_now().await;
         assert!(dropped.load(Ordering::Acquire));
         assert!(deadline.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn external_cancel_aborts_run_without_waiting_for_budget() {
+        let deadline = TaskDeadline::for_test(Duration::from_secs(30));
+        let dropped = Arc::new(AtomicBool::new(false));
+        let signal = dropped.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let run_deadline = deadline.clone();
+        let task = tokio::spawn(async move {
+            run_deadline
+                .run("supplier eligibility", async move {
+                    let _drop_signal = DropSignal(signal);
+                    let _ = started_tx.send(());
+                    std::future::pending::<()>().await;
+                })
+                .await
+        });
+        started_rx.await.unwrap();
+        deadline.cancel();
+        let started = std::time::Instant::now();
+        let result = task.await.unwrap();
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "external cancel must not wait for the full budget"
+        );
+        assert!(matches!(result, Err(DeadlineError::Expired { .. })));
+        assert!(dropped.load(Ordering::Acquire));
+        assert!(deadline.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn cancel_when_ineligible_trips_within_one_interval() {
+        let deadline = TaskDeadline::for_test(Duration::from_secs(30));
+        let on_battery = Arc::new(AtomicBool::new(false));
+        let flag = on_battery.clone();
+        let watch = deadline.clone();
+        let interval = Duration::from_millis(40);
+        let guard = tokio::spawn(async move {
+            watch
+                .cancel_when_ineligible(interval, move || flag.load(Ordering::Acquire))
+                .await;
+        });
+
+        let run_deadline = deadline.clone();
+        let work = tokio::spawn(async move {
+            run_deadline
+                .run("model load and execution", std::future::pending::<()>())
+                .await
+        });
+
+        // After the skipped first tick, wait a bit then flip battery.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        on_battery.store(true, Ordering::Release);
+
+        let started = std::time::Instant::now();
+        let result = work.await.unwrap();
+        // One interval after the flip, plus cancel poll slack.
+        assert!(
+            started.elapsed() < interval + Duration::from_millis(200),
+            "elapsed {:?}",
+            started.elapsed()
+        );
+        assert!(matches!(result, Err(DeadlineError::Expired { .. })));
+        assert!(deadline.is_cancelled());
+        let _ = guard.await;
     }
 }

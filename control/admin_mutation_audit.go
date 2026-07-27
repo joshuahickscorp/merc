@@ -24,6 +24,7 @@ const (
 	adminActionPayoutReleased    = "payout_released"
 	adminActionControlChanged    = "operational_control_changed"
 	adminActionBuyerTombstoned   = "buyer_tombstoned"
+	adminActionRealtimeRefunded  = "realtime_refunded"
 
 	adminTargetWorker      = "worker"
 	adminTargetTask        = "task"
@@ -31,6 +32,7 @@ const (
 	adminTargetLedgerEntry = "ledger_entry"
 	adminTargetControl     = "operational_control"
 	adminTargetBuyer       = "buyer"
+	adminTargetContract    = "execution_contract"
 )
 
 var errAdminMutationInvalid = errors.New("invalid admin mutation")
@@ -86,6 +88,8 @@ func (in adminMutationIntent) validate() error {
 		wantTarget = adminTargetControl
 	case adminActionBuyerTombstoned:
 		wantTarget = adminTargetBuyer
+	case adminActionRealtimeRefunded:
+		wantTarget = adminTargetContract
 	default:
 		return fmt.Errorf("%w: unsupported action %q", errAdminMutationInvalid, in.Kind)
 	}
@@ -188,20 +192,33 @@ func insertAdminMutationAction(
 	taskID, supplierID, ledgerEntryID *uuid.UUID,
 	before, after any,
 ) error {
+	_, err := insertAdminMutationActionWithID(ctx, tx, actor, intent, taskID, supplierID,
+		ledgerEntryID, before, after)
+	return err
+}
+
+func insertAdminMutationActionWithID(
+	ctx context.Context,
+	tx pgx.Tx,
+	actor AdminActor,
+	intent adminMutationIntent,
+	taskID, supplierID, ledgerEntryID *uuid.UUID,
+	before, after any,
+) (uuid.UUID, error) {
 	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	intent = intent.normalized()
 	digest, err := adminMutationRequestSHA256(intent)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if before == nil || after == nil {
-		return fmt.Errorf("%w: before and after audit state are required", errAdminMutationInvalid)
+		return uuid.Nil, fmt.Errorf("%w: before and after audit state are required", errAdminMutationInvalid)
 	}
 	detail, err := json.Marshal(map[string]any{"before": before, "after": after})
 	if err != nil {
-		return fmt.Errorf("encode admin mutation audit: %w", err)
+		return uuid.Nil, fmt.Errorf("encode admin mutation audit: %w", err)
 	}
 	actionID := uuid.New()
 	correlationRef := intent.CorrelationRef
@@ -218,5 +235,8 @@ func insertAdminMutationAction(
 		actionID, intent.Kind, taskID, supplierID, ledgerEntryID, intent.Reason, detail,
 		string(actor.Mode), actor.PrincipalID, actor.SessionID, nullIfEmpty(label), string(actor.AttributionScope),
 		intent.Version, digest, correlationRef, intent.TargetKind, intent.TargetID)
-	return err
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return actionID, nil
 }

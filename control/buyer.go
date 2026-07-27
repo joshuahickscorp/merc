@@ -67,8 +67,8 @@ type client struct {
 }
 
 func newClient() *client {
-	base := strings.TrimRight(envOr("CX_API_URL", "http://localhost:8080"), "/")
-	return &client{base: base, key: os.Getenv("CX_API_KEY"), hc: &http.Client{Timeout: 60 * time.Second}}
+	base := strings.TrimRight(envOr("MERC_API_URL", "http://localhost:8080"), "/")
+	return &client{base: base, key: os.Getenv("MERC_API_KEY"), hc: &http.Client{Timeout: 60 * time.Second}}
 }
 
 func (c *client) do(method, path string, body []byte) []byte {
@@ -676,7 +676,7 @@ func fatalf(format string, a ...any) {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `cx  -  Computexchange buyer CLI
+	fmt.Fprint(os.Stderr, `cx  -  merc buyer CLI
 
 Usage:
   cx quote    --model <id> --type <jobtype> [--input <file|->] [--tier t] [--json]
@@ -696,8 +696,8 @@ Usage:
   cx version [--json]
 
 Env:
-  CX_API_URL   control plane base URL (default http://localhost:8080)
-  CX_API_KEY   buyer api key (sent as Authorization: Bearer)
+  MERC_API_URL   control plane base URL (default http://localhost:8080)
+  MERC_API_KEY   buyer api key (sent as Authorization: Bearer)
 
 Job types: embed, batch_infer
 Run "cx submit -h" for the full flag list.

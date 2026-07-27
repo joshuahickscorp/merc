@@ -66,24 +66,39 @@ lawful basis controls.
 1. Revoke sessions, API keys, worker credentials and webhook delivery.
 2. Stop new job claims, charges and payouts for the account while preserving
    reconciliable financial state.
-3. Delete workload input, output, partial, retry and verification artifacts.
-4. Delete or irreversibly pseudonymize account, supplier, worker, job,
+3. Tombstone the buyer through the reviewed control-plane workflow
+   (`TombstoneBuyer`). Inside one Postgres transaction the workflow:
+   - collects buyer-scoped object keys (jobs/tasks/verification artifacts);
+   - records SHA-256 digests of those keys on the append-only tombstone;
+   - enqueues the plain keys into `pending_object_deletions` **before**
+     nulling `jobs`/`tasks` object pointers;
+   - then redacts identity and nulls the pointers, and commits.
+4. The shared telemetry-retention sweeper claims ready queue rows
+   (`FOR UPDATE SKIP LOCKED`), refuses any key whose digest is not on that
+   tombstone's `artifact_ref_sha256s` list, deletes authorised objects via
+   `Storage.RemoveObjects` (missing keys succeed), and clears completed rows.
+   Rows are not claimable until `not_before` (default: one hour after enqueue,
+   matching the longest common presigned GET TTL) so in-flight downloads are
+   likely to fail once the object is gone rather than succeed after erasure
+   was recorded.
+5. Delete or irreversibly pseudonymize account, supplier, worker, job,
    verification, support and telemetry identifiers not under an approved
    exception.
-5. Separate and minimize any retained accounting, tax, dispute, fraud,
+6. Separate and minimize any retained accounting, tax, dispute, fraud,
    security or legal-hold record. Record category, fields, authority, approver,
    review date and scheduled deletion date.
-6. Send deletion instructions to every applicable subprocessor and record its
+7. Send deletion instructions to every applicable subprocessor and record its
    completion evidence.
-7. Create a non-content deletion tombstone consumed by every restore process.
-8. Have a second operator verify negative reads across databases, objects,
+8. Create a non-content deletion tombstone consumed by every restore process.
+9. Have a second operator verify negative reads across databases, objects,
    caches, search indexes, logs and participant-visible APIs.
 
-The database workflow is implemented and technically rehearsed, but operators
-must not run improvised `DELETE`, object-removal or pseudonymization commands
-against production. Use only the reviewed workflow after qualified privacy
-approval, an authenticated request channel, subprocessor deletion adapters and
-a named second operator are in place.
+Object erasure is implemented in software and proven by the integration test
+`TestBuyerObjectDeletionQueueAndSweep` (Postgres + MinIO). Operators must not
+run improvised `DELETE`, object-removal or pseudonymization commands against
+production. Use only the reviewed workflow after qualified privacy approval,
+an authenticated request channel, subprocessor deletion adapters and a named
+second operator are in place.
 
 ## Completion record
 
@@ -107,6 +122,9 @@ category and prove:
 - restore of a pre-deletion backup followed by tombstone replay, with the data
   still unavailable.
 
-The synthetic database and artifact-manifest protocol above passes in
-`evidence/autonomous/technical-exercises.json`. External subprocessor deletion,
-qualified human review and production operation are explicitly not executed.
+The synthetic database protocol and the object-erasure integration test above
+drive `evidence/autonomous/technical-exercises.json`. The receipt field
+`deletion.deletable_data_removed` is bound to the exit status of
+`TestBuyerObjectDeletionQueueAndSweep`, not a hardcoded literal. External
+subprocessor deletion, qualified human review and production operation are
+explicitly not executed.

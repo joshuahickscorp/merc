@@ -1,0 +1,722 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-20T01:13:18Z",
+  "candidate_binding": "PENDING_FINAL_CLEAN_COMMIT",
+  "method": "parallel-agent source and receipt inspection",
+  "reviews": [
+    {
+      "id": "security_red_team",
+      "reviewer_track": "focused_security_agent",
+      "outcome": "PASS_LOCAL_WITH_EXTERNAL_RESIDUALS",
+      "scope": [
+        "buyer, worker, enrollment, operator, and provider authentication",
+        "route and transaction-boundary authorization",
+        "API and artifact attack surfaces",
+        "privileged mutations and kill switches"
+      ],
+      "threat_or_failure_model": [
+        "credential namespace confusion, revocation bypass, replay, IDOR, and cross-tenant object access",
+        "stale attempts committing output or money after cancellation, lease loss, or retry",
+        "hostile request sizes, identifiers, proxy headers, object keys, and webhook order",
+        "unaudited or partially committed privileged changes"
+      ],
+      "findings": [
+        {
+          "id": "SEC-P1-STALE",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "control/verification_apply.go"
+        },
+        {
+          "id": "SEC-P1-ADMIN-AUDIT",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "control/admin_mutation_audit.go"
+        },
+        {
+          "id": "SEC-P1-DEADLINE",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "agent/src/deadline.rs"
+        },
+        {
+          "id": "SEC-P1-DISPUTE-RACE",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "control/dispute_payout_integration_test.go"
+        },
+        {
+          "id": "SEC-P2-EGRESS",
+          "severity": "P2",
+          "status": "OPEN",
+          "evidence": "macapp/ComputeExchangeAgent/cx-agent.sb"
+        }
+      ],
+      "repair": [
+        "implemented stale-attempt artifact binding",
+        "made privileged mutations audit-atomic",
+        "added end-to-end monotonic execution deadline",
+        "made disputes freeze settlement",
+        "added explicit 70-route default-deny authorization matrix"
+      ],
+      "verification": [
+        "go test ./...",
+        "go test -race -count=1 ./... against PostgreSQL",
+        "cargo clippy --all-targets --all-features -- -D warnings",
+        "cargo test --all-targets --all-features (72/72)",
+        "python3 scripts/validate-authorization-matrix.py",
+        "full two-agent native proof for embed and batch_infer"
+      ],
+      "residual_risk": [
+        "no remote hardware attestation",
+        "bearer possession remains authority until revocation",
+        "destination-pinned supplier egress requires an external network control",
+        "external staging attack rehearsal has not run"
+      ]
+    },
+    {
+      "id": "privacy_data_governance",
+      "reviewer_track": "focused_governance_agent",
+      "outcome": "NO_GO_PENDING_QUALIFIED_APPROVAL_AND_EXTERNAL_PROCESS",
+      "scope": [
+        "field-level data inventory",
+        "logging and metrics minimization",
+        "retention, deletion, backups, and dispute holds",
+        "DSAR export/deletion and incident operations"
+      ],
+      "threat_or_failure_model": [
+        "buyer inputs, results, credentials, or presigned URLs leaking through logs",
+        "data persisting past policy in artifacts or backups",
+        "unapproved processing roles, purposes, transfers, or subprocessors"
+      ],
+      "findings": [
+        {
+          "id": "PRIV-P1-POLICY",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "ops/legal-review.json"
+        },
+        {
+          "id": "PRIV-P1-OPS",
+          "severity": "P1",
+          "status": "FIXED_TECHNICAL",
+          "evidence": "evidence/autonomous/technical-exercises.json"
+        },
+        {
+          "id": "PRIV-CONTROL-LOGS",
+          "severity": "control",
+          "status": "VERIFIED_LOCAL",
+          "evidence": "control/metrics.go"
+        }
+      ],
+      "repair": [
+        "created privacy notice, data-governance matrix, and DSAR runbook drafts",
+        "implemented idempotent scoped export/deletion and append-only identity tombstones",
+        "replayed tombstones after restoration of a pre-deletion backup",
+        "kept private canary synthetic-only and operator controlled",
+        "added approval/exercise receipt schema"
+      ],
+      "verification": [
+        "evidence/autonomous/technical-exercises.json",
+        "python3 scripts/validate-governance.py",
+        "ops/governance-approval-bundle.schema.json",
+        "make release-doctor CHECK=governance"
+      ],
+      "residual_risk": [
+        "qualified privacy approval absent",
+        "external subprocessor deletion not executed",
+        "retention automation and authenticated production delivery are incomplete"
+      ]
+    },
+    {
+      "id": "legal_commercial",
+      "reviewer_track": "focused_governance_agent",
+      "outcome": "NO_GO_PENDING_QUALIFIED_APPROVAL",
+      "scope": [
+        "test-participant terms",
+        "entity, jurisdiction, contact, tax, payment, refund, and dispute assumptions",
+        "strict separation of test canary from live money"
+      ],
+      "threat_or_failure_model": [
+        "test operation implying an unapproved commercial relationship",
+        "ambiguous simulated payment/payout disclosures",
+        "scope creep into real money or independently controlled suppliers"
+      ],
+      "findings": [
+        {
+          "id": "LEGAL-P1-TERMS",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "docs/CANARY_TERMS.md"
+        },
+        {
+          "id": "LEGAL-P1-APPROVALS",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "ops/governance-review-packets.json"
+        },
+        {
+          "id": "LEGAL-P0-SUPPLIER-EXPANSION",
+          "severity": "P0_OUT_OF_SCOPE",
+          "status": "CONTAINED_BY_SCOPE",
+          "evidence": "ops/go-no-go.json"
+        }
+      ],
+      "repair": [
+        "drafted concise test-mode participation terms",
+        "hard-coded no-real-money release boundaries in policies and operator contract",
+        "defined exact approval-bundle input"
+      ],
+      "verification": [
+        "python3 scripts/validate-governance.py",
+        "Stripe live key is classified live_refused by release doctor"
+      ],
+      "residual_risk": [
+        "no legal advice or qualified approval has been supplied",
+        "terms acceptance/reacceptance receipt is not implemented"
+      ]
+    },
+    {
+      "id": "licensing_models_ip",
+      "reviewer_track": "focused_governance_agent",
+      "outcome": "NO_GO_PENDING_PROVENANCE_AND_LICENSE_APPROVAL",
+      "scope": [
+        "source dependencies and notices",
+        "model revisions, files, model cards, and licenses",
+        "fonts, icons, renders, brand, and generated assets"
+      ],
+      "threat_or_failure_model": [
+        "runtime fetching mutable or substituted model bytes",
+        "shipping without required attribution or license text",
+        "unproven ownership of visual assets or project code"
+      ],
+      "findings": [
+        {
+          "id": "LIC-PINNING",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "control/runtime-authority.json"
+        },
+        {
+          "id": "LIC-P1-NOTICES",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "docs/THIRD_PARTY_LICENSES.md"
+        },
+        {
+          "id": "LIC-P1-ASSETS",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "ops/asset-provenance.json"
+        }
+      ],
+      "repair": [
+        "pinned and hash-verified all runtime model artifacts",
+        "created model and asset provenance manifests",
+        "added NOTICE and third-party register drafts",
+        "added candidate SBOM/signature publication workflow"
+      ],
+      "verification": [
+        "cargo tests cover wrong revision, size, and hash",
+        "python3 scripts/validate-governance.py",
+        "ops/model-provenance.json",
+        "ops/asset-provenance.json"
+      ],
+      "residual_risk": [
+        "project license decision absent",
+        "artifact-bound license/model-card bundle absent",
+        "visual-asset creator and rights receipts absent"
+      ]
+    },
+    {
+      "id": "abuse_trust",
+      "reviewer_track": "focused_governance_agent",
+      "outcome": "NO_GO_PENDING_QUALIFIED_HUMAN_TABLETOP_AND_APPROVAL",
+      "scope": [
+        "prohibited buyer workloads",
+        "supplier Sybil, substitution, collusion, and replay",
+        "buyer economic and webhook abuse",
+        "revocation and emergency stops"
+      ],
+      "threat_or_failure_model": [
+        "malicious data processing or exfiltration",
+        "fabricated or substituted supplier results",
+        "denial-of-wallet, dispute, refund, retry, or identity farming abuse"
+      ],
+      "findings": [
+        {
+          "id": "TRUST-CONTROLS",
+          "severity": "P1",
+          "status": "FIXED_LOCAL",
+          "evidence": "control/api.go"
+        },
+        {
+          "id": "TRUST-P1-OPS",
+          "severity": "P1",
+          "status": "FIXED_TECHNICAL_HUMAN_OPEN",
+          "evidence": "evidence/autonomous/technical-exercises.json"
+        }
+      ],
+      "repair": [
+        "created acceptable-use and abuse-response draft",
+        "implemented intake/dispatch/payment/webhook stops",
+        "made canary admission and workload bounds fail closed"
+      ],
+      "verification": [
+        "canary policy tests",
+        "operational control integration tests",
+        "full local wrong-attempt and ledger proof",
+        "evidence/autonomous/technical-exercises.json"
+      ],
+      "residual_risk": [
+        "no qualified human moderation/on-call exercise",
+        "destination-pinning and remote attestation are absent"
+      ]
+    },
+    {
+      "id": "economics",
+      "reviewer_track": "focused_governance_agent",
+      "outcome": "PASS_CODE_NO_GO_CANARY_EVIDENCE",
+      "scope": [
+        "gross-margin schedule",
+        "rounding, floors, quote expiry, and version binding",
+        "retry, verification, refund, dispute, and storage-heavy scenarios",
+        "test-only reconciliation"
+      ],
+      "threat_or_failure_model": [
+        "negative-margin jobs",
+        "pricing drift between quote and settlement",
+        "duplicate or non-zero-sum ledger authority",
+        "test shadow values escaping into real payouts"
+      ],
+      "findings": [
+        {
+          "id": "ECON-CANONICAL",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "control/economic_plan.go"
+        },
+        {
+          "id": "ECON-P1-SAMPLE",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "ops/economics-readiness.json"
+        }
+      ],
+      "repair": [
+        "bound quotes and jobs to the pricing schedule",
+        "reject negative-margin and unsafe decimal plans",
+        "set test shadow-value and held-payout caps",
+        "refuse payout export in canary"
+      ],
+      "verification": [
+        "economic plan unit/fuzz tests",
+        "billing schema integration tests",
+        "full local zero-sum/no-duplicate ledger proof"
+      ],
+      "residual_risk": [
+        "no Stripe test-mode fee/reconciliation sample",
+        "no 24-hour volume distribution or retry-cost sample"
+      ]
+    },
+    {
+      "id": "supplier_quality",
+      "reviewer_track": "focused_security_agent",
+      "outcome": "PASS_LOCAL_NO_GO_EXTERNAL_FLEET",
+      "scope": [
+        "model/tokenizer identity",
+        "agent/source/build/hardware identity",
+        "output shape and artifact integrity",
+        "restart, downgrade, revocation, and inconsistent-result behavior"
+      ],
+      "threat_or_failure_model": [
+        "model or tokenizer substitution",
+        "lying worker capability",
+        "corrupt cache or malformed output",
+        "duplicate identity, stale attempt, or inconsistent results"
+      ],
+      "findings": [
+        {
+          "id": "SUPPLY-PIN",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "control/runtime-authority.json"
+        },
+        {
+          "id": "SUPPLY-P2-ATTEST",
+          "severity": "P2",
+          "status": "OPEN",
+          "evidence": "evidence/autonomous/hardware-characterization.json"
+        }
+      ],
+      "repair": [
+        "bound build identity to agent source, Cargo.lock, runtime authority, model files, tuning, and hardware class",
+        "removed earnings exposure",
+        "enforced workload limits and typed output validation"
+      ],
+      "verification": [
+        "72 Rust tests",
+        "runtime catalog integration tests",
+        "two distinct local Metal agents completed embed and batch_infer",
+        "stale/wrong commit was rejected"
+      ],
+      "residual_risk": [
+        "only one Apple host was physically exercised",
+        "cold start was slow",
+        "restart storm and memory/thermal fleet tests require the external agents"
+      ]
+    },
+    {
+      "id": "reliability_load_soak",
+      "reviewer_track": "focused_operations_agent",
+      "outcome": "NO_GO_PENDING_PERSISTENT_EXTERNAL_EXECUTION_AND_24H_SOAK",
+      "scope": [
+        "load percentiles and resource envelope",
+        "24-hour soak",
+        "control/data-store/agent restart storm",
+        "rollback and forward recovery"
+      ],
+      "threat_or_failure_model": [
+        "leaks, stuck leases, backlog, queue drift, and missed finalizers",
+        "corruption or outage during simultaneous restarts",
+        "rollback that changes source but not data safely"
+      ],
+      "findings": [
+        {
+          "id": "REL-HARNESS",
+          "severity": "P1",
+          "status": "FIXED_LOCAL_EXECUTED",
+          "evidence": "evidence/autonomous/local-rollback.json"
+        },
+        {
+          "id": "REL-P1-RUN",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "ops/go-closure-inputs.json"
+        }
+      ],
+      "repair": [
+        "created digest-only candidate/prior deployment and source probes",
+        "created restart-storm and 86400-second soak harnesses",
+        "defined strict scenario and agent restart adapter protocols"
+      ],
+      "verification": [
+        "scripts/validate-go-closure-scaffold.sh",
+        "evidence/autonomous/local-rollback.json",
+        "evidence/autonomous/local-restart-storm.json",
+        "Docker Compose placeholder expansion: 9 services and 9 immutable images",
+        "full local two-agent proof"
+      ],
+      "residual_risk": [
+        "no external p95/p99 or capacity result",
+        "no 24-hour leak/backlog evidence",
+        "published-candidate rollback/restart proof against persistent external state remains unexecuted"
+      ]
+    },
+    {
+      "id": "observability",
+      "reviewer_track": "focused_operations_agent",
+      "outcome": "PASS_SIMULATED_NO_GO_REAL_RECEIVER",
+      "scope": [
+        "API, queue, workers, jobs, verification, money, storage, webhooks, backups, and release identity",
+        "dashboard coverage",
+        "alert firing, deduplication, acknowledgement, and resolution"
+      ],
+      "threat_or_failure_model": [
+        "silent invariant or reconciliation failure",
+        "unbounded-cardinality metrics",
+        "alerts that parse but never reach a human",
+        "dashboards that omit stop-state or release identity"
+      ],
+      "findings": [
+        {
+          "id": "OBS-COVERAGE",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "scripts/validate-observability.mjs"
+        },
+        {
+          "id": "OBS-PIPELINE-SIMULATION",
+          "severity": "P1",
+          "status": "FIXED_SIMULATED",
+          "evidence": "evidence/autonomous/alert-page-simulation.json"
+        },
+        {
+          "id": "OBS-P1-RECEIVER",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "ops/go-no-go.json"
+        }
+      ],
+      "repair": [
+        "added bounded metrics and release labels",
+        "added Prometheus, Alertmanager, Grafana, and node exporter to immutable staging",
+        "mapped alert rules to runbooks",
+        "exercised retry, deduplication, timeout, dead-letter and resolution against a harness receiver"
+      ],
+      "verification": [
+        "evidence/autonomous/alert-pipeline-simulation.json",
+        "evidence/autonomous/alert-page-simulation.json",
+        "node scripts/validate-observability.mjs",
+        "control/metrics_observability_test.go"
+      ],
+      "residual_risk": [
+        "real receiver routing and human acknowledgement are untested",
+        "no external staging load exists to validate dashboard usefulness"
+      ]
+    },
+    {
+      "id": "support_incident_response",
+      "reviewer_track": "focused_governance_agent",
+      "outcome": "NO_GO_PENDING_NAMED_PEOPLE_AND_QUALIFIED_HUMAN_TABLETOP",
+      "scope": [
+        "incident roles and escalation",
+        "security, privacy, payments, supplier, and service scenarios",
+        "communications, evidence, recovery, and closure"
+      ],
+      "threat_or_failure_model": [
+        "no accountable decision maker during an incident",
+        "unsafe recovery or payout action",
+        "missing notification and evidence preservation"
+      ],
+      "findings": [
+        {
+          "id": "SUPPORT-RUNBOOK",
+          "severity": "P1",
+          "status": "FIXED_DRAFT",
+          "evidence": "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md"
+        },
+        {
+          "id": "SUPPORT-TECHNICAL-TABLETOP",
+          "severity": "P1",
+          "status": "FIXED_TECHNICAL",
+          "evidence": "evidence/autonomous/technical-exercises.json"
+        },
+        {
+          "id": "SUPPORT-P1-HUMAN-TABLETOP",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "ops/support-incident-tabletop.json"
+        }
+      ],
+      "repair": [
+        "created support/incident runbook and exercise record",
+        "connected operational stops to audited admin controls",
+        "exercised support and security scenarios technically",
+        "included both tabletop receipts in the exact input bundle"
+      ],
+      "verification": [
+        "evidence/autonomous/technical-exercises.json",
+        "python3 scripts/validate-governance.py",
+        "operational control integration tests"
+      ],
+      "residual_risk": [
+        "roles and contact paths are unstaffed",
+        "qualified human tabletop and external notification decisions are not executed"
+      ]
+    },
+    {
+      "id": "change_management_governance",
+      "reviewer_track": "focused_governance_agent",
+      "outcome": "PASS_REPOSITORY_NO_GO_FINAL_REVIEW",
+      "scope": [
+        "protected-branch checks and review",
+        "CODEOWNERS for money, auth, schema, release, and security paths",
+        "candidate identity and tag safety",
+        "emergency change traceability"
+      ],
+      "threat_or_failure_model": [
+        "unreviewed money/security changes",
+        "CI proving a different commit",
+        "mutable image or tag substitution",
+        "release tag created while NO-GO"
+      ],
+      "findings": [
+        {
+          "id": "GOV-CONTROLS",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": ".github"
+        },
+        {
+          "id": "GOV-P1-REVIEW",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "ops/go-no-go.json"
+        },
+        {
+          "id": "GOV-P2-TAG-RULE",
+          "severity": "P2",
+          "status": "FIXED",
+          "evidence": "ops/go-no-go.json"
+        }
+      ],
+      "repair": [
+        "added path ownership and dependency review",
+        "made CI assert candidate SHA",
+        "made image publication digest-, SBOM-, signature-, and attestation-oriented",
+        "kept PR draft and tag absent while NO-GO"
+      ],
+      "verification": [
+        "existing PR #4 and #5 exact-head checks passed before merge",
+        "final GO-closure exact-head CI and reviewer approval remain required"
+      ],
+      "residual_risk": [
+        "closure branch is not yet remotely reviewed",
+        "the repository still has only one accountable CODEOWNER"
+      ]
+    },
+    {
+      "id": "dependency_registry",
+      "reviewer_track": "focused_governance_agent",
+      "outcome": "PASS_PUBLICATION_NO_GO_LICENSE",
+      "scope": [
+        "Go, Rust, Python, JavaScript, actions, containers, and model dependencies",
+        "immutable registry publication",
+        "SBOM, signatures, attestations, and artifact retention"
+      ],
+      "threat_or_failure_model": [
+        "mutable dependency or action substitution",
+        "unsigned or untraceable image",
+        "missing release contents",
+        "known vulnerable or unmaintained dependency"
+      ],
+      "findings": [
+        {
+          "id": "DEP-PINS",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "control/runtime-authority.json"
+        },
+        {
+          "id": "DEP-P2-PASTE",
+          "severity": "P2",
+          "status": "OPEN",
+          "evidence": "ops/rust-paste-audit.json"
+        },
+        {
+          "id": "DEP-P1-PUBLISH",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "evidence/autonomous/registry-verification.json"
+        }
+      ],
+      "repair": [
+        "added dependency-review policy",
+        "added immutable GHCR candidate/prior build",
+        "added SPDX SBOM and keyless cosign signing/attestation/verification"
+      ],
+      "verification": [
+        "make ci",
+        "publish-candidate run 29711173217 passed",
+        "downloaded registry evidence parsed and both signature identities matched the pinned workflow/branch"
+      ],
+      "residual_risk": [
+        "license completeness remains blocked",
+        "transitive paste maintenance warning remains"
+      ]
+    },
+    {
+      "id": "website_buyer_ux",
+      "reviewer_track": "primary_browser_review",
+      "outcome": "PASS_STATIC_AND_BROWSER",
+      "scope": [
+        "public landing page and admin console",
+        "mobile layout, keyboard interaction, dialog cancellation, contrast, and truthful canary wording"
+      ],
+      "threat_or_failure_model": [
+        "misleading launch/payment claims",
+        "inaccessible interaction or low contrast",
+        "unsafe or ambiguous admin controls",
+        "secret caching in the browser"
+      ],
+      "findings": [
+        {
+          "id": "UX-ADMIN-CONTROLS",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "web/admin.html"
+        },
+        {
+          "id": "UX-CONTRAST",
+          "severity": "control",
+          "status": "PASS",
+          "evidence": "evidence/autonomous/website-validation.json"
+        }
+      ],
+      "repair": [
+        "clarified private test-mode positioning",
+        "added accessible admin controls and explicit cancel behavior",
+        "preserved mobile layout and focus behavior"
+      ],
+      "verification": [
+        "node scripts/site-build.mjs",
+        "in-app desktop and mobile DOM/browser inspection"
+      ],
+      "residual_risk": [
+        "no external canary participant usability session",
+        "admin console still depends on a shared break-glass API-key attribution model"
+      ]
+    },
+    {
+      "id": "operations_recovery",
+      "reviewer_track": "focused_operations_agent",
+      "outcome": "NO_GO_PENDING_EXTERNAL_RESOURCES",
+      "scope": [
+        "persistent TLS staging",
+        "encrypted offsite backup and independent restore",
+        "candidate/prior rollback",
+        "Stripe test matrix and real alert receiver"
+      ],
+      "threat_or_failure_model": [
+        "ephemeral local success mistaken for deployability",
+        "backup existing only inside the failure boundary",
+        "rollback without data compatibility",
+        "live Stripe credentials used accidentally",
+        "alerts never delivered"
+      ],
+      "findings": [
+        {
+          "id": "OPS-HARNESS",
+          "severity": "P1",
+          "status": "FIXED",
+          "evidence": "scripts/validate-go-closure-scaffold.sh"
+        },
+        {
+          "id": "OPS-P1-EXTERNAL",
+          "severity": "P1",
+          "status": "OPEN",
+          "evidence": "ops/go-closure-inputs.json"
+        },
+        {
+          "id": "OPS-LIVE-REFUSED",
+          "severity": "control",
+          "status": "PASS",
+          "evidence": "ops/stripe-secret-exposure.json"
+        }
+      ],
+      "repair": [
+        "encrypted backup before upload and required independent download",
+        "made restore isolated and checksum-verifying",
+        "defined exact external values and expected evidence in one machine contract",
+        "made Stripe test-only and payout-export fail closed"
+      ],
+      "verification": [
+        "scripts/test-backup-envelope.sh",
+        "scripts/local-independent-restore.sh",
+        "evidence/autonomous/local-rollback.json",
+        "evidence/autonomous/local-restart-storm.json",
+        "scripts/validate-go-closure-scaffold.sh",
+        "make release-doctor",
+        "external execute modes remain blocked"
+      ],
+      "residual_risk": [
+        "all authority- or external-boundary execution receipts are absent",
+        "no 24-hour persistent-state evidence",
+        "no provider reconciliation or on-call delivery evidence"
+      ]
+    }
+  ],
+  "artifact_kind": "agent_review_notes",
+  "independence_claim": "NOT_CLAIMED"
+}

@@ -1,0 +1,195 @@
+name: agent release binaries
+
+# Builds signed prebuilt supplier-agent archives for install.sh:
+#   darwin/arm64 (Metal default features)
+#   linux/amd64  (--no-default-features; CPU Candle only)
+#
+# This does NOT expand validHWClasses / validEngines. A Linux binary can be
+# installed and run, but control still rejects non-Apple hw_class and non-candle
+# engines for batch registration.
+
+on:
+  push:
+    tags: ["agent-v*"]
+    branches: [main, reconstruct/event-horizon]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label written into the release manifest (e.g. v0.1.0)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: agent-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CANDIDATE_SHA: ${{ github.sha }}
+
+jobs:
+  build-darwin-arm64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          workspaces: agent
+      - name: Build release agent (darwin/arm64, Metal)
+        run: |
+          cd agent
+          cargo build --release
+          test -x target/release/cx-agent
+      - name: Package
+        run: bash scripts/package-agent-binary.sh darwin arm64 agent/target/release/cx-agent
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-darwin-arm64-${{ env.CANDIDATE_SHA }}
+          path: .artifacts/agent-release/
+          if-no-files-found: error
+          retention-days: 30
+
+  build-linux-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          workspaces: agent
+      - name: Build release agent (linux/amd64, CPU Candle)
+        run: |
+          cd agent
+          # Metal is Darwin-only; Linux suppliers get a CPU Candle binary.
+          cargo build --release --no-default-features
+          test -x target/release/cx-agent
+      - name: Package
+        run: bash scripts/package-agent-binary.sh linux amd64 agent/target/release/cx-agent
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-linux-amd64-${{ env.CANDIDATE_SHA }}
+          path: .artifacts/agent-release/
+          if-no-files-found: error
+          retention-days: 30
+
+  sign-and-publish:
+    needs: [build-darwin-arm64, build-linux-amd64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+      - name: Assemble, checksum, sign
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/agent-release"
+          mkdir -p "$OUT" collected
+          gh run download "$GITHUB_RUN_ID" \
+            -n "agent-darwin-arm64-${CANDIDATE_SHA}" \
+            -D collected/darwin
+          gh run download "$GITHUB_RUN_ID" \
+            -n "agent-linux-amd64-${CANDIDATE_SHA}" \
+            -D collected/linux
+          : >"$OUT/SHA256SUMS"
+          shopt -s nullglob
+          for f in collected/darwin/*.tar.gz collected/linux/*.tar.gz; do
+            base="$(basename "$f")"
+            cp "$f" "$OUT/$base"
+            (cd "$OUT" && sha256sum "$base" >>SHA256SUMS)
+          done
+          test "$(ls -1 "$OUT"/*.tar.gz | wc -l | tr -d ' ')" -eq 2
+
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            if [[ "${{ github.ref }}" == refs/tags/agent-* ]]; then
+              VERSION="${GITHUB_REF_NAME#agent-}"
+            else
+              VERSION="sha-${GITHUB_SHA:0:12}"
+            fi
+          fi
+          export OUT VERSION
+          python3 - <<'PY'
+          import json, os, pathlib
+          out = pathlib.Path(os.environ["OUT"])
+          version = os.environ["VERSION"]
+          commit = os.environ["GITHUB_SHA"]
+          sums = {}
+          for line in (out / "SHA256SUMS").read_text().splitlines():
+              parts = line.split()
+              if len(parts) >= 2:
+                  sums[parts[-1]] = parts[0]
+          artifacts = []
+          for archive in sorted(out.glob("*.tar.gz")):
+              name = archive.name
+              bits = name.removesuffix(".tar.gz").split("_")
+              goos, goarch = ("unknown", "unknown")
+              if len(bits) >= 4:
+                  goos, goarch = bits[-2], bits[-1]
+              artifacts.append({
+                  "name": name,
+                  "os": goos,
+                  "arch": goarch,
+                  "sha256": sums.get(name, ""),
+                  "size_bytes": archive.stat().st_size,
+              })
+          manifest = {
+              "schema_version": 1,
+              "component": "cx-agent",
+              "version": version,
+              "commit": commit,
+              "artifacts": artifacts,
+              "notes": [
+                  "linux/amd64 is CPU Candle only (--no-default-features).",
+                  "control validHWClasses still accepts only Apple Silicon classes;",
+                  "a Linux/NVIDIA host can install the agent but cannot register for batch work until that enum changes.",
+              ],
+          }
+          (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          print(json.dumps(manifest, indent=2))
+          PY
+
+          cd "$OUT"
+          for archive in *.tar.gz; do
+            go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 sign-blob --yes \
+              --bundle "${archive}.cosign.bundle" \
+              "$archive"
+          done
+          go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 sign-blob --yes \
+            --bundle "SHA256SUMS.cosign.bundle" \
+            SHA256SUMS
+
+          echo "OUT=$OUT" >>"$GITHUB_ENV"
+          echo "AGENT_VERSION=$VERSION" >>"$GITHUB_ENV"
+      - name: Upload release evidence artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-release-${{ env.CANDIDATE_SHA }}
+          path: ${{ env.OUT }}
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish GitHub Release on agent-v* tags
+        if: startsWith(github.ref, 'refs/tags/agent-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$OUT"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "cx-agent ${AGENT_VERSION}" \
+            --notes "$(printf '%s\n' \
+              "Prebuilt cx-agent binaries for install.sh (darwin/arm64 Metal, linux/amd64 CPU Candle)." \
+              "" \
+              "Checksums: SHA256SUMS (cosign keyless bundle alongside each file)." \
+              "" \
+              "**Not unlocked:** control validHWClasses still allows only Apple Silicon classes and validEngines only candle. Linux install does not imply batch supplier registration.")" \
+            ./*

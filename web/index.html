@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- computexchange · private test-canary page, not a launch or market attestation.
+<!-- merc · private test-canary page, not a launch or market attestation.
      Current claim state comes from source-bound proof receipts. The responsive page
      uses the retained Apple Silicon product still. Dash gate: no
      U+2014, no U+2013 · separator is the middot.
@@ -13,13 +13,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>computexchange</title>
+<title>merc</title>
 <meta name="description" content="private test canary for approved accounts · no real payments · Apple Metal suppliers · embed and batch_infer only">
 <meta name="theme-color" content="#050505">
 <link rel="icon" href="/favicon.ico" sizes="any">
-<meta property="og:title" content="computexchange">
+<meta property="og:title" content="merc">
 <meta property="og:description" content="private test canary · approved accounts only · no real payments · capacity and latency are limited">
-<meta property="og:image" content="https://computexchange.net/assets/site/mac-studio@2x.png">
+<meta property="og:image" content="https://mercmerc.net/assets/site/mac-studio@2x.png">
 <meta property="og:type" content="website">
 <link rel="preload" href="/assets/site/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/assets/site/mac-studio@1x.png" as="image" fetchpriority="high">
@@ -266,7 +266,7 @@
 <a class="skip-link" href="#main-content">skip to content</a>
 <div class="site">
 <header class="masthead">
-  <span class="mark"><img src="/assets/site/cx-mark-white.png" alt="Cx" width="24" height="24"><b>computexchange</b></span>
+  <span class="mark"><img src="/assets/site/cx-mark-white.png" alt="merc" width="24" height="24"><b>merc</b></span>
   <nav aria-label="site"><a href="/buyer">buyer</a><a href="/healthz">status</a></nav>
 </header>
 
@@ -344,9 +344,9 @@
   <section class="beat beat-price" data-beat="3">
     <div class="monument reveal">
       <span class="cap-top label">embeddings</span>
-      <p class="fig"><span class="dollar">$</span><span class="price">0.001</span></p>
+      <p class="fig"><span class="dollar">$</span><span class="price">0.00029</span></p>
       <div class="plinth"></div>
-      <span class="cap-bot label">usd · per 1,000 units · catalogue price, not a competitive-price or margin claim</span>
+      <span class="cap-bot label">usd · per 1,000 units · boot reprice from measured supplier economics (control/pricing.go), not a competitive-price or margin claim</span>
     </div>
   </section>
 
@@ -369,7 +369,7 @@
       <span class="beat-index label">06 <b>· release</b></span>
       <h2 class="display">download</h2>
       <span class="flag label">closed alpha</span>
-      <p>There is no public download yet. The supplier agent installs with one command from the alpha build · the macOS menu bar app builds today, and the notarized public release is the next step.</p>
+      <p>There is no public download yet. The supplier agent installs with one command from the alpha build · the former macOS menu bar app is not present in this tree (only the seatbelt sandbox profile remains), and a notarized public release is not available.</p>
       <form id="alpha-form" class="alpha-form">
         <div class="alpha-field">
           <label for="alpha-email" class="label">email for access request</label>
@@ -383,7 +383,13 @@
           </select>
         </div>
         <button type="submit" class="hand-key">request access</button>
-      </form>
+              <div class="alpha-field">
+          <label for="alpha-consent" class="label">
+            <input id="alpha-consent" name="consent" type="checkbox" required>
+            I consent to contact about alpha access
+          </label>
+        </div>
+</form>
       <p id="alpha-status" class="road" aria-live="polite"></p>
       <p class="road">the development catalogue is not public distribution</p>
     </div></div>
@@ -408,19 +414,19 @@
 
 <footer>
   <img src="/assets/site/cx-mark-white.png" alt="" width="16" height="16">
-  <span class="label">computexchange · Joshua-Hicks Global Corp. · 2026</span>
+  <span class="label">merc · Joshua-Hicks Global Corp. · 2026</span>
 </footer>
 
 <dialog id="receipts" aria-label="the claims ledger">
   <div class="ledger">
     <div class="ledger-head">
-      <span class="title">computexchange · claims ledger</span>
+      <span class="title">merc · claims ledger</span>
       <button class="close" id="close-receipts">close</button>
     </div>
     <div class="ledger-stat"><span><b>development</b> preview</span><span>no static proof counter</span><span class="gen">current state: source-bound receipt</span></div>
     <div class="claim"><span class="k">proof</span><span class="v">Only a terminally passing ledger whose source fingerprint matches the current source may support a narrow local contract claim. Local tests do not establish market, live-money, physical-fleet, legal, or production-SLO outcomes.</span></div>
     <div class="claim"><span class="k">queue</span><span class="v">the job queue is a plain Postgres table claimed with FOR UPDATE SKIP LOCKED · no Kafka, RabbitMQ, NATS, or Redis in the dependency tree</span></div>
-    <div class="claim"><span class="k">binaries</span><span class="v">two binaries at the core · a Rust supplier agent and a Go control plane · the buyer CLI and macOS menu bar app are optional layers on top</span></div>
+    <div class="claim"><span class="k">binaries</span><span class="v">two binaries at the core · a Rust supplier agent and a Go control plane · the buyer CLI is an optional layer; the former macOS menu bar app is not present in this tree</span></div>
     <div class="claim"><span class="k">executors</span><span class="v">the current generated projection contains exact embed and batch inference cells on Candle/Metal for Apple Silicon</span></div>
     <div class="claim"><span class="k">scheduler</span><span class="v">tasks are sized for a 45 second runtime target · five hard filters gate every claim · quiet hours are enforced by the agent on the device itself</span></div>
     <div class="claim"><span class="k">verification</span><span class="v">honeypot known-answer tasks, within-class redundancy, N-way majority votes · a 0.25 audit floor, so even the most trusted supplier is spot-checked about one task in four · a failed honeypot docks reputation, claws back the credit, and quarantines the supplier</span></div>
@@ -447,10 +453,15 @@
     var email = document.getElementById('alpha-email').value;
     var role = document.getElementById('alpha-role').value;
     alphaStatus.textContent = 'sending…';
+    var consent = document.getElementById('alpha-consent').checked;
+    if (!consent) {
+      alphaStatus.textContent = 'consent is required to request access';
+      return;
+    }
     fetch('/v1/alpha-request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email, role: role })
+      body: JSON.stringify({ email: email, role: role, consent: true })
     }).then(function (res) {
       if (!res.ok) throw new Error('request failed');
       alphaStatus.textContent = "you're on the list · we'll follow up at " + email;

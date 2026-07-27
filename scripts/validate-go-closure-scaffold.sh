@@ -27,7 +27,7 @@ pass "operator-input JSON contract"
 while IFS= read -r required_var; do
   # The host scripts derive this internal selector from the declared candidate
   # or prior digest; operators never supply it directly.
-  [ "$required_var" != CX_ACTIVE_CONTROL_IMAGE ] || continue
+  [ "$required_var" != MERC_ACTIVE_CONTROL_IMAGE ] || continue
   jq -e --arg name "$required_var" '.inputs | any(.name == $name)' "$INPUTS" >/dev/null \
     || die "required compose input $required_var is absent from ops/go-closure-inputs.json"
 done < <(rg -o '\$\{[A-Z0-9_]+:\?' "$COMPOSE" | sed -E 's/^\$\{//; s/:\?$//' | sort -u)
@@ -41,7 +41,7 @@ if rg -n 'image:.*:-' "$COMPOSE" >/dev/null; then
 fi
 while IFS= read -r image_line; do
   case "$image_line" in
-    *'${CX_ACTIVE_CONTROL_IMAGE:?'*|*'${CX_PROMETHEUS_IMAGE:?'*|*'${CX_ALERTMANAGER_IMAGE:?'*|*'${CX_GRAFANA_IMAGE:?'*|*'${CX_NODE_EXPORTER_IMAGE:?'*) ;;
+    *'${MERC_ACTIVE_CONTROL_IMAGE:?'*|*'${MERC_PROMETHEUS_IMAGE:?'*|*'${MERC_ALERTMANAGER_IMAGE:?'*|*'${MERC_GRAFANA_IMAGE:?'*|*'${MERC_NODE_EXPORTER_IMAGE:?'*) ;;
     *@sha256:*)
       [[ "$image_line" =~ @sha256:[0-9a-f]{64}$ ]] \
         || die "literal image is not pinned to 64 lowercase digest hex: $image_line"
@@ -52,10 +52,10 @@ done < <(sed -n 's/^[[:space:]]*image:[[:space:]]*//p' "$COMPOSE")
 pass "no build path and immutable image contract"
 
 for required in \
-  CX_CANARY_MODE CX_CANARY_APPROVED_BUYER_EMAILS CX_CANARY_APPROVED_WORKER_IDS \
-  CX_CANARY_APPROVED_AGENT_VERSIONS CX_CANARY_APPROVED_BUILD_HASHES \
-  CX_CANARY_MAX_ACTIVE_BUYERS CX_CANARY_MAX_ACTIVE_WORKERS \
-  CX_CANARY_MAX_QUEUED_JOBS CX_CANARY_MAX_DAILY_JOBS; do
+  MERC_CANARY_MODE MERC_CANARY_APPROVED_BUYER_EMAILS MERC_CANARY_APPROVED_WORKER_IDS \
+  MERC_CANARY_APPROVED_AGENT_VERSIONS MERC_CANARY_APPROVED_BUILD_HASHES \
+  MERC_CANARY_MAX_ACTIVE_BUYERS MERC_CANARY_MAX_ACTIVE_WORKERS \
+  MERC_CANARY_MAX_QUEUED_JOBS MERC_CANARY_MAX_DAILY_JOBS; do
   rg -q "^[[:space:]]*$required:" "$COMPOSE" || die "compose omits $required"
 done
 rg -q '^\.env\.go-closure$' "$ROOT/.gitignore" || die ".env.go-closure is not ignored"
@@ -132,7 +132,7 @@ if docker compose version >/dev/null 2>&1 && [ -f "$ROOT/.env.go-closure" ]; the
   # shellcheck disable=SC1091
   . "$ROOT/.env.go-closure"
   set +a
-  export CX_ACTIVE_CONTROL_IMAGE="${CX_CANDIDATE_CONTROL_IMAGE:-}"
+  export MERC_ACTIVE_CONTROL_IMAGE="${MERC_CANDIDATE_CONTROL_IMAGE:-}"
   docker compose --env-file "$ROOT/.env.go-closure" -f "$COMPOSE" config -q \
     || die "docker compose config failed"
   pass "docker compose config"

@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 MODE="${1:-}"
 case "$MODE" in check|matrix) ;; *) echo "usage: scripts/stripe-sandbox.sh check|matrix" >&2; exit 2 ;; esac
 
-ENV_FILE="${CX_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"
+ENV_FILE="${MERC_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"
 if [ -f "$ENV_FILE" ]; then
   [ ! -L "$ENV_FILE" ] || { echo "stripe-sandbox: environment file must not be a symlink" >&2; exit 1; }
   mode="$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE")"
@@ -39,7 +39,7 @@ done
 
 secret_class="$(classify "${STRIPE_SECRET_KEY:-}")"
 billing_webhook_class="$(classify "${STRIPE_WEBHOOK_SECRET:-}")"
-connect_webhook_class="$(classify "${CX_CONNECT_WEBHOOK_SECRET:-}")"
+connect_webhook_class="$(classify "${MERC_CONNECT_WEBHOOK_SECRET:-}")"
 connected_account_ready=false
 [[ "${STRIPE_TEST_CONNECTED_ACCOUNT_ID:-}" =~ ^acct_[A-Za-z0-9]+$ ]] && connected_account_ready=true
 
@@ -49,8 +49,8 @@ ready=true
 [ "$connect_webhook_class" = webhook ] || ready=false
 [[ "${STRIPE_SECRET_KEY:-}" =~ ^(sk_test_|rk_test_)[A-Za-z0-9_]+$ ]] || ready=false
 [[ "${STRIPE_WEBHOOK_SECRET:-}" =~ ^whsec_[A-Za-z0-9_]+$ ]] || ready=false
-[[ "${CX_CONNECT_WEBHOOK_SECRET:-}" =~ ^whsec_[A-Za-z0-9_]+$ ]] || ready=false
-[ "${STRIPE_WEBHOOK_SECRET:-}" != "${CX_CONNECT_WEBHOOK_SECRET:-}" ] || ready=false
+[[ "${MERC_CONNECT_WEBHOOK_SECRET:-}" =~ ^whsec_[A-Za-z0-9_]+$ ]] || ready=false
+[ "${STRIPE_WEBHOOK_SECRET:-}" != "${MERC_CONNECT_WEBHOOK_SECRET:-}" ] || ready=false
 [ "$connected_account_ready" = true ] || ready=false
 
 if [ "$ready" != true ]; then
@@ -97,19 +97,46 @@ api_expect_timeout() {
 
 account="$(api GET account)"
 jq -e '.id | type == "string" and startswith("acct_")' <<< "$account" >/dev/null
-jq -e '.livemode == false' <<< "$account" >/dev/null
+# Stripe no longer returns `livemode` on the Account object (verified absent on
+# both the platform and a connected account under the pinned 2025-06-30.basil
+# version). Fail closed if it is ever present and true. The hard test-mode
+# guarantee remains the sk_test_/rk_test_ key gate above, plus the strict
+# `.livemode == false` assertions on PaymentIntent and transfer below, which
+# Stripe does still populate.
+jq -e '(.livemode // false) == false' <<< "$account" >/dev/null
 api_account_id="$(jq -r .id <<< "$account")"
 
 connect="$(api GET "accounts/${STRIPE_TEST_CONNECTED_ACCOUNT_ID}")"
 jq -e '.id | type == "string" and startswith("acct_")' <<< "$connect" >/dev/null
-jq -e '.livemode == false' <<< "$connect" >/dev/null
+jq -e '(.livemode // false) == false' <<< "$connect" >/dev/null
+
+# The ledger settles USD only. A platform with no USD bucket accepts the
+# transfer request and fails it with balance_insufficient once money moves, so
+# report it here rather than mid-matrix. Mirrors control's boot preflight.
+balance="$(api GET balance)"
+settles_usd=false
+jq -e '[.available[].currency, .pending[].currency] | index("usd")' <<< "$balance" >/dev/null 2>&1 && settles_usd=true
 
 if [ "$MODE" = check ]; then
-  jq -nc --arg account_class "${api_account_id%%_*}" \
-    '{schema_version:1,kind:"stripe_sandbox_check",status:"PASS",provider_mode:"test",
+  # A platform that cannot settle USD cannot complete the matrix, so this is a
+  # blocking configuration fault rather than an advisory note.
+  check_status=PASS
+  [ "$settles_usd" = true ] || check_status=FAIL
+  jq -nc --arg status "$check_status" --arg account_class "${api_account_id%%_*}" \
+    --argjson settles_usd "$settles_usd" \
+    --arg enabled "$(jq -r '[.available[].currency, .pending[].currency] | unique | join(" ")' <<< "$balance")" \
+    '{schema_version:1,kind:"stripe_sandbox_check",status:$status,provider_mode:"test",
       network_accessed:true,secret_values_printed:false,account_identifier_class:$account_class,
       webhook_secrets:{billing:"present",connect:"present",distinct:true},
-      connect:{sandbox_account_verified:true},live_mode:"PROHIBITED"}'
+      connect:{sandbox_account_verified:true},
+      settlement:{ledger_currency:"usd",platform_settles_usd:$settles_usd,
+                  enabled:($enabled|split(" ")|map(select(length>0)))},
+      live_mode:"PROHIBITED"}'
+  [ "$check_status" = PASS ] || {
+    printf 'stripe-check: FAIL - platform settles [%s], ledger requires usd; supplier payouts cannot execute\n' \
+      "$(jq -r '[.available[].currency, .pending[].currency] | unique | join(",")' <<< "$balance")" >&2
+    exit 1
+  }
   exit 0
 fi
 
@@ -123,7 +150,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 customer_json="$(api POST customers \
-  --data-urlencode "description=ComputExchange disposable Sandbox matrix $run_id" \
+  --data-urlencode "description=merc disposable Sandbox matrix $run_id" \
   --data-urlencode "metadata[cx_matrix_run]=$run_id")"
 customer="$(jq -er '.id | select(startswith("cus_"))' <<< "$customer_json")"
 

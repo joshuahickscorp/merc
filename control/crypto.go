@@ -12,7 +12,7 @@ import (
 )
 
 func tokenKey() []byte {
-	k := os.Getenv("CX_TOKEN_KEY")
+	k := os.Getenv("MERC_TOKEN_KEY")
 	if k == "" {
 		return nil
 	}

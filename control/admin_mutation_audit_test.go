@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -120,10 +119,7 @@ func TestAdminActionBodyIsStrictAndBounded(t *testing.T) {
 
 func openAdminMutationTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
 	t.Helper()
-	databaseURL := os.Getenv("CX_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("CX_TEST_DATABASE_URL is not set")
-	}
+	databaseURL := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
 	pool, err := pgxpool.New(ctx, databaseURL)

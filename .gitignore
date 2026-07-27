@@ -114,3 +114,16 @@ docs/bench-local-reports/
 
 # scratch output from cx audit --out
 tmp/
+
+# Local Go tool caches (agent/sandbox)
+.gocache/
+.gomodcache/
+.gopath/
+
+# patch(1) backups from applying delegated diffs
+*.orig
+*.rej
+
+# TypeScript SDK build output and local deps
+sdk/typescript/dist/
+sdk/typescript/node_modules/

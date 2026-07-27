@@ -68,17 +68,17 @@ host_rehearsal() {
   local operation="$1"
   gc_load_env
   gc_validate_host_config
-  gc_require_declared_inputs CX_BACKUP_OFFSITE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY \
-    CX_BACKUP_ENCRYPTION_RECIPIENT CX_BACKUP_DECRYPTION_IDENTITY_FILE \
-    CX_CONNECT_CLIENT_ID STRIPE_TEST_CONNECTED_ACCOUNT_ID
-  gc_require_declared_inputs CX_CANARY_SCENARIO_DRIVER
-  [[ "$CX_CANARY_SCENARIO_DRIVER" == /* ]] \
-    || gc_die "CX_CANARY_SCENARIO_DRIVER must be an absolute path"
-  [ -x "$CX_CANARY_SCENARIO_DRIVER" ] \
-    || gc_die "CX_CANARY_SCENARIO_DRIVER is not executable"
-  export CX_ACTIVE_CONTROL_IMAGE="$CX_CANDIDATE_CONTROL_IMAGE"
+  gc_require_declared_inputs MERC_BACKUP_OFFSITE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY \
+    MERC_BACKUP_ENCRYPTION_RECIPIENT MERC_BACKUP_DECRYPTION_IDENTITY_FILE \
+    MERC_CONNECT_CLIENT_ID STRIPE_TEST_CONNECTED_ACCOUNT_ID
+  gc_require_declared_inputs MERC_CANARY_SCENARIO_DRIVER
+  [[ "$MERC_CANARY_SCENARIO_DRIVER" == /* ]] \
+    || gc_die "MERC_CANARY_SCENARIO_DRIVER must be an absolute path"
+  [ -x "$MERC_CANARY_SCENARIO_DRIVER" ] \
+    || gc_die "MERC_CANARY_SCENARIO_DRIVER is not executable"
+  export MERC_ACTIVE_CONTROL_IMAGE="$MERC_CANDIDATE_CONTROL_IMAGE"
   gc_validate_compose_images
-  gc_probe_release "$CX_CANDIDATE_COMMIT" >/dev/null
+  gc_probe_release "$MERC_CANDIDATE_COMMIT" >/dev/null
   if [ "$operation" = check ]; then
     gc_log "canary target and scenario driver are valid (no scenarios run)"
     return
@@ -112,7 +112,7 @@ host_rehearsal() {
     minimum="${minimums[$index]}"
     receipt="$GC_EVIDENCE_DIR/$(date -u +%Y%m%dT%H%M%SZ)-scenario-$scenario.json"
     umask 077
-    if ! "$CX_CANARY_SCENARIO_DRIVER" run "$scenario" "$minimum" > "$receipt"; then
+    if ! "$MERC_CANARY_SCENARIO_DRIVER" run "$scenario" "$minimum" > "$receipt"; then
       rm -f -- "$receipt"
       gc_die "scenario driver failed for $scenario"
     fi
@@ -122,7 +122,7 @@ host_rehearsal() {
   done
 
   local active_workers page_alerts db_snapshot
-  active_workers="$(gc_prometheus_scalar 'cx_active_workers')"
+  active_workers="$(gc_prometheus_scalar 'merc_active_workers')"
   awk -v n="$active_workers" 'BEGIN { exit !(n >= 2) }' \
     || gc_die "Prometheus reports fewer than two active Metal agents"
   page_alerts="$(gc_prometheus_scalar 'sum(ALERTS{alertstate="firing",severity="page"}) or vector(0)')"
@@ -138,7 +138,7 @@ host_rehearsal() {
   gc_prepare_evidence canary-rehearsal
   gc_atomic_json "$GC_EVIDENCE_FILE" -n \
     --arg started "$started_at" --arg finished "$finished_at" \
-    --arg image "$CX_CANDIDATE_CONTROL_IMAGE" --arg commit "$CX_CANDIDATE_COMMIT" \
+    --arg image "$MERC_CANDIDATE_CONTROL_IMAGE" --arg commit "$MERC_CANDIDATE_COMMIT" \
     --argjson workers "$active_workers" --argjson alerts "$page_alerts" \
     --argjson database "$db_snapshot" --slurpfile receipts "$combined" \
     '{schema_version:1,kind:"go_closure_canary_rehearsal",status:"PASS",

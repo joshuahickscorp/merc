@@ -5,7 +5,7 @@ not a live-money dependency approval.
 
 ## Rust `paste` 1.0.15
 
-`paste` is not a direct ComputExchange dependency and there is no `paste!`
+`paste` is not a direct merc dependency and there is no `paste!`
 use in the agent source. `cargo tree -i paste` shows it is required by the
 locked numeric/runtime graph: Candle 0.10.2 through `gemm`/`pulp`, and both the
 Candle and direct Tokenizers graphs through `macro_rules_attribute`.

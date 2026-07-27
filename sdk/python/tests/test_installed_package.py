@@ -12,26 +12,26 @@ from pathlib import Path
 import struct
 import unittest
 
-import computeexchange
-from computeexchange import Client, decode_embeddings_binary
+import merc
+from merc import Client, decode_embeddings_binary
 
 
 class InstalledPackageTests(unittest.TestCase):
     def test_distribution_and_module_versions_match(self):
         self.assertEqual(
-            importlib.metadata.version("computeexchange"),
-            computeexchange.__version__,
+            importlib.metadata.version("merc"),
+            merc.__version__,
         )
 
     def test_import_came_from_the_virtualenv_not_the_checkout(self):
-        module_path = Path(computeexchange.__file__).resolve()
-        source_roots = os.environ["CX_SDK_SOURCE_ROOTS"].split(os.pathsep)
+        module_path = Path(merc.__file__).resolve()
+        source_roots = os.environ["MERC_SDK_SOURCE_ROOTS"].split(os.pathsep)
         for source_root in map(Path, source_roots):
             try:
                 module_path.relative_to(source_root.resolve())
             except ValueError:
                 continue
-            self.fail(f"computeexchange imported from source tree: {module_path}")
+            self.fail(f"merc imported from source tree: {module_path}")
 
     def test_public_client_constructs_without_network_or_dependencies(self):
         client = Client("https://example.invalid/", "cx_test_key", timeout=2)
@@ -39,7 +39,7 @@ class InstalledPackageTests(unittest.TestCase):
         self.assertEqual(client.api_key, "cx_test_key")
         self.assertEqual(client.timeout, 2)
         self.assertFalse(
-            importlib.metadata.distribution("computeexchange").requires or []
+            importlib.metadata.distribution("merc").requires or []
         )
 
     def test_binary_embedding_decoder_is_present_in_installed_package(self):
@@ -52,6 +52,23 @@ class InstalledPackageTests(unittest.TestCase):
             client.submit_job("unknown", "unsupported", input="")
         with self.assertRaisesRegex(ValueError, "unsupported job_type"):
             client.quote("unknown", "unsupported", input="")
+
+    def test_models_preserves_the_cx_list_abstraction(self):
+        class ModelsClient(Client):
+            def __init__(self, response):
+                super().__init__("https://example.invalid", "cx_test_key")
+                self.response = response
+
+            def _request(self, method, path, body=None, query=None, headers=None):
+                self.assert_request = (method, path)
+                return self.response
+
+        model = {"id": "cx-chat-1b", "object": "model"}
+        current = ModelsClient({"object": "list", "data": [model]})
+        self.assertEqual(current.models(), [model])
+        self.assertEqual(current.assert_request, ("GET", "/v1/models"))
+        legacy = ModelsClient([model])
+        self.assertEqual(legacy.models(), [model])
 
     def test_buyer_model_kind_defaults_to_server_runtime_authority(self):
         class RecordingClient(Client):

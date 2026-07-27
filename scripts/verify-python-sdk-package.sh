@@ -12,7 +12,7 @@ cp -R "$ROOT/sdk/python" "$WORK/sdk-python"
 rm -rf \
   "$WORK/sdk-python/build" \
   "$WORK/sdk-python/dist" \
-  "$WORK/sdk-python/computeexchange.egg-info"
+  "$WORK/sdk-python/merc.egg-info"
 find "$WORK/sdk-python" -type d -name __pycache__ -prune -exec rm -rf {} +
 find "$WORK/sdk-python" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 
@@ -20,7 +20,7 @@ find "$WORK/sdk-python" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 "$PY" -m pip check
 
 cd "$WORK"
-CX_SDK_SOURCE_ROOTS="$ROOT/sdk/python:$WORK/sdk-python" \
+MERC_SDK_SOURCE_ROOTS="$ROOT/sdk/python:$WORK/sdk-python" \
   PYTHONNOUSERSITE=1 \
   "$PY" -m unittest discover \
     -s "$ROOT/sdk/python/tests" \
@@ -28,8 +28,8 @@ CX_SDK_SOURCE_ROOTS="$ROOT/sdk/python:$WORK/sdk-python" \
     -v
 
 "$PY" - <<'PY'
-from computeexchange import Client, __version__
+from merc import Client, __version__
 
-client = Client("https://computexchange.net", "cx_test_not_sent")
-print(f"installed computeexchange {__version__} from {client.__class__.__module__}")
+client = Client("https://mercmerc.net", "cx_test_not_sent")
+print(f"installed merc {__version__} from {client.__class__.__module__}")
 PY

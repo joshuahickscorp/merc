@@ -7,43 +7,43 @@ x-logging: &bounded-logs
     max-file: "10"
 
 x-control-environment: &control-environment
-  CX_ENV: production
-  CX_CANARY_MODE: "true"
-  CX_TRUSTED_PROXY_CIDRS: ${CX_TRUSTED_PROXY_CIDRS:-172.16.0.0/12}
-  CX_PUBLIC_CONTROL_ORIGIN: https://${STAGING_TLS_HOSTNAME:?declared in ops/go-closure-inputs.json and required in .env.go-closure}
+  MERC_ENV: production
+  MERC_CANARY_MODE: "true"
+  MERC_TRUSTED_PROXY_CIDRS: ${MERC_TRUSTED_PROXY_CIDRS:-172.16.0.0/12}
+  MERC_PUBLIC_CONTROL_ORIGIN: https://${STAGING_TLS_HOSTNAME:?declared in ops/go-closure-inputs.json and required in .env.go-closure}
   SITE_HOST: ${STAGING_TLS_HOSTNAME:?declared in ops/go-closure-inputs.json and required in .env.go-closure}
   DATABASE_URL: postgres://cx:${POSTGRES_PASSWORD:?required in .env.go-closure}@postgres:5432/cx?sslmode=disable
   LISTEN_ADDR: ":8080"
   DB_MAX_CONNS: ${DB_MAX_CONNS:-20}
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?test-mode key declared in ops/go-closure-inputs.json}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?declared in ops/go-closure-inputs.json}
-  CX_CONNECT_WEBHOOK_SECRET: ${CX_CONNECT_WEBHOOK_SECRET:?declared in ops/go-closure-inputs.json}
-  CX_CONNECT_CLIENT_ID: ${CX_CONNECT_CLIENT_ID:?test-mode client ID declared in ops/go-closure-inputs.json}
-  CX_CONNECT_RETURN_URL: https://${STAGING_TLS_HOSTNAME:?required}/admin?connect=return
-  CX_CONNECT_REFRESH_URL: https://${STAGING_TLS_HOSTNAME:?required}/admin?connect=refresh
-  CX_TOKEN_KEY: ${CX_TOKEN_KEY:?at least 32 unpredictable bytes; required in .env.go-closure}
-  CX_VERIFICATION_SAMPLE_SECRET: ${CX_VERIFICATION_SAMPLE_SECRET:?at least 32 unpredictable bytes; required in .env.go-closure}
-  CX_ECON_SCHEDULE_VERSION: "2026-07-19"
-  CX_PROCESSOR_PERCENT_BPS: "290"
-  CX_PROCESSOR_FIXED_USD: "0.30"
-  CX_CONTROL_PLANE_PER_TASK_USD: "0.0001"
-  CX_TARGET_MARGIN_BPS: "1000"
-  CX_CANARY_APPROVED_BUYER_EMAILS: ${CX_CANARY_APPROVED_BUYER_EMAILS:?required in .env.go-closure}
-  CX_CANARY_APPROVED_WORKER_IDS: ${CX_CANARY_APPROVED_WORKER_IDS:?required in .env.go-closure}
-  CX_CANARY_APPROVED_AGENT_VERSIONS: ${CX_CANARY_APPROVED_AGENT_VERSIONS:?required in .env.go-closure}
-  CX_CANARY_APPROVED_BUILD_HASHES: ${CX_CANARY_APPROVED_BUILD_HASHES:?required in .env.go-closure}
-  CX_CANARY_MAX_ACTIVE_BUYERS: "2"
-  CX_CANARY_MAX_ACTIVE_WORKERS: "2"
-  CX_CANARY_MAX_QUEUED_JOBS: "20"
-  CX_CANARY_MAX_TASKS_PER_JOB: "64"
-  CX_CANARY_MAX_ARTIFACT_BYTES: "33554432"
-  CX_CANARY_MAX_INPUT_BYTES: "33554432"
-  CX_CANARY_MAX_OUTPUT_TOKENS: "256"
-  CX_CANARY_MAX_JOB_DURATION_SECS: "600"
-  CX_CANARY_MAX_RETRIES: "3"
-  CX_CANARY_MAX_DAILY_JOBS: "100"
-  CX_CANARY_MAX_SHADOW_VALUE_USD: "10"
-  CX_CANARY_MAX_HELD_SHADOW_PAYOUT_USD: "10"
+  MERC_CONNECT_WEBHOOK_SECRET: ${MERC_CONNECT_WEBHOOK_SECRET:?declared in ops/go-closure-inputs.json}
+  MERC_CONNECT_CLIENT_ID: ${MERC_CONNECT_CLIENT_ID:?test-mode client ID declared in ops/go-closure-inputs.json}
+  MERC_CONNECT_RETURN_URL: https://${STAGING_TLS_HOSTNAME:?required}/admin?connect=return
+  MERC_CONNECT_REFRESH_URL: https://${STAGING_TLS_HOSTNAME:?required}/admin?connect=refresh
+  MERC_TOKEN_KEY: ${MERC_TOKEN_KEY:?at least 32 unpredictable bytes; required in .env.go-closure}
+  MERC_VERIFICATION_SAMPLE_SECRET: ${MERC_VERIFICATION_SAMPLE_SECRET:?at least 32 unpredictable bytes; required in .env.go-closure}
+  MERC_ECON_SCHEDULE_VERSION: "2026-07-19"
+  MERC_PROCESSOR_PERCENT_BPS: "290"
+  MERC_PROCESSOR_FIXED_USD: "0.30"
+  MERC_CONTROL_PLANE_PER_TASK_USD: "0.0001"
+  MERC_TARGET_MARGIN_BPS: "1000"
+  MERC_CANARY_APPROVED_BUYER_EMAILS: ${MERC_CANARY_APPROVED_BUYER_EMAILS:?required in .env.go-closure}
+  MERC_CANARY_APPROVED_WORKER_IDS: ${MERC_CANARY_APPROVED_WORKER_IDS:?required in .env.go-closure}
+  MERC_CANARY_APPROVED_AGENT_VERSIONS: ${MERC_CANARY_APPROVED_AGENT_VERSIONS:?required in .env.go-closure}
+  MERC_CANARY_APPROVED_BUILD_HASHES: ${MERC_CANARY_APPROVED_BUILD_HASHES:?required in .env.go-closure}
+  MERC_CANARY_MAX_ACTIVE_BUYERS: "2"
+  MERC_CANARY_MAX_ACTIVE_WORKERS: "2"
+  MERC_CANARY_MAX_QUEUED_JOBS: "20"
+  MERC_CANARY_MAX_TASKS_PER_JOB: "64"
+  MERC_CANARY_MAX_ARTIFACT_BYTES: "33554432"
+  MERC_CANARY_MAX_INPUT_BYTES: "33554432"
+  MERC_CANARY_MAX_OUTPUT_TOKENS: "256"
+  MERC_CANARY_MAX_JOB_DURATION_SECS: "600"
+  MERC_CANARY_MAX_RETRIES: "3"
+  MERC_CANARY_MAX_DAILY_JOBS: "100"
+  MERC_CANARY_MAX_SHADOW_VALUE_USD: "10"
+  MERC_CANARY_MAX_HELD_SHADOW_PAYOUT_USD: "10"
   GOMEMLIMIT: 768MiB
   S3_ENDPOINT: http://minio:9000
   S3_PUBLIC_ENDPOINT: https://${STAGING_STORAGE_TLS_HOSTNAME:?required in .env.go-closure}
@@ -51,7 +51,7 @@ x-control-environment: &control-environment
   S3_BUCKET: ${S3_BUCKET:-cx-jobs}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:?required in .env.go-closure}
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?required in .env.go-closure}
-  CX_BACKUP_STATUS_FILE: /run/cx-health/last-successful-offsite-backup.unixtime
+  MERC_BACKUP_STATUS_FILE: /run/cx-health/last-successful-offsite-backup.unixtime
 
 services:
   postgres:
@@ -114,7 +114,7 @@ services:
     pids_limit: 64
 
   control:
-    image: ${CX_ACTIVE_CONTROL_IMAGE:?must be an immutable registry/repository@sha256 digest}
+    image: ${MERC_ACTIVE_CONTROL_IMAGE:?must be an immutable registry/repository@sha256 digest}
     pull_policy: always
     depends_on:
       postgres:
@@ -178,7 +178,7 @@ services:
     logging: *bounded-logs
 
   prometheus:
-    image: ${CX_PROMETHEUS_IMAGE:?must be an immutable registry/repository@sha256 digest}
+    image: ${MERC_PROMETHEUS_IMAGE:?must be an immutable registry/repository@sha256 digest}
     pull_policy: always
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -209,7 +209,7 @@ services:
     logging: *bounded-logs
 
   alertmanager:
-    image: ${CX_ALERTMANAGER_IMAGE:?must be an immutable registry/repository@sha256 digest}
+    image: ${MERC_ALERTMANAGER_IMAGE:?must be an immutable registry/repository@sha256 digest}
     pull_policy: always
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
@@ -236,7 +236,7 @@ services:
     logging: *bounded-logs
 
   grafana:
-    image: ${CX_GRAFANA_IMAGE:?must be an immutable registry/repository@sha256 digest}
+    image: ${MERC_GRAFANA_IMAGE:?must be an immutable registry/repository@sha256 digest}
     pull_policy: always
     environment:
       GF_SECURITY_ADMIN_USER: cx-staging-admin
@@ -260,7 +260,7 @@ services:
     logging: *bounded-logs
 
   node-exporter:
-    image: ${CX_NODE_EXPORTER_IMAGE:?must be an immutable registry/repository@sha256 digest}
+    image: ${MERC_NODE_EXPORTER_IMAGE:?must be an immutable registry/repository@sha256 digest}
     pull_policy: always
     command:
       - --path.rootfs=/host

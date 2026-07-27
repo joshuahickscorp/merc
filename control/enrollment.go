@@ -37,7 +37,7 @@ const (
 	workerEnrollmentRequestPrefix     = "cxer2_"
 	workerEnrollmentBundlePrefix      = "cxeb2_"
 	workerEnrollmentRequestMaxLen     = 8 << 10
-	publicControlOriginEnv            = "CX_PUBLIC_CONTROL_ORIGIN"
+	publicControlOriginEnv            = "MERC_PUBLIC_CONTROL_ORIGIN"
 )
 
 var (

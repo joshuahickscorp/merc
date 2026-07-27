@@ -104,7 +104,7 @@ ambiguous.
 
 ## Agent offline or task stall
 
-Check `cx_active_workers`, typed task failures, thermal/memory throttle state, and
+Check `merc_active_workers`, typed task failures, thermal/memory throttle state, and
 the device's `status.json`. An active task renews its lease with both task id and
 attempt; a stale attempt cannot renew or commit. Let automatic dead-claim and
 stale-task recovery act first. If manual action is required, suspend the worker,
@@ -173,12 +173,20 @@ the history secret scan after remediation without printing recovered values.
 
 ## Backup and restore drill
 
-`make restore-drill` creates isolated PostgreSQL and MinIO instances, inserts a
-representative buyer/job/task plus an artifact, takes a checksummed custom-format
-dump and object mirror, restores both, and compares content hashes. This proves
-the mechanism locally; production readiness additionally requires a successful
-`scripts/backup.sh` upload to independent offsite storage followed by
-`scripts/restore.sh` from that uploaded copy.
+`make restore-drill` creates isolated PostgreSQL and MinIO instances, loads a
+production-shaped dataset (≥10k jobs, ≥1k ledger rows, ≥1k objects), takes a
+checksummed custom-format dump and object mirror, restores both, compares
+content hashes, and records a measured RTO in the receipt. The drill fails if
+row counts fall below those minima so it cannot quietly regress to a toy
+fixture. This proves the mechanism locally; production readiness additionally
+requires a successful `scripts/backup.sh` upload to independent offsite storage
+followed by `scripts/restore.sh` from that uploaded copy.
+
+Daily backups are scheduled by `ops/systemd/cx-backup.timer` (install the unit
+pair on the host, point `EnvironmentFile` at offsite creds and
+`MERC_BACKUP_STATUS_FILE`). After a verified offsite upload, `scripts/backup.sh`
+atomically updates that status file; control exports `merc_backup_age_seconds`
+for the 26h stale-backup page.
 
 ## Rollback rehearsal
 

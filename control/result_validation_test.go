@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -155,6 +156,31 @@ func TestEmbeddingJSONPreflightStopsAtExactRowsAndElements(t *testing.T) {
 	rows, dim, err := preflightEmbeddingJSONVectors([]byte(`[[1,0]]`), 1, 2)
 	if err != nil || rows != 1 || dim != 2 {
 		t.Fatalf("bounded embedding preflight = %d x %d, err=%v", rows, dim, err)
+	}
+}
+
+func TestEmbeddingBinaryZeroVectorsRejectedAsNumeric(t *testing.T) {
+	// Correct count and dimension, all-zero payload — same class as the JSON path.
+	body := binaryEmbeddingForValidation(2, [][]float32{{0, 0}, {0, 0}})
+	info := &CommitTaskInfo{jobType: "embed", SplitSize: 4}
+	err := validateTaskResultArtifact(info, body)
+	var typed *ResultArtifactValidationError
+	if !errors.As(err, &typed) || typed.Code != resultValidationNumeric {
+		t.Fatalf("all-zero binary embed = %v (%#v), want code %q", err, typed, resultValidationNumeric)
+	}
+	if typed.Detail == "" || !strings.Contains(typed.Detail, "zero vector") {
+		t.Fatalf("detail = %q, want zero-vector message", typed.Detail)
+	}
+	// Mixed: one non-zero row must still reject the zero row.
+	mixed := binaryEmbeddingForValidation(2, [][]float32{{1, 0}, {0, 0}})
+	err = validateTaskResultArtifact(info, mixed)
+	if !errors.As(err, &typed) || typed.Code != resultValidationNumeric {
+		t.Fatalf("partial zero binary embed = %v (%#v), want code %q", err, typed, resultValidationNumeric)
+	}
+	// Non-zero payload remains valid.
+	ok := binaryEmbeddingForValidation(2, [][]float32{{1, 0}, {0, 1}})
+	if err := validateTaskResultArtifact(info, ok); err != nil {
+		t.Fatalf("non-zero binary embed rejected: %v", err)
 	}
 }
 

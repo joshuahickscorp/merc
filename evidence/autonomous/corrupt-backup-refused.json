@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "corrupt_backup_refused",
+  "status": "PASS",
+  "completed_at": "2026-07-26T19:01:01Z",
+  "drill_id": "20260726T190058Z-27937",
+  "good_dump_sha256": "63866db5335064d9c52834d3ab834fd8dabf49ec7e0a2a4285b6fb2886e9f52c",
+  "corrupt_dump_sha256": "9b18ec686155a6c18fe3de0d13ef1f69e4e487f83172109188325802d84b69ae",
+  "observations": {
+    "pg_restore_exit_code": 1,
+    "checksum_verify_exit_code": 1,
+    "jobs_rows_in_target_after_attempt": 0,
+    "production_shaped_min_jobs": 10000,
+    "age_envelope_decrypt_refused": true
+  },
+  "derived": {
+    "checksum_mismatch": true,
+    "restore_failed_closed": true,
+    "no_full_database_from_corrupt": true
+  }
+}

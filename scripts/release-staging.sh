@@ -39,7 +39,7 @@ case "$MODE" in
   validate)
     bash "$ROOT/scripts/validate-go-closure-scaffold.sh" >/dev/null
     jq -e '
-      (.services.control.image | contains("${CX_ACTIVE_CONTROL_IMAGE:?")) and
+      (.services.control.image | contains("${MERC_ACTIVE_CONTROL_IMAGE:?")) and
       (.services.control.user == "65532:65532") and
       .services.control.read_only == true and
       (.services.control.cap_drop | index("ALL")) != null and
@@ -50,7 +50,7 @@ case "$MODE" in
       (.services.postgres.volumes | map(select(.type=="volume")) | length) >= 1 and
       (.services.minio.volumes | map(select(.type=="volume")) | length) >= 1 and
       (.services.alertmanager.secrets | length) == 1 and
-      (.services.control.environment.CX_PUBLIC_CONTROL_ORIGIN | startswith("https://")) and
+      (.services.control.environment.MERC_PUBLIC_CONTROL_ORIGIN | startswith("https://")) and
       (.services.control.environment.S3_PUBLIC_ENDPOINT | startswith("https://"))
     ' "$TEMP/rendered.json" >/dev/null
     if rg -n '(^|[^A-Za-z])latest([^A-Za-z]|$)|^[[:space:]]*build:' "$COMPOSE" >/dev/null; then

@@ -166,12 +166,10 @@ type webhookPinnedTransport struct {
 	policy webhookTargetPolicy
 }
 
-func (t *webhookPinnedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	target, err := resolveWebhookTarget(req.Context(), req.URL.String(), t.policy)
-	if err != nil {
-		return nil, permanentWebhookFailure(err)
-	}
-
+// buildPinnedWebhookTransport returns a one-shot transport that disables proxies
+// and dials only the pre-resolved, policy-validated addresses. Extracted so tests
+// can assert Proxy == nil and that DialContext never re-resolves the hostname.
+func buildPinnedWebhookTransport(target resolvedWebhookTarget, policy webhookTargetPolicy) *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil // environment proxies would bypass the validated destination
 	transport.DisableKeepAlives = true
@@ -179,24 +177,39 @@ func (t *webhookPinnedTransport) RoundTrip(req *http.Request) (*http.Response, e
 	transport.MaxResponseHeaderBytes = 64 << 10
 	transport.ResponseHeaderTimeout = webhookDialTimeout
 	transport.TLSHandshakeTimeout = webhookDialTimeout
-	if t.policy.tlsConfig != nil {
-		transport.TLSClientConfig = t.policy.tlsConfig.Clone()
+	if policy.tlsConfig != nil {
+		transport.TLSClientConfig = policy.tlsConfig.Clone()
 	} else {
 		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
+	// Copy the allowlist so a concurrent RoundTrip cannot mutate the dial set.
+	pinned := make([]net.IP, len(target.ips))
+	for i, ip := range target.ips {
+		pinned[i] = append(net.IP(nil), ip...)
+	}
+	port := target.port
+	host := target.host
 	dialer := &net.Dialer{Timeout: webhookDialTimeout, KeepAlive: 30 * time.Second}
 	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		var errs []error
-		for _, ip := range target.ips {
-			conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), target.port))
+		for _, ip := range pinned {
+			conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 			if dialErr == nil {
 				return conn, nil
 			}
 			errs = append(errs, dialErr)
 		}
-		return nil, fmt.Errorf("dialing validated webhook target %s: %w", target.host, errors.Join(errs...))
+		return nil, fmt.Errorf("dialing validated webhook target %s: %w", host, errors.Join(errs...))
 	}
-	return transport.RoundTrip(req)
+	return transport
+}
+
+func (t *webhookPinnedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	target, err := resolveWebhookTarget(req.Context(), req.URL.String(), t.policy)
+	if err != nil {
+		return nil, permanentWebhookFailure(err)
+	}
+	return buildPinnedWebhookTransport(target, t.policy).RoundTrip(req)
 }
 
 func newWebhookHTTPClient() *http.Client {

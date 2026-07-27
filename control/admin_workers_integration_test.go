@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -11,10 +10,7 @@ import (
 )
 
 func TestListWorkersToleratesLegacyNullTelemetry(t *testing.T) {
-	databaseURL := os.Getenv("CX_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("CX_TEST_DATABASE_URL is not set")
-	}
+	databaseURL := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, databaseURL)
