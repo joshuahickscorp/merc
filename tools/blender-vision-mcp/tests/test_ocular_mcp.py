@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 import pytest
 
+from mcp.server.fastmcp.exceptions import ToolError
+
 from blender_vision.mcp.server import create_server
 from blender_vision.ocular.attestation import ExecutionClass
 from blender_vision.ocular.stream import (
@@ -266,6 +268,7 @@ async def test_all_ocular_tools_callable_through_dispatch(
             "world": world,
             "observation": {
                 "frame_index": 1,
+                "track_source": "perception",
                 "entities": [
                     {
                         "entity_id": "e1",
@@ -316,6 +319,7 @@ async def test_all_ocular_tools_callable_through_dispatch(
             "observations": [
                 {
                     "frame_index": 0,
+                    "track_source": "perception",
                     "entities": [
                         {
                             "entity_id": "e1",
@@ -460,3 +464,28 @@ def test_webcam_attested_blocked_not_fabricated() -> None:
 
     assert isinstance(refused, RuntimeAttestation)
     assert refused.execution_class is ExecutionClass.BLOCKED
+
+
+@pytest.mark.asyncio
+async def test_mcp_build_world_model_rejects_ground_truth_observation(server) -> None:
+    """MCP never exposes allow_ground_truth; ground-truth observations are rejected."""
+    with pytest.raises(ToolError, match="ground-truth identity is forbidden"):
+        await server.call_tool(
+            "vision.build_world_model",
+            {
+                "scene_id": "mcp-gt-reject",
+                "observations": [
+                    {
+                        "frame_index": 0,
+                        "track_source": "ground_truth",
+                        "entities": [
+                            {
+                                "entity_id": "cup",
+                                "class_label": "cup",
+                                "pose_m": [0.0, 0.0, 0.1, 1.0, 0.0, 0.0, 0.0],
+                            }
+                        ],
+                    }
+                ],
+            },
+        )

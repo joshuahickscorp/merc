@@ -6006,13 +6006,18 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
     ) -> dict[str, Any]:
         """Build a persistent world model from ordered frame observations.
 
-        Observations must carry perception-derived entity ids (track_id/entity_id),
-        not sealed evaluator ground truth.
+        Observations must carry perception-derived entity ids (track_id/entity_id)
+        with track_source of "perception" or "perception_derived". Sealed
+        evaluator ground truth is rejected; allow_ground_truth is not exposed
+        over MCP and remains False.
         """
+        # allow_ground_truth is intentionally not a tool parameter — over MCP
+        # the builder path is always perception-backed.
         world = ocular_build_world_model(
             observations,
             scene_id=scene_id,
             session_id=session_id,
+            allow_ground_truth=False,
         )
         sealed = _cache_world(world)
         return {
@@ -6021,6 +6026,7 @@ def create_server(projects_root: Path | None = None) -> FastMCP:
             "world": sealed.to_dict(),
             "n_entities": len(sealed.entities),
             "beliefs_digest": sealed.beliefs_digest(),
+            "identity_provenance": sealed.meta.get("identity_provenance", "unknown"),
         }
 
     @mcp.tool(name="vision.update_world_model")

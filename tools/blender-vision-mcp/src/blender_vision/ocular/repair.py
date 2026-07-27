@@ -385,18 +385,22 @@ def drill_tracking_false_reid() -> DrillResult:
 
 
 def drill_world_erased_object() -> DrillResult:
+    # Tracker-shaped synthetic ids keep track_source=perception_derived honest:
+    # these drills exercise repair behaviour, not ground-truth object names.
+    cup_id = "trk-0001"
+    book_id = "trk-0002"
     obs = [
         {
             "frame_index": 0,
             "entities": [
                 {
-                    "entity_id": "cup",
+                    "entity_id": cup_id,
                     "class_label": "cup",
                     "pose_m": [0.1, 0.0, 0.0, 1, 0, 0, 0],
                     "visible": True,
                 },
                 {
-                    "entity_id": "book",
+                    "entity_id": book_id,
                     "class_label": "book",
                     "pose_m": [0.3, 0.0, 0.0, 1, 0, 0, 0],
                     "visible": True,
@@ -408,7 +412,7 @@ def drill_world_erased_object() -> DrillResult:
             "frame_index": 1,
             "entities": [
                 {
-                    "entity_id": "cup",
+                    "entity_id": cup_id,
                     "class_label": "cup",
                     "pose_m": [0.1, 0.0, 0.0, 1, 0, 0, 0],
                     "visible": True,
@@ -421,15 +425,15 @@ def drill_world_erased_object() -> DrillResult:
     # Inject: hard-delete book from entities (illegal erase).
     baseline_ids = set(world.entities.keys())
     injected = copy.deepcopy(world)
-    if "book" in injected.entities:
-        del injected.entities["book"]
-    detector = "book" not in injected.entities and "book" in baseline_ids
+    if book_id in injected.entities:
+        del injected.entities[book_id]
+    detector = book_id not in injected.entities and book_id in baseline_ids
     # Repair: restore from belief history / prior world.
     repaired = copy.deepcopy(injected)
-    if "book" in world.entities:
-        repaired.entities["book"] = world.entities["book"]
-    acceptance = "book" in repaired.entities
-    regression = "cup" not in repaired.entities
+    if book_id in world.entities:
+        repaired.entities[book_id] = world.entities[book_id]
+    acceptance = book_id in repaired.entities
+    regression = cup_id not in repaired.entities
     status = DrillStatus.PASS if detector and acceptance and not regression else DrillStatus.FAIL
     return DrillResult(
         drill_id="world-erased-object",
@@ -448,12 +452,15 @@ def drill_world_erased_object() -> DrillResult:
 
 
 def drill_world_cross_session_mismatch() -> DrillResult:
+    # Tracker-shaped synthetic ids with honest perception_derived label.
+    lamp_id = "trk-0001"
+    wrong_id = "trk-0002"
     obs = [
         {
             "frame_index": 0,
             "entities": [
                 {
-                    "entity_id": "lamp",
+                    "entity_id": lamp_id,
                     "class_label": "lamp",
                     "pose_m": [0.0, 0.0, 0.5, 1, 0, 0, 0],
                     "visible": True,
@@ -470,7 +477,7 @@ def drill_world_cross_session_mismatch() -> DrillResult:
             "frame_index": 0,
             "entities": [
                 {
-                    "entity_id": "lamp-WRONG",
+                    "entity_id": wrong_id,
                     "class_label": "lamp",
                     "pose_m": [0.0, 0.0, 0.5, 1, 0, 0, 0],
                     "visible": True,
@@ -483,9 +490,9 @@ def drill_world_cross_session_mismatch() -> DrillResult:
     session_b = build_world_model(obs_b, scene_id="room", session_id="b")
     detector = set(session_a.entities.keys()) != set(session_b.entities.keys())
     # Repair: map by appearance+pose to canonical id from session A.
-    repaired_ids = {"lamp"}
+    repaired_ids = {lamp_id}
     acceptance = repaired_ids == set(session_a.entities.keys())
-    regression = "lamp" not in session_a.entities
+    regression = lamp_id not in session_a.entities
     status = DrillStatus.PASS if detector and acceptance and not regression else DrillStatus.FAIL
     return DrillResult(
         drill_id="world-cross-session-mismatch",

@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from pathlib import Path
@@ -114,6 +115,12 @@ _SURPRISE_CONFIDENCE_DROP = 0.25
 _CONFIRM_CONFIDENCE_GAIN = 0.12
 _MIN_CONFIDENCE = 0.05
 _MAX_CONFIDENCE = 0.99
+
+# Production identity sources for the builder path. Ground truth is sealed-
+# evaluator territory; silence is not permission.
+_PRODUCTION_TRACK_SOURCES: frozenset[str] = frozenset({"perception", "perception_derived"})
+# Perception tracker mint shape (see track._new_track_id).
+_TRACKER_ID_RE = re.compile(r"^trk-\d+$")
 
 
 def _clamp_confidence(value: float) -> float:
@@ -295,6 +302,8 @@ class Entity(V2Record):
     last_observed_frame: int = -1
     frames_since_seen: int = 0
     appearance: dict[str, Any] = field(default_factory=dict)
+    # Identity provenance: track_source, source_observation_frames, minted_by.
+    identity_provenance: dict[str, Any] = field(default_factory=dict)
     frame: CoordinateFrame = field(
         default_factory=lambda: CoordinateFrame(
             name="blender-world", up_axis="+Z", forward_axis="-Y"
@@ -559,6 +568,78 @@ def _poses_contradict(
 # ---------------------------------------------------------------------------
 
 
+def _offending_entity_ids(observation: dict[str, Any]) -> str:
+    ids: list[str] = []
+    for raw in observation.get("entities") or []:
+        if not isinstance(raw, dict):
+            continue
+        entity_id = str(raw.get("entity_id") or raw.get("track_id") or "").strip()
+        if entity_id:
+            ids.append(entity_id)
+    return ", ".join(ids) if ids else "(no entity_id)"
+
+
+def _normalize_track_source(observation: dict[str, Any]) -> str | None:
+    raw = observation.get("track_source", None)
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text if text else None
+
+
+def _reject_ground_truth_identity(
+    observation: dict[str, Any],
+    *,
+    allow_ground_truth: bool,
+) -> None:
+    """Block ground-truth / unlabelled identity on the builder path.
+
+    Ground truth belongs in the sealed evaluator. Production builders only accept
+    perception-minted identity sources.
+    """
+    if allow_ground_truth:
+        return
+    entity_ids = _offending_entity_ids(observation)
+    source = _normalize_track_source(observation)
+    if source is None:
+        raise ValueError(
+            f"observation missing track_source for entity_id={entity_ids}; "
+            "silence is not permission — ground truth belongs in the sealed evaluator"
+        )
+    if source == "ground_truth":
+        raise ValueError(
+            f"ground-truth identity is forbidden for entity_id={entity_ids}; "
+            "ground truth belongs in the sealed evaluator"
+        )
+    if source not in _PRODUCTION_TRACK_SOURCES:
+        raise ValueError(
+            f"track_source={source!r} is not a production perception source for "
+            f"entity_id={entity_ids}; accepted values are perception, "
+            "perception_derived (ground truth belongs in the sealed evaluator)"
+        )
+
+
+def _minted_by(entity_id: str) -> str:
+    return "tracker" if _TRACKER_ID_RE.match(entity_id) else "caller"
+
+
+def _record_entity_identity_provenance(
+    entity: "Entity",
+    *,
+    track_source: str,
+    frame_index: int,
+) -> None:
+    prior = dict(entity.identity_provenance or {})
+    frames = list(prior.get("source_observation_frames") or [])
+    if frame_index not in frames:
+        frames.append(frame_index)
+    entity.identity_provenance = {
+        "track_source": track_source,
+        "source_observation_frames": frames,
+        "minted_by": prior.get("minted_by") or _minted_by(entity.entity_id),
+    }
+
+
 def build_world_model(
     observations: list[dict[str, Any]],
     *,
@@ -567,18 +648,22 @@ def build_world_model(
     frame: CoordinateFrame | None = None,
     lighting: dict[str, Any] | None = None,
     appearance: dict[str, Any] | None = None,
+    allow_ground_truth: bool = False,
 ) -> WorldState:
     """Build a world from an ordered list of frame observations.
 
     Each observation is a dict with at least:
       frame_index: int
       entities: list[{entity_id|track_id, class_label, pose_m, visible?, appearance?}]
+      track_source: "perception" | "perception_derived"  (required unless
+        allow_ground_truth=True)
       lighting?: dict
       appearance?: dict
       absent?: bool  — frame never arrived; still advance time.
 
-    When tracks are ground-truth (no live tracker), set
-    observation['track_source'] = 'ground_truth'.
+    Ground-truth identity is forbidden on the production builder path. Pass
+    allow_ground_truth=True only for diagnostic / fixture consumers; the sealed
+    evaluator is where ground truth belongs for scoring.
     """
     world_frame = frame or CoordinateFrame(
         name=BLENDER_WORLD.name,
@@ -587,6 +672,7 @@ def build_world_model(
         handedness=BLENDER_WORLD.handedness,
         units=BLENDER_WORLD.units,
     )
+    identity_provenance = "ground_truth" if allow_ground_truth else "perception"
     world = WorldState(
         id=f"world-{scene_id}-{session_id}",
         scene_id=scene_id,
@@ -609,24 +695,38 @@ def build_world_model(
                     ),
                     "unknown",
                 ),
+                "identity_provenance": identity_provenance,
+                "allow_ground_truth": allow_ground_truth,
             },
         ),
-        meta={"track_source": "unknown"},
+        meta={
+            "track_source": "unknown",
+            "identity_provenance": identity_provenance,
+        },
     )
     for observation in observations:
-        update_world_model(world, observation)
+        update_world_model(world, observation, allow_ground_truth=allow_ground_truth)
     return world.seal()
 
 
-def update_world_model(world: WorldState, observation: dict[str, Any]) -> WorldState:
+def update_world_model(
+    world: WorldState,
+    observation: dict[str, Any],
+    *,
+    allow_ground_truth: bool = False,
+) -> WorldState:
     """Incorporate one frame. Append-only; contradictions become competing beliefs."""
+    _reject_ground_truth_identity(observation, allow_ground_truth=allow_ground_truth)
     if observation.get("absent"):
         return _apply_absent_frame(world, observation)
 
     frame_index = int(observation.get("frame_index", world.current_frame + 1))
     world.current_frame = frame_index
-    if observation.get("track_source"):
-        world.meta["track_source"] = str(observation["track_source"])
+    track_source = _normalize_track_source(observation)
+    if track_source is not None:
+        world.meta["track_source"] = track_source
+    if allow_ground_truth:
+        world.meta["identity_provenance"] = "ground_truth"
 
     if "lighting" in observation and observation["lighting"] is not None:
         world.lighting = dict(observation["lighting"])
@@ -639,7 +739,12 @@ def update_world_model(world: WorldState, observation: dict[str, Any]) -> WorldS
         if not entity_id:
             raise ValidationError("observation entity requires entity_id or track_id")
         observed_ids.add(entity_id)
-        _upsert_entity(world, raw, frame_index=frame_index)
+        _upsert_entity(
+            world,
+            raw,
+            frame_index=frame_index,
+            track_source=track_source or str(world.meta.get("track_source") or "unknown"),
+        )
 
     # Entities not seen this frame: occlusion / departure path.
     for entity_id, entity in world.entities.items():
@@ -653,7 +758,13 @@ def update_world_model(world: WorldState, observation: dict[str, Any]) -> WorldS
     return world
 
 
-def _upsert_entity(world: WorldState, raw: dict[str, Any], *, frame_index: int) -> Entity:
+def _upsert_entity(
+    world: WorldState,
+    raw: dict[str, Any],
+    *,
+    frame_index: int,
+    track_source: str = "unknown",
+) -> Entity:
     entity_id = str(raw.get("entity_id") or raw.get("track_id"))
     track_id = str(raw.get("track_id") or entity_id)
     class_label = str(raw.get("class_label") or raw.get("class") or "unknown")
@@ -706,6 +817,9 @@ def _upsert_entity(world: WorldState, raw: dict[str, Any], *, frame_index: int) 
             ),
         )
         world.entities[entity_id] = entity
+        _record_entity_identity_provenance(
+            entity, track_source=track_source, frame_index=frame_index
+        )
         conf = entity.confidence
         _append_belief(
             world,
@@ -770,6 +884,9 @@ def _upsert_entity(world: WorldState, raw: dict[str, Any], *, frame_index: int) 
             )
         _maybe_add_surface(world, entity, raw, frame_index=frame_index, observed=True)
     else:
+        _record_entity_identity_provenance(
+            entity, track_source=track_source, frame_index=frame_index
+        )
         prior_pose = list(entity.pose_m)
         prior_conf = entity.confidence
         conf_after = _clamp_confidence(prior_conf + _CONFIRM_CONFIDENCE_GAIN * 0.5)
@@ -1103,6 +1220,7 @@ def query_world(world: WorldState, query: dict[str, Any]) -> dict[str, Any]:
         "entity_ids": sorted(world.entities),
         "lighting": world.lighting,
         "track_source": world.meta.get("track_source", "unknown"),
+        "identity_provenance": world.meta.get("identity_provenance", "unknown"),
     }
 
 

@@ -7,7 +7,7 @@ Usage:
 Exit non-zero if lighting-only is reported as geometry, if a belief is
 overwritten rather than competed, or if session restart loses identity.
 
-Track source: ground-truth tracks (segmentation/tracking is a separate task).
+Track source: ground-truth tracks (diagnostic only — not perception identity evidence).
 """
 
 from __future__ import annotations
@@ -43,14 +43,26 @@ from blender_vision.ocular.world import (  # noqa: E402
     ChangeClass,
     WorldState,
     beliefs_bytes,
-    build_world_model,
+    build_world_model as _build_world_model,
     compare_worlds,
     explain_belief,
     list_uncertainties,
     load_world,
     save_world,
-    update_world_model,
+    update_world_model as _update_world_model,
 )
+
+
+def build_world_model(*args: Any, **kwargs: Any) -> WorldState:
+    """Diagnostic wrapper: always allow ground-truth identity for this script."""
+    kwargs["allow_ground_truth"] = True
+    return _build_world_model(*args, **kwargs)
+
+
+def update_world_model(*args: Any, **kwargs: Any) -> WorldState:
+    """Diagnostic wrapper: always allow ground-truth identity for this script."""
+    kwargs["allow_ground_truth"] = True
+    return _update_world_model(*args, **kwargs)
 
 
 def _ok(msg: str) -> None:
@@ -191,6 +203,11 @@ def run_survival(observations: list[dict[str, Any]], output: Path) -> WorldState
     _section("1. World survival: camera motion, object motion, occlusion, absent frame")
     world = build_world_model(observations, scene_id="tabletop", session_id="live")
     print(f"track_source: {world.meta.get('track_source', 'unknown')}")
+    print(f"identity_provenance: {world.meta.get('identity_provenance', 'unknown')}")
+    print(
+        "DIAGNOSTIC: output is not evidence of perception identity "
+        "(allow_ground_truth=True; pre-labelled tracks)."
+    )
     print(f"entities: {sorted(world.entities)}")
     print(f"frames: 0..{world.current_frame}")
     for frame in range(world.current_frame + 1):
@@ -653,6 +670,10 @@ def main() -> int:
     print(f"output: {output}")
     print(f"started: {utc_now()}")
     print("note: driving from ground-truth tracks (no live segmenter/tracker in this task)")
+    print(
+        "DIAGNOSTIC ONLY: this script's output is NOT evidence of perception identity. "
+        "Worlds are built with allow_ground_truth=True; identity_provenance=ground_truth."
+    )
 
     observations, meta = load_or_build_tabletop_sequence(output)
     atomic_write_json(output / "sequence_meta.json", meta)
@@ -669,6 +690,9 @@ def main() -> int:
         "status": "PASS",
         "started_at": utc_now(),
         "track_source": "ground_truth",
+        "identity_provenance": world.meta.get("identity_provenance", "ground_truth"),
+        "diagnostic_only": True,
+        "not_perception_identity_evidence": True,
         "sequence_meta": meta,
         "beliefs_digest": world.beliefs_digest(),
         "n_entities": len(world.entities),
