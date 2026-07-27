@@ -1,0 +1,7 @@
+{
+  "files": {},
+  "kind": "lighting",
+  "payload": {
+    "contact_shadow_strength": 0.02
+  }
+}

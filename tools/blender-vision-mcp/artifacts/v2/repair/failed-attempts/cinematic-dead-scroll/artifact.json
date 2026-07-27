@@ -1,0 +1,16 @@
+{
+  "files": {},
+  "kind": "cinematic",
+  "payload": {
+    "dead_scroll_gaps": [
+      [
+        0.2,
+        0.45
+      ],
+      [
+        0.7,
+        0.9
+      ]
+    ]
+  }
+}

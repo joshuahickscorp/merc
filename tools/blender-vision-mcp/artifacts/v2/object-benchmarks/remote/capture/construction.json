@@ -1,0 +1,44 @@
+{
+  "body_half_extents_m": [
+    0.09,
+    0.03,
+    0.0125
+  ],
+  "body_dimensions_mm": [
+    180.0,
+    60.0,
+    25.0
+  ],
+  "button_radius_m": 0.008,
+  "button_height_m": 0.004,
+  "button_grid": [
+    4,
+    2
+  ],
+  "battery_hatch_half_extents_m": [
+    0.04,
+    0.018,
+    0.0015
+  ],
+  "battery_hatch_z_m": -0.0125,
+  "seam_inset_m": 0.001,
+  "materials": {
+    "body_rgb": [
+      0.12,
+      0.12,
+      0.14
+    ],
+    "button_rgb": [
+      0.75,
+      0.22,
+      0.18
+    ],
+    "hatch_rgb": [
+      0.08,
+      0.08,
+      0.09
+    ]
+  },
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "claim": "Procedurally constructed consumer-object fixture. Not a claim about any physical remote control."
+}

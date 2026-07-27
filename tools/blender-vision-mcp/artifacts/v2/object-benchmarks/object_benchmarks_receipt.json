@@ -1,0 +1,3465 @@
+{
+  "schema": "visionmcp.object-benchmarks-receipt/v1",
+  "started_at": "2026-07-27T04:13:05.842930+00:00",
+  "output": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks",
+  "dense_mvs_blocker": "COLMAP built without CUDA; patch_match_stereo unavailable",
+  "blender": {
+    "available": true,
+    "executable": "/Applications/Blender.app/Contents/MacOS/Blender",
+    "reason": ""
+  },
+  "phases": {
+    "O_consumer_object": "completed",
+    "P_soft_organic_fur": "completed"
+  },
+  "targets": {
+    "consumer_remote": {
+      "target_id": "consumer_remote",
+      "phase": "consumer_object",
+      "authority": "PROCEDURAL_GROUND_TRUTH",
+      "stages": {
+        "capture": "passed",
+        "hidden_surface_ledger": "passed",
+        "geometry_portfolio": "reported",
+        "dimensional_evaluation": "reported",
+        "unseen_view_evaluation": "reported",
+        "materials": "reported",
+        "next_views": "passed",
+        "delivery": "reported"
+      },
+      "backend_scores": [
+        {
+          "backend": "visual_hull",
+          "executed": true,
+          "chamfer_m": 0.0072113551569287625,
+          "a_to_b_m": 0.006938703131315996,
+          "b_to_a_m": 0.00748400718254153,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "depth_fusion",
+          "executed": true,
+          "chamfer_m": 0.010019481188662721,
+          "a_to_b_m": 0.012083083558283464,
+          "b_to_a_m": 0.00795587881904198,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "parametric",
+          "executed": true,
+          "chamfer_m": 0.003615472389255643,
+          "a_to_b_m": 0.003648259033541755,
+          "b_to_a_m": 0.003582685744969531,
+          "reason": null,
+          "authority": "MODEL_DERIVED"
+        },
+        {
+          "backend": "point_representation",
+          "executed": true,
+          "chamfer_m": null,
+          "a_to_b_m": null,
+          "b_to_a_m": null,
+          "reason": "not a continuous surface",
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "colmap_sfm",
+          "executed": false,
+          "chamfer_m": null,
+          "a_to_b_m": null,
+          "b_to_a_m": null,
+          "reason": "COLMAP mapper failed with exit 1",
+          "authority": "UNRESOLVED"
+        },
+        {
+          "backend": "retrieval",
+          "executed": true,
+          "chamfer_m": 0.5148127387586672,
+          "a_to_b_m": 0.5753416891507981,
+          "b_to_a_m": 0.4542837883665364,
+          "reason": null,
+          "authority": "MODEL_DERIVED"
+        },
+        {
+          "backend": "browser_runtime",
+          "executed": true,
+          "chamfer_m": 0.011747358285230998,
+          "a_to_b_m": 0.013854910729562988,
+          "b_to_a_m": 0.009639805840899008,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        }
+      ],
+      "dimensional_errors_mm": [
+        {
+          "axis": "x",
+          "truth_mm": 180.0,
+          "measured_mm": 180.0,
+          "error_mm": 0.0,
+          "relative_error": 0.0
+        },
+        {
+          "axis": "y",
+          "truth_mm": 60.0,
+          "measured_mm": 60.0,
+          "error_mm": 0.0,
+          "relative_error": 0.0
+        },
+        {
+          "axis": "z",
+          "truth_mm": 25.0,
+          "measured_mm": 30.5,
+          "error_mm": 5.5,
+          "relative_error": 0.22
+        }
+      ],
+      "unseen_view_metrics": [
+        {
+          "view_id": "view_004",
+          "psnr_db": 21.837107370493925,
+          "ssim": 0.34289778354759753,
+          "held_out": true
+        },
+        {
+          "view_id": "view_008",
+          "psnr_db": 22.078758685810477,
+          "ssim": 0.34153940879663264,
+          "held_out": true
+        },
+        {
+          "view_id": "view_012",
+          "psnr_db": 22.087878249988407,
+          "ssim": 0.3445829625091581,
+          "held_out": true
+        },
+        {
+          "view_id": "view_016",
+          "psnr_db": 22.4695990223239,
+          "ssim": 0.3526815711683573,
+          "held_out": true
+        },
+        {
+          "view_id": "view_020",
+          "psnr_db": 22.19187750457933,
+          "ssim": 0.3457797276290227,
+          "held_out": true
+        },
+        {
+          "view_id": "view_024",
+          "psnr_db": 22.217758956604467,
+          "ssim": 0.3464583559534556,
+          "held_out": true
+        },
+        {
+          "view_id": "view_028",
+          "psnr_db": 21.78260318172837,
+          "ssim": 0.3447132409064262,
+          "held_out": true
+        }
+      ],
+      "hidden_surface_ledger": [
+        {
+          "region": "underside",
+          "visibility": "NEVER_OBSERVED",
+          "authority_ceiling": "INFERRED",
+          "reason": "All capture cameras are in the upper hemisphere (elev >= 0.12 rad); the bottom face is never in any silhouette or colour image.",
+          "observed": false,
+          "area_m2": 0.010799999999999999
+        },
+        {
+          "region": "battery_compartment_interior",
+          "visibility": "NEVER_OBSERVED",
+          "authority_ceiling": "INFERRED",
+          "reason": "Battery hatch is closed; compartment interior is occluded by the hatch and has no open-hatch capture.",
+          "observed": false,
+          "area_m2": 0.0072
+        },
+        {
+          "region": "battery_hatch_outer",
+          "visibility": "NEVER_OBSERVED",
+          "authority_ceiling": "INFERRED",
+          "reason": "Hatch lies on the underside; same camera elevation constraint.",
+          "observed": false,
+          "area_m2": 0.0028799999999999997
+        },
+        {
+          "region": "button_sidewalls",
+          "visibility": "PARTIALLY_VISIBLE",
+          "authority_ceiling": "SENSOR_DERIVED",
+          "reason": "Button cylinder walls are foreshortened; only tops are clearly observed.",
+          "observed": false,
+          "area_m2": 0.0016084954386379742
+        },
+        {
+          "region": "internal_electronics",
+          "visibility": "NEVER_OBSERVED",
+          "authority_ceiling": "INFERRED",
+          "reason": "No X-ray or disassembly; internals are topology prior only if modelled.",
+          "observed": false,
+          "area_m2": null
+        }
+      ],
+      "hidden_surface_counts": {
+        "total": 5,
+        "never_observed": 4,
+        "inferred": 0,
+        "incorrectly_marked_observed": 0
+      },
+      "materials": {
+        "surfaces": {
+          "body": {
+            "record_kind": "v2.material-hypothesis-set",
+            "id": "mhs-08197cfd49bc",
+            "schema_version": "2",
+            "created_at": "2026-07-27T04:13:46.365366+00:00",
+            "authority": "INFERRED",
+            "lifecycle": "DRAFT",
+            "lineage": {
+              "tool": "blender-vision-mcp",
+              "tool_version": "0.1.0",
+              "operation": "infer_materials",
+              "inputs": [
+                "view_000",
+                "view_001",
+                "view_002",
+                "view_003",
+                "view_005",
+                "view_006",
+                "view_007",
+                "view_009"
+              ],
+              "input_authorities": [
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED"
+              ],
+              "parameters": {
+                "surface_id": "remote_body",
+                "view_count": 8
+              },
+              "environment": {},
+              "hardware": {},
+              "model_versions": {},
+              "retrieved_at": "",
+              "rights_state": "unreviewed",
+              "limitations": [
+                "Classical multi-view dichromatic inversion; not a full path-traced inverse."
+              ]
+            },
+            "uncertainty": {
+              "kind": "material-parameter",
+              "sigma": 0.37148814459988433,
+              "interval": [],
+              "units": "unitless",
+              "basis": "per-parameter multi-view dispersion",
+              "samples": 8
+            },
+            "supersedes": [],
+            "superseded_by": null,
+            "notes": [],
+            "surface_id": "remote_body",
+            "hypotheses": [
+              {
+                "hypothesis_id": "mat-db589e7be5",
+                "label": "body",
+                "base_colour": [
+                  0.23137254901960785,
+                  0.23137254901960785,
+                  0.23137254901960785
+                ],
+                "roughness": 0.5,
+                "metalness": 0.1905423828887604,
+                "specular_ior": 1.45,
+                "anisotropy": 0.0,
+                "clearcoat": 0.0,
+                "clearcoat_roughness": 0.03,
+                "transmission": 0.0,
+                "subsurface": 8.604579215738155e-10,
+                "subsurface_radius": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "emission": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "normal_bands": {},
+                "displacement_bands": {},
+                "occlusion": 1.0,
+                "texture_scale_m": 0.01,
+                "texture_coordinate_hypothesis": "uv",
+                "confidence": 0.6285118554001157,
+                "evidence_views": [
+                  "view_000",
+                  "view_001",
+                  "view_002",
+                  "view_003",
+                  "view_005",
+                  "view_006",
+                  "view_007",
+                  "view_009"
+                ],
+                "authority": "INFERRED",
+                "renderer_parity": {}
+              }
+            ],
+            "selected_hypothesis_id": "mat-db589e7be5",
+            "frequency_separation": {},
+            "critic_findings": [],
+            "digest": "a0814b642b95be5e26d197acf18ceec0c9e0bc125acba6a9b2f12cf985988333"
+          },
+          "buttons": {
+            "record_kind": "v2.material-hypothesis-set",
+            "id": "mhs-6717d072db0f",
+            "schema_version": "2",
+            "created_at": "2026-07-27T04:13:46.376357+00:00",
+            "authority": "INFERRED",
+            "lifecycle": "DRAFT",
+            "lineage": {
+              "tool": "blender-vision-mcp",
+              "tool_version": "0.1.0",
+              "operation": "infer_materials",
+              "inputs": [
+                "view_000",
+                "view_001",
+                "view_002",
+                "view_003",
+                "view_005",
+                "view_006",
+                "view_007",
+                "view_009"
+              ],
+              "input_authorities": [
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED",
+                "SENSOR_DERIVED"
+              ],
+              "parameters": {
+                "surface_id": "remote_buttons",
+                "view_count": 8
+              },
+              "environment": {},
+              "hardware": {},
+              "model_versions": {},
+              "retrieved_at": "",
+              "rights_state": "unreviewed",
+              "limitations": [
+                "Classical multi-view dichromatic inversion; not a full path-traced inverse."
+              ]
+            },
+            "uncertainty": {
+              "kind": "material-parameter",
+              "sigma": 0.41424275689154877,
+              "interval": [],
+              "units": "unitless",
+              "basis": "per-parameter multi-view dispersion",
+              "samples": 8
+            },
+            "supersedes": [],
+            "superseded_by": null,
+            "notes": [],
+            "surface_id": "remote_buttons",
+            "hypotheses": [
+              {
+                "hypothesis_id": "mat-f0805c5303",
+                "label": "buttons",
+                "base_colour": [
+                  0.6098039215686275,
+                  0.3784313725490196,
+                  0.303921568627451
+                ],
+                "roughness": 0.3530340421452138,
+                "metalness": 0.7619524923427237,
+                "specular_ior": 1.7376470588235295,
+                "anisotropy": 0.0,
+                "clearcoat": 0.0,
+                "clearcoat_roughness": 0.03,
+                "transmission": 0.0,
+                "subsurface": 0.332686283120028,
+                "subsurface_radius": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "emission": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "normal_bands": {},
+                "displacement_bands": {},
+                "occlusion": 1.0,
+                "texture_scale_m": 0.01,
+                "texture_coordinate_hypothesis": "uv",
+                "confidence": 0.5857572431084512,
+                "evidence_views": [
+                  "view_000",
+                  "view_001",
+                  "view_002",
+                  "view_003",
+                  "view_005",
+                  "view_006",
+                  "view_007",
+                  "view_009"
+                ],
+                "authority": "INFERRED",
+                "renderer_parity": {}
+              }
+            ],
+            "selected_hypothesis_id": "mat-f0805c5303",
+            "frequency_separation": {},
+            "critic_findings": [],
+            "digest": "387696dfe8e0b583ece521caf64edcecc796e4996b43b25bf228a33d769f109e"
+          },
+          "battery_hatch": {
+            "surface_id": "battery_hatch",
+            "status": "never_observed",
+            "visibility": "NEVER_OBSERVED",
+            "authority": "HYPOTHETICAL",
+            "note": "No pixels of the hatch appear in the capture set; material is not estimated from observation. Construction colour is procedural truth only.",
+            "construction_colour_rgb": [
+              0.08,
+              0.08,
+              0.09
+            ],
+            "construction_authority": "PROCEDURAL_GROUND_TRUTH"
+          }
+        },
+        "status": "ok"
+      },
+      "topology": {
+        "vertex_count": 8,
+        "face_count": 12,
+        "edge_count": 18,
+        "boundary_edge_count": 0,
+        "non_manifold_edge_count": 0,
+        "manifold": true,
+        "watertight": true,
+        "genus_estimate": 0,
+        "euler_characteristic": 2,
+        "surface_area": 0.036239999999999994,
+        "volume": 0.00032940000000000004
+      },
+      "uv": {},
+      "delivery": {
+        "editable_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/consumer_remote_editable.obj",
+        "editable_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/consumer_remote_editable.ply",
+        "editable_glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/consumer_remote_editable.glb",
+        "offline_render": {
+          "status": "software_proxy",
+          "note": "Offline Cycles path requires Blender. When Blender is blocked, the software raster of the editable mesh is the offline proxy."
+        },
+        "offline_frames": {
+          "hero": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/offline_proxy/hero.png",
+          "top": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/offline_proxy/top.png",
+          "side": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/offline_proxy/side.png"
+        },
+        "lods": {
+          "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/consumer_remote_editable.glb",
+          "source_triangles": 12,
+          "source_digest": "ba2598d42c9b583525b68f1a0a9aecda295f654b43a2f10e9136f5f92762dddc",
+          "levels": [
+            {
+              "name": "L1",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/lods/L1.glb",
+              "triangles": 12,
+              "max_triangles": 4000,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "282400dbc0b3d30ccd5b6543a3174efbd63e5bf2c33065794b8dd4ee601f8b59",
+              "bytes": 1520,
+              "within_budget": true,
+              "identity_pass": true
+            },
+            {
+              "name": "L2",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/lods/L2.glb",
+              "triangles": 12,
+              "max_triangles": 1500,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "3b6656d283cde7c8423665f0a0dc9d5231d754ba17e200a76b6d3d8114131a92",
+              "bytes": 1520,
+              "within_budget": true,
+              "identity_pass": true
+            },
+            {
+              "name": "L3",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/lods/L3.glb",
+              "triangles": 12,
+              "max_triangles": 400,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "524f2161ba854c2658b03e186f817d02d1dc1079f5737fa10a6c8fc8b5ea9f16",
+              "bytes": 1520,
+              "within_budget": true,
+              "identity_pass": true
+            }
+          ],
+          "blender_used": true,
+          "notes": []
+        },
+        "compression": {
+          "asset_id": "consumer_remote-shell",
+          "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/consumer_remote_editable.glb",
+          "source_bytes": 1020,
+          "selected_codec": "zlib",
+          "selected": {
+            "codec": "zlib",
+            "bytes": 529,
+            "decode_ms": 0.013499986380338669,
+            "main_thread_ms": 0.00108394306153059,
+            "visual_difference": 0.0,
+            "available": true,
+            "reason_unavailable": "",
+            "digest": "b80494eac0493d328820b327099202433afc035ed48e8f78724295907703ec87"
+          },
+          "candidates": [
+            {
+              "codec": "raw",
+              "bytes": 1020,
+              "decode_ms": 0.0022919848561286926,
+              "main_thread_ms": 0.019167084246873856,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "ba2598d42c9b583525b68f1a0a9aecda295f654b43a2f10e9136f5f92762dddc"
+            },
+            {
+              "codec": "gzip",
+              "bytes": 541,
+              "decode_ms": 0.04741596058011055,
+              "main_thread_ms": 0.0022919848561286926,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "94b2fd7ec1f611963a0b6d254d080840b1bb611bdf9939ef0bda5abd1a451ce4"
+            },
+            {
+              "codec": "zlib",
+              "bytes": 529,
+              "decode_ms": 0.013499986380338669,
+              "main_thread_ms": 0.00108394306153059,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "b80494eac0493d328820b327099202433afc035ed48e8f78724295907703ec87"
+            },
+            {
+              "codec": "brotli",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "brotli Python package is not installed in this environment",
+              "digest": ""
+            },
+            {
+              "codec": "draco",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "Draco encode blocked: no KHR_draco_mesh_compression in source and no standalone Draco encoder in this environment (Blender exporter extension not assumed present).",
+              "digest": ""
+            },
+            {
+              "codec": "meshopt",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "meshopt encode blocked: EXT_meshopt_compression not in source and no meshoptimizer Python binding is installed.",
+              "digest": ""
+            },
+            {
+              "codec": "position_quantize_12",
+              "bytes": 1020,
+              "decode_ms": 0.0002919696271419525,
+              "main_thread_ms": 0.001125037670135498,
+              "visual_difference": 0.5,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "93e7846cdfcbb0320807f3241d108434c5e8a02d15153577a62b09db32104f2c"
+            }
+          ],
+          "selection_reason": "selected zlib (bytes=529, decode_ms=0.0135, visual_diff=0.000000, score=0.000508) over gzip (bytes=541, decode_ms=0.0474, visual_diff=0.000000, score=0.000528)",
+          "brotli_available": false,
+          "draco_available": false,
+          "meshopt_available": false
+        },
+        "manifest": {
+          "record_kind": "v2.delivery-manifest",
+          "id": "dm-consumer_remote",
+          "schema_version": "2",
+          "created_at": "2026-07-27T04:13:47.837427+00:00",
+          "authority": "INFERRED",
+          "lifecycle": "DRAFT",
+          "lineage": {
+            "tool": "blender-vision-mcp",
+            "tool_version": "0.1.0",
+            "operation": "build_delivery_manifest",
+            "inputs": [
+              "consumer_remote"
+            ],
+            "input_authorities": [
+              "PROCEDURAL_GROUND_TRUTH",
+              "MODEL_DERIVED"
+            ],
+            "parameters": {
+              "budgets": {
+                "initial_js_compressed_bytes": 307200,
+                "shell_glb_bytes": 1572864,
+                "mobile_shell_bytes": 665600,
+                "poster_before_glb": true,
+                "detail_chapter_gated": true
+              }
+            },
+            "environment": {},
+            "hardware": {},
+            "model_versions": {},
+            "retrieved_at": "",
+            "rights_state": "unreviewed",
+            "limitations": [
+              "Byte counts measured in-process; network transfer variance is not modelled."
+            ]
+          },
+          "uncertainty": {
+            "kind": "delivery_bytes",
+            "sigma": null,
+            "interval": [],
+            "units": "unitless",
+            "basis": "filesystem stat of selected compressed payloads",
+            "samples": 4
+          },
+          "supersedes": [],
+          "superseded_by": null,
+          "notes": [
+            "all declared budgets satisfied"
+          ],
+          "source_scene": "consumer_remote",
+          "assets": [
+            {
+              "asset_id": "consumer_remote-shell",
+              "role": "shell",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/consumer_remote_editable.glb",
+              "digest": "ba2598d42c9b583525b68f1a0a9aecda295f654b43a2f10e9136f5f92762dddc",
+              "bytes": 1020,
+              "compression": "none",
+              "lod": "L0",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "consumer_remote-L1",
+              "role": "detail",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/lods/L1.glb",
+              "digest": "282400dbc0b3d30ccd5b6543a3174efbd63e5bf2c33065794b8dd4ee601f8b59",
+              "bytes": 1520,
+              "compression": "none",
+              "lod": "L1",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "consumer_remote-L2",
+              "role": "mobile",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/lods/L2.glb",
+              "digest": "3b6656d283cde7c8423665f0a0dc9d5231d754ba17e200a76b6d3d8114131a92",
+              "bytes": 1520,
+              "compression": "none",
+              "lod": "L2",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "consumer_remote-L3",
+              "role": "mobile",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/lods/L3.glb",
+              "digest": "524f2161ba854c2658b03e186f817d02d1dc1079f5737fa10a6c8fc8b5ea9f16",
+              "bytes": 1520,
+              "compression": "none",
+              "lod": "L3",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            }
+          ],
+          "budgets": {
+            "initial_js_compressed_bytes": 307200,
+            "shell_glb_bytes": 1572864,
+            "mobile_shell_bytes": 665600,
+            "poster_before_glb": true,
+            "detail_chapter_gated": true
+          },
+          "measured": {
+            "asset_count": 4,
+            "total_bytes": 5580,
+            "by_role": {
+              "detail": {
+                "count": 1,
+                "bytes": 1520
+              },
+              "mobile": {
+                "count": 2,
+                "bytes": 3040
+              },
+              "shell": {
+                "count": 1,
+                "bytes": 1020
+              }
+            },
+            "compression": {},
+            "evaluated_at": "2026-07-27T04:13:47.837355+00:00"
+          },
+          "budget_violations": [],
+          "receipts": [],
+          "digest": "447e5ebe544e47beb0d06300a0fad31e46af0cf24cb6e264965f7d8fd76f1c8f"
+        }
+      },
+      "next_views": {
+        "stop_reason": "requests_emitted",
+        "uncertainty_before": 0.518675,
+        "request_count": 7,
+        "requests": [
+          {
+            "id": "nvr-consumer_remote:side",
+            "missing_uncertainty": "surface_coverage",
+            "expected_reduction": 0.1265,
+            "priority": 10,
+            "reason": "side surfaces lack coverage",
+            "human_instructions": "Capture a clean side elevation at eye level.",
+            "capture_instructions": {
+              "pose": "orbit 90\u00b0 from primary hero",
+              "incidence_deg": 30,
+              "min_resolution_px": 1600
+            }
+          },
+          {
+            "id": "nvr-consumer_remote:region:top",
+            "missing_uncertainty": "surface_coverage",
+            "expected_reduction": 0.11500000000000002,
+            "priority": 9,
+            "reason": "region top is uncovered",
+            "human_instructions": "Capture region 'top' sharp and unobscured.",
+            "capture_instructions": {
+              "region": "top",
+              "incidence_deg": 25,
+              "min_resolution_px": 1600
+            }
+          },
+          {
+            "id": "nvr-consumer_remote:underside",
+            "missing_uncertainty": "surface_coverage",
+            "expected_reduction": 0.11500000000000002,
+            "priority": 8,
+            "reason": "underside surface is never observed",
+            "human_instructions": "Photograph the underside: tip the object carefully or shoot through a glass table. Fill the frame, sharp focus, 20\u201335\u00b0 incidence.",
+            "capture_instructions": {
+              "pose": "object inverted or camera under table glass",
+              "incidence_deg": 25,
+              "min_resolution_px": 1600,
+              "distance_m": 0.35
+            }
+          },
+          {
+            "id": "nvr-consumer_remote:grazing-light",
+            "missing_uncertainty": "lighting",
+            "expected_reduction": 0.07849999999999999,
+            "priority": 7,
+            "reason": "no grazing-light observation for microgeometry",
+            "human_instructions": "Light from a low grazing angle to reveal surface microgeometry and texture.",
+            "capture_instructions": {
+              "lighting": "low_angle_grazing",
+              "incidence_deg": 75,
+              "min_resolution_px": 1600
+            }
+          },
+          {
+            "id": "nvr-consumer_remote:region:battery_compartment",
+            "missing_uncertainty": "surface_coverage",
+            "expected_reduction": 0.045999999999999985,
+            "priority": 6,
+            "reason": "region battery_compartment is uncovered",
+            "human_instructions": "Capture region 'battery_compartment' sharp and unobscured.",
+            "capture_instructions": {
+              "region": "battery_compartment",
+              "incidence_deg": 25,
+              "min_resolution_px": 1600
+            }
+          },
+          {
+            "id": "nvr-consumer_remote:calibration-target",
+            "missing_uncertainty": "calibration",
+            "expected_reduction": 0.019200000000000016,
+            "priority": 5,
+            "reason": "no calibration target observed",
+            "human_instructions": "Include a Charuco or checkerboard calibration target in at least one view.",
+            "capture_instructions": {
+              "target": "charuco_or_checkerboard",
+              "min_squares": 20,
+              "in_scene": true
+            }
+          },
+          {
+            "id": "nvr-consumer_remote:lens-metadata",
+            "missing_uncertainty": "lens_metadata",
+            "expected_reduction": 0.00750000000000004,
+            "priority": 4,
+            "reason": "lens metadata missing; intrinsics underdetermined",
+            "human_instructions": "Provide EXIF with focal length (and 35mm equivalent if available), or manually record focal length and sensor width.",
+            "capture_instructions": {
+              "required_exif": [
+                "FocalLength",
+                "FocalLengthIn35mmFilm",
+                "BodySerialNumber"
+              ],
+              "or_manual": [
+                "focal_length_mm",
+                "sensor_width_mm"
+              ]
+            }
+          }
+        ],
+        "notes": [],
+        "proposed_view_count": 7
+      },
+      "blockers": [],
+      "failures": [],
+      "notes": [
+        "Self-captured procedural remote fixture. Not a claim about any physical remote.",
+        "Holdout views (7) sealed from builder; only evaluator reads them."
+      ],
+      "synthetic_claim": null,
+      "artifacts": {
+        "source_packet": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/source_packet.json",
+        "truth_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/capture/truth.obj",
+        "portfolio": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/reconstruction/portfolio.json",
+        "builder_mesh_source": "portfolio",
+        "editable": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/remote/delivery/consumer_remote_editable.obj"
+      },
+      "runtime_seconds": 41.25955637509469
+    },
+    "draped_cloth": {
+      "target_id": "draped_cloth",
+      "phase": "soft",
+      "authority": "PROCEDURAL_GROUND_TRUTH",
+      "stages": {
+        "source_packet": "passed",
+        "sealed_builder": "reported",
+        "uv_packing": "passed",
+        "geometry_portfolio": "reported",
+        "dimensional_evaluation": "reported",
+        "unseen_view_evaluation": "reported",
+        "materials": "reported",
+        "hidden_surface_ledger": "passed",
+        "delivery": "reported"
+      },
+      "backend_scores": [
+        {
+          "backend": "visual_hull",
+          "executed": true,
+          "chamfer_m": 0.04899717649453425,
+          "a_to_b_m": 0.04985183841786128,
+          "b_to_a_m": 0.04814251457120722,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "depth_fusion",
+          "executed": true,
+          "chamfer_m": 0.024576038300722768,
+          "a_to_b_m": 0.030351136737195836,
+          "b_to_a_m": 0.018800939864249695,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "parametric",
+          "executed": true,
+          "chamfer_m": 0.025868084581596822,
+          "a_to_b_m": 0.027917608093383492,
+          "b_to_a_m": 0.023818561069810153,
+          "reason": null,
+          "authority": "MODEL_DERIVED"
+        },
+        {
+          "backend": "point_representation",
+          "executed": true,
+          "chamfer_m": null,
+          "a_to_b_m": null,
+          "b_to_a_m": null,
+          "reason": "not a continuous surface",
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "colmap_sfm",
+          "executed": false,
+          "chamfer_m": null,
+          "a_to_b_m": null,
+          "b_to_a_m": null,
+          "reason": "COLMAP mapper failed with exit 1",
+          "authority": "UNRESOLVED"
+        },
+        {
+          "backend": "retrieval",
+          "executed": true,
+          "chamfer_m": 0.4153849595873004,
+          "a_to_b_m": 0.4606929861361374,
+          "b_to_a_m": 0.37007693303846334,
+          "reason": null,
+          "authority": "MODEL_DERIVED"
+        },
+        {
+          "backend": "browser_runtime",
+          "executed": true,
+          "chamfer_m": 0.044058119658888645,
+          "a_to_b_m": 0.016397879619204195,
+          "b_to_a_m": 0.0717183596985731,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        }
+      ],
+      "dimensional_errors_mm": [
+        {
+          "axis": "x",
+          "truth_mm": 276.6151577234268,
+          "measured_mm": 400.0,
+          "error_mm": 123.38484227657318,
+          "relative_error": 0.44605235407937877
+        },
+        {
+          "axis": "y",
+          "truth_mm": 271.0145264863968,
+          "measured_mm": 400.0,
+          "error_mm": 128.9854735136032,
+          "relative_error": 0.4759356451694757
+        },
+        {
+          "axis": "z",
+          "truth_mm": 273.6555337905884,
+          "measured_mm": 76.3452204043141,
+          "error_mm": -197.3103133862743,
+          "relative_error": 0.721017078124441
+        }
+      ],
+      "unseen_view_metrics": [
+        {
+          "view_id": "cam012",
+          "psnr_db": 26.054781429723736,
+          "ssim": 0.5575156070427384,
+          "held_out": true
+        },
+        {
+          "view_id": "cam013",
+          "psnr_db": 25.950113085370873,
+          "ssim": 0.5584837014254704,
+          "held_out": true
+        },
+        {
+          "view_id": "cam014",
+          "psnr_db": 25.96895586487644,
+          "ssim": 0.5511266994833313,
+          "held_out": true
+        },
+        {
+          "view_id": "cam015",
+          "psnr_db": 26.168100220896054,
+          "ssim": 0.5415281849875547,
+          "held_out": true
+        }
+      ],
+      "hidden_surface_ledger": [
+        {
+          "region": "self_occluded_folds",
+          "visibility": "NEVER_OBSERVED",
+          "authority_ceiling": "INFERRED",
+          "reason": "Multiview hemisphere does not cover all self-occluded or backside surfaces.",
+          "observed": false,
+          "area_m2": null
+        }
+      ],
+      "hidden_surface_counts": {
+        "total": 1,
+        "never_observed": 1,
+        "inferred": 0,
+        "incorrectly_marked_observed": 0
+      },
+      "materials": {
+        "record_kind": "v2.material-hypothesis-set",
+        "id": "mhs-2bcb7fffc875",
+        "schema_version": "2",
+        "created_at": "2026-07-27T04:13:54.284042+00:00",
+        "authority": "INFERRED",
+        "lifecycle": "DRAFT",
+        "lineage": {
+          "tool": "blender-vision-mcp",
+          "tool_version": "0.1.0",
+          "operation": "infer_materials",
+          "inputs": [
+            "cam000",
+            "cam001",
+            "cam002",
+            "cam003",
+            "cam004",
+            "cam005"
+          ],
+          "input_authorities": [
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED"
+          ],
+          "parameters": {
+            "surface_id": "draped_cloth",
+            "view_count": 6
+          },
+          "environment": {},
+          "hardware": {},
+          "model_versions": {},
+          "retrieved_at": "",
+          "rights_state": "unreviewed",
+          "limitations": [
+            "Classical multi-view dichromatic inversion; not a full path-traced inverse."
+          ]
+        },
+        "uncertainty": {
+          "kind": "material-parameter",
+          "sigma": 0.49808440955919475,
+          "interval": [],
+          "units": "unitless",
+          "basis": "per-parameter multi-view dispersion",
+          "samples": 6
+        },
+        "supersedes": [],
+        "superseded_by": null,
+        "notes": [],
+        "surface_id": "draped_cloth",
+        "hypotheses": [
+          {
+            "hypothesis_id": "mat-e620b6bb8d-metal",
+            "label": "soft / draped cloth-metal",
+            "base_colour": [
+              0.18627450980392157,
+              0.1823529411764706,
+              0.18823529411764706
+            ],
+            "roughness": 0.5,
+            "metalness": 0.75,
+            "specular_ior": 1.45,
+            "anisotropy": 0.0,
+            "clearcoat": 0.0,
+            "clearcoat_roughness": 0.03,
+            "transmission": 0.0,
+            "subsurface": 0.20509610399686223,
+            "subsurface_radius": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "emission": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_bands": {},
+            "displacement_bands": {},
+            "occlusion": 1.0,
+            "texture_scale_m": 0.01,
+            "texture_coordinate_hypothesis": "uv",
+            "confidence": 0.5019155904408052,
+            "evidence_views": [
+              "cam000",
+              "cam001",
+              "cam002",
+              "cam003",
+              "cam004",
+              "cam005"
+            ],
+            "authority": "INFERRED",
+            "renderer_parity": {}
+          },
+          {
+            "hypothesis_id": "mat-e620b6bb8d-dielectric",
+            "label": "soft / draped cloth-dielectric",
+            "base_colour": [
+              0.18627450980392157,
+              0.1823529411764706,
+              0.18823529411764706
+            ],
+            "roughness": 0.5,
+            "metalness": 0.15,
+            "specular_ior": 1.45,
+            "anisotropy": 0.0,
+            "clearcoat": 0.0,
+            "clearcoat_roughness": 0.03,
+            "transmission": 0.0006380208333333334,
+            "subsurface": 0.20509610399686223,
+            "subsurface_radius": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "emission": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_bands": {},
+            "displacement_bands": {},
+            "occlusion": 1.0,
+            "texture_scale_m": 0.01,
+            "texture_coordinate_hypothesis": "uv",
+            "confidence": 0.4740313909718716,
+            "evidence_views": [
+              "cam000",
+              "cam001",
+              "cam002",
+              "cam003",
+              "cam004",
+              "cam005"
+            ],
+            "authority": "INFERRED",
+            "renderer_parity": {}
+          }
+        ],
+        "selected_hypothesis_id": "mat-e620b6bb8d-metal",
+        "frequency_separation": {},
+        "critic_findings": [],
+        "digest": "368cc18212492f4d4dcf1e859fb33ae5db2b81744b6b452fce511bcccf8b7b09"
+      },
+      "topology": {
+        "vertices": 4225,
+        "edges": 8320,
+        "faces": 4096,
+        "triangles": 0,
+        "quads": 4096,
+        "ngons": 0,
+        "non_manifold_edges": 256,
+        "boundary_edges": 256,
+        "genus_estimate": -1,
+        "is_watertight": false,
+        "surface_area_m2": 0.2480249789878144,
+        "volume_m3": 0.0,
+        "bounds_m": [
+          [
+            -0.14024129509925842,
+            -0.13521723449230194,
+            0.04477262496948242
+          ],
+          [
+            0.1363738626241684,
+            0.13579729199409485,
+            0.3184281587600708
+          ]
+        ],
+        "quad_fraction": 1.0
+      },
+      "uv": {
+        "island_count": 273,
+        "packing_efficiency": 0.5072000275683004,
+        "max_area_distortion": 0.4298835121065291,
+        "mean_area_distortion": 0.0856737996011499,
+        "max_angle_distortion_deg": 131.86148060667762,
+        "overlapping_faces": 0,
+        "texel_density_variance": 0.01006039958004158,
+        "p99_angle_distortion_deg": 69.0186859025745,
+        "p95_angle_distortion_deg": 30.261426325308292,
+        "median_angle_distortion_deg": 3.267152687583902,
+        "angle_corner_count": 16384,
+        "degenerate_corner_count": 0,
+        "corners_over_70deg_fraction": 0.00970458984375
+      },
+      "delivery": {
+        "editable_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/draped_cloth_editable.obj",
+        "editable_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/draped_cloth_editable.ply",
+        "editable_glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/draped_cloth_editable.glb",
+        "offline_render": {
+          "status": "software_proxy",
+          "note": "Offline Cycles path requires Blender. When Blender is blocked, the software raster of the editable mesh is the offline proxy."
+        },
+        "offline_frames": {
+          "hero": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/offline_proxy/hero.png",
+          "top": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/offline_proxy/top.png",
+          "side": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/offline_proxy/side.png"
+        },
+        "lods": {
+          "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/draped_cloth_editable.glb",
+          "source_triangles": 1058,
+          "source_digest": "0d164a426f62ec87f56ae98d1623d63ba2c0d30c012f7c6d3396a745b0380df6",
+          "levels": [
+            {
+              "name": "L1",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/lods/L1.glb",
+              "triangles": 1058,
+              "max_triangles": 4000,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "6bdc8cfccc66bad6af465b5e75c885dd77881076f3cccc9d49a163f9821a45f7",
+              "bytes": 83412,
+              "within_budget": true,
+              "identity_pass": true
+            },
+            {
+              "name": "L2",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/lods/L2.glb",
+              "triangles": 1058,
+              "max_triangles": 1500,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "ad95c2a6a1aabfc839b09ddcd58bed3159a895d8fcba13a7244eded53fe0ee61",
+              "bytes": 83412,
+              "within_budget": true,
+              "identity_pass": true
+            },
+            {
+              "name": "L3",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/lods/L3.glb",
+              "triangles": 400,
+              "max_triangles": 400,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 0.98095703125,
+              "digest": "825fafcc2a3df51df02b2701bb12c74e0056c7ef35779a1be5b5018912d08528",
+              "bytes": 32084,
+              "within_budget": true,
+              "identity_pass": true
+            }
+          ],
+          "blender_used": true,
+          "notes": []
+        },
+        "compression": {
+          "asset_id": "draped_cloth-shell",
+          "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/draped_cloth_editable.glb",
+          "source_bytes": 20400,
+          "selected_codec": "zlib",
+          "selected": {
+            "codec": "zlib",
+            "bytes": 7987,
+            "decode_ms": 0.040082959458231926,
+            "main_thread_ms": 0.011625001206994057,
+            "visual_difference": 0.0,
+            "available": true,
+            "reason_unavailable": "",
+            "digest": "b6af2788e638384860ee98928deb226bbf54faf94f926544eea292bd124f0b6e"
+          },
+          "candidates": [
+            {
+              "codec": "raw",
+              "bytes": 20400,
+              "decode_ms": 0.001500011421740055,
+              "main_thread_ms": 0.015042023733258247,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "0d164a426f62ec87f56ae98d1623d63ba2c0d30c012f7c6d3396a745b0380df6"
+            },
+            {
+              "codec": "gzip",
+              "bytes": 7999,
+              "decode_ms": 0.06504100747406483,
+              "main_thread_ms": 0.019124941900372505,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "a31ed15a31dec02a6a5df8c15bc9a2441380a7e13d6914e2cfc3373a671034b4"
+            },
+            {
+              "codec": "zlib",
+              "bytes": 7987,
+              "decode_ms": 0.040082959458231926,
+              "main_thread_ms": 0.011625001206994057,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "b6af2788e638384860ee98928deb226bbf54faf94f926544eea292bd124f0b6e"
+            },
+            {
+              "codec": "brotli",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "brotli Python package is not installed in this environment",
+              "digest": ""
+            },
+            {
+              "codec": "draco",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "Draco encode blocked: no KHR_draco_mesh_compression in source and no standalone Draco encoder in this environment (Blender exporter extension not assumed present).",
+              "digest": ""
+            },
+            {
+              "codec": "meshopt",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "meshopt encode blocked: EXT_meshopt_compression not in source and no meshoptimizer Python binding is installed.",
+              "digest": ""
+            },
+            {
+              "codec": "position_quantize_12",
+              "bytes": 20400,
+              "decode_ms": 0.00100000761449337,
+              "main_thread_ms": 0.010124989785254002,
+              "visual_difference": 0.5,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "600ccbad3a75a0fffa5f84de30d333c2545aec8fb91d6f3c20c52466aeb97673"
+            }
+          ],
+          "selection_reason": "selected zlib (bytes=7987, decode_ms=0.0401, visual_diff=0.000000, score=0.007627) over gzip (bytes=7999, decode_ms=0.0650, visual_diff=0.000000, score=0.007645)",
+          "brotli_available": false,
+          "draco_available": false,
+          "meshopt_available": false
+        },
+        "manifest": {
+          "record_kind": "v2.delivery-manifest",
+          "id": "dm-draped_cloth",
+          "schema_version": "2",
+          "created_at": "2026-07-27T04:13:55.213568+00:00",
+          "authority": "INFERRED",
+          "lifecycle": "DRAFT",
+          "lineage": {
+            "tool": "blender-vision-mcp",
+            "tool_version": "0.1.0",
+            "operation": "build_delivery_manifest",
+            "inputs": [
+              "draped_cloth"
+            ],
+            "input_authorities": [
+              "PROCEDURAL_GROUND_TRUTH",
+              "MODEL_DERIVED"
+            ],
+            "parameters": {
+              "budgets": {
+                "initial_js_compressed_bytes": 307200,
+                "shell_glb_bytes": 1572864,
+                "mobile_shell_bytes": 665600,
+                "poster_before_glb": true,
+                "detail_chapter_gated": true
+              }
+            },
+            "environment": {},
+            "hardware": {},
+            "model_versions": {},
+            "retrieved_at": "",
+            "rights_state": "unreviewed",
+            "limitations": [
+              "Byte counts measured in-process; network transfer variance is not modelled."
+            ]
+          },
+          "uncertainty": {
+            "kind": "delivery_bytes",
+            "sigma": null,
+            "interval": [],
+            "units": "unitless",
+            "basis": "filesystem stat of selected compressed payloads",
+            "samples": 4
+          },
+          "supersedes": [],
+          "superseded_by": null,
+          "notes": [
+            "all declared budgets satisfied"
+          ],
+          "source_scene": "draped_cloth",
+          "assets": [
+            {
+              "asset_id": "draped_cloth-shell",
+              "role": "shell",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/draped_cloth_editable.glb",
+              "digest": "0d164a426f62ec87f56ae98d1623d63ba2c0d30c012f7c6d3396a745b0380df6",
+              "bytes": 20400,
+              "compression": "none",
+              "lod": "L0",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "draped_cloth-L1",
+              "role": "detail",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/lods/L1.glb",
+              "digest": "6bdc8cfccc66bad6af465b5e75c885dd77881076f3cccc9d49a163f9821a45f7",
+              "bytes": 83412,
+              "compression": "none",
+              "lod": "L1",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "draped_cloth-L2",
+              "role": "mobile",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/lods/L2.glb",
+              "digest": "ad95c2a6a1aabfc839b09ddcd58bed3159a895d8fcba13a7244eded53fe0ee61",
+              "bytes": 83412,
+              "compression": "none",
+              "lod": "L2",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "draped_cloth-L3",
+              "role": "mobile",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/delivery/lods/L3.glb",
+              "digest": "825fafcc2a3df51df02b2701bb12c74e0056c7ef35779a1be5b5018912d08528",
+              "bytes": 32084,
+              "compression": "none",
+              "lod": "L3",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            }
+          ],
+          "budgets": {
+            "initial_js_compressed_bytes": 307200,
+            "shell_glb_bytes": 1572864,
+            "mobile_shell_bytes": 665600,
+            "poster_before_glb": true,
+            "detail_chapter_gated": true
+          },
+          "measured": {
+            "asset_count": 4,
+            "total_bytes": 219308,
+            "by_role": {
+              "detail": {
+                "count": 1,
+                "bytes": 83412
+              },
+              "mobile": {
+                "count": 2,
+                "bytes": 115496
+              },
+              "shell": {
+                "count": 1,
+                "bytes": 20400
+              }
+            },
+            "compression": {},
+            "evaluated_at": "2026-07-27T04:13:55.213498+00:00"
+          },
+          "budget_violations": [],
+          "receipts": [],
+          "digest": "8823ec4c0b0c29629cff09628e1d8e0967f2c7d7de09603bcd886c2d979bbbfd"
+        }
+      },
+      "next_views": {},
+      "blockers": [],
+      "failures": [],
+      "notes": [
+        "Target: soft / draped cloth",
+        "Scored against construction / measured ground truth, not against another guess.",
+        "Builder measurements taken from prior organic-fur-lane receipt.",
+        "Dimensional truth from organic receipt source bounds_m."
+      ],
+      "synthetic_claim": null,
+      "artifacts": {
+        "source_packet": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/source_packet.json",
+        "glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/organic/topology/draped_cloth/draped_cloth.glb",
+        "truth_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/draped_cloth/truth.obj"
+      },
+      "runtime_seconds": 7.374077333020978
+    },
+    "organic_sculpture": {
+      "target_id": "organic_sculpture",
+      "phase": "organic",
+      "authority": "PROCEDURAL_GROUND_TRUTH",
+      "stages": {
+        "source_packet": "passed",
+        "sealed_builder": "reported",
+        "uv_packing": "failed",
+        "geometry_portfolio": "reported",
+        "dimensional_evaluation": "reported",
+        "unseen_view_evaluation": "reported",
+        "materials": "reported",
+        "hidden_surface_ledger": "passed",
+        "delivery": "reported"
+      },
+      "backend_scores": [
+        {
+          "backend": "visual_hull",
+          "executed": true,
+          "chamfer_m": 0.04560952114732475,
+          "a_to_b_m": 0.04243941260823713,
+          "b_to_a_m": 0.04877962968641236,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "depth_fusion",
+          "executed": true,
+          "chamfer_m": 0.032748889983402446,
+          "a_to_b_m": 0.035642648598735345,
+          "b_to_a_m": 0.029855131368069554,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "parametric",
+          "executed": true,
+          "chamfer_m": 0.035967068472418796,
+          "a_to_b_m": 0.03474481824655377,
+          "b_to_a_m": 0.037189318698283826,
+          "reason": null,
+          "authority": "MODEL_DERIVED"
+        },
+        {
+          "backend": "point_representation",
+          "executed": true,
+          "chamfer_m": null,
+          "a_to_b_m": null,
+          "b_to_a_m": null,
+          "reason": "not a continuous surface",
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "colmap_sfm",
+          "executed": false,
+          "chamfer_m": null,
+          "a_to_b_m": null,
+          "b_to_a_m": null,
+          "reason": "COLMAP mapper failed with exit 1",
+          "authority": "UNRESOLVED"
+        },
+        {
+          "backend": "retrieval",
+          "executed": true,
+          "chamfer_m": 0.4219890665278615,
+          "a_to_b_m": 0.4820651696607666,
+          "b_to_a_m": 0.36191296339495643,
+          "reason": null,
+          "authority": "MODEL_DERIVED"
+        },
+        {
+          "backend": "browser_runtime",
+          "executed": true,
+          "chamfer_m": 0.06542583983839528,
+          "a_to_b_m": 0.02114447957669618,
+          "b_to_a_m": 0.1097072001000944,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        }
+      ],
+      "dimensional_errors_mm": [
+        {
+          "axis": "x",
+          "truth_mm": 248.1219619512558,
+          "measured_mm": 270.0,
+          "error_mm": 21.8780380487442,
+          "relative_error": 0.08817453270437302
+        },
+        {
+          "axis": "y",
+          "truth_mm": 356.5566837787628,
+          "measured_mm": 250.0,
+          "error_mm": -106.55668377876282,
+          "relative_error": 0.29884921143388066
+        },
+        {
+          "axis": "z",
+          "truth_mm": 535.8964800834656,
+          "measured_mm": 279.99999999999994,
+          "error_mm": -255.89648008346563,
+          "relative_error": 0.4775110298235396
+        }
+      ],
+      "unseen_view_metrics": [
+        {
+          "view_id": "cam012",
+          "psnr_db": 26.83737114959812,
+          "ssim": 0.5011125154312452,
+          "held_out": true
+        },
+        {
+          "view_id": "cam013",
+          "psnr_db": 26.880992995747214,
+          "ssim": 0.5309087340565188,
+          "held_out": true
+        },
+        {
+          "view_id": "cam014",
+          "psnr_db": 26.91407305687685,
+          "ssim": 0.5327983934645509,
+          "held_out": true
+        },
+        {
+          "view_id": "cam015",
+          "psnr_db": 26.877205119494143,
+          "ssim": 0.52849848622364,
+          "held_out": true
+        }
+      ],
+      "hidden_surface_ledger": [
+        {
+          "region": "backside",
+          "visibility": "NEVER_OBSERVED",
+          "authority_ceiling": "INFERRED",
+          "reason": "Multiview hemisphere does not cover all self-occluded or backside surfaces.",
+          "observed": false,
+          "area_m2": null
+        }
+      ],
+      "hidden_surface_counts": {
+        "total": 1,
+        "never_observed": 1,
+        "inferred": 0,
+        "incorrectly_marked_observed": 0
+      },
+      "materials": {
+        "record_kind": "v2.material-hypothesis-set",
+        "id": "mhs-e2c1b4b90826",
+        "schema_version": "2",
+        "created_at": "2026-07-27T04:14:00.934987+00:00",
+        "authority": "INFERRED",
+        "lifecycle": "DRAFT",
+        "lineage": {
+          "tool": "blender-vision-mcp",
+          "tool_version": "0.1.0",
+          "operation": "infer_materials",
+          "inputs": [
+            "cam000",
+            "cam001",
+            "cam002",
+            "cam003",
+            "cam004",
+            "cam005"
+          ],
+          "input_authorities": [
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED"
+          ],
+          "parameters": {
+            "surface_id": "organic_sculpture",
+            "view_count": 6
+          },
+          "environment": {},
+          "hardware": {},
+          "model_versions": {},
+          "retrieved_at": "",
+          "rights_state": "unreviewed",
+          "limitations": [
+            "Classical multi-view dichromatic inversion; not a full path-traced inverse."
+          ]
+        },
+        "uncertainty": {
+          "kind": "material-parameter",
+          "sigma": 0.5080693648167027,
+          "interval": [],
+          "units": "unitless",
+          "basis": "per-parameter multi-view dispersion",
+          "samples": 6
+        },
+        "supersedes": [],
+        "superseded_by": null,
+        "notes": [],
+        "surface_id": "organic_sculpture",
+        "hypotheses": [
+          {
+            "hypothesis_id": "mat-335eec6c1f-metal",
+            "label": "organic sculpture-metal",
+            "base_colour": [
+              0.18627450980392157,
+              0.17450980392156862,
+              0.18627450980392157
+            ],
+            "roughness": 0.5,
+            "metalness": 0.75,
+            "specular_ior": 1.45,
+            "anisotropy": 0.0,
+            "clearcoat": 0.0,
+            "clearcoat_roughness": 0.03,
+            "transmission": 0.0,
+            "subsurface": 0.30016554470407797,
+            "subsurface_radius": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "emission": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_bands": {},
+            "displacement_bands": {},
+            "occlusion": 1.0,
+            "texture_scale_m": 0.01,
+            "texture_coordinate_hypothesis": "uv",
+            "confidence": 0.49193063518329727,
+            "evidence_views": [
+              "cam000",
+              "cam001",
+              "cam002",
+              "cam003",
+              "cam004",
+              "cam005"
+            ],
+            "authority": "INFERRED",
+            "renderer_parity": {}
+          },
+          {
+            "hypothesis_id": "mat-335eec6c1f-dielectric",
+            "label": "organic sculpture-dielectric",
+            "base_colour": [
+              0.18627450980392157,
+              0.17450980392156862,
+              0.18627450980392157
+            ],
+            "roughness": 0.5,
+            "metalness": 0.15,
+            "specular_ior": 1.45,
+            "anisotropy": 0.0,
+            "clearcoat": 0.0,
+            "clearcoat_roughness": 0.03,
+            "transmission": 0.0,
+            "subsurface": 0.30016554470407797,
+            "subsurface_radius": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "emission": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_bands": {},
+            "displacement_bands": {},
+            "occlusion": 1.0,
+            "texture_scale_m": 0.01,
+            "texture_coordinate_hypothesis": "uv",
+            "confidence": 0.46460115545089187,
+            "evidence_views": [
+              "cam000",
+              "cam001",
+              "cam002",
+              "cam003",
+              "cam004",
+              "cam005"
+            ],
+            "authority": "INFERRED",
+            "renderer_parity": {}
+          }
+        ],
+        "selected_hypothesis_id": "mat-335eec6c1f-metal",
+        "frequency_separation": {},
+        "critic_findings": [],
+        "digest": "ce555f9c53a3a4e631f1eeb31ff2183e6b683acfffff7ec3cbe2026ec4b785a7"
+      },
+      "topology": {
+        "vertices": 30624,
+        "edges": 59862,
+        "faces": 29416,
+        "triangles": 0,
+        "quads": 29416,
+        "ngons": 0,
+        "non_manifold_edges": 2060,
+        "boundary_edges": 2060,
+        "genus_estimate": -1,
+        "is_watertight": false,
+        "surface_area_m2": 0.3265333048975094,
+        "volume_m3": 0.0,
+        "bounds_m": [
+          [
+            -0.16267260909080505,
+            -0.22478877007961273,
+            -4.160204844083637e-05
+          ],
+          [
+            0.08126067370176315,
+            0.12799908220767975,
+            0.5334020256996155
+          ]
+        ],
+        "quad_fraction": 1.0
+      },
+      "uv": {
+        "island_count": 1250,
+        "packing_efficiency": 0.2899297749612835,
+        "max_area_distortion": 5.233584808909038,
+        "mean_area_distortion": 0.06513716674261567,
+        "max_angle_distortion_deg": 91.12345933991855,
+        "overlapping_faces": 0,
+        "texel_density_variance": 0.011113260343874828,
+        "p99_angle_distortion_deg": 24.260866082831143,
+        "p95_angle_distortion_deg": 18.108026772808543,
+        "median_angle_distortion_deg": 4.027796704502364,
+        "angle_corner_count": 29388,
+        "degenerate_corner_count": 28,
+        "corners_over_70deg_fraction": 0.0002381924595072819
+      },
+      "delivery": {
+        "editable_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.obj",
+        "editable_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.ply",
+        "editable_glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.glb",
+        "offline_render": {
+          "status": "software_proxy",
+          "note": "Offline Cycles path requires Blender. When Blender is blocked, the software raster of the editable mesh is the offline proxy."
+        },
+        "offline_frames": {
+          "hero": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/offline_proxy/hero.png",
+          "top": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/offline_proxy/top.png",
+          "side": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/offline_proxy/side.png"
+        },
+        "lods": {
+          "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.glb",
+          "source_triangles": 60,
+          "source_digest": "375f22688cc222ddee39946f6e4883c5441f90bbd77acd2bf7e78451883db4d7",
+          "levels": [
+            {
+              "name": "L1",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L1.glb",
+              "triangles": 60,
+              "max_triangles": 4000,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "cf18474200eadc4573fc49bc3f90e8b7fd531b14af4f8eca9bad7991e3eabc0d",
+              "bytes": 4056,
+              "within_budget": true,
+              "identity_pass": true
+            },
+            {
+              "name": "L2",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L2.glb",
+              "triangles": 60,
+              "max_triangles": 1500,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "6efc8e4dedac3cecabefa75760846f5cd3df509810a7c039a337844881c9310a",
+              "bytes": 4056,
+              "within_budget": true,
+              "identity_pass": true
+            },
+            {
+              "name": "L3",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L3.glb",
+              "triangles": 60,
+              "max_triangles": 400,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "be0405f4823bb0e763df1b4b4d9c9e874afcc0cbe92fcc7cde8bae3086881a24",
+              "bytes": 4056,
+              "within_budget": true,
+              "identity_pass": true
+            }
+          ],
+          "blender_used": true,
+          "notes": []
+        },
+        "compression": {
+          "asset_id": "organic_sculpture-shell",
+          "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.glb",
+          "source_bytes": 1924,
+          "selected_codec": "zlib",
+          "selected": {
+            "codec": "zlib",
+            "bytes": 809,
+            "decode_ms": 0.009750016033649445,
+            "main_thread_ms": 0.0012079253792762756,
+            "visual_difference": 0.0,
+            "available": true,
+            "reason_unavailable": "",
+            "digest": "e2079afa37d6180c45dcd7a0d7a7d0a4c93df51a026ccadb6814efe9c67027ad"
+          },
+          "candidates": [
+            {
+              "codec": "raw",
+              "bytes": 1924,
+              "decode_ms": 0.0007919734343886375,
+              "main_thread_ms": 0.002625049091875553,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "375f22688cc222ddee39946f6e4883c5441f90bbd77acd2bf7e78451883db4d7"
+            },
+            {
+              "codec": "gzip",
+              "bytes": 821,
+              "decode_ms": 0.030082999728620052,
+              "main_thread_ms": 0.0015419209375977516,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "edc1bcfba5ff35431a6fed72ae7277b669c0bebf9d5caeafdf10731b03a5d938"
+            },
+            {
+              "codec": "zlib",
+              "bytes": 809,
+              "decode_ms": 0.009750016033649445,
+              "main_thread_ms": 0.0012079253792762756,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "e2079afa37d6180c45dcd7a0d7a7d0a4c93df51a026ccadb6814efe9c67027ad"
+            },
+            {
+              "codec": "brotli",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "brotli Python package is not installed in this environment",
+              "digest": ""
+            },
+            {
+              "codec": "draco",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "Draco encode blocked: no KHR_draco_mesh_compression in source and no standalone Draco encoder in this environment (Blender exporter extension not assumed present).",
+              "digest": ""
+            },
+            {
+              "codec": "meshopt",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "meshopt encode blocked: EXT_meshopt_compression not in source and no meshoptimizer Python binding is installed.",
+              "digest": ""
+            },
+            {
+              "codec": "position_quantize_12",
+              "bytes": 1924,
+              "decode_ms": 0.00020791776478290558,
+              "main_thread_ms": 0.001125037670135498,
+              "visual_difference": 0.5,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "059f81ea0ea6696572fe45dd56b8ef94ecbe8e3a50544e175aecc0ad87e69bd4"
+            }
+          ],
+          "selection_reason": "selected zlib (bytes=809, decode_ms=0.0098, visual_diff=0.000000, score=0.000774) over gzip (bytes=821, decode_ms=0.0301, visual_diff=0.000000, score=0.000790)",
+          "brotli_available": false,
+          "draco_available": false,
+          "meshopt_available": false
+        },
+        "manifest": {
+          "record_kind": "v2.delivery-manifest",
+          "id": "dm-organic_sculpture",
+          "schema_version": "2",
+          "created_at": "2026-07-27T04:14:01.704122+00:00",
+          "authority": "INFERRED",
+          "lifecycle": "DRAFT",
+          "lineage": {
+            "tool": "blender-vision-mcp",
+            "tool_version": "0.1.0",
+            "operation": "build_delivery_manifest",
+            "inputs": [
+              "organic_sculpture"
+            ],
+            "input_authorities": [
+              "PROCEDURAL_GROUND_TRUTH",
+              "MODEL_DERIVED"
+            ],
+            "parameters": {
+              "budgets": {
+                "initial_js_compressed_bytes": 307200,
+                "shell_glb_bytes": 1572864,
+                "mobile_shell_bytes": 665600,
+                "poster_before_glb": true,
+                "detail_chapter_gated": true
+              }
+            },
+            "environment": {},
+            "hardware": {},
+            "model_versions": {},
+            "retrieved_at": "",
+            "rights_state": "unreviewed",
+            "limitations": [
+              "Byte counts measured in-process; network transfer variance is not modelled."
+            ]
+          },
+          "uncertainty": {
+            "kind": "delivery_bytes",
+            "sigma": null,
+            "interval": [],
+            "units": "unitless",
+            "basis": "filesystem stat of selected compressed payloads",
+            "samples": 4
+          },
+          "supersedes": [],
+          "superseded_by": null,
+          "notes": [
+            "all declared budgets satisfied"
+          ],
+          "source_scene": "organic_sculpture",
+          "assets": [
+            {
+              "asset_id": "organic_sculpture-shell",
+              "role": "shell",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.glb",
+              "digest": "375f22688cc222ddee39946f6e4883c5441f90bbd77acd2bf7e78451883db4d7",
+              "bytes": 1924,
+              "compression": "none",
+              "lod": "L0",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "organic_sculpture-L1",
+              "role": "detail",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L1.glb",
+              "digest": "cf18474200eadc4573fc49bc3f90e8b7fd531b14af4f8eca9bad7991e3eabc0d",
+              "bytes": 4056,
+              "compression": "none",
+              "lod": "L1",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "organic_sculpture-L2",
+              "role": "mobile",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L2.glb",
+              "digest": "6efc8e4dedac3cecabefa75760846f5cd3df509810a7c039a337844881c9310a",
+              "bytes": 4056,
+              "compression": "none",
+              "lod": "L2",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "organic_sculpture-L3",
+              "role": "mobile",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L3.glb",
+              "digest": "be0405f4823bb0e763df1b4b4d9c9e874afcc0cbe92fcc7cde8bae3086881a24",
+              "bytes": 4056,
+              "compression": "none",
+              "lod": "L3",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            }
+          ],
+          "budgets": {
+            "initial_js_compressed_bytes": 307200,
+            "shell_glb_bytes": 1572864,
+            "mobile_shell_bytes": 665600,
+            "poster_before_glb": true,
+            "detail_chapter_gated": true
+          },
+          "measured": {
+            "asset_count": 4,
+            "total_bytes": 14092,
+            "by_role": {
+              "detail": {
+                "count": 1,
+                "bytes": 4056
+              },
+              "mobile": {
+                "count": 2,
+                "bytes": 8112
+              },
+              "shell": {
+                "count": 1,
+                "bytes": 1924
+              }
+            },
+            "compression": {},
+            "evaluated_at": "2026-07-27T04:14:01.704061+00:00"
+          },
+          "budget_violations": [],
+          "receipts": [],
+          "digest": "8b310f86eb0f6a2faebdffcd377a6a7d8b84d39053167d9e0c9c31cf614f59a7"
+        }
+      },
+      "next_views": {},
+      "blockers": [],
+      "failures": [
+        {
+          "target": "organic_sculpture",
+          "gate": "uv_packing",
+          "value": 0.2899297749612835,
+          "threshold": 0.35,
+          "known_open": true,
+          "note": "Known-open failure: smart_project packs branching forms to ~29% against a 35% gate. Gate not relaxed."
+        }
+      ],
+      "notes": [
+        "Target: organic sculpture",
+        "Scored against construction / measured ground truth, not against another guess.",
+        "Builder measurements taken from prior organic-fur-lane receipt.",
+        "Dimensional truth from organic receipt source bounds_m."
+      ],
+      "synthetic_claim": null,
+      "artifacts": {
+        "source_packet": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/source_packet.json",
+        "glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/organic/topology/organic_sculpture/organic_sculpture.glb",
+        "truth_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/truth.obj"
+      },
+      "runtime_seconds": 6.489563500043005
+    },
+    "plant": {
+      "target_id": "plant",
+      "phase": "organic",
+      "authority": "PROCEDURAL_GROUND_TRUTH",
+      "stages": {
+        "source_packet": "passed",
+        "sealed_builder": "reported",
+        "uv_packing": "failed",
+        "geometry_portfolio": "reported",
+        "dimensional_evaluation": "reported",
+        "unseen_view_evaluation": "reported",
+        "materials": "reported",
+        "hidden_surface_ledger": "passed",
+        "delivery": "reported"
+      },
+      "backend_scores": [
+        {
+          "backend": "visual_hull",
+          "executed": true,
+          "chamfer_m": 0.05082870806268959,
+          "a_to_b_m": 0.057717561304793816,
+          "b_to_a_m": 0.043939854820585364,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "depth_fusion",
+          "executed": true,
+          "chamfer_m": 0.03926044800499139,
+          "a_to_b_m": 0.054428759387862014,
+          "b_to_a_m": 0.024092136622120768,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "parametric",
+          "executed": true,
+          "chamfer_m": 0.04966798591718579,
+          "a_to_b_m": 0.05549034549900931,
+          "b_to_a_m": 0.04384562633536227,
+          "reason": null,
+          "authority": "MODEL_DERIVED"
+        },
+        {
+          "backend": "point_representation",
+          "executed": true,
+          "chamfer_m": null,
+          "a_to_b_m": null,
+          "b_to_a_m": null,
+          "reason": "not a continuous surface",
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "colmap_sfm",
+          "executed": false,
+          "chamfer_m": null,
+          "a_to_b_m": null,
+          "b_to_a_m": null,
+          "reason": "COLMAP mapper failed with exit 1",
+          "authority": "UNRESOLVED"
+        },
+        {
+          "backend": "retrieval",
+          "executed": true,
+          "chamfer_m": 0.43431709306333854,
+          "a_to_b_m": 0.5521764441954197,
+          "b_to_a_m": 0.31645774193125736,
+          "reason": null,
+          "authority": "MODEL_DERIVED"
+        },
+        {
+          "backend": "browser_runtime",
+          "executed": true,
+          "chamfer_m": 0.1094398474486704,
+          "a_to_b_m": 0.05360512389423119,
+          "b_to_a_m": 0.1652745710031096,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        }
+      ],
+      "dimensional_errors_mm": [
+        {
+          "axis": "x",
+          "truth_mm": 147.99663424491882,
+          "measured_mm": 158.9983815927092,
+          "error_mm": 11.00174734779037,
+          "relative_error": 0.0743378212884466
+        },
+        {
+          "axis": "y",
+          "truth_mm": 134.1055929660797,
+          "measured_mm": 147.42475471607614,
+          "error_mm": 13.319161749996425,
+          "relative_error": 0.09931846581048515
+        },
+        {
+          "axis": "z",
+          "truth_mm": 421.1785494117066,
+          "measured_mm": 350.0,
+          "error_mm": -71.17854941170663,
+          "relative_error": 0.16899851502676794
+        }
+      ],
+      "unseen_view_metrics": [
+        {
+          "view_id": "cam012",
+          "psnr_db": 26.956084713619887,
+          "ssim": 0.49308090561345114,
+          "held_out": true
+        },
+        {
+          "view_id": "cam013",
+          "psnr_db": 26.940276821492823,
+          "ssim": 0.49445462167670834,
+          "held_out": true
+        },
+        {
+          "view_id": "cam014",
+          "psnr_db": 26.930762750745586,
+          "ssim": 0.49355243357677403,
+          "held_out": true
+        },
+        {
+          "view_id": "cam015",
+          "psnr_db": 26.945003596202916,
+          "ssim": 0.49405826603307385,
+          "held_out": true
+        }
+      ],
+      "hidden_surface_ledger": [
+        {
+          "region": "backside",
+          "visibility": "NEVER_OBSERVED",
+          "authority_ceiling": "INFERRED",
+          "reason": "Multiview hemisphere does not cover all self-occluded or backside surfaces.",
+          "observed": false,
+          "area_m2": null
+        }
+      ],
+      "hidden_surface_counts": {
+        "total": 1,
+        "never_observed": 1,
+        "inferred": 0,
+        "incorrectly_marked_observed": 0
+      },
+      "materials": {
+        "record_kind": "v2.material-hypothesis-set",
+        "id": "mhs-3fd7d191e948",
+        "schema_version": "2",
+        "created_at": "2026-07-27T04:14:07.223295+00:00",
+        "authority": "INFERRED",
+        "lifecycle": "DRAFT",
+        "lineage": {
+          "tool": "blender-vision-mcp",
+          "tool_version": "0.1.0",
+          "operation": "infer_materials",
+          "inputs": [
+            "cam000",
+            "cam001",
+            "cam002",
+            "cam003",
+            "cam004",
+            "cam005"
+          ],
+          "input_authorities": [
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED"
+          ],
+          "parameters": {
+            "surface_id": "plant",
+            "view_count": 6
+          },
+          "environment": {},
+          "hardware": {},
+          "model_versions": {},
+          "retrieved_at": "",
+          "rights_state": "unreviewed",
+          "limitations": [
+            "Classical multi-view dichromatic inversion; not a full path-traced inverse."
+          ]
+        },
+        "uncertainty": {
+          "kind": "material-parameter",
+          "sigma": 0.5031026603778668,
+          "interval": [],
+          "units": "unitless",
+          "basis": "per-parameter multi-view dispersion",
+          "samples": 6
+        },
+        "supersedes": [],
+        "superseded_by": null,
+        "notes": [],
+        "surface_id": "plant",
+        "hypotheses": [
+          {
+            "hypothesis_id": "mat-4a54baf80c-metal",
+            "label": "branching plant-metal",
+            "base_colour": [
+              0.1803921568627451,
+              0.1803921568627451,
+              0.1843137254901961
+            ],
+            "roughness": 0.5,
+            "metalness": 0.75,
+            "specular_ior": 1.45,
+            "anisotropy": 0.0,
+            "clearcoat": 0.0,
+            "clearcoat_roughness": 0.03,
+            "transmission": 0.0,
+            "subsurface": 0.2526682471546261,
+            "subsurface_radius": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "emission": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_bands": {},
+            "displacement_bands": {},
+            "occlusion": 1.0,
+            "texture_scale_m": 0.01,
+            "texture_coordinate_hypothesis": "uv",
+            "confidence": 0.4968973396221333,
+            "evidence_views": [
+              "cam000",
+              "cam001",
+              "cam002",
+              "cam003",
+              "cam004",
+              "cam005"
+            ],
+            "authority": "INFERRED",
+            "renderer_parity": {}
+          },
+          {
+            "hypothesis_id": "mat-4a54baf80c-dielectric",
+            "label": "branching plant-dielectric",
+            "base_colour": [
+              0.1803921568627451,
+              0.1803921568627451,
+              0.1843137254901961
+            ],
+            "roughness": 0.5,
+            "metalness": 0.15,
+            "specular_ior": 1.45,
+            "anisotropy": 0.0,
+            "clearcoat": 0.0,
+            "clearcoat_roughness": 0.03,
+            "transmission": 0.0,
+            "subsurface": 0.2526682471546261,
+            "subsurface_radius": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "emission": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_bands": {},
+            "displacement_bands": {},
+            "occlusion": 1.0,
+            "texture_scale_m": 0.01,
+            "texture_coordinate_hypothesis": "uv",
+            "confidence": 0.4692919318653481,
+            "evidence_views": [
+              "cam000",
+              "cam001",
+              "cam002",
+              "cam003",
+              "cam004",
+              "cam005"
+            ],
+            "authority": "INFERRED",
+            "renderer_parity": {}
+          }
+        ],
+        "selected_hypothesis_id": "mat-4a54baf80c-metal",
+        "frequency_separation": {},
+        "critic_findings": [],
+        "digest": "bc81344692a2a2361b11d96b0c015daa2cb4a98bf7c17818cdfeb45be0134900"
+      },
+      "topology": {
+        "vertices": 880,
+        "edges": 1748,
+        "faces": 874,
+        "triangles": 0,
+        "quads": 874,
+        "ngons": 0,
+        "non_manifold_edges": 0,
+        "boundary_edges": 0,
+        "genus_estimate": -2,
+        "is_watertight": true,
+        "surface_area_m2": 0.008398637902349515,
+        "volume_m3": 1.3803206278763239e-05,
+        "bounds_m": [
+          [
+            -0.05200010538101196,
+            -0.012939010746777058,
+            0.0069242557510733604
+          ],
+          [
+            0.025115499272942543,
+            0.02496080845594406,
+            0.4166664481163025
+          ]
+        ],
+        "quad_fraction": 1.0
+      },
+      "uv": {
+        "island_count": 53,
+        "packing_efficiency": 0.28122498335153917,
+        "max_area_distortion": 0.4890704440838619,
+        "mean_area_distortion": 0.08225162850080855,
+        "max_angle_distortion_deg": 79.47155276684865,
+        "overlapping_faces": 0,
+        "texel_density_variance": 0.012046371487337018,
+        "p99_angle_distortion_deg": 26.69364286140629,
+        "p95_angle_distortion_deg": 18.61574205457228,
+        "median_angle_distortion_deg": 1.0030679211297269,
+        "angle_corner_count": 3472,
+        "degenerate_corner_count": 24,
+        "corners_over_70deg_fraction": 0.0002880184331797235
+      },
+      "delivery": {
+        "editable_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/plant_editable.obj",
+        "editable_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/plant_editable.ply",
+        "editable_glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/plant_editable.glb",
+        "offline_render": {
+          "status": "software_proxy",
+          "note": "Offline Cycles path requires Blender. When Blender is blocked, the software raster of the editable mesh is the offline proxy."
+        },
+        "offline_frames": {
+          "hero": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/offline_proxy/hero.png",
+          "top": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/offline_proxy/top.png",
+          "side": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/offline_proxy/side.png"
+        },
+        "lods": {
+          "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/plant_editable.glb",
+          "source_triangles": 84,
+          "source_digest": "b3e68bdddd84f90378defdbc746d5216f79624434fb573e295e79ac2534c1be0",
+          "levels": [
+            {
+              "name": "L1",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/lods/L1.glb",
+              "triangles": 84,
+              "max_triangles": 4000,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "be3901f0b3cb096b18f8240b20c6c4a88475b56e45cfff7f2a766baaad76c092",
+              "bytes": 5104,
+              "within_budget": true,
+              "identity_pass": true
+            },
+            {
+              "name": "L2",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/lods/L2.glb",
+              "triangles": 84,
+              "max_triangles": 1500,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "96bea9c086bb836be4d86eff5725854a8c158c3cb77d14ef493279329742e741",
+              "bytes": 5104,
+              "within_budget": true,
+              "identity_pass": true
+            },
+            {
+              "name": "L3",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/lods/L3.glb",
+              "triangles": 84,
+              "max_triangles": 400,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "d72999105b166545cb382c2731f8638cc562f491eb251399ae64d3decbed3e81",
+              "bytes": 5104,
+              "within_budget": true,
+              "identity_pass": true
+            }
+          ],
+          "blender_used": true,
+          "notes": []
+        },
+        "compression": {
+          "asset_id": "plant-shell",
+          "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/plant_editable.glb",
+          "source_bytes": 2444,
+          "selected_codec": "zlib",
+          "selected": {
+            "codec": "zlib",
+            "bytes": 1010,
+            "decode_ms": 0.012832926586270332,
+            "main_thread_ms": 0.0016249250620603561,
+            "visual_difference": 0.0,
+            "available": true,
+            "reason_unavailable": "",
+            "digest": "9aaf6bfa0976b4918d40c42508792178f6fc666c4a164d8f6a72a664e9d0d633"
+          },
+          "candidates": [
+            {
+              "codec": "raw",
+              "bytes": 2444,
+              "decode_ms": 0.0010420335456728935,
+              "main_thread_ms": 0.0036670826375484467,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "b3e68bdddd84f90378defdbc746d5216f79624434fb573e295e79ac2534c1be0"
+            },
+            {
+              "codec": "gzip",
+              "bytes": 1022,
+              "decode_ms": 0.030916999094188213,
+              "main_thread_ms": 0.0019170111045241356,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "c89e1049bcf2b8847dbf906fd169f08a7813b72255def89e820099df56bb70d1"
+            },
+            {
+              "codec": "zlib",
+              "bytes": 1010,
+              "decode_ms": 0.012832926586270332,
+              "main_thread_ms": 0.0016249250620603561,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "9aaf6bfa0976b4918d40c42508792178f6fc666c4a164d8f6a72a664e9d0d633"
+            },
+            {
+              "codec": "brotli",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "brotli Python package is not installed in this environment",
+              "digest": ""
+            },
+            {
+              "codec": "draco",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "Draco encode blocked: no KHR_draco_mesh_compression in source and no standalone Draco encoder in this environment (Blender exporter extension not assumed present).",
+              "digest": ""
+            },
+            {
+              "codec": "meshopt",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "meshopt encode blocked: EXT_meshopt_compression not in source and no meshoptimizer Python binding is installed.",
+              "digest": ""
+            },
+            {
+              "codec": "position_quantize_12",
+              "bytes": 2444,
+              "decode_ms": 0.00024994369596242905,
+              "main_thread_ms": 0.0016659032553434372,
+              "visual_difference": 0.5,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "09640ef93079035cc1ea13f9d8927cbe545a3f564aff408eb9dbea146b166cc3"
+            }
+          ],
+          "selection_reason": "selected zlib (bytes=1010, decode_ms=0.0128, visual_diff=0.000000, score=0.000966) over gzip (bytes=1022, decode_ms=0.0309, visual_diff=0.000000, score=0.000982)",
+          "brotli_available": false,
+          "draco_available": false,
+          "meshopt_available": false
+        },
+        "manifest": {
+          "record_kind": "v2.delivery-manifest",
+          "id": "dm-plant",
+          "schema_version": "2",
+          "created_at": "2026-07-27T04:14:08.011482+00:00",
+          "authority": "INFERRED",
+          "lifecycle": "DRAFT",
+          "lineage": {
+            "tool": "blender-vision-mcp",
+            "tool_version": "0.1.0",
+            "operation": "build_delivery_manifest",
+            "inputs": [
+              "plant"
+            ],
+            "input_authorities": [
+              "PROCEDURAL_GROUND_TRUTH",
+              "MODEL_DERIVED"
+            ],
+            "parameters": {
+              "budgets": {
+                "initial_js_compressed_bytes": 307200,
+                "shell_glb_bytes": 1572864,
+                "mobile_shell_bytes": 665600,
+                "poster_before_glb": true,
+                "detail_chapter_gated": true
+              }
+            },
+            "environment": {},
+            "hardware": {},
+            "model_versions": {},
+            "retrieved_at": "",
+            "rights_state": "unreviewed",
+            "limitations": [
+              "Byte counts measured in-process; network transfer variance is not modelled."
+            ]
+          },
+          "uncertainty": {
+            "kind": "delivery_bytes",
+            "sigma": null,
+            "interval": [],
+            "units": "unitless",
+            "basis": "filesystem stat of selected compressed payloads",
+            "samples": 4
+          },
+          "supersedes": [],
+          "superseded_by": null,
+          "notes": [
+            "all declared budgets satisfied"
+          ],
+          "source_scene": "plant",
+          "assets": [
+            {
+              "asset_id": "plant-shell",
+              "role": "shell",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/plant_editable.glb",
+              "digest": "b3e68bdddd84f90378defdbc746d5216f79624434fb573e295e79ac2534c1be0",
+              "bytes": 2444,
+              "compression": "none",
+              "lod": "L0",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "plant-L1",
+              "role": "detail",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/lods/L1.glb",
+              "digest": "be3901f0b3cb096b18f8240b20c6c4a88475b56e45cfff7f2a766baaad76c092",
+              "bytes": 5104,
+              "compression": "none",
+              "lod": "L1",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "plant-L2",
+              "role": "mobile",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/lods/L2.glb",
+              "digest": "96bea9c086bb836be4d86eff5725854a8c158c3cb77d14ef493279329742e741",
+              "bytes": 5104,
+              "compression": "none",
+              "lod": "L2",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "plant-L3",
+              "role": "mobile",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/delivery/lods/L3.glb",
+              "digest": "d72999105b166545cb382c2731f8638cc562f491eb251399ae64d3decbed3e81",
+              "bytes": 5104,
+              "compression": "none",
+              "lod": "L3",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            }
+          ],
+          "budgets": {
+            "initial_js_compressed_bytes": 307200,
+            "shell_glb_bytes": 1572864,
+            "mobile_shell_bytes": 665600,
+            "poster_before_glb": true,
+            "detail_chapter_gated": true
+          },
+          "measured": {
+            "asset_count": 4,
+            "total_bytes": 17756,
+            "by_role": {
+              "detail": {
+                "count": 1,
+                "bytes": 5104
+              },
+              "mobile": {
+                "count": 2,
+                "bytes": 10208
+              },
+              "shell": {
+                "count": 1,
+                "bytes": 2444
+              }
+            },
+            "compression": {},
+            "evaluated_at": "2026-07-27T04:14:08.011425+00:00"
+          },
+          "budget_violations": [],
+          "receipts": [],
+          "digest": "678af293125e04b84710e3a0ac1f49b926668469347411e94e8d709de8fea9aa"
+        }
+      },
+      "next_views": {},
+      "blockers": [],
+      "failures": [
+        {
+          "target": "plant",
+          "gate": "uv_packing",
+          "value": 0.28122498335153917,
+          "threshold": 0.35,
+          "known_open": true,
+          "note": "Known-open failure: smart_project packs branching forms to ~29% against a 35% gate. Gate not relaxed."
+        }
+      ],
+      "notes": [
+        "Target: branching plant",
+        "Scored against construction / measured ground truth, not against another guess.",
+        "Builder measurements taken from prior organic-fur-lane receipt.",
+        "Dimensional truth from organic receipt source bounds_m."
+      ],
+      "synthetic_claim": null,
+      "artifacts": {
+        "source_packet": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/source_packet.json",
+        "glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/organic/topology/plant/plant.glb",
+        "truth_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/plant/truth.obj"
+      },
+      "runtime_seconds": 6.3061190829612315
+    },
+    "animal_bust": {
+      "target_id": "animal_bust",
+      "phase": "fur",
+      "authority": "PROCEDURAL_GROUND_TRUTH",
+      "stages": {
+        "source_packet": "passed",
+        "sealed_builder": "reported",
+        "uv_packing": "passed",
+        "geometry_portfolio": "reported",
+        "dimensional_evaluation": "reported",
+        "unseen_view_evaluation": "reported",
+        "materials": "reported",
+        "fur_groom": "passed",
+        "hidden_surface_ledger": "passed",
+        "delivery": "reported"
+      },
+      "backend_scores": [
+        {
+          "backend": "visual_hull",
+          "executed": true,
+          "chamfer_m": 0.01986979519450357,
+          "a_to_b_m": 0.019070207524999036,
+          "b_to_a_m": 0.020669382864008105,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "depth_fusion",
+          "executed": true,
+          "chamfer_m": 0.01407329017748828,
+          "a_to_b_m": 0.016877428283359523,
+          "b_to_a_m": 0.011269152071617035,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "parametric",
+          "executed": true,
+          "chamfer_m": 0.014722750816704891,
+          "a_to_b_m": 0.015010776768252288,
+          "b_to_a_m": 0.014434724865157495,
+          "reason": null,
+          "authority": "MODEL_DERIVED"
+        },
+        {
+          "backend": "point_representation",
+          "executed": true,
+          "chamfer_m": null,
+          "a_to_b_m": null,
+          "b_to_a_m": null,
+          "reason": "not a continuous surface",
+          "authority": "SENSOR_DERIVED"
+        },
+        {
+          "backend": "colmap_sfm",
+          "executed": false,
+          "chamfer_m": null,
+          "a_to_b_m": null,
+          "b_to_a_m": null,
+          "reason": "COLMAP mapper failed with exit 1",
+          "authority": "UNRESOLVED"
+        },
+        {
+          "backend": "retrieval",
+          "executed": true,
+          "chamfer_m": 0.48028735835666536,
+          "a_to_b_m": 0.544643439794853,
+          "b_to_a_m": 0.4159312769184777,
+          "reason": null,
+          "authority": "MODEL_DERIVED"
+        },
+        {
+          "backend": "browser_runtime",
+          "executed": true,
+          "chamfer_m": 0.03655627452171458,
+          "a_to_b_m": 0.017242796916366137,
+          "b_to_a_m": 0.05586975212706302,
+          "reason": null,
+          "authority": "SENSOR_DERIVED"
+        }
+      ],
+      "dimensional_errors_mm": [
+        {
+          "axis": "x",
+          "truth_mm": 158.67676585912704,
+          "measured_mm": 154.0,
+          "error_mm": -4.676765859127045,
+          "relative_error": 0.029473539076786258
+        },
+        {
+          "axis": "y",
+          "truth_mm": 250.52455812692642,
+          "measured_mm": 153.0,
+          "error_mm": -97.52455812692642,
+          "relative_error": 0.3892814295575619
+        },
+        {
+          "axis": "z",
+          "truth_mm": 248.08090925216675,
+          "measured_mm": 143.75,
+          "error_mm": -104.33090925216675,
+          "relative_error": 0.42055194640599103
+        }
+      ],
+      "unseen_view_metrics": [
+        {
+          "view_id": "cam012",
+          "psnr_db": 26.967084304242785,
+          "ssim": 0.4951851808494054,
+          "held_out": true
+        },
+        {
+          "view_id": "cam013",
+          "psnr_db": 26.97138049913802,
+          "ssim": 0.49995120592657294,
+          "held_out": true
+        },
+        {
+          "view_id": "cam014",
+          "psnr_db": 26.960360534021305,
+          "ssim": 0.4976020822056439,
+          "held_out": true
+        },
+        {
+          "view_id": "cam015",
+          "psnr_db": 26.96199254221647,
+          "ssim": 0.49712196326767194,
+          "held_out": true
+        }
+      ],
+      "hidden_surface_ledger": [
+        {
+          "region": "skull_interior",
+          "visibility": "NEVER_OBSERVED",
+          "authority_ceiling": "INFERRED",
+          "reason": "Interior volume never observed; synthetic shell only.",
+          "observed": false,
+          "area_m2": null
+        },
+        {
+          "region": "neck_underside",
+          "visibility": "NEVER_OBSERVED",
+          "authority_ceiling": "INFERRED",
+          "reason": "Bust terminates at neck; underside of cut plane unobserved.",
+          "observed": false,
+          "area_m2": null
+        }
+      ],
+      "hidden_surface_counts": {
+        "total": 2,
+        "never_observed": 2,
+        "inferred": 0,
+        "incorrectly_marked_observed": 0
+      },
+      "materials": {
+        "record_kind": "v2.material-hypothesis-set",
+        "id": "mhs-b7fae4a75be2",
+        "schema_version": "2",
+        "created_at": "2026-07-27T04:14:13.559963+00:00",
+        "authority": "INFERRED",
+        "lifecycle": "DRAFT",
+        "lineage": {
+          "tool": "blender-vision-mcp",
+          "tool_version": "0.1.0",
+          "operation": "infer_materials",
+          "inputs": [
+            "cam000",
+            "cam001",
+            "cam002",
+            "cam003",
+            "cam004",
+            "cam005"
+          ],
+          "input_authorities": [
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED",
+            "SENSOR_DERIVED"
+          ],
+          "parameters": {
+            "surface_id": "animal_bust",
+            "view_count": 6
+          },
+          "environment": {},
+          "hardware": {},
+          "model_versions": {},
+          "retrieved_at": "",
+          "rights_state": "unreviewed",
+          "limitations": [
+            "Classical multi-view dichromatic inversion; not a full path-traced inverse."
+          ]
+        },
+        "uncertainty": {
+          "kind": "material-parameter",
+          "sigma": 0.5065638991210604,
+          "interval": [],
+          "units": "unitless",
+          "basis": "per-parameter multi-view dispersion",
+          "samples": 6
+        },
+        "supersedes": [],
+        "superseded_by": null,
+        "notes": [],
+        "surface_id": "animal_bust",
+        "hypotheses": [
+          {
+            "hypothesis_id": "mat-a6f738dd1b-metal",
+            "label": "synthetic animal bust + groom-metal",
+            "base_colour": [
+              0.1843137254901961,
+              0.17647058823529413,
+              0.1843137254901961
+            ],
+            "roughness": 0.5,
+            "metalness": 0.75,
+            "specular_ior": 1.45,
+            "anisotropy": 0.0,
+            "clearcoat": 0.0,
+            "clearcoat_roughness": 0.03,
+            "transmission": 0.0,
+            "subsurface": 0.29672151035797756,
+            "subsurface_radius": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "emission": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_bands": {},
+            "displacement_bands": {},
+            "occlusion": 1.0,
+            "texture_scale_m": 0.01,
+            "texture_coordinate_hypothesis": "uv",
+            "confidence": 0.4934361008789397,
+            "evidence_views": [
+              "cam000",
+              "cam001",
+              "cam002",
+              "cam003",
+              "cam004",
+              "cam005"
+            ],
+            "authority": "INFERRED",
+            "renderer_parity": {}
+          },
+          {
+            "hypothesis_id": "mat-a6f738dd1b-dielectric",
+            "label": "synthetic animal bust + groom-dielectric",
+            "base_colour": [
+              0.1843137254901961,
+              0.17647058823529413,
+              0.1843137254901961
+            ],
+            "roughness": 0.5,
+            "metalness": 0.15,
+            "specular_ior": 1.45,
+            "anisotropy": 0.0,
+            "clearcoat": 0.0,
+            "clearcoat_roughness": 0.03,
+            "transmission": 0.0,
+            "subsurface": 0.29672151035797756,
+            "subsurface_radius": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "emission": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_bands": {},
+            "displacement_bands": {},
+            "occlusion": 1.0,
+            "texture_scale_m": 0.01,
+            "texture_coordinate_hypothesis": "uv",
+            "confidence": 0.466022984163443,
+            "evidence_views": [
+              "cam000",
+              "cam001",
+              "cam002",
+              "cam003",
+              "cam004",
+              "cam005"
+            ],
+            "authority": "INFERRED",
+            "renderer_parity": {}
+          }
+        ],
+        "selected_hypothesis_id": "mat-a6f738dd1b-metal",
+        "frequency_separation": {},
+        "critic_findings": [],
+        "digest": "4c60ef6a24ff511d5906faf2c527b9861cfa3be70c16814cf8f6932ac733a1b1"
+      },
+      "topology": {
+        "vertices": 5816,
+        "edges": 11628,
+        "faces": 5814,
+        "triangles": 0,
+        "quads": 5814,
+        "ngons": 0,
+        "non_manifold_edges": 0,
+        "boundary_edges": 0,
+        "genus_estimate": 0,
+        "is_watertight": true,
+        "surface_area_m2": 0.13811351264303084,
+        "volume_m3": 0.003702394812767439,
+        "bounds_m": [
+          [
+            -0.07933837920427322,
+            -0.16322606801986694,
+            0.03635662794113159
+          ],
+          [
+            0.07933838665485382,
+            0.08729849010705948,
+            0.28443753719329834
+          ]
+        ],
+        "quad_fraction": 1.0,
+        "fur": {
+          "guides": {
+            "body_scale_m": 0.2505245506763458,
+            "guide_count": 642,
+            "mean_length_m": 0.017000293913604383,
+            "max_length_m": 0.026232220553892516,
+            "bounds": [
+              [
+                -0.07933837920427322,
+                -0.16322606801986694,
+                0.03635662794113159
+              ],
+              [
+                0.07933838665485382,
+                0.08729849010705948,
+                0.28443753719329834
+              ]
+            ]
+          },
+          "guard_strands": 3852,
+          "undercoat_strands": 6420,
+          "critique_passed": true,
+          "claim": "Synthetic target with known construction parameters. This is not evidence about any real animal; the real-animal lane remains blocked on an authorized multiview capture set."
+        }
+      },
+      "uv": {
+        "island_count": 34,
+        "packing_efficiency": 0.6203405223071239,
+        "max_area_distortion": 0.34127508881498736,
+        "mean_area_distortion": 0.09594675070750071,
+        "max_angle_distortion_deg": 52.474663166672144,
+        "overlapping_faces": 0,
+        "texel_density_variance": 0.012885637446197216,
+        "p99_angle_distortion_deg": 22.316072169507564,
+        "p95_angle_distortion_deg": 17.05976348994085,
+        "median_angle_distortion_deg": 4.593630065913736,
+        "angle_corner_count": 23256,
+        "degenerate_corner_count": 0,
+        "corners_over_70deg_fraction": 0.0
+      },
+      "delivery": {
+        "editable_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/animal_bust_editable.obj",
+        "editable_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/animal_bust_editable.ply",
+        "editable_glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/animal_bust_editable.glb",
+        "offline_render": {
+          "status": "software_proxy",
+          "note": "Offline Cycles path requires Blender. When Blender is blocked, the software raster of the editable mesh is the offline proxy."
+        },
+        "offline_frames": {
+          "hero": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/offline_proxy/hero.png",
+          "top": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/offline_proxy/top.png",
+          "side": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/offline_proxy/side.png"
+        },
+        "lods": {
+          "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/animal_bust_editable.glb",
+          "source_triangles": 48,
+          "source_digest": "c8a855298760acc0c758cbd9b3de8acf4b292d1b360dccc4e83ea3454d2c47d2",
+          "levels": [
+            {
+              "name": "L1",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/lods/L1.glb",
+              "triangles": 48,
+              "max_triangles": 4000,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "af0c85041739b26cb4abe317fb14ca941bfe71dce3807cefff00de23606897d1",
+              "bytes": 3448,
+              "within_budget": true,
+              "identity_pass": true
+            },
+            {
+              "name": "L2",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/lods/L2.glb",
+              "triangles": 48,
+              "max_triangles": 1500,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "6d1d0c3dd799ba1bc27fe5c9afaa4e1a42b55a5fd0c16efb3bbfff5e770b59ef",
+              "bytes": 3448,
+              "within_budget": true,
+              "identity_pass": true
+            },
+            {
+              "name": "L3",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/lods/L3.glb",
+              "triangles": 48,
+              "max_triangles": 400,
+              "screen_space_error_px": 1.0,
+              "silhouette_iou": 1.0,
+              "digest": "035bb99de8a6e52cb2e26f2e62f12519f15c19dc20db263ab4e34f0f61296b7b",
+              "bytes": 3448,
+              "within_budget": true,
+              "identity_pass": true
+            }
+          ],
+          "blender_used": true,
+          "notes": []
+        },
+        "compression": {
+          "asset_id": "animal_bust-shell",
+          "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/animal_bust_editable.glb",
+          "source_bytes": 1724,
+          "selected_codec": "zlib",
+          "selected": {
+            "codec": "zlib",
+            "bytes": 762,
+            "decode_ms": 0.01066701952368021,
+            "main_thread_ms": 0.0011249212548136711,
+            "visual_difference": 0.0,
+            "available": true,
+            "reason_unavailable": "",
+            "digest": "18f2d73e370189c0cef7fd7d46af746f099049368d7aa2341b651e9e002a8413"
+          },
+          "candidates": [
+            {
+              "codec": "raw",
+              "bytes": 1724,
+              "decode_ms": 0.001084059476852417,
+              "main_thread_ms": 0.004624947905540466,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "c8a855298760acc0c758cbd9b3de8acf4b292d1b360dccc4e83ea3454d2c47d2"
+            },
+            {
+              "codec": "gzip",
+              "bytes": 774,
+              "decode_ms": 0.02937507815659046,
+              "main_thread_ms": 0.0016669509932398796,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "82f24a13eda74515400884e71a876b1240db6e85b8d1d92b2acd9fd60387e053"
+            },
+            {
+              "codec": "zlib",
+              "bytes": 762,
+              "decode_ms": 0.01066701952368021,
+              "main_thread_ms": 0.0011249212548136711,
+              "visual_difference": 0.0,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "18f2d73e370189c0cef7fd7d46af746f099049368d7aa2341b651e9e002a8413"
+            },
+            {
+              "codec": "brotli",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "brotli Python package is not installed in this environment",
+              "digest": ""
+            },
+            {
+              "codec": "draco",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "Draco encode blocked: no KHR_draco_mesh_compression in source and no standalone Draco encoder in this environment (Blender exporter extension not assumed present).",
+              "digest": ""
+            },
+            {
+              "codec": "meshopt",
+              "bytes": 0,
+              "decode_ms": 0.0,
+              "main_thread_ms": 0.0,
+              "visual_difference": 1.0,
+              "available": false,
+              "reason_unavailable": "meshopt encode blocked: EXT_meshopt_compression not in source and no meshoptimizer Python binding is installed.",
+              "digest": ""
+            },
+            {
+              "codec": "position_quantize_12",
+              "bytes": 1724,
+              "decode_ms": 0.00016693957149982452,
+              "main_thread_ms": 0.001166015863418579,
+              "visual_difference": 0.5,
+              "available": true,
+              "reason_unavailable": "",
+              "digest": "fe339c5cd2c9036cf66fc3189dcb9103b653949c63616b2a18e09d640186e23b"
+            }
+          ],
+          "selection_reason": "selected zlib (bytes=762, decode_ms=0.0107, visual_diff=0.000000, score=0.000729) over gzip (bytes=774, decode_ms=0.0294, visual_diff=0.000000, score=0.000745)",
+          "brotli_available": false,
+          "draco_available": false,
+          "meshopt_available": false
+        },
+        "manifest": {
+          "record_kind": "v2.delivery-manifest",
+          "id": "dm-animal_bust",
+          "schema_version": "2",
+          "created_at": "2026-07-27T04:14:14.346616+00:00",
+          "authority": "INFERRED",
+          "lifecycle": "DRAFT",
+          "lineage": {
+            "tool": "blender-vision-mcp",
+            "tool_version": "0.1.0",
+            "operation": "build_delivery_manifest",
+            "inputs": [
+              "animal_bust"
+            ],
+            "input_authorities": [
+              "PROCEDURAL_GROUND_TRUTH",
+              "MODEL_DERIVED"
+            ],
+            "parameters": {
+              "budgets": {
+                "initial_js_compressed_bytes": 307200,
+                "shell_glb_bytes": 1572864,
+                "mobile_shell_bytes": 665600,
+                "poster_before_glb": true,
+                "detail_chapter_gated": true
+              }
+            },
+            "environment": {},
+            "hardware": {},
+            "model_versions": {},
+            "retrieved_at": "",
+            "rights_state": "unreviewed",
+            "limitations": [
+              "Byte counts measured in-process; network transfer variance is not modelled."
+            ]
+          },
+          "uncertainty": {
+            "kind": "delivery_bytes",
+            "sigma": null,
+            "interval": [],
+            "units": "unitless",
+            "basis": "filesystem stat of selected compressed payloads",
+            "samples": 4
+          },
+          "supersedes": [],
+          "superseded_by": null,
+          "notes": [
+            "all declared budgets satisfied"
+          ],
+          "source_scene": "animal_bust",
+          "assets": [
+            {
+              "asset_id": "animal_bust-shell",
+              "role": "shell",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/animal_bust_editable.glb",
+              "digest": "c8a855298760acc0c758cbd9b3de8acf4b292d1b360dccc4e83ea3454d2c47d2",
+              "bytes": 1724,
+              "compression": "none",
+              "lod": "L0",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "animal_bust-L1",
+              "role": "detail",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/lods/L1.glb",
+              "digest": "af0c85041739b26cb4abe317fb14ca941bfe71dce3807cefff00de23606897d1",
+              "bytes": 3448,
+              "compression": "none",
+              "lod": "L1",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "animal_bust-L2",
+              "role": "mobile",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/lods/L2.glb",
+              "digest": "6d1d0c3dd799ba1bc27fe5c9afaa4e1a42b55a5fd0c16efb3bbfff5e770b59ef",
+              "bytes": 3448,
+              "compression": "none",
+              "lod": "L2",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            },
+            {
+              "asset_id": "animal_bust-L3",
+              "role": "mobile",
+              "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/delivery/lods/L3.glb",
+              "digest": "035bb99de8a6e52cb2e26f2e62f12519f15c19dc20db263ab4e34f0f61296b7b",
+              "bytes": 3448,
+              "compression": "none",
+              "lod": "L3",
+              "decode_ms": null,
+              "main_thread_ms": null,
+              "visual_difference": null,
+              "chapter": null
+            }
+          ],
+          "budgets": {
+            "initial_js_compressed_bytes": 307200,
+            "shell_glb_bytes": 1572864,
+            "mobile_shell_bytes": 665600,
+            "poster_before_glb": true,
+            "detail_chapter_gated": true
+          },
+          "measured": {
+            "asset_count": 4,
+            "total_bytes": 12068,
+            "by_role": {
+              "detail": {
+                "count": 1,
+                "bytes": 3448
+              },
+              "mobile": {
+                "count": 2,
+                "bytes": 6896
+              },
+              "shell": {
+                "count": 1,
+                "bytes": 1724
+              }
+            },
+            "compression": {},
+            "evaluated_at": "2026-07-27T04:14:14.346553+00:00"
+          },
+          "budget_violations": [],
+          "receipts": [],
+          "digest": "8ea0d18544ce7a58970b88b5971665c43e87a38c328464b9c4ec216735cfb45b"
+        },
+        "synthetic_claim": "Synthetic target with known construction parameters. This is not evidence about any real animal; the real-animal lane remains blocked on an authorized multiview capture set."
+      },
+      "next_views": {},
+      "blockers": [],
+      "failures": [],
+      "notes": [
+        "Target: synthetic animal bust + groom",
+        "Scored against construction / measured ground truth, not against another guess.",
+        "Synthetic target with known construction parameters. This is not evidence about any real animal; the real-animal lane remains blocked on an authorized multiview capture set.",
+        "Builder measurements taken from prior organic-fur-lane receipt.",
+        "Dimensional truth from organic receipt source bounds_m.",
+        "Synthetic target with known construction parameters. This is not evidence about any real animal; the real-animal lane remains blocked on an authorized multiview capture set."
+      ],
+      "synthetic_claim": "Synthetic target with known construction parameters. This is not evidence about any real animal; the real-animal lane remains blocked on an authorized multiview capture set.",
+      "artifacts": {
+        "source_packet": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/source_packet.json",
+        "glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/organic/topology/animal_bust/animal_bust.glb",
+        "truth_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/animal_bust/truth.obj"
+      },
+      "runtime_seconds": 6.33377595897764
+    }
+  },
+  "framework_errors": [],
+  "completed_at": "2026-07-27T04:14:14.349112+00:00",
+  "runtime_seconds": 68.45082108303905
+}

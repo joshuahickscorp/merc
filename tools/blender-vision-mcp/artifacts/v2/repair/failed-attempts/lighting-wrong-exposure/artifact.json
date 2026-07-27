@@ -1,0 +1,9 @@
+{
+  "files": {},
+  "kind": "lighting",
+  "payload": {
+    "exposure": -4.0,
+    "luminance_variance": 0.0,
+    "mean_luminance": 0.019999999999999997
+  }
+}
