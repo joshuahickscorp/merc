@@ -249,14 +249,14 @@ LANES = [
      "cwd": "control", "full_path": True,
      "note": "the published page's own arithmetic must match the server's, including "
              "where the confidence weights decide the answer"},
-    {"id": "python_sdk", "needs": [],
-     "cmd": ["bash", "scripts/verify-python-sdk-package.sh"], "cwd": ".", "full_path": False,
-     "note": "clean-room install of the built wheel; never run against a deployed merc"},
-    {"id": "typescript_sdk", "needs": [],
-     "cmd": ["node", "--test", "test/client.test.js"], "cwd": "sdk/typescript",
-     "full_path": False,
-     "note": "binary embeddings decoder, path encoding, auth and wait() timeout; "
-             "never run against a deployed merc"},
+    {"id": "python_sdk", "needs": ["database", "object_store", "local_runtime"],
+     "cmd": ["python3", "scripts/sdk-live-python.py"], "cwd": ".", "full_path": True,
+     "note": "submits a real job to a running merc, waits for a real worker, fetches "
+             "and validates the real 384-dim result"},
+    {"id": "typescript_sdk", "needs": ["database", "object_store", "local_runtime"],
+     "cmd": ["node", "scripts/sdk-live-typescript.mjs"], "cwd": ".", "full_path": True,
+     "note": "same end-to-end run; found three defects the stub tests could not "
+             "(missing Idempotency-Key, array input, wrong cancel route)"},
     {"id": "alerts", "needs": [],
      "cmd": ["node", "scripts/site-build.mjs"], "cwd": ".",
      "full_path": False, "note": "alert and dashboard validation only; no delivery to a receiver"},

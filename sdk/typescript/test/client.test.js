@@ -105,13 +105,51 @@ test("job ids are encoded, so a hostile id cannot alter the path", async () => {
   assert.ok(f.calls[0].url.includes("%2F"), f.calls[0].url);
 });
 
-test("a single input is normalised to a list, matching the Python SDK", async () => {
+test("input is serialised as JSONL, which is what merc accepts", async () => {
+  // This test previously asserted input became ["one"] and called that
+  // "matching the Python SDK". It did not match: Python serialises a list to a
+  // JSONL string, and merc rejects an array outright with "input must be a
+  // JSONL string or an object with a non-empty s3_key". The stub accepted
+  // whatever it was sent, so the wrong shape shipped.
   const f = stubFetch(() => json({ job_id: "j", status: "queued" }));
   const c = new Client({ fetch: f });
   await c.submitJob({ model: "m", job_type: "embed", input: "one" });
   const sent = JSON.parse(f.calls[0].init.body);
-  assert.deepEqual(sent.input, ["one"]);
+  assert.equal(typeof sent.input, "string", "merc rejects a non-string input");
+  assert.equal(sent.input, "one");
   assert.equal(sent.tier, "batch");
+
+  const g = stubFetch(() => json({ job_id: "j", status: "queued" }));
+  await new Client({ fetch: g }).submitJob({
+    model: "m", job_type: "embed", input: [{ text: "a" }, { text: "b" }],
+  });
+  const list = JSON.parse(g.calls[0].init.body);
+  assert.equal(list.input, '{"text":"a"}\n{"text":"b"}\n');
+});
+
+test("submitJob always sends an Idempotency-Key, because merc requires one", async () => {
+  // merc answers 400 without it, so the client could not submit a job at all.
+  const f = stubFetch(() => json({ job_id: "j", status: "queued" }));
+  await new Client({ fetch: f }).submitJob({ model: "m", job_type: "embed", input: "x" });
+  const key = f.calls[0].init.headers["idempotency-key"];
+  assert.ok(key, "no Idempotency-Key header");
+  assert.match(key, /^[A-Za-z0-9._:-]{8,128}$/, `merc rejects this key shape: ${key}`);
+
+  const g = stubFetch(() => json({ job_id: "j", status: "queued" }));
+  await new Client({ fetch: g }).submitJob(
+    { model: "m", job_type: "embed", input: "x" },
+    { idempotencyKey: "caller-supplied-key-1" },
+  );
+  assert.equal(g.calls[0].init.headers["idempotency-key"], "caller-supplied-key-1");
+});
+
+test("cancelJob uses the route merc actually serves", async () => {
+  // It called POST /v1/jobs/{id}/cancel, which merc does not route; the real
+  // one is DELETE /v1/jobs/{id}.
+  const f = stubFetch(() => json({}));
+  await new Client({ baseUrl: "http://h", fetch: f }).cancelJob("j1");
+  assert.equal(f.calls[0].init.method, "DELETE");
+  assert.equal(f.calls[0].url, "http://h/v1/jobs/j1");
 });
 
 test("an HTTP failure surfaces status and path rather than a bare throw", async () => {

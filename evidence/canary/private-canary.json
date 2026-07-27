@@ -160,15 +160,15 @@
     },
     {
       "lane": "python_sdk",
-      "status": "TESTED",
+      "status": "CANARY_PROVEN",
       "reason": "passed",
-      "note": "clean-room install of the built wheel; never run against a deployed merc"
+      "note": "submits a real job to a running merc, waits for a real worker, fetches and validates the real 384-dim result"
     },
     {
       "lane": "typescript_sdk",
-      "status": "TESTED",
+      "status": "CANARY_PROVEN",
       "reason": "passed",
-      "note": "binary embeddings decoder, path encoding, auth and wait() timeout; never run against a deployed merc"
+      "note": "same end-to-end run; found three defects the stub tests could not (missing Idempotency-Key, array input, wrong cancel route)"
     },
     {
       "lane": "alerts",
@@ -185,10 +185,12 @@
       "failure_recovery",
       "object_storage",
       "price_board",
+      "python_sdk",
       "realtime",
       "receipt_verification",
       "refunds_disputes",
-      "supplier_console"
+      "supplier_console",
+      "typescript_sdk"
     ],
     "EXTERNALLY_BLOCKED": [
       "image_generation",
@@ -201,13 +203,11 @@
     "TESTED": [
       "alerts",
       "buyer_dashboard",
-      "external_model_onboarding",
-      "python_sdk",
-      "typescript_sdk"
+      "external_model_onboarding"
     ]
   },
   "lanes_total": 21,
-  "lanes_canary_proven": 10,
+  "lanes_canary_proven": 12,
   "all_lanes_canary_proven": false,
   "public_capability_allowed": false,
   "note": "A lane is CANARY_PROVEN only when its command walks the full chain -- buyer request, contract, scheduler, real runtime, verification, buyer debit, supplier payable, receipt. A lane that passed a partial test is TESTED. A lane whose capability is missing is EXTERNALLY_BLOCKED and names what is missing. There is no override."

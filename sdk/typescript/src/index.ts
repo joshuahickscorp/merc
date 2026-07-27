@@ -105,6 +105,13 @@ export interface ClientOptions {
   fetch?: typeof globalThis.fetch;
 }
 
+/** Idempotency keys must be 8-128 chars of [A-Za-z0-9._:-]. */
+function randomIdempotencyKey(): string {
+  const g = globalThis as { crypto?: { randomUUID?: () => string } };
+  if (typeof g.crypto?.randomUUID === "function") return g.crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export class Client {
   readonly baseUrl: string;
   readonly apiKey: string;
@@ -129,6 +136,7 @@ export class Client {
     path: string,
     body?: unknown,
     query?: Record<string, string | number | undefined>,
+    extraHeaders?: Record<string, string>,
   ): Promise<T> {
     const url = new URL(this.baseUrl + path);
     for (const [k, v] of Object.entries(query ?? {})) {
@@ -137,6 +145,7 @@ export class Client {
     const headers: Record<string, string> = { accept: "application/json" };
     if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`;
     if (body !== undefined) headers["content-type"] = "application/json";
+    Object.assign(headers, extraHeaders ?? {});
 
     // AbortController rather than a racing promise, so a timed-out request is
     // actually cancelled instead of left running.
@@ -167,7 +176,16 @@ export class Client {
   }
 
   #spec(spec: JobSpec): Record<string, unknown> {
-    const input = Array.isArray(spec.input) ? spec.input : [spec.input];
+    // merc's job input is a JSONL STRING, not an array: it rejects an array
+    // with "input must be a JSONL string or an object with a non-empty
+    // s3_key". The Python SDK has always serialised a list to JSONL; this
+    // client wrapped a single value in an array instead and its unit test
+    // pinned that as "matching the Python SDK". It never matched, and no test
+    // caught it because the fetch stub accepted whatever it was sent.
+    const input =
+      typeof spec.input === "string"
+        ? spec.input
+        : (spec.input as unknown[]).map((r) => JSON.stringify(r)).join("\n") + "\n";
     const out: Record<string, unknown> = {
       model: spec.model,
       job_type: spec.job_type,
@@ -181,8 +199,23 @@ export class Client {
     return out;
   }
 
-  submitJob(spec: JobSpec): Promise<Job> {
-    return this.#request<Job>("POST", "/v1/jobs", this.#spec(spec));
+  /**
+   * Submit a job.
+   *
+   * merc REQUIRES an Idempotency-Key on submission and rejects the request with
+   * HTTP 400 without one, so this generates a key when the caller does not
+   * supply one -- matching the Python SDK, which has always done so. Without
+   * this the shipped client could not submit a job at all; every unit test
+   * passed because the fetch stub never inspected headers.
+   *
+   * Pass your own key to make a retry idempotent: resubmitting with the same
+   * key returns the original job instead of creating a second one.
+   */
+  submitJob(spec: JobSpec, options?: { idempotencyKey?: string }): Promise<Job> {
+    const key = options?.idempotencyKey ?? `submit-${randomIdempotencyKey()}`;
+    return this.#request<Job>("POST", "/v1/jobs", this.#spec(spec), undefined, {
+      "idempotency-key": key,
+    });
   }
   quote(spec: JobSpec): Promise<unknown> {
     return this.#request("POST", "/v1/quote", this.#spec(spec));
@@ -193,8 +226,9 @@ export class Client {
   results(jobId: string): Promise<unknown> {
     return this.#request("GET", `/v1/jobs/${encodeURIComponent(jobId)}/results`);
   }
+  /** Cancel a job. merc serves DELETE /v1/jobs/{id}; there is no /cancel route. */
   cancelJob(jobId: string): Promise<unknown> {
-    return this.#request("POST", `/v1/jobs/${encodeURIComponent(jobId)}/cancel`);
+    return this.#request("DELETE", `/v1/jobs/${encodeURIComponent(jobId)}`);
   }
   events(jobId: string): Promise<unknown> {
     return this.#request("GET", `/v1/jobs/${encodeURIComponent(jobId)}/events`);
