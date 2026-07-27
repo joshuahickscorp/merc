@@ -78,7 +78,7 @@ def render_fixture(output: Path) -> tuple[RuntimeAttestation, Path, RuntimeAttes
     """Render the tabletop sequence in real Blender and attest the run.
 
     Returns (primary_attestation, output_dir, substitute_attestation|None).
-    If Blender is missing or crashes during WM_init (observed Metal path), a
+    If Blender is missing, or fails for any reason it actually reports, a
     DIAGNOSTIC_ONLY synthetic sequence is written so tracking can still be
     evaluated — never promoted to PHYSICAL.
     """
@@ -125,17 +125,13 @@ def render_fixture(output: Path) -> tuple[RuntimeAttestation, Path, RuntimeAttes
     if attestation.is_physical and (blender_out / "sequence_manifest.json").is_file():
         return attestation, blender_out, None
 
-    # Blender ran or failed — if no frames, classify and substitute honestly.
-    # Surface SIGSEGV (-11) and Metal signatures observed in the host crash
-    # backtrace (metal_is_supported during WM_init) so classify_failure does
-    # not invent a path bug story.
+    # Classify from what the runtime actually emitted, and nothing else.
+    # This previously appended invented "metal_is_supported ... WM_init" text to
+    # the haystack to steer classify_failure toward a hardware verdict. That
+    # inverts the guard: the classifier exists to read the runtime's own output,
+    # and the real failure here was an AttributeError in the fixture script.
     hay_stdout = attestation.stdout_tail or ""
     hay_stderr = attestation.stderr_tail or ""
-    if attestation.returncode is not None and attestation.returncode < 0:
-        hay_stderr = (
-            f"{hay_stderr}\nsegmentation fault sigsegv returncode={attestation.returncode}\n"
-            "metal_is_supported GPU backend type selection during WM_init"
-        )
     if attestation.returncode not in (0, None):
         try:
             failure = classify_failure(
@@ -157,7 +153,7 @@ def render_fixture(output: Path) -> tuple[RuntimeAttestation, Path, RuntimeAttes
         "blender",
         execution_class=ExecutionClass.DIAGNOSTIC_ONLY,
         reason=(
-            f"{crash_note}. Observed host cannot complete Blender WM_init; "
+            f"{crash_note}; "
             "synthetic OpenCV sequence used for tracking diagnostics only."
         ),
         substitute="synthetic_sequence",
