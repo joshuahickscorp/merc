@@ -154,7 +154,7 @@ Ranked by what they unblock per second of your time.
 
 | # | Action | Time | Unblocks |
 |---|---|---|---|
-| 1 | `gh repo edit joshuahickscorp/computexchange --visibility private` | 5 s | The only open legal exposure |
+| 1 | `gh repo edit joshuahickscorp/merc --visibility private` | 5 s | The only open legal exposure |
 | 2 | **A working RunPod API key** (or any GPU provider) into `.secrets/runpod.env` | 30 s | Performance 6→8; real vLLM parity; the CUDA lane's entire evidence base |
 | 3 | **Decision Zero** — `[KILL-RT]` or `[KEEP-RT]`, see `docs/DECISION_ZERO.md` | one call | ~Half the remaining roadmap; ends dual-tracking |
 | 4 | Choose a LICENSE | minutes | PyPI publish → DX 7→8.5; resolves `NOTICE` contradiction |
@@ -163,7 +163,7 @@ Ranked by what they unblock per second of your time.
 | 7 | Stripe sandbox secret set — you said later, so it is sequenced last | ~1 h | Money 9→9.5 |
 | 8 | Counsel on `THIRD_PARTY_LICENSES.md` (both catalogue models are BLOCKED) | external | Legal GO; serving claims |
 | 9 | External pen-test | external | Security 8→9 |
-| 10 | Trademark call on the `compute.exchange` collision | external | Brand, before acquisition spend |
+| 10 | Trademark call on the `mercmerc.net` collision | external | Brand, before acquisition spend |
 
 **Two things are irreducible and no list closes them:** you have no users, and
 you do not own GPUs. Competitive position stays ~3 until someone pays, and

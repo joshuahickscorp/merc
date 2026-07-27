@@ -86,7 +86,7 @@ services:
     image: ${CX_GRAFANA_IMAGE:-docker.io/grafana/grafana@sha256:fa801ab6e1ae035135309580891e09f7eb94d1abdbd2106bdc288030b028158c}
     profiles: [full]
     environment:
-      GF_SECURITY_ADMIN_USER: cx-admin
+      GF_SECURITY_ADMIN_USER: merc-admin
       # Required when starting the "full" profile; left optional at parse time so
       # prometheus+alertmanager proofs can start without Grafana.
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-}

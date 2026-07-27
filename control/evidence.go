@@ -41,7 +41,7 @@ func canonicalProofJSON(v any) ([]byte, error) {
 
 func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".cx-tmp-*")
+	tmp, err := os.CreateTemp(dir, ".merc-tmp-*")
 	if err != nil {
 		return err
 	}

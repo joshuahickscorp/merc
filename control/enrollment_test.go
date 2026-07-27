@@ -130,7 +130,7 @@ func TestEnrollmentProofBindsCodeAudienceAndAccount(t *testing.T) {
 
 	wrongCases := [][]byte{
 		enrollmentExchangeTranscript(newSecret(workerEnrollmentCodePrefix), workerEnrollmentAudience, accountID, origin, requestID),
-		enrollmentExchangeTranscript(code, "cx-wrong-audience", accountID, origin, requestID),
+		enrollmentExchangeTranscript(code, "merc-wrong-audience", accountID, origin, requestID),
 		enrollmentExchangeTranscript(code, workerEnrollmentAudience, uuid.New(), origin, requestID),
 		enrollmentExchangeTranscript(code, workerEnrollmentAudience, accountID, "https://relay.example.test", requestID),
 		enrollmentExchangeTranscript(code, workerEnrollmentAudience, accountID, origin, strings.Repeat("A", 22)),
@@ -250,7 +250,7 @@ func TestEnrollmentDeviceRequestRejectsMalformedTamperedAndCrossOriginInputs(t *
 		"extra identity key":     encodeEnrollmentDeviceRequestTest(t, extra),
 		"duplicate key":          workerEnrollmentRequestPrefix + base64.RawURLEncoding.EncodeToString(duplicateJSON),
 		"wrong version":          mutated("v", 1),
-		"wrong audience":         mutated("audience", "cx-other-agent-v1"),
+		"wrong audience":         mutated("audience", "merc-other-agent-v1"),
 		"wrong algorithm":        mutated("device_key_algorithm", "ed25519"),
 		"tampered request id":    mutated("request_id", "AAAAAAAAAAAAAAAAAAAAAA"),
 		"wrong origin":           mutated("control_origin", "https://other.example.test"),

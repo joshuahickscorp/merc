@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/cx-readiness-gaming.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/merc-readiness-gaming.XXXXXX")"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 

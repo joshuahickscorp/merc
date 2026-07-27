@@ -28,7 +28,7 @@ mod tests {
 
     #[test]
     fn invalid_custom_ca_fails_closed() {
-        let path = std::env::temp_dir().join(format!("cx-invalid-ca-{}.pem", std::process::id()));
+        let path = std::env::temp_dir().join(format!("merc-invalid-ca-{}.pem", std::process::id()));
         std::fs::write(&path, b"not a certificate").unwrap();
         std::env::set_var("MERC_TLS_CA_FILE", &path);
         let result = client_builder();

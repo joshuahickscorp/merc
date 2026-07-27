@@ -93,7 +93,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		if json.Unmarshal(body, &request) != nil {
 			t.Error("upstream body was not JSON")
 		}
-		benchmarkRequest := request["user"] == "cx-benchmark-v1"
+		benchmarkRequest := request["user"] == "merc-benchmark-v1"
 		if benchmarkRequest {
 			time.Sleep(150 * time.Millisecond)
 		}
@@ -469,7 +469,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	}
 	benchmarkOutput := filepath.Join(t.TempDir(), "fake-upstream-parity.json")
 	benchmark := exec.CommandContext(ctx, "python3", "../scripts/realtime-parity-benchmark.py",
-		"--cx-base-url", server.URL+"/v1",
+		"--merc-base-url", server.URL+"/v1",
 		"--direct-base-url", upstream.URL+"/v1",
 		"--samples", "5", "--warmups", "1", "--concurrency", "1",
 		"--max-completion-tokens", "8", "--out", benchmarkOutput)

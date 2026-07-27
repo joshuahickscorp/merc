@@ -1,4 +1,4 @@
-name: cx-go-closure
+name: merc-go-closure
 
 x-logging: &bounded-logs
   driver: json-file
@@ -239,7 +239,7 @@ services:
     image: ${MERC_GRAFANA_IMAGE:?must be an immutable registry/repository@sha256 digest}
     pull_policy: always
     environment:
-      GF_SECURITY_ADMIN_USER: cx-staging-admin
+      GF_SECURITY_ADMIN_USER: merc-staging-admin
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?required in .env.go-closure}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"

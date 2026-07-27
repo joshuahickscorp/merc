@@ -1,4 +1,4 @@
-control_url = "https://control.compute.exchange"
+control_url = "https://control.mercmerc.net"
 worker_token = "cxw_replace_me"
 runtime_profile_path = "../control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json"
 public_base_url = "https://this-worker-private-origin.example/v1"

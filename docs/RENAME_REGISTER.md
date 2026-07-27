@@ -103,3 +103,52 @@ content, so any rebrand commit changes the repo source fingerprint. The recorded
 values in `ops/readiness.json` will not reproduce afterwards. That is honest only if
 the domain constant stays at `v1` — changing both at once makes the divergence
 unattributable.
+
+## 5. Zero-residue audit — RESIDUE 0 as of 2026-07-27
+
+`scripts/rename-residue-audit.py` classifies every remaining occurrence of the
+old name against this register and fails on any that is neither frozen nor
+externally blocked. It runs in `make ci`.
+
+| category | count | meaning |
+|---|---|---|
+| FROZEN | 158 | must never be renamed |
+| BLOCKED | 346 | needs an external change first |
+| RESIDUE | 0 | nothing is stopping it — a defect |
+
+Scoped to `git ls-files` per §4.
+
+### Frozen identifiers this register did not previously list
+
+The audit found three cryptographic domain separators and several receipt-pinned
+paths that §3 missed. Each was confirmed against the file that uses it:
+
+- `cx-enrollment-request-v1` — `control/enrollment.go` computes
+  `sha256("cx-enrollment-request-v1\x00" + publicKey)` as the enrollment request
+  id. Renaming changes every id with nothing failing.
+- `cx-worker-enrollment-exchange-v2` — first line of the enrollment signing
+  transcript. Renaming invalidates the proof for every already-enrolled agent.
+- `cx-macos-agent-v2` — the enrollment audience, which also appears inside that
+  transcript.
+- `logo/cx-capsule-target.svg` — pinned by **path and sha256** in
+  `ops/asset-provenance.json`. Moving it orphans the receipt. This was found by
+  moving it, noticing the receipt no longer matched, and moving it back.
+
+### Newly recorded as blocked
+
+- Everything inside a vLLM runtime profile (`cx-chat-1b`, `cx-llama32-instruct-v1`).
+  `control/realtime_profiles.go` hashes the **whole raw file**, and `realtime.go`
+  compares that digest against what a worker registered — so any string in a
+  profile is a hash input. Renameable, but only in a cutover where workers
+  re-attest, exactly like the runtime-authority matrix hash.
+- `service: computexchange` in `monitoring/prometheus.yml` — `external_labels.service`
+  is in the label set Alertmanager fingerprints.
+- `s3://private-staging-backups/computexchange` — real prefix holding staging backups.
+- `/srv/computexchange-go-closure` — real directory on the staging server.
+- `description=computexchange` on Stripe webhook endpoints that already exist.
+
+### One real bug the sweep found
+
+`scripts/local-production-rehearsal.sh` asserted the served site body contains
+`computexchange`. After the website rebrand that assertion was checking for the
+old brand — it would pass only if the rename had failed. Now asserts `merc`.

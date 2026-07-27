@@ -6,9 +6,9 @@ for command_name in docker age age-keygen jq shasum; do
   command -v "$command_name" >/dev/null 2>&1 || { echo "local-independent-restore: $command_name is required" >&2; exit 1; }
 done
 
-RUN="cx-restore-$RANDOM-$$"
+RUN="merc-restore-$RANDOM-$$"
 mkdir -p "$ROOT/.artifacts"
-WORK="$(mktemp -d "$ROOT/.artifacts/cx-logical-restore.XXXXXX")"
+WORK="$(mktemp -d "$ROOT/.artifacts/merc-logical-restore.XXXXXX")"
 A_PG="${RUN}-a-pg"; A_MINIO="${RUN}-a-minio"; A_NET="${RUN}-a"
 B_PG="${RUN}-b-pg"; B_MINIO="${RUN}-b-minio"; B_NET="${RUN}-b"
 A_PG_VOL="${RUN}-a-pgdata"; A_OBJ_VOL="${RUN}-a-objects"

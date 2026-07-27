@@ -93,7 +93,7 @@ secret, payload = sys.stdin.buffer.read().split(b"\0", 1)
 sys.stdout.write(hmac.new(secret, timestamp + b"." + payload, hashlib.sha256).hexdigest())
 ' "$timestamp")"
   signature="t=$timestamp,v1=$digest"
-  response_file="$(mktemp "${TMPDIR:-/tmp}/cx-stripe-probe.XXXXXX")"
+  response_file="$(mktemp "${TMPDIR:-/tmp}/merc-stripe-probe.XXXXXX")"
   valid_status="$(printf '%s' "$payload" | curl --silent --show-error --output "$response_file" \
     --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' \
     --header "Stripe-Signature: $signature" --data-binary @- \
@@ -101,7 +101,7 @@ sys.stdout.write(hmac.new(secret, timestamp + b"." + payload, hashlib.sha256).he
   rm -f "$response_file"
   case "$valid_status" in 2??) ;; *) return 1 ;; esac
 
-  response_file="$(mktemp "${TMPDIR:-/tmp}/cx-stripe-probe.XXXXXX")"
+  response_file="$(mktemp "${TMPDIR:-/tmp}/merc-stripe-probe.XXXXXX")"
   invalid_status="$(printf '%s' "$payload" | curl --silent --show-error --output "$response_file" \
     --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' \
     --header "Stripe-Signature: t=$timestamp,v1=$(printf '0%.0s' {1..64})" --data-binary @- \
@@ -172,7 +172,7 @@ wait_delivered "$success_event_id"
 # Create a real Sandbox dispute and resolve it with Stripe's documented losing
 # evidence fixture. No card number or real payment instrument is used.
 disputed="$(api POST payment_intents \
-  --header "Idempotency-Key: cx-matrix-$RUN_ID-dispute" \
+  --header "Idempotency-Key: merc-matrix-$RUN_ID-dispute" \
   --data-urlencode amount=1500 --data-urlencode currency=usd \
   --data-urlencode payment_method=pm_card_createDispute \
   --data-urlencode 'payment_method_types[]=card' --data-urlencode confirm=true \
@@ -253,7 +253,7 @@ wait_payout_status() {
 }
 
 released="$(connected_api POST payouts \
-  --header "Idempotency-Key: cx-matrix-$RUN_ID-payout-release" \
+  --header "Idempotency-Key: merc-matrix-$RUN_ID-payout-release" \
   --data-urlencode amount=40 --data-urlencode currency=usd \
   --data-urlencode destination="$success_bank" \
   --data-urlencode "description=merc Sandbox release $RUN_ID")"
@@ -272,7 +272,7 @@ jq -e --arg original "$payout_release_id" '
 payout_reversal_id="$(jq -r .id <<< "$reversed")"
 
 failed="$(connected_api POST payouts \
-  --header "Idempotency-Key: cx-matrix-$RUN_ID-payout-failure" \
+  --header "Idempotency-Key: merc-matrix-$RUN_ID-payout-failure" \
   --data-urlencode amount=30 --data-urlencode currency=usd \
   --data-urlencode destination="$failure_bank" \
   --data-urlencode "description=merc Sandbox failure $RUN_ID")"

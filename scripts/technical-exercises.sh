@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-NAME="cx-technical-exercises-20260719"
+NAME="merc-technical-exercises-20260719"
 PORT="${MERC_TECHNICAL_EXERCISE_PG_PORT:-55441}"
 EVIDENCE="$ROOT/evidence/autonomous/technical-exercises.json"
 PG_IMAGE='postgres:17@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d'

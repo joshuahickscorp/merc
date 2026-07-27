@@ -154,7 +154,7 @@ customer_json="$(api POST customers \
   --data-urlencode "metadata[cx_matrix_run]=$run_id")"
 customer="$(jq -er '.id | select(startswith("cus_"))' <<< "$customer_json")"
 
-timeout_idem="cx-matrix-$run_id-timeout"
+timeout_idem="merc-matrix-$run_id-timeout"
 api_expect_timeout POST payment_intents \
   --header "Idempotency-Key: $timeout_idem" \
   --data-urlencode amount=900 --data-urlencode currency=usd \
@@ -170,7 +170,7 @@ timeout_recovery="$(api POST payment_intents \
 jq -e '.livemode == false and .status == "succeeded" and (.id | startswith("pi_"))' \
   <<< "$timeout_recovery" >/dev/null
 
-idem="cx-matrix-$run_id-success"
+idem="merc-matrix-$run_id-success"
 success="$(api POST payment_intents \
   --header "Idempotency-Key: $idem" \
   --data-urlencode amount=1200 --data-urlencode currency=usd \
@@ -193,7 +193,7 @@ conflict="$(api POST payment_intents --header "Idempotency-Key: $idem" \
 jq -e '.error.type == "idempotency_error"' <<< "$conflict" >/dev/null
 
 decline="$(api POST payment_intents \
-  --header "Idempotency-Key: cx-matrix-$run_id-decline" \
+  --header "Idempotency-Key: merc-matrix-$run_id-decline" \
   --data-urlencode amount=700 --data-urlencode currency=usd \
   --data-urlencode customer="$customer" --data-urlencode payment_method=pm_card_chargeDeclined \
   --data-urlencode 'payment_method_types[]=card' --data-urlencode confirm=true)"

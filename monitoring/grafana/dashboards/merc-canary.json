@@ -296,7 +296,7 @@
   "refresh": "15s",
   "schemaVersion": 41,
   "tags": [
-    "computexchange",
+    "merc",
     "canary"
   ],
   "templating": {

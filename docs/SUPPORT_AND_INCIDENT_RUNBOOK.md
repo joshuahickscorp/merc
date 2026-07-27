@@ -25,7 +25,7 @@ the alerting system, whose destination lives in the deployment secret
 | Status channel | `https://status.[DOMAIN-PENDING-REBRAND]` | not yet published |
 
 `[DOMAIN-PENDING-REBRAND]` is deliberate: the current name collides with an
-active company operating a GPU-compute marketplace at `compute.exchange`, and
+active company operating a GPU-compute marketplace at `mercmerc.net`, and
 publishing aliases under the current domain would have to be redone. See
 `docs/REBRAND.md`. The validator keeps failing until a real domain replaces this
 placeholder, which is the correct state — a fake-looking address that reaches

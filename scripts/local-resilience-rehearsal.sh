@@ -37,7 +37,7 @@ for tool in docker curl jq git openssl cargo python3; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is required" >&2; exit 1; }
 done
 
-PROJECT="cx-local-resilience"
+PROJECT="merc-local-resilience"
 COMPOSE_FILE="$ROOT/ops/local/compose.rehearsal.yml"
 ART="$ROOT/.artifacts/local-resilience"
 TOPOLOGY_RECEIPT="$ART/topology.json"
@@ -81,7 +81,7 @@ cleanup() {
   for pid in "$AGENT_ONE" "$AGENT_TWO"; do
     [ -z "$pid" ] || kill "$pid" >/dev/null 2>&1 || true
   done
-  if [[ "$PROJECT" =~ ^cx-local-resilience$ ]]; then
+  if [[ "$PROJECT" =~ ^merc-local-resilience$ ]]; then
     compose down --volumes --remove-orphans >/dev/null 2>&1 || true
   fi
   rm -f "$LOCK_DIR/pid"

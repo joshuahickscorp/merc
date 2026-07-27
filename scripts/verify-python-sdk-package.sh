@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cx-python-sdk.XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/merc-python-sdk.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 "$PYTHON_BIN" -m venv "$WORK/venv"

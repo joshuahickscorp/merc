@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROFILE="$SCRIPT_DIR/cx-agent.sb"
 [ -f "$PROFILE" ] || { echo "FAIL: profile not found at $PROFILE"; exit 1; }
 
-FAKE="$(mktemp -d "$HOME/.cx-sandbox-test.XXXXXX")"
+FAKE="$(mktemp -d "$HOME/.merc-sandbox-test.XXXXXX")"
 cleanup() { rm -rf "$FAKE"; }
 trap cleanup EXIT INT TERM
 
@@ -63,7 +63,7 @@ expect_allow "read the model cache (weights/tokenizer)"     /bin/cat "$MODELCACH
 expect_allow "write the model cache (hf-hub download)"      /bin/sh -c "printf x > '$MODELCACHE/new-weight.bin'"
 expect_allow "read the agent data dir"                      /bin/cat "$DATADIR/status.json"
 expect_allow "write the agent data dir (status.json)"       /bin/sh -c "printf y > '$DATADIR/status.json.tmp'"
-expect_allow "write system temp (inference scratch)"        /bin/sh -c "printf z > \"\${TMPDIR:-/private/tmp}/cx-scratch.\$\$\""
+expect_allow "write system temp (inference scratch)"        /bin/sh -c "printf z > \"\${TMPDIR:-/private/tmp}/merc-scratch.\$\$\""
 
 expect_deny  "plant a LaunchAgent (persistence)"            /bin/sh -c "printf evil > '$H/Library/LaunchAgents/com.evil.plist'"
 expect_deny  "overwrite the operator's Documents"          /bin/sh -c "printf x > '$H/Documents/taxes.txt'"
