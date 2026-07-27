@@ -2,8 +2,8 @@
   "schema_version": 1,
   "kind": "rename_residue_audit",
   "counts": {
-    "FROZEN": 242,
-    "BLOCKED": 367,
+    "FROZEN": 248,
+    "BLOCKED": 369,
     "RESIDUE": 0
   },
   "blocked_by_prerequisite": {
@@ -11,7 +11,7 @@
     "binary name in Dockerfile.control, CI SHA256SUMS, .gitignore, .dockerignore and the rollback image entrypoint": 69,
     "droplet .env, GitHub Actions secrets and systemd units supply these; CX_TOKEN_KEY must be copied byte-identically or every sealed secret in Postgres becomes undecryptable": 29,
     "object storage bucket name in a running deployment": 23,
-    "model alias inside the sha256'd vLLM runtime profile; workers must re-attest in the same cutover": 20,
+    "model alias inside the sha256'd vLLM runtime profile; workers must re-attest in the same cutover": 22,
     "systemd unit installed under this name; disable the old timer first": 17,
     "published image tag": 13,
     "real directory on supplier machines": 13,
