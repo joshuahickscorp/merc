@@ -1,353 +1,1726 @@
 {
-  "thresholds": {
-    "id_switch_threshold": 6,
-    "min_occlusion_survival": 0.5,
-    "reid_threshold_lost": 0.92
-  },
-  "gt_to_track": {
-    "obj_move": "trk-0001",
-    "obj_occlude": "trk-0002",
-    "obj_leave": "trk-0003",
-    "obj_depart": "trk-0004",
-    "obj_replace": "trk-0002"
-  },
-  "metrics": {
-    "id_switches": 1,
-    "mota": 0.7685185185185185,
-    "matches": 84,
-    "misses": 24,
-    "false_positives": 0,
-    "fragmentation": {
-      "obj_move": 0,
-      "obj_occlude": 1,
-      "obj_leave": 0
-    },
-    "track_fragmentation_total": 1,
-    "confusion": {
-      "obj_move": {
-        "obj_move": 36,
-        "obj_occlude": 0,
-        "obj_leave": 0
-      },
-      "obj_occlude": {
-        "obj_move": 0,
-        "obj_occlude": 27,
-        "obj_leave": 0
-      },
-      "obj_leave": {
-        "obj_move": 0,
-        "obj_occlude": 0,
-        "obj_leave": 21
+  "conditions": {
+    "visually_similar": {
+      "condition": "visually_similar",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 1,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        }
+      ],
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_b": "trk-0001",
+          "obj_a": "trk-0001",
+          "obj_c": "trk-0001"
+        },
+        "metrics": {
+          "id_switches": 0,
+          "mota": 0.6458333333333333,
+          "idf1": 0.7848101265822784,
+          "matches": 62,
+          "misses": 34,
+          "false_positives": 0,
+          "precision": 1.0,
+          "recall": 0.6458333333333334,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "track_fragmentation_total": 0,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 18,
+              "obj_b": 18,
+              "obj_c": 12
+            },
+            "obj_b": {
+              "obj_a": 18,
+              "obj_b": 32,
+              "obj_c": 12
+            },
+            "obj_c": {
+              "obj_a": 12,
+              "obj_b": 12,
+              "obj_c": 12
+            }
+          },
+          "reid_precision": 1.0,
+          "reid_recall": 1.0,
+          "reid_tp": 10,
+          "reid_fp": 0,
+          "reid_fn": 0,
+          "gt_to_tracks": {
+            "obj_a": [
+              "trk-0001"
+            ],
+            "obj_b": [
+              "trk-0001"
+            ],
+            "obj_c": [
+              "trk-0001"
+            ]
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 3,
+          "idtp_proxy": 62
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 18,
+            "obj_b": 18,
+            "obj_c": 12
+          },
+          "obj_b": {
+            "obj_a": 18,
+            "obj_b": 32,
+            "obj_c": 12
+          },
+          "obj_c": {
+            "obj_a": 12,
+            "obj_b": 12,
+            "obj_c": 12
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": true,
+        "leave_reid_events": [
+          {
+            "frame": 22,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 23,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 24,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 25,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 26,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 27,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 28,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 29,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 30,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 31,
+            "result": "tp",
+            "track_id": "trk-0001"
+          }
+        ],
+        "distractor": {
+          "false_reid": false,
+          "depart_track_id": null,
+          "distractor_track_id": null,
+          "decision": null
+        },
+        "unknown": {
+          "absorbed_into_existing": false,
+          "unknown_track_id": null,
+          "existing_ids_at_entry": [],
+          "first_visible_frame": null
+        }
       }
     },
-    "reid_precision": 1.0,
-    "reid_recall": 1.0,
-    "reid_tp": 11,
-    "reid_fp": 0,
-    "reid_fn": 0,
-    "gt_to_tracks": {
-      "obj_move": [
-        "trk-0001"
+    "crossing_paths": {
+      "condition": "crossing_paths",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 1,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        }
       ],
-      "obj_occlude": [
-        "trk-0002",
-        "trk-0004"
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_a": "trk-0001",
+          "obj_b": "trk-0001"
+        },
+        "metrics": {
+          "id_switches": 0,
+          "mota": 0.2678571428571429,
+          "idf1": 0.47619047619047616,
+          "matches": 30,
+          "misses": 66,
+          "false_positives": 16,
+          "precision": 0.6521739130434783,
+          "recall": 0.3125,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "track_fragmentation_total": 0,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 16,
+              "obj_b": 14,
+              "obj_c": 0
+            },
+            "obj_b": {
+              "obj_a": 14,
+              "obj_b": 14,
+              "obj_c": 0
+            },
+            "obj_c": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            }
+          },
+          "reid_precision": 1.0,
+          "reid_recall": 1.0,
+          "reid_tp": 0,
+          "reid_fp": 0,
+          "reid_fn": 0,
+          "gt_to_tracks": {
+            "obj_a": [
+              "trk-0001"
+            ],
+            "obj_b": [
+              "trk-0001"
+            ],
+            "obj_c": []
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 2,
+          "idtp_proxy": 30
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 16,
+            "obj_b": 14,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 14,
+            "obj_b": 14,
+            "obj_c": 0
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": false,
+        "leave_reid_events": [],
+        "distractor": {
+          "false_reid": false,
+          "depart_track_id": null,
+          "distractor_track_id": null,
+          "decision": null
+        },
+        "unknown": {
+          "absorbed_into_existing": false,
+          "unknown_track_id": null,
+          "existing_ids_at_entry": [],
+          "first_visible_frame": null
+        }
+      }
+    },
+    "partial_occlusion": {
+      "condition": "partial_occlusion",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 1,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        }
       ],
-      "obj_leave": [
-        "trk-0003"
-      ]
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_b": "trk-0001"
+        },
+        "metrics": {
+          "id_switches": 0,
+          "mota": 0.33333333333333337,
+          "idf1": 0.5,
+          "matches": 32,
+          "misses": 64,
+          "false_positives": 0,
+          "precision": 1.0,
+          "recall": 0.3333333333333333,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "track_fragmentation_total": 0,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            },
+            "obj_b": {
+              "obj_a": 0,
+              "obj_b": 32,
+              "obj_c": 0
+            },
+            "obj_c": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            }
+          },
+          "reid_precision": 1.0,
+          "reid_recall": 1.0,
+          "reid_tp": 0,
+          "reid_fp": 0,
+          "reid_fn": 0,
+          "gt_to_tracks": {
+            "obj_a": [],
+            "obj_b": [
+              "trk-0001"
+            ],
+            "obj_c": []
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 1,
+          "idtp_proxy": 32
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 0,
+            "obj_b": 32,
+            "obj_c": 0
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": false,
+        "leave_reid_events": [],
+        "distractor": {
+          "false_reid": false,
+          "depart_track_id": null,
+          "distractor_track_id": null,
+          "decision": null
+        },
+        "unknown": {
+          "absorbed_into_existing": false,
+          "unknown_track_id": null,
+          "existing_ids_at_entry": [],
+          "first_visible_frame": null
+        }
+      }
+    },
+    "full_occlusion": {
+      "condition": "full_occlusion",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 2,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        },
+        {
+          "track_id": "trk-0002",
+          "state": "OCCLUDED",
+          "identity_uncertainty": 0.33,
+          "identity_confidence": 0.6699999999999999,
+          "last_seen_frame": 24,
+          "frames_since_seen": 7,
+          "first_frame": 9
+        }
+      ],
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_b": "trk-0001"
+        },
+        "metrics": {
+          "id_switches": 0,
+          "mota": 0.20370370370370372,
+          "idf1": 0.37288135593220334,
+          "matches": 22,
+          "misses": 74,
+          "false_positives": 12,
+          "precision": 0.6470588235294118,
+          "recall": 0.22916666666666666,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "track_fragmentation_total": 0,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            },
+            "obj_b": {
+              "obj_a": 0,
+              "obj_b": 22,
+              "obj_c": 0
+            },
+            "obj_c": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            }
+          },
+          "reid_precision": 1.0,
+          "reid_recall": 1.0,
+          "reid_tp": 0,
+          "reid_fp": 0,
+          "reid_fn": 0,
+          "gt_to_tracks": {
+            "obj_a": [],
+            "obj_b": [
+              "trk-0001"
+            ],
+            "obj_c": []
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 1,
+          "idtp_proxy": 22
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 0,
+            "obj_b": 22,
+            "obj_c": 0
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": false,
+        "leave_reid_events": [],
+        "distractor": {
+          "false_reid": false,
+          "depart_track_id": null,
+          "distractor_track_id": null,
+          "decision": null
+        },
+        "unknown": {
+          "absorbed_into_existing": false,
+          "unknown_track_id": null,
+          "existing_ids_at_entry": [],
+          "first_visible_frame": null
+        }
+      }
+    },
+    "lighting_change": {
+      "condition": "lighting_change",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 1,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        }
+      ],
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_b": "trk-0001"
+        },
+        "metrics": {
+          "id_switches": 0,
+          "mota": 0.33333333333333337,
+          "idf1": 0.5,
+          "matches": 32,
+          "misses": 64,
+          "false_positives": 0,
+          "precision": 1.0,
+          "recall": 0.3333333333333333,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "track_fragmentation_total": 0,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            },
+            "obj_b": {
+              "obj_a": 0,
+              "obj_b": 32,
+              "obj_c": 0
+            },
+            "obj_c": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            }
+          },
+          "reid_precision": 1.0,
+          "reid_recall": 1.0,
+          "reid_tp": 0,
+          "reid_fp": 0,
+          "reid_fn": 0,
+          "gt_to_tracks": {
+            "obj_a": [],
+            "obj_b": [
+              "trk-0001"
+            ],
+            "obj_c": []
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 1,
+          "idtp_proxy": 32
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 0,
+            "obj_b": 32,
+            "obj_c": 0
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": false,
+        "leave_reid_events": [],
+        "distractor": {
+          "false_reid": false,
+          "depart_track_id": null,
+          "distractor_track_id": null,
+          "decision": null
+        },
+        "unknown": {
+          "absorbed_into_existing": false,
+          "unknown_track_id": null,
+          "existing_ids_at_entry": [],
+          "first_visible_frame": null
+        }
+      }
+    },
+    "scale_change": {
+      "condition": "scale_change",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 1,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        }
+      ],
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_a": "trk-0001"
+        },
+        "metrics": {
+          "id_switches": 0,
+          "mota": 0.2549019607843137,
+          "idf1": 0.4262295081967213,
+          "matches": 26,
+          "misses": 70,
+          "false_positives": 6,
+          "precision": 0.8125,
+          "recall": 0.2708333333333333,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "track_fragmentation_total": 0,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 26,
+              "obj_b": 0,
+              "obj_c": 0
+            },
+            "obj_b": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            },
+            "obj_c": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            }
+          },
+          "reid_precision": 1.0,
+          "reid_recall": 1.0,
+          "reid_tp": 0,
+          "reid_fp": 0,
+          "reid_fn": 0,
+          "gt_to_tracks": {
+            "obj_a": [
+              "trk-0001"
+            ],
+            "obj_b": [],
+            "obj_c": []
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 1,
+          "idtp_proxy": 26
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 26,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": false,
+        "leave_reid_events": [],
+        "distractor": {
+          "false_reid": false,
+          "depart_track_id": null,
+          "distractor_track_id": null,
+          "decision": null
+        },
+        "unknown": {
+          "absorbed_into_existing": false,
+          "unknown_track_id": null,
+          "existing_ids_at_entry": [],
+          "first_visible_frame": null
+        }
+      }
+    },
+    "camera_motion": {
+      "condition": "camera_motion",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 2,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        },
+        {
+          "track_id": "trk-0002",
+          "state": "OCCLUDED",
+          "identity_uncertainty": 0.5,
+          "identity_confidence": 0.5,
+          "last_seen_frame": 28,
+          "frames_since_seen": 3,
+          "first_frame": 3
+        }
+      ],
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_b": "trk-0001",
+          "obj_c": "trk-0001",
+          "obj_a": "trk-0002"
+        },
+        "metrics": {
+          "id_switches": 3,
+          "mota": 0.5510204081632653,
+          "idf1": 0.7307692307692308,
+          "matches": 57,
+          "misses": 39,
+          "false_positives": 2,
+          "precision": 0.9661016949152542,
+          "recall": 0.59375,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 1,
+            "obj_c": 2
+          },
+          "track_fragmentation_total": 3,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 1,
+              "obj_b": 1,
+              "obj_c": 0
+            },
+            "obj_b": {
+              "obj_a": 1,
+              "obj_b": 32,
+              "obj_c": 2
+            },
+            "obj_c": {
+              "obj_a": 0,
+              "obj_b": 2,
+              "obj_c": 24
+            }
+          },
+          "reid_precision": 1.0,
+          "reid_recall": 0.6,
+          "reid_tp": 6,
+          "reid_fp": 0,
+          "reid_fn": 4,
+          "gt_to_tracks": {
+            "obj_a": [
+              "trk-0002"
+            ],
+            "obj_b": [
+              "trk-0001",
+              "trk-0002"
+            ],
+            "obj_c": [
+              "trk-0001",
+              "trk-0002",
+              "trk-0001"
+            ]
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 6,
+          "idtp_proxy": 57
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 1,
+            "obj_b": 1,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 1,
+            "obj_b": 32,
+            "obj_c": 2
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 2,
+            "obj_c": 24
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": true,
+        "leave_reid_events": [
+          {
+            "frame": 22,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 23,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 24,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 25,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 26,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 27,
+            "result": "tp",
+            "track_id": "trk-0001"
+          },
+          {
+            "frame": 28,
+            "result": "fn"
+          },
+          {
+            "frame": 29,
+            "result": "fn"
+          },
+          {
+            "frame": 30,
+            "result": "fn"
+          },
+          {
+            "frame": 31,
+            "result": "fn"
+          }
+        ],
+        "distractor": {
+          "false_reid": false,
+          "depart_track_id": null,
+          "distractor_track_id": null,
+          "decision": null
+        },
+        "unknown": {
+          "absorbed_into_existing": false,
+          "unknown_track_id": null,
+          "existing_ids_at_entry": [],
+          "first_visible_frame": null
+        }
+      }
+    },
+    "leave_return": {
+      "condition": "leave_return",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 4,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        },
+        {
+          "track_id": "trk-0002",
+          "state": "OCCLUDED",
+          "identity_uncertainty": 0.8500000000000001,
+          "identity_confidence": 0.1499999999999999,
+          "last_seen_frame": 11,
+          "frames_since_seen": 20,
+          "first_frame": 8
+        },
+        {
+          "track_id": "trk-0003",
+          "state": "OCCLUDED",
+          "identity_uncertainty": 0.9700000000000001,
+          "identity_confidence": 0.029999999999999916,
+          "last_seen_frame": 8,
+          "frames_since_seen": 23,
+          "first_frame": 8
+        },
+        {
+          "track_id": "trk-0004",
+          "state": "OCCLUDED",
+          "identity_uncertainty": 0.9700000000000001,
+          "identity_confidence": 0.029999999999999916,
+          "last_seen_frame": 8,
+          "frames_since_seen": 23,
+          "first_frame": 8
+        }
+      ],
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_b": "trk-0001",
+          "obj_a": "trk-0002"
+        },
+        "metrics": {
+          "id_switches": 1,
+          "mota": 0.3939393939393939,
+          "idf1": 0.583941605839416,
+          "matches": 40,
+          "misses": 56,
+          "false_positives": 3,
+          "precision": 0.9302325581395349,
+          "recall": 0.4166666666666667,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 1,
+            "obj_c": 0
+          },
+          "track_fragmentation_total": 1,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 24,
+              "obj_b": 0,
+              "obj_c": 0
+            },
+            "obj_b": {
+              "obj_a": 0,
+              "obj_b": 16,
+              "obj_c": 0
+            },
+            "obj_c": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            }
+          },
+          "reid_precision": 0.0,
+          "reid_recall": 0.0,
+          "reid_tp": 0,
+          "reid_fp": 7,
+          "reid_fn": 3,
+          "gt_to_tracks": {
+            "obj_a": [
+              "trk-0002"
+            ],
+            "obj_b": [
+              "trk-0001",
+              "trk-0003"
+            ],
+            "obj_c": []
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 3,
+          "idtp_proxy": 40
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 24,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 0,
+            "obj_b": 16,
+            "obj_c": 0
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": false,
+        "leave_reid_events": [
+          {
+            "frame": 22,
+            "result": "fn"
+          },
+          {
+            "frame": 23,
+            "result": "fn"
+          },
+          {
+            "frame": 24,
+            "result": "fn"
+          },
+          {
+            "frame": 25,
+            "result": "fp",
+            "track_id": "trk-0003",
+            "expected": "trk-0001"
+          },
+          {
+            "frame": 26,
+            "result": "fp",
+            "track_id": "trk-0003",
+            "expected": "trk-0001"
+          },
+          {
+            "frame": 27,
+            "result": "fp",
+            "track_id": "trk-0003",
+            "expected": "trk-0001"
+          },
+          {
+            "frame": 28,
+            "result": "fp",
+            "track_id": "trk-0003",
+            "expected": "trk-0001"
+          },
+          {
+            "frame": 29,
+            "result": "fp",
+            "track_id": "trk-0003",
+            "expected": "trk-0001"
+          },
+          {
+            "frame": 30,
+            "result": "fp",
+            "track_id": "trk-0003",
+            "expected": "trk-0001"
+          },
+          {
+            "frame": 31,
+            "result": "fp",
+            "track_id": "trk-0003",
+            "expected": "trk-0001"
+          }
+        ],
+        "distractor": {
+          "false_reid": false,
+          "depart_track_id": null,
+          "distractor_track_id": null,
+          "decision": null
+        },
+        "unknown": {
+          "absorbed_into_existing": false,
+          "unknown_track_id": null,
+          "existing_ids_at_entry": [],
+          "first_visible_frame": null
+        }
+      }
+    },
+    "distractor_replacement": {
+      "condition": "distractor_replacement",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 1,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        }
+      ],
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_b": "trk-0001",
+          "obj_distractor": "trk-0001"
+        },
+        "metrics": {
+          "id_switches": 0,
+          "mota": 0.09345794392523366,
+          "idf1": 0.18867924528301885,
+          "matches": 10,
+          "misses": 86,
+          "false_positives": 11,
+          "precision": 0.47619047619047616,
+          "recall": 0.10416666666666667,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "track_fragmentation_total": 0,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            },
+            "obj_b": {
+              "obj_a": 0,
+              "obj_b": 10,
+              "obj_c": 0
+            },
+            "obj_c": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            }
+          },
+          "reid_precision": 1.0,
+          "reid_recall": 1.0,
+          "reid_tp": 0,
+          "reid_fp": 0,
+          "reid_fn": 0,
+          "gt_to_tracks": {
+            "obj_a": [],
+            "obj_b": [
+              "trk-0001"
+            ],
+            "obj_c": []
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 1,
+          "idtp_proxy": 10
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 0,
+            "obj_b": 10,
+            "obj_c": 0
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24
+        ],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": false,
+        "leave_reid_events": [],
+        "distractor": {
+          "false_reid": true,
+          "depart_track_id": "trk-0001",
+          "distractor_track_id": "trk-0001",
+          "decision": {
+            "matched": true,
+            "track_id": "trk-0001",
+            "score": 1.0,
+            "threshold": 0.92,
+            "reason": "matched state=LOST",
+            "appearance_score": 1.0,
+            "kinematic_score": 1.0,
+            "identity_uncertainty": 0.05
+          }
+        },
+        "unknown": {
+          "absorbed_into_existing": false,
+          "unknown_track_id": null,
+          "existing_ids_at_entry": [],
+          "first_visible_frame": null
+        }
+      }
+    },
+    "unknown_entering": {
+      "condition": "unknown_entering",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 1,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        }
+      ],
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_b": "trk-0001"
+        },
+        "metrics": {
+          "id_switches": 0,
+          "mota": 0.33333333333333337,
+          "idf1": 0.5,
+          "matches": 32,
+          "misses": 64,
+          "false_positives": 0,
+          "precision": 1.0,
+          "recall": 0.3333333333333333,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "track_fragmentation_total": 0,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            },
+            "obj_b": {
+              "obj_a": 0,
+              "obj_b": 32,
+              "obj_c": 0
+            },
+            "obj_c": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            }
+          },
+          "reid_precision": 1.0,
+          "reid_recall": 1.0,
+          "reid_tp": 0,
+          "reid_fp": 0,
+          "reid_fn": 0,
+          "gt_to_tracks": {
+            "obj_a": [],
+            "obj_b": [
+              "trk-0001"
+            ],
+            "obj_c": []
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 1,
+          "idtp_proxy": 32
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 0,
+            "obj_b": 32,
+            "obj_c": 0
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": false,
+        "leave_reid_events": [],
+        "distractor": {
+          "false_reid": false,
+          "depart_track_id": null,
+          "distractor_track_id": null,
+          "decision": null
+        },
+        "unknown": {
+          "absorbed_into_existing": false,
+          "unknown_track_id": null,
+          "existing_ids_at_entry": [
+            "trk-0001"
+          ],
+          "first_visible_frame": 17
+        }
+      }
+    },
+    "permanence": {
+      "condition": "permanence",
+      "source": "blender_eevee",
+      "n_frames": 32,
+      "n_final_tracks": 1,
+      "final_tracks": [
+        {
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05,
+          "identity_confidence": 0.95,
+          "last_seen_frame": 31,
+          "frames_since_seen": 0,
+          "first_frame": 0
+        }
+      ],
+      "evaluation": {
+        "scored": true,
+        "gt_to_track": {
+          "obj_b": "trk-0001",
+          "obj_a": "trk-0001",
+          "obj_unknown": "trk-0001"
+        },
+        "metrics": {
+          "id_switches": 0,
+          "mota": 0.45833333333333337,
+          "idf1": 0.6285714285714286,
+          "matches": 44,
+          "misses": 52,
+          "false_positives": 0,
+          "precision": 1.0,
+          "recall": 0.4583333333333333,
+          "fragmentation": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          },
+          "track_fragmentation_total": 0,
+          "confusion": {
+            "obj_a": {
+              "obj_a": 23,
+              "obj_b": 12,
+              "obj_c": 0
+            },
+            "obj_b": {
+              "obj_a": 12,
+              "obj_b": 21,
+              "obj_c": 0
+            },
+            "obj_c": {
+              "obj_a": 0,
+              "obj_b": 0,
+              "obj_c": 0
+            }
+          },
+          "reid_precision": 1.0,
+          "reid_recall": 1.0,
+          "reid_tp": 0,
+          "reid_fp": 0,
+          "reid_fn": 0,
+          "gt_to_tracks": {
+            "obj_a": [
+              "trk-0001"
+            ],
+            "obj_b": [
+              "trk-0001"
+            ],
+            "obj_c": []
+          },
+          "n_gt_identities": 3,
+          "n_predicted_id_fragments": 2,
+          "idtp_proxy": 44
+        },
+        "confusion_primary_ids": {
+          "obj_a": {
+            "obj_a": 23,
+            "obj_b": 12,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 12,
+            "obj_b": 21,
+            "obj_c": 0
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          }
+        },
+        "occlusion_survival_rate": 1.0,
+        "occlusion_frames": [
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "permanence_log": [
+          {
+            "frame": 9,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          },
+          {
+            "frame": 10,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          },
+          {
+            "frame": 11,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          },
+          {
+            "frame": 12,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          },
+          {
+            "frame": 13,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          },
+          {
+            "frame": 14,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          },
+          {
+            "frame": 15,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          },
+          {
+            "frame": 16,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          },
+          {
+            "frame": 17,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          },
+          {
+            "frame": 18,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          },
+          {
+            "frame": 19,
+            "track_id": "trk-0001",
+            "state": "ACTIVE",
+            "identity_uncertainty": 0.05
+          }
+        ],
+        "uncertainty_monotone_during_occlusion": true,
+        "uncertainty_grew_during_occlusion": false,
+        "uncertainty_series_occluded": [],
+        "leave_return_same_id": false,
+        "leave_reid_events": [],
+        "distractor": {
+          "false_reid": false,
+          "depart_track_id": null,
+          "distractor_track_id": null,
+          "decision": null
+        },
+        "unknown": {
+          "absorbed_into_existing": true,
+          "unknown_track_id": "trk-0001",
+          "existing_ids_at_entry": [
+            "trk-0001"
+          ],
+          "first_visible_frame": 27
+        }
+      }
     }
   },
-  "confusion_primary_ids": {
-    "obj_move": {
-      "obj_move": 36,
-      "obj_occlude": 0,
-      "obj_leave": 0
-    },
-    "obj_occlude": {
-      "obj_move": 0,
-      "obj_occlude": 27,
-      "obj_leave": 0
-    },
-    "obj_leave": {
-      "obj_move": 0,
-      "obj_occlude": 0,
-      "obj_leave": 21
+  "permanence": {
+    "condition": "permanence",
+    "source": "blender_eevee",
+    "n_frames": 32,
+    "n_final_tracks": 1,
+    "final_tracks": [
+      {
+        "track_id": "trk-0001",
+        "state": "ACTIVE",
+        "identity_uncertainty": 0.05,
+        "identity_confidence": 0.95,
+        "last_seen_frame": 31,
+        "frames_since_seen": 0,
+        "first_frame": 0
+      }
+    ],
+    "evaluation": {
+      "scored": true,
+      "gt_to_track": {
+        "obj_b": "trk-0001",
+        "obj_a": "trk-0001",
+        "obj_unknown": "trk-0001"
+      },
+      "metrics": {
+        "id_switches": 0,
+        "mota": 0.45833333333333337,
+        "idf1": 0.6285714285714286,
+        "matches": 44,
+        "misses": 52,
+        "false_positives": 0,
+        "precision": 1.0,
+        "recall": 0.4583333333333333,
+        "fragmentation": {
+          "obj_a": 0,
+          "obj_b": 0,
+          "obj_c": 0
+        },
+        "track_fragmentation_total": 0,
+        "confusion": {
+          "obj_a": {
+            "obj_a": 23,
+            "obj_b": 12,
+            "obj_c": 0
+          },
+          "obj_b": {
+            "obj_a": 12,
+            "obj_b": 21,
+            "obj_c": 0
+          },
+          "obj_c": {
+            "obj_a": 0,
+            "obj_b": 0,
+            "obj_c": 0
+          }
+        },
+        "reid_precision": 1.0,
+        "reid_recall": 1.0,
+        "reid_tp": 0,
+        "reid_fp": 0,
+        "reid_fn": 0,
+        "gt_to_tracks": {
+          "obj_a": [
+            "trk-0001"
+          ],
+          "obj_b": [
+            "trk-0001"
+          ],
+          "obj_c": []
+        },
+        "n_gt_identities": 3,
+        "n_predicted_id_fragments": 2,
+        "idtp_proxy": 44
+      },
+      "confusion_primary_ids": {
+        "obj_a": {
+          "obj_a": 23,
+          "obj_b": 12,
+          "obj_c": 0
+        },
+        "obj_b": {
+          "obj_a": 12,
+          "obj_b": 21,
+          "obj_c": 0
+        },
+        "obj_c": {
+          "obj_a": 0,
+          "obj_b": 0,
+          "obj_c": 0
+        }
+      },
+      "occlusion_survival_rate": 1.0,
+      "occlusion_frames": [
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "permanence_log": [
+        {
+          "frame": 9,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        },
+        {
+          "frame": 10,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        },
+        {
+          "frame": 11,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        },
+        {
+          "frame": 12,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        },
+        {
+          "frame": 13,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        },
+        {
+          "frame": 14,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        },
+        {
+          "frame": 15,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        },
+        {
+          "frame": 16,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        },
+        {
+          "frame": 17,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        },
+        {
+          "frame": 18,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        },
+        {
+          "frame": 19,
+          "track_id": "trk-0001",
+          "state": "ACTIVE",
+          "identity_uncertainty": 0.05
+        }
+      ],
+      "uncertainty_monotone_during_occlusion": true,
+      "uncertainty_grew_during_occlusion": false,
+      "uncertainty_series_occluded": [],
+      "leave_return_same_id": false,
+      "leave_reid_events": [],
+      "distractor": {
+        "false_reid": false,
+        "depart_track_id": null,
+        "distractor_track_id": null,
+        "decision": null
+      },
+      "unknown": {
+        "absorbed_into_existing": true,
+        "unknown_track_id": "trk-0001",
+        "existing_ids_at_entry": [
+          "trk-0001"
+        ],
+        "first_visible_frame": 27
+      }
     }
-  },
-  "occlusion_survival_rate": 1.0,
-  "occlusion_frames": [
-    9,
-    10,
-    11,
-    12,
-    13,
-    14,
-    15,
-    16,
-    17,
-    18,
-    19,
-    20,
-    21
-  ],
-  "permanence_log": [
-    {
-      "frame": 9,
-      "track_id": "trk-0002",
-      "state": "ACTIVE",
-      "identity_uncertainty": 0.05,
-      "occluder_track_id": null,
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 10,
-      "track_id": "trk-0002",
-      "state": "ACTIVE",
-      "identity_uncertainty": 0.05,
-      "occluder_track_id": null,
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 11,
-      "track_id": "trk-0002",
-      "state": "ACTIVE",
-      "identity_uncertainty": 0.05,
-      "occluder_track_id": null,
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 12,
-      "track_id": "trk-0002",
-      "state": "ACTIVE",
-      "identity_uncertainty": 0.05,
-      "occluder_track_id": null,
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 13,
-      "track_id": "trk-0002",
-      "state": "OCCLUDED",
-      "identity_uncertainty": 0.09,
-      "occluder_track_id": null,
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 14,
-      "track_id": "trk-0002",
-      "state": "OCCLUDED",
-      "identity_uncertainty": 0.13,
-      "occluder_track_id": null,
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 15,
-      "track_id": "trk-0002",
-      "state": "OCCLUDED",
-      "identity_uncertainty": 0.16999999999999998,
-      "occluder_track_id": "trk-0001",
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 16,
-      "track_id": "trk-0002",
-      "state": "OCCLUDED",
-      "identity_uncertainty": 0.21000000000000002,
-      "occluder_track_id": "trk-0001",
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 17,
-      "track_id": "trk-0002",
-      "state": "OCCLUDED",
-      "identity_uncertainty": 0.25,
-      "occluder_track_id": "trk-0001",
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 18,
-      "track_id": "trk-0002",
-      "state": "OCCLUDED",
-      "identity_uncertainty": 0.29,
-      "occluder_track_id": "trk-0001",
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 19,
-      "track_id": "trk-0002",
-      "state": "OCCLUDED",
-      "identity_uncertainty": 0.33,
-      "occluder_track_id": "trk-0001",
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 20,
-      "track_id": "trk-0002",
-      "state": "OCCLUDED",
-      "identity_uncertainty": 0.37,
-      "occluder_track_id": "trk-0001",
-      "predicted_xy": [
-        159.0,
-        96.0
-      ]
-    },
-    {
-      "frame": 21,
-      "track_id": "trk-0002",
-      "state": "REAPPEARED",
-      "identity_uncertainty": 0.185,
-      "occluder_track_id": null,
-      "predicted_xy": [
-        285.2849670627731,
-        78.10134325094555
-      ]
-    }
-  ],
-  "uncertainty_monotone_during_occlusion": true,
-  "uncertainty_grew_during_occlusion": true,
-  "uncertainty_series_occluded": [
-    0.09,
-    0.13,
-    0.16999999999999998,
-    0.21000000000000002,
-    0.25,
-    0.29,
-    0.33,
-    0.37
-  ],
-  "leave_return_same_id": true,
-  "leave_reid_events": [
-    {
-      "frame": 25,
-      "result": "tp",
-      "track_id": "trk-0003"
-    },
-    {
-      "frame": 26,
-      "result": "tp",
-      "track_id": "trk-0003"
-    },
-    {
-      "frame": 27,
-      "result": "tp",
-      "track_id": "trk-0003"
-    },
-    {
-      "frame": 28,
-      "result": "tp",
-      "track_id": "trk-0003"
-    },
-    {
-      "frame": 29,
-      "result": "tp",
-      "track_id": "trk-0003"
-    },
-    {
-      "frame": 30,
-      "result": "tp",
-      "track_id": "trk-0003"
-    },
-    {
-      "frame": 31,
-      "result": "tp",
-      "track_id": "trk-0003"
-    },
-    {
-      "frame": 32,
-      "result": "tp",
-      "track_id": "trk-0003"
-    },
-    {
-      "frame": 33,
-      "result": "tp",
-      "track_id": "trk-0003"
-    },
-    {
-      "frame": 34,
-      "result": "tp",
-      "track_id": "trk-0003"
-    },
-    {
-      "frame": 35,
-      "result": "tp",
-      "track_id": "trk-0003"
-    }
-  ],
-  "negative_replaced_object": {
-    "false_reid": false,
-    "depart_track_id": "trk-0004",
-    "replace_track_id": "trk-0002",
-    "decision": {
-      "matched": false,
-      "track_id": "trk-0004",
-      "score": 0.7539633326190635,
-      "threshold": 0.92,
-      "reason": "below-threshold appearance=0.9840 score=0.7540 required=0.9200",
-      "appearance_score": 0.9839625872614994,
-      "identity_uncertainty": 0.05
-    }
-  },
-  "final_tracks": [
-    {
-      "track_id": "trk-0004",
-      "state": "ACTIVE",
-      "identity_uncertainty": 0.05,
-      "last_seen_frame": 35,
-      "frames_since_seen": 0
-    },
-    {
-      "track_id": "trk-0002",
-      "state": "ACTIVE",
-      "identity_uncertainty": 0.05,
-      "last_seen_frame": 35,
-      "frames_since_seen": 0
-    },
-    {
-      "track_id": "trk-0003",
-      "state": "ACTIVE",
-      "identity_uncertainty": 0.05,
-      "last_seen_frame": 35,
-      "frames_since_seen": 0
-    },
-    {
-      "track_id": "trk-0001",
-      "state": "ACTIVE",
-      "identity_uncertainty": 0.05,
-      "last_seen_frame": 35,
-      "frames_since_seen": 0
-    }
-  ]
+  }
 }

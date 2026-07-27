@@ -1,9 +1,9 @@
 {
   "record_kind": "ocular.runtime-attestation",
-  "id": "attest-blender-1785136247540",
+  "id": "attest-blender-1785140101522",
   "schema_version": "2",
-  "created_at": "2026-07-27T07:10:47.620414+00:00",
-  "authority": "MODEL_DERIVED",
+  "created_at": "2026-07-27T08:15:01.601871+00:00",
+  "authority": "RUNTIME_OBSERVED",
   "lifecycle": "DRAFT",
   "lineage": {
     "tool": "blender-vision-mcp",
@@ -31,7 +31,7 @@
   "superseded_by": null,
   "notes": [],
   "runtime": "blender",
-  "execution_class": "DIAGNOSTIC_ONLY",
+  "execution_class": "PHYSICAL",
   "executable": "/Applications/Blender.app/Contents/MacOS/Blender",
   "executable_sha256": "b5737da97b0e164cc18e227be115c4ea2791d11e9577f7e302c73f4871f9249c",
   "version": "Blender 4.2.1 LTS",
@@ -39,17 +39,17 @@
     "/Applications/Blender.app/Contents/MacOS/Blender",
     "--background",
     "--python",
-    "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/benchmarks/ocular_tabletop/create_scene.py",
+    "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/benchmarks/ocular_hard/create_scene.py",
     "--",
     "--output",
-    "artifacts/ocular/tracking/blender"
+    "artifacts/ocular/tracking/hard"
   ],
-  "process_id": 70835,
-  "started_at": "2026-07-27T07:10:41.634280+00:00",
-  "ended_at": "2026-07-27T07:10:47.619919+00:00",
-  "elapsed_seconds": 5.985632791998796,
+  "process_id": 20865,
+  "started_at": "2026-07-27T08:12:59.220713+00:00",
+  "ended_at": "2026-07-27T08:15:01.601090+00:00",
+  "elapsed_seconds": 122.381825541961,
   "returncode": 0,
-  "failure_kind": "SCRIPT_ERROR",
+  "failure_kind": null,
   "host": {
     "platform": "darwin",
     "machine": "arm64",
@@ -61,11 +61,11 @@
     "PATH": "/Users/scammermike/.grok/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/usr/local/go/bin:/Users/scammermike/.nvm/versions/node/v23.2.0/bin:/Users/scammermike/.cargo/bin:/Users/scammermike/go/bin:/Users/scammermike/Library/pnpm:/Users/scammermike/.local/bin:/Users/scammermike/.claude/plugins/cache/caveman/caveman/0d95a81d35a9/bin:/Users/scammermike/.claude/plugins/cache/cloudflare/cloudflare/1.0.0/bin:/Users/scammermike/.claude/plugins/cache/ponytail/ponytail/4.8.4/bin:/Users/scammermike/Library/Application Support/Claude/local-agent-mode-sessions/381ef320-0df1-422f-a56a-df320fb36e5a/6dd4bf67-30bf-4cde-85e3-ba11ba558394/rpm/plugin_0155zZVATbJU3jHUmPP9NvMC/bin:/Users/scammermike/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/6dd4bf67-30bf-4cde-85e3-ba11ba558394/381ef320-0df1-422f-a56a-df320fb36e5a/bin"
   },
   "output_digests": {
-    "manifest": ""
+    "marker": "910fe54bd0d0a4ddd0acaf51205b947ef4131e9d12cb9172df30fb1a89b634d6"
   },
-  "stdout_tail": "\u2139\ufe0f  blendkit: Verbose is enabled [03:10:42.613, addon_updater.py:150]\n\u2139\ufe0f  blendkit: Read in JSON settings from file [03:10:42.614, addon_updater.py:150]\n\u2139\ufe0f  blendkit: Ports reordered so first port is now 62485 (previous index was 0) [03:10:42.614, client_lib.py:156]\nCreated history step fd85ab6e-90f0-4f32-bead-f7c1b704eb4e\n\u2139\ufe0f  blendkit: Created new search history step [03:10:42.619, search.py:2698]\n\u2139\ufe0f  blendkit: No temporarily enabled addons to clean up [03:10:42.619, download.py:419]\nBlender 4.2.1 LTS (hash 396f546c9d82 built 2024-08-19 23:53:04)\nFra:1 Mem:47.05M (Peak 47.05M) | Time:00:04.57 | Rendering 1 / 64 samples\nFra:1 Mem:47.23M (Peak 47.23M) | Time:00:04.65 | Rendering 25 / 64 samples\nFra:1 Mem:47.41M (Peak 47.41M) | Time:00:04.72 | Rendering 50 / 64 samples\nFra:1 Mem:47.51M (Peak 47.51M) | Time:00:04.77 | Rendering 64 / 64 samples\nSaved: 'artifacts/ocular/tracking/blender/frames/frame_0001.png'\nTime: 00:04.82 (Saving: 00:00.04)\n\n\u2139\ufe0f  blendkit: Unregistering Blendkit add-on [03:10:47.474, __init__.py:2973]\n\u2139\ufe0f  blendkit: No temporarily enabled addons to clean up [03:10:47.474, download.py:419]\n\nBlender quit\n",
-  "stderr_tail": "Traceback (most recent call last):\n  File \"/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/benchmarks/ocular_tabletop/create_scene.py\", line 383, in <module>\n    sys.exit(main(sys.argv))\n             ^^^^^^^^^^^^^^\n  File \"/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/benchmarks/ocular_tabletop/create_scene.py\", line 378, in main\n    render_sequence(output, objects)\n  File \"/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/benchmarks/ocular_tabletop/create_scene.py\", line 335, in render_sequence\n    u, v, in_view = _project_world_to_camera(scene, cam, loc)\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/benchmarks/ocular_tabletop/create_scene.py\", line 63, in _project_world_to_camera\n    co_ndc = world_co.transformed_by(cam.matrix_world.inverted())\n             ^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'Vector' object has no attribute 'transformed_by'\n",
-  "blocked_reason": "completion marker 'OCULAR_TABLETOP_COMPLETE' absent",
+  "stdout_tail": "25 Mem:121.36M (Peak 121.36M) | Time:00:00.17 | Rendering 25 / 64 samples\nFra:25 Mem:121.54M (Peak 121.54M) | Time:00:00.29 | Rendering 50 / 64 samples\nFra:25 Mem:121.64M (Peak 121.64M) | Time:00:00.36 | Rendering 64 / 64 samples\nSaved: 'artifacts/ocular/tracking/hard/permanence/frames/frame_0025.png'\nTime: 00:00.37 (Saving: 00:00.00)\n\nFra:26 Mem:121.38M (Peak 121.38M) | Time:00:00.04 | Rendering 1 / 64 samples\nFra:26 Mem:121.56M (Peak 121.56M) | Time:00:00.16 | Rendering 25 / 64 samples\nFra:26 Mem:121.74M (Peak 121.74M) | Time:00:00.28 | Rendering 50 / 64 samples\nFra:26 Mem:121.84M (Peak 121.84M) | Time:00:00.35 | Rendering 64 / 64 samples\nSaved: 'artifacts/ocular/tracking/hard/permanence/frames/frame_0026.png'\nTime: 00:00.36 (Saving: 00:00.00)\n\nFra:27 Mem:121.39M (Peak 121.39M) | Time:00:00.04 | Rendering 1 / 64 samples\nFra:27 Mem:121.56M (Peak 121.56M) | Time:00:00.16 | Rendering 25 / 64 samples\nFra:27 Mem:121.74M (Peak 121.74M) | Time:00:00.28 | Rendering 50 / 64 samples\nFra:27 Mem:121.84M (Peak 121.84M) | Time:00:00.35 | Rendering 64 / 64 samples\nSaved: 'artifacts/ocular/tracking/hard/permanence/frames/frame_0027.png'\nTime: 00:00.37 (Saving: 00:00.00)\n\nFra:28 Mem:121.82M (Peak 121.82M) | Time:00:00.04 | Rendering 1 / 64 samples\nFra:28 Mem:122.06M (Peak 122.06M) | Time:00:00.16 | Rendering 25 / 64 samples\nFra:28 Mem:122.24M (Peak 122.24M) | Time:00:00.28 | Rendering 50 / 64 samples\nFra:28 Mem:122.34M (Peak 122.34M) | Time:00:00.35 | Rendering 64 / 64 samples\nSaved: 'artifacts/ocular/tracking/hard/permanence/frames/frame_0028.png'\nTime: 00:00.36 (Saving: 00:00.00)\n\nFra:29 Mem:122.08M (Peak 122.08M) | Time:00:00.04 | Rendering 1 / 64 samples\nFra:29 Mem:122.25M (Peak 122.25M) | Time:00:00.16 | Rendering 25 / 64 samples\nFra:29 Mem:122.43M (Peak 122.43M) | Time:00:00.29 | Rendering 50 / 64 samples\nFra:29 Mem:122.53M (Peak 122.53M) | Time:00:00.35 | Rendering 64 / 64 samples\nSaved: 'artifacts/ocular/tracking/hard/permanence/frames/frame_0029.png'\nTime: 00:00.37 (Saving: 00:00.00)\n\nFra:30 Mem:122.27M (Peak 122.27M) | Time:00:00.04 | Rendering 1 / 64 samples\nFra:30 Mem:122.45M (Peak 122.45M) | Time:00:00.16 | Rendering 25 / 64 samples\nFra:30 Mem:122.63M (Peak 122.63M) | Time:00:00.28 | Rendering 50 / 64 samples\nFra:30 Mem:122.73M (Peak 122.73M) | Time:00:00.35 | Rendering 64 / 64 samples\nSaved: 'artifacts/ocular/tracking/hard/permanence/frames/frame_0030.png'\nTime: 00:00.36 (Saving: 00:00.00)\n\nFra:31 Mem:122.47M (Peak 122.47M) | Time:00:00.04 | Rendering 1 / 64 samples\nFra:31 Mem:122.64M (Peak 122.64M) | Time:00:00.16 | Rendering 25 / 64 samples\nFra:31 Mem:122.82M (Peak 122.82M) | Time:00:00.29 | Rendering 50 / 64 samples\nFra:31 Mem:122.99M (Peak 122.99M) | Time:00:00.37 | Rendering 64 / 64 samples\nSaved: 'artifacts/ocular/tracking/hard/permanence/frames/frame_0031.png'\nTime: 00:00.38 (Saving: 00:00.00)\n\nFra:32 Mem:122.73M (Peak 122.73M) | Time:00:00.04 | Rendering 1 / 64 samples\nFra:32 Mem:122.90M (Peak 122.90M) | Time:00:00.16 | Rendering 25 / 64 samples\nFra:32 Mem:123.08M (Peak 123.08M) | Time:00:00.28 | Rendering 50 / 64 samples\nFra:32 Mem:123.18M (Peak 123.18M) | Time:00:00.35 | Rendering 64 / 64 samples\nSaved: 'artifacts/ocular/tracking/hard/permanence/frames/frame_0032.png'\nTime: 00:00.37 (Saving: 00:00.00)\n\nOCULAR_HARD_RENDER condition=visually_similar\nOCULAR_HARD_RENDER condition=crossing_paths\nOCULAR_HARD_RENDER condition=partial_occlusion\nOCULAR_HARD_RENDER condition=full_occlusion\nOCULAR_HARD_RENDER condition=lighting_change\nOCULAR_HARD_RENDER condition=scale_change\nOCULAR_HARD_RENDER condition=camera_motion\nOCULAR_HARD_RENDER condition=leave_return\nOCULAR_HARD_RENDER condition=distractor_replacement\nOCULAR_HARD_RENDER condition=unknown_entering\nOCULAR_HARD_RENDER condition=permanence\nOCULAR_HARD_COMPLETE conditions=11 output=artifacts/ocular/tracking/hard\n\u2139\ufe0f  blendkit: Unregistering Blendkit add-on [04:14:57.169, __init__.py:2973]\n\u2139\ufe0f  blendkit: No temporarily enabled addons to clean up [04:14:57.169, download.py:419]\n",
+  "stderr_tail": "",
+  "blocked_reason": "",
   "substituted_by": "",
-  "digest": "7df1164ff25949e5767dde332d65820c09f0a9c1a7e704b63bfb3b534f6150d3"
+  "digest": "d76a39ea4eedc459de23d7212649a79b74d7d2dd905b05b40bfb513ebd2bce67"
 }

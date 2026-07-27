@@ -474,6 +474,14 @@ def close_stream(handle: StreamHandle | str) -> dict[str, Any]:
     return state
 
 
+def get_stream(stream_id: str) -> StreamHandle:
+    """Return the live handle for a registered stream_id."""
+    with _STREAMS_LOCK:
+        if stream_id not in _STREAMS:
+            raise ValidationError(f"unknown stream_id: {stream_id}")
+        return _STREAMS[stream_id]
+
+
 def get_stream_state(stream_id: str) -> dict[str, Any]:
     with _STREAMS_LOCK:
         if stream_id not in _STREAMS:
@@ -484,3 +492,75 @@ def get_stream_state(stream_id: str) -> dict[str, Any]:
 def list_open_streams() -> list[str]:
     with _STREAMS_LOCK:
         return sorted(_STREAMS)
+
+
+def attest_webcam_blocked(
+    *,
+    webcam_index: int = 0,
+    reason: str | None = None,
+) -> RuntimeAttestation:
+    """Honest webcam BLOCKED attestation. Never fabricates a live frame.
+
+    This host (and any host without a working camera) must surface BLOCKED
+    rather than inventing pixels. Callers that need a live stream use the
+    resumption protocol in docs/ocular/WEBCAM_RESUMPTION.md.
+    """
+    detail = reason or (
+        f"webcam index {webcam_index} unavailable on this host "
+        "(no camera present, permission denied, or device busy); "
+        "live frames are never fabricated"
+    )
+    return attest_blocked("webcam", detail)
+
+
+def open_stream_or_attest(
+    source: str | Path,
+    *,
+    source_type: SourceType | str,
+    stream_id: str | None = None,
+    sensor_id: str | None = None,
+    buffer_size: int = 32,
+    allow_webcam: bool = False,
+    webcam_index: int = 0,
+    frame_rate: float = 30.0,
+    calibration_receipt: str = "",
+    coordinate_frame: CoordinateFrame | None = None,
+    intrinsics: dict[str, Any] | None = None,
+    registry: SensorRegistry | None = None,
+    rights_state: RightsState = RightsState.OWNED,
+    privacy_state: PrivacyState = PrivacyState.CLEARED,
+) -> tuple[StreamHandle | None, RuntimeAttestation | None, dict[str, Any]]:
+    """Open a stream and always return a JSON-serialisable status payload.
+
+    Returns (handle|None, attestation|None, status_dict). A blocked open yields
+    handle=None with an attestation whose execution_class is BLOCKED.
+    """
+    result = open_stream(
+        source,
+        source_type=source_type,
+        stream_id=stream_id,
+        sensor_id=sensor_id,
+        buffer_size=buffer_size,
+        allow_webcam=allow_webcam,
+        webcam_index=webcam_index,
+        frame_rate=frame_rate,
+        calibration_receipt=calibration_receipt,
+        coordinate_frame=coordinate_frame,
+        intrinsics=intrinsics,
+        registry=registry,
+        rights_state=rights_state,
+        privacy_state=privacy_state,
+    )
+    if isinstance(result, RuntimeAttestation):
+        return None, result, {
+            "status": "blocked",
+            "execution_class": result.execution_class.value,
+            "blocked_reason": result.blocked_reason,
+            "runtime": result.runtime,
+            "attestation": result.to_dict(),
+        }
+    return result, result.attestation, {
+        "status": "open",
+        "execution_class": result.execution_class.value,
+        **result.snapshot_state(),
+    }
