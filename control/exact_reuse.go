@@ -165,6 +165,71 @@ func (s *Store) RecordExactResult(ctx context.Context, identity, resultRef strin
 	return err
 }
 
+// StoreExactResult is the production name for populating the exact-result cache.
+// It is RecordExactResult; the alias exists so call sites read as the store side
+// of the lookup/store pair and so the missing-writer defect cannot recur by
+// grepping only for one of the two names.
+func (s *Store) StoreExactResult(ctx context.Context, identity, resultRef string, outputTokens int64) error {
+	return s.RecordExactResult(ctx, identity, resultRef, outputTokens)
+}
+
+// contentAddressedResultRef builds a tenant-neutral object key from a content
+// digest. The exact-result cache refuses anything under jobs/.
+func contentAddressedResultRef(sha256Hex string) string {
+	return "cas/sha256/" + strings.TrimSpace(sha256Hex)
+}
+
+// ExactReuseAccounting is the token split for a pure cache hit: every delivered
+// token is ClassExactResultReuse, none are physical.
+func ExactReuseAccounting(deliveredTokens int64) TokenAccounting {
+	if deliveredTokens < 0 {
+		deliveredTokens = 0
+	}
+	return TokenAccounting{ClassExactResultReuse: deliveredTokens}
+}
+
+// PriceExactReuseHit bills a cache hit at the reuse class. Physical work is not
+// charged; the supplier is not credited. Uses PriceAccounting so the full-rate
+// ceiling clamp stays in force.
+func PriceExactReuseHit(deliveredTokens int64, fullPricePer1K float64) float64 {
+	return PriceAccounting(ExactReuseAccounting(deliveredTokens), fullPricePer1K)
+}
+
+// ReuseHitSettlement is the money split for a cache hit: buyer pays the reuse
+// price, supplier liability is zero (nobody ran the model), platform keeps the
+// rest. Amounts are micro-USD so conservation is exact.
+type ReuseHitSettlement struct {
+	BuyerDebitMicros        int64
+	SupplierLiabilityMicros int64 // always 0 on a pure reuse hit
+	PlatformMicros          int64
+	PhysicalTokens          int64
+	DeliveredTokens         int64
+	Accounting              TokenAccounting
+}
+
+// SettleReuseHitMoney prices a cache hit and checks micro-USD conservation.
+// fullPricePer1K is the catalogue rate the buyer would have paid without reuse.
+func SettleReuseHitMoney(deliveredTokens int64, fullPricePer1K float64) ReuseHitSettlement {
+	acct := ExactReuseAccounting(deliveredTokens)
+	charge := PriceExactReuseHit(deliveredTokens, fullPricePer1K)
+	buyer := usdToMicros(charge)
+	// Pure reuse: no supplier performed work. Platform retains the whole charge
+	// (storage, lookup, delivery, verification still cost merc).
+	return ReuseHitSettlement{
+		BuyerDebitMicros:        buyer,
+		SupplierLiabilityMicros: 0,
+		PlatformMicros:          buyer,
+		PhysicalTokens:          acct.PhysicalTokens(),
+		DeliveredTokens:         acct.DeliveredTokens(),
+		Accounting:              acct,
+	}
+}
+
+// Conserved reports whether buyer = supplier + platform exactly.
+func (s ReuseHitSettlement) Conserved() bool {
+	return s.BuyerDebitMicros == s.SupplierLiabilityMicros+s.PlatformMicros
+}
+
 // --------------------------------------------------------------------------
 // In-flight coalescing
 

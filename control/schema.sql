@@ -2621,11 +2621,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS execution_contracts_buyer_idempotency_uniq
 CREATE INDEX IF NOT EXISTS execution_contracts_buyer_created_idx
     ON execution_contracts (buyer_id,created_at DESC);
 
+-- Exact-result reuse contracts never schedule a worker: the answer was already
+-- computed. Allow null worker/supplier/upstream bindings so a cache hit can
+-- settle money without inventing a capacity reservation or a supplier credit.
+ALTER TABLE execution_contracts ALTER COLUMN worker_id DROP NOT NULL;
+ALTER TABLE execution_contracts ALTER COLUMN supplier_id DROP NOT NULL;
+ALTER TABLE execution_contracts ALTER COLUMN upstream_base_url DROP NOT NULL;
+ALTER TABLE execution_contracts ALTER COLUMN upstream_token_sealed DROP NOT NULL;
+
+-- Dropping NOT NULL above is what lets a cache hit settle without inventing a
+-- capacity reservation. On its own it also lets ANY contract be written with no
+-- worker and no supplier, which is the failure a scheduling bug produces: a
+-- contract nobody is bound to, and therefore a supplier nobody credits.
+--
+-- So the nulls are pinned to the only case that may have them. Either the
+-- contract binds a worker, a supplier and an upstream (a real execution), or it
+-- binds none of them AND owes the supplier nothing (an exact-reuse hit). A
+-- half-bound contract -- worker dropped while supplier rates stay positive -- is
+-- rejected by the database rather than discovered in a payout reconciliation.
+ALTER TABLE execution_contracts DROP CONSTRAINT IF EXISTS execution_contracts_binding_shape;
+ALTER TABLE execution_contracts ADD CONSTRAINT execution_contracts_binding_shape CHECK (
+  (worker_id IS NOT NULL AND supplier_id IS NOT NULL
+   AND upstream_base_url IS NOT NULL AND upstream_token_sealed IS NOT NULL)
+  OR
+  (worker_id IS NULL AND supplier_id IS NULL
+   AND upstream_base_url IS NULL AND upstream_token_sealed IS NULL
+   AND supplier_input_usd_per_million_tokens = 0
+   AND supplier_output_usd_per_million_tokens = 0)
+);
+
 CREATE TABLE IF NOT EXISTS realtime_executions (
     id                    UUID PRIMARY KEY,
     contract_id           UUID NOT NULL UNIQUE REFERENCES execution_contracts(id) ON DELETE RESTRICT,
-    worker_id             UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
-    supplier_id           UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    worker_id             UUID REFERENCES workers(id) ON DELETE RESTRICT,
+    supplier_id           UUID REFERENCES suppliers(id) ON DELETE RESTRICT,
     upstream_request_id   TEXT,
     http_status           INT CHECK (http_status BETWEEN 100 AND 599),
     stream_event_count    BIGINT NOT NULL DEFAULT 0 CHECK (stream_event_count >= 0),
@@ -2650,6 +2679,11 @@ CREATE TABLE IF NOT EXISTS realtime_executions (
             AND failure_code IS NULL)
         OR (verification_state='FAILED' AND failure_code IS NOT NULL))
 );
+
+-- Existing deployments created the table with NOT NULL worker/supplier; reuse
+-- hits need those columns nullable without rebuilding the table.
+ALTER TABLE realtime_executions ALTER COLUMN worker_id DROP NOT NULL;
+ALTER TABLE realtime_executions ALTER COLUMN supplier_id DROP NOT NULL;
 
 ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS execution_contract_id UUID;
 DO $$
@@ -2726,9 +2760,9 @@ INSERT INTO realtime_settlements
   (id,contract_id,authoritative_execution_id,receipt_id,buyer_charge_usd,
    supplier_gross_usd,platform_margin_usd,verification_cost_usd)
 SELECT gen_random_uuid(),c.id,e.id,'rcp_'||e.id::text,
-       -sum(le.amount_usd) FILTER (WHERE le.kind='buyer_charge'),
-       sum(le.amount_usd) FILTER (WHERE le.kind='supplier_credit'),
-       sum(le.amount_usd) FILTER (WHERE le.kind='platform_take'),0
+       COALESCE(-sum(le.amount_usd) FILTER (WHERE le.kind='buyer_charge'),0),
+       COALESCE(sum(le.amount_usd) FILTER (WHERE le.kind='supplier_credit'),0),
+       COALESCE(sum(le.amount_usd) FILTER (WHERE le.kind='platform_take'),0),0
   FROM execution_contracts c
   JOIN realtime_executions e ON e.contract_id=c.id AND e.verification_state='PASSED'
   JOIN ledger_entries le ON le.execution_contract_id=c.id
