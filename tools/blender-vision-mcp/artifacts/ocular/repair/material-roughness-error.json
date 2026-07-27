@@ -1,0 +1,22 @@
+{
+  "acceptance_passed": true,
+  "block_reason": "",
+  "category": "material",
+  "detector_fired": true,
+  "drill_id": "material-roughness-error",
+  "execution_class": "DIAGNOSTIC_ONLY",
+  "global_regression": false,
+  "measured_baseline": {
+    "roughness": 0.45
+  },
+  "measured_injected": {
+    "roughness": 0.05
+  },
+  "measured_repaired": {
+    "roughness": 0.4
+  },
+  "notes": [],
+  "repaired": true,
+  "runtime_used": "highlight-width-proxy",
+  "status": "PASS"
+}

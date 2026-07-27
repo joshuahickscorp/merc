@@ -1,0 +1,34 @@
+{
+  "acceptance_thresholds": {
+    "min_contradiction_detectors": 7
+  },
+  "blocked_requirements": [],
+  "builder_inputs_digest": "588d5b57877512af6da9f35b706623e73bc3c96803049ddb9da43cda9eb94f78",
+  "canary_marker_digest": "f4ebc9d99d0e9173cf40a2a14ca522684d7217f6e88f8d1ec1f01b12503344ff",
+  "digest": "b6c76e98832b8162c41e2a374f8ed1597b1c45405962e9149e2de040131a94c7",
+  "evaluator_digest": "bf21924ec34995c4e2a6c308520b931bfc1468a9d95935d52125be0291fd71fc",
+  "frozen_at": "2026-07-27T12:36:28.032954+00:00",
+  "kind": "ocular.sealed-benchmark-contract",
+  "lineage": {
+    "environment": {},
+    "hardware": {},
+    "input_authorities": [],
+    "inputs": [
+      "browser_page"
+    ],
+    "limitations": [],
+    "model_versions": {},
+    "operation": "ocular.sealed.materialise",
+    "parameters": {
+      "schema_version": "1"
+    },
+    "retrieved_at": "",
+    "rights_state": "unreviewed",
+    "tool": "blender-vision-mcp",
+    "tool_version": "0.1.0"
+  },
+  "oracle_digest": "003234c07d8decdfad5922f68a8e6f9c2f5adc46e564c9462239f0fbab879458",
+  "schema_version": "1",
+  "split_digest": "741263d989a7abc0b18f9e077958ebe7161c1764cb0253a556bd6483966cf9f8",
+  "target_id": "browser_page"
+}

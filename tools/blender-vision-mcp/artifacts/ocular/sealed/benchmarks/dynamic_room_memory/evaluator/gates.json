@@ -1,0 +1,9 @@
+{
+  "acceptance_thresholds": {
+    "change_classes_required": 4
+  },
+  "require_canary_absent_from_builder": true,
+  "require_split_digest_match": true,
+  "split_digest": "1d736910b1be4c7d38ade06b84adcbe254940ceb605163b83b65391c482ee8bb",
+  "target_id": "dynamic_room_memory"
+}

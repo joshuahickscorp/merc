@@ -1,0 +1,32 @@
+{
+  "note": "Hidden indices are intentionally absent. Recomputing them from total_views is a contract violation — use this train list only.",
+  "split_digest": "e7d855a1ec27f2a3da771df1e2d8c440b32a8e08c352f161221c7035811107e4",
+  "target_id": "data_centre",
+  "total_views": 32,
+  "train_indices": [
+    0,
+    1,
+    2,
+    4,
+    5,
+    6,
+    8,
+    9,
+    10,
+    12,
+    13,
+    14,
+    16,
+    17,
+    18,
+    20,
+    21,
+    22,
+    24,
+    25,
+    26,
+    28,
+    29,
+    30
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "acceptance_thresholds": {
+    "min_views": 24,
+    "require_perception_identity": true
+  },
+  "blocked_requirements": [
+    {
+      "id": "user_remote_photos",
+      "reason": "User-supplied remote photos not present; fixture is procedural only."
+    }
+  ],
+  "builder_inputs_digest": "458e0679527e51b66d52e9deccfa1e15398f5b70b0ee12a2e6239e38394ac8f5",
+  "canary_marker_digest": "43d8ba06707bfdcbe0ef1a204e87b5a9eda12d71303f882fc29eb88440273a42",
+  "digest": "e68a4c5f3bfcac94896fca09387474c1add497ac77ac3fcd2c97db83381ee069",
+  "evaluator_digest": "a6fbcfc0baf0b05d4747467d39ea3e9d65e6daf6d23d2c9e1b6d150792e71e55",
+  "frozen_at": "2026-07-27T12:36:28.026469+00:00",
+  "kind": "ocular.sealed-benchmark-contract",
+  "lineage": {
+    "environment": {},
+    "hardware": {},
+    "input_authorities": [],
+    "inputs": [
+      "remote"
+    ],
+    "limitations": [],
+    "model_versions": {},
+    "operation": "ocular.sealed.materialise",
+    "parameters": {
+      "schema_version": "1"
+    },
+    "retrieved_at": "",
+    "rights_state": "unreviewed",
+    "tool": "blender-vision-mcp",
+    "tool_version": "0.1.0"
+  },
+  "oracle_digest": "3cba7c458174c57997cbbbd1a5fc074d86c2365d22adf9bd798caf40c93c7e99",
+  "schema_version": "1",
+  "split_digest": "1ac7e909fcf68cab56bad0d4b12965ef9dd13d9e88281b483cd1367389844bff",
+  "target_id": "remote"
+}

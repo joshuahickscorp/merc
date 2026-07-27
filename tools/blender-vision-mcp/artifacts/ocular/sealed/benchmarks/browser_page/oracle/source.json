@@ -1,0 +1,8 @@
+{
+  "claim_boundary": [
+    "Physical browser runs via with-one-browser.sh; demo detectors always run."
+  ],
+  "display_name": "Browser page eyeball",
+  "evidence_status": "partial",
+  "target_id": "browser_page"
+}

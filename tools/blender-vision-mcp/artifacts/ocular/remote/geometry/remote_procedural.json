@@ -1,0 +1,13 @@
+{
+  "authority": "INFERRED",
+  "claim": "Governed self-captured procedural fixture. Not a claim about any physical remote control, including any remote the user may own.",
+  "kind": "parametric_consumer_object",
+  "parameters": {
+    "aspect_xy": 1.0,
+    "button_grid_hypothesis": [
+      4,
+      2
+    ],
+    "source": "image_statistics_only"
+  }
+}

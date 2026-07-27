@@ -1,0 +1,8 @@
+{
+  "claim_boundary": [
+    "Cross-session identity must survive restart."
+  ],
+  "display_name": "Dynamic room memory",
+  "evidence_status": "synthetic",
+  "target_id": "dynamic_room_memory"
+}

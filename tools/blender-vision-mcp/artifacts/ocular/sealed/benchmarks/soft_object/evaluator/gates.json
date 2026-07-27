@@ -1,0 +1,9 @@
+{
+  "acceptance_thresholds": {
+    "topology_stable": true
+  },
+  "require_canary_absent_from_builder": true,
+  "require_split_digest_match": true,
+  "split_digest": "48cc5c85285b5eae1d1741548970f4325304fe39630b665f32a1cec02a81a8f7",
+  "target_id": "soft_object"
+}

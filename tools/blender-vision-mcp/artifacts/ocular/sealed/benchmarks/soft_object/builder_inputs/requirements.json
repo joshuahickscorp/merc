@@ -1,0 +1,10 @@
+{
+  "acceptance_thresholds": {
+    "topology_stable": true
+  },
+  "blocked_requirements": [],
+  "claim_boundary": [
+    "Soft deformation; metric volume is inferred."
+  ],
+  "target_id": "soft_object"
+}

@@ -1,0 +1,9 @@
+{
+  "acceptance_thresholds": {
+    "min_contradiction_detectors": 7
+  },
+  "require_canary_absent_from_builder": true,
+  "require_split_digest_match": true,
+  "split_digest": "741263d989a7abc0b18f9e077958ebe7161c1764cb0253a556bd6483966cf9f8",
+  "target_id": "browser_page"
+}
