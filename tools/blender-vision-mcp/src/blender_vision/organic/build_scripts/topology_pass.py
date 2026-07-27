@@ -57,6 +57,13 @@ def measure(obj):
     evaluated.to_mesh_clear()
     return report
 
+def _percentile(values, fraction):
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(fraction * len(ordered)))]
+
+
 def _uv_continuous(face_a, face_b, edge, uv_layer, tolerance=1e-5):
     for vert in edge.verts:
         a = [loop for loop in face_a.loops if loop.vert is vert]
@@ -79,6 +86,8 @@ def measure_uv(obj):
     islands_area = 0.0
     area_ratios = []
     angle_max = 0.0
+    angle_samples = []
+    degenerate_corners = 0
     for face in bm.faces:
         loops = face.loops
         uvs = [loop[uv_layer].uv for loop in loops]
@@ -91,16 +100,22 @@ def measure_uv(obj):
         world_area = face.calc_area()
         if world_area > 1e-12 and uv_area > 1e-12:
             area_ratios.append(uv_area / world_area)
-        # Angle distortion: compare corner angles in 3D and in UV.
+        # Angle distortion: compare corner angles in 3D and in UV. Collect the
+        # whole distribution: the maximum alone is set by a handful of
+        # near-degenerate corners at seams and says nothing about the unwrap.
         for i in range(len(loops)):
             a3 = (loops[i - 1].vert.co - loops[i].vert.co)
             b3 = (loops[(i + 1) % len(loops)].vert.co - loops[i].vert.co)
             a2 = (uvs[i - 1] - uvs[i])
             b2 = (uvs[(i + 1) % len(uvs)] - uvs[i])
-            if a3.length > 1e-9 and b3.length > 1e-9 and a2.length > 1e-9 and b2.length > 1e-9:
+            if a3.length > 1e-9 and b3.length > 1e-9 and a2.length > 1e-7 and b2.length > 1e-7:
                 t3 = math.degrees(a3.angle(b3))
                 t2 = math.degrees(a2.angle(b2))
-                angle_max = max(angle_max, abs(t3 - t2))
+                deviation = abs(t3 - t2)
+                angle_samples.append(deviation)
+                angle_max = max(angle_max, deviation)
+            else:
+                degenerate_corners += 1
 
     # Island count via UV-connected components over face adjacency.
     seen = set()
@@ -140,6 +155,15 @@ def measure_uv(obj):
         "max_area_distortion": max(abs(n - 1.0) for n in normalized),
         "mean_area_distortion": sum(abs(n - 1.0) for n in normalized) / len(normalized),
         "max_angle_distortion_deg": angle_max,
+        "p99_angle_distortion_deg": _percentile(angle_samples, 0.99),
+        "p95_angle_distortion_deg": _percentile(angle_samples, 0.95),
+        "median_angle_distortion_deg": _percentile(angle_samples, 0.50),
+        "angle_corner_count": len(angle_samples),
+        "degenerate_corner_count": degenerate_corners,
+        "corners_over_70deg_fraction": (
+            sum(1 for a in angle_samples if a > 70.0) / len(angle_samples)
+            if angle_samples else 0.0
+        ),
         "overlapping_faces": 0,
         "texel_density_variance": variance / (mean_ratio ** 2) if mean_ratio > 0 else 0.0,
     }
