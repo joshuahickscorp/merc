@@ -186,7 +186,14 @@ one object-store restart, one alerting restart, two bounded control-network
 interruptions, and delegates the two Metal-agent supervisor actions to the
 reviewed adapter above while deriving actual restart proof from durable process
 session transitions. The final 24-hour soak refuses a shorter duration unless
-`--iteration` is supplied; iteration receipts are marked non-qualifying.
+`--iteration` is supplied; iteration receipts are marked non-qualifying. Every
+sample binds the full control-container ID, configured immutable candidate
+image, and content-addressed image ID. A restart, recreation, or image
+substitution invalidates the run. The schema-v2 PASS receipt is accepted only
+after `validate-go-closure-soak-receipt.py` verifies the retained JSONL
+SHA-256, re-derives every health assertion and resource bound, and confirms at
+least 95% sample coverage. The runner deletes the PASS receipt if that
+independent validation fails.
 
 These scripts never authorize Stripe live mode, real-value settlement, or
 unrestricted public access.

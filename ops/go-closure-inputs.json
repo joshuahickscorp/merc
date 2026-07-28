@@ -12,7 +12,7 @@
     "format": "one NAME=VALUE assignment per requested input; do not place values in chat, git, CI logs, or evidence files",
     "verification_command": "make release-doctor",
     "expected_evidence": {
-      "staging": "TLS certificate/headers, external health and source identity, persistent-volume restart, prior-digest rollback and candidate forward-recovery receipts",
+      "staging": "TLS certificate/headers, external health and source identity, persistent-volume restart, prior-digest rollback and candidate forward-recovery receipts, plus a raw-sample-derived 24-hour soak on one uninterrupted immutable candidate container",
       "backup": "encrypted offsite object URI and SHA-256, independent download, isolated decrypt/restore, restored database/object checksums and application verification",
       "stripe": "redacted test-mode fixture IDs covering success, decline, retry/idempotency, refund, dispute, Connect restriction, payout hold/manual release/failure, webhook replay/out-of-order, and reconciliation",
       "alert": "redacted receiver delivery ID, delivery timestamp, acknowledgement, deduplication, and resolved notification",

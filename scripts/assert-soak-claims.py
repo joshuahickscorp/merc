@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -117,6 +118,33 @@ def receipt_is_clean(doc: dict) -> bool:
     return bool(restart_ok and oom_ok)
 
 
+def formal_go_closure_soak_is_clean(path: Path, doc: dict) -> bool:
+    if (
+        doc.get("schema_version") != 2
+        or doc.get("kind") != "go_closure_soak"
+        or not isinstance(doc.get("expected_commit"), str)
+        or not isinstance(doc.get("control_image"), str)
+    ):
+        return False
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "validate-go-closure-soak-receipt.py"),
+            str(path),
+            "--root",
+            str(ROOT),
+            "--commit",
+            doc["expected_commit"],
+            "--image",
+            doc["control_image"],
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def max_clean_soak_seconds() -> tuple[int, list[str]]:
     best = 0
     sources: list[str] = []
@@ -136,7 +164,10 @@ def max_clean_soak_seconds() -> tuple[int, list[str]]:
         wall = receipt_wall_seconds(doc)
         if wall is None:
             continue
-        if not receipt_is_clean(doc):
+        if kind == "go_closure_soak":
+            if not formal_go_closure_soak_is_clean(path, doc):
+                continue
+        elif not receipt_is_clean(doc):
             continue
         rel = path.relative_to(ROOT).as_posix()
         if wall > best:

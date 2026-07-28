@@ -49,13 +49,22 @@ host_soak() {
   gc_prepare_evidence soak-working
   local samples
   samples="$GC_EVIDENCE_DIR/$(date -u +%Y%m%dT%H%M%SZ)-soak-samples.jsonl"
-  local cid pid started_epoch end_epoch now_epoch sleep_seconds sample_count=0
+  local cid current_cid pid started_epoch end_epoch now_epoch sleep_seconds sample_count=0
+  local configured_image current_configured_image image_id current_image_id
   local baseline_rss_kb baseline_disk_kb baseline_size_rw baseline_connections baseline_restarts
   local max_rss_kb max_disk_kb max_size_rw max_connections
   local rss_kb disk_kb size_rw connections acquired workers page_alerts dead_letters
   local restarts db_snapshot sample_time last_rss_kb last_disk_kb last_size_rw last_connections
   cid="$(gc_compose ps -q control)"
   [ -n "$cid" ] || gc_die "control container is not running"
+  cid="$(docker inspect -f '{{.Id}}' "$cid")"
+  [[ "$cid" =~ ^[0-9a-f]{64}$ ]] || gc_die "control container ID is not a full content identity"
+  configured_image="$(docker inspect -f '{{.Config.Image}}' "$cid")"
+  [ "$configured_image" = "$MERC_CANDIDATE_CONTROL_IMAGE" ] \
+    || gc_die "soak control is configured with $configured_image, not the candidate image"
+  image_id="$(docker inspect -f '{{.Image}}' "$cid")"
+  [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] \
+    || gc_die "control image ID is not content-addressed"
   pid="$(docker inspect -f '{{.State.Pid}}' "$cid")"
   [ "$pid" -gt 0 ] || gc_die "control container has no live PID"
   baseline_rss_kb="$(ps -o rss= -p "$pid" | tr -d ' ')"
@@ -81,12 +90,22 @@ host_soak() {
   while [ "$(date +%s)" -lt "$end_epoch" ]; do
     sample_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     gc_probe_release "$MERC_CANDIDATE_COMMIT" >/dev/null
-    cid="$(gc_compose ps -q control)"
-    pid="$(docker inspect -f '{{.State.Pid}}' "$cid")"
+    current_cid="$(gc_compose ps -q control)"
+    current_cid="$(docker inspect -f '{{.Id}}' "$current_cid")"
+    [ "$current_cid" = "$cid" ] \
+      || gc_die "control container was recreated during soak"
+    current_configured_image="$(docker inspect -f '{{.Config.Image}}' "$current_cid")"
+    current_image_id="$(docker inspect -f '{{.Image}}' "$current_cid")"
+    [ "$current_configured_image" = "$configured_image" ] \
+      || gc_die "control configured image changed during soak"
+    [ "$current_image_id" = "$image_id" ] \
+      || gc_die "control image content changed during soak"
+    pid="$(docker inspect -f '{{.State.Pid}}' "$current_cid")"
+    [ "$pid" -gt 0 ] || gc_die "control container has no live PID during soak"
     rss_kb="$(ps -o rss= -p "$pid" | tr -d ' ')"
     disk_kb="$(df -Pk "$GC_ROOT" | awk 'NR==2 {print $3}')"
-    size_rw="$(docker inspect --size -f '{{.SizeRw}}' "$cid")"
-    restarts="$(docker inspect -f '{{.RestartCount}}' "$cid")"
+    size_rw="$(docker inspect --size -f '{{.SizeRw}}' "$current_cid")"
+    restarts="$(docker inspect -f '{{.RestartCount}}' "$current_cid")"
     [ "$restarts" = "$baseline_restarts" ] || gc_die "control restart count changed during soak"
     workers="$(gc_prometheus_scalar 'merc_active_workers')"
     connections="$(gc_prometheus_scalar 'merc_db_pool_connections{state="total"}')"
@@ -113,12 +132,17 @@ host_soak() {
 
     jq -cn \
       --arg at "$sample_time" --argjson sequence "$sample_count" \
+      --arg container_id "$cid" --arg configured_image "$configured_image" \
+      --arg image_id "$image_id" \
       --argjson rss_kb "$rss_kb" --argjson disk_used_kb "$disk_kb" \
       --argjson writable_bytes "$size_rw" --argjson restarts "$restarts" \
       --argjson workers "$workers" --argjson connections "$connections" \
       --argjson acquired "$acquired" --argjson pages "$page_alerts" \
       --argjson dead_letters "$dead_letters" --argjson database "$db_snapshot" \
-      '{observed_at:$at,sequence:$sequence,control_rss_kb:$rss_kb,
+      '{observed_at:$at,sequence:$sequence,
+        control_container_id:$container_id,
+        control_configured_image:$configured_image,control_image_id:$image_id,
+        control_rss_kb:$rss_kb,
         host_disk_used_kb:$disk_used_kb,control_writable_layer_bytes:$writable_bytes,
         control_restart_count:$restarts,active_workers:$workers,
         db_connections_total:$connections,db_connections_acquired:$acquired,
@@ -162,6 +186,8 @@ host_soak() {
     --arg image "$MERC_CANDIDATE_CONTROL_IMAGE" --arg commit "$MERC_CANDIDATE_COMMIT" \
     --arg mode "$qualification" --arg samples_file "${samples#"$GC_ROOT"/}" \
     --arg samples_sha "$samples_sha" --argjson requested "$duration" \
+    --arg container_id "$cid" --arg configured_image "$configured_image" \
+    --arg image_id "$image_id" --argjson restart_count "$baseline_restarts" \
     --argjson actual "$actual_duration" --argjson interval "$interval" \
     --argjson sample_count "$sample_count" --argjson qualifies "$qualifies" \
     --argjson baseline_rss "$baseline_rss_kb" --argjson max_rss "$max_rss_kb" \
@@ -172,20 +198,39 @@ host_soak() {
     --argjson final_writable "$last_size_rw" --argjson writable_growth "$writable_growth_bytes" \
     --argjson baseline_connections "$baseline_connections" --argjson max_connections "$max_connections" \
     --argjson final_connections "$last_connections" --argjson connection_growth "$connection_growth" \
-    '{schema_version:1,kind:"go_closure_soak",status:"PASS",
+    --argjson rss_limit "$rss_limit" --argjson disk_limit "$disk_limit" \
+    --argjson writable_limit "$writable_limit" --argjson connection_limit "$connection_limit" \
+    '{schema_version:2,kind:"go_closure_soak",status:"PASS",
       started_at:$started,finished_at:$finished,mode:$mode,
       control_image:$image,expected_commit:$commit,
+      runtime:{container_id:$container_id,configured_image:$configured_image,
+               image_id:$image_id,restart_count:$restart_count},
       duration:{requested_seconds:$requested,actual_seconds:$actual,interval_seconds:$interval,samples:$sample_count},
       samples:{path:$samples_file,sha256:$samples_sha},
-      bounds:{rss:{baseline_kb:$baseline_rss,max_kb:$max_rss,final_kb:$final_rss,max_growth_bytes:$rss_growth},
-              disk:{baseline_used_kb:$baseline_disk,max_used_kb:$max_disk,final_used_kb:$final_disk,max_growth_kb:$disk_growth},
-              writable_layer:{baseline_bytes:$baseline_writable,max_bytes:$max_writable,final_bytes:$final_writable,max_growth_bytes:$writable_growth},
-              db_connections:{baseline:$baseline_connections,max:$max_connections,final:$final_connections,max_growth:$connection_growth}},
+      bounds:{rss:{baseline_kb:$baseline_rss,max_kb:$max_rss,final_kb:$final_rss,
+                   observed_growth_bytes:$rss_growth,limit_growth_bytes:$rss_limit},
+              disk:{baseline_used_kb:$baseline_disk,max_used_kb:$max_disk,
+                    final_used_kb:$final_disk,observed_growth_kb:$disk_growth,
+                    limit_growth_kb:$disk_limit},
+              writable_layer:{baseline_bytes:$baseline_writable,max_bytes:$max_writable,
+                              final_bytes:$final_writable,
+                              observed_growth_bytes:$writable_growth,
+                              limit_growth_bytes:$writable_limit},
+              db_connections:{baseline:$baseline_connections,max:$max_connections,
+                              final:$final_connections,observed_growth:$connection_growth,
+                              limit_growth:$connection_limit}},
       assertions:{two_agents_continuously_present:true,no_page_alerts:true,no_webhook_dead_letters:true,
-                  no_control_restarts:true,no_stuck_terminal_jobs:true,bounded_resource_growth:true},
+                  no_control_restarts_or_recreates:true,no_stuck_terminal_jobs:true,
+                  bounded_resource_growth:true,raw_samples_independently_validated:true},
       qualification:{qualifies_for_24h_gate:$qualifies,
                      reason:(if $qualifies then "observed_at_least_86400_seconds" else "short_iteration_only" end)},
       policy:{stripe_test_mode:true,stripe_live_mode:false,real_value:false,secret_values_recorded:false}}'
+  if ! python3 "$ROOT/scripts/validate-go-closure-soak-receipt.py" "$GC_EVIDENCE_FILE" \
+    --root "$GC_ROOT" --commit "$MERC_CANDIDATE_COMMIT" \
+    --image "$MERC_CANDIDATE_CONTROL_IMAGE" >/dev/null; then
+    rm -f -- "$GC_EVIDENCE_FILE"
+    gc_die "soak receipt failed independent raw-sample validation"
+  fi
   gc_log "PASS receipt: $GC_EVIDENCE_FILE"
 }
 
@@ -215,6 +260,7 @@ if [ "$duration" -lt 86400 ] && [ "$qualification" != iteration ]; then
   gc_die "durations below 86400 require --iteration"
 fi
 gc_require_command jq
+gc_require_command python3
 gc_load_env
 gc_require_declared_inputs STAGING_DEPLOYMENT_ROOT
 if [ "$target" = ssh ]; then gc_validate_ssh_target; fi

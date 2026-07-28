@@ -88,10 +88,14 @@ pass "bash syntax for staging harness"
   || die "canary scenario receipt validator is missing or not executable"
 [ -x "$ROOT/scripts/validate-agent-restart-receipt.py" ] \
   || die "agent restart receipt validator is missing or not executable"
+[ -x "$ROOT/scripts/validate-go-closure-soak-receipt.py" ] \
+  || die "GO-closure soak receipt validator is missing or not executable"
 python3 -m py_compile "$ROOT/scripts/validate-canary-scenario-receipt.py" \
   || die "canary scenario receipt validator does not compile"
 python3 -m py_compile "$ROOT/scripts/validate-agent-restart-receipt.py" \
   || die "agent restart receipt validator does not compile"
+python3 -m py_compile "$ROOT/scripts/validate-go-closure-soak-receipt.py" \
+  || die "GO-closure soak receipt validator does not compile"
 for contract in \
   'MERC_CANARY_RUN_ID' 'MERC_CANARY_CANDIDATE_COMMIT' \
   'MERC_CANARY_CONTROL_IMAGE' 'MERC_CANARY_DRIVER_SHA256' \
@@ -114,6 +118,19 @@ done
 rg -q 'scripts/validate-agent-restart-receipt.py' "$ROOT/scripts/lib/go-closure-common.sh" \
   || die "deployment sync bundle omits the agent restart receipt validator"
 pass "reviewed restart driver and database process-session corroboration"
+
+for contract in \
+  'control container was recreated during soak' \
+  'control_configured_image' \
+  'no_control_restarts_or_recreates:true' \
+  'raw_samples_independently_validated:true' \
+  'scripts/validate-go-closure-soak-receipt.py'; do
+  rg -q -- "$contract" "$ROOT/scripts/go-closure-soak.sh" \
+    || die "soak lacks exact-candidate raw-sample authority contract $contract"
+done
+rg -q 'scripts/validate-go-closure-soak-receipt.py' "$ROOT/scripts/lib/go-closure-common.sh" \
+  || die "deployment sync bundle omits the GO-closure soak receipt validator"
+pass "uninterrupted candidate soak and raw-sample authority"
 
 while IFS= read -r documented_script; do
   [ -f "$ROOT/$documented_script" ] || die "README references missing $documented_script"
