@@ -23,6 +23,18 @@ for arg in "$@"; do
   esac
 done
 
+RESULT_FILE="${MERC_BACKUP_RESULT_FILE:-}"
+if [ -n "$RESULT_FILE" ]; then
+  [[ "$RESULT_FILE" == /* ]] || {
+    echo "[backup] ERROR: MERC_BACKUP_RESULT_FILE must be absolute" >&2
+    exit 1
+  }
+  [ ! -e "$RESULT_FILE" ] || {
+    echo "[backup] ERROR: MERC_BACKUP_RESULT_FILE already exists" >&2
+    exit 1
+  }
+fi
+
 die() { echo "[backup] ERROR: $*" >&2; exit 1; }
 log() { echo "[backup] $*"; }
 
@@ -99,6 +111,7 @@ command -v docker >/dev/null 2>&1 || die "docker not found"
 command -v aws >/dev/null 2>&1 || die "aws CLI not found (install awscli; it \
 speaks S3/Spaces/R2/B2). Offsite upload requires it."
 command -v age >/dev/null 2>&1 || die "age not found; refusing to upload a plaintext backup"
+command -v python3 >/dev/null 2>&1 || die "python3 not found; backup verification is mandatory"
 
 [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] \
   || die "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (offsite bucket creds) not \
@@ -106,9 +119,12 @@ set. See .env.example. Refusing to back up with no way to authenticate offsite."
 
 dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
 
+BACKUP_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 STAGE="${MERC_BACKUP_DIR:-$ROOT/.artifacts/backups}/$TS"
 PAYLOAD="$STAGE/payload"
+DEST="${OFFSITE%/}/$TS"
+[ ! -e "$STAGE" ] || die "backup stage already exists for $TS; refusing to mix invocations"
 mkdir -p "$PAYLOAD"
 
 log "pg_dump (-Fc) $PG_DB -> encrypted bundle payload"
@@ -149,11 +165,15 @@ rm -rf "$PAYLOAD"
 jq -nc --arg id "$TS" \
   --arg sha "$(cut -d' ' -f1 "$STAGE/backup.tar.age.sha256")" \
   --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg database "$PG_DB" --arg offsite "$DEST" \
+  --argjson objects "$([ "$DB_ONLY" -eq 0 ] && echo true || echo false)" \
   --argjson bytes "$(wc -c < "$STAGE/backup.tar.age" | tr -d ' ')" \
-  '{schema_version:1,backup_id:$id,cipher:"age-x25519",ciphertext_sha256:$sha,ciphertext_bytes:$bytes,created_at:$created}' \
+  '{schema_version:2,kind:"merc_encrypted_offsite_backup",
+    backup_id:$id,cipher:"age-x25519",ciphertext_sha256:$sha,
+    ciphertext_bytes:$bytes,created_at:$created,database:$database,
+    objects_included:$objects,offsite_uri:$offsite}' \
   > "$STAGE/manifest.json"
 
-DEST="${OFFSITE%/}/$TS"
 log "ship -> $DEST"
 if ! aws "${AWS_ARGS[@]}" s3 cp --only-show-errors --recursive "$STAGE" "$DEST"; then
   die "OFFSITE UPLOAD FAILED to $DEST. The local staging copy is at $STAGE but \
@@ -165,9 +185,59 @@ VERIFY="$(mktemp -d "${TMPDIR:-/tmp}/cx-backup-verify.XXXXXX")"
 trap 'rm -rf "$VERIFY"' EXIT
 aws "${AWS_ARGS[@]}" s3 cp --only-show-errors "$DEST/backup.tar.age" "$VERIFY/backup.tar.age" \
   || die "independent post-upload download failed"
+aws "${AWS_ARGS[@]}" s3 cp --only-show-errors "$DEST/manifest.json" "$VERIFY/manifest.json" \
+  || die "independent manifest download failed"
 expected="$(cut -d' ' -f1 "$STAGE/backup.tar.age.sha256")"
 actual="$(shasum -a 256 "$VERIFY/backup.tar.age" | cut -d' ' -f1)"
 [ "$actual" = "$expected" ] || die "downloaded ciphertext checksum mismatch"
+manifest_expected="$(shasum -a 256 "$STAGE/manifest.json" | cut -d' ' -f1)"
+manifest_actual="$(shasum -a 256 "$VERIFY/manifest.json" | cut -d' ' -f1)"
+[ "$manifest_actual" = "$manifest_expected" ] || die "downloaded manifest checksum mismatch"
+verified_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+jq -nc \
+  --arg id "$TS" --arg offsite "$DEST" \
+  --arg manifest_sha "$manifest_expected" \
+  --arg ciphertext_sha "$expected" --arg downloaded_sha "$actual" \
+  --arg verified "$verified_at" \
+  --argjson bytes "$(wc -c < "$STAGE/backup.tar.age" | tr -d ' ')" '
+  {
+    schema_version:1,
+    kind:"merc_offsite_backup_verification",
+    status:"PASS",
+    backup_id:$id,
+    offsite_uri:$offsite,
+    manifest_sha256:$manifest_sha,
+    ciphertext:{
+      manifest_sha256:$ciphertext_sha,
+      downloaded_sha256:$downloaded_sha,
+      bytes:$bytes
+    },
+    verified_at:$verified,
+    checks:{
+      offsite_bundle_visible:true,
+      independent_manifest_download:true,
+      independent_ciphertext_download:true,
+      manifest_checksum_match:true,
+      ciphertext_checksum_match:true
+    },
+    policy:{
+      encrypted_before_upload:true,
+      plaintext_uploaded:false,
+      secret_values_recorded:false
+    }
+  }' > "$STAGE/verification.json"
+python3 "$ROOT/scripts/validate-backup-verification-receipt.py" \
+  "$STAGE/manifest.json" "$STAGE/verification.json" \
+  --ciphertext "$STAGE/backup.tar.age" \
+  --offsite-base "$OFFSITE" \
+  --not-before "$BACKUP_STARTED_AT" \
+  --checked-at "$verified_at" >/dev/null \
+  || die "local backup verification receipt failed closed-schema validation"
+aws "${AWS_ARGS[@]}" s3 cp --only-show-errors \
+  "$STAGE/verification.json" "$DEST/verification.json" \
+  || die "verification receipt upload failed"
+aws "${AWS_ARGS[@]}" s3 ls "$DEST/verification.json" >/dev/null \
+  || die "verification receipt is not visible offsite"
 log "offsite verified: $DEST/backup.tar.age sha256=$expected"
 
 write_backup_status
@@ -177,6 +247,31 @@ BASE="$(dirname "$STAGE")"
 ls -1dt "$BASE"/*/ 2>/dev/null | tail -n +"$((KEEP + 1))" | while read -r old; do
   log "prune local $old"; rm -rf "$old"
 done
+
+if [ -n "$RESULT_FILE" ]; then
+  result_tmp="${RESULT_FILE}.tmp.$$"
+  mkdir -p "$(dirname "$RESULT_FILE")"
+  umask 077
+  jq -nc \
+    --arg id "$TS" --arg offsite "$DEST" \
+    --arg manifest_sha "$manifest_expected" \
+    --arg verification_sha "$(shasum -a 256 "$STAGE/verification.json" | cut -d' ' -f1)" \
+    --arg ciphertext_sha "$expected" \
+    --arg completed "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+    {
+      schema_version:1,
+      kind:"merc_backup_invocation_result",
+      status:"PASS",
+      backup_id:$id,
+      offsite_uri:$offsite,
+      manifest_sha256:$manifest_sha,
+      verification_sha256:$verification_sha,
+      ciphertext_sha256:$ciphertext_sha,
+      completed_at:$completed
+    }' > "$result_tmp"
+  chmod 600 "$result_tmp"
+  mv -f -- "$result_tmp" "$RESULT_FILE"
+fi
 
 log "done: $TS (encrypted offsite $DEST, encrypted local $STAGE)"
 log "restore: scripts/restore.sh $TS    (or --latest) · see docs/RUNBOOKS.md"

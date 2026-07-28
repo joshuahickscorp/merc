@@ -90,12 +90,16 @@ pass "bash syntax for staging harness"
   || die "agent restart receipt validator is missing or not executable"
 [ -x "$ROOT/scripts/validate-go-closure-soak-receipt.py" ] \
   || die "GO-closure soak receipt validator is missing or not executable"
+[ -x "$ROOT/scripts/validate-backup-verification-receipt.py" ] \
+  || die "backup verification receipt validator is missing or not executable"
 python3 -m py_compile "$ROOT/scripts/validate-canary-scenario-receipt.py" \
   || die "canary scenario receipt validator does not compile"
 python3 -m py_compile "$ROOT/scripts/validate-agent-restart-receipt.py" \
   || die "agent restart receipt validator does not compile"
 python3 -m py_compile "$ROOT/scripts/validate-go-closure-soak-receipt.py" \
   || die "GO-closure soak receipt validator does not compile"
+python3 -m py_compile "$ROOT/scripts/validate-backup-verification-receipt.py" \
+  || die "backup verification receipt validator does not compile"
 for contract in \
   'MERC_CANARY_RUN_ID' 'MERC_CANARY_CANDIDATE_COMMIT' \
   'MERC_CANARY_CONTROL_IMAGE' 'MERC_CANARY_DRIVER_SHA256' \
@@ -131,6 +135,23 @@ done
 rg -q 'scripts/validate-go-closure-soak-receipt.py' "$ROOT/scripts/lib/go-closure-common.sh" \
   || die "deployment sync bundle omits the GO-closure soak receipt validator"
 pass "uninterrupted candidate soak and raw-sample authority"
+
+for contract in \
+  'merc_offsite_backup_verification' \
+  'merc_backup_invocation_result' \
+  'independent_manifest_download:true' \
+  'independent_ciphertext_download:true' \
+  'scripts/validate-backup-verification-receipt.py'; do
+  rg -q -- "$contract" "$ROOT/scripts/backup.sh" \
+    || die "backup path lacks exact offsite verification contract $contract"
+done
+for contract in 'invocation_result' 'verification_receipt'; do
+  rg -q -- "$contract" "$ROOT/scripts/go-closure-rollback-rehearsal.sh" \
+    || die "rollback receipt does not embed the validated backup $contract"
+done
+rg -q 'scripts/validate-backup-verification-receipt.py' "$ROOT/scripts/lib/go-closure-common.sh" \
+  || die "deployment sync bundle omits the backup verification validator"
+pass "fresh encrypted offsite backup and independent-download authority"
 
 while IFS= read -r documented_script; do
   [ -f "$ROOT/$documented_script" ] || die "README references missing $documented_script"

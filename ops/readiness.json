@@ -79,7 +79,7 @@
     "governance_validator": "PASS means the artifacts are internally consistent and honestly remain fail-closed; it is not an approval",
     "observability": "PASS static: 24 alert rules and 13 dashboard panels",
     "website": "PASS static/automated browser: desktop/mobile layout, focus order, labelled forms, dialog keyboard flow, memory-only credentials, reduced motion, and WCAG AA minimum contrast 6.06:1",
-    "backup_envelope": "PASS local age encrypt/decrypt round trip plus isolated logical database/object restore; independent offsite copy remains NOT EXECUTED",
+    "backup_envelope": "PASS local age encrypt/decrypt round trip plus isolated logical database/object restore, with a fail-closed formal contract binding fresh encrypted bytes and manifest to the exact offsite URI and independently downloaded checksums; independent offsite copy remains NOT EXECUTED",
     "staging_scaffold": "PASS static: 9 services, immutable image references, and explicit test-only Stripe/CAD payment authority",
     "local_production_shape": "PASS: custom-CA TLS, HSTS/CSP, protected APIs, PostgreSQL, S3-compatible storage, metrics, alert router, backup worker, and two host Metal agents",
     "local_resilience": "PASS: prior-digest smoke, candidate forward recovery, six fault injections, zero measured job loss, seeded nine-component restart storm, stale-lease recovery, zero duplicate financial effects, a fail-closed formal two-agent restart contract derived from durable process-session transitions, and a formal soak contract bound to one uninterrupted candidate container with independently re-derived raw samples; external restart storm and 24-hour soak remain NOT EXECUTED",

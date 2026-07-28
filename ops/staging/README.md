@@ -173,9 +173,18 @@ reviewer must still correlate them before GO.
 Successful operations write atomic JSON receipts and raw, non-secret samples
 under `evidence/go-closure/` on the staging host. Failures exit nonzero and do
 not manufacture a PASS file. The rollback rehearsal takes and independently
-verifies an encrypted offsite backup before switching images, checks the public
-commit at candidate, prior, and forward-recovered states, measures both RTOs,
-and compares database integrity snapshots before and after.
+verifies an encrypted offsite backup before switching images. `backup.sh`
+downloads both ciphertext and manifest through the offsite API, compares both
+SHA-256 values, uploads a closed verification receipt, and validates that
+receipt against the retained encrypted bytes. Only after the entire backup
+command succeeds does it atomically emit an invocation result naming that exact
+backup and all three hashes. The rollback rehearsal refuses a stale, concurrent,
+or mixed backup: it resolves artifacts only through that invocation result,
+creation must fall inside the current rehearsal window, the backup ID and exact
+`s3://` URI must agree, and both invocation and verification receipts are
+embedded rather than replaced by a boolean. It then checks the
+public commit at candidate, prior, and forward-recovered states, measures both
+RTOs, and compares database integrity snapshots before and after.
 
 Runtime receiver material is written only under the ignored `.secrets/` tree;
 the backup-age signal is written under ignored `.artifacts/`. Neither path is
