@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "818b533f9842ebbcb946b7423bd61c31ec7c63fd01e11aef7b89ec1fb506a50a",
+  "authority_sha256": "03a74b207517f5efa11c122c1b45551f676305da0b3c05442ac03d16fa805777",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -22,7 +22,7 @@
     "Dockerfile.control": 31,
     "EXECUTION_NETWORK_BIBLE.md": 23,
     "LICENSE": 47,
-    "Makefile": 251,
+    "Makefile": 252,
     "NOTICE": 66,
     "README.md": 119,
     "RELEASE_GATES.md": 19,
@@ -303,7 +303,7 @@
     "docs/RUNBOOKS.md": 205,
     "docs/RUNTIME_MATRIX.md": 17,
     "docs/SECURITY.md": 99,
-    "docs/SHIPPABILITY_STATUS.md": 273,
+    "docs/SHIPPABILITY_STATUS.md": 292,
     "docs/SPEED_LANE_2026-07-27.md": 97,
     "docs/STRIPE_CONNECT.md": 142,
     "docs/STRIPE_SANDBOX_SETUP.md": 80,
@@ -339,7 +339,7 @@
     "evidence/bench/runs.jsonl": 27,
     "evidence/benchmarks/2026-07-01-m3-pro.json": 32,
     "evidence/benchmarks/2026-07-26-m3-pro-backend-compare.json": 246,
-    "evidence/canary/private-canary.json": 194,
+    "evidence/canary/private-canary.json": 297,
     "evidence/canary/real-runtime-embed.json": 68,
     "evidence/canary/real-runtime-realtime.json": 51,
     "evidence/canary/sdk-conformance-real-engine.json": 38,
@@ -388,7 +388,7 @@
     "ops/live-payment-activation.schema.json": 110,
     "ops/local/compose.rehearsal.yml": 222,
     "ops/model-provenance.json": 78,
-    "ops/readiness.json": 123,
+    "ops/readiness.json": 124,
     "ops/rename-residue.json": 47,
     "ops/repo-boundary.json": 10,
     "ops/rust-paste-audit.json": 36,
@@ -440,7 +440,7 @@
     "scripts/local-production-rehearsal.sh": 340,
     "scripts/local-resilience-rehearsal.sh": 467,
     "scripts/merc-cloudflare-key.sh": 86,
-    "scripts/merc-credentials.sh": 231,
+    "scripts/merc-credentials.sh": 233,
     "scripts/merc-secrets.sh": 280,
     "scripts/mint-admin-key.sh": 36,
     "scripts/mutation-test.sh": 149,
@@ -448,7 +448,7 @@
     "scripts/onboard-model.py": 264,
     "scripts/package-agent-binary.sh": 70,
     "scripts/price-board-page-prices.mjs": 78,
-    "scripts/private-canary.py": 409,
+    "scripts/private-canary.py": 570,
     "scripts/prove-local.sh": 322,
     "scripts/quality-suite.py": 183,
     "scripts/realtime-openai-node-conformance.mjs": 212,
@@ -479,7 +479,7 @@
     "scripts/test-backup-envelope.sh": 33,
     "scripts/test-backup-schedule.sh": 52,
     "scripts/test-bench-accounting.py": 147,
-    "scripts/test-canary-gaming.sh": 71,
+    "scripts/test-canary-gaming.sh": 131,
     "scripts/test-readiness-gaming.sh": 74,
     "scripts/test-stripe-sandbox-contract.sh": 139,
     "scripts/test-supplier-console.mjs": 123,
@@ -542,19 +542,19 @@
     },
     "config": {
       "files": 7,
-      "loc": 571,
+      "loc": 572,
       "code": 366,
       "blank": 98,
-      "comment": 107,
-      "bytes": 20330
+      "comment": 108,
+      "bytes": 20409
     },
     "documentation": {
       "files": 44,
-      "loc": 4485,
-      "code": 3503,
-      "blank": 982,
+      "loc": 4504,
+      "code": 3521,
+      "blank": 983,
       "comment": 0,
-      "bytes": 235962
+      "bytes": 237490
     },
     "go": {
       "files": 208,
@@ -574,11 +574,11 @@
     },
     "json": {
       "files": 79,
-      "loc": 7319,
-      "code": 7319,
+      "loc": 7423,
+      "code": 7423,
       "blank": 0,
       "comment": 0,
-      "bytes": 326688
+      "bytes": 332305
     },
     "lockfile": {
       "files": 2,
@@ -598,11 +598,11 @@
     },
     "python": {
       "files": 29,
-      "loc": 5733,
-      "code": 4715,
-      "blank": 748,
-      "comment": 270,
-      "bytes": 235748
+      "loc": 5894,
+      "code": 4858,
+      "blank": 763,
+      "comment": 273,
+      "bytes": 242543
     },
     "rust": {
       "files": 16,
@@ -614,11 +614,11 @@
     },
     "shell": {
       "files": 59,
-      "loc": 9324,
-      "code": 7812,
-      "blank": 828,
-      "comment": 684,
-      "bytes": 417106
+      "loc": 9386,
+      "code": 7866,
+      "blank": 831,
+      "comment": 689,
+      "bytes": 420259
     },
     "sql": {
       "files": 1,
@@ -696,11 +696,11 @@
     },
     "documentation": {
       "files": 33,
-      "loc": 3726,
-      "code": 2891,
-      "blank": 835,
+      "loc": 3745,
+      "code": 2909,
+      "blank": 836,
       "comment": 0,
-      "bytes": 605037
+      "bytes": 606565
     },
     "interface": {
       "files": 29,
@@ -712,11 +712,11 @@
     },
     "ops": {
       "files": 117,
-      "loc": 10607,
-      "code": 10032,
+      "loc": 10712,
+      "code": 10136,
       "blank": 414,
-      "comment": 161,
-      "bytes": 465095
+      "comment": 162,
+      "bytes": 470791
     },
     "payment": {
       "files": 38,
@@ -728,11 +728,11 @@
     },
     "proof": {
       "files": 102,
-      "loc": 17314,
-      "code": 14571,
-      "blank": 1686,
-      "comment": 1057,
-      "bytes": 724672
+      "loc": 17537,
+      "code": 14768,
+      "blank": 1704,
+      "comment": 1065,
+      "bytes": 734620
     },
     "sdk": {
       "files": 10,
@@ -760,12 +760,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 111324,
-    "non_design_production_core_loc": 81377,
+    "global_owned_loc": 111671,
+    "non_design_production_core_loc": 81704,
     "test_loc": 18838,
-    "documentation_loc": 4485,
-    "python_loc": 5733,
-    "generated_loc": 5073,
+    "documentation_loc": 4504,
+    "python_loc": 5894,
+    "generated_loc": 5074,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -787,7 +787,7 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 9158368,
+  "tracked_bytes": 9175540,
   "tracked_files": 523,
   "untracked_files": 0,
   "walked_files": 523

@@ -206,10 +206,9 @@ approvals-check:
 # Mutation testing: injects deliberate defects into the money and reuse paths
 # and asserts the suite FAILS for each. A surviving mutation is a hole in the
 # tests. Kept out of `ci` because it runs the full suite once per mutation.
-# The private canary. Exercises every lane and reports what is actually proven.
-# Exit 2 means a lane could not run because a capability is missing -- that is a
-# blocked lane, not a defect, and the report names what is missing.
-# Blind-drop the RunPod and Stripe TEST credentials the canary needs. Prompts
+# The capability inventory exercises every lane without minting candidate
+# authority. Exit 2 means exact-candidate canary proof remains incomplete.
+# Blind-drop the RunPod and Stripe TEST credentials the inventory needs. Prompts
 # with hidden input, verifies each key against the live API, refuses a live
 # Stripe key, and writes a chmod-600 gitignored file. Never prints a secret.
 credentials:
@@ -218,6 +217,8 @@ credentials:
 credentials-check:
 	bash scripts/merc-credentials.sh --check
 
+# Legacy name retained for operator compatibility. This target inventories
+# capability evidence; exact-candidate authority is go-closure-canary-rehearsal.
 private-canary:
 	python3 scripts/private-canary.py --out evidence/canary/private-canary.json
 
