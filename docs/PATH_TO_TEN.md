@@ -1,5 +1,12 @@
 # Path to 10 — what an agent can finish alone, and what only you can do
 
+> **Historical planning snapshot — superseded on 2026-07-28.** The RunPod
+> credential/proof and Decision Zero statements below no longer describe the
+> repository: real CUDA/vLLM evidence exists and `KEEP-RT` was executed. Use
+> `EXTERNAL_OPERATOR_HANDOFF.md`, `SHIPPABILITY_STATUS.md`, and
+> `ops/go-no-go.json` for the current gates. This file is retained as an audit
+> trail, not an operator checklist.
+
 **Method:** Grok planned the machine half, Claude planned the product half, both
 under one constraint — *only work needing no human decision, credential, or
 approval goes in the plan body*. Everything else is quarantined at the bottom.

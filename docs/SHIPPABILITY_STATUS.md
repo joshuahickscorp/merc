@@ -1,23 +1,26 @@
 # Merc shippability status
 
-Audited against the code on 2026-07-27. Statuses use the goal's vocabulary.
+Audited against the code on 2026-07-28. Statuses use the goal's vocabulary.
 Nothing here is inferred from intent; each row was probed against the tree.
 
-**Public capability requires CANARY_PROVEN. Nothing below is CANARY_PROVEN.**
+**A `CANARY_PROVEN` receipt is capability evidence, not release authorization.**
+`public_capability_allowed` remains false, Level B remains `NO_GO`, and Level C
+live money/public launch remains prohibited.
 
-## The blocker that gates every money lane
+## The gate that controls every money lane
 
-The Stripe platform account is **`country=CA`, `default_currency=CAD`**. The
-ledger is **USD-only** — `control/payment.go` rejects any other currency. A USD
-top-up settles into the CAD balance, and `POST /v1/topups` is explicitly
-unsupported for `CA`/`USD`.
+The earlier CAD/USD incompatibility was removed by making settlement currency
+explicit. Historical canary evidence proves the CAD path, but the release
+candidate is intentionally **SEALED**: it rejects live Stripe activation unless
+an operator supplies the exact external activation authority. The formal
+release ledger separately requires a complete Stripe **test-mode** matrix and
+reconciliation receipt.
 
-**No supplier payout can complete.** A lane is defined as counting only when it
-reaches "supplier payable → positive Merc contribution → receipt". By that
-definition **no lane can reach CANARY_PROVEN until USD settlement exists**,
-regardless of how much code is written. This is one external action.
+That distinction is deliberate: old proof is retained, current credentials are
+not assumed, and neither a historical live key nor a local test can promote
+Level B or Level C.
 
-## Private canary — 13/21 lanes CANARY_PROVEN (2026-07-27)
+## Accumulated private-canary evidence — 15/21 lanes CANARY_PROVEN
 
 Receipt: `evidence/canary/private-canary.json`. `public_capability_allowed: false`
 until every lane is proven, so nothing here may be claimed publicly yet.
@@ -27,17 +30,17 @@ llama.cpp engine — not a stub: batch inference, embeddings, realtime, object
 storage, refunds/disputes, failure recovery, receipt verification, backup
 restore, buyer dashboard, supplier console, price board, and both SDKs.
 
-The remaining 8 need hardware or an account this machine does not have:
-NVIDIA/vLLM (runpod_vllm, image_generation, LoRA, multi_gpu), a Stripe sandbox
-key (payouts), a live alert receiver (alerts), and an onboarding smoke path
-(external_model_onboarding). `openai_sdk_conformance` is TESTED, not proven:
-both official SDKs pass, but against a fake upstream.
+The remaining six are `TESTED`, not canary-proven: image generation lacks a
+runtime; LoRA lacks trainer/evaluator dispatch; TP>1 lacks a real multi-GPU
+receipt; official-SDK conformance retains a real-engine incompatibility;
+external-model onboarding does not walk the money chain; and alert delivery has
+not reached a real receiver.
 
 ## Lanes
 
 | lane | status | evidence |
 |---|---|---|
-| OpenAI-compatible realtime | `TESTED` | `[KILL-RT]` reversed and executed (`DECISION_ZERO_REVERSAL.md`). `control/realtime.go`, `chat/completions` routed, 5 routes in the authorization matrix, integration test green. **Official-SDK conformance restored and passing**: the real `openai` Python 2.48.0 and JavaScript 6.49.0 clients drive the surface end to end -- completion, streaming, merc's receipt headers, credential rejection, model listing, tool-call and structured-output request shapes (`make realtime-sdk-conformance`, evidence in `evidence/realtime/openai-sdk-conformance.json`). Wire headers renamed `X-CX-*` to `X-Merc-*`. Still not `REAL_RUNTIME_PROVEN`: the upstream in every run so far is an httptest fake, so nothing here is evidence about latency or any GPU, and `scripts/realtime-parity-benchmark.py` reports `UNATTESTED_HARNESS_RUN` and refuses `public_claim_allowed` for exactly that reason. |
+| OpenAI-compatible realtime | `CANARY_PROVEN` | `[KILL-RT]` was reversed and `KEEP-RT` executed (`DECISION_ZERO_REVERSAL.md`). A real llama.cpp/Metal engine completed the full contract, verification, debit, supplier-payable, positive-margin, and receipt chain (`evidence/canary/real-runtime-realtime.json`). Official Python and JavaScript SDK conformance remains `TESTED`: the fake-upstream suite passes, while the real-engine suite retains a model-specific `parallel_tool_calls` incompatibility and is not promoted. |
 | RunPod-backed pinned vLLM | `CANARY_PROVEN` | Proven end to end on real NVIDIA hardware: pinned `vllm/vllm-openai:v0.26.0`, model pinned by revision, SSE streaming, contract, verification and receipt (`evidence/runpod/cuda-first-proof.json`). Measured 7081 tok/s at concurrency 128 for $0.0106 per million tokens (`evidence/perf/cuda-throughput-correction.json`). |
 | Object storage | `CANARY_PROVEN` | Retention, deletion and tenant isolation proven by the canary against a live store. `control/job_object_retention.go` purges 30 days after terminal, holds while any dispute is unresolved, and refuses a period inside the 7-day filing window; mutation-checked 4/4. Workers hold no S3 credential at all — only per-key presigned URLs. |
 | Image generation | `IMPLEMENTED` (governance `TESTED`) | `control/image_generation.go` + `POST /v1/images/generations`, 81st route, buyer-owned in the authorization matrix. **Governance is the finished part**: size allowlist, n cap, prompt bound, and refusal of `b64_json` (an inline image never enters object storage, so it would have no retention, erasure or dispute-evidence path). Content policy refuses CSAM, non-consensual intimate imagery, photorealistic real-person likeness and forged documents, checking two normalisations because separator evasion defeats either one alone — my own adversarial test caught that. Refusals name the rule and never echo the prompt. Licence gate is separate from the text one because open image licences (OpenRAIL-M/++) attach use restrictions the licensee must pass downstream, and merc resells generation. Mutation-checked 5/5. **`NOT_IMPLEMENTED` for the lane itself**: there is no image runtime, so an acceptable request returns 503 rather than an invented result. No contract, no supplier, no settlement. |
@@ -49,51 +52,7 @@ both official SDKs pass, but against a fake upstream.
 | Supplier console | `CANARY_PROVEN` | `web/supplier.html` behind `GET /supplier`. Proven by the private canary: the page's own script signs in against a running merc with a real worker token and renders paid / lifetime / carried at ledger granularity, four distinct payout-rail states and verification standing. Gated by `scripts/test-supplier-console.mjs`, mutation-checked 3/3. |
 | Public price board | `CANARY_PROVEN` | `web/prices.html` behind `GET /prices`. Proven by the private canary: the published page's own arithmetic must match the server's, including where the confidence weighting changes which observation is the median. The board's third-party observations are down-weighted, not decisive — the published `infer_small` price comes from a vendor source. |
 | Python SDK | `CANARY_PROVEN` | `sdk/python/merc/`, clean-room install verified. The canary submits a real job to a running merc, waits for a real worker, then fetches and validates the real result — which is what caught three defects the stub tests could not. |
-| TypeScript SDK | `TESTED` | `sdk/typescript/`, built to `dist/`, 12 tests covering the binary embeddings decoder, path encoding, bearer auth and `wait()` timeout. Never run against a deployed merc. |
-
-## Private canary — 10/21 lanes CANARY_PROVEN
-
-`make private-canary`. Report: `evidence/canary/private-canary.json`.
-
-A lane is `CANARY_PROVEN` only when its command walks the whole chain — buyer
-request, contract, scheduler, real runtime, verification, buyer debit, supplier
-payable, receipt. Partial chain is `TESTED`. Missing capability is
-`EXTERNALLY_BLOCKED` and names what is missing. `scripts/test-canary-gaming.sh`
-(in `make ci`) proves neither runtime capability can be satisfied by an
-unreachable endpoint, that no partial-chain lane self-promotes, and that
-`public_capability_allowed` stays false unless every lane is proven.
-
-| lane | status | note |
-|---|---|---|
-| batch_inference | `CANARY_PROVEN` | proven end to end against a real Apple Silicon worker (evidence/canary/real-runtime-embed.json) |
-| embeddings | `CANARY_PROVEN` | real 384-dim embeddings computed on Metal, honeypot-verified, settled |
-| realtime | `CANARY_PROVEN` | proven against a real llama.cpp/Metal engine: contract, real completion, VERIFIED receipt, CAPTURED authorization, positive margin (evidence/canary/real-runtime-realtime.json) |
-| runpod_vllm | `EXTERNALLY_BLOCKED` | NVIDIA hardware and a pinned digest-addressed vLLM image; no Apple Silicon engine substitutes for this |
-| openai_sdk_conformance | `EXTERNALLY_BLOCKED` | official openai Python 2.48.0 and JS 6.49.0 against merc. Against a REAL engine the JS client passes all seven capabilities and Python passes six: parallel_tool_calls fails because llama.cpp cannot parse this model's tool schema. Against the httptest fake it passed -- the fake was masking a real incompatibility, which is the whole argument for real-runtime proof |
-| object_storage | `CANARY_PROVEN` | retention, deletion, tenant isolation against a live store |
-| image_generation | `EXTERNALLY_BLOCKED` | governance only; no image runtime exists |
-| lora | `EXTERNALLY_BLOCKED` | settlement arithmetic only; no trainer, no evaluator dispatch |
-| multi_gpu | `EXTERNALLY_BLOCKED` | admission only; no tensor-parallel runtime has served a request |
-| external_model_onboarding | `TESTED` | licence and remote-code policy; smoke test and benchmark need a runtime |
-| refunds_disputes | `CANARY_PROVEN` | dispute filing, freeze, resolution and payout control |
-| payouts | `EXTERNALLY_BLOCKED` | accrual and reconciliation; a real transfer needs the sandbox |
-| failure_recovery | `CANARY_PROVEN` | stuck-job rescue and cancellation |
-| receipt_verification | `CANARY_PROVEN` | ledger conservation and sole-writer enforcement |
-| backup_restore | `CANARY_PROVEN` | backup scheduling and envelope |
-| buyer_dashboard | `TESTED` | web/buyer.html renders and is CSP hash-bound; not driven by a real buyer session |
-| supplier_console | `CANARY_PROVEN` | worker-token auth, sub-cent money at ledger granularity, 4 payout-rail states and the refusal path, against recorded control-plane responses |
-| price_board | `CANARY_PROVEN` | the published page's own arithmetic must match the server's, including where the confidence weights decide the answer |
-| python_sdk | `TESTED` | clean-room install of the built wheel; never run against a deployed merc |
-| typescript_sdk | `TESTED` | binary embeddings decoder, path encoding, auth and wait() timeout; never run against a deployed merc |
-| alerts | `TESTED` | alert and dashboard validation only; no delivery to a receiver |
-
-**Missing capabilities:**
-
-- `cuda_runtime` — no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine
-- `openai_sdks` — official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)
-- `stripe_sandbox` — STRIPE_SECRET_KEY is not set
-
-`public_capability_allowed` is **false**. No public capability claim is permitted for any lane until every lane is `CANARY_PROVEN`.
+| TypeScript SDK | `CANARY_PROVEN` | `sdk/typescript/` builds to `dist/`; its live lane submits a real job, waits for a real Metal worker, and validates the result. The live run exposed and locked tests for the idempotency header, JSONL input shape, and cancel route. |
 
 ## REAL_RUNTIME_PROVEN: batch embeddings, 2026-07-27
 
@@ -260,8 +219,8 @@ harder test.
 
 | item | status | evidence |
 |---|---|---|
-| VisionMCP extracted | `TESTED` | Already a standalone git repository at `~/Downloads/visionmcp` (3,297 tracked files, own history), with **zero** files tracked by merc. Its internals were not modified. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree, so it cannot be re-absorbed by a `git add -A` from the wrong directory. merc's owned LOC is **70,708**, and none of it is VisionMCP. **`EXTERNALLY_BLOCKED` on one step**: the repository has no remote — creating and pushing to a GitHub repository is an account action. |
-| Rename zero-residue audit | `TESTED` | `scripts/rename-residue-audit.py`, in `make ci`. FROZEN 158 / BLOCKED 346 / **RESIDUE 0**. Frozen and blocked classes are itemised with a per-identifier reason in `docs/RENAME_REGISTER.md` §5. |
+| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 518 tracked files and **110,218** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
+| Rename zero-residue audit | `TESTED` | `scripts/rename-residue-audit.py`, in `make ci`. FROZEN 251 / BLOCKED 380 / **RESIDUE 0**. Frozen and blocked classes are itemised with a per-identifier reason in `docs/RENAME_REGISTER.md` §5. |
 
 ## Money and operations
 
@@ -271,7 +230,7 @@ harder test.
 | Payout reconciliation | `CANARY_PROVEN` | The CAD/USD mismatch that blocked this is gone: settlement currency is configuration (`control/currency.go`) and the platform settles CAD. The canary `payouts` lane passes against a real Stripe key. Supplier accrual, minor-unit carry and the sole ledger writer are unchanged. |
 | Aggregated billing / prepaid | `IMPLEMENTED` | 4 references in `control/accounts.go`; charge batching reworked so the age trigger no longer fires at Stripe's $0.50 floor. |
 | Refunds / disputes | `IMPLEMENTED` | 21 files reference disputes. Transfer reversal has never met real Stripe. |
-| Stripe sandbox end to end | `CANARY_PROVEN` | Settles in CAD, which is what the platform account holds; no USD was manufactured. A live key now runs on the droplet. Not yet proven: a real Connect transfer landing in a supplier's bank, which is a different claim from a ledger payable and is kept separate deliberately. |
+| Stripe sandbox end to end | `CANARY_PROVEN` capability evidence; formal gate `OPEN` (`NO_GO`) | Historical CAD-settlement canary evidence is retained. The current formal candidate still lacks the complete test-mode matrix and provider-reconciliation receipt required by `P1-STRIPE-TEST`; live activation is sealed and Level C remains prohibited. |
 | Production deployment / TLS | `EXTERNALLY_BLOCKED` | No SSH key in session. Droplet still serves the pre-session build (`/version` 404s). |
 | Backup / restore | `TESTED` | Gates present and passing. |
 | Alerts / status / rollback | `IMPLEMENTED` | 24 alerts validated; delivery to a real receiver unproven. |
@@ -292,19 +251,21 @@ invalidate every previously computed digest.
 
 ## VisionMCP
 
-`EXTRACTED`. Now at `~/Downloads/blender-vision-mcp`, commit `fca82c4`, 276
-files, 76,472 lines. It was never tracked by this repository, so it contributed
-**zero** lines to Merc and no history filtering was required. Zero tracked
-residue remains.
+`EXTRACTED` and deliberately separate. VisionMCP has its own repository and
+history. It is not tracked, built, counted, or shipped by Merc; the repository
+boundary validator reports zero foreign paths. The committed
+`design/computexchange-live-instrument` branch is already an ancestor of this
+candidate. Its remaining untracked 1.3 GB internal-design archive and
+VisionMCP-linking `.mcp.json` are preserved in that worktree, not merged here.
 
 ## Honest summary
 
-Merc today is a **batch-only** platform with strong money correctness, a
-governed price board, and no live payout rail. Of the eight physical lanes named
-in the goal, one is implemented, one is partial, and six are not implemented —
-and the two largest (realtime, RunPod) are one lane gated on a hardware-admission
-change and a reversed decision.
+Merc is a buildable, locally proven Level A software candidate with batch,
+realtime, and historical single-GPU CUDA/vLLM canary evidence. Quote-bound
+compute and realtime placement authority are now frozen into immutable
+contracts and receipts. TP>1, image generation, LoRA execution, real alert
+delivery, and the formal external release exercises remain unproven.
 
-The single highest-leverage action is not code. It is USD settlement on the
-Stripe account, because it converts every money lane from unprovable to
-provable.
+The machine-derived score remains **83/100**, with **P0=0** and eight external
+P1 gates. Level B is `NO_GO`; Level C live money/public launch is prohibited.
+No historical credential, deployment, or canary receipt overrides those gates.
