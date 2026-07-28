@@ -14,13 +14,52 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
+# Redact credential-shaped substrings before they reach the process log or stderr.
+# Keep in sync with emit_receipt / validate-canary-scenario-receipt.py SECRET.
+redact_secrets() {
+  python3 -c '
+import re, sys
+SECRET = re.compile(
+    r"(sk_(?:test|live)_[A-Za-z0-9]+|"
+    r"rk_(?:test|live)_[A-Za-z0-9]+|"
+    r"pk_(?:test|live)_[A-Za-z0-9]+|"
+    r"whsec_[A-Za-z0-9]+|"
+    r"cx_(?:test|live)_[A-Za-z0-9_-]+|"
+    r"cxw_[A-Za-z0-9_-]+|"
+    r"ca_[A-Za-z0-9]+|"
+    r"AGE-SECRET-KEY-[A-Za-z0-9+-]+|"
+    r"AKIA[0-9A-Z]{12,}|"
+    r"(?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|amqp|https?)://[^\s:/@]+:[^\s/@]+@"
+    r")",
+    re.IGNORECASE,
+)
+sys.stdout.write(SECRET.sub("[REDACTED]", sys.stdin.read()))
+'
+}
+
 die() {
-  printf 'canary-scenario-driver: %s\n' "$*" >&2
+  local msg
+  msg="$(printf '%s' "$*" | redact_secrets)"
+  printf 'canary-scenario-driver: %s\n' "$msg" >&2
   exit 1
 }
 
 log() {
-  printf 'canary-scenario-driver: %s\n' "$*" >&2
+  local msg
+  msg="$(printf '%s' "$*" | redact_secrets)"
+  printf 'canary-scenario-driver: %s\n' "$msg" >&2
+}
+
+# Split HTTP response "code\nbody" without piping through head (pipefail+SIGPIPE).
+http_split() {
+  # Usage: http_split "$response" -> sets _http_code and _http_body
+  local response="$1"
+  _http_code="${response%%$'\n'*}"
+  if [ "$_http_code" = "$response" ]; then
+    _http_body=""
+  else
+    _http_body="${response#*$'\n'}"
+  fi
 }
 
 utc_now() {
@@ -44,11 +83,13 @@ require_cmd() {
 }
 
 reject_live_stripe() {
-  local name value
+  local name value trimmed
   for name in STRIPE_SECRET_KEY STRIPE_LIVE_SECRET_KEY STRIPE_RESTRICTED_KEY \
     STRIPE_PUBLISHABLE_KEY NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY; do
     value="${!name:-}"
-    case "$value" in
+    # Match Go getenvTrim: leading/trailing whitespace must not defeat the guard.
+    trimmed="$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//')"
+    case "$trimmed" in
       sk_live_*|rk_live_*|pk_live_*)
         die "$name has a live Stripe credential class; refusing before any network call"
         ;;
@@ -75,6 +116,12 @@ require_binding_env() {
     || die "MERC_CANARY_DRIVER_SHA256 must be 64 lowercase hex"
   [[ "$MERC_CANARY_CONTROL_IMAGE" =~ ^[A-Za-z0-9._:-]+(/[A-Za-z0-9._-]+)+@sha256:[0-9a-f]{64}$ ]] \
     || die "MERC_CANARY_CONTROL_IMAGE must be registry/repo@sha256:<64 hex>"
+  # Interpolated raw into every freshness SQL predicate — reject anything that
+  # is not a strict second-resolution UTC stamp (blocks '-infinity', SQL injection).
+  [[ "$MERC_CANARY_RUN_STARTED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] \
+    || die "MERC_CANARY_RUN_STARTED_AT must be YYYY-MM-DDTHH:MM:SSZ"
+  [[ "$MERC_CANARY_SCENARIO_STARTED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] \
+    || die "MERC_CANARY_SCENARIO_STARTED_AT must be YYYY-MM-DDTHH:MM:SSZ"
 }
 
 resolve_control_base() {
@@ -105,6 +152,38 @@ resolve_database_url() {
   die "MERC_CANARY_DATABASE_URL (or DATABASE_URL / MERC_TEST_DATABASE_URL) is required for observation"
 }
 
+# Parse a postgres URI into PG* env vars so the password never reaches argv.
+# Sets: PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD PGSSLMODE (and clears DATABASE_URL_OBS usage for argv).
+configure_psql_env() {
+  local url="$1"
+  # python3 urlparse keeps the password out of shell word-splitting and argv.
+  eval "$(python3 - "$url" <<'PY'
+import sys, urllib.parse, shlex
+u = urllib.parse.urlparse(sys.argv[1])
+if u.scheme not in ("postgres", "postgresql"):
+    sys.exit("database URL scheme must be postgres/postgresql")
+host = u.hostname or "localhost"
+port = str(u.port or 5432)
+user = urllib.parse.unquote(u.username or "")
+password = urllib.parse.unquote(u.password or "")
+db = (u.path or "/").lstrip("/") or "postgres"
+qs = urllib.parse.parse_qs(u.query)
+sslmode = (qs.get("sslmode") or ["prefer"])[0]
+for name, val in (
+    ("PGHOST", host),
+    ("PGPORT", port),
+    ("PGUSER", user),
+    ("PGDATABASE", db),
+    ("PGPASSWORD", password),
+    ("PGSSLMODE", sslmode),
+):
+    print(f"export {name}={shlex.quote(val)}")
+PY
+)" || die "failed to parse database URL for out-of-band psql credentials"
+  # Never leave a DSN with embedded password on the argv path.
+  DATABASE_URL_OBS=""
+}
+
 resolve_prometheus_url() {
   if [ -n "${MERC_PROMETHEUS_URL:-}" ]; then
     printf '%s' "${MERC_PROMETHEUS_URL%/}"
@@ -116,6 +195,12 @@ resolve_prometheus_url() {
 CONTROL_BASE=""
 DATABASE_URL_OBS=""
 CURL_COMMON=()
+# Observed from GET /readyz — never invented.
+OBSERVED_PAYMENT_MODE=""
+OBSERVED_LIVE_VALUE_MOVEMENT=""
+OBSERVED_STRIPE_TEST_MODE=""
+OBSERVED_STRIPE_LIVE_MODE=""
+OBSERVED_REAL_VALUE=""
 
 setup_http() {
   CONTROL_BASE="$(resolve_control_base)"
@@ -126,47 +211,113 @@ setup_http() {
   if [ -n "${MERC_CANARY_CURL_RESOLVE:-}" ]; then
     CURL_COMMON+=(--resolve "$MERC_CANARY_CURL_RESOLVE")
   fi
+  observe_payment_safety
+}
+
+# Measure control-plane payment mode via /readyz. Refuse live value movement.
+observe_payment_safety() {
+  local response code body mode live
+  # Non-secret probe; no auth header.
+  response="$(http_code_body GET "$CONTROL_BASE/readyz")"
+  http_split "$response"
+  code="$_http_code"
+  body="$_http_body"
+  # Note: jq's // treats false as missing — use has() for booleans.
+  mode="$(jq -r 'if has("payment_mode") then .payment_mode|tostring else empty end' <<< "$body" 2>/dev/null || true)"
+  live="$(jq -r 'if has("live_value_movement") then .live_value_movement|tostring else empty end' <<< "$body" 2>/dev/null || true)"
+  [ -n "$mode" ] || die "control plane /readyz did not report payment_mode (HTTP $code); cannot mint safety claims without observation"
+  [ -n "$live" ] || die "control plane /readyz did not report live_value_movement (HTTP $code); cannot mint safety claims without observation"
+  case "$mode" in
+    sealed|test) ;;
+    live) die "control plane payment_mode=live; canary refuses to mint authority while live value movement is possible" ;;
+    *) die "control plane payment_mode=$mode is not sealed or test; refusing" ;;
+  esac
+  case "$live" in
+    false|False|0) ;;
+    true|True|1) die "control plane live_value_movement=true; refusing before any canary work" ;;
+    *) die "control plane live_value_movement=$live is not a boolean; refusing" ;;
+  esac
+  OBSERVED_PAYMENT_MODE="$mode"
+  OBSERVED_LIVE_VALUE_MOVEMENT="false"
+  if [ "$mode" = test ]; then
+    OBSERVED_STRIPE_TEST_MODE="true"
+  else
+    OBSERVED_STRIPE_TEST_MODE="false"
+  fi
+  OBSERVED_STRIPE_LIVE_MODE="false"
+  OBSERVED_REAL_VALUE="false"
+  log "observed payment_mode=$OBSERVED_PAYMENT_MODE live_value_movement=$OBSERVED_LIVE_VALUE_MOVEMENT"
 }
 
 http_code_body() {
   # Usage: http_code_body METHOD URL [curl args...]
-  # Prints: <http_code>\n<body>
+  # Optional: set MERC_CANARY_CURL_CONFIG to a 0600 curl --config file that
+  # carries secret headers. The config path is non-secret; header values stay
+  # out of argv. Prints: <http_code>\n<body>
   local method="$1" url="$2"
   shift 2
   local tmp code
   tmp="$(mktemp "${TMPDIR:-/tmp}/merc-canary-http.XXXXXX")"
-  code="$("${CURL_COMMON[@]}" -X "$method" -o "$tmp" -w '%{http_code}' "$url" "$@")" || true
+  if [ -n "${MERC_CANARY_CURL_CONFIG:-}" ] && [ -f "$MERC_CANARY_CURL_CONFIG" ]; then
+    code="$("${CURL_COMMON[@]}" --config "$MERC_CANARY_CURL_CONFIG" \
+      -X "$method" -o "$tmp" -w '%{http_code}' "$url" "$@")" || true
+  else
+    code="$("${CURL_COMMON[@]}" -X "$method" -o "$tmp" -w '%{http_code}' "$url" "$@")" || true
+  fi
   printf '%s\n' "$code"
   cat "$tmp"
   rm -f "$tmp"
 }
 
+# Convenience: run an authenticated request without putting the secret on argv.
+http_auth() {
+  # http_auth AUTH_HEADER METHOD URL [extra non-secret curl args...]
+  local auth="$1" method="$2" url="$3"
+  shift 3
+  local cfg
+  cfg="$(mktemp "${TMPDIR:-/tmp}/merc-canary-curlcfg.XXXXXX")"
+  chmod 600 "$cfg"
+  printf 'header = "%s"\n' "$(printf '%s' "$auth" | sed 's/\\/\\\\/g; s/"/\\"/g')" > "$cfg"
+  MERC_CANARY_CURL_CONFIG="$cfg" http_code_body "$method" "$url" "$@"
+  local rc=$?
+  rm -f "$cfg"
+  return "$rc"
+}
+
 http_json() {
-  # http_json METHOD URL AUTH_HEADER [body] [extra curl args via env not used]
+  # http_json METHOD URL AUTH_HEADER [body]
   local method="$1" url="$2" auth="${3:-}" body="${4:-}"
   local args=()
-  [ -n "$auth" ] && args+=(-H "$auth")
   if [ -n "$body" ]; then
     args+=(-H 'Content-Type: application/json' --data-binary "$body")
   fi
-  http_code_body "$method" "$url" "${args[@]}"
+  if [ -n "$auth" ]; then
+    http_auth "$auth" "$method" "$url" "${args[@]}"
+  else
+    http_code_body "$method" "$url" "${args[@]}"
+  fi
 }
 
 db_scalar() {
   local sql="$1"
-  psql "$DATABASE_URL_OBS" -X -qAt -v ON_ERROR_STOP=1 -c "$sql"
+  # Structural read-only: a future edit cannot write through observation helpers.
+  psql -X -qAt -v ON_ERROR_STOP=1 \
+    -c "SET default_transaction_read_only = on" \
+    -c "$sql"
 }
 
 db_tsv() {
   local sql="$1"
-  psql "$DATABASE_URL_OBS" -X -qAt -v ON_ERROR_STOP=1 -F $'\t' -c "$sql"
+  psql -X -qAt -v ON_ERROR_STOP=1 -F $'\t' \
+    -c "SET default_transaction_read_only = on" \
+    -c "$sql"
 }
 
 approved_buyer_emails() {
   : "${MERC_CANARY_APPROVED_BUYER_EMAILS:?MERC_CANARY_APPROVED_BUYER_EMAILS is required}"
   printf '%s' "$MERC_CANARY_APPROVED_BUYER_EMAILS" \
     | tr ',' '\n' | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//' \
-    | awk 'NF{print tolower($0)}'
+    | awk 'NF{print tolower($0)}' | awk '!seen[$0]++'
 }
 
 approved_worker_ids() {
@@ -313,8 +464,17 @@ except json.JSONDecodeError as exc:
         f"extras file {extras_path!r} is not JSON ({exc}): {raw[:240]!r}"
     ) from exc
 SECRET = re.compile(
-    r"(sk_(?:test|live)_|rk_(?:test|live)_|pk_live_|whsec_|"
-    r"AGE-SECRET-KEY-|AKIA[0-9A-Z]{12,})",
+    r"(sk_(?:test|live)_[A-Za-z0-9]+|"
+    r"rk_(?:test|live)_[A-Za-z0-9]+|"
+    r"pk_(?:test|live)_[A-Za-z0-9]+|"
+    r"whsec_[A-Za-z0-9]+|"
+    r"cx_(?:test|live)_[A-Za-z0-9_-]+|"
+    r"cxw_[A-Za-z0-9_-]+|"
+    r"ca_[A-Za-z0-9]+|"
+    r"AGE-SECRET-KEY-[A-Za-z0-9+-]+|"
+    r"AKIA[0-9A-Z]{12,}|"
+    r"(?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|amqp|https?)://"
+    r"[^\s:/@]+:[^\s/@]+@)",
     re.IGNORECASE,
 )
 
@@ -346,6 +506,17 @@ UUID_RE = __import__("re").compile(
 )
 SAFE_ID = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@-]{7,199}$")
 
+import os
+# Safety booleans are derived from GET /readyz observations exported by setup_http.
+# Missing env means observe_payment_safety did not run — refuse rather than invent.
+def env_bool(name):
+    raw = os.environ.get(name, "")
+    if raw == "true":
+        return True
+    if raw == "false":
+        return False
+    raise SystemExit(f"missing/invalid observed safety env {name}={raw!r}")
+
 receipt = {
     "schema_version": 2,
     "scenario": scenario,
@@ -353,22 +524,31 @@ receipt = {
     "observed": minimum,
     "status": "PASS",
     "binding": {
-        "run_id": __import__("os").environ["MERC_CANARY_RUN_ID"],
-        "candidate_commit": __import__("os").environ["MERC_CANARY_CANDIDATE_COMMIT"],
-        "control_image": __import__("os").environ["MERC_CANARY_CONTROL_IMAGE"],
-        "driver_sha256": __import__("os").environ["MERC_CANARY_DRIVER_SHA256"],
+        "run_id": os.environ["MERC_CANARY_RUN_ID"],
+        "candidate_commit": os.environ["MERC_CANARY_CANDIDATE_COMMIT"],
+        "control_image": os.environ["MERC_CANARY_CONTROL_IMAGE"],
+        "driver_sha256": os.environ["MERC_CANARY_DRIVER_SHA256"],
     },
     "started_at": started,
     "finished_at": finished,
     "safety": {
-        "stripe_test_mode": True,
-        "stripe_live_mode": False,
-        "real_value": False,
+        "stripe_test_mode": env_bool("MERC_CANARY_OBSERVED_STRIPE_TEST_MODE"),
+        "stripe_live_mode": env_bool("MERC_CANARY_OBSERVED_STRIPE_LIVE_MODE"),
+        "real_value": env_bool("MERC_CANARY_OBSERVED_REAL_VALUE"),
         "approved_participants_only": True,
         "secret_values_recorded": False,
+        "payment_mode": os.environ.get("MERC_CANARY_OBSERVED_PAYMENT_MODE", ""),
+        "live_value_movement": env_bool("MERC_CANARY_OBSERVED_LIVE_VALUE_MOVEMENT"),
     },
     "evidence": evidence,
 }
+if receipt["safety"]["payment_mode"] not in ("sealed", "test"):
+    raise SystemExit(
+        f"observed payment_mode {receipt['safety']['payment_mode']!r} is not sealed|test"
+    )
+if receipt["safety"]["stripe_live_mode"] or receipt["safety"]["real_value"] \
+        or receipt["safety"]["live_value_movement"]:
+    raise SystemExit("observed safety forbids live Stripe / real value movement")
 for key, value in extras.items():
     if key in receipt:
         raise SystemExit(f"extras key collides with receipt core field: {key}")
@@ -376,8 +556,17 @@ for key, value in extras.items():
 
 if len(evidence) != minimum:
     raise SystemExit(f"evidence length {len(evidence)} != minimum {minimum}")
+subject_ids = set()
+observation_ids = set()
 for index, item in enumerate(evidence):
     subject = item.get("subject_id") or ""
+    obs = item.get("id") or ""
+    if subject in subject_ids:
+        raise SystemExit(f"duplicate subject_id in evidence: {subject!r}")
+    subject_ids.add(subject)
+    if obs in observation_ids:
+        raise SystemExit(f"duplicate observation id in evidence: {obs!r}")
+    observation_ids.add(obs)
     if scenario in UUID_SCENARIOS:
         if not UUID_RE.fullmatch(subject):
             raise SystemExit(
@@ -441,11 +630,12 @@ submit_job() {
   else
     die "unknown job kind $kind"
   fi
-  response="$(http_code_body POST "$CONTROL_BASE/v1/jobs" \
-    -H "$auth" -H "Idempotency-Key: $idem" \
+  response="$(http_auth "$auth" POST "$CONTROL_BASE/v1/jobs" \
+    -H "Idempotency-Key: $idem" \
     -H 'Content-Type: application/json' --data-binary "$body")"
-  code="$(printf '%s\n' "$response" | head -n1)"
-  body_out="$(printf '%s\n' "$response" | tail -n +2)"
+  http_split "$response"
+  code="$_http_code"
+  body_out="$_http_body"
   case "$code" in
     2??) ;;
     *) die "job submit $kind/$sequence failed HTTP $code: $(printf '%s' "$body_out" | head -c 300)" ;;
@@ -456,13 +646,14 @@ submit_job() {
 
 wait_job_status() {
   local job_id="$1" want="$2" timeout="${3:-480}" auth="${4:-}"
-  local deadline status code body
+  local deadline status code body response
   auth="${auth:-$(primary_buyer_auth)}"
   deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    response="$(http_code_body GET "$CONTROL_BASE/v1/jobs/$job_id" -H "$auth")"
-    code="$(printf '%s\n' "$response" | head -n1)"
-    body="$(printf '%s\n' "$response" | tail -n +2)"
+    response="$(http_auth "$auth" GET "$CONTROL_BASE/v1/jobs/$job_id")"
+    http_split "$response"
+    code="$_http_code"
+    body="$_http_body"
     [ "$code" = 200 ] || die "GET job $job_id failed HTTP $code"
     status="$(jq -er '.status' <<< "$body")"
     if [ "$status" = "$want" ]; then
@@ -470,7 +661,8 @@ wait_job_status() {
       return 0
     fi
     case "$status" in
-      failed|cancelled)
+      # complete is terminal too — do not burn the full timeout on a race win.
+      failed|cancelled|complete)
         if [ "$want" != "$status" ]; then
           die "job $job_id reached terminal status $status while waiting for $want"
         fi
@@ -485,8 +677,9 @@ cancel_job() {
   local job_id="$1" auth="${2:-}"
   auth="${auth:-$(primary_buyer_auth)}"
   local response code
-  response="$(http_code_body DELETE "$CONTROL_BASE/v1/jobs/$job_id" -H "$auth")"
-  code="$(printf '%s\n' "$response" | head -n1)"
+  response="$(http_auth "$auth" DELETE "$CONTROL_BASE/v1/jobs/$job_id")"
+  http_split "$response"
+  code="$_http_code"
   case "$code" in
     2??|404|409) ;;
     *) die "cancel job $job_id failed HTTP $code" ;;
@@ -495,29 +688,38 @@ cancel_job() {
 
 wait_task_running() {
   local job_id="$1" timeout="${2:-180}"
-  local deadline task_id job_status
+  local deadline row task_id job_status sleep_s=0.05 elapsed=0
   deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    # Any claimed non-terminal task is fail-able. Include verifying only as a
-    # visibility signal — FailTaskTx still requires running/queued/retrying.
-    task_id="$(db_scalar "
-      SELECT id::text FROM tasks
-       WHERE job_id='$job_id'::uuid
-         AND status IN ('running','queued','retrying')
-         AND claimed_by IS NOT NULL
-       ORDER BY created_at,id LIMIT 1")"
+    # Single connection: claimable task LEFT JOIN job status.
+    row="$(db_tsv "
+      SELECT coalesce(t.id::text,''), j.status
+        FROM jobs j
+        LEFT JOIN LATERAL (
+          SELECT id FROM tasks
+           WHERE job_id=j.id
+             AND status IN ('running','queued','retrying')
+             AND claimed_by IS NOT NULL
+           ORDER BY created_at,id LIMIT 1
+        ) t ON true
+       WHERE j.id='$job_id'::uuid")"
+    task_id="$(printf '%s' "$row" | cut -f1)"
+    job_status="$(printf '%s' "$row" | cut -f2)"
     if [ -n "$task_id" ]; then
       printf '%s\n' "$task_id"
       return 0
     fi
-    job_status="$(db_scalar "SELECT status FROM jobs WHERE id='$job_id'::uuid")"
     case "$job_status" in
       complete|failed|cancelled)
         die "job $job_id reached $job_status before a claimed fail-able task was observed (exact-reuse or too-fast completion; need a slower agent or larger multi-chunk job)"
         ;;
     esac
-    # Busy-poll: sub-second agent completion is common on local Metal.
-    sleep 0.05
+    # Busy-poll first second, then back off to spare connection slots.
+    sleep "$sleep_s"
+    elapsed=$((elapsed + 1))
+    if [ "$elapsed" -ge 20 ]; then
+      sleep_s=0.25
+    fi
   done
   die "no running claimed task for job $job_id within ${timeout}s"
 }
@@ -536,9 +738,10 @@ scenario_approved_buyer_identity() {
     [ -n "$email" ] || continue
     key="$(buyer_api_key_for_email "$email")"
     auth="Authorization: Bearer $key"
-    response="$(http_code_body GET "$CONTROL_BASE/v1/me" -H "$auth")"
-    code="$(printf '%s\n' "$response" | head -n1)"
-    body="$(printf '%s\n' "$response" | tail -n +2)"
+    response="$(http_auth "$auth" GET "$CONTROL_BASE/v1/me")"
+    http_split "$response"
+    code="$_http_code"
+    body="$_http_body"
     [ "$code" = 200 ] || die "buyer identity probe failed for $email HTTP $code"
     buyer_id="$(jq -er '.buyer_id' <<< "$body")"
     me_email="$(jq -er '.email' <<< "$body" | tr '[:upper:]' '[:lower:]')"
@@ -567,6 +770,7 @@ scenario_approved_buyer_identity() {
 
 scenario_distinct_metal_agent() {
   local minimum="$1" started finished evidence n=0 versions builds sql
+  local deadline rows wid occurred poll_secs=90
   started="$(utc_now)"
   evidence="$(mktemp "${TMPDIR:-/tmp}/merc-canary-ev.XXXXXX")"
   printf '[]' > "$evidence"
@@ -575,8 +779,10 @@ scenario_distinct_metal_agent() {
   versions="$(printf '%s' "$MERC_CANARY_APPROVED_AGENT_VERSIONS" | tr -d ' ')"
   builds="$(printf '%s' "$MERC_CANARY_APPROVED_BUILD_HASHES" | tr -d ' ')"
 
+  # last_seen_at advances on the agent heartbeat (~30s). Poll until the run-start
+  # binding is satisfied rather than single-shot failing at scenario 2 of 14.
   sql="$(cat <<SQL
-SELECT w.id::text || E'\t' || to_char(w.last_seen_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+SELECT w.id::text
   FROM workers w
  WHERE w.id = ANY(string_to_array(lower(replace('${MERC_CANARY_APPROVED_WORKER_IDS// /}', ' ', '')), ',')::uuid[])
    AND w.hw_class LIKE 'apple_silicon_%'
@@ -586,17 +792,30 @@ SELECT w.id::text || E'\t' || to_char(w.last_seen_at AT TIME ZONE 'UTC', 'YYYY-M
  ORDER BY w.id
 SQL
 )"
-  while IFS=$'\t' read -r wid occurred; do
+  deadline=$(( $(date +%s) + poll_secs ))
+  rows=""
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    rows="$(db_tsv "$sql" || true)"
+    n="$(printf '%s\n' "$rows" | awk 'NF' | wc -l | tr -d ' ')"
+    [ "$n" = "$minimum" ] && break
+    sleep 2
+  done
+  n=0
+  printf '[]' > "$evidence"
+  while IFS= read -r wid; do
     [ -n "$wid" ] || continue
     n=$((n + 1))
+    # Observation time is when we recorded the row, not the past heartbeat.
+    # last_seen_at remains the freshness predicate in SQL above.
+    occurred="$(utc_now)"
     jq --arg id "$(obs_id distinct_metal_agent "$n")" \
       --arg subject "$wid" --arg at "$occurred" \
       '. + [{id:$id,subject_id:$subject,occurred_at:$at,source:"merc_postgres.workers"}]' \
       "$evidence" > "${evidence}.n" && mv "${evidence}.n" "$evidence"
-  done < <(db_tsv "$sql")
+  done <<< "$rows"
 
   [ "$n" -eq "$minimum" ] \
-    || die "distinct_metal_agent observed $n live approved Metal agents (version/build/last_seen in-run); require exactly $minimum. Need ${minimum} approved workers heartbeating with reviewed version/build hashes."
+    || die "distinct_metal_agent observed $n live approved Metal agents (version/build/last_seen in-run) within ${poll_secs}s; require exactly $minimum. Need ${minimum} approved workers heartbeating with reviewed version/build hashes since MERC_CANARY_RUN_STARTED_AT."
   # Subjects must equal the full approved set when minimum is the full allowlist size.
   local approved_count
   approved_count="$(approved_worker_ids | wc -l | tr -d ' ')"
@@ -701,13 +920,13 @@ scenario_forced_retry() {
     attempt="$(db_scalar "SELECT retry_count::text FROM tasks WHERE id='$task_id'::uuid")"
     token="$(worker_token_for_id "$worker_id")"
     body="$(jq -nc '{class:"timeout",message:"canary forced retry",duration_ms:1}')"
-    response="$(http_code_body POST "$CONTROL_BASE/v1/worker/task/$task_id/fail" \
-      -H "X-Worker-Token: $token" \
+    response="$(http_auth "X-Worker-Token: $token" POST "$CONTROL_BASE/v1/worker/task/$task_id/fail" \
       -H "X-Task-Attempt: $attempt" \
       -H 'Content-Type: application/json' \
       --data-binary "$body")"
-    code="$(printf '%s\n' "$response" | head -n1)"
-    body="$(printf '%s\n' "$response" | tail -n +2)"
+    http_split "$response"
+    code="$_http_code"
+    body="$_http_body"
     case "$code" in
       2??) ;;
       *) die "forced_retry fail for task $task_id HTTP $code: $(printf '%s' "$body" | head -c 300)" ;;
@@ -769,17 +988,19 @@ scenario_stale_lease_recovery() {
     event_id=""
     deadline=$(( $(date +%s) + wait_secs ))
     while [ "$(date +%s)" -lt "$deadline" ]; do
+      # Only the dead-claim path counts. job_stuck_rescued fires for healthy
+      # stalled jobs with DeadClaim=false and is not proof of lease recovery.
       event_id="$(db_scalar "
         SELECT e.id::text FROM job_events e
          WHERE e.job_id='$job_id'::uuid
-           AND e.event IN ('task_rescued_dead_worker','job_stuck_rescued')
+           AND e.event = 'task_rescued_dead_worker'
            AND e.created_at >= '${MERC_CANARY_RUN_STARTED_AT}'::timestamptz
          ORDER BY e.created_at DESC LIMIT 1")"
       [ -n "$event_id" ] && break
       sleep 5
     done
     [ -n "$event_id" ] \
-      || die "stale_lease_recovery: no durable rescue event for job $job_id within ${wait_secs}s. Need an approved worker that claimed the task and then stopped heartbeating past deadWorkerAfter (180s)."
+      || die "stale_lease_recovery: no durable task_rescued_dead_worker event for job $job_id within ${wait_secs}s. Need an approved worker that claimed the task and then stopped heartbeating past deadWorkerAfter (180s)."
     n=$((n + 1))
     occurred="$(utc_now)"
     jq --arg id "$(obs_id stale_lease_recovery "$n")" \
@@ -793,15 +1014,18 @@ scenario_stale_lease_recovery() {
   rm -f "$evidence"
 }
 
+# Hash only fields that a successful commit of the *stale* attempt would mutate.
+# Intentionally excludes live claim/status so a re-claim by the agent during the
+# probe cannot fail the before/after equality check for a correctly rejected commit.
 task_state_sha256() {
   local task_id="$1"
   local payload
   payload="$(db_scalar "
     SELECT coalesce(string_agg(x, '|'), '') FROM (
-      SELECT t.status || ':' || t.retry_count::text || ':' ||
-             coalesce(t.economic_buyer_charge_usd::text,'') || ':' ||
-             coalesce(t.economic_supplier_payout_usd::text,'') || ':' ||
-             coalesce(t.result_sha256,'') AS x
+      SELECT 'retry:' || t.retry_count::text ||
+             ':charge:' || coalesce(t.economic_buyer_charge_usd::text,'') ||
+             ':payout:' || coalesce(t.economic_supplier_payout_usd::text,'') ||
+             ':result:' || coalesce(t.result_sha256,'') AS x
         FROM tasks t WHERE t.id='$task_id'::uuid
       UNION ALL
       SELECT le.kind || ':' || le.amount_usd::text
@@ -814,6 +1038,7 @@ task_state_sha256() {
 scenario_stale_attempt_commit_rejection() {
   local minimum="$1" started finished evidence n=0 i job_id task_id worker_id token
   local submitted current before after response code body resp_sha occurred auth
+  local claim_deadline claim_by claim_status
   started="$(utc_now)"
   evidence="$(mktemp "${TMPDIR:-/tmp}/merc-canary-ev.XXXXXX")"
   printf '[]' > "$evidence"
@@ -831,15 +1056,15 @@ scenario_stale_attempt_commit_rejection() {
     submitted="$(db_scalar "SELECT retry_count::text FROM tasks WHERE id='$task_id'::uuid")"
     task_status="$(db_scalar "SELECT status FROM tasks WHERE id='$task_id'::uuid")"
 
-    # Force a requeue so current_attempt > submitted_attempt, then commit the stale epoch.
+    # Force a requeue so current_attempt > submitted_attempt.
     fail_body="$(jq -nc '{class:"timeout",message:"canary advance attempt for stale commit",duration_ms:1}')"
-    response="$(http_code_body POST "$CONTROL_BASE/v1/worker/task/$task_id/fail" \
-      -H "X-Worker-Token: $token" \
+    response="$(http_auth "X-Worker-Token: $token" POST "$CONTROL_BASE/v1/worker/task/$task_id/fail" \
       -H "X-Task-Attempt: $submitted" \
       -H 'Content-Type: application/json' \
       --data-binary "$fail_body")"
-    code="$(printf '%s\n' "$response" | head -n1)"
-    body="$(printf '%s\n' "$response" | tail -n +2)"
+    http_split "$response"
+    code="$_http_code"
+    body="$_http_body"
     case "$code" in
       2??) ;;
       *) die "stale_attempt: fail to advance attempt HTTP $code status=$task_status attempt=$submitted body=$(printf '%s' "$body" | head -c 200)" ;;
@@ -856,20 +1081,52 @@ scenario_stale_attempt_commit_rejection() {
     [ "$current" -gt "$submitted" ] \
       || die "stale_attempt: retry_count did not advance past $submitted for task $task_id (fail outcome=${outcome:-unknown} http=$code)"
 
+    # Wait for a live re-claim at the new attempt so claimed_by / status match and
+    # retry_count is the only failing predicate on the stale commit. Without this,
+    # FailTaskTx nulls claimed_by and the 409 is produced by the claim check, not
+    # the attempt-epoch fence this scenario exists to prove. The live Metal agent
+    # (or GET /v1/worker/poll) re-claims; we do not invent a claim ourselves if the
+    # task never returns to claimed/running.
+    claim_deadline=$(( $(date +%s) + 90 ))
+    while [ "$(date +%s)" -lt "$claim_deadline" ]; do
+      claim_by="$(db_scalar "
+        SELECT coalesce(claimed_by::text,'') FROM tasks WHERE id='$task_id'::uuid")"
+      claim_status="$(db_scalar "SELECT status FROM tasks WHERE id='$task_id'::uuid")"
+      current="$(db_scalar "SELECT retry_count::text FROM tasks WHERE id='$task_id'::uuid")"
+      if [ -n "$claim_by" ] && [ "$claim_status" = "running" ] && [ "$current" -gt "$submitted" ]; then
+        break
+      fi
+      # Nudge claim pool via the original worker's poll (may claim this or another task).
+      http_auth "X-Worker-Token: $token" GET \
+        "$CONTROL_BASE/v1/worker/poll?wait_ms=500" >/dev/null 2>&1 || true
+      sleep 0.25
+    done
+    claim_by="$(db_scalar "SELECT coalesce(claimed_by::text,'') FROM tasks WHERE id='$task_id'::uuid")"
+    claim_status="$(db_scalar "SELECT status FROM tasks WHERE id='$task_id'::uuid")"
+    current="$(db_scalar "SELECT retry_count::text FROM tasks WHERE id='$task_id'::uuid")"
+    [ -n "$claim_by" ] && [ "$claim_status" = "running" ] && [ "$current" -gt "$submitted" ] \
+      || die "stale_attempt: task $task_id was not re-claimed at attempt > $submitted within 90s (claimed_by=${claim_by:-none} status=$claim_status retry=$current). Without a live claim the 409 is not an attempt-epoch fence."
+    printf '%s\n' "$(approved_worker_ids)" | grep -qx "$claim_by" \
+      || die "stale_attempt: re-claim by non-approved worker $claim_by"
+    # Commit as the worker that currently holds the claim so claim predicates pass.
+    token="$(worker_token_for_id "$claim_by")"
+    worker_id="$claim_by"
+
     before="$(task_state_sha256 "$task_id")"
-    # Stale commit uses the old attempt number.
+    # Stale commit uses the old attempt number against a task claimed at current.
     result_key="jobs/${job_id}/tasks/${task_id}/attempt-${submitted}/result.json"
     commit_body="$(jq -nc \
       --arg tid "$task_id" --argjson attempt "$submitted" --arg rk "$result_key" \
       '{task_id:$tid,attempt:$attempt,result_key:$rk,duration_ms:1,tokens_used:0,
         result_sha256:("a"*64)}')"
-    response="$(http_code_body POST "$CONTROL_BASE/v1/worker/task/$task_id/commit" \
-      -H "X-Worker-Token: $token" -H 'Content-Type: application/json' \
+    response="$(http_auth "X-Worker-Token: $token" POST "$CONTROL_BASE/v1/worker/task/$task_id/commit" \
+      -H 'Content-Type: application/json' \
       --data-binary "$commit_body")"
-    code="$(printf '%s\n' "$response" | head -n1)"
-    body="$(printf '%s\n' "$response" | tail -n +2)"
+    http_split "$response"
+    code="$_http_code"
+    body="$_http_body"
     [ "$code" = 409 ] \
-      || die "stale_attempt: expected HTTP 409 for stale commit on task $task_id; got $code"
+      || die "stale_attempt: expected HTTP 409 for stale commit on task $task_id (claimed at attempt $current, submitted $submitted); got $code body=$(printf '%s' "$body" | head -c 200)"
     after="$(task_state_sha256 "$task_id")"
     [ "$before" = "$after" ] \
       || die "stale_attempt: task/money state changed after rejected stale commit on $task_id"
@@ -919,18 +1176,20 @@ scenario_buyer_webhook_retry_sequence() {
   for i in $(seq 1 "$minimum"); do
     job_id="$(submit_job embed "webhook-${i}" "$auth")"
     body="$(jq -nc --arg url "$webhook_url" --arg job "$job_id" '{url:$url,job_id:$job}')"
-    response="$(http_code_body POST "$CONTROL_BASE/v1/webhooks" \
-      -H "$auth" -H 'Content-Type: application/json' --data-binary "$body")"
-    code="$(printf '%s\n' "$response" | head -n1)"
-    body="$(printf '%s\n' "$response" | tail -n +2)"
+    response="$(http_auth "$auth" POST "$CONTROL_BASE/v1/webhooks" \
+      -H 'Content-Type: application/json' --data-binary "$body")"
+    http_split "$response"
+    code="$_http_code"
+    body="$_http_body"
     # Response may contain webhook_secret — never log or store it.
     case "$code" in
       2??) ;;
       *) die "webhook register failed HTTP $code (body redacted)" ;;
     esac
     webhook_id="$(jq -er '.webhook_id' <<< "$body")"
-    # Ensure the job completes so delivery is attempted.
-    wait_job_status "$job_id" complete 600 "$auth" >/dev/null || true
+    # Job may fail; the property under test is webhook retry/delivery on a
+    # terminal event. Run wait in a subshell so die cannot abort the scenario.
+    ( wait_job_status "$job_id" complete 600 "$auth" >/dev/null ) || true
     # Wait for durable delivery with attempts >= 2.
     deadline=$(( $(date +%s) + 300 ))
     attempts=0
@@ -963,6 +1222,8 @@ scenario_buyer_webhook_retry_sequence() {
 
 scenario_backup_independent_restore() {
   local minimum="$1" started finished evidence subject
+  local result_file drill_log backup_id cipher offsite_uri scratch_db restore_log
+  local enc_upload ind_download cipher_ok isolated_restore pg_checks object_checks
   started="$(utc_now)"
   [ "$minimum" = 1 ] || die "backup_independent_restore minimum must be 1"
 
@@ -972,30 +1233,66 @@ scenario_backup_independent_restore() {
   require_cmd age
   [ -f "${MERC_BACKUP_DECRYPTION_IDENTITY_FILE:-}" ] \
     || die "MERC_BACKUP_DECRYPTION_IDENTITY_FILE must point at the age identity for independent restore"
+  [ -x "$ROOT/scripts/backup.sh" ] && [ -x "$ROOT/scripts/restore.sh" ] \
+    || die "backup_independent_restore: scripts/backup.sh and scripts/restore.sh must be executable for offsite proof"
 
-  # Delegate to the project backup/restore drill when an offsite adapter is configured.
-  # The driver only PASSes when a real offsite upload + independent download + restore
-  # can be proven without recording secrets.
-  local drill_out cipher
-  drill_out="$(mktemp "${TMPDIR:-/tmp}/merc-canary-backup.XXXXXX")"
-  if [ -x "$ROOT/scripts/backup.sh" ] && [ -x "$ROOT/scripts/restore.sh" ]; then
-    # Run backup; capture non-secret checksum subject.
-    if ! MERC_BACKUP_OFFSITE="$MERC_BACKUP_OFFSITE" \
-      bash "$ROOT/scripts/backup.sh" >"$drill_out" 2>"${drill_out}.err"; then
-      die "backup_independent_restore: scripts/backup.sh failed: $(head -c 400 "${drill_out}.err" 2>/dev/null || true)"
-    fi
-  else
-    die "backup_independent_restore: scripts/backup.sh and scripts/restore.sh must be executable for offsite proof"
+  # Probe the schema'd result file, not backup.sh's human log on stdout.
+  #
+  # backup.sh refuses to overwrite an existing MERC_BACKUP_RESULT_FILE, so the
+  # path must not exist yet. mktemp CREATES the file, which made this scenario
+  # die unconditionally - a real run would clear the first nine scenarios and
+  # then fail here every time, however correct the backup environment was.
+  # A private directory plus a name inside it keeps the safe temp semantics.
+  local result_dir
+  result_dir="$(mktemp -d "${TMPDIR:-/tmp}/merc-canary-backup.XXXXXX")"
+  result_file="$result_dir/backup-invocation.json"
+  drill_log="$(mktemp "${TMPDIR:-/tmp}/merc-canary-backup-log.XXXXXX")"
+  if ! MERC_BACKUP_RESULT_FILE="$result_file" \
+    MERC_BACKUP_OFFSITE="$MERC_BACKUP_OFFSITE" \
+    bash "$ROOT/scripts/backup.sh" >"$drill_log" 2>"${drill_log}.err"; then
+    die "backup_independent_restore: scripts/backup.sh failed: $(head -c 400 "${drill_log}.err" 2>/dev/null || true)"
   fi
+  [ -s "$result_file" ] \
+    || die "backup_independent_restore: backup.sh did not write MERC_BACKUP_RESULT_FILE"
+  jq -e '.status=="PASS" and .kind=="merc_backup_invocation_result" and (.ciphertext_sha256|type=="string" and length>=32)' \
+    "$result_file" >/dev/null \
+    || die "backup_independent_restore: backup result is not a PASS merc_backup_invocation_result with ciphertext_sha256"
+  cipher="$(jq -er '.ciphertext_sha256' "$result_file")"
+  backup_id="$(jq -er '.backup_id' "$result_file")"
+  offsite_uri="$(jq -er '.offsite_uri' "$result_file")"
+  enc_upload=true
+  # Independent download + checksum are performed inside backup.sh before it
+  # writes status=PASS (see scripts/backup.sh verification path).
+  ind_download=true
+  cipher_ok=true
 
-  cipher="$(jq -r '.ciphertext_sha256 // .integrity.ciphertext_sha256 // empty' "$drill_out" 2>/dev/null || true)"
-  if [ -z "$cipher" ] || [ "${#cipher}" -lt 16 ]; then
-    # Fall back to a stable subject from the backup invocation without secrets.
-    cipher="$(sha256_file "$drill_out")"
+  # Isolated restore into a throwaway database; never the live DB name.
+  scratch_db="merc_canary_restore_$(printf '%s' "$MERC_CANARY_RUN_ID" | cut -c1-12)"
+  restore_log="$(mktemp "${TMPDIR:-/tmp}/merc-canary-restore-log.XXXXXX")"
+  if ! bash "$ROOT/scripts/restore.sh" --db-only --to "$scratch_db" "$backup_id" \
+    >"$restore_log" 2>"${restore_log}.err"; then
+    die "backup_independent_restore: scripts/restore.sh into scratch db failed: $(head -c 400 "${restore_log}.err" 2>/dev/null || true)"
   fi
+  isolated_restore=true
+  # Semantic check: restored scratch DB has a buyers relation and answers SELECT 1.
+  if ! PGPASSWORD="${PGPASSWORD:-}" psql -X -qAt -v ON_ERROR_STOP=1 \
+    -d "$scratch_db" \
+    -c "SET default_transaction_read_only = on" \
+    -c "SELECT count(*) FROM buyers" >/dev/null 2>"${restore_log}.pg"; then
+    die "backup_independent_restore: postgres semantic check on scratch db $scratch_db failed: $(head -c 200 "${restore_log}.pg" 2>/dev/null || true)"
+  fi
+  pg_checks=true
+  # Object checks: db-only restore intentionally skips objects; claim only what
+  # --db-only proved (no fabricated object_checks:true).
+  object_checks=false
+  if grep -q 'objects restored' "$restore_log" 2>/dev/null; then
+    object_checks=true
+  fi
+  # db-only path never restores objects; require the operator not to claim them.
+  # Receipt field stays honest: false when --db-only.
   subject="backup-${cipher:0:32}"
   [[ "$subject" =~ ^[A-Za-z0-9][A-Za-z0-9_.:/@-]{7,199}$ ]] \
-    || subject="backup-$(sha256_str "$cipher" | cut -c1-32)"
+    || die "backup_independent_restore: provider subject $subject is not a safe id"
 
   evidence="$(mktemp "${TMPDIR:-/tmp}/merc-canary-ev.XXXXXX")"
   jq -n --arg id "$(obs_id backup_independent_restore 1)" \
@@ -1003,21 +1300,29 @@ scenario_backup_independent_restore() {
     '[{id:$id,subject_id:$subject,occurred_at:$at,source:"offsite_backup_provider"}]' \
     > "$evidence"
   finished="$(utc_now)"
-  extras="$(jq -nc '{
-    encrypted_offsite_upload:true,
-    independent_download:true,
-    ciphertext_checksum_verified:true,
-    isolated_restore:true,
-    postgres_semantic_checks:true,
-    object_checks:true
-  }')"
-  # Only claim the booleans if backup.sh reported PASS-shaped success.
-  if ! jq -e '(.status == "PASS") or (.integrity.ciphertext_verified == true) or (.ok == true)' \
-    "$drill_out" >/dev/null 2>&1; then
-    die "backup_independent_restore: backup adapter did not report a verified PASS/ciphertext proof"
-  fi
+  extras="$(jq -nc \
+    --argjson enc "$enc_upload" \
+    --argjson ind "$ind_download" \
+    --argjson csum "$cipher_ok" \
+    --argjson iso "$isolated_restore" \
+    --argjson pg "$pg_checks" \
+    --argjson obj "$object_checks" \
+    --arg offsite "$offsite_uri" \
+    --arg bid "$backup_id" \
+    '{
+      encrypted_offsite_upload:$enc,
+      independent_download:$ind,
+      ciphertext_checksum_verified:$csum,
+      isolated_restore:$iso,
+      postgres_semantic_checks:$pg,
+      object_checks:$obj,
+      backup_id:$bid,
+      offsite_uri:$offsite
+    }')"
+  # object_checks is false on the honest --db-only path; validator must accept
+  # measured false rather than require a constant true.
   emit_receipt backup_independent_restore "$minimum" "$started" "$finished" "$evidence" "$extras"
-  rm -f "$evidence" "$drill_out" "${drill_out}.err"
+  rm -f "$evidence" "$result_file" "$drill_log" "${drill_log}.err" "$restore_log" "${restore_log}.err" "${restore_log}.pg"
 }
 
 scenario_stripe_test_matrix() {
@@ -1059,19 +1364,39 @@ scenario_stripe_test_matrix() {
     "$matrix_out" >/dev/null \
     || die "stripe_test_matrix: provider matrix did not prove PASS test-mode application outcomes"
   subject="$(jq -r '.run_id // empty' "$matrix_out")"
-  subject="stripe-matrix-${subject:-$MERC_CANARY_RUN_ID}"
+  [ -n "$subject" ] \
+    || die "stripe_test_matrix: matrix output missing run_id; refusing to mint a subject from the driver run id"
+  # Prefer a real provider object id when the matrix reports one.
+  local provider_subject
+  provider_subject="$(jq -r '.payment_intent // .charge // .transfer // empty' "$matrix_out" 2>/dev/null || true)"
+  if [ -n "$provider_subject" ]; then
+    subject="stripe-${provider_subject}"
+  else
+    subject="stripe-matrix-${subject}"
+  fi
+  # matrix_complete: require an explicit completeness signal when present; otherwise
+  # derive from the PASS + verified outcomes + run_id we already observed.
+  local matrix_complete
+  matrix_complete="$(jq -r 'if .matrix_complete == true then "true"
+    elif .matrix_complete == false then "false"
+    elif .status=="PASS" and .webhook.application_outcomes_verified==true and (.run_id|type=="string" and length>0) then "true"
+    else "false" end' "$matrix_out")"
+  [ "$matrix_complete" = true ] \
+    || die "stripe_test_matrix: matrix_complete not observed as true"
   evidence="$(mktemp "${TMPDIR:-/tmp}/merc-canary-ev.XXXXXX")"
   jq -n --arg id "$(obs_id stripe_test_matrix 1)" \
     --arg subject "$subject" --arg at "$(utc_now)" \
     '[{id:$id,subject_id:$subject,occurred_at:$at,source:"stripe_test_api"}]' \
     > "$evidence"
   finished="$(utc_now)"
-  extras="$(jq -nc '{
-    provider_mode:"test",
-    matrix_complete:true,
-    real_value:false,
-    application_outcomes_verified:true
-  }')"
+  extras="$(jq -nc \
+    --argjson complete true \
+    '{
+      provider_mode:"test",
+      matrix_complete:$complete,
+      real_value:false,
+      application_outcomes_verified:true
+    }')"
   emit_receipt stripe_test_matrix "$minimum" "$started" "$finished" "$evidence" "$extras"
   rm -f "$evidence" "$matrix_out" "${matrix_out}.err"
 }
@@ -1081,13 +1406,19 @@ scenario_real_alert_firing_resolution() {
   local firing_id resolved_id receiver_name am_url
   started="$(utc_now)"
   [ "$minimum" = 1 ] || die "real_alert_firing_resolution minimum must be 1"
-  : "${ALERT_RECEIVER_WEBHOOK_URL:?real_alert_firing_resolution requires ALERT_RECEIVER_WEBHOOK_URL}"
-  : "${ALERT_RECEIVER_NAME:?real_alert_firing_resolution requires ALERT_RECEIVER_NAME}"
+  [ -n "${ALERT_RECEIVER_WEBHOOK_URL:-}" ] \
+    || die "real_alert_firing_resolution requires ALERT_RECEIVER_WEBHOOK_URL"
+  [ -n "${ALERT_RECEIVER_NAME:-}" ] \
+    || die "real_alert_firing_resolution requires ALERT_RECEIVER_NAME"
   case "$ALERT_RECEIVER_WEBHOOK_URL" in
     https://*) ;;
     *) die "ALERT_RECEIVER_WEBHOOK_URL must be https://" ;;
   esac
+  # Allowlist receiver_name shape (SAFE_ID) rather than embedding arbitrary
+  # operator strings that may contain credential-shaped fragments.
   receiver_name="$ALERT_RECEIVER_NAME"
+  [[ "$receiver_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.:/@-]{7,199}$ ]] \
+    || die "ALERT_RECEIVER_NAME must match SAFE_ID (8-200 chars, no secret-shaped values)"
   am_url="${MERC_ALERTMANAGER_URL:-http://127.0.0.1:9093}"
 
   # Post a real firing alert, then resolve it, through Alertmanager's API.
@@ -1100,7 +1431,8 @@ scenario_real_alert_firing_resolution() {
       startsAt:(now|strftime("%Y-%m-%dT%H:%M:%SZ"))}]')"
   response="$(http_code_body POST "$am_url/api/v2/alerts" \
     -H 'Content-Type: application/json' --data-binary "$payload")"
-  code="$(printf '%s\n' "$response" | head -n1)"
+  http_split "$response"
+  code="$_http_code"
   case "$code" in
     2??) ;;
     *) die "real_alert_firing_resolution: Alertmanager fire failed HTTP $code (is MERC_ALERTMANAGER_URL reachable?)" ;;
@@ -1111,13 +1443,6 @@ scenario_real_alert_firing_resolution() {
   local sink_file="${MERC_CANARY_ALERT_SINK_FILE:-}"
   firing_id=""
   resolved_id=""
-  if [ -n "$sink_file" ] && [ -f "$sink_file" ]; then
-    # Expect JSONL with {status:firing|resolved, event_id:...} lines for this alert.
-    firing_id="$(jq -r --arg n "$alert_name" \
-      'select(.alertname==$n or .labels.alertname==$n) | select(.status=="firing" or .status=="firing") | .event_id // .id // empty' \
-      "$sink_file" 2>/dev/null | head -n1 || true)"
-    # Wait briefly for resolved delivery after we resolve.
-  fi
 
   # Resolve: endsAt in the past.
   payload="$(jq -nc --arg name "$alert_name" --arg recv "$receiver_name" '
@@ -1127,7 +1452,8 @@ scenario_real_alert_firing_resolution() {
       endsAt:(now-60|strftime("%Y-%m-%dT%H:%M:%SZ"))}]')"
   response="$(http_code_body POST "$am_url/api/v2/alerts" \
     -H 'Content-Type: application/json' --data-binary "$payload")"
-  code="$(printf '%s\n' "$response" | head -n1)"
+  http_split "$response"
+  code="$_http_code"
   case "$code" in
     2??) ;;
     *) die "real_alert_firing_resolution: Alertmanager resolve failed HTTP $code" ;;
@@ -1136,9 +1462,12 @@ scenario_real_alert_firing_resolution() {
   if [ -n "$sink_file" ] && [ -f "$sink_file" ]; then
     local deadline=$(( $(date +%s) + 120 ))
     while [ "$(date +%s)" -lt "$deadline" ]; do
+      # Require explicit per-delivery event_id (or id). Do not fall back to
+      # Alertmanager fingerprint: it is identical for firing and resolved.
       firing_id="$(python3 - "$sink_file" "$alert_name" <<'PY'
-import json,sys
+import json,sys,re
 path,name=sys.argv[1],sys.argv[2]
+SAFE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@-]{7,199}$")
 fid=rid=""
 for line in open(path):
     line=line.strip()
@@ -1150,15 +1479,18 @@ for line in open(path):
     if an!=name: continue
     st=(o.get("status") or "").lower()
     eid=o.get("event_id") or o.get("id") or ""
-    if st in ("firing","firing") and eid and not fid: fid=eid
-    if st in ("resolved","resolved") and eid and not rid: rid=eid
+    if st == "firing" and eid and not fid: fid=eid
+    if st == "resolved" and eid and not rid: rid=eid
     for a in o.get("alerts") or []:
         al=a.get("labels") or {}
         if al.get("alertname")!=name: continue
         st=(a.get("status") or o.get("status") or "").lower()
-        eid=a.get("event_id") or a.get("fingerprint") or o.get("event_id") or ""
+        eid=a.get("event_id") or o.get("event_id") or a.get("id") or ""
         if "firing" in st and eid and not fid: fid=eid
         if "resolved" in st and eid and not rid: rid=eid
+# Validate SAFE_ID length bound before accepting.
+if fid and not SAFE.fullmatch(fid): fid=""
+if rid and not SAFE.fullmatch(rid): rid=""
 print(fid)
 print(rid)
 PY
@@ -1173,7 +1505,7 @@ PY
   fi
 
   [ -n "$firing_id" ] && [ -n "$resolved_id" ] && [ "$firing_id" != "$resolved_id" ] \
-    || die "real_alert_firing_resolution: no observed distinct firing/resolved receiver event IDs. Set MERC_CANARY_ALERT_SINK_FILE to a JSONL sink of real receiver deliveries for this probe."
+    || die "real_alert_firing_resolution: no observed distinct SAFE_ID firing/resolved receiver event IDs. Set MERC_CANARY_ALERT_SINK_FILE to a JSONL sink with explicit event_id per delivery (fingerprint fallback removed)."
 
   evidence="$(mktemp "${TMPDIR:-/tmp}/merc-canary-ev.XXXXXX")"
   jq -n --arg id "$(obs_id real_alert_firing_resolution 1)" \
@@ -1192,11 +1524,11 @@ scenario_post_rehearsal_invariant_audit() {
   started="$(utc_now)"
   [ "$minimum" = 1 ] || die "post_rehearsal_invariant_audit minimum must be 1"
 
-  # Read-only audit. Run-scoped checks use MERC_CANARY_RUN_STARTED_AT so a
-  # dirty historical local database does not invent canary authority, while
-  # global money conservation and stuck-terminal rows still fail closed when
-  # present (matching the rehearsal's post-canary database assertions).
-  local audit
+  # Read-only audit. Only publish invariants that are actually queried.
+  # unreconciled_state is omitted: no reconciliation query exists yet.
+  # stuck_payouts windows on release_at (not created_at >= run_start), so a
+  # held credit past its 30-day release is observable.
+  local audit task_subject
   audit="$(db_scalar "
     SELECT json_build_object(
       'tenant_leak', EXISTS (
@@ -1229,9 +1561,7 @@ scenario_post_rehearsal_invariant_audit() {
         SELECT 1 FROM ledger_entries
          WHERE kind='supplier_credit' AND payout_status='held'
            AND release_at IS NOT NULL AND release_at < now() - interval '30 days'
-           AND created_at >= '${MERC_CANARY_RUN_STARTED_AT}'::timestamptz
       ),
-      'unreconciled_state', false,
       'silent_webhook_loss', EXISTS (
         SELECT 1 FROM webhooks
          WHERE dead_lettered_at IS NOT NULL
@@ -1247,14 +1577,28 @@ scenario_post_rehearsal_invariant_audit() {
   jq -e '
     .tenant_leak==false and .missing_artifact==false and .duplicate_effects==false and
     .ledger_imbalance==false and .stuck_terminal_jobs==false and .stuck_payouts==false and
-    .unreconciled_state==false and .silent_webhook_loss==false and .unbounded_growth==false
+    .silent_webhook_loss==false and .unbounded_growth==false
   ' <<< "$audit" >/dev/null \
     || die "post_rehearsal_invariant_audit: one or more invariants are dirty: $audit"
 
+  # The subject must be a row an auditor can find. Synthesising one from the run
+  # id produced evidence labelled source merc_postgres.tasks that resolves to
+  # nothing, and the `|| true` made a failed query indistinguishable from an
+  # empty one - psql already exits 0 on zero rows, so its only effect was to
+  # mask an error. Fail closed on both, exactly as bounded_retry_backoff_audit
+  # does: certifying invariants over a window with no examined rows proves
+  # nothing.
+  task_subject="$(db_scalar "
+    SELECT id::text FROM tasks
+     WHERE created_at >= '${MERC_CANARY_RUN_STARTED_AT}'::timestamptz
+     ORDER BY created_at DESC LIMIT 1")"
+  [ -n "$task_subject" ] \
+    || die "post_rehearsal_invariant_audit: no task observed since MERC_CANARY_RUN_STARTED_AT; refusing to certify invariants over an empty window"
+
   evidence="$(mktemp "${TMPDIR:-/tmp}/merc-canary-ev.XXXXXX")"
   jq -n --arg id "$(obs_id post_rehearsal_invariant_audit 1)" \
-    --arg subject "invariant-audit-${MERC_CANARY_RUN_ID:0:16}" --arg at "$(utc_now)" \
-    '[{id:$id,subject_id:$subject,occurred_at:$at,source:"merc_postgres.invariant_audit"}]' \
+    --arg subject "$task_subject" --arg at "$(utc_now)" \
+    '[{id:$id,subject_id:$subject,occurred_at:$at,source:"merc_postgres.tasks"}]' \
     > "$evidence"
   finished="$(utc_now)"
   extras="$(jq -nc --argjson inv "$audit" '{invariants:$inv}')"
@@ -1263,12 +1607,20 @@ scenario_post_rehearsal_invariant_audit() {
 }
 
 scenario_bounded_retry_backoff_audit() {
-  local minimum="$1" started finished evidence prom
-  local max_retry unbounded
+  local minimum="$1" started finished evidence
+  local max_retry unbounded task_count subject
   started="$(utc_now)"
   [ "$minimum" = 1 ] || die "bounded_retry_backoff_audit minimum must be 1"
 
-  # Policy ceiling is maxTaskRetries=3 in control/workers.go and requeueBackoffCap=10m.
+  # Honest PostgreSQL observation only. No merc_prometheus claim without PromQL.
+  # No backoff_schedule_within_policy without measuring requeue delays.
+  task_count="$(db_scalar "
+    SELECT count(*)::text FROM tasks
+     WHERE created_at >= '${MERC_CANARY_RUN_STARTED_AT}'::timestamptz")"
+  [ "$task_count" -gt 0 ] \
+    || die "bounded_retry_backoff_audit: no tasks created since MERC_CANARY_RUN_STARTED_AT; refusing to certify an empty set"
+
+  # Policy ceiling is maxTaskRetries=3 in control/workers.go.
   max_retry="$(db_scalar "
     SELECT coalesce(max(retry_count),0)::text FROM tasks
      WHERE created_at >= '${MERC_CANARY_RUN_STARTED_AT}'::timestamptz")"
@@ -1282,24 +1634,28 @@ scenario_bounded_retry_backoff_audit() {
   [ "$unbounded" = 0 ] \
     || die "bounded_retry_backoff_audit: $unbounded tasks exceeded the retry ceiling"
 
-  # Optional Prometheus corroboration when available.
-  prom="$(resolve_prometheus_url)"
-  if curl --fail --silent --show-error --max-time 5 "$prom/-/ready" >/dev/null 2>&1; then
-    log "bounded_retry_backoff_audit: Prometheus ready at $prom (policy already checked in PostgreSQL)"
-  else
-    log "bounded_retry_backoff_audit: Prometheus not reachable at $prom; using PostgreSQL retry_count policy check only"
-  fi
+  subject="$(db_scalar "
+    SELECT id::text FROM tasks
+     WHERE created_at >= '${MERC_CANARY_RUN_STARTED_AT}'::timestamptz
+     ORDER BY retry_count DESC, created_at DESC LIMIT 1")"
+  [ -n "$subject" ] || die "bounded_retry_backoff_audit: failed to select an observed task subject"
 
   evidence="$(mktemp "${TMPDIR:-/tmp}/merc-canary-ev.XXXXXX")"
   jq -n --arg id "$(obs_id bounded_retry_backoff_audit 1)" \
-    --arg subject "retry-backoff-${MERC_CANARY_RUN_ID:0:16}" --arg at "$(utc_now)" \
-    '[{id:$id,subject_id:$subject,occurred_at:$at,source:"merc_prometheus"}]' \
+    --arg subject "$subject" --arg at "$(utc_now)" \
+    '[{id:$id,subject_id:$subject,occurred_at:$at,source:"merc_postgres.tasks"}]' \
     > "$evidence"
   finished="$(utc_now)"
+  # Only publish claims derived from the queries above.
   extras="$(jq -nc \
-    '{max_attempts_within_policy:true,
-      backoff_schedule_within_policy:true,
-      unbounded_retry_growth:false}')"
+    --argjson max_ok true \
+    --argjson unbounded false \
+    --argjson max_retry "$max_retry" \
+    --argjson task_count "$task_count" \
+    '{max_attempts_within_policy:$max_ok,
+      unbounded_retry_growth:$unbounded,
+      observed_max_retry_count:$max_retry,
+      observed_task_count:$task_count}')"
   emit_receipt bounded_retry_backoff_audit "$minimum" "$started" "$finished" "$evidence" "$extras"
   rm -f "$evidence"
 }
@@ -1354,6 +1710,14 @@ main() {
 
   setup_http
   DATABASE_URL_OBS="$(resolve_database_url)"
+  configure_psql_env "$DATABASE_URL_OBS"
+
+  # Export observed safety for emit_receipt (must not invent defaults).
+  export MERC_CANARY_OBSERVED_PAYMENT_MODE="$OBSERVED_PAYMENT_MODE"
+  export MERC_CANARY_OBSERVED_LIVE_VALUE_MOVEMENT="$OBSERVED_LIVE_VALUE_MOVEMENT"
+  export MERC_CANARY_OBSERVED_STRIPE_TEST_MODE="$OBSERVED_STRIPE_TEST_MODE"
+  export MERC_CANARY_OBSERVED_STRIPE_LIVE_MODE="$OBSERVED_STRIPE_LIVE_MODE"
+  export MERC_CANARY_OBSERVED_REAL_VALUE="$OBSERVED_REAL_VALUE"
 
   # Refuse live Stripe again after env is fully visible to this process.
   reject_live_stripe

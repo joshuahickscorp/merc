@@ -220,7 +220,7 @@ corroborate_scenario() {
           JOIN jobs j ON j.id=e.job_id
           JOIN buyers b ON b.id=j.buyer_id
          WHERE e.id=ANY('$ids'::uuid[])
-           AND e.event IN ('task_rescued_dead_worker','job_stuck_rescued')
+           AND e.event = 'task_rescued_dead_worker'
            AND e.created_at >= '$MERC_CANARY_RUN_STARTED_AT'::timestamptz
            AND j.created_at >= '$MERC_CANARY_RUN_STARTED_AT'::timestamptz
            AND b.deleted_at IS NULL
@@ -250,8 +250,13 @@ corroborate_scenario() {
       require_observed_count "$scenario" "$minimum" "$observed"
       ;;
     stale_attempt_commit_rejection)
+      # Deduplicate subjects before counting (mirrors other branches' count(*) over PKs).
+      jq -e --argjson min "$minimum" \
+        '([.evidence[].subject_id] | unique | length) == $min' "$file" >/dev/null \
+        || gc_die "stale_attempt_commit_rejection evidence subject_ids are not unique"
       observed=0
-      while IFS=$'\t' read -r subject current; do
+      # Read TSV on fd 3 so docker compose exec cannot drain the loop's stdin.
+      while IFS=$'\t' read -r subject current <&3; do
         current_count="$(gc_canary_db_scalar "
           SELECT count(*)
             FROM tasks t
@@ -262,11 +267,11 @@ corroborate_scenario() {
              AND b.deleted_at IS NULL
              AND COALESCE(t.execution_worker_id,t.worker_id)=ANY('$workers'::uuid[])
              AND lower(b.email)=ANY(string_to_array(
-               replace(lower(convert_from(decode('$buyers_b64','base64'),'UTF8')),' ',''),','))")"
+               replace(lower(convert_from(decode('$buyers_b64','base64'),'UTF8')),' ',''),','))" </dev/null)"
         [ "$current_count" = 1 ] \
           || gc_die "stale-attempt subject $subject is not durably fenced at attempt $current"
         observed=$((observed + 1))
-      done < <(jq -r '.evidence[] | [.subject_id,.current_attempt] | @tsv' "$file")
+      done 3< <(jq -r '[.evidence[] | [.subject_id,.current_attempt]] | unique | .[] | @tsv' "$file")
       require_observed_count "$scenario" "$minimum" "$observed"
       ;;
     backup_independent_restore|stripe_test_matrix|real_alert_firing_resolution|\
