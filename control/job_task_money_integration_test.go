@@ -70,7 +70,74 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		t.Fatalf("build exact-reuse workload decision: %v", err)
 	}
 	money := SettleReuseHitMoney(1000, 0.002)
+	originPlan, err := newDistributedComputePlan(
+		decision,
+		1,
+		128,
+		1,
+		1,
+		0,
+		0,
+		QuoteTime{P50Secs: 60, P90Secs: 120, WorstCaseSecs: 240},
+		"static",
+		0.20,
+		0,
+		QuoteConfidence{Score: 0.9, Reasons: []string{"exact-reuse origin fixture"}},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build exact-reuse origin plan: %v", err)
+	}
+	computePlan, err := newExactReuseComputePlan(
+		decision, 1, 128, microsToUSD(money.BuyerDebitMicros), &originPlan,
+	)
+	if err != nil {
+		t.Fatalf("build exact-reuse compute plan: %v", err)
+	}
 	quoteID := uuid.New()
+	originSHA256, err := computePlanDigest(originPlan)
+	if err != nil {
+		t.Fatalf("hash exact-reuse origin plan: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO quotes (id,buyer_id,job_type,compute_plan_sha256)
+		VALUES ($1,$2,$3,$4)`,
+		quoteID, f.BuyerID, sub.JobType.Type, originSHA256,
+	); err != nil {
+		t.Fatalf("seed exact-reuse origin quote: %v", err)
+	}
+	badComputePlan := computePlan
+	badComputePlan.OriginComputePlanSHA256 = strings.Repeat("b", 64)
+	badJobID := uuid.New()
+	if err := store.SubmitExactReuseBatchJob(
+		ctx,
+		f.BuyerID,
+		badJobID,
+		sub.JobType.Type,
+		sub.Model.Ref,
+		"jobs/"+badJobID.String()+"/input.jsonl",
+		"jobs/"+badJobID.String()+"/output.jsonl",
+		sub.Tier,
+		ExactCacheHit{
+			ResultRef:    "cas/sha256/" + strings.Repeat("1", 64),
+			OutputTokens: 1000,
+		},
+		money,
+		1,
+		128,
+		"",
+		"",
+		decision,
+		badComputePlan,
+		quoteID,
+		true,
+		1,
+	); err == nil || !strings.Contains(err.Error(), "origin quote") {
+		t.Fatalf("exact reuse accepted mismatched origin quote authority: %v", err)
+	}
+	if countJobRows(t, ctx, pool, badJobID) != 0 {
+		t.Fatal("failed exact-reuse quote binding left a job row")
+	}
 	if err := store.SubmitExactReuseBatchJob(
 		ctx,
 		f.BuyerID,
@@ -90,6 +157,7 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		"",
 		"",
 		decision,
+		computePlan,
 		quoteID,
 		true,
 		1,
@@ -104,6 +172,13 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 	if stored == nil || stored.BindingSHA256 != decision.BindingSHA256 {
 		t.Fatalf("exact-reuse path did not freeze workload authority: got %+v", stored)
 	}
+	storedCompute, err := store.JobComputePlan(ctx, f.JobID)
+	if err != nil {
+		t.Fatalf("load exact-reuse compute plan: %v", err)
+	}
+	if storedCompute == nil || storedCompute.ExecutionMode != computeExecutionExactReuse {
+		t.Fatalf("exact-reuse path did not freeze compute authority: got %+v", storedCompute)
+	}
 	var storedQuoteID *uuid.UUID
 	var firmQuote bool
 	var firmQuoteMaxUSD float64
@@ -117,9 +192,12 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		t.Fatalf("exact reuse lost quote provenance: quote=%v firm=%v max=%v",
 			storedQuoteID, firmQuote, firmQuoteMaxUSD)
 	}
-	receipt := assembleClearingReceipt(f.JobID, "complete", stored, nil, Verification{}, nil, nil)
+	receipt := assembleClearingReceipt(f.JobID, "complete", stored, storedCompute, nil, Verification{}, nil, nil)
 	if receipt.Workload == nil || receipt.Workload.BindingSHA256 != decision.BindingSHA256 {
 		t.Fatal("exact-reuse receipt omitted the frozen workload decision")
+	}
+	if receipt.ComputePlan == nil || receipt.ComputePlan.ExecutionMode != computeExecutionExactReuse {
+		t.Fatal("exact-reuse receipt omitted the frozen compute plan")
 	}
 }
 
@@ -315,24 +393,51 @@ func validJobRow(t *testing.T, f moneyPathFixture, tasks []taskRow) *jobRow {
 	if err != nil {
 		t.Fatalf("build test workload decision: %v", err)
 	}
+	economicPlan := f.Plan
+	if economicPlan.Input.InitialTaskCount != len(tasks) {
+		economicPlan = buildTestEconomicPlan(t, len(tasks), economicPlan.Input.SLAPremiumUSD)
+	}
+	inputRecords := len(tasks)
+	inputBytes := int64(inputRecords * 128)
+	computePlan, err := newDistributedComputePlan(
+		workload,
+		inputRecords,
+		inputBytes,
+		1,
+		len(tasks),
+		0,
+		0,
+		QuoteTime{P50Secs: 60, P90Secs: 120, WorstCaseSecs: 240},
+		"static",
+		economicPlan.Input.BaseComputeUSD,
+		0,
+		QuoteConfidence{Score: 0.9, Reasons: []string{"integration fixture uses exact task geometry"}},
+		[]string{"integration fixture has no live fleet estimate"},
+	)
+	if err != nil {
+		t.Fatalf("build test compute plan: %v", err)
+	}
 	return &jobRow{
-		ID:               f.JobID,
-		BuyerID:          f.BuyerID,
-		JobType:          "embed",
-		ModelRef:         "all-minilm-l6-v2",
-		InputRef:         "money/input-" + f.JobID.String(),
-		OutputRef:        "money/output-" + f.JobID.String(),
-		Tier:             "batch",
-		EstimatedUSD:     f.Plan.InitialBuyerChargeUSD,
-		TaskCount:        len(tasks),
-		MinMemoryGB:      0,
-		MaxDurationSecs:  3600,
-		SplitSize:        1,
-		OfferedRateUsdHr: 1.0,
-		ETASecs:          60,
-		SLAPremiumUSD:    f.Plan.Input.SLAPremiumUSD,
-		EconomicPlan:     f.Plan,
-		WorkloadDecision: workload,
+		ID:                   f.JobID,
+		BuyerID:              f.BuyerID,
+		JobType:              "embed",
+		ModelRef:             "all-minilm-l6-v2",
+		InputRef:             "money/input-" + f.JobID.String(),
+		OutputRef:            "money/output-" + f.JobID.String(),
+		Tier:                 "batch",
+		EstimatedUSD:         economicPlan.InitialBuyerChargeUSD,
+		TaskCount:            len(tasks),
+		MinMemoryGB:          float32(workload.MinimumMemoryGB),
+		MaxDurationSecs:      3600,
+		SplitSize:            1,
+		OfferedRateUsdHr:     1.0,
+		ETASecs:              60,
+		SLAPremiumUSD:        economicPlan.Input.SLAPremiumUSD,
+		EconomicInputRecords: int64(inputRecords),
+		EconomicInputBytes:   inputBytes,
+		EconomicPlan:         economicPlan,
+		WorkloadDecision:     workload,
+		ComputePlan:          computePlan,
 	}
 }
 
@@ -422,6 +527,20 @@ func TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger(t *testing.T) {
 	if taskCount != 2 || planCount != 1 || reserveCount != 1 {
 		t.Fatalf("submit projections = tasks:%d plan:%d reserve:%d", taskCount, planCount, reserveCount)
 	}
+	storedCompute, err := store.JobComputePlan(ctx, f.JobID)
+	if err != nil {
+		t.Fatalf("load frozen compute plan: %v", err)
+	}
+	if storedCompute == nil || storedCompute.TotalInitialTasks != 2 ||
+		storedCompute.SplitSize != job.SplitSize {
+		t.Fatalf("submit did not freeze compute authority: %+v", storedCompute)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE jobs
+		   SET compute_plan = jsonb_set(compute_plan, '{split_size}', '99'::jsonb)
+		 WHERE id=$1`, f.JobID); err == nil {
+		t.Fatal("database allowed frozen compute authority to be mutated")
+	}
 	if n := countBuyerLedger(t, ctx, pool, f.BuyerID); n != 0 {
 		t.Fatalf("SubmitJobTx minted %d ledger rows; submit must mint no money", n)
 	}
@@ -449,6 +568,30 @@ func TestSubmitJobTxPlanTaskCountMismatchFailsClosed(t *testing.T) {
 	}
 	if n := countBuyerLedger(t, ctx, pool, f.BuyerID); n != 0 {
 		t.Fatalf("failed submit minted ledger rows: %d", n)
+	}
+}
+
+func TestSubmitJobTxBoundQuoteComputeMismatchFailsClosed(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
+	tasks := makeTasks(f, 1)
+	f.TaskIDs = []uuid.UUID{tasks[0].ID}
+	job := validJobRow(t, f, tasks)
+	job.QuoteID = uuid.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO quotes (id,buyer_id,job_type,compute_plan_sha256)
+		VALUES ($1,$2,$3,$4)`,
+		job.QuoteID, f.BuyerID, job.JobType, strings.Repeat("f", 64),
+	); err != nil {
+		t.Fatalf("seed mismatched quote compute authority: %v", err)
+	}
+
+	err := store.SubmitJobTx(ctx, job, tasks)
+	if err == nil || !strings.Contains(err.Error(), "bound quote") {
+		t.Fatalf("bound quote compute mismatch accepted: %v", err)
+	}
+	if countJobRows(t, ctx, pool, f.JobID) != 0 {
+		t.Fatal("failed bound quote submit left a job row")
 	}
 }
 

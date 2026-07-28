@@ -91,12 +91,51 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	if err := ValidateEconomicPlanSnapshot(j.EconomicPlan); err != nil {
 		return fmt.Errorf("refusing job without valid economic plan: %w", err)
 	}
+	if err := ValidateComputePlanEconomicSnapshot(j.ComputePlan, j.WorkloadDecision, j.EconomicPlan); err != nil {
+		return fmt.Errorf("refusing job without valid compute plan: %w", err)
+	}
 	if j.EconomicPlan.Input.InitialTaskCount != len(tasks) {
 		return fmt.Errorf("economic plan initial_task_count=%d does not match %d initial tasks",
 			j.EconomicPlan.Input.InitialTaskCount, len(tasks))
 	}
 	if j.TaskCount != len(tasks) {
 		return fmt.Errorf("job task_count=%d does not match %d initial tasks", j.TaskCount, len(tasks))
+	}
+	var primaryTasks, redundancyTasks, honeypotTasks int
+	for _, task := range tasks {
+		switch {
+		case task.IsHoneypot:
+			honeypotTasks++
+		case task.IsRedundancy:
+			redundancyTasks++
+		default:
+			primaryTasks++
+		}
+	}
+	if primaryTasks != j.ComputePlan.PrimaryTasks ||
+		redundancyTasks != j.ComputePlan.RedundancyTasks ||
+		honeypotTasks != j.ComputePlan.HoneypotTasks {
+		return fmt.Errorf(
+			"initial task classes primary=%d redundancy=%d honeypot=%d do not match compute plan %d/%d/%d",
+			primaryTasks, redundancyTasks, honeypotTasks,
+			j.ComputePlan.PrimaryTasks, j.ComputePlan.RedundancyTasks, j.ComputePlan.HoneypotTasks,
+		)
+	}
+	if j.SplitSize != j.ComputePlan.SplitSize {
+		return fmt.Errorf("job split_size=%d does not match compute plan %d", j.SplitSize, j.ComputePlan.SplitSize)
+	}
+	if math.Abs(float64(j.MinMemoryGB)-j.ComputePlan.MinimumMemoryGB) > 0.000001 {
+		return fmt.Errorf("job minimum memory %.6f does not match compute plan %.6f",
+			j.MinMemoryGB, j.ComputePlan.MinimumMemoryGB)
+	}
+	if j.ETASecs != j.ComputePlan.ETAP50Secs {
+		return fmt.Errorf("job ETA %d does not match compute plan p50 %d", j.ETASecs, j.ComputePlan.ETAP50Secs)
+	}
+	if j.EconomicInputRecords != int64(j.ComputePlan.InputRecords) ||
+		j.EconomicInputBytes != j.ComputePlan.InputBytes {
+		return fmt.Errorf("job input authority records=%d bytes=%d does not match compute plan %d/%d",
+			j.EconomicInputRecords, j.EconomicInputBytes,
+			j.ComputePlan.InputRecords, j.ComputePlan.InputBytes)
 	}
 	if j.EconomicInputSource == economicInputSourceSubmitStream {
 		var primaryRecords int64
@@ -141,11 +180,33 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	if err != nil {
 		return fmt.Errorf("hash workload decision: %w", err)
 	}
+	computeJSON, err := json.Marshal(j.ComputePlan)
+	if err != nil {
+		return fmt.Errorf("marshal compute plan: %w", err)
+	}
+	computeSHA256, err := computePlanDigest(j.ComputePlan)
+	if err != nil {
+		return fmt.Errorf("hash compute plan: %w", err)
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if j.QuoteID != uuid.Nil {
+		var quoteComputeSHA256 string
+		if err := tx.QueryRow(ctx,
+			`SELECT COALESCE(compute_plan_sha256,'')
+			   FROM quotes
+			  WHERE id=$1 AND buyer_id=$2`,
+			j.QuoteID, j.BuyerID,
+		).Scan(&quoteComputeSHA256); err != nil {
+			return fmt.Errorf("load bound quote compute authority: %w", err)
+		}
+		if quoteComputeSHA256 == "" || quoteComputeSHA256 != computeSHA256 {
+			return errors.New("job compute plan does not match its bound quote")
+		}
+	}
 
 	var economicInputRecords, economicInputBytes, economicInputSource any
 	if j.EconomicInputSource != "" {
@@ -162,10 +223,11 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    deadline_secs, firm_quote, firm_quote_max_usd, sla_guarantee_secs, sla_premium_usd,
 		    economic_input_records, economic_input_bytes, economic_input_source,
 		    submit_idempotency_key, submit_request_sha256, prefix_id,
-		    workload_decision, workload_decision_sha256)
+		    workload_decision, workload_decision_sha256,
+		    compute_plan, compute_plan_sha256)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
 		         $11,$12,$13,$14,$15,$16,$17,$18,$19,'tracking',$20,$21,$22,$23,$24,$25,$26,
-		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''),NULLIF($32,''),$33,$34)`,
+		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''),NULLIF($32,''),$33,$34,$35,$36)`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
@@ -174,7 +236,8 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		j.DeadlineSecs, j.FirmQuote, nullPosFloat(j.FirmQuoteMaxUSD),
 		nullPosInt(j.SLAGuaranteeSecs), nullPosFloat(j.SLAPremiumUSD),
 		economicInputRecords, economicInputBytes, economicInputSource,
-		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID, workloadJSON, workloadSHA256,
+		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID,
+		workloadJSON, workloadSHA256, computeJSON, computeSHA256,
 	)
 	if err != nil {
 		return err
@@ -274,6 +337,7 @@ type jobRow struct {
 	EconomicInputSource        string
 	EconomicPlan               EconomicPlan
 	WorkloadDecision           WorkloadDecision
+	ComputePlan                ComputePlan
 	WebhookID                  uuid.UUID
 	WebhookURL                 string
 	WebhookSigningSecretSealed string
@@ -319,6 +383,61 @@ func (s *Store) JobWorkloadDecision(ctx context.Context, jobID uuid.UUID) (*Work
 		return nil, fmt.Errorf("frozen workload decision digest mismatch for job %s", jobID)
 	}
 	return &decision, nil
+}
+
+func (s *Store) JobComputePlan(ctx context.Context, jobID uuid.UUID) (*ComputePlan, error) {
+	var blob []byte
+	var frozenSHA256 string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT compute_plan, COALESCE(compute_plan_sha256,'')
+		   FROM jobs WHERE id=$1`, jobID,
+	).Scan(&blob, &frozenSHA256); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errNotFound
+		}
+		return nil, err
+	}
+	if len(blob) == 0 {
+		// Legacy jobs remain readable without inventing execution geometry.
+		return nil, nil
+	}
+	var plan ComputePlan
+	if err := json.Unmarshal(blob, &plan); err != nil {
+		return nil, fmt.Errorf("decode compute plan for job %s: %w", jobID, err)
+	}
+	workload, err := s.JobWorkloadDecision(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if workload == nil {
+		return nil, fmt.Errorf("job %s has a compute plan without workload authority", jobID)
+	}
+	if err := ValidateFrozenComputePlanSnapshot(plan, *workload); err != nil {
+		return nil, fmt.Errorf("invalid frozen compute plan for job %s: %w", jobID, err)
+	}
+	if plan.ExecutionMode == computeExecutionDistributed {
+		var economicBlob []byte
+		if err := s.pool.QueryRow(ctx,
+			`SELECT plan_json FROM job_economic_plans WHERE job_id=$1`, jobID,
+		).Scan(&economicBlob); err != nil {
+			return nil, fmt.Errorf("load economic authority for compute plan on job %s: %w", jobID, err)
+		}
+		var economic EconomicPlan
+		if err := json.Unmarshal(economicBlob, &economic); err != nil {
+			return nil, fmt.Errorf("decode economic authority for compute plan on job %s: %w", jobID, err)
+		}
+		if err := ValidateComputePlanEconomicSnapshot(plan, *workload, economic); err != nil {
+			return nil, fmt.Errorf("compute/economic authority mismatch for job %s: %w", jobID, err)
+		}
+	}
+	gotSHA256, err := computePlanDigest(plan)
+	if err != nil {
+		return nil, fmt.Errorf("hash frozen compute plan for job %s: %w", jobID, err)
+	}
+	if frozenSHA256 == "" || frozenSHA256 != gotSHA256 {
+		return nil, fmt.Errorf("frozen compute plan digest mismatch for job %s", jobID)
+	}
+	return &plan, nil
 }
 
 type JobView struct {

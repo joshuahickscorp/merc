@@ -6,6 +6,7 @@ type ClearingReceipt struct {
 	JobID        uuid.UUID         `json:"job_id"`
 	Status       string            `json:"status"`
 	Workload     *WorkloadDecision `json:"workload_decision,omitempty"`
+	ComputePlan  *ComputePlan      `json:"compute_plan,omitempty"`
 	Invoice      *InvoiceView      `json:"invoice"`
 	Verification Verification      `json:"verification"`
 	Classes      []string          `json:"verification_classes"`
@@ -44,11 +45,12 @@ func taskReceiptRowWithRuntime(chunkIndex int, status string, isHoneypot bool, e
 	}
 }
 
-func assembleClearingReceipt(jobID uuid.UUID, status string, workload *WorkloadDecision, inv *InvoiceView, verif Verification, classes []string, tasks []TaskReceipt) ClearingReceipt {
+func assembleClearingReceipt(jobID uuid.UUID, status string, workload *WorkloadDecision, computePlan *ComputePlan, inv *InvoiceView, verif Verification, classes []string, tasks []TaskReceipt) ClearingReceipt {
 	return ClearingReceipt{
 		JobID:        jobID,
 		Status:       status,
 		Workload:     workload,
+		ComputePlan:  computePlan,
 		Invoice:      inv,
 		Verification: verif,
 		Classes:      classes,

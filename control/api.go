@@ -625,6 +625,10 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			return JobSubmitResponse{}, &httpError{http.StatusConflict,
 				"quote predates workload authority binding; request a new quote"}
 		}
+		if q.ComputePlanSHA256 == "" || q.ComputePlan.Version != computePlanVersion {
+			return JobSubmitResponse{}, &httpError{http.StatusConflict,
+				"quote predates compute-plan authority binding; request a new quote"}
+		}
 		if err := ValidateEconomicPlanSnapshot(q.EconomicPlan); err != nil {
 			return JobSubmitResponse{}, &httpError{http.StatusConflict, "quote economic plan is invalid or was altered: " + err.Error()}
 		}
@@ -667,23 +671,28 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		prefixID = prefixChain[0].PrefixID
 	}
 
-	splitSize := splitSizeOf(sub.Params)
-	if splitSize == defaultSplitSize && !hasExplicitSplitSize(sub.Params) {
-		if sub.JobType.Type == "embed" && sub.JobType.BatchSize > 0 {
-			splitSize = sub.JobType.BatchSize
-		} else {
-			avgLineBytes := 0.0
-			totalRecords := 0
-			if scan := scanJSONL(prefixSample); scan.Records > 0 {
-				avgLineBytes = float64(scan.Bytes) / float64(scan.Records)
-				if len(prefixSample) < inputSampleBytes {
-					totalRecords = scan.Records
-				}
-			}
-			splitSize = adaptiveSplitSize(sub.JobType.Type, sub.Params, avgLineBytes)
-			splitSize = s.adaptiveSplitSizeLive(ctx, sub.JobType.Type, sub.Model.Ref,
-				sub.Constraints.MinMemoryGB, sub.JobType.MaxTokens, avgLineBytes, splitSize, totalRecords)
+	splitSize, splitErr := selectSubmissionSplitSize(qBind, func() int {
+		unboundSplit := splitSizeOf(sub.Params)
+		if unboundSplit != defaultSplitSize || hasExplicitSplitSize(sub.Params) {
+			return unboundSplit
 		}
+		if sub.JobType.Type == "embed" && sub.JobType.BatchSize > 0 {
+			return sub.JobType.BatchSize
+		}
+		avgLineBytes := 0.0
+		totalRecords := 0
+		if scan := scanJSONL(prefixSample); scan.Records > 0 {
+			avgLineBytes = float64(scan.Bytes) / float64(scan.Records)
+			if len(prefixSample) < inputSampleBytes {
+				totalRecords = scan.Records
+			}
+		}
+		unboundSplit = adaptiveSplitSize(sub.JobType.Type, sub.Params, avgLineBytes)
+		return s.adaptiveSplitSizeLive(ctx, sub.JobType.Type, sub.Model.Ref,
+			sub.Constraints.MinMemoryGB, sub.JobType.MaxTokens, avgLineBytes, unboundSplit, totalRecords)
+	})
+	if splitErr != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusConflict, splitErr.Error()}
 	}
 
 	jobID := uuid.New()
@@ -754,6 +763,17 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			return JobSubmitResponse{}, &httpError{http.StatusConflict,
 				"runtime authority changed since the quote; request a new quote"}
 		}
+		if err := ValidateComputePlanEconomicSnapshot(qBind.ComputePlan, workloadDecision, qBind.EconomicPlan); err != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusConflict,
+				"quote compute plan is invalid or was altered: " + err.Error()}
+		}
+		if qBind.ComputePlan.InputRecords != totalRecords ||
+			qBind.ComputePlan.InputBytes != int64(exactInputBytes) ||
+			qBind.ComputePlan.SplitSize != splitSize ||
+			qBind.ComputePlan.PrimaryTasks != nPrimary {
+			return JobSubmitResponse{}, &httpError{http.StatusConflict,
+				"quote compute geometry no longer matches the exact submit stream; request a new quote"}
+		}
 		boundQuoteID = qBind.ID
 	}
 
@@ -770,12 +790,28 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			log.Printf("exact reuse batch lookup failed, executing live: %v", lerr)
 		} else if ok {
 			reuseOut := fmt.Sprintf("jobs/%s/output.jsonl", jobID)
+			var originComputePlan *ComputePlan
+			if qBind != nil {
+				originComputePlan = &qBind.ComputePlan
+			}
+			reuseComputePlan, rperr := newExactReuseComputePlan(
+				workloadDecision,
+				totalRecords,
+				int64(exactInputBytes),
+				microsToUSD(money.BuyerDebitMicros),
+				originComputePlan,
+			)
+			if rperr != nil {
+				return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
+					"freezing exact-reuse compute plan: " + rperr.Error()}
+			}
 			if cerr := s.store.CopyExactReuseResultToJobOutput(ctx, s.storage, hit, reuseOut); cerr != nil {
 				log.Printf("exact reuse materialise failed, executing live: %v", cerr)
 			} else if serr := s.store.SubmitExactReuseBatchJob(ctx, buyerID, jobID,
 				sub.JobType.Type, sub.Model.Ref, inputKey, reuseOut, sub.Tier,
 				hit, money, int64(totalRecords), int64(exactInputBytes),
 				sub.IdempotencyKey, sub.RequestSHA256, workloadDecision,
+				reuseComputePlan,
 				boundQuoteID, sub.FirmQuote, firmQuoteMaxUSD); serr != nil {
 				if errors.Is(serr, errRealtimeInsufficientFunds) {
 					return JobSubmitResponse{}, &httpError{http.StatusPaymentRequired, serr.Error()}
@@ -883,6 +919,15 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 				"verification floor unavailable: no usable honeypot is seeded for this workload"}
 		}
 	}
+	actualRedundancy, actualHoneypots := 0, 0
+	for _, task := range tasks {
+		switch {
+		case task.IsHoneypot:
+			actualHoneypots++
+		case task.IsRedundancy:
+			actualRedundancy++
+		}
+	}
 	if s.canary.Enabled && len(tasks) > s.canary.MaxTasksPerJob {
 		return JobSubmitResponse{}, &httpError{http.StatusRequestEntityTooLarge,
 			fmt.Sprintf("private-canary task limit is %d after verification expansion", s.canary.MaxTasksPerJob)}
@@ -939,15 +984,63 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	vp, _ := json.Marshal(sub.Verification)
 	spec, _ := json.Marshal(sub.JobType)
 	offeredRate := s.offeredRateUsdHrForSubmission(ctx, sub)
-	effectiveMinMem := sub.Constraints.MinMemoryGB
-	if m, merr := s.store.GetModel(ctx, sub.Model.Ref); merr == nil {
-		if m.MinMemoryGB > effectiveMinMem {
-			effectiveMinMem = m.MinMemoryGB
+	effectiveMinMem := float32(workloadDecision.MinimumMemoryGB)
+	var computePlan ComputePlan
+	var etaSecs int
+	if qBind != nil {
+		if qBind.ComputePlan.RedundancyTasks != actualRedundancy ||
+			qBind.ComputePlan.HoneypotTasks != actualHoneypots ||
+			qBind.ComputePlan.TotalInitialTasks != len(tasks) {
+			return JobSubmitResponse{}, &httpError{http.StatusConflict,
+				"quote verification geometry no longer matches available execution probes; request a new quote"}
 		}
+		computePlan = qBind.ComputePlan
+		etaSecs = computePlan.ETAP50Secs
+	} else {
+		p50, _, plannerBacked := s.etaBandSecs(
+			ctx, sub.JobType.Type, sub.Model.Ref, effectiveMinMem, len(tasks),
+		)
+		observedP90ms, _, historyErr := s.store.HistoricalP90DurationMs(ctx, sub.JobType.Type, sub.Model.Ref)
+		usedObservedHistory := historyErr == nil && observedP90ms > 0
+		p50 = sustainedBatchETASecs(p50, sub.Tier, usedObservedHistory)
+		eta := QuoteTime{P50Secs: p50, P90Secs: p50 * 2, WorstCaseSecs: p50 * 4}
+		confidence := QuoteConfidence{
+			Score: workloadDecision.Confidence,
+			Reasons: []string{
+				"input records, bytes and task classes were counted from the complete accepted stream",
+				"memory floor is inherited from the frozen workload placement decision",
+			},
+		}
+		var planErr error
+		computePlan, planErr = newDistributedComputePlan(
+			workloadDecision,
+			totalRecords,
+			int64(exactInputBytes),
+			splitSize,
+			nPrimary,
+			actualRedundancy,
+			actualHoneypots,
+			eta,
+			computePlanETASource(plannerBacked, usedObservedHistory),
+			basePrimaryCompute,
+			math.Max(0, baseComputeUSD-basePrimaryCompute),
+			confidence,
+			[]string{
+				"token counts use a documented byte-and-record heuristic rather than the model tokenizer",
+				"ETA is a frozen estimate; queue contention after acceptance can change wall-clock completion",
+				"power draw and provider-specific energy cost are not yet modeled",
+			},
+		)
+		if planErr != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
+				"freezing compute plan: " + planErr.Error()}
+		}
+		etaSecs = computePlan.ETAP50Secs
 	}
-	etaSecs, _, _ := s.etaBandSecs(
-		ctx, sub.JobType.Type, sub.Model.Ref, effectiveMinMem, len(tasks),
-	)
+	if err := ValidateComputePlanEconomicSnapshot(computePlan, workloadDecision, economicPlan); err != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusConflict,
+			"compute and economic authority disagree: " + err.Error()}
+	}
 
 	var webhookRegistration WebhookRegistration
 	var webhookSecretSealed string
@@ -996,6 +1089,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		EconomicInputSource:        economicInputSourceSubmitStream,
 		EconomicPlan:               economicPlan,
 		WorkloadDecision:           workloadDecision,
+		ComputePlan:                computePlan,
 		WebhookID:                  webhookRegistration.ID,
 		WebhookURL:                 sub.WebhookURL,
 		WebhookSigningSecretSealed: webhookSecretSealed,
@@ -2623,7 +2717,12 @@ func (s *Server) handleJobReceipt(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, werr.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, assembleClearingReceipt(id, inv.Status, workload, inv, verif, classes, tasks))
+	computePlan, perr := s.store.JobComputePlan(r.Context(), id)
+	if perr != nil {
+		writeErr(w, http.StatusInternalServerError, perr.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, assembleClearingReceipt(id, inv.Status, workload, computePlan, inv, verif, classes, tasks))
 }
 
 func secureHTMLHeaders(w http.ResponseWriter) {

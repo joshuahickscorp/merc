@@ -21,6 +21,7 @@ func (s *Store) SubmitExactReuseBatchJob(
 	inputRecords, inputBytes int64,
 	submitIdempotencyKey, submitRequestSHA256 string,
 	workloadDecision WorkloadDecision,
+	computePlan ComputePlan,
 	quoteID uuid.UUID,
 	firmQuote bool,
 	firmQuoteMaxUSD float64,
@@ -42,6 +43,15 @@ func (s *Store) SubmitExactReuseBatchJob(
 		workloadDecision.Binding.Tier != tier {
 		return fmt.Errorf("exact-reuse workload decision does not match the submitted job")
 	}
+	if err := ValidateFrozenComputePlanSnapshot(computePlan, workloadDecision); err != nil {
+		return fmt.Errorf("invalid exact-reuse compute plan: %w", err)
+	}
+	if computePlan.ExecutionMode != computeExecutionExactReuse {
+		return fmt.Errorf("exact-reuse job requires exact-result-reuse compute mode")
+	}
+	if int64(computePlan.InputRecords) != inputRecords || computePlan.InputBytes != inputBytes {
+		return fmt.Errorf("exact-reuse compute plan input geometry does not match the delivered job")
+	}
 	workloadJSON, err := json.Marshal(workloadDecision)
 	if err != nil {
 		return fmt.Errorf("marshal exact-reuse workload decision: %w", err)
@@ -50,7 +60,18 @@ func (s *Store) SubmitExactReuseBatchJob(
 	if err != nil {
 		return fmt.Errorf("hash exact-reuse workload decision: %w", err)
 	}
+	computeJSON, err := json.Marshal(computePlan)
+	if err != nil {
+		return fmt.Errorf("marshal exact-reuse compute plan: %w", err)
+	}
+	computeSHA256, err := computePlanDigest(computePlan)
+	if err != nil {
+		return fmt.Errorf("hash exact-reuse compute plan: %w", err)
+	}
 	buyerCharge := microsToUSD(money.BuyerDebitMicros)
+	if computePlan.BaseComputeUSD != roundEconomicUSD(buyerCharge) {
+		return fmt.Errorf("exact-reuse compute estimate does not match buyer settlement")
+	}
 	platform := microsToUSD(money.PlatformMicros)
 
 	tx, err := s.pool.Begin(ctx)
@@ -58,6 +79,23 @@ func (s *Store) SubmitExactReuseBatchJob(
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if quoteID != uuid.Nil {
+		var quoteComputeSHA256 string
+		if err := tx.QueryRow(ctx,
+			`SELECT COALESCE(compute_plan_sha256,'')
+			   FROM quotes
+			  WHERE id=$1 AND buyer_id=$2`,
+			quoteID, buyerID,
+		).Scan(&quoteComputeSHA256); err != nil {
+			return fmt.Errorf("load exact-reuse origin quote compute authority: %w", err)
+		}
+		if quoteComputeSHA256 == "" ||
+			computePlan.OriginComputePlanSHA256 != quoteComputeSHA256 {
+			return fmt.Errorf("exact-reuse compute plan does not match its origin quote")
+		}
+	} else if computePlan.OriginComputePlanSHA256 != "" {
+		return fmt.Errorf("unquoted exact reuse cannot carry an origin compute plan")
+	}
 
 	// Fund gate (same shape as realtime): free credit or a payment method.
 	{
@@ -100,15 +138,17 @@ func (s *Store) SubmitExactReuseBatchJob(
 		   economic_input_records, economic_input_bytes, economic_input_source,
 		   submit_idempotency_key, submit_request_sha256,
 		   workload_decision, workload_decision_sha256,
+		   compute_plan, compute_plan_sha256,
 		   quote_id, firm_quote, firm_quote_max_usd)
 		VALUES ($1,$2,'complete',$3,$4,$5,$6,$7,'{}'::jsonb,$8,$8,0,0,
 		        'tracking','charged',
 		        $9,$10,'exact_result_reuse',
 		        NULLIF($11,''),NULLIF($12,''),$13::jsonb,$14,
-		        $15,$16,$17)`,
+		        $15::jsonb,$16,$17,$18,$19)`,
 		jobID, buyerID, jobType, modelRef, inputRef, outputRef, tier,
 		buyerCharge, inputRecords, inputBytes,
 		submitIdempotencyKey, submitRequestSHA256, workloadJSON, workloadSHA256,
+		computeJSON, computeSHA256,
 		nullUUID(quoteID), firmQuote, nullPosFloat(firmQuoteMaxUSD))
 	if err != nil {
 		return err

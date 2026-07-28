@@ -26,8 +26,26 @@ func TestAssembleClearingReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	computePlan, err := newDistributedComputePlan(
+		workload,
+		1,
+		128,
+		1,
+		1,
+		0,
+		0,
+		QuoteTime{P50Secs: 10, P90Secs: 20, WorstCaseSecs: 40},
+		"static",
+		0.1,
+		0,
+		QuoteConfidence{Score: 0.9, Reasons: []string{"receipt fixture"}},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	rc := assembleClearingReceipt(jobID, "complete", &workload, inv, verif, classes, tasks)
+	rc := assembleClearingReceipt(jobID, "complete", &workload, &computePlan, inv, verif, classes, tasks)
 
 	if rc.Invoice == nil || rc.Invoice.QuotedUSD == nil || *rc.Invoice.QuotedUSD != 9.5 {
 		t.Fatal("receipt must carry the QUOTE")
@@ -49,6 +67,9 @@ func TestAssembleClearingReceipt(t *testing.T) {
 	}
 	if rc.Workload == nil || rc.Workload.BindingSHA256 != workload.BindingSHA256 {
 		t.Fatal("receipt must carry the frozen workload decision")
+	}
+	if rc.ComputePlan == nil || rc.ComputePlan.WorkloadDecisionSHA256 != computePlan.WorkloadDecisionSHA256 {
+		t.Fatal("receipt must carry the frozen compute plan")
 	}
 }
 
