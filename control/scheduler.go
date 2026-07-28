@@ -538,6 +538,24 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	        AND wac.job_type = j.job_type
 	        AND wac.model_ref = COALESCE(j.model_ref,'')
 	        AND wac.matrix_sha256 = $4
+	        -- New jobs execute only on the exact runtime cells frozen by the
+	        -- admission decision. Legacy rows predate workload authority and
+	        -- retain the generated-matrix filter above.
+	        AND (
+	          j.workload_decision IS NULL
+	          OR (
+	            wac.model_kind = j.workload_decision #>> '{binding,model,kind}'
+	            AND EXISTS (
+	              SELECT 1
+	                FROM jsonb_array_elements(
+	                  COALESCE(j.workload_decision->'runtime_candidates','[]'::jsonb)
+	                ) frozen
+	               WHERE frozen->>'cell_id' = wac.cell_id
+	                 AND frozen->>'runtime_id' = wac.runtime_id
+	                 AND frozen->>'engine' = me.engine
+	            )
+	          )
+	        )
 	      ORDER BY wac.cell_id, wac.runtime_id
 	      LIMIT 1
 	   ) runtime_authority

@@ -501,9 +501,14 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	if math.IsNaN(sub.MaxUSD) || math.IsInf(sub.MaxUSD, 0) || sub.MaxUSD < 0 {
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "max_usd must be a finite non-negative number"}
 	}
-	if err := s.canary.validateJobShape(sub); err != nil {
-		return JobSubmitResponse{}, &httpError{http.StatusForbidden, "outside private-canary limits: " + err.Error()}
+	// Quote and submit share this exact canonical request-shape gate. It also
+	// applies the canary verification floors, so the shape a quote binds is the
+	// shape submit will execute.
+	normalized, verr := s.normalizeWorkloadRequest(sub)
+	if verr != nil {
+		return JobSubmitResponse{}, verr
 	}
+	sub = normalized
 	if s.canary.Enabled {
 		allowed, err := s.store.CanaryBuyerAdmissionAllowed(ctx, buyerID, s.canary.MaxActiveBuyers)
 		if err != nil {
@@ -525,26 +530,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		if counts.HeldShadowPayoutUSD >= s.canary.MaxHeldShadowPayoutUSD {
 			return JobSubmitResponse{}, &httpError{http.StatusTooManyRequests, "private-canary held-shadow-payout limit reached"}
 		}
-		// Buyers cannot weaken verification or accelerate payout release in the
-		// supervised canary. Every primary receives a same-shape redundancy run,
-		// at least one honeypot is requested, and payout remains manually gated.
-		if sub.Verification.RedundancyFrac < 1 {
-			sub.Verification.RedundancyFrac = 1
-		}
-		if sub.Verification.HoneypotFrac <= 0 {
-			sub.Verification.HoneypotFrac = 0.1
-		}
-		if sub.Verification.PayoutHoldSecs < 7*24*60*60 {
-			sub.Verification.PayoutHoldSecs = 7 * 24 * 60 * 60
-		}
 	}
-	// Every request-only check lives in one tested function; the store-dependent
-	// checks below stay here because they are not pure.
-	normalized, verr := normalizeAndValidateJobSubmit(sub)
-	if verr != nil {
-		return JobSubmitResponse{}, verr
-	}
-	sub = normalized
 	paused, err := s.store.OperationalControlPaused(ctx, controlIntake)
 	if err != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusServiceUnavailable, "intake control unavailable"}
@@ -614,6 +600,10 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		if !q.EconomicExecutable || q.EconomicScheduleVersion == "" {
 			return JobSubmitResponse{}, &httpError{http.StatusConflict, "quote has no executable economic plan; request a new quote"}
 		}
+		if q.WorkloadBindingSHA256 == "" || q.WorkloadDecisionSHA256 == "" {
+			return JobSubmitResponse{}, &httpError{http.StatusConflict,
+				"quote predates workload authority binding; request a new quote"}
+		}
 		if err := ValidateEconomicPlanSnapshot(q.EconomicPlan); err != nil {
 			return JobSubmitResponse{}, &httpError{http.StatusConflict, "quote economic plan is invalid or was altered: " + err.Error()}
 		}
@@ -658,17 +648,21 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 
 	splitSize := splitSizeOf(sub.Params)
 	if splitSize == defaultSplitSize && !hasExplicitSplitSize(sub.Params) {
-		avgLineBytes := 0.0
-		totalRecords := 0
-		if scan := scanJSONL(prefixSample); scan.Records > 0 {
-			avgLineBytes = float64(scan.Bytes) / float64(scan.Records)
-			if len(prefixSample) < inputSampleBytes {
-				totalRecords = scan.Records
+		if sub.JobType.Type == "embed" && sub.JobType.BatchSize > 0 {
+			splitSize = sub.JobType.BatchSize
+		} else {
+			avgLineBytes := 0.0
+			totalRecords := 0
+			if scan := scanJSONL(prefixSample); scan.Records > 0 {
+				avgLineBytes = float64(scan.Bytes) / float64(scan.Records)
+				if len(prefixSample) < inputSampleBytes {
+					totalRecords = scan.Records
+				}
 			}
+			splitSize = adaptiveSplitSize(sub.JobType.Type, sub.Params, avgLineBytes)
+			splitSize = s.adaptiveSplitSizeLive(ctx, sub.JobType.Type, sub.Model.Ref,
+				sub.Constraints.MinMemoryGB, sub.JobType.MaxTokens, avgLineBytes, splitSize, totalRecords)
 		}
-		splitSize = adaptiveSplitSize(sub.JobType.Type, sub.Params, avgLineBytes)
-		splitSize = s.adaptiveSplitSizeLive(ctx, sub.JobType.Type, sub.Model.Ref,
-			sub.Constraints.MinMemoryGB, sub.JobType.MaxTokens, avgLineBytes, splitSize, totalRecords)
 	}
 
 	jobID := uuid.New()
@@ -676,22 +670,36 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		jobID = uuid.NewSHA1(buyerID, []byte(sub.IdempotencyKey))
 	}
 	inputKey := srcKey
+	ownedInputKey := ""
 	var canonicalWriter io.Writer
 	var canonicalPut *streamingPut
 	if inputKey == "" {
 		inputKey = fmt.Sprintf("jobs/%s/input.jsonl", jobID)
+		ownedInputKey = inputKey
 		canonicalPut = newStreamingPut(ctx, s.storage, inputKey, "application/x-ndjson")
 		canonicalWriter = canonicalPut.writer
 	}
 
-	tasks, _, totalRecords, exactInputBytes, sum256, serr := s.streamSplitAndUpload(ctx, jobID, inputReader, splitSize, canonicalWriter)
+	tasks, _, totalRecords, exactInputBytes, sum256, serr := s.streamSplitAndUpload(
+		ctx, jobID, sub.JobType.Type, inputReader, splitSize, canonicalWriter,
+	)
 	if canonicalPut != nil {
 		canonicalPut.writer.Close() // signal EOF to the tee goroutine regardless of serr
 		if perr := canonicalPut.wait(); perr != nil && serr == nil {
 			serr = perr
 		}
 	}
+	cleanupStreamArtifacts := true
+	defer func() {
+		if cleanupStreamArtifacts {
+			s.discardOrphanedJobObjects(ctx, jobID, ownedInputKey, tasks)
+		}
+	}()
 	if serr != nil {
+		var inputErr *workloadInputError
+		if errors.As(serr, &inputErr) {
+			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, inputErr.Error()}
+		}
 		return JobSubmitResponse{}, &httpError{http.StatusInternalServerError, "splitting/uploading input: " + serr.Error()}
 	}
 	if s.canary.Enabled && int64(exactInputBytes) > s.canary.MaxInputBytes {
@@ -703,10 +711,27 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 	nPrimary := len(tasks) // primaries precede any redundancy/honeypot clones
 	inputSHA256 := hex.EncodeToString(sum256[:])
+	workloadDecision, werr := buildWorkloadDecision(sub, inputSHA256)
+	if werr != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "classifying workload: " + werr.Error()}
+	}
 	var boundQuoteID uuid.UUID
 	if qBind != nil {
 		if qBind.InputSHA256 != "" && qBind.InputSHA256 != inputSHA256 {
 			return JobSubmitResponse{}, &httpError{http.StatusConflict, "quote does not match this submission: input changed since the quote"}
+		}
+		if qBind.WorkloadBindingSHA256 != workloadDecision.BindingSHA256 {
+			return JobSubmitResponse{}, &httpError{http.StatusConflict,
+				"quote does not match this normalized workload shape; request a new quote"}
+		}
+		decisionSHA256, derr := workloadDecisionDigest(workloadDecision)
+		if derr != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
+				"hashing workload authority: " + derr.Error()}
+		}
+		if qBind.WorkloadDecisionSHA256 != decisionSHA256 {
+			return JobSubmitResponse{}, &httpError{http.StatusConflict,
+				"runtime authority changed since the quote; request a new quote"}
 		}
 		boundQuoteID = qBind.ID
 	}
@@ -714,13 +739,11 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	// Exact deterministic reuse for batch: identical input+model+policy serves
 	// the prior result, bills the reuse class, and schedules no supplier.
 	// Identity is derived server-side only (never from a client field).
-	modelRevision := ""
 	pricePer1K := 0.002
 	if m, merr := s.store.GetModel(ctx, sub.Model.Ref); merr == nil {
-		modelRevision = m.ID // catalogue id is the revision pin for batch models
 		pricePer1K = modelPrice(*m)
 	}
-	if identity := batchRequestIdentity(sub.Model.Ref, modelRevision, sub.JobType.Type, inputSHA256, sub.JobType.MaxTokens, float64(sub.JobType.Temperature)); identity != "" {
+	if identity := batchRequestIdentity(workloadDecision); identity != "" {
 		hit, money, ok, lerr := s.store.tryBatchExactReuse(ctx, identity, batchFullPricePer1K(pricePer1K*tierMultiplier(sub.Tier)))
 		if lerr != nil {
 			log.Printf("exact reuse batch lookup failed, executing live: %v", lerr)
@@ -731,7 +754,8 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			} else if serr := s.store.SubmitExactReuseBatchJob(ctx, buyerID, jobID,
 				sub.JobType.Type, sub.Model.Ref, inputKey, reuseOut, sub.Tier,
 				hit, money, int64(totalRecords), int64(exactInputBytes),
-				sub.IdempotencyKey, sub.RequestSHA256); serr != nil {
+				sub.IdempotencyKey, sub.RequestSHA256, workloadDecision,
+				boundQuoteID, sub.FirmQuote, firmQuoteMaxUSD); serr != nil {
 				if errors.Is(serr, errRealtimeInsufficientFunds) {
 					return JobSubmitResponse{}, &httpError{http.StatusPaymentRequired, serr.Error()}
 				}
@@ -741,6 +765,10 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 				_ = s.store.InsertJobEvent(ctx, jobID, nil, "job_exact_reuse",
 					fmt.Sprintf("Exact reuse hit: delivered %d tokens, physical 0, buyer $%.6f, supplier $0",
 						money.DeliveredTokens, microsToUSD(money.BuyerDebitMicros)), nil)
+				// The exact-reuse job references the canonical input, but none
+				// of the speculative task chunks are scheduled or referenced.
+				s.discardOrphanedJobObjects(ctx, jobID, "", tasks)
+				cleanupStreamArtifacts = false
 				return JobSubmitResponse{
 					JobID: jobID, TaskCount: 0, EstimatedUSD: microsToUSD(money.BuyerDebitMicros),
 					ETASecs: 0, EstimatedCompletion: time.Now().UTC().Format(time.RFC3339),
@@ -946,6 +974,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		EconomicInputBytes:         int64(exactInputBytes),
 		EconomicInputSource:        economicInputSourceSubmitStream,
 		EconomicPlan:               economicPlan,
+		WorkloadDecision:           workloadDecision,
 		WebhookID:                  webhookRegistration.ID,
 		WebhookURL:                 sub.WebhookURL,
 		WebhookSigningSecretSealed: webhookSecretSealed,
@@ -956,6 +985,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 	if err := s.store.SubmitJobTx(ctx, jr, tasks); err != nil {
 		if sub.IdempotencyKey != "" && isUniqueViolation(err) {
+			// The deterministic idempotency job ID means these object keys may
+			// belong to the winning concurrent submission. Never delete them.
+			cleanupStreamArtifacts = false
 			// An idempotent replay of a job that already exists must never reach
 			// the cleanup below: the objects belong to the winning submission.
 			replay, found, replayErr := s.store.JobSubmissionReplay(ctx, buyerID, sub.IdempotencyKey, sub.RequestSHA256)
@@ -968,14 +1000,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			}
 			return JobSubmitResponse{}, &httpError{http.StatusInternalServerError, "failed to create job: " + err.Error()}
 		}
-		// The input chunks were streamed to object storage before this
-		// transaction ran (streamSplitAndUpload above).  When the transaction
-		// fails there is no row referencing them, so nothing will ever read or
-		// delete them: they are billable storage nobody can find.  Best-effort
-		// cleanup, scoped to this job's own key prefix.
-		s.discardOrphanedJobObjects(ctx, jobID, inputKey, tasks)
 		return JobSubmitResponse{}, &httpError{http.StatusInternalServerError, "failed to create job: " + err.Error()}
 	}
+	cleanupStreamArtifacts = false
 
 	metrics.jobsSubmitted.Add(1)
 
@@ -1247,7 +1274,7 @@ func mergeJobResultsWithProbe(
 	// later identical deterministic submission hits exact reuse. Never write a
 	// jobs/ path into the shared cache.
 	if body, gerr := storage.GetObject(ctx, info.OutputRef); gerr == nil {
-		if id, ierr := store.batchIdentityForJob(ctx, storage, jobID); ierr == nil && id != "" {
+		if id, ierr := store.batchIdentityForJob(ctx, jobID); ierr == nil && id != "" {
 			store.maybeCacheCompletedBatchJob(ctx, storage, id, body, outputRecords)
 		}
 	}
@@ -2570,7 +2597,12 @@ func (s *Server) handleJobReceipt(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, terr.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, assembleClearingReceipt(id, inv.Status, inv, verif, classes, tasks))
+	workload, werr := s.store.JobWorkloadDecision(r.Context(), id)
+	if werr != nil {
+		writeErr(w, http.StatusInternalServerError, werr.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, assembleClearingReceipt(id, inv.Status, workload, inv, verif, classes, tasks))
 }
 
 func secureHTMLHeaders(w http.ResponseWriter) {
@@ -3115,7 +3147,7 @@ func newStreamingPut(ctx context.Context, storage *Storage, key, contentType str
 
 func (sp *streamingPut) wait() error { return <-sp.done }
 
-func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, input io.Reader, splitSize int, canonicalTee io.Writer) (tasks []taskRow, totalBytes int, totalRecords int, exactInputBytes int, sum256 [32]byte, err error) {
+func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobType string, input io.Reader, splitSize int, canonicalTee io.Writer) (tasks []taskRow, totalBytes int, totalRecords int, exactInputBytes int, sum256 [32]byte, err error) {
 	if splitSize <= 0 {
 		splitSize = defaultSplitSize
 	}
@@ -3134,6 +3166,7 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, inpu
 	br := bufio.NewReaderSize(input, 64<<10)
 	var lineBuf bytes.Buffer
 	linesInChunk := 0
+	lineNumber := 0
 	flush := func() {
 		if linesInChunk == 0 {
 			return
@@ -3162,10 +3195,15 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, inpu
 	for {
 		line, rerr := br.ReadBytes('\n')
 		if len(line) > 0 {
+			lineNumber++
 			exactInputBytes += len(line) // every byte consumed, including newline/blank bytes
 			trimmed := bytes.TrimRight(line, "\r\n")
 			totalBytes += len(trimmed)
 			if len(bytes.TrimSpace(trimmed)) != 0 {
+				if verr := validateWorkloadJSONLRecord(jobType, trimmed, lineNumber); verr != nil {
+					_ = grp.Wait()
+					return tasks, totalBytes, totalRecords, exactInputBytes, sum256, verr
+				}
 				lineBuf.Write(trimmed)
 				lineBuf.WriteByte('\n')
 				linesInChunk++

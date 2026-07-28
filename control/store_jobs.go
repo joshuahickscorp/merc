@@ -85,6 +85,9 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		!strings.HasPrefix(j.WebhookSigningSecretSealed, "enc:")) {
 		return errors.New("job webhook requires id, url, and encrypted signing secret together")
 	}
+	if err := ValidateWorkloadDecisionSnapshot(j.WorkloadDecision); err != nil {
+		return fmt.Errorf("refusing job without valid workload decision: %w", err)
+	}
 	if err := ValidateEconomicPlanSnapshot(j.EconomicPlan); err != nil {
 		return fmt.Errorf("refusing job without valid economic plan: %w", err)
 	}
@@ -130,6 +133,14 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	if err != nil {
 		return fmt.Errorf("marshal economic plan: %w", err)
 	}
+	workloadJSON, err := json.Marshal(j.WorkloadDecision)
+	if err != nil {
+		return fmt.Errorf("marshal workload decision: %w", err)
+	}
+	workloadSHA256, err := workloadDecisionDigest(j.WorkloadDecision)
+	if err != nil {
+		return fmt.Errorf("hash workload decision: %w", err)
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -150,10 +161,11 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    offered_rate_usd_hr, eta_secs, max_usd, budget_state, quote_id, min_reputation,
 		    deadline_secs, firm_quote, firm_quote_max_usd, sla_guarantee_secs, sla_premium_usd,
 		    economic_input_records, economic_input_bytes, economic_input_source,
-		    submit_idempotency_key, submit_request_sha256, prefix_id)
+		    submit_idempotency_key, submit_request_sha256, prefix_id,
+		    workload_decision, workload_decision_sha256)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
 		         $11,$12,$13,$14,$15,$16,$17,$18,$19,'tracking',$20,$21,$22,$23,$24,$25,$26,
-		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''),NULLIF($32,''))`,
+		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''),NULLIF($32,''),$33,$34)`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
@@ -162,7 +174,7 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		j.DeadlineSecs, j.FirmQuote, nullPosFloat(j.FirmQuoteMaxUSD),
 		nullPosInt(j.SLAGuaranteeSecs), nullPosFloat(j.SLAPremiumUSD),
 		economicInputRecords, economicInputBytes, economicInputSource,
-		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID,
+		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID, workloadJSON, workloadSHA256,
 	)
 	if err != nil {
 		return err
@@ -261,6 +273,7 @@ type jobRow struct {
 	EconomicInputBytes         int64
 	EconomicInputSource        string
 	EconomicPlan               EconomicPlan
+	WorkloadDecision           WorkloadDecision
 	WebhookID                  uuid.UUID
 	WebhookURL                 string
 	WebhookSigningSecretSealed string
@@ -272,6 +285,40 @@ type jobRow struct {
 	// PrefixChain is the nested trie recorded into job_prefix_chain at
 	// submit. Empty when the input is shorter than the shallowest depth.
 	PrefixChain []PrefixChainEntry
+}
+
+func (s *Store) JobWorkloadDecision(ctx context.Context, jobID uuid.UUID) (*WorkloadDecision, error) {
+	var blob []byte
+	var frozenSHA256 string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT workload_decision, COALESCE(workload_decision_sha256,'')
+		   FROM jobs WHERE id=$1`, jobID,
+	).Scan(&blob, &frozenSHA256); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errNotFound
+		}
+		return nil, err
+	}
+	if len(blob) == 0 {
+		// Legacy jobs predate workload-decision authority. Their receipts stay
+		// readable but do not invent a classification after execution.
+		return nil, nil
+	}
+	var decision WorkloadDecision
+	if err := json.Unmarshal(blob, &decision); err != nil {
+		return nil, fmt.Errorf("decode workload decision for job %s: %w", jobID, err)
+	}
+	if err := ValidateFrozenWorkloadDecisionSnapshot(decision); err != nil {
+		return nil, fmt.Errorf("invalid frozen workload decision for job %s: %w", jobID, err)
+	}
+	gotSHA256, err := workloadDecisionDigest(decision)
+	if err != nil {
+		return nil, fmt.Errorf("hash frozen workload decision for job %s: %w", jobID, err)
+	}
+	if frozenSHA256 == "" || frozenSHA256 != gotSHA256 {
+		return nil, fmt.Errorf("frozen workload decision digest mismatch for job %s", jobID)
+	}
+	return &decision, nil
 }
 
 type JobView struct {
