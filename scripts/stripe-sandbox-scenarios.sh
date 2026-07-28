@@ -129,6 +129,72 @@ sys.stdout.write(hmac.new(secret, timestamp + b"." + payload, hashlib.sha256).he
 verify_endpoint_secret "$billing_endpoint" STRIPE_WEBHOOK_SECRET billing
 verify_endpoint_secret "$connect_endpoint" MERC_CONNECT_WEBHOOK_SECRET connect
 
+verify_cash_outcome() {
+  local payload="$1" expected_outcome="$2" expected_rank="${3:-}"
+  local timestamp digest signature headers_file body_file status outcome rank
+  timestamp="$(date +%s)"
+  digest="$(printf '%s\0%s' "$STRIPE_WEBHOOK_SECRET" "$payload" | python3 -c '
+import hashlib, hmac, sys
+timestamp = sys.argv[1].encode()
+secret, payload = sys.stdin.buffer.read().split(b"\0", 1)
+sys.stdout.write(hmac.new(secret, timestamp + b"." + payload, hashlib.sha256).hexdigest())
+' "$timestamp")"
+  signature="t=$timestamp,v1=$digest"
+  headers_file="$(mktemp "${TMPDIR:-/tmp}/merc-stripe-outcome-headers.XXXXXX")"
+  body_file="$(mktemp "${TMPDIR:-/tmp}/merc-stripe-outcome-body.XXXXXX")"
+  status="$(printf '%s' "$payload" | curl --silent --show-error \
+    --dump-header "$headers_file" --output "$body_file" --write-out '%{http_code}' \
+    --request POST --header 'Content-Type: application/json' \
+    --header "Stripe-Signature: $signature" --data-binary @- \
+    --connect-timeout 10 --max-time 45 "$expected_billing_url")"
+  outcome="$(awk -F': ' '
+    tolower($1) == "x-merc-stripe-event-outcome" {
+      gsub("\r", "", $2); print $2
+    }
+  ' "$headers_file" | tail -1)"
+  rank="$(awk -F': ' '
+    tolower($1) == "x-merc-stripe-cash-effect-rank" {
+      gsub("\r", "", $2); print $2
+    }
+  ' "$headers_file" | tail -1)"
+  rm -f "$headers_file" "$body_file"
+  case "$status" in 2??) ;; *) return 1 ;; esac
+  [ "$outcome" = "$expected_outcome" ] || return 1
+  [ -z "$expected_rank" ] || [ "$rank" = "$expected_rank" ]
+}
+
+# Prove application-side non-regression on first application, not merely that
+# Stripe accepted a resend request. These unique, signed, no-value dispute
+# envelopes hit the real staging handler and database. The terminal event is
+# intentionally delivered first, the older opening event must be ignored behind
+# rank 30, and the byte-identical terminal replay must be classified duplicate.
+cash_probe_created="$(date +%s)"
+cash_probe_dispute="dp_cx_probe_${RUN_ID}"
+cash_probe_charge="ch_cx_probe_${RUN_ID}"
+cash_probe_closed_payload="$(jq -nc \
+  --arg id "evt_cx_closed_${RUN_ID}" \
+  --arg dispute "$cash_probe_dispute" --arg charge "$cash_probe_charge" \
+  --arg api_version "$MERC_STRIPE_API_VERSION" \
+  --arg currency "$settlement_currency" \
+  --argjson created "$((cash_probe_created + 2))" '
+    {id:$id,type:"charge.dispute.closed",api_version:$api_version,livemode:false,
+     created:$created,data:{object:{id:$dispute,charge:$charge,amount:100,
+       currency:$currency,status:"lost"}}}
+  ')"
+cash_probe_opened_payload="$(jq -nc \
+  --arg id "evt_cx_opened_${RUN_ID}" \
+  --arg dispute "$cash_probe_dispute" --arg charge "$cash_probe_charge" \
+  --arg api_version "$MERC_STRIPE_API_VERSION" \
+  --arg currency "$settlement_currency" \
+  --argjson created "$((cash_probe_created + 1))" '
+    {id:$id,type:"charge.dispute.created",api_version:$api_version,livemode:false,
+     created:$created,data:{object:{id:$dispute,charge:$charge,amount:100,
+       currency:$currency,status:"needs_response"}}}
+  ')"
+verify_cash_outcome "$cash_probe_closed_payload" applied 30
+verify_cash_outcome "$cash_probe_opened_payload" stale_ignored 30
+verify_cash_outcome "$cash_probe_closed_payload" duplicate
+
 event_for_object() {
   local event_type="$1" object_id="$2" account_scope="${3:-platform}" deadline now response found
   deadline=$(( $(date +%s) + 120 ))
@@ -206,9 +272,9 @@ closed_event_id="$(jq -r .id <<< "$closed_event")"
 wait_delivered "$created_event_id"
 wait_delivered "$closed_event_id"
 
-# Deliver the newer terminal fact before the older opening fact, then replay the
-# terminal fact. The application-side non-regression and idempotency assertions
-# are enforced by the matrix receipt contract and the release integration tests.
+# Re-deliver provider-owned dispute events as an independent delivery-path
+# check. Application-side first-application ordering and idempotency have
+# already been proven above by the signed outcome probe.
 resend "$closed_event_id" "$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID"
 resend "$created_event_id" "$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID"
 resend "$closed_event_id" "$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID"
@@ -330,7 +396,8 @@ jq -nc \
     secret_values_recorded:false,
     webhook:{endpoint_secrets_verified:true,payload_api_version:$stripe_api_version,
       staging_urls_exact:true,distinct_endpoint_ids:true,
-      delivery:true,replay_idempotent:true,out_of_order_safe:true},
+      delivery:true,application_outcomes_verified:true,
+      replay_idempotent:true,out_of_order_safe:true},
     dispute:{opened:true,resolved:true,provider_object_class:($dispute|split("_")[0])},
     payout:{hold:true,release:true,failure:true,reversal:true,
       provider_object_classes:([$payout_hold,$payout_release,$payout_failure,$payout_reversal]|map(split("_")[0])|unique)},

@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "21390f55ab0fb5e94be4d8467acc0a03052b572d7cde84497cb1aef722a2e44e",
+  "authority_sha256": "818b533f9842ebbcb946b7423bd61c31ec7c63fd01e11aef7b89ec1fb506a50a",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -59,7 +59,7 @@
     "bench/immutable/shared-prefix-v2.sha256": 1,
     "benchmarks/realtime-chat-v1.json": 11,
     "census/.gitignore": 4,
-    "census/CODEBASE_CENSUS.json": 793,
+    "census/CODEBASE_CENSUS.json": 794,
     "census/CODEBASE_CENSUS.md": 47,
     "cli/LICENSE": 202,
     "cli/README.md": 13,
@@ -79,7 +79,7 @@
     "control/batch_policy.go": 141,
     "control/batch_policy_test.go": 144,
     "control/benchmark.go": 174,
-    "control/billing.go": 680,
+    "control/billing.go": 694,
     "control/billing_classes.go": 157,
     "control/billing_classes_test.go": 153,
     "control/billing_schema_integration_test.go": 81,
@@ -229,9 +229,10 @@
     "control/strict_json.go": 110,
     "control/strict_json_test.go": 173,
     "control/stripe_api_contract.go": 47,
-    "control/stripe_api_contract_test.go": 258,
-    "control/stripe_cash_events.go": 519,
-    "control/stripe_cash_events_test.go": 142,
+    "control/stripe_api_contract_test.go": 262,
+    "control/stripe_cash_events.go": 529,
+    "control/stripe_cash_events_test.go": 202,
+    "control/stripe_cash_outcome_integration_test.go": 76,
     "control/stripe_settlement.go": 161,
     "control/stripe_settlement_test.go": 125,
     "control/stripe_simulator.go": 723,
@@ -301,11 +302,11 @@
     "docs/RENAME_REGISTER.md": 154,
     "docs/RUNBOOKS.md": 205,
     "docs/RUNTIME_MATRIX.md": 17,
-    "docs/SECURITY.md": 94,
+    "docs/SECURITY.md": 99,
     "docs/SHIPPABILITY_STATUS.md": 273,
     "docs/SPEED_LANE_2026-07-27.md": 97,
     "docs/STRIPE_CONNECT.md": 142,
-    "docs/STRIPE_SANDBOX_SETUP.md": 75,
+    "docs/STRIPE_SANDBOX_SETUP.md": 80,
     "docs/SUPPLY_CHAIN_POLICY.md": 25,
     "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md": 133,
     "docs/THIRD_PARTY_LICENSES.md": 93,
@@ -467,8 +468,8 @@
     "scripts/secret-exposure-audit.py": 184,
     "scripts/site-build.mjs": 166,
     "scripts/start-local-soak-24h.sh": 96,
-    "scripts/stripe-sandbox-scenarios.sh": 340,
-    "scripts/stripe-sandbox.sh": 303,
+    "scripts/stripe-sandbox-scenarios.sh": 407,
+    "scripts/stripe-sandbox.sh": 304,
     "scripts/stripe-setup.sh": 270,
     "scripts/stripe-webhooks.sh": 176,
     "scripts/technical-exercises.sh": 63,
@@ -480,7 +481,7 @@
     "scripts/test-bench-accounting.py": 147,
     "scripts/test-canary-gaming.sh": 71,
     "scripts/test-readiness-gaming.sh": 74,
-    "scripts/test-stripe-sandbox-contract.sh": 131,
+    "scripts/test-stripe-sandbox-contract.sh": 139,
     "scripts/test-supplier-console.mjs": 123,
     "scripts/test-technical-exercises-fail-closed.sh": 54,
     "scripts/uninstall.sh": 42,
@@ -549,19 +550,19 @@
     },
     "documentation": {
       "files": 44,
-      "loc": 4475,
-      "code": 3493,
+      "loc": 4485,
+      "code": 3503,
       "blank": 982,
       "comment": 0,
-      "bytes": 234984
+      "bytes": 235962
     },
     "go": {
-      "files": 207,
-      "loc": 60254,
-      "code": 53489,
-      "blank": 3879,
+      "files": 208,
+      "loc": 60418,
+      "code": 53642,
+      "blank": 3890,
       "comment": 2886,
-      "bytes": 2165590
+      "bytes": 2171082
     },
     "javascript": {
       "files": 8,
@@ -573,11 +574,11 @@
     },
     "json": {
       "files": 79,
-      "loc": 7318,
-      "code": 7318,
+      "loc": 7319,
+      "code": 7319,
       "blank": 0,
       "comment": 0,
-      "bytes": 326593
+      "bytes": 326688
     },
     "lockfile": {
       "files": 2,
@@ -613,11 +614,11 @@
     },
     "shell": {
       "files": 59,
-      "loc": 9248,
-      "code": 7743,
-      "blank": 826,
-      "comment": 679,
-      "bytes": 413404
+      "loc": 9324,
+      "code": 7812,
+      "blank": 828,
+      "comment": 684,
+      "bytes": 417106
     },
     "sql": {
       "files": 1,
@@ -695,11 +696,11 @@
     },
     "documentation": {
       "files": 33,
-      "loc": 3716,
-      "code": 2881,
+      "loc": 3726,
+      "code": 2891,
       "blank": 835,
       "comment": 0,
-      "bytes": 604059
+      "bytes": 605037
     },
     "interface": {
       "files": 29,
@@ -711,27 +712,27 @@
     },
     "ops": {
       "files": 117,
-      "loc": 10606,
-      "code": 10031,
+      "loc": 10607,
+      "code": 10032,
       "blank": 414,
       "comment": 161,
-      "bytes": 465000
+      "bytes": 465095
     },
     "payment": {
-      "files": 37,
-      "loc": 10952,
-      "code": 9866,
-      "blank": 665,
+      "files": 38,
+      "loc": 11116,
+      "code": 10019,
+      "blank": 676,
       "comment": 421,
-      "bytes": 392566
+      "bytes": 398058
     },
     "proof": {
       "files": 102,
-      "loc": 17238,
-      "code": 14502,
-      "blank": 1684,
-      "comment": 1052,
-      "bytes": 720970
+      "loc": 17314,
+      "code": 14571,
+      "blank": 1686,
+      "comment": 1057,
+      "bytes": 724672
     },
     "sdk": {
       "files": 10,
@@ -759,12 +760,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 111073,
-    "non_design_production_core_loc": 81277,
-    "test_loc": 18698,
-    "documentation_loc": 4475,
+    "global_owned_loc": 111324,
+    "non_design_production_core_loc": 81377,
+    "test_loc": 18838,
+    "documentation_loc": 4485,
     "python_loc": 5733,
-    "generated_loc": 5072,
+    "generated_loc": 5073,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -786,8 +787,8 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 9148101,
-  "tracked_files": 522,
+  "tracked_bytes": 9158368,
+  "tracked_files": 523,
   "untracked_files": 0,
-  "walked_files": 522
+  "walked_files": 523
 }

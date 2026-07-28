@@ -542,6 +542,20 @@ func handleStripeWebhookWithAllHandlersAtMode(
 				log.Printf("billing webhook: funding compromised type=%s event=%s funding_rows=%d reversal_rows=%d unavailable_cents=%d",
 					ev.Type, ev.ID, result.CompromisedFundingRows, result.ReversalRequiredRows, result.UnavailableCents)
 			}
+			outcome := "accepted"
+			switch {
+			case result.Duplicate:
+				outcome = "duplicate"
+			case cashEvent.EffectRank > 0 && result.CashEffectApplied:
+				outcome = "applied"
+			case cashEvent.EffectRank > 0:
+				outcome = "stale_ignored"
+			}
+			w.Header().Set("X-Merc-Stripe-Event-Outcome", outcome)
+			if result.CurrentCashEffectRank > 0 {
+				w.Header().Set("X-Merc-Stripe-Cash-Effect-Rank",
+					strconv.Itoa(result.CurrentCashEffectRank))
+			}
 		}
 	}
 	w.WriteHeader(http.StatusOK)

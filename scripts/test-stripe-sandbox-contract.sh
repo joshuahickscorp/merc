@@ -94,6 +94,14 @@ for script in scripts/stripe-sandbox.sh scripts/stripe-sandbox-scenarios.sh; do
   rg -q 'merc_stripe_endpoint_contract' "$ROOT/$script" \
     || die "$script does not enforce endpoint identity"
 done
+for required in \
+  'verify_cash_outcome "$cash_probe_closed_payload" applied 30' \
+  'verify_cash_outcome "$cash_probe_opened_payload" stale_ignored 30' \
+  'verify_cash_outcome "$cash_probe_closed_payload" duplicate' \
+  'application_outcomes_verified:true'; do
+  rg -Fq "$required" "$ROOT/scripts/stripe-sandbox-scenarios.sh" \
+    || die "scenario driver does not prove webhook outcome: $required"
+done
 rg -q '\[ "\$live_alias_present" = false \]' "$ROOT/scripts/release-doctor.sh" \
   || die "release doctor can report Stripe ready while a live alias is present"
 rg -q 'merc_stripe_distinct_endpoint_ids' "$ROOT/scripts/release-doctor.sh" \

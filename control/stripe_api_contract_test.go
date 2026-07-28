@@ -105,6 +105,10 @@ func TestEveryStripeOperatorScriptPinsSameVersion(t *testing.T) {
 				`MERC_STRIPE_API_VERSION`,
 				`payload_api_version:$stripe_api_version`,
 				`staging_urls_exact:true`,
+				`application_outcomes_verified:true`,
+				`verify_cash_outcome "$cash_probe_closed_payload" applied 30`,
+				`verify_cash_outcome "$cash_probe_opened_payload" stale_ignored 30`,
+				`verify_cash_outcome "$cash_probe_closed_payload" duplicate`,
 				`settlement:{currency:$settlement_currency`,
 			} {
 				if !strings.Contains(string(body), required) {
