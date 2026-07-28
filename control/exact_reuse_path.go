@@ -1,13 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 )
 
 // Live-path wiring for exact result reuse.
@@ -116,8 +116,11 @@ func jsonInt64(v any, fallback int64) int64 {
 
 // decodeRealtimePayload re-parses the prepared upstream body for identity
 // derivation. Body is already canonical JSON from prepareRealtimeRequest.
+// Use bytes.NewReader so we do not allocate a second full copy of the body as
+// a string just to re-parse it (the previous strings.NewReader(string(body))
+// path did exactly that on every cache lookup and every cache store).
 func decodeRealtimePayload(body []byte) (map[string]any, error) {
-	dec := json.NewDecoder(strings.NewReader(string(body)))
+	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 	var payload map[string]any
 	if err := dec.Decode(&payload); err != nil {

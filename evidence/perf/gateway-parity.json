@@ -1,0 +1,522 @@
+{
+  "schema_version": 1,
+  "kind": "gateway_parity",
+  "comparable": true,
+  "gate_passed": true,
+  "incomparable_reasons": [],
+  "measurement_errors": [],
+  "config": {
+    "model": "cx-chat-1b",
+    "max_tokens": 32,
+    "temperature": 0,
+    "stream": true,
+    "prompt": "Write a short factual paragraph about the water cycle. Be specific and do not repeat yourself.",
+    "concurrency_levels": [
+      1,
+      8,
+      32
+    ],
+    "requests_per_level": 4,
+    "merc_base_url": "http://127.0.0.1:58402/v1",
+    "direct_base_url": "http://127.0.0.1:8095/v1",
+    "merc_label": "merc control plane (httptest) -> same local engine",
+    "direct_label": "direct local llama-server Metal / cx-chat-1b GGUF-Q4"
+  },
+  "probes": {
+    "merc": {
+      "reachable": true,
+      "http_status": 200,
+      "model_ids": [
+        "all-minilm-l6-v2",
+        "llama-3.2-1b-instruct-q4"
+      ],
+      "bytes": 420,
+      "runtime_attestation": "",
+      "server": ""
+    },
+    "direct": {
+      "reachable": true,
+      "http_status": 200,
+      "model_ids": [
+        "cx-chat-1b"
+      ],
+      "bytes": 570,
+      "runtime_attestation": "",
+      "server": "llama.cpp"
+    },
+    "merc_smoke": {
+      "accepted": true,
+      "ttft_ms": 44.16362498886883,
+      "completion_tokens": 1
+    },
+    "direct_smoke": {
+      "accepted": true,
+      "ttft_ms": 10.629500029608607,
+      "completion_tokens": 1
+    }
+  },
+  "levels": {
+    "merc": {
+      "1": {
+        "concurrency": 1,
+        "requests_attempted": 4,
+        "requests_ok": 4,
+        "errors": 0,
+        "error_samples": [],
+        "wall_seconds": 0.884,
+        "aggregate_tokens_per_sec": 144.85,
+        "aggregate_requests_per_sec": 4.526,
+        "ttft": {
+          "samples": 4,
+          "mean_ms": 14.141,
+          "p50_ms": 12.628,
+          "p95_ms": 19.298,
+          "p99_ms": 19.298,
+          "min_ms": 12.248,
+          "max_ms": 19.298
+        },
+        "inter_token_latency": {
+          "samples": 124,
+          "mean_ms": 6.66,
+          "p50_ms": 6.635,
+          "p95_ms": 7.072,
+          "p99_ms": 7.31,
+          "min_ms": 6.3,
+          "max_ms": 7.324
+        },
+        "total_wall": {
+          "samples": 4,
+          "mean_s": 0.2208,
+          "p50_s": 0.2199,
+          "p95_s": 0.2266,
+          "p99_s": 0.2266,
+          "min_s": 0.217,
+          "max_s": 0.2266
+        },
+        "completion_tokens_total": 128,
+        "bytes": {
+          "request_total": 1036,
+          "response_total": 35522,
+          "request_mean": 259.0,
+          "response_mean": 8880.5
+        }
+      },
+      "8": {
+        "concurrency": 8,
+        "requests_attempted": 8,
+        "requests_ok": 8,
+        "errors": 0,
+        "error_samples": [],
+        "wall_seconds": 1.206,
+        "aggregate_tokens_per_sec": 212.24,
+        "aggregate_requests_per_sec": 6.633,
+        "ttft": {
+          "samples": 8,
+          "mean_ms": 375.2,
+          "p50_ms": 629.262,
+          "p95_ms": 699.623,
+          "p99_ms": 699.623,
+          "min_ms": 12.685,
+          "max_ms": 699.623
+        },
+        "inter_token_latency": {
+          "samples": 248,
+          "mean_ms": 17.547,
+          "p50_ms": 17.074,
+          "p95_ms": 18.223,
+          "p99_ms": 41.137,
+          "min_ms": 6.77,
+          "max_ms": 46.286
+        },
+        "total_wall": {
+          "samples": 8,
+          "mean_s": 0.9193,
+          "p50_s": 1.1609,
+          "p95_s": 1.2055,
+          "p99_s": 1.2055,
+          "min_s": 0.6121,
+          "max_s": 1.2055
+        },
+        "completion_tokens_total": 256,
+        "bytes": {
+          "request_total": 2072,
+          "response_total": 71056,
+          "request_mean": 259.0,
+          "response_mean": 8882.0
+        }
+      },
+      "32": {
+        "concurrency": 32,
+        "requests_attempted": 16,
+        "requests_ok": 16,
+        "errors": 0,
+        "error_samples": [],
+        "wall_seconds": 2.302,
+        "aggregate_tokens_per_sec": 222.43,
+        "aggregate_requests_per_sec": 6.951,
+        "ttft": {
+          "samples": 16,
+          "mean_ms": 924.217,
+          "p50_ms": 1185.73,
+          "p95_ms": 1773.601,
+          "p99_ms": 1773.601,
+          "min_ms": 16.583,
+          "max_ms": 1773.601
+        },
+        "inter_token_latency": {
+          "samples": 496,
+          "mean_ms": 17.436,
+          "p50_ms": 17.19,
+          "p95_ms": 18.185,
+          "p99_ms": 19.736,
+          "min_ms": 10.618,
+          "max_ms": 46.718
+        },
+        "total_wall": {
+          "samples": 16,
+          "mean_s": 1.4649,
+          "p50_s": 1.719,
+          "p95_s": 2.2991,
+          "p99_s": 2.2991,
+          "min_s": 0.6145,
+          "max_s": 2.2991
+        },
+        "completion_tokens_total": 512,
+        "bytes": {
+          "request_total": 4144,
+          "response_total": 142113,
+          "request_mean": 259.0,
+          "response_mean": 8882.1
+        }
+      }
+    },
+    "direct": {
+      "1": {
+        "concurrency": 1,
+        "requests_attempted": 4,
+        "requests_ok": 4,
+        "errors": 0,
+        "error_samples": [],
+        "wall_seconds": 0.867,
+        "aggregate_tokens_per_sec": 147.6,
+        "aggregate_requests_per_sec": 4.612,
+        "ttft": {
+          "samples": 4,
+          "mean_ms": 9.201,
+          "p50_ms": 9.154,
+          "p95_ms": 9.737,
+          "p99_ms": 9.737,
+          "min_ms": 8.95,
+          "max_ms": 9.737
+        },
+        "inter_token_latency": {
+          "samples": 124,
+          "mean_ms": 6.688,
+          "p50_ms": 6.658,
+          "p95_ms": 7.08,
+          "p99_ms": 7.218,
+          "min_ms": 6.331,
+          "max_ms": 7.476
+        },
+        "total_wall": {
+          "samples": 4,
+          "mean_s": 0.2166,
+          "p50_s": 0.2168,
+          "p95_s": 0.2179,
+          "p99_s": 0.2179,
+          "min_s": 0.2159,
+          "max_s": 0.2179
+        },
+        "completion_tokens_total": 128,
+        "bytes": {
+          "request_total": 1036,
+          "response_total": 35519,
+          "request_mean": 259.0,
+          "response_mean": 8879.8
+        }
+      },
+      "8": {
+        "concurrency": 8,
+        "requests_attempted": 8,
+        "requests_ok": 8,
+        "errors": 0,
+        "error_samples": [],
+        "wall_seconds": 1.182,
+        "aggregate_tokens_per_sec": 216.56,
+        "aggregate_requests_per_sec": 6.767,
+        "ttft": {
+          "samples": 8,
+          "mean_ms": 357.548,
+          "p50_ms": 622.215,
+          "p95_ms": 660.01,
+          "p99_ms": 660.01,
+          "min_ms": 10.87,
+          "max_ms": 660.01
+        },
+        "inter_token_latency": {
+          "samples": 248,
+          "mean_ms": 17.494,
+          "p50_ms": 17.121,
+          "p95_ms": 18.144,
+          "p99_ms": 46.683,
+          "min_ms": 10.656,
+          "max_ms": 46.981
+        },
+        "total_wall": {
+          "samples": 8,
+          "mean_s": 0.9,
+          "p50_s": 1.1569,
+          "p95_s": 1.1812,
+          "p99_s": 1.1812,
+          "min_s": 0.605,
+          "max_s": 1.1812
+        },
+        "completion_tokens_total": 256,
+        "bytes": {
+          "request_total": 2072,
+          "response_total": 71070,
+          "request_mean": 259.0,
+          "response_mean": 8883.8
+        }
+      },
+      "32": {
+        "concurrency": 32,
+        "requests_attempted": 16,
+        "requests_ok": 16,
+        "errors": 0,
+        "error_samples": [],
+        "wall_seconds": 2.293,
+        "aggregate_tokens_per_sec": 223.32,
+        "aggregate_requests_per_sec": 6.979,
+        "ttft": {
+          "samples": 16,
+          "mean_ms": 919.469,
+          "p50_ms": 1178.718,
+          "p95_ms": 1769.478,
+          "p99_ms": 1769.478,
+          "min_ms": 12.196,
+          "max_ms": 1769.478
+        },
+        "inter_token_latency": {
+          "samples": 496,
+          "mean_ms": 17.408,
+          "p50_ms": 17.167,
+          "p95_ms": 18.08,
+          "p99_ms": 19.441,
+          "min_ms": 10.608,
+          "max_ms": 47.441
+        },
+        "total_wall": {
+          "samples": 16,
+          "mean_s": 1.4593,
+          "p50_s": 1.7173,
+          "p95_s": 2.2893,
+          "p99_s": 2.2893,
+          "min_s": 0.611,
+          "max_s": 2.2893
+        },
+        "completion_tokens_total": 512,
+        "bytes": {
+          "request_total": 4144,
+          "response_total": 142120,
+          "request_mean": 259.0,
+          "response_mean": 8882.5
+        }
+      }
+    }
+  },
+  "deltas": {
+    "1": {
+      "ttft_delta_ms": {
+        "p50": 3.474,
+        "p95": 9.561,
+        "p99": 9.561,
+        "mean": 4.94
+      },
+      "inter_token_latency_delta_ms": {
+        "p50": -0.023,
+        "p95": -0.008,
+        "p99": 0.092,
+        "mean": -0.028
+      },
+      "total_wall_delta_s": {
+        "p50_s": 0.0031,
+        "p95_s": 0.0087,
+        "p99_s": 0.0087,
+        "mean_s": 0.0042
+      },
+      "aggregate_tokens_per_sec": {
+        "merc": 144.85,
+        "direct": 147.6,
+        "delta": -2.75
+      },
+      "bytes": {
+        "merc_response_total": 35522,
+        "direct_response_total": 35519,
+        "response_delta": 3
+      },
+      "errors": {
+        "merc": 0,
+        "direct": 0
+      }
+    },
+    "8": {
+      "ttft_delta_ms": {
+        "p50": 7.047,
+        "p95": 39.613,
+        "p99": 39.613,
+        "mean": 17.652
+      },
+      "inter_token_latency_delta_ms": {
+        "p50": -0.047,
+        "p95": 0.079,
+        "p99": -5.546,
+        "mean": 0.053
+      },
+      "total_wall_delta_s": {
+        "p50_s": 0.004,
+        "p95_s": 0.0243,
+        "p99_s": 0.0243,
+        "mean_s": 0.0193
+      },
+      "aggregate_tokens_per_sec": {
+        "merc": 212.24,
+        "direct": 216.56,
+        "delta": -4.32
+      },
+      "bytes": {
+        "merc_response_total": 71056,
+        "direct_response_total": 71070,
+        "response_delta": -14
+      },
+      "errors": {
+        "merc": 0,
+        "direct": 0
+      }
+    },
+    "32": {
+      "ttft_delta_ms": {
+        "p50": 7.012,
+        "p95": 4.123,
+        "p99": 4.123,
+        "mean": 4.748
+      },
+      "inter_token_latency_delta_ms": {
+        "p50": 0.023,
+        "p95": 0.105,
+        "p99": 0.295,
+        "mean": 0.028
+      },
+      "total_wall_delta_s": {
+        "p50_s": 0.0017,
+        "p95_s": 0.0098,
+        "p99_s": 0.0098,
+        "mean_s": 0.0056
+      },
+      "aggregate_tokens_per_sec": {
+        "merc": 222.43,
+        "direct": 223.32,
+        "delta": -0.89
+      },
+      "bytes": {
+        "merc_response_total": 142113,
+        "direct_response_total": 142120,
+        "response_delta": -7
+      },
+      "errors": {
+        "merc": 0,
+        "direct": 0
+      }
+    }
+  },
+  "summary_concurrency_1": {
+    "ttft_overhead_p50_ms": 3.474,
+    "ttft_overhead_p95_ms": 9.561,
+    "ttft_overhead_p99_ms": 9.561,
+    "itl_overhead_p50_ms": -0.023,
+    "itl_overhead_p95_ms": -0.008,
+    "wall_overhead_p50_s": 0.0031,
+    "wall_overhead_p95_s": 0.0087
+  },
+  "comparability_warning": "Valid only when both sides used the SAME model, precision and max_tokens against the same engine. The harness refuses a comparison when probes disagree or labels are missing. Quoting one average across incomparable runs is not a measurement.",
+  "note": "Deltas are merc \u2212 direct. Positive TTFT/ITL/wall means merc added latency. Throughput delta is merc \u2212 direct (negative means the gateway reduced aggregate tokens/s).",
+  "path_profile": {
+    "source": "MERC_REALTIME_PATH_TIMING=1 structured logs during TestGatewayParityAgainstRealEngine",
+    "engine": "llama-server Metal / cx-chat-1b GGUF-Q4 at http://127.0.0.1:8095/v1",
+    "note": "Stages are control-plane wall time. proxy_sse is dominated by the engine generating tokens (not merc CPU). settlement runs AFTER the stream is fully relayed, so it does not contribute to client TTFT or inter-token latency. authorize_contract is the dominant merc-owned cost on the TTFT path.",
+    "stream_path_typical_ms": {
+      "read_body": 0.01,
+      "prepare_json": 0.05,
+      "intake_control_db": 0.15,
+      "exact_reuse": 0.0,
+      "exact_reuse_note": "skipped for stream:true (cache holds non-stream JSON only)",
+      "authorize_contract_db": 2.0,
+      "upstream_ttfb_headers": 2.5,
+      "proxy_sse_incl_engine": 55.0,
+      "settlement_db_post_stream": 3.0,
+      "receipt_hashing": "included in proxy_sse (per-event sha256 chain + usage parse)",
+      "metrics": "atomic counters only; sub-microsecond"
+    },
+    "ttft_critical_merc_owned_ms": {
+      "prepare_json": 0.05,
+      "intake_control_db": 0.15,
+      "authorize_contract_db": 2.0,
+      "approx_total_before_engine": 2.2,
+      "measured_ttft_overhead_p50_ms": 3.474
+    },
+    "not_on_ttft_path": [
+      "settlement (after full stream relay)",
+      "exact_cache_store (non-stream only; now post-Write)",
+      "receipt fetch endpoint (buyer polls separately)"
+    ],
+    "fixes_applied": [
+      {
+        "change": "skip exact-reuse lookup for stream:true",
+        "why": "cache stores non-stream JSON; looking it up on every stream request was both a correctness footgun and a TTFT-path DB round-trip",
+        "risk": "low \u2014 stream clients never received a valid reuse hit before either"
+      },
+      {
+        "change": "move maybeStoreRealtimeExactResult after Write on non-stream path",
+        "why": "S3 put + DB insert was gating the buyer response after settlement already succeeded; cache is explicitly best-effort",
+        "risk": "low \u2014 failure already only logged; detached 10s timeout"
+      },
+      {
+        "change": "decodeRealtimePayload uses bytes.NewReader instead of string(body) copy",
+        "why": "avoid an extra full-body allocation on every cache lookup/store",
+        "risk": "none"
+      },
+      {
+        "change": "MERC_REALTIME_PATH_TIMING=1 stage clock",
+        "why": "make the next measurement print where time went without a rebuild",
+        "risk": "none when unset (zero overhead beyond one getenv)"
+      }
+    ],
+    "deliberately_not_fixed": [
+      {
+        "item": "AuthorizeRealtimeContract synchronous DB transaction on every request",
+        "why_leave": "buyer balance FOR UPDATE + sequence reservation + contract insert are the money path; moving them off-path would relax no-duplicate-billing / no-double-payout guarantees",
+        "cost": "~1.5\u20133 ms p50 on local Postgres, dominates merc-owned TTFT"
+      },
+      {
+        "item": "settlement after stream is still synchronous on the handler goroutine",
+        "why_leave": "does not affect client-visible TTFT/ITL (stream already flushed); async settlement needs careful failure accounting and is not a small safe change",
+        "cost": "~2\u20134 ms after last token"
+      },
+      {
+        "item": "per-event JSON Unmarshal + sha256 hash chain in proxySSE",
+        "why_leave": "required for stream_root_sha256 / output_commitment and usage reconciliation; measured ITL overhead is ~0 within noise, so the CPU cost is not the gateway tax",
+        "cost": "sub-millisecond per event at this token rate"
+      },
+      {
+        "item": "non-stream path still settles before Write",
+        "why_leave": "delivering unpaid JSON on settlement failure is a product decision; stream already has post-delivery settlement, unifying them is larger than this pass",
+        "cost": "settlement latency on non-stream total wall only"
+      },
+      {
+        "item": "OperationalControlPaused DB read every request",
+        "why_leave": "caching with TTL could delay a kill-switch by that TTL; ~0.15 ms is not worth weakening intake control",
+        "cost": "~0.1\u20130.3 ms"
+      }
+    ]
+  }
+}
