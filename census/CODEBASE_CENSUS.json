@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "4f80f63fc2e75a8428bffded916bd8fcd155e9261e01d465f7321cd89c44d249",
+  "authority_sha256": "a1731cc2813a04ab2a26acf053ced05f8e26955ea15365e814c962ad26904e7d",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -105,8 +105,8 @@
     "control/data_governance_integration_test.go": 220,
     "control/dispute_payout_integration_test.go": 325,
     "control/earnings_carry_test.go": 49,
-    "control/economic_facts.go": 166,
-    "control/economic_facts_test.go": 31,
+    "control/economic_facts.go": 310,
+    "control/economic_facts_test.go": 562,
     "control/economic_plan.go": 374,
     "control/economic_plan_test.go": 323,
     "control/enrollment.go": 1224,
@@ -194,7 +194,7 @@
     "control/realtime_test.go": 160,
     "control/receipt.go": 59,
     "control/receipt_label_test.go": 27,
-    "control/receipt_test.go": 86,
+    "control/receipt_test.go": 102,
     "control/reconcile.go": 147,
     "control/recovery_boundary.go": 60,
     "control/remote_response.go": 26,
@@ -213,7 +213,7 @@
     "control/runtime_model_ingress_test.go": 36,
     "control/scheduler.go": 1148,
     "control/scheduler_ask_claim_integration_test.go": 145,
-    "control/schema.sql": 3152,
+    "control/schema.sql": 3224,
     "control/seed.go": 115,
     "control/shape_routing.go": 124,
     "control/shape_routing_test.go": 101,
@@ -221,7 +221,7 @@
     "control/storage.go": 381,
     "control/storage_memory_test.go": 30,
     "control/store.go": 1618,
-    "control/store_billing.go": 230,
+    "control/store_billing.go": 336,
     "control/store_disputes.go": 362,
     "control/store_jobs.go": 1063,
     "control/store_payouts.go": 1123,
@@ -296,7 +296,7 @@
     "docs/FRONTEND_CONTRACT.md": 26,
     "docs/FRONTIER_300X.md": 203,
     "docs/LANE_RESEARCH.md": 104,
-    "docs/MONEY_AUDIT_2026-07-27.md": 151,
+    "docs/MONEY_AUDIT_2026-07-27.md": 169,
     "docs/PATH_TO_TEN.md": 188,
     "docs/POSTGRES_TRUST_BOUNDARY.md": 53,
     "docs/PRIVACY_DATA_GOVERNANCE.md": 95,
@@ -306,7 +306,7 @@
     "docs/RUNBOOKS.md": 205,
     "docs/RUNTIME_MATRIX.md": 17,
     "docs/SECURITY.md": 99,
-    "docs/SHIPPABILITY_STATUS.md": 341,
+    "docs/SHIPPABILITY_STATUS.md": 342,
     "docs/SPEED_LANE_2026-07-27.md": 97,
     "docs/STRIPE_CONNECT.md": 142,
     "docs/STRIPE_SANDBOX_SETUP.md": 80,
@@ -565,19 +565,19 @@
     },
     "documentation": {
       "files": 44,
-      "loc": 4664,
-      "code": 3670,
-      "blank": 994,
+      "loc": 4683,
+      "code": 3687,
+      "blank": 996,
       "comment": 0,
-      "bytes": 247990
+      "bytes": 250061
     },
     "go": {
       "files": 211,
-      "loc": 60863,
-      "code": 54057,
-      "blank": 3920,
-      "comment": 2886,
-      "bytes": 2186174
+      "loc": 61660,
+      "code": 54812,
+      "blank": 3944,
+      "comment": 2904,
+      "bytes": 2214019
     },
     "javascript": {
       "files": 8,
@@ -593,7 +593,7 @@
       "code": 7458,
       "blank": 0,
       "comment": 0,
-      "bytes": 336353
+      "bytes": 336704
     },
     "lockfile": {
       "files": 2,
@@ -637,11 +637,11 @@
     },
     "sql": {
       "files": 1,
-      "loc": 3152,
-      "code": 2784,
+      "loc": 3224,
+      "code": 2853,
       "blank": 174,
-      "comment": 194,
-      "bytes": 170548
+      "comment": 197,
+      "bytes": 174236
     },
     "text": {
       "files": 2,
@@ -703,19 +703,19 @@
     },
     "control": {
       "files": 149,
-      "loc": 42147,
-      "code": 36975,
+      "loc": 42163,
+      "code": 36991,
       "blank": 2762,
       "comment": 2410,
-      "bytes": 1523977
+      "bytes": 1524767
     },
     "documentation": {
       "files": 33,
-      "loc": 3804,
-      "code": 2962,
-      "blank": 842,
+      "loc": 3823,
+      "code": 2979,
+      "blank": 844,
       "comment": 0,
-      "bytes": 611031
+      "bytes": 613102
     },
     "interface": {
       "files": 29,
@@ -731,15 +731,15 @@
       "code": 10277,
       "blank": 419,
       "comment": 162,
-      "bytes": 481482
+      "bytes": 481833
     },
     "payment": {
       "files": 38,
-      "loc": 11091,
-      "code": 9994,
-      "blank": 676,
-      "comment": 421,
-      "bytes": 396995
+      "loc": 11872,
+      "code": 10733,
+      "blank": 700,
+      "comment": 439,
+      "bytes": 424050
     },
     "proof": {
       "files": 114,
@@ -759,11 +759,11 @@
     },
     "store": {
       "files": 1,
-      "loc": 3152,
-      "code": 2784,
+      "loc": 3224,
+      "code": 2853,
       "blank": 174,
-      "comment": 194,
-      "bytes": 170548
+      "comment": 197,
+      "bytes": 174236
     },
     "verification": {
       "files": 21,
@@ -775,10 +775,10 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 117538,
-    "non_design_production_core_loc": 87106,
-    "test_loc": 19127,
-    "documentation_loc": 4664,
+    "global_owned_loc": 118426,
+    "non_design_production_core_loc": 87428,
+    "test_loc": 19674,
+    "documentation_loc": 4683,
     "python_loc": 9309,
     "generated_loc": 5090,
     "vendored_upstream_loc": 0,
@@ -802,7 +802,7 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 9409929,
+  "tracked_bytes": 9443884,
   "tracked_files": 538,
   "untracked_files": 0,
   "walked_files": 538

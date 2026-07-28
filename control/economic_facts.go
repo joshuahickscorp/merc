@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -15,6 +17,9 @@ import (
 const (
 	economicInputSourceSubmitStream    = "submit_stream_exact_raw_bytes_and_nonblank_jsonl_records"
 	economicOutputSourceMergedArtifact = "merged_artifact_exact_bytes_and_records"
+	batchFeeAllocationLegacyV0         = "legacy_order_residual_v0"
+	batchFeeAllocationHamiltonV1       = "hamilton_largest_remainder_job_id_v1"
+	processorFeeAllocationDirectV1     = "direct_single_charge_v1"
 )
 
 // roundEconomicUSD is an alias for the single micro-USD rounding helper.
@@ -31,16 +36,88 @@ type batchFeeAllocation struct {
 	AllocatedMicros int64
 }
 
-func allocateBatchFeeMicros(feeMicros int64, weights []batchFeeWeight) ([]batchFeeAllocation, error) {
+func validateBatchFeeInputs(feeMicros int64, weights []batchFeeWeight) (int64, error) {
 	if feeMicros < 0 || len(weights) == 0 {
-		return nil, errors.New("invalid charge batch fee allocation")
+		return 0, errors.New("invalid charge batch fee allocation")
 	}
 	var total int64
+	seen := make(map[uuid.UUID]struct{}, len(weights))
 	for _, weight := range weights {
-		if weight.WeightMicros <= 0 || total > math.MaxInt64-weight.WeightMicros {
-			return nil, errors.New("invalid charge batch weight")
+		if weight.JobID == uuid.Nil || weight.WeightMicros <= 0 ||
+			total > math.MaxInt64-weight.WeightMicros {
+			return 0, errors.New("invalid charge batch weight")
 		}
+		if _, exists := seen[weight.JobID]; exists {
+			return 0, errors.New("duplicate job in charge batch fee allocation")
+		}
+		seen[weight.JobID] = struct{}{}
 		total += weight.WeightMicros
+	}
+	return total, nil
+}
+
+func allocateBatchFeeMicros(feeMicros int64, weights []batchFeeWeight) ([]batchFeeAllocation, error) {
+	total, err := validateBatchFeeInputs(feeMicros, weights)
+	if err != nil {
+		return nil, err
+	}
+
+	type remainderRank struct {
+		index     int
+		jobID     uuid.UUID
+		remainder *big.Int
+	}
+	result := make([]batchFeeAllocation, len(weights))
+	ranks := make([]remainderRank, len(weights))
+	var floorAllocated int64
+	for i, weight := range weights {
+		var numerator, quotient, remainder big.Int
+		numerator.Mul(big.NewInt(feeMicros), big.NewInt(weight.WeightMicros))
+		quotient.QuoRem(&numerator, big.NewInt(total), &remainder)
+		if !quotient.IsInt64() {
+			return nil, errors.New("charge batch allocation overflow")
+		}
+		share := quotient.Int64()
+		if floorAllocated > math.MaxInt64-share {
+			return nil, errors.New("charge batch allocation overflow")
+		}
+		floorAllocated += share
+		result[i] = batchFeeAllocation{weight.JobID, weight.WeightMicros, share}
+		ranks[i] = remainderRank{
+			index: i, jobID: weight.JobID, remainder: new(big.Int).Set(&remainder),
+		}
+	}
+
+	// Hamilton's largest-remainder method is deterministic and order
+	// independent. The earlier implementation gave the whole residual to the
+	// last job, so permuting identical economic facts changed which buyer job
+	// absorbed processor-fee rounding.
+	residual := feeMicros - floorAllocated
+	if residual < 0 || residual >= int64(len(weights)) {
+		return nil, errors.New("charge batch allocation residual is invalid")
+	}
+	sort.Slice(ranks, func(i, j int) bool {
+		if compared := ranks[i].remainder.Cmp(ranks[j].remainder); compared != 0 {
+			return compared > 0
+		}
+		return bytes.Compare(ranks[i].jobID[:], ranks[j].jobID[:]) < 0
+	})
+	for i := int64(0); i < residual; i++ {
+		result[ranks[i].index].AllocatedMicros++
+	}
+	return result, nil
+}
+
+// allocateBatchFeeMicrosLegacy reconstructs the previously shipped
+// order-residual rule. It exists only to verify already-durable rows during an
+// upgrade; new allocations must use allocateBatchFeeMicros.
+func allocateBatchFeeMicrosLegacy(
+	feeMicros int64,
+	weights []batchFeeWeight,
+) ([]batchFeeAllocation, error) {
+	total, err := validateBatchFeeInputs(feeMicros, weights)
+	if err != nil {
+		return nil, err
 	}
 	result := make([]batchFeeAllocation, len(weights))
 	var allocated int64
@@ -51,7 +128,7 @@ func allocateBatchFeeMicros(feeMicros int64, weights []batchFeeWeight) ([]batchF
 			numerator.Mul(big.NewInt(feeMicros), big.NewInt(weight.WeightMicros))
 			quotient.Quo(&numerator, big.NewInt(total))
 			if !quotient.IsInt64() {
-				return nil, errors.New("charge batch allocation overflow")
+				return nil, errors.New("legacy charge batch allocation overflow")
 			}
 			share = quotient.Int64()
 			allocated += share
@@ -117,16 +194,83 @@ func (s *Store) AllocateBatchStripeFee(ctx context.Context, pi string) (bool, er
 	if err != nil {
 		return false, err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM charge_batch_fee_allocations WHERE charge_batch_id=$1`, batchID); err != nil {
+	existingRows, err := tx.Query(ctx, `SELECT job_id,stripe_pi,allocation_ordinal,
+			allocation_method,
+			(billed_weight_usd*1000000)::bigint,(allocated_fee_usd*1000000)::bigint
+		FROM charge_batch_fee_allocations
+		WHERE charge_batch_id=$1 ORDER BY allocation_ordinal FOR UPDATE`, batchID)
+	if err != nil {
 		return false, err
 	}
-	for i, allocation := range allocations {
-		_, err := tx.Exec(ctx, `INSERT INTO charge_batch_fee_allocations
-			(charge_batch_id,job_id,stripe_pi,allocation_ordinal,billed_weight_usd,allocated_fee_usd)
-			VALUES ($1,$2,$3,$4,$5::numeric/1000000,$6::numeric/1000000)`,
-			batchID, allocation.JobID, pi, i, allocation.WeightMicros, allocation.AllocatedMicros)
-		if err != nil {
+	type storedAllocation struct {
+		JobID           uuid.UUID
+		StripePI        string
+		Ordinal         int
+		Method          string
+		WeightMicros    int64
+		AllocatedMicros int64
+	}
+	var existing []storedAllocation
+	for existingRows.Next() {
+		var row storedAllocation
+		if err := existingRows.Scan(
+			&row.JobID, &row.StripePI, &row.Ordinal,
+			&row.Method, &row.WeightMicros, &row.AllocatedMicros,
+		); err != nil {
+			existingRows.Close()
 			return false, err
+		}
+		existing = append(existing, row)
+	}
+	existingRows.Close()
+	if err := existingRows.Err(); err != nil {
+		return false, err
+	}
+	if len(existing) == 0 {
+		for i, allocation := range allocations {
+			_, err := tx.Exec(ctx, `INSERT INTO charge_batch_fee_allocations
+				(charge_batch_id,job_id,stripe_pi,allocation_ordinal,
+				 billed_weight_usd,allocated_fee_usd,allocation_method)
+				VALUES ($1,$2,$3,$4,$5::numeric/1000000,$6::numeric/1000000,$7)`,
+				batchID, allocation.JobID, pi, i,
+				allocation.WeightMicros, allocation.AllocatedMicros,
+				batchFeeAllocationHamiltonV1)
+			if err != nil {
+				return false, err
+			}
+		}
+	} else {
+		if len(existing) != len(allocations) {
+			return false, fmt.Errorf(
+				"charge batch %s has a partial immutable fee allocation", batchID,
+			)
+		}
+		expected := allocations
+		expectedMethod := existing[0].Method
+		switch expectedMethod {
+		case batchFeeAllocationHamiltonV1:
+		case batchFeeAllocationLegacyV0:
+			expected, err = allocateBatchFeeMicrosLegacy(feeMicros, weights)
+			if err != nil {
+				return false, err
+			}
+		default:
+			return false, fmt.Errorf(
+				"charge batch %s has unknown immutable fee allocation method %q",
+				batchID, expectedMethod,
+			)
+		}
+		for i, allocation := range expected {
+			stored := existing[i]
+			if stored.JobID != allocation.JobID || stored.StripePI != pi ||
+				stored.Ordinal != i || stored.Method != expectedMethod ||
+				stored.WeightMicros != allocation.WeightMicros ||
+				stored.AllocatedMicros != allocation.AllocatedMicros {
+				return false, fmt.Errorf(
+					"charge batch %s immutable fee allocation differs at ordinal %d",
+					batchID, i,
+				)
+			}
 		}
 	}
 	var allocated int64
