@@ -193,8 +193,10 @@ Landed and verified this session:
   `scripts/bench-harness.py`, now with physical/billed separation.
 - **§16.1 energy** — harness samples `powermetrics` when run as root and records
   `power_source: UNAVAILABLE` with a reason otherwise. It never estimates watts.
-- **§22 economic gates** — negative supplier or platform contribution refuses to
-  publish without a receipted subsidy (`MERC_PRICE_SUBSIDY_RECEIPT`).
+- **§22 economic gates** — negative supplier or platform contribution is
+  unpublishable. The former free-form environment “receipt” bypass was removed;
+  durable payout subsidy funds may fund an existing liability but cannot create
+  a loss-making catalogue promise.
 - **§10 quantization + speculation evidence** — `evidence/bench/quant-spec.jsonl`.
 
 Not built: the autotuner (§3), prefix trie (§4.2), multi-level cache (§4.3),

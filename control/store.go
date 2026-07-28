@@ -869,22 +869,27 @@ func (s *Store) ListFraud(ctx context.Context) ([]FraudReport, error) {
 }
 
 type ModelRow struct {
-	ID          string
-	Family      string
-	Quant       string
-	Kind        string
-	Dim         int
-	JobType     string
-	PricePer1K  float64
-	MinMemoryGB float32
-	HFRepo      string
+	ID                     string
+	Family                 string
+	Quant                  string
+	Kind                   string
+	Dim                    int
+	JobType                string
+	PricePer1K             float64
+	ReferencePricePer1K    float64
+	PriceReferenceCurrency string
+	PriceCurrency          string
+	MinMemoryGB            float32
+	HFRepo                 string
 }
 
 func (s *Store) ListModels(ctx context.Context) ([]ModelRow, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, COALESCE(family,''), COALESCE(quant,''), COALESCE(kind,''),
 		        COALESCE(dim,0), COALESCE(job_type,''),
-		        COALESCE(price_per_1k,0), COALESCE(min_memory_gb,0), COALESCE(hf_repo,'')
+		        COALESCE(price_per_1k,0),COALESCE(price_reference_per_1k,0),
+		        COALESCE(price_reference_currency,''),COALESCE(price_currency,''),
+		        COALESCE(min_memory_gb,0), COALESCE(hf_repo,'')
 		 FROM models ORDER BY price_per_1k ASC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -894,7 +899,8 @@ func (s *Store) ListModels(ctx context.Context) ([]ModelRow, error) {
 	for rows.Next() {
 		var m ModelRow
 		if err := rows.Scan(&m.ID, &m.Family, &m.Quant, &m.Kind, &m.Dim, &m.JobType,
-			&m.PricePer1K, &m.MinMemoryGB, &m.HFRepo); err != nil {
+			&m.PricePer1K, &m.ReferencePricePer1K, &m.PriceReferenceCurrency,
+			&m.PriceCurrency, &m.MinMemoryGB, &m.HFRepo); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -907,10 +913,13 @@ func (s *Store) GetModel(ctx context.Context, id string) (*ModelRow, error) {
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, COALESCE(family,''), COALESCE(quant,''), COALESCE(kind,''),
 		        COALESCE(dim,0), COALESCE(job_type,''),
-		        COALESCE(price_per_1k,0), COALESCE(min_memory_gb,0), COALESCE(hf_repo,'')
+		        COALESCE(price_per_1k,0),COALESCE(price_reference_per_1k,0),
+		        COALESCE(price_reference_currency,''),COALESCE(price_currency,''),
+		        COALESCE(min_memory_gb,0), COALESCE(hf_repo,'')
 		 FROM models WHERE id = $1`, id,
 	).Scan(&m.ID, &m.Family, &m.Quant, &m.Kind, &m.Dim, &m.JobType,
-		&m.PricePer1K, &m.MinMemoryGB, &m.HFRepo)
+		&m.PricePer1K, &m.ReferencePricePer1K, &m.PriceReferenceCurrency,
+		&m.PriceCurrency, &m.MinMemoryGB, &m.HFRepo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}

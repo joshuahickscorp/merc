@@ -13,7 +13,10 @@ The Level B control runtime is intentionally fixed to test-only Stripe payment
 authority (`MERC_PAYMENT_MODE=test`, `MERC_PAYMENT_PROVIDER=stripe`,
 `MERC_SETTLEMENT_CURRENCY=cad`); the Stripe Sandbox preflight and matrix bind
 every provider object and Canadian payout fixture to that same reviewed
-authority. These settings do not authorize live value.
+authority. Because the governed catalogue board is USD-denominated, startup
+also requires an operator-approved CAD-per-USD rate and immutable FX revision;
+the resulting schedule binds the board digest, reference prices, converted CAD
+prices, and FX authority atomically. These settings do not authorize live value.
 
 ## Operator preparation
 

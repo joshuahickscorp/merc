@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "061113339a83b62d24b3506a63c527551aef800c70814de516d645ca22425a54",
+  "authority_sha256": "4095fd611decc560220f0991a46a40d1a1d6a7ab66b6b421f16ff2c2bc8acd93",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -8,7 +8,7 @@
   },
   "files": {
     ".dockerignore": 41,
-    ".env.example": 110,
+    ".env.example": 116,
     ".github/CODEOWNERS": 34,
     ".github/ISSUE_TEMPLATE/bug_report.yml": 52,
     ".github/ISSUE_TEMPLATE/config.yml": 14,
@@ -71,7 +71,7 @@
     "control/admin_mutation_audit_test.go": 456,
     "control/admin_workers_integration_test.go": 59,
     "control/alpha_request.go": 69,
-    "control/api.go": 3589,
+    "control/api.go": 3662,
     "control/api_error.go": 156,
     "control/api_error_test.go": 220,
     "control/audit.go": 537,
@@ -142,7 +142,7 @@
     "control/ledger_write_property_test.go": 125,
     "control/lora_settlement.go": 271,
     "control/lora_settlement_test.go": 256,
-    "control/main.go": 433,
+    "control/main.go": 438,
     "control/max_usd_test.go": 31,
     "control/metrics.go": 623,
     "control/metrics_observability_test.go": 57,
@@ -174,15 +174,15 @@
     "control/prepaid.go": 240,
     "control/prepaid_test.go": 280,
     "control/price_board_parity_test.go": 205,
-    "control/pricing.go": 440,
+    "control/pricing.go": 719,
     "control/pricing_extra.go": 44,
-    "control/pricing_governance.go": 209,
-    "control/pricing_governance_test.go": 142,
-    "control/pricing_test.go": 144,
+    "control/pricing_governance.go": 193,
+    "control/pricing_governance_test.go": 135,
+    "control/pricing_test.go": 258,
     "control/pricing_viability_test.go": 39,
     "control/prove.go": 163,
     "control/prove_registry.go": 48,
-    "control/quote.go": 1139,
+    "control/quote.go": 1145,
     "control/quote_currency_integration_test.go": 138,
     "control/quote_stats_test.go": 23,
     "control/quote_test.go": 474,
@@ -210,20 +210,20 @@
     "control/runtime-authority.json": 104,
     "control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json": 30,
     "control/runtime_authority.go": 184,
-    "control/runtime_catalog_integration_test.go": 84,
-    "control/runtime_matrix.go": 351,
+    "control/runtime_catalog_integration_test.go": 247,
+    "control/runtime_matrix.go": 357,
     "control/runtime_matrix_test.go": 389,
     "control/runtime_model_ingress_test.go": 36,
     "control/scheduler.go": 1199,
     "control/scheduler_ask_claim_integration_test.go": 145,
-    "control/schema.sql": 3464,
+    "control/schema.sql": 3613,
     "control/seed.go": 115,
     "control/shape_routing.go": 124,
     "control/shape_routing_test.go": 101,
     "control/small_job_economics_test.go": 221,
     "control/storage.go": 381,
     "control/storage_memory_test.go": 30,
-    "control/store.go": 1618,
+    "control/store.go": 1627,
     "control/store_billing.go": 337,
     "control/store_disputes.go": 362,
     "control/store_jobs.go": 1112,
@@ -253,7 +253,7 @@
     "control/testdata/fuzz/FuzzBillingAccountingNeverInflatesPhysical/d9126a1e57483612": 6,
     "control/testdb_test.go": 39,
     "control/tiebreak_retry_safety_test.go": 28,
-    "control/types.go": 320,
+    "control/types.go": 325,
     "control/verification.go": 616,
     "control/verification_apply.go": 1078,
     "control/verification_apply_test.go": 55,
@@ -284,7 +284,7 @@
     "control/workload_classification_test.go": 516,
     "control/workload_simulation_test.go": 431,
     "docker-compose.observability.yml": 144,
-    "docker-compose.prod.yml": 183,
+    "docker-compose.prod.yml": 186,
     "docker-compose.yml": 60,
     "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md": 135,
     "docs/BENCH_PROFILES_2026-07-27.md": 60,
@@ -293,11 +293,11 @@
     "docs/DECISION_ZERO_OUTCOME.md": 47,
     "docs/DECISION_ZERO_REVERSAL.md": 112,
     "docs/DEPENDENCY_REVIEW.md": 19,
-    "docs/DEPLOY_MERC_DROPLET.md": 267,
+    "docs/DEPLOY_MERC_DROPLET.md": 271,
     "docs/DSAR_RUNBOOK.md": 130,
     "docs/EXTERNAL_OPERATOR_HANDOFF.md": 36,
     "docs/FRONTEND_CONTRACT.md": 26,
-    "docs/FRONTIER_300X.md": 203,
+    "docs/FRONTIER_300X.md": 205,
     "docs/LANE_RESEARCH.md": 104,
     "docs/MONEY_AUDIT_2026-07-27.md": 169,
     "docs/PATH_TO_TEN.md": 188,
@@ -309,9 +309,9 @@
     "docs/RUNBOOKS.md": 205,
     "docs/RUNTIME_MATRIX.md": 17,
     "docs/SECURITY.md": 99,
-    "docs/SHIPPABILITY_STATUS.md": 349,
+    "docs/SHIPPABILITY_STATUS.md": 351,
     "docs/SPEED_LANE_2026-07-27.md": 97,
-    "docs/STRIPE_CONNECT.md": 142,
+    "docs/STRIPE_CONNECT.md": 143,
     "docs/STRIPE_SANDBOX_SETUP.md": 80,
     "docs/SUPPLY_CHAIN_POLICY.md": 25,
     "docs/SUPPORT_AND_INCIDENT_RUNBOOK.md": 133,
@@ -385,7 +385,7 @@
     "ops/asset-provenance.json": 56,
     "ops/authorization-matrix.json": 207,
     "ops/economics-readiness.json": 179,
-    "ops/go-closure-inputs.json": 422,
+    "ops/go-closure-inputs.json": 440,
     "ops/go-no-go.json": 73,
     "ops/governance-approval-bundle.schema.json": 65,
     "ops/governance-review-packets.json": 83,
@@ -398,9 +398,9 @@
     "ops/rename-residue.json": 47,
     "ops/repo-boundary.json": 10,
     "ops/rust-paste-audit.json": 36,
-    "ops/staging/README.md": 236,
-    "ops/staging/compose.go-closure.yml": 293,
-    "ops/staging/env.go-closure.example": 67,
+    "ops/staging/README.md": 239,
+    "ops/staging/compose.go-closure.yml": 295,
+    "ops/staging/env.go-closure.example": 71,
     "ops/stripe-secret-exposure.json": 1,
     "ops/stripe-secret-exposure.ug0K1S": 0,
     "ops/support-incident-tabletop.json": 99,
@@ -419,7 +419,7 @@
     "scripts/bench-harness.py": 349,
     "scripts/bench-quant-spec.py": 203,
     "scripts/bench-report.py": 165,
-    "scripts/bootstrap-prod.sh": 144,
+    "scripts/bootstrap-prod.sh": 146,
     "scripts/build-cli-release.sh": 69,
     "scripts/buyer-dashboard-live.mjs": 115,
     "scripts/cloudflare-purge.sh": 165,
@@ -430,7 +430,7 @@
     "scripts/deploy.sh": 54,
     "scripts/derive-technical-exercises-receipt.py": 171,
     "scripts/droplet-deploy.sh": 382,
-    "scripts/droplet-env-cutover.sh": 124,
+    "scripts/droplet-env-cutover.sh": 125,
     "scripts/gateway-parity.py": 644,
     "scripts/go-closure-canary-rehearsal.sh": 468,
     "scripts/go-closure-deploy.sh": 117,
@@ -504,7 +504,7 @@
     "scripts/validate-canary-scenario-receipt.py": 303,
     "scripts/validate-claim-surfaces.py": 148,
     "scripts/validate-go-closure-evidence-chain.py": 1114,
-    "scripts/validate-go-closure-scaffold.sh": 237,
+    "scripts/validate-go-closure-scaffold.sh": 242,
     "scripts/validate-go-closure-soak-receipt.py": 615,
     "scripts/validate-governance.py": 240,
     "scripts/validate-independent-reviews.py": 184,
@@ -568,19 +568,19 @@
     },
     "documentation": {
       "files": 44,
-      "loc": 4690,
-      "code": 3694,
+      "loc": 4702,
+      "code": 3706,
       "blank": 996,
       "comment": 0,
-      "bytes": 252694
+      "bytes": 255210
     },
     "go": {
       "files": 214,
-      "loc": 62786,
-      "code": 55869,
-      "blank": 3998,
-      "comment": 2919,
-      "bytes": 2257721
+      "loc": 63423,
+      "code": 56492,
+      "blank": 4014,
+      "comment": 2917,
+      "bytes": 2282788
     },
     "javascript": {
       "files": 8,
@@ -592,11 +592,11 @@
     },
     "json": {
       "files": 79,
-      "loc": 7461,
-      "code": 7461,
+      "loc": 7479,
+      "code": 7479,
       "blank": 0,
       "comment": 0,
-      "bytes": 336870
+      "bytes": 338183
     },
     "lockfile": {
       "files": 2,
@@ -608,11 +608,11 @@
     },
     "other": {
       "files": 19,
-      "loc": 1336,
-      "code": 1146,
+      "loc": 1346,
+      "code": 1156,
       "blank": 190,
       "comment": 0,
-      "bytes": 68921
+      "bytes": 69646
     },
     "python": {
       "files": 35,
@@ -632,19 +632,19 @@
     },
     "shell": {
       "files": 65,
-      "loc": 11174,
-      "code": 9546,
+      "loc": 11182,
+      "code": 9554,
       "blank": 925,
       "comment": 703,
-      "bytes": 500103
+      "bytes": 500690
     },
     "sql": {
       "files": 1,
-      "loc": 3464,
-      "code": 3065,
-      "blank": 186,
-      "comment": 213,
-      "bytes": 184808
+      "loc": 3613,
+      "code": 3202,
+      "blank": 191,
+      "comment": 220,
+      "bytes": 193214
     },
     "text": {
       "files": 2,
@@ -680,11 +680,11 @@
     },
     "yaml": {
       "files": 16,
-      "loc": 1936,
-      "code": 1783,
+      "loc": 1941,
+      "code": 1788,
       "blank": 99,
       "comment": 54,
-      "bytes": 73887
+      "bytes": 74399
     }
   },
   "owned_by_subsystem": {
@@ -706,19 +706,19 @@
     },
     "control": {
       "files": 152,
-      "loc": 43190,
-      "code": 37953,
-      "blank": 2816,
-      "comment": 2421,
-      "bytes": 1563745
+      "loc": 43827,
+      "code": 38576,
+      "blank": 2832,
+      "comment": 2419,
+      "bytes": 1588812
     },
     "documentation": {
       "files": 33,
-      "loc": 3830,
-      "code": 2986,
+      "loc": 3839,
+      "code": 2995,
       "blank": 844,
       "comment": 0,
-      "bytes": 615735
+      "bytes": 617991
     },
     "interface": {
       "files": 29,
@@ -730,11 +730,11 @@
     },
     "ops": {
       "files": 117,
-      "loc": 10861,
-      "code": 10280,
+      "loc": 10897,
+      "code": 10316,
       "blank": 419,
       "comment": 162,
-      "bytes": 481999
+      "bytes": 484809
     },
     "payment": {
       "files": 38,
@@ -746,11 +746,11 @@
     },
     "proof": {
       "files": 114,
-      "loc": 22740,
-      "code": 19594,
+      "loc": 22748,
+      "code": 19602,
       "blank": 2059,
       "comment": 1087,
-      "bytes": 937897
+      "bytes": 938484
     },
     "sdk": {
       "files": 10,
@@ -762,11 +762,11 @@
     },
     "store": {
       "files": 1,
-      "loc": 3464,
-      "code": 3065,
-      "blank": 186,
-      "comment": 213,
-      "bytes": 184808
+      "loc": 3613,
+      "code": 3202,
+      "blank": 191,
+      "comment": 220,
+      "bytes": 193214
     },
     "verification": {
       "files": 21,
@@ -778,10 +778,10 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 119802,
-    "non_design_production_core_loc": 88130,
-    "test_loc": 20338,
-    "documentation_loc": 4690,
+    "global_owned_loc": 120641,
+    "non_design_production_core_loc": 88687,
+    "test_loc": 20608,
+    "documentation_loc": 4702,
     "python_loc": 9309,
     "generated_loc": 5093,
     "vendored_upstream_loc": 0,
@@ -799,13 +799,13 @@
     "runtimes": [
       "candle_metal"
     ],
-    "tables": 73,
+    "tables": 75,
     "workloads": [
       "embed",
       "batch_infer"
     ]
   },
-  "tracked_bytes": 9500957,
+  "tracked_bytes": 9540083,
   "tracked_files": 541,
   "untracked_files": 0,
   "walked_files": 541

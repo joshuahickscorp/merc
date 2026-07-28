@@ -88,7 +88,11 @@ green for the rest of the platform and reports:
 This is the correct mode while live Stripe, payment/legal approvals, and
 provider-side aggregate limits are unavailable. The ledger currency is explicit
 through `MERC_SETTLEMENT_CURRENCY`; the current sandbox authority is CAD, not a
-hardcoded USD assumption.
+hardcoded USD assumption. The catalogue market board remains a USD reference;
+non-USD settlement additionally requires
+`MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE` (settlement major units per USD) and
+`MERC_PRICE_FX_REVISION` (an immutable operator-reviewed source/revision).
+Startup refuses to publish the catalogue when either is missing.
 
 Every control-plane and operator-script Stripe request pins
 `Stripe-Version: 2025-06-30.basil`. Charges, setup, reads, Connect onboarding,

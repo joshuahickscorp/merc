@@ -53,6 +53,7 @@ pass "no build path and immutable image contract"
 
 for required in \
   MERC_PAYMENT_MODE MERC_PAYMENT_PROVIDER MERC_SETTLEMENT_CURRENCY \
+  MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE MERC_PRICE_FX_REVISION \
   MERC_CANARY_MODE MERC_CANARY_APPROVED_BUYER_EMAILS MERC_CANARY_APPROVED_WORKER_IDS \
   MERC_CANARY_APPROVED_AGENT_VERSIONS MERC_CANARY_APPROVED_BUILD_HASHES \
   MERC_CANARY_MAX_ACTIVE_BUYERS MERC_CANARY_MAX_ACTIVE_WORKERS \
@@ -61,6 +62,10 @@ for required in \
 done
 rg -q '^[[:space:]]*MERC_SETTLEMENT_CURRENCY:[[:space:]]*"cad"$' "$COMPOSE" \
   || die "compose settlement currency must be the reviewed candidate authority cad"
+rg -Fq 'MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE: ${MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE:?' "$COMPOSE" \
+  || die "compose must require an operator-approved USD-to-CAD catalogue rate"
+rg -Fq 'MERC_PRICE_FX_REVISION: ${MERC_PRICE_FX_REVISION:?' "$COMPOSE" \
+  || die "compose must require an immutable catalogue FX revision"
 rg -q '^[[:space:]]*MERC_PAYMENT_MODE:[[:space:]]*"test"$' "$COMPOSE" \
   || die "Level B compose must explicitly authorize test payment mode"
 rg -q '^[[:space:]]*MERC_PAYMENT_PROVIDER:[[:space:]]*"stripe"$' "$COMPOSE" \

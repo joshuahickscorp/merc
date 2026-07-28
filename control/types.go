@@ -299,6 +299,8 @@ type ModelInfo struct {
 	ID            string  `json:"id"`
 	Kind          string  `json:"kind"`
 	MinMemoryGB   float32 `json:"min_memory_gb"`
+	PricePer1K    float64 `json:"price_per_1k"`
+	Currency      string  `json:"currency"`
 	PricePer1KUSD float64 `json:"price_per_1k_usd,omitempty"`
 	JobType       string  `json:"job_type"`
 }
@@ -306,8 +308,11 @@ type ModelInfo struct {
 type PriceEstimate struct {
 	Model         string  `json:"model"`
 	Units         uint64  `json:"units"`
-	PricePer1KUSD float64 `json:"price_per_1k_usd"`
-	EstimateUSD   float64 `json:"estimate_usd"`
+	PricePer1K    float64 `json:"price_per_1k"`
+	Estimate      float64 `json:"estimate"`
+	Currency      string  `json:"currency"`
+	PricePer1KUSD float64 `json:"price_per_1k_usd,omitempty"`
+	EstimateUSD   float64 `json:"estimate_usd,omitempty"`
 	Tier          string  `json:"tier"`
 }
 

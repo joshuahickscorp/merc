@@ -678,12 +678,18 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		prefixID = prefixChain[0].PrefixID
 	}
 
-	offeredRate := s.offeredRateUsdHrForSubmission(ctx, sub)
+	var offeredRate float32
 	var placement PlacementRequirement
 	if qBind != nil {
 		placement = qBind.Placement
 		offeredRate = placement.OfferedRateUsdHr
 	} else {
+		offeredRate, err = s.offeredRateUsdHrForSubmission(ctx, sub)
+		if err != nil {
+			return JobSubmitResponse{}, &httpError{
+				http.StatusServiceUnavailable, "resolving catalogue price authority: " + err.Error(),
+			}
+		}
 		planningWorkload, perr := buildWorkloadDecision(sub, strings.Repeat("0", sha256.Size*2))
 		if perr != nil {
 			return JobSubmitResponse{}, &httpError{
@@ -826,9 +832,17 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	// Exact deterministic reuse for batch: identical input+model+policy serves
 	// the prior result, bills the reuse class, and schedules no supplier.
 	// Identity is derived server-side only (never from a client field).
-	pricePer1K := 0.002
-	if m, merr := s.store.GetModel(ctx, sub.Model.Ref); merr == nil {
-		pricePer1K = modelPrice(*m)
+	m, merr := s.store.GetModel(ctx, sub.Model.Ref)
+	if merr != nil {
+		return JobSubmitResponse{}, &httpError{
+			http.StatusServiceUnavailable, "resolving catalogue model price: " + merr.Error(),
+		}
+	}
+	pricePer1K, merr := modelPrice(*m)
+	if merr != nil {
+		return JobSubmitResponse{}, &httpError{
+			http.StatusServiceUnavailable, "resolving catalogue model price: " + merr.Error(),
+		}
 	}
 	if identity := batchRequestIdentity(workloadDecision); identity != "" {
 		hit, money, ok, lerr := s.store.tryBatchExactReuse(ctx, identity, batchFullPricePer1K(pricePer1K*tierMultiplier(sub.Tier)))
@@ -979,7 +993,12 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			fmt.Sprintf("private-canary task limit is %d after verification expansion", s.canary.MaxTasksPerJob)}
 	}
 
-	basePrimaryCompute := s.estimateJobUSD(ctx, sub.JobType.Type, sub.Model.Ref, exactInputBytes, totalRecords, sub.JobType.MaxTokens, sub.Tier)
+	basePrimaryCompute, priceErr := s.estimateJobSettlement(ctx, sub.JobType.Type, sub.Model.Ref, exactInputBytes, totalRecords, sub.JobType.MaxTokens, sub.Tier)
+	if priceErr != nil {
+		return JobSubmitResponse{}, &httpError{
+			http.StatusServiceUnavailable, "pricing exact submit: " + priceErr.Error(),
+		}
+	}
 	baseComputeUSD := basePrimaryCompute
 	if nPrimary > 0 && len(tasks) > nPrimary {
 		baseComputeUSD = roundEconomicUSD(basePrimaryCompute * float64(len(tasks)) / float64(nPrimary))
@@ -1767,7 +1786,16 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			MinMemoryGB: m.MinMemoryGB,
 			JobType:     m.JobType,
 		}
-		info.PricePer1KUSD = modelPrice(m)
+		price, priceErr := modelPrice(m)
+		if priceErr != nil {
+			writeErr(w, http.StatusServiceUnavailable, priceErr.Error())
+			return
+		}
+		info.PricePer1K = price
+		info.Currency = m.PriceCurrency
+		if m.PriceCurrency == "usd" {
+			info.PricePer1KUSD = price
+		}
 		out = append(out, compatibleModel{
 			ModelInfo: info, Object: "model", OwnedBy: "merc",
 			Capabilities: []string{"batch:" + m.JobType},
@@ -1802,15 +1830,26 @@ func (s *Server) handlePriceEstimate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	price := modelPrice(*m)
+	price, err := modelPrice(*m)
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
 	est := float64(units) / 1000.0 * price * tierMultiplier(tier)
-	writeJSON(w, http.StatusOK, PriceEstimate{
-		Model:         m.ID,
-		Units:         units,
-		PricePer1KUSD: price,
-		EstimateUSD:   roundUSD(est),
-		Tier:          tier,
-	})
+	rounded := roundUSD(est)
+	out := PriceEstimate{
+		Model:      m.ID,
+		Units:      units,
+		PricePer1K: price,
+		Estimate:   rounded,
+		Currency:   m.PriceCurrency,
+		Tier:       tier,
+	}
+	if m.PriceCurrency == "usd" {
+		out.PricePer1KUSD = price
+		out.EstimateUSD = rounded
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleRegisterWebhook(w http.ResponseWriter, r *http.Request) {
@@ -2985,8 +3024,34 @@ func (s *Server) handleSecurityTxt(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
-func modelPrice(m ModelRow) float64 {
-	return m.PricePer1K
+func modelPrice(m ModelRow) (float64, error) {
+	settlementCurrency := SettlementCurrencyCode()
+	if settlementCurrency == "" {
+		return 0, errSettlementCurrency
+	}
+	if m.PriceCurrency != settlementCurrency {
+		return 0, fmt.Errorf(
+			"model %s price currency %q does not match settlement currency %q",
+			m.ID, m.PriceCurrency, settlementCurrency,
+		)
+	}
+	if !finiteNonNegative(m.PricePer1K) || m.PricePer1K <= 0 {
+		return 0, fmt.Errorf("model %s has no positive governed catalogue price", m.ID)
+	}
+	return m.PricePer1K, nil
+}
+
+func modelReferencePriceUSD(m ModelRow) (float64, error) {
+	if m.PriceReferenceCurrency != catalogueReferenceCurrency {
+		return 0, fmt.Errorf(
+			"model %s reference price currency %q is not %q",
+			m.ID, m.PriceReferenceCurrency, catalogueReferenceCurrency,
+		)
+	}
+	if !finiteNonNegative(m.ReferencePricePer1K) || m.ReferencePricePer1K <= 0 {
+		return 0, fmt.Errorf("model %s has no positive governed USD reference price", m.ID)
+	}
+	return m.ReferencePricePer1K, nil
 }
 
 func tierMultiplier(tier string) float64 {
@@ -3006,10 +3071,14 @@ func generativeJobType(jobType string) bool {
 
 const defaultQuoteMaxTokens = 256
 
-func (s *Server) estimateJobUSD(ctx context.Context, jobType, modelRef string, inputBytesLen int, nLines int, maxTokens uint32, tier string) float64 {
-	price := 0.002 // default per-1K when the model is unknown to the catalogue
-	if m, err := s.store.GetModel(ctx, modelRef); err == nil {
-		price = modelPrice(*m)
+func (s *Server) estimateJobSettlement(ctx context.Context, jobType, modelRef string, inputBytesLen int, nLines int, maxTokens uint32, tier string) (float64, error) {
+	m, err := s.store.GetModel(ctx, modelRef)
+	if err != nil {
+		return 0, fmt.Errorf("load model %s: %w", modelRef, err)
+	}
+	price, err := modelPrice(*m)
+	if err != nil {
+		return 0, err
 	}
 	units := float64(nLines)
 	if byteUnits := float64(inputBytesLen) / 4.0; byteUnits > units {
@@ -3030,9 +3099,9 @@ func (s *Server) estimateJobUSD(ctx context.Context, jobType, modelRef string, i
 	// further to the minimum billable size if the supplier share still rounds
 	// to zero.
 	if rounded == 0 && units > 0 && price > 0 {
-		return microsToUSD(1)
+		return microsToUSD(1), nil
 	}
-	return rounded
+	return rounded, nil
 }
 
 func splitSizeOf(params json.RawMessage) int {
@@ -3224,16 +3293,20 @@ func (s *Server) plannerETASecsFor(
 	return eta, conservative, true
 }
 
-func (s *Server) offeredRateUsdHr(ctx context.Context, jobType, modelRef string) float32 {
-	price := 0.002
-	if m, err := s.store.GetModel(ctx, modelRef); err == nil {
-		price = modelPrice(*m)
+func (s *Server) offeredRateUsdHr(ctx context.Context, jobType, modelRef string) (float32, error) {
+	m, err := s.store.GetModel(ctx, modelRef)
+	if err != nil {
+		return 0, fmt.Errorf("load model %s: %w", modelRef, err)
+	}
+	price, err := modelReferencePriceUSD(*m)
+	if err != nil {
+		return 0, err
 	}
 	unitsPerHr := throughputOf(jobType) * 3600.0
-	return float32(unitsPerHr / 1000.0 * price)
+	return float32(unitsPerHr / 1000.0 * price), nil
 }
 
-func (s *Server) offeredRateUsdHrForSubmission(ctx context.Context, sub jobSubmit) float32 {
+func (s *Server) offeredRateUsdHrForSubmission(ctx context.Context, sub jobSubmit) (float32, error) {
 	return s.offeredRateUsdHr(ctx, sub.JobType.Type, sub.Model.Ref)
 }
 

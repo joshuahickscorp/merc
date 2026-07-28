@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"net/url"
 	"sort"
@@ -152,20 +151,9 @@ type errNegativeContribution struct {
 func (e errNegativeContribution) Error() string {
 	return fmt.Sprintf(
 		"refusing to publish %s at $%.8f/1k: supplier net $%.6f/hr (gross $%.6f - electricity $%.6f), "+
-			"CX gross $%.6f/hr. A price with negative contribution needs an explicitly receipted subsidy "+
-			"(%s) naming the decision that authorises it",
+			"CX gross $%.6f/hr; catalogue publication cannot be subsidised",
 		e.ModelID, e.Price, e.Margins.SupplierNetUSDHr, e.Margins.SupplierGrossUSDHr,
-		e.Margins.ElectricityUSDHr, e.Margins.CXGrossUSDHr, subsidyReceiptEnv)
-}
-
-const subsidyReceiptEnv = "MERC_PRICE_SUBSIDY_RECEIPT"
-
-// subsidyReceipt returns the operator-supplied authorisation for publishing a
-// negative-contribution price, if any. It is deliberately a value rather than a
-// boolean flag so the refusal is overridden by a named decision, not by a
-// convenient "true".
-func subsidyReceipt() string {
-	return strings.TrimSpace(envOr(subsidyReceiptEnv, ""))
+		e.Margins.ElectricityUSDHr, e.Margins.CXGrossUSDHr)
 }
 
 // marginsForPrice computes what a candidate catalogue price leaves each side,
@@ -188,21 +176,17 @@ func marginsForPrice(b measuredThroughput, pricePer1K, supplierShare float64) co
 	}
 }
 
-// governPublishedPrice is the gate for item 13: a public price whose supplier or
-// platform contribution is negative is refused unless an operator has recorded a
-// subsidy receipt naming the decision that authorises it.
+// governPublishedPrice is the gate for item 13: a public price whose supplier
+// or platform contribution is negative is refused. A process environment
+// string is not durable treasury authority, so there is deliberately no bypass
+// here. Explicit subsidy funds may satisfy already-created supplier liabilities
+// through the separately audited payout path; they cannot publish an
+// unsustainable catalogue promise.
 //
 // Returns the reason it was blocked, or "" when the price may be published.
 func governPublishedPrice(b measuredThroughput, pricePer1K, supplierShare float64) error {
 	m := marginsForPrice(b, pricePer1K, supplierShare)
 	if !m.supplierNegative() && !m.cxNegative() {
-		return nil
-	}
-	if receipt := subsidyReceipt(); receipt != "" {
-		// Authorised, but never silent: a subsidised price is still a loss and
-		// the operator should see it every time it is applied.
-		log.Printf("price subsidy in effect for %s at $%.8f/1k (receipt=%q): supplier net $%.6f/hr, CX gross $%.6f/hr",
-			b.ModelID, pricePer1K, receipt, m.SupplierNetUSDHr, m.CXGrossUSDHr)
 		return nil
 	}
 	return errNegativeContribution{ModelID: b.ModelID, Price: pricePer1K, Margins: m}
