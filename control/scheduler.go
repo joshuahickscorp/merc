@@ -408,12 +408,34 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	         AND (`+hwClassCostRankSQL("w2.hw_class")+`) < $3
 	         AND COALESCE(j.min_memory_gb,0) <= COALESCE(w2.effective_memory_gb, w2.memory_gb, 0)
 	         AND (j.hw_classes IS NULL OR w2.hw_class = ANY(j.hw_classes))
+	         AND (j.data_residency IS NULL OR s2.data_country = ANY(j.data_residency))
+	         AND COALESCE(j.min_reputation,0) <= COALESCE(s2.reputation,0)
+	         AND (
+	           j.tier <> 'trusted'
+	           OR (COALESCE(s2.reputation,0) >= 0.80 AND COALESCE(s2.completed_tasks,0) >= 500)
+	         )
+	         AND COALESCE(j.offered_rate_usd_hr,1e9) >= COALESCE(w2.min_payout_usd_hr,0)
 	         AND EXISTS (
 	           SELECT 1 FROM worker_authorized_capabilities wac2
 	            WHERE wac2.worker_id = w2.id
 	              AND wac2.job_type = j.job_type
 	              AND wac2.model_ref = COALESCE(j.model_ref,'')
 	              AND wac2.matrix_sha256 = $4
+	              AND (
+	                j.workload_decision IS NULL
+	                OR (
+	                  wac2.model_kind = j.workload_decision #>> '{binding,model,kind}'
+	                  AND EXISTS (
+	                    SELECT 1
+	                      FROM jsonb_array_elements(
+	                        COALESCE(j.workload_decision->'runtime_candidates','[]'::jsonb)
+	                      ) frozen2
+	                     WHERE frozen2->>'cell_id' = wac2.cell_id
+	                       AND frozen2->>'runtime_id' = wac2.runtime_id
+	                       AND frozen2->>'engine' = COALESCE(w2.engine,'')
+	                  )
+	                )
+	              )
 	         )
 	     ) AS cheaper_class_online,
 	     -- Same shape as cheaper_class_online, but on the supplier's OWN ASK
@@ -443,12 +465,33 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	         AND COALESCE(j.offered_rate_usd_hr, 1e9) >= COALESCE(w3.min_payout_usd_hr, 0)
 	         AND COALESCE(j.min_memory_gb,0) <= COALESCE(w3.effective_memory_gb, w3.memory_gb, 0)
 	         AND (j.hw_classes IS NULL OR w3.hw_class = ANY(j.hw_classes))
+	         AND (j.data_residency IS NULL OR s3.data_country = ANY(j.data_residency))
+	         AND COALESCE(j.min_reputation,0) <= COALESCE(s3.reputation,0)
+	         AND (
+	           j.tier <> 'trusted'
+	           OR (COALESCE(s3.reputation,0) >= 0.80 AND COALESCE(s3.completed_tasks,0) >= 500)
+	         )
 	         AND EXISTS (
 	           SELECT 1 FROM worker_authorized_capabilities wac3
 	            WHERE wac3.worker_id = w3.id
 	              AND wac3.job_type = j.job_type
 	              AND wac3.model_ref = COALESCE(j.model_ref,'')
 	              AND wac3.matrix_sha256 = $4
+	              AND (
+	                j.workload_decision IS NULL
+	                OR (
+	                  wac3.model_kind = j.workload_decision #>> '{binding,model,kind}'
+	                  AND EXISTS (
+	                    SELECT 1
+	                      FROM jsonb_array_elements(
+	                        COALESCE(j.workload_decision->'runtime_candidates','[]'::jsonb)
+	                      ) frozen3
+	                     WHERE frozen3->>'cell_id' = wac3.cell_id
+	                       AND frozen3->>'runtime_id' = wac3.runtime_id
+	                       AND frozen3->>'engine' = COALESCE(w3.engine,'')
+	                  )
+	                )
+	              )
 	         )
 	     ) AS cheaper_ask_online,
 	     -- Dispatch-interleave fairness (Scheduling & Matching Engine 6.5->7,

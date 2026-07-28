@@ -1702,6 +1702,32 @@ CREATE TRIGGER jobs_workload_decision_immutable
     BEFORE UPDATE OF workload_decision, workload_decision_sha256, compute_plan, compute_plan_sha256 ON jobs
     FOR EACH ROW EXECUTE FUNCTION cx_reject_job_workload_decision_update();
 
+-- The scheduler reads these denormalized columns on every claim. They are a
+-- projection of the frozen workload decision (plus the accepted offered rate),
+-- so changing one after acceptance would silently change which suppliers may
+-- execute the obligation even though its signed workload JSON stayed intact.
+CREATE OR REPLACE FUNCTION cx_reject_job_claim_authority_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.job_type IS DISTINCT FROM NEW.job_type
+       OR OLD.model_ref IS DISTINCT FROM NEW.model_ref
+       OR OLD.tier IS DISTINCT FROM NEW.tier
+       OR OLD.min_memory_gb IS DISTINCT FROM NEW.min_memory_gb
+       OR OLD.max_duration_secs IS DISTINCT FROM NEW.max_duration_secs
+       OR OLD.hw_classes IS DISTINCT FROM NEW.hw_classes
+       OR OLD.data_residency IS DISTINCT FROM NEW.data_residency
+       OR OLD.min_reputation IS DISTINCT FROM NEW.min_reputation
+       OR OLD.offered_rate_usd_hr IS DISTINCT FROM NEW.offered_rate_usd_hr THEN
+        RAISE EXCEPTION 'job claim authority for % is immutable', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS jobs_claim_authority_immutable ON jobs;
+CREATE TRIGGER jobs_claim_authority_immutable
+    BEFORE UPDATE OF job_type,model_ref,tier,min_memory_gb,max_duration_secs,
+                     hw_classes,data_residency,min_reputation,offered_rate_usd_hr ON jobs
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_job_claim_authority_update();
+
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS economic_buyer_charge_usd NUMERIC(12,6);
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS economic_supplier_payout_usd NUMERIC(12,6);
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_frozen_economic_amounts_valid;
@@ -3193,6 +3219,28 @@ ALTER TABLE quotes
             AND quote_json->>'currency' = currency
             AND quote_json #>> '{economics,schedule,currency}' IS NOT NULL
             AND quote_json #>> '{economics,schedule,currency}' = currency
+        )
+    ) NOT VALID;
+-- New executable quotes must carry the complete versioned placement authority
+-- used by both the buyer-visible capacity snapshot and transactional dispatch.
+-- NOT VALID preserves historical pre-authority rows without allowing a new
+-- compute-bound quote to omit or cross-bind this projection.
+ALTER TABLE quotes
+    DROP CONSTRAINT IF EXISTS quotes_json_placement_bound;
+ALTER TABLE quotes
+    ADD CONSTRAINT quotes_json_placement_bound CHECK (
+        compute_plan IS NULL
+        OR (
+            quote_json IS NOT NULL
+            AND quote_json #>> '{placement_requirement,version}' = '1'
+            AND quote_json #>> '{placement_requirement,job_type}' = job_type
+            AND quote_json #>> '{placement_requirement,model_ref}' = COALESCE(model_ref,'')
+            AND COALESCE(quote_json #>> '{placement_requirement,runtime_cell_id}','') <> ''
+            AND COALESCE(quote_json #>> '{placement_requirement,runtime_id}','') <> ''
+            AND COALESCE(quote_json #>> '{placement_requirement,engine}','') <> ''
+            AND quote_json #>> '{placement_requirement,runtime_matrix_sha256}'
+                ~ '^[0-9a-f]{64}$'
+            AND quote_json #>> '{placement_requirement,offered_rate_usd_hr}' IS NOT NULL
         )
     ) NOT VALID;
 

@@ -163,25 +163,26 @@ func recommendField(fields map[string]bool, strLen, occur map[string]int) ([]Fie
 }
 
 type Quote struct {
-	QuoteID       string           `json:"quote_id"`
-	JobType       string           `json:"job_type"`
-	Model         string           `json:"model"`
-	Tier          string           `json:"tier"`
-	Currency      string           `json:"currency"`
-	TierSemantics string           `json:"tier_semantics"`
-	Workload      WorkloadDecision `json:"workload_decision"`
-	ComputePlan   ComputePlan      `json:"compute_plan"`
-	Input         QuoteInputScan   `json:"input"`
-	Execution     QuoteExecution   `json:"execution"`
-	Cost          QuoteCost        `json:"cost"`
-	Time          QuoteTime        `json:"time"`
-	Confidence    QuoteConfidence  `json:"confidence"`
-	Budget        QuoteBudget      `json:"budget"`
-	Warnings      []string         `json:"warnings"`
-	ExpiresAt     time.Time        `json:"expires_at"`   // quote stops being bindable after this (Plane D D7)
-	InputSHA256   string           `json:"input_sha256"` // sha256 of the scanned input bytes (best-effort submit match)
-	SLA           *QuoteSLA        `json:"sla,omitempty"`
-	Economics     EconomicPlan     `json:"economics"`
+	QuoteID       string               `json:"quote_id"`
+	JobType       string               `json:"job_type"`
+	Model         string               `json:"model"`
+	Tier          string               `json:"tier"`
+	Currency      string               `json:"currency"`
+	TierSemantics string               `json:"tier_semantics"`
+	Workload      WorkloadDecision     `json:"workload_decision"`
+	Placement     PlacementRequirement `json:"placement_requirement"`
+	ComputePlan   ComputePlan          `json:"compute_plan"`
+	Input         QuoteInputScan       `json:"input"`
+	Execution     QuoteExecution       `json:"execution"`
+	Cost          QuoteCost            `json:"cost"`
+	Time          QuoteTime            `json:"time"`
+	Confidence    QuoteConfidence      `json:"confidence"`
+	Budget        QuoteBudget          `json:"budget"`
+	Warnings      []string             `json:"warnings"`
+	ExpiresAt     time.Time            `json:"expires_at"`   // quote stops being bindable after this (Plane D D7)
+	InputSHA256   string               `json:"input_sha256"` // sha256 of the scanned input bytes (best-effort submit match)
+	SLA           *QuoteSLA            `json:"sla,omitempty"`
+	Economics     EconomicPlan         `json:"economics"`
 
 	bareID uuid.UUID // quotes.id primary key (the <uuid> inside QuoteID); not on the wire
 }
@@ -298,21 +299,137 @@ type QuoteBudget struct {
 	CancelBeforeExceeding bool    `json:"cancel_before_exceeding"`
 }
 
+const (
+	claimableWorkerPredicateVersion = 1
+	placementRequirementVersion     = claimableWorkerPredicateVersion
+)
+
+// PlacementRequirement is the immutable, buyer-visible worker eligibility
+// authority used for both capacity claims and later job dispatch. It includes
+// every worker/supplier predicate that can make an otherwise-capable device
+// unable to claim the accepted job.
+type PlacementRequirement struct {
+	Version             int      `json:"version"`
+	JobType             string   `json:"job_type"`
+	ModelRef            string   `json:"model_ref"`
+	ModelKind           string   `json:"model_kind"`
+	RuntimeCellID       string   `json:"runtime_cell_id"`
+	RuntimeID           string   `json:"runtime_id"`
+	Engine              string   `json:"engine"`
+	RuntimeMatrixSHA256 string   `json:"runtime_matrix_sha256"`
+	MinMemoryGB         float32  `json:"min_memory_gb"`
+	HWClasses           []string `json:"hw_classes,omitempty"`
+	DataResidency       []string `json:"data_residency,omitempty"`
+	MinReputation       float32  `json:"min_reputation"`
+	TrustedOnly         bool     `json:"trusted_only"`
+	OfferedRateUsdHr    float32  `json:"offered_rate_usd_hr"`
+}
+
+func placementRequirementFor(
+	sub jobSubmit,
+	workload WorkloadDecision,
+	offeredRateUsdHr float32,
+) (PlacementRequirement, error) {
+	if len(workload.RuntimeCandidates) != 1 {
+		return PlacementRequirement{}, fmt.Errorf(
+			"placement authority requires exactly one runtime candidate, got %d",
+			len(workload.RuntimeCandidates),
+		)
+	}
+	candidate := workload.RuntimeCandidates[0]
+	out := PlacementRequirement{
+		Version:             placementRequirementVersion,
+		JobType:             workload.RuntimeJobType,
+		ModelRef:            sub.Model.Ref,
+		ModelKind:           sub.Model.Kind,
+		RuntimeCellID:       candidate.CellID,
+		RuntimeID:           candidate.RuntimeID,
+		Engine:              candidate.Engine,
+		RuntimeMatrixSHA256: generatedRuntimeMatrixSHA256,
+		MinMemoryGB:         float32(workload.MinimumMemoryGB),
+		HWClasses:           append([]string(nil), sub.Constraints.HWClasses...),
+		DataResidency:       append([]string(nil), sub.Constraints.DataResidency...),
+		MinReputation:       sub.MinReputation,
+		TrustedOnly:         sub.Tier == "trusted",
+		OfferedRateUsdHr:    offeredRateUsdHr,
+	}
+	if err := validatePlacementRequirement(out, workload); err != nil {
+		return PlacementRequirement{}, err
+	}
+	return out, nil
+}
+
+func validatePlacementRequirement(p PlacementRequirement, workload WorkloadDecision) error {
+	if p.Version != placementRequirementVersion {
+		return fmt.Errorf("unsupported placement requirement version %d", p.Version)
+	}
+	if len(workload.RuntimeCandidates) != 1 {
+		return errors.New("placement requirement needs one frozen runtime candidate")
+	}
+	candidate := workload.RuntimeCandidates[0]
+	binding := workload.Binding
+	if p.JobType != workload.RuntimeJobType ||
+		p.ModelRef != binding.Model.Ref ||
+		p.ModelKind != binding.Model.Kind ||
+		p.RuntimeCellID != candidate.CellID ||
+		p.RuntimeID != candidate.RuntimeID ||
+		p.Engine != candidate.Engine ||
+		p.RuntimeMatrixSHA256 != generatedRuntimeMatrixSHA256 ||
+		p.MinMemoryGB != float32(workload.MinimumMemoryGB) ||
+		!sameStrings(p.HWClasses, binding.Constraints.HWClasses) ||
+		!sameStrings(p.DataResidency, binding.Constraints.DataResidency) ||
+		p.MinReputation != binding.MinReputation ||
+		p.TrustedOnly != (binding.Tier == "trusted") ||
+		math.IsNaN(float64(p.OfferedRateUsdHr)) ||
+		math.IsInf(float64(p.OfferedRateUsdHr), 0) ||
+		p.OfferedRateUsdHr < 0 {
+		return errors.New("placement requirement conflicts with frozen workload authority")
+	}
+	return nil
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// QuoteSupplyRequirements is the internal query form. A nil offered rate and
+// empty exact-runtime fields preserve the legacy diagnostic wrappers; quotes
+// and planner calls always use PlacementRequirement.supplyRequirements().
 type QuoteSupplyRequirements struct {
+	JobType       string
+	ModelRef      string
+	ModelKind     string
+	RuntimeCellID string
+	RuntimeID     string
+	Engine        string
+	MatrixSHA256  string
 	MinMemoryGB   float32
 	HWClasses     []string
 	DataResidency []string
 	MinReputation float32
 	TrustedOnly   bool
+	OfferedRate   *float32
 }
 
-func quoteSupplyRequirements(sub jobSubmit, minMemoryGB float32) QuoteSupplyRequirements {
+func (p PlacementRequirement) supplyRequirements() QuoteSupplyRequirements {
+	offered := p.OfferedRateUsdHr
 	return QuoteSupplyRequirements{
-		MinMemoryGB:   minMemoryGB,
-		HWClasses:     append([]string(nil), sub.Constraints.HWClasses...),
-		DataResidency: append([]string(nil), sub.Constraints.DataResidency...),
-		MinReputation: sub.MinReputation,
-		TrustedOnly:   sub.Tier == "trusted",
+		JobType: p.JobType, ModelRef: p.ModelRef, ModelKind: p.ModelKind,
+		RuntimeCellID: p.RuntimeCellID, RuntimeID: p.RuntimeID, Engine: p.Engine,
+		MatrixSHA256:  p.RuntimeMatrixSHA256,
+		MinMemoryGB:   p.MinMemoryGB,
+		HWClasses:     append([]string(nil), p.HWClasses...),
+		DataResidency: append([]string(nil), p.DataResidency...),
+		MinReputation: p.MinReputation, TrustedOnly: p.TrustedOnly,
+		OfferedRate: &offered,
 	}
 }
 
@@ -343,6 +460,12 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	jobType := sub.JobType.Type
 	tier := sub.Tier
 	scan := scanJSONL(inputBytes)
+	offeredRate := s.offeredRateUsdHrForSubmission(ctx, sub)
+	placement, err := placementRequirementFor(sub, workload, offeredRate)
+	if err != nil {
+		return Quote{}, fmt.Errorf("building placement requirement: %w", err)
+	}
+	supply := placement.supplyRequirements()
 
 	avgLineBytes := 0.0
 	if scan.Records > 0 {
@@ -352,8 +475,9 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	if jobType == "embed" && sub.JobType.BatchSize > 0 && !hasExplicitSplitSize(sub.Params) {
 		split = sub.JobType.BatchSize
 	} else if !hasExplicitSplitSize(sub.Params) {
-		split = s.adaptiveSplitSizeLive(ctx, jobType, sub.Model.Ref,
-			sub.Constraints.MinMemoryGB, sub.JobType.MaxTokens, avgLineBytes, split, scan.Records)
+		split = s.adaptiveSplitSizeLiveFor(
+			ctx, supply, sub.JobType.MaxTokens, avgLineBytes, split, scan.Records,
+		)
 	}
 	tasks := 0
 	if scan.Records > 0 && split > 0 {
@@ -380,19 +504,17 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	costMin := roundUSD(expected * 0.85)
 	costMax := roundUSD((expected + verifOverhead) * 1.5)
 
-	minMem := float32(workload.MinimumMemoryGB)
 	var modelMinMem float32
 	if m, err := s.store.GetModel(ctx, sub.Model.Ref); err == nil {
 		modelMinMem = m.MinMemoryGB
 	}
 
-	p50, conservativeSecs, plannerBacked := s.etaBandSecs(ctx, jobType, sub.Model.Ref, minMem, tasks)
+	p50, conservativeSecs, plannerBacked := s.etaBandSecsFor(ctx, supply, tasks)
 	observedP90ms, _, hErr := s.store.HistoricalP90DurationMs(ctx, jobType, sub.Model.Ref)
 	usedObservedHistory := hErr == nil && observedP90ms > 0
 	p50 = sustainedBatchETASecs(p50, tier, usedObservedHistory)
 	eta := QuoteTime{P50Secs: p50, P90Secs: p50 * 2, WorstCaseSecs: p50 * 4}
 
-	supply := quoteSupplyRequirements(sub, minMem)
 	eligibleNow, _ := s.store.EligibleWorkerCountFor(ctx, jobType, sub.Model.Ref, supply)
 	warmEligible, _ := s.store.WarmEligibleWorkerCountFor(ctx, jobType, sub.Model.Ref, supply)
 
@@ -498,6 +620,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		Currency:      SettlementCurrencyCode(),
 		TierSemantics: serviceTierSemantics(tier),
 		Workload:      workload,
+		Placement:     placement,
 		ComputePlan:   computePlan,
 		Input:         scan,
 		SLA:           quoteSLA,
@@ -709,30 +832,64 @@ func (s *Store) EligibleWorkerCount(ctx context.Context, jobType, modelRef strin
 	return s.EligibleWorkerCountFor(ctx, jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB})
 }
 
+const claimableWorkerPredicateSQL = `
+	w.last_seen_at IS NOT NULL
+	AND w.last_seen_at > now() - interval '60 seconds'
+	AND s.status = 'active'
+	AND NOT COALESCE(w.throttled, false)
+	AND COALESCE($3,0) <= COALESCE(w.effective_memory_gb, w.memory_gb, 0)
+	AND ($4::text[] IS NULL OR w.hw_class = ANY($4))
+	AND ($5::text[] IS NULL OR s.data_country = ANY($5))
+	AND COALESCE(s.reputation,0) >= $6
+	AND (NOT $7 OR (COALESCE(s.reputation,0) >= 0.80 AND COALESCE(s.completed_tasks,0) >= 500))
+	AND ($9::real IS NULL OR COALESCE(w.min_payout_usd_hr,0) <= $9)
+	AND EXISTS (
+	  SELECT 1 FROM worker_authorized_capabilities wac
+	   WHERE wac.worker_id = w.id
+	     AND wac.job_type = $1
+	     AND wac.model_ref = $2
+	     AND wac.matrix_sha256 = $8
+	     AND ($10 = '' OR (
+	       wac.model_kind = $10
+	       AND wac.cell_id = $11
+	       AND wac.runtime_id = $12
+	       AND COALESCE(w.engine,'') = $13
+	     ))
+	)`
+
+func normalizedSupplyRequirements(jobType, modelRef string, req QuoteSupplyRequirements) QuoteSupplyRequirements {
+	if req.JobType == "" {
+		req.JobType = jobType
+	}
+	if req.ModelRef == "" {
+		req.ModelRef = modelRef
+	}
+	if req.MatrixSHA256 == "" {
+		req.MatrixSHA256 = generatedRuntimeMatrixSHA256
+	}
+	return req
+}
+
+func supplyRequirementQueryArgs(req QuoteSupplyRequirements) []any {
+	var offered any
+	if req.OfferedRate != nil {
+		offered = *req.OfferedRate
+	}
+	return []any{
+		req.JobType, req.ModelRef, req.MinMemoryGB, nullStrSlice(req.HWClasses),
+		nullStrSlice(req.DataResidency), req.MinReputation, req.TrustedOnly,
+		req.MatrixSHA256, offered, req.ModelKind, req.RuntimeCellID, req.RuntimeID, req.Engine,
+	}
+}
+
 func (s *Store) EligibleWorkerCountFor(ctx context.Context, jobType, modelRef string, req QuoteSupplyRequirements) (int, error) {
+	req = normalizedSupplyRequirements(jobType, modelRef, req)
 	var n int
 	err := s.pool.QueryRow(ctx,
 		`SELECT count(*)
 		   FROM workers w JOIN suppliers s ON s.id = w.supplier_id
-		  WHERE w.last_seen_at IS NOT NULL
-		    AND w.last_seen_at > now() - interval '60 seconds'
-		    AND s.status = 'active'
-		    AND NOT COALESCE(w.throttled, false)
-		    AND COALESCE($3,0) <= COALESCE(w.effective_memory_gb, w.memory_gb, 0)
-		    AND ($4::text[] IS NULL OR w.hw_class = ANY($4))
-		    AND ($5::text[] IS NULL OR s.data_country = ANY($5))
-		    AND COALESCE(s.reputation,0) >= $6
-		    AND (NOT $7 OR COALESCE(s.tier,0) >= 2)
-		    AND EXISTS (
-		      SELECT 1 FROM worker_authorized_capabilities wac
-		       WHERE wac.worker_id = w.id
-		         AND wac.job_type = $1
-		         AND wac.model_ref = $2
-		         AND wac.matrix_sha256 = $8
-		    )`,
-		jobType, modelRef, req.MinMemoryGB, nullStrSlice(req.HWClasses),
-		nullStrSlice(req.DataResidency), req.MinReputation, req.TrustedOnly,
-		generatedRuntimeMatrixSHA256,
+		  WHERE `+claimableWorkerPredicateSQL,
+		supplyRequirementQueryArgs(req)...,
 	).Scan(&n)
 	return n, err
 }
@@ -742,29 +899,13 @@ func (s *Store) EligiblePoolReputation(ctx context.Context, jobType, modelRef st
 }
 
 func (s *Store) EligiblePoolReputationFor(ctx context.Context, jobType, modelRef string, req QuoteSupplyRequirements) (float64, error) {
+	req = normalizedSupplyRequirements(jobType, modelRef, req)
 	var r float64
 	err := s.pool.QueryRow(ctx,
 		`SELECT COALESCE(AVG(s.reputation), 0)
 		   FROM workers w JOIN suppliers s ON s.id = w.supplier_id
-		  WHERE w.last_seen_at IS NOT NULL
-		    AND w.last_seen_at > now() - interval '60 seconds'
-		    AND s.status = 'active'
-		    AND NOT COALESCE(w.throttled, false)
-		    AND COALESCE($3,0) <= COALESCE(w.effective_memory_gb, w.memory_gb, 0)
-		    AND ($4::text[] IS NULL OR w.hw_class = ANY($4))
-		    AND ($5::text[] IS NULL OR s.data_country = ANY($5))
-		    AND COALESCE(s.reputation,0) >= $6
-		    AND (NOT $7 OR COALESCE(s.tier,0) >= 2)
-		    AND EXISTS (
-		      SELECT 1 FROM worker_authorized_capabilities wac
-		       WHERE wac.worker_id = w.id
-		         AND wac.job_type = $1
-		         AND wac.model_ref = $2
-		         AND wac.matrix_sha256 = $8
-		    )`,
-		jobType, modelRef, req.MinMemoryGB, nullStrSlice(req.HWClasses),
-		nullStrSlice(req.DataResidency), req.MinReputation, req.TrustedOnly,
-		generatedRuntimeMatrixSHA256,
+		  WHERE `+claimableWorkerPredicateSQL,
+		supplyRequirementQueryArgs(req)...,
 	).Scan(&r)
 	return r, err
 }
@@ -777,6 +918,7 @@ func (s *Store) WarmEligibleWorkerCountFor(ctx context.Context, jobType, modelRe
 	if modelRef == "" {
 		return 0, nil
 	}
+	req = normalizedSupplyRequirements(jobType, modelRef, req)
 	var n int
 	err := s.pool.QueryRow(ctx,
 		`SELECT count(*)
@@ -786,25 +928,8 @@ func (s *Store) WarmEligibleWorkerCountFor(ctx context.Context, jobType, modelRe
 		     ON wms.worker_id = w.id
 		    AND wms.model_id = $2
 		    AND wms.last_seen_warm > now() - interval '60 seconds'
-		  WHERE w.last_seen_at IS NOT NULL
-		    AND w.last_seen_at > now() - interval '60 seconds'
-		    AND s.status = 'active'
-		    AND NOT COALESCE(w.throttled, false)
-		    AND COALESCE($3,0) <= COALESCE(w.effective_memory_gb, w.memory_gb, 0)
-		    AND ($4::text[] IS NULL OR w.hw_class = ANY($4))
-		    AND ($5::text[] IS NULL OR s.data_country = ANY($5))
-		    AND COALESCE(s.reputation,0) >= $6
-		    AND (NOT $7 OR COALESCE(s.tier,0) >= 2)
-		    AND EXISTS (
-		      SELECT 1 FROM worker_authorized_capabilities wac
-		       WHERE wac.worker_id = w.id
-		         AND wac.job_type = $1
-		         AND wac.model_ref = $2
-		         AND wac.matrix_sha256 = $8
-		    )`,
-		jobType, modelRef, req.MinMemoryGB, nullStrSlice(req.HWClasses),
-		nullStrSlice(req.DataResidency), req.MinReputation, req.TrustedOnly,
-		generatedRuntimeMatrixSHA256,
+		  WHERE `+claimableWorkerPredicateSQL,
+		supplyRequirementQueryArgs(req)...,
 	).Scan(&n)
 	return n, err
 }
@@ -818,6 +943,9 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 			"refusing quote whose economic currency %q differs from quote currency %q",
 			q.Economics.Schedule.Currency, q.Currency,
 		)
+	}
+	if err := validatePlacementRequirement(q.Placement, q.Workload); err != nil {
+		return fmt.Errorf("refusing quote without valid placement authority: %w", err)
 	}
 	if err := ValidateWorkloadDecisionSnapshot(q.Workload); err != nil {
 		return fmt.Errorf("refusing quote without valid workload decision: %w", err)
@@ -888,6 +1016,7 @@ type boundQuote struct {
 	ModelRef                string
 	Tier                    string
 	Currency                string
+	Placement               PlacementRequirement
 	InputSHA256             string
 	CostExpUSD              float64
 	CostMaxUSD              float64
@@ -954,6 +1083,10 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 			q.EconomicPlan.Schedule.Currency != q.Currency {
 			return nil, errors.New("frozen quote currency authority mismatch")
 		}
+		if err := validatePlacementRequirement(snapshot.Placement, snapshot.Workload); err != nil {
+			return nil, fmt.Errorf("invalid frozen quote placement authority: %w", err)
+		}
+		q.Placement = snapshot.Placement
 		if err := ValidateComputePlanEconomicSnapshot(q.ComputePlan, snapshot.Workload, q.EconomicPlan); err != nil {
 			return nil, fmt.Errorf("invalid frozen quote compute plan: %w", err)
 		}

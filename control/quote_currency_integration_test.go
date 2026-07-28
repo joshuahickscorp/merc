@@ -26,6 +26,7 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 	if err := ValidateComputePlanEconomicSnapshot(compute, workload, economic); err != nil {
 		t.Fatalf("CAD economic fixture: %v", err)
 	}
+	placement := placementRequirementFixture(t, workload)
 
 	quoteID := uuid.New()
 	quote := Quote{
@@ -36,6 +37,7 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 		Tier:        workload.Binding.Tier,
 		Currency:    "cad",
 		Workload:    workload,
+		Placement:   placement,
 		ComputePlan: compute,
 		Economics:   economic,
 		InputSHA256: strings.Repeat("a", 64),
@@ -93,6 +95,12 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 	); err == nil {
 		t.Fatal("database allowed a new quote whose JSON economic currency differs")
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO quotes
+		(job_type,model_ref,compute_plan,quote_json)
+		VALUES ('embed','all-minilm-l6-v2','{}','{"job_type":"embed"}')`,
+	); err == nil {
+		t.Fatal("database allowed a new compute-bound quote without placement authority")
+	}
 	if _, err := pool.Exec(ctx, canonicalSchema); err != nil {
 		t.Fatalf("canonical schema is not idempotent with frozen quotes: %v", err)
 	}
@@ -107,10 +115,24 @@ func TestInsertQuoteRejectsCurrencyMismatchBeforeDatabaseWrite(t *testing.T) {
 	economic = BuildEconomicPlan(economic.Input, schedule)
 	quote := Quote{
 		bareID: uuid.New(), Currency: "usd",
-		Workload: workload, ComputePlan: compute, Economics: economic,
+		Workload: workload, Placement: placementRequirementFixture(t, workload),
+		ComputePlan: compute, Economics: economic,
 	}
 	err := store.InsertQuote(ctx, uuid.New(), quote)
 	if !errors.Is(err, errCurrencyMismatch) {
 		t.Fatalf("mismatched quote currency was not rejected: %v", err)
 	}
+}
+
+func placementRequirementFixture(t *testing.T, workload WorkloadDecision) PlacementRequirement {
+	t.Helper()
+	binding := workload.Binding
+	placement, err := placementRequirementFor(jobSubmit{
+		JobType: binding.JobType, Model: binding.Model, Constraints: binding.Constraints,
+		Tier: binding.Tier, MinReputation: binding.MinReputation,
+	}, workload, 1)
+	if err != nil {
+		t.Fatalf("build placement fixture: %v", err)
+	}
+	return placement
 }
