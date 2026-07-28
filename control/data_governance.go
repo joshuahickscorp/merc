@@ -69,13 +69,15 @@ func (s *Store) ExportBuyerData(ctx context.Context, buyerID uuid.UUID) (BuyerDS
 		{&export.Jobs, `SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.created_at,x.id),'[]'::jsonb)
 			FROM (SELECT id,created_at,status,job_type,model_ref,input_ref,output_ref,tier,
 			verification_policy,estimated_usd,actual_usd,task_count,tasks_done,submit_idempotency_key,
-			charge_status,stripe_pi,billed_usd,terminal_at
+			charge_status,stripe_pi,billed_usd,terminal_at,
+			workload_decision,workload_decision_sha256,compute_plan,compute_plan_sha256
 			FROM jobs WHERE buyer_id=$1) x`},
 		{&export.Quotes, `SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.created_at,x.id),'[]'::jsonb)
 			FROM (SELECT id,created_at,job_type,model_ref,tier,records,input_bytes,estimated_tokens,
 			malformed_records,split_size,task_count,eligible_now,cost_expected_usd,cost_min_usd,
 			cost_max_usd,eta_p50_secs,eta_p90_secs,oom_risk,confidence,quote_json,
-			economic_schedule_version,economic_plan,economic_executable
+			economic_schedule_version,economic_plan,economic_executable,
+			workload_binding_sha256,workload_decision_sha256,compute_plan,compute_plan_sha256
 			FROM quotes WHERE buyer_id=$1) x`},
 		{&export.Tasks, `SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.created_at,x.id),'[]'::jsonb)
 			FROM (SELECT t.id,t.job_id,t.created_at,t.started_at,t.completed_at,t.status,t.input_ref,

@@ -169,6 +169,7 @@ type Quote struct {
 	Tier          string           `json:"tier"`
 	TierSemantics string           `json:"tier_semantics"`
 	Workload      WorkloadDecision `json:"workload_decision"`
+	ComputePlan   ComputePlan      `json:"compute_plan"`
 	Input         QuoteInputScan   `json:"input"`
 	Execution     QuoteExecution   `json:"execution"`
 	Cost          QuoteCost        `json:"cost"`
@@ -314,26 +315,30 @@ func quoteSupplyRequirements(sub jobSubmit, minMemoryGB float32) QuoteSupplyRequ
 	}
 }
 
-func (s *Server) quoteInitialEconomicTaskCount(ctx context.Context, sub jobSubmit, primaryTasks int) (int, error) {
+func (s *Server) quoteInitialEconomicTaskCounts(ctx context.Context, sub jobSubmit, primaryTasks int) (redundancy, honeypots, total int, err error) {
 	if primaryTasks <= 0 {
-		return 0, nil
+		return 0, 0, 0, nil
 	}
-	redundancy := fracCount(primaryTasks, sub.Verification.RedundancyFrac)
-	honeypots := fracCount(primaryTasks, sub.Verification.HoneypotFrac)
+	redundancy = fracCount(primaryTasks, sub.Verification.RedundancyFrac)
+	honeypots = fracCount(primaryTasks, sub.Verification.HoneypotFrac)
 	if sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0 && honeypots == 0 {
 		honeypots = 1
 	}
 	if honeypots > 0 {
-		available, err := s.store.AvailableSeedHoneypots(ctx, sub.JobType.Type, sub.Model.Ref, sub.JobType.MaxTokens, honeypots)
-		if err != nil {
-			return 0, err
+		available, availableErr := s.store.AvailableSeedHoneypots(ctx, sub.JobType.Type, sub.Model.Ref, sub.JobType.MaxTokens, honeypots)
+		if availableErr != nil {
+			return redundancy, 0, primaryTasks + redundancy, availableErr
 		}
 		honeypots = len(available)
+		if honeypots == 0 {
+			return redundancy, 0, primaryTasks + redundancy,
+				errors.New("verification requires a seeded honeypot but none is available")
+		}
 	}
-	return primaryTasks + redundancy + honeypots, nil
+	return redundancy, honeypots, primaryTasks + redundancy + honeypots, nil
 }
 
-func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, sub jobSubmit, inputBytes []byte, schedule EconomicSchedule) Quote {
+func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, sub jobSubmit, inputBytes []byte, workload WorkloadDecision, schedule EconomicSchedule) (Quote, error) {
 	jobType := sub.JobType.Type
 	tier := sub.Tier
 	scan := scanJSONL(inputBytes)
@@ -355,6 +360,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	}
 
 	expected := s.estimateJobUSD(ctx, sub.JobType.Type, sub.Model.Ref, len(inputBytes), scan.Records, sub.JobType.MaxTokens, sub.Tier)
+	primaryComputeUSD := expected
 	verifOverhead := roundUSD(expected * float64(sub.Verification.RedundancyFrac+sub.Verification.HoneypotFrac))
 	wantVerificationFloor := sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0
 	if wantVerificationFloor && tasks > 0 && fracCount(tasks, sub.Verification.HoneypotFrac) == 0 {
@@ -362,7 +368,8 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	}
 	platformTake := roundUSD((expected + verifOverhead) * platformTakeRate)
 
-	initialEconomicTasks, economicCountErr := s.quoteInitialEconomicTaskCount(ctx, sub, tasks)
+	redundancyTasks, honeypotTasks, initialEconomicTasks, economicCountErr :=
+		s.quoteInitialEconomicTaskCounts(ctx, sub, tasks)
 	baseComputeUSD := expected
 	if tasks > 0 && initialEconomicTasks > 0 {
 		baseComputeUSD = roundEconomicUSD(expected * float64(initialEconomicTasks) / float64(tasks))
@@ -372,13 +379,10 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	costMin := roundUSD(expected * 0.85)
 	costMax := roundUSD((expected + verifOverhead) * 1.5)
 
-	minMem := sub.Constraints.MinMemoryGB
+	minMem := float32(workload.MinimumMemoryGB)
 	var modelMinMem float32
 	if m, err := s.store.GetModel(ctx, sub.Model.Ref); err == nil {
 		modelMinMem = m.MinMemoryGB
-		if modelMinMem > minMem {
-			minMem = modelMinMem
-		}
 	}
 
 	p50, conservativeSecs, plannerBacked := s.etaBandSecs(ctx, jobType, sub.Model.Ref, minMem, tasks)
@@ -458,6 +462,30 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		warnings = append(warnings, "economics blocked: "+economicPlan.BlockReason)
 	}
 
+	etaSource := computePlanETASource(plannerBacked, usedObservedHistory)
+	computePlan, err := newDistributedComputePlan(
+		workload,
+		scan.Records,
+		int64(len(inputBytes)),
+		split,
+		tasks,
+		redundancyTasks,
+		honeypotTasks,
+		eta,
+		etaSource,
+		primaryComputeUSD,
+		math.Max(0, baseComputeUSD-primaryComputeUSD),
+		conf,
+		[]string{
+			"token counts use a documented byte-and-record heuristic rather than the model tokenizer",
+			"ETA is a frozen estimate; queue contention after acceptance can change wall-clock completion",
+			"power draw and provider-specific energy cost are not yet modeled",
+		},
+	)
+	if err != nil {
+		return Quote{}, fmt.Errorf("building compute plan: %w", err)
+	}
+
 	return Quote{
 		QuoteID:       "q_" + bareID.String(),
 		bareID:        bareID,
@@ -467,6 +495,8 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		Model:         sub.Model.Ref,
 		Tier:          tier,
 		TierSemantics: serviceTierSemantics(tier),
+		Workload:      workload,
+		ComputePlan:   computePlan,
 		Input:         scan,
 		SLA:           quoteSLA,
 		Economics:     economicPlan,
@@ -492,7 +522,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 			CancelBeforeExceeding: true,
 		},
 		Warnings: warnings,
-	}
+	}, nil
 }
 
 func assessRisk(scan QuoteInputScan, eligibleNow, warmEligible int, modelMinMem float32) (oom, cold string, conf QuoteConfidence, warnings []string) {
@@ -645,8 +675,11 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "classifying workload: "+err.Error())
 		return
 	}
-	q := s.buildQuoteWithSchedule(r.Context(), auth.BuyerID, sub, inputBytes, schedule)
-	q.Workload = workload
+	q, err := s.buildQuoteWithSchedule(r.Context(), auth.BuyerID, sub, inputBytes, workload, schedule)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if !q.Economics.Executable {
 		writeErr(w, http.StatusConflict, "quote is not executable: "+q.Economics.BlockReason)
 		return
@@ -778,15 +811,26 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 	if err := ValidateWorkloadDecisionSnapshot(q.Workload); err != nil {
 		return fmt.Errorf("refusing quote without valid workload decision: %w", err)
 	}
+	if err := ValidateComputePlanEconomicSnapshot(q.ComputePlan, q.Workload, q.Economics); err != nil {
+		return fmt.Errorf("refusing quote without valid compute plan: %w", err)
+	}
 	decisionSHA256, err := workloadDecisionDigest(q.Workload)
 	if err != nil {
 		return fmt.Errorf("hashing quote workload decision: %w", err)
+	}
+	computeSHA256, err := computePlanDigest(q.ComputePlan)
+	if err != nil {
+		return fmt.Errorf("hashing quote compute plan: %w", err)
 	}
 	blob, err := json.Marshal(q)
 	if err != nil {
 		return err
 	}
 	planBlob, err := json.Marshal(q.Economics)
+	if err != nil {
+		return err
+	}
+	computeBlob, err := json.Marshal(q.ComputePlan)
 	if err != nil {
 		return err
 	}
@@ -803,8 +847,9 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		    oom_risk, confidence, quote_json, expires_at, input_sha256,
 		    sla_guaranteed_secs, sla_premium_usd,
 		    economic_schedule_version, economic_plan, economic_executable,
-		    workload_binding_sha256, workload_decision_sha256, currency)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)`,
+		    workload_binding_sha256, workload_decision_sha256,
+		    compute_plan, compute_plan_sha256, currency)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
 		q.bareID, buyerID, q.JobType, q.Model, q.Tier, q.Input.Records, q.Input.Bytes,
 		q.Input.EstimatedTokens, q.Input.MalformedRecords, q.Execution.RecommendedSplitSize,
 		q.Execution.EstimatedTasks, q.Execution.EligibleWorkersNow,
@@ -812,7 +857,8 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		q.Execution.OOMRisk, q.Confidence.Score, blob, q.ExpiresAt, q.InputSHA256,
 		slaSecs, slaPremium,
 		q.Economics.Schedule.Version, planBlob, q.Economics.Executable,
-		q.Workload.BindingSHA256, decisionSHA256, SettlementCurrencyCode(),
+		q.Workload.BindingSHA256, decisionSHA256,
+		computeBlob, computeSHA256, SettlementCurrencyCode(),
 	)
 	return err
 }
@@ -841,11 +887,15 @@ type boundQuote struct {
 	EconomicExecutable      bool
 	WorkloadBindingSHA256   string
 	WorkloadDecisionSHA256  string
+	ComputePlan             ComputePlan
+	ComputePlanSHA256       string
 }
 
 func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID) (*boundQuote, error) {
 	var q boundQuote
 	var planBlob []byte
+	var computeBlob []byte
+	var quoteBlob []byte
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, job_type, COALESCE(model_ref,''), COALESCE(tier,''),
 		        COALESCE(input_sha256,''), COALESCE(cost_expected_usd,0),
@@ -855,13 +905,16 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 		        COALESCE(economic_schedule_version,''), economic_plan,
 		        COALESCE(economic_executable,false),
 		        COALESCE(workload_binding_sha256,''),
-		        COALESCE(workload_decision_sha256,'')
+		        COALESCE(workload_decision_sha256,''),
+		        compute_plan, COALESCE(compute_plan_sha256,''),
+		        quote_json
 		   FROM quotes
 		  WHERE id = $1 AND buyer_id = $2`,
 		quoteID, buyerID,
 	).Scan(&q.ID, &q.JobType, &q.ModelRef, &q.Tier, &q.InputSHA256, &q.CostExpUSD, &q.CostMaxUSD, &q.Expired,
 		&q.SLAGuaranteedSecs, &q.SLAPremiumUSD, &q.EconomicScheduleVersion, &planBlob, &q.EconomicExecutable,
-		&q.WorkloadBindingSHA256, &q.WorkloadDecisionSHA256)
+		&q.WorkloadBindingSHA256, &q.WorkloadDecisionSHA256,
+		&computeBlob, &q.ComputePlanSHA256, &quoteBlob)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}
@@ -871,6 +924,32 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 	if len(planBlob) > 0 {
 		if err := json.Unmarshal(planBlob, &q.EconomicPlan); err != nil {
 			return nil, fmt.Errorf("decoding quote economic plan: %w", err)
+		}
+	}
+	if len(computeBlob) > 0 {
+		if err := json.Unmarshal(computeBlob, &q.ComputePlan); err != nil {
+			return nil, fmt.Errorf("decoding quote compute plan: %w", err)
+		}
+	}
+	if len(computeBlob) > 0 || q.ComputePlanSHA256 != "" {
+		var snapshot Quote
+		if err := json.Unmarshal(quoteBlob, &snapshot); err != nil {
+			return nil, fmt.Errorf("decoding full quote authority: %w", err)
+		}
+		if err := ValidateComputePlanEconomicSnapshot(q.ComputePlan, snapshot.Workload, q.EconomicPlan); err != nil {
+			return nil, fmt.Errorf("invalid frozen quote compute plan: %w", err)
+		}
+		computeSHA256, err := computePlanDigest(q.ComputePlan)
+		if err != nil {
+			return nil, fmt.Errorf("hashing frozen quote compute plan: %w", err)
+		}
+		snapshotSHA256, err := computePlanDigest(snapshot.ComputePlan)
+		if err != nil {
+			return nil, fmt.Errorf("hashing full quote compute plan: %w", err)
+		}
+		if q.ComputePlanSHA256 == "" || q.ComputePlanSHA256 != computeSHA256 ||
+			q.ComputePlanSHA256 != snapshotSHA256 {
+			return nil, errors.New("frozen quote compute plan digest mismatch")
 		}
 	}
 	return &q, nil

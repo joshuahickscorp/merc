@@ -489,6 +489,15 @@ type quoteResp struct {
 		OOMRisk              string `json:"oom_risk"`
 		ColdStartRisk        string `json:"cold_start_risk"`
 	} `json:"execution"`
+	ComputePlan struct {
+		SplitSize         int     `json:"split_size"`
+		PrimaryTasks      int     `json:"primary_tasks"`
+		RedundancyTasks   int     `json:"redundancy_tasks"`
+		HoneypotTasks     int     `json:"honeypot_tasks"`
+		TotalInitialTasks int     `json:"total_initial_tasks"`
+		MinimumMemoryGB   float64 `json:"minimum_memory_gb"`
+		ETASource         string  `json:"eta_source"`
+	} `json:"compute_plan"`
 	Cost struct {
 		MinUSD      float64 `json:"min_usd"`
 		ExpectedUSD float64 `json:"expected_usd"`
@@ -559,13 +568,24 @@ func printQuote(q quoteResp, model, typ, tier, inputPath string) {
 	if q.Input.MalformedRecords > 0 {
 		p("  ⚠ Input  : %d malformed record(s); first at line %d", q.Input.MalformedRecords, q.Input.FirstBadLine)
 	}
-	p("  Plan     : %d tasks, split_size=%d, %s tier", q.Execution.EstimatedTasks, q.Execution.RecommendedSplitSize, q.Tier)
+	if q.ComputePlan.TotalInitialTasks > 0 {
+		p("  Plan     : %d tasks (%d primary, %d redundancy, %d honeypot), split_size=%d, min_memory=%.1f GB",
+			q.ComputePlan.TotalInitialTasks, q.ComputePlan.PrimaryTasks,
+			q.ComputePlan.RedundancyTasks, q.ComputePlan.HoneypotTasks,
+			q.ComputePlan.SplitSize, q.ComputePlan.MinimumMemoryGB)
+	} else {
+		p("  Plan     : %d tasks, split_size=%d, %s tier", q.Execution.EstimatedTasks, q.Execution.RecommendedSplitSize, q.Tier)
+	}
 	if q.TierSemantics != "" {
 		p("  Service  : %s", q.TierSemantics)
 	}
 	p("  Supply   : %d eligible now", q.Execution.EligibleWorkersNow)
 	p("  Cost     : $%.4f-$%.4f expected $%.4f", q.Cost.MinUSD, q.Cost.MaxUSD, q.Cost.ExpectedUSD)
-	p("  ETA      : p50 %s, p90 %s", humanSecs(q.Time.P50Secs), humanSecs(q.Time.P90Secs))
+	if q.ComputePlan.ETASource != "" {
+		p("  ETA      : p50 %s, p90 %s (%s)", humanSecs(q.Time.P50Secs), humanSecs(q.Time.P90Secs), q.ComputePlan.ETASource)
+	} else {
+		p("  ETA      : p50 %s, p90 %s", humanSecs(q.Time.P50Secs), humanSecs(q.Time.P90Secs))
+	}
 	p("  Risk     : %s OOM, %s cold-start", q.Execution.OOMRisk, q.Execution.ColdStartRisk)
 	for _, w := range q.Warnings {
 		p("  ⚠ %s", w)
