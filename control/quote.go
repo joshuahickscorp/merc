@@ -172,6 +172,7 @@ type Quote struct {
 	Workload      WorkloadDecision     `json:"workload_decision"`
 	Placement     PlacementRequirement `json:"placement_requirement"`
 	ComputePlan   ComputePlan          `json:"compute_plan"`
+	Pricing       PricingDecision      `json:"pricing_decision"`
 	Input         QuoteInputScan       `json:"input"`
 	Execution     QuoteExecution       `json:"execution"`
 	Cost          QuoteCost            `json:"cost"`
@@ -322,7 +323,10 @@ type PlacementRequirement struct {
 	DataResidency       []string `json:"data_residency,omitempty"`
 	MinReputation       float32  `json:"min_reputation"`
 	TrustedOnly         bool     `json:"trusted_only"`
-	OfferedRateUsdHr    float32  `json:"offered_rate_usd_hr"`
+	// OfferedRateUsdHr is retained on the wire for compatibility. Its exact
+	// meaning is the modeled supplier ask admission ceiling in USD/hour, not
+	// guaranteed realized hourly pay.
+	OfferedRateUsdHr float32 `json:"offered_rate_usd_hr"`
 }
 
 func placementRequirementFor(
@@ -460,10 +464,15 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	jobType := sub.JobType.Type
 	tier := sub.Tier
 	scan := scanJSONL(inputBytes)
-	offeredRate, err := s.offeredRateUsdHrForSubmission(ctx, sub)
+	catalogue, err := s.store.LoadCataloguePriceAuthority(ctx, sub.Model.Ref)
 	if err != nil {
 		return Quote{}, fmt.Errorf("resolving catalogue price authority: %w", err)
 	}
+	offeredRate64, err := supplierAdmissionCeilingUSDHr(catalogue, jobType, tier)
+	if err != nil {
+		return Quote{}, fmt.Errorf("deriving supplier admission ceiling: %w", err)
+	}
+	offeredRate := float32(offeredRate64)
 	placement, err := placementRequirementFor(sub, workload, offeredRate)
 	if err != nil {
 		return Quote{}, fmt.Errorf("building placement requirement: %w", err)
@@ -487,7 +496,10 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		tasks = (scan.Records + split - 1) / split
 	}
 
-	expected, err := s.estimateJobSettlement(ctx, sub.JobType.Type, sub.Model.Ref, len(inputBytes), scan.Records, sub.JobType.MaxTokens, sub.Tier)
+	expected, err := estimateJobSettlementWithAuthority(
+		catalogue, sub.JobType.Type, len(inputBytes), scan.Records,
+		sub.JobType.MaxTokens, sub.Tier,
+	)
 	if err != nil {
 		return Quote{}, fmt.Errorf("pricing quote: %w", err)
 	}
@@ -614,6 +626,12 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	if err != nil {
 		return Quote{}, fmt.Errorf("building compute plan: %w", err)
 	}
+	pricing, err := newDistributedPricingDecision(
+		workload, computePlan, placement, economicPlan, catalogue, tier, "",
+	)
+	if err != nil {
+		return Quote{}, fmt.Errorf("building composite pricing decision: %w", err)
+	}
 
 	return Quote{
 		QuoteID:       "q_" + bareID.String(),
@@ -628,6 +646,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		Workload:      workload,
 		Placement:     placement,
 		ComputePlan:   computePlan,
+		Pricing:       pricing,
 		Input:         scan,
 		SLA:           quoteSLA,
 		Economics:     economicPlan,
@@ -959,6 +978,11 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 	if err := ValidateComputePlanEconomicSnapshot(q.ComputePlan, q.Workload, q.Economics); err != nil {
 		return fmt.Errorf("refusing quote without valid compute plan: %w", err)
 	}
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		q.Pricing, q.Workload, q.ComputePlan, q.Placement, q.Economics,
+	); err != nil {
+		return fmt.Errorf("refusing quote without valid composite pricing authority: %w", err)
+	}
 	decisionSHA256, err := workloadDecisionDigest(q.Workload)
 	if err != nil {
 		return fmt.Errorf("hashing quote workload decision: %w", err)
@@ -966,6 +990,14 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 	computeSHA256, err := computePlanDigest(q.ComputePlan)
 	if err != nil {
 		return fmt.Errorf("hashing quote compute plan: %w", err)
+	}
+	placementSHA256, err := placementRequirementDigest(q.Placement)
+	if err != nil {
+		return fmt.Errorf("hashing quote placement requirement: %w", err)
+	}
+	pricingSHA256, err := pricingDecisionDigest(q.Pricing)
+	if err != nil {
+		return fmt.Errorf("hashing quote pricing decision: %w", err)
 	}
 	blob, err := json.Marshal(q)
 	if err != nil {
@@ -976,6 +1008,14 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		return err
 	}
 	computeBlob, err := json.Marshal(q.ComputePlan)
+	if err != nil {
+		return err
+	}
+	placementBlob, err := json.Marshal(q.Placement)
+	if err != nil {
+		return err
+	}
+	pricingBlob, err := json.Marshal(q.Pricing)
 	if err != nil {
 		return err
 	}
@@ -993,8 +1033,10 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		    sla_guaranteed_secs, sla_premium_usd,
 		    economic_schedule_version, economic_plan, economic_executable,
 		    workload_binding_sha256, workload_decision_sha256,
-		    compute_plan, compute_plan_sha256, currency)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
+		    compute_plan, compute_plan_sha256,
+		    placement_requirement, placement_requirement_sha256,
+		    pricing_decision, pricing_decision_sha256, currency)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36)`,
 		q.bareID, buyerID, q.JobType, q.Model, q.Tier, q.Input.Records, q.Input.Bytes,
 		q.Input.EstimatedTokens, q.Input.MalformedRecords, q.Execution.RecommendedSplitSize,
 		q.Execution.EstimatedTasks, q.Execution.EligibleWorkersNow,
@@ -1003,7 +1045,9 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		slaSecs, slaPremium,
 		q.Economics.Schedule.Version, planBlob, q.Economics.Executable,
 		q.Workload.BindingSHA256, decisionSHA256,
-		computeBlob, computeSHA256, q.Currency,
+		computeBlob, computeSHA256,
+		placementBlob, placementSHA256, pricingBlob, pricingSHA256,
+		q.Currency,
 	)
 	return err
 }
@@ -1036,12 +1080,17 @@ type boundQuote struct {
 	WorkloadDecisionSHA256  string
 	ComputePlan             ComputePlan
 	ComputePlanSHA256       string
+	PlacementSHA256         string
+	Pricing                 PricingDecision
+	PricingDecisionSHA256   string
 }
 
 func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID) (*boundQuote, error) {
 	var q boundQuote
 	var planBlob []byte
 	var computeBlob []byte
+	var placementBlob []byte
+	var pricingBlob []byte
 	var quoteBlob []byte
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, job_type, COALESCE(model_ref,''), COALESCE(tier,''),
@@ -1054,6 +1103,8 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 		        COALESCE(workload_binding_sha256,''),
 		        COALESCE(workload_decision_sha256,''),
 		        compute_plan, COALESCE(compute_plan_sha256,''),
+		        placement_requirement,COALESCE(placement_requirement_sha256,''),
+		        pricing_decision,COALESCE(pricing_decision_sha256,''),
 		        currency,
 		        quote_json
 		   FROM quotes
@@ -1062,7 +1113,10 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 	).Scan(&q.ID, &q.JobType, &q.ModelRef, &q.Tier, &q.InputSHA256, &q.CostExpUSD, &q.CostMaxUSD, &q.Expired,
 		&q.SLAGuaranteedSecs, &q.SLAPremiumUSD, &q.EconomicScheduleVersion, &planBlob, &q.EconomicExecutable,
 		&q.WorkloadBindingSHA256, &q.WorkloadDecisionSHA256,
-		&computeBlob, &q.ComputePlanSHA256, &q.Currency, &quoteBlob)
+		&computeBlob, &q.ComputePlanSHA256,
+		&placementBlob, &q.PlacementSHA256,
+		&pricingBlob, &q.PricingDecisionSHA256,
+		&q.Currency, &quoteBlob)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}
@@ -1079,6 +1133,16 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 			return nil, fmt.Errorf("decoding quote compute plan: %w", err)
 		}
 	}
+	if len(placementBlob) > 0 {
+		if err := json.Unmarshal(placementBlob, &q.Placement); err != nil {
+			return nil, fmt.Errorf("decoding quote placement requirement: %w", err)
+		}
+	}
+	if len(pricingBlob) > 0 {
+		if err := json.Unmarshal(pricingBlob, &q.Pricing); err != nil {
+			return nil, fmt.Errorf("decoding quote pricing decision: %w", err)
+		}
+	}
 	if len(computeBlob) > 0 || q.ComputePlanSHA256 != "" {
 		var snapshot Quote
 		if err := json.Unmarshal(quoteBlob, &snapshot); err != nil {
@@ -1092,7 +1156,19 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 		if err := validatePlacementRequirement(snapshot.Placement, snapshot.Workload); err != nil {
 			return nil, fmt.Errorf("invalid frozen quote placement authority: %w", err)
 		}
-		q.Placement = snapshot.Placement
+		placementSHA256, err := placementRequirementDigest(q.Placement)
+		if err != nil {
+			return nil, fmt.Errorf("hashing frozen quote placement authority: %w", err)
+		}
+		snapshotPlacementSHA256, err := placementRequirementDigest(snapshot.Placement)
+		if err != nil {
+			return nil, fmt.Errorf("hashing full quote placement authority: %w", err)
+		}
+		if q.PlacementSHA256 == "" ||
+			q.PlacementSHA256 != placementSHA256 ||
+			q.PlacementSHA256 != snapshotPlacementSHA256 {
+			return nil, errors.New("frozen quote placement requirement digest mismatch")
+		}
 		if err := ValidateComputePlanEconomicSnapshot(q.ComputePlan, snapshot.Workload, q.EconomicPlan); err != nil {
 			return nil, fmt.Errorf("invalid frozen quote compute plan: %w", err)
 		}
@@ -1107,6 +1183,24 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 		if q.ComputePlanSHA256 == "" || q.ComputePlanSHA256 != computeSHA256 ||
 			q.ComputePlanSHA256 != snapshotSHA256 {
 			return nil, errors.New("frozen quote compute plan digest mismatch")
+		}
+		if err := ValidateDistributedPricingDecisionSnapshot(
+			q.Pricing, snapshot.Workload, q.ComputePlan, q.Placement, q.EconomicPlan,
+		); err != nil {
+			return nil, fmt.Errorf("invalid frozen quote pricing decision: %w", err)
+		}
+		pricingSHA256, err := pricingDecisionDigest(q.Pricing)
+		if err != nil {
+			return nil, fmt.Errorf("hashing frozen quote pricing decision: %w", err)
+		}
+		snapshotPricingSHA256, err := pricingDecisionDigest(snapshot.Pricing)
+		if err != nil {
+			return nil, fmt.Errorf("hashing full quote pricing decision: %w", err)
+		}
+		if q.PricingDecisionSHA256 == "" ||
+			q.PricingDecisionSHA256 != pricingSHA256 ||
+			q.PricingDecisionSHA256 != snapshotPricingSHA256 {
+			return nil, errors.New("frozen quote pricing decision digest mismatch")
 		}
 	}
 	return &q, nil

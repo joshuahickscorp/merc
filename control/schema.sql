@@ -3449,6 +3449,117 @@ CREATE TRIGGER tasks_job_immutable
     BEFORE UPDATE OF job_id ON tasks
     FOR EACH ROW EXECUTE FUNCTION cx_reject_task_job_update();
 
+-- Composite pricing authority. Placement and pricing are stored separately
+-- from the presentation snapshot so quote/job readers can verify their exact
+-- canonical digests without trusting a mutable projection. Historical rows
+-- stay NULL and are reported as unverifiable rather than reconstructed.
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS placement_requirement JSONB;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS placement_requirement_sha256 TEXT;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS pricing_decision JSONB;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS pricing_decision_sha256 TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS placement_requirement JSONB;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS placement_requirement_sha256 TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pricing_decision JSONB;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pricing_decision_sha256 TEXT;
+
+ALTER TABLE quotes DROP CONSTRAINT IF EXISTS quotes_composite_pricing_bound;
+ALTER TABLE quotes ADD CONSTRAINT quotes_composite_pricing_bound CHECK (
+    pricing_decision IS NULL
+    OR (
+        placement_requirement IS NOT NULL
+        AND quote_json->'placement_requirement' = placement_requirement
+        AND quote_json->'pricing_decision' = pricing_decision
+        AND pricing_decision->>'execution_mode' = 'distributed'
+        AND pricing_decision->>'currency' = currency
+        AND pricing_decision->>'workload_decision_sha256' = workload_decision_sha256
+        AND pricing_decision->>'compute_plan_sha256' = compute_plan_sha256
+        AND pricing_decision->>'placement_requirement_sha256'
+            = placement_requirement_sha256
+        AND pricing_decision #>> '{catalogue,schedule_sha256}'
+            ~ '^[0-9a-f]{64}$'
+        AND pricing_decision #>> '{catalogue,board_sha256}'
+            ~ '^[0-9a-f]{64}$'
+        AND pricing_decision #>> '{catalogue,settlement_currency}' = currency
+    )
+) NOT VALID;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_composite_pricing_bound;
+ALTER TABLE jobs ADD CONSTRAINT jobs_composite_pricing_bound CHECK (
+    pricing_decision IS NULL
+    OR (
+        pricing_decision->>'currency' = currency
+        AND pricing_decision->>'workload_decision_sha256' = workload_decision_sha256
+        AND pricing_decision->>'compute_plan_sha256' = compute_plan_sha256
+        AND pricing_decision #>> '{catalogue,schedule_sha256}'
+            ~ '^[0-9a-f]{64}$'
+        AND pricing_decision #>> '{catalogue,board_sha256}'
+            ~ '^[0-9a-f]{64}$'
+        AND pricing_decision #>> '{catalogue,settlement_currency}' = currency
+        AND (
+            (
+                pricing_decision->>'execution_mode' = 'distributed'
+                AND placement_requirement IS NOT NULL
+                AND pricing_decision->>'placement_requirement_sha256'
+                    = placement_requirement_sha256
+            )
+            OR
+            (
+                pricing_decision->>'execution_mode' = 'exact_result_reuse'
+                AND placement_requirement IS NULL
+                AND COALESCE(pricing_decision->>'placement_requirement_sha256','') = ''
+                AND pricing_decision #>> '{primary_supplier_cost,status}' = 'not_applicable'
+                AND pricing_decision #>> '{verification_cost,status}' = 'not_applicable'
+            )
+        )
+    )
+) NOT VALID;
+
+ALTER TABLE quotes DROP CONSTRAINT IF EXISTS quotes_placement_requirement_pair;
+ALTER TABLE quotes ADD CONSTRAINT quotes_placement_requirement_pair CHECK (
+    (placement_requirement IS NULL) =
+    (placement_requirement_sha256 IS NULL)
+) NOT VALID;
+ALTER TABLE quotes DROP CONSTRAINT IF EXISTS quotes_pricing_decision_pair;
+ALTER TABLE quotes ADD CONSTRAINT quotes_pricing_decision_pair CHECK (
+    (pricing_decision IS NULL) = (pricing_decision_sha256 IS NULL)
+) NOT VALID;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_placement_requirement_pair;
+ALTER TABLE jobs ADD CONSTRAINT jobs_placement_requirement_pair CHECK (
+    (placement_requirement IS NULL) =
+    (placement_requirement_sha256 IS NULL)
+) NOT VALID;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_pricing_decision_pair;
+ALTER TABLE jobs ADD CONSTRAINT jobs_pricing_decision_pair CHECK (
+    (pricing_decision IS NULL) = (pricing_decision_sha256 IS NULL)
+) NOT VALID;
+
+ALTER TABLE quotes DROP CONSTRAINT IF EXISTS quotes_placement_requirement_sha256_valid;
+ALTER TABLE quotes ADD CONSTRAINT quotes_placement_requirement_sha256_valid
+    CHECK (placement_requirement_sha256 IS NULL
+           OR placement_requirement_sha256 ~ '^[0-9a-f]{64}$') NOT VALID;
+ALTER TABLE quotes DROP CONSTRAINT IF EXISTS quotes_pricing_decision_sha256_valid;
+ALTER TABLE quotes ADD CONSTRAINT quotes_pricing_decision_sha256_valid
+    CHECK (pricing_decision_sha256 IS NULL
+           OR pricing_decision_sha256 ~ '^[0-9a-f]{64}$') NOT VALID;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_placement_requirement_sha256_valid;
+ALTER TABLE jobs ADD CONSTRAINT jobs_placement_requirement_sha256_valid
+    CHECK (placement_requirement_sha256 IS NULL
+           OR placement_requirement_sha256 ~ '^[0-9a-f]{64}$') NOT VALID;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_pricing_decision_sha256_valid;
+ALTER TABLE jobs ADD CONSTRAINT jobs_pricing_decision_sha256_valid
+    CHECK (pricing_decision_sha256 IS NULL
+           OR pricing_decision_sha256 ~ '^[0-9a-f]{64}$') NOT VALID;
+
+CREATE OR REPLACE FUNCTION cx_reject_job_pricing_authority_update() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'placement and pricing authority for job % is immutable', OLD.id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS jobs_pricing_authority_immutable ON jobs;
+CREATE TRIGGER jobs_pricing_authority_immutable
+    BEFORE UPDATE OF placement_requirement,placement_requirement_sha256,
+                     pricing_decision,pricing_decision_sha256 ON jobs
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_job_pricing_authority_update();
+
 CREATE OR REPLACE FUNCTION cx_validate_job_quote_currency() RETURNS trigger AS $$
 DECLARE quote_currency TEXT;
 BEGIN

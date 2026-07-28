@@ -184,17 +184,22 @@ func TestJobClaimProjectionRejectsFrozenWorkloadMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	placement, err := placementRequirementFor(sub, decision, 1.25)
+	if err != nil {
+		t.Fatal(err)
+	}
 	base := jobRow{
-		JobType:          decision.RuntimeJobType,
-		ModelRef:         decision.Binding.Model.Ref,
-		Tier:             decision.Binding.Tier,
-		MinMemoryGB:      float32(decision.MinimumMemoryGB),
-		MaxDurationSecs:  decision.Binding.Constraints.MaxDurationSecs,
-		HWClasses:        append([]string(nil), decision.Binding.Constraints.HWClasses...),
-		DataResidency:    append([]string(nil), decision.Binding.Constraints.DataResidency...),
-		MinReputation:    decision.Binding.MinReputation,
-		OfferedRateUsdHr: 1.25,
-		WorkloadDecision: decision,
+		JobType:              decision.RuntimeJobType,
+		ModelRef:             decision.Binding.Model.Ref,
+		Tier:                 decision.Binding.Tier,
+		MinMemoryGB:          float32(decision.MinimumMemoryGB),
+		MaxDurationSecs:      decision.Binding.Constraints.MaxDurationSecs,
+		HWClasses:            append([]string(nil), decision.Binding.Constraints.HWClasses...),
+		DataResidency:        append([]string(nil), decision.Binding.Constraints.DataResidency...),
+		MinReputation:        decision.Binding.MinReputation,
+		OfferedRateUsdHr:     1.25,
+		WorkloadDecision:     decision,
+		PlacementRequirement: placement,
 	}
 	if err := validateJobClaimAuthority(&base); err != nil {
 		t.Fatalf("valid claim projection rejected: %v", err)

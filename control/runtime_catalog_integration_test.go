@@ -84,6 +84,19 @@ func TestRuntimeCatalogPriceIsStableAcrossMigration(t *testing.T) {
 			state.scheduleVersion != schedule.Version {
 			t.Fatalf("%s not bound to exact catalogue schedule: %+v", result.ModelID, state)
 		}
+		authority, err := store.LoadCataloguePriceAuthority(ctx, result.ModelID)
+		if err != nil {
+			t.Fatalf("load composite price authority for %s: %v", result.ModelID, err)
+		}
+		if authority.ScheduleSHA256 != schedule.SHA256 ||
+			authority.BoardSHA256 != schedule.BoardSHA256 ||
+			authority.FXRevision != schedule.FXRevision ||
+			authority.SupplierShare != schedule.SupplierShare ||
+			authority.ReferencePricePer1K != result.ReferencePricePer1K ||
+			authority.SettlementPricePer1K != result.PricePer1K {
+			t.Fatalf("%s composite authority differs from append-only schedule: %+v",
+				result.ModelID, authority)
+		}
 	}
 	if _, err := pool.Exec(ctx, `
 		UPDATE models SET price_per_1k=price_per_1k+0.00000001 WHERE id=$1`,

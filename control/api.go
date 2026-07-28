@@ -655,6 +655,15 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		}
 		qBind = q
 	}
+	cataloguePrice, err := selectCataloguePriceAuthority(qBind, func() (CataloguePriceAuthority, error) {
+		return s.store.LoadCataloguePriceAuthority(ctx, sub.Model.Ref)
+	})
+	if err != nil {
+		return JobSubmitResponse{}, &httpError{
+			http.StatusServiceUnavailable,
+			"resolving catalogue price authority: " + err.Error(),
+		}
+	}
 
 	inputReader, srcKey, err := s.resolveInput(ctx, buyerID, sub.Input)
 	if err != nil {
@@ -684,12 +693,16 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		placement = qBind.Placement
 		offeredRate = placement.OfferedRateUsdHr
 	} else {
-		offeredRate, err = s.offeredRateUsdHrForSubmission(ctx, sub)
+		var offeredRate64 float64
+		offeredRate64, err = supplierAdmissionCeilingUSDHr(
+			cataloguePrice, sub.JobType.Type, sub.Tier,
+		)
 		if err != nil {
 			return JobSubmitResponse{}, &httpError{
 				http.StatusServiceUnavailable, "resolving catalogue price authority: " + err.Error(),
 			}
 		}
+		offeredRate = float32(offeredRate64)
 		planningWorkload, perr := buildWorkloadDecision(sub, strings.Repeat("0", sha256.Size*2))
 		if perr != nil {
 			return JobSubmitResponse{}, &httpError{
@@ -832,38 +845,48 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	// Exact deterministic reuse for batch: identical input+model+policy serves
 	// the prior result, bills the reuse class, and schedules no supplier.
 	// Identity is derived server-side only (never from a client field).
-	m, merr := s.store.GetModel(ctx, sub.Model.Ref)
-	if merr != nil {
-		return JobSubmitResponse{}, &httpError{
-			http.StatusServiceUnavailable, "resolving catalogue model price: " + merr.Error(),
-		}
-	}
-	pricePer1K, merr := modelPrice(*m)
-	if merr != nil {
-		return JobSubmitResponse{}, &httpError{
-			http.StatusServiceUnavailable, "resolving catalogue model price: " + merr.Error(),
-		}
-	}
 	if identity := batchRequestIdentity(workloadDecision); identity != "" {
-		hit, money, ok, lerr := s.store.tryBatchExactReuse(ctx, identity, batchFullPricePer1K(pricePer1K*tierMultiplier(sub.Tier)))
+		hit, money, ok, lerr := s.store.tryBatchExactReuse(
+			ctx,
+			identity,
+			batchFullPricePer1K(cataloguePrice.SettlementPricePer1K*tierMultiplier(sub.Tier)),
+		)
 		if lerr != nil {
 			log.Printf("exact reuse batch lookup failed, executing live: %v", lerr)
 		} else if ok {
+			reuseBuyerCharge := microsToUSD(money.BuyerDebitMicros)
+			if sub.FirmQuote && firmQuoteMaxUSD > 0 &&
+				reuseBuyerCharge > firmQuoteMaxUSD+0.000001 {
+				return JobSubmitResponse{}, &httpError{
+					http.StatusConflict,
+					"exact-reuse price exceeds the accepted firm quote maximum",
+				}
+			}
 			reuseOut := fmt.Sprintf("jobs/%s/output.jsonl", jobID)
 			var originComputePlan *ComputePlan
+			originPricingSHA := ""
 			if qBind != nil {
 				originComputePlan = &qBind.ComputePlan
+				originPricingSHA = qBind.PricingDecisionSHA256
 			}
 			reuseComputePlan, rperr := newExactReuseComputePlan(
 				workloadDecision,
 				totalRecords,
 				int64(exactInputBytes),
-				microsToUSD(money.BuyerDebitMicros),
+				reuseBuyerCharge,
 				originComputePlan,
 			)
 			if rperr != nil {
 				return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
 					"freezing exact-reuse compute plan: " + rperr.Error()}
+			}
+			reusePricing, rperr := newExactReusePricingDecision(
+				workloadDecision, reuseComputePlan, cataloguePrice, sub.Tier,
+				reuseBuyerCharge, originPricingSHA,
+			)
+			if rperr != nil {
+				return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
+					"freezing exact-reuse pricing decision: " + rperr.Error()}
 			}
 			if cerr := s.store.CopyExactReuseResultToJobOutput(ctx, s.storage, hit, reuseOut); cerr != nil {
 				log.Printf("exact reuse materialise failed, executing live: %v", cerr)
@@ -871,7 +894,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 				sub.JobType.Type, sub.Model.Ref, inputKey, reuseOut, sub.Tier,
 				hit, money, int64(totalRecords), int64(exactInputBytes),
 				sub.IdempotencyKey, sub.RequestSHA256, workloadDecision,
-				reuseComputePlan,
+				reuseComputePlan, reusePricing,
 				boundQuoteID, sub.FirmQuote, firmQuoteMaxUSD); serr != nil {
 				if errors.Is(serr, errRealtimeInsufficientFunds) {
 					return JobSubmitResponse{}, &httpError{http.StatusPaymentRequired, serr.Error()}
@@ -993,7 +1016,10 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			fmt.Sprintf("private-canary task limit is %d after verification expansion", s.canary.MaxTasksPerJob)}
 	}
 
-	basePrimaryCompute, priceErr := s.estimateJobSettlement(ctx, sub.JobType.Type, sub.Model.Ref, exactInputBytes, totalRecords, sub.JobType.MaxTokens, sub.Tier)
+	basePrimaryCompute, priceErr := estimateJobSettlementWithAuthority(
+		cataloguePrice, sub.JobType.Type, exactInputBytes, totalRecords,
+		sub.JobType.MaxTokens, sub.Tier,
+	)
 	if priceErr != nil {
 		return JobSubmitResponse{}, &httpError{
 			http.StatusServiceUnavailable, "pricing exact submit: " + priceErr.Error(),
@@ -1105,6 +1131,31 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		return JobSubmitResponse{}, &httpError{http.StatusConflict,
 			"compute and economic authority disagree: " + err.Error()}
 	}
+	pricingDecision, pricingErr := newDistributedPricingDecision(
+		workloadDecision, computePlan, placement, economicPlan,
+		cataloguePrice, sub.Tier, "",
+	)
+	if pricingErr != nil {
+		return JobSubmitResponse{}, &httpError{http.StatusConflict,
+			"composite pricing authority disagrees: " + pricingErr.Error()}
+	}
+	if qBind != nil {
+		candidateSHA, digestErr := pricingDecisionDigest(pricingDecision)
+		if digestErr != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
+				"hashing composite pricing authority: " + digestErr.Error()}
+		}
+		if candidateSHA != qBind.PricingDecisionSHA256 {
+			pricingDecision, pricingErr = newDistributedPricingDecision(
+				workloadDecision, computePlan, placement, economicPlan,
+				cataloguePrice, sub.Tier, qBind.PricingDecisionSHA256,
+			)
+			if pricingErr != nil {
+				return JobSubmitResponse{}, &httpError{http.StatusConflict,
+					"binding accepted quote pricing authority: " + pricingErr.Error()}
+			}
+		}
+	}
 
 	var webhookRegistration WebhookRegistration
 	var webhookSecretSealed string
@@ -1154,6 +1205,8 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		EconomicPlan:               economicPlan,
 		WorkloadDecision:           workloadDecision,
 		ComputePlan:                computePlan,
+		PlacementRequirement:       placement,
+		PricingDecision:            pricingDecision,
 		WebhookID:                  webhookRegistration.ID,
 		WebhookURL:                 sub.WebhookURL,
 		WebhookSigningSecretSealed: webhookSecretSealed,
@@ -2806,7 +2859,20 @@ func (s *Server) handleJobReceipt(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, perr.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, assembleClearingReceipt(id, inv.Status, workload, computePlan, inv, verif, classes, tasks))
+	placement, plerr := s.store.JobPlacementRequirement(r.Context(), id)
+	if plerr != nil {
+		writeErr(w, http.StatusInternalServerError, plerr.Error())
+		return
+	}
+	pricing, prerr := s.store.JobPricingDecision(r.Context(), id)
+	if prerr != nil {
+		writeErr(w, http.StatusInternalServerError, prerr.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, assembleClearingReceipt(
+		id, inv.Status, workload, computePlan, placement, pricing,
+		inv, verif, classes, tasks,
+	))
 }
 
 func secureHTMLHeaders(w http.ResponseWriter) {
@@ -3072,36 +3138,13 @@ func generativeJobType(jobType string) bool {
 const defaultQuoteMaxTokens = 256
 
 func (s *Server) estimateJobSettlement(ctx context.Context, jobType, modelRef string, inputBytesLen int, nLines int, maxTokens uint32, tier string) (float64, error) {
-	m, err := s.store.GetModel(ctx, modelRef)
+	authority, err := s.store.LoadCataloguePriceAuthority(ctx, modelRef)
 	if err != nil {
 		return 0, fmt.Errorf("load model %s: %w", modelRef, err)
 	}
-	price, err := modelPrice(*m)
-	if err != nil {
-		return 0, err
-	}
-	units := float64(nLines)
-	if byteUnits := float64(inputBytesLen) / 4.0; byteUnits > units {
-		units = byteUnits
-	}
-	if generativeJobType(jobType) && nLines > 0 {
-		outTokensPerRecord := maxTokens
-		if outTokensPerRecord == 0 {
-			outTokensPerRecord = defaultQuoteMaxTokens
-		}
-		units += float64(nLines) * float64(outTokensPerRecord)
-	}
-	est := units / 1000.0 * price * tierMultiplier(tier)
-	rounded := roundUSD(est)
-	// Positive work must never price at $0: roundUSD of a sub-micro amount is
-	// exactly the hole that left small jobs either unbuyable or paying the
-	// supplier nothing. Floor to one micro-USD; BuildEconomicPlan then raises
-	// further to the minimum billable size if the supplier share still rounds
-	// to zero.
-	if rounded == 0 && units > 0 && price > 0 {
-		return microsToUSD(1), nil
-	}
-	return rounded, nil
+	return estimateJobSettlementWithAuthority(
+		authority, jobType, inputBytesLen, nLines, maxTokens, tier,
+	)
 }
 
 func splitSizeOf(params json.RawMessage) int {
@@ -3294,20 +3337,26 @@ func (s *Server) plannerETASecsFor(
 }
 
 func (s *Server) offeredRateUsdHr(ctx context.Context, jobType, modelRef string) (float32, error) {
-	m, err := s.store.GetModel(ctx, modelRef)
+	authority, err := s.store.LoadCataloguePriceAuthority(ctx, modelRef)
 	if err != nil {
 		return 0, fmt.Errorf("load model %s: %w", modelRef, err)
 	}
-	price, err := modelReferencePriceUSD(*m)
+	ceiling, err := supplierAdmissionCeilingUSDHr(authority, jobType, "batch")
 	if err != nil {
 		return 0, err
 	}
-	unitsPerHr := throughputOf(jobType) * 3600.0
-	return float32(unitsPerHr / 1000.0 * price), nil
+	return float32(ceiling), nil
 }
 
 func (s *Server) offeredRateUsdHrForSubmission(ctx context.Context, sub jobSubmit) (float32, error) {
-	return s.offeredRateUsdHr(ctx, sub.JobType.Type, sub.Model.Ref)
+	authority, err := s.store.LoadCataloguePriceAuthority(ctx, sub.Model.Ref)
+	if err != nil {
+		return 0, err
+	}
+	ceiling, err := supplierAdmissionCeilingUSDHr(
+		authority, sub.JobType.Type, sub.Tier,
+	)
+	return float32(ceiling), err
 }
 
 func perTaskSecsFromP90(p90ms int64) int {

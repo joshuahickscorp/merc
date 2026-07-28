@@ -26,7 +26,14 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 	if err := ValidateComputePlanEconomicSnapshot(compute, workload, economic); err != nil {
 		t.Fatalf("CAD economic fixture: %v", err)
 	}
-	placement := placementRequirementFixture(t, workload)
+	authority := catalogueAuthorityFixture(t, workload, "cad", economic.Input.SupplierShare)
+	placement := placementForPricingFixture(t, workload, authority)
+	pricing, err := newDistributedPricingDecision(
+		workload, compute, placement, economic, authority, workload.Binding.Tier, "",
+	)
+	if err != nil {
+		t.Fatalf("build CAD pricing fixture: %v", err)
+	}
 
 	quoteID := uuid.New()
 	quote := Quote{
@@ -39,6 +46,7 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 		Workload:    workload,
 		Placement:   placement,
 		ComputePlan: compute,
+		Pricing:     pricing,
 		Economics:   economic,
 		InputSHA256: strings.Repeat("a", 64),
 		ExpiresAt:   time.Now().Add(quoteTTL).UTC(),
@@ -77,6 +85,11 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 	setSettlementCurrency(MustParseCurrency("usd"))
 	if err := validateBoundQuoteCurrency(bound); !errors.Is(err, errCurrencyMismatch) {
 		t.Fatalf("CAD quote was accepted after USD cutover: %v", err)
+	}
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		bound.Pricing, workload, bound.ComputePlan, bound.Placement, bound.EconomicPlan,
+	); err != nil {
+		t.Fatalf("historical CAD pricing authority became unreadable after cutover: %v", err)
 	}
 
 	if _, err := pool.Exec(ctx, `UPDATE quotes SET currency='usd' WHERE id=$1`, quoteID); err == nil {
@@ -126,13 +139,8 @@ func TestInsertQuoteRejectsCurrencyMismatchBeforeDatabaseWrite(t *testing.T) {
 
 func placementRequirementFixture(t *testing.T, workload WorkloadDecision) PlacementRequirement {
 	t.Helper()
-	binding := workload.Binding
-	placement, err := placementRequirementFor(jobSubmit{
-		JobType: binding.JobType, Model: binding.Model, Constraints: binding.Constraints,
-		Tier: binding.Tier, MinReputation: binding.MinReputation,
-	}, workload, 1)
-	if err != nil {
-		t.Fatalf("build placement fixture: %v", err)
-	}
-	return placement
+	authority := catalogueAuthorityFixture(
+		t, workload, SettlementCurrencyCode(), supplierShareRate,
+	)
+	return placementForPricingFixture(t, workload, authority)
 }

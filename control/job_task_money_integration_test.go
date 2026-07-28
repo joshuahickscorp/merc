@@ -99,15 +99,76 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash exact-reuse origin plan: %v", err)
 	}
+	originEconomic := BuildEconomicPlan(EconomicPlanInput{
+		BaseComputeUSD: originPlan.BaseComputeUSD, InitialTaskCount: 1,
+		ExtraTaskReserve: 1, SupplierShare: supplierShareRate,
+	}, testEconomicSchedule())
+	authority := catalogueAuthorityFixture(
+		t, decision, originEconomic.Schedule.Currency, originEconomic.Input.SupplierShare,
+	)
+	originPlacement := placementForPricingFixture(t, decision, authority)
+	originPricing, err := newDistributedPricingDecision(
+		decision, originPlan, originPlacement, originEconomic, authority, sub.Tier, "",
+	)
+	if err != nil {
+		t.Fatalf("build exact-reuse origin pricing: %v", err)
+	}
+	originPricingJSON, err := json.Marshal(originPricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originPricingSHA256, err := pricingDecisionDigest(originPricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originPlacementJSON, err := json.Marshal(originPlacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originPlacementSHA256, err := placementRequirementDigest(originPlacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workloadSHA256, err := workloadDecisionDigest(decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoteJSON, err := json.Marshal(map[string]any{
+		"placement_requirement": originPlacement,
+		"pricing_decision":      originPricing,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO quotes (id,buyer_id,job_type,compute_plan_sha256)
-		VALUES ($1,$2,$3,$4)`,
+		INSERT INTO quotes
+		  (id,buyer_id,job_type,compute_plan_sha256,
+		   workload_decision_sha256,
+		   placement_requirement,placement_requirement_sha256,
+		   pricing_decision,pricing_decision_sha256,quote_json)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
 		quoteID, f.BuyerID, sub.JobType.Type, originSHA256,
+		workloadSHA256, originPlacementJSON, originPlacementSHA256,
+		originPricingJSON, originPricingSHA256, quoteJSON,
 	); err != nil {
 		t.Fatalf("seed exact-reuse origin quote: %v", err)
 	}
 	badComputePlan := computePlan
 	badComputePlan.OriginComputePlanSHA256 = strings.Repeat("b", 64)
+	badPricing, err := newExactReusePricingDecision(
+		decision, badComputePlan, authority, sub.Tier,
+		microsToUSD(money.BuyerDebitMicros), originPricingSHA256,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reusePricing, err := newExactReusePricingDecision(
+		decision, computePlan, authority, sub.Tier,
+		microsToUSD(money.BuyerDebitMicros), originPricingSHA256,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	badJobID := uuid.New()
 	if err := store.SubmitExactReuseBatchJob(
 		ctx,
@@ -129,6 +190,7 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		"",
 		decision,
 		badComputePlan,
+		badPricing,
 		quoteID,
 		true,
 		1,
@@ -137,6 +199,37 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 	}
 	if countJobRows(t, ctx, pool, badJobID) != 0 {
 		t.Fatal("failed exact-reuse quote binding left a job row")
+	}
+	overCapJobID := uuid.New()
+	if err := store.SubmitExactReuseBatchJob(
+		ctx,
+		f.BuyerID,
+		overCapJobID,
+		sub.JobType.Type,
+		sub.Model.Ref,
+		"jobs/"+overCapJobID.String()+"/input.jsonl",
+		"jobs/"+overCapJobID.String()+"/output.jsonl",
+		sub.Tier,
+		ExactCacheHit{
+			ResultRef:    "cas/sha256/" + strings.Repeat("1", 64),
+			OutputTokens: 1000,
+		},
+		money,
+		1,
+		128,
+		"",
+		"",
+		decision,
+		computePlan,
+		reusePricing,
+		quoteID,
+		true,
+		microsToUSD(money.BuyerDebitMicros)/2,
+	); err == nil || !strings.Contains(err.Error(), "firm quote maximum") {
+		t.Fatalf("exact reuse accepted a charge over the firm quote maximum: %v", err)
+	}
+	if countJobRows(t, ctx, pool, overCapJobID) != 0 {
+		t.Fatal("firm-cap rejection left an exact-reuse job row")
 	}
 	if err := store.SubmitExactReuseBatchJob(
 		ctx,
@@ -158,6 +251,7 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		"",
 		decision,
 		computePlan,
+		reusePricing,
 		quoteID,
 		true,
 		1,
@@ -192,12 +286,24 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		t.Fatalf("exact reuse lost quote provenance: quote=%v firm=%v max=%v",
 			storedQuoteID, firmQuote, firmQuoteMaxUSD)
 	}
-	receipt := assembleClearingReceipt(f.JobID, "complete", stored, storedCompute, nil, Verification{}, nil, nil)
+	storedPricing, err := store.JobPricingDecision(ctx, f.JobID)
+	if err != nil {
+		t.Fatalf("load exact-reuse pricing decision: %v", err)
+	}
+	receipt := assembleClearingReceipt(
+		f.JobID, "complete", stored, storedCompute, nil, storedPricing,
+		nil, Verification{}, nil, nil,
+	)
 	if receipt.Workload == nil || receipt.Workload.BindingSHA256 != decision.BindingSHA256 {
 		t.Fatal("exact-reuse receipt omitted the frozen workload decision")
 	}
 	if receipt.ComputePlan == nil || receipt.ComputePlan.ExecutionMode != computeExecutionExactReuse {
 		t.Fatal("exact-reuse receipt omitted the frozen compute plan")
+	}
+	if receipt.Pricing == nil ||
+		receipt.Pricing.PrimarySupplierCost.Status != pricingCostNotApplicable ||
+		receipt.Pricing.PrimarySupplierCost.Amount != 0 {
+		t.Fatal("exact-reuse receipt did not disclose zero physical supplier work")
 	}
 }
 
@@ -417,6 +523,17 @@ func validJobRow(t *testing.T, f moneyPathFixture, tasks []taskRow) *jobRow {
 	if err != nil {
 		t.Fatalf("build test compute plan: %v", err)
 	}
+	authority := catalogueAuthorityFixture(
+		t, workload, economicPlan.Schedule.Currency, economicPlan.Input.SupplierShare,
+	)
+	placement := placementForPricingFixture(t, workload, authority)
+	pricing, err := newDistributedPricingDecision(
+		workload, computePlan, placement, economicPlan, authority,
+		workload.Binding.Tier, "",
+	)
+	if err != nil {
+		t.Fatalf("build test pricing decision: %v", err)
+	}
 	return &jobRow{
 		ID:                   f.JobID,
 		BuyerID:              f.BuyerID,
@@ -430,7 +547,7 @@ func validJobRow(t *testing.T, f moneyPathFixture, tasks []taskRow) *jobRow {
 		MinMemoryGB:          float32(workload.MinimumMemoryGB),
 		MaxDurationSecs:      3600,
 		SplitSize:            1,
-		OfferedRateUsdHr:     1.0,
+		OfferedRateUsdHr:     placement.OfferedRateUsdHr,
 		ETASecs:              60,
 		SLAPremiumUSD:        economicPlan.Input.SLAPremiumUSD,
 		EconomicInputRecords: int64(inputRecords),
@@ -438,6 +555,8 @@ func validJobRow(t *testing.T, f moneyPathFixture, tasks []taskRow) *jobRow {
 		EconomicPlan:         economicPlan,
 		WorkloadDecision:     workload,
 		ComputePlan:          computePlan,
+		PlacementRequirement: placement,
+		PricingDecision:      pricing,
 	}
 }
 
@@ -535,11 +654,38 @@ func TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger(t *testing.T) {
 		storedCompute.SplitSize != job.SplitSize {
 		t.Fatalf("submit did not freeze compute authority: %+v", storedCompute)
 	}
+	storedPlacement, err := store.JobPlacementRequirement(ctx, f.JobID)
+	if err != nil {
+		t.Fatalf("load frozen placement requirement: %v", err)
+	}
+	storedPricing, err := store.JobPricingDecision(ctx, f.JobID)
+	if err != nil {
+		t.Fatalf("load frozen pricing decision: %v", err)
+	}
+	if storedPlacement == nil || storedPricing == nil ||
+		storedPricing.PlacementRequirementSHA256 == "" ||
+		storedPricing.Catalogue.ScheduleSHA256 == "" {
+		t.Fatalf("submit did not freeze composite pricing authority: placement=%+v pricing=%+v",
+			storedPlacement, storedPricing)
+	}
 	if _, err := pool.Exec(ctx, `
 		UPDATE jobs
 		   SET compute_plan = jsonb_set(compute_plan, '{split_size}', '99'::jsonb)
 		 WHERE id=$1`, f.JobID); err == nil {
 		t.Fatal("database allowed frozen compute authority to be mutated")
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE jobs
+		   SET pricing_decision = jsonb_set(pricing_decision, '{buyer_price}', '99'::jsonb)
+		 WHERE id=$1`, f.JobID); err == nil {
+		t.Fatal("database allowed frozen pricing authority to be mutated")
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE jobs
+		   SET placement_requirement =
+		       jsonb_set(placement_requirement, '{offered_rate_usd_hr}', '99'::jsonb)
+		 WHERE id=$1`, f.JobID); err == nil {
+		t.Fatal("database allowed frozen placement authority to be mutated")
 	}
 	for name, statement := range map[string]string{
 		"job type":     `UPDATE jobs SET job_type='batch_infer' WHERE id=$1`,
@@ -558,6 +704,152 @@ func TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger(t *testing.T) {
 	}
 	if n := countBuyerLedger(t, ctx, pool, f.BuyerID); n != 0 {
 		t.Fatalf("SubmitJobTx minted %d ledger rows; submit must mint no money", n)
+	}
+}
+
+func TestLegacyJobPricingAuthorityRemainsExplicitlyUnverifiable(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 1, SeedJob: true,
+	})
+	placement, err := store.JobPlacementRequirement(ctx, f.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pricing, err := store.JobPricingDecision(ctx, f.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if placement != nil || pricing != nil {
+		t.Fatalf("legacy job received invented authority: placement=%+v pricing=%+v",
+			placement, pricing)
+	}
+	var pairCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM jobs
+		 WHERE id=$1
+		   AND placement_requirement IS NULL
+		   AND placement_requirement_sha256 IS NULL
+		   AND pricing_decision IS NULL
+		   AND pricing_decision_sha256 IS NULL`, f.JobID,
+	).Scan(&pairCount); err != nil {
+		t.Fatal(err)
+	}
+	if pairCount != 1 {
+		t.Fatal("legacy pricing NULL authority shape was not preserved")
+	}
+}
+
+func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
+	tasks := makeTasks(f, 1)
+	f.TaskIDs = []uuid.UUID{tasks[0].ID}
+	job := validJobRow(t, f, tasks)
+
+	quoteID := uuid.New()
+	quote := Quote{
+		QuoteID: "q_" + quoteID.String(), bareID: quoteID,
+		JobType: job.JobType, Model: job.ModelRef, Tier: job.Tier,
+		Currency: job.EconomicPlan.Schedule.Currency,
+		Workload: job.WorkloadDecision, Placement: job.PlacementRequirement,
+		ComputePlan: job.ComputePlan, Pricing: job.PricingDecision,
+		Economics:   job.EconomicPlan,
+		InputSHA256: strings.Repeat("a", 64),
+		ExpiresAt:   time.Now().Add(quoteTTL).UTC(),
+	}
+	if err := store.InsertQuote(ctx, f.BuyerID, quote); err != nil {
+		t.Fatalf("insert composite quote: %v", err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(c, `DELETE FROM quotes WHERE id=$1`, quoteID)
+	})
+	bound, err := store.GetBindableQuote(ctx, quoteID, f.BuyerID)
+	if err != nil {
+		t.Fatalf("load composite quote: %v", err)
+	}
+	quotePricingSHA, err := pricingDecisionDigest(quote.Pricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound.PricingDecisionSHA256 != quotePricingSHA {
+		t.Fatalf("bound quote pricing digest=%s want %s",
+			bound.PricingDecisionSHA256, quotePricingSHA)
+	}
+
+	job.QuoteID = quoteID
+	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
+		t.Fatalf("submit quote-bound job: %v", err)
+	}
+
+	candidate := job.WorkloadDecision.RuntimeCandidates[0]
+	if _, err := pool.Exec(ctx,
+		`DELETE FROM worker_authorized_capabilities WHERE worker_id=$1`,
+		f.WorkerID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO worker_authorized_capabilities
+		  (worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		f.WorkerID, candidate.CellID, candidate.RuntimeID,
+		job.JobType, job.ModelRef, job.WorkloadDecision.Binding.Model.Kind,
+		generatedRuntimeMatrixSHA256,
+	); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
+		WorkerID: f.WorkerID, SupplierID: f.SupplierID,
+	})
+	if err != nil {
+		t.Fatalf("claim quote-bound task: %v", err)
+	}
+	if claimed == nil || claimed.TaskID != tasks[0].ID ||
+		claimed.OfferedRateUsdHr != job.PlacementRequirement.OfferedRateUsdHr {
+		t.Fatalf("scheduler did not consume frozen placement authority: %+v", claimed)
+	}
+
+	storedWorkload, err := store.JobWorkloadDecision(ctx, f.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedCompute, err := store.JobComputePlan(ctx, f.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedPlacement, err := store.JobPlacementRequirement(ctx, f.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedPricing, err := store.JobPricingDecision(ctx, f.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobPricingSHA, err := pricingDecisionDigest(*storedPricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jobPricingSHA != quotePricingSHA {
+		t.Fatalf("quote pricing digest %s changed at accepted job %s",
+			quotePricingSHA, jobPricingSHA)
+	}
+	invoice, err := store.JobInvoice(ctx, f.JobID, f.BuyerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := assembleClearingReceipt(
+		f.JobID, invoice.Status, storedWorkload, storedCompute,
+		storedPlacement, storedPricing, invoice, Verification{}, nil, nil,
+	)
+	if receipt.Authority.PricingDecisionSHA256 != quotePricingSHA ||
+		receipt.Pricing == nil ||
+		receipt.Reconciliation == nil ||
+		receipt.Reconciliation.CatalogueScheduleSHA256 !=
+			quote.Pricing.Catalogue.ScheduleSHA256 {
+		t.Fatalf("receipt did not preserve exact quote pricing authority: %+v", receipt)
 	}
 }
 
