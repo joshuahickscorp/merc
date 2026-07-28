@@ -1,0 +1,7 @@
+{
+  "authority": "GOVERNED_BUILDER_INPUT",
+  "note": "Public scene description for the fixture",
+  "path": "builder_inputs/fixture/scene.json",
+  "role": "fixture",
+  "target_id": "browser_round_trip"
+}

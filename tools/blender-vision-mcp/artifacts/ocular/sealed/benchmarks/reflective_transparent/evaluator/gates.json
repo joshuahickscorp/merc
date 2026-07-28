@@ -1,0 +1,9 @@
+{
+  "acceptance_thresholds": {
+    "specular_separation_required": true
+  },
+  "require_canary_absent_from_builder": true,
+  "require_split_digest_match": true,
+  "split_digest": "e717f29c157bd6a81a3bc0eda699be9f6c75eabac461a43034998a817f067519",
+  "target_id": "reflective_transparent"
+}

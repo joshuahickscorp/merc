@@ -1,0 +1,1990 @@
+{
+  "all_passed": true,
+  "cells": [
+    {
+      "case_kind": "positive",
+      "diagnosis": "weak product silhouette separation",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "background_noise": 0.0,
+        "fire_threshold": 0.35,
+        "silhouette_edge_weakness": 0.59
+      },
+      "passed": true,
+      "role": "product"
+    },
+    {
+      "case_kind": "near_threshold",
+      "diagnosis": "weak product silhouette separation",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "background_noise": 0.0,
+        "fire_threshold": 0.35,
+        "silhouette_edge_weakness": 0.38999999999999996
+      },
+      "passed": true,
+      "role": "product"
+    },
+    {
+      "case_kind": "negative",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "background_noise": 0.0,
+        "fire_threshold": 0.35,
+        "silhouette_edge_weakness": 0.22999999999999998
+      },
+      "passed": true,
+      "role": "product"
+    },
+    {
+      "case_kind": "confounder",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "background_noise": 1.0,
+        "fire_threshold": 0.35,
+        "silhouette_edge_weakness": 0.22999999999999998
+      },
+      "passed": true,
+      "role": "product"
+    },
+    {
+      "case_kind": "false_positive_check",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "background_noise": 0.5,
+        "fire_threshold": 0.35,
+        "silhouette_edge_weakness": 0.22999999999999998
+      },
+      "passed": true,
+      "role": "product"
+    },
+    {
+      "case_kind": "repair_verification",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "background_noise": 0.0,
+        "fire_threshold": 0.35,
+        "silhouette_edge_weakness": 0.26999999999999996
+      },
+      "passed": true,
+      "role": "product"
+    },
+    {
+      "case_kind": "positive",
+      "diagnosis": "plastic-looking metal",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "fire_threshold": 0.55,
+        "jpeg_blockiness": 0.0,
+        "plastic_metal_score": 0.76
+      },
+      "passed": true,
+      "role": "material"
+    },
+    {
+      "case_kind": "near_threshold",
+      "diagnosis": "plastic-looking metal",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "fire_threshold": 0.55,
+        "jpeg_blockiness": 0.0,
+        "plastic_metal_score": 0.5850000000000001
+      },
+      "passed": true,
+      "role": "material"
+    },
+    {
+      "case_kind": "negative",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.55,
+        "jpeg_blockiness": 0.0,
+        "plastic_metal_score": 0.44500000000000006
+      },
+      "passed": true,
+      "role": "material"
+    },
+    {
+      "case_kind": "confounder",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.55,
+        "jpeg_blockiness": 1.0,
+        "plastic_metal_score": 0.44500000000000006
+      },
+      "passed": true,
+      "role": "material"
+    },
+    {
+      "case_kind": "false_positive_check",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.55,
+        "jpeg_blockiness": 0.5,
+        "plastic_metal_score": 0.44500000000000006
+      },
+      "passed": true,
+      "role": "material"
+    },
+    {
+      "case_kind": "repair_verification",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.55,
+        "jpeg_blockiness": 0.0,
+        "plastic_metal_score": 0.48000000000000004
+      },
+      "passed": true,
+      "role": "material"
+    },
+    {
+      "case_kind": "positive",
+      "diagnosis": "highlight clipping",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "clip_fraction": 0.08499999999999999,
+        "fire_threshold": 0.04,
+        "sensor_gain_noise": 0.0
+      },
+      "passed": true,
+      "role": "light"
+    },
+    {
+      "case_kind": "near_threshold",
+      "diagnosis": "highlight clipping",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "clip_fraction": 0.0475,
+        "fire_threshold": 0.04,
+        "sensor_gain_noise": 0.0
+      },
+      "passed": true,
+      "role": "light"
+    },
+    {
+      "case_kind": "negative",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "clip_fraction": 0.0175,
+        "fire_threshold": 0.04,
+        "sensor_gain_noise": 0.0
+      },
+      "passed": true,
+      "role": "light"
+    },
+    {
+      "case_kind": "confounder",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "clip_fraction": 0.0175,
+        "fire_threshold": 0.04,
+        "sensor_gain_noise": 1.0
+      },
+      "passed": true,
+      "role": "light"
+    },
+    {
+      "case_kind": "false_positive_check",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "clip_fraction": 0.0175,
+        "fire_threshold": 0.04,
+        "sensor_gain_noise": 0.5
+      },
+      "passed": true,
+      "role": "light"
+    },
+    {
+      "case_kind": "repair_verification",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "clip_fraction": 0.025,
+        "fire_threshold": 0.04,
+        "sensor_gain_noise": 0.0
+      },
+      "passed": true,
+      "role": "light"
+    },
+    {
+      "case_kind": "positive",
+      "diagnosis": "environment instance monotony",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "camera_jitter": 0.0,
+        "fire_threshold": 0.7,
+        "instance_uniformity": 0.94
+      },
+      "passed": true,
+      "role": "environment"
+    },
+    {
+      "case_kind": "near_threshold",
+      "diagnosis": "environment instance monotony",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "camera_jitter": 0.0,
+        "fire_threshold": 0.7,
+        "instance_uniformity": 0.74
+      },
+      "passed": true,
+      "role": "environment"
+    },
+    {
+      "case_kind": "negative",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "camera_jitter": 0.0,
+        "fire_threshold": 0.7,
+        "instance_uniformity": 0.58
+      },
+      "passed": true,
+      "role": "environment"
+    },
+    {
+      "case_kind": "confounder",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "camera_jitter": 1.0,
+        "fire_threshold": 0.7,
+        "instance_uniformity": 0.58
+      },
+      "passed": true,
+      "role": "environment"
+    },
+    {
+      "case_kind": "false_positive_check",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "camera_jitter": 0.5,
+        "fire_threshold": 0.7,
+        "instance_uniformity": 0.58
+      },
+      "passed": true,
+      "role": "environment"
+    },
+    {
+      "case_kind": "repair_verification",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "camera_jitter": 0.0,
+        "fire_threshold": 0.7,
+        "instance_uniformity": 0.62
+      },
+      "passed": true,
+      "role": "environment"
+    },
+    {
+      "case_kind": "positive",
+      "diagnosis": "generic composition template",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "fire_threshold": 0.65,
+        "template_similarity": 0.8600000000000001,
+        "thumbnail_downscale": 0.0
+      },
+      "passed": true,
+      "role": "composition"
+    },
+    {
+      "case_kind": "near_threshold",
+      "diagnosis": "generic composition template",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "fire_threshold": 0.65,
+        "template_similarity": 0.685,
+        "thumbnail_downscale": 0.0
+      },
+      "passed": true,
+      "role": "composition"
+    },
+    {
+      "case_kind": "negative",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.65,
+        "template_similarity": 0.545,
+        "thumbnail_downscale": 0.0
+      },
+      "passed": true,
+      "role": "composition"
+    },
+    {
+      "case_kind": "confounder",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.65,
+        "template_similarity": 0.545,
+        "thumbnail_downscale": 1.0
+      },
+      "passed": true,
+      "role": "composition"
+    },
+    {
+      "case_kind": "false_positive_check",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.65,
+        "template_similarity": 0.545,
+        "thumbnail_downscale": 0.5
+      },
+      "passed": true,
+      "role": "composition"
+    },
+    {
+      "case_kind": "repair_verification",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.65,
+        "template_similarity": 0.5800000000000001,
+        "thumbnail_downscale": 0.0
+      },
+      "passed": true,
+      "role": "composition"
+    },
+    {
+      "case_kind": "positive",
+      "diagnosis": "insufficient text contrast",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "contrast_deficit": 0.48,
+        "fire_threshold": 0.3,
+        "subpixel_aa": 0.0
+      },
+      "passed": true,
+      "role": "typography"
+    },
+    {
+      "case_kind": "near_threshold",
+      "diagnosis": "insufficient text contrast",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "contrast_deficit": 0.32999999999999996,
+        "fire_threshold": 0.3,
+        "subpixel_aa": 0.0
+      },
+      "passed": true,
+      "role": "typography"
+    },
+    {
+      "case_kind": "negative",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "contrast_deficit": 0.21,
+        "fire_threshold": 0.3,
+        "subpixel_aa": 0.0
+      },
+      "passed": true,
+      "role": "typography"
+    },
+    {
+      "case_kind": "confounder",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "contrast_deficit": 0.21,
+        "fire_threshold": 0.3,
+        "subpixel_aa": 1.0
+      },
+      "passed": true,
+      "role": "typography"
+    },
+    {
+      "case_kind": "false_positive_check",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "contrast_deficit": 0.21,
+        "fire_threshold": 0.3,
+        "subpixel_aa": 0.5
+      },
+      "passed": true,
+      "role": "typography"
+    },
+    {
+      "case_kind": "repair_verification",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "contrast_deficit": 0.24,
+        "fire_threshold": 0.3,
+        "subpixel_aa": 0.0
+      },
+      "passed": true,
+      "role": "typography"
+    },
+    {
+      "case_kind": "positive",
+      "diagnosis": "dead scroll / camera lag",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "dead_scroll_fraction": 0.4,
+        "fire_threshold": 0.25,
+        "frame_pacing_jitter": 0.0
+      },
+      "passed": true,
+      "role": "motion"
+    },
+    {
+      "case_kind": "near_threshold",
+      "diagnosis": "dead scroll / camera lag",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "dead_scroll_fraction": 0.275,
+        "fire_threshold": 0.25,
+        "frame_pacing_jitter": 0.0
+      },
+      "passed": true,
+      "role": "motion"
+    },
+    {
+      "case_kind": "negative",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "dead_scroll_fraction": 0.175,
+        "fire_threshold": 0.25,
+        "frame_pacing_jitter": 0.0
+      },
+      "passed": true,
+      "role": "motion"
+    },
+    {
+      "case_kind": "confounder",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "dead_scroll_fraction": 0.175,
+        "fire_threshold": 0.25,
+        "frame_pacing_jitter": 1.0
+      },
+      "passed": true,
+      "role": "motion"
+    },
+    {
+      "case_kind": "false_positive_check",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "dead_scroll_fraction": 0.175,
+        "fire_threshold": 0.25,
+        "frame_pacing_jitter": 0.5
+      },
+      "passed": true,
+      "role": "motion"
+    },
+    {
+      "case_kind": "repair_verification",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "dead_scroll_fraction": 0.2,
+        "fire_threshold": 0.25,
+        "frame_pacing_jitter": 0.0
+      },
+      "passed": true,
+      "role": "motion"
+    },
+    {
+      "case_kind": "positive",
+      "diagnosis": "unnatural bilateral symmetry",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "fire_threshold": 0.85,
+        "mesh_density": 0.0,
+        "symmetry_excess": 1.0
+      },
+      "passed": true,
+      "role": "organic"
+    },
+    {
+      "case_kind": "near_threshold",
+      "diagnosis": "unnatural bilateral symmetry",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "fire_threshold": 0.85,
+        "mesh_density": 0.0,
+        "symmetry_excess": 0.875
+      },
+      "passed": true,
+      "role": "organic"
+    },
+    {
+      "case_kind": "negative",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.85,
+        "mesh_density": 0.0,
+        "symmetry_excess": 0.7749999999999999
+      },
+      "passed": true,
+      "role": "organic"
+    },
+    {
+      "case_kind": "confounder",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.85,
+        "mesh_density": 1.0,
+        "symmetry_excess": 0.7749999999999999
+      },
+      "passed": true,
+      "role": "organic"
+    },
+    {
+      "case_kind": "false_positive_check",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.85,
+        "mesh_density": 0.5,
+        "symmetry_excess": 0.7749999999999999
+      },
+      "passed": true,
+      "role": "organic"
+    },
+    {
+      "case_kind": "repair_verification",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 0.85,
+        "mesh_density": 0.0,
+        "symmetry_excess": 0.7999999999999999
+      },
+      "passed": true,
+      "role": "organic"
+    },
+    {
+      "case_kind": "positive",
+      "diagnosis": "wrong fur clump scale",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "clump_ratio_error": 0.64,
+        "fire_threshold": 0.4,
+        "strand_count": 0.0
+      },
+      "passed": true,
+      "role": "groom"
+    },
+    {
+      "case_kind": "near_threshold",
+      "diagnosis": "wrong fur clump scale",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "clump_ratio_error": 0.44,
+        "fire_threshold": 0.4,
+        "strand_count": 0.0
+      },
+      "passed": true,
+      "role": "groom"
+    },
+    {
+      "case_kind": "negative",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "clump_ratio_error": 0.28,
+        "fire_threshold": 0.4,
+        "strand_count": 0.0
+      },
+      "passed": true,
+      "role": "groom"
+    },
+    {
+      "case_kind": "confounder",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "clump_ratio_error": 0.28,
+        "fire_threshold": 0.4,
+        "strand_count": 1.0
+      },
+      "passed": true,
+      "role": "groom"
+    },
+    {
+      "case_kind": "false_positive_check",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "clump_ratio_error": 0.28,
+        "fire_threshold": 0.4,
+        "strand_count": 0.5
+      },
+      "passed": true,
+      "role": "groom"
+    },
+    {
+      "case_kind": "repair_verification",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "clump_ratio_error": 0.32,
+        "fire_threshold": 0.4,
+        "strand_count": 0.0
+      },
+      "passed": true,
+      "role": "groom"
+    },
+    {
+      "case_kind": "positive",
+      "diagnosis": "frame time budget exceeded",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "fire_threshold": 20.0,
+        "frame_p95_ms": 29.0,
+        "thermal_noise_ms": 0.0
+      },
+      "passed": true,
+      "role": "performance"
+    },
+    {
+      "case_kind": "near_threshold",
+      "diagnosis": "frame time budget exceeded",
+      "expected_fire": true,
+      "fired": true,
+      "measured": {
+        "fire_threshold": 20.0,
+        "frame_p95_ms": 21.5,
+        "thermal_noise_ms": 0.0
+      },
+      "passed": true,
+      "role": "performance"
+    },
+    {
+      "case_kind": "negative",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 20.0,
+        "frame_p95_ms": 15.5,
+        "thermal_noise_ms": 0.0
+      },
+      "passed": true,
+      "role": "performance"
+    },
+    {
+      "case_kind": "confounder",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 20.0,
+        "frame_p95_ms": 15.5,
+        "thermal_noise_ms": 1.0
+      },
+      "passed": true,
+      "role": "performance"
+    },
+    {
+      "case_kind": "false_positive_check",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 20.0,
+        "frame_p95_ms": 15.5,
+        "thermal_noise_ms": 0.5
+      },
+      "passed": true,
+      "role": "performance"
+    },
+    {
+      "case_kind": "repair_verification",
+      "diagnosis": "",
+      "expected_fire": false,
+      "fired": false,
+      "measured": {
+        "fire_threshold": 20.0,
+        "frame_p95_ms": 17.0,
+        "thermal_noise_ms": 0.0
+      },
+      "passed": true,
+      "role": "performance"
+    }
+  ],
+  "matrix_passed": true,
+  "receipts": {
+    "composition": {
+      "authority": "INFERRED",
+      "baseline_value": 0.0,
+      "confounder_passed": true,
+      "confounders": [
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "thumbnail_downscale",
+          "notes": "elevated thumbnail_downscale with clean template_similarity",
+          "passed": true
+        },
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "false_positive_channel",
+          "notes": "secondary channel does not enter the decision",
+          "passed": true
+        }
+      ],
+      "created_at": "2026-07-27T07:10:57.752635+00:00",
+      "digest": "28c7aa22db7ccc690810453318af67ca8a2582eee85adc9b0f25dee135d01734",
+      "discrimination_margin": 0.5,
+      "discrimination_passed": true,
+      "id": "sens-template_similarity-critic_fire-composition-c446979df9",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [
+          "synthetic fixtures; not a physical render"
+        ],
+        "model_versions": {},
+        "operation": "critic_calibration",
+        "parameters": {
+          "fire_threshold": 0.65,
+          "near_width": 0.07,
+          "quantity": "template_similarity",
+          "role": "composition"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "meaningful_delta": 0.07,
+      "measured_discrimination_threshold": 0.03500000000000003,
+      "metric_name": "critic_fire:composition",
+      "metric_unit": "fired",
+      "notes": [
+        "critic role composition",
+        "quantity template_similarity",
+        "threshold 0.65"
+      ],
+      "parameter_max": 0.93,
+      "parameter_min": 0.51,
+      "parameter_name": "template_similarity",
+      "peak_response": 1.0,
+      "record_kind": "ocular.probe-sensitivity-receipt",
+      "response_curve": [
+        {
+          "extras": {
+            "template_similarity": 0.51
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.51
+        },
+        {
+          "extras": {
+            "template_similarity": 0.615
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.615
+        },
+        {
+          "extras": {
+            "template_similarity": 0.65
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.65
+        },
+        {
+          "extras": {
+            "template_similarity": 0.685
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.685
+        },
+        {
+          "extras": {
+            "template_similarity": 0.79
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.79
+        },
+        {
+          "extras": {
+            "template_similarity": 0.93
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.93
+        }
+      ],
+      "schema_version": "2",
+      "steps": 6,
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "verdict": "AUTHORITATIVE"
+    },
+    "environment": {
+      "authority": "INFERRED",
+      "baseline_value": 0.0,
+      "confounder_passed": true,
+      "confounders": [
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "camera_jitter",
+          "notes": "elevated camera_jitter with clean instance_uniformity",
+          "passed": true
+        },
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "false_positive_channel",
+          "notes": "secondary channel does not enter the decision",
+          "passed": true
+        }
+      ],
+      "created_at": "2026-07-27T07:10:57.752565+00:00",
+      "digest": "faec6cbe900cad253b6d0f30869e6d58ccba058d82cc7add12d2fdaf3ec1ae0d",
+      "discrimination_margin": 0.5,
+      "discrimination_passed": true,
+      "id": "sens-instance_uniformity-critic_fire-environment-5c546f2caf",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [
+          "synthetic fixtures; not a physical render"
+        ],
+        "model_versions": {},
+        "operation": "critic_calibration",
+        "parameters": {
+          "fire_threshold": 0.7,
+          "near_width": 0.08,
+          "quantity": "instance_uniformity",
+          "role": "environment"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "meaningful_delta": 0.08,
+      "measured_discrimination_threshold": 0.040000000000000036,
+      "metric_name": "critic_fire:environment",
+      "metric_unit": "fired",
+      "notes": [
+        "critic role environment",
+        "quantity instance_uniformity",
+        "threshold 0.7"
+      ],
+      "parameter_max": 1.02,
+      "parameter_min": 0.5399999999999999,
+      "parameter_name": "instance_uniformity",
+      "peak_response": 1.0,
+      "record_kind": "ocular.probe-sensitivity-receipt",
+      "response_curve": [
+        {
+          "extras": {
+            "instance_uniformity": 0.5399999999999999
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.5399999999999999
+        },
+        {
+          "extras": {
+            "instance_uniformity": 0.6599999999999999
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.6599999999999999
+        },
+        {
+          "extras": {
+            "instance_uniformity": 0.7
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.7
+        },
+        {
+          "extras": {
+            "instance_uniformity": 0.74
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.74
+        },
+        {
+          "extras": {
+            "instance_uniformity": 0.86
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.86
+        },
+        {
+          "extras": {
+            "instance_uniformity": 1.02
+          },
+          "metric_value": 1.0,
+          "parameter_value": 1.02
+        }
+      ],
+      "schema_version": "2",
+      "steps": 6,
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "verdict": "AUTHORITATIVE"
+    },
+    "groom": {
+      "authority": "INFERRED",
+      "baseline_value": 0.0,
+      "confounder_passed": true,
+      "confounders": [
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "strand_count",
+          "notes": "elevated strand_count with clean clump_ratio_error",
+          "passed": true
+        },
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "false_positive_channel",
+          "notes": "secondary channel does not enter the decision",
+          "passed": true
+        }
+      ],
+      "created_at": "2026-07-27T07:10:57.752904+00:00",
+      "digest": "9dd63cd56794409175a8df74d27b150cc29847f8f18e8540d90dcd68f1690fdc",
+      "discrimination_margin": 0.5,
+      "discrimination_passed": true,
+      "id": "sens-clump_ratio_error-critic_fire-groom-b0662e6c9f",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [
+          "synthetic fixtures; not a physical render"
+        ],
+        "model_versions": {},
+        "operation": "critic_calibration",
+        "parameters": {
+          "fire_threshold": 0.4,
+          "near_width": 0.08,
+          "quantity": "clump_ratio_error",
+          "role": "groom"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "meaningful_delta": 0.08,
+      "measured_discrimination_threshold": 0.03999999999999998,
+      "metric_name": "critic_fire:groom",
+      "metric_unit": "fired",
+      "notes": [
+        "critic role groom",
+        "quantity clump_ratio_error",
+        "threshold 0.4"
+      ],
+      "parameter_max": 0.72,
+      "parameter_min": 0.24000000000000002,
+      "parameter_name": "clump_ratio_error",
+      "peak_response": 1.0,
+      "record_kind": "ocular.probe-sensitivity-receipt",
+      "response_curve": [
+        {
+          "extras": {
+            "clump_ratio_error": 0.24000000000000002
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.24000000000000002
+        },
+        {
+          "extras": {
+            "clump_ratio_error": 0.36000000000000004
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.36000000000000004
+        },
+        {
+          "extras": {
+            "clump_ratio_error": 0.4
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.4
+        },
+        {
+          "extras": {
+            "clump_ratio_error": 0.44
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.44
+        },
+        {
+          "extras": {
+            "clump_ratio_error": 0.56
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.56
+        },
+        {
+          "extras": {
+            "clump_ratio_error": 0.72
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.72
+        }
+      ],
+      "schema_version": "2",
+      "steps": 6,
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "verdict": "AUTHORITATIVE"
+    },
+    "light": {
+      "authority": "INFERRED",
+      "baseline_value": 0.0,
+      "confounder_passed": true,
+      "confounders": [
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "sensor_gain_noise",
+          "notes": "elevated sensor_gain_noise with clean clip_fraction",
+          "passed": true
+        },
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "false_positive_channel",
+          "notes": "secondary channel does not enter the decision",
+          "passed": true
+        }
+      ],
+      "created_at": "2026-07-27T07:10:57.752482+00:00",
+      "digest": "1f0b8f00b9909075dc53f8419ebde914e1f587c227445eb80fc50e7e4b142586",
+      "discrimination_margin": 0.5,
+      "discrimination_passed": true,
+      "id": "sens-clip_fraction-critic_fire-light-7d43ab3d0a",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [
+          "synthetic fixtures; not a physical render"
+        ],
+        "model_versions": {},
+        "operation": "critic_calibration",
+        "parameters": {
+          "fire_threshold": 0.04,
+          "near_width": 0.015,
+          "quantity": "clip_fraction",
+          "role": "light"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "meaningful_delta": 0.015,
+      "measured_discrimination_threshold": 0.0075,
+      "metric_name": "critic_fire:light",
+      "metric_unit": "fired",
+      "notes": [
+        "critic role light",
+        "quantity clip_fraction",
+        "threshold 0.04"
+      ],
+      "parameter_max": 0.1,
+      "parameter_min": 0.010000000000000002,
+      "parameter_name": "clip_fraction",
+      "peak_response": 1.0,
+      "record_kind": "ocular.probe-sensitivity-receipt",
+      "response_curve": [
+        {
+          "extras": {
+            "clip_fraction": 0.010000000000000002
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.010000000000000002
+        },
+        {
+          "extras": {
+            "clip_fraction": 0.0325
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.0325
+        },
+        {
+          "extras": {
+            "clip_fraction": 0.04
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.04
+        },
+        {
+          "extras": {
+            "clip_fraction": 0.0475
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.0475
+        },
+        {
+          "extras": {
+            "clip_fraction": 0.07
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.07
+        },
+        {
+          "extras": {
+            "clip_fraction": 0.1
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.1
+        }
+      ],
+      "schema_version": "2",
+      "steps": 6,
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "verdict": "AUTHORITATIVE"
+    },
+    "material": {
+      "authority": "INFERRED",
+      "baseline_value": 0.0,
+      "confounder_passed": true,
+      "confounders": [
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "jpeg_blockiness",
+          "notes": "elevated jpeg_blockiness with clean plastic_metal_score",
+          "passed": true
+        },
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "false_positive_channel",
+          "notes": "secondary channel does not enter the decision",
+          "passed": true
+        }
+      ],
+      "created_at": "2026-07-27T07:10:57.752385+00:00",
+      "digest": "8a68e071c13e5e499317db74e3f42f0892aa77cdb5731f1dd2a5381f821579cc",
+      "discrimination_margin": 0.5,
+      "discrimination_passed": true,
+      "id": "sens-plastic_metal_score-critic_fire-material-6adc520e21",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [
+          "synthetic fixtures; not a physical render"
+        ],
+        "model_versions": {},
+        "operation": "critic_calibration",
+        "parameters": {
+          "fire_threshold": 0.55,
+          "near_width": 0.07,
+          "quantity": "plastic_metal_score",
+          "role": "material"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "meaningful_delta": 0.07,
+      "measured_discrimination_threshold": 0.03500000000000003,
+      "metric_name": "critic_fire:material",
+      "metric_unit": "fired",
+      "notes": [
+        "critic role material",
+        "quantity plastic_metal_score",
+        "threshold 0.55"
+      ],
+      "parameter_max": 0.8300000000000001,
+      "parameter_min": 0.41000000000000003,
+      "parameter_name": "plastic_metal_score",
+      "peak_response": 1.0,
+      "record_kind": "ocular.probe-sensitivity-receipt",
+      "response_curve": [
+        {
+          "extras": {
+            "plastic_metal_score": 0.41000000000000003
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.41000000000000003
+        },
+        {
+          "extras": {
+            "plastic_metal_score": 0.515
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.515
+        },
+        {
+          "extras": {
+            "plastic_metal_score": 0.55
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.55
+        },
+        {
+          "extras": {
+            "plastic_metal_score": 0.5850000000000001
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.5850000000000001
+        },
+        {
+          "extras": {
+            "plastic_metal_score": 0.6900000000000001
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.6900000000000001
+        },
+        {
+          "extras": {
+            "plastic_metal_score": 0.8300000000000001
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.8300000000000001
+        }
+      ],
+      "schema_version": "2",
+      "steps": 6,
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "verdict": "AUTHORITATIVE"
+    },
+    "motion": {
+      "authority": "INFERRED",
+      "baseline_value": 0.0,
+      "confounder_passed": true,
+      "confounders": [
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "frame_pacing_jitter",
+          "notes": "elevated frame_pacing_jitter with clean dead_scroll_fraction",
+          "passed": true
+        },
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "false_positive_channel",
+          "notes": "secondary channel does not enter the decision",
+          "passed": true
+        }
+      ],
+      "created_at": "2026-07-27T07:10:57.752774+00:00",
+      "digest": "9e88b79e9ecd71e00759cad8a760ac21ef919a10c1e6afbdbf04f0bcec58322b",
+      "discrimination_margin": 0.5,
+      "discrimination_passed": true,
+      "id": "sens-dead_scroll_fraction-critic_fire-motion-4360691b5e",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [
+          "synthetic fixtures; not a physical render"
+        ],
+        "model_versions": {},
+        "operation": "critic_calibration",
+        "parameters": {
+          "fire_threshold": 0.25,
+          "near_width": 0.05,
+          "quantity": "dead_scroll_fraction",
+          "role": "motion"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "meaningful_delta": 0.05,
+      "measured_discrimination_threshold": 0.024999999999999994,
+      "metric_name": "critic_fire:motion",
+      "metric_unit": "fired",
+      "notes": [
+        "critic role motion",
+        "quantity dead_scroll_fraction",
+        "threshold 0.25"
+      ],
+      "parameter_max": 0.45,
+      "parameter_min": 0.15,
+      "parameter_name": "dead_scroll_fraction",
+      "peak_response": 1.0,
+      "record_kind": "ocular.probe-sensitivity-receipt",
+      "response_curve": [
+        {
+          "extras": {
+            "dead_scroll_fraction": 0.15
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.15
+        },
+        {
+          "extras": {
+            "dead_scroll_fraction": 0.225
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.225
+        },
+        {
+          "extras": {
+            "dead_scroll_fraction": 0.25
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.25
+        },
+        {
+          "extras": {
+            "dead_scroll_fraction": 0.275
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.275
+        },
+        {
+          "extras": {
+            "dead_scroll_fraction": 0.35
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.35
+        },
+        {
+          "extras": {
+            "dead_scroll_fraction": 0.45
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.45
+        }
+      ],
+      "schema_version": "2",
+      "steps": 6,
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "verdict": "AUTHORITATIVE"
+    },
+    "organic": {
+      "authority": "INFERRED",
+      "baseline_value": 0.0,
+      "confounder_passed": true,
+      "confounders": [
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "mesh_density",
+          "notes": "elevated mesh_density with clean symmetry_excess",
+          "passed": true
+        },
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "false_positive_channel",
+          "notes": "secondary channel does not enter the decision",
+          "passed": true
+        }
+      ],
+      "created_at": "2026-07-27T07:10:57.752842+00:00",
+      "digest": "f8e6cc1681ad9bb62ff0a0dd2cbcab2e38d39a13d3dd2aa2b6ab6435af2f70bb",
+      "discrimination_margin": 0.5,
+      "discrimination_passed": true,
+      "id": "sens-symmetry_excess-critic_fire-organic-b5162696fb",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [
+          "synthetic fixtures; not a physical render"
+        ],
+        "model_versions": {},
+        "operation": "critic_calibration",
+        "parameters": {
+          "fire_threshold": 0.85,
+          "near_width": 0.05,
+          "quantity": "symmetry_excess",
+          "role": "organic"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "meaningful_delta": 0.05,
+      "measured_discrimination_threshold": 0.025000000000000022,
+      "metric_name": "critic_fire:organic",
+      "metric_unit": "fired",
+      "notes": [
+        "critic role organic",
+        "quantity symmetry_excess",
+        "threshold 0.85"
+      ],
+      "parameter_max": 1.05,
+      "parameter_min": 0.75,
+      "parameter_name": "symmetry_excess",
+      "peak_response": 1.0,
+      "record_kind": "ocular.probe-sensitivity-receipt",
+      "response_curve": [
+        {
+          "extras": {
+            "symmetry_excess": 0.75
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.75
+        },
+        {
+          "extras": {
+            "symmetry_excess": 0.825
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.825
+        },
+        {
+          "extras": {
+            "symmetry_excess": 0.85
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.85
+        },
+        {
+          "extras": {
+            "symmetry_excess": 0.875
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.875
+        },
+        {
+          "extras": {
+            "symmetry_excess": 0.95
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.95
+        },
+        {
+          "extras": {
+            "symmetry_excess": 1.05
+          },
+          "metric_value": 1.0,
+          "parameter_value": 1.05
+        }
+      ],
+      "schema_version": "2",
+      "steps": 6,
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "verdict": "AUTHORITATIVE"
+    },
+    "performance": {
+      "authority": "INFERRED",
+      "baseline_value": 0.0,
+      "confounder_passed": true,
+      "confounders": [
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "thermal_noise_ms",
+          "notes": "elevated thermal_noise_ms with clean frame_p95_ms",
+          "passed": true
+        },
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "false_positive_channel",
+          "notes": "secondary channel does not enter the decision",
+          "passed": true
+        }
+      ],
+      "created_at": "2026-07-27T07:10:57.752968+00:00",
+      "digest": "67baeda3c7ee123df4b257703f8be483a84b8e2dcfb78e597d3328e9d8c02eeb",
+      "discrimination_margin": 0.5,
+      "discrimination_passed": true,
+      "id": "sens-frame_p95_ms-critic_fire-performance-5ffbbcd6c5",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [
+          "synthetic fixtures; not a physical render"
+        ],
+        "model_versions": {},
+        "operation": "critic_calibration",
+        "parameters": {
+          "fire_threshold": 20.0,
+          "near_width": 3.0,
+          "quantity": "frame_p95_ms",
+          "role": "performance"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "meaningful_delta": 3.0,
+      "measured_discrimination_threshold": 1.5,
+      "metric_name": "critic_fire:performance",
+      "metric_unit": "fired",
+      "notes": [
+        "critic role performance",
+        "quantity frame_p95_ms",
+        "threshold 20.0"
+      ],
+      "parameter_max": 32.0,
+      "parameter_min": 14.0,
+      "parameter_name": "frame_p95_ms",
+      "peak_response": 1.0,
+      "record_kind": "ocular.probe-sensitivity-receipt",
+      "response_curve": [
+        {
+          "extras": {
+            "frame_p95_ms": 14.0
+          },
+          "metric_value": 0.0,
+          "parameter_value": 14.0
+        },
+        {
+          "extras": {
+            "frame_p95_ms": 18.5
+          },
+          "metric_value": 0.0,
+          "parameter_value": 18.5
+        },
+        {
+          "extras": {
+            "frame_p95_ms": 20.0
+          },
+          "metric_value": 1.0,
+          "parameter_value": 20.0
+        },
+        {
+          "extras": {
+            "frame_p95_ms": 21.5
+          },
+          "metric_value": 1.0,
+          "parameter_value": 21.5
+        },
+        {
+          "extras": {
+            "frame_p95_ms": 26.0
+          },
+          "metric_value": 1.0,
+          "parameter_value": 26.0
+        },
+        {
+          "extras": {
+            "frame_p95_ms": 32.0
+          },
+          "metric_value": 1.0,
+          "parameter_value": 32.0
+        }
+      ],
+      "schema_version": "2",
+      "steps": 6,
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "verdict": "AUTHORITATIVE"
+    },
+    "product": {
+      "authority": "INFERRED",
+      "baseline_value": 0.0,
+      "confounder_passed": true,
+      "confounders": [
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "background_noise",
+          "notes": "elevated background_noise with clean silhouette_edge_weakness",
+          "passed": true
+        },
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "false_positive_channel",
+          "notes": "secondary channel does not enter the decision",
+          "passed": true
+        }
+      ],
+      "created_at": "2026-07-27T07:10:57.751883+00:00",
+      "digest": "047cef16234c9522c733b59bf66f39ee95254969d56d7f0622f9604986f8b1c0",
+      "discrimination_margin": 0.5,
+      "discrimination_passed": true,
+      "id": "sens-silhouette_edge_weakness-critic_fire-product-4df2d2792d",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [
+          "synthetic fixtures; not a physical render"
+        ],
+        "model_versions": {},
+        "operation": "critic_calibration",
+        "parameters": {
+          "fire_threshold": 0.35,
+          "near_width": 0.08,
+          "quantity": "silhouette_edge_weakness",
+          "role": "product"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "meaningful_delta": 0.08,
+      "measured_discrimination_threshold": 0.03999999999999998,
+      "metric_name": "critic_fire:product",
+      "metric_unit": "fired",
+      "notes": [
+        "critic role product",
+        "quantity silhouette_edge_weakness",
+        "threshold 0.35"
+      ],
+      "parameter_max": 0.6699999999999999,
+      "parameter_min": 0.18999999999999997,
+      "parameter_name": "silhouette_edge_weakness",
+      "peak_response": 1.0,
+      "record_kind": "ocular.probe-sensitivity-receipt",
+      "response_curve": [
+        {
+          "extras": {
+            "silhouette_edge_weakness": 0.18999999999999997
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.18999999999999997
+        },
+        {
+          "extras": {
+            "silhouette_edge_weakness": 0.31
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.31
+        },
+        {
+          "extras": {
+            "silhouette_edge_weakness": 0.35
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.35
+        },
+        {
+          "extras": {
+            "silhouette_edge_weakness": 0.38999999999999996
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.38999999999999996
+        },
+        {
+          "extras": {
+            "silhouette_edge_weakness": 0.51
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.51
+        },
+        {
+          "extras": {
+            "silhouette_edge_weakness": 0.6699999999999999
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.6699999999999999
+        }
+      ],
+      "schema_version": "2",
+      "steps": 6,
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "verdict": "AUTHORITATIVE"
+    },
+    "typography": {
+      "authority": "INFERRED",
+      "baseline_value": 0.0,
+      "confounder_passed": true,
+      "confounders": [
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "subpixel_aa",
+          "notes": "elevated subpixel_aa with clean contrast_deficit",
+          "passed": true
+        },
+        {
+          "max_allowed_delta": 0.0,
+          "metric_delta": 0.0,
+          "name": "false_positive_channel",
+          "notes": "secondary channel does not enter the decision",
+          "passed": true
+        }
+      ],
+      "created_at": "2026-07-27T07:10:57.752703+00:00",
+      "digest": "e67e2ed865bfeaaeeebd3b88c62623b5f1c6f7064d81275f71524c2a22c411a0",
+      "discrimination_margin": 0.5,
+      "discrimination_passed": true,
+      "id": "sens-contrast_deficit-critic_fire-typography-f276b71a0f",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [],
+        "limitations": [
+          "synthetic fixtures; not a physical render"
+        ],
+        "model_versions": {},
+        "operation": "critic_calibration",
+        "parameters": {
+          "fire_threshold": 0.3,
+          "near_width": 0.06,
+          "quantity": "contrast_deficit",
+          "role": "typography"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "meaningful_delta": 0.06,
+      "measured_discrimination_threshold": 0.02999999999999997,
+      "metric_name": "critic_fire:typography",
+      "metric_unit": "fired",
+      "notes": [
+        "critic role typography",
+        "quantity contrast_deficit",
+        "threshold 0.3"
+      ],
+      "parameter_max": 0.54,
+      "parameter_min": 0.18,
+      "parameter_name": "contrast_deficit",
+      "peak_response": 1.0,
+      "record_kind": "ocular.probe-sensitivity-receipt",
+      "response_curve": [
+        {
+          "extras": {
+            "contrast_deficit": 0.18
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.18
+        },
+        {
+          "extras": {
+            "contrast_deficit": 0.27
+          },
+          "metric_value": 0.0,
+          "parameter_value": 0.27
+        },
+        {
+          "extras": {
+            "contrast_deficit": 0.3
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.3
+        },
+        {
+          "extras": {
+            "contrast_deficit": 0.32999999999999996
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.32999999999999996
+        },
+        {
+          "extras": {
+            "contrast_deficit": 0.42
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.42
+        },
+        {
+          "extras": {
+            "contrast_deficit": 0.54
+          },
+          "metric_value": 1.0,
+          "parameter_value": 0.54
+        }
+      ],
+      "schema_version": "2",
+      "steps": 6,
+      "superseded_by": null,
+      "supersedes": [],
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "verdict": "AUTHORITATIVE"
+    }
+  },
+  "role_ok": {
+    "composition": true,
+    "environment": true,
+    "groom": true,
+    "light": true,
+    "material": true,
+    "motion": true,
+    "organic": true,
+    "performance": true,
+    "product": true,
+    "typography": true
+  }
+}

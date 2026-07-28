@@ -1,0 +1,8 @@
+{
+  "claim_boundary": [
+    "Soft deformation; metric volume is inferred."
+  ],
+  "display_name": "Soft deformable object",
+  "evidence_status": "synthetic",
+  "target_id": "soft_object"
+}

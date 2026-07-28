@@ -1,0 +1,770 @@
+{
+  "cases": [
+    {
+      "candidate_receipt_sha256": "506ed3f26eb4890c70f8ee5a0a93b130b582bcb923d853aaf81bf3078144fd4f",
+      "complete": false,
+      "functional_passed": true,
+      "gates": [
+        {
+          "command": [
+            "bvmcp",
+            "app",
+            "compile",
+            "cases/crud-relational/packet.json"
+          ],
+          "elapsed_seconds": 0.06259525002678856,
+          "exact_resumption_contract": null,
+          "id": "compile",
+          "log_path": "logs/crud-relational/compile.log",
+          "log_sha256": "506ed3f26eb4890c70f8ee5a0a93b130b582bcb923d853aaf81bf3078144fd4f",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 22.093708291999064,
+          "exact_resumption_contract": null,
+          "id": "npm_ci",
+          "log_path": "logs/crud-relational/npm_ci.log",
+          "log_sha256": "cac34dd2d9440c9ea621a6c34f4c2fe6fbbce5383f70ec5de5f8e4da2475eb60",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.6855767500237562,
+          "exact_resumption_contract": null,
+          "id": "typescript_and_api_tests",
+          "log_path": "logs/crud-relational/typescript_and_api_tests.log",
+          "log_sha256": "fb3a8640f44adae8fc279f96f35108a02df769f72804eb1be386a95455e0e5bc",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.7943054169882089,
+          "exact_resumption_contract": null,
+          "id": "migration",
+          "log_path": "logs/crud-relational/migration.log",
+          "log_sha256": "52abd19d6f91513a035a38daa53f8b79e4a0f9644b2f87ded0f3a7249b0067f2",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.7825167090049945,
+          "exact_resumption_contract": null,
+          "id": "repeat_migration",
+          "log_path": "logs/crud-relational/repeat_migration.log",
+          "log_sha256": "52abd19d6f91513a035a38daa53f8b79e4a0f9644b2f87ded0f3a7249b0067f2",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "node",
+            "dist/src/server.js",
+            "# twice"
+          ],
+          "elapsed_seconds": 0.2758783330209553,
+          "exact_resumption_contract": null,
+          "id": "restart_health",
+          "log_path": "logs/crud-relational/restart_health.log",
+          "log_sha256": "2a46c35eb06cc29f80f3edfe7ea6c9c08006ee4b20a9c11ab2fbd2625b4e9329",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:rollback"
+          ],
+          "elapsed_seconds": 0.7917715419898741,
+          "exact_resumption_contract": null,
+          "id": "rollback",
+          "log_path": "logs/crud-relational/rollback.log",
+          "log_sha256": "ffb0c2654328cc207f2adae2314dfcfad8159cd9d8d617fc3c91b36a8dc62330",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 21.56044600001769,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_install",
+          "log_path": "logs/crud-relational/fresh_clone_install.log",
+          "log_sha256": "ce0f4f2deb784e88b86230c8c72bfd82719d711129925ff7f3fed2387c1dcb7c",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.741490916989278,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_reproduction",
+          "log_path": "logs/crud-relational/fresh_clone_reproduction.log",
+          "log_sha256": "c87f274f17f2d031429d8fd4d7a89a2fdc0df3185bdc076f60c6a1c22ce4dcf8",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "docker",
+            "compose",
+            "build"
+          ],
+          "elapsed_seconds": 0.0,
+          "exact_resumption_contract": "Start or provide an authorized Docker daemon, then rerun this exact benchmark. Preflight detail: failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
+          "id": "local_container_build",
+          "log_path": "logs/crud-relational/local_container_build.log",
+          "log_sha256": "f7efda1a3cc198a2d2027f12b5671a8e29d7048a681e942aafcab08108515b96",
+          "return_code": null,
+          "status": "BLOCKED_EXTERNAL"
+        }
+      ],
+      "id": "crud-relational",
+      "packet_sha256": "c37b4ba00c98a0b89edd9755222aadf10cd7a497f6ad92f41445cacd5a97eafe"
+    },
+    {
+      "candidate_receipt_sha256": "1bb810625d34a41fe5116f50b01bca8c91f140edbdb9c25fc1d913b709fee5c3",
+      "complete": false,
+      "functional_passed": true,
+      "gates": [
+        {
+          "command": [
+            "bvmcp",
+            "app",
+            "compile",
+            "cases/rbac-denied-paths/packet.json"
+          ],
+          "elapsed_seconds": 0.05325245897984132,
+          "exact_resumption_contract": null,
+          "id": "compile",
+          "log_path": "logs/rbac-denied-paths/compile.log",
+          "log_sha256": "1bb810625d34a41fe5116f50b01bca8c91f140edbdb9c25fc1d913b709fee5c3",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 21.62258266605204,
+          "exact_resumption_contract": null,
+          "id": "npm_ci",
+          "log_path": "logs/rbac-denied-paths/npm_ci.log",
+          "log_sha256": "a7d79850ed516c5a4fad06525bdf7207768d428cc5610d9c4212c46a2e19e549",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.6434487919905223,
+          "exact_resumption_contract": null,
+          "id": "typescript_and_api_tests",
+          "log_path": "logs/rbac-denied-paths/typescript_and_api_tests.log",
+          "log_sha256": "59b50236919551ae7677b56fe6eacb123de898ae687d0d586ba7db934af905c6",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.7839730419800617,
+          "exact_resumption_contract": null,
+          "id": "migration",
+          "log_path": "logs/rbac-denied-paths/migration.log",
+          "log_sha256": "bcbb3d4542e78cbff30e07bc469c0b315f81f2e4a1a88418c48b10a938415aff",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.7978857079870068,
+          "exact_resumption_contract": null,
+          "id": "repeat_migration",
+          "log_path": "logs/rbac-denied-paths/repeat_migration.log",
+          "log_sha256": "bcbb3d4542e78cbff30e07bc469c0b315f81f2e4a1a88418c48b10a938415aff",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "node",
+            "dist/src/server.js",
+            "# twice"
+          ],
+          "elapsed_seconds": 0.2760312089812942,
+          "exact_resumption_contract": null,
+          "id": "restart_health",
+          "log_path": "logs/rbac-denied-paths/restart_health.log",
+          "log_sha256": "25f4018f53e1e7f77b32c43dfb84cca99cf6290f38f6e112fe1bbf25e96092b2",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:rollback"
+          ],
+          "elapsed_seconds": 0.7819147080299444,
+          "exact_resumption_contract": null,
+          "id": "rollback",
+          "log_path": "logs/rbac-denied-paths/rollback.log",
+          "log_sha256": "313a66c056b026577a0178dff9917d84aa62b54df168fd1f56aefcc4280f2dd1",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 21.31622325000353,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_install",
+          "log_path": "logs/rbac-denied-paths/fresh_clone_install.log",
+          "log_sha256": "a57add9a1430e0dc480a2ca2b520240f18753763f19e1dc22bc008fc397d460e",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.6308389580226503,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_reproduction",
+          "log_path": "logs/rbac-denied-paths/fresh_clone_reproduction.log",
+          "log_sha256": "ec0bd8f0a30e3dc44ec8d408efd7150afe4b20b839fc15359ca1506bc63cf2c9",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "docker",
+            "compose",
+            "build"
+          ],
+          "elapsed_seconds": 0.0,
+          "exact_resumption_contract": "Start or provide an authorized Docker daemon, then rerun this exact benchmark. Preflight detail: failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
+          "id": "local_container_build",
+          "log_path": "logs/rbac-denied-paths/local_container_build.log",
+          "log_sha256": "f7efda1a3cc198a2d2027f12b5671a8e29d7048a681e942aafcab08108515b96",
+          "return_code": null,
+          "status": "BLOCKED_EXTERNAL"
+        }
+      ],
+      "id": "rbac-denied-paths",
+      "packet_sha256": "0595cfbd6b522014a1669580de461ccd5098c557a390f2722ff7df2f5cfc32f1"
+    },
+    {
+      "candidate_receipt_sha256": "e4dfd24f02e9574adec115cb038db7d7bab8216ad31cfef0e660fe447b773bee",
+      "complete": false,
+      "functional_passed": true,
+      "gates": [
+        {
+          "command": [
+            "bvmcp",
+            "app",
+            "compile",
+            "cases/idempotent-reservation/packet.json"
+          ],
+          "elapsed_seconds": 0.05231729103252292,
+          "exact_resumption_contract": null,
+          "id": "compile",
+          "log_path": "logs/idempotent-reservation/compile.log",
+          "log_sha256": "e4dfd24f02e9574adec115cb038db7d7bab8216ad31cfef0e660fe447b773bee",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 21.268554500013124,
+          "exact_resumption_contract": null,
+          "id": "npm_ci",
+          "log_path": "logs/idempotent-reservation/npm_ci.log",
+          "log_sha256": "65531440279a654416daf8221df28262d7b20ae967f387845c6b9fcb5ea68a29",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.6330687500303611,
+          "exact_resumption_contract": null,
+          "id": "typescript_and_api_tests",
+          "log_path": "logs/idempotent-reservation/typescript_and_api_tests.log",
+          "log_sha256": "6beca54970db42bea78fd692b437d455813b7b88941616520a3b0fb15c539a40",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.7719118329696357,
+          "exact_resumption_contract": null,
+          "id": "migration",
+          "log_path": "logs/idempotent-reservation/migration.log",
+          "log_sha256": "669e0596dcac747255832d2c0a5258c1b1e1a045fb726e69ce85b51b2894f5f9",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.7883492080145516,
+          "exact_resumption_contract": null,
+          "id": "repeat_migration",
+          "log_path": "logs/idempotent-reservation/repeat_migration.log",
+          "log_sha256": "669e0596dcac747255832d2c0a5258c1b1e1a045fb726e69ce85b51b2894f5f9",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "node",
+            "dist/src/server.js",
+            "# twice"
+          ],
+          "elapsed_seconds": 0.26402158400742337,
+          "exact_resumption_contract": null,
+          "id": "restart_health",
+          "log_path": "logs/idempotent-reservation/restart_health.log",
+          "log_sha256": "4306c0fbdd7d1af849d39f115b01e1cfd6f55f354996fd937dd27e482b4d7148",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:rollback"
+          ],
+          "elapsed_seconds": 0.7720281250076368,
+          "exact_resumption_contract": null,
+          "id": "rollback",
+          "log_path": "logs/idempotent-reservation/rollback.log",
+          "log_sha256": "9338b27e0ac8612f8906743a4054e32a76f286863736a55519516eb466906b9f",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 21.338837708055507,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_install",
+          "log_path": "logs/idempotent-reservation/fresh_clone_install.log",
+          "log_sha256": "f330d97a2fbd5f72980b55c9c483a445038e6f72c39ad96ef89be424a79b2c81",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.6121121249743737,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_reproduction",
+          "log_path": "logs/idempotent-reservation/fresh_clone_reproduction.log",
+          "log_sha256": "22f15717c7b7dfac10ab30334062a41325d1bde33486cc4fc9d8310bfaffd014",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "docker",
+            "compose",
+            "build"
+          ],
+          "elapsed_seconds": 0.0,
+          "exact_resumption_contract": "Start or provide an authorized Docker daemon, then rerun this exact benchmark. Preflight detail: failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
+          "id": "local_container_build",
+          "log_path": "logs/idempotent-reservation/local_container_build.log",
+          "log_sha256": "f7efda1a3cc198a2d2027f12b5671a8e29d7048a681e942aafcab08108515b96",
+          "return_code": null,
+          "status": "BLOCKED_EXTERNAL"
+        }
+      ],
+      "id": "idempotent-reservation",
+      "packet_sha256": "be958a6345e944e3fbba97aea81480edb87d0b414f094324780d282e1b38b78c"
+    },
+    {
+      "candidate_receipt_sha256": "18bdda5c4bd2aefdbd02e226d8a97cf2e3294016862834aa2e0fcef7f789f6b0",
+      "complete": false,
+      "functional_passed": false,
+      "gates": [
+        {
+          "command": [
+            "bvmcp",
+            "app",
+            "compile",
+            "cases/file-upload-boundaries/packet.json"
+          ],
+          "elapsed_seconds": 0.05729383399011567,
+          "exact_resumption_contract": null,
+          "id": "compile",
+          "log_path": "logs/file-upload-boundaries/compile.log",
+          "log_sha256": "18bdda5c4bd2aefdbd02e226d8a97cf2e3294016862834aa2e0fcef7f789f6b0",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 21.637628500000574,
+          "exact_resumption_contract": null,
+          "id": "npm_ci",
+          "log_path": "logs/file-upload-boundaries/npm_ci.log",
+          "log_sha256": "4acfb702dea6031d98055c979890e7cff892d323f1c6c6d767a2d8317bff7361",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.6059847919968888,
+          "exact_resumption_contract": null,
+          "id": "typescript_and_api_tests",
+          "log_path": "logs/file-upload-boundaries/typescript_and_api_tests.log",
+          "log_sha256": "6ad82065371b03486e0982fceaebd63e6bfd91d7323f7a3f011ccc3a02136b0d",
+          "return_code": 1,
+          "status": "FAIL"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.748349916015286,
+          "exact_resumption_contract": null,
+          "id": "migration",
+          "log_path": "logs/file-upload-boundaries/migration.log",
+          "log_sha256": "276b6b7a1780a9b7ea2164c821f0a5d8735387a3ec5a1d1eaaf1d2901ab47a63",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.7557065000291914,
+          "exact_resumption_contract": null,
+          "id": "repeat_migration",
+          "log_path": "logs/file-upload-boundaries/repeat_migration.log",
+          "log_sha256": "276b6b7a1780a9b7ea2164c821f0a5d8735387a3ec5a1d1eaaf1d2901ab47a63",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "node",
+            "dist/src/server.js",
+            "# twice"
+          ],
+          "elapsed_seconds": 0.27181908302009106,
+          "exact_resumption_contract": null,
+          "id": "restart_health",
+          "log_path": "logs/file-upload-boundaries/restart_health.log",
+          "log_sha256": "8862e0f4fa2c73c074c87a168590d7c4f8f426926b772f4182a51e9e639e3a01",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:rollback"
+          ],
+          "elapsed_seconds": 0.7786984169506468,
+          "exact_resumption_contract": null,
+          "id": "rollback",
+          "log_path": "logs/file-upload-boundaries/rollback.log",
+          "log_sha256": "fa9b094990c92f734956734cb92d20557ee6d60d32630b106b5ceb1c16b9cd42",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 22.785095040977467,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_install",
+          "log_path": "logs/file-upload-boundaries/fresh_clone_install.log",
+          "log_sha256": "c28496119baa40b7bb9205655a85f6214e1f9f8c958fbf674921838f77e609c3",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.7335193330072798,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_reproduction",
+          "log_path": "logs/file-upload-boundaries/fresh_clone_reproduction.log",
+          "log_sha256": "e08ac9a179b9e9b3bccc987b7f0910e7442d871089348099d1d250c0919442df",
+          "return_code": 1,
+          "status": "FAIL"
+        },
+        {
+          "command": [
+            "docker",
+            "compose",
+            "build"
+          ],
+          "elapsed_seconds": 0.0,
+          "exact_resumption_contract": "Start or provide an authorized Docker daemon, then rerun this exact benchmark. Preflight detail: failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
+          "id": "local_container_build",
+          "log_path": "logs/file-upload-boundaries/local_container_build.log",
+          "log_sha256": "f7efda1a3cc198a2d2027f12b5671a8e29d7048a681e942aafcab08108515b96",
+          "return_code": null,
+          "status": "BLOCKED_EXTERNAL"
+        }
+      ],
+      "id": "file-upload-boundaries",
+      "packet_sha256": "ce2448493bdb4bdbd2fdb2bb9a97644e19de7f6b480eace2b881c89c2da355f7"
+    },
+    {
+      "candidate_receipt_sha256": "9358194fb77d01736b208c0db7ac7ebafc0670c92f95ca982e7938e4ac54af0e",
+      "complete": false,
+      "functional_passed": true,
+      "gates": [
+        {
+          "command": [
+            "bvmcp",
+            "app",
+            "compile",
+            "cases/polling-status-recovery/packet.json"
+          ],
+          "elapsed_seconds": 0.05748187500284985,
+          "exact_resumption_contract": null,
+          "id": "compile",
+          "log_path": "logs/polling-status-recovery/compile.log",
+          "log_sha256": "9358194fb77d01736b208c0db7ac7ebafc0670c92f95ca982e7938e4ac54af0e",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 21.152696707984433,
+          "exact_resumption_contract": null,
+          "id": "npm_ci",
+          "log_path": "logs/polling-status-recovery/npm_ci.log",
+          "log_sha256": "ff0af64687a4d118ff3e6f546fd9e0e4c2f776cc8797d7ed01e50e2f088f6ff8",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.7111729579628445,
+          "exact_resumption_contract": null,
+          "id": "typescript_and_api_tests",
+          "log_path": "logs/polling-status-recovery/typescript_and_api_tests.log",
+          "log_sha256": "6ab73a4ca85d82a46d2033f9e7041e6dde774f13681a06e2a75380cdde3a2e9a",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.8537476669880562,
+          "exact_resumption_contract": null,
+          "id": "migration",
+          "log_path": "logs/polling-status-recovery/migration.log",
+          "log_sha256": "bd26259c21b5d1bbb65dc378a7173d415291c2da4c6bc4ebf5bd28dba13462c2",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:migrate"
+          ],
+          "elapsed_seconds": 0.8081842910032719,
+          "exact_resumption_contract": null,
+          "id": "repeat_migration",
+          "log_path": "logs/polling-status-recovery/repeat_migration.log",
+          "log_sha256": "b99e24798d9ada47fe245cb84f18f4f2036aaf13cfc8170bb66e37c55504cb4b",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "node",
+            "dist/src/server.js",
+            "# twice"
+          ],
+          "elapsed_seconds": 0.49667033401783556,
+          "exact_resumption_contract": null,
+          "id": "restart_health",
+          "log_path": "logs/polling-status-recovery/restart_health.log",
+          "log_sha256": "f8a8affe675e069b44f2dccd10316499440927ce28e93a4e196b17284b4d75b9",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "db:rollback"
+          ],
+          "elapsed_seconds": 0.7920978330075741,
+          "exact_resumption_contract": null,
+          "id": "rollback",
+          "log_path": "logs/polling-status-recovery/rollback.log",
+          "log_sha256": "9a2242920d5c732a4f12c3724be934394e71a85d1c65d069d6473bfb9146af12",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "ci"
+          ],
+          "elapsed_seconds": 21.043338540999684,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_install",
+          "log_path": "logs/polling-status-recovery/fresh_clone_install.log",
+          "log_sha256": "0224b17a809c42f01f7ab22302a4d7aaeb19a1ec31284fa0d9abbc296f842802",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "npm",
+            "run",
+            "verify"
+          ],
+          "elapsed_seconds": 1.6906949169933796,
+          "exact_resumption_contract": null,
+          "id": "fresh_clone_reproduction",
+          "log_path": "logs/polling-status-recovery/fresh_clone_reproduction.log",
+          "log_sha256": "d53f4584e5564f16e4cf674ca7f60784db0124241792435f31b062ac87214b84",
+          "return_code": 0,
+          "status": "PASS"
+        },
+        {
+          "command": [
+            "docker",
+            "compose",
+            "build"
+          ],
+          "elapsed_seconds": 0.0,
+          "exact_resumption_contract": "Start or provide an authorized Docker daemon, then rerun this exact benchmark. Preflight detail: failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
+          "id": "local_container_build",
+          "log_path": "logs/polling-status-recovery/local_container_build.log",
+          "log_sha256": "f7efda1a3cc198a2d2027f12b5671a8e29d7048a681e942aafcab08108515b96",
+          "return_code": null,
+          "status": "BLOCKED_EXTERNAL"
+        }
+      ],
+      "id": "polling-status-recovery",
+      "packet_sha256": "cddf8fee7fb254e29f9b5b96e3bc9b1219e734bdcfd1cdb8ecdb3a1346534eb0"
+    }
+  ],
+  "complete": false,
+  "completed_at": "2026-07-26T00:54:44.041924+00:00",
+  "corpus_sha256": "598945fb961fc9bb9c2bec7a27ed4d73140fa3066d78ddd835ba9a624271a590",
+  "external_boundaries": {
+    "local_container": "BLOCKED_EXTERNAL: failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
+    "remote_deployment": "BLOCKED_EXTERNAL: Set BVMCP_AUTHORIZED_REMOTE_DEPLOY_JSON to a JSON argv array only after the user authorizes the target and credentials; no remote deployment was attempted."
+  },
+  "external_gates": [
+    {
+      "command": [],
+      "elapsed_seconds": 0.0,
+      "exact_resumption_contract": "Set BVMCP_AUTHORIZED_REMOTE_DEPLOY_JSON to a JSON argv array only after the user authorizes the target and credentials; no remote deployment was attempted.",
+      "id": "authorized_remote_deployment",
+      "log_path": "logs/_external/authorized_remote_deployment.log",
+      "log_sha256": "4ac7b10e695101cab49b6a3fb022769c338809c9f13f0c47accb12ca1771e2ca",
+      "return_code": null,
+      "status": "BLOCKED_EXTERNAL"
+    }
+  ],
+  "functional_passed": false,
+  "manifest_sha256": "221a6076acf24a603f92d4512a89a0344e887ec21f4d5a04cae7b831d5ff7c62",
+  "node_version": "v20.17.0",
+  "npm_version": "10.8.2",
+  "schema_version": "1",
+  "source_git_head": "830f996234d244d0d725a8b571865588a38c54ff",
+  "started_at": "2026-07-26T00:50:37.053208+00:00"
+}

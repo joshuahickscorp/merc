@@ -1,0 +1,2127 @@
+{
+  "_belief_seq": 16,
+  "appearance": {},
+  "authority": "SENSOR_DERIVED",
+  "belief_history": [
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000001",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.309783+00:00",
+      "digest": "7e09cfd6f7173213fdea11468aa3603731dc5eec7f3382bbdce43cf819d39e08",
+      "entity_id": "sofa",
+      "evidence": {
+        "frame_index": 0,
+        "observation_ids": [
+          "obs-0-sofa"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000001",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-sofa"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "spawn",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000001",
+        "confidence": 0.7,
+        "exists": true,
+        "slot": "existence"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "existence",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.309779+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000002",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.309837+00:00",
+      "digest": "cbc0d52b223ceb309906582689921bf59c8d0b9e361cca32ae098a73a47b5222",
+      "entity_id": "sofa",
+      "evidence": {
+        "observation_ids": [
+          "obs-0-sofa"
+        ],
+        "pose_m": [
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000002",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-sofa"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "direct_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000002",
+        "confidence": 0.7,
+        "pose_m": [
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "pose",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.309834+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000003",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.309884+00:00",
+      "digest": "1af9fab97e1170cb1811d583bc29cd69bd1d4b810695c09cd25e665b8f5d53e7",
+      "entity_id": "sofa",
+      "evidence": {
+        "class_label": "sofa",
+        "observation_ids": [
+          "obs-0-sofa"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000003",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-sofa"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "direct_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000003",
+        "class_label": "sofa",
+        "confidence": 0.7,
+        "slot": "class"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "class",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.309882+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000004",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.309981+00:00",
+      "digest": "364e6e784ec42d3454e36884e69cbc8c7977cb4c9dc052e52b64fd769386fc9b",
+      "entity_id": "lamp",
+      "evidence": {
+        "frame_index": 0,
+        "observation_ids": [
+          "obs-0-lamp"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000004",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-lamp"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "spawn",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000004",
+        "confidence": 0.7,
+        "exists": true,
+        "slot": "existence"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "existence",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.309979+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000005",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310022+00:00",
+      "digest": "06f66585d7ad6c21d5826b5ac592ce374cfad8c2cbee1644301f5ea4e45caa0c",
+      "entity_id": "lamp",
+      "evidence": {
+        "observation_ids": [
+          "obs-0-lamp"
+        ],
+        "pose_m": [
+          2.0,
+          0.4,
+          0.4,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000005",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-lamp"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "direct_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000005",
+        "confidence": 0.7,
+        "pose_m": [
+          2.0,
+          0.4,
+          0.4,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "pose",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310019+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000006",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310067+00:00",
+      "digest": "9540f2a9f4bf1566629585ef8118a4ed33a26c5487a4d7f0fff71c231176da4a",
+      "entity_id": "lamp",
+      "evidence": {
+        "class_label": "lamp",
+        "observation_ids": [
+          "obs-0-lamp"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000006",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-lamp"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "direct_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000006",
+        "class_label": "lamp",
+        "confidence": 0.7,
+        "slot": "class"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "class",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310064+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000007",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310151+00:00",
+      "digest": "a91e67d284cb1cbdb285f52c6debdd60ec6e48762113fdbe5654642f99b341fa",
+      "entity_id": "plant",
+      "evidence": {
+        "frame_index": 0,
+        "observation_ids": [
+          "obs-0-plant"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000007",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-plant"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "spawn",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000007",
+        "confidence": 0.7,
+        "exists": true,
+        "slot": "existence"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "existence",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310149+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000008",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310188+00:00",
+      "digest": "a8e12522c0a85960c81f3f5cfd4ebe48e1f846d8e0948ebd3f0cf461ac02fc1c",
+      "entity_id": "plant",
+      "evidence": {
+        "observation_ids": [
+          "obs-0-plant"
+        ],
+        "pose_m": [
+          -0.5,
+          0.2,
+          0.15,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000008",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-plant"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "direct_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000008",
+        "confidence": 0.7,
+        "pose_m": [
+          -0.5,
+          0.2,
+          0.15,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "pose",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310185+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000009",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310234+00:00",
+      "digest": "a323ad2d66387b9f5441eeec46c18158d1e5f607fb71e71e28ede58bcb207822",
+      "entity_id": "plant",
+      "evidence": {
+        "class_label": "plant",
+        "observation_ids": [
+          "obs-0-plant"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000009",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-plant"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "direct_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000009",
+        "class_label": "plant",
+        "confidence": 0.7,
+        "slot": "class"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "class",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310231+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000010",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310317+00:00",
+      "digest": "f571ae14b3a82c5c8f869fe5d68822917ae66981a2846ce5d8f508d5e087b32d",
+      "entity_id": "table",
+      "evidence": {
+        "frame_index": 0,
+        "observation_ids": [
+          "obs-0-table"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000010",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-table"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "spawn",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000010",
+        "confidence": 0.7,
+        "exists": true,
+        "slot": "existence"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "existence",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310315+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000011",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310354+00:00",
+      "digest": "5abeb219434bd58eb86477a4b442403298a05f6ac34c18e73512505417a65113",
+      "entity_id": "table",
+      "evidence": {
+        "observation_ids": [
+          "obs-0-table"
+        ],
+        "pose_m": [
+          0.0,
+          0.8,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000011",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-table"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "direct_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000011",
+        "confidence": 0.7,
+        "pose_m": [
+          0.0,
+          0.8,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "pose",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310351+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "SENSOR_DERIVED",
+      "belief_id": "belief-dynamic-room-000012",
+      "competing": false,
+      "confidence_after": 0.7,
+      "confidence_before": 0.0,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310389+00:00",
+      "digest": "39509aa6749d17f21ec94f457a4f8cc455a7cbecea1f451a0d9987f589ccb6c7",
+      "entity_id": "table",
+      "evidence": {
+        "class_label": "table",
+        "observation_ids": [
+          "obs-0-table"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-dynamic-room-000012",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-table"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "direct_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000012",
+        "class_label": "table",
+        "confidence": 0.7,
+        "slot": "class"
+      },
+      "prior": {},
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "class",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310387+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "INFERRED",
+      "belief_id": "belief-dynamic-room-000013",
+      "competing": false,
+      "confidence_after": 0.76,
+      "confidence_before": 0.7,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310475+00:00",
+      "digest": "76e2a2dcb746a2faad75f6e7c4efcee8ecbb40e567e0ae1ceea96401be6c28de",
+      "entity_id": "sofa",
+      "evidence": {
+        "observation_ids": [
+          "obs-1-sofa"
+        ],
+        "pose_m": [
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 1,
+      "id": "bu-belief-dynamic-room-000013",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-1-sofa"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "INFERRED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "confirming_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000013",
+        "confidence": 0.76,
+        "pose_m": [
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "pose",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310472+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "INFERRED",
+      "belief_id": "belief-dynamic-room-000014",
+      "competing": false,
+      "confidence_after": 0.76,
+      "confidence_before": 0.7,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310536+00:00",
+      "digest": "675ea0b99e4a16b37c417fd3c5e29226476f6d283907b4d4f9c45570e7cf5135",
+      "entity_id": "lamp",
+      "evidence": {
+        "observation_ids": [
+          "obs-1-lamp"
+        ],
+        "pose_m": [
+          2.0,
+          0.4,
+          0.4,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 1,
+      "id": "bu-belief-dynamic-room-000014",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-1-lamp"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "INFERRED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "confirming_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000014",
+        "confidence": 0.76,
+        "pose_m": [
+          2.0,
+          0.4,
+          0.4,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          2.0,
+          0.4,
+          0.4,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "pose",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310533+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "INFERRED",
+      "belief_id": "belief-dynamic-room-000015",
+      "competing": false,
+      "confidence_after": 0.76,
+      "confidence_before": 0.7,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310583+00:00",
+      "digest": "db2d7f70f0bd3147c8f4a43b9dfcc5e854d2aac90f8641f6d1d68789683edf1c",
+      "entity_id": "plant",
+      "evidence": {
+        "observation_ids": [
+          "obs-1-plant"
+        ],
+        "pose_m": [
+          -0.5,
+          0.2,
+          0.15,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 1,
+      "id": "bu-belief-dynamic-room-000015",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-1-plant"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "INFERRED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "confirming_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000015",
+        "confidence": 0.76,
+        "pose_m": [
+          -0.5,
+          0.2,
+          0.15,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          -0.5,
+          0.2,
+          0.15,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "pose",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310581+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    },
+    {
+      "authority": "INFERRED",
+      "belief_id": "belief-dynamic-room-000016",
+      "competing": false,
+      "confidence_after": 0.76,
+      "confidence_before": 0.7,
+      "contradiction": false,
+      "created_at": "2026-07-27T07:10:48.310629+00:00",
+      "digest": "108951cc89e9e8e02a998a7cd01eea62f115f4eaf9abe30c6de5df1493e8ab02",
+      "entity_id": "table",
+      "evidence": {
+        "observation_ids": [
+          "obs-1-table"
+        ],
+        "pose_m": [
+          0.0,
+          0.8,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 1,
+      "id": "bu-belief-dynamic-room-000016",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-1-table"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "belief_update",
+        "parameters": {
+          "source_authority": "INFERRED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "model": "confirming_observation",
+      "notes": [],
+      "posterior": {
+        "belief_id": "belief-dynamic-room-000016",
+        "confidence": 0.76,
+        "pose_m": [
+          0.0,
+          0.8,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          0.0,
+          0.8,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "record_kind": "ocular.belief-update",
+      "reviewer": "system",
+      "schema_version": "2",
+      "slot": "pose",
+      "superseded_by": null,
+      "supersedes": [],
+      "timestamp": "2026-07-27T07:10:48.310627+00:00",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      }
+    }
+  ],
+  "created_at": "2026-07-27T07:10:48.309735+00:00",
+  "current_frame": 1,
+  "digest": "cc0bec24a64fcb3bdb8cb8d1b1021ffb039b3ff55f9a1a3a342ac50d42bf218f",
+  "entities": {
+    "lamp": {
+      "appearance": {},
+      "authority": "SENSOR_DERIVED",
+      "belief_sets": {
+        "class": [
+          {
+            "belief_id": "belief-dynamic-room-000006",
+            "class_label": "lamp",
+            "confidence": 0.7,
+            "slot": "class"
+          }
+        ],
+        "existence": [
+          {
+            "belief_id": "belief-dynamic-room-000004",
+            "confidence": 0.7,
+            "exists": true,
+            "slot": "existence"
+          }
+        ],
+        "pose": [
+          {
+            "belief_id": "belief-dynamic-room-000005",
+            "confidence": 0.7,
+            "pose_m": [
+              2.0,
+              0.4,
+              0.4,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-dynamic-room-000014",
+            "confidence": 0.76,
+            "pose_m": [
+              2.0,
+              0.4,
+              0.4,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          }
+        ]
+      },
+      "class_label": "lamp",
+      "confidence": 0.76,
+      "created_at": "2026-07-27T07:10:48.309974+00:00",
+      "digest": "dfb4842ef323d06dce9a3698ca54adca59e56947bca0a1418e0f850b769456f1",
+      "entity_id": "lamp",
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "UNRESOLVED",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "frames_since_seen": 0,
+      "geometry_hypotheses": [],
+      "id": "entity-lamp",
+      "inferred_surface_ids": [],
+      "last_observed_frame": 1,
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-lamp"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "spawn_entity",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "material_hypotheses": [],
+      "measurements": [],
+      "notes": [],
+      "observed_surface_ids": [
+        "surf-lamp-0"
+      ],
+      "parts": [],
+      "pose_m": [
+        2.0,
+        0.4,
+        0.4,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "record_kind": "ocular.entity",
+      "rights": {},
+      "schema_version": "2",
+      "source_bindings": [
+        "obs-0-lamp",
+        "obs-1-lamp"
+      ],
+      "state": "active",
+      "superseded_by": null,
+      "supersedes": [],
+      "track_id": "lamp",
+      "trajectory": [
+        {
+          "confidence": 0.7,
+          "frame_index": 0,
+          "pose_m": [
+            2.0,
+            0.4,
+            0.4,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "visible": true
+        },
+        {
+          "confidence": 0.76,
+          "frame_index": 1,
+          "pose_m": [
+            2.0,
+            0.4,
+            0.4,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "visible": true
+        }
+      ],
+      "uncertainty": {
+        "basis": "confirming-observation",
+        "interval": [],
+        "kind": "pose",
+        "samples": 2,
+        "sigma": 0.017,
+        "units": "m"
+      },
+      "visibility": "DIRECTLY_VISIBLE"
+    },
+    "plant": {
+      "appearance": {},
+      "authority": "SENSOR_DERIVED",
+      "belief_sets": {
+        "class": [
+          {
+            "belief_id": "belief-dynamic-room-000009",
+            "class_label": "plant",
+            "confidence": 0.7,
+            "slot": "class"
+          }
+        ],
+        "existence": [
+          {
+            "belief_id": "belief-dynamic-room-000007",
+            "confidence": 0.7,
+            "exists": true,
+            "slot": "existence"
+          }
+        ],
+        "pose": [
+          {
+            "belief_id": "belief-dynamic-room-000008",
+            "confidence": 0.7,
+            "pose_m": [
+              -0.5,
+              0.2,
+              0.15,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-dynamic-room-000015",
+            "confidence": 0.76,
+            "pose_m": [
+              -0.5,
+              0.2,
+              0.15,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          }
+        ]
+      },
+      "class_label": "plant",
+      "confidence": 0.76,
+      "created_at": "2026-07-27T07:10:48.310145+00:00",
+      "digest": "5f48af7541bd419f77b2cdc8714c300ed7b032dba92e644c37e1c148f29704a8",
+      "entity_id": "plant",
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "UNRESOLVED",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "frames_since_seen": 0,
+      "geometry_hypotheses": [],
+      "id": "entity-plant",
+      "inferred_surface_ids": [],
+      "last_observed_frame": 1,
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-plant"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "spawn_entity",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "material_hypotheses": [],
+      "measurements": [],
+      "notes": [],
+      "observed_surface_ids": [
+        "surf-plant-0"
+      ],
+      "parts": [],
+      "pose_m": [
+        -0.5,
+        0.2,
+        0.15,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "record_kind": "ocular.entity",
+      "rights": {},
+      "schema_version": "2",
+      "source_bindings": [
+        "obs-0-plant",
+        "obs-1-plant"
+      ],
+      "state": "active",
+      "superseded_by": null,
+      "supersedes": [],
+      "track_id": "plant",
+      "trajectory": [
+        {
+          "confidence": 0.7,
+          "frame_index": 0,
+          "pose_m": [
+            -0.5,
+            0.2,
+            0.15,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "visible": true
+        },
+        {
+          "confidence": 0.76,
+          "frame_index": 1,
+          "pose_m": [
+            -0.5,
+            0.2,
+            0.15,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "visible": true
+        }
+      ],
+      "uncertainty": {
+        "basis": "confirming-observation",
+        "interval": [],
+        "kind": "pose",
+        "samples": 2,
+        "sigma": 0.017,
+        "units": "m"
+      },
+      "visibility": "DIRECTLY_VISIBLE"
+    },
+    "sofa": {
+      "appearance": {},
+      "authority": "SENSOR_DERIVED",
+      "belief_sets": {
+        "class": [
+          {
+            "belief_id": "belief-dynamic-room-000003",
+            "class_label": "sofa",
+            "confidence": 0.7,
+            "slot": "class"
+          }
+        ],
+        "existence": [
+          {
+            "belief_id": "belief-dynamic-room-000001",
+            "confidence": 0.7,
+            "exists": true,
+            "slot": "existence"
+          }
+        ],
+        "pose": [
+          {
+            "belief_id": "belief-dynamic-room-000002",
+            "confidence": 0.7,
+            "pose_m": [
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-dynamic-room-000013",
+            "confidence": 0.76,
+            "pose_m": [
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          }
+        ]
+      },
+      "class_label": "sofa",
+      "confidence": 0.76,
+      "created_at": "2026-07-27T07:10:48.309769+00:00",
+      "digest": "ba5754a15d525a781a586fb46f52d10e37de1eb5a42495e1956d15b3ac7ec40a",
+      "entity_id": "sofa",
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "UNRESOLVED",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "frames_since_seen": 0,
+      "geometry_hypotheses": [],
+      "id": "entity-sofa",
+      "inferred_surface_ids": [],
+      "last_observed_frame": 1,
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-sofa"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "spawn_entity",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "material_hypotheses": [],
+      "measurements": [],
+      "notes": [],
+      "observed_surface_ids": [
+        "surf-sofa-0"
+      ],
+      "parts": [],
+      "pose_m": [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "record_kind": "ocular.entity",
+      "rights": {},
+      "schema_version": "2",
+      "source_bindings": [
+        "obs-0-sofa",
+        "obs-1-sofa"
+      ],
+      "state": "active",
+      "superseded_by": null,
+      "supersedes": [],
+      "track_id": "sofa",
+      "trajectory": [
+        {
+          "confidence": 0.7,
+          "frame_index": 0,
+          "pose_m": [
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "visible": true
+        },
+        {
+          "confidence": 0.76,
+          "frame_index": 1,
+          "pose_m": [
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "visible": true
+        }
+      ],
+      "uncertainty": {
+        "basis": "confirming-observation",
+        "interval": [],
+        "kind": "pose",
+        "samples": 2,
+        "sigma": 0.017,
+        "units": "m"
+      },
+      "visibility": "DIRECTLY_VISIBLE"
+    },
+    "table": {
+      "appearance": {},
+      "authority": "SENSOR_DERIVED",
+      "belief_sets": {
+        "class": [
+          {
+            "belief_id": "belief-dynamic-room-000012",
+            "class_label": "table",
+            "confidence": 0.7,
+            "slot": "class"
+          }
+        ],
+        "existence": [
+          {
+            "belief_id": "belief-dynamic-room-000010",
+            "confidence": 0.7,
+            "exists": true,
+            "slot": "existence"
+          }
+        ],
+        "pose": [
+          {
+            "belief_id": "belief-dynamic-room-000011",
+            "confidence": 0.7,
+            "pose_m": [
+              0.0,
+              0.8,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-dynamic-room-000016",
+            "confidence": 0.76,
+            "pose_m": [
+              0.0,
+              0.8,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          }
+        ]
+      },
+      "class_label": "table",
+      "confidence": 0.76,
+      "created_at": "2026-07-27T07:10:48.310311+00:00",
+      "digest": "786ccb7c6ad755a88dd070555bc3b847550571386e6ce6bc020d9eb05d74c6b0",
+      "entity_id": "table",
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "UNRESOLVED",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "frames_since_seen": 0,
+      "geometry_hypotheses": [],
+      "id": "entity-table",
+      "inferred_surface_ids": [],
+      "last_observed_frame": 1,
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "obs-0-table"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "spawn_entity",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "material_hypotheses": [],
+      "measurements": [],
+      "notes": [],
+      "observed_surface_ids": [
+        "surf-table-0"
+      ],
+      "parts": [],
+      "pose_m": [
+        0.0,
+        0.8,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "record_kind": "ocular.entity",
+      "rights": {},
+      "schema_version": "2",
+      "source_bindings": [
+        "obs-0-table",
+        "obs-1-table"
+      ],
+      "state": "active",
+      "superseded_by": null,
+      "supersedes": [],
+      "track_id": "table",
+      "trajectory": [
+        {
+          "confidence": 0.7,
+          "frame_index": 0,
+          "pose_m": [
+            0.0,
+            0.8,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "visible": true
+        },
+        {
+          "confidence": 0.76,
+          "frame_index": 1,
+          "pose_m": [
+            0.0,
+            0.8,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "visible": true
+        }
+      ],
+      "uncertainty": {
+        "basis": "confirming-observation",
+        "interval": [],
+        "kind": "pose",
+        "samples": 2,
+        "sigma": 0.017,
+        "units": "m"
+      },
+      "visibility": "DIRECTLY_VISIBLE"
+    }
+  },
+  "frame": {
+    "forward_axis": "-Y",
+    "handedness": "right",
+    "name": "blender-world",
+    "origin_semantics": "scene-origin",
+    "scale_authority": "UNRESOLVED",
+    "units": "m",
+    "up_axis": "+Z"
+  },
+  "id": "world-dynamic-room-session-2",
+  "lifecycle": "DRAFT",
+  "lighting": {
+    "mean_luminance": 0.92,
+    "rig": "warm_key_only",
+    "temperature_k": 3000
+  },
+  "lineage": {
+    "environment": {},
+    "hardware": {},
+    "input_authorities": [],
+    "inputs": [
+      "dynamic-room"
+    ],
+    "limitations": [],
+    "model_versions": {},
+    "operation": "build_world_model",
+    "parameters": {
+      "n_observations": 2,
+      "source_authority": "SENSOR_DERIVED",
+      "track_source": "ground_truth"
+    },
+    "retrieved_at": "",
+    "rights_state": "unreviewed",
+    "tool": "blender-vision-mcp",
+    "tool_version": "0.1.0"
+  },
+  "meta": {
+    "track_source": "ground_truth"
+  },
+  "notes": [],
+  "predictions": [],
+  "record_kind": "ocular.world-state",
+  "relations": [],
+  "scene_id": "dynamic-room",
+  "schema_version": "2",
+  "session_id": "session-2",
+  "superseded_by": null,
+  "supersedes": [],
+  "surfaces": {
+    "surf-lamp-0": {
+      "area_m2": 0.0,
+      "authority": "OBSERVED",
+      "centroid_m": [
+        2.0,
+        0.4,
+        0.4
+      ],
+      "confidence": 0.7,
+      "created_at": "2026-07-27T07:10:48.310103+00:00",
+      "digest": "5ccfcc899f41ded3e28fb43031edc33284b3040ee6add65cbba2bcecef49aeb6",
+      "entity_id": "lamp",
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "UNRESOLVED",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "id": "surf-lamp-0",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "lamp",
+          "frame-0"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "surface_from_entity",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "material_hypothesis_ids": [],
+      "normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "notes": [],
+      "observation_ids": [
+        "obs-0-lamp"
+      ],
+      "provenance": "directly_observed",
+      "record_kind": "ocular.surface",
+      "schema_version": "2",
+      "superseded_by": null,
+      "supersedes": [],
+      "surface_id": "surf-lamp-0",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "visibility": "DIRECTLY_VISIBLE"
+    },
+    "surf-plant-0": {
+      "area_m2": 0.0,
+      "authority": "OBSERVED",
+      "centroid_m": [
+        -0.5,
+        0.2,
+        0.15
+      ],
+      "confidence": 0.7,
+      "created_at": "2026-07-27T07:10:48.310264+00:00",
+      "digest": "db42cafd17d381c5d45d0973d3441b2ff2b651d5cac47b9fb0a2a02857f5b45a",
+      "entity_id": "plant",
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "UNRESOLVED",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "id": "surf-plant-0",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "plant",
+          "frame-0"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "surface_from_entity",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "material_hypothesis_ids": [],
+      "normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "notes": [],
+      "observation_ids": [
+        "obs-0-plant"
+      ],
+      "provenance": "directly_observed",
+      "record_kind": "ocular.surface",
+      "schema_version": "2",
+      "superseded_by": null,
+      "supersedes": [],
+      "surface_id": "surf-plant-0",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "visibility": "DIRECTLY_VISIBLE"
+    },
+    "surf-sofa-0": {
+      "area_m2": 0.0,
+      "authority": "OBSERVED",
+      "centroid_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "confidence": 0.7,
+      "created_at": "2026-07-27T07:10:48.309922+00:00",
+      "digest": "40f672456064e02c03b1b5ecd9dd49b1358569ea898c07d43b1a1057bf9b23d2",
+      "entity_id": "sofa",
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "UNRESOLVED",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "id": "surf-sofa-0",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "sofa",
+          "frame-0"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "surface_from_entity",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "material_hypothesis_ids": [],
+      "normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "notes": [],
+      "observation_ids": [
+        "obs-0-sofa"
+      ],
+      "provenance": "directly_observed",
+      "record_kind": "ocular.surface",
+      "schema_version": "2",
+      "superseded_by": null,
+      "supersedes": [],
+      "surface_id": "surf-sofa-0",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "visibility": "DIRECTLY_VISIBLE"
+    },
+    "surf-table-0": {
+      "area_m2": 0.0,
+      "authority": "OBSERVED",
+      "centroid_m": [
+        0.0,
+        0.8,
+        0.0
+      ],
+      "confidence": 0.7,
+      "created_at": "2026-07-27T07:10:48.310422+00:00",
+      "digest": "c935bd7a1994a630bc0eb8407c466950eb5da0e79328973c6250e4c023afc5b6",
+      "entity_id": "table",
+      "frame": {
+        "forward_axis": "-Y",
+        "handedness": "right",
+        "name": "blender-world",
+        "origin_semantics": "scene-origin",
+        "scale_authority": "UNRESOLVED",
+        "units": "m",
+        "up_axis": "+Z"
+      },
+      "id": "surf-table-0",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "environment": {},
+        "hardware": {},
+        "input_authorities": [],
+        "inputs": [
+          "table",
+          "frame-0"
+        ],
+        "limitations": [],
+        "model_versions": {},
+        "operation": "surface_from_entity",
+        "parameters": {
+          "source_authority": "SENSOR_DERIVED"
+        },
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0"
+      },
+      "material_hypothesis_ids": [],
+      "normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "notes": [],
+      "observation_ids": [
+        "obs-0-table"
+      ],
+      "provenance": "directly_observed",
+      "record_kind": "ocular.surface",
+      "schema_version": "2",
+      "superseded_by": null,
+      "supersedes": [],
+      "surface_id": "surf-table-0",
+      "uncertainty": {
+        "basis": "not-estimated",
+        "interval": [],
+        "kind": "unspecified",
+        "samples": 0,
+        "sigma": null,
+        "units": "unitless"
+      },
+      "visibility": "DIRECTLY_VISIBLE"
+    }
+  },
+  "surprises": [],
+  "uncertainty": {
+    "basis": "not-estimated",
+    "interval": [],
+    "kind": "unspecified",
+    "samples": 0,
+    "sigma": null,
+    "units": "unitless"
+  }
+}

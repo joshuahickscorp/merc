@@ -1,0 +1,149 @@
+{
+  "schema": "visionmcp.object-benchmark-source-packet/v1",
+  "target_id": "draped_cloth",
+  "created_at": "2026-07-27T04:13:47.840606+00:00",
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "construction": {
+    "target_id": "draped_cloth",
+    "approx_dimensions_mm": [
+      400.0,
+      400.0,
+      80.0
+    ],
+    "authority": "PROCEDURAL_GROUND_TRUTH",
+    "synthetic_claim": null,
+    "from_organic_receipt": true,
+    "measured": {
+      "vertices": 4225,
+      "edges": 8320,
+      "faces": 4096,
+      "triangles": 0,
+      "quads": 4096,
+      "ngons": 0,
+      "non_manifold_edges": 256,
+      "boundary_edges": 256,
+      "genus_estimate": -1,
+      "is_watertight": false,
+      "surface_area_m2": 0.2480249789878144,
+      "volume_m3": 0.0,
+      "bounds_m": [
+        [
+          -0.14024129509925842,
+          -0.13521723449230194,
+          0.04477262496948242
+        ],
+        [
+          0.1363738626241684,
+          0.13579729199409485,
+          0.3184281587600708
+        ]
+      ],
+      "quad_fraction": 1.0
+    },
+    "retopologized": {
+      "vertices": 4225,
+      "edges": 8320,
+      "faces": 4096,
+      "triangles": 0,
+      "quads": 4096,
+      "ngons": 0,
+      "non_manifold_edges": 256,
+      "boundary_edges": 256,
+      "genus_estimate": -1,
+      "is_watertight": false,
+      "surface_area_m2": 0.2480249789878144,
+      "volume_m3": 0.0,
+      "bounds_m": [
+        [
+          -0.14024129509925842,
+          -0.13521723449230194,
+          0.04477262496948242
+        ],
+        [
+          0.1363738626241684,
+          0.13579729199409485,
+          0.3184281587600708
+        ]
+      ],
+      "quad_fraction": 1.0
+    },
+    "uv": {
+      "island_count": 273,
+      "packing_efficiency": 0.5072000275683004,
+      "max_area_distortion": 0.4298835121065291,
+      "mean_area_distortion": 0.0856737996011499,
+      "max_angle_distortion_deg": 131.86148060667762,
+      "overlapping_faces": 0,
+      "texel_density_variance": 0.01006039958004158,
+      "p99_angle_distortion_deg": 69.0186859025745,
+      "p95_angle_distortion_deg": 30.261426325308292,
+      "median_angle_distortion_deg": 3.267152687583902,
+      "angle_corner_count": 16384,
+      "degenerate_corner_count": 0,
+      "corners_over_70deg_fraction": 0.00970458984375
+    },
+    "lods": [
+      {
+        "name": "L1",
+        "ratio": 0.5,
+        "triangles": 3919,
+        "silhouette_iou": 0.9966627003762109,
+        "hausdorff_m": 0.0004927068948745728,
+        "retained_parts": [
+          "draped_cloth_L1"
+        ],
+        "lost_parts": []
+      },
+      {
+        "name": "L2",
+        "ratio": 0.2,
+        "triangles": 1478,
+        "silhouette_iou": 0.9881320709131683,
+        "hausdorff_m": 0.0024024397134780884,
+        "retained_parts": [
+          "draped_cloth_L2"
+        ],
+        "lost_parts": []
+      },
+      {
+        "name": "L3",
+        "ratio": 0.06,
+        "triangles": 472,
+        "silhouette_iou": 0.986483293673431,
+        "hausdorff_m": 0.002329021692276001,
+        "retained_parts": [
+          "draped_cloth_L3"
+        ],
+        "lost_parts": []
+      }
+    ]
+  },
+  "train_view_count": 0,
+  "holdout_view_ids": [],
+  "train_views": [],
+  "notes": [
+    "Target: soft / draped cloth",
+    "Scored against construction / measured ground truth, not against another guess."
+  ],
+  "lineage": {
+    "tool": "blender-vision-mcp",
+    "tool_version": "0.1.0",
+    "operation": "object_benchmark_source_packet",
+    "inputs": [],
+    "input_authorities": [
+      "PROCEDURAL_GROUND_TRUTH"
+    ],
+    "parameters": {
+      "target_id": "draped_cloth"
+    },
+    "environment": {},
+    "hardware": {},
+    "model_versions": {},
+    "retrieved_at": "",
+    "rights_state": "unreviewed",
+    "limitations": [
+      "Target: soft / draped cloth",
+      "Scored against construction / measured ground truth, not against another guess."
+    ]
+  }
+}

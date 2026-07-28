@@ -1,0 +1,613 @@
+{
+  "acceptance": {
+    "authority_refs": [
+      "stories",
+      "api",
+      "rules"
+    ],
+    "fresh_clone_command": "npm ci && npm run verify",
+    "global_regression_command": "npm run verify",
+    "tests": [
+      {
+        "command": "npm run test:api",
+        "expected": "Create a queued job, poll it, and recover explicitly from a missing ID.",
+        "id": "accept-status-recovery",
+        "journey_ids": [
+          "create-item"
+        ],
+        "level": "api",
+        "operation_ids": [
+          "createStatusJob",
+          "getJobStatus"
+        ],
+        "requirement": "Create a queued job, poll it, and recover explicitly from a missing ID.",
+        "route_ids": [
+          "items"
+        ]
+      },
+      {
+        "command": "npm run test:api",
+        "expected": "Reject an empty job name with 422.",
+        "id": "accept-empty-name",
+        "journey_ids": [
+          "create-item"
+        ],
+        "level": "api",
+        "operation_ids": [
+          "createStatusJob"
+        ],
+        "requirement": "Reject an empty job name with 422.",
+        "route_ids": [
+          "items"
+        ]
+      }
+    ]
+  },
+  "accessibility_requirements": [
+    {
+      "criterion": "Create journey works with keyboard alone",
+      "id": "keyboard-create-item",
+      "level": "AA",
+      "test_method": "Playwright keyboard journey"
+    }
+  ],
+  "api_contract": {
+    "authority_refs": [
+      "api"
+    ],
+    "base_path": "/api",
+    "endpoints": [
+      {
+        "authorization": "authenticated",
+        "business_rule_ids": [],
+        "entity_refs": [
+          "Item"
+        ],
+        "handler": {
+          "entity_ref": "Item",
+          "id_field": "id",
+          "kind": "list_entities"
+        },
+        "method": "GET",
+        "operation_id": "listItems",
+        "path": "/items",
+        "rate_limit": "120/minute/actor",
+        "request_fields": [],
+        "responses": [
+          {
+            "description": "Item list",
+            "schema_ref": "Item[]",
+            "status": 200
+          }
+        ],
+        "summary": "List items",
+        "timeout_ms": 1000
+      },
+      {
+        "authorization": "permission",
+        "business_rule_ids": [
+          "job-create"
+        ],
+        "entity_refs": [
+          "Item"
+        ],
+        "handler": {
+          "entity_ref": "Item",
+          "field_bindings": {
+            "name": "name"
+          },
+          "id_field": "id",
+          "initial_status": "queued",
+          "kind": "create_entity"
+        },
+        "method": "POST",
+        "operation_id": "createStatusJob",
+        "path": "/jobs",
+        "rate_limit": "30/minute/actor",
+        "request_fields": [
+          {
+            "data_type": "string",
+            "location": "body",
+            "name": "name",
+            "required": true,
+            "validation": {
+              "maximum_length": 120,
+              "minimum_length": 1
+            }
+          }
+        ],
+        "required_permissions": [
+          "item.create"
+        ],
+        "responses": [
+          {
+            "description": "Created item",
+            "schema_ref": "Item",
+            "status": 201
+          },
+          {
+            "description": "Denied",
+            "status": 403
+          }
+        ],
+        "summary": "Create item",
+        "timeout_ms": 1000
+      },
+      {
+        "authorization": "authenticated",
+        "business_rule_ids": [],
+        "entity_refs": [
+          "Item"
+        ],
+        "file_boundary": null,
+        "handler": {
+          "entity_ref": "Item",
+          "field_bindings": {},
+          "id_field": "id",
+          "initial_status": null,
+          "kind": "status_lookup",
+          "status_field": "status",
+          "storage_subdirectory": null
+        },
+        "idempotency": null,
+        "method": "GET",
+        "operation_id": "getJobStatus",
+        "path": "/jobs/{id}/status",
+        "rate_limit": "120/minute/actor",
+        "request_fields": [
+          {
+            "data_type": "string",
+            "location": "path",
+            "name": "id",
+            "required": true,
+            "validation": {}
+          }
+        ],
+        "required_permissions": [],
+        "responses": [
+          {
+            "description": "Current status",
+            "schema_ref": "Item",
+            "status": 200
+          },
+          {
+            "description": "Unknown job",
+            "schema_ref": null,
+            "status": 404
+          }
+        ],
+        "summary": "getJobStatus",
+        "timeout_ms": 1000
+      }
+    ],
+    "error_envelope": {
+      "code": "stable machine code",
+      "message": "safe human message",
+      "request_id": "trace identifier"
+    },
+    "protocol": "REST",
+    "sample_payload_refs": [
+      "samples"
+    ],
+    "version": "1"
+  },
+  "auth_policy": {
+    "authority_refs": [
+      "auth"
+    ],
+    "credential_storage_policy": "test identities only; no production credentials",
+    "cross_tenant_policy": "no tenant context in this single-tenant benchmark",
+    "default_role": "viewer",
+    "deny_by_default": true,
+    "identity_claim": "x-test-user",
+    "permissions": [
+      {
+        "actions": [
+          "create"
+        ],
+        "description": "Create items",
+        "id": "item.create",
+        "resource": "Item"
+      }
+    ],
+    "provider": "test_header",
+    "roles": [
+      {
+        "description": "Manages items",
+        "id": "administrator",
+        "permission_ids": [
+          "item.create"
+        ]
+      },
+      {
+        "description": "Reads items",
+        "id": "viewer",
+        "permission_ids": []
+      }
+    ]
+  },
+  "business_rules": {
+    "analytics_events": [
+      {
+        "event": "item_created",
+        "properties": "request_id only"
+      }
+    ],
+    "authority_refs": [
+      "rules",
+      "errors"
+    ],
+    "edge_case_matrix": [
+      {
+        "case": "empty name",
+        "expected": "422 and no row"
+      }
+    ],
+    "rules": [
+      {
+        "acceptance_test_ids": [
+          "accept-status-recovery"
+        ],
+        "description": "create a job in queued status",
+        "deterministic_effect": "create a job in queued status",
+        "duplicate_behavior": "follows operation contract",
+        "failure_behavior": "transaction rolls back",
+        "id": "job-create",
+        "inputs": [
+          "declared request fields"
+        ],
+        "invariants": [
+          "transactional persistence"
+        ],
+        "preconditions": [
+          "authorized actor"
+        ],
+        "retry_behavior": "safe after declared correction"
+      }
+    ]
+  },
+  "data_model": {
+    "authority_refs": [
+      "data"
+    ],
+    "database_engine": "sqlite",
+    "entities": [
+      {
+        "fields": [
+          {
+            "data_type": "uuid",
+            "name": "id",
+            "primary_key": true,
+            "unique": true
+          },
+          {
+            "data_type": "string",
+            "name": "name",
+            "validation": {
+              "maximum_length": 120,
+              "minimum_length": 1
+            }
+          },
+          {
+            "data_type": "datetime",
+            "name": "created_at"
+          },
+          {
+            "data_type": "string",
+            "default": "queued",
+            "name": "status",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "validation": {}
+          }
+        ],
+        "indexes": [
+          [
+            "name"
+          ]
+        ],
+        "name": "Item",
+        "retention_policy": "retain until administrator deletion",
+        "table_name": "items"
+      }
+    ],
+    "migration_policy": "numbered forward migrations in one transaction",
+    "relations": [],
+    "rollback_policy": "paired down migrations with backup",
+    "seed_policy": "deterministic seed 41"
+  },
+  "deployment": {
+    "authority_refs": [
+      "deploy"
+    ],
+    "edges": [
+      {
+        "from": "app",
+        "to": "database"
+      }
+    ],
+    "fresh_clone_command": "npm ci && npm run verify",
+    "migration_command": "npm run db:migrate",
+    "nodes": [
+      {
+        "artifact": "dist/server.js",
+        "health_check": "GET /healthz",
+        "id": "app",
+        "kind": "api",
+        "resource_limits": {
+          "cpu": "1",
+          "memory": "256Mi"
+        },
+        "runtime": "node:20"
+      },
+      {
+        "artifact": "data/app.sqlite3",
+        "health_check": "PRAGMA quick_check",
+        "id": "database",
+        "kind": "database",
+        "resource_limits": {
+          "disk": "100Mi"
+        },
+        "runtime": "sqlite3"
+      }
+    ],
+    "release_command": "docker build .",
+    "rollback_command": "npm run db:rollback",
+    "secret_names": [],
+    "target": "local_container"
+  },
+  "design_system_reference_ids": [],
+  "error_cases": [
+    {
+      "acceptance_test_id": "accept-empty-name",
+      "expected_api_status": 422,
+      "expected_user_state": "form retains input and announces error",
+      "id": "empty-item-name",
+      "retry_policy": "retry after correction",
+      "trigger": "name is empty after trimming"
+    }
+  ],
+  "journeys": {
+    "authority_refs": [
+      "stories"
+    ],
+    "journeys": [
+      {
+        "actor": "administrator",
+        "denied_or_failure_paths": [
+          "viewer receives 403"
+        ],
+        "id": "create-item",
+        "name": "Create item",
+        "preconditions": [
+          "authenticated as administrator"
+        ],
+        "steps": [
+          {
+            "action": "open item management",
+            "actor": "administrator",
+            "expected_state": "ready",
+            "id": "open-items",
+            "route_id": "items"
+          },
+          {
+            "action": "submit a valid item",
+            "actor": "administrator",
+            "api_operation_id": "createStatusJob",
+            "error_recovery": "retain fields and expose accessible error",
+            "expected_state": "item persisted",
+            "id": "submit-item",
+            "route_id": "items"
+          },
+          {
+            "action": "poll job status",
+            "actor": "administrator",
+            "api_operation_id": "getJobStatus",
+            "error_recovery": "show an explicit missing-job recovery action",
+            "expected_state": "queued",
+            "id": "poll-status",
+            "route_id": "items"
+          }
+        ],
+        "success_postconditions": [
+          "item appears in the list"
+        ]
+      }
+    ]
+  },
+  "motion_reference_ids": [],
+  "observability": {
+    "alerts": [
+      "API p95 budget failure"
+    ],
+    "authority_refs": [
+      "slo"
+    ],
+    "dashboards": [
+      "local benchmark summary"
+    ],
+    "metrics": [
+      "http_request_duration_ms",
+      "http_errors_total"
+    ],
+    "privacy_redactions": [
+      "authorization",
+      "cookie"
+    ],
+    "slos": [
+      {
+        "alert": "fail acceptance",
+        "id": "local-api-latency",
+        "indicator": "API p95",
+        "objective": "<=150ms",
+        "window": "benchmark run"
+      }
+    ],
+    "structured_log_fields": [
+      "timestamp",
+      "level",
+      "request_id",
+      "operation_id",
+      "duration_ms",
+      "status"
+    ],
+    "traces": [
+      "request to database transaction"
+    ]
+  },
+  "packet_id": "polling-status-recovery-v1",
+  "performance_budgets": [
+    {
+      "measurement_command": "npm run test:performance",
+      "metric": "local_api_p95",
+      "operation": "<=",
+      "unit": "ms",
+      "value": 150
+    }
+  ],
+  "product": {
+    "actors": [
+      "administrator"
+    ],
+    "authority_refs": [
+      "brief"
+    ],
+    "goals": [
+      "manage items"
+    ],
+    "id": "polling-status-recovery",
+    "name": "Polling Status Recovery",
+    "non_goals": [
+      "payments"
+    ],
+    "routes": [
+      {
+        "id": "items",
+        "path": "/items",
+        "purpose": "List and create items",
+        "required_states": [
+          "loading",
+          "empty",
+          "ready",
+          "error"
+        ],
+        "title": "Items",
+        "visual_reference_ids": [
+          "visual"
+        ]
+      }
+    ],
+    "summary": "Create work and poll explicit status with missing-record recovery.",
+    "version": "1.0.0"
+  },
+  "sources": [
+    {
+      "authority": "SPECIFIED",
+      "digest": "af58b8592b83d7866040b1c0bb331c09ba66348c2bafcdbd9cb796624471d9f5",
+      "id": "brief",
+      "kind": "product_brief",
+      "locator": "sources/brief.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "c47bda14299a371a5fd6ba364b39d280315b2bd470db7118f3e89a8a774301ad",
+      "id": "stories",
+      "kind": "user_story",
+      "locator": "sources/stories.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "1844f87020a0d3d5f7b3ca51af727fb73b2f277f01649cbe5f5e7f32d3871aa7",
+      "id": "data",
+      "kind": "data_schema",
+      "locator": "sources/data.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "52573155e7b011721c4d17905ae80bef091d3ddce158b8cae69416079e639d63",
+      "id": "api",
+      "kind": "api_contract",
+      "locator": "sources/api.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "1ea184d04aec685d46f15044d14b76656379e027ae5682038113e53f5325805e",
+      "id": "auth",
+      "kind": "auth_policy",
+      "locator": "sources/auth.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "4f434914515a9874bd9f13a8ddcb693ed3e42b90c3befab5aaaeb1b73fe536a0",
+      "id": "rules",
+      "kind": "business_rules",
+      "locator": "sources/rules.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "4a9145cb62cede3bc4cc3f276cc996428058babe0de73a3a6aafa3450472dbb1",
+      "id": "errors",
+      "kind": "error_matrix",
+      "locator": "sources/errors.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "fd0b6d5665d909c7283ab03e593c8f1eb6f68815bcb08f243d0fc9ca83cd365c",
+      "id": "deploy",
+      "kind": "deployment_target",
+      "locator": "sources/deploy.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "cd8f1f61b29d8d1c7132bfca047a0b4d2270d8ec20b2db9e95d425928d5a11b4",
+      "id": "slo",
+      "kind": "slo",
+      "locator": "sources/slo.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "5dc71fc8927f8ced9dea1ec6402f9494446d745a0d506928ed08e03ec999ac20",
+      "id": "performance",
+      "kind": "performance_budget",
+      "locator": "sources/performance.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "5677bc14d2b3f93af4ba57f11f322dadd9f715e5e39cf673a79dcb3c3024e5d9",
+      "id": "accessibility",
+      "kind": "accessibility_requirements",
+      "locator": "sources/accessibility.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "OBSERVED",
+      "digest": "dc0ea79d07c4ddf4cd5b5d2def661672caeadb022114c8e94aeedd04d6ef6f04",
+      "id": "visual",
+      "kind": "visual_reference",
+      "locator": "sources/visual.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "ff64377e1a8dc0c6e18d2164665bc7d30491ce6dfd25be4228dd351d744d7a46",
+      "id": "samples",
+      "kind": "sample_payload",
+      "locator": "sources/samples.json",
+      "rights_state": "OWNED"
+    }
+  ],
+  "visual_reference_ids": [
+    "visual"
+  ]
+}

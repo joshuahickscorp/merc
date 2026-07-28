@@ -1,0 +1,27 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "cin-dead-scroll:dead-scroll"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "dead_scroll_fraction <= 0.08",
+      "blast_radius": [
+        "camera_path",
+        "narrative"
+      ],
+      "critic_role": "cinematographer",
+      "diagnosis": "dead scroll distance with no narrative beat",
+      "finding_id": "cin-dead-scroll:dead-scroll",
+      "measured": {
+        "dead_scroll_fraction": 0.45000000000000007
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "dead_scroll_fraction": 0.45000000000000007
+  },
+  "runtime_used": "cinematic-path",
+  "subject_id": "cin-dead-scroll"
+}

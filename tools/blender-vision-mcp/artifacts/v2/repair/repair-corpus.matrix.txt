@@ -1,0 +1,31 @@
+drill_id | detector | repaired | accept | regression | runtime | status | before | after
+---------|----------|----------|--------|------------|---------|--------|--------|------
+geometry-wrong-dimensions | Y | Y | Y | N | mesh | PASS | max_relative_dimension_error=0.15 | -
+geometry-wrong-hidden-surface | Y | Y | Y | N | mesh | PASS | hidden_view_score_delta=0.3333 | -
+geometry-missing-semantic-part | Y | Y | Y | N | mesh | PASS | part_count=3,expected_min_parts=4 | -
+geometry-bad-topology | Y | Y | Y | N | mesh | PASS | drawer_depth_variance=0 | -
+geometry-lod-identity-mismatch | Y | Y | Y | N | mesh | PASS | detail_removed_fraction=0.8417,budget_claim_met=1 | -
+material-plastic-metal | Y | Y | Y | N | material-render | PASS | plastic_metal_score=0.5609 | -
+material-wrong-roughness | Y | Y | Y | N | material-render | PASS | plastic_metal_score=0.646 | -
+material-flat-fake-foam | Y | Y | Y | N | material-render | PASS | flat_depth_pretence=550 | -
+material-texture-scale-error | Y | Y | Y | N | material-render | PASS | pore_scale_ratio=20,texture_scale_m=0.02,feature_scale_m=0.001 | -
+material-offline-browser-mismatch | Y | Y | Y | N | material-render | PASS | plastic_metal_score=0.684,delta_e2000=16.64,browser_mismatch=16.64 | delta_e2000=0,browser_mismatch=0
+lighting-clipped-hero | Y | Y | Y | N | lighting-image | PASS | highlight_clip_fraction=0.6218 | -
+lighting-floating-contact | Y | Y | Y | N | lighting-image | PASS | contact_shadow_strength=0.02 | -
+lighting-wrong-exposure | Y | Y | Y | N | lighting-image | PASS | luminance_variance=0 | -
+lighting-flat-corridor | Y | Y | Y | N | lighting-image | PASS | luminance_variance=3.081e-33 | -
+lighting-excessive-glow | Y | Y | Y | N | lighting-image | PASS | shadow_floor=0.45 | -
+cinematic-delayed-camera | Y | Y | Y | N | cinematic-path | PASS | camera_lag_vs_scroll=0.35 | -
+cinematic-dead-scroll | Y | Y | Y | N | cinematic-path | PASS | dead_scroll_fraction=0.45 | -
+cinematic-text-collision | Y | Y | Y | N | cinematic-path | PASS | contrast_ratio=1.756 | -
+cinematic-left-turn-overshoot | Y | Y | Y | N | cinematic-path | PASS | turn_intent_score=0.2 | -
+cinematic-mobile-crop | Y | Y | Y | N | cinematic-path | PASS | generic_composition_score=0.7857,thirds_distance=0.2357 | -
+cinematic-reduced-motion-regression | Y | Y | Y | N | cinematic-path | PASS | reduced_motion_equivalence=0.4 | -
+delivery-oversized-shell | Y | Y | Y | N | delivery-file | PASS | long_task_count=3,shell_bytes=2701503,shell_budget=1572864 | shell_bytes=50728,shell_budget=1572864
+delivery-decode-long-task | Y | Y | Y | N | process-measure | PASS | long_task_count=1 | -
+delivery-memory-growth | Y | Y | Y | N | process-measure | PASS | javascript_heap_growth_bytes=12002600 | -
+delivery-blank-first-frame | Y | Y | Y | N | process-measure | PASS | cumulative_layout_shift=0.25,first_frame_mean=0 | first_frame_mean=0.4
+delivery-shader-flash | Y | Y | Y | N | process-measure | PASS | frame_time_p95_ms=37.4 | -
+delivery-no-webgl-content-loss | Y | Y | Y | N | delivery-file | PASS | textual_equivalent_presence=0 | -
+
+passed=27 failed=0 blocked=0 status=PASS

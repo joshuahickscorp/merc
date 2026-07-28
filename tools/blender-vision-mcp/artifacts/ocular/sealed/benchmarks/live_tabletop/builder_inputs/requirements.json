@@ -1,0 +1,11 @@
+{
+  "acceptance_thresholds": {
+    "max_identity_swap_rate": 0.05,
+    "min_track_precision": 0.7
+  },
+  "blocked_requirements": [],
+  "claim_boundary": [
+    "No live webcam on this host; synthetic tabletop sequence is diagnostic."
+  ],
+  "target_id": "live_tabletop"
+}

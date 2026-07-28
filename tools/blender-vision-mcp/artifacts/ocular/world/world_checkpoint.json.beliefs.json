@@ -1,0 +1,928 @@
+{
+  "appearance": {},
+  "belief_history": [
+    {
+      "belief_id": "belief-tabletop-000001",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "cup",
+      "evidence": {
+        "frame_index": 0,
+        "observation_ids": [
+          "obs-0-cup"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-tabletop-000001",
+      "posterior": {
+        "belief_id": "belief-tabletop-000001",
+        "confidence": 0.7,
+        "exists": true,
+        "slot": "existence"
+      },
+      "prior": {},
+      "slot": "existence",
+      "timestamp": "2026-07-27T07:10:48.082004+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000002",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "cup",
+      "evidence": {
+        "observation_ids": [
+          "obs-0-cup"
+        ],
+        "pose_m": [
+          0.0,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-tabletop-000002",
+      "posterior": {
+        "belief_id": "belief-tabletop-000002",
+        "confidence": 0.7,
+        "pose_m": [
+          0.0,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {},
+      "slot": "pose",
+      "timestamp": "2026-07-27T07:10:48.082096+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000003",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "cup",
+      "evidence": {
+        "class_label": "cup",
+        "observation_ids": [
+          "obs-0-cup"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-tabletop-000003",
+      "posterior": {
+        "belief_id": "belief-tabletop-000003",
+        "class_label": "cup",
+        "confidence": 0.7,
+        "slot": "class"
+      },
+      "prior": {},
+      "slot": "class",
+      "timestamp": "2026-07-27T07:10:48.082148+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000004",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "bowl",
+      "evidence": {
+        "frame_index": 0,
+        "observation_ids": [
+          "obs-0-bowl"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-tabletop-000004",
+      "posterior": {
+        "belief_id": "belief-tabletop-000004",
+        "confidence": 0.7,
+        "exists": true,
+        "slot": "existence"
+      },
+      "prior": {},
+      "slot": "existence",
+      "timestamp": "2026-07-27T07:10:48.082262+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000005",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "bowl",
+      "evidence": {
+        "observation_ids": [
+          "obs-0-bowl"
+        ],
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-tabletop-000005",
+      "posterior": {
+        "belief_id": "belief-tabletop-000005",
+        "confidence": 0.7,
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {},
+      "slot": "pose",
+      "timestamp": "2026-07-27T07:10:48.082306+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000006",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "bowl",
+      "evidence": {
+        "class_label": "bowl",
+        "observation_ids": [
+          "obs-0-bowl"
+        ]
+      },
+      "frame_index": 0,
+      "id": "bu-belief-tabletop-000006",
+      "posterior": {
+        "belief_id": "belief-tabletop-000006",
+        "class_label": "bowl",
+        "confidence": 0.7,
+        "slot": "class"
+      },
+      "prior": {},
+      "slot": "class",
+      "timestamp": "2026-07-27T07:10:48.082346+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000007",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "cup",
+      "evidence": {
+        "observation_ids": [
+          "obs-1-cup"
+        ],
+        "pose_m": [
+          0.05,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 1,
+      "id": "bu-belief-tabletop-000007",
+      "posterior": {
+        "belief_id": "belief-tabletop-000007",
+        "confidence": 0.76,
+        "pose_m": [
+          0.05,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          0.0,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "slot": "pose",
+      "timestamp": "2026-07-27T07:10:48.082450+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000008",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "bowl",
+      "evidence": {
+        "observation_ids": [
+          "obs-1-bowl"
+        ],
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 1,
+      "id": "bu-belief-tabletop-000008",
+      "posterior": {
+        "belief_id": "belief-tabletop-000008",
+        "confidence": 0.76,
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "slot": "pose",
+      "timestamp": "2026-07-27T07:10:48.082514+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000009",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "cup",
+      "evidence": {
+        "observation_ids": [
+          "obs-2-cup"
+        ],
+        "pose_m": [
+          0.1,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 2,
+      "id": "bu-belief-tabletop-000009",
+      "posterior": {
+        "belief_id": "belief-tabletop-000009",
+        "confidence": 0.8200000000000001,
+        "pose_m": [
+          0.1,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          0.05,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "slot": "pose",
+      "timestamp": "2026-07-27T07:10:48.082573+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000010",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "bowl",
+      "evidence": {
+        "observation_ids": [
+          "obs-2-bowl"
+        ],
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 2,
+      "id": "bu-belief-tabletop-000010",
+      "posterior": {
+        "belief_id": "belief-tabletop-000010",
+        "confidence": 0.8200000000000001,
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "slot": "pose",
+      "timestamp": "2026-07-27T07:10:48.082640+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000011",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "bowl",
+      "evidence": {
+        "observation_ids": [
+          "obs-3-bowl"
+        ],
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 3,
+      "id": "bu-belief-tabletop-000011",
+      "posterior": {
+        "belief_id": "belief-tabletop-000011",
+        "confidence": 0.8800000000000001,
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "slot": "pose",
+      "timestamp": "2026-07-27T07:10:48.082689+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000012",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "cup",
+      "evidence": {
+        "absent": false,
+        "frame_index": 3,
+        "reason": "occlusion"
+      },
+      "frame_index": 3,
+      "id": "bu-belief-tabletop-000012",
+      "posterior": {
+        "belief_id": "belief-tabletop-000012",
+        "confidence": 0.7400000000000001,
+        "frames_since_seen": 1,
+        "slot": "visibility",
+        "visibility": "INFERRED_SURFACE"
+      },
+      "prior": {
+        "confidence": 0.8200000000000001,
+        "visibility": "DIRECTLY_VISIBLE"
+      },
+      "slot": "visibility",
+      "timestamp": "2026-07-27T07:10:48.082746+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000013",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "cup",
+      "evidence": {
+        "absent": true,
+        "frame_index": 4,
+        "reason": "absent"
+      },
+      "frame_index": 4,
+      "id": "bu-belief-tabletop-000013",
+      "posterior": {
+        "belief_id": "belief-tabletop-000013",
+        "confidence": 0.7000000000000001,
+        "frames_since_seen": 2,
+        "slot": "visibility",
+        "visibility": "INFERRED_SURFACE"
+      },
+      "prior": {
+        "confidence": 0.7400000000000001,
+        "visibility": "DIRECTLY_VISIBLE"
+      },
+      "slot": "visibility",
+      "timestamp": "2026-07-27T07:10:48.082789+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000014",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "bowl",
+      "evidence": {
+        "absent": true,
+        "frame_index": 4,
+        "reason": "absent"
+      },
+      "frame_index": 4,
+      "id": "bu-belief-tabletop-000014",
+      "posterior": {
+        "belief_id": "belief-tabletop-000014",
+        "confidence": 0.8400000000000001,
+        "frames_since_seen": 1,
+        "slot": "visibility",
+        "visibility": "PARTIALLY_VISIBLE"
+      },
+      "prior": {
+        "confidence": 0.8800000000000001,
+        "visibility": "DIRECTLY_VISIBLE"
+      },
+      "slot": "visibility",
+      "timestamp": "2026-07-27T07:10:48.082827+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000015",
+      "competing": true,
+      "contradiction": true,
+      "entity_id": "cup",
+      "evidence": {
+        "delta_m": 0.15811388300841897,
+        "observation_ids": [
+          "obs-5-cup"
+        ],
+        "pose_m": [
+          0.25,
+          0.05,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 5,
+      "id": "bu-belief-tabletop-000015",
+      "posterior": {
+        "belief_id": "belief-tabletop-000015",
+        "confidence": 0.65,
+        "pose_m": [
+          0.25,
+          0.05,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          0.1,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "slot": "pose",
+      "timestamp": "2026-07-27T07:10:48.082874+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000016",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "bowl",
+      "evidence": {
+        "observation_ids": [
+          "obs-5-bowl"
+        ],
+        "pose_m": [
+          0.36,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 5,
+      "id": "bu-belief-tabletop-000016",
+      "posterior": {
+        "belief_id": "belief-tabletop-000016",
+        "confidence": 0.9000000000000001,
+        "pose_m": [
+          0.36,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          0.35,
+          0.1,
+          0.06,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "slot": "pose",
+      "timestamp": "2026-07-27T07:10:48.082924+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000017",
+      "competing": true,
+      "contradiction": true,
+      "entity_id": "cup",
+      "evidence": {
+        "delta_m": 1.7507141400011597,
+        "observation_ids": [
+          "obs-6-cup"
+        ],
+        "pose_m": [
+          2.0,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "frame_index": 6,
+      "id": "bu-belief-tabletop-000017",
+      "posterior": {
+        "belief_id": "belief-tabletop-000017",
+        "confidence": 0.6,
+        "pose_m": [
+          2.0,
+          0.0,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "slot": "pose"
+      },
+      "prior": {
+        "pose_m": [
+          0.25,
+          0.05,
+          0.08,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "slot": "pose",
+      "timestamp": "2026-07-27T07:10:48.084041+00:00"
+    },
+    {
+      "belief_id": "belief-tabletop-000018",
+      "competing": false,
+      "contradiction": false,
+      "entity_id": "bowl",
+      "evidence": {
+        "absent": false,
+        "frame_index": 6,
+        "reason": "occlusion"
+      },
+      "frame_index": 6,
+      "id": "bu-belief-tabletop-000018",
+      "posterior": {
+        "belief_id": "belief-tabletop-000018",
+        "confidence": 0.8200000000000002,
+        "frames_since_seen": 1,
+        "slot": "visibility",
+        "visibility": "INFERRED_SURFACE"
+      },
+      "prior": {
+        "confidence": 0.9000000000000001,
+        "visibility": "DIRECTLY_VISIBLE"
+      },
+      "slot": "visibility",
+      "timestamp": "2026-07-27T07:10:48.084099+00:00"
+    }
+  ],
+  "entities": {
+    "bowl": {
+      "appearance": {},
+      "belief_sets": {
+        "class": [
+          {
+            "belief_id": "belief-tabletop-000006",
+            "class_label": "bowl",
+            "confidence": 0.7,
+            "slot": "class"
+          }
+        ],
+        "existence": [
+          {
+            "belief_id": "belief-tabletop-000004",
+            "confidence": 0.7,
+            "exists": true,
+            "slot": "existence"
+          }
+        ],
+        "pose": [
+          {
+            "belief_id": "belief-tabletop-000005",
+            "confidence": 0.7,
+            "pose_m": [
+              0.35,
+              0.1,
+              0.06,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-tabletop-000008",
+            "confidence": 0.76,
+            "pose_m": [
+              0.35,
+              0.1,
+              0.06,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-tabletop-000010",
+            "confidence": 0.8200000000000001,
+            "pose_m": [
+              0.35,
+              0.1,
+              0.06,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-tabletop-000011",
+            "confidence": 0.8800000000000001,
+            "pose_m": [
+              0.35,
+              0.1,
+              0.06,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-tabletop-000016",
+            "confidence": 0.9000000000000001,
+            "pose_m": [
+              0.36,
+              0.1,
+              0.06,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          }
+        ],
+        "visibility": [
+          {
+            "belief_id": "belief-tabletop-000014",
+            "confidence": 0.8400000000000001,
+            "frames_since_seen": 1,
+            "slot": "visibility",
+            "visibility": "PARTIALLY_VISIBLE"
+          },
+          {
+            "belief_id": "belief-tabletop-000018",
+            "confidence": 0.8200000000000002,
+            "frames_since_seen": 1,
+            "slot": "visibility",
+            "visibility": "INFERRED_SURFACE"
+          }
+        ]
+      },
+      "class_label": "bowl",
+      "confidence": 0.8200000000000002,
+      "entity_id": "bowl",
+      "last_observed_frame": 5,
+      "pose_m": [
+        0.36,
+        0.1,
+        0.06,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "track_id": "bowl",
+      "visibility": "INFERRED_SURFACE"
+    },
+    "cup": {
+      "appearance": {},
+      "belief_sets": {
+        "class": [
+          {
+            "belief_id": "belief-tabletop-000003",
+            "class_label": "cup",
+            "confidence": 0.7,
+            "slot": "class"
+          }
+        ],
+        "existence": [
+          {
+            "belief_id": "belief-tabletop-000001",
+            "confidence": 0.7,
+            "exists": true,
+            "slot": "existence"
+          }
+        ],
+        "pose": [
+          {
+            "belief_id": "belief-tabletop-000002",
+            "confidence": 0.7,
+            "pose_m": [
+              0.0,
+              0.0,
+              0.08,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-tabletop-000007",
+            "confidence": 0.76,
+            "pose_m": [
+              0.05,
+              0.0,
+              0.08,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-tabletop-000009",
+            "confidence": 0.8200000000000001,
+            "pose_m": [
+              0.1,
+              0.0,
+              0.08,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-tabletop-000015",
+            "confidence": 0.65,
+            "pose_m": [
+              0.25,
+              0.05,
+              0.08,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          },
+          {
+            "belief_id": "belief-tabletop-000017",
+            "confidence": 0.6,
+            "pose_m": [
+              2.0,
+              0.0,
+              0.08,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "slot": "pose"
+          }
+        ],
+        "visibility": [
+          {
+            "belief_id": "belief-tabletop-000012",
+            "confidence": 0.7400000000000001,
+            "frames_since_seen": 1,
+            "slot": "visibility",
+            "visibility": "INFERRED_SURFACE"
+          },
+          {
+            "belief_id": "belief-tabletop-000013",
+            "confidence": 0.7000000000000001,
+            "frames_since_seen": 2,
+            "slot": "visibility",
+            "visibility": "INFERRED_SURFACE"
+          }
+        ]
+      },
+      "class_label": "cup",
+      "confidence": 0.6,
+      "entity_id": "cup",
+      "last_observed_frame": 6,
+      "pose_m": [
+        2.0,
+        0.0,
+        0.08,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "track_id": "cup",
+      "visibility": "DIRECTLY_VISIBLE"
+    }
+  },
+  "lighting": {
+    "mean_luminance": 0.55
+  },
+  "relations": [],
+  "scene_id": "tabletop"
+}

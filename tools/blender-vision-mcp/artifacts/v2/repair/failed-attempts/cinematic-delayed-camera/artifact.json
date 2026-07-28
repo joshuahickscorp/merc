@@ -1,0 +1,8 @@
+{
+  "files": {},
+  "kind": "cinematic",
+  "payload": {
+    "camera_lag_vs_scroll": 0.35,
+    "damping": 0.45
+  }
+}

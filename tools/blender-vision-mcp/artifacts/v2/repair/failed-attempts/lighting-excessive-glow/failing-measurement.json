@@ -1,0 +1,26 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "light-excessive-glow:overfilled-shadows"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "shadow_floor <= 0.22",
+      "blast_radius": [
+        "lighting"
+      ],
+      "critic_role": "lighting_artist",
+      "diagnosis": "shadows are overfilled and lose contact grounding",
+      "finding_id": "light-excessive-glow:overfilled-shadows",
+      "measured": {
+        "shadow_floor": 0.45
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "shadow_floor": 0.45
+  },
+  "runtime_used": "lighting-image",
+  "subject_id": "light-excessive-glow"
+}

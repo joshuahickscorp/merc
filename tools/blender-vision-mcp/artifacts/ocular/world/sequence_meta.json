@@ -1,0 +1,63 @@
+{
+  "execution": {
+    "authority": "MODEL_DERIVED",
+    "blocked_reason": "benchmarks/ocular_tabletop absent; driving world from ground-truth tracks (segmentation/tracking is a separate task)",
+    "command": [],
+    "created_at": "2026-07-27T07:10:48.080378+00:00",
+    "digest": "99c2b212806605dc3971c8d9531663d62659148423bf7479f236408566f10d81",
+    "elapsed_seconds": 0.0,
+    "ended_at": "",
+    "environment": {},
+    "executable": "",
+    "executable_sha256": "",
+    "execution_class": "DIAGNOSTIC_ONLY",
+    "failure_kind": null,
+    "host": {
+      "cpu_count": 28,
+      "machine": "arm64",
+      "platform": "darwin",
+      "python": "3.13.13",
+      "release": "27.0.0"
+    },
+    "id": "attest-blender-tabletop-ground_truth_tracks-1785136248080",
+    "lifecycle": "DRAFT",
+    "lineage": {
+      "environment": {},
+      "hardware": {},
+      "input_authorities": [],
+      "inputs": [],
+      "limitations": [],
+      "model_versions": {},
+      "operation": "unspecified",
+      "parameters": {},
+      "retrieved_at": "",
+      "rights_state": "unreviewed",
+      "tool": "blender-vision-mcp",
+      "tool_version": "0.1.0"
+    },
+    "notes": [],
+    "output_digests": {},
+    "process_id": 0,
+    "record_kind": "ocular.runtime-attestation",
+    "returncode": null,
+    "runtime": "blender-tabletop",
+    "schema_version": "2",
+    "started_at": "",
+    "stderr_tail": "",
+    "stdout_tail": "",
+    "substituted_by": "ground_truth_tracks",
+    "superseded_by": null,
+    "supersedes": [],
+    "uncertainty": {
+      "basis": "not-estimated",
+      "interval": [],
+      "kind": "unspecified",
+      "samples": 0,
+      "sigma": null,
+      "units": "unitless"
+    },
+    "version": ""
+  },
+  "source": "procedural_tabletop_gt",
+  "track_source": "ground_truth"
+}

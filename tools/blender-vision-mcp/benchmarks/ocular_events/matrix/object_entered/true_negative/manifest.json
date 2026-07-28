@@ -1,0 +1,37 @@
+{
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "event_type": "OBJECT_ENTERED",
+  "expect_fire": false,
+  "fixture_class": "true_negative",
+  "forbidden_events": [
+    "OBJECT_ENTERED"
+  ],
+  "frames": [
+    {
+      "index": 0,
+      "path": "frames/frame_0000.png"
+    },
+    {
+      "index": 1,
+      "path": "frames/frame_0001.png"
+    },
+    {
+      "index": 2,
+      "path": "frames/frame_0002.png"
+    },
+    {
+      "index": 3,
+      "path": "frames/frame_0003.png"
+    },
+    {
+      "index": 4,
+      "path": "frames/frame_0004.png"
+    }
+  ],
+  "image_height": 240,
+  "image_width": 320,
+  "measured_quantity": "unmatched_motion_blob",
+  "n_frames": 5,
+  "notes": "empty scene stays empty",
+  "onset_frame": null
+}

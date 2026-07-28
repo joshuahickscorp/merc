@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision-mcp.dev/schemas/camera-refinement.schema.json",
+  "title": "Bounded silhouette camera refinement report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "authority",
+    "configuration",
+    "reference_segmentation",
+    "best",
+    "evaluations",
+    "worker_batches"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "format": "uuid"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "authority": {"type": "string", "minLength": 1},
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_solution_id",
+        "reference_id",
+        "scene_id",
+        "maximum_dimension",
+        "search_dimensions",
+        "stages",
+        "candidate_count",
+        "evidence_binding_ids"
+      ],
+      "properties": {
+        "source_solution_id": {"type": "string", "format": "uuid"},
+        "reference_id": {"type": "string", "format": "uuid"},
+        "scene_id": {"type": "string", "format": "uuid"},
+        "maximum_dimension": {"type": "integer", "minimum": 64, "maximum": 1024},
+        "search_dimensions": {
+          "type": "array",
+          "prefixItems": [
+            {"type": "integer", "minimum": 64, "maximum": 1024},
+            {"type": "integer", "minimum": 64, "maximum": 1024}
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "stages": {"type": "integer", "minimum": 1, "maximum": 4},
+        "candidate_count": {"type": "integer", "minimum": 1, "maximum": 500},
+        "evidence_binding_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "reference_segmentation": {
+      "type": "object",
+      "required": ["method", "confidence"],
+      "properties": {
+        "method": {"type": "string", "minLength": 1},
+        "confidence": {"enum": ["low", "medium", "high"]},
+        "reference_mask_id": {"type": "string", "format": "uuid"},
+        "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "best": {"$ref": "#/$defs/evaluation"},
+    "evaluations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {"$ref": "#/$defs/evaluation"}
+    },
+    "worker_batches": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {"type": "object"}
+    }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "view_direction",
+        "horizontal_fov_degrees",
+        "fit_margin",
+        "lens_shift_x",
+        "lens_shift_y",
+        "camera_roll_degrees"
+      ],
+      "properties": {
+        "view_direction": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"type": "number"}
+        },
+        "horizontal_fov_degrees": {"type": "number", "minimum": 5, "maximum": 150},
+        "fit_margin": {"type": "number", "minimum": 0.25, "maximum": 8},
+        "lens_shift_x": {"type": "number", "minimum": -1, "maximum": 1},
+        "lens_shift_y": {"type": "number", "minimum": -1, "maximum": 1},
+        "camera_roll_degrees": {"type": "number", "minimum": -360, "maximum": 360}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "silhouette_iou",
+        "silhouette_dice",
+        "true_positive",
+        "false_positive",
+        "false_negative"
+      ],
+      "properties": {
+        "silhouette_iou": {"type": "number", "minimum": 0, "maximum": 1},
+        "silhouette_dice": {"type": "number", "minimum": 0, "maximum": 1},
+        "true_positive": {"type": "integer", "minimum": 0},
+        "false_positive": {"type": "integer", "minimum": 0},
+        "false_negative": {"type": "integer", "minimum": 0}
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "index",
+        "candidate",
+        "camera",
+        "render_path",
+        "render_sha256",
+        "render_bytes",
+        "metrics"
+      ],
+      "properties": {
+        "phase": {"type": "integer", "minimum": 1, "maximum": 4},
+        "index": {"type": "integer", "minimum": 0, "maximum": 127},
+        "candidate": {"$ref": "#/$defs/candidate"},
+        "camera": {"type": "object"},
+        "render_path": {"type": "string", "minLength": 1},
+        "render_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "render_bytes": {"type": "integer", "minimum": 1},
+        "metrics": {"$ref": "#/$defs/metrics"}
+      }
+    }
+  }
+}

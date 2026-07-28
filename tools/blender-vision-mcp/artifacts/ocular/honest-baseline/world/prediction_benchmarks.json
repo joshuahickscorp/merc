@@ -1,0 +1,143 @@
+[
+  {
+    "confidence_after": 0.7699999999999999,
+    "confidence_before": null,
+    "expect_surprise": false,
+    "kind": "pose",
+    "magnitude": 0.0,
+    "name": "expected_motion",
+    "observed": {
+      "pose_m": [
+        0.2,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "predicted": {
+      "pose_m": [
+        0.2,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "velocity_m_per_frame": [
+        0.1,
+        0.0,
+        0.0
+      ]
+    },
+    "surprise": false,
+    "tolerance": 0.05
+  },
+  {
+    "confidence_after": 0.26,
+    "confidence_before": 0.76,
+    "expect_surprise": true,
+    "kind": "pose",
+    "magnitude": 1.2,
+    "name": "unexpected_moved_object",
+    "observed": {
+      "pose_m": [
+        1.2,
+        0.0,
+        0.0,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    "predicted": {
+      "pose_m": [
+        0.0,
+        0.0,
+        0.0,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    "surprise": true,
+    "tolerance": 0.05
+  },
+  {
+    "confidence_after": 0.26,
+    "confidence_before": 0.76,
+    "expect_surprise": true,
+    "kind": "existence",
+    "magnitude": 1.0,
+    "name": "missing_object",
+    "observed": {
+      "exists": false
+    },
+    "predicted": {
+      "exists": true
+    },
+    "surprise": true,
+    "tolerance": 0.5
+  },
+  {
+    "confidence_after": 0.19999999999999996,
+    "confidence_before": 0.7,
+    "expect_surprise": true,
+    "kind": "browser_animation",
+    "magnitude": 0.7,
+    "name": "wrong_browser_animation",
+    "observed": {
+      "animation_phase": 0.95
+    },
+    "predicted": {
+      "animation_phase": 0.25
+    },
+    "surprise": true,
+    "tolerance": 0.1
+  },
+  {
+    "confidence_after": 0.19999999999999996,
+    "confidence_before": 0.7,
+    "expect_surprise": true,
+    "kind": "camera_path",
+    "magnitude": 1.5,
+    "name": "camera_path_mismatch",
+    "observed": {
+      "camera_position": [
+        0.0,
+        -1.0,
+        2.0
+      ]
+    },
+    "predicted": {
+      "camera_position": [
+        0.0,
+        -1.0,
+        0.5
+      ]
+    },
+    "surprise": true,
+    "tolerance": 0.15
+  },
+  {
+    "confidence_after": 0.19999999999999996,
+    "confidence_before": 0.7,
+    "expect_surprise": true,
+    "kind": "material_response",
+    "magnitude": 0.6499999999999999,
+    "name": "material_response_mismatch",
+    "observed": {
+      "specular_peak": 0.95
+    },
+    "predicted": {
+      "specular_peak": 0.3
+    },
+    "surprise": true,
+    "tolerance": 0.1
+  }
+]

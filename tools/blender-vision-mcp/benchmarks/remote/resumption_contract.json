@@ -1,0 +1,50 @@
+{
+  "schema": "visionmcp.object-benchmark-resumption/v1",
+  "target_id": "consumer_remote",
+  "phase": "O",
+  "status": "synthetic_self_capture_complete",
+  "claim": "The self-captured fixture is procedural ground truth only. It is not evidence about any physical remote control.",
+  "required_to_resume_real_capture": {
+    "multiview_images": {
+      "min_count": 24,
+      "min_short_side_px": 1600,
+      "include_underside": true,
+      "format": ["jpg", "png"]
+    },
+    "scale_reference": {
+      "required": true,
+      "acceptable": ["metric_ruler", "credit_card_85.60x53.98mm", "caliper_measurement"]
+    },
+    "lens_metadata": {
+      "required": true,
+      "fields": ["focal_length_mm", "sensor_width_mm_or_35mm_equiv"]
+    },
+    "calibration_target": {
+      "required": false,
+      "recommended": "charuco_or_checkerboard"
+    },
+    "holdout_set": {
+      "required": false,
+      "note": "If supplied, builder process must be denied read access; evaluator only."
+    },
+    "hidden_surface_policy": {
+      "underside_without_photos": "NEVER_OBSERVED",
+      "battery_compartment_closed": "NEVER_OBSERVED",
+      "never_label_as": ["OBSERVED"]
+    }
+  },
+  "inputs_to_place": {
+    "directory": "artifacts/v2/object-benchmarks/remote/real_capture/",
+    "source_packet": "source_packet.json",
+    "images_train": "images/train/",
+    "images_holdout": "images/holdout/",
+    "scale_reference": "scale_reference.json",
+    "camera_notes": "camera_notes.json"
+  },
+  "command_after_supply": [
+    "python scripts/run-object-benchmarks.py",
+    "--output artifacts/v2/object-benchmarks",
+    "--skip-phase-p"
+  ],
+  "capture_protocol": "benchmarks/remote/capture_protocol.md"
+}

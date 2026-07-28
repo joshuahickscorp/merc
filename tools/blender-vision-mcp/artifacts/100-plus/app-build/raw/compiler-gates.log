@@ -1,0 +1,14 @@
+3 files reformatted, 5 files left unchanged
+All checks passed!
+..............                                                           [100%]
+14 passed in 2.95s
+Building source distribution...
+Building wheel from source distribution...
+Successfully built /tmp/bvmcp-app-build-package.suKOWU/blender_vision_mcp-0.1.0.tar.gz
+Successfully built /tmp/bvmcp-app-build-package.suKOWU/blender_vision_mcp-0.1.0-py3-none-any.whl
+verified blender_vision_mcp-0.1.0-py3-none-any.whl: 252 files
+    19739  02-02-2020 00:00   blender_vision/app_build/compiler.py
+    41231  02-02-2020 00:00   blender_vision/app_build/templates.py
+    77195  02-02-2020 00:00   blender_vision/app_build/assets/package-lock.json
+    41321  02-02-2020 00:00   blender_vision/schemas/application-reference-packet.schema.json
+package_dir=/tmp/bvmcp-app-build-package.suKOWU

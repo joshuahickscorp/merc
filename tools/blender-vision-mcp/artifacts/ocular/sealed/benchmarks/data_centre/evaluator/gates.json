@@ -1,0 +1,9 @@
+{
+  "acceptance_thresholds": {
+    "min_beats": 1
+  },
+  "require_canary_absent_from_builder": true,
+  "require_split_digest_match": true,
+  "split_digest": "e7d855a1ec27f2a3da771df1e2d8c440b32a8e08c352f161221c7035811107e4",
+  "target_id": "data_centre"
+}

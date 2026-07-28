@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/motion-graph.schema.json",
+  "title": "VisionMCP MotionGraph",
+  "type": "object",
+  "required": [
+    "schema",
+    "graph_type",
+    "authority",
+    "target",
+    "nodes",
+    "edges",
+    "timelines",
+    "animations",
+    "inference",
+    "reduced_motion_variant",
+    "replay_contract"
+  ],
+  "properties": {
+    "schema": { "const": "vision.motion-graph/v1" },
+    "graph_type": { "const": "MotionGraph" },
+    "authority": { "const": "OBSERVED" },
+    "target": { "type": "object" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "domain_type",
+          "spatial_bounds",
+          "temporal_validity",
+          "evidence_references",
+          "authority",
+          "confidence",
+          "source_restrictions",
+          "uncertainty",
+          "revision_lineage",
+          "selector",
+          "animation_samples",
+          "scroll_samples"
+        ]
+      }
+    },
+    "edges": { "type": "array" },
+    "timelines": { "type": "array", "minItems": 2 },
+    "animations": { "type": "array" },
+    "inference": { "type": "object" },
+    "reduced_motion_variant": { "type": ["object", "null"] },
+    "replay_contract": { "type": "object" }
+  }
+}

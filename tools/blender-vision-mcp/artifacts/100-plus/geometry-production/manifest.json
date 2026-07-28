@@ -1,0 +1,24 @@
+{
+  "schema_version": "1",
+  "benchmark_id": "asset-preparation-v1",
+  "implementation_git_head": "238d3d54ecc0002e7b0de7b329743608761c67ac",
+  "benchmark_manifest_sha256": "9ab02493ced89612dba76907d88e98ba2ef512d3920a7c27eac3657c00249889",
+  "reproduction_command": "uv run bvmcp benchmark bootstrap-asset-preparation --output <new-empty-directory>",
+  "final_run": {
+    "status": "PASS",
+    "functional_passed": true,
+    "assertion_count": 17,
+    "elapsed_seconds": 6.895827,
+    "archive": "archives/238d3d5-functional-pass.tar.gz",
+    "archive_sha256": "b51869de18b848ab43ecb52f757ae950ef55066e28c65cea05f34b4ddecbff34",
+    "receipt_path_in_archive": "238d3d5-functional-pass/asset-preparation.receipt.json",
+    "receipt_sha256": "3d58b8338d105b25c414f50a1806398cb1dc2802fd64030c2db397d2235f3a5b",
+    "worker_entry_sha256": "74ae21952c39bb31059934562cc55c4c2fb0bdb4d17849f3516dbdc96e5d16a4",
+    "worker_manifest_hash": "b237917b78dcfa3f0b27e6eb0264db196563c39e1c3cbc9748dd999289368bf3",
+    "worker_runtime_revision": "238d3d54ecc0002e7b0de7b329743608761c67ac:c83d023fea2462f6776117c0abb6d040563e00bf14d848e55b60ca24b2c94498",
+    "blender_version": "4.2.1 LTS",
+    "blender_executable_sha256": "b5737da97b0e164cc18e227be115c4ea2791d11e9577f7e302c73f4871f9249c",
+    "candidate_glb_sha256": "aa014279db6086b9ef080a43752e967e9b294529845624e5767c6bb1e80107db"
+  },
+  "negative_results": "negative-results.json"
+}

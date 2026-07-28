@@ -1,0 +1,152 @@
+{
+  "condition": "permanence",
+  "frame_count": 32,
+  "resolution": [
+    320,
+    240
+  ],
+  "source": "blender_eevee",
+  "coordinate_frame": {
+    "world": {
+      "name": "blender-world",
+      "up_axis": "+Z",
+      "units": "m"
+    },
+    "image": {
+      "name": "opencv-camera",
+      "up_axis": "-Y",
+      "units": "px"
+    }
+  },
+  "frames": [
+    {
+      "frame_index": 0,
+      "image": "frames/frame_0001.png"
+    },
+    {
+      "frame_index": 1,
+      "image": "frames/frame_0002.png"
+    },
+    {
+      "frame_index": 2,
+      "image": "frames/frame_0003.png"
+    },
+    {
+      "frame_index": 3,
+      "image": "frames/frame_0004.png"
+    },
+    {
+      "frame_index": 4,
+      "image": "frames/frame_0005.png"
+    },
+    {
+      "frame_index": 5,
+      "image": "frames/frame_0006.png"
+    },
+    {
+      "frame_index": 6,
+      "image": "frames/frame_0007.png"
+    },
+    {
+      "frame_index": 7,
+      "image": "frames/frame_0008.png"
+    },
+    {
+      "frame_index": 8,
+      "image": "frames/frame_0009.png"
+    },
+    {
+      "frame_index": 9,
+      "image": "frames/frame_0010.png"
+    },
+    {
+      "frame_index": 10,
+      "image": "frames/frame_0011.png"
+    },
+    {
+      "frame_index": 11,
+      "image": "frames/frame_0012.png"
+    },
+    {
+      "frame_index": 12,
+      "image": "frames/frame_0013.png"
+    },
+    {
+      "frame_index": 13,
+      "image": "frames/frame_0014.png"
+    },
+    {
+      "frame_index": 14,
+      "image": "frames/frame_0015.png"
+    },
+    {
+      "frame_index": 15,
+      "image": "frames/frame_0016.png"
+    },
+    {
+      "frame_index": 16,
+      "image": "frames/frame_0017.png"
+    },
+    {
+      "frame_index": 17,
+      "image": "frames/frame_0018.png"
+    },
+    {
+      "frame_index": 18,
+      "image": "frames/frame_0019.png"
+    },
+    {
+      "frame_index": 19,
+      "image": "frames/frame_0020.png"
+    },
+    {
+      "frame_index": 20,
+      "image": "frames/frame_0021.png"
+    },
+    {
+      "frame_index": 21,
+      "image": "frames/frame_0022.png"
+    },
+    {
+      "frame_index": 22,
+      "image": "frames/frame_0023.png"
+    },
+    {
+      "frame_index": 23,
+      "image": "frames/frame_0024.png"
+    },
+    {
+      "frame_index": 24,
+      "image": "frames/frame_0025.png"
+    },
+    {
+      "frame_index": 25,
+      "image": "frames/frame_0026.png"
+    },
+    {
+      "frame_index": 26,
+      "image": "frames/frame_0027.png"
+    },
+    {
+      "frame_index": 27,
+      "image": "frames/frame_0028.png"
+    },
+    {
+      "frame_index": 28,
+      "image": "frames/frame_0029.png"
+    },
+    {
+      "frame_index": 29,
+      "image": "frames/frame_0030.png"
+    },
+    {
+      "frame_index": 30,
+      "image": "frames/frame_0031.png"
+    },
+    {
+      "frame_index": 31,
+      "image": "frames/frame_0032.png"
+    }
+  ],
+  "sealed_manifest_relative": "sealed_manifest.json"
+}

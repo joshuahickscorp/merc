@@ -1,0 +1,6 @@
+{
+  "contact_shadow_strength": 0.01,
+  "highlight_clip_fraction": 0.08,
+  "luminance_variance": 0.001,
+  "shadow_floor": 0.45
+}

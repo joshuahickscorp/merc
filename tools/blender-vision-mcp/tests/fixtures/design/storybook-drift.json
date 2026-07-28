@@ -1,0 +1,24 @@
+{
+  "v": 5,
+  "entries": {
+    "button--primary": {
+      "type": "story",
+      "title": "Button",
+      "name": "State=Primary",
+      "importPath": "./src/Button.stories.tsx",
+      "exportName": "Primary",
+      "args": {"state": "primary"}
+    },
+    "card--default": {
+      "type": "story",
+      "title": "Card",
+      "name": "Default",
+      "importPath": "./src/Card.stories.tsx",
+      "exportName": "Default"
+    }
+  },
+  "tokens": {
+    "color/action": {"kind": "color", "value": "#EE3300"},
+    "color/surface": {"kind": "color", "value": "#FFFFFF"}
+  }
+}

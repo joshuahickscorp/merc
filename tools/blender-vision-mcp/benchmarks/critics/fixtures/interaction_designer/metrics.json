@@ -1,0 +1,6 @@
+{
+  "dead_zone_fraction": 0.25,
+  "get_app_discoverability": 0.15,
+  "response_latency_ms": 280.0,
+  "skip_discoverability": 0.1
+}

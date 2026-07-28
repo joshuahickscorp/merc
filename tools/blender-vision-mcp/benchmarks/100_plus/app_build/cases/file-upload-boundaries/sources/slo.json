@@ -1,0 +1,7 @@
+{
+  "authority": "SPECIFIED",
+  "benchmark_case": "file-upload-boundaries",
+  "kind": "slo",
+  "rights_state": "OWNED",
+  "source_id": "slo"
+}

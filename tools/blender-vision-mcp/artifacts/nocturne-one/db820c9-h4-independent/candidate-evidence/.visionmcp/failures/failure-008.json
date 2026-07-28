@@ -1,0 +1,1 @@
+{"schema_version":"1","id":"failure-008","attempt":"attempt-000","command":"npm run verify:3d","phase":"candidate_topology","exit_code":1,"severity":"P1","information_gain":"high","observations":["braided_cable has 20 non-manifold boundary edges","open ends originate in uncapped source curve"],"downstream_gates_run":false,"recorded_before_source_change":true}

@@ -1,0 +1,53 @@
+npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+
+added 118 packages in 34s
+
+> visionmcp-generated-application@1.0.0 verify
+> npm run test
+
+
+> visionmcp-generated-application@1.0.0 test
+> npm run test:contract
+
+
+> visionmcp-generated-application@1.0.0 test:contract
+> npm run build && node --test dist/tests/*.test.js
+
+
+> visionmcp-generated-application@1.0.0 build
+> npm run clean && tsc -p tsconfig.json && esbuild frontend/src/app.ts --bundle --minify --outfile=dist/public/app.js && node scripts/copy-static.mjs
+
+
+> visionmcp-generated-application@1.0.0 clean
+> node scripts/clean.mjs
+
+src/app.ts(41,7): error TS2367: This comparison appears to be unintentional because the types '"authenticated" | "permission"' and '"public"' have no overlap.
+src/app.ts(155,7): error TS2367: This comparison appears to be unintentional because the types '"create_entity"' and '"get_entity"' have no overlap.
+src/app.ts(155,40): error TS2367: This comparison appears to be unintentional because the types '"create_entity"' and '"status_lookup"' have no overlap.
+src/app.ts(156,47): error TS2339: Property 'id_field' does not exist on type 'never'.
+src/app.ts(159,64): error TS2339: Property 'id_field' does not exist on type 'never'.
+src/app.ts(173,7): error TS2367: This comparison appears to be unintentional because the types '"create_entity"' and '"file_upload"' have no overlap.
+src/app.ts(179,19): error TS2339: Property 'allowed_content_types' does not exist on type 'never'.
+src/app.ts(188,33): error TS2339: Property 'maximum_bytes' does not exist on type 'never'.
+src/app.ts(197,51): error TS2339: Property 'storage_subdirectory' does not exist on type 'never'.
+src/app.ts(229,15): error TS2339: Property 'kind' does not exist on type 'never'.
+src/app.ts(234,41): error TS2339: Property 'key_header' does not exist on type 'never'.
+src/app.ts(238,30): error TS2339: Property 'key_header' does not exist on type 'never'.
+src/app.ts(244,28): error TS2339: Property 'scope' does not exist on type 'never'.
+src/app.ts(257,34): error TS2339: Property 'conflict_status' does not exist on type 'never'.
+src/app.ts(264,32): error TS2339: Property 'replay_status' does not exist on type 'never'.
+src/app.ts(281,42): error TS2339: Property 'retention_seconds' does not exist on type 'never'.
+src/app.ts(290,65): error TS2339: Property 'kind' does not exist on type 'never'.
+src/app.ts(329,24): error TS2367: This comparison appears to be unintentional because the types '"create_entity" | "list_entities"' and '"file_upload"' have no overlap.
+src/app.ts(333,43): error TS2339: Property 'maximum_bytes' does not exist on type 'never'.
+src/app.ts(337,5): error TS2722: Cannot invoke an object which is possibly 'undefined'.
+tests/contract.test.ts(53,41): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type '{ method: "POST"; headers: { "content-type": string; "x-test-user": string; "x-test-role": "viewer"; }; body: string | undefined; }' is not assignable to parameter of type 'RequestInit' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+      Types of property 'body' are incompatible.
+        Type 'string | undefined' is not assignable to type 'BodyInit | null'.
+          Type 'undefined' is not assignable to type 'BodyInit | null'.
+tests/contract.test.ts(60,11): error TS2367: This comparison appears to be unintentional because the types '"POST"' and '"GET"' have no overlap.
+tests/contract.test.ts(83,37): error TS2339: Property 'key_header' does not exist on type 'never'.
+tests/contract.test.ts(99,57): error TS2339: Property 'replay_status' does not exist on type 'never'.
+tests/contract.test.ts(106,59): error TS2339: Property 'conflict_status' does not exist on type 'never'.

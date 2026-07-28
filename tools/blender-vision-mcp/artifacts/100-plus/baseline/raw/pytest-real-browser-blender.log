@@ -1,0 +1,54 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-100plus-sandbox/tools/blender-vision-mcp
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 13 items
+
+tests/test_browser_perception.py ...                                     [ 23%]
+tests/test_web_experience.py ...                                         [ 46%]
+tests/test_graphics_perception.py ....                                   [ 76%]
+tests/test_blender_integration.py F.                                     [ 92%]
+tests/test_calibration_benchmark.py .                                    [100%]
+
+=================================== FAILURES ===================================
+________________________ test_mac_studio_vertical_slice ________________________
+
+tmp_path = PosixPath('/private/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/pytest-of-scammermike/pytest-1373/test_mac_studio_vertical_slice0')
+
+    @pytest.mark.skipif(
+        os.environ.get("BVMCP_RUN_BLENDER_TESTS") != "1",
+        reason="set BVMCP_RUN_BLENDER_TESTS=1 for real Blender integration",
+    )
+    def test_mac_studio_vertical_slice(tmp_path: Path) -> None:
+        repository = Path(__file__).resolve().parents[3]
+        scene = repository / "models" / "mac_studio" / "final_packed.blend"
+        reference = repository / "web" / "assets" / "site" / "mac-studio@3x.png"
+>       assert scene.is_file()
+E       AssertionError: assert False
+E        +  where False = is_file()
+E        +    where is_file = PosixPath('/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-100plus-sandbox/models/mac_studio/final_packed.blend').is_file
+
+tests/test_blender_integration.py:37: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_blender_integration.py::test_mac_studio_vertical_slice - As...
+=================== 1 failed, 12 passed in 158.19s (0:02:38) ===================
+      158.66 real       109.08 user        33.84 sys
+           734396416  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             1601001  page reclaims
+                3787  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                7401  messages sent
+                4720  messages received
+                  27  signals received
+               11642  voluntary context switches
+              564674  involuntary context switches
+           160180555  instructions retired
+            98971328  cycles elapsed
+            14025256  peak memory footprint

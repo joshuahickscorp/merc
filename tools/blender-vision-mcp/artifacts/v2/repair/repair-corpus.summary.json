@@ -1,0 +1,405 @@
+{
+  "blocked_count": 0,
+  "drill_count": 27,
+  "drills": [
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "geometry-wrong-dimensions",
+      "global_regression": false,
+      "measured_injected": {
+        "max_relative_dimension_error": 0.15000000223517415
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "mesh",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "geometry-wrong-hidden-surface",
+      "global_regression": false,
+      "measured_injected": {
+        "hidden_view_score_delta": 0.33333333333333337
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "mesh",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "geometry-missing-semantic-part",
+      "global_regression": false,
+      "measured_injected": {
+        "expected_min_parts": 4,
+        "part_count": 3
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "mesh",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "geometry-bad-topology",
+      "global_regression": false,
+      "measured_injected": {
+        "drawer_depth_variance": 0.0
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "mesh",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "geometry-lod-identity-mismatch",
+      "global_regression": false,
+      "measured_injected": {
+        "budget_claim_met": 1.0,
+        "detail_removed_fraction": 0.8416666661699613
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "mesh",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "material-plastic-metal",
+      "global_regression": false,
+      "measured_injected": {
+        "plastic_metal_score": 0.56088
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "material-render",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "material-wrong-roughness",
+      "global_regression": false,
+      "measured_injected": {
+        "plastic_metal_score": 0.646
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "material-render",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "material-flat-fake-foam",
+      "global_regression": false,
+      "measured_injected": {
+        "flat_depth_pretence": 550.0
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "material-render",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "material-texture-scale-error",
+      "global_regression": false,
+      "measured_injected": {
+        "feature_scale_m": 0.001,
+        "pore_scale_ratio": 20.0,
+        "texture_scale_m": 0.02
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "material-render",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "material-offline-browser-mismatch",
+      "global_regression": false,
+      "measured_injected": {
+        "browser_mismatch": 16.63586287969764,
+        "delta_e2000": 16.63586287969764,
+        "plastic_metal_score": 0.684
+      },
+      "measured_repaired": {
+        "browser_mismatch": 0.0,
+        "delta_e2000": 0.0
+      },
+      "repaired": true,
+      "runtime_used": "material-render",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "lighting-clipped-hero",
+      "global_regression": false,
+      "measured_injected": {
+        "highlight_clip_fraction": 0.621826171875
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "lighting-image",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "lighting-floating-contact",
+      "global_regression": false,
+      "measured_injected": {
+        "contact_shadow_strength": 0.02
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "lighting-image",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "lighting-wrong-exposure",
+      "global_regression": false,
+      "measured_injected": {
+        "luminance_variance": 0.0
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "lighting-image",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "lighting-flat-corridor",
+      "global_regression": false,
+      "measured_injected": {
+        "luminance_variance": 3.0814879110195774e-33
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "lighting-image",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "lighting-excessive-glow",
+      "global_regression": false,
+      "measured_injected": {
+        "shadow_floor": 0.45
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "lighting-image",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "cinematic-delayed-camera",
+      "global_regression": false,
+      "measured_injected": {
+        "camera_lag_vs_scroll": 0.35
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "cinematic-path",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "cinematic-dead-scroll",
+      "global_regression": false,
+      "measured_injected": {
+        "dead_scroll_fraction": 0.45000000000000007
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "cinematic-path",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "cinematic-text-collision",
+      "global_regression": false,
+      "measured_injected": {
+        "contrast_ratio": 1.7556549172510898
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "cinematic-path",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "cinematic-left-turn-overshoot",
+      "global_regression": false,
+      "measured_injected": {
+        "turn_intent_score": 0.2
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "cinematic-path",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "cinematic-mobile-crop",
+      "global_regression": false,
+      "measured_injected": {
+        "generic_composition_score": 0.785674201318386,
+        "thirds_distance": 0.23570226039551578
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "cinematic-path",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "cinematic-reduced-motion-regression",
+      "global_regression": false,
+      "measured_injected": {
+        "reduced_motion_equivalence": 0.4
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "cinematic-path",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "delivery-oversized-shell",
+      "global_regression": false,
+      "measured_injected": {
+        "long_task_count": 3,
+        "shell_budget": 1572864,
+        "shell_bytes": 2701503
+      },
+      "measured_repaired": {
+        "shell_budget": 1572864,
+        "shell_bytes": 50728
+      },
+      "repaired": true,
+      "runtime_used": "delivery-file",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "delivery-decode-long-task",
+      "global_regression": false,
+      "measured_injected": {
+        "long_task_count": 1
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "process-measure",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "delivery-memory-growth",
+      "global_regression": false,
+      "measured_injected": {
+        "javascript_heap_growth_bytes": 12002600
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "process-measure",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "delivery-blank-first-frame",
+      "global_regression": false,
+      "measured_injected": {
+        "cumulative_layout_shift": 0.25,
+        "first_frame_mean": 0.0
+      },
+      "measured_repaired": {
+        "first_frame_mean": 0.4
+      },
+      "repaired": true,
+      "runtime_used": "process-measure",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "delivery-shader-flash",
+      "global_regression": false,
+      "measured_injected": {
+        "frame_time_p95_ms": 37.40064995954742
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "process-measure",
+      "status": "PASS"
+    },
+    {
+      "acceptance_passed": true,
+      "block_reason": "",
+      "detector_fired": true,
+      "drill_id": "delivery-no-webgl-content-loss",
+      "global_regression": false,
+      "measured_injected": {
+        "textual_equivalent_presence": 0.0
+      },
+      "measured_repaired": {},
+      "repaired": true,
+      "runtime_used": "delivery-file",
+      "status": "PASS"
+    }
+  ],
+  "failed_count": 0,
+  "passed_count": 27,
+  "status": "PASS"
+}

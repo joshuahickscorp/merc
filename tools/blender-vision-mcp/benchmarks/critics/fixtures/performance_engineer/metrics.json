@@ -1,0 +1,18 @@
+{
+  "cumulative_layout_shift": 0.35,
+  "frame_times_ms": [
+    18,
+    20,
+    22,
+    25,
+    30,
+    40,
+    45,
+    50,
+    55,
+    60
+  ],
+  "javascript_heap_growth_bytes": 20000000,
+  "long_task_count": 3,
+  "measurements_are_simulated": false
+}

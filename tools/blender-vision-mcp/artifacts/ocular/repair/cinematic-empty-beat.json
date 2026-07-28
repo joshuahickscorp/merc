@@ -1,0 +1,28 @@
+{
+  "acceptance_passed": true,
+  "block_reason": "",
+  "category": "cinematic",
+  "detector_fired": true,
+  "drill_id": "cinematic-empty-beat",
+  "execution_class": "DIAGNOSTIC_ONLY",
+  "global_regression": false,
+  "measured_baseline": {
+    "instance_count": 0,
+    "min_instances": 3,
+    "name": "hero_orbit"
+  },
+  "measured_injected": {
+    "instance_count": 0,
+    "min_instances": 3,
+    "name": "hero_orbit"
+  },
+  "measured_repaired": {
+    "instance_count": 5,
+    "min_instances": 3,
+    "name": "hero_orbit"
+  },
+  "notes": [],
+  "repaired": true,
+  "runtime_used": "beat-coverage",
+  "status": "PASS"
+}

@@ -1,0 +1,7 @@
+{
+  "authority": "GOVERNED_BUILDER_INPUT",
+  "note": "Public plant front view",
+  "path": "builder_inputs/public_views/plant_front.json",
+  "role": "public_view",
+  "target_id": "organic"
+}

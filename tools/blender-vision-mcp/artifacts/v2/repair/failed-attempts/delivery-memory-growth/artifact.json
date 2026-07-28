@@ -1,0 +1,12 @@
+{
+  "files": {},
+  "kind": "delivery",
+  "payload": {
+    "frame_times_ms": [
+      14.0,
+      15.0,
+      16.0
+    ],
+    "javascript_heap_growth_bytes": 12002600
+  }
+}

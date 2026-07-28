@@ -1,0 +1,7 @@
+{
+  "authority": "GOVERNED_BUILDER_INPUT",
+  "note": "How scale anchors must be declared \u2014 no numbers from oracle",
+  "path": "builder_inputs/scale_protocol.json",
+  "role": "protocol",
+  "target_id": "remote"
+}

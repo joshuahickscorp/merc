@@ -1,0 +1,11 @@
+{
+  "may_read": [
+    "oracle/hidden",
+    "builder outputs",
+    "gates"
+  ],
+  "must_not": [
+    "mutate oracle after freeze"
+  ],
+  "role": "evaluator"
+}

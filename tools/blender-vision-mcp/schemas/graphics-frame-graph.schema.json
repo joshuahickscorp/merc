@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/graphics-frame-graph.schema.json",
+  "title": "VisionMCP GraphicsFrameGraph",
+  "type": "object",
+  "required": [
+    "schema",
+    "graph_type",
+    "authority",
+    "nodes",
+    "edges",
+    "frames",
+    "runtime",
+    "surface_classification",
+    "materialized_gltf"
+  ],
+  "properties": {
+    "schema": { "const": "vision.graphics-frame-graph/v1" },
+    "graph_type": { "const": "GraphicsFrameGraph" },
+    "authority": { "const": "OBSERVED" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "domain_type",
+          "spatial_bounds",
+          "temporal_validity",
+          "evidence_references",
+          "authority",
+          "confidence",
+          "source_restrictions",
+          "uncertainty",
+          "revision_lineage"
+        ]
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "type", "authority", "evidence_references"]
+      }
+    },
+    "frames": { "type": "array", "minItems": 1 },
+    "runtime": { "type": "object" },
+    "surface_classification": { "type": "array" },
+    "materialized_gltf": { "type": ["object", "null"] }
+  }
+}

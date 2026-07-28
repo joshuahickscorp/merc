@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sealed data-centre film — VisionMCP V2</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="src/film.css">
+</head>
+<body data-mode="loading">
+
+<!-- The poster is the first paint. It is the real opening frame rendered in
+     Blender from the same camera state the runtime starts on, so the handover
+     to WebGL is not a visible jump. -->
+<div id="stage">
+  <img id="poster" src="assets/poster.png" alt="A dark data-centre aisle seen from the threshold, racks receding to either side.">
+  <canvas id="scene" aria-hidden="true"></canvas>
+</div>
+
+<header id="chrome">
+  <span id="mark">COMPUTEXCHANGE</span>
+  <nav id="chapters" aria-label="Film chapters"></nav>
+  <button id="skip" type="button">SKIP FILM</button>
+  <a id="getapp" href="#access">GET THE APP</a>
+</header>
+
+<!-- Scroll is native. The document is genuinely tall; nothing intercepts wheel
+     or touch events. Camera position is read from scrollY, never driven by a
+     synthetic scroller. -->
+<main id="script"></main>
+
+<!-- Every 3D meaning also exists as text. This route is complete on its own and
+     is what a viewer gets with no WebGL, with reduced motion, or with the film
+     skipped. -->
+<section id="transcript" aria-label="Text equivalent of the film">
+  <h1>Capacity you can verify</h1>
+  <div id="transcript-body"></div>
+  <p class="closing">
+    Every claim above is produced by the same pipeline that builds the scene.
+    <a href="#access">Get the app</a> to run a job against real capacity.
+  </p>
+</section>
+
+<noscript>
+  <style>#stage,#chrome,#script{display:none}#transcript{display:block}</style>
+</noscript>
+
+<script type="module" src="src/film.js"></script>
+</body>
+</html>

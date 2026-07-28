@@ -1,0 +1,11 @@
+{
+  "files": {},
+  "kind": "material",
+  "payload": {
+    "albedo_variance": 0.55,
+    "metalness": 0.0,
+    "normal_variance": 0.001,
+    "roughness": 0.7,
+    "specular_peak": 0.2
+  }
+}

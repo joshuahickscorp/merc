@@ -1,0 +1,11 @@
+{
+  "files": {},
+  "kind": "material",
+  "payload": {
+    "feature_scale_m": 0.001,
+    "metalness": 0.2,
+    "roughness": 0.4,
+    "specular_peak": 0.5,
+    "texture_scale_m": 0.02
+  }
+}

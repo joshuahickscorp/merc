@@ -1,0 +1,71 @@
+{
+  "schema_version": "1",
+  "benchmark_id": "performance-repair-authority-v1",
+  "fixture": "fixture",
+  "fixture_sha256": "2003190968444668c1993b389e1f28001b86ed525ec5216a0323cb8aad950bc4",
+  "repair_path": "app.js",
+  "repair_preimage_sha256": "93ac6169313fb21f4d2313d64f289188e90b750de8d2c82c1cd02528447f01ee",
+  "repair_rules": [
+    {
+      "before": "const LOAD_POLICY = \"eager\";",
+      "after": "const LOAD_POLICY = \"intent\";"
+    },
+    {
+      "before": "const LOD_POLICY = \"full\";",
+      "after": "const LOD_POLICY = \"adaptive\";"
+    },
+    {
+      "before": "const DPR_CAP = 4;",
+      "after": "const DPR_CAP = 2;"
+    },
+    {
+      "before": "const FRAME_WORK_MS = 72;",
+      "after": "const FRAME_WORK_MS = 1;"
+    },
+    {
+      "before": "const INTERACTION_WORK_MS = 58;",
+      "after": "const INTERACTION_WORK_MS = 1;"
+    },
+    {
+      "before": "const RETAINED_NUMBERS_PER_INTERACTION = 350000;",
+      "after": "const RETAINED_NUMBERS_PER_INTERACTION = 0;"
+    },
+    {
+      "before": "const RESPECT_REDUCED_MOTION = false;",
+      "after": "const RESPECT_REDUCED_MOTION = true;"
+    }
+  ],
+  "frame_sample_count": 24,
+  "interaction_sample_count": 5,
+  "api_sample_count": 8,
+  "database_sample_count": 64,
+  "generated_assets": {
+    "scene-high.glb": 524288,
+    "scene-low.glb": 32768,
+    "texture-high.bin": 262144,
+    "texture-low.bin": 16384
+  },
+  "required_negative_controls": [
+    "transfer_budget",
+    "lazy_load",
+    "glb_structure",
+    "preservation_gate"
+  ],
+  "budget": {
+    "initial_transfer_bytes": 65536,
+    "javascript_execution_ms": 45,
+    "selected_glb_bytes": 65536,
+    "texture_memory_bytes": 32768,
+    "shader_compilation_ms": 30,
+    "frame_p95_ms": 40,
+    "dropped_frame_ratio": 0.1,
+    "long_task_count": 1,
+    "cumulative_layout_shift": 0.01,
+    "interaction_p95_ms": 80,
+    "javascript_heap_growth_bytes": 4194304,
+    "retained_allocation_bytes": 1048576,
+    "api_p95_ms": 25,
+    "database_query_p95_ms": 5,
+    "maximum_effective_dpr": 2
+  }
+}

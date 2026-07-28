@@ -1,0 +1,9 @@
+{
+  "authority": "SEALED_ORACLE_ONLY",
+  "builder_visible": false,
+  "canary": "SEALED-V2-ORACLE-CANARY-remote",
+  "note": "Oracle scale once real capture exists",
+  "path": "oracle/hidden/measurements/scale_anchor.json",
+  "role": "hidden_measurement",
+  "target_id": "remote"
+}

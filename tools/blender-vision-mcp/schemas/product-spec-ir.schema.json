@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "RouteSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "required_states": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required States",
+          "type": "array"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "visual_reference_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Visual Reference Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "title",
+        "purpose",
+        "required_states"
+      ],
+      "title": "RouteSpec",
+      "type": "object"
+    }
+  },
+  "$id": "https://compute.exchange/schemas/product-spec-ir.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "actors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Actors",
+      "type": "array"
+    },
+    "authority_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Authority Refs",
+      "type": "array"
+    },
+    "feature_flags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Feature Flags",
+      "type": "array"
+    },
+    "goals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Goals",
+      "type": "array"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "non_goals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Non Goals",
+      "type": "array"
+    },
+    "routes": {
+      "items": {
+        "$ref": "#/$defs/RouteSpec"
+      },
+      "title": "Routes",
+      "type": "array"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "version",
+    "summary",
+    "actors",
+    "goals",
+    "non_goals",
+    "routes",
+    "authority_refs"
+  ],
+  "title": "ProductSpecIR",
+  "type": "object"
+}

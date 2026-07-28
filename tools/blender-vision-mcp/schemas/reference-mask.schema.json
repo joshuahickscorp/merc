@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://computexchange.example/schemas/reference-mask.schema.json",
+  "title": "Reviewed reference silhouette mask",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "reference_id",
+    "artifact_digest",
+    "source_artifact_digest",
+    "method",
+    "reviewer",
+    "reason",
+    "creator",
+    "backend",
+    "revision",
+    "approval_state",
+    "confidence",
+    "intended_use",
+    "visible_components",
+    "excluded_components",
+    "roi",
+    "created_at"
+  ],
+  "properties": {
+    "id": {"type": "string", "format": "uuid"},
+    "reference_id": {"type": "string", "format": "uuid"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "method": {"const": "reviewed_manual_mask"},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reason": {"type": "string", "minLength": 1},
+    "creator": {"type": "string", "minLength": 1},
+    "backend": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "approval_state": {"enum": ["pending", "approved", "rejected", "superseded"]},
+    "confidence": {"enum": ["low", "medium", "high"]},
+    "intended_use": {"type": "string", "minLength": 1},
+    "visible_components": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "excluded_components": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "roi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "integer", "minimum": 0},
+        "y": {"type": "integer", "minimum": 0},
+        "width": {"type": "integer", "minimum": 0},
+        "height": {"type": "integer", "minimum": 0}
+      }
+    },
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

@@ -1,0 +1,29 @@
+name: blender-vision-mcp
+
+on:
+  pull_request:
+    paths:
+      - "tools/blender-vision-mcp/**"
+      - ".github/workflows/blender-vision-mcp.yml"
+  push:
+    branches: [main, feature/blender-vision-mcp]
+    paths:
+      - "tools/blender-vision-mcp/**"
+      - ".github/workflows/blender-vision-mcp.yml"
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/blender-vision-mcp
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@e92bafb6253dcd99e9a81165d0cc57e25a31e1cd # v7
+      - run: uv sync --extra dev --locked
+      - run: uv run ruff check .
+      - run: uv run pytest
+      - run: uv build

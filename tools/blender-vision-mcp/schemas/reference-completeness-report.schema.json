@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "CompletenessFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authority Refs",
+          "type": "array"
+        },
+        "exact_resumption_contract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exact Resumption Contract"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "AUTHORITATIVE",
+            "HYPOTHETICAL",
+            "MISSING",
+            "CONTRADICTORY"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "status",
+        "severity",
+        "message",
+        "authority_refs"
+      ],
+      "title": "CompletenessFinding",
+      "type": "object"
+    }
+  },
+  "$id": "https://compute.exchange/schemas/reference-completeness-report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority_coverage": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Authority Coverage",
+      "type": "object"
+    },
+    "compilable_as_draft": {
+      "title": "Compilable As Draft",
+      "type": "boolean"
+    },
+    "contradictions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Contradictions",
+      "type": "array"
+    },
+    "exact_resumption_contracts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Exact Resumption Contracts",
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/CompletenessFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "hypotheses": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Hypotheses",
+      "type": "array"
+    },
+    "missing_authority": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Authority",
+      "type": "array"
+    },
+    "packet_id": {
+      "title": "Packet Id",
+      "type": "string"
+    },
+    "packet_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Packet Sha256",
+      "type": "string"
+    },
+    "promotable": {
+      "title": "Promotable",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "packet_id",
+    "packet_sha256",
+    "compilable_as_draft",
+    "promotable",
+    "findings",
+    "missing_authority",
+    "hypotheses",
+    "contradictions",
+    "exact_resumption_contracts",
+    "authority_coverage"
+  ],
+  "title": "ReferenceCompletenessReport",
+  "type": "object"
+}

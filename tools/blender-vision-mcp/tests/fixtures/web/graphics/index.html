@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Owned WebGL Runtime Fixture</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        background: rgb(18, 22, 30);
+        color: white;
+        font-family: system-ui, sans-serif;
+      }
+
+      canvas {
+        width: 480px;
+        height: 360px;
+        border: 1px solid rgb(90, 110, 140);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Controlled WebGL triangle</h1>
+    <canvas id="scene" width="480" height="360"></canvas>
+    <script>
+      const canvas = document.querySelector("#scene");
+      const gl = canvas.getContext("webgl2", {
+        alpha: false,
+        antialias: false,
+        preserveDrawingBuffer: true,
+      });
+      if (!gl) throw new Error("WebGL2 unavailable");
+
+      const compile = (type, source) => {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          throw new Error(gl.getShaderInfoLog(shader));
+        }
+        return shader;
+      };
+      const vertex = compile(gl.VERTEX_SHADER, `#version 300 es
+        in vec3 position;
+        uniform float angle;
+        void main() {
+          float c = cos(angle);
+          float s = sin(angle);
+          gl_Position = vec4(
+            c * position.x - s * position.y,
+            s * position.x + c * position.y,
+            position.z,
+            1.0
+          );
+        }
+      `);
+      const fragment = compile(gl.FRAGMENT_SHADER, `#version 300 es
+        precision highp float;
+        out vec4 color;
+        void main() {
+          color = vec4(0.071, 0.361, 0.824, 1.0);
+        }
+      `);
+      const program = gl.createProgram();
+      gl.attachShader(program, vertex);
+      gl.attachShader(program, fragment);
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(program));
+      }
+      const positions = new Float32Array([
+        -0.6, -0.5, 0,
+         0.6, -0.5, 0,
+         0.0,  0.6, 0,
+      ]);
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+      gl.useProgram(program);
+      const attributeLocation = gl.getAttribLocation(program, "position");
+      gl.enableVertexAttribArray(attributeLocation);
+      gl.vertexAttribPointer(attributeLocation, 3, gl.FLOAT, false, 0, 0);
+      const angleLocation = gl.getUniformLocation(program, "angle");
+
+      let currentTime = 0;
+      const matrixFor = angle => {
+        const c = Math.cos(angle);
+        const s = Math.sin(angle);
+        return [
+          c, s, 0, 0,
+          -s, c, 0, 0,
+          0, 0, 1, 0,
+          0, 0, 0, 1,
+        ];
+      };
+      const render = timestamp => {
+        currentTime = timestamp;
+        const angle = (timestamp / 1000) * Math.PI * 0.5;
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.clearColor(0.04, 0.06, 0.09, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.uniform1f(angleLocation, angle);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      };
+
+      globalThis.__VISIONMCP_SCENE__ = {
+        setTime: render,
+        snapshot: () => {
+          const angle = (currentTime / 1000) * Math.PI * 0.5;
+          return {
+            revision: "owned-webgl-triangle-v1",
+            timestampMs: currentTime,
+            camera: {
+              id: "main",
+              name: "Main Camera",
+              matrix: [
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 2, 1
+              ],
+              perspective: {
+                yfov: 0.7853981633974483,
+                znear: 0.1,
+                zfar: 100,
+                aspectRatio: 1.3333333333333333
+              }
+            },
+            objects: [{
+              id: "triangle",
+              name: "Owned Triangle",
+              primitive: "TRIANGLES",
+              positions: Array.from(positions),
+              indices: [0, 1, 2],
+              matrix: matrixFor(angle),
+              bounds: {x: -0.6, y: -0.5, width: 1.2, height: 1.1},
+              material: {
+                name: "Action Blue",
+                baseColorFactor: [0.071, 0.361, 0.824, 1],
+                metallicFactor: 0,
+                roughnessFactor: 0.8,
+                doubleSided: true
+              }
+            }],
+            animations: [{
+              target: "triangle",
+              property: "rotation.z",
+              durationMs: 1000,
+              easing: "linear",
+              keyframes: [
+                {offset: 0, value: 0},
+                {offset: 1, value: 1.5707963267948966}
+              ]
+            }]
+          };
+        }
+      };
+      render(0);
+    </script>
+  </body>
+</html>

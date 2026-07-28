@@ -1,0 +1,68 @@
+{
+  "schema_version": "1",
+  "authority": "adversarial-security-acceptance-v1",
+  "source_git_head": "5fdf2801d41e9735582cc7beb17391186a38deea",
+  "implementation_commit": "5fdf2801d41e9735582cc7beb17391186a38deea",
+  "benchmark_manifest_sha256": "14453b6dcf858e231d6476132789b67dcbaf1a838fbf33870e6ae88979db1026",
+  "functional_run": "5fdf280-functional-pass",
+  "status": "PASS",
+  "functional_passed": true,
+  "attack_count": 17,
+  "rejected_attack_count": 16,
+  "neutralized_attack_count": 1,
+  "preserved_output_digest_count": 50,
+  "global_suite": {
+    "passed": 397,
+    "skipped": 16,
+    "failed": 0
+  },
+  "runtime": {
+    "python": "3.12",
+    "sqlite": "3.50.4",
+    "external_network_used": false,
+    "attack_inputs_preserved": true
+  },
+  "attack_ids": [
+    "malicious_web_prompt_injection",
+    "poisoned_design_exports",
+    "hostile_glb_blend",
+    "path_traversal",
+    "symlink_escape",
+    "stale_source_maps",
+    "artifact_substitution",
+    "benchmark_leakage",
+    "evaluator_tampering",
+    "secret_exposure",
+    "unauthorized_asset_reuse",
+    "unsafe_generated_backend_code",
+    "auth_bypass",
+    "sql_injection",
+    "cross_tenant_leakage",
+    "performance_score_gaming",
+    "visual_local_repair_global_regression"
+  ],
+  "negative_controls": {
+    "omitted_attack": true,
+    "substituted_attack_input": true,
+    "manifest_attack_set_tamper": true,
+    "false_pass_disposition": true
+  },
+  "receipt": {
+    "path": "5fdf280-functional-pass/adversarial.receipt.json",
+    "sha256": "ffb9e0594383c1fb60de1c6214999b0518a1bb6e4f9c75d45debfb6d4df32e2c"
+  },
+  "archive": {
+    "path": "archives/5fdf280-functional-pass.tar.gz",
+    "sha256": "787d712b16c331d01ece75967d8a8eb777e7abdc2a19e35f2364db9d2c7b2d4a",
+    "bytes": 48124,
+    "regular_members": 52,
+    "contains_links": false
+  },
+  "reproduction_command": "uv run bvmcp benchmark bootstrap-adversarial --output artifacts/100-plus/adversarial/5fdf280-functional-pass",
+  "claim_boundary": [
+    "Proves deterministic rejection or containment of the 17 fixed attack classes on the bound source tree.",
+    "Does not prove absence of undiscovered vulnerabilities or replace independent penetration testing.",
+    "Authentication and tenant cases prove the bounded policy contract; the application compiler still refuses tenant deployment without an authorized adapter.",
+    "Hostile 3D checks are bounded structural preflight and do not execute untrusted BLEND automation."
+  ]
+}

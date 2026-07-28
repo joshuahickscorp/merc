@@ -1,0 +1,644 @@
+{
+  "target_id": "organic_sculpture",
+  "phase": "organic",
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "stages": {
+    "source_packet": "passed",
+    "sealed_builder": "reported",
+    "uv_packing": "failed",
+    "geometry_portfolio": "reported",
+    "dimensional_evaluation": "reported",
+    "unseen_view_evaluation": "reported",
+    "materials": "reported",
+    "hidden_surface_ledger": "passed",
+    "delivery": "reported"
+  },
+  "backend_scores": [
+    {
+      "backend": "visual_hull",
+      "executed": true,
+      "chamfer_m": 0.04560952114732475,
+      "a_to_b_m": 0.04243941260823713,
+      "b_to_a_m": 0.04877962968641236,
+      "reason": null,
+      "authority": "SENSOR_DERIVED"
+    },
+    {
+      "backend": "depth_fusion",
+      "executed": true,
+      "chamfer_m": 0.032748889983402446,
+      "a_to_b_m": 0.035642648598735345,
+      "b_to_a_m": 0.029855131368069554,
+      "reason": null,
+      "authority": "SENSOR_DERIVED"
+    },
+    {
+      "backend": "parametric",
+      "executed": true,
+      "chamfer_m": 0.035967068472418796,
+      "a_to_b_m": 0.03474481824655377,
+      "b_to_a_m": 0.037189318698283826,
+      "reason": null,
+      "authority": "MODEL_DERIVED"
+    },
+    {
+      "backend": "point_representation",
+      "executed": true,
+      "chamfer_m": null,
+      "a_to_b_m": null,
+      "b_to_a_m": null,
+      "reason": "not a continuous surface",
+      "authority": "SENSOR_DERIVED"
+    },
+    {
+      "backend": "colmap_sfm",
+      "executed": false,
+      "chamfer_m": null,
+      "a_to_b_m": null,
+      "b_to_a_m": null,
+      "reason": "COLMAP mapper failed with exit 1",
+      "authority": "UNRESOLVED"
+    },
+    {
+      "backend": "retrieval",
+      "executed": true,
+      "chamfer_m": 0.4219890665278615,
+      "a_to_b_m": 0.4820651696607666,
+      "b_to_a_m": 0.36191296339495643,
+      "reason": null,
+      "authority": "MODEL_DERIVED"
+    },
+    {
+      "backend": "browser_runtime",
+      "executed": true,
+      "chamfer_m": 0.06542583983839528,
+      "a_to_b_m": 0.02114447957669618,
+      "b_to_a_m": 0.1097072001000944,
+      "reason": null,
+      "authority": "SENSOR_DERIVED"
+    }
+  ],
+  "dimensional_errors_mm": [
+    {
+      "axis": "x",
+      "truth_mm": 248.1219619512558,
+      "measured_mm": 270.0,
+      "error_mm": 21.8780380487442,
+      "relative_error": 0.08817453270437302
+    },
+    {
+      "axis": "y",
+      "truth_mm": 356.5566837787628,
+      "measured_mm": 250.0,
+      "error_mm": -106.55668377876282,
+      "relative_error": 0.29884921143388066
+    },
+    {
+      "axis": "z",
+      "truth_mm": 535.8964800834656,
+      "measured_mm": 279.99999999999994,
+      "error_mm": -255.89648008346563,
+      "relative_error": 0.4775110298235396
+    }
+  ],
+  "unseen_view_metrics": [
+    {
+      "view_id": "cam012",
+      "psnr_db": 26.83737114959812,
+      "ssim": 0.5011125154312452,
+      "held_out": true
+    },
+    {
+      "view_id": "cam013",
+      "psnr_db": 26.880992995747214,
+      "ssim": 0.5309087340565188,
+      "held_out": true
+    },
+    {
+      "view_id": "cam014",
+      "psnr_db": 26.91407305687685,
+      "ssim": 0.5327983934645509,
+      "held_out": true
+    },
+    {
+      "view_id": "cam015",
+      "psnr_db": 26.877205119494143,
+      "ssim": 0.52849848622364,
+      "held_out": true
+    }
+  ],
+  "hidden_surface_ledger": [
+    {
+      "region": "backside",
+      "visibility": "NEVER_OBSERVED",
+      "authority_ceiling": "INFERRED",
+      "reason": "Multiview hemisphere does not cover all self-occluded or backside surfaces.",
+      "observed": false,
+      "area_m2": null
+    }
+  ],
+  "hidden_surface_counts": {
+    "total": 1,
+    "never_observed": 1,
+    "inferred": 0,
+    "incorrectly_marked_observed": 0
+  },
+  "materials": {
+    "record_kind": "v2.material-hypothesis-set",
+    "id": "mhs-e2c1b4b90826",
+    "schema_version": "2",
+    "created_at": "2026-07-27T04:14:00.934987+00:00",
+    "authority": "INFERRED",
+    "lifecycle": "DRAFT",
+    "lineage": {
+      "tool": "blender-vision-mcp",
+      "tool_version": "0.1.0",
+      "operation": "infer_materials",
+      "inputs": [
+        "cam000",
+        "cam001",
+        "cam002",
+        "cam003",
+        "cam004",
+        "cam005"
+      ],
+      "input_authorities": [
+        "SENSOR_DERIVED",
+        "SENSOR_DERIVED",
+        "SENSOR_DERIVED",
+        "SENSOR_DERIVED",
+        "SENSOR_DERIVED",
+        "SENSOR_DERIVED"
+      ],
+      "parameters": {
+        "surface_id": "organic_sculpture",
+        "view_count": 6
+      },
+      "environment": {},
+      "hardware": {},
+      "model_versions": {},
+      "retrieved_at": "",
+      "rights_state": "unreviewed",
+      "limitations": [
+        "Classical multi-view dichromatic inversion; not a full path-traced inverse."
+      ]
+    },
+    "uncertainty": {
+      "kind": "material-parameter",
+      "sigma": 0.5080693648167027,
+      "interval": [],
+      "units": "unitless",
+      "basis": "per-parameter multi-view dispersion",
+      "samples": 6
+    },
+    "supersedes": [],
+    "superseded_by": null,
+    "notes": [],
+    "surface_id": "organic_sculpture",
+    "hypotheses": [
+      {
+        "hypothesis_id": "mat-335eec6c1f-metal",
+        "label": "organic sculpture-metal",
+        "base_colour": [
+          0.18627450980392157,
+          0.17450980392156862,
+          0.18627450980392157
+        ],
+        "roughness": 0.5,
+        "metalness": 0.75,
+        "specular_ior": 1.45,
+        "anisotropy": 0.0,
+        "clearcoat": 0.0,
+        "clearcoat_roughness": 0.03,
+        "transmission": 0.0,
+        "subsurface": 0.30016554470407797,
+        "subsurface_radius": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal_bands": {},
+        "displacement_bands": {},
+        "occlusion": 1.0,
+        "texture_scale_m": 0.01,
+        "texture_coordinate_hypothesis": "uv",
+        "confidence": 0.49193063518329727,
+        "evidence_views": [
+          "cam000",
+          "cam001",
+          "cam002",
+          "cam003",
+          "cam004",
+          "cam005"
+        ],
+        "authority": "INFERRED",
+        "renderer_parity": {}
+      },
+      {
+        "hypothesis_id": "mat-335eec6c1f-dielectric",
+        "label": "organic sculpture-dielectric",
+        "base_colour": [
+          0.18627450980392157,
+          0.17450980392156862,
+          0.18627450980392157
+        ],
+        "roughness": 0.5,
+        "metalness": 0.15,
+        "specular_ior": 1.45,
+        "anisotropy": 0.0,
+        "clearcoat": 0.0,
+        "clearcoat_roughness": 0.03,
+        "transmission": 0.0,
+        "subsurface": 0.30016554470407797,
+        "subsurface_radius": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal_bands": {},
+        "displacement_bands": {},
+        "occlusion": 1.0,
+        "texture_scale_m": 0.01,
+        "texture_coordinate_hypothesis": "uv",
+        "confidence": 0.46460115545089187,
+        "evidence_views": [
+          "cam000",
+          "cam001",
+          "cam002",
+          "cam003",
+          "cam004",
+          "cam005"
+        ],
+        "authority": "INFERRED",
+        "renderer_parity": {}
+      }
+    ],
+    "selected_hypothesis_id": "mat-335eec6c1f-metal",
+    "frequency_separation": {},
+    "critic_findings": [],
+    "digest": "ce555f9c53a3a4e631f1eeb31ff2183e6b683acfffff7ec3cbe2026ec4b785a7"
+  },
+  "topology": {
+    "vertices": 30624,
+    "edges": 59862,
+    "faces": 29416,
+    "triangles": 0,
+    "quads": 29416,
+    "ngons": 0,
+    "non_manifold_edges": 2060,
+    "boundary_edges": 2060,
+    "genus_estimate": -1,
+    "is_watertight": false,
+    "surface_area_m2": 0.3265333048975094,
+    "volume_m3": 0.0,
+    "bounds_m": [
+      [
+        -0.16267260909080505,
+        -0.22478877007961273,
+        -4.160204844083637e-05
+      ],
+      [
+        0.08126067370176315,
+        0.12799908220767975,
+        0.5334020256996155
+      ]
+    ],
+    "quad_fraction": 1.0
+  },
+  "uv": {
+    "island_count": 1250,
+    "packing_efficiency": 0.2899297749612835,
+    "max_area_distortion": 5.233584808909038,
+    "mean_area_distortion": 0.06513716674261567,
+    "max_angle_distortion_deg": 91.12345933991855,
+    "overlapping_faces": 0,
+    "texel_density_variance": 0.011113260343874828,
+    "p99_angle_distortion_deg": 24.260866082831143,
+    "p95_angle_distortion_deg": 18.108026772808543,
+    "median_angle_distortion_deg": 4.027796704502364,
+    "angle_corner_count": 29388,
+    "degenerate_corner_count": 28,
+    "corners_over_70deg_fraction": 0.0002381924595072819
+  },
+  "delivery": {
+    "editable_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.obj",
+    "editable_ply": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.ply",
+    "editable_glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.glb",
+    "offline_render": {
+      "status": "software_proxy",
+      "note": "Offline Cycles path requires Blender. When Blender is blocked, the software raster of the editable mesh is the offline proxy."
+    },
+    "offline_frames": {
+      "hero": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/offline_proxy/hero.png",
+      "top": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/offline_proxy/top.png",
+      "side": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/offline_proxy/side.png"
+    },
+    "lods": {
+      "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.glb",
+      "source_triangles": 60,
+      "source_digest": "375f22688cc222ddee39946f6e4883c5441f90bbd77acd2bf7e78451883db4d7",
+      "levels": [
+        {
+          "name": "L1",
+          "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L1.glb",
+          "triangles": 60,
+          "max_triangles": 4000,
+          "screen_space_error_px": 1.0,
+          "silhouette_iou": 1.0,
+          "digest": "cf18474200eadc4573fc49bc3f90e8b7fd531b14af4f8eca9bad7991e3eabc0d",
+          "bytes": 4056,
+          "within_budget": true,
+          "identity_pass": true
+        },
+        {
+          "name": "L2",
+          "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L2.glb",
+          "triangles": 60,
+          "max_triangles": 1500,
+          "screen_space_error_px": 1.0,
+          "silhouette_iou": 1.0,
+          "digest": "6efc8e4dedac3cecabefa75760846f5cd3df509810a7c039a337844881c9310a",
+          "bytes": 4056,
+          "within_budget": true,
+          "identity_pass": true
+        },
+        {
+          "name": "L3",
+          "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L3.glb",
+          "triangles": 60,
+          "max_triangles": 400,
+          "screen_space_error_px": 1.0,
+          "silhouette_iou": 1.0,
+          "digest": "be0405f4823bb0e763df1b4b4d9c9e874afcc0cbe92fcc7cde8bae3086881a24",
+          "bytes": 4056,
+          "within_budget": true,
+          "identity_pass": true
+        }
+      ],
+      "blender_used": true,
+      "notes": []
+    },
+    "compression": {
+      "asset_id": "organic_sculpture-shell",
+      "source_path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.glb",
+      "source_bytes": 1924,
+      "selected_codec": "zlib",
+      "selected": {
+        "codec": "zlib",
+        "bytes": 809,
+        "decode_ms": 0.009750016033649445,
+        "main_thread_ms": 0.0012079253792762756,
+        "visual_difference": 0.0,
+        "available": true,
+        "reason_unavailable": "",
+        "digest": "e2079afa37d6180c45dcd7a0d7a7d0a4c93df51a026ccadb6814efe9c67027ad"
+      },
+      "candidates": [
+        {
+          "codec": "raw",
+          "bytes": 1924,
+          "decode_ms": 0.0007919734343886375,
+          "main_thread_ms": 0.002625049091875553,
+          "visual_difference": 0.0,
+          "available": true,
+          "reason_unavailable": "",
+          "digest": "375f22688cc222ddee39946f6e4883c5441f90bbd77acd2bf7e78451883db4d7"
+        },
+        {
+          "codec": "gzip",
+          "bytes": 821,
+          "decode_ms": 0.030082999728620052,
+          "main_thread_ms": 0.0015419209375977516,
+          "visual_difference": 0.0,
+          "available": true,
+          "reason_unavailable": "",
+          "digest": "edc1bcfba5ff35431a6fed72ae7277b669c0bebf9d5caeafdf10731b03a5d938"
+        },
+        {
+          "codec": "zlib",
+          "bytes": 809,
+          "decode_ms": 0.009750016033649445,
+          "main_thread_ms": 0.0012079253792762756,
+          "visual_difference": 0.0,
+          "available": true,
+          "reason_unavailable": "",
+          "digest": "e2079afa37d6180c45dcd7a0d7a7d0a4c93df51a026ccadb6814efe9c67027ad"
+        },
+        {
+          "codec": "brotli",
+          "bytes": 0,
+          "decode_ms": 0.0,
+          "main_thread_ms": 0.0,
+          "visual_difference": 1.0,
+          "available": false,
+          "reason_unavailable": "brotli Python package is not installed in this environment",
+          "digest": ""
+        },
+        {
+          "codec": "draco",
+          "bytes": 0,
+          "decode_ms": 0.0,
+          "main_thread_ms": 0.0,
+          "visual_difference": 1.0,
+          "available": false,
+          "reason_unavailable": "Draco encode blocked: no KHR_draco_mesh_compression in source and no standalone Draco encoder in this environment (Blender exporter extension not assumed present).",
+          "digest": ""
+        },
+        {
+          "codec": "meshopt",
+          "bytes": 0,
+          "decode_ms": 0.0,
+          "main_thread_ms": 0.0,
+          "visual_difference": 1.0,
+          "available": false,
+          "reason_unavailable": "meshopt encode blocked: EXT_meshopt_compression not in source and no meshoptimizer Python binding is installed.",
+          "digest": ""
+        },
+        {
+          "codec": "position_quantize_12",
+          "bytes": 1924,
+          "decode_ms": 0.00020791776478290558,
+          "main_thread_ms": 0.001125037670135498,
+          "visual_difference": 0.5,
+          "available": true,
+          "reason_unavailable": "",
+          "digest": "059f81ea0ea6696572fe45dd56b8ef94ecbe8e3a50544e175aecc0ad87e69bd4"
+        }
+      ],
+      "selection_reason": "selected zlib (bytes=809, decode_ms=0.0098, visual_diff=0.000000, score=0.000774) over gzip (bytes=821, decode_ms=0.0301, visual_diff=0.000000, score=0.000790)",
+      "brotli_available": false,
+      "draco_available": false,
+      "meshopt_available": false
+    },
+    "manifest": {
+      "record_kind": "v2.delivery-manifest",
+      "id": "dm-organic_sculpture",
+      "schema_version": "2",
+      "created_at": "2026-07-27T04:14:01.704122+00:00",
+      "authority": "INFERRED",
+      "lifecycle": "DRAFT",
+      "lineage": {
+        "tool": "blender-vision-mcp",
+        "tool_version": "0.1.0",
+        "operation": "build_delivery_manifest",
+        "inputs": [
+          "organic_sculpture"
+        ],
+        "input_authorities": [
+          "PROCEDURAL_GROUND_TRUTH",
+          "MODEL_DERIVED"
+        ],
+        "parameters": {
+          "budgets": {
+            "initial_js_compressed_bytes": 307200,
+            "shell_glb_bytes": 1572864,
+            "mobile_shell_bytes": 665600,
+            "poster_before_glb": true,
+            "detail_chapter_gated": true
+          }
+        },
+        "environment": {},
+        "hardware": {},
+        "model_versions": {},
+        "retrieved_at": "",
+        "rights_state": "unreviewed",
+        "limitations": [
+          "Byte counts measured in-process; network transfer variance is not modelled."
+        ]
+      },
+      "uncertainty": {
+        "kind": "delivery_bytes",
+        "sigma": null,
+        "interval": [],
+        "units": "unitless",
+        "basis": "filesystem stat of selected compressed payloads",
+        "samples": 4
+      },
+      "supersedes": [],
+      "superseded_by": null,
+      "notes": [
+        "all declared budgets satisfied"
+      ],
+      "source_scene": "organic_sculpture",
+      "assets": [
+        {
+          "asset_id": "organic_sculpture-shell",
+          "role": "shell",
+          "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/organic_sculpture_editable.glb",
+          "digest": "375f22688cc222ddee39946f6e4883c5441f90bbd77acd2bf7e78451883db4d7",
+          "bytes": 1924,
+          "compression": "none",
+          "lod": "L0",
+          "decode_ms": null,
+          "main_thread_ms": null,
+          "visual_difference": null,
+          "chapter": null
+        },
+        {
+          "asset_id": "organic_sculpture-L1",
+          "role": "detail",
+          "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L1.glb",
+          "digest": "cf18474200eadc4573fc49bc3f90e8b7fd531b14af4f8eca9bad7991e3eabc0d",
+          "bytes": 4056,
+          "compression": "none",
+          "lod": "L1",
+          "decode_ms": null,
+          "main_thread_ms": null,
+          "visual_difference": null,
+          "chapter": null
+        },
+        {
+          "asset_id": "organic_sculpture-L2",
+          "role": "mobile",
+          "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L2.glb",
+          "digest": "6efc8e4dedac3cecabefa75760846f5cd3df509810a7c039a337844881c9310a",
+          "bytes": 4056,
+          "compression": "none",
+          "lod": "L2",
+          "decode_ms": null,
+          "main_thread_ms": null,
+          "visual_difference": null,
+          "chapter": null
+        },
+        {
+          "asset_id": "organic_sculpture-L3",
+          "role": "mobile",
+          "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/delivery/lods/L3.glb",
+          "digest": "be0405f4823bb0e763df1b4b4d9c9e874afcc0cbe92fcc7cde8bae3086881a24",
+          "bytes": 4056,
+          "compression": "none",
+          "lod": "L3",
+          "decode_ms": null,
+          "main_thread_ms": null,
+          "visual_difference": null,
+          "chapter": null
+        }
+      ],
+      "budgets": {
+        "initial_js_compressed_bytes": 307200,
+        "shell_glb_bytes": 1572864,
+        "mobile_shell_bytes": 665600,
+        "poster_before_glb": true,
+        "detail_chapter_gated": true
+      },
+      "measured": {
+        "asset_count": 4,
+        "total_bytes": 14092,
+        "by_role": {
+          "detail": {
+            "count": 1,
+            "bytes": 4056
+          },
+          "mobile": {
+            "count": 2,
+            "bytes": 8112
+          },
+          "shell": {
+            "count": 1,
+            "bytes": 1924
+          }
+        },
+        "compression": {},
+        "evaluated_at": "2026-07-27T04:14:01.704061+00:00"
+      },
+      "budget_violations": [],
+      "receipts": [],
+      "digest": "8b310f86eb0f6a2faebdffcd377a6a7d8b84d39053167d9e0c9c31cf614f59a7"
+    }
+  },
+  "next_views": {},
+  "blockers": [],
+  "failures": [
+    {
+      "target": "organic_sculpture",
+      "gate": "uv_packing",
+      "value": 0.2899297749612835,
+      "threshold": 0.35,
+      "known_open": true,
+      "note": "Known-open failure: smart_project packs branching forms to ~29% against a 35% gate. Gate not relaxed."
+    }
+  ],
+  "notes": [
+    "Target: organic sculpture",
+    "Scored against construction / measured ground truth, not against another guess.",
+    "Builder measurements taken from prior organic-fur-lane receipt.",
+    "Dimensional truth from organic receipt source bounds_m."
+  ],
+  "synthetic_claim": null,
+  "artifacts": {
+    "source_packet": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/source_packet.json",
+    "glb": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/organic/topology/organic_sculpture/organic_sculpture.glb",
+    "truth_obj": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/object-benchmarks/organic/organic_sculpture/truth.obj"
+  },
+  "runtime_seconds": 6.489563500043005
+}

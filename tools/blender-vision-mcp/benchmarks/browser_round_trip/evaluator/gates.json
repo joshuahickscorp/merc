@@ -1,0 +1,20 @@
+{
+  "acceptance_thresholds": {
+    "blend_reopen_required": true,
+    "critical_accessibility_violations_maximum": 0,
+    "dom_structure_match_required": true,
+    "glb_reimport_required": true,
+    "hidden_pixel_rmse_maximum": 18.0,
+    "max_playwright_browsers": 1,
+    "public_pixel_rmse_maximum": 12.0
+  },
+  "entry": "gates.json",
+  "frozen": true,
+  "note": "Evaluator tree is digest-bound before any builder run.",
+  "roles": [
+    "browser",
+    "gltf",
+    "accessibility"
+  ],
+  "target_id": "browser_round_trip"
+}

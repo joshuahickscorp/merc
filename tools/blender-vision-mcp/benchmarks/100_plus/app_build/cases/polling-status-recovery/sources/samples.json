@@ -1,0 +1,7 @@
+{
+  "authority": "SPECIFIED",
+  "benchmark_case": "polling-status-recovery",
+  "kind": "sample_payload",
+  "rights_state": "OWNED",
+  "source_id": "samples"
+}

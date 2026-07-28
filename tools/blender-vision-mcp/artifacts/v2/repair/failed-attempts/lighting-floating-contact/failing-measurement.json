@@ -1,0 +1,27 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "light-floating-contact:floating-object"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "contact_shadow_strength >= 0.08",
+      "blast_radius": [
+        "lighting",
+        "ground_contact"
+      ],
+      "critic_role": "lighting_artist",
+      "diagnosis": "object appears floating due to missing contact shadow",
+      "finding_id": "light-floating-contact:floating-object",
+      "measured": {
+        "contact_shadow_strength": 0.02
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "contact_shadow_strength": 0.02
+  },
+  "runtime_used": "lighting-image",
+  "subject_id": "light-floating-contact"
+}

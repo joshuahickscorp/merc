@@ -1,0 +1,160 @@
+{
+  "$id": "https://compute.exchange/schemas/visionmcp-100-plus-capabilities-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "facets": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_assessment": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "baseline_grade": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "baseline_score": {
+            "maximum": 110,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "current_score": {
+            "maximum": 110,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "domain": {
+            "enum": [
+              "app",
+              "3d",
+              "system"
+            ]
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "pattern": "^[a-z0-9][a-z0-9_.-]+$",
+            "type": "string"
+          },
+          "known_blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "reproduction_commands": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "required_external_or_holdout_tests": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "required_metrics": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "enum": [
+                    "==",
+                    "<=",
+                    ">=",
+                    "<",
+                    ">"
+                  ]
+                },
+                "value": {}
+              },
+              "required": [
+                "op",
+                "value"
+              ],
+              "type": "object"
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "required_real_runtimes": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "required_receipts": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "required_reference_class": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "PROVEN_100_PLUS",
+              "PROVEN_BELOW_100",
+              "BLOCKED_EXTERNAL",
+              "NOT_APPLICABLE"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "domain",
+          "name",
+          "baseline_score",
+          "baseline_grade",
+          "baseline_assessment",
+          "required_reference_class",
+          "required_real_runtimes",
+          "required_external_or_holdout_tests",
+          "required_metrics",
+          "required_receipts",
+          "known_blockers",
+          "current_score",
+          "status",
+          "evidence",
+          "reproduction_commands"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "generated_from": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1"
+    }
+  },
+  "required": [
+    "schema_version",
+    "generated_from",
+    "facets"
+  ],
+  "title": "VisionMCP 100+ capability facet catalog",
+  "type": "object"
+}

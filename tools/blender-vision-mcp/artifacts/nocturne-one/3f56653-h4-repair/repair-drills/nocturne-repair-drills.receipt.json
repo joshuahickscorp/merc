@@ -1,0 +1,635 @@
+{
+  "authority": "DETERMINISTIC_RECEIPT_REPLAY",
+  "benchmark_id": "nocturne-one-repair-drills-v1",
+  "claim_boundary": [
+    "Each drill mutates one fixed observation in a frozen real runtime acceptance receipt, proves deterministic detection, evaluates the same three repair strategies, and verifies canonical whole-receipt restoration.",
+    "Threshold relaxation and whole-baseline replacement are prohibited; only the exact inverse of the injected fact may be selected.",
+    "This is executable receipt-level repair replay. It is not twelve fresh Blender, browser, API, database, accessibility, or performance reruns."
+  ],
+  "drill_count": 12,
+  "drills": [
+    {
+      "assertion_id": "overall_dimensions",
+      "baseline_canonical_sha256": "8844ac125a0320d7b7622db9ec11d05c6be3dfc431677e3c98a9be3c9391926f",
+      "baseline_receipt_sha256": "8cb9683912465f3a5d5c429c228aa3331bdb567f3271545fdc4863833c1bb0e9",
+      "before": 320.0,
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[overall_dimensions].observed.dimensions_mm.0"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "3d",
+      "drill_id": "geometry-dimension",
+      "exact_restore": true,
+      "failure_class": "geometry dimension",
+      "global_regression_count": 0,
+      "injected": 336.0,
+      "mutation_path": "assertions[overall_dimensions].observed.dimensions_mm.0",
+      "repaired_canonical_sha256": "8844ac125a0320d7b7622db9ec11d05c6be3dfc431677e3c98a9be3c9391926f",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "material_classes",
+      "baseline_canonical_sha256": "8844ac125a0320d7b7622db9ec11d05c6be3dfc431677e3c98a9be3c9391926f",
+      "baseline_receipt_sha256": "8cb9683912465f3a5d5c429c228aa3331bdb567f3271545fdc4863833c1bb0e9",
+      "before": true,
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[material_classes].observed.glass_is_transmissive"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "3d",
+      "drill_id": "incorrect-material-class",
+      "exact_restore": true,
+      "failure_class": "incorrect material class",
+      "global_regression_count": 0,
+      "injected": false,
+      "mutation_path": "assertions[material_classes].observed.glass_is_transmissive",
+      "repaired_canonical_sha256": "8844ac125a0320d7b7622db9ec11d05c6be3dfc431677e3c98a9be3c9391926f",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "fixed_evaluator_cameras",
+      "baseline_canonical_sha256": "8844ac125a0320d7b7622db9ec11d05c6be3dfc431677e3c98a9be3c9391926f",
+      "baseline_receipt_sha256": "8cb9683912465f3a5d5c429c228aa3331bdb567f3271545fdc4863833c1bb0e9",
+      "before": 6,
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[fixed_evaluator_cameras].observed.public_count"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "3d",
+      "drill_id": "fixed-camera-mismatch",
+      "exact_restore": true,
+      "failure_class": "fixed camera mismatch",
+      "global_regression_count": 0,
+      "injected": 5,
+      "mutation_path": "assertions[fixed_evaluator_cameras].observed.public_count",
+      "repaired_canonical_sha256": "8844ac125a0320d7b7622db9ec11d05c6be3dfc431677e3c98a9be3c9391926f",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "hidden_mobile_trace",
+      "baseline_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "baseline_receipt_sha256": "eedace5f3d09a32676e4bc6bdeaffa96a0a05d791d07635ec95a57e56c807997",
+      "before": "/receipt",
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[hidden_mobile_trace].observed.final_route"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "app",
+      "drill_id": "broken-mobile-composition",
+      "exact_restore": true,
+      "failure_class": "broken mobile composition",
+      "global_regression_count": 0,
+      "injected": "/reserve",
+      "mutation_path": "assertions[hidden_mobile_trace].observed.final_route",
+      "repaired_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "deterministic_exploded_animation",
+      "baseline_canonical_sha256": "8844ac125a0320d7b7622db9ec11d05c6be3dfc431677e3c98a9be3c9391926f",
+      "baseline_receipt_sha256": "8cb9683912465f3a5d5c429c228aa3331bdb567f3271545fdc4863833c1bb0e9",
+      "before": true,
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[deterministic_exploded_animation].observed.frame_120_deterministic"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "3d",
+      "drill_id": "animation-timing-drift",
+      "exact_restore": true,
+      "failure_class": "animation timing drift",
+      "global_regression_count": 0,
+      "injected": false,
+      "mutation_path": "assertions[deterministic_exploded_animation].observed.frame_120_deterministic",
+      "repaired_canonical_sha256": "8844ac125a0320d7b7622db9ec11d05c6be3dfc431677e3c98a9be3c9391926f",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "reduced_motion",
+      "baseline_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "baseline_receipt_sha256": "eedace5f3d09a32676e4bc6bdeaffa96a0a05d791d07635ec95a57e56c807997",
+      "before": false,
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[reduced_motion].observed.animation"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "app",
+      "drill_id": "reduced-motion-regression",
+      "exact_restore": true,
+      "failure_class": "reduced motion regression",
+      "global_regression_count": 0,
+      "injected": true,
+      "mutation_path": "assertions[reduced_motion].observed.animation",
+      "repaired_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "glb_size_budgets",
+      "baseline_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "baseline_receipt_sha256": "eedace5f3d09a32676e4bc6bdeaffa96a0a05d791d07635ec95a57e56c807997",
+      "before": 393040,
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[glb_size_budgets].observed.hero"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "app",
+      "drill_id": "oversized-glb",
+      "exact_restore": true,
+      "failure_class": "oversized GLB",
+      "global_regression_count": 0,
+      "injected": 5242881,
+      "mutation_path": "assertions[glb_size_budgets].observed.hero",
+      "repaired_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "desktop_3d_frames",
+      "baseline_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "baseline_receipt_sha256": "eedace5f3d09a32676e4bc6bdeaffa96a0a05d791d07635ec95a57e56c807997",
+      "before": 0.7999999523162842,
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[desktop_3d_frames].observed.p95_ms"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "app",
+      "drill_id": "shader-frame-time-regression",
+      "exact_restore": true,
+      "failure_class": "shader/frame time regression",
+      "global_regression_count": 0,
+      "injected": 24.1,
+      "mutation_path": "assertions[desktop_3d_frames].observed.p95_ms",
+      "repaired_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P1",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "reservation_idempotency",
+      "baseline_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "baseline_receipt_sha256": "eedace5f3d09a32676e4bc6bdeaffa96a0a05d791d07635ec95a57e56c807997",
+      "before": true,
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[reservation_idempotency].observed.same_id"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "app",
+      "drill_id": "api-idempotency",
+      "exact_restore": true,
+      "failure_class": "API idempotency",
+      "global_regression_count": 0,
+      "injected": false,
+      "mutation_path": "assertions[reservation_idempotency].observed.same_id",
+      "repaired_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "fresh_clone_commands",
+      "baseline_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "baseline_receipt_sha256": "eedace5f3d09a32676e4bc6bdeaffa96a0a05d791d07635ec95a57e56c807997",
+      "before": 0,
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[fresh_clone_commands].observed.migration_reapply.exit_code"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "app",
+      "drill_id": "database-migration",
+      "exact_restore": true,
+      "failure_class": "DB migration",
+      "global_regression_count": 0,
+      "injected": 1,
+      "mutation_path": "assertions[fresh_clone_commands].observed.migration_reapply.exit_code",
+      "repaired_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "automated_accessibility",
+      "baseline_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "baseline_receipt_sha256": "eedace5f3d09a32676e4bc6bdeaffa96a0a05d791d07635ec95a57e56c807997",
+      "before": 0,
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[automated_accessibility].observed.serious"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "app",
+      "drill_id": "accessibility",
+      "exact_restore": true,
+      "failure_class": "accessibility",
+      "global_regression_count": 0,
+      "injected": 1,
+      "mutation_path": "assertions[automated_accessibility].observed.serious",
+      "repaired_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    },
+    {
+      "assertion_id": "required_routes_and_states",
+      "baseline_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "baseline_receipt_sha256": "eedace5f3d09a32676e4bc6bdeaffa96a0a05d791d07635ec95a57e56c807997",
+      "before": [
+        "/",
+        "/configurator",
+        "/receipt",
+        "/reserve",
+        "/technology"
+      ],
+      "candidates": [
+        {
+          "allowed": false,
+          "candidate_id": "relax-evaluator-threshold",
+          "mutated_paths": [
+            "evaluator.threshold"
+          ],
+          "reason": "Rejected: changes frozen acceptance authority instead of product evidence.",
+          "selected": false,
+          "strategy": "threshold_relaxation"
+        },
+        {
+          "allowed": false,
+          "candidate_id": "replace-global-baseline",
+          "mutated_paths": [
+            "receipt"
+          ],
+          "reason": "Rejected: overbroad replacement exceeds the one-fact causal surface.",
+          "selected": false,
+          "strategy": "global_baseline_replacement"
+        },
+        {
+          "allowed": true,
+          "candidate_id": "exact-inverse-patch",
+          "mutated_paths": [
+            "assertions[required_routes_and_states].observed.routes"
+          ],
+          "reason": "Selected: restores only the injected observed fact and fixed pass metadata.",
+          "selected": true,
+          "strategy": "exact_inverse_patch"
+        }
+      ],
+      "detection_passed": true,
+      "domain": "app",
+      "drill_id": "unrelated-route-regression",
+      "exact_restore": true,
+      "failure_class": "unrelated route regression",
+      "global_regression_count": 0,
+      "injected": [
+        "/",
+        "/configurator",
+        "/reserve",
+        "/technology"
+      ],
+      "mutation_path": "assertions[required_routes_and_states].observed.routes",
+      "repaired_canonical_sha256": "8203dd6b5fb74a0a52d6679b90c24b5775eb1413a050ccaf9c063d0a71652c6c",
+      "selected_candidate_id": "exact-inverse-patch",
+      "severity": "P0",
+      "status": "PASS"
+    }
+  ],
+  "failed_count": 0,
+  "input_receipt_sha256": {
+    "3d": "8cb9683912465f3a5d5c429c228aa3331bdb567f3271545fdc4863833c1bb0e9",
+    "app": "eedace5f3d09a32676e4bc6bdeaffa96a0a05d791d07635ec95a57e56c807997"
+  },
+  "input_source_git_heads": {
+    "3d": "3f56653cb208f930cbf4d677dc20a65fc15a9605",
+    "app": "3f56653cb208f930cbf4d677dc20a65fc15a9605"
+  },
+  "passed_count": 12,
+  "schema_version": "1",
+  "status": "PASS"
+}

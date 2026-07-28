@@ -1,0 +1,111 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 1900px;
+  color: rgb(20, 28, 42);
+  background: rgb(247, 249, 252);
+}
+
+header {
+  min-height: 64px;
+  padding: 12px 24px;
+  background: rgb(255, 255, 255);
+}
+
+main {
+  padding: 24px;
+}
+
+section {
+  margin-top: 40px;
+}
+
+button,
+a {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid rgb(20, 90, 220);
+  outline-offset: 3px;
+}
+
+#animated-card,
+#parallax-card,
+#sticky-note {
+  width: 180px;
+  min-height: 52px;
+  padding: 12px;
+  color: white;
+  background: rgb(18, 92, 210);
+}
+
+#animated-card {
+  animation: known-slide 600ms linear 100ms both;
+}
+
+#parallax-card {
+  margin-top: 260px;
+  background: rgb(20, 140, 100);
+}
+
+#sticky-note {
+  position: sticky;
+  top: 12px;
+  margin-top: 260px;
+  background: rgb(120, 54, 186);
+}
+
+.scroll-space {
+  height: 800px;
+}
+
+@keyframes known-slide {
+  from {
+    opacity: 0.3;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(96px);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    color: rgb(238, 242, 250);
+    background: rgb(12, 17, 27);
+  }
+
+  header {
+    background: rgb(22, 29, 44);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #animated-card {
+    animation: none;
+    opacity: 1;
+    transform: translateX(96px);
+  }
+}
+
+@media (orientation: portrait) {
+  main {
+    max-width: 560px;
+  }
+}
+
+@media (pointer: coarse) {
+  button,
+  a {
+    min-height: 48px;
+  }
+}

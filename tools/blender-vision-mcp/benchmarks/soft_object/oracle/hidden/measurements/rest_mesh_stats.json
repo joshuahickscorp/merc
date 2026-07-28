@@ -1,0 +1,9 @@
+{
+  "authority": "SEALED_ORACLE_ONLY",
+  "builder_visible": false,
+  "canary": "SEALED-V2-ORACLE-CANARY-soft_object",
+  "note": "Oracle rest-pose mesh statistics",
+  "path": "oracle/hidden/measurements/rest_mesh_stats.json",
+  "role": "hidden_measurement",
+  "target_id": "soft_object"
+}

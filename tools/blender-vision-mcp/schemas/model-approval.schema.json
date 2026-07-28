@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/model-approval.schema.json",
+  "title": "Blender Vision model-source approval",
+  "type": "object",
+  "required": ["name", "source_url", "expected_digest", "license", "approved_by", "reason"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "source_url": {"type": "string", "minLength": 1},
+    "expected_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "license": {
+      "type": "object",
+      "required": ["license"],
+      "properties": {
+        "license": {"type": "string"},
+        "commercial_use": {"type": ["boolean", "null"]},
+        "research_only": {"type": "boolean"}
+      }
+    },
+    "approved_by": {"type": "string", "minLength": 1},
+    "reason": {"type": "string", "minLength": 1}
+  }
+}

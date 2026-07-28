@@ -1,0 +1,1744 @@
+{
+  "accessibility": {
+    "critical_violation_count": 0,
+    "routes": {
+      "/": [],
+      "/configurator": [],
+      "/receipt": [],
+      "/reserve": [],
+      "/technology": []
+    },
+    "scanner": "NocturneAccessibilityScanner/v1",
+    "serious_violation_count": 0
+  },
+  "api": {
+    "conflict": {
+      "body": {
+        "error": "idempotency_conflict",
+        "message": "This idempotency key was already used for another request."
+      },
+      "status": 409
+    },
+    "cross_actor": {
+      "body": {
+        "error": "not_found"
+      },
+      "status": 404
+    },
+    "first": {
+      "body": {
+        "configuration": {
+          "accessory": "braided-cable",
+          "light_intensity": 72,
+          "orientation": 18,
+          "variant": "ember"
+        },
+        "configuration_id": "cfg-0f709246-4175-4f9f-b986-c36b4cc3820c",
+        "created_at": "2026-07-26T04:34:14.559Z",
+        "email": "builder@example.invalid",
+        "id": "res-b1e50b66-669d-4c35-8bd1-7f392ba7aa8c",
+        "status": "confirmed"
+      },
+      "status": 201
+    },
+    "invalid": {
+      "body": {
+        "error": "validation_error",
+        "fields": {
+          "email": "Enter a valid email address."
+        }
+      },
+      "status": 400
+    },
+    "latency_samples_ms": [
+      0.6379169644787908,
+      1.5037920093163848,
+      0.8487500017508864,
+      0.5487909656949341,
+      0.5639999872073531,
+      0.42295799357816577,
+      0.6083329790271819,
+      0.4989590379409492,
+      0.4297079867683351,
+      0.37504202919080853,
+      0.4813339910469949,
+      0.3631250001490116,
+      0.3471659729257226,
+      0.36266702227294445,
+      0.5094999796710908,
+      0.6945409695617855,
+      0.7022499921731651,
+      0.42141700396314263,
+      0.4293340025469661,
+      0.6266669952310622,
+      0.5533749936148524,
+      0.7771669770590961,
+      0.667458982206881,
+      0.5189590156078339,
+      0.4838330205529928,
+      0.5135840037837625,
+      0.3892919630743563,
+      0.5517079844139516,
+      0.4766249912790954,
+      0.4568339791148901
+    ],
+    "missing_permission": {
+      "body": {
+        "error": "permission_denied"
+      },
+      "status": 403
+    },
+    "own_lookup": {
+      "body": {
+        "configuration": {
+          "accessory": "braided-cable",
+          "light_intensity": 72,
+          "orientation": 18,
+          "variant": "ember"
+        },
+        "configuration_id": "cfg-0f709246-4175-4f9f-b986-c36b4cc3820c",
+        "created_at": "2026-07-26T04:34:14.559Z",
+        "email": "builder@example.invalid",
+        "id": "res-b1e50b66-669d-4c35-8bd1-7f392ba7aa8c",
+        "status": "confirmed"
+      },
+      "status": 200
+    },
+    "p95_ms": 0.8487500017508864,
+    "repeated": {
+      "body": {
+        "configuration": {
+          "accessory": "braided-cable",
+          "light_intensity": 72,
+          "orientation": 18,
+          "variant": "ember"
+        },
+        "configuration_id": "cfg-0f709246-4175-4f9f-b986-c36b4cc3820c",
+        "created_at": "2026-07-26T04:34:14.559Z",
+        "email": "builder@example.invalid",
+        "id": "res-b1e50b66-669d-4c35-8bd1-7f392ba7aa8c",
+        "status": "confirmed"
+      },
+      "status": 200
+    },
+    "transient": {
+      "body": {
+        "error": "temporarily_unavailable",
+        "message": "The reservation service is briefly unavailable.",
+        "retry": true
+      },
+      "status": 503
+    },
+    "unauthorized": {
+      "body": {
+        "error": "authentication_required"
+      },
+      "status": 401
+    }
+  },
+  "assertions": [
+    {
+      "expected": "all install/build/test/migration/rollback commands pass",
+      "id": "fresh_clone_commands",
+      "observed": {
+        "migration_first": {
+          "elapsed_seconds": 0.34222250001039356,
+          "exit_code": 0
+        },
+        "migration_reapply": {
+          "elapsed_seconds": 0.3179606660269201,
+          "exit_code": 0
+        },
+        "migration_rollback": {
+          "elapsed_seconds": 0.31227724999189377,
+          "exit_code": 0
+        },
+        "migration_second": {
+          "elapsed_seconds": 0.31696766696404666,
+          "exit_code": 0
+        },
+        "npm_ci": {
+          "elapsed_seconds": 1.5081520000239834,
+          "exit_code": 0
+        },
+        "npm_verify": {
+          "elapsed_seconds": 18.59329400002025,
+          "exit_code": 0
+        }
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "missing_permission": 403,
+        "unauthenticated": 401
+      },
+      "id": "api_auth_policy",
+      "observed": {
+        "missing_permission": 403,
+        "unauthenticated": 401
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "transient": 503,
+        "validation": 400
+      },
+      "id": "api_validation_and_transient_errors",
+      "observed": {
+        "transient": 503,
+        "validation": 400
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "conflict": 409,
+        "first": 201,
+        "repeated": 200,
+        "same_id": true
+      },
+      "id": "reservation_idempotency",
+      "observed": {
+        "conflict": 409,
+        "first": 201,
+        "repeated": 200,
+        "same_id": true
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "cross_actor": [
+          403,
+          404
+        ],
+        "own_lookup": 200
+      },
+      "id": "reservation_actor_scope",
+      "observed": {
+        "cross_actor": 404,
+        "own_lookup": 200
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "p95_ms_maximum": 150.0
+      },
+      "id": "api_latency",
+      "observed": {
+        "p95_ms": 0.8487500017508864,
+        "sample_count": 30
+      },
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "routes": [
+          "/",
+          "/technology",
+          "/configurator",
+          "/reserve",
+          "/receipt"
+        ],
+        "states": [
+          "initial_loading",
+          "poster_fallback",
+          "3d_ready",
+          "3d_unavailable",
+          "reduced_motion",
+          "keyboard_navigation",
+          "touch_interaction",
+          "slow_network",
+          "offline_retry",
+          "api_validation_error",
+          "api_transient_error",
+          "successful_reservation",
+          "empty_configuration",
+          "restored_saved_configuration"
+        ]
+      },
+      "id": "required_routes_and_states",
+      "observed": {
+        "observed_states": [
+          "3d_ready",
+          "3d_unavailable",
+          "api_transient_error",
+          "api_validation_error",
+          "empty_configuration",
+          "initial_loading",
+          "keyboard_navigation",
+          "offline_retry",
+          "poster_fallback",
+          "reduced_motion",
+          "restored_saved_configuration",
+          "slow_network",
+          "successful_reservation",
+          "touch_interaction"
+        ],
+        "routes": [
+          "/",
+          "/configurator",
+          "/receipt",
+          "/reserve",
+          "/technology"
+        ],
+        "states": [
+          "initial_loading",
+          "poster_fallback",
+          "3d_ready",
+          "3d_unavailable",
+          "reduced_motion",
+          "keyboard_navigation",
+          "touch_interaction",
+          "slow_network",
+          "offline_retry",
+          "api_validation_error",
+          "api_transient_error",
+          "successful_reservation",
+          "empty_configuration",
+          "restored_saved_configuration"
+        ]
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": [
+        "enter3D",
+        "sampleFrames",
+        "selectPart",
+        "setConfiguration",
+        "setTestCondition"
+      ],
+      "id": "runtime_probe_methods",
+      "observed": {
+        "enter3D": true,
+        "sampleFrames": true,
+        "selectPart": true,
+        "setConfiguration": true,
+        "setTestCondition": true
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": [
+        "accessory",
+        "enter-3d",
+        "light",
+        "orientation",
+        "part-selector",
+        "product-canvas",
+        "reservation-status",
+        "reserve-email",
+        "reserve-submit",
+        "variant"
+      ],
+      "id": "runtime_probe_controls",
+      "observed": [
+        "accessory",
+        "enter-3d",
+        "light",
+        "orientation",
+        "part-selector",
+        "product-canvas",
+        "reservation-status",
+        "reserve-email",
+        "reserve-submit",
+        "variant"
+      ],
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": "every route has one main, one h1, and no horizontal overflow",
+      "id": "responsive_route_structure",
+      "observed": {
+        "/": {
+          "animationEnabled": true,
+          "controls": [
+            "app",
+            "skip-to-main",
+            "main",
+            "product-canvas",
+            "enter-3d"
+          ],
+          "declaredStates": [
+            "initial_loading",
+            "poster_fallback",
+            "3d_ready",
+            "3d_unavailable",
+            "reduced_motion",
+            "keyboard_navigation",
+            "touch_interaction",
+            "slow_network",
+            "offline_retry",
+            "api_validation_error",
+            "api_transient_error",
+            "successful_reservation",
+            "empty_configuration",
+            "restored_saved_configuration"
+          ],
+          "glbRequested": false,
+          "h1Count": 1,
+          "horizontalOverflow": false,
+          "mainCount": 1,
+          "methods": {
+            "enter3D": true,
+            "sampleFrames": true,
+            "selectPart": true,
+            "setConfiguration": true,
+            "setTestCondition": true
+          },
+          "posterVisible": true,
+          "reducedMotion": false,
+          "route": "/",
+          "state": "poster_fallback",
+          "stateHistory": [
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback"
+          ],
+          "webglAvailable": true
+        },
+        "/configurator": {
+          "animationEnabled": true,
+          "controls": [
+            "app",
+            "skip-to-main",
+            "main",
+            "product-canvas",
+            "variant",
+            "light",
+            "orientation",
+            "accessory",
+            "save-configuration",
+            "configuration-status"
+          ],
+          "declaredStates": [
+            "initial_loading",
+            "poster_fallback",
+            "3d_ready",
+            "3d_unavailable",
+            "reduced_motion",
+            "keyboard_navigation",
+            "touch_interaction",
+            "slow_network",
+            "offline_retry",
+            "api_validation_error",
+            "api_transient_error",
+            "successful_reservation",
+            "empty_configuration",
+            "restored_saved_configuration"
+          ],
+          "glbRequested": false,
+          "h1Count": 1,
+          "horizontalOverflow": false,
+          "mainCount": 1,
+          "methods": {
+            "enter3D": true,
+            "sampleFrames": true,
+            "selectPart": true,
+            "setConfiguration": true,
+            "setTestCondition": true
+          },
+          "posterVisible": true,
+          "reducedMotion": false,
+          "route": "/configurator",
+          "state": "poster_fallback",
+          "stateHistory": [
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback"
+          ],
+          "webglAvailable": true
+        },
+        "/receipt": {
+          "animationEnabled": true,
+          "controls": [
+            "app",
+            "skip-to-main",
+            "main",
+            "reservation-status"
+          ],
+          "declaredStates": [
+            "initial_loading",
+            "poster_fallback",
+            "3d_ready",
+            "3d_unavailable",
+            "reduced_motion",
+            "keyboard_navigation",
+            "touch_interaction",
+            "slow_network",
+            "offline_retry",
+            "api_validation_error",
+            "api_transient_error",
+            "successful_reservation",
+            "empty_configuration",
+            "restored_saved_configuration"
+          ],
+          "glbRequested": false,
+          "h1Count": 1,
+          "horizontalOverflow": false,
+          "mainCount": 1,
+          "methods": {
+            "enter3D": true,
+            "sampleFrames": true,
+            "selectPart": true,
+            "setConfiguration": true,
+            "setTestCondition": true
+          },
+          "posterVisible": true,
+          "reducedMotion": false,
+          "route": "/receipt",
+          "state": "poster_fallback",
+          "stateHistory": [
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback"
+          ],
+          "webglAvailable": true
+        },
+        "/reserve": {
+          "animationEnabled": true,
+          "controls": [
+            "app",
+            "skip-to-main",
+            "main",
+            "reservation-form",
+            "reserve-email",
+            "reserve-email-error",
+            "reserve-submit",
+            "reservation-status"
+          ],
+          "declaredStates": [
+            "initial_loading",
+            "poster_fallback",
+            "3d_ready",
+            "3d_unavailable",
+            "reduced_motion",
+            "keyboard_navigation",
+            "touch_interaction",
+            "slow_network",
+            "offline_retry",
+            "api_validation_error",
+            "api_transient_error",
+            "successful_reservation",
+            "empty_configuration",
+            "restored_saved_configuration"
+          ],
+          "glbRequested": false,
+          "h1Count": 1,
+          "horizontalOverflow": false,
+          "mainCount": 1,
+          "methods": {
+            "enter3D": true,
+            "sampleFrames": true,
+            "selectPart": true,
+            "setConfiguration": true,
+            "setTestCondition": true
+          },
+          "posterVisible": true,
+          "reducedMotion": false,
+          "route": "/reserve",
+          "state": "poster_fallback",
+          "stateHistory": [
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback"
+          ],
+          "webglAvailable": true
+        },
+        "/technology": {
+          "animationEnabled": true,
+          "controls": [
+            "app",
+            "skip-to-main",
+            "main",
+            "product-canvas",
+            "part-selector"
+          ],
+          "declaredStates": [
+            "initial_loading",
+            "poster_fallback",
+            "3d_ready",
+            "3d_unavailable",
+            "reduced_motion",
+            "keyboard_navigation",
+            "touch_interaction",
+            "slow_network",
+            "offline_retry",
+            "api_validation_error",
+            "api_transient_error",
+            "successful_reservation",
+            "empty_configuration",
+            "restored_saved_configuration"
+          ],
+          "glbRequested": false,
+          "h1Count": 1,
+          "horizontalOverflow": false,
+          "mainCount": 1,
+          "methods": {
+            "enter3D": true,
+            "sampleFrames": true,
+            "selectPart": true,
+            "setConfiguration": true,
+            "setTestCondition": true
+          },
+          "posterVisible": true,
+          "reducedMotion": false,
+          "route": "/technology",
+          "state": "poster_fallback",
+          "stateHistory": [
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback"
+          ],
+          "webglAvailable": true
+        }
+      },
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "glb_before_intent": false,
+        "poster_before_3d": true,
+        "ready_after_intent": true
+      },
+      "id": "poster_first_lazy_glb",
+      "observed": {
+        "initial_glb_paths": [],
+        "poster_before_3d": {
+          "glb": false,
+          "poster": true
+        },
+        "ready_state": {
+          "glbRequested": true,
+          "posterVisible": false,
+          "state": "3d_ready",
+          "stateHistory": [
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "initial_loading",
+            "empty_configuration",
+            "poster_fallback",
+            "3d_ready"
+          ],
+          "webglAvailable": true
+        }
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": "configuration equals scene state before and after reload",
+      "id": "configuration_3d_state_persistence",
+      "observed": {
+        "configured": {
+          "config": {
+            "accessory": "braided-cable",
+            "light_intensity": 72,
+            "orientation": 18,
+            "variant": "ember"
+          },
+          "scene": {
+            "accessory": "braided-cable",
+            "light_intensity": 72,
+            "orientation": 18,
+            "variant": "ember"
+          }
+        },
+        "restored": {
+          "accessory": "braided-cable",
+          "light_intensity": 72,
+          "orientation": 18,
+          "variant": "ember"
+        }
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": "glass_core",
+      "id": "semantic_part_selection",
+      "observed": "glass_core",
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": "focus reaches enter-3d and navigation",
+      "id": "keyboard_journey",
+      "observed": [
+        "skip-to-main",
+        "A",
+        "A",
+        "A",
+        "A",
+        "A",
+        "A",
+        "enter-3d"
+      ],
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "animation": false,
+        "reduced": true
+      },
+      "id": "reduced_motion",
+      "observed": {
+        "animation": false,
+        "reduced": true,
+        "stateHistory": [
+          "initial_loading",
+          "empty_configuration",
+          "reduced_motion"
+        ]
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": "fallback state and every route remain usable",
+      "id": "no_webgl_non_3d_journeys",
+      "observed": {
+        "routes": {
+          "/": {
+            "h1": 1,
+            "main": true,
+            "webgl": false
+          },
+          "/configurator": {
+            "h1": 1,
+            "main": true,
+            "webgl": false
+          },
+          "/receipt": {
+            "h1": 1,
+            "main": true,
+            "webgl": false
+          },
+          "/reserve": {
+            "h1": 1,
+            "main": true,
+            "webgl": false
+          },
+          "/technology": {
+            "h1": 1,
+            "main": true,
+            "webgl": false
+          }
+        },
+        "state": "3d_unavailable"
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": 10,
+      "id": "hidden_mobile_trace",
+      "observed": {
+        "completed_steps": [
+          "0:goto",
+          "1:wait_for",
+          "2:tap",
+          "3:swipe",
+          "4:goto",
+          "5:select",
+          "6:set",
+          "7:goto",
+          "8:submit",
+          "9:goto"
+        ],
+        "final_route": "/receipt",
+        "final_state": "successful_reservation",
+        "step_count": 10
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": 184320,
+      "id": "critical_transfer_budget",
+      "observed": 0,
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": 256000,
+      "id": "javascript_transfer_budget",
+      "observed": 145758,
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "hero_maximum": 5242880,
+        "mobile_lod_maximum": 1572864
+      },
+      "id": "glb_size_budgets",
+      "observed": {
+        "hero": 393040,
+        "mobile_lod": 201484
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": 0.05,
+      "id": "layout_shift_budget",
+      "observed": 0.0,
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "median_fps_minimum": 55.0,
+        "p95_ms_maximum": 24.0
+      },
+      "id": "desktop_3d_frames",
+      "observed": {
+        "median_fps": 2500.000149011621,
+        "p95_ms": 0.7999999523162842
+      },
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "median_fps_minimum": 40.0,
+        "p95_ms_maximum": 35.0
+      },
+      "id": "mobile_3d_frames",
+      "observed": {
+        "median_fps": 2500.000149011621,
+        "p95_ms": 0.699999988079071
+      },
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "duration_seconds": 300,
+        "growth_bytes_maximum": 16777216
+      },
+      "id": "bounded_memory_growth",
+      "observed": {
+        "duration_seconds": 300,
+        "growth_bytes": 0,
+        "sample_count": 60
+      },
+      "passed": true,
+      "severity": "P1"
+    },
+    {
+      "expected": {
+        "critical": 0,
+        "serious": 0
+      },
+      "id": "automated_accessibility",
+      "observed": {
+        "critical": 0,
+        "scanner": "NocturneAccessibilityScanner/v1",
+        "serious": 0
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "manual_edits_outside_receipt_chain": false,
+        "oracle_source_access": false,
+        "valid": true
+      },
+      "id": "release_receipt_verifies",
+      "observed": {
+        "attempt_count": 8,
+        "failed_attempt_count": 7,
+        "file_count": 37,
+        "manual_edits_outside_receipt_chain": false,
+        "oracle_source_access": false,
+        "receipt_sha256": "6c1f361fff01645d0c64f416bed7133b946515042fd946e6003fddf07f57c7f8",
+        "valid": true
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": "every declared attempt has a retained digest-bound receipt",
+      "id": "failed_variants_preserved",
+      "observed": [
+        {
+          "id": "attempt-001",
+          "receipt_sha256": "8a260623325639470c6bc34daa3812565ac14275e05a2f8fb4e1b0602463a063",
+          "retained_path": "failed-attempts/attempt-001.json",
+          "status": "FAILED"
+        },
+        {
+          "id": "attempt-002",
+          "receipt_sha256": "ff66afdb92590817bba1ed8a71f52f58209dc8225a9711365425cf137aa9d52a",
+          "retained_path": "failed-attempts/attempt-002.json",
+          "status": "FAILED"
+        },
+        {
+          "id": "attempt-003",
+          "receipt_sha256": "a91594b9b10a58010896c56992f450f63a0710406b1ba91de204160af56fafac",
+          "retained_path": "failed-attempts/attempt-003.json",
+          "status": "FAILED"
+        },
+        {
+          "id": "attempt-004",
+          "receipt_sha256": "a55eac5ea563fd51d0d79a132c2fc8029f63168832f46bc1ef852f19ce95db61",
+          "retained_path": "failed-attempts/attempt-004.json",
+          "status": "FAILED"
+        },
+        {
+          "id": "attempt-005",
+          "receipt_sha256": "e4aa3db03abc2885b88706a748b076d2a6740a6835b6a5e0ee81aad05e87a276",
+          "retained_path": "failed-attempts/attempt-005.json",
+          "status": "FAILED"
+        },
+        {
+          "id": "attempt-006",
+          "receipt_sha256": "a5384885a73b93465c334eb74bc93e2a1a9bee1ca898f3720aa892d632f601ed",
+          "retained_path": "failed-attempts/attempt-006.json",
+          "status": "FAILED"
+        },
+        {
+          "id": "attempt-007",
+          "receipt_sha256": "0f44c48964fffe688b8ccacc72483589cf575aa605fe235dbf394052109538a3",
+          "retained_path": "failed-attempts/attempt-007.json",
+          "status": "FAILED"
+        },
+        {
+          "id": "attempt-008",
+          "receipt_sha256": "a5b709a1fe226ff2086a08faef81c54fbf45f73a36d45aa1de8afbf78f51a04e",
+          "retained_path": ".visionmcp/attempt-008.json",
+          "status": "ACCEPTED"
+        }
+      ],
+      "passed": true,
+      "severity": "P1"
+    }
+  ],
+  "benchmark_id": "nocturne-one-sealed-v1",
+  "browser": {
+    "configuration": {
+      "config": {
+        "accessory": "braided-cable",
+        "light_intensity": 72,
+        "orientation": 18,
+        "variant": "ember"
+      },
+      "scene": {
+        "accessory": "braided-cable",
+        "light_intensity": 72,
+        "orientation": 18,
+        "variant": "ember"
+      }
+    },
+    "declared_states": [
+      "initial_loading",
+      "poster_fallback",
+      "3d_ready",
+      "3d_unavailable",
+      "reduced_motion",
+      "keyboard_navigation",
+      "touch_interaction",
+      "slow_network",
+      "offline_retry",
+      "api_validation_error",
+      "api_transient_error",
+      "successful_reservation",
+      "empty_configuration",
+      "restored_saved_configuration"
+    ],
+    "engine": "chromium",
+    "fallback_routes": {
+      "/": {
+        "h1": 1,
+        "main": true,
+        "webgl": false
+      },
+      "/configurator": {
+        "h1": 1,
+        "main": true,
+        "webgl": false
+      },
+      "/receipt": {
+        "h1": 1,
+        "main": true,
+        "webgl": false
+      },
+      "/reserve": {
+        "h1": 1,
+        "main": true,
+        "webgl": false
+      },
+      "/technology": {
+        "h1": 1,
+        "main": true,
+        "webgl": false
+      }
+    },
+    "fallback_state": "3d_unavailable",
+    "glb_resource_paths": [
+      "/assets/nocturne-one-hero.glb"
+    ],
+    "hidden_mobile_trace": {
+      "completed_steps": [
+        "0:goto",
+        "1:wait_for",
+        "2:tap",
+        "3:swipe",
+        "4:goto",
+        "5:select",
+        "6:set",
+        "7:goto",
+        "8:submit",
+        "9:goto"
+      ],
+      "final_route": "/receipt",
+      "final_state": "successful_reservation",
+      "step_count": 10
+    },
+    "initial_request_paths": [
+      "/",
+      "/assets/style-DR42oFtu.css",
+      "/assets/app-C7dgsRoq.js",
+      "/assets/nocturne-one-poster.webp",
+      "/technology",
+      "/assets/style-DR42oFtu.css",
+      "/assets/app-C7dgsRoq.js",
+      "/assets/nocturne-one-poster.webp",
+      "/configurator",
+      "/assets/style-DR42oFtu.css",
+      "/assets/app-C7dgsRoq.js",
+      "/assets/nocturne-one-poster.webp",
+      "/reserve",
+      "/assets/style-DR42oFtu.css",
+      "/assets/app-C7dgsRoq.js",
+      "/receipt",
+      "/assets/style-DR42oFtu.css",
+      "/assets/app-C7dgsRoq.js",
+      "/",
+      "/assets/style-DR42oFtu.css",
+      "/assets/app-C7dgsRoq.js",
+      "/assets/nocturne-one-poster.webp"
+    ],
+    "keyboard_targets": [
+      "skip-to-main",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "A",
+      "enter-3d"
+    ],
+    "mobile_horizontal_overflow": false,
+    "observed_control_ids": [
+      "accessory",
+      "app",
+      "configuration-status",
+      "enter-3d",
+      "light",
+      "main",
+      "orientation",
+      "part-selector",
+      "product-canvas",
+      "reservation-form",
+      "reservation-status",
+      "reserve-email",
+      "reserve-email-error",
+      "reserve-submit",
+      "save-configuration",
+      "skip-to-main",
+      "variant"
+    ],
+    "observed_states": [
+      "3d_ready",
+      "3d_unavailable",
+      "api_transient_error",
+      "api_validation_error",
+      "empty_configuration",
+      "initial_loading",
+      "keyboard_navigation",
+      "offline_retry",
+      "poster_fallback",
+      "reduced_motion",
+      "restored_saved_configuration",
+      "slow_network",
+      "successful_reservation",
+      "touch_interaction"
+    ],
+    "poster_before_3d": {
+      "glb": false,
+      "poster": true
+    },
+    "ready_state": {
+      "glbRequested": true,
+      "posterVisible": false,
+      "state": "3d_ready",
+      "stateHistory": [
+        "initial_loading",
+        "empty_configuration",
+        "poster_fallback",
+        "initial_loading",
+        "empty_configuration",
+        "poster_fallback",
+        "initial_loading",
+        "empty_configuration",
+        "poster_fallback",
+        "initial_loading",
+        "empty_configuration",
+        "poster_fallback",
+        "initial_loading",
+        "empty_configuration",
+        "poster_fallback",
+        "initial_loading",
+        "empty_configuration",
+        "poster_fallback",
+        "3d_ready"
+      ],
+      "webglAvailable": true
+    },
+    "reduced_motion": {
+      "animation": false,
+      "reduced": true,
+      "stateHistory": [
+        "initial_loading",
+        "empty_configuration",
+        "reduced_motion"
+      ]
+    },
+    "restored_configuration": {
+      "accessory": "braided-cable",
+      "light_intensity": 72,
+      "orientation": 18,
+      "variant": "ember"
+    },
+    "routes": {
+      "/": {
+        "animationEnabled": true,
+        "controls": [
+          "app",
+          "skip-to-main",
+          "main",
+          "product-canvas",
+          "enter-3d"
+        ],
+        "declaredStates": [
+          "initial_loading",
+          "poster_fallback",
+          "3d_ready",
+          "3d_unavailable",
+          "reduced_motion",
+          "keyboard_navigation",
+          "touch_interaction",
+          "slow_network",
+          "offline_retry",
+          "api_validation_error",
+          "api_transient_error",
+          "successful_reservation",
+          "empty_configuration",
+          "restored_saved_configuration"
+        ],
+        "glbRequested": false,
+        "h1Count": 1,
+        "horizontalOverflow": false,
+        "mainCount": 1,
+        "methods": {
+          "enter3D": true,
+          "sampleFrames": true,
+          "selectPart": true,
+          "setConfiguration": true,
+          "setTestCondition": true
+        },
+        "posterVisible": true,
+        "reducedMotion": false,
+        "route": "/",
+        "state": "poster_fallback",
+        "stateHistory": [
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback"
+        ],
+        "webglAvailable": true
+      },
+      "/configurator": {
+        "animationEnabled": true,
+        "controls": [
+          "app",
+          "skip-to-main",
+          "main",
+          "product-canvas",
+          "variant",
+          "light",
+          "orientation",
+          "accessory",
+          "save-configuration",
+          "configuration-status"
+        ],
+        "declaredStates": [
+          "initial_loading",
+          "poster_fallback",
+          "3d_ready",
+          "3d_unavailable",
+          "reduced_motion",
+          "keyboard_navigation",
+          "touch_interaction",
+          "slow_network",
+          "offline_retry",
+          "api_validation_error",
+          "api_transient_error",
+          "successful_reservation",
+          "empty_configuration",
+          "restored_saved_configuration"
+        ],
+        "glbRequested": false,
+        "h1Count": 1,
+        "horizontalOverflow": false,
+        "mainCount": 1,
+        "methods": {
+          "enter3D": true,
+          "sampleFrames": true,
+          "selectPart": true,
+          "setConfiguration": true,
+          "setTestCondition": true
+        },
+        "posterVisible": true,
+        "reducedMotion": false,
+        "route": "/configurator",
+        "state": "poster_fallback",
+        "stateHistory": [
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback",
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback",
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback"
+        ],
+        "webglAvailable": true
+      },
+      "/receipt": {
+        "animationEnabled": true,
+        "controls": [
+          "app",
+          "skip-to-main",
+          "main",
+          "reservation-status"
+        ],
+        "declaredStates": [
+          "initial_loading",
+          "poster_fallback",
+          "3d_ready",
+          "3d_unavailable",
+          "reduced_motion",
+          "keyboard_navigation",
+          "touch_interaction",
+          "slow_network",
+          "offline_retry",
+          "api_validation_error",
+          "api_transient_error",
+          "successful_reservation",
+          "empty_configuration",
+          "restored_saved_configuration"
+        ],
+        "glbRequested": false,
+        "h1Count": 1,
+        "horizontalOverflow": false,
+        "mainCount": 1,
+        "methods": {
+          "enter3D": true,
+          "sampleFrames": true,
+          "selectPart": true,
+          "setConfiguration": true,
+          "setTestCondition": true
+        },
+        "posterVisible": true,
+        "reducedMotion": false,
+        "route": "/receipt",
+        "state": "poster_fallback",
+        "stateHistory": [
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback",
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback",
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback",
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback",
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback"
+        ],
+        "webglAvailable": true
+      },
+      "/reserve": {
+        "animationEnabled": true,
+        "controls": [
+          "app",
+          "skip-to-main",
+          "main",
+          "reservation-form",
+          "reserve-email",
+          "reserve-email-error",
+          "reserve-submit",
+          "reservation-status"
+        ],
+        "declaredStates": [
+          "initial_loading",
+          "poster_fallback",
+          "3d_ready",
+          "3d_unavailable",
+          "reduced_motion",
+          "keyboard_navigation",
+          "touch_interaction",
+          "slow_network",
+          "offline_retry",
+          "api_validation_error",
+          "api_transient_error",
+          "successful_reservation",
+          "empty_configuration",
+          "restored_saved_configuration"
+        ],
+        "glbRequested": false,
+        "h1Count": 1,
+        "horizontalOverflow": false,
+        "mainCount": 1,
+        "methods": {
+          "enter3D": true,
+          "sampleFrames": true,
+          "selectPart": true,
+          "setConfiguration": true,
+          "setTestCondition": true
+        },
+        "posterVisible": true,
+        "reducedMotion": false,
+        "route": "/reserve",
+        "state": "poster_fallback",
+        "stateHistory": [
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback",
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback",
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback",
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback"
+        ],
+        "webglAvailable": true
+      },
+      "/technology": {
+        "animationEnabled": true,
+        "controls": [
+          "app",
+          "skip-to-main",
+          "main",
+          "product-canvas",
+          "part-selector"
+        ],
+        "declaredStates": [
+          "initial_loading",
+          "poster_fallback",
+          "3d_ready",
+          "3d_unavailable",
+          "reduced_motion",
+          "keyboard_navigation",
+          "touch_interaction",
+          "slow_network",
+          "offline_retry",
+          "api_validation_error",
+          "api_transient_error",
+          "successful_reservation",
+          "empty_configuration",
+          "restored_saved_configuration"
+        ],
+        "glbRequested": false,
+        "h1Count": 1,
+        "horizontalOverflow": false,
+        "mainCount": 1,
+        "methods": {
+          "enter3D": true,
+          "sampleFrames": true,
+          "selectPart": true,
+          "setConfiguration": true,
+          "setTestCondition": true
+        },
+        "posterVisible": true,
+        "reducedMotion": false,
+        "route": "/technology",
+        "state": "poster_fallback",
+        "stateHistory": [
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback",
+          "initial_loading",
+          "empty_configuration",
+          "poster_fallback"
+        ],
+        "webglAvailable": true
+      }
+    },
+    "selected_part": "glass_core",
+    "version": "150.0.7871.183"
+  },
+  "candidate_build_receipt_sha256": "6c1f361fff01645d0c64f416bed7133b946515042fd946e6003fddf07f57c7f8",
+  "claim_boundary": [
+    "The evaluator installs from the lockfile in a fresh copied source tree.",
+    "Browser, API, database, migration, accessibility, fallback, and performance gates execute on the real local application path.",
+    "The selected accessibility scanner is deterministic but does not replace manual assistive-technology review.",
+    "Performance results are specific to the recorded browser and host."
+  ],
+  "commands": [
+    {
+      "command": [
+        "npm",
+        "ci"
+      ],
+      "elapsed_seconds": 1.5081520000239834,
+      "exit_code": 0,
+      "id": "npm_ci",
+      "passed": true,
+      "stderr_sha256": "817732f4e9d3fb3a07b0c11a68d4cc6dc654b74cb487e0f6fdddec42b0d2f3ca",
+      "stdout_sha256": "593532b763c0fe210541d22d353f1676293305fb2ab0c9a73d1c03fcb448088b"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "verify"
+      ],
+      "elapsed_seconds": 18.59329400002025,
+      "exit_code": 0,
+      "id": "npm_verify",
+      "passed": true,
+      "stderr_sha256": "ccb6bf354a0674eeb1e49df9a880a000b75240079fdb849282bb899d81eeb58c",
+      "stdout_sha256": "4cfe7c7a55d59f03684b5b93307350c3b00c973e22f5b1b0dfbe81fe04556ba1"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:migrate"
+      ],
+      "elapsed_seconds": 0.34222250001039356,
+      "exit_code": 0,
+      "id": "migration_first",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "5c792cee9fdbfc46f4c340c6d6a6a8d0254574f45c7bcc5dea4ce6d6b44fe2dd"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:migrate"
+      ],
+      "elapsed_seconds": 0.31696766696404666,
+      "exit_code": 0,
+      "id": "migration_second",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e2008c0c5542a448adf75ec8d769084baeed81f38ddf0851d3eb1036f477ae79"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:rollback"
+      ],
+      "elapsed_seconds": 0.31227724999189377,
+      "exit_code": 0,
+      "id": "migration_rollback",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "52930346cfc1ae31b48857d31b19ee4131d17050b696df87c81a30ecfdbeb46b"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:migrate"
+      ],
+      "elapsed_seconds": 0.3179606660269201,
+      "exit_code": 0,
+      "id": "migration_reapply",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "5c792cee9fdbfc46f4c340c6d6a6a8d0254574f45c7bcc5dea4ce6d6b44fe2dd"
+    }
+  ],
+  "completed_at": "2026-07-26T04:39:37.850418+00:00",
+  "contract_sha256": "b1ff7fd969075671ab59ffea65757a1fbcc825217fc456d002dd206cc7154fd6",
+  "elapsed_seconds": 346.280099042051,
+  "failure": null,
+  "functional_passed": true,
+  "output_digests": {
+    "application.sqlite3": "7b30ceca18055bcc43e3b62edd955ef14fce69f16000e6912d957e12507623c5",
+    "application.sqlite3-shm": "105b89a9f7e8ae6598c4408e73e95ab215c18cf9813d208a3ea7232a7a9c627a",
+    "application.sqlite3-wal": "f6f412b09a19b462af1d9143f4fdebc756a67f337fc55670441f2148b2330cdb",
+    "fresh-clone/.gitignore": "74422311563380778cb4a72a1122292d3759c2aeceb9773394b3a547f9569f8a",
+    "fresh-clone/.visionmcp/attempt-008.json": "a5b709a1fe226ff2086a08faef81c54fbf45f73a36d45aa1de8afbf78f51a04e",
+    "fresh-clone/.visionmcp/nocturne-build.receipt.json": "6c1f361fff01645d0c64f416bed7133b946515042fd946e6003fddf07f57c7f8",
+    "fresh-clone/3d/build_candidate.py": "2e4d32f6389538a72e7ca7e8294c25f707485c1db74d64e1ec9ed0c1e1f6ac40",
+    "fresh-clone/3d/nocturne-one.blend": "d8e6d80cb4acc0e8137f0282b438866917967b02f035e7fd35d3706fe3c41845",
+    "fresh-clone/3d/nocturne-one.blend1": "566c7b478d68b5be6fa51ad8990fcb2c77f328eff6d599c944fd091e0faccb8f",
+    "fresh-clone/README.md": "5808915824f7ea63c6cb8b7c8b48b59bcc497d392d4b907d96a3cc0cd853b7b7",
+    "fresh-clone/dist/assets/app-C7dgsRoq.js": "26da5bb372813208b0fc113404f0fb3c215dd4bcc672a4c44be6a588af6c1bb9",
+    "fresh-clone/dist/assets/nocturne-one-hero.glb": "dca55cd5fee2c74b984f2b9629903973b61ea259ee1c930e53edc12dc5c5d6f6",
+    "fresh-clone/dist/assets/nocturne-one-low.glb": "3bba664adb6a54312ea4104a296b89902551868040b6bbe117417bcd4eeb578e",
+    "fresh-clone/dist/assets/nocturne-one-poster.webp": "f334967bd7dd371e17a30b8b0fae756f4d710ddfa077f383f34d9b3bcb9784d9",
+    "fresh-clone/dist/assets/scene-DpADeD2B.js": "8ebbf4d85eafa2c1fca424c1ce7aed17ac6f097a0de4cb829fcde7f521c51bc8",
+    "fresh-clone/dist/assets/style-DR42oFtu.css": "820e7a2a91148b0a1224a0a8201c6a9bc3e90a3d298a7192353f4127defc3581",
+    "fresh-clone/dist/index.html": "a0d1e39fb2658160f351935edc68bfaebfdb6e81c9c7980546b46633156c3306",
+    "fresh-clone/failed-attempts/attempt-001.json": "8a260623325639470c6bc34daa3812565ac14275e05a2f8fb4e1b0602463a063",
+    "fresh-clone/failed-attempts/attempt-002.json": "ff66afdb92590817bba1ed8a71f52f58209dc8225a9711365425cf137aa9d52a",
+    "fresh-clone/failed-attempts/attempt-003.json": "a91594b9b10a58010896c56992f450f63a0710406b1ba91de204160af56fafac",
+    "fresh-clone/failed-attempts/attempt-004.json": "a55eac5ea563fd51d0d79a132c2fc8029f63168832f46bc1ef852f19ce95db61",
+    "fresh-clone/failed-attempts/attempt-005.json": "e4aa3db03abc2885b88706a748b076d2a6740a6835b6a5e0ee81aad05e87a276",
+    "fresh-clone/failed-attempts/attempt-006.json": "a5384885a73b93465c334eb74bc93e2a1a9bee1ca898f3720aa892d632f601ed",
+    "fresh-clone/failed-attempts/attempt-007-builder-accepted.json": "ef756e0706bb7c214934ce8e324f61e84b5d0f6f6077d9e5a4c4a5a3a5ca24a6",
+    "fresh-clone/failed-attempts/attempt-007.json": "0f44c48964fffe688b8ccacc72483589cf575aa605fe235dbf394052109538a3",
+    "fresh-clone/index.html": "b65a7d447ab7dc8aa31865bcd5bb9239dd0706d8b949fd894460a8a147721ae9",
+    "fresh-clone/migrations/001_initial_down.sql": "39140170afe8618ed75835d69a7bf85addb839313c0a48e0711d32e9cf232e3e",
+    "fresh-clone/migrations/001_initial_up.sql": "5f02b66a293b0df0b49aa97c5cf45a8b667fdf170fee5b16fed3d8631bf48499",
+    "fresh-clone/package-lock.json": "1cd71848e273ce65ca0597387fb66f68db86df4baa71ed019c58afb35384e4c7",
+    "fresh-clone/package.json": "0a622fb5c604f7bc2b92a4178446eabaa82d2ecd0bec893edc9e1feb270da2ea",
+    "fresh-clone/public/assets/nocturne-one-hero.glb": "dca55cd5fee2c74b984f2b9629903973b61ea259ee1c930e53edc12dc5c5d6f6",
+    "fresh-clone/public/assets/nocturne-one-low.glb": "3bba664adb6a54312ea4104a296b89902551868040b6bbe117417bcd4eeb578e",
+    "fresh-clone/public/assets/nocturne-one-poster.webp": "f334967bd7dd371e17a30b8b0fae756f4d710ddfa077f383f34d9b3bcb9784d9",
+    "fresh-clone/scripts/migrate.ts": "24ae3192aa778d10e53b3bf5a1c81ea6e0f6e5442ec55e038dd181a375547598",
+    "fresh-clone/scripts/verify-3d.mjs": "66155288495cf135ae83f12b3392ace718a9b4a469e6a9840fd0b5642dbcf880",
+    "fresh-clone/src/client/main.ts": "c9354467af34096ff499ff0b73c52d916ce01fa64684cf693f2e987c16dd83ea",
+    "fresh-clone/src/client/renderer.ts": "08e2e4631639109dcf12b3e32fd85f87f62c8ff1ff6bd1805365b2fa1e3c64af",
+    "fresh-clone/src/client/styles.css": "50d0d4be8f489d898b3ecbf977531e37ad4131919791ee75e56ae6c64e4c492e",
+    "fresh-clone/src/server/app.ts": "5be1fdbe08f4db49bccee0d6670c90ba74962c9d9223f3589b184f66266859f2",
+    "fresh-clone/src/server/database.ts": "8d009be5a52de134009a89cc55f8d65fbd814127c0571d3eaa79ac91e8db1ee6",
+    "fresh-clone/src/server/index.ts": "1837f964e0492cc3f65f9890c58551f2eaefe20d4b3fb8233e8ee4229dd3274e",
+    "fresh-clone/src/shared/config.ts": "85f088575e5f87af0e0eed29d440082f76b69f13b4b7959820a0dcd3625cf885",
+    "fresh-clone/tests/api.test.ts": "e5439fc1fe787932f07967d6f637f7e09920586a7870d79eba7f791fef01c821",
+    "fresh-clone/tests/blender_scene_check.py": "1efe95c6b165ee78b253218a60c1df09c022a18fe8702b97bfe48a17d4fbc083",
+    "fresh-clone/tests/browser.test.ts": "97c15b4e17b0b76a2d73e1e542a13375290205a7a0da9c1fd13e91b3c3d3f915",
+    "fresh-clone/tests/unit.test.ts": "2e5508804e4ae0f43137a60756b200272d4fa10e1227d4859e89324476efa2d9",
+    "fresh-clone/tsconfig.json": "86e8026bf0a3fd6b365da66509c9ff053e743ac9b295458b56b28bebb4661b52",
+    "fresh-clone/vite.config.ts": "f865dc66441c712750122a5a0e58c4cd8cfeb3ef880221f790352310250e57ae",
+    "migration_first.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "migration_first.stdout.log": "5c792cee9fdbfc46f4c340c6d6a6a8d0254574f45c7bcc5dea4ce6d6b44fe2dd",
+    "migration_reapply.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "migration_reapply.stdout.log": "5c792cee9fdbfc46f4c340c6d6a6a8d0254574f45c7bcc5dea4ce6d6b44fe2dd",
+    "migration_rollback.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "migration_rollback.stdout.log": "52930346cfc1ae31b48857d31b19ee4131d17050b696df87c81a30ecfdbeb46b",
+    "migration_second.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "migration_second.stdout.log": "e2008c0c5542a448adf75ec8d769084baeed81f38ddf0851d3eb1036f477ae79",
+    "npm_ci.stderr.log": "817732f4e9d3fb3a07b0c11a68d4cc6dc654b74cb487e0f6fdddec42b0d2f3ca",
+    "npm_ci.stdout.log": "593532b763c0fe210541d22d353f1676293305fb2ab0c9a73d1c03fcb448088b",
+    "npm_verify.stderr.log": "ccb6bf354a0674eeb1e49df9a880a000b75240079fdb849282bb899d81eeb58c",
+    "npm_verify.stdout.log": "4cfe7c7a55d59f03684b5b93307350c3b00c973e22f5b1b0dfbe81fe04556ba1",
+    "screenshots/configurator.png": "b026dbbf530a8a2bdeff711d87acf815487b64a7fecd4be277046624de5ed7ac",
+    "screenshots/home.png": "27e79a1a16638aba623116ee8bfb1568baddd11a257f4fc0305898267677c236",
+    "screenshots/receipt.png": "2984093384c87c9cb442dc67ba842833a8f3597f4fac9571dfab5747a1af3e22",
+    "screenshots/reserve.png": "2a7921e9ccf3a15236c59cfd5b75abadca7294255fe813ac57d5f3b2b62750fd",
+    "screenshots/technology.png": "7460325d7863f687544424b458eb040d711469041dd165e15c07eeae16c153fa",
+    "server.stderr.log": "ccb6bf354a0674eeb1e49df9a880a000b75240079fdb849282bb899d81eeb58c",
+    "server.stdout.log": "39316544d32a8f688395382d9c1ba1098f50551271679475121ee636dba8ce79"
+  },
+  "packet_manifest_sha256": "434a699dfd95e379c7c56d020fc5b0137f099c8c172ecb9690063df13b71d079",
+  "performance": {
+    "critical_html_css_transfer_bytes": 0,
+    "cumulative_layout_shift": 0.0,
+    "desktop_frame_p95_ms": 0.7999999523162842,
+    "desktop_frame_sample_count": 120,
+    "desktop_median_fps": 2500.000149011621,
+    "hero_glb_bytes": 393040,
+    "initial_javascript_transfer_bytes": 145758,
+    "memory_duration_seconds": 300,
+    "memory_growth_bytes": 0,
+    "memory_samples_bytes": [
+      9146979,
+      6546531,
+      6451655,
+      6563683,
+      6563063,
+      6463511,
+      6463543,
+      6466187,
+      6586703,
+      6586395,
+      6488747,
+      6488735,
+      6488747,
+      6586463,
+      6488747,
+      6488735,
+      6488747,
+      6586715,
+      6490955,
+      6490827,
+      6593319,
+      6593323,
+      6523703,
+      6523703,
+      6523703,
+      6526855,
+      6537703,
+      6615091,
+      6527191,
+      6527203,
+      6615103,
+      6527191,
+      6615631,
+      6615655,
+      6527755,
+      6527755,
+      6527743,
+      6527743,
+      6615643,
+      6616591,
+      6528691,
+      6621447,
+      6528691,
+      6528691,
+      6528691,
+      6616603,
+      6616879,
+      6528691,
+      6528703,
+      6616715,
+      6528815,
+      6616715,
+      6528827,
+      6528815,
+      6616715,
+      6616715,
+      6616979,
+      6617003,
+      6616727,
+      6528827
+    ],
+    "mobile_frame_p95_ms": 0.699999988079071,
+    "mobile_frame_sample_count": 120,
+    "mobile_lod_glb_bytes": 201484,
+    "mobile_median_fps": 2500.000149011621,
+    "resource_entries": [
+      {
+        "encodedBodySize": 0,
+        "initiatorType": "link",
+        "name": "/assets/style-DR42oFtu.css",
+        "transferSize": 300
+      },
+      {
+        "encodedBodySize": 0,
+        "initiatorType": "script",
+        "name": "/assets/app-C7dgsRoq.js",
+        "transferSize": 300
+      },
+      {
+        "encodedBodySize": 0,
+        "initiatorType": "img",
+        "name": "/assets/nocturne-one-poster.webp",
+        "transferSize": 300
+      },
+      {
+        "encodedBodySize": 567,
+        "initiatorType": "other",
+        "name": "/favicon.ico",
+        "transferSize": 300
+      },
+      {
+        "encodedBodySize": 145158,
+        "initiatorType": "script",
+        "name": "/assets/scene-DpADeD2B.js",
+        "transferSize": 145458
+      },
+      {
+        "encodedBodySize": 198352,
+        "initiatorType": "fetch",
+        "name": "/assets/nocturne-one-hero.glb",
+        "transferSize": 198652
+      }
+    ]
+  },
+  "runtime": {
+    "health": {
+      "database": "migrated",
+      "ok": true,
+      "product": "NOCTURNE/ONE"
+    },
+    "host": "macOS-27.0-arm64-arm-64bit",
+    "origin": "http://127.0.0.1:59369",
+    "server_process_id": 77894
+  },
+  "schema_version": "1",
+  "sealed_builder_receipt_sha256": "8e95cd6b2e6655372c874398fbb3200a7d963b1af9460e3db19fe5bdee19b4a6",
+  "source_git_head": "3f56653cb208f930cbf4d677dc20a65fc15a9605",
+  "started_at": "2026-07-26T04:33:51.569348+00:00",
+  "status": "PASS",
+  "workspace": "/private/tmp/nocturne-one-repaired-app-eval-3f56653"
+}
