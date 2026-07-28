@@ -348,12 +348,21 @@
     },
     {
       "name": "MERC_CANARY_SCENARIO_DRIVER",
-      "accepted_form": "absolute path on the staging host to the project-controlled executable implementing the documented strict JSON scenario protocol",
-      "minimum_scope": "exercise only synthetic approved participants and Stripe test-mode fixtures",
+      "accepted_form": "physical canonical absolute path on the staging host to a non-symlink, non-group/world-writable project-controlled executable in a non-group/world-writable directory, implementing the documented schema-v2 exact-run JSON protocol",
+      "minimum_scope": "exercise only synthetic approved participants and Stripe test-mode fixtures; bind the exported run/candidate/image/driver digest and emit only the closed observation sources that Merc independently corroborates",
       "secret": false,
       "used_by": "counted canary workload, backup/restore, Stripe, alert, and invariant rehearsals",
       "verification": "scripts/go-closure-canary-rehearsal.sh --target ssh --check",
       "unblocks": ["canary_rehearsal", "stripe_matrix", "independent_restore", "real_alert_receiver"]
+    },
+    {
+      "name": "MERC_CANARY_APPROVED_DRIVER_SHA256",
+      "accepted_form": "64 lowercase hex SHA-256 independently calculated from the reviewed MERC_CANARY_SCENARIO_DRIVER bytes before staging execution",
+      "minimum_scope": "freeze the exact reviewed adapter implementation allowed to emit scenario observations",
+      "secret": false,
+      "used_by": "private-canary scenario-driver admission and final receipt binding",
+      "verification": "scripts/go-closure-canary-rehearsal.sh --target ssh --check",
+      "unblocks": ["canary_rehearsal"]
     },
     {
       "name": "MERC_AGENT_RESTART_DRIVER",

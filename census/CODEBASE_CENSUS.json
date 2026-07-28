@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "03a74b207517f5efa11c122c1b45551f676305da0b3c05442ac03d16fa805777",
+  "authority_sha256": "9009085308c66a2b0401a01c0bebe77953437a8ca22fda07d31cf27d58954044",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -22,7 +22,7 @@
     "Dockerfile.control": 31,
     "EXECUTION_NETWORK_BIBLE.md": 23,
     "LICENSE": 47,
-    "Makefile": 252,
+    "Makefile": 254,
     "NOTICE": 66,
     "README.md": 119,
     "RELEASE_GATES.md": 19,
@@ -59,7 +59,7 @@
     "bench/immutable/shared-prefix-v2.sha256": 1,
     "benchmarks/realtime-chat-v1.json": 11,
     "census/.gitignore": 4,
-    "census/CODEBASE_CENSUS.json": 794,
+    "census/CODEBASE_CENSUS.json": 797,
     "census/CODEBASE_CENSUS.md": 47,
     "cli/LICENSE": 202,
     "cli/README.md": 13,
@@ -303,7 +303,7 @@
     "docs/RUNBOOKS.md": 205,
     "docs/RUNTIME_MATRIX.md": 17,
     "docs/SECURITY.md": 99,
-    "docs/SHIPPABILITY_STATUS.md": 292,
+    "docs/SHIPPABILITY_STATUS.md": 303,
     "docs/SPEED_LANE_2026-07-27.md": 97,
     "docs/STRIPE_CONNECT.md": 142,
     "docs/STRIPE_SANDBOX_SETUP.md": 80,
@@ -379,7 +379,7 @@
     "ops/asset-provenance.json": 56,
     "ops/authorization-matrix.json": 207,
     "ops/economics-readiness.json": 179,
-    "ops/go-closure-inputs.json": 404,
+    "ops/go-closure-inputs.json": 413,
     "ops/go-no-go.json": 73,
     "ops/governance-approval-bundle.schema.json": 65,
     "ops/governance-review-packets.json": 83,
@@ -392,9 +392,9 @@
     "ops/rename-residue.json": 47,
     "ops/repo-boundary.json": 10,
     "ops/rust-paste-audit.json": 36,
-    "ops/staging/README.md": 135,
+    "ops/staging/README.md": 176,
     "ops/staging/compose.go-closure.yml": 293,
-    "ops/staging/env.go-closure.example": 63,
+    "ops/staging/env.go-closure.example": 66,
     "ops/stripe-secret-exposure.json": 1,
     "ops/stripe-secret-exposure.ug0K1S": 0,
     "ops/support-incident-tabletop.json": 99,
@@ -426,7 +426,7 @@
     "scripts/droplet-deploy.sh": 382,
     "scripts/droplet-env-cutover.sh": 124,
     "scripts/gateway-parity.py": 644,
-    "scripts/go-closure-canary-rehearsal.sh": 185,
+    "scripts/go-closure-canary-rehearsal.sh": 468,
     "scripts/go-closure-deploy.sh": 117,
     "scripts/go-closure-restart-storm.sh": 169,
     "scripts/go-closure-rollback-rehearsal.sh": 136,
@@ -434,7 +434,7 @@
     "scripts/install.sh": 232,
     "scripts/lib/cloudflare-auth.sh": 57,
     "scripts/lib/compose-prod.sh": 38,
-    "scripts/lib/go-closure-common.sh": 447,
+    "scripts/lib/go-closure-common.sh": 448,
     "scripts/lib/stripe-sandbox-contract.sh": 70,
     "scripts/local-independent-restore.sh": 174,
     "scripts/local-production-rehearsal.sh": 340,
@@ -479,15 +479,18 @@
     "scripts/test-backup-envelope.sh": 33,
     "scripts/test-backup-schedule.sh": 52,
     "scripts/test-bench-accounting.py": 147,
+    "scripts/test-canary-database-corroboration.sh": 198,
     "scripts/test-canary-gaming.sh": 131,
+    "scripts/test-canary-scenario-receipt.sh": 124,
     "scripts/test-readiness-gaming.sh": 74,
     "scripts/test-stripe-sandbox-contract.sh": 139,
     "scripts/test-supplier-console.mjs": 123,
     "scripts/test-technical-exercises-fail-closed.sh": 54,
     "scripts/uninstall.sh": 42,
     "scripts/validate-authorization-matrix.py": 70,
+    "scripts/validate-canary-scenario-receipt.py": 303,
     "scripts/validate-claim-surfaces.py": 148,
-    "scripts/validate-go-closure-scaffold.sh": 150,
+    "scripts/validate-go-closure-scaffold.sh": 166,
     "scripts/validate-governance.py": 240,
     "scripts/validate-independent-reviews.py": 184,
     "scripts/validate-license-register.py": 118,
@@ -542,19 +545,19 @@
     },
     "config": {
       "files": 7,
-      "loc": 572,
-      "code": 366,
+      "loc": 574,
+      "code": 368,
       "blank": 98,
       "comment": 108,
-      "bytes": 20409
+      "bytes": 20507
     },
     "documentation": {
       "files": 44,
-      "loc": 4504,
-      "code": 3521,
-      "blank": 983,
+      "loc": 4556,
+      "code": 3571,
+      "blank": 985,
       "comment": 0,
-      "bytes": 237490
+      "bytes": 240509
     },
     "go": {
       "files": 208,
@@ -574,11 +577,11 @@
     },
     "json": {
       "files": 79,
-      "loc": 7423,
-      "code": 7423,
+      "loc": 7435,
+      "code": 7435,
       "blank": 0,
       "comment": 0,
-      "bytes": 332305
+      "bytes": 333466
     },
     "lockfile": {
       "files": 2,
@@ -590,19 +593,19 @@
     },
     "other": {
       "files": 19,
-      "loc": 1332,
-      "code": 1142,
+      "loc": 1335,
+      "code": 1145,
       "blank": 190,
       "comment": 0,
-      "bytes": 68583
+      "bytes": 68826
     },
     "python": {
-      "files": 29,
-      "loc": 5894,
-      "code": 4858,
-      "blank": 763,
-      "comment": 273,
-      "bytes": 242543
+      "files": 30,
+      "loc": 6197,
+      "code": 5130,
+      "blank": 791,
+      "comment": 276,
+      "bytes": 255288
     },
     "rust": {
       "files": 16,
@@ -613,12 +616,12 @@
       "bytes": 341943
     },
     "shell": {
-      "files": 59,
-      "loc": 9386,
-      "code": 7866,
-      "blank": 831,
-      "comment": 689,
-      "bytes": 420259
+      "files": 61,
+      "loc": 10008,
+      "code": 8450,
+      "blank": 859,
+      "comment": 699,
+      "bytes": 449974
     },
     "sql": {
       "files": 1,
@@ -696,11 +699,11 @@
     },
     "documentation": {
       "files": 33,
-      "loc": 3745,
-      "code": 2909,
-      "blank": 836,
+      "loc": 3756,
+      "code": 2919,
+      "blank": 837,
       "comment": 0,
-      "bytes": 606565
+      "bytes": 607325
     },
     "interface": {
       "files": 29,
@@ -712,11 +715,11 @@
     },
     "ops": {
       "files": 117,
-      "loc": 10712,
-      "code": 10136,
-      "blank": 414,
+      "loc": 10770,
+      "code": 10193,
+      "blank": 415,
       "comment": 162,
-      "bytes": 470791
+      "bytes": 474552
     },
     "payment": {
       "files": 38,
@@ -727,12 +730,12 @@
       "bytes": 398058
     },
     "proof": {
-      "files": 102,
-      "loc": 17537,
-      "code": 14768,
-      "blank": 1704,
-      "comment": 1065,
-      "bytes": 734620
+      "files": 105,
+      "loc": 18462,
+      "code": 15624,
+      "blank": 1760,
+      "comment": 1078,
+      "bytes": 777080
     },
     "sdk": {
       "files": 10,
@@ -760,12 +763,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 111671,
-    "non_design_production_core_loc": 81704,
+    "global_owned_loc": 112665,
+    "non_design_production_core_loc": 82643,
     "test_loc": 18838,
-    "documentation_loc": 4504,
-    "python_loc": 5894,
-    "generated_loc": 5074,
+    "documentation_loc": 4556,
+    "python_loc": 6197,
+    "generated_loc": 5077,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -787,8 +790,8 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 9175540,
-  "tracked_files": 523,
+  "tracked_bytes": 9222521,
+  "tracked_files": 526,
   "untracked_files": 0,
-  "walked_files": 523
+  "walked_files": 526
 }
