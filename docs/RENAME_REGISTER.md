@@ -19,6 +19,7 @@ hash input). Every FREEZE below was confirmed against the file it names.
 | Go module | `computeexchange/control` → `merc/control` |
 | Website copy | titles, og:title, wordmark, footer, claims-ledger label, `site.webmanifest`, and the `site-build.mjs` brand assertion |
 | Model owner | `control/api.go` `OwnedBy` |
+| GitHub repository | Renamed to `joshuahickscorp/merc`. Old URLs redirect. Local `origin` re-pointed, and the repo URL updated in `.github/ISSUE_TEMPLATE/config.yml`, `Dockerfile.control` `image.source`, `scripts/install.sh` `MERC_AGENT_REPO` default, `scripts/release-doctor.sh`, `sdk/typescript/package.json`, `web/.well-known/security.txt`, `web/buyer.html`, `web/index.html`. `publish-candidate.yml` derives the cosign `--certificate-identity` from `$GITHUB_REPOSITORY`, so signing follows the rename with no edit; the recorded `certificate_identity` values under `evidence/` keep the old URL because they record what was actually verified. |
 
 `make ci` exits 0 after each step.
 
@@ -29,7 +30,6 @@ still looks plausible.
 
 | Item | External prerequisite |
 |---|---|
-| `github.com/joshuahickscorp/computexchange` (in `web/index.html`, `web/buyer.html`, `Dockerfile.control`) | Rename the GitHub repository. GitHub redirects old URLs, so this is low-risk once done. |
 | `ghcr.io/…/computexchange-control`, `computexchange/control` image tags | Rename/republish the registry package. **Recorded digests in `evidence/` must not follow** — see §3. |
 | `CX_*` environment variables (~180 names) | The droplet `.env`, GitHub Actions secrets, and systemd units supply the values. Rename code and environment in the same cutover. **`CX_TOKEN_KEY` must be copied byte-identically** — `control/crypto.go` derives the AES key as `sha256(value)`, so regenerating it makes every sealed OAuth token and webhook secret in Postgres permanently undecryptable. |
 | `CX_ENV` specifically | `control/main.go` gates the production hardening refusal on `EqualFold(cxEnv, "production")`. If the binary reads `MERC_ENV` while the droplet still sets `CX_ENV`, the value resolves empty, the refusal is skipped, and control boots with a warning while writing `plain:`-prefixed secrets. |

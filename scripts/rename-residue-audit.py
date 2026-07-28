@@ -110,7 +110,9 @@ BLOCKED_TOKENS = {
     "cx-jobs": "object storage bucket name in a running deployment",
 }
 BLOCKED_SUBSTRINGS = {
-    "github.com/joshuahickscorp/computexchange": "rename the GitHub repository first",
+    # The GitHub repository is now joshuahickscorp/merc, so the old URL is no
+    # longer blocked and no longer excused: any reappearance outside a recorded
+    # receipt is residue and fails this script.
     "ghcr.io": "rename/republish the registry package first",
     "computexchange-control": "Prometheus job label fingerprinted by Alertmanager",
     "ComputeExchange": "alert names ship in the label set Alertmanager fingerprints",

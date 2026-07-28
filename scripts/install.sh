@@ -52,7 +52,7 @@ case "${OS}/${ARCH}" in
     ;;
 esac
 
-REPO="${MERC_AGENT_REPO:-joshuahickscorp/computexchange}"
+REPO="${MERC_AGENT_REPO:-joshuahickscorp/merc}"
 DEFAULT_BASE="https://github.com/${REPO}/releases/latest/download"
 BASE_URL="${MERC_AGENT_BASE_URL:-$DEFAULT_BASE}"
 VERSION="${MERC_AGENT_VERSION:-}"
@@ -63,6 +63,45 @@ checksum() {
   else
     shasum -a 256 "$1" | awk '{print $1}'
   fi
+}
+
+# The workflow allowed to publish supplier agents. cosign keyless verification
+# without one of these is not "verify the publisher signed it", it is "verify
+# somebody signed it" -- and cosign v2 refuses the call outright rather than
+# doing the weaker thing, so an unpinned invocation aborts every install that
+# has cosign on PATH.
+IDENTITY_REGEXP="${MERC_AGENT_IDENTITY_REGEXP:-^https://github\.com/${REPO}/\.github/workflows/agent-release\.yml@refs/(tags/agent-v.*|heads/main)$}"
+OIDC_ISSUER="${MERC_AGENT_OIDC_ISSUER:-https://token.actions.githubusercontent.com}"
+
+verify_signature() {
+  local file="$1" url="$2" work="$3" label="$4" bundle="$3/${4}.cosign.bundle"
+
+  if ! command -v cosign >/dev/null 2>&1; then
+    # A digest list fetched from the same host as the archive authenticates
+    # nothing on its own, so this is a real reduction in assurance and the
+    # operator has to opt into it rather than get it by default.
+    if [[ "${MERC_AGENT_ALLOW_UNVERIFIED:-0}" == "1" ]]; then
+      warn "cosign not installed; $label verified by digest only (MERC_AGENT_ALLOW_UNVERIFIED=1)"
+      return 0
+    fi
+    die "cosign is required to verify $label. Install cosign (https://docs.sigstore.dev/cosign/installation/), or set MERC_AGENT_ALLOW_UNVERIFIED=1 to accept digest-only verification."
+  fi
+
+  if ! curl -fsSL "${url}.cosign.bundle" -o "$bundle" 2>/dev/null; then
+    if [[ "${MERC_AGENT_ALLOW_UNVERIFIED:-0}" == "1" ]]; then
+      warn "no signature published for $label (MERC_AGENT_ALLOW_UNVERIFIED=1)"
+      return 0
+    fi
+    die "no cosign bundle published at ${url}.cosign.bundle for $label. Set MERC_AGENT_ALLOW_UNVERIFIED=1 to install without a signature."
+  fi
+
+  cosign verify-blob \
+    --bundle "$bundle" \
+    --certificate-identity-regexp "$IDENTITY_REGEXP" \
+    --certificate-oidc-issuer "$OIDC_ISSUER" \
+    "$file" >/dev/null 2>&1 \
+    || die "cosign could not verify $label against $IDENTITY_REGEXP (issuer $OIDC_ISSUER)"
+  say "cosign verified $label"
 }
 
 fetch_prebuilt() {
@@ -113,18 +152,14 @@ fetch_prebuilt() {
   actual="$(checksum "$work/$name")"
   [[ "$actual" == "$expected" ]] || die "checksum mismatch for $name (got $actual want $expected)"
 
-  if command -v cosign >/dev/null 2>&1; then
-    local bundle_url="$archive_url.cosign.bundle"
-    if curl -fsSL "$bundle_url" -o "$work/${name}.cosign.bundle" 2>/dev/null; then
-      cosign verify-blob --bundle "$work/${name}.cosign.bundle" "$work/$name" \
-        || die "cosign verify-blob failed for $name"
-      say "cosign signature verified"
-    else
-      warn "cosign present but bundle not found at $bundle_url; relying on SHA256 only"
-    fi
-  else
-    warn "cosign not installed; verified SHA256 only"
-  fi
+  # SHA256SUMS comes from the same host as the archive, so a matching digest
+  # proves only that whoever served one served the other. Publisher identity
+  # comes from the signature, and only if the certificate is pinned to the
+  # workflow that is allowed to publish: cosign in keyless mode will otherwise
+  # accept any Fulcio certificate. Verify the digest list itself, since that is
+  # what every archive digest is checked against.
+  verify_signature "$work/SHA256SUMS" "$sums_url" "$work" "SHA256SUMS"
+  verify_signature "$work/$name" "$archive_url" "$work" "$name"
 
   tar -C "$work" -xzf "$work/$name"
   local extracted

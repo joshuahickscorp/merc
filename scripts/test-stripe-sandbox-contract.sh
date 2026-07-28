@@ -7,6 +7,12 @@ source "$ROOT/scripts/lib/stripe-sandbox-contract.sh"
 
 die() { printf 'test-stripe-sandbox-contract: FAIL %s\n' "$*" >&2; exit 1; }
 
+# ripgrep is a hard dependency of the assertions below. Without this guard a
+# missing rg makes every `rg -q ... || die` report the *opposite* of what the
+# file says, which is how a correctly CAD-bound compose file was reported as
+# unbound.
+command -v rg >/dev/null 2>&1 || die "ripgrep (rg) is required by this contract test"
+
 [ "$MERC_STRIPE_API_VERSION" = "2025-06-30.basil" ] \
   || die "unexpected Stripe API version"
 [ "$MERC_STRIPE_CANDIDATE_CURRENCY" = "cad" ] \
