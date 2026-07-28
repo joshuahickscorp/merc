@@ -22,7 +22,11 @@ umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck disable=SC1091
 [ -f "$ROOT/.merc-secrets.env" ] && { set -a; . "$ROOT/.merc-secrets.env"; set +a; }
-: "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN required (run scripts/merc-secrets.sh)}"
+# shellcheck source=scripts/lib/cloudflare-auth.sh
+. "$ROOT/scripts/lib/cloudflare-auth.sh"
+cf_auth_config >/dev/null 2>&1 \
+  || { echo "no Cloudflare credential: set CLOUDFLARE_API_TOKEN, or CLOUDFLARE_EMAIL +" >&2
+       echo "CLOUDFLARE_GLOBAL_API_KEY. Run scripts/merc-secrets.sh." >&2; exit 1; }
 
 # Zones this script will never delete, whatever is typed. mercmerc.net is the
 # live production site; deleting its zone takes merc off the internet.
@@ -33,12 +37,7 @@ say() { printf '%s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 # Token goes via --config on stdin: never argv, never a log.
-cf() {
-  local method="$1" path="$2"
-  printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" \
-    | curl -sS --config - -H 'content-type: application/json' --max-time 40 \
-        -X "$method" "https://api.cloudflare.com/client/v4$path"
-}
+cf() { cf_request "$1" "$2" "${3:-}"; }
 
 zone_id_for() {
   cf GET "/zones?name=$1" | python3 -c '

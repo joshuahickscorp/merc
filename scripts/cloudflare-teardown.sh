@@ -20,7 +20,11 @@ umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck disable=SC1091
 [ -f "$ROOT/.merc-secrets.env" ] && { set -a; . "$ROOT/.merc-secrets.env"; set +a; }
-: "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN required (run scripts/merc-secrets.sh)}"
+# shellcheck source=scripts/lib/cloudflare-auth.sh
+. "$ROOT/scripts/lib/cloudflare-auth.sh"
+cf_auth_config >/dev/null 2>&1 \
+  || { echo "no Cloudflare credential: set CLOUDFLARE_API_TOKEN, or CLOUDFLARE_EMAIL +" >&2
+       echo "CLOUDFLARE_GLOBAL_API_KEY. Run scripts/merc-secrets.sh." >&2; exit 1; }
 
 # Everything else is a candidate. Keep this list short and explicit.
 KEEP_ZONES="mercmerc.net mercmerc.app kilongozilaw.ca"
@@ -35,12 +39,7 @@ warn() { printf '  \033[33m%s\033[0m\n' "$*"; }
 bad()  { printf '  \033[31m%s\033[0m\n' "$*"; }
 die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
-cf() {
-  local method="$1" path="$2"
-  printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" \
-    | curl -sS --config - -H 'content-type: application/json' --max-time 45 \
-        -X "$method" "https://api.cloudflare.com/client/v4$path"
-}
+cf() { cf_request "$1" "$2" "${3:-}"; }
 
 kept() { case " $KEEP_ZONES " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
