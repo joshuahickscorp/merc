@@ -304,12 +304,15 @@ func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 		!s.requireOperationalControlActive(w, r, controlPayments) {
 		return
 	}
+	if _, err := authorizePaymentOperation(
+		paymentOperationWebhook, 0, "", stripeKey(),
+	); err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "connect webhook authority is unavailable")
+		return
+	}
 	secret := os.Getenv("MERC_CONNECT_WEBHOOK_SECRET")
 	if secret == "" {
-		secret = os.Getenv("STRIPE_WEBHOOK_SECRET")
-	}
-	if secret == "" {
-		writeErr(w, http.StatusServiceUnavailable, "connect webhooks not configured (set MERC_CONNECT_WEBHOOK_SECRET or STRIPE_WEBHOOK_SECRET)")
+		writeErr(w, http.StatusServiceUnavailable, "connect webhooks not configured (set MERC_CONNECT_WEBHOOK_SECRET)")
 		return
 	}
 	payload, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))

@@ -106,22 +106,131 @@ case "${MERC_ENV:-}" in
   *) warn "MERC_ENV=${MERC_ENV}; production hardening is NOT active" ;;
 esac
 
-# ------------------------------------------------------------------- secrets
-[ -n "${STRIPE_SECRET_KEY:-}" ] || { bad "STRIPE_SECRET_KEY is unset"; FAILED=1; }
-case "${STRIPE_SECRET_KEY:-}" in
-  sk_live_*|rk_live_*) ok "Stripe key is live-mode, as production requires" ;;
-  sk_test_*|rk_test_*) bad "STRIPE_SECRET_KEY is a TEST key. Production takes real
-        money; a test key means every charge silently succeeds against nothing."
-        FAILED=1 ;;
-  "") ;;
-  *) bad "STRIPE_SECRET_KEY is not a recognisable Stripe secret key"; FAILED=1 ;;
+# ----------------------------------------------------------- payment authority
+payment_mode="${MERC_PAYMENT_MODE:-sealed}"
+case "$payment_mode" in
+  sealed)
+    forbidden=""
+    for name in STRIPE_SECRET_KEY STRIPE_SECRET_KEY_SOURCE STRIPE_SECRET_KEY_FILE \
+      STRIPE_SECRET_KEY_CONTAINER_FILE STRIPE_WEBHOOK_SECRET MERC_CONNECT_WEBHOOK_SECRET \
+      MERC_CONNECT_CLIENT_ID MERC_PAYOUT_EXPORT MERC_LIVE_PAYMENT_ACTIVATION_SOURCE \
+      MERC_LIVE_PAYMENT_ACTIVATION_SHA256 MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY \
+      MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_SOURCE \
+      MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_FILE \
+      MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_CONTAINER_FILE; do
+      [ -z "${!name:-}" ] || forbidden="$forbidden $name"
+    done
+    if [ -z "$forbidden" ]; then
+      ok "payment authority SEALED; no provider or value-movement credentials present"
+    else
+      bad "SEALED payment authority forbids:$forbidden"
+      FAILED=1
+    fi
+    ;;
+  test)
+    bad "production droplet deployment refuses TEST payment mode"
+    FAILED=1
+    ;;
+  live)
+    if [ -n "${STRIPE_SECRET_KEY:-}" ]; then
+      bad "LIVE mode forbids inline STRIPE_SECRET_KEY"
+      FAILED=1
+    fi
+    _stripe_secret_source="${STRIPE_SECRET_KEY_SOURCE:-}"
+    if [ "${_stripe_secret_source#/}" != "$_stripe_secret_source" ] \
+      && [ -f "$_stripe_secret_source" ]; then
+      _stripe_secret_mode="$(stat -c '%a' "$_stripe_secret_source")"
+      _stripe_secret="$(tr -d '\r\n' < "$_stripe_secret_source")"
+      if [ $(( 8#$_stripe_secret_mode & 027 )) -eq 0 ] \
+        && [[ "$_stripe_secret" == sk_live_* || "$_stripe_secret" == rk_live_* ]] \
+        && [ "${#_stripe_secret}" -le 16384 ]; then
+        ok "LIVE Stripe key file is bounded and permission-restricted"
+      else
+        bad "LIVE Stripe key file has invalid permissions, size, or credential class"
+        FAILED=1
+      fi
+    else
+      bad "LIVE mode requires an absolute STRIPE_SECRET_KEY_SOURCE file"
+      FAILED=1
+    fi
+    [ -n "${STRIPE_WEBHOOK_SECRET:-}" ] && [ -n "${MERC_CONNECT_WEBHOOK_SECRET:-}" ] \
+      && [ "$STRIPE_WEBHOOK_SECRET" != "$MERC_CONNECT_WEBHOOK_SECRET" ] \
+      && ok "billing and Connect webhook secrets are distinct" \
+      || { bad "LIVE mode requires distinct billing and Connect webhook secrets"; FAILED=1; }
+    case "${MERC_CONNECT_CLIENT_ID:-}" in
+      ca_*) ok "Stripe Connect client identifier shape accepted" ;;
+      *) bad "LIVE mode requires MERC_CONNECT_CLIENT_ID=ca_*"; FAILED=1 ;;
+    esac
+    _site_host="${SITE_HOST%.}"
+    _connect_origin="https://${_site_host}"
+    for _url_name in MERC_CONNECT_RETURN_URL MERC_CONNECT_REFRESH_URL; do
+      _connect_url="${!_url_name:-}"
+      case "$_connect_url" in
+        "$_connect_origin"|"$_connect_origin"/*)
+          ok "$_url_name uses the SITE_HOST HTTPS origin"
+          ;;
+        *)
+          bad "$_url_name must use the SITE_HOST HTTPS origin"
+          FAILED=1
+          ;;
+      esac
+    done
+    activation_source="${MERC_LIVE_PAYMENT_ACTIVATION_SOURCE:-}"
+    if command -v sha256sum >/dev/null && [ -f "$activation_source" ]; then
+      activation_digest="$(sha256sum "$activation_source" | awk '{print $1}')"
+      [ "$activation_digest" = "${MERC_LIVE_PAYMENT_ACTIVATION_SHA256:-}" ] \
+        && ok "live payment activation digest matches" \
+        || { bad "live payment activation digest does not match"; FAILED=1; }
+      candidate_commit="$(git -C "$ROOT" rev-parse HEAD)"
+      _settlement_currency="$(printf '%s' "${MERC_SETTLEMENT_CURRENCY:-}" | tr '[:upper:]' '[:lower:]')"
+      jq -e --arg commit "$candidate_commit" \
+        --arg currency "$_settlement_currency" \
+        '.schema_version == 1 and .activation.candidate_commit == $commit and
+         .activation.environment == "production" and
+         .activation.currency == $currency and
+         (.activation.external_aggregate_cap_ref | type == "string" and length > 0) and
+         (.activation.max_single_charge_minor | type == "number" and . > 0) and
+         (.activation.max_single_payout_minor | type == "number" and . > 0) and
+         (.activation.max_single_refund_minor | type == "number" and . > 0) and
+         (.activation.max_single_reversal_minor | type == "number" and . > 0) and
+         ([.activation.approvals[].role] | sort) == ["payments","release_manager","security"]' \
+        "$activation_source" >/dev/null \
+        && ok "live payment activation is candidate/currency/cap-bound and fully approved" \
+        || { bad "live payment activation candidate/currency/caps/approvals are invalid"; FAILED=1; }
+    else
+      bad "LIVE mode requires sha256sum and MERC_LIVE_PAYMENT_ACTIVATION_SOURCE"
+      FAILED=1
+    fi
+    if [ -n "${MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY:-}" ]; then
+      bad "LIVE mode forbids inline MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY"
+      FAILED=1
+    fi
+    _activation_key_source="${MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_SOURCE:-}"
+    if [ "${_activation_key_source#/}" != "$_activation_key_source" ] \
+      && [ -f "$_activation_key_source" ]; then
+      _activation_key_mode="$(stat -c '%a' "$_activation_key_source")"
+      if [ $(( 8#$_activation_key_mode & 027 )) -ne 0 ]; then
+        bad "live payment activation HMAC key file permissions are too broad"
+        FAILED=1
+      else
+        _activation_key="$(tr -d '\r\n' < "$_activation_key_source")"
+        if [ "${#_activation_key}" -ge 32 ] && [ "${#_activation_key}" -le 4096 ]; then
+          ok "live payment activation HMAC key file is bounded and permission-restricted"
+        else
+          bad "live payment activation HMAC key file must contain 32..4096 bytes"
+          FAILED=1
+        fi
+      fi
+    else
+      bad "LIVE mode requires an absolute MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_SOURCE file"
+      FAILED=1
+    fi
+    ;;
+  *)
+    bad "MERC_PAYMENT_MODE must be sealed, test, or live"
+    FAILED=1
+    ;;
 esac
-[ -n "${STRIPE_WEBHOOK_SECRET:-}" ] && [ -n "${MERC_CONNECT_WEBHOOK_SECRET:-}" ] \
-  && [ "$STRIPE_WEBHOOK_SECRET" != "$MERC_CONNECT_WEBHOOK_SECRET" ] \
-  && ok "billing and Connect webhook secrets are distinct" \
-  || { bad "STRIPE_WEBHOOK_SECRET and MERC_CONNECT_WEBHOOK_SECRET must both be set
-        and must differ; one endpoint's signature must not validate the other's"
-       FAILED=1; }
 
 alert_file="${MERC_ALERT_RECEIVER_URL_FILE:-${CX_ALERT_RECEIVER_URL_FILE:-}}"
 if [ -n "$alert_file" ] && [ -s "$alert_file" ]; then

@@ -598,7 +598,7 @@ func dispatchRelease(cmd string, args []string) bool {
 		return false
 	}
 	if len(args) == 0 {
-		fatalf("release requires stripe-simulate, stripe-check, or approvals-check")
+		fatalf("release requires stripe-simulate, stripe-check, approvals-check, payment-activation-sign, or payment-activation-check")
 	}
 	switch args[0] {
 	case "stripe-simulate":
@@ -629,6 +629,10 @@ func dispatchRelease(cmd string, args []string) bool {
 		cmdStripeCredentialCheck()
 	case "approvals-check":
 		cmdApprovalsCheck(args[1:])
+	case "payment-activation-sign":
+		cmdPaymentActivationSign(args[1:])
+	case "payment-activation-check":
+		cmdPaymentActivationCheck(args[1:])
 	default:
 		fatalf("unknown release command %q", args[0])
 	}

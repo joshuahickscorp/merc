@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -30,12 +31,77 @@ var (
 
 const stripeAPIResponseMaxBytes int64 = 2 << 20
 
-func stripeKey() string { return os.Getenv("STRIPE_SECRET_KEY") }
+func configuredStripeKey() (string, error) {
+	path := strings.TrimSpace(os.Getenv(stripeSecretKeyFileEnv))
+	if path == "" {
+		return strings.TrimSpace(os.Getenv("STRIPE_SECRET_KEY")), nil
+	}
+	if strings.TrimSpace(os.Getenv("STRIPE_SECRET_KEY")) != "" {
+		return "", fmt.Errorf("%s and STRIPE_SECRET_KEY cannot both be set", stripeSecretKeyFileEnv)
+	}
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("%s must be an absolute path", stripeSecretKeyFileEnv)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("stat Stripe secret key: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o027 != 0 {
+		return "", errors.New("Stripe secret key must be a regular file, not group-writable, and inaccessible to other users")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read Stripe secret key: %w", err)
+	}
+	key := strings.TrimSpace(string(raw))
+	if key == "" || len(key) > maxPaymentProviderSecretBytes {
+		return "", fmt.Errorf("Stripe secret key file must contain 1..%d bytes", maxPaymentProviderSecretBytes)
+	}
+	return key, nil
+}
+
+// stripeKey is used only at operation boundaries that immediately call the
+// authority loader, which re-reads and validates the configured secret file.
+// Startup uses configuredStripeKey directly so file errors are never hidden.
+func stripeKey() string {
+	key, _ := configuredStripeKey()
+	return key
+}
+
+func stripePOSTOperation(path string, form url.Values) (PaymentOperation, int64, string, error) {
+	path = strings.Trim(strings.SplitN(path, "?", 2)[0], "/")
+	switch path {
+	case "customers", "setup_intents", "accounts", "account_links":
+		return paymentOperationSetup, 0, "", nil
+	case "payment_intents":
+		amount, err := strconv.ParseInt(form.Get("amount"), 10, 64)
+		if err != nil || amount <= 0 {
+			return "", 0, "", errors.New("Stripe payment_intents operation requires a positive integer amount")
+		}
+		currency := strings.ToLower(strings.TrimSpace(form.Get("currency")))
+		if currency == "" {
+			return "", 0, "", errors.New("Stripe payment_intents operation requires currency")
+		}
+		return paymentOperationCharge, amount, currency, nil
+	case "refunds":
+		amount, err := strconv.ParseInt(form.Get("amount"), 10, 64)
+		if err != nil || amount <= 0 {
+			return "", 0, "", errors.New("Stripe refund operation requires a positive integer amount")
+		}
+		return paymentOperationRefund, amount, SettlementCurrencyCode(), nil
+	default:
+		return "", 0, "", fmt.Errorf("unclassified Stripe POST path %q is refused", path)
+	}
+}
 
 func stripeForm(ctx context.Context, path string, form url.Values, idemKey string) (map[string]any, error) {
 	key := stripeKey()
-	if key == "" {
-		return nil, errBillingUnconfigured
+	operation, amountMinor, currency, err := stripePOSTOperation(path, form)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := authorizePaymentOperation(operation, amountMinor, currency, key); err != nil {
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		strings.TrimRight(stripeAPIBaseURL, "/")+"/"+strings.TrimLeft(path, "/"), strings.NewReader(form.Encode()))
@@ -240,6 +306,14 @@ func chargeBuyer(
 	}
 	if cents <= 0 {
 		return ChargeResult{}, fmt.Errorf("non-positive charge amount %.6f %s", usd, settle.Code())
+	}
+	// Refuse before creating the durable outcome_unknown request boundary. The
+	// provider call repeats this check immediately before network I/O so an
+	// activation that expires between planning and dispatch still fails closed.
+	if _, err := authorizePaymentOperation(
+		paymentOperationCharge, cents, settle.Code(), stripeKey(),
+	); err != nil {
+		return ChargeResult{}, err
 	}
 	cust, err := ensureStripeCustomer(ctx, store, buyerID)
 	if err != nil {
@@ -458,6 +532,12 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 		!s.requireOperationalControlActive(w, r, controlPayments) {
 		return
 	}
+	if _, err := authorizePaymentOperation(
+		paymentOperationWebhook, 0, "", stripeKey(),
+	); err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "stripe webhook authority is unavailable")
+		return
+	}
 	secret := os.Getenv("STRIPE_WEBHOOK_SECRET")
 	if secret == "" {
 		writeErr(w, http.StatusServiceUnavailable, "stripe webhooks not configured (set STRIPE_WEBHOOK_SECRET)")
@@ -550,8 +630,8 @@ func recordStripeFee(ctx context.Context, store *Store, buyerID uuid.UUID, pi st
 
 func stripeGet(ctx context.Context, path string) (map[string]any, error) {
 	key := stripeKey()
-	if key == "" {
-		return nil, errBillingUnconfigured
+	if _, err := authorizePaymentOperation(paymentOperationRead, 0, "", key); err != nil {
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		strings.TrimRight(stripeAPIBaseURL, "/")+"/"+strings.TrimLeft(path, "/"), nil)

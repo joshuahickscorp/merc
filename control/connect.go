@@ -80,7 +80,7 @@ func validateConnectURLPair(returnURL, refreshURL, siteHost string) error {
 }
 
 func validateLiveConnectURLConfig(cxEnv, stripeSecret, returnURL, refreshURL, siteHost string) error {
-	liveStripe := strings.HasPrefix(stripeSecret, "sk_live_")
+	liveStripe := isLiveStripeCredential(stripeSecret)
 	production := strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod")
 	if !production && !liveStripe {
 		return nil

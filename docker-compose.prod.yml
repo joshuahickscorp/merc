@@ -8,11 +8,17 @@ x-control-env: &control-env
   DATABASE_URL: postgres://cx:${POSTGRES_PASSWORD}@postgres:5432/cx?sslmode=disable
   LISTEN_ADDR: ":8080"
   MERC_PUBLIC_CONTROL_ORIGIN: ${MERC_PUBLIC_CONTROL_ORIGIN:?required}
-  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?required}
-  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?required}
-  MERC_CONNECT_WEBHOOK_SECRET: ${MERC_CONNECT_WEBHOOK_SECRET:?required}
-  MERC_CONNECT_RETURN_URL: ${MERC_CONNECT_RETURN_URL:?required}
-  MERC_CONNECT_REFRESH_URL: ${MERC_CONNECT_REFRESH_URL:?required}
+  MERC_PAYMENT_MODE: ${MERC_PAYMENT_MODE:-sealed}
+  MERC_PAYMENT_PROVIDER: ${MERC_PAYMENT_PROVIDER:-}
+  STRIPE_SECRET_KEY_FILE: ${STRIPE_SECRET_KEY_CONTAINER_FILE:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  MERC_CONNECT_WEBHOOK_SECRET: ${MERC_CONNECT_WEBHOOK_SECRET:-}
+  MERC_CONNECT_CLIENT_ID: ${MERC_CONNECT_CLIENT_ID:-}
+  MERC_CONNECT_RETURN_URL: ${MERC_CONNECT_RETURN_URL:-}
+  MERC_CONNECT_REFRESH_URL: ${MERC_CONNECT_REFRESH_URL:-}
+  MERC_LIVE_PAYMENT_ACTIVATION_FILE: ${MERC_LIVE_PAYMENT_ACTIVATION_CONTAINER_FILE:-}
+  MERC_LIVE_PAYMENT_ACTIVATION_SHA256: ${MERC_LIVE_PAYMENT_ACTIVATION_SHA256:-}
+  MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_FILE: ${MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_CONTAINER_FILE:-}
   MERC_TOKEN_KEY: ${MERC_TOKEN_KEY:?required}
   MERC_VERIFICATION_SAMPLE_SECRET: ${MERC_VERIFICATION_SAMPLE_SECRET:?required}
   MERC_ECON_SCHEDULE_VERSION: ${MERC_ECON_SCHEDULE_VERSION:?required}
@@ -122,6 +128,16 @@ services:
       # Host path written by scripts/backup.sh (and the systemd timer). Mounted
       # read-only so the metrics endpoint can export merc_backup_age_seconds.
       - ${MERC_BACKUP_HEALTH_DIR:-./.artifacts/backup-health}:/run/cx-health:ro
+      # LIVE mode replaces /dev/null with a candidate-bound activation file.
+      # SEALED mode leaves the container env path empty, so this mount grants
+      # no authority and exists only to keep the Compose shape deterministic.
+      - ${MERC_LIVE_PAYMENT_ACTIVATION_SOURCE:-/dev/null}:/run/secrets/merc-live-payment-activation.json:ro
+      # The signing key is independent of the signed activation envelope and is
+      # never passed through the container environment or Docker inspection.
+      - ${MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_SOURCE:-/dev/null}:/run/secrets/merc-live-payment-activation-hmac-key:ro
+      # LIVE Stripe API authority is also file-backed; only the fixed path is
+      # visible through Docker inspection.
+      - ${STRIPE_SECRET_KEY_SOURCE:-/dev/null}:/run/secrets/merc-stripe-secret-key:ro
     healthcheck:
       test: [CMD, /cx-healthcheck]
       interval: 10s

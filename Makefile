@@ -69,6 +69,7 @@ ci:
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
 	python3 -m json.tool proto/manifest.schema.json >/dev/null
 	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
+	python3 -m json.tool ops/live-payment-activation.schema.json >/dev/null
 	python3 scripts/validate-authorization-matrix.py
 	python3 scripts/validate-independent-reviews.py
 	python3 scripts/validate-governance.py

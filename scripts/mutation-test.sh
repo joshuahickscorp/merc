@@ -48,6 +48,12 @@ MUTATIONS=(
 "exact_reuse_batch.go|exact reuse omits frozen workload authority|s|workloadJSON, err := json.Marshal(workloadDecision)|workloadJSON, err := json.Marshal(WorkloadDecision{})|"
 "exact_reuse_batch.go|exact reuse hashes request shape but not runtime authority|s|decisionSHA256, err := workloadDecisionDigest(decision)|decisionSHA256, err := workloadBindingDigest(decision.Binding)|"
 "scheduler.go|claim ignores frozen runtime candidates|s|j.workload_decision IS NULL|true|"
+"payment_authority.go|production credential silently arms LIVE payments|/if isProductionEnv(cxEnv) {/ { n; s#PaymentModeSealed#PaymentModeLive#; }"
+"payment_authority.go|SEALED provider boundary is bypassed|s|return PaymentAuthority{}, errPaymentAuthoritySealed|return authority, nil|"
+"payment_authority.go|LIVE activation ignores candidate binding|s#build.Modified || !fullCommitPattern.MatchString(build.Commit) || build.Commit != a.CandidateCommit#false#"
+"payment_authority.go|LIVE per-operation cap is ignored|s#amountMinor <= 0 || amountMinor > capMinor#amountMinor <= 0#"
+"payment_authority.go|LIVE recovery cannot remain operationally ready|s#return a.Activation != nil && (a.Active || a.RecoveryActive)#return a.Activation != nil \\&\\& a.Active#"
+"payment_authority.go|LIVE Stripe key can remain environment-inline|s#if strings.TrimSpace(os.Getenv(stripeSecretKeyFileEnv)) == \"\" ||#if false \\&\\&#"
 )
 
 caught=0
