@@ -678,6 +678,26 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		prefixID = prefixChain[0].PrefixID
 	}
 
+	offeredRate := s.offeredRateUsdHrForSubmission(ctx, sub)
+	var placement PlacementRequirement
+	if qBind != nil {
+		placement = qBind.Placement
+		offeredRate = placement.OfferedRateUsdHr
+	} else {
+		planningWorkload, perr := buildWorkloadDecision(sub, strings.Repeat("0", sha256.Size*2))
+		if perr != nil {
+			return JobSubmitResponse{}, &httpError{
+				http.StatusBadRequest, "resolving placement authority: " + perr.Error(),
+			}
+		}
+		placement, perr = placementRequirementFor(sub, planningWorkload, offeredRate)
+		if perr != nil {
+			return JobSubmitResponse{}, &httpError{
+				http.StatusBadRequest, "building placement authority: " + perr.Error(),
+			}
+		}
+	}
+
 	splitSize, splitErr := selectSubmissionSplitSize(qBind, func() int {
 		unboundSplit := splitSizeOf(sub.Params)
 		if unboundSplit != defaultSplitSize || hasExplicitSplitSize(sub.Params) {
@@ -695,8 +715,10 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			}
 		}
 		unboundSplit = adaptiveSplitSize(sub.JobType.Type, sub.Params, avgLineBytes)
-		return s.adaptiveSplitSizeLive(ctx, sub.JobType.Type, sub.Model.Ref,
-			sub.Constraints.MinMemoryGB, sub.JobType.MaxTokens, avgLineBytes, unboundSplit, totalRecords)
+		return s.adaptiveSplitSizeLiveFor(
+			ctx, placement.supplyRequirements(),
+			sub.JobType.MaxTokens, avgLineBytes, unboundSplit, totalRecords,
+		)
 	})
 	if splitErr != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusConflict, splitErr.Error()}
@@ -752,6 +774,23 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	if werr != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "classifying workload: " + werr.Error()}
 	}
+	if qBind != nil {
+		if err := validatePlacementRequirement(qBind.Placement, workloadDecision); err != nil {
+			return JobSubmitResponse{}, &httpError{
+				http.StatusConflict,
+				"quote placement authority no longer matches this workload; request a new quote",
+			}
+		}
+		placement = qBind.Placement
+	} else {
+		placement, werr = placementRequirementFor(sub, workloadDecision, offeredRate)
+		if werr != nil {
+			return JobSubmitResponse{}, &httpError{
+				http.StatusBadRequest, "freezing placement authority: " + werr.Error(),
+			}
+		}
+	}
+	offeredRate = placement.OfferedRateUsdHr
 	var boundQuoteID uuid.UUID
 	if qBind != nil {
 		if qBind.InputSHA256 != "" && qBind.InputSHA256 != inputSHA256 {
@@ -990,7 +1029,6 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 	vp, _ := json.Marshal(sub.Verification)
 	spec, _ := json.Marshal(sub.JobType)
-	offeredRate := s.offeredRateUsdHrForSubmission(ctx, sub)
 	effectiveMinMem := float32(workloadDecision.MinimumMemoryGB)
 	var computePlan ComputePlan
 	var etaSecs int
@@ -1004,8 +1042,8 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		computePlan = qBind.ComputePlan
 		etaSecs = computePlan.ETAP50Secs
 	} else {
-		p50, _, plannerBacked := s.etaBandSecs(
-			ctx, sub.JobType.Type, sub.Model.Ref, effectiveMinMem, len(tasks),
+		p50, _, plannerBacked := s.etaBandSecsFor(
+			ctx, placement.supplyRequirements(), len(tasks),
 		)
 		observedP90ms, _, historyErr := s.store.HistoricalP90DurationMs(ctx, sub.JobType.Type, sub.Model.Ref)
 		usedObservedHistory := historyErr == nil && observedP90ms > 0
@@ -3069,10 +3107,25 @@ func adaptiveSplitSize(jobType string, params json.RawMessage, avgLineBytes floa
 }
 
 func (s *Server) adaptiveSplitSizeLive(ctx context.Context, jobType, modelRef string, minMemGB float32, maxTokens uint32, avgLineBytes float64, staticSize, totalRecords int) int {
+	return s.adaptiveSplitSizeLiveFor(
+		ctx,
+		normalizedSupplyRequirements(jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB}),
+		maxTokens, avgLineBytes, staticSize, totalRecords,
+	)
+}
+
+func (s *Server) adaptiveSplitSizeLiveFor(
+	ctx context.Context,
+	req QuoteSupplyRequirements,
+	maxTokens uint32,
+	avgLineBytes float64,
+	staticSize, totalRecords int,
+) int {
+	jobType, modelRef := req.JobType, req.ModelRef
 	if !fanoutPlannerEnabled.Load() || !generativeJobType(jobType) {
 		return staticSize
 	}
-	rows, err := s.store.FleetRateSnapshot(ctx, jobType, modelRef, minMemGB)
+	rows, err := s.store.FleetRateSnapshotFor(ctx, jobType, modelRef, req)
 	if err != nil {
 		return staticSize // degraded sizing, never a failed submit
 	}
@@ -3121,10 +3174,23 @@ func (s *Server) adaptiveSplitSizeLive(ctx context.Context, jobType, modelRef st
 }
 
 func (s *Server) plannerETASecs(ctx context.Context, jobType, modelRef string, minMemGB float32, nTasks, queuedAhead, perTaskSecs int) (eta, conservative int, ok bool) {
+	return s.plannerETASecsFor(
+		ctx,
+		normalizedSupplyRequirements(jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB}),
+		nTasks, queuedAhead, perTaskSecs,
+	)
+}
+
+func (s *Server) plannerETASecsFor(
+	ctx context.Context,
+	req QuoteSupplyRequirements,
+	nTasks, queuedAhead, perTaskSecs int,
+) (eta, conservative int, ok bool) {
 	if !fanoutPlannerEnabled.Load() {
 		return 0, 0, false
 	}
-	rows, err := s.store.FleetRateSnapshot(ctx, jobType, modelRef, minMemGB)
+	jobType, modelRef := req.JobType, req.ModelRef
+	rows, err := s.store.FleetRateSnapshotFor(ctx, jobType, modelRef, req)
 	if err != nil {
 		return 0, 0, false
 	}
@@ -3183,16 +3249,29 @@ func perTaskSecsFromP90(p90ms int64) int {
 }
 
 func (s *Server) etaBandSecs(ctx context.Context, jobType, modelRef string, minMemGB float32, nTasks int) (eta, conservative int, plannerBacked bool) {
+	return s.etaBandSecsFor(
+		ctx,
+		normalizedSupplyRequirements(jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB}),
+		nTasks,
+	)
+}
+
+func (s *Server) etaBandSecsFor(
+	ctx context.Context,
+	req QuoteSupplyRequirements,
+	nTasks int,
+) (eta, conservative int, plannerBacked bool) {
+	jobType, modelRef := req.JobType, req.ModelRef
 	p90ms, _, err := s.store.HistoricalP90DurationMs(ctx, jobType, modelRef)
 	if err != nil {
 		p90ms = 0
 	}
 	perTaskSecs := perTaskSecsFromP90(p90ms)
 	queued, _ := s.store.QueuedTaskCount(ctx)
-	if eta, cons, ok := s.plannerETASecs(ctx, jobType, modelRef, minMemGB, nTasks, queued, perTaskSecs); ok {
+	if eta, cons, ok := s.plannerETASecsFor(ctx, req, nTasks, queued, perTaskSecs); ok {
 		return eta, cons, true
 	}
-	workers, _ := s.store.EligibleWorkerCount(ctx, jobType, modelRef, minMemGB)
+	workers, _ := s.store.EligibleWorkerCountFor(ctx, jobType, modelRef, req)
 	if workers < 1 {
 		workers = 1
 	}

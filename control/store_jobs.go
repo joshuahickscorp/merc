@@ -79,6 +79,28 @@ func (s *Store) ListJobsAdmin(ctx context.Context) ([]AdminJob, error) {
 	return out, rows.Err()
 }
 
+func validateJobClaimAuthority(j *jobRow) error {
+	if j == nil {
+		return errors.New("job placement authority is missing")
+	}
+	binding := j.WorkloadDecision.Binding
+	if j.JobType != j.WorkloadDecision.RuntimeJobType ||
+		j.JobType != binding.JobType.Type ||
+		j.ModelRef != binding.Model.Ref ||
+		j.Tier != binding.Tier ||
+		math.Abs(float64(j.MinMemoryGB)-j.WorkloadDecision.MinimumMemoryGB) > 0.000001 ||
+		!sameStrings(j.HWClasses, binding.Constraints.HWClasses) ||
+		!sameStrings(j.DataResidency, binding.Constraints.DataResidency) ||
+		j.MinReputation != binding.MinReputation ||
+		j.MaxDurationSecs != binding.Constraints.MaxDurationSecs ||
+		math.IsNaN(float64(j.OfferedRateUsdHr)) ||
+		math.IsInf(float64(j.OfferedRateUsdHr), 0) ||
+		j.OfferedRateUsdHr < 0 {
+		return errors.New("job claim columns conflict with the frozen workload authority")
+	}
+	return nil
+}
+
 func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) error {
 	hasWebhook := j.WebhookID != uuid.Nil || j.WebhookURL != "" || j.WebhookSigningSecretSealed != ""
 	if hasWebhook && (j.WebhookID == uuid.Nil || j.WebhookURL == "" ||
@@ -87,6 +109,9 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	}
 	if err := ValidateWorkloadDecisionSnapshot(j.WorkloadDecision); err != nil {
 		return fmt.Errorf("refusing job without valid workload decision: %w", err)
+	}
+	if err := validateJobClaimAuthority(j); err != nil {
+		return fmt.Errorf("refusing job without consistent claim authority: %w", err)
 	}
 	if err := ValidateEconomicPlanSnapshot(j.EconomicPlan); err != nil {
 		return fmt.Errorf("refusing job without valid economic plan: %w", err)
@@ -199,12 +224,14 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	defer tx.Rollback(ctx)
 	if j.QuoteID != uuid.Nil {
 		var quoteComputeSHA256, quoteCurrency string
+		var quotePlacementJSON []byte
 		if err := tx.QueryRow(ctx,
-			`SELECT COALESCE(compute_plan_sha256,''), currency
+			`SELECT COALESCE(compute_plan_sha256,''),currency,
+			        quote_json->'placement_requirement'
 			   FROM quotes
 			  WHERE id=$1 AND buyer_id=$2`,
 			j.QuoteID, j.BuyerID,
-		).Scan(&quoteComputeSHA256, &quoteCurrency); err != nil {
+		).Scan(&quoteComputeSHA256, &quoteCurrency, &quotePlacementJSON); err != nil {
 			return fmt.Errorf("load bound quote compute authority: %w", err)
 		}
 		if quoteComputeSHA256 == "" || quoteComputeSHA256 != computeSHA256 {
@@ -213,6 +240,19 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		if quoteCurrency != jobCurrency {
 			return fmt.Errorf("%w: job currency %s does not match bound quote currency %s",
 				errCurrencyMismatch, jobCurrency, quoteCurrency)
+		}
+		var quotePlacement PlacementRequirement
+		if err := json.Unmarshal(quotePlacementJSON, &quotePlacement); err != nil {
+			return fmt.Errorf("decode bound quote placement authority: %w", err)
+		}
+		if err := validatePlacementRequirement(quotePlacement, j.WorkloadDecision); err != nil {
+			return fmt.Errorf("bound quote placement authority is invalid: %w", err)
+		}
+		if quotePlacement.OfferedRateUsdHr != j.OfferedRateUsdHr {
+			return fmt.Errorf(
+				"job offered rate %.6f does not match bound quote placement rate %.6f",
+				j.OfferedRateUsdHr, quotePlacement.OfferedRateUsdHr,
+			)
 		}
 	}
 

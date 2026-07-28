@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -124,6 +125,104 @@ func TestWorkloadDecisionRejectsTampering(t *testing.T) {
 	decision.MinimumMemoryGB = 0
 	if err := ValidateWorkloadDecisionSnapshot(decision); err == nil {
 		t.Fatal("tampered workload decision was accepted")
+	}
+}
+
+func TestPlacementRequirementRejectsEveryClaimAuthorityMutation(t *testing.T) {
+	sub := validBatchWorkloadSubmit(t)
+	sub.Constraints.HWClasses = []string{"apple_silicon_max"}
+	sub.Constraints.DataResidency = []string{"CA"}
+	decision, err := buildWorkloadDecision(sub, strings.Repeat("e", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := placementRequirementFor(sub, decision, 1.25)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*PlacementRequirement)
+	}{
+		{"version", func(p *PlacementRequirement) { p.Version++ }},
+		{"job type", func(p *PlacementRequirement) { p.JobType = "embed" }},
+		{"model ref", func(p *PlacementRequirement) { p.ModelRef = "different-model" }},
+		{"model kind", func(p *PlacementRequirement) { p.ModelKind = "different-kind" }},
+		{"runtime cell", func(p *PlacementRequirement) { p.RuntimeCellID = "different-cell" }},
+		{"runtime id", func(p *PlacementRequirement) { p.RuntimeID = "different-runtime" }},
+		{"engine", func(p *PlacementRequirement) { p.Engine = "different-engine" }},
+		{"matrix", func(p *PlacementRequirement) { p.RuntimeMatrixSHA256 = strings.Repeat("f", 64) }},
+		{"memory", func(p *PlacementRequirement) { p.MinMemoryGB++ }},
+		{"hardware", func(p *PlacementRequirement) { p.HWClasses = []string{"apple_silicon_ultra"} }},
+		{"residency", func(p *PlacementRequirement) { p.DataResidency = []string{"US"} }},
+		{"reputation", func(p *PlacementRequirement) { p.MinReputation = 0.99 }},
+		{"trusted tier", func(p *PlacementRequirement) { p.TrustedOnly = !p.TrustedOnly }},
+		{"negative offered rate", func(p *PlacementRequirement) { p.OfferedRateUsdHr = -1 }},
+		{"non-finite offered rate", func(p *PlacementRequirement) {
+			p.OfferedRateUsdHr = float32(math.NaN())
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mutant := base
+			mutant.HWClasses = append([]string(nil), base.HWClasses...)
+			mutant.DataResidency = append([]string(nil), base.DataResidency...)
+			tc.mutate(&mutant)
+			if err := validatePlacementRequirement(mutant, decision); err == nil {
+				t.Fatalf("%s mutation survived placement validation", tc.name)
+			}
+		})
+	}
+}
+
+func TestJobClaimProjectionRejectsFrozenWorkloadMismatch(t *testing.T) {
+	sub := validBatchWorkloadSubmit(t)
+	sub.Constraints.HWClasses = []string{"apple_silicon_max"}
+	sub.Constraints.DataResidency = []string{"CA"}
+	decision, err := buildWorkloadDecision(sub, strings.Repeat("f", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := jobRow{
+		JobType:          decision.RuntimeJobType,
+		ModelRef:         decision.Binding.Model.Ref,
+		Tier:             decision.Binding.Tier,
+		MinMemoryGB:      float32(decision.MinimumMemoryGB),
+		MaxDurationSecs:  decision.Binding.Constraints.MaxDurationSecs,
+		HWClasses:        append([]string(nil), decision.Binding.Constraints.HWClasses...),
+		DataResidency:    append([]string(nil), decision.Binding.Constraints.DataResidency...),
+		MinReputation:    decision.Binding.MinReputation,
+		OfferedRateUsdHr: 1.25,
+		WorkloadDecision: decision,
+	}
+	if err := validateJobClaimAuthority(&base); err != nil {
+		t.Fatalf("valid claim projection rejected: %v", err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*jobRow)
+	}{
+		{"job type", func(j *jobRow) { j.JobType = "embed" }},
+		{"model", func(j *jobRow) { j.ModelRef = "different-model" }},
+		{"tier", func(j *jobRow) { j.Tier = "priority" }},
+		{"memory", func(j *jobRow) { j.MinMemoryGB++ }},
+		{"duration", func(j *jobRow) { j.MaxDurationSecs++ }},
+		{"hardware", func(j *jobRow) { j.HWClasses = []string{"apple_silicon_ultra"} }},
+		{"residency", func(j *jobRow) { j.DataResidency = []string{"US"} }},
+		{"reputation", func(j *jobRow) { j.MinReputation = 0.99 }},
+		{"offered rate", func(j *jobRow) { j.OfferedRateUsdHr = -1 }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mutant := base
+			mutant.HWClasses = append([]string(nil), base.HWClasses...)
+			mutant.DataResidency = append([]string(nil), base.DataResidency...)
+			tc.mutate(&mutant)
+			if err := validateJobClaimAuthority(&mutant); err == nil {
+				t.Fatalf("%s mutation survived job claim projection validation", tc.name)
+			}
+		})
 	}
 }
 
@@ -325,7 +424,7 @@ func TestQuoteSupplyRequirementsMatchClaimTimeHardFilters(t *testing.T) {
 		sql string
 		id  uuid.UUID
 	}{
-		{`UPDATE suppliers SET data_country='XZ', tier=2, reputation=1.00 WHERE id=$1`, fixture.SupplierID},
+		{`UPDATE suppliers SET data_country='XZ', tier=2, reputation=1.00, completed_tasks=500 WHERE id=$1`, fixture.SupplierID},
 		{`UPDATE suppliers SET data_country='US', tier=1, reputation=0.40 WHERE id=$1`, fixture.OtherSupplierID},
 		{`UPDATE workers SET hw_class='apple_silicon_max' WHERE id=$1`, fixture.WorkerID},
 		{`UPDATE workers SET hw_class='apple_silicon_base' WHERE id=$1`, fixture.OtherWorkerID},

@@ -541,6 +541,21 @@ func TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger(t *testing.T) {
 		 WHERE id=$1`, f.JobID); err == nil {
 		t.Fatal("database allowed frozen compute authority to be mutated")
 	}
+	for name, statement := range map[string]string{
+		"job type":     `UPDATE jobs SET job_type='batch_infer' WHERE id=$1`,
+		"model":        `UPDATE jobs SET model_ref='different-model' WHERE id=$1`,
+		"tier":         `UPDATE jobs SET tier='priority' WHERE id=$1`,
+		"memory":       `UPDATE jobs SET min_memory_gb=min_memory_gb+1 WHERE id=$1`,
+		"duration":     `UPDATE jobs SET max_duration_secs=max_duration_secs+1 WHERE id=$1`,
+		"hardware":     `UPDATE jobs SET hw_classes=ARRAY['apple_silicon_ultra'] WHERE id=$1`,
+		"residency":    `UPDATE jobs SET data_residency=ARRAY['US'] WHERE id=$1`,
+		"reputation":   `UPDATE jobs SET min_reputation=min_reputation+0.1 WHERE id=$1`,
+		"offered rate": `UPDATE jobs SET offered_rate_usd_hr=offered_rate_usd_hr+0.1 WHERE id=$1`,
+	} {
+		if _, err := pool.Exec(ctx, statement, f.JobID); err == nil {
+			t.Fatalf("database allowed frozen job %s authority to be mutated", name)
+		}
+	}
 	if n := countBuyerLedger(t, ctx, pool, f.BuyerID); n != 0 {
 		t.Fatalf("SubmitJobTx minted %d ledger rows; submit must mint no money", n)
 	}
@@ -592,6 +607,48 @@ func TestSubmitJobTxBoundQuoteComputeMismatchFailsClosed(t *testing.T) {
 	}
 	if countJobRows(t, ctx, pool, f.JobID) != 0 {
 		t.Fatal("failed bound quote submit left a job row")
+	}
+}
+
+func TestSubmitJobTxBoundQuoteOfferedRateMismatchFailsClosed(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
+	tasks := makeTasks(f, 1)
+	f.TaskIDs = []uuid.UUID{tasks[0].ID}
+	job := validJobRow(t, f, tasks)
+	job.QuoteID = uuid.New()
+
+	computeSHA256, err := computePlanDigest(job.ComputePlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := job.WorkloadDecision.Binding
+	placement, err := placementRequirementFor(jobSubmit{
+		JobType: binding.JobType, Model: binding.Model, Constraints: binding.Constraints,
+		Tier: binding.Tier, MinReputation: binding.MinReputation,
+	}, job.WorkloadDecision, job.OfferedRateUsdHr+1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoteJSON, err := json.Marshal(map[string]any{"placement_requirement": placement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO quotes (
+		  id,buyer_id,job_type,model_ref,compute_plan_sha256,quote_json
+		) VALUES ($1,$2,$3,$4,$5,$6)`,
+		job.QuoteID, f.BuyerID, job.JobType, job.ModelRef, computeSHA256, quoteJSON,
+	); err != nil {
+		t.Fatalf("seed rate-mismatched quote authority: %v", err)
+	}
+
+	err = store.SubmitJobTx(ctx, job, tasks)
+	if err == nil || !strings.Contains(err.Error(), "offered rate") {
+		t.Fatalf("bound quote offered-rate mismatch accepted: %v", err)
+	}
+	if countJobRows(t, ctx, pool, f.JobID) != 0 {
+		t.Fatal("failed bound quote rate submit left a job row")
 	}
 }
 

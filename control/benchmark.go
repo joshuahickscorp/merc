@@ -79,6 +79,15 @@ type FleetRateRow struct {
 }
 
 func (s *Store) FleetRateSnapshot(ctx context.Context, jobType, modelRef string, minMemGB float32) ([]FleetRateRow, error) {
+	return s.FleetRateSnapshotFor(ctx, jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB})
+}
+
+func (s *Store) FleetRateSnapshotFor(
+	ctx context.Context,
+	jobType, modelRef string,
+	req QuoteSupplyRequirements,
+) ([]FleetRateRow, error) {
+	req = normalizedSupplyRequirements(jobType, modelRef, req)
 	rows, err := s.pool.Query(ctx,
 		`SELECT w.id,
 		        COALESCE(wtc.tps, 0),
@@ -95,19 +104,8 @@ func (s *Store) FleetRateSnapshot(ctx context.Context, jobType, modelRef string,
 		        COALESCE(w.throttled, false)
 		 FROM workers w JOIN suppliers s ON s.id = w.supplier_id
 		 LEFT JOIN worker_tps_cache wtc ON wtc.worker_id = w.id AND wtc.job_type = $1
-		 WHERE w.last_seen_at IS NOT NULL
-		   AND w.last_seen_at > now() - interval '60 seconds'
-		   AND s.status = 'active'
-		   AND NOT COALESCE(w.throttled, false)
-		   AND COALESCE(w.effective_memory_gb, w.memory_gb, 0) >= $3
-		   AND EXISTS (
-		     SELECT 1 FROM worker_authorized_capabilities wac
-		      WHERE wac.worker_id = w.id
-		        AND wac.job_type = $1
-		        AND wac.model_ref = $2
-		        AND wac.matrix_sha256 = $4
-		   )`,
-		jobType, modelRef, minMemGB, generatedRuntimeMatrixSHA256,
+		 WHERE `+claimableWorkerPredicateSQL,
+		supplyRequirementQueryArgs(req)...,
 	)
 	if err != nil {
 		return nil, err
