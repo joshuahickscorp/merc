@@ -29,6 +29,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 : "${MERC_TEST_DATABASE_URL:?mutation testing needs a database}"
+MERC_MUTATION_FILTER="${MERC_MUTATION_FILTER:-}"
 
 # file|description|sed-expression
 MUTATIONS=(
@@ -41,6 +42,12 @@ MUTATIONS=(
 "prefix_routing.go|prefix warmth ignores its TTL|s|AND last_seen_warm > now() - \$3::interval||"
 "exact_reuse.go|non-deterministic requests become cacheable|s|return r.Temperature == 0 \&\& (r.TopP == 0 |return true \&\& (r.TopP == 0 |"
 "exact_reuse.go|tenant-scoped references accepted|s|^var tenantScopedRefPattern = regexp.MustCompile(\`\^jobs/\`)|var tenantScopedRefPattern = regexp.MustCompile(\`^ZZZNEVERMATCH\`)|"
+"workload_classification.go|supplier reputation omitted from workload binding|s|MinReputation: sub.MinReputation|MinReputation: 0|"
+"workload_classification.go|input commitment omitted from workload binding|s|InputSHA256:   inputSHA256|InputSHA256:   strings.Repeat(\"0\", 64)|"
+"quote.go|quote supply ignores buyer data residency|s|AND (\$5::text\\[\\] IS NULL OR s.data_country = ANY(\$5))|AND true|"
+"exact_reuse_batch.go|exact reuse omits frozen workload authority|s|workloadJSON, err := json.Marshal(workloadDecision)|workloadJSON, err := json.Marshal(WorkloadDecision{})|"
+"exact_reuse_batch.go|exact reuse hashes request shape but not runtime authority|s|decisionSHA256, err := workloadDecisionDigest(decision)|decisionSHA256, err := workloadBindingDigest(decision.Binding)|"
+"scheduler.go|claim ignores frozen runtime candidates|s|j.workload_decision IS NULL|true|"
 )
 
 caught=0
@@ -55,6 +62,9 @@ for entry in "${MUTATIONS[@]}"; do
   rest="${entry#*|}"
   desc="${rest%%|*}"
   expr="${rest#*|}"
+  if [ -n "$MERC_MUTATION_FILTER" ] && [[ "$desc" != *"$MERC_MUTATION_FILTER"* ]]; then
+    continue
+  fi
 
   src="$CONTROL/$file"
   [ -f "$src" ] || { printf '%-58s %s\n' "$desc" "SKIP (missing $file)"; continue; }

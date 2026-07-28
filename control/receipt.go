@@ -3,12 +3,13 @@ package main
 import "github.com/google/uuid"
 
 type ClearingReceipt struct {
-	JobID        uuid.UUID     `json:"job_id"`
-	Status       string        `json:"status"`
-	Invoice      *InvoiceView  `json:"invoice"`
-	Verification Verification  `json:"verification"`
-	Classes      []string      `json:"verification_classes"`
-	Tasks        []TaskReceipt `json:"tasks"`
+	JobID        uuid.UUID         `json:"job_id"`
+	Status       string            `json:"status"`
+	Workload     *WorkloadDecision `json:"workload_decision,omitempty"`
+	Invoice      *InvoiceView      `json:"invoice"`
+	Verification Verification      `json:"verification"`
+	Classes      []string          `json:"verification_classes"`
+	Tasks        []TaskReceipt     `json:"tasks"`
 }
 
 type TaskReceipt struct {
@@ -43,10 +44,11 @@ func taskReceiptRowWithRuntime(chunkIndex int, status string, isHoneypot bool, e
 	}
 }
 
-func assembleClearingReceipt(jobID uuid.UUID, status string, inv *InvoiceView, verif Verification, classes []string, tasks []TaskReceipt) ClearingReceipt {
+func assembleClearingReceipt(jobID uuid.UUID, status string, workload *WorkloadDecision, inv *InvoiceView, verif Verification, classes []string, tasks []TaskReceipt) ClearingReceipt {
 	return ClearingReceipt{
 		JobID:        jobID,
 		Status:       status,
+		Workload:     workload,
 		Invoice:      inv,
 		Verification: verif,
 		Classes:      classes,

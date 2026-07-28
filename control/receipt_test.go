@@ -22,8 +22,12 @@ func TestAssembleClearingReceipt(t *testing.T) {
 		taskReceiptRow(0, "complete", false, "candle", "abc123", "redundancy_match", "pass"),
 		taskReceiptRow(0, "complete", true, "candle", "abc123", "honeypot_pass", "pass"),
 	}
+	workload, err := buildWorkloadDecision(validBatchWorkloadSubmit(t), strings.Repeat("e", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	rc := assembleClearingReceipt(jobID, "complete", inv, verif, classes, tasks)
+	rc := assembleClearingReceipt(jobID, "complete", &workload, inv, verif, classes, tasks)
 
 	if rc.Invoice == nil || rc.Invoice.QuotedUSD == nil || *rc.Invoice.QuotedUSD != 9.5 {
 		t.Fatal("receipt must carry the QUOTE")
@@ -42,6 +46,9 @@ func TestAssembleClearingReceipt(t *testing.T) {
 	}
 	if len(rc.Tasks) != 2 || rc.Tasks[0].WorkerClass != "candle|abc123" || rc.Tasks[0].VerificationKind != "redundancy_match" || rc.Tasks[0].Verdict != "pass" {
 		t.Fatalf("receipt must carry the per-task drilldown with worker class + event; got %+v", rc.Tasks)
+	}
+	if rc.Workload == nil || rc.Workload.BindingSHA256 != workload.BindingSHA256 {
+		t.Fatal("receipt must carry the frozen workload decision")
 	}
 }
 

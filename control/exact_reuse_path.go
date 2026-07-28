@@ -66,23 +66,6 @@ func realtimeIdentityFromPayload(profile VLLMRuntimeProfile, payload map[string]
 	return id.Compute()
 }
 
-// batchIdentityFromJob is the cache key for a deterministic batch submission.
-// Batch jobs already refuse non-zero temperature, so Deterministic() holds when
-// top_p is unset/1.
-func batchIdentityFromJob(modelRef, modelRevision, jobType, inputSHA256 string, maxTokens int, temperature float64, seed int64) (string, error) {
-	id := RequestIdentity{
-		ModelID:       modelRef,
-		ModelRevision: modelRevision,
-		Input:         "batch:" + jobType + ":" + inputSHA256,
-		Temperature:   temperature,
-		TopP:          1,
-		Seed:          seed,
-		MaxTokens:     maxTokens,
-		Policy:        "batch-v1",
-	}
-	return id.Compute()
-}
-
 func jsonFloat(v any, fallback float64) float64 {
 	switch n := v.(type) {
 	case json.Number:

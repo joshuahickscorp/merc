@@ -48,6 +48,81 @@ func openMoneyPathStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
 	return openAdminMutationTestStore(t)
 }
 
+func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 1,
+	})
+
+	sub, herr := normalizeAndValidateJobSubmit(jobSubmit{
+		JobType: JobType{Type: "embed"},
+		Model:   ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
+		Constraints: JobConstraints{
+			MaxDurationSecs: 3600,
+		},
+		Tier: "batch",
+	})
+	if herr != nil {
+		t.Fatalf("normalize exact-reuse workload: %s", herr.msg)
+	}
+	decision, err := buildWorkloadDecision(sub, strings.Repeat("f", 64))
+	if err != nil {
+		t.Fatalf("build exact-reuse workload decision: %v", err)
+	}
+	money := SettleReuseHitMoney(1000, 0.002)
+	quoteID := uuid.New()
+	if err := store.SubmitExactReuseBatchJob(
+		ctx,
+		f.BuyerID,
+		f.JobID,
+		sub.JobType.Type,
+		sub.Model.Ref,
+		"jobs/"+f.JobID.String()+"/input.jsonl",
+		"jobs/"+f.JobID.String()+"/output.jsonl",
+		sub.Tier,
+		ExactCacheHit{
+			ResultRef:    "cas/sha256/" + strings.Repeat("1", 64),
+			OutputTokens: 1000,
+		},
+		money,
+		1,
+		128,
+		"",
+		"",
+		decision,
+		quoteID,
+		true,
+		1,
+	); err != nil {
+		t.Fatalf("submit exact-reuse job: %v", err)
+	}
+
+	stored, err := store.JobWorkloadDecision(ctx, f.JobID)
+	if err != nil {
+		t.Fatalf("load exact-reuse workload decision: %v", err)
+	}
+	if stored == nil || stored.BindingSHA256 != decision.BindingSHA256 {
+		t.Fatalf("exact-reuse path did not freeze workload authority: got %+v", stored)
+	}
+	var storedQuoteID *uuid.UUID
+	var firmQuote bool
+	var firmQuoteMaxUSD float64
+	if err := pool.QueryRow(ctx, `
+		SELECT quote_id, firm_quote, COALESCE(firm_quote_max_usd,0)::float8
+		  FROM jobs WHERE id=$1`, f.JobID).
+		Scan(&storedQuoteID, &firmQuote, &firmQuoteMaxUSD); err != nil {
+		t.Fatalf("load exact-reuse quote provenance: %v", err)
+	}
+	if storedQuoteID == nil || *storedQuoteID != quoteID || !firmQuote || firmQuoteMaxUSD != 1 {
+		t.Fatalf("exact reuse lost quote provenance: quote=%v firm=%v max=%v",
+			storedQuoteID, firmQuote, firmQuoteMaxUSD)
+	}
+	receipt := assembleClearingReceipt(f.JobID, "complete", stored, nil, Verification{}, nil, nil)
+	if receipt.Workload == nil || receipt.Workload.BindingSHA256 != decision.BindingSHA256 {
+		t.Fatal("exact-reuse receipt omitted the frozen workload decision")
+	}
+}
+
 func buildTestEconomicPlan(t *testing.T, tasks int, slaPremium float64) EconomicPlan {
 	t.Helper()
 	if tasks <= 0 {
@@ -227,7 +302,19 @@ func seedMoneyPathJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f m
 	}
 }
 
-func validJobRow(f moneyPathFixture, tasks []taskRow) *jobRow {
+func validJobRow(t *testing.T, f moneyPathFixture, tasks []taskRow) *jobRow {
+	t.Helper()
+	workload, err := buildWorkloadDecision(jobSubmit{
+		JobType: JobType{Type: "embed"},
+		Model:   ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
+		Tier:    "batch",
+		Constraints: JobConstraints{
+			MaxDurationSecs: 3600,
+		},
+	}, strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatalf("build test workload decision: %v", err)
+	}
 	return &jobRow{
 		ID:               f.JobID,
 		BuyerID:          f.BuyerID,
@@ -245,6 +332,7 @@ func validJobRow(f moneyPathFixture, tasks []taskRow) *jobRow {
 		ETASecs:          60,
 		SLAPremiumUSD:    f.Plan.Input.SLAPremiumUSD,
 		EconomicPlan:     f.Plan,
+		WorkloadDecision: workload,
 	}
 }
 
@@ -312,7 +400,7 @@ func TestSubmitJobTxCommitsJobTasksAndPlanWithoutLedger(t *testing.T) {
 	tasks := makeTasks(f, 2)
 	// Align fixture task ids with the ones we submit so cleanup finds them.
 	f.TaskIDs = []uuid.UUID{tasks[0].ID, tasks[1].ID}
-	job := validJobRow(f, tasks)
+	job := validJobRow(t, f, tasks)
 
 	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
 		t.Fatalf("SubmitJobTx: %v", err)
@@ -344,7 +432,7 @@ func TestSubmitJobTxPlanTaskCountMismatchFailsClosed(t *testing.T) {
 	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 2})
 	tasks := makeTasks(f, 1) // plan expects 2
 	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(f, tasks)
+	job := validJobRow(t, f, tasks)
 	// validJobRow sets TaskCount=len(tasks)=1; force the plan/task mismatch path.
 	job.TaskCount = 1
 	job.EconomicPlan = f.Plan // InitialTaskCount still 2
@@ -378,7 +466,7 @@ func TestSubmitJobTxFirmQuoteMismatchFailsClosed(t *testing.T) {
 	f.Plan = plan
 	tasks := makeTasks(f, 1)
 	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(f, tasks)
+	job := validJobRow(t, f, tasks)
 	job.FirmQuote = true
 	job.FirmQuoteMaxUSD = 9.99 // desync from plan.Input.FirmQuoteMaxUSD
 	job.EconomicPlan = plan
@@ -401,7 +489,7 @@ func TestSubmitJobTxSLAPremiumMismatchFailsClosed(t *testing.T) {
 	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1, SLAPremium: 0.08})
 	tasks := makeTasks(f, 1)
 	f.TaskIDs = []uuid.UUID{tasks[0].ID}
-	job := validJobRow(f, tasks)
+	job := validJobRow(t, f, tasks)
 	job.SLAPremiumUSD = 0.99 // desync from plan.Input.SLAPremiumUSD
 
 	err := store.SubmitJobTx(ctx, job, tasks)

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"strings"
@@ -162,22 +163,23 @@ func recommendField(fields map[string]bool, strLen, occur map[string]int) ([]Fie
 }
 
 type Quote struct {
-	QuoteID       string          `json:"quote_id"`
-	JobType       string          `json:"job_type"`
-	Model         string          `json:"model"`
-	Tier          string          `json:"tier"`
-	TierSemantics string          `json:"tier_semantics"`
-	Input         QuoteInputScan  `json:"input"`
-	Execution     QuoteExecution  `json:"execution"`
-	Cost          QuoteCost       `json:"cost"`
-	Time          QuoteTime       `json:"time"`
-	Confidence    QuoteConfidence `json:"confidence"`
-	Budget        QuoteBudget     `json:"budget"`
-	Warnings      []string        `json:"warnings"`
-	ExpiresAt     time.Time       `json:"expires_at"`   // quote stops being bindable after this (Plane D D7)
-	InputSHA256   string          `json:"input_sha256"` // sha256 of the scanned input bytes (best-effort submit match)
-	SLA           *QuoteSLA       `json:"sla,omitempty"`
-	Economics     EconomicPlan    `json:"economics"`
+	QuoteID       string           `json:"quote_id"`
+	JobType       string           `json:"job_type"`
+	Model         string           `json:"model"`
+	Tier          string           `json:"tier"`
+	TierSemantics string           `json:"tier_semantics"`
+	Workload      WorkloadDecision `json:"workload_decision"`
+	Input         QuoteInputScan   `json:"input"`
+	Execution     QuoteExecution   `json:"execution"`
+	Cost          QuoteCost        `json:"cost"`
+	Time          QuoteTime        `json:"time"`
+	Confidence    QuoteConfidence  `json:"confidence"`
+	Budget        QuoteBudget      `json:"budget"`
+	Warnings      []string         `json:"warnings"`
+	ExpiresAt     time.Time        `json:"expires_at"`   // quote stops being bindable after this (Plane D D7)
+	InputSHA256   string           `json:"input_sha256"` // sha256 of the scanned input bytes (best-effort submit match)
+	SLA           *QuoteSLA        `json:"sla,omitempty"`
+	Economics     EconomicPlan     `json:"economics"`
 
 	bareID uuid.UUID // quotes.id primary key (the <uuid> inside QuoteID); not on the wire
 }
@@ -294,6 +296,24 @@ type QuoteBudget struct {
 	CancelBeforeExceeding bool    `json:"cancel_before_exceeding"`
 }
 
+type QuoteSupplyRequirements struct {
+	MinMemoryGB   float32
+	HWClasses     []string
+	DataResidency []string
+	MinReputation float32
+	TrustedOnly   bool
+}
+
+func quoteSupplyRequirements(sub jobSubmit, minMemoryGB float32) QuoteSupplyRequirements {
+	return QuoteSupplyRequirements{
+		MinMemoryGB:   minMemoryGB,
+		HWClasses:     append([]string(nil), sub.Constraints.HWClasses...),
+		DataResidency: append([]string(nil), sub.Constraints.DataResidency...),
+		MinReputation: sub.MinReputation,
+		TrustedOnly:   sub.Tier == "trusted",
+	}
+}
+
 func (s *Server) quoteInitialEconomicTaskCount(ctx context.Context, sub jobSubmit, primaryTasks int) (int, error) {
 	if primaryTasks <= 0 {
 		return 0, nil
@@ -323,7 +343,9 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		avgLineBytes = float64(len(inputBytes)) / float64(scan.Records)
 	}
 	split := adaptiveSplitSize(jobType, sub.Params, avgLineBytes)
-	if !hasExplicitSplitSize(sub.Params) {
+	if jobType == "embed" && sub.JobType.BatchSize > 0 && !hasExplicitSplitSize(sub.Params) {
+		split = sub.JobType.BatchSize
+	} else if !hasExplicitSplitSize(sub.Params) {
 		split = s.adaptiveSplitSizeLive(ctx, jobType, sub.Model.Ref,
 			sub.Constraints.MinMemoryGB, sub.JobType.MaxTokens, avgLineBytes, split, scan.Records)
 	}
@@ -365,12 +387,13 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	p50 = sustainedBatchETASecs(p50, tier, usedObservedHistory)
 	eta := QuoteTime{P50Secs: p50, P90Secs: p50 * 2, WorstCaseSecs: p50 * 4}
 
-	eligibleNow, _ := s.store.EligibleWorkerCount(ctx, jobType, sub.Model.Ref, minMem)
-	warmEligible, _ := s.store.WarmEligibleWorkerCount(ctx, jobType, sub.Model.Ref, minMem)
+	supply := quoteSupplyRequirements(sub, minMem)
+	eligibleNow, _ := s.store.EligibleWorkerCountFor(ctx, jobType, sub.Model.Ref, supply)
+	warmEligible, _ := s.store.WarmEligibleWorkerCountFor(ctx, jobType, sub.Model.Ref, supply)
 
 	oomRisk, coldRisk, conf, warnings := assessRisk(scan, eligibleNow, warmEligible, modelMinMem)
 
-	poolRep, _ := s.store.EligiblePoolReputation(ctx, jobType, sub.Model.Ref, minMem)
+	poolRep, _ := s.store.EligiblePoolReputationFor(ctx, jobType, sub.Model.Ref, supply)
 	slaEligible := eligibleNow >= slaMinEligibleWorkers
 	if !slaEligible {
 		warnings = append(warnings, fmt.Sprintf(
@@ -571,28 +594,28 @@ func clampScore(s float64) float64 {
 
 func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxBuyer).(*AuthResult)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeErr(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("request body exceeds the %d byte quote limit", mbe.Limit))
+			return
+		}
+		writeErr(w, http.StatusBadRequest, "reading quote request: "+err.Error())
+		return
+	}
 	var sub jobSubmit
-	if err := json.NewDecoder(r.Body).Decode(&sub); err != nil {
+	if err := decodeStrictJSONObject(raw, &sub); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid quote request json: "+err.Error())
 		return
 	}
-	if sub.JobType.Type == "" || !validJobTypes[sub.JobType.Type] {
-		writeErr(w, http.StatusBadRequest, "valid job_type.type is required")
+	normalized, herr := s.normalizeWorkloadRequest(sub)
+	if herr != nil {
+		writeErr(w, herr.status, herr.msg)
 		return
 	}
-	if sub.Tier == "" {
-		sub.Tier = "batch"
-	}
-	if !validTiers[sub.Tier] {
-		writeErr(w, http.StatusBadRequest, "invalid tier: "+sub.Tier)
-		return
-	}
-	canonicalModel, err := normalizeAdvertisedRuntimeModelRef(sub.JobType.Type, sub.Model)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	sub.Model = canonicalModel
+	sub = normalized
 	schedule, err := LoadEconomicScheduleFromEnv()
 	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, "economic schedule unavailable: "+err.Error())
@@ -612,7 +635,18 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, "reading input: "+err.Error())
 		return
 	}
+	if err := validateWorkloadJSONL(sub.JobType.Type, inputBytes); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	inputSum := sha256.Sum256(inputBytes)
+	workload, err := buildWorkloadDecision(sub, hex.EncodeToString(inputSum[:]))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "classifying workload: "+err.Error())
+		return
+	}
 	q := s.buildQuoteWithSchedule(r.Context(), auth.BuyerID, sub, inputBytes, schedule)
+	q.Workload = workload
 	if !q.Economics.Executable {
 		writeErr(w, http.StatusConflict, "quote is not executable: "+q.Economics.BlockReason)
 		return
@@ -637,6 +671,10 @@ type pipelineQuoteRequest struct {
 }
 
 func (s *Store) EligibleWorkerCount(ctx context.Context, jobType, modelRef string, minMemGB float32) (int, error) {
+	return s.EligibleWorkerCountFor(ctx, jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB})
+}
+
+func (s *Store) EligibleWorkerCountFor(ctx context.Context, jobType, modelRef string, req QuoteSupplyRequirements) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx,
 		`SELECT count(*)
@@ -646,19 +684,29 @@ func (s *Store) EligibleWorkerCount(ctx context.Context, jobType, modelRef strin
 		    AND s.status = 'active'
 		    AND NOT COALESCE(w.throttled, false)
 		    AND COALESCE($3,0) <= COALESCE(w.effective_memory_gb, w.memory_gb, 0)
+		    AND ($4::text[] IS NULL OR w.hw_class = ANY($4))
+		    AND ($5::text[] IS NULL OR s.data_country = ANY($5))
+		    AND COALESCE(s.reputation,0) >= $6
+		    AND (NOT $7 OR COALESCE(s.tier,0) >= 2)
 		    AND EXISTS (
 		      SELECT 1 FROM worker_authorized_capabilities wac
 		       WHERE wac.worker_id = w.id
 		         AND wac.job_type = $1
 		         AND wac.model_ref = $2
-		         AND wac.matrix_sha256 = $4
+		         AND wac.matrix_sha256 = $8
 		    )`,
-		jobType, modelRef, minMemGB, generatedRuntimeMatrixSHA256,
+		jobType, modelRef, req.MinMemoryGB, nullStrSlice(req.HWClasses),
+		nullStrSlice(req.DataResidency), req.MinReputation, req.TrustedOnly,
+		generatedRuntimeMatrixSHA256,
 	).Scan(&n)
 	return n, err
 }
 
 func (s *Store) EligiblePoolReputation(ctx context.Context, jobType, modelRef string, minMemGB float32) (float64, error) {
+	return s.EligiblePoolReputationFor(ctx, jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB})
+}
+
+func (s *Store) EligiblePoolReputationFor(ctx context.Context, jobType, modelRef string, req QuoteSupplyRequirements) (float64, error) {
 	var r float64
 	err := s.pool.QueryRow(ctx,
 		`SELECT COALESCE(AVG(s.reputation), 0)
@@ -668,19 +716,29 @@ func (s *Store) EligiblePoolReputation(ctx context.Context, jobType, modelRef st
 		    AND s.status = 'active'
 		    AND NOT COALESCE(w.throttled, false)
 		    AND COALESCE($3,0) <= COALESCE(w.effective_memory_gb, w.memory_gb, 0)
+		    AND ($4::text[] IS NULL OR w.hw_class = ANY($4))
+		    AND ($5::text[] IS NULL OR s.data_country = ANY($5))
+		    AND COALESCE(s.reputation,0) >= $6
+		    AND (NOT $7 OR COALESCE(s.tier,0) >= 2)
 		    AND EXISTS (
 		      SELECT 1 FROM worker_authorized_capabilities wac
 		       WHERE wac.worker_id = w.id
 		         AND wac.job_type = $1
 		         AND wac.model_ref = $2
-		         AND wac.matrix_sha256 = $4
+		         AND wac.matrix_sha256 = $8
 		    )`,
-		jobType, modelRef, minMemGB, generatedRuntimeMatrixSHA256,
+		jobType, modelRef, req.MinMemoryGB, nullStrSlice(req.HWClasses),
+		nullStrSlice(req.DataResidency), req.MinReputation, req.TrustedOnly,
+		generatedRuntimeMatrixSHA256,
 	).Scan(&r)
 	return r, err
 }
 
 func (s *Store) WarmEligibleWorkerCount(ctx context.Context, jobType, modelRef string, minMemGB float32) (int, error) {
+	return s.WarmEligibleWorkerCountFor(ctx, jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB})
+}
+
+func (s *Store) WarmEligibleWorkerCountFor(ctx context.Context, jobType, modelRef string, req QuoteSupplyRequirements) (int, error) {
 	if modelRef == "" {
 		return 0, nil
 	}
@@ -698,19 +756,32 @@ func (s *Store) WarmEligibleWorkerCount(ctx context.Context, jobType, modelRef s
 		    AND s.status = 'active'
 		    AND NOT COALESCE(w.throttled, false)
 		    AND COALESCE($3,0) <= COALESCE(w.effective_memory_gb, w.memory_gb, 0)
+		    AND ($4::text[] IS NULL OR w.hw_class = ANY($4))
+		    AND ($5::text[] IS NULL OR s.data_country = ANY($5))
+		    AND COALESCE(s.reputation,0) >= $6
+		    AND (NOT $7 OR COALESCE(s.tier,0) >= 2)
 		    AND EXISTS (
 		      SELECT 1 FROM worker_authorized_capabilities wac
 		       WHERE wac.worker_id = w.id
 		         AND wac.job_type = $1
 		         AND wac.model_ref = $2
-		         AND wac.matrix_sha256 = $4
+		         AND wac.matrix_sha256 = $8
 		    )`,
-		jobType, modelRef, minMemGB, generatedRuntimeMatrixSHA256,
+		jobType, modelRef, req.MinMemoryGB, nullStrSlice(req.HWClasses),
+		nullStrSlice(req.DataResidency), req.MinReputation, req.TrustedOnly,
+		generatedRuntimeMatrixSHA256,
 	).Scan(&n)
 	return n, err
 }
 
 func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) error {
+	if err := ValidateWorkloadDecisionSnapshot(q.Workload); err != nil {
+		return fmt.Errorf("refusing quote without valid workload decision: %w", err)
+	}
+	decisionSHA256, err := workloadDecisionDigest(q.Workload)
+	if err != nil {
+		return fmt.Errorf("hashing quote workload decision: %w", err)
+	}
 	blob, err := json.Marshal(q)
 	if err != nil {
 		return err
@@ -731,15 +802,17 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		    cost_expected_usd, cost_min_usd, cost_max_usd, eta_p50_secs, eta_p90_secs,
 		    oom_risk, confidence, quote_json, expires_at, input_sha256,
 		    sla_guaranteed_secs, sla_premium_usd,
-		    economic_schedule_version, economic_plan, economic_executable, currency)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)`,
+		    economic_schedule_version, economic_plan, economic_executable,
+		    workload_binding_sha256, workload_decision_sha256, currency)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)`,
 		q.bareID, buyerID, q.JobType, q.Model, q.Tier, q.Input.Records, q.Input.Bytes,
 		q.Input.EstimatedTokens, q.Input.MalformedRecords, q.Execution.RecommendedSplitSize,
 		q.Execution.EstimatedTasks, q.Execution.EligibleWorkersNow,
 		q.Cost.ExpectedUSD, q.Cost.MinUSD, q.Cost.MaxUSD, q.Time.P50Secs, q.Time.P90Secs,
 		q.Execution.OOMRisk, q.Confidence.Score, blob, q.ExpiresAt, q.InputSHA256,
 		slaSecs, slaPremium,
-		q.Economics.Schedule.Version, planBlob, q.Economics.Executable, SettlementCurrencyCode(),
+		q.Economics.Schedule.Version, planBlob, q.Economics.Executable,
+		q.Workload.BindingSHA256, decisionSHA256, SettlementCurrencyCode(),
 	)
 	return err
 }
@@ -766,6 +839,8 @@ type boundQuote struct {
 	EconomicScheduleVersion string
 	EconomicPlan            EconomicPlan
 	EconomicExecutable      bool
+	WorkloadBindingSHA256   string
+	WorkloadDecisionSHA256  string
 }
 
 func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID) (*boundQuote, error) {
@@ -778,12 +853,15 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 		        (expires_at IS NOT NULL AND expires_at <= now()) AS expired,
 		        COALESCE(sla_guaranteed_secs,0), COALESCE(sla_premium_usd,0)::float8,
 		        COALESCE(economic_schedule_version,''), economic_plan,
-		        COALESCE(economic_executable,false)
+		        COALESCE(economic_executable,false),
+		        COALESCE(workload_binding_sha256,''),
+		        COALESCE(workload_decision_sha256,'')
 		   FROM quotes
 		  WHERE id = $1 AND buyer_id = $2`,
 		quoteID, buyerID,
 	).Scan(&q.ID, &q.JobType, &q.ModelRef, &q.Tier, &q.InputSHA256, &q.CostExpUSD, &q.CostMaxUSD, &q.Expired,
-		&q.SLAGuaranteedSecs, &q.SLAPremiumUSD, &q.EconomicScheduleVersion, &planBlob, &q.EconomicExecutable)
+		&q.SLAGuaranteedSecs, &q.SLAPremiumUSD, &q.EconomicScheduleVersion, &planBlob, &q.EconomicExecutable,
+		&q.WorkloadBindingSHA256, &q.WorkloadDecisionSHA256)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}

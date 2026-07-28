@@ -2,8 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -21,6 +20,10 @@ func (s *Store) SubmitExactReuseBatchJob(
 	money ReuseHitSettlement,
 	inputRecords, inputBytes int64,
 	submitIdempotencyKey, submitRequestSHA256 string,
+	workloadDecision WorkloadDecision,
+	quoteID uuid.UUID,
+	firmQuote bool,
+	firmQuoteMaxUSD float64,
 ) error {
 	if !money.Conserved() {
 		return fmt.Errorf("reuse settlement not conserved")
@@ -30,6 +33,22 @@ func (s *Store) SubmitExactReuseBatchJob(
 	}
 	if money.BuyerDebitMicros <= 0 {
 		return fmt.Errorf("exact reuse batch job must charge the buyer")
+	}
+	if err := ValidateWorkloadDecisionSnapshot(workloadDecision); err != nil {
+		return fmt.Errorf("invalid exact-reuse workload decision: %w", err)
+	}
+	if workloadDecision.Binding.JobType.Type != jobType ||
+		workloadDecision.Binding.Model.Ref != modelRef ||
+		workloadDecision.Binding.Tier != tier {
+		return fmt.Errorf("exact-reuse workload decision does not match the submitted job")
+	}
+	workloadJSON, err := json.Marshal(workloadDecision)
+	if err != nil {
+		return fmt.Errorf("marshal exact-reuse workload decision: %w", err)
+	}
+	workloadSHA256, err := workloadDecisionDigest(workloadDecision)
+	if err != nil {
+		return fmt.Errorf("hash exact-reuse workload decision: %w", err)
 	}
 	buyerCharge := microsToUSD(money.BuyerDebitMicros)
 	platform := microsToUSD(money.PlatformMicros)
@@ -79,14 +98,18 @@ func (s *Store) SubmitExactReuseBatchJob(
 		   tier, verification_policy, estimated_usd, actual_usd, task_count, tasks_done,
 		   budget_state, charge_status,
 		   economic_input_records, economic_input_bytes, economic_input_source,
-		   submit_idempotency_key, submit_request_sha256)
+		   submit_idempotency_key, submit_request_sha256,
+		   workload_decision, workload_decision_sha256,
+		   quote_id, firm_quote, firm_quote_max_usd)
 		VALUES ($1,$2,'complete',$3,$4,$5,$6,$7,'{}'::jsonb,$8,$8,0,0,
 		        'tracking','charged',
 		        $9,$10,'exact_result_reuse',
-		        NULLIF($11,''),NULLIF($12,''))`,
+		        NULLIF($11,''),NULLIF($12,''),$13::jsonb,$14,
+		        $15,$16,$17)`,
 		jobID, buyerID, jobType, modelRef, inputRef, outputRef, tier,
 		buyerCharge, inputRecords, inputBytes,
-		submitIdempotencyKey, submitRequestSHA256)
+		submitIdempotencyKey, submitRequestSHA256, workloadJSON, workloadSHA256,
+		nullUUID(quoteID), firmQuote, nullPosFloat(firmQuoteMaxUSD))
 	if err != nil {
 		return err
 	}
@@ -171,38 +194,44 @@ func (s *Store) maybeCacheCompletedBatchJob(
 	}
 }
 
-// batchRequestIdentity derives the cache key for a batch submission. Empty
-// string means not cacheable.
-func batchRequestIdentity(modelRef, modelRevision, jobType, inputSHA256 string, maxTokens uint32, temperature float64) string {
-	id, err := batchIdentityFromJob(modelRef, modelRevision, jobType, inputSHA256, int(maxTokens), temperature, 0)
+// batchRequestIdentity derives exact-reuse identity from the complete frozen
+// workload decision. This binds input, normalized params, output shape, model
+// kind, pinned revision and runtime authority in one versioned key.
+func batchRequestIdentity(decision WorkloadDecision) string {
+	if !decision.ExactResultCacheEligible {
+		return ""
+	}
+	if err := ValidateFrozenWorkloadDecisionSnapshot(decision); err != nil {
+		return ""
+	}
+	decisionSHA256, err := workloadDecisionDigest(decision)
+	if err != nil {
+		return ""
+	}
+	id, err := (RequestIdentity{
+		ModelID:       decision.Binding.Model.Ref,
+		ModelRevision: decision.ModelRevision,
+		Input:         "workload-decision-sha256:" + decisionSHA256,
+		Temperature:   float64(decision.Binding.JobType.Temperature),
+		TopP:          1,
+		MaxTokens:     int(decision.Binding.JobType.MaxTokens),
+		Policy:        "batch-workload-v2",
+	}).Compute()
 	if err != nil {
 		return ""
 	}
 	return id
 }
 
-// batchIdentityForJob re-derives the request identity for a completed job so
-// its output can be cached without the client ever supplying a key. The input
-// SHA is taken from the stored input object so it matches createJob's stream
-// digest.
-func (s *Store) batchIdentityForJob(ctx context.Context, storage *Storage, jobID uuid.UUID) (string, error) {
-	var modelRef, jobType, inputRef string
-	var maxTokens int
-	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(model_ref,''), COALESCE(job_type,''), COALESCE(input_ref,''),
-		       COALESCE((job_type_spec->>'max_tokens')::int, 0)
-		  FROM jobs WHERE id=$1`, jobID).Scan(&modelRef, &jobType, &inputRef, &maxTokens)
+// batchIdentityForJob uses the exact authority frozen at admission, so the
+// write path and the later lookup path cannot drift under catalogue changes.
+func (s *Store) batchIdentityForJob(ctx context.Context, jobID uuid.UUID) (string, error) {
+	decision, err := s.JobWorkloadDecision(ctx, jobID)
 	if err != nil {
 		return "", err
 	}
-	if storage == nil || inputRef == "" {
-		return "", fmt.Errorf("cannot derive batch identity without stored input")
+	if decision == nil {
+		return "", nil
 	}
-	body, err := storage.GetObject(ctx, inputRef)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(body)
-	inputSHA := hex.EncodeToString(sum[:])
-	return batchRequestIdentity(modelRef, modelRef, jobType, inputSHA, uint32(maxTokens), 0), nil
+	return batchRequestIdentity(*decision), nil
 }

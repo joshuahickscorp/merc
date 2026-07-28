@@ -6,6 +6,27 @@ import (
 	"strings"
 )
 
+// normalizeWorkloadRequest is the single request-shape gate used by both quote
+// and submit. Canary verification floors are part of the normalized shape:
+// otherwise a quote would commit to fewer tasks than submit is allowed to run.
+func (s *Server) normalizeWorkloadRequest(sub jobSubmit) (jobSubmit, *httpError) {
+	if err := s.canary.validateJobShape(sub); err != nil {
+		return sub, &httpError{http.StatusForbidden, "outside private-canary limits: " + err.Error()}
+	}
+	if s.canary.Enabled {
+		if sub.Verification.RedundancyFrac < 1 {
+			sub.Verification.RedundancyFrac = 1
+		}
+		if sub.Verification.HoneypotFrac <= 0 {
+			sub.Verification.HoneypotFrac = 0.1
+		}
+		if sub.Verification.PayoutHoldSecs < 7*24*60*60 {
+			sub.Verification.PayoutHoldSecs = 7 * 24 * 60 * 60
+		}
+	}
+	return normalizeAndValidateJobSubmit(sub)
+}
+
 // normalizeAndValidateJobSubmit applies every check on a submission that depends
 // only on the request itself, returning the normalized submission or the error
 // the handler should send.
@@ -22,6 +43,19 @@ import (
 func normalizeAndValidateJobSubmit(sub jobSubmit) (jobSubmit, *httpError) {
 	if math.IsNaN(sub.MaxUSD) || math.IsInf(sub.MaxUSD, 0) || sub.MaxUSD < 0 {
 		return sub, &httpError{http.StatusBadRequest, "max_usd must be a finite non-negative number"}
+	}
+	if !validFiniteUnitFloat(sub.MinReputation) {
+		return sub, &httpError{http.StatusBadRequest, "min_reputation must be a finite number in [0,1]"}
+	}
+	minMemory := float64(sub.Constraints.MinMemoryGB)
+	if math.IsNaN(minMemory) || math.IsInf(minMemory, 0) || minMemory < 0 {
+		return sub, &httpError{http.StatusBadRequest, "constraints.min_memory_gb must be a finite non-negative number"}
+	}
+	if !validFiniteUnitFloat(sub.Verification.RedundancyFrac) {
+		return sub, &httpError{http.StatusBadRequest, "verification.redundancy_frac must be a finite number in [0,1]"}
+	}
+	if !validFiniteUnitFloat(sub.Verification.HoneypotFrac) {
+		return sub, &httpError{http.StatusBadRequest, "verification.honeypot_frac must be a finite number in [0,1]"}
 	}
 	if sub.JobType.Type == "" {
 		return sub, &httpError{http.StatusBadRequest, "job_type.type is required"}
@@ -40,6 +74,23 @@ func normalizeAndValidateJobSubmit(sub jobSubmit) (jobSubmit, *httpError) {
 		return sub, &httpError{http.StatusBadRequest, err.Error()}
 	}
 	sub.Model = canonicalModel
+
+	switch sub.JobType.Type {
+	case "embed":
+		if sub.JobType.MaxTokens != 0 || sub.JobType.Temperature != 0 {
+			return sub, &httpError{http.StatusBadRequest,
+				"embed workload cannot carry generation-only max_tokens or temperature fields"}
+		}
+		if sub.JobType.BatchSize < 0 || sub.JobType.BatchSize > maxEmbedBatchSize {
+			return sub, &httpError{http.StatusBadRequest,
+				"embed batch_size must be in [0,4096]"}
+		}
+	case "batch_infer":
+		if sub.JobType.BatchSize != 0 || sub.JobType.EmbedBinary {
+			return sub, &httpError{http.StatusBadRequest,
+				"batch_infer workload cannot carry embedding-only batch_size or binary fields"}
+		}
+	}
 
 	// Reject a temperature the engine will not honour, everywhere -- not only
 	// under canary, which already refuses it.
@@ -60,9 +111,28 @@ func normalizeAndValidateJobSubmit(sub jobSubmit) (jobSubmit, *httpError) {
 				"redundant workers can be compared, and sampling would make honest " +
 				"workers disagree"}
 	}
+	params, err := canonicalizeJobParams(sub.Params)
+	if err != nil {
+		return sub, &httpError{http.StatusBadRequest, err.Error()}
+	}
+	sub.Params = params
+
+	sub.Constraints.HWClasses = normalizeUniqueStrings(
+		sub.Constraints.HWClasses, strings.TrimSpace,
+	)
 	for _, c := range sub.Constraints.HWClasses {
 		if !validHWClasses[c] {
 			return sub, &httpError{http.StatusBadRequest, "invalid hw_class: " + c}
+		}
+	}
+	sub.Constraints.DataResidency = normalizeUniqueStrings(
+		sub.Constraints.DataResidency,
+		func(value string) string { return strings.ToUpper(strings.TrimSpace(value)) },
+	)
+	for _, country := range sub.Constraints.DataResidency {
+		if !validDataCountry(country) {
+			return sub, &httpError{http.StatusBadRequest,
+				"data_residency entries must be two-letter ISO country codes"}
 		}
 	}
 	if sub.WebhookURL != "" {
