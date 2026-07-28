@@ -11,10 +11,16 @@ import (
 func TestAssembleClearingReceipt(t *testing.T) {
 	jobID := uuid.New()
 	quoted := 9.5
+	processorFee := 0.25
+	platformNet := -0.01
+	allocationMethod := batchFeeAllocationHamiltonV1
 	inv := &InvoiceView{
 		JobID: jobID, Status: "complete",
 		EstimatedUSD: 9.0, ActualUSD: 8.0, ChargedUSD: 8.0,
 		SupplierPaidUSD: 7.76, PlatformTakeUSD: 0.24, QuotedUSD: &quoted,
+		ProcessorFeeAllocatedUSD:     &processorFee,
+		ProcessorFeeAllocationMethod: &allocationMethod,
+		PlatformNetAfterProcessorUSD: &platformNet,
 	}
 	verif := Verification{RedundancyMatched: 2, Checked: 2, Label: "verified", DisputeStatus: "resolved"}
 	classes := []string{"candle|abc123"}
@@ -55,6 +61,16 @@ func TestAssembleClearingReceipt(t *testing.T) {
 	}
 	if rc.Invoice.SupplierPaidUSD == 0 || rc.Invoice.PlatformTakeUSD == 0 {
 		t.Fatal("receipt must carry SETTLEMENT amounts")
+	}
+	if rc.Invoice.ProcessorFeeAllocatedUSD == nil || *rc.Invoice.ProcessorFeeAllocatedUSD != 0.25 {
+		t.Fatal("receipt must carry processor-fee reconciliation attribution")
+	}
+	if rc.Invoice.ProcessorFeeAllocationMethod == nil ||
+		*rc.Invoice.ProcessorFeeAllocationMethod != batchFeeAllocationHamiltonV1 {
+		t.Fatal("receipt must identify the processor-fee allocation method")
+	}
+	if rc.Invoice.PlatformNetAfterProcessorUSD == nil || *rc.Invoice.PlatformNetAfterProcessorUSD != -0.01 {
+		t.Fatal("receipt must carry platform net after processor fee")
 	}
 	if rc.Verification.Label != "verified" || rc.Verification.DisputeStatus != "resolved" {
 		t.Fatal("receipt must carry VERIFICATION + DISPUTE")

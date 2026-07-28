@@ -126,6 +126,24 @@ Separately, `stripe_fee` is booked negative against the buyer and never
 subtracted from `platform_take`, so ledger margin overstates reality by the full
 processor fee: on a $5 batch `platform_take` reads $0.15 while Stripe took $0.445.
 
+**Local resolution, 2026-07-28:** new recorded processor fees are now allocated
+to batch jobs with Hamilton's largest-remainder method at micro-USD precision.
+Immutable job IDs break equal-remainder ties, so permuting the same economic
+facts cannot change which job receives a rounding micro-unit. Allocation is
+serialized, append-only, idempotent, and rejected if the row set is partial or
+does not conserve the fee exactly. Buyer invoices and clearing receipts expose
+both `processor_fee_allocated_usd` and
+`platform_net_after_processor_usd`, plus the versioned allocation method; a
+batch invoice fails closed if a recorded fee has not been completely allocated.
+Pre-upgrade rows retain and expose `legacy_order_residual_v0` rather than being
+silently rewritten. Ten thousand randomized quota,
+conservation, and permutation cases plus fresh-PostgreSQL concurrent mutation
+tests cover the local boundary.
+
+This does **not** close provider reconciliation. No Stripe test object, balance
+transaction, refund, dispute, payout, or real cash evidence was created in this
+change, and the formal Stripe test-mode matrix remains a release blocker.
+
 ## What cannot be fixed by configuration
 
 `MERC_PLATFORM_TAKE_PCT` is clamped to [1%, 5%]. Running the whole range: at 5%

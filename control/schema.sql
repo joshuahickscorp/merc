@@ -1512,11 +1512,17 @@ ALTER TABLE charge_batches ADD COLUMN IF NOT EXISTS next_at TIMESTAMPTZ;
 ALTER TABLE charge_batches ALTER COLUMN amount_usd TYPE NUMERIC(12,6);
 
 CREATE INDEX IF NOT EXISTS charge_batches_status_idx ON charge_batches (status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS charge_batches_stripe_pi_uniq
+    ON charge_batches (stripe_pi) WHERE stripe_pi IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS charge_batches_id_stripe_pi_uniq
+    ON charge_batches (id, stripe_pi);
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS charge_batch_id UUID;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS charge_attempts INT NOT NULL DEFAULT 0;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS charge_next_at  TIMESTAMPTZ;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS stripe_pi TEXT;
 CREATE INDEX IF NOT EXISTS jobs_charge_status_idx ON jobs (charge_status);
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_charge_batch_id_job_id_uniq
+    ON jobs (charge_batch_id, id);
 
 CREATE TABLE IF NOT EXISTS buyer_charge_operations (
     operation_key        TEXT PRIMARY KEY CHECK (btrim(operation_key) <> ''),
@@ -1556,13 +1562,79 @@ CREATE TABLE IF NOT EXISTS charge_batch_fee_allocations (
     allocation_ordinal INT NOT NULL,
     billed_weight_usd NUMERIC(12,6) NOT NULL CHECK (billed_weight_usd > 0),
     allocated_fee_usd NUMERIC(12,6) NOT NULL CHECK (allocated_fee_usd >= 0),
+    allocation_method TEXT NOT NULL DEFAULT 'hamilton_largest_remainder_job_id_v1',
     allocated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (charge_batch_id, job_id),
     UNIQUE (job_id),
     UNIQUE (charge_batch_id, allocation_ordinal)
 );
+-- A prior release created this table without a method marker and assigned the
+-- residual to the last job. Preserve those economic facts instead of silently
+-- rewriting them; all new rows use the order-independent method.
+ALTER TABLE charge_batch_fee_allocations
+    ADD COLUMN IF NOT EXISTS allocation_method TEXT;
+UPDATE charge_batch_fee_allocations
+SET allocation_method='legacy_order_residual_v0'
+WHERE allocation_method IS NULL;
+ALTER TABLE charge_batch_fee_allocations
+    ALTER COLUMN allocation_method
+    SET DEFAULT 'hamilton_largest_remainder_job_id_v1';
+ALTER TABLE charge_batch_fee_allocations
+    ALTER COLUMN allocation_method SET NOT NULL;
+ALTER TABLE charge_batch_fee_allocations
+    DROP CONSTRAINT IF EXISTS charge_batch_fee_allocations_method_known;
+ALTER TABLE charge_batch_fee_allocations
+    ADD CONSTRAINT charge_batch_fee_allocations_method_known CHECK (
+        allocation_method IN (
+            'legacy_order_residual_v0',
+            'hamilton_largest_remainder_job_id_v1'
+        )
+    );
+ALTER TABLE charge_batch_fee_allocations
+    DROP CONSTRAINT IF EXISTS charge_batch_fee_allocations_pi_nonempty;
+ALTER TABLE charge_batch_fee_allocations
+    ADD CONSTRAINT charge_batch_fee_allocations_pi_nonempty
+    CHECK (btrim(stripe_pi) <> '');
+ALTER TABLE charge_batch_fee_allocations
+    DROP CONSTRAINT IF EXISTS charge_batch_fee_allocations_ordinal_nonnegative;
+ALTER TABLE charge_batch_fee_allocations
+    ADD CONSTRAINT charge_batch_fee_allocations_ordinal_nonnegative
+    CHECK (allocation_ordinal >= 0);
+ALTER TABLE charge_batch_fee_allocations
+    DROP CONSTRAINT IF EXISTS charge_batch_fee_allocations_charge_batch_id_fkey;
+ALTER TABLE charge_batch_fee_allocations
+    ADD CONSTRAINT charge_batch_fee_allocations_charge_batch_id_fkey
+    FOREIGN KEY (charge_batch_id) REFERENCES charge_batches(id) ON DELETE RESTRICT;
+ALTER TABLE charge_batch_fee_allocations
+    DROP CONSTRAINT IF EXISTS charge_batch_fee_allocations_job_id_fkey;
+ALTER TABLE charge_batch_fee_allocations
+    ADD CONSTRAINT charge_batch_fee_allocations_job_id_fkey
+    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE RESTRICT;
+ALTER TABLE charge_batch_fee_allocations
+    DROP CONSTRAINT IF EXISTS charge_batch_fee_allocations_batch_pi_fkey;
+ALTER TABLE charge_batch_fee_allocations
+    ADD CONSTRAINT charge_batch_fee_allocations_batch_pi_fkey
+    FOREIGN KEY (charge_batch_id, stripe_pi)
+    REFERENCES charge_batches(id, stripe_pi) ON DELETE RESTRICT;
+ALTER TABLE charge_batch_fee_allocations
+    DROP CONSTRAINT IF EXISTS charge_batch_fee_allocations_batch_job_fkey;
+ALTER TABLE charge_batch_fee_allocations
+    ADD CONSTRAINT charge_batch_fee_allocations_batch_job_fkey
+    FOREIGN KEY (charge_batch_id, job_id)
+    REFERENCES jobs(charge_batch_id, id) ON DELETE RESTRICT;
 CREATE INDEX IF NOT EXISTS charge_batch_fee_allocations_pi_idx
     ON charge_batch_fee_allocations (stripe_pi);
+CREATE OR REPLACE FUNCTION reject_charge_batch_fee_allocation_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'charge batch fee allocations are append-only';
+END;
+$$;
+DROP TRIGGER IF EXISTS charge_batch_fee_allocations_append_only
+    ON charge_batch_fee_allocations;
+CREATE TRIGGER charge_batch_fee_allocations_append_only
+BEFORE UPDATE OR DELETE ON charge_batch_fee_allocations
+FOR EACH ROW EXECUTE FUNCTION reject_charge_batch_fee_allocation_mutation();
 
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS economic_schedule_version TEXT;
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS economic_plan JSONB;
