@@ -41,11 +41,9 @@ separate `refusing to start`:
 | `MERC_PROCESSOR_FIXED_USD` | `0.30` |
 | `MERC_CONTROL_PLANE_PER_TASK_USD` | `0.0001` |
 | `MERC_TARGET_MARGIN_BPS` | `1000` |
-| `STRIPE_SECRET_KEY` | |
-| `STRIPE_WEBHOOK_SECRET` | |
-| `MERC_CONNECT_WEBHOOK_SECRET` | Must differ from the billing secret. |
-| `MERC_CONNECT_RETURN_URL` | `https://mercmerc.net/supplier/connected` |
-| `MERC_CONNECT_REFRESH_URL` | `https://mercmerc.net/supplier/reconnect` |
+| `MERC_PAYMENT_MODE` | `sealed` until the candidate-bound LIVE activation package exists. |
+| `MERC_PAYMENT_PROVIDER` | `none` in SEALED; `stripe` in LIVE. |
+| `STRIPE_*`, `MERC_CONNECT_*` | **Unset in SEALED.** Required only by the separately approved LIVE activation procedure. |
 | `DATABASE_URL`, `S3_*` | As already configured on the host. |
 
 **The rename has not touched these names.** Tier 1 of the rebrand was
@@ -75,30 +73,60 @@ warning while writing `plain:`-prefixed secrets. Rename the whole file at once.
 
 GitHub Actions secrets need the same rename.
 
-## 2. The one thing that will still refuse
+## 2. Deploy SEALED until live payments are independently activated
 
-Boot now runs a settlement preflight. Against the current Stripe account it
-fails, and in production that is fatal rather than advisory:
+Production now defaults to `MERC_PAYMENT_MODE=sealed`. SEALED is structural:
+Stripe credentials, webhook secrets, payout export, provider network calls,
+charges, refunds, reversals and payouts are refused. An administrator cannot
+turn them on by changing the database payment kill switch. `/readyz` remains
+green for the rest of the platform and reports:
 
+```json
+{"status":"ready","payment_mode":"sealed","provider_enabled":false,"live_value_movement":false}
 ```
-control: stripe settlement preflight failed [account CA/CAD]: stripe platform
-cannot settle USD (enabled settlement currencies: cad); every supplier payout
-would fail with balance_insufficient.
+
+This is the correct mode while live Stripe, payment/legal approvals, and
+provider-side aggregate limits are unavailable. The ledger currency is explicit
+through `MERC_SETTLEMENT_CURRENCY`; the current sandbox authority is CAD, not a
+hardcoded USD assumption.
+
+LIVE later requires all of the following at once:
+
+- a clean 40-character deployed candidate commit;
+- `MERC_PAYMENT_MODE=live` plus a permission-restricted
+  `STRIPE_SECRET_KEY_SOURCE` file containing a live or restricted-live Stripe
+  credential (never an inline production environment value);
+- distinct billing and Connect webhook secrets;
+- a 72-hour-or-shorter activation and bounded recovery window;
+- payments, security, and release-manager approvals;
+- per-operation caps and an independently configured aggregate-cap reference;
+- a read-only activation file whose digest and HMAC both verify;
+- a separate 0600/0640 HMAC-key file readable by the container's UID/GID.
+
+When the short value-movement window expires, MERC remains healthy only during
+the signed recovery window. New charges, payouts, and provider setup are
+refused; provider reads, signed webhooks, refunds, and transfer reversals remain
+available so reconciliation can finish. Once recovery expires, readiness fails
+closed until a new candidate-bound activation is installed.
+
+The canonical schema is `ops/live-payment-activation.schema.json`. Sign with the
+candidate binary:
+
+```bash
+MERC_SETTLEMENT_CURRENCY=cad \
+MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_FILE=/absolute/private/live-payment-activation-hmac-key \
+scripts/cx release payment-activation-sign \
+  --input /absolute/private/unsigned-live-activation.json \
+  --output /absolute/private/live-payment-activation.json
 ```
 
-This is correct — the ledger is USD-only (`control/payment.go` rejects any other
-currency) and the platform is Canadian, so no supplier payout could ever
-complete. `POST /v1/topups` for `CA`/`USD` is explicitly unsupported, so it
-cannot be worked around from this side.
-
-**Fix before deploying with a Stripe key**: add USD as a settlement currency on
-the Stripe account (supported for Canadian platforms with a USD bank account),
-or move to a platform whose country settles USD. See `docs/STRIPE_CONNECT.md`.
-
-To deploy the site and control plane *without* the payout rail in the meantime,
-leave `STRIPE_SECRET_KEY` unset — the preflight only runs when a key is present,
-and the payout rail degrades to "none configured" (funded credits reach `owed`,
-never `released`).
+The command refuses dirty/different/expired candidates and will not overwrite an
+existing reviewed activation. It may pre-stage a future activation at most seven
+days before `valid_from`; runtime authorization still uses the real clock.
+Deployment uses
+`MERC_LIVE_PAYMENT_ACTIVATION_HMAC_KEY_SOURCE` for that same file and mounts it
+read-only. The live Stripe key uses the same pattern through
+`STRIPE_SECRET_KEY_SOURCE`; neither secret value appears in `docker inspect`.
 
 ## 3. Build the image — use CI, not your laptop
 
@@ -175,14 +203,15 @@ curl -s -o /dev/null -w '%{http_code}\n' https://mercmerc.net/readyz
 `/version` should report `v0.1.0-merc-rc1` and the commit you built. If it 404s,
 the old build is still serving.
 
-## 6. Re-point the Stripe webhooks
+## 6. Re-point the Stripe webhooks only during approved LIVE activation
 
 The two endpoints currently point at a dead `trycloudflare.com` quick tunnel.
-Once `mercmerc.net` serves, recreate them — the API returns the signing secret,
-so no Dashboard visit is needed:
+Do not recreate them during a SEALED deployment. Once LIVE activation is
+approved, recreate them through the supervised Stripe procedure:
 
 ```bash
-curl -s https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
+stripe_secret="$(tr -d '\r\n' < "$STRIPE_SECRET_KEY_SOURCE")"
+curl -s https://api.stripe.com/v1/webhook_endpoints -u "$stripe_secret:" \
   -d url=https://mercmerc.net/v1/stripe/webhook \
   -d 'enabled_events[]=payment_intent.succeeded' \
   -d 'enabled_events[]=setup_intent.succeeded' \
@@ -193,13 +222,16 @@ curl -s https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
   -d 'enabled_events[]=payout.created' \
   -d 'enabled_events[]=payout.paid' \
   -d 'enabled_events[]=payout.failed'
+unset stripe_secret
 ```
 
 ```bash
-curl -s https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
+stripe_secret="$(tr -d '\r\n' < "$STRIPE_SECRET_KEY_SOURCE")"
+curl -s https://api.stripe.com/v1/webhook_endpoints -u "$stripe_secret:" \
   -d url=https://mercmerc.net/v1/stripe/connect-webhook \
   -d connect=true \
   -d 'enabled_events[]=account.updated'
+unset stripe_secret
 ```
 
 Put each response's `secret` into `STRIPE_WEBHOOK_SECRET` and
@@ -215,6 +247,5 @@ used to forge a Connect "payout succeeded" event. Then delete the two old
 make stripe-check && make stripe-matrix
 ```
 
-`stripe-check` now fails closed if the platform cannot settle USD, so it will
-stay red until step 2 is resolved. Once green, the matrix closes the 6-point
-`money_and_reconciliation` gap and readiness moves from 83 toward 89.
+`stripe-check` and `stripe-matrix` remain test-mode authority. They do not arm
+LIVE payments or upgrade legal/governance readiness by themselves.

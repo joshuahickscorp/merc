@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mercmerc.net/schemas/live-payment-activation-v1.json",
+  "title": "MERC live payment activation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "activation", "hmac_sha256"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "hmac_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activation_id",
+        "candidate_commit",
+        "environment",
+        "currency",
+        "valid_from",
+        "expires_at",
+        "recovery_expires_at",
+        "max_single_charge_minor",
+        "max_single_payout_minor",
+        "max_single_refund_minor",
+        "max_single_reversal_minor",
+        "external_aggregate_cap_ref",
+        "approvals"
+      ],
+      "properties": {
+        "activation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+        },
+        "candidate_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "environment": {
+          "const": "production"
+        },
+        "currency": {
+          "enum": ["cad", "usd", "jpy"]
+        },
+        "valid_from": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recovery_expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "max_single_charge_minor": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_single_payout_minor": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_single_refund_minor": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_single_reversal_minor": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "external_aggregate_cap_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "approvals": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "approver", "reference"],
+            "properties": {
+              "role": {
+                "enum": ["payments", "release_manager", "security"]
+              },
+              "approver": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "reference": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

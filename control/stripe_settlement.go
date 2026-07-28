@@ -44,6 +44,11 @@ func (p StripePayout) settlementCurrencies(ctx context.Context) ([]string, error
 	if p.secret == "" {
 		return nil, errPayoutUnconfigured
 	}
+	if _, err := authorizePaymentOperation(
+		paymentOperationRead, 0, "", p.secret,
+	); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.stripe.com/v1/balance", nil)
 	if err != nil {
 		return nil, err
@@ -130,6 +135,11 @@ func (p StripePayout) verifySettlementCurrency(ctx context.Context) error {
 // stripeAccountCountry is reported alongside a failure so the operator knows
 // whether the fix is a settlement-currency addition or a different account.
 func (p StripePayout) accountCountry(ctx context.Context) string {
+	if _, err := authorizePaymentOperation(
+		paymentOperationRead, 0, "", p.secret,
+	); err != nil {
+		return ""
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.stripe.com/v1/account", nil)
 	if err != nil {
 		return ""

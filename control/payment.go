@@ -207,6 +207,11 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 	if p.secret == "" {
 		return PayoutResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
 	}
+	if _, err := authorizePaymentOperation(
+		paymentOperationPayout, cents, currency, p.secret,
+	); err != nil {
+		return PayoutResult{}, payoutDefinitelyNotSent(err)
+	}
 	acct, err := p.store.SupplierStripeAcct(ctx, supplierID)
 	if err != nil {
 		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("looking up supplier stripe account: %w", err))
@@ -288,6 +293,11 @@ func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, c
 	if p.secret == "" {
 		return ReversalResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
 	}
+	if _, err := authorizePaymentOperation(
+		paymentOperationReversal, cents, currency, p.secret,
+	); err != nil {
+		return ReversalResult{}, payoutDefinitelyNotSent(err)
+	}
 	transferRef = strings.TrimSpace(transferRef)
 	if transferRef == "" {
 		return ReversalResult{}, payoutDefinitelyNotSent(errors.New("empty transfer ref for reversal"))
@@ -353,6 +363,11 @@ func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, c
 func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, cents int64, currency, reverseKey string) (ReversalResult, error) {
 	if p.secret == "" {
 		return ReversalResult{}, payoutDefinitelyNotSent(errPayoutUnconfigured)
+	}
+	if _, err := authorizePaymentOperation(
+		paymentOperationRefund, cents, currency, p.secret,
+	); err != nil {
+		return ReversalResult{}, payoutDefinitelyNotSent(err)
 	}
 	paymentIntent = strings.TrimSpace(paymentIntent)
 	if paymentIntent == "" {

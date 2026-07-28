@@ -26,6 +26,7 @@ if [ "${1:-}" = release ]; then
         --out "$ROOT/evidence/autonomous/alert-page-simulation.json" "$@"
       ;;
     approvals-check) shift; (cd "$ROOT/control" && exec go run . release approvals-check "$@") ;;
+    payment-activation-sign) shift; (cd "$ROOT/control" && exec go run . release payment-activation-sign "$@") ;;
     *)
       cat <<'EOF'
 cx release commands:
@@ -38,6 +39,7 @@ cx release commands:
   alert-page [--real-receiver-env MERC_ALERT_RECEIVER_NAME]
                                    exercise local delivery; optionally page an approved HTTPS receiver
   approvals-check [--bundle PATH]  validate commit-bound governance receipts
+  payment-activation-sign          sign a candidate-bound LIVE activation without provider network access
 EOF
       ;;
   esac

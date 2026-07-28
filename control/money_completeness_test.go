@@ -103,7 +103,7 @@ func TestStripeTransferReversalHTTPIdempotentShape(t *testing.T) {
 	// temporary monkey — we call the method with a rewritten client that posts
 	// to the test server by replacing DefaultTransport.
 	p := StripePayout{
-		secret: "sk_test",
+		secret: "sk_test_reversal_shape",
 		http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			req.URL.Scheme = "http"
 			req.URL.Host = strings.TrimPrefix(srv.URL, "http://")
@@ -152,7 +152,7 @@ func TestStripeChargeRefundHTTPShape(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := StripePayout{
-		secret: "sk_test",
+		secret: "sk_test_refund_shape",
 		http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			req.URL.Scheme = "http"
 			req.URL.Host = strings.TrimPrefix(srv.URL, "http://")

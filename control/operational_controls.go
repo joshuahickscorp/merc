@@ -183,8 +183,21 @@ func (s *Server) handleAdminSetControl(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authenticated admin identity is required")
 		return
 	}
+	name, err := normalizeOperationalControl(r.PathValue("name"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !*body.Paused && (name == controlPayments || name == controlWebhooks) {
+		authority, authorityErr := currentPaymentAuthority()
+		if authorityErr != nil || !authority.ProviderEnabled() {
+			writeErr(w, http.StatusConflict,
+				"SEALED payment authority cannot be overridden by an operational-control change")
+			return
+		}
+	}
 	control, err := s.store.AdminSetOperationalControl(
-		r.Context(), actor, r.PathValue("name"), *body.Paused, body.Reason, body.RequestID)
+		r.Context(), actor, name, *body.Paused, body.Reason, body.RequestID)
 	if writeAdminMutationInputOrAuthError(w, err) {
 		return
 	}

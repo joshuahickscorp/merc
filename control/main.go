@@ -89,35 +89,6 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	}
 }
 
-func validateLiveMoneyConfig(cxEnv, stripeSecret, billingWebhookSecret, connectWebhookSecret string) error {
-	liveStripe := isLiveStripeCredential(stripeSecret)
-	production := strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod")
-	if !production && !liveStripe {
-		return nil
-	}
-
-	missing := make([]string, 0, 3)
-	if production && strings.TrimSpace(stripeSecret) == "" {
-		missing = append(missing, "STRIPE_SECRET_KEY")
-	}
-	if strings.TrimSpace(billingWebhookSecret) == "" {
-		missing = append(missing, "STRIPE_WEBHOOK_SECRET")
-	}
-	if strings.TrimSpace(connectWebhookSecret) == "" {
-		missing = append(missing, "MERC_CONNECT_WEBHOOK_SECRET")
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("live money configuration invalid: %s required; refusing to start", strings.Join(missing, ", "))
-	}
-	if billingWebhookSecret == connectWebhookSecret {
-		return fmt.Errorf("live money configuration invalid: STRIPE_WEBHOOK_SECRET and MERC_CONNECT_WEBHOOK_SECRET must be distinct endpoint secrets; refusing to start")
-	}
-	if _, err := LoadEconomicScheduleFromEnv(); err != nil {
-		return fmt.Errorf("live money configuration invalid: economic schedule: %w; refusing to start", err)
-	}
-	return nil
-}
-
 func stripeCredentialClass(value string) string {
 	value = strings.TrimSpace(value)
 	switch {
@@ -253,25 +224,39 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Printf("settlement currency: %s (exponent=%d)", settlementCur.Code(), settlementCur.Exponent())
-	if err := validateLiveMoneyConfig(
-		os.Getenv("MERC_ENV"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
-		os.Getenv("MERC_CONNECT_WEBHOOK_SECRET"),
-	); err != nil {
+	paymentAuthority, err := currentPaymentAuthority()
+	if err != nil {
 		log.Fatal(err)
 	}
-	if err := validatePaymentProviderMode(os.Getenv("MERC_ENV"), os.Getenv("MERC_PAYMENT_PROVIDER")); err != nil {
+	stripeSecret, err := configuredStripeKey()
+	if err != nil {
 		log.Fatal(err)
 	}
-	if err := validateCanaryMoneyMode(
-		os.Getenv("MERC_CANARY_MODE"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
+	if err := validatePaymentAuthorityStartup(
+		paymentAuthority, os.Getenv("MERC_PAYMENT_PROVIDER"), os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		os.Getenv("MERC_CONNECT_WEBHOOK_SECRET"), os.Getenv("MERC_CONNECT_CLIENT_ID"),
 		os.Getenv("MERC_PAYOUT_EXPORT"),
 	); err != nil {
 		log.Fatal(err)
 	}
-	if err := validateLiveConnectURLConfig(
-		os.Getenv("MERC_ENV"), stripeKey(), os.Getenv("MERC_CONNECT_RETURN_URL"),
-		os.Getenv("MERC_CONNECT_REFRESH_URL"), os.Getenv("SITE_HOST"),
+	if paymentAuthority.Mode == PaymentModeLive {
+		if _, err := LoadEconomicScheduleFromEnv(); err != nil {
+			log.Fatalf("LIVE payment configuration: economic schedule: %v", err)
+		}
+		if err := validateConnectURLPair(
+			os.Getenv("MERC_CONNECT_RETURN_URL"), os.Getenv("MERC_CONNECT_REFRESH_URL"),
+			os.Getenv("SITE_HOST"),
+		); err != nil {
+			log.Fatalf("LIVE Stripe Connect configuration invalid: %v", err)
+		}
+	}
+	log.Printf("payment authority: mode=%s provider_enabled=%t live_value_movement=%t",
+		paymentAuthority.Mode, paymentAuthority.ProviderEnabled(),
+		paymentAuthority.LiveValueMovementEnabled())
+	if err := validateCanaryMoneyMode(
+		os.Getenv("MERC_CANARY_MODE"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		os.Getenv("MERC_CONNECT_WEBHOOK_SECRET"), os.Getenv("MERC_CONNECT_CLIENT_ID"),
+		os.Getenv("MERC_PAYOUT_EXPORT"),
 	); err != nil {
 		log.Fatal(err)
 	}
@@ -354,10 +339,10 @@ func main() {
 	}
 
 	var payout Payout = stubPayout{}
-	if key := os.Getenv("STRIPE_SECRET_KEY"); key != "" {
-		sp := newStripePayout(store, key)
+	if paymentAuthority.ProviderEnabled() {
+		sp := newStripePayout(store, stripeSecret)
 		payout = sp
-		log.Print("payout rail: Stripe Connect (STRIPE_SECRET_KEY set)")
+		log.Printf("payout rail: Stripe Connect (%s authority)", paymentAuthority.Mode)
 
 		// The ledger settles in MERC_SETTLEMENT_CURRENCY. A platform that
 		// cannot hold that currency accepts every transfer request and fails
@@ -370,18 +355,15 @@ func main() {
 			if where != "" {
 				where = " [account " + where + "]"
 			}
-			if isProductionEnv(os.Getenv("MERC_ENV")) {
+			if paymentAuthority.LiveValueMovementEnabled() {
 				cancelProbe()
 				log.Fatalf("stripe settlement preflight failed%s: %v", where, err)
 			}
 			log.Printf("WARNING: stripe settlement preflight failed%s: %v", where, err)
 		}
 		cancelProbe()
-	} else if path := os.Getenv("MERC_PAYOUT_EXPORT"); path != "" {
-		payout = newManualExportPayout(path)
-		log.Printf("payout rail: manual export (alpha) -> %s  -  owed credits appended for out-of-band settlement", path)
 	} else {
-		log.Print("payout rail: none configured  -  funded credits reach 'ready' (owed), never 'released'")
+		log.Print("payout rail: SEALED  -  provider calls, exports, charges, refunds, reversals and payouts are structurally disabled")
 	}
 
 	server := NewServer(store, storage, NewVerifier(store).WithStorage(storage), payout)

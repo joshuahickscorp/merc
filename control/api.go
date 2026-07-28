@@ -362,6 +362,21 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "canary policy is incomplete"})
 		return
 	}
+	paymentAuthority, err := currentPaymentAuthority()
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status": "not_ready", "reason": "payment authority is invalid",
+		})
+		return
+	}
+	if !paymentAuthority.OperationallyReady() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status":       "not_ready",
+			"reason":       "payment authority is outside its operational window",
+			"payment_mode": paymentAuthority.Mode,
+		})
+		return
+	}
 	if err := s.store.Ping(r.Context()); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "database unreachable"})
 		return
@@ -375,7 +390,13 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "stale_tickers": stale})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":                  "ready",
+		"payment_mode":            paymentAuthority.Mode,
+		"provider_enabled":        paymentAuthority.ProviderEnabled(),
+		"live_value_movement":     paymentAuthority.LiveValueMovementEnabled(),
+		"payment_recovery_active": paymentAuthority.RecoveryActive,
+	})
 }
 
 type jobSubmit struct {
