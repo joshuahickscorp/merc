@@ -106,7 +106,9 @@ func (s *Store) QueuedTaskCount(ctx context.Context) (int, error) {
 		 WHERE t.status IN ('queued','retrying')
 		   AND t.claimed_by IS NULL
 		   AND COALESCE(t.visible_at, t.created_at) <= now()
-		   AND j.status NOT IN ('cancelled','failed','complete')`,
+		   AND j.status NOT IN ('cancelled','failed','complete')
+		   AND j.currency = $1`,
+		SettlementCurrencyCode(),
 	).Scan(&n)
 	return n, err
 }
@@ -178,12 +180,16 @@ func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID, claim
 		return errNotFound
 	}
 
-	var parentStatus string
-	if err := tx.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1 FOR UPDATE`, jobID).Scan(&parentStatus); err != nil {
+	var parentStatus, jobCurrency string
+	if err := tx.QueryRow(ctx, `SELECT status,currency FROM jobs WHERE id=$1 FOR UPDATE`, jobID).
+		Scan(&parentStatus, &jobCurrency); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errNotFound
 		}
 		return err
+	}
+	if err := RequireSettlementCurrency(jobCurrency); err != nil {
+		return fmt.Errorf("job %s cannot start under this deployment: %w", jobID, err)
 	}
 	if parentStatus != "queued" && parentStatus != "running" && parentStatus != "verifying" {
 		return errNotFound
@@ -628,23 +634,25 @@ func (s *Store) ClawbackTaskCredit(ctx context.Context, supplierID, taskID uuid.
 		credited       float64
 		creditState    string
 		payoutRef      string
+		creditCurrency string
 		outcomeUnknown bool
 	)
 	err = tx.QueryRow(ctx, `
 		SELECT le.id,le.amount_usd::float8,le.payout_status,
-		       COALESCE(le.payout_ref,''),COALESCE(op.outcome_unknown,false)
+		       COALESCE(le.payout_ref,''),le.currency,COALESCE(op.outcome_unknown,false)
 		  FROM ledger_entries le
 		  LEFT JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
 		 WHERE le.supplier_id=$1 AND le.task_id=$2
 		   AND le.kind='supplier_credit' AND le.amount_usd>0
 		 ORDER BY le.created_at,le.id LIMIT 1
 		 FOR UPDATE OF le`, supplierID, taskID).
-		Scan(&creditID, &credited, &creditState, &payoutRef, &outcomeUnknown)
+		Scan(&creditID, &credited, &creditState, &payoutRef, &creditCurrency, &outcomeUnknown)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	if err == nil && credited > 0 {
 		cb := clawbackEntry(supplierID, taskID, credited)
+		cb.Currency = creditCurrency
 		if _, err := insertLedgerEntryOnTaskConflictDoNothingTx(ctx, tx, ledgerInsertFromEntry(cb)); err != nil {
 			return err
 		}

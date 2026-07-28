@@ -68,6 +68,9 @@ func (s *Store) FinalizeTaskVerification(ctx context.Context, info *CommitTaskIn
 	if ct.RowsAffected() == 0 {
 		return errNotFound
 	}
+	if err := validateVerificationSettlementTx(ctx, tx, info, outcome, entries); err != nil {
+		return err
+	}
 
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO task_verdicts

@@ -167,6 +167,7 @@ type Quote struct {
 	JobType       string           `json:"job_type"`
 	Model         string           `json:"model"`
 	Tier          string           `json:"tier"`
+	Currency      string           `json:"currency"`
 	TierSemantics string           `json:"tier_semantics"`
 	Workload      WorkloadDecision `json:"workload_decision"`
 	ComputePlan   ComputePlan      `json:"compute_plan"`
@@ -494,6 +495,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		JobType:       jobType,
 		Model:         sub.Model.Ref,
 		Tier:          tier,
+		Currency:      SettlementCurrencyCode(),
 		TierSemantics: serviceTierSemantics(tier),
 		Workload:      workload,
 		ComputePlan:   computePlan,
@@ -808,6 +810,15 @@ func (s *Store) WarmEligibleWorkerCountFor(ctx context.Context, jobType, modelRe
 }
 
 func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) error {
+	if err := RequireSettlementCurrency(q.Currency); err != nil {
+		return fmt.Errorf("refusing quote outside the settlement currency: %w", err)
+	}
+	if q.Economics.Schedule.Currency != q.Currency {
+		return fmt.Errorf(
+			"refusing quote whose economic currency %q differs from quote currency %q",
+			q.Economics.Schedule.Currency, q.Currency,
+		)
+	}
 	if err := ValidateWorkloadDecisionSnapshot(q.Workload); err != nil {
 		return fmt.Errorf("refusing quote without valid workload decision: %w", err)
 	}
@@ -858,7 +869,7 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		slaSecs, slaPremium,
 		q.Economics.Schedule.Version, planBlob, q.Economics.Executable,
 		q.Workload.BindingSHA256, decisionSHA256,
-		computeBlob, computeSHA256, SettlementCurrencyCode(),
+		computeBlob, computeSHA256, q.Currency,
 	)
 	return err
 }
@@ -876,6 +887,7 @@ type boundQuote struct {
 	JobType                 string
 	ModelRef                string
 	Tier                    string
+	Currency                string
 	InputSHA256             string
 	CostExpUSD              float64
 	CostMaxUSD              float64
@@ -907,6 +919,7 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 		        COALESCE(workload_binding_sha256,''),
 		        COALESCE(workload_decision_sha256,''),
 		        compute_plan, COALESCE(compute_plan_sha256,''),
+		        currency,
 		        quote_json
 		   FROM quotes
 		  WHERE id = $1 AND buyer_id = $2`,
@@ -914,7 +927,7 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 	).Scan(&q.ID, &q.JobType, &q.ModelRef, &q.Tier, &q.InputSHA256, &q.CostExpUSD, &q.CostMaxUSD, &q.Expired,
 		&q.SLAGuaranteedSecs, &q.SLAPremiumUSD, &q.EconomicScheduleVersion, &planBlob, &q.EconomicExecutable,
 		&q.WorkloadBindingSHA256, &q.WorkloadDecisionSHA256,
-		&computeBlob, &q.ComputePlanSHA256, &quoteBlob)
+		&computeBlob, &q.ComputePlanSHA256, &q.Currency, &quoteBlob)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}
@@ -936,6 +949,11 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 		if err := json.Unmarshal(quoteBlob, &snapshot); err != nil {
 			return nil, fmt.Errorf("decoding full quote authority: %w", err)
 		}
+		if snapshot.Currency == "" || snapshot.Currency != q.Currency ||
+			snapshot.Economics.Schedule.Currency != q.Currency ||
+			q.EconomicPlan.Schedule.Currency != q.Currency {
+			return nil, errors.New("frozen quote currency authority mismatch")
+		}
 		if err := ValidateComputePlanEconomicSnapshot(q.ComputePlan, snapshot.Workload, q.EconomicPlan); err != nil {
 			return nil, fmt.Errorf("invalid frozen quote compute plan: %w", err)
 		}
@@ -953,6 +971,22 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 		}
 	}
 	return &q, nil
+}
+
+func validateBoundQuoteCurrency(q *boundQuote) error {
+	if q == nil || q.Currency == "" {
+		return errors.New("quote has no settlement currency authority")
+	}
+	if q.EconomicPlan.Schedule.Currency != q.Currency {
+		return fmt.Errorf(
+			"quote economic currency %q differs from quote currency %q",
+			q.EconomicPlan.Schedule.Currency, q.Currency,
+		)
+	}
+	if err := RequireSettlementCurrency(q.Currency); err != nil {
+		return fmt.Errorf("quote settlement currency changed: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) QuotedUSDForJob(ctx context.Context, jobID uuid.UUID) (usd float64, ok bool, err error) {

@@ -104,13 +104,19 @@ type LedgerEntry struct {
 	ReleaseAt    *time.Time
 }
 
-func splitFrozenCharge(buyerID, supplierID, taskID uuid.UUID, buyerCharge, supplierPayout float64, holdSecs uint32, now time.Time) []LedgerEntry {
+func splitFrozenCharge(
+	buyerID, supplierID, taskID uuid.UUID,
+	currency string,
+	buyerCharge, supplierPayout float64,
+	holdSecs uint32,
+	now time.Time,
+) []LedgerEntry {
 	platformAmt := buyerCharge - supplierPayout
 	release := payoutReleaseAt(now, holdSecs)
 	return []LedgerEntry{
-		{Kind: KindBuyerCharge, BuyerID: &buyerID, TaskID: &taskID, AmountUSD: -buyerCharge, PayoutStatus: PayoutReleased},
-		{Kind: KindSupplierCredit, SupplierID: &supplierID, TaskID: &taskID, AmountUSD: supplierPayout, PayoutStatus: PayoutHeld, ReleaseAt: &release},
-		{Kind: KindPlatformTake, TaskID: &taskID, AmountUSD: platformAmt, PayoutStatus: PayoutReleased},
+		{Kind: KindBuyerCharge, BuyerID: &buyerID, TaskID: &taskID, AmountUSD: -buyerCharge, Currency: currency, PayoutStatus: PayoutReleased},
+		{Kind: KindSupplierCredit, SupplierID: &supplierID, TaskID: &taskID, AmountUSD: supplierPayout, Currency: currency, PayoutStatus: PayoutHeld, ReleaseAt: &release},
+		{Kind: KindPlatformTake, TaskID: &taskID, AmountUSD: platformAmt, Currency: currency, PayoutStatus: PayoutReleased},
 	}
 }
 

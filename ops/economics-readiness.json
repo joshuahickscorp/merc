@@ -8,7 +8,7 @@
   "schedule": {
     "version": null,
     "sha256": null,
-    "currency": "USD_TEST_ONLY",
+    "currency": "CAD_TEST_ONLY",
     "catalog_source":"control/runtime-authority.json",
     "catalog_prices_per_1000": {"all-minilm-l6-v2":0.001,"llama-3.2-1b-instruct-q4":0.002},
     "platform_take_rate": null,

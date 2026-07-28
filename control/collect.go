@@ -82,6 +82,7 @@ type ChargeBatch struct {
 	ID        uuid.UUID
 	BuyerID   uuid.UUID
 	AmountUSD float64
+	Currency  string
 }
 
 func recordBuyerCashCollection(
@@ -160,7 +161,7 @@ func recordBuyerCashCollection(
 
 func (s *Store) AttemptingChargeBatches(ctx context.Context, limit int) ([]ChargeBatch, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, buyer_id, amount_usd::float8 FROM charge_batches
+		`SELECT id,buyer_id,amount_usd::float8,currency FROM charge_batches
 		 WHERE status = 'attempting' AND (next_at IS NULL OR next_at < now())
 		 ORDER BY created_at ASC LIMIT $1`, limit)
 	if err != nil {
@@ -170,7 +171,7 @@ func (s *Store) AttemptingChargeBatches(ctx context.Context, limit int) ([]Charg
 	var out []ChargeBatch
 	for rows.Next() {
 		var b ChargeBatch
-		if err := rows.Scan(&b.ID, &b.BuyerID, &b.AmountUSD); err != nil {
+		if err := rows.Scan(&b.ID, &b.BuyerID, &b.AmountUSD, &b.Currency); err != nil {
 			return nil, err
 		}
 		out = append(out, b)
@@ -189,23 +190,28 @@ func (s *Store) MarkChargeBatchCharged(ctx context.Context, batchID uuid.UUID, c
 	}
 	defer tx.Rollback(ctx)
 	var (
-		buyerID                      uuid.UUID
-		status, existingPI, currency string
-		requested, received          int64
+		buyerID                                               uuid.UUID
+		status, existingPI, authorityCurrency, chargeCurrency string
+		requested, received                                   int64
 	)
 	if err := tx.QueryRow(ctx, `
-		SELECT buyer_id,status,COALESCE(stripe_pi,''),
+		SELECT buyer_id,status,currency,COALESCE(stripe_pi,''),
 		       COALESCE(charge_requested_cents,0),COALESCE(charge_received_cents,0),
 		       COALESCE(charge_currency,'')
 		  FROM charge_batches WHERE id=$1 FOR UPDATE`, batchID,
-	).Scan(&buyerID, &status, &existingPI, &requested, &received, &currency); err != nil {
+	).Scan(&buyerID, &status, &authorityCurrency, &existingPI, &requested, &received, &chargeCurrency); err != nil {
 		return err
+	}
+	if err := RequireSettlementCurrency(authorityCurrency); err != nil ||
+		charge.Currency != authorityCurrency {
+		return fmt.Errorf("%w: batch %s authority %s cannot confirm %s",
+			errCurrencyMismatch, batchID, authorityCurrency, charge.Currency)
 	}
 	if status == "charged" {
 		if existingPI != charge.PaymentIntentID || requested != charge.RequestedCents ||
-			received != charge.ReceivedCents || currency != charge.Currency {
+			received != charge.ReceivedCents || chargeCurrency != charge.Currency {
 			return fmt.Errorf("charge batch %s is already bound to different cash: pi=%s requested=%d received=%d %s",
-				batchID, existingPI, requested, received, currency)
+				batchID, existingPI, requested, received, chargeCurrency)
 		}
 		if err := recordBuyerCashCollection(ctx, tx, buyerID, "batch", batchID, charge); err != nil {
 			return err
@@ -257,8 +263,10 @@ func (s *Store) ReflipNoCardJobs(ctx context.Context) (int64, error) {
 		 WHERE charge_status = 'no_payment_method'
 		   AND charge_batch_id IS NULL
 		   AND COALESCE(actual_usd, 0) > 0
+		   AND currency = $1
 		   AND buyer_id IN (SELECT buyer_id FROM billing_customers
-		                    WHERE COALESCE(default_payment_method,'') <> '')`)
+		                    WHERE COALESCE(default_payment_method,'') <> '')`,
+		SettlementCurrencyCode())
 	if err != nil {
 		return 0, err
 	}
@@ -280,12 +288,13 @@ func (s *Store) BuyersDueForBatch(ctx context.Context, thresholdUSD float64, max
 		`SELECT buyer_id FROM jobs
 		 WHERE charge_status = 'deferred' AND charge_batch_id IS NULL
 		   AND COALESCE(actual_usd, 0) > 0
+		   AND currency = $5
 		 GROUP BY buyer_id
 		 HAVING SUM(actual_usd) >= $1 AND SUM(actual_usd) >= $4
 		    AND (SUM(actual_usd) >= $1
 		         OR MIN(COALESCE(deferred_at, created_at)) < now() - make_interval(secs => $2))
 		 ORDER BY MIN(COALESCE(deferred_at, created_at)) ASC LIMIT $3`,
-		thresholdUSD, maxAge.Seconds(), limit, stripeMinChargeUSD)
+		thresholdUSD, maxAge.Seconds(), limit, stripeMinChargeUSD, SettlementCurrencyCode())
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +314,8 @@ func (s *Store) MarkBuyerDeferredNoCard(ctx context.Context, buyerID uuid.UUID) 
 	rows, err := s.pool.Query(ctx,
 		`UPDATE jobs SET charge_status = 'no_payment_method'
 		 WHERE buyer_id = $1 AND charge_status = 'deferred' AND charge_batch_id IS NULL
-		 RETURNING id`, buyerID)
+		   AND currency = $2
+		 RETURNING id`, buyerID, SettlementCurrencyCode())
 	if err != nil {
 		return nil, err
 	}
@@ -332,9 +342,10 @@ func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch C
 		`SELECT id, `+firmChargeAmountSQL+`::float8 FROM jobs
 		 WHERE buyer_id = $1 AND charge_status = 'deferred' AND charge_batch_id IS NULL
 		   AND COALESCE(actual_usd, 0) > 0
+		   AND currency = $2
 		 ORDER BY created_at ASC
 		 LIMIT 500
-		 FOR UPDATE`, buyerID)
+		 FOR UPDATE`, buyerID, SettlementCurrencyCode())
 	if err != nil {
 		return batch, false, err
 	}
@@ -362,8 +373,9 @@ func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch C
 	}
 
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO charge_batches (buyer_id, amount_usd) VALUES ($1, $2) RETURNING id`,
-		buyerID, sum).Scan(&batch.ID); err != nil {
+		`INSERT INTO charge_batches (buyer_id,amount_usd,currency)
+		 VALUES ($1,$2,$3) RETURNING id`,
+		buyerID, sum, SettlementCurrencyCode()).Scan(&batch.ID); err != nil {
 		return batch, false, err
 	}
 	if _, err := tx.Exec(ctx,
@@ -375,7 +387,7 @@ func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch C
 	if err := tx.Commit(ctx); err != nil {
 		return batch, false, err
 	}
-	batch.BuyerID, batch.AmountUSD = buyerID, sum
+	batch.BuyerID, batch.AmountUSD, batch.Currency = buyerID, sum, SettlementCurrencyCode()
 	return batch, true, nil
 }
 
@@ -385,7 +397,8 @@ func (s *Store) TerminalUnattemptedJobs(ctx context.Context, limit int) ([]uuid.
 		 WHERE status IN ('complete','failed','cancelled')
 		   AND COALESCE(actual_usd, 0) > 0
 		   AND charge_status = 'not_attempted'
-		 ORDER BY created_at ASC LIMIT $1`, limit)
+		   AND currency = $2
+		 ORDER BY created_at ASC LIMIT $1`, limit, SettlementCurrencyCode())
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +419,8 @@ func (s *Store) FailedChargesDue(ctx context.Context, limit int) ([]uuid.UUID, e
 		`SELECT id FROM jobs
 		 WHERE charge_status = 'failed'
 		   AND (charge_next_at IS NULL OR charge_next_at < now())
-		 ORDER BY created_at ASC LIMIT $1`, limit)
+		   AND currency = $2
+		 ORDER BY created_at ASC LIMIT $1`, limit, SettlementCurrencyCode())
 	if err != nil {
 		return nil, err
 	}
@@ -461,9 +475,13 @@ func (s *Store) FreezeChargeAmount(ctx context.Context, jobID uuid.UUID, usd flo
 func (s *Store) JobFrozenChargeInfo(ctx context.Context, jobID uuid.UUID) (uuid.UUID, float64, error) {
 	var buyerID uuid.UUID
 	var usd float64
+	var currency string
 	err := s.pool.QueryRow(ctx,
-		`SELECT buyer_id, COALESCE(charge_attempt_usd, actual_usd, 0)::float8
-		 FROM jobs WHERE id = $1`, jobID).Scan(&buyerID, &usd)
+		`SELECT buyer_id,COALESCE(charge_attempt_usd,actual_usd,0)::float8,currency
+		 FROM jobs WHERE id = $1`, jobID).Scan(&buyerID, &usd, &currency)
+	if err == nil {
+		err = RequireSettlementCurrency(currency)
+	}
 	return buyerID, usd, err
 }
 
@@ -492,23 +510,28 @@ func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge Charg
 	defer tx.Rollback(ctx)
 
 	var (
-		buyerID                      uuid.UUID
-		status, existingPI, currency string
-		requested, received          int64
+		buyerID                                               uuid.UUID
+		status, existingPI, authorityCurrency, chargeCurrency string
+		requested, received                                   int64
 	)
 	if err := tx.QueryRow(ctx, `
-		SELECT buyer_id,charge_status,COALESCE(stripe_pi,''),
+		SELECT buyer_id,charge_status,currency,COALESCE(stripe_pi,''),
 		       COALESCE(charge_requested_cents,0),COALESCE(charge_received_cents,0),
 		       COALESCE(charge_currency,'')
 		  FROM jobs WHERE id=$1 FOR UPDATE`, jobID,
-	).Scan(&buyerID, &status, &existingPI, &requested, &received, &currency); err != nil {
+	).Scan(&buyerID, &status, &authorityCurrency, &existingPI, &requested, &received, &chargeCurrency); err != nil {
 		return err
+	}
+	if err := RequireSettlementCurrency(authorityCurrency); err != nil ||
+		charge.Currency != authorityCurrency {
+		return fmt.Errorf("%w: job %s authority %s cannot confirm %s",
+			errCurrencyMismatch, jobID, authorityCurrency, charge.Currency)
 	}
 	if status == "charged" {
 		if existingPI != charge.PaymentIntentID || requested != charge.RequestedCents ||
-			received != charge.ReceivedCents || currency != charge.Currency {
+			received != charge.ReceivedCents || chargeCurrency != charge.Currency {
 			return fmt.Errorf("job %s is already bound to different cash: pi=%s requested=%d received=%d %s",
-				jobID, existingPI, requested, received, currency)
+				jobID, existingPI, requested, received, chargeCurrency)
 		}
 		if err := recordBuyerCashCollection(ctx, tx, buyerID, "job", jobID, charge); err != nil {
 			return err
@@ -622,17 +645,18 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 	defer tx.Rollback(ctx)
 
 	var (
-		buyerID    uuid.UUID
-		guarantee  int
-		premium    float64
-		met        *bool
-		status     string
-		createdAt  time.Time
-		mergedAt   *time.Time
-		chargeable float64 // firm-capped actual BEFORE refund netting (no refund exists yet)
+		buyerID     uuid.UUID
+		guarantee   int
+		premium     float64
+		met         *bool
+		status      string
+		createdAt   time.Time
+		mergedAt    *time.Time
+		chargeable  float64 // firm-capped actual BEFORE refund netting (no refund exists yet)
+		jobCurrency string
 	)
 	err = tx.QueryRow(ctx,
-		`SELECT buyer_id, COALESCE(sla_guarantee_secs,0), COALESCE(sla_premium_usd,0)::float8,
+		`SELECT buyer_id,currency,COALESCE(sla_guarantee_secs,0), COALESCE(sla_premium_usd,0)::float8,
 		        sla_met, status, created_at, results_merged_at,
 		        (CASE WHEN firm_quote AND COALESCE(firm_quote_max_usd,0) > 0
 		                   AND COALESCE(actual_usd,0) > firm_quote_max_usd
@@ -641,9 +665,12 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 		   FROM jobs WHERE id = $1
 		    FOR UPDATE`,
 		jobID,
-	).Scan(&buyerID, &guarantee, &premium, &met, &status, &createdAt, &mergedAt, &chargeable)
+	).Scan(&buyerID, &jobCurrency, &guarantee, &premium, &met, &status, &createdAt, &mergedAt, &chargeable)
 	if err != nil {
 		return res, err
+	}
+	if err := RequireSettlementCurrency(jobCurrency); err != nil {
+		return res, fmt.Errorf("job %s cannot settle SLA under this deployment: %w", jobID, err)
 	}
 	if guarantee <= 0 || met != nil || status != "complete" || mergedAt == nil {
 		return res, nil
@@ -665,7 +692,7 @@ func (s *Store) SettleJobSLA(ctx context.Context, jobID uuid.UUID) (SLASettleRes
 		buyer := buyerID
 		if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
 			Kind: KindSLARefund, BuyerID: &buyer, AmountMicros: usdToMicros(refund),
-			PayoutStatus: PayoutReleased, PayoutRef: slaRefundRef(jobID),
+			Currency: jobCurrency, PayoutStatus: PayoutReleased, PayoutRef: slaRefundRef(jobID),
 		}); err != nil {
 			return res, err
 		}
@@ -833,6 +860,10 @@ func (wk *Workers) collectCharges(ctx context.Context) error {
 }
 
 func (wk *Workers) chargeBatch(ctx context.Context, b ChargeBatch) {
+	if err := RequireSettlementCurrency(b.Currency); err != nil {
+		log.Printf("workers: charge-collect: refusing batch %s outside settlement currency: %v", b.ID, err)
+		return
+	}
 	charge, err := chargeBuyer(ctx, wk.store, b.BuyerID, b.AmountUSD,
 		"cxbatch-"+b.ID.String(), "batch", b.ID)
 	if err != nil {

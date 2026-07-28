@@ -401,9 +401,21 @@ func validateVerificationDecisionShape(info *CommitTaskInfo, decision Verificati
 		return fmt.Errorf("payable outcome %q requires exactly three settlement entries, got %d", decision.Outcome, len(entries))
 	}
 	byKind := make(map[string]LedgerEntry, 3)
+	settlementCurrency := ""
 	for _, entry := range entries {
 		if entry.TaskID == nil || *entry.TaskID != info.TaskID {
 			return fmt.Errorf("settlement %q is not bound to task %s", entry.Kind, info.TaskID)
+		}
+		if entry.Currency != "" {
+			currency, err := ParseCurrency(entry.Currency)
+			if err != nil || entry.Currency != currency.Code() {
+				return fmt.Errorf("settlement %q has invalid currency authority", entry.Kind)
+			}
+			if settlementCurrency == "" {
+				settlementCurrency = entry.Currency
+			} else if settlementCurrency != entry.Currency {
+				return fmt.Errorf("verification settlement mixes %s and %s", settlementCurrency, entry.Currency)
+			}
 		}
 		if _, duplicate := byKind[entry.Kind]; duplicate {
 			return fmt.Errorf("duplicate settlement kind %q", entry.Kind)
@@ -449,12 +461,17 @@ func validateVerificationSettlementTx(ctx context.Context, tx pgx.Tx, info *Comm
 		return nil
 	}
 	var buyerID uuid.UUID
+	var jobCurrency string
 	var buyerCharge, supplierPayout float64
 	if err := tx.QueryRow(ctx, `
-		SELECT j.buyer_id,t.economic_buyer_charge_usd::float8,t.economic_supplier_payout_usd::float8
+		SELECT j.buyer_id,j.currency,
+		       t.economic_buyer_charge_usd::float8,t.economic_supplier_payout_usd::float8
 		  FROM tasks t JOIN jobs j ON j.id=t.job_id WHERE t.id=$1`, info.TaskID).
-		Scan(&buyerID, &buyerCharge, &supplierPayout); err != nil {
+		Scan(&buyerID, &jobCurrency, &buyerCharge, &supplierPayout); err != nil {
 		return err
+	}
+	if err := RequireSettlementCurrency(jobCurrency); err != nil {
+		return fmt.Errorf("job %s cannot settle under this deployment: %w", info.JobID, err)
 	}
 	want := map[string]struct {
 		amount   string
@@ -468,6 +485,7 @@ func validateVerificationSettlementTx(ctx context.Context, tx pgx.Tx, info *Comm
 	for _, entry := range entries {
 		expected, ok := want[entry.Kind]
 		if !ok || fmt.Sprintf("%.6f", entry.AmountUSD) != expected.amount ||
+			(entry.Currency != "" && entry.Currency != jobCurrency) ||
 			!sameOptionalUUID(entry.BuyerID, expected.buyer) || !sameOptionalUUID(entry.SupplierID, expected.supplier) {
 			return fmt.Errorf("settlement %q conflicts with frozen task economics", entry.Kind)
 		}
@@ -757,11 +775,15 @@ func recordChunkArtifactResolutionTx(ctx context.Context, tx pgx.Tx, info *Commi
 }
 
 type canonicalVerificationSettlement struct {
-	Kind         string `json:"kind"`
-	SupplierID   string `json:"supplier_id,omitempty"`
-	BuyerID      string `json:"buyer_id,omitempty"`
-	TaskID       string `json:"task_id,omitempty"`
-	AmountUSD    string `json:"amount_usd"`
+	Kind       string `json:"kind"`
+	SupplierID string `json:"supplier_id,omitempty"`
+	BuyerID    string `json:"buyer_id,omitempty"`
+	TaskID     string `json:"task_id,omitempty"`
+	AmountUSD  string `json:"amount_usd"`
+	// Currency is omitted only for durable v1 plans created before currency
+	// authority was introduced. Their apply path derives and validates the
+	// immutable job currency before any ledger write.
+	Currency     string `json:"currency,omitempty"`
 	PayoutStatus string `json:"payout_status"`
 	ReleaseAt    string `json:"release_at,omitempty"`
 }
@@ -787,7 +809,8 @@ func canonicalVerificationSettlements(entries []LedgerEntry) []canonicalVerifica
 		row := canonicalVerificationSettlement{
 			Kind: entry.Kind, SupplierID: optionalUUIDString(entry.SupplierID),
 			BuyerID: optionalUUIDString(entry.BuyerID), TaskID: optionalUUIDString(entry.TaskID),
-			AmountUSD: fmt.Sprintf("%.6f", entry.AmountUSD), PayoutStatus: entry.PayoutStatus,
+			AmountUSD: fmt.Sprintf("%.6f", entry.AmountUSD), Currency: entry.Currency,
+			PayoutStatus: entry.PayoutStatus,
 		}
 		if entry.ReleaseAt != nil {
 			row.ReleaseAt = entry.ReleaseAt.UTC().Format(time.RFC3339Nano)
@@ -884,22 +907,24 @@ func clawbackTaskCreditTx(ctx context.Context, tx pgx.Tx, effectID, sourceTaskID
 		credited       float64
 		creditState    string
 		payoutRef      string
+		creditCurrency string
 		outcomeUnknown bool
 	)
 	err := tx.QueryRow(ctx, `
 		SELECT le.id,le.amount_usd::float8,le.payout_status,
-		       COALESCE(le.payout_ref,''),COALESCE(op.outcome_unknown,false)
+		       COALESCE(le.payout_ref,''),le.currency,COALESCE(op.outcome_unknown,false)
 		  FROM ledger_entries le
 		  LEFT JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
 		 WHERE le.supplier_id=$1 AND le.task_id=$2
 		   AND le.kind='supplier_credit' AND le.amount_usd>0
 		 ORDER BY le.created_at,le.id LIMIT 1 FOR UPDATE OF le`, supplierID, taskID).
-		Scan(&creditID, &credited, &creditState, &payoutRef, &outcomeUnknown)
+		Scan(&creditID, &credited, &creditState, &payoutRef, &creditCurrency, &outcomeUnknown)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	if err == nil && credited > 0 {
 		cb := clawbackEntry(supplierID, taskID, credited)
+		cb.Currency = creditCurrency
 		if err := insertLedgerEntryIfAbsentExactTx(ctx, tx, cb); err != nil {
 			return err
 		}

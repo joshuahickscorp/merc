@@ -466,10 +466,13 @@ func (p *VerificationProcessor) taskPayoutEntriesAt(ctx context.Context, info *C
 	if buyerCharge <= 0 || supplierPayout < 0 || supplierPayout > buyerCharge {
 		return nil, fmt.Errorf("task %s has invalid frozen economics", info.TaskID)
 	}
+	if err := RequireSettlementCurrency(j.Currency); err != nil {
+		return nil, fmt.Errorf("job %s cannot settle under this deployment: %w", info.JobID, err)
+	}
 	var policy VerificationPolicy
 	_ = json.Unmarshal(j.VerificationPolicy, &policy)
 	return splitFrozenCharge(j.BuyerID, info.SupplierID, info.TaskID,
-		buyerCharge, supplierPayout, policy.PayoutHoldSecs, at), nil
+		j.Currency, buyerCharge, supplierPayout, policy.PayoutHoldSecs, at), nil
 }
 
 func (p *VerificationProcessor) lockChunk(ctx context.Context, jobID uuid.UUID, chunkIndex int) (func(), error) {

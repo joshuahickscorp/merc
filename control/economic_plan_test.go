@@ -10,6 +10,7 @@ import (
 func testEconomicSchedule() EconomicSchedule {
 	return EconomicSchedule{
 		Version:                "test-stripe-conservative-v1",
+		Currency:               "usd",
 		ProcessorPercent:       0.035,
 		ProcessorFixedUSD:      0.35,
 		ControlPlanePerTaskUSD: 0.005,
@@ -150,7 +151,8 @@ func TestBuildEconomicPlanFailsClosedOnUnknownOrInvalidInputs(t *testing.T) {
 		{"zero tasks", EconomicPlanInput{BaseComputeUSD: 1, SupplierShare: .97}, testEconomicSchedule(), "task_count"},
 		{"nan compute", EconomicPlanInput{BaseComputeUSD: math.NaN(), InitialTaskCount: 1, SupplierShare: .97}, testEconomicSchedule(), "base_compute"},
 		{"negative reserve", EconomicPlanInput{BaseComputeUSD: 1, InitialTaskCount: 1, ExtraTaskReserve: -1, SupplierShare: .97}, testEconomicSchedule(), "reserve"},
-		{"impossible rates", validInput, EconomicSchedule{Version: "x", ProcessorPercent: .7, TargetMarginRate: .3}, "below 1"},
+		{"missing currency", validInput, EconomicSchedule{Version: "x"}, "currency"},
+		{"impossible rates", validInput, EconomicSchedule{Version: "x", Currency: "usd", ProcessorPercent: .7, TargetMarginRate: .3}, "below 1"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -227,7 +229,8 @@ func TestLoadEconomicScheduleFromEnvFailsClosedAndParsesBasisPoints(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.ProcessorPercent != .035 || s.TargetMarginRate != .03 || s.ProcessorFixedUSD != .35 {
+	if s.Currency != SettlementCurrencyCode() ||
+		s.ProcessorPercent != .035 || s.TargetMarginRate != .03 || s.ProcessorFixedUSD != .35 {
 		t.Fatalf("wrong schedule: %+v", s)
 	}
 	t.Setenv(processorPercentBPSEnv, "not-a-number")
@@ -273,7 +276,7 @@ func FuzzBuildEconomicPlanNeverAuthorizesNegativeMargin(f *testing.F) {
 // two orders of magnitude above market.
 func TestBuildEconomicPlanAmortisesProcessorFixedFeeOverChargeBatch(t *testing.T) {
 	schedule := EconomicSchedule{
-		Version: "test", ProcessorPercent: 0.029, ProcessorFixedUSD: 0.30,
+		Version: "test", Currency: "usd", ProcessorPercent: 0.029, ProcessorFixedUSD: 0.30,
 		MinChargeBatchUSD: 5.00, ControlPlanePerTaskUSD: 0.0001, TargetMarginRate: 0.10,
 	}
 	in := EconomicPlanInput{
@@ -310,7 +313,7 @@ func TestBuildEconomicPlanAmortisesProcessorFixedFeeOverChargeBatch(t *testing.T
 // fixed fee.
 func TestBuildEconomicPlanKeepsStandaloneFixedFeeWhenNoBatchFloor(t *testing.T) {
 	schedule := EconomicSchedule{
-		Version: "test", ProcessorPercent: 0.029, ProcessorFixedUSD: 0.30,
+		Version: "test", Currency: "usd", ProcessorPercent: 0.029, ProcessorFixedUSD: 0.30,
 		MinChargeBatchUSD: 0, ControlPlanePerTaskUSD: 0.0001, TargetMarginRate: 0.10,
 	}
 	plan := BuildEconomicPlan(EconomicPlanInput{
