@@ -139,6 +139,9 @@ func validateRealtimeOfferRegistration(reg *RealtimeOfferRegistration, remoteAdd
 		reg.SupplierOutputUSDPerMillionTokens > profile.BuyerOutputUSDPerMillionTokens {
 		return VLLMRuntimeProfile{}, errors.New("supplier token rates must be non-negative and no greater than the buyer rates")
 	}
+	if _, err := newRealtimePlacementPlan(profile, *reg); err != nil {
+		return VLLMRuntimeProfile{}, fmt.Errorf("placement refused: %w", err)
+	}
 	return profile, nil
 }
 
@@ -167,6 +170,7 @@ func (s *Server) handleRealtimeWorkerRegister(w http.ResponseWriter, r *http.Req
 		"status":                 "ACTIVE",
 		"runtime_profile_id":     profile.RuntimeProfileID,
 		"runtime_profile_sha256": profile.ProfileSHA256,
+		"tensor_parallel_size":   profile.TensorParallelSize,
 		"model":                  profile.ModelAlias,
 	})
 }

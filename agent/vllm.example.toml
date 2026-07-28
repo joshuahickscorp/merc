@@ -8,5 +8,13 @@ listen_host = "127.0.0.1"
 listen_port = 8000
 max_active_sequences = 128
 startup_timeout_secs = 900
+# Control-plane placement authority. Use the capability class, physical GPU
+# count, and per-GPU memory for this one host. Multi-GPU hosts must explicitly
+# declare "nvlink" or "pcie"; MERC will not guess an interconnect.
+hw_class = "nvidia_24gb"
+gpu_count = 1
+memory_gb_per_gpu = 24.0
+memory_gb_in_use = 0.0
+interconnect = ""
 supplier_input_usd_per_million_tokens = 0.08
 supplier_output_usd_per_million_tokens = 0.30

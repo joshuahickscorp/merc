@@ -4,8 +4,8 @@ use reqwest::{Client, Response, StatusCode};
 use uuid::Uuid;
 
 use crate::types::{
-    ConnectStatus, Earnings, FailReport, Heartbeat, SupplierVerification, TaskCommit, TaskDispatch,
-    WorkerCapability,
+    ConnectStatus, Earnings, FailReport, Heartbeat, RealtimeOfferHeartbeat,
+    RealtimeOfferRegistration, SupplierVerification, TaskCommit, TaskDispatch, WorkerCapability,
 };
 
 const POLL_TIMEOUT: Duration = Duration::from_secs(35);
@@ -128,6 +128,40 @@ impl ControlPlaneClient {
             .post(self.url(endpoint))
             .header("X-Worker-Token", &self.token)
             .json(hb)
+            .send()
+            .await
+            .map_err(|e| Self::transport(endpoint, e))?;
+        Self::expect_status(endpoint, resp, &[StatusCode::NO_CONTENT, StatusCode::OK]).await?;
+        Ok(())
+    }
+
+    pub async fn register_realtime(
+        &self,
+        offer: &RealtimeOfferRegistration,
+    ) -> Result<(), ProtocolError> {
+        let endpoint = "/v1/worker/realtime/register";
+        let resp = self
+            .http
+            .post(self.url(endpoint))
+            .header("X-Worker-Token", &self.token)
+            .json(offer)
+            .send()
+            .await
+            .map_err(|e| Self::transport(endpoint, e))?;
+        Self::expect_status(endpoint, resp, &[StatusCode::OK, StatusCode::CREATED]).await?;
+        Ok(())
+    }
+
+    pub async fn heartbeat_realtime(
+        &self,
+        heartbeat: &RealtimeOfferHeartbeat,
+    ) -> Result<(), ProtocolError> {
+        let endpoint = "/v1/worker/realtime/heartbeat";
+        let resp = self
+            .http
+            .post(self.url(endpoint))
+            .header("X-Worker-Token", &self.token)
+            .json(heartbeat)
             .send()
             .await
             .map_err(|e| Self::transport(endpoint, e))?;

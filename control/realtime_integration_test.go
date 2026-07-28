@@ -132,6 +132,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	profile := sortedVLLMProfiles()[0]
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
+		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
 		UpstreamBaseURL: upstream.URL + "/v1", UpstreamToken: upstreamToken,
 		Warmth: "HOT", MaxActiveSequences: 8, AvailableSequences: 8,
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
@@ -201,6 +202,33 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	}
 	if receiptResponse.StatusCode != http.StatusOK || receipt.State != "VERIFIED" || receipt.Verification != "PASSED" {
 		t.Fatalf("unexpected receipt: status=%d receipt=%+v", receiptResponse.StatusCode, receipt)
+	}
+	if receipt.PlacementPlan == nil || !validSHA256(receipt.PlacementPlanSHA256) ||
+		receipt.PlacementPlan.RuntimeProfileID != profile.RuntimeProfileID ||
+		receipt.PlacementPlan.RuntimeProfileSHA256 != profile.ProfileSHA256 ||
+		receipt.PlacementPlan.HWClass != "nvidia_24gb" ||
+		receipt.PlacementPlan.AdmittedTensorParallel != 1 {
+		t.Fatalf("receipt omitted or changed frozen placement authority: %+v", receipt)
+	}
+	var offerPlacementSHA256, contractPlacementSHA256 string
+	if err := pool.QueryRow(ctx, `
+		SELECT o.placement_plan_sha256,c.placement_plan_sha256
+		  FROM realtime_worker_offers o
+		  JOIN execution_contracts c ON c.worker_id=o.worker_id
+		 WHERE c.id=$1 AND o.runtime_profile_id=c.runtime_profile_id`,
+		contractID).Scan(&offerPlacementSHA256, &contractPlacementSHA256); err != nil {
+		t.Fatal(err)
+	}
+	if offerPlacementSHA256 != contractPlacementSHA256 ||
+		contractPlacementSHA256 != receipt.PlacementPlanSHA256 {
+		t.Fatalf("offer->contract->receipt placement digest drifted: offer=%s contract=%s receipt=%s",
+			offerPlacementSHA256, contractPlacementSHA256, receipt.PlacementPlanSHA256)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE execution_contracts
+		   SET placement_plan=jsonb_set(placement_plan,'{gpu_count}','2'::jsonb)
+		 WHERE id=$1`, contractID); err == nil {
+		t.Fatal("database allowed frozen contract placement authority to mutate")
 	}
 	if receipt.TotalTokens != 9 || receipt.PromptTokens != 7 || receipt.CompletionTokens != 2 {
 		t.Fatalf("usage did not reconcile: %+v", receipt)
@@ -508,6 +536,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	defer failedUpstream.Close()
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
+		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
 		UpstreamBaseURL: failedUpstream.URL + "/v1", UpstreamToken: upstreamToken,
 		Warmth: "HOT", MaxActiveSequences: 8, AvailableSequences: 8,
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
@@ -546,6 +575,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	// subtract its own executing reservations instead of reopening a busy slot.
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
+		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
 		UpstreamBaseURL: upstream.URL + "/v1", UpstreamToken: upstreamToken,
 		Warmth: "HOT", MaxActiveSequences: 1, AvailableSequences: 1,
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
@@ -594,6 +624,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	// slot, and never create a financial effect.
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
+		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
 		UpstreamBaseURL: upstream.URL + "/v1", UpstreamToken: upstreamToken,
 		Warmth: "HOT", MaxActiveSequences: 1, AvailableSequences: 1,
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
@@ -709,6 +740,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	defer close(releaseUpstream)
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
+		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
 		UpstreamBaseURL: cancelledUpstream.URL + "/v1", UpstreamToken: upstreamToken,
 		Warmth: "HOT", MaxActiveSequences: 1, AvailableSequences: 1,
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,

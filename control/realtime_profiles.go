@@ -33,6 +33,9 @@ type VLLMRuntimeProfile struct {
 	TokenizerRevision              string           `json:"tokenizer_revision"`
 	Architecture                   string           `json:"architecture"`
 	DType                          string           `json:"dtype"`
+	ModelWeightsGB                 float64          `json:"model_weights_gb,omitempty"`
+	PerRankOverheadGB              float64          `json:"per_rank_overhead_gb,omitempty"`
+	AttentionHeads                 int              `json:"attention_heads,omitempty"`
 	TensorParallelSize             int              `json:"tensor_parallel_size"`
 	PipelineParallelSize           int              `json:"pipeline_parallel_size"`
 	MaxModelLength                 int              `json:"max_model_length"`
@@ -44,6 +47,10 @@ type VLLMRuntimeProfile struct {
 	BuyerOutputUSDPerMillionTokens float64          `json:"buyer_output_usd_per_million_tokens"`
 	BenchmarkStatus                string           `json:"benchmark_status"`
 	ProfileSHA256                  string           `json:"profile_sha256"`
+}
+
+func (p VLLMRuntimeProfile) hasPlacementRequirements() bool {
+	return p.ModelWeightsGB > 0 || p.PerRankOverheadGB > 0 || p.AttentionHeads > 0
 }
 
 var (
@@ -80,6 +87,17 @@ func validateVLLMRuntimeProfile(p VLLMRuntimeProfile) error {
 	}
 	if p.TensorParallelSize < 1 || p.PipelineParallelSize < 1 || p.MaxModelLength < 1 {
 		return fmt.Errorf("parallel sizes and max_model_length must be positive")
+	}
+	if p.hasPlacementRequirements() {
+		if err := validateModelPlacement(modelPlacement{
+			ModelID: p.ModelAlias, WeightsGB: p.ModelWeightsGB,
+			PerRankOverheadGB: p.PerRankOverheadGB, AttentionHeads: p.AttentionHeads,
+		}); err != nil {
+			return err
+		}
+	}
+	if p.TensorParallelSize > 1 && !p.hasPlacementRequirements() {
+		return fmt.Errorf("multi-GPU profiles require model placement authority")
 	}
 	if p.GPUMemoryUtilization <= 0 || p.GPUMemoryUtilization > 1 {
 		return fmt.Errorf("gpu_memory_utilization must be in (0,1]")
