@@ -423,6 +423,7 @@ gc_sync_bundle() {
     ops/staging/env.go-closure.example
     ops/staging/README.md
     scripts/backup.sh
+    scripts/validate-backup-verification-receipt.py
     scripts/restore.sh
     scripts/lib/go-closure-common.sh
     scripts/go-closure-deploy.sh
