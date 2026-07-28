@@ -121,24 +121,101 @@ print(",".join(sorted({b["currency"] for b in d.get("available",[])+d.get("pendi
   return 0
 }
 
+
+check_r2() {
+  local acct="$1" akid="$2" secret="$3"
+  if [ -z "$acct$akid$secret" ]; then skip "R2: not configured"; return 1; fi
+  if [ -z "$acct" ] || [ -z "$akid" ] || [ -z "$secret" ]; then
+    bad "R2: needs all three of account id, access key id and secret"; return 1
+  fi
+  # R2 speaks S3, and merc's storage layer is already an S3 client, so the check
+  # that matters is whether the S3 endpoint answers -- not whether the Cloudflare
+  # REST API likes the token. A signed ListBuckets is the cheapest real probe.
+  local endpoint="https://${acct}.r2.cloudflarestorage.com"
+  local code
+  code=$(AWS_ACCESS_KEY_ID="$akid" AWS_SECRET_ACCESS_KEY="$secret" \
+    curl -sS -o /dev/null -w '%{http_code}' --max-time 25 \
+      --aws-sigv4 "aws:amz:auto:s3" --user "${akid}:${secret}" \
+      "$endpoint/" 2>/dev/null) || { bad "R2: could not reach $endpoint"; return 1; }
+  case "$code" in
+    200) ok "R2: endpoint reachable and credentials accepted" ;;
+    403) bad "R2: credentials rejected (403). These must be the S3 keys from
+        R2 dashboard -> Manage API tokens, NOT the general Cloudflare API token."
+        return 1 ;;
+    *) bad "R2: unexpected HTTP $code from $endpoint"; return 1 ;;
+  esac
+  return 0
+}
+
+check_alert_receiver() {
+  local url="$1"
+  [ -z "$url" ] && { skip "alert receiver: not configured"; return 1; }
+  case "$url" in
+    https://*) ;;
+    *) bad "alert receiver: must be an HTTPS URL"; return 1 ;;
+  esac
+  # Deliberately NOT posting a test alert here: that would page whoever is on
+  # the other end just for running a credential check. Shape is validated now;
+  # scripts/test-alert-delivery.sh proves real delivery when you want it.
+  ok "alert receiver: HTTPS URL recorded (delivery proven separately)"
+  return 0
+}
+
 # -------------------------------------------------------------------- main
 say "merc production secrets"
 say ""
 
 CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY:-}"
+CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
+R2_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID:-}"
+R2_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY:-}"
+R2_BUCKET="${R2_BUCKET:-merc-jobs}"
+MERC_ALERT_RECEIVER_URL="${MERC_ALERT_RECEIVER_URL:-}"
+GF_SECURITY_ADMIN_PASSWORD="${GF_SECURITY_ADMIN_PASSWORD:-}"
 # shellcheck disable=SC1090
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
 if [ "$CHECK_ONLY" -eq 0 ]; then
   ensure_ignored
-  read_secret "Cloudflare API token"        CLOUDFLARE_API_TOKEN "${CLOUDFLARE_API_TOKEN:-}"
-  read_secret "Stripe secret key (live or test)" STRIPE_SECRET_KEY "${STRIPE_SECRET_KEY:-}"
+
+  # Already-stored values are not re-prompted. Blank input keeps what is there,
+  # so re-running this to add one credential never wipes another.
+  [ -z "${CLOUDFLARE_API_TOKEN:-}" ] && \
+    read_secret "Cloudflare API token" CLOUDFLARE_API_TOKEN "" \
+    || ok "Cloudflare API token already stored, skipping"
+  [ -z "${STRIPE_SECRET_KEY:-}" ] && \
+    read_secret "Stripe secret key (live or test)" STRIPE_SECRET_KEY "" \
+    || ok "Stripe key already stored, skipping"
+
+  say ""
+  say "R2 object storage  (R2 dashboard -> Account Details -> API Tokens -> Manage)"
+  say "  These are the S3 keys, NOT the general Cloudflare API token."
+  read_secret "  Cloudflare account id"   CLOUDFLARE_ACCOUNT_ID "${CLOUDFLARE_ACCOUNT_ID:-}"
+  read_secret "  R2 Access Key ID"        R2_ACCESS_KEY_ID      "${R2_ACCESS_KEY_ID:-}"
+  read_secret "  R2 Secret Access Key"    R2_SECRET_ACCESS_KEY  "${R2_SECRET_ACCESS_KEY:-}"
+
+  say ""
+  say "operations"
+  read_secret "  Alert receiver HTTPS URL (where a page actually lands)" MERC_ALERT_RECEIVER_URL "${MERC_ALERT_RECEIVER_URL:-}"
+  if [ -z "${GF_SECURITY_ADMIN_PASSWORD:-}" ]; then
+    # Generated, not prompted: this is a service password merc owns, and a
+    # generated one beats a reused human-chosen one.
+    GF_SECURITY_ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -d '\n')
+    ok "  Grafana admin password generated (32+ bits, stored only in this file)"
+  fi
 
   {
     printf '# merc production secrets. chmod 600, gitignored, never commit.\n'
-    [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && printf 'export CLOUDFLARE_API_TOKEN=%q\n' "$CLOUDFLARE_API_TOKEN"
-    [ -n "${STRIPE_SECRET_KEY:-}" ]    && printf 'export STRIPE_SECRET_KEY=%q\n' "$STRIPE_SECRET_KEY"
+    [ -n "${CLOUDFLARE_API_TOKEN:-}" ]      && printf 'export CLOUDFLARE_API_TOKEN=%q\n' "$CLOUDFLARE_API_TOKEN"
+    [ -n "${STRIPE_SECRET_KEY:-}" ]         && printf 'export STRIPE_SECRET_KEY=%q\n' "$STRIPE_SECRET_KEY"
+    [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]     && printf 'export CLOUDFLARE_ACCOUNT_ID=%q\n' "$CLOUDFLARE_ACCOUNT_ID"
+    [ -n "${R2_ACCESS_KEY_ID:-}" ]          && printf 'export R2_ACCESS_KEY_ID=%q\n' "$R2_ACCESS_KEY_ID"
+    [ -n "${R2_SECRET_ACCESS_KEY:-}" ]      && printf 'export R2_SECRET_ACCESS_KEY=%q\n' "$R2_SECRET_ACCESS_KEY"
+    [ -n "${R2_BUCKET:-}" ]                 && printf 'export R2_BUCKET=%q\n' "$R2_BUCKET"
+    [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]     && printf 'export R2_ENDPOINT=%q\n' "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+    [ -n "${MERC_ALERT_RECEIVER_URL:-}" ]   && printf 'export MERC_ALERT_RECEIVER_URL=%q\n' "$MERC_ALERT_RECEIVER_URL"
+    [ -n "${GF_SECURITY_ADMIN_PASSWORD:-}" ] && printf 'export GF_SECURITY_ADMIN_PASSWORD=%q\n' "$GF_SECURITY_ADMIN_PASSWORD"
   } > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
   say ""
@@ -147,9 +224,11 @@ fi
 
 say ""
 say "verifying"
-cf_ok=0; stripe_ok=0
+cf_ok=0; stripe_ok=0; r2_ok=0; alert_ok=0
 check_cloudflare "${CLOUDFLARE_API_TOKEN:-}" && cf_ok=1 || true
 check_stripe     "${STRIPE_SECRET_KEY:-}"    && stripe_ok=1 || true
+check_r2 "${CLOUDFLARE_ACCOUNT_ID:-}" "${R2_ACCESS_KEY_ID:-}" "${R2_SECRET_ACCESS_KEY:-}" && r2_ok=1 || true
+check_alert_receiver "${MERC_ALERT_RECEIVER_URL:-}" && alert_ok=1 || true
 
 say ""
 say "unlocked"
@@ -159,6 +238,12 @@ say "unlocked"
 [ "$stripe_ok" -eq 1 ] \
   && ok "payout rail: droplet can be pointed at this key" \
   || skip "payout rail: still blocked"
+[ "$r2_ok" -eq 1 ] \
+  && ok "object storage: merc speaks S3 already, so R2 is an endpoint swap" \
+  || skip "object storage: still on the droplet's local MinIO"
+[ "$alert_ok" -eq 1 ] \
+  && ok "alerts: receiver recorded; run scripts/test-alert-delivery.sh to prove delivery" \
+  || skip "alerts: no receiver, a page would land nowhere"
 
 say ""
 say "next:"
