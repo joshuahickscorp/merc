@@ -61,6 +61,11 @@ fenced by the retry-attempt epoch.
 - Billing and Connect webhook endpoints must also pin that same API version for
   payload rendering. Endpoint setup refuses null/mismatched versions because
   request headers alone do not freeze the schema of later signed events.
+- Valid cash-event webhooks return only non-secret outcome headers
+  (`applied`, `stale_ignored`, `duplicate`, and the current effect rank). The
+  supervised Sandbox matrix uses them to prove first-application ordering and
+  replay against staging state without exposing ledger values or provider
+  secrets.
 - Job cancellation, task lease recovery, retry exhaustion, and result commit are
   transactional. Duplicate commits and duplicate money effects are rejected.
 - On macOS the shipped supplier profile denies inbound networking, listening

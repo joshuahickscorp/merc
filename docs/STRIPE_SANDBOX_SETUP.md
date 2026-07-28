@@ -63,7 +63,12 @@ unknown. The deterministic simulator separately covers both pre-persistence
 timeout and provider success followed by a lost response. As part of the
 matrix, each configured webhook endpoint receives one inert signed probe and
 one invalid-signature probe; it must accept only the event signed by its
-supplied Sandbox `whsec_*` secret.
+supplied Sandbox `whsec_*` secret. The billing endpoint then receives three
+unique signed, no-value dispute envelopes: terminal state first must report
+`applied`, the older opening state must report `stale_ignored` behind the same
+cash-effect rank, and a byte-identical terminal replay must report `duplicate`.
+These non-secret response headers turn replay/out-of-order safety into a
+staging-database observation rather than a declared receipt field.
 
 Until both commands pass with provider-owned receipts, readiness must remain:
 

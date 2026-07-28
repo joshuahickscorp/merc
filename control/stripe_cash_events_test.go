@@ -140,3 +140,63 @@ func TestStripeCashWebhookVerifiesThenApplies(t *testing.T) {
 		})
 	}
 }
+
+func TestStripeCashWebhookReturnsSafeApplicationOutcomeHeaders(t *testing.T) {
+	const secret = "whsec_cash_outcome_test"
+	payload := []byte(`{"id":"evt_outcome","type":"charge.dispute.closed",` +
+		`"api_version":"2025-06-30.basil","livemode":false,"created":1700000002,` +
+		`"data":{"object":{"id":"dp_outcome","charge":"ch_outcome",` +
+		`"amount":500,"currency":"cad","status":"lost"}}}`)
+
+	for _, tc := range []struct {
+		name        string
+		result      stripeCashEventResult
+		wantOutcome string
+		wantRank    string
+	}{
+		{
+			name: "applied",
+			result: stripeCashEventResult{
+				CashEffectApplied: true, CurrentCashEffectRank: 30,
+			},
+			wantOutcome: "applied", wantRank: "30",
+		},
+		{
+			name: "stale ignored",
+			result: stripeCashEventResult{
+				CurrentCashEffectRank: 30,
+			},
+			wantOutcome: "stale_ignored", wantRank: "30",
+		},
+		{
+			name: "duplicate",
+			result: stripeCashEventResult{
+				Duplicate: true,
+			},
+			wantOutcome: "duplicate",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := signedStripeCashRequest(t, payload, secret)
+			rec := httptest.NewRecorder()
+			handleStripeWebhookWithHandlers(
+				rec, req, secret, nil,
+				func(context.Context, stripeCashEvent) (stripeCashEventResult, error) {
+					return tc.result, nil
+				},
+			)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("X-Merc-Stripe-Event-Outcome"); got != tc.wantOutcome {
+				t.Fatalf("outcome header=%q, want %q", got, tc.wantOutcome)
+			}
+			if got := rec.Header().Get("X-Merc-Stripe-Cash-Effect-Rank"); got != tc.wantRank {
+				t.Fatalf("rank header=%q, want %q", got, tc.wantRank)
+			}
+			if rec.Body.Len() != 0 {
+				t.Fatalf("webhook outcome must not expose a response body: %q", rec.Body.String())
+			}
+		})
+	}
+}

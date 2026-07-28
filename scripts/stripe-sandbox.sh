@@ -286,6 +286,7 @@ jq -e '
   .schema_version == 1 and .status == "PASS" and .provider_mode == "test" and
   .secret_values_recorded == false and .webhook.endpoint_secrets_verified == true and
   .webhook.delivery == true and .webhook.staging_urls_exact == true and
+  .webhook.application_outcomes_verified == true and
   .webhook.replay_idempotent == true and .webhook.out_of_order_safe == true and
   .dispute.opened == true and .dispute.resolved == true and
   .payout.hold == true and .payout.release == true and .payout.failure == true and

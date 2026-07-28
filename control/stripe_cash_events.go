@@ -47,6 +47,8 @@ type stripeCashEvent struct {
 
 type stripeCashEventResult struct {
 	Duplicate              bool
+	CashEffectApplied      bool
+	CurrentCashEffectRank  int
 	LinkedCollection       bool
 	UnavailableCents       int64
 	CompromisedFundingRows int
@@ -298,7 +300,12 @@ func (s *Store) ApplyPaymentEventTx(ctx context.Context, event stripeCashEvent) 
 	if event.EventType == stripeEventChargeRefunded {
 		resolvedPI, err = applyStripeChargeRefundState(ctx, tx, event, resolvedPI)
 	} else {
-		resolvedPI, err = applyStripeDisputeState(ctx, tx, event, resolvedPI)
+		var currentEffectCreated int64
+		resolvedPI, currentEffectCreated, result.CurrentCashEffectRank, err =
+			applyStripeDisputeState(ctx, tx, event, resolvedPI)
+		result.CashEffectApplied = event.EffectRank > 0 &&
+			currentEffectCreated == event.EventCreated &&
+			result.CurrentCashEffectRank == event.EffectRank
 	}
 	if err != nil {
 		return result, err
@@ -365,13 +372,15 @@ func applyStripeDisputeState(
 	tx pgx.Tx,
 	event stripeCashEvent,
 	resolvedPI string,
-) (string, error) {
+) (string, int64, int, error) {
 	effectCreated, effectRank, unavailable := int64(0), 0, false
 	if event.DisputeEffect != stripeDisputeCashNoEffect {
 		effectCreated, effectRank = event.EventCreated, event.EffectRank
 		unavailable = event.DisputeEffect == stripeDisputeCashUnavailable
 	}
 	var boundPI string
+	var currentEffectCreated int64
+	var currentEffectRank int
 	err := tx.QueryRow(ctx, `
 		INSERT INTO stripe_dispute_cash_state
 		  (dispute_id,charge_id,payment_intent,amount_cents,currency,status,cash_unavailable,
@@ -410,15 +419,16 @@ func applyStripeDisputeState(
 		  AND stripe_dispute_cash_state.currency=EXCLUDED.currency
 		  AND (stripe_dispute_cash_state.payment_intent IS NULL OR EXCLUDED.payment_intent IS NULL
 		       OR stripe_dispute_cash_state.payment_intent=EXCLUDED.payment_intent)
-		RETURNING COALESCE(payment_intent,'')`,
+		RETURNING COALESCE(payment_intent,''),cash_effect_created,cash_effect_rank`,
 		event.ObjectID, event.ChargeID, nullableStripeID(resolvedPI), event.AmountCents,
 		event.Currency, event.Status, unavailable, effectCreated, effectRank,
 		event.EventID, event.EventType, event.EventCreated,
-	).Scan(&boundPI)
+	).Scan(&boundPI, &currentEffectCreated, &currentEffectRank)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", fmt.Errorf("stripe dispute %s conflicts with its durable object binding", event.ObjectID)
+		return "", 0, 0,
+			fmt.Errorf("stripe dispute %s conflicts with its durable object binding", event.ObjectID)
 	}
-	return boundPI, err
+	return boundPI, currentEffectCreated, currentEffectRank, err
 }
 
 func stripeCollectionUnavailableCents(ctx context.Context, tx pgx.Tx, paymentIntent string, received int64) (int64, error) {
