@@ -289,6 +289,17 @@ CREATE TABLE IF NOT EXISTS admin_credentials (
     revoked    BOOLEAN DEFAULT false,
     CONSTRAINT admin_credentials_label_nonempty CHECK (btrim(label) <> '' AND length(label) <= 200)
 );
+-- CREATE TABLE IF NOT EXISTS is a no-op on a database that already has the
+-- table, so a column added to the CREATE block above never reaches an existing
+-- deployment -- only a freshly created one. The partial index below then fails
+-- with 'column "revoked" does not exist' and the whole migration aborts.
+--
+-- Found on the live droplet, whose admin_credentials predates this column.
+-- Local test databases are created fresh every run, so this class of bug is
+-- invisible there and only appears on an upgrade, which is exactly when it
+-- matters. Every column added to an existing table needs its own ALTER.
+ALTER TABLE admin_credentials ADD COLUMN IF NOT EXISTS revoked BOOLEAN DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS admin_credentials_active_idx
     ON admin_credentials (id) WHERE revoked = false;
 
@@ -1372,6 +1383,19 @@ ALTER TABLE quotes ADD COLUMN IF NOT EXISTS expires_at    TIMESTAMPTZ;          
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS input_sha256  TEXT;                    -- sha256 of the scanned input bytes, for best-effort submit match
 ALTER TABLE jobs   ADD COLUMN IF NOT EXISTS quote_id      UUID;                    -- the advisory quote this job was bound to (NULL = none)
 CREATE INDEX IF NOT EXISTS jobs_quote_idx ON jobs (quote_id) WHERE quote_id IS NOT NULL;  -- quote-to-job lookups (invoice/admin drift)
+
+-- These de-partitioning blocks SELECT columns out of the old tables, so a
+-- deployment whose job_events or task_durations predates one of those columns
+-- fails the entire migration with 'column ... does not exist'. Found on the live
+-- droplet, whose job_events has no task_id.
+--
+-- ADD COLUMN IF NOT EXISTS is a no-op where the column already exists, so this
+-- costs a freshly created database nothing and is what makes an upgrade of an
+-- older deployment possible at all.
+ALTER TABLE IF EXISTS job_events     ADD COLUMN IF NOT EXISTS task_id UUID;
+ALTER TABLE IF EXISTS task_durations ADD COLUMN IF NOT EXISTS task_id UUID;
+ALTER TABLE IF EXISTS task_durations ADD COLUMN IF NOT EXISTS engine TEXT;
+ALTER TABLE IF EXISTS task_durations ADD COLUMN IF NOT EXISTS build_hash TEXT;
 
 DO $$
 BEGIN
