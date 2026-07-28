@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "benchmark": "nasa_perseverance_rover",
+  "display_name": "NASA Mars 2020 Perseverance Rover",
+  "category": "space_rovers",
+  "target_fidelity": "L3",
+  "target": {
+    "manufacturer": "NASA/JPL-Caltech",
+    "model": "Mars 2020 Perseverance Rover",
+    "model_year": 2020,
+    "generation": "Mars 2020 flight rover",
+    "configuration": "deployed surface configuration"
+  },
+  "official_dimensions_mm": {"x": 3000, "y": 2700, "z": 2200},
+  "dimension_scope": "approximately 10 ft long excluding robotic arm, 9 ft wide, 7 ft tall",
+  "sources": [
+    {
+      "origin": "https://science.nasa.gov/mission/mars-2020-perseverance/rover-components/",
+      "publisher": "NASA Science",
+      "page_title": "Perseverance Rover Components",
+      "authority_class": "manufacturer_authoritative",
+      "viewpoint": "official dimensions and component descriptions",
+      "quality_score": 1.0,
+      "target_variant": {"manufacturer": "NASA/JPL-Caltech", "model": "Mars 2020 Perseverance Rover", "model_year": 2020},
+      "rights": {
+        "status": "NASA_MEDIA_GUIDELINES",
+        "internal_use": true,
+        "redistribution": true,
+        "conditions": ["credit NASA/JPL-Caltech", "do not imply NASA endorsement", "check each asset for third-party restrictions"]
+      }
+    },
+    {
+      "origin": "https://images.nasa.gov/details/JPL-20201006-M2020f-0001-Twin%20Rover%20Gets%20to%20Work",
+      "publisher": "NASA/JPL-Caltech",
+      "page_title": "Twin of NASA's Perseverance Mars Rover Now on the Move",
+      "authority_class": "manufacturer_authoritative",
+      "viewpoint": "moving Earth twin, multiview video",
+      "quality_score": 0.9,
+      "target_variant": {"manufacturer": "NASA/JPL-Caltech", "model": "Perseverance Earth twin OPTIMISM", "model_year": 2020},
+      "rights": {
+        "status": "NASA_MEDIA_GUIDELINES",
+        "internal_use": true,
+        "redistribution": true,
+        "conditions": ["credit NASA/JPL-Caltech", "do not imply NASA endorsement", "verify soundtrack and footage metadata before public bundling"]
+      }
+    },
+    {
+      "origin": "https://www.nasa.gov/nasa-brand-center/",
+      "publisher": "NASA",
+      "page_title": "NASA Brand and Media Usage Guidelines",
+      "authority_class": "rights_authoritative",
+      "viewpoint": "rights policy",
+      "quality_score": 1.0,
+      "target_variant": {},
+      "rights": {
+        "status": "PUBLIC_POLICY",
+        "internal_use": true,
+        "redistribution": true,
+        "conditions": ["NASA identifiers remain protected", "third-party copyright notices override general reuse permission"]
+      }
+    },
+    {
+      "origin": "https://assets.science.nasa.gov/content/dam/science/cds/3d/resources/model/mars-2020-perseverance-rover/Mars%202020%20Perseverance%20Rover.glb?emrc=6a5f0516b4496",
+      "publisher": "NASA Science / NASA Jet Propulsion Laboratory",
+      "page_title": "Mars 2020 Perseverance Rover official 3D resource",
+      "authority_class": "manufacturer_authoritative",
+      "viewpoint": "public 3D landmark and topology reference; not a private starting model",
+      "quality_score": 1.0,
+      "target_variant": {"manufacturer": "NASA/JPL-Caltech", "model": "Mars 2020 Perseverance Rover", "model_year": 2020},
+      "known_scale": {"binding": "official_dimensions_mm", "authority": "bounded overall envelope only"},
+      "included_evidence": ["named component landmarks", "coarse topology", "silhouette hypothesis"],
+      "excluded_evidence": ["manufacturing tolerance", "hidden internal geometry", "independent acceptance"],
+      "rights": {
+        "status": "NASA_3D_RESOURCE_FREE_USE",
+        "internal_use": true,
+        "redistribution": true,
+        "conditions": ["credit NASA/JPL-Caltech", "do not imply NASA endorsement", "follow NASA Images and Media Usage Guidelines"]
+      }
+    },
+    {
+      "origin": "https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia24/pia24045/PIA24045.jpg",
+      "catalog_url": "https://science.nasa.gov/photojournal/port-side-of-perseverance/",
+      "publisher": "NASA/JPL-Caltech",
+      "page_title": "PIA24045 — Port Side of Perseverance",
+      "authority_class": "manufacturer_authoritative",
+      "viewpoint": "exact flight rover, close port-side component view",
+      "quality_score": 0.98,
+      "target_variant": {"manufacturer": "NASA/JPL-Caltech", "model": "Mars 2020 Perseverance Rover", "model_year": 2020},
+      "included_evidence": ["visible port-side chassis", "remote sensing mast", "high-gain antenna", "MOXIE inlet", "cable harness routing"],
+      "excluded_evidence": ["occluded mobility geometry", "starboard surfaces", "manufacturing tolerance", "independent acceptance"],
+      "rights": {
+        "status": "NASA_MEDIA_GUIDELINES",
+        "internal_use": true,
+        "redistribution": true,
+        "conditions": ["credit NASA/JPL-Caltech", "do not imply NASA endorsement", "check asset for third-party restrictions before public bundling"]
+      }
+    },
+    {
+      "origin": "https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia23/pia23826/PIA23826.jpg",
+      "catalog_url": "https://science.nasa.gov/photojournal/perseverance-rover-on-spin-table-at-kennedy-space-center/",
+      "publisher": "NASA/JPL-Caltech",
+      "page_title": "PIA23826 — Perseverance Rover on Spin Table",
+      "authority_class": "manufacturer_authoritative",
+      "viewpoint": "exact flight rover, oblique inverted underbody view",
+      "quality_score": 0.98,
+      "target_variant": {"manufacturer": "NASA/JPL-Caltech", "model": "Mars 2020 Perseverance Rover", "model_year": 2020},
+      "included_evidence": ["belly pan", "wheel inner structure", "rocker-bogie linkage", "robotic arm underside", "underbody instruments"],
+      "excluded_evidence": ["wrapped wheel tread", "upright deck surfaces", "manufacturing tolerance", "independent acceptance"],
+      "rights": {
+        "status": "NASA_MEDIA_GUIDELINES",
+        "internal_use": true,
+        "redistribution": true,
+        "conditions": ["credit NASA/JPL-Caltech", "do not imply NASA endorsement", "check asset for third-party restrictions before public bundling"]
+      }
+    },
+    {
+      "origin": "https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia23/pia23828/PIA23828.jpg",
+      "catalog_url": "https://science.nasa.gov/photojournal/inverted-rover-at-kennedy-space-center/",
+      "publisher": "NASA/JPL-Caltech",
+      "page_title": "PIA23828 — Inverted Rover at Kennedy Space Center",
+      "authority_class": "manufacturer_authoritative",
+      "viewpoint": "exact flight rover, near-orthogonal inverted underbody view",
+      "quality_score": 0.99,
+      "target_variant": {"manufacturer": "NASA/JPL-Caltech", "model": "Mars 2020 Perseverance Rover", "model_year": 2020},
+      "included_evidence": ["belly pan", "rocker-bogie linkage", "robotic arm", "nameplates", "underbody instrument layout"],
+      "excluded_evidence": ["wrapped wheel tread", "upright deck surfaces", "manufacturing tolerance", "independent acceptance"],
+      "rights": {
+        "status": "NASA_MEDIA_GUIDELINES",
+        "internal_use": true,
+        "redistribution": true,
+        "conditions": ["credit NASA/JPL-Caltech", "do not imply NASA endorsement", "check asset for third-party restrictions before public bundling"]
+      }
+    }
+  ],
+  "prohibited_inputs": ["existing private model", "unreviewed third-party imagery", "NASA asset with an explicit third-party copyright notice"]
+}

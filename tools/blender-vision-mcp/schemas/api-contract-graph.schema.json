@@ -1,0 +1,419 @@
+{
+  "$defs": {
+    "APIEndpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization": {
+          "enum": [
+            "public",
+            "authenticated",
+            "permission"
+          ],
+          "title": "Authorization",
+          "type": "string"
+        },
+        "business_rule_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Business Rule Ids",
+          "type": "array"
+        },
+        "entity_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Refs",
+          "type": "array"
+        },
+        "file_boundary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileBoundary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "handler": {
+          "$ref": "#/$defs/HandlerBinding"
+        },
+        "idempotency": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdempotencyContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "operation_id": {
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "rate_limit": {
+          "title": "Rate Limit",
+          "type": "string"
+        },
+        "request_fields": {
+          "items": {
+            "$ref": "#/$defs/APIField"
+          },
+          "title": "Request Fields",
+          "type": "array"
+        },
+        "required_permissions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Permissions",
+          "type": "array"
+        },
+        "responses": {
+          "items": {
+            "$ref": "#/$defs/APIResponse"
+          },
+          "title": "Responses",
+          "type": "array"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "exclusiveMinimum": 0,
+          "title": "Timeout Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operation_id",
+        "method",
+        "path",
+        "summary",
+        "request_fields",
+        "responses",
+        "entity_refs",
+        "handler",
+        "authorization",
+        "rate_limit",
+        "timeout_ms"
+      ],
+      "title": "APIEndpoint",
+      "type": "object"
+    },
+    "APIField": {
+      "additionalProperties": false,
+      "properties": {
+        "data_type": {
+          "title": "Data Type",
+          "type": "string"
+        },
+        "location": {
+          "enum": [
+            "path",
+            "query",
+            "header",
+            "body",
+            "response"
+          ],
+          "title": "Location",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "validation": {
+          "additionalProperties": true,
+          "title": "Validation",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "location",
+        "data_type",
+        "required"
+      ],
+      "title": "APIField",
+      "type": "object"
+    },
+    "APIResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "schema_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Ref"
+        },
+        "status": {
+          "maximum": 599,
+          "minimum": 100,
+          "title": "Status",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "description"
+      ],
+      "title": "APIResponse",
+      "type": "object"
+    },
+    "FileBoundary": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_content_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Content Types",
+          "type": "array"
+        },
+        "malware_scan_policy": {
+          "title": "Malware Scan Policy",
+          "type": "string"
+        },
+        "maximum_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Maximum Bytes",
+          "type": "integer"
+        },
+        "storage_policy": {
+          "title": "Storage Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "allowed_content_types",
+        "maximum_bytes",
+        "storage_policy",
+        "malware_scan_policy"
+      ],
+      "title": "FileBoundary",
+      "type": "object"
+    },
+    "HandlerBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_ref": {
+          "title": "Entity Ref",
+          "type": "string"
+        },
+        "field_bindings": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Field Bindings",
+          "type": "object"
+        },
+        "id_field": {
+          "title": "Id Field",
+          "type": "string"
+        },
+        "initial_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Initial Status"
+        },
+        "kind": {
+          "enum": [
+            "list_entities",
+            "get_entity",
+            "create_entity",
+            "update_entity",
+            "delete_entity",
+            "idempotent_create",
+            "file_upload",
+            "status_lookup"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "status_field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status Field"
+        },
+        "storage_subdirectory": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storage Subdirectory"
+        }
+      },
+      "required": [
+        "kind",
+        "entity_ref",
+        "id_field"
+      ],
+      "title": "HandlerBinding",
+      "type": "object"
+    },
+    "IdempotencyContract": {
+      "additionalProperties": false,
+      "properties": {
+        "conflict_status": {
+          "maximum": 499,
+          "minimum": 400,
+          "title": "Conflict Status",
+          "type": "integer"
+        },
+        "key_header": {
+          "title": "Key Header",
+          "type": "string"
+        },
+        "replay_status": {
+          "maximum": 299,
+          "minimum": 200,
+          "title": "Replay Status",
+          "type": "integer"
+        },
+        "request_hash_required": {
+          "default": true,
+          "title": "Request Hash Required",
+          "type": "boolean"
+        },
+        "retention_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Retention Seconds",
+          "type": "integer"
+        },
+        "scope": {
+          "enum": [
+            "actor",
+            "tenant",
+            "global"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key_header",
+        "scope",
+        "replay_status",
+        "conflict_status",
+        "retention_seconds"
+      ],
+      "title": "IdempotencyContract",
+      "type": "object"
+    }
+  },
+  "$id": "https://compute.exchange/schemas/api-contract-graph.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Authority Refs",
+      "type": "array"
+    },
+    "base_path": {
+      "title": "Base Path",
+      "type": "string"
+    },
+    "endpoints": {
+      "items": {
+        "$ref": "#/$defs/APIEndpoint"
+      },
+      "title": "Endpoints",
+      "type": "array"
+    },
+    "error_envelope": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Error Envelope",
+      "type": "object"
+    },
+    "protocol": {
+      "enum": [
+        "REST",
+        "GraphQL",
+        "RPC"
+      ],
+      "title": "Protocol",
+      "type": "string"
+    },
+    "sample_payload_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Sample Payload Refs",
+      "type": "array"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "protocol",
+    "base_path",
+    "version",
+    "endpoints",
+    "error_envelope",
+    "sample_payload_refs",
+    "authority_refs"
+  ],
+  "title": "APIContractGraph",
+  "type": "object"
+}

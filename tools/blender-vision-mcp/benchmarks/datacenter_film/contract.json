@@ -1,0 +1,49 @@
+{
+  "acceptance_thresholds": {
+    "critical_critic_findings_maximum": 0,
+    "delivery_budget_violations_maximum": 0,
+    "detail_glb_gzip_bytes_maximum": 2500000,
+    "hidden_silhouette_iou_minimum": 0.9,
+    "public_silhouette_iou_minimum": 0.94,
+    "require_reduced_motion_path": true,
+    "require_streaming_plan": true,
+    "shell_glb_gzip_bytes_maximum": 1500000
+  },
+  "blocked_requirements": [],
+  "builder_inputs_digest": "e81e04ff241e923a5164d7424b20fc1a5970e864600bbe94a5926b66f5cc5cf1",
+  "digest": "92cd876c4debc1860e0fa8c7fc146a7a73e5265e4ee5b48dbb7348e4d16d2f4b",
+  "evaluator_digest": "ab3b9e78b3b9d741a12a476d82fd4fc9e896d2025689570338846625e0f7ba19",
+  "frozen_at": "2026-07-26T00:00:00+00:00",
+  "kind": "v2.sealed-benchmark-contract",
+  "lineage": {
+    "environment": {},
+    "hardware": {},
+    "input_authorities": [
+      "PROCEDURAL_GROUND_TRUTH",
+      "HUMAN_REVIEWED"
+    ],
+    "inputs": [
+      "oracle:845818866aa954ad1a72864182562d9f4b1ae26e4fc3d5ffec393cb770aaf77d",
+      "evaluator:ab3b9e78b3b9d741a12a476d82fd4fc9e896d2025689570338846625e0f7ba19",
+      "builder_inputs:e81e04ff241e923a5164d7424b20fc1a5970e864600bbe94a5926b66f5cc5cf1"
+    ],
+    "limitations": [
+      "Filesystem digests bind committed trees only.",
+      "Blocked targets declare exact requirements; no synthetic substitution."
+    ],
+    "model_versions": {},
+    "operation": "seal_benchmark_contract",
+    "parameters": {
+      "authority_ceiling": "INFERRED",
+      "evidence_status": "available",
+      "target_id": "datacenter_film"
+    },
+    "retrieved_at": "2026-07-26T00:00:00+00:00",
+    "rights_state": "SYNTHETIC_OWNED",
+    "tool": "blender-vision-mcp",
+    "tool_version": "0.1.0"
+  },
+  "oracle_digest": "845818866aa954ad1a72864182562d9f4b1ae26e4fc3d5ffec393cb770aaf77d",
+  "schema_version": "1",
+  "target_id": "datacenter_film"
+}

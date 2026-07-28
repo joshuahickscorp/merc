@@ -1,0 +1,58 @@
+{
+  "acceptance_passed": true,
+  "block_reason": "",
+  "category": "cinematic",
+  "detector_fired": true,
+  "drill_id": "cinematic-text-collision",
+  "execution_class": "DIAGNOSTIC_ONLY",
+  "global_regression": false,
+  "measured_baseline": {},
+  "measured_injected": {
+    "labels": [
+      {
+        "bbox": [
+          10,
+          10,
+          80,
+          20
+        ],
+        "text": "Rack A"
+      },
+      {
+        "bbox": [
+          40,
+          15,
+          80,
+          20
+        ],
+        "text": "Rack B"
+      }
+    ]
+  },
+  "measured_repaired": {
+    "labels": [
+      {
+        "bbox": [
+          10,
+          10,
+          80,
+          20
+        ],
+        "text": "Rack A"
+      },
+      {
+        "bbox": [
+          10,
+          40,
+          80,
+          20
+        ],
+        "text": "Rack B"
+      }
+    ]
+  },
+  "notes": [],
+  "repaired": true,
+  "runtime_used": "label-layout",
+  "status": "PASS"
+}

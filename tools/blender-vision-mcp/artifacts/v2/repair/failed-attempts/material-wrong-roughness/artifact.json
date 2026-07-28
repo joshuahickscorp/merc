@@ -1,0 +1,9 @@
+{
+  "files": {},
+  "kind": "material",
+  "payload": {
+    "metalness": 0.95,
+    "roughness": 0.8,
+    "specular_peak": 0.15
+  }
+}

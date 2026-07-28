@@ -1,0 +1,25 @@
+{
+  "acceptance_passed": true,
+  "block_reason": "",
+  "category": "material",
+  "detector_fired": true,
+  "drill_id": "material-plastic-metal",
+  "execution_class": "DIAGNOSTIC_ONLY",
+  "global_regression": false,
+  "measured_baseline": {
+    "label": "plastic",
+    "metallic": 0.0
+  },
+  "measured_injected": {
+    "label": "metal",
+    "metallic": 1.0
+  },
+  "measured_repaired": {
+    "label": "plastic",
+    "metallic": 0.0
+  },
+  "notes": [],
+  "repaired": true,
+  "runtime_used": "grazing-colour",
+  "status": "PASS"
+}

@@ -1,0 +1,142 @@
+{
+  "schema_version": "1",
+  "attempt_id": "attempt-007",
+  "status": "ACCEPTED",
+  "condition": "H3-codex-sealed",
+  "completed_at": "2026-07-26T04:19:30Z",
+  "benchmark_id": "nocturne-one-sealed-v1",
+  "contract_sha256": "b1ff7fd969075671ab59ffea65757a1fbcc825217fc456d002dd206cc7154fd6",
+  "packet_manifest_sha256": "434a699dfd95e379c7c56d020fc5b0137f099c8c172ecb9690063df13b71d079",
+  "oracle_source_access": false,
+  "source_mesh_embedded": false,
+  "artifacts": {
+    "3d/build_candidate.py": {
+      "sha256": "2e4d32f6389538a72e7ca7e8294c25f707485c1db74d64e1ec9ed0c1e1f6ac40",
+      "independent_parametric_source": true
+    },
+    "3d/nocturne-one.blend": {
+      "sha256": "d8e6d80cb4acc0e8137f0282b438866917967b02f035e7fd35d3706fe3c41845",
+      "reopened": true
+    },
+    "public/assets/nocturne-one-hero.glb": {
+      "sha256": "dca55cd5fee2c74b984f2b9629903973b61ea259ee1c930e53edc12dc5c5d6f6",
+      "bytes": 393040,
+      "visionmcp_valid": true
+    },
+    "public/assets/nocturne-one-low.glb": {
+      "sha256": "3bba664adb6a54312ea4104a296b89902551868040b6bbe117417bcd4eeb578e",
+      "bytes": 201484,
+      "visionmcp_valid": true
+    },
+    "public/assets/nocturne-one-poster.webp": {
+      "sha256": "f334967bd7dd371e17a30b8b0fae756f4d710ddfa077f383f34d9b3bcb9784d9"
+    },
+    "package-lock.json": {
+      "sha256": "1cd71848e273ce65ca0597387fb66f68db86df4baa71ed019c58afb35384e4c7",
+      "pinned": true
+    }
+  },
+  "blender_validation": {
+    "blender_version": "4.2.1 LTS",
+    "visionmcp_inspection_status": "succeeded",
+    "safe_mode_violations": [],
+    "required_parts_observed": 12,
+    "primary_dimensions_mm": [
+      320,
+      180,
+      360
+    ],
+    "animated_parts_observed": 8,
+    "missing_uv_objects": [],
+    "non_manifold_edges": {},
+    "non_finite_normal_objects": [],
+    "negative_scale_objects": [],
+    "missing_textures": [],
+    "separate_glass_and_emissive_materials": true
+  },
+  "public_silhouette_iou": {
+    "threshold": 0.95,
+    "front": 0.966214,
+    "rear": 0.968365,
+    "left": 0.959653,
+    "right": 0.960727,
+    "top": 0.978155,
+    "hero": 0.959298,
+    "minimum": 0.959298,
+    "passed": true
+  },
+  "application_validation": {
+    "npm_ci_fresh_copy": "PASS",
+    "npm_run_verify_candidate": "PASS",
+    "npm_run_verify_fresh_copy": "PASS",
+    "typescript": "PASS",
+    "unit_tests": {
+      "passed": 4,
+      "failed": 0
+    },
+    "api_integration_tests": {
+      "passed": 2,
+      "failed": 0,
+      "authorization": "PASS",
+      "validation": "PASS",
+      "transient": "PASS",
+      "idempotent_replay": "PASS",
+      "duplicate_conflict": "PASS",
+      "cross_actor_scope": "PASS"
+    },
+    "database": {
+      "first_migrate_changed": true,
+      "second_migrate_changed": false,
+      "rollback_changed": true,
+      "reapply_changed": true,
+      "deterministic_seed": "cfg-seed-obsidian"
+    },
+    "npm_start_fresh_copy": "PASS",
+    "health": {
+      "ok": true,
+      "database": "migrated"
+    },
+    "routes_passed": 5,
+    "runtime_probe": "PASS",
+    "renderer_state": "3d_ready",
+    "no_webgl_state": "3d_unavailable",
+    "reduced_motion": "PASS",
+    "configuration_scene_identity": "PASS",
+    "accessibility_findings": 0,
+    "visual_screenshot_bytes": 591109
+  },
+  "performance_validation": {
+    "critical_html_css_gzip_bytes": 3979,
+    "critical_html_css_maximum": 184320,
+    "javascript_after_3d_intent_gzip_bytes": 153040,
+    "javascript_maximum": 256000,
+    "hero_glb_bytes": 393040,
+    "hero_glb_maximum": 5242880,
+    "mobile_glb_bytes": 201484,
+    "mobile_glb_maximum": 1572864,
+    "desktop_render_submission_median_fps": 2500.000149011621,
+    "desktop_render_submission_p95_ms": 0.7000000476837158,
+    "mobile_render_submission_median_fps": 2500.000149011621,
+    "mobile_render_submission_p95_ms": 0.699999988079071,
+    "api_samples": 30,
+    "api_p95_ms": 2.819,
+    "memory_duration_seconds": 300,
+    "memory_sample_count": 60,
+    "memory_growth_bytes": 0,
+    "memory_growth_maximum": 16777216,
+    "passed": true
+  },
+  "retained_failed_attempts": [
+    "failed-attempts/attempt-001.json",
+    "failed-attempts/attempt-002.json",
+    "failed-attempts/attempt-003.json",
+    "failed-attempts/attempt-004.json",
+    "failed-attempts/attempt-005.json",
+    "failed-attempts/attempt-006.json"
+  ],
+  "known_limitations": [
+    "VisionMCP emits one advisory CLOSED_SOLID_VENT_OR_GRILLE because the specified 23-slot rear grille is represented as 23 closed manifold fins; all fixed semantic, topology, public-silhouette, and GLB gates pass.",
+    "Hidden holdout cameras and the hidden mobile trace remain evaluator-only and were not accessed or locally scored."
+  ],
+  "superseded_by": "The frozen application evaluator rejected this locally accepted candidate at P0 keyboard_journey; see failed-attempts/attempt-007.json."
+}

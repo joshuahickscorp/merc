@@ -1,0 +1,194 @@
+{
+  "completed_at": "2026-07-27T04:12:14.340050+00:00",
+  "contracts": {
+    "browser_round_trip": {
+      "builder_inputs_digest": "4981de7e3f633d4fc992c0247d706de90a10a1fe492f57e7f260946192493964",
+      "digest": "ab53e700353b211fe242832035ad6f7879dfb52bb27a85da48b342657e89b05c",
+      "evaluator_digest": "07d96f8296c4dfa852f2fda91b1445d7daad5a88f4da218cf4ae90bc3fdc040e",
+      "frozen_at": "2026-07-26T00:00:00+00:00",
+      "oracle_digest": "0d13f35be085cf5ab828551cfa315b088685411af344cd45e36522601c35d42c"
+    },
+    "datacenter_film": {
+      "builder_inputs_digest": "e81e04ff241e923a5164d7424b20fc1a5970e864600bbe94a5926b66f5cc5cf1",
+      "digest": "92cd876c4debc1860e0fa8c7fc146a7a73e5265e4ee5b48dbb7348e4d16d2f4b",
+      "evaluator_digest": "ab3b9e78b3b9d741a12a476d82fd4fc9e896d2025689570338846625e0f7ba19",
+      "frozen_at": "2026-07-26T00:00:00+00:00",
+      "oracle_digest": "845818866aa954ad1a72864182562d9f4b1ae26e4fc3d5ffec393cb770aaf77d"
+    },
+    "fur_animal": {
+      "builder_inputs_digest": "ce8bced4d29ffc67a6fd14701cce8c59861a523914fc40f9e8db6ad88b47aaf7",
+      "digest": "8856bddb79c6b4461e924760154dc9dcadc860279eb1124864c683b8f211db60",
+      "evaluator_digest": "178762bd5d27e51abf924c40bdbd03601af043ef35c0aa9b051c17539cdc88a4",
+      "frozen_at": "2026-07-26T00:00:00+00:00",
+      "oracle_digest": "e44536848e5b1aeb6cdaea124a17d263c2e26495b13821e2d9ba221c302cf31a"
+    },
+    "organic": {
+      "builder_inputs_digest": "b949573e69e956bb1551ab3db455e2e0b2131e85abe7b460ad997ab606efb5af",
+      "digest": "c4c211f0e976beb3012d0d8f09d62c12b1b51a49fb2f57da82ce139213e5f1b8",
+      "evaluator_digest": "2a32b9970170b9d4c42f8fc737b8edb1fdc04db9fbd859f71e7528038481d33a",
+      "frozen_at": "2026-07-26T00:00:00+00:00",
+      "oracle_digest": "c285201d5fbd981dd8434dd4045ae64edfb5ab23b67e8ba15b30e48a8c3ead80"
+    },
+    "remote": {
+      "builder_inputs_digest": "ecbf7d781ba91dd13193fba145501d4a63133bd213fa8d494dfcf7f9f7d7bffe",
+      "digest": "776a96f551c43ccf3f519e379c92d8fa324755f9b6d04302ee4dedfc278c407a",
+      "evaluator_digest": "50e7a790fcd776cd00f8d8f6c25463c2cd9fad4a64ef176eebf7845c0985167c",
+      "frozen_at": "2026-07-26T00:00:00+00:00",
+      "oracle_digest": "67c7235355404504a348a20acfd189ed671cddddce6b83dfb2375cf8b1fa3f98"
+    },
+    "soft_object": {
+      "builder_inputs_digest": "a43074d94b6407d2d31b9b224d407989cbb565cb7847dc89ac2832118c12ac8e",
+      "digest": "d5e8d3d8b56dbabf8a2d02a6b3e5ba37e1f9b74451a61a2131e1808c316b922c",
+      "evaluator_digest": "896cdf49098513936e89381c8e5e4c17e48d917349616fd2b66eafadce70546c",
+      "frozen_at": "2026-07-26T00:00:00+00:00",
+      "oracle_digest": "4e2ec6e76031d9e323e048589d2b6294ed5a7f9fcee2b43c6f5108ea44a1c2bb"
+    }
+  },
+  "failures": {
+    "contracts": 0,
+    "leakage": 0,
+    "manifests": 0,
+    "total": 0
+  },
+  "leakage_matrix": [
+    {
+      "blocked": true,
+      "detail": "builder cannot read oracle file directly: /Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/sealed/leakage-work/oracle/hidden/ORACLE_CANARY.txt",
+      "probe": "builder_reads_oracle_file",
+      "result": "PASS"
+    },
+    {
+      "blocked": true,
+      "detail": "builder path escape blocked: ../oracle/hidden/ORACLE_CANARY.txt (path escapes project root: /Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/sealed/leakage-work/builder/../oracle/hidden/ORACLE_CANARY.txt)",
+      "probe": "builder_path_escape",
+      "result": "PASS"
+    },
+    {
+      "blocked": true,
+      "detail": "builder symlink escape blocked: escape_link (path escapes project root: /Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/artifacts/v2/sealed/leakage-work/builder/escape_link)",
+      "probe": "builder_symlink_escape",
+      "result": "PASS"
+    },
+    {
+      "blocked": true,
+      "detail": "evaluator was swapped or edited after freeze (expected c2d6178ddda7d23318c2bc10477927ca2b4bfae36305e12e3657dfc1f4d0a756, got c66e32470bbd7d4cca4fafe97d7894194d065e8c3c1c4c849500a3c37c72faa3)",
+      "probe": "evaluator_swap_after_freeze",
+      "result": "PASS"
+    },
+    {
+      "blocked": true,
+      "detail": "refusing to expose hidden oracle path as builder input: hidden/cameras/holdout_01.json",
+      "probe": "hidden_camera_in_builder_inputs",
+      "result": "PASS"
+    },
+    {
+      "blocked": true,
+      "detail": "threshold edit after seal blocked: sealed contract 'datacenter_film' failed digest verification (thresholds or digests were edited after sealing)",
+      "probe": "threshold_edit_after_seal",
+      "result": "PASS"
+    }
+  ],
+  "manifests": {
+    "browser_round_trip": {
+      "acceptance_thresholds": {
+        "blend_reopen_required": true,
+        "critical_accessibility_violations_maximum": 0,
+        "dom_structure_match_required": true,
+        "glb_reimport_required": true,
+        "hidden_pixel_rmse_maximum": 18.0,
+        "max_playwright_browsers": 1,
+        "public_pixel_rmse_maximum": 12.0
+      },
+      "blocked_requirements": [],
+      "evidence_status": "available"
+    },
+    "datacenter_film": {
+      "acceptance_thresholds": {
+        "critical_critic_findings_maximum": 0,
+        "delivery_budget_violations_maximum": 0,
+        "detail_glb_gzip_bytes_maximum": 2500000,
+        "hidden_silhouette_iou_minimum": 0.9,
+        "public_silhouette_iou_minimum": 0.94,
+        "require_reduced_motion_path": true,
+        "require_streaming_plan": true,
+        "shell_glb_gzip_bytes_maximum": 1500000
+      },
+      "blocked_requirements": [],
+      "evidence_status": "available"
+    },
+    "fur_animal": {
+      "acceptance_thresholds": {
+        "critical_groom_critic_findings_maximum": 0,
+        "groom_density_relative_error_maximum": 0.15,
+        "groom_length_relative_error_maximum": 0.12,
+        "hidden_silhouette_iou_minimum": 0.85,
+        "minimum_input_views": 16,
+        "public_silhouette_iou_minimum": 0.9,
+        "synthetic_bust_substitution": "forbidden"
+      },
+      "blocked_requirements": [
+        {
+          "id": "real_animal_capture",
+          "reason": "No rights-cleared multiview capture of a real animal has been supplied. The synthetic animal_bust from the organic/fur lane is PROCEDURAL_GROUND_TRUTH and must not be silently substituted for this OBSERVED-claim target.",
+          "required_to_unblock": "Rights-cleared multiview stills and/or video of a real animal, explicit rights_state OWNED or LICENSED, capture environment receipt, and an ethical-use attestation. Synthetic busts may only appear as a separate non-scored development fixture."
+        },
+        {
+          "id": "measured_groom_reference",
+          "reason": "Evaluator-grade groom reference (strand length distribution, clumping, density maps) does not exist for a real animal here.",
+          "required_to_unblock": "Measured or manufacturer-spec groom reference bound to the same capture session, or a human-reviewed reference groom with HUMAN_REVIEWED authority and a recorded reviewer."
+        }
+      ],
+      "evidence_status": "blocked"
+    },
+    "organic": {
+      "acceptance_thresholds": {
+        "hidden_silhouette_iou_minimum": 0.89,
+        "lod_silhouette_iou_minimum": 0.9,
+        "p99_uv_angle_distortion_deg_maximum": 70.0,
+        "public_silhouette_iou_minimum": 0.93,
+        "uv_corners_over_limit_fraction_maximum": 0.01,
+        "uv_packing_minimum": 0.35
+      },
+      "blocked_requirements": [],
+      "evidence_status": "available"
+    },
+    "remote": {
+      "acceptance_thresholds": {
+        "dense_mvs_without_cuda": "blocked",
+        "hidden_chamfer_m_maximum": 0.003,
+        "minimum_input_views": 24,
+        "public_chamfer_m_maximum": 0.002,
+        "require_portfolio_not_single_guess": true,
+        "scale_relative_error_maximum": 0.02,
+        "sparse_reprojection_rmse_px_maximum": 1.5
+      },
+      "blocked_requirements": [
+        {
+          "id": "real_remote_multiview_capture",
+          "reason": "No authorized physical multiview capture of a remote body has been supplied to this repository. A synthetic remote body would silently change the claim from OBSERVED to PROCEDURAL_GROUND_TRUTH and is therefore refused for this target.",
+          "required_to_unblock": "≥24 rights-cleared consumer multiview images of a real remote body, EXIF/capture receipt, approximate scale anchor (MEASURED or MANUFACTURER_SPEC), and an explicit rights_state of OWNED or LICENSED. Dense COLMAP MVS remains separately blocked without CUDA."
+        },
+        {
+          "id": "colmap_dense_mvs_cuda",
+          "reason": "Host COLMAP is 4.0.4 without CUDA. Sparse SfM can run when images exist; dense MVS cannot and must be reported blocked, never faked.",
+          "required_to_unblock": "CUDA-capable COLMAP dense MVS build, or an alternative dense backend with a measured accuracy receipt on this target."
+        }
+      ],
+      "evidence_status": "blocked"
+    },
+    "soft_object": {
+      "acceptance_thresholds": {
+        "critical_critic_findings_maximum": 0,
+        "deformed_chamfer_m_maximum": 0.003,
+        "hidden_silhouette_iou_minimum": 0.88,
+        "material_hypothesis_count_minimum": 2,
+        "public_silhouette_iou_minimum": 0.92,
+        "rest_chamfer_m_maximum": 0.0015
+      },
+      "blocked_requirements": [],
+      "evidence_status": "available"
+    }
+  },
+  "schema": "v2.sealed-framework-receipt/1",
+  "status": "PASS"
+}

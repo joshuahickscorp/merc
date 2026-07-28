@@ -1,0 +1,9 @@
+HTTP/2 200
+alt-svc: h3=":443"; ma=2592000
+content-type: text/html; charset=utf-8
+date: Sun, 26 Jul 2026 04:56:52 GMT
+referrer-policy: no-referrer
+via: 1.1 Caddy
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+x-request-id: 7802b7a3-f6ce-406d-b863-a25dd9498439

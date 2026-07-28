@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "attempt_id": "attempt-003",
+  "status": "FAILED",
+  "stage": "performance_test_typecheck",
+  "command": [
+    "npm",
+    "run",
+    "typecheck"
+  ],
+  "exit_code": 2,
+  "failure": "The newly added desktop/mobile frame metric records were declared inside the browser try block but reported after its finally block.",
+  "affected_file": "tests/browser.test.ts",
+  "repair": "Declare performance records in the enclosing scope and assign them after each real 120-frame sample.",
+  "oracle_source_access": false
+}

@@ -1,0 +1,151 @@
+{
+  "schema": "visionmcp.object-benchmark-source-packet/v1",
+  "target_id": "animal_bust",
+  "created_at": "2026-07-27T04:14:08.014072+00:00",
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "construction": {
+    "target_id": "animal_bust",
+    "approx_dimensions_mm": [
+      220.0,
+      180.0,
+      250.0
+    ],
+    "authority": "PROCEDURAL_GROUND_TRUTH",
+    "synthetic_claim": "Synthetic target with known construction parameters. This is not evidence about any real animal; the real-animal lane remains blocked on an authorized multiview capture set.",
+    "from_organic_receipt": true,
+    "measured": {
+      "vertices": 5816,
+      "edges": 11628,
+      "faces": 5814,
+      "triangles": 0,
+      "quads": 5814,
+      "ngons": 0,
+      "non_manifold_edges": 0,
+      "boundary_edges": 0,
+      "genus_estimate": 0,
+      "is_watertight": true,
+      "surface_area_m2": 0.13811351264303084,
+      "volume_m3": 0.003702394812767439,
+      "bounds_m": [
+        [
+          -0.07933837920427322,
+          -0.16322606801986694,
+          0.03635662794113159
+        ],
+        [
+          0.07933838665485382,
+          0.08729849010705948,
+          0.28443753719329834
+        ]
+      ],
+      "quad_fraction": 1.0
+    },
+    "retopologized": {
+      "vertices": 5816,
+      "edges": 11628,
+      "faces": 5814,
+      "triangles": 0,
+      "quads": 5814,
+      "ngons": 0,
+      "non_manifold_edges": 0,
+      "boundary_edges": 0,
+      "genus_estimate": 0,
+      "is_watertight": true,
+      "surface_area_m2": 0.13811351264303084,
+      "volume_m3": 0.003702394812767439,
+      "bounds_m": [
+        [
+          -0.07933837920427322,
+          -0.16322606801986694,
+          0.03635662794113159
+        ],
+        [
+          0.07933838665485382,
+          0.08729849010705948,
+          0.28443753719329834
+        ]
+      ],
+      "quad_fraction": 1.0
+    },
+    "uv": {
+      "island_count": 34,
+      "packing_efficiency": 0.6203405223071239,
+      "max_area_distortion": 0.34127508881498736,
+      "mean_area_distortion": 0.09594675070750071,
+      "max_angle_distortion_deg": 52.474663166672144,
+      "overlapping_faces": 0,
+      "texel_density_variance": 0.012885637446197216,
+      "p99_angle_distortion_deg": 22.316072169507564,
+      "p95_angle_distortion_deg": 17.05976348994085,
+      "median_angle_distortion_deg": 4.593630065913736,
+      "angle_corner_count": 23256,
+      "degenerate_corner_count": 0,
+      "corners_over_70deg_fraction": 0.0
+    },
+    "lods": [
+      {
+        "name": "L1",
+        "ratio": 0.5,
+        "triangles": 5814,
+        "silhouette_iou": 0.999892013477775,
+        "hausdorff_m": 3.904849290847778e-05,
+        "retained_parts": [
+          "animal_bust_L1"
+        ],
+        "lost_parts": []
+      },
+      {
+        "name": "L2",
+        "ratio": 0.2,
+        "triangles": 2274,
+        "silhouette_iou": 0.9982660058267123,
+        "hausdorff_m": 0.00033589452505111694,
+        "retained_parts": [
+          "animal_bust_L2"
+        ],
+        "lost_parts": []
+      },
+      {
+        "name": "L3",
+        "ratio": 0.06,
+        "triangles": 666,
+        "silhouette_iou": 0.9913717310187514,
+        "hausdorff_m": 0.0009496361017227173,
+        "retained_parts": [
+          "animal_bust_L3"
+        ],
+        "lost_parts": []
+      }
+    ]
+  },
+  "train_view_count": 0,
+  "holdout_view_ids": [],
+  "train_views": [],
+  "notes": [
+    "Target: synthetic animal bust + groom",
+    "Scored against construction / measured ground truth, not against another guess.",
+    "Synthetic target with known construction parameters. This is not evidence about any real animal; the real-animal lane remains blocked on an authorized multiview capture set."
+  ],
+  "lineage": {
+    "tool": "blender-vision-mcp",
+    "tool_version": "0.1.0",
+    "operation": "object_benchmark_source_packet",
+    "inputs": [],
+    "input_authorities": [
+      "PROCEDURAL_GROUND_TRUTH"
+    ],
+    "parameters": {
+      "target_id": "animal_bust"
+    },
+    "environment": {},
+    "hardware": {},
+    "model_versions": {},
+    "retrieved_at": "",
+    "rights_state": "unreviewed",
+    "limitations": [
+      "Target: synthetic animal bust + groom",
+      "Scored against construction / measured ground truth, not against another guess.",
+      "Synthetic target with known construction parameters. This is not evidence about any real animal; the real-animal lane remains blocked on an authorized multiview capture set."
+    ]
+  }
+}

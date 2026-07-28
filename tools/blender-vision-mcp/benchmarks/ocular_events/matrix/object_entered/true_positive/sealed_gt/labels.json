@@ -1,0 +1,13 @@
+{
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "event_type": "OBJECT_ENTERED",
+  "expect_fire": true,
+  "fixture_class": "true_positive",
+  "forbidden_events": [],
+  "image_height": 240,
+  "image_width": 320,
+  "measured_quantity": "unmatched_motion_blob",
+  "n_frames": 5,
+  "notes": "blob appears after empty frames",
+  "onset_frame": 2
+}

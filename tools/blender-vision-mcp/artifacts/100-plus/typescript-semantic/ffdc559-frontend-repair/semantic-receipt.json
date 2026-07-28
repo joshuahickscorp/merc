@@ -1,0 +1,59 @@
+{
+  "acceptance": {
+    "pass": true,
+    "required": 0,
+    "typescript_diagnostics": 0
+  },
+  "candidate_receipt_sha256": "690b9285e3245fdfc4c1b09a8b64767f6efab0fbc4c6a38ae5c98dc8a06a950f",
+  "capture_id": "1de9118f4e71e3180586f1acbbbca247868584524b8434f0df72e9adda20d65a",
+  "capture_manifest_digest": "45728f8e5bd3423a430b2386c5d8957cac314ccc43899795d7408ccf3ba03352",
+  "environment": {
+    "adapter": "code.repository",
+    "adapter_version": "2",
+    "maximum_files": 20,
+    "node_sha256": "c5548e7a991a5c90170a29843ffc46df4643e29141f3cbb035f60295cf2bc882",
+    "node_version": "v20.17.0",
+    "parser": "typescript-native-compiler-api",
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "python": "3.12.13",
+    "semantic_analyzer_sha256": "3662fe06727db35518b8632dfea645f31cfac51f94c0bf9386a8be2cfea71f3f",
+    "typescript_authority_sha256": "94738164fdb3145bb21d74aca9c437fea328b5eb0c2b0ec550b821c47460de28",
+    "typescript_version": "7.0.2",
+    "visionmcp_runtime_revision": "ffdc5597b0b27908eb2b3ac43227474c49b7641d:d02d452ad85a6e4bae7a838556eeadf38b9febbd009d7559822bf61f5a21af07"
+  },
+  "schema": "vision.frontend-typecheck-repair-receipt/v1",
+  "semantic_artifact_digest": "b9640ba4c2ba7ad9e1cf5d4641763b89c9dff5ba6379fb5271de4bccf44f6994",
+  "semantic_index": {
+    "artifact_digest": "b9640ba4c2ba7ad9e1cf5d4641763b89c9dff5ba6379fb5271de4bccf44f6994",
+    "diagnostics": [],
+    "enabled": true,
+    "engine": "typescript-native-compiler-api",
+    "file_count": 9,
+    "reference_count": 429,
+    "reference_truncated": false,
+    "resolved_import_count": 22,
+    "symbol_count": 147,
+    "typescript_authority_sha256": "94738164fdb3145bb21d74aca9c437fea328b5eb0c2b0ec550b821c47460de28",
+    "typescript_version": "7.0.2"
+  },
+  "source_git_head": "ffdc5597b0b27908eb2b3ac43227474c49b7641d",
+  "summary": {
+    "compiler_diagnostic_count": 0,
+    "compiler_reference_count": 429,
+    "compiler_resolved_import_count": 22,
+    "compiler_semantic_symbol_count": 147,
+    "edge_count": 621,
+    "file_count": 20,
+    "node_count": 190,
+    "runtime_binding_count": 0,
+    "selector_count": 23,
+    "symbol_count": 140
+  },
+  "verification": {
+    "capture_id": "1de9118f4e71e3180586f1acbbbca247868584524b8434f0df72e9adda20d65a",
+    "failures": [],
+    "manifest_digest": "45728f8e5bd3423a430b2386c5d8957cac314ccc43899795d7408ccf3ba03352",
+    "status": "COMPLETE",
+    "valid": true
+  }
+}

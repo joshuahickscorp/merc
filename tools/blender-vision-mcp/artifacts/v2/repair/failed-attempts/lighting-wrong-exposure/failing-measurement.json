@@ -1,0 +1,26 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "light-wrong-exposure:flat-corridor"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "luminance_variance >= 0.008",
+      "blast_radius": [
+        "lighting"
+      ],
+      "critic_role": "lighting_artist",
+      "diagnosis": "lighting is a flat corridor with insufficient contrast",
+      "finding_id": "light-wrong-exposure:flat-corridor",
+      "measured": {
+        "luminance_variance": 0.0
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "luminance_variance": 0.0
+  },
+  "runtime_used": "lighting-image",
+  "subject_id": "light-wrong-exposure"
+}

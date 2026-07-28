@@ -1,0 +1,100 @@
+{
+  "acceptance_thresholds": {
+    "hidden_silhouette_iou_minimum": 0.89,
+    "lod_silhouette_iou_minimum": 0.9,
+    "p99_uv_angle_distortion_deg_maximum": 70.0,
+    "public_silhouette_iou_minimum": 0.93,
+    "uv_corners_over_limit_fraction_maximum": 0.01,
+    "uv_packing_minimum": 0.35
+  },
+  "anti_cheat_rules": [
+    "builder_cannot_read_oracle_source",
+    "builder_cannot_read_hidden_cameras",
+    "builder_cannot_path_escape_to_oracle",
+    "builder_cannot_symlink_into_oracle",
+    "thresholds_are_digest_bound_before_builder_execution",
+    "evaluator_is_frozen_before_builder_and_reverified_after",
+    "hidden_evidence_never_appears_in_builder_inputs",
+    "failed_attempts_are_preserved",
+    "blocked_evidence_is_declared_exactly_never_substituted"
+  ],
+  "blocked_requirements": [],
+  "builder_inputs": [
+    {
+      "builder_visible": true,
+      "description": "Public sculpture front view",
+      "path": "builder_inputs/public_views/sculpture_front.json",
+      "required": true,
+      "role": "public_view"
+    },
+    {
+      "builder_visible": true,
+      "description": "Public plant front view",
+      "path": "builder_inputs/public_views/plant_front.json",
+      "required": true,
+      "role": "public_view"
+    },
+    {
+      "builder_visible": true,
+      "description": "Public draped-cloth front view",
+      "path": "builder_inputs/public_views/cloth_front.json",
+      "required": true,
+      "role": "public_view"
+    },
+    {
+      "builder_visible": true,
+      "description": "Public retopology and LOD requirements",
+      "path": "builder_inputs/retopo_requirements.json",
+      "required": true,
+      "role": "requirements"
+    }
+  ],
+  "claim_boundary": [
+    "Targets are synthetic organic forms with procedural ground truth.",
+    "Angle distortion is gated on p99, not maximum (seam-corner outliers)."
+  ],
+  "description": "Organic topology lane covering sculpture, plant, and draped cloth. Builder receives public multi-view renders and retopology requirements; oracle retains construction parameters, hidden cameras, and UV ground truth.",
+  "display_name": "Organic form (sculpture / plant / cloth)",
+  "evaluator": {
+    "entry": "evaluator/gates.json",
+    "roles": [
+      "topology",
+      "uv",
+      "lod",
+      "silhouette"
+    ],
+    "root": "evaluator"
+  },
+  "evidence_status": "available",
+  "hidden_evidence": [
+    {
+      "builder_visible": false,
+      "description": "Sculpture holdout camera",
+      "path": "oracle/hidden/cameras/sculpture_holdout.json",
+      "required": true,
+      "role": "hidden_camera"
+    },
+    {
+      "builder_visible": false,
+      "description": "Oracle topology and UV statistics",
+      "path": "oracle/hidden/measurements/topology_stats.json",
+      "required": true,
+      "role": "hidden_measurement"
+    },
+    {
+      "builder_visible": false,
+      "description": "Leakage canary",
+      "path": "oracle/hidden/ORACLE_CANARY.txt",
+      "required": true,
+      "role": "canary"
+    }
+  ],
+  "kind": "v2.sealed-benchmark-manifest",
+  "schema_version": "1",
+  "subsystems": [
+    "organic",
+    "critics",
+    "materials"
+  ],
+  "target_id": "organic"
+}

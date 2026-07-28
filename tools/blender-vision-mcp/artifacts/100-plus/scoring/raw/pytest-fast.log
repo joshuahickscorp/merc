@@ -1,0 +1,105 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-100plus-sandbox/tools/blender-vision-mcp
+configfile: pyproject.toml
+testpaths: tests
+plugins: asyncio-1.4.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 345 items
+
+tests/test_active_learning_transactions.py .......                       [  2%]
+tests/test_autonomous_authority_pauses.py ...                            [  2%]
+tests/test_autonomous_delivery.py ......                                 [  4%]
+tests/test_autonomous_evidence.py .................                      [  9%]
+tests/test_autonomous_state_verification.py ..                           [ 10%]
+tests/test_beast_mode_expansion.py .............                         [ 13%]
+tests/test_beast_mode_governance.py ..........                           [ 16%]
+tests/test_benchmark_reviews.py ......                                   [ 18%]
+tests/test_blender_extension.py .                                        [ 18%]
+tests/test_blender_integration.py ss                                     [ 19%]
+tests/test_blender_runner.py .                                           [ 19%]
+tests/test_browser_perception.py ..s                                     [ 20%]
+tests/test_calibration_benchmark.py s                                    [ 20%]
+tests/test_camera_comparison_receipt.py ....................             [ 26%]
+tests/test_camera_consensus.py .                                         [ 26%]
+tests/test_camera_consolidation.py ....                                  [ 28%]
+tests/test_camera_decision_transactions.py ......                        [ 29%]
+tests/test_camera_refinement.py .....                                    [ 31%]
+tests/test_campaigns_and_autonomy.py ...........                         [ 34%]
+tests/test_capability_scoring.py ..........                              [ 37%]
+tests/test_capture.py ....                                               [ 38%]
+tests/test_cli.py ..                                                     [ 39%]
+tests/test_comparison_transactions.py .........                          [ 41%]
+tests/test_component_fit_transactions.py ....                            [ 42%]
+tests/test_component_fitting.py ..                                       [ 43%]
+tests/test_contracts.py ...........                                      [ 46%]
+tests/test_design_perception.py ...                                      [ 47%]
+tests/test_device_benchmarks.py ....                                     [ 48%]
+tests/test_distributed_workers.py ........                               [ 51%]
+tests/test_evidence_conflicts.py .....                                   [ 52%]
+tests/test_evidence_duplicates.py ..                                     [ 53%]
+tests/test_evidence_pursuit.py ..........                                [ 55%]
+tests/test_feature_capsules.py ...                                       [ 56%]
+tests/test_fixed_camera_regression.py ..                                 [ 57%]
+tests/test_frontend_repair.py ....                                       [ 58%]
+tests/test_generative_execution.py .......                               [ 60%]
+tests/test_generative_governance.py .                                    [ 60%]
+tests/test_geometry_ensemble.py ...                                      [ 61%]
+tests/test_geometry_pipeline.py .....                                    [ 63%]
+tests/test_graphics_perception.py ..ss                                   [ 64%]
+tests/test_intelligence.py ...                                           [ 65%]
+tests/test_jobs_and_mcp.py ....                                          [ 66%]
+tests/test_materials.py ..                                               [ 66%]
+tests/test_measurement_grids.py ....                                     [ 68%]
+tests/test_measurement_provenance.py ....                                [ 69%]
+tests/test_media_perception.py .....                                     [ 70%]
+tests/test_model_governance.py .                                         [ 71%]
+tests/test_multiview_optimization.py ..                                  [ 71%]
+tests/test_multiview_search.py ........                                  [ 73%]
+tests/test_observation_bus.py .......                                    [ 75%]
+tests/test_optimization_transactions.py ...                              [ 76%]
+tests/test_portfolio_learned.py ...                                      [ 77%]
+tests/test_project.py .......                                            [ 79%]
+tests/test_project_and_artifacts.py ......                               [ 81%]
+tests/test_reference_adoption.py .....                                   [ 82%]
+tests/test_reference_mask_proposals.py .....                             [ 84%]
+tests/test_reference_masks.py ...                                        [ 85%]
+tests/test_render_landmark_matching.py .                                 [ 85%]
+tests/test_review_app.py ......                                          [ 87%]
+tests/test_search_discovery.py ......                                    [ 88%]
+tests/test_security.py ..                                                [ 89%]
+tests/test_semantic_portfolio.py .......                                 [ 91%]
+tests/test_source_workspace.py ..                                        [ 92%]
+tests/test_video_intelligence.py .                                       [ 92%]
+tests/test_visual_geometry.py ..........                                 [ 95%]
+tests/test_visual_hull.py ........                                       [ 97%]
+tests/test_web_experience.py ..s                                         [ 98%]
+tests/test_workflow_progress.py .....                                    [100%]
+
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_blender_integration.py:30: set BVMCP_RUN_BLENDER_TESTS=1 for real Blender integration
+SKIPPED [1] tests/test_blender_integration.py:356: set BVMCP_RUN_BLENDER_TESTS=1 for real Blender integration
+SKIPPED [1] tests/test_browser_perception.py:83: set BVMCP_RUN_BROWSER_TESTS=1 to launch the installed Chrome browser
+SKIPPED [1] tests/test_calibration_benchmark.py:14: set BVMCP_RUN_BLENDER_TESTS=1 for real Blender calibration
+SKIPPED [1] tests/test_graphics_perception.py:115: set BVMCP_RUN_BROWSER_TESTS=1 to launch the installed Chrome browser
+SKIPPED [1] tests/test_graphics_perception.py:155: set browser and Blender integration gates for the real graphics round trip
+SKIPPED [1] tests/test_web_experience.py:112: set BVMCP_RUN_BROWSER_TESTS=1 to launch the installed Chrome browser
+================== 338 passed, 7 skipped in 141.43s (0:02:21) ==================
+      142.31 real        33.49 user        32.02 sys
+           461717504  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              769198  page reclaims
+               10186  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                  33  messages sent
+                  26  messages received
+                   1  signals received
+               65085  voluntary context switches
+              198002  involuntary context switches
+           154211021  instructions retired
+           102282498  cycles elapsed
+            14074408  peak memory footprint

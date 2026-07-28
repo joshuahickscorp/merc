@@ -1,0 +1,7 @@
+{
+  "authority": "GOVERNED_BUILDER_INPUT",
+  "note": "Public archetype names only \u2014 no hidden placements",
+  "path": "builder_inputs/archetype_catalogue.json",
+  "role": "catalogue",
+  "target_id": "datacenter_film"
+}

@@ -1,0 +1,9 @@
+{
+  "files": {},
+  "kind": "hidden-view",
+  "payload": {
+    "held_out_iou": 0.6666666666666666,
+    "hidden_view_score_delta": 0.33333333333333337,
+    "scored_iou": 1.0
+  }
+}

@@ -1,0 +1,1 @@
+{"schema_version":"1","id":"failure-003","attempt":"attempt-000","command":"npm run test","phase":"unit_integration_tests","exit_code":1,"severity":"P0","information_gain":"high","observations":["server email regex matched literal backslash-S and rejected valid address","Vitest collected Playwright-only tests"],"downstream_gates_run":false,"recorded_before_source_change":true}

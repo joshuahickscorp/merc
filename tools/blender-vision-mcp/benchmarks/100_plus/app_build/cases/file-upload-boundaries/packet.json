@@ -1,0 +1,542 @@
+{
+  "acceptance": {
+    "authority_refs": [
+      "stories",
+      "api",
+      "rules"
+    ],
+    "fresh_clone_command": "npm ci && npm run verify",
+    "global_regression_command": "npm run verify",
+    "tests": [
+      {
+        "command": "npm run test:api",
+        "expected": "Accept PNG, reject wrong type, oversize payload, and unauthorized actor.",
+        "id": "accept-upload-boundaries",
+        "journey_ids": [
+          "create-item"
+        ],
+        "level": "api",
+        "operation_ids": [
+          "uploadFile"
+        ],
+        "requirement": "Accept PNG, reject wrong type, oversize payload, and unauthorized actor.",
+        "route_ids": [
+          "items"
+        ]
+      }
+    ]
+  },
+  "accessibility_requirements": [
+    {
+      "criterion": "Create journey works with keyboard alone",
+      "id": "keyboard-create-item",
+      "level": "AA",
+      "test_method": "Playwright keyboard journey"
+    }
+  ],
+  "api_contract": {
+    "authority_refs": [
+      "api"
+    ],
+    "base_path": "/api",
+    "endpoints": [
+      {
+        "authorization": "permission",
+        "business_rule_ids": [
+          "upload-boundary"
+        ],
+        "entity_refs": [
+          "Upload"
+        ],
+        "file_boundary": {
+          "allowed_content_types": [
+            "image/png"
+          ],
+          "malware_scan_policy": "benchmark fixture bytes only",
+          "maximum_bytes": 64,
+          "storage_policy": "confined generated application data directory"
+        },
+        "handler": {
+          "entity_ref": "Upload",
+          "field_bindings": {
+            "content_type": "content_type",
+            "id": "id",
+            "size_bytes": "size_bytes",
+            "storage_path": "storage_path"
+          },
+          "id_field": "id",
+          "initial_status": null,
+          "kind": "file_upload",
+          "status_field": null,
+          "storage_subdirectory": "uploads"
+        },
+        "idempotency": null,
+        "method": "POST",
+        "operation_id": "uploadFile",
+        "path": "/uploads",
+        "rate_limit": "120/minute/actor",
+        "request_fields": [],
+        "required_permissions": [
+          "upload.create"
+        ],
+        "responses": [
+          {
+            "description": "Stored",
+            "schema_ref": "Upload",
+            "status": 201
+          },
+          {
+            "description": "Too large",
+            "schema_ref": null,
+            "status": 413
+          },
+          {
+            "description": "Unsupported content type",
+            "schema_ref": null,
+            "status": 415
+          }
+        ],
+        "summary": "uploadFile",
+        "timeout_ms": 1000
+      }
+    ],
+    "error_envelope": {
+      "code": "stable machine code",
+      "message": "safe human message",
+      "request_id": "trace identifier"
+    },
+    "protocol": "REST",
+    "sample_payload_refs": [
+      "samples"
+    ],
+    "version": "1"
+  },
+  "auth_policy": {
+    "authority_refs": [
+      "auth"
+    ],
+    "credential_storage_policy": "test identities only; no production credentials",
+    "cross_tenant_policy": "no tenant context in this single-tenant benchmark",
+    "default_role": "viewer",
+    "deny_by_default": true,
+    "identity_claim": "x-test-user",
+    "permissions": [
+      {
+        "actions": [
+          "create"
+        ],
+        "description": "Allows upload.create",
+        "id": "upload.create",
+        "resource": "items"
+      }
+    ],
+    "provider": "test_header",
+    "roles": [
+      {
+        "description": "Manages items",
+        "id": "administrator",
+        "permission_ids": [
+          "upload.create"
+        ]
+      },
+      {
+        "description": "Reads items",
+        "id": "viewer",
+        "permission_ids": []
+      }
+    ]
+  },
+  "business_rules": {
+    "analytics_events": [
+      {
+        "event": "item_created",
+        "properties": "request_id only"
+      }
+    ],
+    "authority_refs": [
+      "rules",
+      "errors"
+    ],
+    "edge_case_matrix": [
+      {
+        "case": "empty name",
+        "expected": "422 and no row"
+      }
+    ],
+    "rules": [
+      {
+        "acceptance_test_ids": [
+          "accept-upload-boundaries"
+        ],
+        "description": "store only authorized in-boundary file bytes",
+        "deterministic_effect": "store only authorized in-boundary file bytes",
+        "duplicate_behavior": "follows operation contract",
+        "failure_behavior": "transaction rolls back",
+        "id": "upload-boundary",
+        "inputs": [
+          "declared request fields"
+        ],
+        "invariants": [
+          "transactional persistence"
+        ],
+        "preconditions": [
+          "authorized actor"
+        ],
+        "retry_behavior": "safe after declared correction"
+      }
+    ]
+  },
+  "data_model": {
+    "authority_refs": [
+      "data"
+    ],
+    "database_engine": "sqlite",
+    "entities": [
+      {
+        "fields": [
+          {
+            "data_type": "uuid",
+            "default": null,
+            "name": "id",
+            "nullable": false,
+            "primary_key": true,
+            "unique": true,
+            "validation": {}
+          },
+          {
+            "data_type": "string",
+            "default": null,
+            "name": "content_type",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "validation": {}
+          },
+          {
+            "data_type": "integer",
+            "default": null,
+            "name": "size_bytes",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "validation": {}
+          },
+          {
+            "data_type": "string",
+            "default": null,
+            "name": "storage_path",
+            "nullable": false,
+            "primary_key": false,
+            "unique": true,
+            "validation": {}
+          },
+          {
+            "data_type": "datetime",
+            "default": null,
+            "name": "created_at",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "validation": {}
+          }
+        ],
+        "indexes": [
+          [
+            "created_at"
+          ]
+        ],
+        "name": "Upload",
+        "retention_policy": "retain until explicit deletion",
+        "table_name": "uploads"
+      }
+    ],
+    "migration_policy": "numbered forward migrations in one transaction",
+    "relations": [],
+    "rollback_policy": "paired down migrations with backup",
+    "seed_policy": "deterministic seed 41"
+  },
+  "deployment": {
+    "authority_refs": [
+      "deploy"
+    ],
+    "edges": [
+      {
+        "from": "app",
+        "to": "database"
+      }
+    ],
+    "fresh_clone_command": "npm ci && npm run verify",
+    "migration_command": "npm run db:migrate",
+    "nodes": [
+      {
+        "artifact": "dist/server.js",
+        "health_check": "GET /healthz",
+        "id": "app",
+        "kind": "api",
+        "resource_limits": {
+          "cpu": "1",
+          "memory": "256Mi"
+        },
+        "runtime": "node:20"
+      },
+      {
+        "artifact": "data/app.sqlite3",
+        "health_check": "PRAGMA quick_check",
+        "id": "database",
+        "kind": "database",
+        "resource_limits": {
+          "disk": "100Mi"
+        },
+        "runtime": "sqlite3"
+      }
+    ],
+    "release_command": "docker build .",
+    "rollback_command": "npm run db:rollback",
+    "secret_names": [],
+    "target": "local_container"
+  },
+  "design_system_reference_ids": [],
+  "error_cases": [
+    {
+      "acceptance_test_id": "accept-upload-boundaries",
+      "expected_api_status": 413,
+      "expected_user_state": "upload remains uncommitted and error is announced",
+      "id": "upload-boundary-failure",
+      "retry_policy": "retry only with a compliant payload",
+      "trigger": "payload exceeds size or type contract"
+    }
+  ],
+  "journeys": {
+    "authority_refs": [
+      "stories"
+    ],
+    "journeys": [
+      {
+        "actor": "administrator",
+        "denied_or_failure_paths": [
+          "viewer receives 403"
+        ],
+        "id": "create-item",
+        "name": "Create item",
+        "preconditions": [
+          "authenticated as administrator"
+        ],
+        "steps": [
+          {
+            "action": "open item management",
+            "actor": "administrator",
+            "expected_state": "ready",
+            "id": "open-items",
+            "route_id": "items"
+          },
+          {
+            "action": "submit a valid item",
+            "actor": "administrator",
+            "api_operation_id": "uploadFile",
+            "error_recovery": "retain fields and expose accessible error",
+            "expected_state": "item persisted",
+            "id": "submit-item",
+            "route_id": "items"
+          }
+        ],
+        "success_postconditions": [
+          "item appears in the list"
+        ]
+      }
+    ]
+  },
+  "motion_reference_ids": [],
+  "observability": {
+    "alerts": [
+      "API p95 budget failure"
+    ],
+    "authority_refs": [
+      "slo"
+    ],
+    "dashboards": [
+      "local benchmark summary"
+    ],
+    "metrics": [
+      "http_request_duration_ms",
+      "http_errors_total"
+    ],
+    "privacy_redactions": [
+      "authorization",
+      "cookie"
+    ],
+    "slos": [
+      {
+        "alert": "fail acceptance",
+        "id": "local-api-latency",
+        "indicator": "API p95",
+        "objective": "<=150ms",
+        "window": "benchmark run"
+      }
+    ],
+    "structured_log_fields": [
+      "timestamp",
+      "level",
+      "request_id",
+      "operation_id",
+      "duration_ms",
+      "status"
+    ],
+    "traces": [
+      "request to database transaction"
+    ]
+  },
+  "packet_id": "file-upload-boundaries-v1",
+  "performance_budgets": [
+    {
+      "measurement_command": "npm run test:performance",
+      "metric": "local_api_p95",
+      "operation": "<=",
+      "unit": "ms",
+      "value": 150
+    }
+  ],
+  "product": {
+    "actors": [
+      "administrator"
+    ],
+    "authority_refs": [
+      "brief"
+    ],
+    "goals": [
+      "manage items"
+    ],
+    "id": "file-upload-boundaries",
+    "name": "File Upload Boundaries",
+    "non_goals": [
+      "payments"
+    ],
+    "routes": [
+      {
+        "id": "items",
+        "path": "/items",
+        "purpose": "List and create items",
+        "required_states": [
+          "loading",
+          "empty",
+          "ready",
+          "error"
+        ],
+        "title": "Items",
+        "visual_reference_ids": [
+          "visual"
+        ]
+      }
+    ],
+    "summary": "Authorized upload with type, size, and confined storage boundaries.",
+    "version": "1.0.0"
+  },
+  "sources": [
+    {
+      "authority": "SPECIFIED",
+      "digest": "a8494bd026a919aaa609afafc451faa734ab6a3570ec2cd90814087bc13dd457",
+      "id": "brief",
+      "kind": "product_brief",
+      "locator": "sources/brief.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "7e6e51d691f1057d67284b9f39623d816cfea92a11307772713f0530b6bb5bfa",
+      "id": "stories",
+      "kind": "user_story",
+      "locator": "sources/stories.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "b3a3baf80aeafb79e9b9078d023b518bbeef779b73e26b557e87f6064a3913fd",
+      "id": "data",
+      "kind": "data_schema",
+      "locator": "sources/data.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "1feabb599fb90031a9b5867a82abbd38b84e483d6162f98caad90be96eb674d3",
+      "id": "api",
+      "kind": "api_contract",
+      "locator": "sources/api.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "8fd5afcfe9f48cc2ad20d003d27eaf8e3c3cbd80437e1a4fd6a4dec96b5706c1",
+      "id": "auth",
+      "kind": "auth_policy",
+      "locator": "sources/auth.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "6f4088369520e27aebd357d44527c8790dc4cfafe77bfe74d533f8a6a099a7b5",
+      "id": "rules",
+      "kind": "business_rules",
+      "locator": "sources/rules.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "9da78f9e23efdae05a2e1c77e7ce2b48ad1770e837c864377a36676d07d03e5b",
+      "id": "errors",
+      "kind": "error_matrix",
+      "locator": "sources/errors.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "21d2125f0e7c4df5d9b0d1fa9ec571ad386d8dff4e2c7ec554565ebd537a45c6",
+      "id": "deploy",
+      "kind": "deployment_target",
+      "locator": "sources/deploy.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "ded2247a4dccac009feec92f2f9e49cfb5eb339541f20688450151bccdf866de",
+      "id": "slo",
+      "kind": "slo",
+      "locator": "sources/slo.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "708bf523a0ebeb65e16f013fa8b69c88fa342ece395188ef3b738f016cea93e2",
+      "id": "performance",
+      "kind": "performance_budget",
+      "locator": "sources/performance.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "cb1cc0c3f36b44f5bf82a7a94fbbcd128f23e287a4e955c757e4fc1875fe4a53",
+      "id": "accessibility",
+      "kind": "accessibility_requirements",
+      "locator": "sources/accessibility.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "OBSERVED",
+      "digest": "e9b0903cb93bb900d9e9b76ec6bc10f408bea2cc5aaf5fc7a6e1dc26bffcda2d",
+      "id": "visual",
+      "kind": "visual_reference",
+      "locator": "sources/visual.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "abd5e1cf346b8f86c026ff18be355d1d83763c3c257f1d6a8089a59a784cbb7d",
+      "id": "samples",
+      "kind": "sample_payload",
+      "locator": "sources/samples.json",
+      "rights_state": "OWNED"
+    }
+  ],
+  "visual_reference_ids": [
+    "visual"
+  ]
+}

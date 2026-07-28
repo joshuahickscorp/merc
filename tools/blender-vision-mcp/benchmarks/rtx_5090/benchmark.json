@@ -1,0 +1,261 @@
+{
+  "schema_version": 1,
+  "benchmark": "rtx_5090_fe",
+  "display_name": "NVIDIA GeForce RTX 5090 Founders Edition",
+  "target_fidelity": "L3",
+  "manufacturer_spec": {
+    "source": "https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5090/",
+    "retrieved_date": "2026-07-20",
+    "dimensions_mm": {"x": 137.0, "y": 40.0, "z": 304.0},
+    "uncertainty": {
+      "classification": "manufacturer_published",
+      "millimetres": 0.25,
+      "reason": "The benchmark uses the 137 by 304 by 40 mm two-slot physical body target."
+    }
+  },
+  "body_envelope": {
+    "scope": "cooler_body_excluding_io_bracket_pcie_edge_and_installation_clearance",
+    "object_patterns": [
+      "fe-shroud",
+      "fe-front-*",
+      "fan-*",
+      "fe-linr*",
+      "fe-recessback*",
+      "fe-flowfin*",
+      "fe-edge-*",
+      "fe-pwr-*",
+      "fe-backplate",
+      "fe-rear-*",
+      "fe-topfin*",
+      "fe-side-*"
+    ],
+    "tolerance_mm": 0.25
+  },
+  "anchor_object_checks": [
+    {"object": "fe-shroud", "axis": "x", "millimetres": 137.0, "tolerance_mm": 0.25},
+    {"object": "fe-shroud", "axis": "z", "millimetres": 304.0, "tolerance_mm": 0.25}
+  ],
+  "required_feature_groups": [
+    "envelope_center_frame",
+    "front_shroud",
+    "rear_backplate",
+    "fan1_well_tunnel",
+    "fan2_well_tunnel",
+    "fan_blades_hubs_clearance",
+    "fin_stack_1",
+    "fin_stack_2",
+    "thermal_core_channels",
+    "top_rail_power_cavity",
+    "io_bracket_apertures",
+    "pcie_lower_transitions"
+  ],
+  "required_material_regions": [
+    "dark-gunmetal-shroud",
+    "black-fans",
+    "anodized-fin-stacks",
+    "bracket",
+    "pcie-contacts"
+  ],
+  "references": [
+    {
+      "path": "owner/5090fe-front-real.jpg",
+      "viewpoint_label": "front-real-product",
+      "rights_state": "INTERNAL_REPOSITORY",
+      "grade": "A",
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "camera_hint": {"view_direction": [0.0, 1.0, -0.04], "roll_degrees": 90.0}
+    },
+    {
+      "path": "owner/5090fe-rear-backplate.jpg",
+      "viewpoint_label": "rear-manufacturer-product",
+      "rights_state": "INTERNAL_REPOSITORY",
+      "grade": "A",
+      "evidence_class": "MANUFACTURER_SPEC",
+      "camera_hint": {"view_direction": [0.0, -1.0, -0.03], "roll_degrees": 90.0}
+    },
+    {
+      "path": "owner/5090fe-top-edge-real.jpg",
+      "viewpoint_label": "top-edge-real-product",
+      "rights_state": "INTERNAL_REPOSITORY",
+      "grade": "A",
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "camera_hint": {"view_direction": [1.0, 0.0, 0.0], "roll_degrees": 90.0}
+    },
+    {
+      "path": "web/tpu_5090fe_front-web.jpg",
+      "viewpoint_label": "front-straight-product",
+      "rights_state": "INTERNAL_RESEARCH_REFERENCE",
+      "grade": "A",
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "camera_hint": {"view_direction": [0.0, 1.0, 0.0], "roll_degrees": 90.0}
+    },
+    {
+      "path": "web/tpu_5090fe_back-web.jpg",
+      "viewpoint_label": "rear-straight-product",
+      "rights_state": "INTERNAL_RESEARCH_REFERENCE",
+      "grade": "A",
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "camera_hint": {"view_direction": [0.0, -1.0, 0.0], "roll_degrees": 90.0}
+    },
+    {
+      "path": "web/lanoc_5090fe/image_23.jpg",
+      "viewpoint_label": "three-quarter-teardown",
+      "rights_state": "INTERNAL_RESEARCH_REFERENCE",
+      "grade": "B",
+      "evidence_class": "TEARDOWN_OBSERVED",
+      "camera_hint": {"view_direction": [0.78, 0.58, -0.22], "roll_degrees": 90.0}
+    }
+  ],
+  "feature_candidates": [
+    {
+      "id": "shroud-and-center-frame",
+      "type": "panel",
+      "parent_component": "cooler-body",
+      "coverage_group": "envelope_center_frame",
+      "object_patterns": ["fe-shroud", "fe-front-infinity*"],
+      "confidence": 0.82,
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "reference_viewpoints": ["front-real-product", "front-straight-product"],
+      "hero_surface": true
+    },
+    {
+      "id": "front-shroud",
+      "type": "panel",
+      "parent_component": "cooler-body",
+      "coverage_group": "front_shroud",
+      "object_patterns": ["fe-front-fanframe*", "fe-front-pocket*"],
+      "confidence": 0.78,
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "reference_viewpoints": ["front-real-product", "front-straight-product"],
+      "hero_surface": true
+    },
+    {
+      "id": "rear-backplate",
+      "type": "panel",
+      "parent_component": "cooler-body",
+      "coverage_group": "rear_backplate",
+      "object_patterns": ["fe-backplate", "fe-rear-infinity*", "fe-rear-window-lip*"],
+      "confidence": 0.8,
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "reference_viewpoints": ["rear-manufacturer-product", "rear-straight-product"],
+      "hero_surface": true
+    },
+    {
+      "id": "fan-wells",
+      "type": "fan ring",
+      "parent_component": "cooler-body",
+      "coverage_group": "fan1_well_tunnel",
+      "object_patterns": ["fan-well*", "fe-linr*", "fe-recessback*"],
+      "confidence": 0.8,
+      "evidence_class": "TEARDOWN_OBSERVED",
+      "reference_viewpoints": ["front-real-product", "three-quarter-teardown"],
+      "expected_count": 6,
+      "known_issue": "Both fan tunnels require direct light-through and section-depth validation."
+    },
+    {
+      "id": "fan-blades",
+      "type": "fan blade",
+      "parent_component": "fan-assemblies",
+      "coverage_group": "fan_blades_hubs_clearance",
+      "object_patterns": ["fan-rotor*"],
+      "confidence": 0.82,
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "reference_viewpoints": ["front-real-product", "front-straight-product"],
+      "expected_count": 2
+    },
+    {
+      "id": "fan-hubs",
+      "type": "fan hub",
+      "parent_component": "fan-assemblies",
+      "coverage_group": "fan_blades_hubs_clearance",
+      "object_patterns": ["fan-hub", "fan-hub.001", "fan-hubcap*"],
+      "confidence": 0.85,
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "reference_viewpoints": ["front-real-product"],
+      "expected_count": 4
+    },
+    {
+      "id": "front-fin-stacks",
+      "type": "heat-sink fin",
+      "parent_component": "thermal-assembly",
+      "coverage_group": "fin_stack_1",
+      "object_patterns": ["fe-flowfin*"],
+      "confidence": 0.76,
+      "evidence_class": "TEARDOWN_OBSERVED",
+      "reference_viewpoints": ["front-real-product", "three-quarter-teardown"],
+      "hero_surface": true
+    },
+    {
+      "id": "top-fin-stack",
+      "type": "heat-sink fin",
+      "parent_component": "thermal-assembly",
+      "coverage_group": "fin_stack_2",
+      "object_patterns": ["fe-topfin*"],
+      "confidence": 0.7,
+      "evidence_class": "TEARDOWN_OBSERVED",
+      "reference_viewpoints": ["top-edge-real-product", "three-quarter-teardown"]
+    },
+    {
+      "id": "power-cavity",
+      "type": "power connector",
+      "parent_component": "top-rail",
+      "coverage_group": "top_rail_power_cavity",
+      "object_patterns": ["fe-pwr-bay", "fe-pwr-pins"],
+      "confidence": 0.84,
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "reference_viewpoints": ["top-edge-real-product"],
+      "expected_count": 2
+    },
+    {
+      "id": "io-bracket",
+      "type": "I/O bracket",
+      "parent_component": "pcie-end",
+      "coverage_group": "io_bracket_apertures",
+      "object_patterns": ["fe-brk-*", "fe-brkcap"],
+      "confidence": 0.8,
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "reference_viewpoints": ["three-quarter-teardown"],
+      "known_issue": "The screwear and window lips contain audit warnings requiring cleanup."
+    },
+    {
+      "id": "display-outputs",
+      "type": "DisplayPort",
+      "parent_component": "io-bracket",
+      "coverage_group": "io_bracket_apertures",
+      "object_patterns": ["fe-io-recess*", "fe-io-tongue*"],
+      "confidence": 0.82,
+      "evidence_class": "MULTI_VIEW_OBSERVED",
+      "reference_viewpoints": ["three-quarter-teardown"],
+      "expected_count": 8,
+      "manufacturer_claim": "The bracket exposes three DisplayPort connectors and one HDMI connector."
+    },
+    {
+      "id": "pcie-edge",
+      "type": "PCB edge",
+      "parent_component": "pcie-end",
+      "coverage_group": "pcie_lower_transitions",
+      "object_patterns": ["fe-extpcb", "fe-extboard*", "fe-goldfinger*"],
+      "confidence": 0.78,
+      "evidence_class": "TEARDOWN_OBSERVED",
+      "reference_viewpoints": ["front-real-product", "three-quarter-teardown"]
+    },
+    {
+      "id": "thermal-core",
+      "type": "vent",
+      "parent_component": "thermal-assembly",
+      "coverage_group": "thermal_core_channels",
+      "object_patterns": ["fe-recessback*", "fe-flowfin*"],
+      "confidence": 0.58,
+      "evidence_class": "INFERRED_LOW_CONFIDENCE",
+      "reference_viewpoints": ["three-quarter-teardown"],
+      "known_issue": "Hidden vapor chamber and heatpipe routing remain non-authoritative inference."
+    }
+  ],
+  "known_blockers": [
+    "The historical candidate is not the distinct pass-6 v2 and must be treated as a frozen baseline candidate.",
+    "The 40 mm cooler-body thickness must be measured independently of bracket and PCIe appendages.",
+    "Both fan tunnels need light-through and section-depth proof; object count is not accuracy.",
+    "Hidden thermal internals remain inferred unless teardown evidence binds them.",
+    "All camera, feature, material, and repair acceptance requires named human review."
+  ]
+}

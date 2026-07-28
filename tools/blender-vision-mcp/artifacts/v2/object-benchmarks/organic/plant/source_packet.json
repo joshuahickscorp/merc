@@ -1,0 +1,149 @@
+{
+  "schema": "visionmcp.object-benchmark-source-packet/v1",
+  "target_id": "plant",
+  "created_at": "2026-07-27T04:14:01.706601+00:00",
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "construction": {
+    "target_id": "plant",
+    "approx_dimensions_mm": [
+      200.0,
+      200.0,
+      350.0
+    ],
+    "authority": "PROCEDURAL_GROUND_TRUTH",
+    "synthetic_claim": null,
+    "from_organic_receipt": true,
+    "measured": {
+      "vertices": 314,
+      "edges": 453,
+      "faces": 148,
+      "triangles": 0,
+      "quads": 148,
+      "ngons": 0,
+      "non_manifold_edges": 314,
+      "boundary_edges": 314,
+      "genus_estimate": -1,
+      "is_watertight": false,
+      "surface_area_m2": 0.02641752775889472,
+      "volume_m3": 0.0,
+      "bounds_m": [
+        [
+          -0.06720726191997528,
+          -0.07422415167093277,
+          -0.0008094905642792583
+        ],
+        [
+          0.08078937232494354,
+          0.05988144129514694,
+          0.42036905884742737
+        ]
+      ],
+      "quad_fraction": 1.0
+    },
+    "retopologized": {
+      "vertices": 880,
+      "edges": 1748,
+      "faces": 874,
+      "triangles": 0,
+      "quads": 874,
+      "ngons": 0,
+      "non_manifold_edges": 0,
+      "boundary_edges": 0,
+      "genus_estimate": -2,
+      "is_watertight": true,
+      "surface_area_m2": 0.008398637902349515,
+      "volume_m3": 1.3803206278763239e-05,
+      "bounds_m": [
+        [
+          -0.05200010538101196,
+          -0.012939010746777058,
+          0.0069242557510733604
+        ],
+        [
+          0.025115499272942543,
+          0.02496080845594406,
+          0.4166664481163025
+        ]
+      ],
+      "quad_fraction": 1.0
+    },
+    "uv": {
+      "island_count": 53,
+      "packing_efficiency": 0.28122498335153917,
+      "max_area_distortion": 0.4890704440838619,
+      "mean_area_distortion": 0.08225162850080855,
+      "max_angle_distortion_deg": 79.47155276684865,
+      "overlapping_faces": 0,
+      "texel_density_variance": 0.012046371487337018,
+      "p99_angle_distortion_deg": 26.69364286140629,
+      "p95_angle_distortion_deg": 18.61574205457228,
+      "median_angle_distortion_deg": 1.0030679211297269,
+      "angle_corner_count": 3472,
+      "degenerate_corner_count": 24,
+      "corners_over_70deg_fraction": 0.0002880184331797235
+    },
+    "lods": [
+      {
+        "name": "L1",
+        "ratio": 0.5,
+        "triangles": 874,
+        "silhouette_iou": 0.999991316148364,
+        "hausdorff_m": 7.369089871644974e-05,
+        "retained_parts": [
+          "plant_L1"
+        ],
+        "lost_parts": []
+      },
+      {
+        "name": "L2",
+        "ratio": 0.2,
+        "triangles": 348,
+        "silhouette_iou": 0.9937429482001534,
+        "hausdorff_m": 0.0004578344523906708,
+        "retained_parts": [
+          "plant_L2"
+        ],
+        "lost_parts": []
+      },
+      {
+        "name": "L3",
+        "ratio": 0.06,
+        "triangles": 102,
+        "silhouette_iou": 0.9851339598730707,
+        "hausdorff_m": 0.000892171636223793,
+        "retained_parts": [
+          "plant_L3"
+        ],
+        "lost_parts": []
+      }
+    ]
+  },
+  "train_view_count": 0,
+  "holdout_view_ids": [],
+  "train_views": [],
+  "notes": [
+    "Target: branching plant",
+    "Scored against construction / measured ground truth, not against another guess."
+  ],
+  "lineage": {
+    "tool": "blender-vision-mcp",
+    "tool_version": "0.1.0",
+    "operation": "object_benchmark_source_packet",
+    "inputs": [],
+    "input_authorities": [
+      "PROCEDURAL_GROUND_TRUTH"
+    ],
+    "parameters": {
+      "target_id": "plant"
+    },
+    "environment": {},
+    "hardware": {},
+    "model_versions": {},
+    "retrieved_at": "",
+    "rights_state": "unreviewed",
+    "limitations": [
+      "Target: branching plant",
+      "Scored against construction / measured ground truth, not against another guess."
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "lane": "ocular-proposals",
+  "status": "DIAGNOSTIC",
+  "execution_class": "PHYSICAL",
+  "attestation_id": "attest-blender-1785158759365",
+  "marker_observed": true,
+  "artifacts": {
+    "report": "7d09ed523747eb105ecd8b6fade690b67137f74a794104e3cda8af9cb8a71941",
+    "marker": "8bc6f645b616061a52aa0005af5d66be2fa2c4d19ce6a74e82c72456a5ee31b3"
+  },
+  "evaluator_passed": false,
+  "reasons": [
+    "evaluator contract failed: first_frame_ok=False, mean_fused_recall=0.648, threshold=0.500"
+  ],
+  "digest": "c33f689b0b41bfc25f48a4d1746fd67eb6cdeab0646706196efaaa18189ca7b0"
+}

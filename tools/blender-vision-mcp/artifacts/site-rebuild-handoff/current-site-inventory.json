@@ -1,0 +1,117 @@
+{
+  "schema_version": "1",
+  "captured_at": "2026-07-26T04:56:47.060Z",
+  "production_url": "https://computexchange.net/",
+  "production_source_checkout": {
+    "path": "/Users/scammermike/Downloads/computexchange",
+    "head": "fbe02ce7ff8e60d6be8b32745a95179bd425a700",
+    "branch": "release/rc1-go-closure",
+    "head_date": "2026-07-20T02:16:34-04:00",
+    "web_index_last_commit": "87a818578ed151d87df0139d1e7d31f98f9840b5",
+    "web_index_last_commit_date": "2026-07-20T01:51:27-04:00",
+    "preexisting_dirty_path_count": 63,
+    "modified_by_this_goal": false
+  },
+  "source_live_binding": {
+    "source_web_index_sha256": "5db3ebcaa0a496a3503520c7ed054a8150eb20f8fb6109fcdb63288a9d5bb767",
+    "live_web_index_sha256": "4aaa3b8bb2cca20c87ea7735ecfc241e64c2d1a8992016ed843430c688fbc9e0",
+    "matches": false,
+    "source_bytes": 31319,
+    "live_bytes": 19275,
+    "finding": "The deployed page and the current production checkout are different implementations. Deployment provenance must be re-established before a rebuild."
+  },
+  "live_browser": {
+    "desktop_viewport": [1440, 900],
+    "desktop_scroll_height": 2714,
+    "desktop_horizontal_overflow": false,
+    "mobile_viewport": [390, 844],
+    "mobile_horizontal_overflow": false,
+    "mobile_behavior": "The full site is hidden below 900 px and replaced by an AirDrop/email/copy desktop handoff screen.",
+    "semantic_counts": {
+      "h1": 1,
+      "h2": 3,
+      "main": 1,
+      "canvas": 1,
+      "images": 5,
+      "buttons": 4,
+      "links": 1
+    },
+    "evidence": "live-browser-capture.json"
+  },
+  "live_network": {
+    "http_status": 200,
+    "html_dns_seconds": 0.002977,
+    "html_connect_seconds": 0.01809,
+    "html_tls_seconds": 0.03858,
+    "html_ttfb_seconds": 0.057939,
+    "html_total_seconds": 0.074014,
+    "html_transfer_bytes": 19275,
+    "headers": [
+      "referrer-policy: no-referrer",
+      "x-content-type-options: nosniff",
+      "x-frame-options: SAMEORIGIN"
+    ],
+    "known_initial_3d_path_bytes_excluding_images_and_loader_addons": 2352530,
+    "limitations": "Curl timings are one local observation, not a user-population percentile or Web Vitals result."
+  },
+  "live_3d_inventory": {
+    "renderer_source": {
+      "path": "/assets/site/hero.js",
+      "bytes": 12662,
+      "sha256": "8b433317a944252e36f548621194b0f8165f0deb020e7c3ed6688f8a716f7be9"
+    },
+    "three_module": {
+      "path": "/assets/site/vendor/three.module.js",
+      "bytes": 1272972,
+      "sha256": "76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495"
+    },
+    "glb": {
+      "path": "/assets/site/oracles.glb",
+      "bytes": 1066896,
+      "sha256": "8a9d2f1b9e90c395fcca4e43e9e9f6ee3080e99165d6e34ba47f2e31f248c970",
+      "valid_glb": true,
+      "nodes": 7,
+      "meshes": 7,
+      "materials": 9,
+      "textures": 3,
+      "animations": 0,
+      "skins": 0,
+      "extension_used": "KHR_materials_clearcoat"
+    },
+    "editable_source_in_current_web_tree": false,
+    "source_glb_in_current_web_tree": false,
+    "finding": "The live GLB is structurally valid, but neither it nor its claimed Blender generation source is present in the current production web tree."
+  },
+  "experience_graph": {
+    "desktop": [
+      "hero WebGL canvas with drag-to-orbit",
+      "how-it-works rows",
+      "receipt dialog",
+      "price monument",
+      "earn narrative",
+      "closed-alpha download narrative"
+    ],
+    "mobile": [
+      "desktop handoff only"
+    ],
+    "motion": [
+      "pointer/touch orbit",
+      "hover lift and labels",
+      "return-to-rest camera easing",
+      "status light animation",
+      "optional scroll camera choreography exists in source but is not enabled"
+    ],
+    "fallbacks": [
+      "WebGL failure swaps to a still image",
+      "reduced motion snaps camera states and disables the pulsing status light"
+    ]
+  },
+  "primary_rebuild_findings": [
+    "Live deployment does not match the current source checkout.",
+    "The site intentionally withholds the product experience on mobile.",
+    "The source-visible and live 3D asset inventories do not reconcile.",
+    "The self-hosted unbundled Three.js module is 1.27 MB before the GLB and images.",
+    "The live claims ledger references paths and proof counts that are not bound to the captured checkout.",
+    "The current visual system is coherent but the information architecture is a single narrative page with only one ordinary link."
+  ]
+}

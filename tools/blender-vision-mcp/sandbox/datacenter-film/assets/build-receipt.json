@@ -1,0 +1,83 @@
+{
+  "schema": "v2.datacenter-film-build/1",
+  "started_at": "2026-07-27T03:40:19.100778+00:00",
+  "budgets": {
+    "initial_js_compressed_bytes": 307200,
+    "shell_glb_bytes": 1572864,
+    "mobile_shell_bytes": 665600,
+    "poster_before_glb": true,
+    "detail_chapter_gated": true
+  },
+  "failures": [],
+  "scene": {
+    "modules": 20,
+    "instances": 464,
+    "bounds_m": {
+      "min": [
+        -1.7,
+        -1.175,
+        -1.8
+      ],
+      "max": [
+        10.1,
+        17.2,
+        2.74
+      ],
+      "size": [
+        11.799999999999999,
+        18.375,
+        4.54
+      ]
+    }
+  },
+  "budget_violations": [],
+  "assets": [
+    {
+      "asset_id": "datacenter-shell",
+      "role": "shell",
+      "path": "datacenter-shell.glb",
+      "digest": "f22c0bf160e55057cada96b9380de25fcf52dd428585c5b10435d2cfdfbd03ef",
+      "bytes": 249432,
+      "gzip_bytes": 18568
+    },
+    {
+      "asset_id": "datacenter-detail",
+      "role": "detail",
+      "path": "datacenter-detail.glb",
+      "digest": "1af612297b62316c7e8e72684c007510a61f85a0cda9d51e42407763705cb323",
+      "bytes": 3073572,
+      "gzip_bytes": 241850
+    },
+    {
+      "asset_id": "datacenter-network",
+      "role": "network",
+      "path": "datacenter-network.glb",
+      "digest": "f1086d485b4ba1fb09fe82533f6c5a6ed45999f04db37778a447da0c858656dc",
+      "bytes": 170388,
+      "gzip_bytes": 10648
+    },
+    {
+      "asset_id": "datacenter-mobile",
+      "role": "mobile",
+      "path": "datacenter-mobile.glb",
+      "digest": "f22c0bf160e55057cada96b9380de25fcf52dd428585c5b10435d2cfdfbd03ef",
+      "bytes": 249432,
+      "gzip_bytes": 18568
+    },
+    {
+      "asset_id": "datacenter-poster",
+      "role": "poster",
+      "path": "poster.png",
+      "digest": "5038730cf8ef221932494b88c398cd9548c31eac44efd08322e333b758b2e2c7",
+      "bytes": 1304842,
+      "gzip_bytes": 1304810
+    }
+  ],
+  "camera": {
+    "beats": 9,
+    "arc_length_m": 27.331671650043138,
+    "replay_digest": "984f4050620e8a501964ae790b5fa3739cbac69c96a8ebd9ce45981ca8d28628b6ff19264dd9068bdb9d878a5ba56c3515569f3f8f72fc3a50b0d6be8180719a452f4e1a9ff0b0b5e40ab6544181557fc42248ec63c994a82294410169762980decf8cc915f5af44f7d13efa8e830c54141a690fee3d422e873419aeebc2bd2a9291f8449b104a76ee811d98b5051c7f8eaec570d82379541174b091bfd7466751e5c446b79e75113619286caaf1ca6b99173069febcb9beaad575f330e77000186851c8eb8e5a13f06234e70116dc68196e4aaa8e363dc145398f092ada18e8ad99beb61d570fb38392e93bc4e62ab4b27b1328090dd23ab5cb8f1c0c582596572df190",
+    "motion_table_bytes": 215525
+  },
+  "completed_at": "2026-07-27T03:41:37.942966+00:00"
+}

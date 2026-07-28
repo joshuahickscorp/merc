@@ -1,0 +1,53 @@
+{
+  "schema": "visionmcp.v2-1-closure/1",
+  "decided_at": "2026-07-27T13:10:00-04:00",
+  "decision": "MOVE TO EXPERIMENTAL",
+  "authority": "V3 Product Release Bible section 6.4 — if the release-critical Ocular gate does not pass, ship the Ocular profile as experimental and say so.",
+  "gate": "ocular_release_targets in VISIONMCP_V3_RELEASE_GATES.json",
+  "measured_vs_required": {
+    "proposal_recall": {"required": 0.90, "measured_mean": 0.648, "range": [0.33, 0.97], "pass": false},
+    "proposal_precision": {"required": 0.80, "measured_range": [0.12, 0.39], "pass": false},
+    "stationary_first_frame_detection": {"required": "3 of 3", "measured": "2 proposals, 0 true positives", "pass": false},
+    "unknown_entrant_f1": {"required": 0.80, "measured": "unknown source recall 0.03", "pass": false},
+    "idf1": {"required": 0.85, "measured_range": [0.09, 0.46], "pass": false},
+    "mota": {"required": 0.75, "measured_range": [0.09, 0.46], "pass": false},
+    "occlusion_lifecycle_accuracy": {"required": 0.90, "measured": "OCCLUDED state never entered; uncertainty flat at 0.05", "pass": false},
+    "leave_return_reid": {"required": 0.90, "measured": false, "pass": false},
+    "distractor_rejection": {"required": 0.90, "measured": "no tracks formed on the distractor condition", "pass": false},
+    "runtime_ground_truth_fields": {"required": 0, "measured": 0, "pass": true}
+  },
+  "what_did_close": [
+    "runtime ground-truth removal: _detection_from_gt deleted, VisualTrack carries no ground_truth_id, detections scanned for banned oracle keys, tracker asserts no GT field; GT exists only in the sealed evaluator",
+    "physical verdict authority: issue_verdict is the single path, seven conditions, 13 guards each proven against a reconstructed historical failure",
+    "no substitute physical PASS: proven by reconstructing the synthetic_sequence artifact pair that previously reported PASS",
+    "no fabricated hardware blame: the injected metal_is_supported/WM_init text is removed and guarded",
+    "merge ownership: scripts/merge-ownership.json; two subsequent merges clobbered nothing",
+    "sealed benchmarks: 0 leakage failures, builder denied hidden view index, canaries clean",
+    "repair corpus: 23 of 23 drills detected, repaired, verified, no global regression",
+    "representation portfolio: radiance honestly BLOCKED, photoreal_view_synthesis resolves to null",
+    "proposal fusion implemented with split/merge hypothesis preservation and per-source metrics"
+  ],
+  "preserved_failures": {
+    "count": 5,
+    "tests": [
+      "tests/test_ocular_beats.py::test_unique_mesh_count_stays_bounded_as_instances_rise",
+      "tests/test_ocular_beats.py::test_flagship_second_aisle_populated_and_path_clears_solids",
+      "tests/test_ocular_events.py::test_confounder_silent[OBJECT_ENTERED]",
+      "tests/test_ocular_events.py::test_confounder_silent[OBJECT_LEFT]",
+      "tests/test_ocular_events.py::test_confounder_silent[OBJECT_OCCLUDED]"
+    ],
+    "baseline_tag": "ocular-honest-baseline-270ee69",
+    "policy": "not silenced, not skipped, not quarantined away; they stay failing in the public tree and are named in LIMITATIONS"
+  },
+  "not_closed": [
+    "perception-derived tracking quality (MOTA/IDF1 far below gate)",
+    "object permanence through full occlusion",
+    "unknown entrant creating a new identity",
+    "retina confounder discrimination (3 detectors fire on their confounders)",
+    "data-centre beat metric correction and art-direction repair",
+    "ocular MCP tool registration (2 of 19 at last measurement)",
+    "continuous recorded stream end-to-end proof"
+  ],
+  "suite": {"passed": 914, "failed": 5, "skipped": 37},
+  "production_computexchange_modified": false
+}

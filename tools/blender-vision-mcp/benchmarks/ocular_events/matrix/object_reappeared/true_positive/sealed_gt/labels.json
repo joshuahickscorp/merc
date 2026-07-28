@@ -1,0 +1,13 @@
+{
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "event_type": "OBJECT_REAPPEARED",
+  "expect_fire": true,
+  "fixture_class": "true_positive",
+  "forbidden_events": [],
+  "image_height": 240,
+  "image_width": 320,
+  "measured_quantity": "area_recovery",
+  "n_frames": 8,
+  "notes": "area collapse then same object recovers",
+  "onset_frame": 6
+}

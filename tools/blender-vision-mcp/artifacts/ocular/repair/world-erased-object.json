@@ -1,0 +1,30 @@
+{
+  "acceptance_passed": true,
+  "block_reason": "",
+  "category": "world_memory",
+  "detector_fired": true,
+  "drill_id": "world-erased-object",
+  "execution_class": "PHYSICAL",
+  "global_regression": false,
+  "measured_baseline": {
+    "entities": [
+      "book",
+      "cup"
+    ]
+  },
+  "measured_injected": {
+    "entities": [
+      "cup"
+    ]
+  },
+  "measured_repaired": {
+    "entities": [
+      "book",
+      "cup"
+    ]
+  },
+  "notes": [],
+  "repaired": true,
+  "runtime_used": "ocular.world",
+  "status": "PASS"
+}

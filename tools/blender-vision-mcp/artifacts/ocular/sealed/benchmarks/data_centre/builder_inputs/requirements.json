@@ -1,0 +1,10 @@
+{
+  "acceptance_thresholds": {
+    "min_beats": 1
+  },
+  "blocked_requirements": [],
+  "claim_boundary": [
+    "Cinematic scene; geometry claims capped by observed footage."
+  ],
+  "target_id": "data_centre"
+}

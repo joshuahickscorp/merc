@@ -1,0 +1,7 @@
+{
+  "authority": "SPECIFIED",
+  "benchmark_case": "polling-status-recovery",
+  "kind": "business_rules",
+  "rights_state": "OWNED",
+  "source_id": "rules"
+}

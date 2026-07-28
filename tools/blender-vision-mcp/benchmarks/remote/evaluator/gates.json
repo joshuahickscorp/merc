@@ -1,0 +1,20 @@
+{
+  "acceptance_thresholds": {
+    "dense_mvs_without_cuda": "blocked",
+    "hidden_chamfer_m_maximum": 0.003,
+    "minimum_input_views": 24,
+    "public_chamfer_m_maximum": 0.002,
+    "require_portfolio_not_single_guess": true,
+    "scale_relative_error_maximum": 0.02,
+    "sparse_reprojection_rmse_px_maximum": 1.5
+  },
+  "entry": "gates.json",
+  "frozen": true,
+  "note": "Evaluator tree is digest-bound before any builder run.",
+  "roles": [
+    "reconstruction",
+    "scale",
+    "portfolio"
+  ],
+  "target_id": "remote"
+}

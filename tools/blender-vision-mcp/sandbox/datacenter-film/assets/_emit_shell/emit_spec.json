@@ -1,0 +1,3523 @@
+{
+  "blend_name": "scene.blend",
+  "glb_name": "scene.glb",
+  "output_dir": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2/tools/blender-vision-mcp/sandbox/datacenter-film/assets/_emit_shell",
+  "placements": [
+    {
+      "instance_id": "threshold_entry",
+      "location": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "prototype_id": "proto_0000_threshold",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "path",
+        "threshold"
+      ]
+    },
+    {
+      "instance_id": "aisle_main",
+      "location": [
+        0.0,
+        6.0,
+        0.0
+      ],
+      "prototype_id": "proto_0001_aisle",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "path",
+        "aisle",
+        "main"
+      ]
+    },
+    {
+      "instance_id": "rack_L_00",
+      "location": [
+        -1.1,
+        1.2,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated",
+        "repeat_source"
+      ]
+    },
+    {
+      "instance_id": "rack_L_01",
+      "location": [
+        -1.1,
+        1.7999999999999998,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_L_02",
+      "location": [
+        -1.1,
+        2.4,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_L_03",
+      "location": [
+        -1.1,
+        3.0,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "warn"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_L_04",
+      "location": [
+        -1.1,
+        3.5999999999999996,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_L_05",
+      "location": [
+        -1.1,
+        4.2,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_L_06",
+      "location": [
+        -1.1,
+        4.8,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "fault"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_L_07",
+      "location": [
+        -1.1,
+        5.4,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_L_08",
+      "location": [
+        -1.1,
+        6.0,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_L_09",
+      "location": [
+        -1.1,
+        6.6,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_L_10",
+      "location": [
+        -1.1,
+        7.2,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "warn"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_L_11",
+      "location": [
+        -1.1,
+        7.8,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "left",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_00",
+      "location": [
+        1.1,
+        1.2,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated",
+        "repeat_source"
+      ]
+    },
+    {
+      "instance_id": "rack_R_01",
+      "location": [
+        1.1,
+        1.7999999999999998,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_02",
+      "location": [
+        1.1,
+        2.4,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_03",
+      "location": [
+        1.1,
+        3.0,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "warn"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_04",
+      "location": [
+        1.1,
+        3.5999999999999996,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_05",
+      "location": [
+        1.1,
+        4.2,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_06",
+      "location": [
+        1.1,
+        4.8,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "fault"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_07",
+      "location": [
+        1.1,
+        5.4,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_08",
+      "location": [
+        1.1,
+        6.0,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_09",
+      "location": [
+        1.1,
+        6.6,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_10",
+      "location": [
+        1.1,
+        7.2,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "warn"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "rack_R_11",
+      "location": [
+        1.1,
+        7.8,
+        0.0
+      ],
+      "prototype_id": "proto_0002_rack_shell",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {
+        "status": "ok"
+      },
+      "tags": [
+        "rack",
+        "right",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_00",
+      "location": [
+        -0.3,
+        0.3,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated",
+        "repeat_source"
+      ]
+    },
+    {
+      "instance_id": "tile_01",
+      "location": [
+        -0.3,
+        0.8999999999999999,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_02",
+      "location": [
+        -0.3,
+        1.5,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_03",
+      "location": [
+        -0.3,
+        2.0999999999999996,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_04",
+      "location": [
+        -0.3,
+        2.6999999999999997,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_05",
+      "location": [
+        -0.3,
+        3.3,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_06",
+      "location": [
+        -0.3,
+        3.8999999999999995,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_07",
+      "location": [
+        -0.3,
+        4.5,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_08",
+      "location": [
+        -0.3,
+        5.1,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_09",
+      "location": [
+        -0.3,
+        5.699999999999999,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_10",
+      "location": [
+        -0.3,
+        6.3,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_11",
+      "location": [
+        -0.3,
+        6.8999999999999995,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_12",
+      "location": [
+        -0.3,
+        7.499999999999999,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_13",
+      "location": [
+        -0.3,
+        8.1,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_14",
+      "location": [
+        -0.3,
+        8.700000000000001,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_15",
+      "location": [
+        -0.3,
+        9.3,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_16",
+      "location": [
+        -0.3,
+        9.9,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_17",
+      "location": [
+        -0.3,
+        10.5,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_18",
+      "location": [
+        -0.3,
+        11.1,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "tile_19",
+      "location": [
+        -0.3,
+        11.700000000000001,
+        0.0
+      ],
+      "prototype_id": "proto_0011_floor_tile",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "floor",
+        "repeated"
+      ]
+    },
+    {
+      "instance_id": "junction_left",
+      "location": [
+        0.0,
+        13.2,
+        0.0
+      ],
+      "prototype_id": "proto_0013_junction",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "junction",
+        "left"
+      ]
+    },
+    {
+      "instance_id": "aisle_second",
+      "location": [
+        4.0,
+        13.2,
+        0.0
+      ],
+      "prototype_id": "proto_0014_aisle",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        1.5707963267948966
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "path",
+        "aisle",
+        "second"
+      ]
+    },
+    {
+      "instance_id": "containment_mid",
+      "location": [
+        2.8,
+        13.2,
+        0.0
+      ],
+      "prototype_id": "proto_0016_containment_door",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "containment"
+      ]
+    },
+    {
+      "instance_id": "terminal",
+      "location": [
+        8.5,
+        13.2,
+        0.0
+      ],
+      "prototype_id": "proto_0017_terminal_wall",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "path",
+        "terminal"
+      ]
+    },
+    {
+      "instance_id": "col_junction",
+      "location": [
+        -1.5,
+        11.7,
+        0.0
+      ],
+      "prototype_id": "proto_0019_column",
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "state": {},
+      "tags": [
+        "structure"
+      ]
+    }
+  ],
+  "prototypes": [
+    {
+      "archetype": "threshold",
+      "lod": "near",
+      "params": {
+        "depth_m": 0.35,
+        "height_m": 3.0,
+        "width_m": 3.2
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              3.2,
+              0.35,
+              0.04
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "threshold",
+          "name": "floor_band",
+          "role": "floor",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.02
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.12,
+              0.35,
+              3.0
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "wall",
+          "name": "jamb_left",
+          "role": "wall",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              -1.54,
+              0.0,
+              1.5
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.12,
+              0.35,
+              3.0
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "wall",
+          "name": "jamb_right",
+          "role": "wall",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              1.54,
+              0.0,
+              1.5
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              3.2,
+              0.35,
+              0.12
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "wall",
+          "name": "header",
+          "role": "wall",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              2.94
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              1.4207999999999998,
+              0.05,
+              2.84
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "door",
+          "name": "door_leaf_left",
+          "role": "door",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              -0.74,
+              0.0,
+              1.46
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              1.4207999999999998,
+              0.05,
+              2.84
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "door",
+          "name": "door_leaf_right",
+          "role": "door",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.74,
+              0.0,
+              1.46
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0000_threshold"
+    },
+    {
+      "archetype": "aisle",
+      "lod": "near",
+      "params": {
+        "height_m": 3.0,
+        "kind": "cold",
+        "length_m": 12.0,
+        "width_m": 1.2
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              1.2,
+              12.0,
+              0.01
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "aisle_cold",
+          "name": "floor_strip",
+          "role": "floor",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.005
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.02,
+              12.0,
+              3.0
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "guide",
+          "name": "guide_left",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              -0.59,
+              0.0,
+              1.5
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.02,
+              12.0,
+              3.0
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "guide",
+          "name": "guide_right",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.59,
+              0.0,
+              1.5
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              1.176,
+              11.76,
+              0.02
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "near",
+          "material_slot": "volume",
+          "name": "volume_marker",
+          "role": "decorative",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              2.99
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0001_aisle"
+    },
+    {
+      "archetype": "rack_shell",
+      "lod": "near",
+      "params": {
+        "depth_m": 1.0,
+        "frame_width_m": 0.6,
+        "u_count": 42
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.05,
+              0.05,
+              1.8669000000000002
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "steel",
+          "name": "post_fl",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              -0.27499999999999997,
+              -0.475,
+              0.9334500000000001
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.05,
+              0.05,
+              1.8669000000000002
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "steel",
+          "name": "post_fr",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.27499999999999997,
+              -0.475,
+              0.9334500000000001
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.05,
+              0.05,
+              1.8669000000000002
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "steel",
+          "name": "post_rl",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              -0.27499999999999997,
+              0.475,
+              0.9334500000000001
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.05,
+              0.05,
+              1.8669000000000002
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "steel",
+          "name": "post_rr",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.27499999999999997,
+              0.475,
+              0.9334500000000001
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.6,
+              1.0,
+              0.04
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "steel",
+          "name": "base_plate",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.02
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.6,
+              1.0,
+              0.03
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "steel",
+          "name": "top_plate",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              1.8519000000000003
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.012,
+              0.9,
+              1.7969000000000002
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "steel",
+          "name": "rail_left",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              -0.2413,
+              0.0,
+              0.9384500000000001
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.012,
+              0.9,
+              1.7969000000000002
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "steel",
+          "name": "rail_right",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.2413,
+              0.0,
+              0.9384500000000001
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.5,
+              0.02,
+              0.02
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "steel",
+          "name": "cross_front_u10",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -0.45,
+              0.422275
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.5,
+              0.02,
+              0.02
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "steel",
+          "name": "cross_front_u20",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -0.45,
+              0.8667750000000001
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.5,
+              0.02,
+              0.02
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "steel",
+          "name": "cross_front_u30",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -0.45,
+              1.311275
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.5,
+              0.02,
+              0.02
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "steel",
+          "name": "cross_front_u40",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              -0.45,
+              1.755775
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0002_rack_shell"
+    },
+    {
+      "archetype": "floor_tile",
+      "lod": "near",
+      "params": {
+        "perforated": true,
+        "size_m": 0.6,
+        "thickness_m": 0.035
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.6,
+              0.6,
+              0.035
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "floor",
+          "name": "tile",
+          "role": "floor",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.0175
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.028875,
+              0.014000000000000002,
+              0.023625
+            ],
+            "count_x": 8,
+            "count_y": 1,
+            "count_z": 8,
+            "extras": {},
+            "kind": "vent_field",
+            "open_face": "",
+            "pitch": [
+              0.0525,
+              0.0,
+              0.0525
+            ],
+            "segments": 12,
+            "size": [
+              0.42,
+              0.014000000000000002,
+              0.42
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "vent",
+          "name": "perforation",
+          "role": "vent",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.026250000000000002
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0011_floor_tile"
+    },
+    {
+      "archetype": "junction",
+      "lod": "near",
+      "params": {
+        "height_m": 3.0,
+        "size_m": 3.2,
+        "turn": "left"
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              3.2,
+              3.2,
+              0.015
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "junction",
+          "name": "floor_plate",
+          "role": "floor",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.0075
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.15,
+              0.15,
+              3.0
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "structure",
+          "name": "column_core",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              1.5
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              1.1199999999999999,
+              0.6400000000000001,
+              0.012
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "junction",
+          "name": "arm_left",
+          "role": "floor",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              -0.96,
+              0.0,
+              0.01
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0013_junction"
+    },
+    {
+      "archetype": "aisle",
+      "lod": "near",
+      "params": {
+        "height_m": 3.0,
+        "kind": "hot",
+        "length_m": 8.0,
+        "width_m": 1.2
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              1.2,
+              8.0,
+              0.01
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "aisle_hot",
+          "name": "floor_strip",
+          "role": "floor",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.005
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.02,
+              8.0,
+              3.0
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "guide",
+          "name": "guide_left",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              -0.59,
+              0.0,
+              1.5
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.02,
+              8.0,
+              3.0
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "guide",
+          "name": "guide_right",
+          "role": "infrastructure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.59,
+              0.0,
+              1.5
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              1.176,
+              7.84,
+              0.02
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "near",
+          "material_slot": "volume",
+          "name": "volume_marker",
+          "role": "decorative",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              2.99
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0014_aisle"
+    },
+    {
+      "archetype": "containment_door",
+      "lod": "near",
+      "params": {
+        "height_m": 2.2,
+        "thickness_m": 0.04,
+        "width_m": 1.2
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              1.2,
+              0.04,
+              2.2
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "containment",
+          "name": "leaf",
+          "role": "door",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              1.1
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.42,
+              0.016,
+              0.77
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "glass",
+          "name": "vision_panel",
+          "role": "panel",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              1.2100000000000002
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.03,
+              0.027999999999999997,
+              0.12
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "metal",
+          "name": "handle",
+          "role": "handle",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.42,
+              0.0,
+              0.9900000000000001
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              1.2,
+              0.032,
+              0.02
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "near",
+          "material_slot": "seal",
+          "name": "seal_bottom",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.01
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0016_containment_door"
+    },
+    {
+      "archetype": "terminal_wall",
+      "lod": "near",
+      "params": {
+        "height_m": 3.0,
+        "thickness_m": 0.2,
+        "width_m": 3.2
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              3.2,
+              0.2,
+              3.0
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "wall",
+          "name": "wall",
+          "role": "wall",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              1.5
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              1.2800000000000002,
+              0.03,
+              1.0499999999999998
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "panel",
+          "name": "service_panel",
+          "role": "panel",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.03,
+              1.35
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              3.2,
+              0.2,
+              0.1
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "baseboard",
+          "name": "baseboard",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.05
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              3.2,
+              0.2,
+              0.08
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "cornice",
+          "name": "cornice",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              2.96
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0017_terminal_wall"
+    },
+    {
+      "archetype": "column",
+      "lod": "near",
+      "params": {
+        "height_m": 3.6,
+        "section_m": 0.4
+      },
+      "parts": [
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.4,
+              0.4,
+              3.6
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "far",
+          "material_slot": "concrete",
+          "name": "shaft",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              1.8
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.4,
+              0.4,
+              0.08
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "concrete",
+          "name": "base",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.04
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "children": [],
+          "geometry": {
+            "cell_size": [
+              0.01,
+              0.01,
+              0.002
+            ],
+            "count_x": 1,
+            "count_y": 1,
+            "count_z": 1,
+            "extras": {},
+            "kind": "box",
+            "open_face": "",
+            "pitch": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "segments": 12,
+            "size": [
+              0.4,
+              0.4,
+              0.08
+            ],
+            "wall_thickness": 0.002
+          },
+          "lod_keep_until": "mid",
+          "material_slot": "concrete",
+          "name": "capital",
+          "role": "structure",
+          "state_keys": [],
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              3.56
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "prototype_id": "proto_0019_column"
+    }
+  ],
+  "render_engine": "BLENDER_EEVEE_NEXT",
+  "renders": [],
+  "resolution": [
+    1280,
+    720
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "authority": "GOVERNED_BUILDER_INPUT",
+  "note": "Public retopology and LOD requirements",
+  "path": "builder_inputs/retopo_requirements.json",
+  "role": "requirements",
+  "target_id": "organic"
+}

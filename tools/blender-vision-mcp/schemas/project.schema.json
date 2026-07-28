@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/project.schema.json",
+  "title": "Blender Vision project",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "name",
+    "slug",
+    "created_at",
+    "updated_at",
+    "canonical_units",
+    "coordinate_system",
+    "target_fidelity",
+    "accepted_fidelity",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "format": "uuid" },
+    "name": { "type": "string", "minLength": 1 },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "canonical_units": { "const": "millimetres" },
+    "coordinate_system": {
+      "type": "object",
+      "required": ["handedness", "up_axis"],
+      "properties": {
+        "handedness": { "const": "right" },
+        "up_axis": { "const": "Z" }
+      }
+    },
+    "target_fidelity": { "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "accepted_fidelity": { "type": ["string", "null"] },
+    "metadata": { "type": "object" }
+  }
+}
+

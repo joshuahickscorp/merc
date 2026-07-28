@@ -1,0 +1,8 @@
+{
+  "claim_boundary": [
+    "Specular/transparent geometry remains unresolved without dedicated capture."
+  ],
+  "display_name": "Reflective / transparent object",
+  "evidence_status": "blocked",
+  "target_id": "reflective_transparent"
+}

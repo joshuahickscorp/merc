@@ -1,0 +1,17 @@
+   Building blender-vision-mcp @ file:///Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-100plus-sandbox/tools/blender-vision-mcp
+      Built blender-vision-mcp @ file:///Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-100plus-sandbox/tools/blender-vision-mcp
+Uninstalled 1 package in 11ms
+Installed 1 package in 5ms
+============================= test session starts ==============================
+platform darwin -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-100plus-sandbox/tools/blender-vision-mcp
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1 item
+
+tests/test_blender_integration.py s                                      [100%]
+
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_blender_integration.py:44: BLOCKED_EXTERNAL: set BVMCP_MAC_STUDIO_SCENE to the owned BLEND fixture with SHA-256 22ea2562cc92d44b2df084f0009b3faca6ab37f6ff81e21e55136ac6871e6dae
+============================== 1 skipped in 1.76s ==============================

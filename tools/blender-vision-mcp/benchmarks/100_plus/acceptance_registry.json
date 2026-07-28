@@ -1,0 +1,60 @@
+{
+  "anti_cheat": {
+    "adapter_presence_is_execution": false,
+    "allow_builder_evaluator_identity_reuse": false,
+    "allow_builder_to_read_evaluator_area": false,
+    "allow_fixture_as_external_holdout": false,
+    "allow_hidden_manual_edits": false,
+    "allow_simulated_hardware_as_physical": false,
+    "allow_threshold_change_after_run": false,
+    "allow_unexecuted_plan_as_evidence": false,
+    "require_artifact_digest_match": true,
+    "require_current_git_head": true
+  },
+  "levels": {
+    "100": {
+      "description": "Production-complete for the declared reference class on real runtimes and an external or held-out target, with no P0/P1 defects.",
+      "minimum_score": 100,
+      "required_evidence_kinds": [
+        "implementation",
+        "real_runtime",
+        "external_holdout",
+        "receipt"
+      ],
+      "required_unseen_target_variants": 1
+    },
+    "105": {
+      "description": "Level 100 plus three unseen target variants without manual implementation changes.",
+      "minimum_score": 105,
+      "required_evidence_kinds": [
+        "implementation",
+        "real_runtime",
+        "external_holdout",
+        "receipt"
+      ],
+      "required_unseen_target_variants": 3
+    },
+    "110": {
+      "description": "Level 105 plus adversarial recovery, bounded automatic repair, and zero regression across the fixed corpus.",
+      "minimum_score": 110,
+      "required_evidence_kinds": [
+        "implementation",
+        "real_runtime",
+        "external_holdout",
+        "receipt",
+        "adversarial_recovery",
+        "bounded_repair",
+        "global_regression"
+      ],
+      "required_unseen_target_variants": 3
+    }
+  },
+  "minimum_score_increase_evidence_kinds": [
+    "implementation",
+    "real_runtime",
+    "receipt"
+  ],
+  "registry_version": "1",
+  "score_maximum": 110,
+  "score_minimum": 0
+}

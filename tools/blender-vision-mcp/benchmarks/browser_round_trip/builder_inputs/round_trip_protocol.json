@@ -1,0 +1,7 @@
+{
+  "authority": "GOVERNED_BUILDER_INPUT",
+  "note": "Declared round-trip acceptance protocol",
+  "path": "builder_inputs/round_trip_protocol.json",
+  "role": "protocol",
+  "target_id": "browser_round_trip"
+}

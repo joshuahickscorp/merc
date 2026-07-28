@@ -1,0 +1,27 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "del-no-webgl:textual-equivalent"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "textual_equivalent_presence >= 1.0",
+      "blast_radius": [
+        "a11y",
+        "media"
+      ],
+      "critic_role": "accessibility_reviewer",
+      "diagnosis": "visual content lacks a textual equivalent",
+      "finding_id": "del-no-webgl:textual-equivalent",
+      "measured": {
+        "textual_equivalent_presence": 0.0
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "textual_equivalent_presence": 0.0
+  },
+  "runtime_used": "delivery-file",
+  "subject_id": "del-no-webgl"
+}

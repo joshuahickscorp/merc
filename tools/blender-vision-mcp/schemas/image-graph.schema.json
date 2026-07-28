@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/image-graph.schema.json",
+  "title": "VisionMCP ImageGraph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "graph_type", "authority", "nodes", "edges", "analysis", "depth"],
+  "properties": {
+    "schema": { "const": "vision.image-graph/v1" },
+    "graph_type": { "const": "ImageGraph" },
+    "authority": { "const": "MIXED" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "domain_type",
+          "spatial_bounds",
+          "temporal_validity",
+          "evidence_references",
+          "authority",
+          "confidence",
+          "source_restrictions",
+          "uncertainty",
+          "revision_lineage"
+        ]
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "type", "authority", "evidence_references"]
+      }
+    },
+    "analysis": { "type": "object" },
+    "depth": { "type": "object" }
+  }
+}

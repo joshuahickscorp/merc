@@ -1,0 +1,34 @@
+{
+  "acceptance_thresholds": {
+    "min_beats": 1
+  },
+  "blocked_requirements": [],
+  "builder_inputs_digest": "6a865a1a489d1f63edc34d7dff8842a1c4c6706e078bbb253b622b6b42739814",
+  "canary_marker_digest": "3eb510e8db1539eeda45486fb8f89108abdc4dcdf2a10a7ba7ebc126fd8a5b41",
+  "digest": "117b73c3552b57603d87afa9981a68dd89ef75b9ea7c1924e11364127158c7b4",
+  "evaluator_digest": "a352ad0a19e9a1efa9930188eabecde9a8d305310815a9d568248ca46a5112c9",
+  "frozen_at": "2026-07-27T12:36:28.036120+00:00",
+  "kind": "ocular.sealed-benchmark-contract",
+  "lineage": {
+    "environment": {},
+    "hardware": {},
+    "input_authorities": [],
+    "inputs": [
+      "data_centre"
+    ],
+    "limitations": [],
+    "model_versions": {},
+    "operation": "ocular.sealed.materialise",
+    "parameters": {
+      "schema_version": "1"
+    },
+    "retrieved_at": "",
+    "rights_state": "unreviewed",
+    "tool": "blender-vision-mcp",
+    "tool_version": "0.1.0"
+  },
+  "oracle_digest": "f714d52aa9e990ba7a526cdb77a5c89f49c86d7aeb8e1ef5fafc90b02a25714a",
+  "schema_version": "1",
+  "split_digest": "e7d855a1ec27f2a3da771df1e2d8c440b32a8e08c352f161221c7035811107e4",
+  "target_id": "data_centre"
+}

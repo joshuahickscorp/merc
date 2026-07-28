@@ -1,0 +1,9 @@
+{
+  "authority": "SEALED_ORACLE_ONLY",
+  "builder_visible": false,
+  "canary": "SEALED-V2-ORACLE-CANARY-datacenter_film",
+  "note": "Evaluator-only holdout camera A",
+  "path": "oracle/hidden/cameras/holdout_01.json",
+  "role": "hidden_camera",
+  "target_id": "datacenter_film"
+}

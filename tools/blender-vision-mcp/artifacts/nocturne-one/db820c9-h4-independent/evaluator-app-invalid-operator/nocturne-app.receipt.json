@@ -1,0 +1,329 @@
+{
+  "accessibility": {},
+  "api": {
+    "conflict": {
+      "body": {
+        "actor": "benchmark-actor",
+        "configuration_id": "edb72776-d1f3-4b5b-ac51-cb74ba3eb239",
+        "created_at": "2026-07-26T05:06:18.392Z",
+        "email": "builder@example.invalid",
+        "id": "6f980613-d6a5-4ced-88ad-d6728191f5bf",
+        "idempotency_key": "nocturne-fixed-idempotency-key",
+        "status": "confirmed"
+      },
+      "status": 200
+    },
+    "cross_actor": {
+      "body": {
+        "error": "reservation not found"
+      },
+      "status": 404
+    },
+    "first": {
+      "body": {
+        "actor": "benchmark-actor",
+        "configuration_id": "edb72776-d1f3-4b5b-ac51-cb74ba3eb239",
+        "created_at": "2026-07-26T05:06:18.392Z",
+        "email": "builder@example.invalid",
+        "id": "6f980613-d6a5-4ced-88ad-d6728191f5bf",
+        "idempotency_key": "nocturne-fixed-idempotency-key",
+        "status": "confirmed"
+      },
+      "status": 200
+    },
+    "invalid": {
+      "body": {
+        "error": "invalid reservation"
+      },
+      "status": 400
+    },
+    "latency_samples_ms": [
+      1.1844999971799552,
+      1.2311669997870922,
+      1.0740829748101532,
+      1.060166978277266,
+      1.8377919914200902,
+      3.0307499691843987,
+      1.7731250263750553,
+      1.3526250259019434,
+      1.1889170273207128,
+      0.8774580201134086,
+      0.8301250054500997,
+      0.8127079927362502,
+      0.875582976732403,
+      0.9884580504149199,
+      0.8145419997163117,
+      1.0101250372827053,
+      1.307415950577706,
+      1.0007499950006604,
+      1.0301669826731086,
+      1.2696249759756029,
+      1.028957951348275,
+      1.2026250478811562,
+      0.9542080224491656,
+      0.853459001518786,
+      0.6737919757142663,
+      0.5096669774502516,
+      0.5479590035974979,
+      0.5314999725669622,
+      0.5849589942954481,
+      0.5257080192677677
+    ],
+    "missing_permission": {
+      "body": {
+        "error": "permission denied"
+      },
+      "status": 403
+    },
+    "own_lookup": {
+      "body": {
+        "created_at": "2026-07-26T05:06:18.392Z",
+        "id": "6f980613-d6a5-4ced-88ad-d6728191f5bf",
+        "status": "confirmed"
+      },
+      "status": 200
+    },
+    "p95_ms": 1.8377919914200902,
+    "repeated": {
+      "body": {
+        "actor": "benchmark-actor",
+        "configuration_id": "edb72776-d1f3-4b5b-ac51-cb74ba3eb239",
+        "created_at": "2026-07-26T05:06:18.392Z",
+        "email": "builder@example.invalid",
+        "id": "6f980613-d6a5-4ced-88ad-d6728191f5bf",
+        "idempotency_key": "nocturne-fixed-idempotency-key",
+        "status": "confirmed"
+      },
+      "status": 200
+    },
+    "transient": {
+      "body": {
+        "configuration_id": "edb72776-d1f3-4b5b-ac51-cb74ba3eb239",
+        "id": "6f980613-d6a5-4ced-88ad-d6728191f5bf",
+        "status": "confirmed"
+      },
+      "status": 201
+    },
+    "unauthorized": {
+      "body": {
+        "error": "authentication required"
+      },
+      "status": 401
+    }
+  },
+  "assertions": [
+    {
+      "expected": "all install/build/test/migration/rollback commands pass",
+      "id": "fresh_clone_commands",
+      "observed": {
+        "migration_first": {
+          "elapsed_seconds": 0.4608655839692801,
+          "exit_code": 0
+        },
+        "migration_reapply": {
+          "elapsed_seconds": 0.3289639169815928,
+          "exit_code": 0
+        },
+        "migration_rollback": {
+          "elapsed_seconds": 0.3420968330465257,
+          "exit_code": 0
+        },
+        "migration_second": {
+          "elapsed_seconds": 0.3399811249691993,
+          "exit_code": 0
+        },
+        "npm_ci": {
+          "elapsed_seconds": 2.353635083010886,
+          "exit_code": 0
+        },
+        "npm_verify": {
+          "elapsed_seconds": 3.148000042012427,
+          "exit_code": 1
+        }
+      },
+      "passed": false,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "missing_permission": 403,
+        "unauthenticated": 401
+      },
+      "id": "api_auth_policy",
+      "observed": {
+        "missing_permission": 403,
+        "unauthenticated": 401
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "transient": 503,
+        "validation": 400
+      },
+      "id": "api_validation_and_transient_errors",
+      "observed": {
+        "transient": 201,
+        "validation": 400
+      },
+      "passed": false,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "conflict": 409,
+        "first": 201,
+        "repeated": 200,
+        "same_id": true
+      },
+      "id": "reservation_idempotency",
+      "observed": {
+        "conflict": 200,
+        "first": 200,
+        "repeated": 200,
+        "same_id": true
+      },
+      "passed": false,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "cross_actor": [
+          403,
+          404
+        ],
+        "own_lookup": 200
+      },
+      "id": "reservation_actor_scope",
+      "observed": {
+        "cross_actor": 404,
+        "own_lookup": 200
+      },
+      "passed": true,
+      "severity": "P0"
+    },
+    {
+      "expected": {
+        "p95_ms_maximum": 150.0
+      },
+      "id": "api_latency",
+      "observed": {
+        "p95_ms": 1.8377919914200902,
+        "sample_count": 30
+      },
+      "passed": true,
+      "severity": "P1"
+    }
+  ],
+  "benchmark_id": "nocturne-one-sealed-v1",
+  "browser": {},
+  "candidate_build_receipt_sha256": "75c94955ff91c2b9fccb539fb3ea241abf564df4c2cf9c196db160b4bfcb1d66",
+  "claim_boundary": [
+    "The evaluator installs from the lockfile in a fresh copied source tree.",
+    "Browser, API, database, migration, accessibility, fallback, and performance gates execute on the real local application path.",
+    "The selected accessibility scanner is deterministic but does not replace manual assistive-technology review.",
+    "Performance results are specific to the recorded browser and host."
+  ],
+  "commands": [
+    {
+      "command": [
+        "npm",
+        "ci"
+      ],
+      "elapsed_seconds": 2.353635083010886,
+      "exit_code": 0,
+      "id": "npm_ci",
+      "passed": true,
+      "stderr_sha256": "817732f4e9d3fb3a07b0c11a68d4cc6dc654b74cb487e0f6fdddec42b0d2f3ca",
+      "stdout_sha256": "5693c6b258a507bf90e0445387b40cd1b2c97e4f8c9f14aed0e904e914c559d3"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "verify"
+      ],
+      "elapsed_seconds": 3.148000042012427,
+      "exit_code": 1,
+      "id": "npm_verify",
+      "passed": false,
+      "stderr_sha256": "53602a0a78cc24240c64214694a871d5e6973855b5e7a6b3eae3edfd8a9474f3",
+      "stdout_sha256": "2700d1dd41a7d18a765cece1a49654ba68db5579a17c856140387fab5a349b3a"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:migrate"
+      ],
+      "elapsed_seconds": 0.4608655839692801,
+      "exit_code": 0,
+      "id": "migration_first",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "b686714aaadd415b72b546900c4faf34f599547d72e6b29baaf69d83127e6c90"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:migrate"
+      ],
+      "elapsed_seconds": 0.3399811249691993,
+      "exit_code": 0,
+      "id": "migration_second",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "b686714aaadd415b72b546900c4faf34f599547d72e6b29baaf69d83127e6c90"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:rollback"
+      ],
+      "elapsed_seconds": 0.3420968330465257,
+      "exit_code": 0,
+      "id": "migration_rollback",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "c410604b1475ee32bbde4a8a12e3f3ca0b204defc7dbdc9bd91826343eb1df62"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "db:migrate"
+      ],
+      "elapsed_seconds": 0.3289639169815928,
+      "exit_code": 0,
+      "id": "migration_reapply",
+      "passed": true,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "b686714aaadd415b72b546900c4faf34f599547d72e6b29baaf69d83127e6c90"
+    }
+  ],
+  "completed_at": "2026-07-26T05:06:18.512935+00:00",
+  "contract_sha256": "b1ff7fd969075671ab59ffea65757a1fbcc825217fc456d002dd206cc7154fd6",
+  "elapsed_seconds": 7.597846832999494,
+  "failure": "FileNotFoundError: [Errno 2] No such file or directory: '/Users/scammermike/Downloads/visionmcp-nocturne-one-sealed/db820c9-oracle/sealed-evaluator/hidden-mobile-trace.json'",
+  "functional_passed": false,
+  "output_digests": {},
+  "packet_manifest_sha256": "434a699dfd95e379c7c56d020fc5b0137f099c8c172ecb9690063df13b71d079",
+  "performance": {},
+  "runtime": {
+    "health": {
+      "raw": "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"theme-color\" content=\"#070910\"><title>NOCTURNE/ONE</title>  <script type=\"module\" crossorigin src=\"/assets/index-CNEK0HBA.js\"></script>\n  <link rel=\"stylesheet\" crossorigin href=\"/assets/index-DuxesrE-.css\">\n</head><body><a class=\"skip\" href=\"#main\">Skip to content</a><div id=\"app\"></div></body></html>\n"
+    },
+    "host": "macOS-27.0-arm64-arm-64bit",
+    "origin": "http://127.0.0.1:63759",
+    "server_process_id": 1301
+  },
+  "schema_version": "1",
+  "sealed_builder_receipt_sha256": "147c7aaa88b195bf10335dda1556f263a5e4dcdc9ea8316e0b4cfff6c899479f",
+  "source_git_head": "35efe1bd3fd3e9fa1f132133da7dc586410f5d8c",
+  "started_at": "2026-07-26T05:06:10.914767+00:00",
+  "status": "FAIL",
+  "workspace": "/private/tmp/nocturne-one-h4-eval-app-db820c9"
+}

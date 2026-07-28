@@ -1,0 +1,41 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "del-decode-long-task:frame-p95",
+    "del-decode-long-task:long-tasks"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "frame_time_p95_ms <= 33.4",
+      "blast_radius": [
+        "performance"
+      ],
+      "critic_role": "performance_engineer",
+      "diagnosis": "frame time p95 exceeds 30 fps tail budget",
+      "finding_id": "del-decode-long-task:frame-p95",
+      "measured": {
+        "frame_time_p95_ms": 53.40230189273132
+      },
+      "severity": "critical"
+    },
+    {
+      "acceptance_test": "long_task_count <= 0",
+      "blast_radius": [
+        "performance",
+        "main_thread"
+      ],
+      "critic_role": "performance_engineer",
+      "diagnosis": "long tasks observed on the main thread",
+      "finding_id": "del-decode-long-task:long-tasks",
+      "measured": {
+        "long_task_count": 1
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "long_task_count": 1
+  },
+  "runtime_used": "process-measure",
+  "subject_id": "del-decode-long-task"
+}

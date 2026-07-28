@@ -1,0 +1,27 @@
+{
+  "acceptance_passed": true,
+  "block_reason": "",
+  "category": "material",
+  "detector_fired": true,
+  "drill_id": "material-lighting-confusion",
+  "execution_class": "DIAGNOSTIC_ONLY",
+  "global_regression": false,
+  "measured_baseline": {
+    "albedo": [
+      0.2,
+      0.2,
+      0.22
+    ]
+  },
+  "measured_injected": {
+    "naive_delta": 0.35832945734337834
+  },
+  "measured_repaired": {
+    "material_stable": true,
+    "ratio_std": 0.0
+  },
+  "notes": [],
+  "repaired": true,
+  "runtime_used": "ratio-invariance",
+  "status": "PASS"
+}

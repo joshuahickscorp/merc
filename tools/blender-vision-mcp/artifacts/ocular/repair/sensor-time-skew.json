@@ -1,0 +1,35 @@
+{
+  "acceptance_passed": true,
+  "block_reason": "",
+  "category": "sensor",
+  "detector_fired": true,
+  "drill_id": "sensor-time-skew",
+  "execution_class": "PHYSICAL",
+  "global_regression": false,
+  "measured_baseline": {
+    "median_dt": 0.033,
+    "timestamps": [
+      0.0,
+      0.033,
+      0.066,
+      0.2,
+      0.233
+    ]
+  },
+  "measured_injected": {
+    "skew_s": 0.101
+  },
+  "measured_repaired": {
+    "timestamps": [
+      0.0,
+      0.033,
+      0.066,
+      0.099,
+      0.132
+    ]
+  },
+  "notes": [],
+  "repaired": true,
+  "runtime_used": "timestamp-series",
+  "status": "PASS"
+}

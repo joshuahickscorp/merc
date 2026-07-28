@@ -1,0 +1,18 @@
+{
+  "authority": "INFERRED",
+  "claim": "Procedural candidate; not a retrieved product CAD.",
+  "editable": true,
+  "kind": "parametric_box_body",
+  "parameters": {
+    "button_grid": [
+      4,
+      2
+    ],
+    "fillet_m": 0.002,
+    "half_extents_m": [
+      0.12,
+      0.08,
+      0.04
+    ]
+  }
+}

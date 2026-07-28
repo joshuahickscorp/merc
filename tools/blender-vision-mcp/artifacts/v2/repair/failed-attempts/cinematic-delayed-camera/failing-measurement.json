@@ -1,0 +1,27 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "cin-delayed-camera:camera-lag"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "camera_lag_vs_scroll <= 0.12",
+      "blast_radius": [
+        "camera_path",
+        "scroll_mapping"
+      ],
+      "critic_role": "cinematographer",
+      "diagnosis": "camera lag vs scroll exceeds cinematic damping budget",
+      "finding_id": "cin-delayed-camera:camera-lag",
+      "measured": {
+        "camera_lag_vs_scroll": 0.35
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "camera_lag_vs_scroll": 0.35
+  },
+  "runtime_used": "cinematic-path",
+  "subject_id": "cin-delayed-camera"
+}

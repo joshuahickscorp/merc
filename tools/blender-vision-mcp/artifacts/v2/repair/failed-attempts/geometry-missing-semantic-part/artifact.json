@@ -1,0 +1,13 @@
+{
+  "files": {},
+  "kind": "assembly",
+  "payload": {
+    "expected_min_parts": 4,
+    "part_count": 3,
+    "parts": [
+      "base",
+      "shell",
+      "core"
+    ]
+  }
+}

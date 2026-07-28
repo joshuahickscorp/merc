@@ -1,0 +1,62 @@
+{
+  "acceptance_passed": true,
+  "block_reason": "",
+  "category": "cinematic",
+  "detector_fired": true,
+  "drill_id": "cinematic-camera-freeze",
+  "execution_class": "DIAGNOSTIC_ONLY",
+  "global_regression": false,
+  "measured_baseline": {},
+  "measured_injected": {
+    "positions": [
+      [
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        1
+      ]
+    ]
+  },
+  "measured_repaired": {
+    "positions": [
+      [
+        0,
+        0,
+        1
+      ],
+      [
+        0.1,
+        0,
+        1
+      ],
+      [
+        0.2,
+        0,
+        1
+      ],
+      [
+        0.3,
+        0,
+        1
+      ]
+    ]
+  },
+  "notes": [],
+  "repaired": true,
+  "runtime_used": "camera-path",
+  "status": "PASS"
+}

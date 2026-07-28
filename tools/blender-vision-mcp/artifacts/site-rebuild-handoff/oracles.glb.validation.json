@@ -1,0 +1,54 @@
+{
+  "authority": "STRUCTURAL_OBSERVED",
+  "errors": [],
+  "extensions": {
+    "required": [],
+    "used": [
+      "KHR_materials_clearcoat"
+    ]
+  },
+  "metrics": {
+    "accessor_count": 29,
+    "animation_count": 0,
+    "binary_chunk_bytes": 1056660,
+    "buffer_view_count": 32,
+    "image_count": 3,
+    "material_count": 9,
+    "mesh_count": 7,
+    "node_count": 7,
+    "primitive_count": 9,
+    "scene_count": 1,
+    "skin_count": 0,
+    "texture_count": 3
+  },
+  "named_identity": {
+    "missing_meshes": [],
+    "missing_nodes": [],
+    "observed_meshes": [
+      "Cylinder",
+      "Cylinder.001",
+      "Grid",
+      "dgx-spark",
+      "mac-studio",
+      "tub",
+      "tub.001"
+    ],
+    "observed_nodes": [
+      "dgx-spark",
+      "dgx-spark-foam",
+      "mac-studio",
+      "mac-studio-base",
+      "mac-studio-led",
+      "tub",
+      "tub.001"
+    ],
+    "required_meshes": [],
+    "required_nodes": []
+  },
+  "path": "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-100plus-sandbox/tools/blender-vision-mcp/artifacts/site-rebuild-handoff/oracles.glb",
+  "sha256": "8a9d2f1b9e90c395fcca4e43e9e9f6ee3080e99165d6e34ba47f2e31f248c970",
+  "size": 1066896,
+  "valid": true,
+  "validator": "visionmcp-glb-validator/v1",
+  "warnings": []
+}

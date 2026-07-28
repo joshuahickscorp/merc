@@ -1,0 +1,27 @@
+{
+  "detector_fired": true,
+  "finding_ids": [
+    "light-clipped-hero:clipped-hero"
+  ],
+  "findings": [
+    {
+      "acceptance_test": "highlight_clip_fraction <= 0.03",
+      "blast_radius": [
+        "lighting",
+        "exposure"
+      ],
+      "critic_role": "lighting_artist",
+      "diagnosis": "hero highlight region is clipped",
+      "finding_id": "light-clipped-hero:clipped-hero",
+      "measured": {
+        "highlight_clip_fraction": 0.621826171875
+      },
+      "severity": "major"
+    }
+  ],
+  "measured": {
+    "highlight_clip_fraction": 0.621826171875
+  },
+  "runtime_used": "lighting-image",
+  "subject_id": "light-clipped-hero"
+}

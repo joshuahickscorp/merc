@@ -1,0 +1,9 @@
+{
+  "authority": "SEALED_ORACLE_ONLY",
+  "builder_visible": false,
+  "canary": "SEALED-V2-ORACLE-CANARY-organic",
+  "note": "Oracle topology and UV statistics",
+  "path": "oracle/hidden/measurements/topology_stats.json",
+  "role": "hidden_measurement",
+  "target_id": "organic"
+}

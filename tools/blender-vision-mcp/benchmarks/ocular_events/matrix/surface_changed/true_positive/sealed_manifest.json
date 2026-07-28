@@ -1,0 +1,6 @@
+{
+  "event_type": "SURFACE_CHANGED",
+  "fixture_class": "true_positive",
+  "ground_truth": "sealed_gt/labels.json",
+  "n_frames": 4
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": "1",
+  "benchmark_id": "appearance-authority-v1",
+  "generator_operation": "generate_appearance_benchmark",
+  "rights_state": "SYNTHETIC_OWNED_CC0",
+  "required_public_views": 3,
+  "required_holdout_views": 1,
+  "required_passes": [
+    "beauty",
+    "exposure_minus_2",
+    "exposure_0",
+    "exposure_plus_2"
+  ],
+  "required_material_classes": {
+    "Appearance_AnodizedMetal": "anodized_metal",
+    "Appearance_FrostedGlass": "translucent",
+    "Appearance_Emissive": "emissive",
+    "Appearance_Textile": "textile"
+  },
+  "required_lights": [
+    "Appearance_Key",
+    "Appearance_Fill",
+    "Appearance_Rim"
+  ],
+  "required_negative_controls": [
+    "camera_nudge",
+    "material_substitution",
+    "lighting_substitution"
+  ],
+  "thresholds": {
+    "maximum_mean_absolute_channel_error": 0.25,
+    "maximum_root_mean_square_channel_error": 0.75,
+    "maximum_p95_absolute_channel_error": 1.0,
+    "maximum_channel_error": 3,
+    "maximum_alpha_mean_absolute_error": 0.25,
+    "maximum_highlight_coverage_delta": 0.002,
+    "material_parameter_tolerance": 0.00001,
+    "lighting_parameter_tolerance": 0.00001,
+    "camera_parameter_tolerance": 0.0000001
+  }
+}

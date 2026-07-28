@@ -1,0 +1,13 @@
+{
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "event_type": "SURFACE_CHANGED",
+  "expect_fire": true,
+  "fixture_class": "near_threshold",
+  "forbidden_events": [],
+  "image_height": 240,
+  "image_width": 320,
+  "measured_quantity": "distributed_residual",
+  "n_frames": 4,
+  "notes": "subtle tint near SURFACE_SCORE_MIN",
+  "onset_frame": 2
+}

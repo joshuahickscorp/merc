@@ -1,0 +1,541 @@
+{
+  "acceptance": {
+    "authority_refs": [
+      "stories",
+      "api",
+      "rules"
+    ],
+    "fresh_clone_command": "npm ci && npm run verify",
+    "global_regression_command": "npm run verify",
+    "tests": [
+      {
+        "command": "npm run test:api",
+        "expected": "201 for administrator and 403 for viewer",
+        "id": "accept-create-item",
+        "journey_ids": [
+          "create-item"
+        ],
+        "level": "api",
+        "operation_ids": [
+          "createItem"
+        ],
+        "requirement": "Administrator creates one item and viewer is denied.",
+        "route_ids": [
+          "items"
+        ]
+      },
+      {
+        "command": "npm run test:api",
+        "expected": "422 and zero inserted rows",
+        "id": "accept-empty-name",
+        "level": "api",
+        "operation_ids": [
+          "createItem"
+        ],
+        "requirement": "Empty item name is rejected."
+      }
+    ]
+  },
+  "accessibility_requirements": [
+    {
+      "criterion": "Create journey works with keyboard alone",
+      "id": "keyboard-create-item",
+      "level": "AA",
+      "test_method": "Playwright keyboard journey"
+    }
+  ],
+  "api_contract": {
+    "authority_refs": [
+      "api"
+    ],
+    "base_path": "/api",
+    "endpoints": [
+      {
+        "authorization": "authenticated",
+        "business_rule_ids": [],
+        "entity_refs": [
+          "Item"
+        ],
+        "handler": {
+          "entity_ref": "Item",
+          "id_field": "id",
+          "kind": "list_entities"
+        },
+        "method": "GET",
+        "operation_id": "listItems",
+        "path": "/items",
+        "rate_limit": "120/minute/actor",
+        "request_fields": [],
+        "responses": [
+          {
+            "description": "Item list",
+            "schema_ref": "Item[]",
+            "status": 200
+          }
+        ],
+        "summary": "List items",
+        "timeout_ms": 1000
+      },
+      {
+        "authorization": "permission",
+        "business_rule_ids": [
+          "item-name-required"
+        ],
+        "entity_refs": [
+          "Item"
+        ],
+        "handler": {
+          "entity_ref": "Item",
+          "field_bindings": {
+            "name": "name"
+          },
+          "id_field": "id",
+          "kind": "create_entity"
+        },
+        "method": "POST",
+        "operation_id": "createItem",
+        "path": "/items",
+        "rate_limit": "30/minute/actor",
+        "request_fields": [
+          {
+            "data_type": "string",
+            "location": "body",
+            "name": "name",
+            "required": true,
+            "validation": {
+              "maximum_length": 120,
+              "minimum_length": 1
+            }
+          }
+        ],
+        "required_permissions": [
+          "item.create"
+        ],
+        "responses": [
+          {
+            "description": "Created item",
+            "schema_ref": "Item",
+            "status": 201
+          },
+          {
+            "description": "Denied",
+            "status": 403
+          }
+        ],
+        "summary": "Create item",
+        "timeout_ms": 1000
+      }
+    ],
+    "error_envelope": {
+      "code": "stable machine code",
+      "message": "safe human message",
+      "request_id": "trace identifier"
+    },
+    "protocol": "REST",
+    "sample_payload_refs": [
+      "samples"
+    ],
+    "version": "1"
+  },
+  "auth_policy": {
+    "authority_refs": [
+      "auth"
+    ],
+    "credential_storage_policy": "test identities only; no production credentials",
+    "cross_tenant_policy": "no tenant context in this single-tenant benchmark",
+    "default_role": "viewer",
+    "deny_by_default": true,
+    "identity_claim": "x-test-user",
+    "permissions": [
+      {
+        "actions": [
+          "create"
+        ],
+        "description": "Create items",
+        "id": "item.create",
+        "resource": "Item"
+      }
+    ],
+    "provider": "test_header",
+    "roles": [
+      {
+        "description": "Manages items",
+        "id": "administrator",
+        "permission_ids": [
+          "item.create"
+        ]
+      },
+      {
+        "description": "Reads items",
+        "id": "viewer",
+        "permission_ids": []
+      }
+    ]
+  },
+  "business_rules": {
+    "analytics_events": [
+      {
+        "event": "item_created",
+        "properties": "request_id only"
+      }
+    ],
+    "authority_refs": [
+      "rules",
+      "errors"
+    ],
+    "edge_case_matrix": [
+      {
+        "case": "empty name",
+        "expected": "422 and no row"
+      }
+    ],
+    "rules": [
+      {
+        "acceptance_test_ids": [
+          "accept-create-item"
+        ],
+        "description": "Names are trimmed and non-empty.",
+        "deterministic_effect": "persist exactly one item",
+        "duplicate_behavior": "duplicate names are allowed",
+        "failure_behavior": "transaction rolls back",
+        "id": "item-name-required",
+        "inputs": [
+          "name"
+        ],
+        "invariants": [
+          "empty names are never stored"
+        ],
+        "preconditions": [
+          "administrator permission"
+        ],
+        "retry_behavior": "caller may retry after validation correction"
+      }
+    ]
+  },
+  "data_model": {
+    "authority_refs": [
+      "data"
+    ],
+    "database_engine": "sqlite",
+    "entities": [
+      {
+        "fields": [
+          {
+            "data_type": "uuid",
+            "name": "id",
+            "primary_key": true,
+            "unique": true
+          },
+          {
+            "data_type": "string",
+            "name": "name",
+            "validation": {
+              "maximum_length": 120,
+              "minimum_length": 1
+            }
+          },
+          {
+            "data_type": "datetime",
+            "name": "created_at"
+          }
+        ],
+        "indexes": [
+          [
+            "name"
+          ]
+        ],
+        "name": "Item",
+        "retention_policy": "retain until administrator deletion",
+        "table_name": "items"
+      }
+    ],
+    "migration_policy": "numbered forward migrations in one transaction",
+    "relations": [],
+    "rollback_policy": "paired down migrations with backup",
+    "seed_policy": "deterministic seed 41"
+  },
+  "deployment": {
+    "authority_refs": [
+      "deploy"
+    ],
+    "edges": [
+      {
+        "from": "app",
+        "to": "database"
+      }
+    ],
+    "fresh_clone_command": "npm ci && npm run verify",
+    "migration_command": "npm run db:migrate",
+    "nodes": [
+      {
+        "artifact": "dist/server.js",
+        "health_check": "GET /healthz",
+        "id": "app",
+        "kind": "api",
+        "resource_limits": {
+          "cpu": "1",
+          "memory": "256Mi"
+        },
+        "runtime": "node:20"
+      },
+      {
+        "artifact": "data/app.sqlite3",
+        "health_check": "PRAGMA quick_check",
+        "id": "database",
+        "kind": "database",
+        "resource_limits": {
+          "disk": "100Mi"
+        },
+        "runtime": "sqlite3"
+      }
+    ],
+    "release_command": "docker build .",
+    "rollback_command": "npm run db:rollback",
+    "secret_names": [],
+    "target": "local_container"
+  },
+  "design_system_reference_ids": [],
+  "error_cases": [
+    {
+      "acceptance_test_id": "accept-empty-name",
+      "expected_api_status": 422,
+      "expected_user_state": "form retains input and announces error",
+      "id": "empty-item-name",
+      "retry_policy": "retry after correction",
+      "trigger": "name is empty after trimming"
+    }
+  ],
+  "journeys": {
+    "authority_refs": [
+      "stories"
+    ],
+    "journeys": [
+      {
+        "actor": "administrator",
+        "denied_or_failure_paths": [
+          "viewer receives 403"
+        ],
+        "id": "create-item",
+        "name": "Create item",
+        "preconditions": [
+          "authenticated as administrator"
+        ],
+        "steps": [
+          {
+            "action": "open item management",
+            "actor": "administrator",
+            "expected_state": "ready",
+            "id": "open-items",
+            "route_id": "items"
+          },
+          {
+            "action": "submit a valid item",
+            "actor": "administrator",
+            "api_operation_id": "createItem",
+            "error_recovery": "retain fields and expose accessible error",
+            "expected_state": "item persisted",
+            "id": "submit-item",
+            "route_id": "items"
+          }
+        ],
+        "success_postconditions": [
+          "item appears in the list"
+        ]
+      }
+    ]
+  },
+  "motion_reference_ids": [],
+  "observability": {
+    "alerts": [
+      "API p95 budget failure"
+    ],
+    "authority_refs": [
+      "slo"
+    ],
+    "dashboards": [
+      "local benchmark summary"
+    ],
+    "metrics": [
+      "http_request_duration_ms",
+      "http_errors_total"
+    ],
+    "privacy_redactions": [
+      "authorization",
+      "cookie"
+    ],
+    "slos": [
+      {
+        "alert": "fail acceptance",
+        "id": "local-api-latency",
+        "indicator": "API p95",
+        "objective": "<=150ms",
+        "window": "benchmark run"
+      }
+    ],
+    "structured_log_fields": [
+      "timestamp",
+      "level",
+      "request_id",
+      "operation_id",
+      "duration_ms",
+      "status"
+    ],
+    "traces": [
+      "request to database transaction"
+    ]
+  },
+  "packet_id": "rbac-denied-paths-v1",
+  "performance_budgets": [
+    {
+      "measurement_command": "npm run test:performance",
+      "metric": "local_api_p95",
+      "operation": "<=",
+      "unit": "ms",
+      "value": 150
+    }
+  ],
+  "product": {
+    "actors": [
+      "administrator"
+    ],
+    "authority_refs": [
+      "brief"
+    ],
+    "goals": [
+      "manage items"
+    ],
+    "id": "rbac-denied-paths",
+    "name": "Rbac Denied Paths",
+    "non_goals": [
+      "payments"
+    ],
+    "routes": [
+      {
+        "id": "items",
+        "path": "/items",
+        "purpose": "List and create items",
+        "required_states": [
+          "loading",
+          "empty",
+          "ready",
+          "error"
+        ],
+        "title": "Items",
+        "visual_reference_ids": [
+          "visual"
+        ]
+      }
+    ],
+    "summary": "Deny-by-default role and permission enforcement.",
+    "version": "1.0.0"
+  },
+  "sources": [
+    {
+      "authority": "SPECIFIED",
+      "digest": "03cef36d8e9f54634966bde4086c961bde954d0709b2c68de1d07a5035b47b24",
+      "id": "brief",
+      "kind": "product_brief",
+      "locator": "sources/brief.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "b24a3c530daf9afbd7ee17cc374483f9dddea508e781f52f869a22d000bf13ac",
+      "id": "stories",
+      "kind": "user_story",
+      "locator": "sources/stories.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "8a06ccdbb0a95d2245fc93aa5a43080243e53caf701729f70a23153ba5155f2e",
+      "id": "data",
+      "kind": "data_schema",
+      "locator": "sources/data.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "1a99f5fb23cc7d50ace33c67377d190a234ff0c01bc56055aa6016d83b7d7de4",
+      "id": "api",
+      "kind": "api_contract",
+      "locator": "sources/api.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "05a1e754841c990fbe009705a55c11c7d136bce0f8afca0bd24e41326c0dd0fc",
+      "id": "auth",
+      "kind": "auth_policy",
+      "locator": "sources/auth.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "dd71935e00570e42d9d004a0143f1b38ce3258ddfd09d07dc2982d3dc94b6d20",
+      "id": "rules",
+      "kind": "business_rules",
+      "locator": "sources/rules.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "10bb6e0c872f63c23f2ea6263297a5ebc475c0d3a680069202e06b485c481d6d",
+      "id": "errors",
+      "kind": "error_matrix",
+      "locator": "sources/errors.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "775340568002dce2275e3133b2a626c6972ccbca5ade6fa5df2d105619d86457",
+      "id": "deploy",
+      "kind": "deployment_target",
+      "locator": "sources/deploy.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "9e8e0b190d87aa9769e1bc0096a2212ea2cc06482b236a854a4ab52fc82c889a",
+      "id": "slo",
+      "kind": "slo",
+      "locator": "sources/slo.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "3828d52ec625ed566c7354de8d2d847f26bb928cff50cfe45912405f2145acb1",
+      "id": "performance",
+      "kind": "performance_budget",
+      "locator": "sources/performance.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "3bc85a41a7d7f70995ed3b3403ce67f810f4c4110eaf8793670fb919142e422e",
+      "id": "accessibility",
+      "kind": "accessibility_requirements",
+      "locator": "sources/accessibility.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "OBSERVED",
+      "digest": "70046ddc2142fd4eb6c1d336f4456d880824d518b171574419c671696a7b7113",
+      "id": "visual",
+      "kind": "visual_reference",
+      "locator": "sources/visual.json",
+      "rights_state": "OWNED"
+    },
+    {
+      "authority": "SPECIFIED",
+      "digest": "3bd2464cf203f58e82d5b7c40e1db3209b3cd433c1aef6bd044e4cd3936a3b22",
+      "id": "samples",
+      "kind": "sample_payload",
+      "locator": "sources/samples.json",
+      "rights_state": "OWNED"
+    }
+  ],
+  "visual_reference_ids": [
+    "visual"
+  ]
+}

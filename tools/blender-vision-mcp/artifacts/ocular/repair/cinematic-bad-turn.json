@@ -1,0 +1,32 @@
+{
+  "acceptance_passed": true,
+  "block_reason": "",
+  "category": "cinematic",
+  "detector_fired": true,
+  "drill_id": "cinematic-bad-turn",
+  "execution_class": "DIAGNOSTIC_ONLY",
+  "global_regression": false,
+  "measured_baseline": {},
+  "measured_injected": {
+    "max_delta": 170.0,
+    "yaws": [
+      0.0,
+      10.0,
+      180.0,
+      190.0
+    ]
+  },
+  "measured_repaired": {
+    "max_delta": 10.0,
+    "yaws": [
+      0.0,
+      10.0,
+      20.0,
+      30.0
+    ]
+  },
+  "notes": [],
+  "repaired": true,
+  "runtime_used": "camera-path",
+  "status": "PASS"
+}

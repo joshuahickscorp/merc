@@ -1,0 +1,15 @@
+{
+  "authority": "PROCEDURAL_GROUND_TRUTH",
+  "event_type": "OBJECT_LEFT",
+  "expect_fire": false,
+  "fixture_class": "confounder",
+  "forbidden_events": [
+    "OBJECT_LEFT"
+  ],
+  "image_height": 240,
+  "image_width": 320,
+  "measured_quantity": "track_missing_frames",
+  "n_frames": 6,
+  "notes": "full occlusion is not a leave \u2014 object remains in scene",
+  "onset_frame": null
+}

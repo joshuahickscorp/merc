@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-vision.dev/schemas/typescript-semantic-index.schema.json",
+  "title": "VisionMCP TypeScript Semantic Index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "engine",
+    "typescript_version",
+    "files",
+    "symbols",
+    "imports",
+    "references",
+    "reference_truncated",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema": { "const": "vision.typescript-semantic-index/v1" },
+    "engine": {
+      "enum": [
+        "typescript-compiler-api",
+        "typescript-native-compiler-api"
+      ]
+    },
+    "typescript_version": { "type": "string" },
+    "files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "path",
+          "name",
+          "line",
+          "character",
+          "start",
+          "kind",
+          "exported",
+          "type",
+          "compiler_symbol_name"
+        ]
+      }
+    },
+    "imports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source_path",
+          "module",
+          "line",
+          "resolved_path",
+          "resolution"
+        ]
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source_path",
+          "line",
+          "character",
+          "name",
+          "target_symbol_id"
+        ]
+      }
+    },
+    "reference_truncated": { "type": "boolean" },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "category",
+          "file",
+          "line",
+          "character",
+          "message"
+        ]
+      }
+    }
+  }
+}
