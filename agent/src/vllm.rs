@@ -34,6 +34,13 @@ pub struct VllmAgentConfig {
     pub max_active_sequences: u32,
     #[serde(default = "default_startup_timeout_secs")]
     pub startup_timeout_secs: u64,
+    pub hw_class: String,
+    pub gpu_count: u32,
+    pub memory_gb_per_gpu: f64,
+    #[serde(default)]
+    pub memory_gb_in_use: f64,
+    #[serde(default)]
+    pub interconnect: String,
     pub supplier_input_usd_per_million_tokens: f64,
     pub supplier_output_usd_per_million_tokens: f64,
 }
@@ -83,6 +90,12 @@ struct RuntimeProfile {
     tokenizer_revision: String,
     architecture: String,
     dtype: String,
+    #[serde(default)]
+    model_weights_gb: f64,
+    #[serde(default)]
+    per_rank_overhead_gb: f64,
+    #[serde(default)]
+    attention_heads: u32,
     tensor_parallel_size: u32,
     pipeline_parallel_size: u32,
     max_model_length: u32,
@@ -126,6 +139,21 @@ impl RuntimeProfile {
             || self.gpu_memory_utilization == 0.0
         {
             bail!("runtime profile resource bounds are invalid")
+        }
+        let placement_fields = [
+            self.model_weights_gb > 0.0,
+            self.per_rank_overhead_gb >= 0.0
+                && (self.model_weights_gb > 0.0 || self.attention_heads > 0),
+            self.attention_heads > 0,
+        ];
+        let has_placement = self.model_weights_gb > 0.0
+            || self.per_rank_overhead_gb > 0.0
+            || self.attention_heads > 0;
+        if has_placement && !placement_fields.into_iter().all(|present| present) {
+            bail!("runtime profile model placement authority is incomplete")
+        }
+        if self.tensor_parallel_size > 1 && !has_placement {
+            bail!("multi-GPU runtime profile requires model placement authority")
         }
         if self.generation_policy.version.trim().is_empty()
             || self.generation_policy.maximum_output_tokens == 0
@@ -190,6 +218,31 @@ fn validate_config(config: &VllmAgentConfig, profile: &RuntimeProfile) -> Result
     if config.listen_port == 0 || config.max_active_sequences == 0 {
         bail!("listen_port and max_active_sequences must be positive")
     }
+    if !matches!(
+        config.hw_class.as_str(),
+        "nvidia_24gb" | "nvidia_48gb" | "nvidia_80gb" | "nvidia_180gb"
+    ) {
+        bail!("hw_class must be an admitted NVIDIA capability class")
+    }
+    if config.gpu_count == 0
+        || config.memory_gb_per_gpu <= 0.0
+        || !config.memory_gb_per_gpu.is_finite()
+        || config.memory_gb_in_use < 0.0
+        || !config.memory_gb_in_use.is_finite()
+        || config.memory_gb_in_use > config.memory_gb_per_gpu
+        || profile.tensor_parallel_size > config.gpu_count
+    {
+        bail!("declared GPU topology cannot host the runtime profile")
+    }
+    if config.gpu_count > 1 && !matches!(config.interconnect.as_str(), "nvlink" | "pcie") {
+        bail!("multi-GPU hosts must declare interconnect as nvlink or pcie")
+    }
+    if config.gpu_count == 1
+        && !config.interconnect.is_empty()
+        && !matches!(config.interconnect.as_str(), "nvlink" | "pcie")
+    {
+        bail!("interconnect must be empty, nvlink, or pcie")
+    }
     if config.supplier_input_usd_per_million_tokens < 0.0
         || config.supplier_output_usd_per_million_tokens < 0.0
         || config.supplier_input_usd_per_million_tokens > profile.buyer_input_usd_per_million_tokens
@@ -215,11 +268,15 @@ fn container_args(
     profile: &RuntimeProfile,
     upstream_token: &str,
 ) -> Vec<String> {
+    let selected_devices = (0..profile.tensor_parallel_size)
+        .map(|device| device.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let mut args = vec![
         "run".into(),
         "--rm".into(),
         "--gpus".into(),
-        "all".into(),
+        format!("device={selected_devices}"),
         "--network".into(),
         "host".into(),
         "--read-only".into(),
@@ -380,6 +437,11 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
         .register_realtime(&RealtimeOfferRegistration {
             runtime_profile_id: profile.runtime_profile_id.clone(),
             runtime_profile_sha256: profile_sha256,
+            hw_class: config.hw_class.clone(),
+            gpu_count: config.gpu_count,
+            memory_gb_per_gpu: config.memory_gb_per_gpu,
+            memory_gb_in_use: config.memory_gb_in_use,
+            interconnect: config.interconnect.clone(),
             upstream_base_url: config.public_base_url.clone(),
             upstream_token,
             warmth: "HOT".to_string(),
@@ -447,6 +509,9 @@ mod tests {
             tokenizer_revision: "c".repeat(40),
             architecture: "ForCausalLM".into(),
             dtype: "bfloat16".into(),
+            model_weights_gb: 60.0,
+            per_rank_overhead_gb: 8.0,
+            attention_heads: 32,
             tensor_parallel_size: 2,
             pipeline_parallel_size: 1,
             max_model_length: 32768,
@@ -477,6 +542,11 @@ mod tests {
             listen_port: 8000,
             max_active_sequences: 128,
             startup_timeout_secs: 900,
+            hw_class: "nvidia_48gb".into(),
+            gpu_count: 2,
+            memory_gb_per_gpu: 48.0,
+            memory_gb_in_use: 0.0,
+            interconnect: "nvlink".into(),
             supplier_input_usd_per_million_tokens: 0.08,
             supplier_output_usd_per_million_tokens: 0.30,
         }
@@ -492,6 +562,8 @@ mod tests {
         assert!(joined.contains("--tokenizer-revision cccccccccccccccccccccccccccccccccccccccc"));
         assert!(joined.contains("--generation-config vllm"));
         assert!(joined.contains("--max-num-seqs 128"));
+        assert!(joined.contains("--gpus device=0,1"));
+        assert!(!joined.contains("--gpus all"));
         assert!(joined.contains("--enable-prefix-caching"));
         assert!(joined.contains("--enable-chunked-prefill"));
         assert!(!joined.contains(":latest"));
@@ -508,5 +580,22 @@ mod tests {
         let mut bad = profile();
         bad.container_image = "vllm/vllm-openai:latest".into();
         assert!(bad.validate().is_err());
+        let mut bad = profile();
+        bad.model_weights_gb = 0.0;
+        bad.per_rank_overhead_gb = 0.0;
+        bad.attention_heads = 0;
+        assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn multi_gpu_topology_is_explicit_and_bounded() {
+        let profile = profile();
+        assert!(validate_config(&config(), &profile).is_ok());
+        let mut bad = config();
+        bad.interconnect.clear();
+        assert!(validate_config(&bad, &profile).is_err());
+        let mut bad = config();
+        bad.gpu_count = 1;
+        assert!(validate_config(&bad, &profile).is_err());
     }
 }

@@ -150,6 +150,7 @@ const AGENT_CONTENT_SOURCES: &[(&str, &str)] = &[
     ("runtime_authority.rs", include_str!("runtime_authority.rs")),
     ("status.rs", include_str!("status.rs")),
     ("types.rs", include_str!("types.rs")),
+    ("vllm.rs", include_str!("vllm.rs")),
     ("Cargo.lock", include_str!("../Cargo.lock")),
 ];
 
@@ -404,6 +405,9 @@ pub async fn detect_and_benchmark(
         build_hash,
         memory_gb,
         memory_bw_gbps,
+        gpu_count: 1,
+        memory_gb_per_gpu: memory_gb,
+        interconnect: String::new(),
         supported_jobs,
         supported_models,
         benchmarks,

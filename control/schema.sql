@@ -2655,6 +2655,8 @@ CREATE TABLE IF NOT EXISTS realtime_worker_offers (
     supplier_id                  UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
     runtime_profile_id           TEXT NOT NULL,
     runtime_profile_sha256       TEXT NOT NULL CHECK (runtime_profile_sha256 ~ '^[0-9a-f]{64}$'),
+    placement_plan               JSONB,
+    placement_plan_sha256        TEXT CHECK (placement_plan_sha256 IS NULL OR placement_plan_sha256 ~ '^[0-9a-f]{64}$'),
     upstream_base_url            TEXT NOT NULL CHECK (btrim(upstream_base_url) <> ''),
     upstream_token_sealed        TEXT NOT NULL CHECK (upstream_token_sealed LIKE 'enc:%'),
     warmth                       TEXT NOT NULL CHECK (warmth IN ('HOT','WARM','CACHED','COLD')),
@@ -2681,6 +2683,8 @@ CREATE TABLE IF NOT EXISTS execution_contracts (
     model_alias           TEXT NOT NULL,
     runtime_profile_id    TEXT NOT NULL,
     runtime_profile_sha256 TEXT NOT NULL CHECK (runtime_profile_sha256 ~ '^[0-9a-f]{64}$'),
+    placement_plan        JSONB,
+    placement_plan_sha256 TEXT CHECK (placement_plan_sha256 IS NULL OR placement_plan_sha256 ~ '^[0-9a-f]{64}$'),
     input_commitment      TEXT NOT NULL CHECK (input_commitment ~ '^[0-9a-f]{64}$'),
     request_sha256        TEXT NOT NULL CHECK (request_sha256 ~ '^[0-9a-f]{64}$'),
     maximum_price_usd     NUMERIC(12,6) NOT NULL CHECK (maximum_price_usd > 0),
@@ -2714,6 +2718,70 @@ ALTER TABLE execution_contracts ALTER COLUMN worker_id DROP NOT NULL;
 ALTER TABLE execution_contracts ALTER COLUMN supplier_id DROP NOT NULL;
 ALTER TABLE execution_contracts ALTER COLUMN upstream_base_url DROP NOT NULL;
 ALTER TABLE execution_contracts ALTER COLUMN upstream_token_sealed DROP NOT NULL;
+
+-- Placement authority was added after the first realtime contract rows
+-- existed. Additive ALTERs keep schema.sql safe to reapply without rewriting
+-- those historical rows with invented hardware facts.
+ALTER TABLE realtime_worker_offers
+    ADD COLUMN IF NOT EXISTS placement_plan JSONB;
+ALTER TABLE realtime_worker_offers
+    ADD COLUMN IF NOT EXISTS placement_plan_sha256 TEXT;
+ALTER TABLE execution_contracts
+    ADD COLUMN IF NOT EXISTS placement_plan JSONB;
+ALTER TABLE execution_contracts
+    ADD COLUMN IF NOT EXISTS placement_plan_sha256 TEXT;
+
+-- Old offers cannot continue advertising ACTIVE capacity without registering
+-- again through the topology-aware path. Contracts are historical evidence and
+-- remain untouched.
+UPDATE realtime_worker_offers
+   SET status='DRAINING',updated_at=now()
+ WHERE placement_plan IS NULL OR placement_plan_sha256 IS NULL;
+
+CREATE OR REPLACE FUNCTION enforce_realtime_offer_placement_authority()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF (NEW.placement_plan IS NULL) <> (NEW.placement_plan_sha256 IS NULL) THEN
+    RAISE EXCEPTION 'realtime offer placement plan and digest must be written together';
+  END IF;
+  IF NEW.status='ACTIVE' AND
+     (NEW.placement_plan IS NULL OR NEW.placement_plan_sha256 !~ '^[0-9a-f]{64}$') THEN
+    RAISE EXCEPTION 'active realtime offer requires frozen placement authority';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS realtime_offer_placement_authority ON realtime_worker_offers;
+CREATE TRIGGER realtime_offer_placement_authority
+BEFORE INSERT OR UPDATE ON realtime_worker_offers
+FOR EACH ROW EXECUTE FUNCTION enforce_realtime_offer_placement_authority();
+
+CREATE OR REPLACE FUNCTION enforce_execution_contract_placement_authority()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP='UPDATE' AND
+     (NEW.placement_plan IS DISTINCT FROM OLD.placement_plan OR
+      NEW.placement_plan_sha256 IS DISTINCT FROM OLD.placement_plan_sha256) THEN
+    RAISE EXCEPTION 'execution contract placement authority is immutable';
+  END IF;
+  IF (NEW.placement_plan IS NULL) <> (NEW.placement_plan_sha256 IS NULL) THEN
+    RAISE EXCEPTION 'execution contract placement plan and digest must be written together';
+  END IF;
+  IF NEW.worker_id IS NULL THEN
+    IF NEW.placement_plan IS NOT NULL OR NEW.placement_plan_sha256 IS NOT NULL THEN
+      RAISE EXCEPTION 'exact-reuse contract cannot invent placement authority';
+    END IF;
+  ELSIF TG_OP='INSERT' AND
+        (NEW.placement_plan IS NULL OR NEW.placement_plan_sha256 !~ '^[0-9a-f]{64}$') THEN
+    RAISE EXCEPTION 'new worker-bound contract requires frozen placement authority';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS execution_contract_placement_authority ON execution_contracts;
+CREATE TRIGGER execution_contract_placement_authority
+BEFORE INSERT OR UPDATE ON execution_contracts
+FOR EACH ROW EXECUTE FUNCTION enforce_execution_contract_placement_authority();
 
 -- Dropping NOT NULL above is what lets a cache hit settle without inventing a
 -- capacity reservation. On its own it also lets ANY contract be written with no

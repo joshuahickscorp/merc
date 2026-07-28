@@ -17,7 +17,7 @@ source-bound receipt. S3-compatible storage holds artifacts.
 
 ```text
 control/                  control plane, cx command, embedded schema
-agent/                    supplier agent and Candle executor
+agent/                    Candle batch agent and CUDA/vLLM realtime adapter
 proto/                    runtime matrix and manifest schema
 sdk/python/               dependency-free buyer SDK
 web/                      public alpha site
@@ -45,6 +45,17 @@ make control
 Put the printed worker token in `agent/agent.toml` or `MERC_WORKER_TOKEN`, then run
 `make agent-run` in another shell. The agent is native because Metal is not
 available inside the Linux control stack.
+
+The pinned CUDA realtime adapter is a separate Linux command:
+
+```bash
+cp agent/vllm.example.toml agent/vllm.toml
+cd agent && cargo run --release -- vllm --config vllm.toml
+```
+
+Its config must declare the host's CUDA capability class, GPU count, per-GPU
+memory, committed memory, and multi-GPU interconnect. The control plane freezes
+that placement into every physical realtime contract and receipt.
 
 ## Buyer flow
 

@@ -126,6 +126,7 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	// validateRealtimeOfferRegistration is NOT called by UpsertRealtimeOffer.
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
+		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
 		UpstreamBaseURL: strings.TrimRight(upstream, "/"), UpstreamToken: upstreamKey,
 		Warmth: "HOT", MaxActiveSequences: 64, AvailableSequences: 64,
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,

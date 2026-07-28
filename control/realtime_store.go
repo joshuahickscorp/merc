@@ -24,6 +24,11 @@ var (
 type RealtimeOfferRegistration struct {
 	RuntimeProfileID                  string  `json:"runtime_profile_id"`
 	RuntimeProfileSHA256              string  `json:"runtime_profile_sha256"`
+	HWClass                           string  `json:"hw_class"`
+	GPUCount                          int     `json:"gpu_count"`
+	MemoryGBPerGPU                    float64 `json:"memory_gb_per_gpu"`
+	MemoryGBInUse                     float64 `json:"memory_gb_in_use"`
+	Interconnect                      string  `json:"interconnect,omitempty"`
 	UpstreamBaseURL                   string  `json:"upstream_base_url"`
 	UpstreamToken                     string  `json:"upstream_token"`
 	Warmth                            string  `json:"warmth"`
@@ -47,6 +52,8 @@ type RealtimeContract struct {
 	ModelAlias                        string
 	RuntimeProfileID                  string
 	RuntimeProfileSHA256              string
+	PlacementPlan                     RealtimePlacementPlan
+	PlacementPlanSHA256               string
 	MaximumPriceUSD                   float64
 	EstimatedPriceUSD                 float64
 	BuyerInputUSDPerMillionTokens     float64
@@ -74,6 +81,18 @@ type RealtimeContractAuthorization struct {
 }
 
 func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, registration RealtimeOfferRegistration) error {
+	profile, ok := vllmProfileByID(registration.RuntimeProfileID)
+	if !ok || registration.RuntimeProfileSHA256 != profile.ProfileSHA256 {
+		return errors.New("runtime profile does not match control-plane authority")
+	}
+	plan, err := newRealtimePlacementPlan(profile, registration)
+	if err != nil {
+		return fmt.Errorf("build realtime placement plan: %w", err)
+	}
+	placementJSON, placementSHA256, err := encodeRealtimePlacementPlan(plan)
+	if err != nil {
+		return fmt.Errorf("encode realtime placement plan: %w", err)
+	}
 	sealed := sealToken(registration.UpstreamToken)
 	if !strings.HasPrefix(sealed, "enc:") {
 		return errors.New("MERC_TOKEN_KEY is required to seal the vLLM upstream credential")
@@ -95,13 +114,16 @@ func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, regi
 	_, err = tx.Exec(ctx, `
 		INSERT INTO realtime_worker_offers
 		  (worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,
+		   placement_plan,placement_plan_sha256,
 		   upstream_base_url,upstream_token_sealed,warmth,max_active_sequences,
 		   available_sequences,supplier_input_usd_per_million_tokens,
 		   supplier_output_usd_per_million_tokens,status,last_seen_at,updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',now(),now())
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ACTIVE',now(),now())
 		ON CONFLICT (worker_id,runtime_profile_id) DO UPDATE SET
 		  supplier_id=EXCLUDED.supplier_id,
 		  runtime_profile_sha256=EXCLUDED.runtime_profile_sha256,
+		  placement_plan=EXCLUDED.placement_plan,
+		  placement_plan_sha256=EXCLUDED.placement_plan_sha256,
 		  upstream_base_url=EXCLUDED.upstream_base_url,
 		  upstream_token_sealed=EXCLUDED.upstream_token_sealed,
 		  warmth=EXCLUDED.warmth,
@@ -111,7 +133,8 @@ func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, regi
 		  supplier_output_usd_per_million_tokens=EXCLUDED.supplier_output_usd_per_million_tokens,
 		  status='ACTIVE',last_seen_at=now(),updated_at=now()`,
 		worker.WorkerID, worker.SupplierID, registration.RuntimeProfileID,
-		registration.RuntimeProfileSHA256, registration.UpstreamBaseURL, sealed,
+		registration.RuntimeProfileSHA256, placementJSON, placementSHA256,
+		registration.UpstreamBaseURL, sealed,
 		registration.Warmth, registration.MaxActiveSequences, registration.AvailableSequences,
 		registration.SupplierInputUSDPerMillionTokens, registration.SupplierOutputUSDPerMillionTokens)
 	if err != nil {
@@ -147,9 +170,12 @@ func scanRealtimeContract(row pgx.Row) (RealtimeContract, error) {
 	var sealed *string
 	var workerID, supplierID *uuid.UUID
 	var upstream *string
+	var placementJSON []byte
+	var placementSHA256 *string
 	err := row.Scan(
 		&contract.ID, &contract.RequestID, &contract.BuyerID, &contract.ModelAlias,
 		&contract.RuntimeProfileID, &contract.RuntimeProfileSHA256,
+		&placementJSON, &placementSHA256,
 		&contract.MaximumPriceUSD, &contract.EstimatedPriceUSD,
 		&contract.BuyerInputUSDPerMillionTokens, &contract.BuyerOutputUSDPerMillionTokens,
 		&contract.SupplierInputUSDPerMillionTokens, &contract.SupplierOutputUSDPerMillionTokens,
@@ -166,6 +192,18 @@ func scanRealtimeContract(row pgx.Row) (RealtimeContract, error) {
 	}
 	if upstream != nil {
 		contract.UpstreamBaseURL = *upstream
+	}
+	if len(placementJSON) > 0 && placementSHA256 != nil {
+		plan, err := decodeRealtimePlacementPlan(placementJSON, *placementSHA256)
+		if err != nil {
+			return RealtimeContract{}, err
+		}
+		if plan.RuntimeProfileID != contract.RuntimeProfileID ||
+			plan.RuntimeProfileSHA256 != contract.RuntimeProfileSHA256 {
+			return RealtimeContract{}, errors.New("realtime placement plan does not match contract profile")
+		}
+		contract.PlacementPlan = plan
+		contract.PlacementPlanSHA256 = *placementSHA256
 	}
 	// Reuse contracts have no upstream credential: the answer is served from
 	// the exact-result cache and no worker is contacted.
@@ -184,6 +222,7 @@ func scanRealtimeContract(row pgx.Row) (RealtimeContract, error) {
 
 const realtimeContractColumns = `
 	 id,request_id,buyer_id,model_alias,runtime_profile_id,runtime_profile_sha256,
+	 placement_plan,placement_plan_sha256,
 	 maximum_price_usd::float8,estimated_price_usd::float8,
 	 buyer_input_usd_per_million_tokens::float8,buyer_output_usd_per_million_tokens::float8,
 	 supplier_input_usd_per_million_tokens::float8,supplier_output_usd_per_million_tokens::float8,
@@ -208,9 +247,12 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		var sealed *string
 		var workerID, supplierID *uuid.UUID
 		var upstream *string
+		var placementJSON []byte
+		var placementSHA256 *string
 		err := row.Scan(
 			&contract.ID, &contract.RequestID, &contract.BuyerID, &contract.ModelAlias,
 			&contract.RuntimeProfileID, &contract.RuntimeProfileSHA256,
+			&placementJSON, &placementSHA256,
 			&contract.MaximumPriceUSD, &contract.EstimatedPriceUSD,
 			&contract.BuyerInputUSDPerMillionTokens, &contract.BuyerOutputUSDPerMillionTokens,
 			&contract.SupplierInputUSDPerMillionTokens, &contract.SupplierOutputUSDPerMillionTokens,
@@ -228,6 +270,18 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			}
 			if upstream != nil {
 				contract.UpstreamBaseURL = *upstream
+			}
+			if len(placementJSON) > 0 && placementSHA256 != nil {
+				plan, decodeErr := decodeRealtimePlacementPlan(placementJSON, *placementSHA256)
+				if decodeErr != nil {
+					return RealtimeContract{}, false, decodeErr
+				}
+				if plan.RuntimeProfileID != contract.RuntimeProfileID ||
+					plan.RuntimeProfileSHA256 != contract.RuntimeProfileSHA256 {
+					return RealtimeContract{}, false, errors.New("realtime placement plan does not match contract profile")
+				}
+				contract.PlacementPlan = plan
+				contract.PlacementPlanSHA256 = *placementSHA256
 			}
 			// Exact-reuse contracts have no upstream credential.
 			if sealed == nil || *sealed == "" {
@@ -283,6 +337,8 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		baseURL, sealed      string
 		supplierInput        float64
 		supplierOutput       float64
+		placementJSON        []byte
+		placementSHA256      string
 	)
 	// Reserve a sequence with a single atomic decrement that is also the
 	// selection.
@@ -324,32 +380,45 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		   AND o.available_sequences > 0
 	 RETURNING o.worker_id,o.supplier_id,o.upstream_base_url,o.upstream_token_sealed,
 		           o.supplier_input_usd_per_million_tokens::float8,
-		           o.supplier_output_usd_per_million_tokens::float8`,
+		           o.supplier_output_usd_per_million_tokens::float8,
+		           o.placement_plan,o.placement_plan_sha256`,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
 		auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens).
-		Scan(&workerID, &supplierID, &baseURL, &sealed, &supplierInput, &supplierOutput)
+		Scan(&workerID, &supplierID, &baseURL, &sealed, &supplierInput, &supplierOutput,
+			&placementJSON, &placementSHA256)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RealtimeContract{}, false, errRealtimeNoSupply
 	}
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
+	placementPlan, err := decodeRealtimePlacementPlan(placementJSON, placementSHA256)
+	if err != nil {
+		return RealtimeContract{}, false, fmt.Errorf("selected offer has invalid placement authority: %w", err)
+	}
+	if placementPlan.RuntimeProfileID != auth.Profile.RuntimeProfileID ||
+		placementPlan.RuntimeProfileSHA256 != auth.Profile.ProfileSHA256 ||
+		placementPlan.ConfiguredTensorParallel != auth.Profile.TensorParallelSize {
+		return RealtimeContract{}, false, errors.New("selected offer placement does not match authorized runtime profile")
+	}
 
 	contractID := uuid.New()
 	_, err = tx.Exec(ctx, `
 		INSERT INTO execution_contracts
 		 (id,request_id,buyer_id,workload_type,route,model_alias,runtime_profile_id,
-		  runtime_profile_sha256,input_commitment,request_sha256,maximum_price_usd,
+		  runtime_profile_sha256,input_commitment,request_sha256,
+		  placement_plan,placement_plan_sha256,maximum_price_usd,
 		  estimated_price_usd,buyer_input_usd_per_million_tokens,
 		  buyer_output_usd_per_million_tokens,supplier_input_usd_per_million_tokens,
 		  supplier_output_usd_per_million_tokens,deadline_at,verification_tier,
 		  idempotency_key,state,worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
 		  currency)
-		VALUES ($1,$2,$3,'CHAT_COMPLETION','/v1/chat/completions',$4,$5,$6,$7,$8,
-		        $9,$10,$11,$12,$13,$14,$15,'V0',$16,'EXECUTING',$17,$18,$19,$20,$21)`,
+		VALUES ($1,$2,$3,'CHAT_COMPLETION','/v1/chat/completions',$4,$5,$6,$7,$8,$9,$10,
+		        $11,$12,$13,$14,$15,$16,$17,'V0',$18,'EXECUTING',$19,$20,$21,$22,$23)`,
 		contractID, auth.RequestID, auth.BuyerID, auth.Profile.ModelAlias,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
-		auth.InputCommitment, auth.RequestSHA256, auth.MaximumPriceUSD,
+		auth.InputCommitment, auth.RequestSHA256, placementJSON, placementSHA256,
+		auth.MaximumPriceUSD,
 		auth.EstimatedPriceUSD, auth.Profile.BuyerInputUSDPerMillionTokens,
 		auth.Profile.BuyerOutputUSDPerMillionTokens, supplierInput, supplierOutput,
 		auth.DeadlineAt, realtimeNullIfEmpty(auth.IdempotencyKey), workerID, supplierID, baseURL, sealed,
@@ -373,7 +442,8 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		ID: contractID, RequestID: auth.RequestID, BuyerID: auth.BuyerID,
 		ModelAlias: auth.Profile.ModelAlias, RuntimeProfileID: auth.Profile.RuntimeProfileID,
 		RuntimeProfileSHA256: auth.Profile.ProfileSHA256,
-		MaximumPriceUSD:      auth.MaximumPriceUSD, EstimatedPriceUSD: auth.EstimatedPriceUSD,
+		PlacementPlan:        placementPlan, PlacementPlanSHA256: placementSHA256,
+		MaximumPriceUSD: auth.MaximumPriceUSD, EstimatedPriceUSD: auth.EstimatedPriceUSD,
 		BuyerInputUSDPerMillionTokens:     auth.Profile.BuyerInputUSDPerMillionTokens,
 		BuyerOutputUSDPerMillionTokens:    auth.Profile.BuyerOutputUSDPerMillionTokens,
 		SupplierInputUSDPerMillionTokens:  supplierInput,
@@ -1071,58 +1141,63 @@ func (s *Store) RealtimeOperationalSnapshot(ctx context.Context) (RealtimeOperat
 }
 
 type RealtimeReceipt struct {
-	ReceiptID             string     `json:"receipt_id"`
-	SettlementID          string     `json:"settlement_id,omitempty"`
-	RefundID              string     `json:"refund_id,omitempty"`
-	ContractID            string     `json:"contract_id"`
-	RequestID             string     `json:"request_id"`
-	State                 string     `json:"state"`
-	Model                 string     `json:"model"`
-	RuntimeProfileID      string     `json:"runtime_profile_id"`
-	RuntimeProfileSHA256  string     `json:"runtime_profile_sha256"`
-	InputCommitment       string     `json:"input_commitment"`
-	StreamRootSHA256      string     `json:"stream_root_sha256,omitempty"`
-	OutputCommitment      string     `json:"output_commitment,omitempty"`
-	PromptTokens          int64      `json:"prompt_tokens,omitempty"`
-	CompletionTokens      int64      `json:"completion_tokens,omitempty"`
-	TotalTokens           int64      `json:"total_tokens,omitempty"`
-	TimeToFirstEventMS    int64      `json:"time_to_first_event_ms,omitempty"`
-	DurationMS            int64      `json:"duration_ms,omitempty"`
-	Verification          string     `json:"verification"`
-	AuthorizationState    string     `json:"authorization_state"`
-	AuthorizedUSD         float64    `json:"authorized_usd"`
-	CapturedUSD           float64    `json:"captured_usd"`
-	ReleasedUSD           float64    `json:"released_usd"`
-	VoidedUSD             float64    `json:"voided_usd"`
-	BuyerChargeUSD        float64    `json:"buyer_charge_usd"`
-	SupplierPayableUSD    float64    `json:"supplier_payable_usd"`
-	PlatformMarginUSD     float64    `json:"platform_margin_usd"`
-	RefundUSD             float64    `json:"refund_usd"`
-	SupplierClawbackUSD   float64    `json:"supplier_clawback_usd"`
-	PlatformRefundUSD     float64    `json:"platform_refund_usd"`
-	NetBuyerChargeUSD     float64    `json:"net_buyer_charge_usd"`
-	NetSupplierPayableUSD float64    `json:"net_supplier_payable_usd"`
-	NetPlatformMarginUSD  float64    `json:"net_platform_margin_usd"`
-	SupplierPayoutState   string     `json:"supplier_payout_state"`
-	SupplierLedgerState   string     `json:"supplier_ledger_state,omitempty"`
-	RefundMode            string     `json:"refund_mode,omitempty"`
-	RefundReasonCode      string     `json:"refund_reason_code,omitempty"`
-	RefundReason          string     `json:"refund_reason,omitempty"`
-	RefundCorrelationRef  string     `json:"refund_correlation_ref,omitempty"`
-	InternalCreditState   string     `json:"internal_credit_state,omitempty"`
-	ExternalCashState     string     `json:"external_cash_state,omitempty"`
-	FailureCode           string     `json:"failure_code,omitempty"`
-	CreatedAt             time.Time  `json:"created_at"`
-	FinalizedAt           *time.Time `json:"finalized_at,omitempty"`
+	ReceiptID             string                 `json:"receipt_id"`
+	SettlementID          string                 `json:"settlement_id,omitempty"`
+	RefundID              string                 `json:"refund_id,omitempty"`
+	ContractID            string                 `json:"contract_id"`
+	RequestID             string                 `json:"request_id"`
+	State                 string                 `json:"state"`
+	Model                 string                 `json:"model"`
+	RuntimeProfileID      string                 `json:"runtime_profile_id"`
+	RuntimeProfileSHA256  string                 `json:"runtime_profile_sha256"`
+	PlacementPlan         *RealtimePlacementPlan `json:"placement_plan,omitempty"`
+	PlacementPlanSHA256   string                 `json:"placement_plan_sha256,omitempty"`
+	InputCommitment       string                 `json:"input_commitment"`
+	StreamRootSHA256      string                 `json:"stream_root_sha256,omitempty"`
+	OutputCommitment      string                 `json:"output_commitment,omitempty"`
+	PromptTokens          int64                  `json:"prompt_tokens,omitempty"`
+	CompletionTokens      int64                  `json:"completion_tokens,omitempty"`
+	TotalTokens           int64                  `json:"total_tokens,omitempty"`
+	TimeToFirstEventMS    int64                  `json:"time_to_first_event_ms,omitempty"`
+	DurationMS            int64                  `json:"duration_ms,omitempty"`
+	Verification          string                 `json:"verification"`
+	AuthorizationState    string                 `json:"authorization_state"`
+	AuthorizedUSD         float64                `json:"authorized_usd"`
+	CapturedUSD           float64                `json:"captured_usd"`
+	ReleasedUSD           float64                `json:"released_usd"`
+	VoidedUSD             float64                `json:"voided_usd"`
+	BuyerChargeUSD        float64                `json:"buyer_charge_usd"`
+	SupplierPayableUSD    float64                `json:"supplier_payable_usd"`
+	PlatformMarginUSD     float64                `json:"platform_margin_usd"`
+	RefundUSD             float64                `json:"refund_usd"`
+	SupplierClawbackUSD   float64                `json:"supplier_clawback_usd"`
+	PlatformRefundUSD     float64                `json:"platform_refund_usd"`
+	NetBuyerChargeUSD     float64                `json:"net_buyer_charge_usd"`
+	NetSupplierPayableUSD float64                `json:"net_supplier_payable_usd"`
+	NetPlatformMarginUSD  float64                `json:"net_platform_margin_usd"`
+	SupplierPayoutState   string                 `json:"supplier_payout_state"`
+	SupplierLedgerState   string                 `json:"supplier_ledger_state,omitempty"`
+	RefundMode            string                 `json:"refund_mode,omitempty"`
+	RefundReasonCode      string                 `json:"refund_reason_code,omitempty"`
+	RefundReason          string                 `json:"refund_reason,omitempty"`
+	RefundCorrelationRef  string                 `json:"refund_correlation_ref,omitempty"`
+	InternalCreditState   string                 `json:"internal_credit_state,omitempty"`
+	ExternalCashState     string                 `json:"external_cash_state,omitempty"`
+	FailureCode           string                 `json:"failure_code,omitempty"`
+	CreatedAt             time.Time              `json:"created_at"`
+	FinalizedAt           *time.Time             `json:"finalized_at,omitempty"`
 }
 
 func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UUID) (RealtimeReceipt, error) {
 	var receipt RealtimeReceipt
 	var executionID, settlementID, refundID *uuid.UUID
 	var finalized *time.Time
+	var placementJSON []byte
+	var placementSHA256 *string
 	err := s.pool.QueryRow(ctx, `
 		SELECT c.id::text,c.request_id,c.state,c.model_alias,c.runtime_profile_id,
-		       c.runtime_profile_sha256,c.input_commitment,c.created_at,c.finalized_at,
+		       c.runtime_profile_sha256,c.placement_plan,c.placement_plan_sha256,
+		       c.input_commitment,c.created_at,c.finalized_at,
 		       e.id,s.id,r.id,COALESCE(s.receipt_id,''),
 		       COALESCE(e.stream_root_sha256,''),COALESCE(e.output_commitment,''),
 		       COALESCE(e.prompt_tokens,0),COALESCE(e.completion_tokens,0),
@@ -1160,7 +1235,8 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 		 WHERE c.id=$1 AND c.buyer_id=$2
 	`, contractID, buyerID).Scan(
 		&receipt.ContractID, &receipt.RequestID, &receipt.State, &receipt.Model,
-		&receipt.RuntimeProfileID, &receipt.RuntimeProfileSHA256, &receipt.InputCommitment,
+		&receipt.RuntimeProfileID, &receipt.RuntimeProfileSHA256,
+		&placementJSON, &placementSHA256, &receipt.InputCommitment,
 		&receipt.CreatedAt, &finalized, &executionID, &settlementID, &refundID, &receipt.ReceiptID,
 		&receipt.StreamRootSHA256,
 		&receipt.OutputCommitment, &receipt.PromptTokens, &receipt.CompletionTokens,
@@ -1177,6 +1253,18 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 	}
 	if err != nil {
 		return RealtimeReceipt{}, err
+	}
+	if len(placementJSON) > 0 && placementSHA256 != nil {
+		plan, decodeErr := decodeRealtimePlacementPlan(placementJSON, *placementSHA256)
+		if decodeErr != nil {
+			return RealtimeReceipt{}, decodeErr
+		}
+		if plan.RuntimeProfileID != receipt.RuntimeProfileID ||
+			plan.RuntimeProfileSHA256 != receipt.RuntimeProfileSHA256 {
+			return RealtimeReceipt{}, errors.New("receipt placement plan does not match runtime profile")
+		}
+		receipt.PlacementPlan = &plan
+		receipt.PlacementPlanSHA256 = *placementSHA256
 	}
 	receipt.FinalizedAt = finalized
 	if receipt.ReceiptID == "" && executionID != nil {

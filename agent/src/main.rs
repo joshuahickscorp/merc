@@ -12,6 +12,7 @@ mod runtime_authority;
 mod status;
 mod tls;
 mod types;
+mod vllm;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -194,6 +195,11 @@ struct Cli {
 enum Command {
     Run {
         #[arg(long, default_value = "agent.toml")]
+        config: PathBuf,
+    },
+    /// Run the pinned CUDA/vLLM realtime adapter.
+    Vllm {
+        #[arg(long, default_value = "vllm.toml")]
         config: PathBuf,
     },
     Bench {
@@ -381,6 +387,10 @@ async fn main() -> Result<()> {
             let cfg = AgentConfig::load(&config)
                 .with_context(|| format!("loading config {}", config.display()))?;
             run_agent(cfg).await
+        }
+        Command::Vllm { config } => {
+            init_tracing();
+            vllm::run(config).await
         }
     }
 }

@@ -150,6 +150,12 @@ pub struct WorkerCapability {
     pub build_hash: String,
     pub memory_gb: f32,
     pub memory_bw_gbps: f32,
+    #[serde(default)]
+    pub gpu_count: u32,
+    #[serde(default)]
+    pub memory_gb_per_gpu: f32,
+    #[serde(default)]
+    pub interconnect: String,
     pub supported_jobs: Vec<String>,
     pub supported_models: Vec<String>,
     pub benchmarks: Vec<BenchResult>,
@@ -157,6 +163,33 @@ pub struct WorkerCapability {
     pub os_version: String,
     #[serde(default)]
     pub min_payout_usd_hr: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RealtimeOfferRegistration {
+    pub runtime_profile_id: String,
+    pub runtime_profile_sha256: String,
+    pub hw_class: String,
+    pub gpu_count: u32,
+    pub memory_gb_per_gpu: f64,
+    pub memory_gb_in_use: f64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub interconnect: String,
+    pub upstream_base_url: String,
+    pub upstream_token: String,
+    pub warmth: String,
+    pub max_active_sequences: u32,
+    pub available_sequences: u32,
+    pub supplier_input_usd_per_million_tokens: f64,
+    pub supplier_output_usd_per_million_tokens: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RealtimeOfferHeartbeat {
+    pub runtime_profile_id: String,
+    pub warmth: String,
+    pub available_sequences: u32,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

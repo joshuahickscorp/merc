@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -27,20 +29,43 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 
 	// Insert with explicit control over the four bindings and the supplier rates.
 	insert := func(worker, supplier any, upstream, sealed any, supRate float64) error {
+		var placementJSON any
+		var placementSHA any
+		if worker != nil {
+			plan := RealtimePlacementPlan{
+				Version:          realtimePlacementPlanVersion,
+				RuntimeProfileID: "rp", RuntimeProfileSHA256: strings.Repeat("a", 64),
+				HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
+				ConfiguredTensorParallel: 1, AdmittedTensorParallel: 1,
+				AdmissionBasis: realtimePlacementTopologyOnly,
+				Rationale:      "test single-GPU placement",
+			}
+			raw, err := json.Marshal(plan)
+			if err != nil {
+				return err
+			}
+			digest, err := realtimePlacementPlanDigest(plan)
+			if err != nil {
+				return err
+			}
+			placementJSON, placementSHA = raw, digest
+		}
 		_, err := store.pool.Exec(ctx, `
 			INSERT INTO execution_contracts
 			 (id,request_id,buyer_id,workload_type,route,model_alias,runtime_profile_id,
-			  runtime_profile_sha256,input_commitment,request_sha256,maximum_price_usd,
+			  runtime_profile_sha256,placement_plan,placement_plan_sha256,
+			  input_commitment,request_sha256,maximum_price_usd,
 			  estimated_price_usd,buyer_input_usd_per_million_tokens,
 			  buyer_output_usd_per_million_tokens,supplier_input_usd_per_million_tokens,
 			  supplier_output_usd_per_million_tokens,deadline_at,verification_tier,
 			  state,worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
 			  finalized_at)
 			VALUES ($1,$2,$3,'CHAT_COMPLETION','/v1/chat/completions','m','rp',
-			        repeat('a',64),repeat('b',64),repeat('c',64),
-			        1.0,1.0,1.0,1.0,$4,$4,now()+interval '1 hour','V0',
-			        'VERIFIED',$5,$6,$7,$8,now())`,
-			uuid.New(), "req-"+uuid.NewString(), buyerID, supRate,
+			        repeat('a',64),$4,$5,repeat('b',64),repeat('c',64),
+			        1.0,1.0,1.0,1.0,$6,$6,now()+interval '1 hour','V0',
+			        'VERIFIED',$7,$8,$9,$10,now())`,
+			uuid.New(), "req-"+uuid.NewString(), buyerID,
+			placementJSON, placementSHA, supRate,
 			worker, supplier, upstream, sealed)
 		return err
 	}
@@ -76,9 +101,20 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 		t.Fatalf("seed supplier: %v", err)
 	}
 	if _, err := store.pool.Exec(ctx,
-		`INSERT INTO workers (id,supplier_id,hw_class) VALUES ($1,$2,'apple_silicon_max')
+		`INSERT INTO workers (id,supplier_id,hw_class) VALUES ($1,$2,'nvidia_24gb')
 		 ON CONFLICT DO NOTHING`, workerID, supplierID); err != nil {
 		t.Fatalf("seed worker: %v", err)
+	}
+	if _, err := store.pool.Exec(ctx, `
+		INSERT INTO realtime_worker_offers
+		 (worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,
+		  upstream_base_url,upstream_token_sealed,warmth,max_active_sequences,
+		  available_sequences,supplier_input_usd_per_million_tokens,
+		  supplier_output_usd_per_million_tokens,status)
+		VALUES ($1,$2,'rp-no-placement',repeat('a',64),
+		        'https://upstream.invalid','enc:x','HOT',1,1,0,0,'ACTIVE')`,
+		workerID, supplierID); err == nil {
+		t.Fatal("database accepted an ACTIVE realtime offer without placement authority")
 	}
 	if err := insert(workerID, supplierID, "https://upstream.invalid", "enc:x", 1.0); err != nil {
 		t.Fatalf("a fully bound contract was rejected: %v", err)
