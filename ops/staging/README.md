@@ -204,5 +204,33 @@ SHA-256, re-derives every health assertion and resource bound, and confirms at
 least 95% sample coverage. The runner deletes the PASS receipt if that
 independent validation fails.
 
+After every operation has completed, place the exact signed governance bundle
+under the staging root's restricted evidence directory (mode `0600`; the
+bundle must contain no secrets). Select every receipt by its exact filename,
+never by `latest` or a glob, and run the final chain validator:
+
+```sh
+python3 scripts/validate-go-closure-evidence-chain.py \
+  --root "$STAGING_DEPLOYMENT_ROOT" \
+  --commit "$MERC_CANDIDATE_COMMIT" \
+  --image "$MERC_CANDIDATE_CONTROL_IMAGE" \
+  --checked-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --deploy evidence/go-closure/<exact-candidate-deploy-receipt>.json \
+  --rollback evidence/go-closure/<exact-rollback-forward-receipt>.json \
+  --restart evidence/go-closure/<exact-restart-storm-receipt>.json \
+  --canary evidence/go-closure/<exact-canary-rehearsal-receipt>.json \
+  --soak evidence/go-closure/<exact-qualifying-soak-receipt>.json \
+  --governance evidence/go-closure/<exact-signed-governance-bundle>.json
+```
+
+The validator rejects evidence older than seven days; requires deploy,
+rollback/forward, restart, canary, and the uninterrupted 24-hour soak in that
+order; revalidates the retained backup ciphertext and raw soak samples; binds
+the deploy and soak content image IDs; revalidates every nested restart and
+canary driver receipt; and requires final release approval after the soak and
+all other approvals/exercises. Its PASS means only
+`ELIGIBLE_FOR_SUPERVISED_LEVEL_B_PRIVATE_CANARY_REVIEW`. It is not Level-C GO,
+live-payment activation, or public-launch authority.
+
 These scripts never authorize Stripe live mode, real-value settlement, or
 unrestricted public access.

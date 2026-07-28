@@ -673,51 +673,26 @@ func cmdApprovalsCheck(args []string) {
 	if err != nil {
 		fatalf("read approval bundle: %v", err)
 	}
-	var bundle struct {
-		CandidateCommit string `json:"candidate_commit"`
-		Scope           string `json:"scope"`
-		Approvals       map[string]struct {
-			Status string `json:"status"`
-		} `json:"approvals"`
-		Exercises map[string]struct {
-			Status string `json:"status"`
-		} `json:"exercises"`
-	}
-	if err := json.Unmarshal(raw, &bundle); err != nil {
-		fatalf("decode approval bundle: %v", err)
-	}
 	expectedCommit := controlCommit
 	if expectedCommit == "" || expectedCommit == "unknown" {
 		if head, gitErr := exec.Command("git", "rev-parse", "HEAD").Output(); gitErr == nil {
 			expectedCommit = strings.TrimSpace(string(head))
 		}
 	}
-	if bundle.CandidateCommit != expectedCommit || bundle.Scope != "supervised_stripe_test_mode_private_canary" || len(bundle.Approvals) != 8 {
-		fatalf("approval bundle is not bound to this exact candidate and scope")
+	digest, err := validateGovernanceApprovalBundle(raw, expectedCommit, time.Now())
+	if err != nil {
+		fatalf("governance approval bundle rejected: %v", err)
 	}
-	requiredDomains := map[string]bool{
-		"security": true, "privacy": true, "legal": true, "licensing": true,
-		"payments": true, "operations": true, "supplier_policy": true, "release_approval": true,
-	}
-	for domain, approval := range bundle.Approvals {
-		if !requiredDomains[domain] {
-			fatalf("approval bundle contains an unexpected domain")
-		}
-		if approval.Status != "APPROVED" {
-			fatalf("approval bundle contains a non-approved domain")
-		}
-	}
-	requiredExercises := map[string]bool{
-		"support_tabletop": true, "security_tabletop": true, "dsar_export_deletion": true,
-		"backup_tombstone": true, "asset_and_model_provenance": true,
-	}
-	if len(bundle.Exercises) != len(requiredExercises) {
-		fatalf("approval bundle does not contain every required technical exercise")
-	}
-	for exercise, receipt := range bundle.Exercises {
-		if !requiredExercises[exercise] || receipt.Status != "PASS" {
-			fatalf("approval bundle contains an invalid technical exercise")
-		}
-	}
-	fmt.Println(`{"schema_version":1,"status":"PASS","candidate_bound":true,"human_approvals":8,"secret_values_printed":false}`)
+	out, _ := json.Marshal(map[string]any{
+		"schema_version":         1,
+		"kind":                   "merc_governance_approval_validation",
+		"status":                 "PASS",
+		"candidate_commit":       expectedCommit,
+		"approval_bundle_sha256": digest,
+		"candidate_bound":        true,
+		"human_approvals":        len(requiredGovernanceApprovalDomains),
+		"technical_exercises":    len(requiredGovernanceExerciseDomains),
+		"secret_values_printed":  false,
+	})
+	fmt.Println(string(out))
 }

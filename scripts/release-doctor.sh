@@ -144,28 +144,48 @@ fi
 
 candidate_commit="$(git -C "$ROOT" rev-parse HEAD)"
 if readable_path GOVERNANCE_APPROVAL_BUNDLE_PATH; then
-  approval_keys='["legal","license","payments","privacy","security","support","tax","trust_safety"]'
+  approval_keys='["legal","licensing","operations","payments","privacy","release_approval","security","supplier_policy"]'
   exercise_keys='["asset_and_model_provenance","backup_tombstone","dsar_export_deletion","security_tabletop","support_tabletop"]'
   jq -e \
     --arg candidate "$candidate_commit" \
     --argjson approval_keys "$approval_keys" \
     --argjson exercise_keys "$exercise_keys" '
+      def bounded_text($maximum):
+        type == "string" and
+        length > 0 and
+        utf8bytelength <= $maximum and
+        . == (gsub("^\\s+|\\s+$"; "")) and
+        ([explode[] | select(. < 32 or . == 127)] | length == 0);
       .schema_version == 1 and
       .candidate_commit == $candidate and
       .scope == "supervised_stripe_test_mode_private_canary" and
       ((.approvals | keys) == $approval_keys) and
       (all(.approvals[];
+        (keys == ["approved_at","approver","evidence_uri","organization","reviewed_scope","status"]) and
         .status == "APPROVED" and
-        (.approver | type == "string" and length > 0) and
-        (.organization | type == "string" and length > 0) and
-        (.reviewed_scope | type == "string" and length > 0) and
-        (.evidence_uri | type == "string" and length > 0) and
-        (.approved_at | type == "string" and length > 0))) and
+        (.approver | bounded_text(256)) and
+        (.organization | bounded_text(256)) and
+        (.reviewed_scope | bounded_text(4096)) and
+        (.evidence_uri | bounded_text(2048)) and
+        (.approved_at | type == "string" and
+          test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") and
+          (utf8bytelength <= 64) and
+          (fromdateiso8601 <= (now + 300))))) and
       ((.exercises | keys) == $exercise_keys) and
       (all(.exercises[];
+        (keys == ["completed_at","evidence_uri","status"]) and
         .status == "PASS" and
-        (.evidence_uri | type == "string" and length > 0) and
-        (.completed_at | type == "string" and length > 0)))
+        (.evidence_uri | bounded_text(2048)) and
+        (.completed_at | type == "string" and
+          test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") and
+          (utf8bytelength <= 64) and
+          (fromdateiso8601 <= (now + 300))))) and
+      ((.approvals.release_approval.approved_at | fromdateiso8601) as $release_at |
+        (all(.approvals | to_entries[];
+          .key == "release_approval" or
+          (.value.approved_at | fromdateiso8601) <= $release_at)) and
+        (all(.exercises[];
+          (.completed_at | fromdateiso8601) <= $release_at)))
     ' "$GOVERNANCE_APPROVAL_BUNDLE_PATH" >/dev/null 2>&1 && governance_ok=true
 fi
 

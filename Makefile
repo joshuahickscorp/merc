@@ -87,7 +87,9 @@ ci:
 	bash scripts/test-canary-database-corroboration.sh
 	bash scripts/test-agent-restart-authority.sh
 	bash scripts/test-go-closure-soak-authority.sh
+	python3 scripts/test-go-closure-evidence-chain.py
 	bash scripts/test-backup-verification-authority.sh
+	bash scripts/test-governance-approval-authority.sh
 	MERC_STRIPE_WEBHOOK_VERSION_SELF_TEST=1 bash scripts/stripe-webhooks.sh
 	bash scripts/test-stripe-sandbox-contract.sh
 	node scripts/site-build.mjs

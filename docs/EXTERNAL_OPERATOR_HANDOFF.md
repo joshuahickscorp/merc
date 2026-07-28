@@ -18,6 +18,15 @@ operator shell.
 | Qualified governance approvals | Named security, privacy, legal, licensing, payments, operations, supplier-policy, and release authorities | Review and approve or reject the exact clean commit and bounded test-only canary scope, including qualified human tabletop evidence | Signed approval bundle in the restricted governance evidence store; pass only its path | `scripts/cx release approvals-check --bundle <secure-bundle-path>` | `P1-INDEPENDENT-APPROVAL` and `P1-GOVERNANCE` |
 | Additional physical Metal devices | Authorized supplier-operations owner | One receipt per distinct approved Apple Silicon device; synthetic data and private-canary workloads only | Device enrollment credential in the device keychain; characterization receipts in the restricted evidence store | `make agent-characterize` on each device, then the supervised canary command | Physical-device portion of `P1-RECOVERY-SOAK` and `P1-CANARY-REHEARSAL` |
 
+After every row has produced its real evidence, the release operator must run
+the exact-path command documented under “Evidence and recovery rules” in
+`ops/staging/README.md`. `validate-go-closure-evidence-chain.py` is the sole
+cross-receipt acceptance gate: it rejects mixed candidates, images, stale or
+reordered operations, unqualified soak data, backup-byte substitution, and a
+release approval that predates the operational chain. Its output is sanitized
+and authorizes only Level-B review; it cannot activate live Stripe or convert
+the decision below into Level-C GO.
+
 The current decision remains:
 
 ```text

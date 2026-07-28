@@ -76,6 +76,18 @@ accepts only a fresh receipt inside its own window, and embeds both receipts in
 the rollback/forward evidence instead of asserting a success boolean. No
 external offsite backup or rollback run is claimed.
 
+The separate final acceptance validator now prevents individually plausible
+receipts from being spliced into false release authority. It requires one
+fresh, ordered deploy → rollback/forward → restart → canary → qualifying soak
+chain; the same exact commit, immutable image, and observed image ID; retained
+backup ciphertext and raw soak samples; all nested scenario/action receipts;
+and the canonical eight-domain governance bundle with release approval after
+the completed soak. Hostile fixtures cover substitution, reordering, replay,
+truncation, raw-artifact tampering, incomplete identities, duplicate keys, and
+secret-shaped content. A validator PASS is explicitly limited to eligibility
+for supervised Level-B private-canary review. No external chain or governance
+approval is claimed, and Level C remains prohibited.
+
 Real historical execution still matters: Apple M3 Ultra/Metal/Candle completed
 batch embeddings and llama.cpp completed realtime with verification and money.
 Direct RunPod/vLLM runtime evidence also remains, but its receipt does not show a
@@ -275,7 +287,7 @@ candidate-bound `CANARY_PROVEN`.
 
 | item | status | evidence |
 |---|---|---|
-| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 533 tracked files and **115,055** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
+| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 538 tracked files and **117,538** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
 | Rename zero-residue audit | `TESTED` | `scripts/rename-residue-audit.py`, in `make ci`. FROZEN 257 / BLOCKED 383 / **RESIDUE 0**. Frozen and blocked classes are itemised with a per-identifier reason in `docs/RENAME_REGISTER.md` §5. |
 
 ## Money and operations
