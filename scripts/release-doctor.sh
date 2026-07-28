@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/stripe-sandbox-contract.sh
+source "$ROOT/scripts/lib/stripe-sandbox-contract.sh"
 GROUP="all"
 if [ "${1:-}" = "--check" ]; then
   GROUP="${2:-}"
@@ -22,6 +24,7 @@ for env_file in "$ROOT/.env" "${MERC_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}
 done
 
 present() { [ -n "${!1:-}" ]; }
+# shellcheck disable=SC2053 # callers deliberately supply an approved glob
 matches() { local name="$1" pattern="$2"; [[ "${!name:-}" == $pattern ]]; }
 readable_path() { present "$1" && [ -r "${!1}" ]; }
 command_present() { command -v "$1" >/dev/null 2>&1; }
@@ -64,7 +67,8 @@ present MERC_BACKUP_OFFSITE && matches MERC_BACKUP_OFFSITE 's3://*' && \
   readable_path MERC_BACKUP_DECRYPTION_IDENTITY_FILE && \
   command_present age && command_present aws && backup_ok=true
 
-(matches STRIPE_SECRET_KEY 'sk_test_*' || matches STRIPE_SECRET_KEY 'rk_test_*') && \
+[ "$live_alias_present" = false ] && \
+  (matches STRIPE_SECRET_KEY 'sk_test_*' || matches STRIPE_SECRET_KEY 'rk_test_*') && \
   matches STRIPE_WEBHOOK_SECRET 'whsec_*' && \
   matches MERC_CONNECT_WEBHOOK_SECRET 'whsec_*' && \
   [ "${STRIPE_WEBHOOK_SECRET:-}" != "${MERC_CONNECT_WEBHOOK_SECRET:-}" ] && \
@@ -72,6 +76,12 @@ present MERC_BACKUP_OFFSITE && matches MERC_BACKUP_OFFSITE 's3://*' && \
   matches STRIPE_TEST_CONNECTED_ACCOUNT_ID 'acct_*' && \
   matches STRIPE_BILLING_WEBHOOK_ENDPOINT_ID 'we_*' && \
   matches STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID 'we_*' && \
+  merc_stripe_distinct_endpoint_ids \
+    "${STRIPE_BILLING_WEBHOOK_ENDPOINT_ID:-}" \
+    "${STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID:-}" && \
+  merc_stripe_valid_staging_hostname "${STAGING_TLS_HOSTNAME:-}" && \
+  [ "$(printf '%s' "${MERC_SETTLEMENT_CURRENCY:-$MERC_STRIPE_CANDIDATE_CURRENCY}" \
+      | tr '[:upper:]' '[:lower:]')" = "$MERC_STRIPE_CANDIDATE_CURRENCY" ] && \
   command_present stripe && stripe_ok=true
 
 matches ALERT_RECEIVER_WEBHOOK_URL 'https://*' && present ALERT_RECEIVER_NAME && alert_ok=true
@@ -128,13 +138,18 @@ json="$(jq -nc \
   --argjson canary "$canary_ok" \
   --argjson review "$review_ok" \
   --argjson governance "$governance_ok" \
+  --arg settlement_currency "$MERC_STRIPE_CANDIDATE_CURRENCY" \
   --arg stripe_class "$(if [ "$live_alias_present" = true ]; then echo live_refused; else stripe_class; fi)" \
   --argjson docker "$(command_present docker && echo true || echo false)" \
   --argjson compose "$(docker compose version >/dev/null 2>&1 && echo true || echo false)" \
   --argjson age "$(command_present age && echo true || echo false)" \
   --argjson aws "$(command_present aws && echo true || echo false)" \
   '{schema_version:1,selected:$selected,policy:{secret_values_printed:false,stripe_live_mode:"refused"},
-    groups:{staging:{ready:$staging},backup:{ready:$backup},stripe:{ready:$stripe,secret_key_class:$stripe_class},alert:{ready:$alert},canary:{ready:$canary},review:{ready:$review},governance:{ready:$governance}},
+    groups:{staging:{ready:$staging},backup:{ready:$backup},
+      stripe:{ready:$stripe,secret_key_class:$stripe_class,
+        settlement_currency:$settlement_currency,endpoint_ids_must_be_distinct:true,
+        staging_url_binding_required:true},
+      alert:{ready:$alert},canary:{ready:$canary},review:{ready:$review},governance:{ready:$governance}},
     tools:{docker_cli:$docker,docker_compose:$compose,age:$age,aws_cli:$aws},
     ready:($staging and $backup and $stripe and $alert and $canary and $review and $governance)}')"
 

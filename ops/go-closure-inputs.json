@@ -285,8 +285,8 @@
     },
     {
       "name": "STRIPE_TEST_CONNECTED_ACCOUNT_ID",
-      "accepted_form": "acct_* test-mode connected account controlled by the project",
-      "minimum_scope": "test payout hold/release/failure scenarios only",
+      "accepted_form": "acct_* Canadian test-mode connected account controlled by the project with payouts enabled",
+      "minimum_scope": "CAD test payout hold/release/failure scenarios only",
       "secret": false,
       "used_by": "test-mode payout matrix",
       "verification": "make release-doctor CHECK=stripe",

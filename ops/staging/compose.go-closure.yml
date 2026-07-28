@@ -15,12 +15,15 @@ x-control-environment: &control-environment
   DATABASE_URL: postgres://cx:${POSTGRES_PASSWORD:?required in .env.go-closure}@postgres:5432/cx?sslmode=disable
   LISTEN_ADDR: ":8080"
   DB_MAX_CONNS: ${DB_MAX_CONNS:-20}
+  MERC_PAYMENT_MODE: "test"
+  MERC_PAYMENT_PROVIDER: "stripe"
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?test-mode key declared in ops/go-closure-inputs.json}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?declared in ops/go-closure-inputs.json}
   MERC_CONNECT_WEBHOOK_SECRET: ${MERC_CONNECT_WEBHOOK_SECRET:?declared in ops/go-closure-inputs.json}
   MERC_CONNECT_CLIENT_ID: ${MERC_CONNECT_CLIENT_ID:?test-mode client ID declared in ops/go-closure-inputs.json}
   MERC_CONNECT_RETURN_URL: https://${STAGING_TLS_HOSTNAME:?required}/admin?connect=return
   MERC_CONNECT_REFRESH_URL: https://${STAGING_TLS_HOSTNAME:?required}/admin?connect=refresh
+  MERC_SETTLEMENT_CURRENCY: "cad"
   MERC_TOKEN_KEY: ${MERC_TOKEN_KEY:?at least 32 unpredictable bytes; required in .env.go-closure}
   MERC_VERIFICATION_SAMPLE_SECRET: ${MERC_VERIFICATION_SAMPLE_SECRET:?at least 32 unpredictable bytes; required in .env.go-closure}
   MERC_ECON_SCHEDULE_VERSION: "2026-07-19"

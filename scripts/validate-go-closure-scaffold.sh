@@ -52,12 +52,19 @@ done < <(sed -n 's/^[[:space:]]*image:[[:space:]]*//p' "$COMPOSE")
 pass "no build path and immutable image contract"
 
 for required in \
+  MERC_PAYMENT_MODE MERC_PAYMENT_PROVIDER MERC_SETTLEMENT_CURRENCY \
   MERC_CANARY_MODE MERC_CANARY_APPROVED_BUYER_EMAILS MERC_CANARY_APPROVED_WORKER_IDS \
   MERC_CANARY_APPROVED_AGENT_VERSIONS MERC_CANARY_APPROVED_BUILD_HASHES \
   MERC_CANARY_MAX_ACTIVE_BUYERS MERC_CANARY_MAX_ACTIVE_WORKERS \
   MERC_CANARY_MAX_QUEUED_JOBS MERC_CANARY_MAX_DAILY_JOBS; do
   rg -q "^[[:space:]]*$required:" "$COMPOSE" || die "compose omits $required"
 done
+rg -q '^[[:space:]]*MERC_SETTLEMENT_CURRENCY:[[:space:]]*"cad"$' "$COMPOSE" \
+  || die "compose settlement currency must be the reviewed candidate authority cad"
+rg -q '^[[:space:]]*MERC_PAYMENT_MODE:[[:space:]]*"test"$' "$COMPOSE" \
+  || die "Level B compose must explicitly authorize test payment mode"
+rg -q '^[[:space:]]*MERC_PAYMENT_PROVIDER:[[:space:]]*"stripe"$' "$COMPOSE" \
+  || die "Level B compose must explicitly select the Stripe test provider"
 rg -q '^\.env\.go-closure$' "$ROOT/.gitignore" || die ".env.go-closure is not ignored"
 git -C "$ROOT" check-ignore -q .env.go-closure || die ".env.go-closure ignore rule is ineffective"
 pass "canary envelope and ignored secret file"

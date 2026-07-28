@@ -106,33 +106,24 @@ irrecoverably — a chargeback after a supplier payout — and the only one whos
 receipt has not been earned. When you get to the matrix, read that scenario's
 output rather than the summary line.
 
-## Blocker found by the matrix, 2026-07-26: currency mismatch
+## Currency mismatch found by the matrix, resolved in the candidate
 
-`make stripe-matrix` runs customer -> PaymentIntent -> refund successfully and
-then fails on the transfer with `balance_insufficient`. The cause is not the
-balance:
+The 2026-07-26 matrix proved that a USD-only ledger could not fund a transfer
+from the Canadian platform's CAD settlement balance. The candidate no longer
+has that split authority:
 
 | | |
 |---|---|
-| Stripe platform account | `country=CA`, `default_currency=cad` |
-| Ledger and payout path | USD only - `control/payment.go:218` hard-rejects any currency that is not `"usd"` |
+| Runtime authority | `MERC_SETTLEMENT_CURRENCY`, fixed to `cad` in the Level B staging manifest |
+| Stripe preflight | Requires a CAD platform balance bucket |
+| Connected account | Requires a distinct, project-controlled Canadian Sandbox account with payouts enabled |
+| Provider matrix | Creates and reconciles CAD PaymentIntents, refunds, transfers, bank fixtures, and payouts |
 
-A USD top-up charge settles into the CAD balance, so the platform can never fund
-a USD transfer. **This is a product-level fact, not a test artefact**: as
-configured, no supplier payout can execute against this Stripe account.
-
-Options, smallest first:
-
-1. **Add USD as a settlement currency** on the existing CA account (Stripe
-   supports this for Canadian platforms with a USD bank account). Keeps the USD
-   ledger. Requires your banking details, so it is yours to do.
-2. Open a US Stripe account. `country` is immutable after creation, so this means
-   a new account and re-doing Connect.
-3. Move the ledger to CAD. Large change and contradicts every price in the
-   catalogue and the docs.
-
-Until one of these lands, the transfer and transfer-reversal scenarios cannot
-run, and `money_and_reconciliation` stays at 9/15.
+The shared sandbox contract rejects a USD override, a US connected account,
+aliased webhook endpoint IDs, or endpoints outside the exact approved staging
+host and paths. This closes the local configuration contradiction; the
+provider-owned matrix receipt itself remains `NOT EXECUTED` until the external
+Stripe Sandbox inputs exist.
 
 ## Current state (2026-07-26)
 

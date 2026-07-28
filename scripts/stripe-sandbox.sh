@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=scripts/lib/stripe-sandbox-contract.sh
+source "$ROOT/scripts/lib/stripe-sandbox-contract.sh"
 MODE="${1:-}"
 case "$MODE" in check|matrix) ;; *) echo "usage: scripts/stripe-sandbox.sh check|matrix" >&2; exit 2 ;; esac
 
@@ -42,6 +44,16 @@ billing_webhook_class="$(classify "${STRIPE_WEBHOOK_SECRET:-}")"
 connect_webhook_class="$(classify "${MERC_CONNECT_WEBHOOK_SECRET:-}")"
 connected_account_ready=false
 [[ "${STRIPE_TEST_CONNECTED_ACCOUNT_ID:-}" =~ ^acct_[A-Za-z0-9]+$ ]] && connected_account_ready=true
+staging_hostname_ready=false
+merc_stripe_valid_staging_hostname "${STAGING_TLS_HOSTNAME:-}" && staging_hostname_ready=true
+endpoint_ids_distinct=false
+merc_stripe_distinct_endpoint_ids \
+  "${STRIPE_BILLING_WEBHOOK_ENDPOINT_ID:-}" \
+  "${STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID:-}" && endpoint_ids_distinct=true
+settlement_currency="$MERC_STRIPE_CANDIDATE_CURRENCY"
+provided_settlement_currency="$(
+  printf '%s' "${MERC_SETTLEMENT_CURRENCY:-$settlement_currency}" | tr '[:upper:]' '[:lower:]'
+)"
 
 ready=true
 [ "$secret_class" = test ] || ready=false
@@ -52,14 +64,23 @@ ready=true
 [[ "${MERC_CONNECT_WEBHOOK_SECRET:-}" =~ ^whsec_[A-Za-z0-9_]+$ ]] || ready=false
 [ "${STRIPE_WEBHOOK_SECRET:-}" != "${MERC_CONNECT_WEBHOOK_SECRET:-}" ] || ready=false
 [ "$connected_account_ready" = true ] || ready=false
+[[ "${MERC_CONNECT_CLIENT_ID:-}" =~ ^ca_[A-Za-z0-9]+$ ]] || ready=false
+[ "$staging_hostname_ready" = true ] || ready=false
+[ "$endpoint_ids_distinct" = true ] || ready=false
+[ "$provided_settlement_currency" = "$settlement_currency" ] || ready=false
 
 if [ "$ready" != true ]; then
   jq -nc --arg mode "$MODE" --arg secret "$secret_class" \
     --arg billing "$billing_webhook_class" --arg connect "$connect_webhook_class" \
     --argjson account "$connected_account_ready" \
+    --argjson staging_hostname "$staging_hostname_ready" \
+    --argjson endpoint_ids_distinct "$endpoint_ids_distinct" \
+    --arg settlement_currency "$settlement_currency" \
     '{schema_version:1,command:$mode,status:"EXTERNAL CREDENTIAL REQUIRED",network_accessed:false,
       secret_values_printed:false,classes:{api_key:$secret,billing_webhook:$billing,connect_webhook:$connect},
-      connect_test_account_present:$account,live_mode:"PROHIBITED"}'
+      connect_test_account_present:$account,staging_hostname_valid:$staging_hostname,
+      endpoint_ids_distinct:$endpoint_ids_distinct,
+      reviewed_settlement_currency:$settlement_currency,live_mode:"PROHIBITED"}'
   exit 1
 fi
 
@@ -73,7 +94,7 @@ api() {
   # Keep even the test key out of argv/process listings. curl consumes this
   # one-line configuration from stdin before it opens the provider connection.
   printf 'user = "%s:"\n' "$STRIPE_SECRET_KEY" | curl --silent --show-error --config - --request "$method" \
-    --header 'Stripe-Version: 2025-06-30.basil' \
+    --header "Stripe-Version: $MERC_STRIPE_API_VERSION" \
     --connect-timeout 10 --max-time 45 \
     "https://api.stripe.com/v1/$path" "$@"
 }
@@ -87,7 +108,7 @@ api_expect_timeout() {
   # without intentionally creating a second provider object.
   set +e
   printf 'user = "%s:"\n' "$STRIPE_SECRET_KEY" | curl --silent --show-error --config - \
-    --request "$method" --header 'Stripe-Version: 2025-06-30.basil' \
+    --request "$method" --header "Stripe-Version: $MERC_STRIPE_API_VERSION" \
     --connect-timeout 0.001 --max-time 0.001 \
     "https://api.stripe.com/v1/$path" "$@" >/dev/null
   status=$?
@@ -107,34 +128,60 @@ jq -e '(.livemode // false) == false' <<< "$account" >/dev/null
 api_account_id="$(jq -r .id <<< "$account")"
 
 connect="$(api GET "accounts/${STRIPE_TEST_CONNECTED_ACCOUNT_ID}")"
-jq -e '.id | type == "string" and startswith("acct_")' <<< "$connect" >/dev/null
+jq -e \
+  --arg id "$STRIPE_TEST_CONNECTED_ACCOUNT_ID" \
+  --arg country "$MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY" '
+    .id == $id and
+    .country == $country and
+    .payouts_enabled == true
+  ' <<< "$connect" >/dev/null
 jq -e '(.livemode // false) == false' <<< "$connect" >/dev/null
+[ "$api_account_id" != "$STRIPE_TEST_CONNECTED_ACCOUNT_ID" ]
 
-# The ledger settles USD only. A platform with no USD bucket accepts the
+# The candidate settles in one reviewed currency. A platform with no matching
+# bucket accepts the
 # transfer request and fails it with balance_insufficient once money moves, so
 # report it here rather than mid-matrix. Mirrors control's boot preflight.
 balance="$(api GET balance)"
-settles_usd=false
-jq -e '[.available[].currency, .pending[].currency] | index("usd")' <<< "$balance" >/dev/null 2>&1 && settles_usd=true
+settles_currency=false
+jq -e --arg currency "$settlement_currency" \
+  '[.available[].currency, .pending[].currency] | index($currency)' \
+  <<< "$balance" >/dev/null 2>&1 && settles_currency=true
+
+billing_endpoint="$(api GET "webhook_endpoints/$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID")"
+connect_endpoint="$(api GET "webhook_endpoints/$STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID")"
+expected_billing_url="$(merc_stripe_expected_billing_url "$STAGING_TLS_HOSTNAME")"
+expected_connect_url="$(merc_stripe_expected_connect_url "$STAGING_TLS_HOSTNAME")"
+merc_stripe_endpoint_contract \
+  "$billing_endpoint" "$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID" "$expected_billing_url" \
+  "setup_intent.succeeded,payment_method.attached,payment_intent.succeeded,charge.refunded,charge.dispute.created,charge.dispute.funds_withdrawn,charge.dispute.funds_reinstated,charge.dispute.closed"
+merc_stripe_endpoint_contract \
+  "$connect_endpoint" "$STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID" "$expected_connect_url" \
+  "account.updated,payout.created,payout.paid,payout.failed"
 
 if [ "$MODE" = check ]; then
-  # A platform that cannot settle USD cannot complete the matrix, so this is a
-  # blocking configuration fault rather than an advisory note.
+  # A platform that cannot settle the reviewed runtime currency cannot complete
+  # the matrix, so this is a blocking configuration fault.
   check_status=PASS
-  [ "$settles_usd" = true ] || check_status=FAIL
+  [ "$settles_currency" = true ] || check_status=FAIL
   jq -nc --arg status "$check_status" --arg account_class "${api_account_id%%_*}" \
-    --argjson settles_usd "$settles_usd" \
+    --arg currency "$settlement_currency" \
+    --arg connected_country "$MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY" \
+    --argjson settles_currency "$settles_currency" \
     --arg enabled "$(jq -r '[.available[].currency, .pending[].currency] | unique | join(" ")' <<< "$balance")" \
     '{schema_version:1,kind:"stripe_sandbox_check",status:$status,provider_mode:"test",
       network_accessed:true,secret_values_printed:false,account_identifier_class:$account_class,
       webhook_secrets:{billing:"present",connect:"present",distinct:true},
-      connect:{sandbox_account_verified:true},
-      settlement:{ledger_currency:"usd",platform_settles_usd:$settles_usd,
+      webhook_endpoints:{distinct:true,staging_urls_exact:true,payload_api_version_pinned:true},
+      connect:{sandbox_account_verified:true,distinct_from_platform:true,
+        country:$connected_country,payouts_enabled:true},
+      settlement:{ledger_currency:$currency,platform_settles_currency:$settles_currency,
                   enabled:($enabled|split(" ")|map(select(length>0)))},
       live_mode:"PROHIBITED"}'
   [ "$check_status" = PASS ] || {
-    printf 'stripe-check: FAIL - platform settles [%s], ledger requires usd; supplier payouts cannot execute\n' \
-      "$(jq -r '[.available[].currency, .pending[].currency] | unique | join(",")' <<< "$balance")" >&2
+    printf 'stripe-check: FAIL - platform settles [%s], candidate requires %s; supplier payouts cannot execute\n' \
+      "$(jq -r '[.available[].currency, .pending[].currency] | unique | join(",")' <<< "$balance")" \
+      "$settlement_currency" >&2
     exit 1
   }
   exit 0
@@ -157,44 +204,49 @@ customer="$(jq -er '.id | select(startswith("cus_"))' <<< "$customer_json")"
 timeout_idem="merc-matrix-$run_id-timeout"
 api_expect_timeout POST payment_intents \
   --header "Idempotency-Key: $timeout_idem" \
-  --data-urlencode amount=900 --data-urlencode currency=usd \
+  --data-urlencode amount=900 --data-urlencode "currency=$settlement_currency" \
   --data-urlencode customer="$customer" --data-urlencode payment_method=pm_card_visa \
   --data-urlencode 'payment_method_types[]=card' --data-urlencode confirm=true \
   --data-urlencode "metadata[cx_matrix_run]=$run_id"
 timeout_recovery="$(api POST payment_intents \
   --header "Idempotency-Key: $timeout_idem" \
-  --data-urlencode amount=900 --data-urlencode currency=usd \
+  --data-urlencode amount=900 --data-urlencode "currency=$settlement_currency" \
   --data-urlencode customer="$customer" --data-urlencode payment_method=pm_card_visa \
   --data-urlencode 'payment_method_types[]=card' --data-urlencode confirm=true \
   --data-urlencode "metadata[cx_matrix_run]=$run_id")"
-jq -e '.livemode == false and .status == "succeeded" and (.id | startswith("pi_"))' \
+jq -e --arg currency "$settlement_currency" '
+  .livemode == false and .status == "succeeded" and .currency == $currency and
+  (.id | startswith("pi_"))
+' \
   <<< "$timeout_recovery" >/dev/null
 
 idem="merc-matrix-$run_id-success"
 success="$(api POST payment_intents \
   --header "Idempotency-Key: $idem" \
-  --data-urlencode amount=1200 --data-urlencode currency=usd \
+  --data-urlencode amount=1200 --data-urlencode "currency=$settlement_currency" \
   --data-urlencode customer="$customer" --data-urlencode payment_method=pm_card_visa \
   --data-urlencode 'payment_method_types[]=card' --data-urlencode confirm=true \
   --data-urlencode "metadata[cx_matrix_run]=$run_id")"
 pi="$(jq -er '.id | select(startswith("pi_"))' <<< "$success")"
-jq -e '.livemode == false and .status == "succeeded"' <<< "$success" >/dev/null
+jq -e --arg currency "$settlement_currency" \
+  '.livemode == false and .status == "succeeded" and .currency == $currency' \
+  <<< "$success" >/dev/null
 
 retry="$(api POST payment_intents \
   --header "Idempotency-Key: $idem" \
-  --data-urlencode amount=1200 --data-urlencode currency=usd \
+  --data-urlencode amount=1200 --data-urlencode "currency=$settlement_currency" \
   --data-urlencode customer="$customer" --data-urlencode payment_method=pm_card_visa \
   --data-urlencode 'payment_method_types[]=card' --data-urlencode confirm=true \
   --data-urlencode "metadata[cx_matrix_run]=$run_id")"
 [ "$(jq -r .id <<< "$retry")" = "$pi" ]
 
 conflict="$(api POST payment_intents --header "Idempotency-Key: $idem" \
-  --data-urlencode amount=1201 --data-urlencode currency=usd)"
+  --data-urlencode amount=1201 --data-urlencode "currency=$settlement_currency")"
 jq -e '.error.type == "idempotency_error"' <<< "$conflict" >/dev/null
 
 decline="$(api POST payment_intents \
   --header "Idempotency-Key: merc-matrix-$run_id-decline" \
-  --data-urlencode amount=700 --data-urlencode currency=usd \
+  --data-urlencode amount=700 --data-urlencode "currency=$settlement_currency" \
   --data-urlencode customer="$customer" --data-urlencode payment_method=pm_card_chargeDeclined \
   --data-urlencode 'payment_method_types[]=card' --data-urlencode confirm=true)"
 jq -e '.error.decline_code != null or .error.code == "card_declined"' <<< "$decline" >/dev/null
@@ -202,18 +254,24 @@ jq -e '.error.decline_code != null or .error.code == "card_declined"' <<< "$decl
 charge="$(jq -er '.latest_charge | select(startswith("ch_"))' <<< "$success")"
 partial="$(api POST refunds --data-urlencode charge="$charge" --data-urlencode amount=200 \
   --data-urlencode "metadata[cx_matrix_run]=$run_id")"
-jq -e '.status == "succeeded" and .amount == 200' <<< "$partial" >/dev/null
+jq -e --arg currency "$settlement_currency" \
+  '.status == "succeeded" and .amount == 200 and .currency == $currency' \
+  <<< "$partial" >/dev/null
 excess="$(api POST refunds --data-urlencode charge="$charge" --data-urlencode amount=1200)"
 jq -e '.error != null' <<< "$excess" >/dev/null
 remaining="$(api POST refunds --data-urlencode charge="$charge" --data-urlencode amount=1000 \
   --data-urlencode "metadata[cx_matrix_run]=$run_id")"
-jq -e '.status == "succeeded" and .amount == 1000' <<< "$remaining" >/dev/null
+jq -e --arg currency "$settlement_currency" \
+  '.status == "succeeded" and .amount == 1000 and .currency == $currency' \
+  <<< "$remaining" >/dev/null
 
-transfer="$(api POST transfers --data-urlencode amount=100 --data-urlencode currency=usd \
+transfer="$(api POST transfers --data-urlencode amount=100 \
+  --data-urlencode "currency=$settlement_currency" \
   --data-urlencode destination="$STRIPE_TEST_CONNECTED_ACCOUNT_ID" \
   --data-urlencode "metadata[cx_matrix_run]=$run_id")"
 jq -e '.id | type == "string" and startswith("tr_")' <<< "$transfer" >/dev/null
-jq -e '.livemode == false' <<< "$transfer" >/dev/null
+jq -e --arg currency "$settlement_currency" \
+  '.livemode == false and .currency == $currency' <<< "$transfer" >/dev/null
 
 # Provider-created webhook delivery, dispute lifecycle, and connected-account
 # payout outcomes remain mandatory. The adapter is bundled so credentials and
@@ -227,17 +285,19 @@ driver_receipt="$($driver --run-id "$run_id" --payment-intent "$pi" --charge "$c
 jq -e '
   .schema_version == 1 and .status == "PASS" and .provider_mode == "test" and
   .secret_values_recorded == false and .webhook.endpoint_secrets_verified == true and
-  .webhook.delivery == true and
+  .webhook.delivery == true and .webhook.staging_urls_exact == true and
   .webhook.replay_idempotent == true and .webhook.out_of_order_safe == true and
   .dispute.opened == true and .dispute.resolved == true and
   .payout.hold == true and .payout.release == true and .payout.failure == true and
   .payout.reversal == true and .reconciliation.clean == true and
+  .settlement.currency == $currency and
   ([.. | strings | select(test("sk_(test|live)_|rk_(test|live)_|whsec_"))] | length) == 0
-' <<< "$driver_receipt" >/dev/null
+' --arg currency "$settlement_currency" <<< "$driver_receipt" >/dev/null
 
-jq -nc --arg run "$run_id" --argjson driver "$driver_receipt" \
+jq -nc --arg run "$run_id" --arg currency "$settlement_currency" --argjson driver "$driver_receipt" \
   '{schema_version:1,kind:"stripe_sandbox_matrix",status:"PASS",provider_mode:"test",
     run_id:$run,secret_values_printed:false,disposable_customer_cleanup:"attempted",
+    settlement_currency:$currency,
     payment_objects:{authorization:true,capture:true,decline:true,idempotency:true,refunds:true,transfer:true,
       timeout:{client_deadline:true,idempotent_recovery:true}},
     external_scenarios:$driver,live_mode:"PROHIBITED"}'

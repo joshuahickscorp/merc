@@ -16,7 +16,12 @@
     "backup_schedule": true,
     "alert_routes": true,
     "rollback_digest_contract": true,
-    "source_identity_contract": true
+    "source_identity_contract": true,
+    "payment_authority_contract": {
+      "mode": "test",
+      "provider": "stripe",
+      "currency": "cad"
+    }
   },
   "deployment_evidence": "NOT EXECUTED"
 }
