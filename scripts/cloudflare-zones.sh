@@ -56,9 +56,9 @@ if not d.get("success"):
     print("  token cannot list zones:", json.dumps(d.get("errors"))[:200]); raise SystemExit(1)
 rows=d.get("result",[])
 if not rows: print("  no zones"); raise SystemExit
-print(f"  {\"zone\":28} {\"status\":10} {\"id\"}")
+print("  %-28s %-10s %s" % ("zone","status","id"))
 for z in rows:
-    print(f"  {z[\"name\"]:28} {z[\"status\"]:10} {z[\"id\"]}")'
+    print("  %-28s %-10s %s" % (z["name"], z["status"], z["id"]))'
 }
 
 cmd_show() {
@@ -69,7 +69,7 @@ cmd_show() {
 import json,sys
 d=json.load(sys.stdin)
 for r in d.get("result",[]):
-    print(f"    {r[\"type\"]:6} {r[\"name\"]:40} -> {str(r.get(\"content\"))[:50]}")'
+    print("    %-6s %-40s -> %s" % (r["type"], r["name"], str(r.get("content"))[:50]))'
 }
 
 cmd_backup() {
