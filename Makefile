@@ -85,6 +85,7 @@ ci:
 	bash scripts/test-canary-gaming.sh
 	bash scripts/test-canary-scenario-receipt.sh
 	bash scripts/test-canary-database-corroboration.sh
+	bash scripts/test-agent-restart-authority.sh
 	MERC_STRIPE_WEBHOOK_VERSION_SELF_TEST=1 bash scripts/stripe-webhooks.sh
 	bash scripts/test-stripe-sandbox-contract.sh
 	node scripts/site-build.mjs

@@ -219,7 +219,8 @@ func (p CanaryPolicy) allowsWorkerRuntime(cap WorkerCapability) bool {
 	}
 	_, versionAllowed := p.ApprovedAgentVersions[cap.AgentVersion]
 	_, buildAllowed := p.ApprovedBuildHashes[cap.BuildHash]
-	return versionAllowed && buildAllowed
+	return versionAllowed && buildAllowed &&
+		cap.AgentSessionID != nil && *cap.AgentSessionID != uuid.Nil
 }
 
 func (p CanaryPolicy) validateJobShape(sub jobSubmit) error {

@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "9009085308c66a2b0401a01c0bebe77953437a8ca22fda07d31cf27d58954044",
+  "authority_sha256": "8dbdff4731607c7dd27c66cc1423bed388cf725cc7b10edbe987c14d01b45b8f",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -22,7 +22,7 @@
     "Dockerfile.control": 31,
     "EXECUTION_NETWORK_BIBLE.md": 23,
     "LICENSE": 47,
-    "Makefile": 254,
+    "Makefile": 255,
     "NOTICE": 66,
     "README.md": 119,
     "RELEASE_GATES.md": 19,
@@ -38,7 +38,7 @@
     "agent/src/deadline.rs": 357,
     "agent/src/executor.rs": 1303,
     "agent/src/failure.rs": 141,
-    "agent/src/hardware.rs": 497,
+    "agent/src/hardware.rs": 498,
     "agent/src/inference.rs": 481,
     "agent/src/main.rs": 2979,
     "agent/src/models.rs": 280,
@@ -48,7 +48,7 @@
     "agent/src/runtime_authority.rs": 138,
     "agent/src/status.rs": 470,
     "agent/src/tls.rs": 39,
-    "agent/src/types.rs": 307,
+    "agent/src/types.rs": 311,
     "agent/src/vllm.rs": 601,
     "agent/test_float_precision.toml": 17,
     "agent/tests/golden/llama32_1b_q4k_greedy.hashes": 34,
@@ -59,7 +59,7 @@
     "bench/immutable/shared-prefix-v2.sha256": 1,
     "benchmarks/realtime-chat-v1.json": 11,
     "census/.gitignore": 4,
-    "census/CODEBASE_CENSUS.json": 797,
+    "census/CODEBASE_CENSUS.json": 800,
     "census/CODEBASE_CENSUS.md": 47,
     "cli/LICENSE": 202,
     "cli/README.md": 13,
@@ -87,8 +87,8 @@
     "control/buildinfo.go": 41,
     "control/buyer.go": 725,
     "control/buyer_charge_operations.go": 203,
-    "control/canary_policy.go": 311,
-    "control/canary_policy_test.go": 165,
+    "control/canary_policy.go": 312,
+    "control/canary_policy_test.go": 174,
     "control/charge_retry_test.go": 111,
     "control/charge_threshold_test.go": 96,
     "control/collect.go": 924,
@@ -211,7 +211,7 @@
     "control/runtime_model_ingress_test.go": 36,
     "control/scheduler.go": 1148,
     "control/scheduler_ask_claim_integration_test.go": 145,
-    "control/schema.sql": 3144,
+    "control/schema.sql": 3152,
     "control/seed.go": 115,
     "control/shape_routing.go": 124,
     "control/shape_routing_test.go": 101,
@@ -225,7 +225,7 @@
     "control/store_payouts.go": 1123,
     "control/store_prepaid.go": 366,
     "control/store_tasks.go": 1109,
-    "control/store_workers.go": 572,
+    "control/store_workers.go": 581,
     "control/strict_json.go": 110,
     "control/strict_json_test.go": 173,
     "control/stripe_api_contract.go": 47,
@@ -248,7 +248,7 @@
     "control/testdata/fuzz/FuzzBillingAccountingNeverInflatesPhysical/d9126a1e57483612": 6,
     "control/testdb_test.go": 39,
     "control/tiebreak_retry_safety_test.go": 28,
-    "control/types.go": 319,
+    "control/types.go": 320,
     "control/verification.go": 616,
     "control/verification_apply.go": 1053,
     "control/verification_apply_test.go": 55,
@@ -273,6 +273,7 @@
     "control/webhook_secret_test.go": 144,
     "control/worker_leader.go": 194,
     "control/worker_leader_test.go": 27,
+    "control/worker_session_integration_test.go": 104,
     "control/workers.go": 1103,
     "control/workload_classification.go": 449,
     "control/workload_classification_test.go": 417,
@@ -289,7 +290,7 @@
     "docs/DEPENDENCY_REVIEW.md": 19,
     "docs/DEPLOY_MERC_DROPLET.md": 267,
     "docs/DSAR_RUNBOOK.md": 130,
-    "docs/EXTERNAL_OPERATOR_HANDOFF.md": 26,
+    "docs/EXTERNAL_OPERATOR_HANDOFF.md": 27,
     "docs/FRONTEND_CONTRACT.md": 26,
     "docs/FRONTIER_300X.md": 203,
     "docs/LANE_RESEARCH.md": 104,
@@ -303,7 +304,7 @@
     "docs/RUNBOOKS.md": 205,
     "docs/RUNTIME_MATRIX.md": 17,
     "docs/SECURITY.md": 99,
-    "docs/SHIPPABILITY_STATUS.md": 303,
+    "docs/SHIPPABILITY_STATUS.md": 312,
     "docs/SPEED_LANE_2026-07-27.md": 97,
     "docs/STRIPE_CONNECT.md": 142,
     "docs/STRIPE_SANDBOX_SETUP.md": 80,
@@ -379,7 +380,7 @@
     "ops/asset-provenance.json": 56,
     "ops/authorization-matrix.json": 207,
     "ops/economics-readiness.json": 179,
-    "ops/go-closure-inputs.json": 413,
+    "ops/go-closure-inputs.json": 422,
     "ops/go-no-go.json": 73,
     "ops/governance-approval-bundle.schema.json": 65,
     "ops/governance-review-packets.json": 83,
@@ -392,9 +393,9 @@
     "ops/rename-residue.json": 47,
     "ops/repo-boundary.json": 10,
     "ops/rust-paste-audit.json": 36,
-    "ops/staging/README.md": 176,
+    "ops/staging/README.md": 192,
     "ops/staging/compose.go-closure.yml": 293,
-    "ops/staging/env.go-closure.example": 66,
+    "ops/staging/env.go-closure.example": 67,
     "ops/stripe-secret-exposure.json": 1,
     "ops/stripe-secret-exposure.ug0K1S": 0,
     "ops/support-incident-tabletop.json": 99,
@@ -404,7 +405,7 @@
     "proof/claims/claim-policy.json": 53,
     "proto/LICENSE": 202,
     "proto/enrollment-wire-fixtures.json": 14,
-    "proto/manifest.schema.json": 266,
+    "proto/manifest.schema.json": 267,
     "scripts/alert-pipeline-simulation.py": 205,
     "scripts/allowed-test-skips.txt": 13,
     "scripts/assert-no-test-skips.sh": 45,
@@ -428,13 +429,13 @@
     "scripts/gateway-parity.py": 644,
     "scripts/go-closure-canary-rehearsal.sh": 468,
     "scripts/go-closure-deploy.sh": 117,
-    "scripts/go-closure-restart-storm.sh": 169,
+    "scripts/go-closure-restart-storm.sh": 346,
     "scripts/go-closure-rollback-rehearsal.sh": 136,
     "scripts/go-closure-soak.sh": 221,
     "scripts/install.sh": 232,
     "scripts/lib/cloudflare-auth.sh": 57,
     "scripts/lib/compose-prod.sh": 38,
-    "scripts/lib/go-closure-common.sh": 448,
+    "scripts/lib/go-closure-common.sh": 449,
     "scripts/lib/stripe-sandbox-contract.sh": 70,
     "scripts/local-independent-restore.sh": 174,
     "scripts/local-production-rehearsal.sh": 340,
@@ -454,7 +455,7 @@
     "scripts/realtime-openai-node-conformance.mjs": 212,
     "scripts/realtime-openai-python-conformance.py": 204,
     "scripts/realtime-parity-benchmark.py": 173,
-    "scripts/release-doctor.sh": 164,
+    "scripts/release-doctor.sh": 204,
     "scripts/release-staging.sh": 76,
     "scripts/rename-residue-audit.py": 261,
     "scripts/restore-drill.sh": 434,
@@ -473,6 +474,7 @@
     "scripts/stripe-setup.sh": 270,
     "scripts/stripe-webhooks.sh": 176,
     "scripts/technical-exercises.sh": 63,
+    "scripts/test-agent-restart-authority.sh": 194,
     "scripts/test-agent-review-gaming.sh": 66,
     "scripts/test-alert-delivery.sh": 330,
     "scripts/test-backup-age-metric.sh": 153,
@@ -487,10 +489,11 @@
     "scripts/test-supplier-console.mjs": 123,
     "scripts/test-technical-exercises-fail-closed.sh": 54,
     "scripts/uninstall.sh": 42,
+    "scripts/validate-agent-restart-receipt.py": 208,
     "scripts/validate-authorization-matrix.py": 70,
     "scripts/validate-canary-scenario-receipt.py": 303,
     "scripts/validate-claim-surfaces.py": 148,
-    "scripts/validate-go-closure-scaffold.sh": 166,
+    "scripts/validate-go-closure-scaffold.sh": 181,
     "scripts/validate-governance.py": 240,
     "scripts/validate-independent-reviews.py": 184,
     "scripts/validate-license-register.py": 118,
@@ -545,27 +548,27 @@
     },
     "config": {
       "files": 7,
-      "loc": 574,
-      "code": 368,
+      "loc": 575,
+      "code": 369,
       "blank": 98,
       "comment": 108,
-      "bytes": 20507
+      "bytes": 20553
     },
     "documentation": {
       "files": 44,
-      "loc": 4556,
-      "code": 3571,
-      "blank": 985,
+      "loc": 4582,
+      "code": 3595,
+      "blank": 987,
       "comment": 0,
-      "bytes": 240509
+      "bytes": 242782
     },
     "go": {
-      "files": 208,
-      "loc": 60418,
-      "code": 53642,
-      "blank": 3890,
+      "files": 209,
+      "loc": 60542,
+      "code": 53758,
+      "blank": 3898,
       "comment": 2886,
-      "bytes": 2171082
+      "bytes": 2175252
     },
     "javascript": {
       "files": 8,
@@ -577,11 +580,11 @@
     },
     "json": {
       "files": 79,
-      "loc": 7435,
-      "code": 7435,
+      "loc": 7448,
+      "code": 7448,
       "blank": 0,
       "comment": 0,
-      "bytes": 333466
+      "bytes": 334618
     },
     "lockfile": {
       "files": 2,
@@ -593,43 +596,43 @@
     },
     "other": {
       "files": 19,
-      "loc": 1335,
-      "code": 1145,
+      "loc": 1336,
+      "code": 1146,
       "blank": 190,
       "comment": 0,
-      "bytes": 68826
+      "bytes": 68921
     },
     "python": {
-      "files": 30,
-      "loc": 6197,
-      "code": 5130,
-      "blank": 791,
-      "comment": 276,
-      "bytes": 255288
+      "files": 31,
+      "loc": 6405,
+      "code": 5311,
+      "blank": 817,
+      "comment": 277,
+      "bytes": 262583
     },
     "rust": {
       "files": 16,
-      "loc": 10079,
-      "code": 9200,
+      "loc": 10084,
+      "code": 9202,
       "blank": 783,
-      "comment": 96,
-      "bytes": 341943
+      "comment": 99,
+      "bytes": 342230
     },
     "shell": {
-      "files": 61,
-      "loc": 10008,
-      "code": 8450,
-      "blank": 859,
-      "comment": 699,
-      "bytes": 449974
+      "files": 62,
+      "loc": 10435,
+      "code": 8852,
+      "blank": 883,
+      "comment": 700,
+      "bytes": 469229
     },
     "sql": {
       "files": 1,
-      "loc": 3144,
-      "code": 2776,
+      "loc": 3152,
+      "code": 2784,
       "blank": 174,
       "comment": 194,
-      "bytes": 170048
+      "bytes": 170548
     },
     "text": {
       "files": 2,
@@ -675,35 +678,35 @@
   "owned_by_subsystem": {
     "agent": {
       "files": 23,
-      "loc": 14361,
-      "code": 13032,
+      "loc": 14366,
+      "code": 13034,
       "blank": 1220,
-      "comment": 109,
-      "bytes": 456903
+      "comment": 112,
+      "bytes": 457190
     },
     "contract": {
       "files": 3,
-      "loc": 482,
-      "code": 449,
+      "loc": 483,
+      "code": 450,
       "blank": 33,
       "comment": 0,
-      "bytes": 22976
+      "bytes": 23052
     },
     "control": {
-      "files": 146,
-      "loc": 41677,
-      "code": 36535,
-      "blank": 2732,
+      "files": 147,
+      "loc": 41801,
+      "code": 36651,
+      "blank": 2740,
       "comment": 2410,
-      "bytes": 1507822
+      "bytes": 1511992
     },
     "documentation": {
       "files": 33,
-      "loc": 3756,
-      "code": 2919,
-      "blank": 837,
+      "loc": 3766,
+      "code": 2928,
+      "blank": 838,
       "comment": 0,
-      "bytes": 607325
+      "bytes": 608507
     },
     "interface": {
       "files": 29,
@@ -715,11 +718,11 @@
     },
     "ops": {
       "files": 117,
-      "loc": 10770,
-      "code": 10193,
-      "blank": 415,
+      "loc": 10800,
+      "code": 10222,
+      "blank": 416,
       "comment": 162,
-      "bytes": 474552
+      "bytes": 476860
     },
     "payment": {
       "files": 38,
@@ -730,12 +733,12 @@
       "bytes": 398058
     },
     "proof": {
-      "files": 105,
-      "loc": 18462,
-      "code": 15624,
-      "blank": 1760,
-      "comment": 1078,
-      "bytes": 777080
+      "files": 107,
+      "loc": 19097,
+      "code": 16207,
+      "blank": 1810,
+      "comment": 1080,
+      "bytes": 803630
     },
     "sdk": {
       "files": 10,
@@ -747,11 +750,11 @@
     },
     "store": {
       "files": 1,
-      "loc": 3144,
-      "code": 2776,
+      "loc": 3152,
+      "code": 2784,
       "blank": 174,
       "comment": 194,
-      "bytes": 170048
+      "bytes": 170548
     },
     "verification": {
       "files": 21,
@@ -763,12 +766,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 112665,
-    "non_design_production_core_loc": 82643,
-    "test_loc": 18838,
-    "documentation_loc": 4556,
-    "python_loc": 6197,
-    "generated_loc": 5077,
+    "global_owned_loc": 113478,
+    "non_design_production_core_loc": 83314,
+    "test_loc": 18951,
+    "documentation_loc": 4582,
+    "python_loc": 6405,
+    "generated_loc": 5080,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -790,8 +793,8 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 9222521,
-  "tracked_files": 526,
+  "tracked_bytes": 9257594,
+  "tracked_files": 529,
   "untracked_files": 0,
-  "walked_files": 526
+  "walked_files": 529
 }

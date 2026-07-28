@@ -50,6 +50,15 @@ Stripe, and alert observations retain strict source-specific contracts. Offline
 hostile mutations and a disposable-database corroboration suite run in CI. No
 external execution is claimed.
 
+Metal-agent restart authority is independently observable now too. Every
+cx-agent process registers a fresh session UUID; PostgreSQL preserves the
+session start across same-process re-registration and changes it only when a
+new process registers. The formal restart storm freezes an operator-reviewed
+adapter digest and exact action receipt, but derives its two-agent restart
+claim only from both approved reviewed-build session transitions and requires
+those sessions to remain current through the rest of the fault storm. Hostile
+receipt and disposable-database tests run in CI. No external restart is claimed.
+
 Real historical execution still matters: Apple M3 Ultra/Metal/Candle completed
 batch embeddings and llama.cpp completed realtime with verification and money.
 Direct RunPod/vLLM runtime evidence also remains, but its receipt does not show a
@@ -249,7 +258,7 @@ candidate-bound `CANARY_PROVEN`.
 
 | item | status | evidence |
 |---|---|---|
-| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 526 tracked files and **112,665** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
+| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 529 tracked files and **113,478** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
 | Rename zero-residue audit | `TESTED` | `scripts/rename-residue-audit.py`, in `make ci`. FROZEN 256 / BLOCKED 380 / **RESIDUE 0**. Frozen and blocked classes are itemised with a per-identifier reason in `docs/RENAME_REGISTER.md` §5. |
 
 ## Money and operations

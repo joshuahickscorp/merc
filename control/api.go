@@ -1893,7 +1893,7 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.canary.Enabled {
 		if !s.canary.allowsWorkerRuntime(cap) {
-			writeErr(w, http.StatusForbidden, "worker agent version or source-bound build hash is outside the private-canary allowlist")
+			writeErr(w, http.StatusForbidden, "worker agent version, source-bound build hash, or process session identity is outside the private-canary allowlist")
 			return
 		}
 		allowed, err := s.store.CanaryWorkerAdmissionAllowed(r.Context(), auth.WorkerID, s.canary.MaxActiveWorkers)

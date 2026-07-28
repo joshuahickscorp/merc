@@ -143,6 +143,10 @@ fn default_build_hash() -> String {
 pub struct WorkerCapability {
     pub worker_id: Uuid,
     pub supplier_id: Uuid,
+    /// Fresh for each cx-agent process. The control plane persists transitions
+    /// so restart rehearsals can prove a process generation changed instead of
+    /// trusting a supervisor command's exit status.
+    pub agent_session_id: Uuid,
     pub hw_class: HardwareClass,
     #[serde(default = "default_engine")]
     pub engine: String,

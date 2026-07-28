@@ -16,7 +16,7 @@
       "backup": "encrypted offsite object URI and SHA-256, independent download, isolated decrypt/restore, restored database/object checksums and application verification",
       "stripe": "redacted test-mode fixture IDs covering success, decline, retry/idempotency, refund, dispute, Connect restriction, payout hold/manual release/failure, webhook replay/out-of-order, and reconciliation",
       "alert": "redacted receiver delivery ID, delivery timestamp, acknowledgement, deduplication, and resolved notification",
-      "canary": "two approved synthetic buyers and two distinct operator-controlled Metal worker identities exercised within every configured bound",
+      "canary": "two approved synthetic buyers and two distinct operator-controlled Metal worker identities exercised within every configured bound, with both agent restarts proven by durable process-session transitions",
       "review": "required approving review on the exact-head GO-closure PR from the named non-author collaborator",
       "governance": "exact-candidate approval receipts from the named legal, privacy, tax, payments, security, trust-and-safety, licensing, and support authorities plus PASS receipts for both tabletops, DSAR deletion/export, backup tombstones, and asset/model provenance"
     }
@@ -366,12 +366,21 @@
     },
     {
       "name": "MERC_AGENT_RESTART_DRIVER",
-      "accepted_form": "absolute path on the staging host to the project-controlled executable implementing the documented strict JSON Metal-agent restart protocol",
-      "minimum_scope": "restart exactly the two approved staging Metal agents",
+      "accepted_form": "physical canonical absolute path on the staging host to a non-symlink, non-group/world-writable executable in a non-group/world-writable directory, implementing the documented schema-v2 exact-run restart-action protocol",
+      "minimum_scope": "request supervisor restarts for exactly the two approved staging Metal agents; the adapter receipt is not restart proof",
       "secret": false,
       "used_by": "restart storm",
       "verification": "scripts/go-closure-restart-storm.sh --target ssh --check",
       "unblocks": ["restart_storm", "agent_recovery"]
+    },
+    {
+      "name": "MERC_AGENT_RESTART_APPROVED_DRIVER_SHA256",
+      "accepted_form": "64 lowercase hex SHA-256 independently calculated from the reviewed MERC_AGENT_RESTART_DRIVER bytes before staging execution",
+      "minimum_scope": "freeze the exact reviewed supervisor adapter allowed to request the two agent restarts",
+      "secret": false,
+      "used_by": "restart-storm driver admission and final receipt binding",
+      "verification": "scripts/go-closure-restart-storm.sh --target ssh --check",
+      "unblocks": ["restart_storm"]
     },
     {
       "name": "GITHUB_RELEASE_REVIEWER_LOGIN",

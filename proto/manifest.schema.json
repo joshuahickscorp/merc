@@ -124,6 +124,7 @@
       "properties": {
         "worker_id": { "$ref": "#/$defs/uuid" },
         "supplier_id": { "$ref": "#/$defs/uuid" },
+        "agent_session_id": { "$ref": "#/$defs/uuid" },
         "hw_class": { "$ref": "#/$defs/hw_class" },
         "engine": { "enum": ["candle", "vllm"] },
         "build_hash": { "type": "string" },
@@ -136,7 +137,7 @@
         "agent_version": { "type": "string" },
         "os_version": { "type": "string" }
       },
-      "required": ["worker_id", "supplier_id", "hw_class", "memory_gb", "memory_bw_gbps", "supported_jobs", "supported_models", "benchmarks", "agent_version", "os_version"],
+      "required": ["worker_id", "supplier_id", "agent_session_id", "hw_class", "memory_gb", "memory_bw_gbps", "supported_jobs", "supported_models", "benchmarks", "agent_version", "os_version"],
       "additionalProperties": false
     },
     "TaskDispatch": {

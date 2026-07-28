@@ -15,13 +15,15 @@ fi
 
 # Values may be supplied by the process or by a deliberately ignored operator
 # file.  The doctor reports only validity classes and booleans.
-for env_file in "$ROOT/.env" "${MERC_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"; do
-  [ -f "$env_file" ] || continue
-  set -a
-  # shellcheck disable=SC1090
-  . "$env_file"
-  set +a
-done
+if [ "${MERC_RELEASE_DOCTOR_NO_ENV_FILE:-}" != 1 ]; then
+  for env_file in "$ROOT/.env" "${MERC_GO_CLOSURE_ENV_FILE:-$ROOT/.env.go-closure}"; do
+    [ -f "$env_file" ] || continue
+    set -a
+    # shellcheck disable=SC1090
+    . "$env_file"
+    set +a
+  done
+fi
 
 present() { [ -n "${!1:-}" ]; }
 # shellcheck disable=SC2053 # callers deliberately supply an approved glob
@@ -86,12 +88,50 @@ present MERC_BACKUP_OFFSITE && matches MERC_BACKUP_OFFSITE 's3://*' && \
 
 matches ALERT_RECEIVER_WEBHOOK_URL 'https://*' && present ALERT_RECEIVER_NAME && alert_ok=true
 
-if present MERC_CANARY_APPROVED_BUYER_EMAILS && present MERC_CANARY_APPROVED_WORKER_IDS; then
-  buyer_count="$(printf '%s' "$MERC_CANARY_APPROVED_BUYER_EMAILS" | awk -F, '{print NF}')"
-  worker_count="$(printf '%s' "$MERC_CANARY_APPROVED_WORKER_IDS" | awk -F, '{print NF}')"
-  worker_valid_count="$(printf '%s' "$MERC_CANARY_APPROVED_WORKER_IDS" | tr ',' '\n' | \
-    awk '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/ {n++} END {print n+0}')"
-  [ "$buyer_count" = 2 ] && [ "$worker_count" = 2 ] && [ "$worker_valid_count" = 2 ] && canary_ok=true
+if present MERC_CANARY_APPROVED_BUYER_EMAILS && \
+  present MERC_CANARY_APPROVED_WORKER_IDS && \
+  present MERC_CANARY_APPROVED_AGENT_VERSIONS && \
+  present MERC_CANARY_APPROVED_BUILD_HASHES && \
+  present MERC_CANARY_SCENARIO_DRIVER && \
+  present MERC_CANARY_APPROVED_DRIVER_SHA256 && \
+  present MERC_AGENT_RESTART_DRIVER && \
+  present MERC_AGENT_RESTART_APPROVED_DRIVER_SHA256; then
+  buyer_inputs_ok=false
+  worker_inputs_ok=false
+  runtime_inputs_ok=false
+  jq -en --arg value "$MERC_CANARY_APPROVED_BUYER_EMAILS" '
+    ($value | split(",") | map(ascii_downcase | gsub("^\\s+|\\s+$"; "")) |
+      map(select(length > 0))) as $items |
+    ($items | length) == 2 and ($items | unique | length) == 2 and
+    all($items[]; test("^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+$"))
+  ' >/dev/null && buyer_inputs_ok=true
+  jq -en --arg value "$MERC_CANARY_APPROVED_WORKER_IDS" '
+    ($value | split(",") | map(ascii_downcase | gsub("^\\s+|\\s+$"; "")) |
+      map(select(length > 0))) as $items |
+    ($items | length) == 2 and ($items | unique | length) == 2 and
+    all($items[]; test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"))
+  ' >/dev/null && worker_inputs_ok=true
+  jq -en \
+    --arg versions "$MERC_CANARY_APPROVED_AGENT_VERSIONS" \
+    --arg builds "$MERC_CANARY_APPROVED_BUILD_HASHES" '
+    ($versions | split(",") | map(gsub("^\\s+|\\s+$"; "")) |
+      map(select(length > 0))) as $versions |
+    ($builds | split(",") | map(gsub("^\\s+|\\s+$"; "")) |
+      map(select(length > 0))) as $builds |
+    ($versions | length) >= 1 and ($versions | length) <= 4 and
+    ($versions | unique | length) == ($versions | length) and
+    all($versions[]; test("^[0-9]+[.][0-9]+[.][0-9]+([+-][0-9A-Za-z.-]+)?$")) and
+    ($builds | length) >= 1 and ($builds | length) <= 4 and
+    ($builds | unique | length) == ($builds | length) and
+    all($builds[]; test("^[0-9a-f]{16}$"))
+  ' >/dev/null && runtime_inputs_ok=true
+  [ "$buyer_inputs_ok" = true ] && [ "$worker_inputs_ok" = true ] && \
+    [ "$runtime_inputs_ok" = true ] && \
+    [[ "$MERC_CANARY_SCENARIO_DRIVER" == /* ]] && \
+    [[ "$MERC_AGENT_RESTART_DRIVER" == /* ]] && \
+    [[ "$MERC_CANARY_APPROVED_DRIVER_SHA256" =~ ^[0-9a-f]{64}$ ]] && \
+    [[ "$MERC_AGENT_RESTART_APPROVED_DRIVER_SHA256" =~ ^[0-9a-f]{64}$ ]] && \
+    canary_ok=true
 fi
 
 if present GITHUB_RELEASE_REVIEWER_LOGIN && \
