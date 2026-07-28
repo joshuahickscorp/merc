@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "title": "ocular-mcp-callthrough",
-  "generated_at_unix": 1785181554.356645,
-  "duration_s": 1.733,
+  "generated_at_unix": 1785187179.6233752,
+  "duration_s": 1.938,
   "transport": "stdio",
   "server_command": [
     "/Users/scammermike/Downloads/visionmcp-authority-worktrees/visionmcp-v2-ocular/tools/blender-vision-mcp/.venv/bin/python",
@@ -14,8 +14,8 @@
     "version": "1.28.1",
     "protocol_version": "2025-11-25"
   },
-  "work_dir": "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-85klhh7n",
-  "projects_root": "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-85klhh7n/projects",
+  "work_dir": "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-wdxodlkm",
+  "projects_root": "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-wdxodlkm/projects",
   "tools_listed_total": 286,
   "ocular_listed": 19,
   "ocular_tools": [
@@ -279,9 +279,9 @@
     {
       "tool": "vision.open_stream",
       "status": "PASS",
-      "latency_ms": 3.136,
+      "latency_ms": 7.586,
       "arguments": {
-        "source": "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-85klhh7n/stream.mp4",
+        "source": "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-wdxodlkm/stream.mp4",
         "source_type": "video_file",
         "stream_id": "callthrough-stream",
         "buffer_size": 4,
@@ -302,7 +302,7 @@
     {
       "tool": "vision.get_stream_state",
       "status": "PASS",
-      "latency_ms": 1.714,
+      "latency_ms": 1.385,
       "arguments": {
         "stream_id": "callthrough-stream"
       },
@@ -320,10 +320,10 @@
     {
       "tool": "vision.calibrate_sensor",
       "status": "PASS",
-      "latency_ms": 10.041,
+      "latency_ms": 19.51,
       "arguments": {
         "image_paths": [
-          "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-85klhh7n/calib.png"
+          "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-wdxodlkm/calib.png"
         ],
         "sensor_id": "callthrough-sensor",
         "stream_id": "callthrough-stream"
@@ -363,7 +363,7 @@
     {
       "tool": "vision.fixate",
       "status": "PASS",
-      "latency_ms": 2.004,
+      "latency_ms": 2.28,
       "arguments": {
         "region": [
           20.0,
@@ -411,7 +411,7 @@
     {
       "tool": "vision.saccade",
       "status": "PASS",
-      "latency_ms": 2.149,
+      "latency_ms": 1.85,
       "arguments": {
         "to_region": [
           80.0,
@@ -464,7 +464,7 @@
     {
       "tool": "vision.track",
       "status": "PASS",
-      "latency_ms": 2.139,
+      "latency_ms": 1.556,
       "arguments": {
         "stream_id": "callthrough-stream",
         "frame_index": 0,
@@ -525,7 +525,7 @@
     {
       "tool": "vision.reidentify",
       "status": "PASS",
-      "latency_ms": 2.361,
+      "latency_ms": 1.405,
       "arguments": {
         "stream_id": "callthrough-stream",
         "tracker_state": {
@@ -590,7 +590,7 @@
     {
       "tool": "vision.build_world_model",
       "status": "PASS",
-      "latency_ms": 3.25,
+      "latency_ms": 2.703,
       "arguments": {
         "scene_id": "callthrough-scene",
         "session_id": "callthrough-session",
@@ -665,7 +665,7 @@
     {
       "tool": "vision.update_world_model",
       "status": "PASS",
-      "latency_ms": 4.011,
+      "latency_ms": 2.966,
       "arguments": {
         "world": {
           "_kind": "world_ref",
@@ -733,7 +733,7 @@
     {
       "tool": "vision.query_world",
       "status": "PASS",
-      "latency_ms": 2.573,
+      "latency_ms": 1.928,
       "arguments": {
         "world": {
           "_kind": "world_ref",
@@ -772,7 +772,7 @@
     {
       "tool": "vision.explain_belief",
       "status": "PASS",
-      "latency_ms": 2.839,
+      "latency_ms": 2.302,
       "arguments": {
         "world": {
           "_kind": "world_ref",
@@ -800,7 +800,7 @@
     {
       "tool": "vision.list_uncertainties",
       "status": "PASS",
-      "latency_ms": 2.734,
+      "latency_ms": 2.067,
       "arguments": {
         "world": {
           "_kind": "world_ref",
@@ -825,7 +825,7 @@
     {
       "tool": "vision.predict_next",
       "status": "PASS",
-      "latency_ms": 5.344,
+      "latency_ms": 5.252,
       "arguments": {
         "world": {
           "_kind": "world_ref",
@@ -843,7 +843,7 @@
       "result_summary": {
         "status": "ok",
         "world_id": "world-callthrough-scene-callthrough-session",
-        "count": 4,
+        "count": 7,
         "world_keys": [
           "_belief_seq",
           "appearance",
@@ -866,7 +866,7 @@
           "scene_id",
           "schema_version"
         ],
-        "predictions_len": 4
+        "predictions_len": 7
       },
       "schema_required": [
         "world"
@@ -875,7 +875,7 @@
     {
       "tool": "vision.list_surprises",
       "status": "PASS",
-      "latency_ms": 3.023,
+      "latency_ms": 2.805,
       "arguments": {
         "world": {
           "_kind": "world_ref",
@@ -900,7 +900,7 @@
     {
       "tool": "vision.observe_change",
       "status": "PASS",
-      "latency_ms": 3.795,
+      "latency_ms": 3.264,
       "arguments": {
         "prior_world": {
           "_kind": "world_ref",
@@ -940,9 +940,9 @@
     {
       "tool": "vision.plan_capture",
       "status": "PASS",
-      "latency_ms": 14.433,
+      "latency_ms": 12.414,
       "arguments": {
-        "project_path": "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-85klhh7n/projects/ocular-callthrough-tmp",
+        "project_path": "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-wdxodlkm/projects/ocular-callthrough-tmp",
         "target_id": "callthrough-target",
         "target": {
           "bounds_min": [
@@ -1005,9 +1005,9 @@
     {
       "tool": "vision.ask_next_view",
       "status": "PASS",
-      "latency_ms": 6.227,
+      "latency_ms": 4.76,
       "arguments": {
-        "project_path": "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-85klhh7n/projects/ocular-callthrough-tmp",
+        "project_path": "/var/folders/yc/1c930rns2rz1_trh4xcd9_m00000gq/T/ocular-mcp-callthrough-wdxodlkm/projects/ocular-callthrough-tmp",
         "target": {
           "target_id": "callthrough-partial",
           "cells": [
@@ -1055,7 +1055,7 @@
     {
       "tool": "vision.measure_information_gain",
       "status": "PASS",
-      "latency_ms": 2.048,
+      "latency_ms": 1.908,
       "arguments": {
         "target": {
           "target_id": "callthrough-partial",
@@ -1124,7 +1124,7 @@
     {
       "tool": "vision.close_stream",
       "status": "PASS",
-      "latency_ms": 2.32,
+      "latency_ms": 1.706,
       "arguments": {
         "stream_id": "callthrough-stream"
       },
