@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "kind": "repo_boundary",
-  "tracked_files": 518,
-  "owned_loc": 110218,
+  "tracked_files": 520,
+  "owned_loc": 110726,
   "census_scope": "maintained first-party text; compiled binaries and upstream vendor excluded",
   "foreign_paths": [],
   "boundary_clean": true,

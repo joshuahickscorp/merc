@@ -305,6 +305,32 @@ done
 [ "$health_ok" -eq 1 ] && ok "/healthz responds over TLS" \
   || { bad "/healthz did not respond within 120s"; verify_failed=1; }
 
+# Liveness is not readiness. A process can serve /healthz while its database,
+# worker election, payment activation, or background invariants are unusable.
+ready_ok=0
+for _ in $(seq 1 30); do
+  ready_body="$(curl -fsS --max-time 10 "https://${SITE_HOST}/readyz" 2>/dev/null)" \
+    || { sleep 4; continue; }
+  if jq -e --arg mode "$payment_mode" --arg version "2025-06-30.basil" '
+    .status == "ready" and
+    .payment_mode == $mode and
+    .stripe_api_version == $version and
+    (if $mode == "sealed"
+     then .provider_enabled == false and .live_value_movement == false
+     else .provider_enabled == true
+     end)
+  ' <<< "$ready_body" >/dev/null; then
+    ready_ok=1
+    ok "/readyz confirms $payment_mode payment authority and Stripe API contract"
+    break
+  fi
+  sleep 4
+done
+if [ "$ready_ok" -ne 1 ]; then
+  bad "/readyz never confirmed the deployed payment authority and Stripe API contract"
+  verify_failed=1
+fi
+
 # The commit check must REQUIRE a commit. `${want:0:${#got}}` with an empty got
 # expands to the empty string and matches anything, so a /version answering {}
 # -- including an OLD container still serving -- passed as "the commit just

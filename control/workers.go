@@ -341,7 +341,7 @@ func (wk *Workers) releasePayouts(ctx context.Context) error {
 		case PayoutReleased:
 			metrics.payoutsReleased.Add(1)
 		case PayoutReversalRequired:
-			log.Printf("workers: payout %s crossed the provider boundary during clawback; external reversal required (not implemented)", claimed.ID)
+			log.Printf("workers: payout %s crossed the provider boundary during clawback; automated reversal queued and new payouts remain paused until recovery", claimed.ID)
 		case PayoutExported:
 			log.Printf("workers: payout %s exported for manual settlement; no supplier cash is reported moved", claimed.ID)
 		}

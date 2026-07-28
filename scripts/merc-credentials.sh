@@ -101,6 +101,7 @@ check_stripe() {
   # -u "$key:" would put the secret in argv. --config on stdin keeps it out.
   local code
   code=$(printf 'user = "%s:"\n' "$key" | curl -sS --config - \
+    --header 'Stripe-Version: 2025-06-30.basil' \
     -o /dev/null -w '%{http_code}' --max-time 20 \
     https://api.stripe.com/v1/balance 2>/dev/null) || {
       bad "Stripe: could not reach api.stripe.com"; return 1; }
@@ -113,7 +114,8 @@ check_stripe() {
   # payout with balance_insufficient, and that is worth knowing now rather than
   # in the middle of a canary.
   local body currencies
-  body=$(printf 'user = "%s:"\n' "$key" | curl -sS --config - --max-time 20 \
+  body=$(printf 'user = "%s:"\n' "$key" | curl -sS --config - \
+    --header 'Stripe-Version: 2025-06-30.basil' --max-time 20 \
     https://api.stripe.com/v1/balance 2>/dev/null)
   currencies=$(printf '%s' "$body" | python3 -c '
 import json,sys

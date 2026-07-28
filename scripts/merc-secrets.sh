@@ -91,7 +91,8 @@ check_stripe() {
     *) bad "Stripe: not a recognisable secret key"; return 1 ;;
   esac
   local code
-  code=$(printf 'user = "%s:"\n' "$key" | curl -sS --config - -o /tmp/.merc_bal.$$ \
+  code=$(printf 'user = "%s:"\n' "$key" | curl -sS --config - \
+    --header 'Stripe-Version: 2025-06-30.basil' -o /tmp/.merc_bal.$$ \
     -w '%{http_code}' --max-time 25 https://api.stripe.com/v1/balance 2>/dev/null) || {
       bad "Stripe: could not reach api.stripe.com"; rm -f /tmp/.merc_bal.$$; return 1; }
   case "$code" in

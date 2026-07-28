@@ -55,6 +55,12 @@ fenced by the retry-attempt epoch.
   indistinguishable from ordinary work.
 - Settlement uses append-only ledger effects, stable idempotency keys, payout
   holds, disputes, refunds, and auditable operator actions.
+- Every Stripe request pins the compiled API version immediately before network
+  I/O; account-default version changes cannot alter charge, payout, refund,
+  reversal, Connect, or reconciliation semantics outside a Merc release.
+- Billing and Connect webhook endpoints must also pin that same API version for
+  payload rendering. Endpoint setup refuses null/mismatched versions because
+  request headers alone do not freeze the schema of later signed events.
 - Job cancellation, task lease recovery, retry exhaustion, and result commit are
   transactional. Duplicate commits and duplicate money effects are rejected.
 - On macOS the shipped supplier profile denies inbound networking, listening

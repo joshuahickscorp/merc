@@ -219,7 +219,7 @@ harder test.
 
 | item | status | evidence |
 |---|---|---|
-| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 518 tracked files and **110,218** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
+| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 520 tracked files and **110,726** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
 | Rename zero-residue audit | `TESTED` | `scripts/rename-residue-audit.py`, in `make ci`. FROZEN 251 / BLOCKED 380 / **RESIDUE 0**. Frozen and blocked classes are itemised with a per-identifier reason in `docs/RENAME_REGISTER.md` §5. |
 
 ## Money and operations
@@ -228,6 +228,7 @@ harder test.
 |---|---|---|
 | Supplier accrual | `TESTED` | `control/supplier_accrual.go`. Micro-USD conservation proven under 24 concurrent claims, 240 randomized orderings, and 9/9 mutation detection. |
 | Payout reconciliation | `CANARY_PROVEN` | The CAD/USD mismatch that blocked this is gone: settlement currency is configuration (`control/currency.go`) and the platform settles CAD. The canary `payouts` lane passes against a real Stripe key. Supplier accrual, minor-unit carry and the sole ledger writer are unchanged. |
+| Stripe API contract | `TESTED` | Every product and operator-script Stripe request pins `2025-06-30.basil` immediately before network I/O. Billing and Connect endpoint creation additionally pins webhook payload rendering; existing null/mismatched endpoint versions fail closed because Stripe cannot update that field in place. Signed events must carry that exact version and the expected test/live mode before any effect runs. Charges, setup, reads, Connect, payouts, refunds, reversals, probes, webhook management, and later signed event shapes cannot drift with the account default. Static bypass guards, operator-script self-tests, and transport/operation-shape tests cover the boundary; mutation-checked 5/5. |
 | Aggregated billing / prepaid | `IMPLEMENTED` | 4 references in `control/accounts.go`; charge batching reworked so the age trigger no longer fires at Stripe's $0.50 floor. |
 | Refunds / disputes | `IMPLEMENTED` | 21 files reference disputes. Transfer reversal has never met real Stripe. |
 | Stripe sandbox end to end | `CANARY_PROVEN` capability evidence; formal gate `OPEN` (`NO_GO`) | Historical CAD-settlement canary evidence is retained. The current formal candidate still lacks the complete test-mode matrix and provider-reconciliation receipt required by `P1-STRIPE-TEST`; live activation is sealed and Level C remains prohibited. |

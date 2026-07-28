@@ -113,7 +113,7 @@ func stripeForm(ctx context.Context, path string, form url.Values, idemKey strin
 	if idemKey != "" {
 		req.Header.Set("Idempotency-Key", idemKey)
 	}
-	resp, err := stripeHTTPClient.Do(req)
+	resp, err := doStripeRequest(stripeHTTPClient, req)
 	if err != nil {
 		return nil, err
 	}
@@ -447,21 +447,41 @@ func handleStripeWebhookWithAllHandlers(
 	applyCashEvent stripeCashEventApplier,
 	reconcileCharge buyerChargeReconciler,
 ) {
+	handleStripeWebhookWithAllHandlersAtMode(
+		w, r, secret, setPM, applyCashEvent, reconcileCharge, false,
+	)
+}
+
+func handleStripeWebhookWithAllHandlersAtMode(
+	w http.ResponseWriter,
+	r *http.Request,
+	secret string,
+	setPM billingPMSetter,
+	applyCashEvent stripeCashEventApplier,
+	reconcileCharge buyerChargeReconciler,
+	expectedLive bool,
+) {
 	payload, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if !verifyStripeSig(payload, r.Header.Get("Stripe-Signature"), secret) {
 		writeErr(w, http.StatusBadRequest, "invalid stripe signature")
 		return
 	}
 	var ev struct {
-		ID      string `json:"id"`
-		Type    string `json:"type"`
-		Created int64  `json:"created"`
-		Data    struct {
+		ID         string `json:"id"`
+		Type       string `json:"type"`
+		Created    int64  `json:"created"`
+		APIVersion string `json:"api_version"`
+		Livemode   *bool  `json:"livemode"`
+		Data       struct {
 			Object json.RawMessage `json:"object"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(payload, &ev); err != nil {
 		writeErr(w, http.StatusBadRequest, "unparseable webhook body")
+		return
+	}
+	if err := validateStripeEventContract(ev.APIVersion, ev.Livemode, expectedLive); err != nil {
+		writeErr(w, http.StatusBadRequest, "stripe webhook contract mismatch")
 		return
 	}
 	switch ev.Type {
@@ -532,9 +552,10 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 		!s.requireOperationalControlActive(w, r, controlPayments) {
 		return
 	}
-	if _, err := authorizePaymentOperation(
+	authority, err := authorizePaymentOperation(
 		paymentOperationWebhook, 0, "", stripeKey(),
-	); err != nil {
+	)
+	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, "stripe webhook authority is unavailable")
 		return
 	}
@@ -543,9 +564,9 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "stripe webhooks not configured (set STRIPE_WEBHOOK_SECRET)")
 		return
 	}
-	handleStripeWebhookWithAllHandlers(
+	handleStripeWebhookWithAllHandlersAtMode(
 		w, r, secret, s.store.SetBillingPMByCustomer, s.store.ApplyPaymentEventTx,
-		s.store.ReconcileBuyerChargeOperation,
+		s.store.ReconcileBuyerChargeOperation, authority.Mode == PaymentModeLive,
 	)
 }
 
@@ -639,7 +660,7 @@ func stripeGet(ctx context.Context, path string) (map[string]any, error) {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
-	resp, err := stripeHTTPClient.Do(req)
+	resp, err := doStripeRequest(stripeHTTPClient, req)
 	if err != nil {
 		return nil, err
 	}

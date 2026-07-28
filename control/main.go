@@ -250,9 +250,9 @@ func main() {
 			log.Fatalf("LIVE Stripe Connect configuration invalid: %v", err)
 		}
 	}
-	log.Printf("payment authority: mode=%s provider_enabled=%t live_value_movement=%t",
+	log.Printf("payment authority: mode=%s provider_enabled=%t live_value_movement=%t stripe_api_version=%s",
 		paymentAuthority.Mode, paymentAuthority.ProviderEnabled(),
-		paymentAuthority.LiveValueMovementEnabled())
+		paymentAuthority.LiveValueMovementEnabled(), stripeAPIVersion)
 	if err := validateCanaryMoneyMode(
 		os.Getenv("MERC_CANARY_MODE"), stripeKey(), os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		os.Getenv("MERC_CONNECT_WEBHOOK_SECRET"), os.Getenv("MERC_CONNECT_CLIENT_ID"),

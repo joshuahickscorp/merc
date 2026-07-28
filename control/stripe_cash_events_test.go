@@ -101,7 +101,7 @@ func signedStripeCashRequest(t *testing.T, payload []byte, secret string) *http.
 
 func TestStripeCashWebhookVerifiesThenApplies(t *testing.T) {
 	const secret = "whsec_cash_test"
-	payload := []byte(`{"id":"evt_cash","type":"charge.refunded","created":1700000000,"data":{"object":{"id":"ch_cash","payment_intent":"pi_cash","amount":500,"amount_refunded":125,"currency":"usd"}}}`)
+	payload := []byte(`{"id":"evt_cash","type":"charge.refunded","api_version":"2025-06-30.basil","livemode":false,"created":1700000000,"data":{"object":{"id":"ch_cash","payment_intent":"pi_cash","amount":500,"amount_refunded":125,"currency":"usd"}}}`)
 
 	for _, tc := range []struct {
 		name       string

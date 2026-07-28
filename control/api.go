@@ -396,6 +396,7 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		"provider_enabled":        paymentAuthority.ProviderEnabled(),
 		"live_value_movement":     paymentAuthority.LiveValueMovementEnabled(),
 		"payment_recovery_active": paymentAuthority.RecoveryActive,
+		"stripe_api_version":      stripeAPIVersion,
 	})
 }
 

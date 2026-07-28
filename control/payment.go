@@ -240,7 +240,7 @@ func (p StripePayout) Send(ctx context.Context, supplierID uuid.UUID, cents int6
 	req.Header.Set("Authorization", "Bearer "+p.secret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Idempotency-Key", stripeIdempotencyKey(supplierID, cents, payoutKey))
-	resp, err := p.http.Do(req)
+	resp, err := doStripeRequest(p.http, req)
 	if err != nil {
 		return PayoutResult{}, payoutOutcomeUnknown(fmt.Errorf("stripe transfer request: %w", err))
 	}
@@ -323,7 +323,7 @@ func (p StripePayout) ReverseTransfer(ctx context.Context, transferRef string, c
 	req.Header.Set("Authorization", "Bearer "+p.secret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Idempotency-Key", stripeReversalIdempotencyKey(reverseKey))
-	resp, err := p.http.Do(req)
+	resp, err := doStripeRequest(p.http, req)
 	if err != nil {
 		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("stripe transfer reversal request: %w", err))
 	}
@@ -394,7 +394,7 @@ func (p StripePayout) RefundCharge(ctx context.Context, paymentIntent string, ce
 	req.Header.Set("Authorization", "Bearer "+p.secret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Idempotency-Key", stripeReversalIdempotencyKey(reverseKey))
-	resp, err := p.http.Do(req)
+	resp, err := doStripeRequest(p.http, req)
 	if err != nil {
 		return ReversalResult{}, payoutOutcomeUnknown(fmt.Errorf("stripe refund request: %w", err))
 	}
