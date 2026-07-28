@@ -84,6 +84,22 @@ for script in "${scripts[@]}"; do
 done
 pass "bash syntax for staging harness"
 
+[ -x "$ROOT/scripts/validate-canary-scenario-receipt.py" ] \
+  || die "canary scenario receipt validator is missing or not executable"
+python3 -m py_compile "$ROOT/scripts/validate-canary-scenario-receipt.py" \
+  || die "canary scenario receipt validator does not compile"
+for contract in \
+  'MERC_CANARY_RUN_ID' 'MERC_CANARY_CANDIDATE_COMMIT' \
+  'MERC_CANARY_CONTROL_IMAGE' 'MERC_CANARY_DRIVER_SHA256' \
+  'MERC_CANARY_APPROVED_DRIVER_SHA256' '--scenario-started-at' \
+  'corroborate_scenario' 'database_backed_scenarios_corroborated:true'; do
+  rg -q -- "$contract" "$ROOT/scripts/go-closure-canary-rehearsal.sh" \
+    || die "canary rehearsal lacks authority contract $contract"
+done
+rg -q 'scripts/validate-canary-scenario-receipt.py' "$ROOT/scripts/lib/go-closure-common.sh" \
+  || die "deployment sync bundle omits the canary scenario receipt validator"
+pass "exact-run canary receipt validator and database corroboration"
+
 while IFS= read -r documented_script; do
   [ -f "$ROOT/$documented_script" ] || die "README references missing $documented_script"
 done < <(rg -o 'scripts/[a-z0-9-]+[.]sh' "$ROOT/ops/staging/README.md" | sort -u)

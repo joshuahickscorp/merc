@@ -75,27 +75,68 @@ $MERC_CANARY_SCENARIO_DRIVER run <scenario> <minimum-count>
 ```
 
 It must write exactly one JSON document to stdout. The document must contain
-the requested scenario, the requested minimum, an observed count at least that
-large, `status: "PASS"`, an evidence array with one unique source record per
-observation, and these safety booleans:
+the requested scenario, the requested count, an observed count exactly equal
+to that request and the evidence-array length, `status: "PASS"`, and one
+unique observation/subject pair per item. The rehearsal exports
+`MERC_CANARY_RUN_ID`, `MERC_CANARY_CANDIDATE_COMMIT`,
+`MERC_CANARY_CONTROL_IMAGE`, `MERC_CANARY_DRIVER_SHA256`,
+`MERC_CANARY_RUN_STARTED_AT`, `MERC_CANARY_SCENARIO`, and
+`MERC_CANARY_SCENARIO_STARTED_AT`; the receipt must bind those exact values.
+The driver must be a canonical, non-symlink, non-group/world-writable
+executable inside a non-group/world-writable directory. Its SHA-256 is checked
+against the operator-reviewed `MERC_CANARY_APPROVED_DRIVER_SHA256`, before and
+after every scenario, and must remain unchanged for the whole run.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "embed_success",
   "requested": 20,
   "observed": 20,
   "status": "PASS",
+  "binding": {
+    "run_id": "32 lowercase hex",
+    "candidate_commit": "40 lowercase hex",
+    "control_image": "registry/repository@sha256:...",
+    "driver_sha256": "64 lowercase hex"
+  },
+  "started_at": "RFC3339 UTC within this run",
+  "finished_at": "RFC3339 UTC after started_at",
   "safety": {
     "stripe_test_mode": true,
+    "stripe_live_mode": false,
     "real_value": false,
-    "approved_participants_only": true
+    "approved_participants_only": true,
+    "secret_values_recorded": false
   },
   "evidence": [
-    {"id": "provider-or-database-event-id", "occurred_at": "RFC3339", "source": "staging-system"}
+    {
+      "id": "unique-observation-id",
+      "subject_id": "job UUID",
+      "occurred_at": "RFC3339 UTC inside the scenario window",
+      "source": "merc_postgres.jobs"
+    }
   ]
 }
 ```
+
+Sources are closed, not free-form: buyers use `merc_postgres.buyers`, Metal
+agents `merc_postgres.workers`, completed/cancelled workloads
+`merc_postgres.jobs`, retries/recovery `merc_postgres.job_events`, buyer
+webhooks `merc_postgres.webhooks`, stale-commit HTTP observations
+`merc_control.http`, and external exercises their named provider source in
+`scripts/validate-canary-scenario-receipt.py`. Merc independently queries
+PostgreSQL for the buyer, worker, workload, retry, recovery, and webhook
+subjects after structural validation. Completed workloads must belong to the
+approved buyers, and every task must run on an approved worker plus reviewed
+agent version/build, show real runtime and verification authority, and carry
+the exact frozen buyer/supplier/platform ledger split with zero-sum money. The
+final receipt also requires a clean global ledger, no open tasks under terminal
+jobs, two active workers, no firing page alert, and unchanged reviewed driver
+bytes. A driver cannot promote itself by printing booleans.
+Each stale-attempt observation additionally binds the submitted/current attempt
+numbers, HTTP 409, response digest, and identical before/after state digests;
+Merc verifies the task is durably stored at that newer current attempt.
 
 The agent restart driver is invoked as:
 

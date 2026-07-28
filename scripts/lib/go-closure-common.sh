@@ -429,6 +429,7 @@ gc_sync_bundle() {
     scripts/go-closure-rollback-rehearsal.sh
     scripts/go-closure-restart-storm.sh
     scripts/go-closure-canary-rehearsal.sh
+    scripts/validate-canary-scenario-receipt.py
     scripts/go-closure-soak.sh
     scripts/validate-go-closure-scaffold.sh
   )

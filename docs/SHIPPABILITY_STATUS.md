@@ -39,6 +39,17 @@ non-conserving receipts are rejected. Only
 `scripts/go-closure-canary-rehearsal.sh` may create exact-commit,
 immutable-image canary authority.
 
+That formal authority is now hardened too. Every scenario receipt is schema-v2
+bound to a fresh run ID, exact commit, immutable image, invocation window, and
+the operator-reviewed SHA-256 of a canonical non-writable driver whose bytes
+must remain unchanged. Observation sources are closed by scenario. Merc independently
+queries PostgreSQL for the two approved buyers/workers, completed workload
+all-task runtime/reviewed-build/verification/money chains, cancellations, retries, stale recoveries,
+stale-attempt fencing, and webhook retry delivery. Provider-only backup,
+Stripe, and alert observations retain strict source-specific contracts. Offline
+hostile mutations and a disposable-database corroboration suite run in CI. No
+external execution is claimed.
+
 Real historical execution still matters: Apple M3 Ultra/Metal/Candle completed
 batch embeddings and llama.cpp completed realtime with verification and money.
 Direct RunPod/vLLM runtime evidence also remains, but its receipt does not show a
@@ -238,7 +249,7 @@ candidate-bound `CANARY_PROVEN`.
 
 | item | status | evidence |
 |---|---|---|
-| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 523 tracked files and **111,671** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
+| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 526 tracked files and **112,665** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
 | Rename zero-residue audit | `TESTED` | `scripts/rename-residue-audit.py`, in `make ci`. FROZEN 256 / BLOCKED 380 / **RESIDUE 0**. Frozen and blocked classes are itemised with a per-identifier reason in `docs/RENAME_REGISTER.md` §5. |
 
 ## Money and operations
