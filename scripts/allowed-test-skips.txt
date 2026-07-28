@@ -5,3 +5,9 @@
 # line must be deleted, because deletable_data_removed in the DSAR receipt is
 # derived from this test's result.
 TestBuyerObjectDeletionQueueAndSweep
+#
+# Opt-in live measurement against a real local engine (llama-server / vLLM).
+# Requires MERC_GATEWAY_PARITY=1 plus a reachable MERC_REALTIME_UPSTREAM; CI has
+# neither. Delete this line only when the measurement is folded into a CI lane
+# that always has an engine.
+TestGatewayParityAgainstRealEngine
