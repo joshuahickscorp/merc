@@ -73,6 +73,10 @@ func (s *Store) SubmitExactReuseBatchJob(
 		return fmt.Errorf("exact-reuse compute estimate does not match buyer settlement")
 	}
 	platform := microsToUSD(money.PlatformMicros)
+	jobCurrency := SettlementCurrencyCode()
+	if err := RequireSettlementCurrency(jobCurrency); err != nil {
+		return fmt.Errorf("exact-reuse job requires settlement currency authority: %w", err)
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -80,18 +84,22 @@ func (s *Store) SubmitExactReuseBatchJob(
 	}
 	defer tx.Rollback(ctx)
 	if quoteID != uuid.Nil {
-		var quoteComputeSHA256 string
+		var quoteComputeSHA256, quoteCurrency string
 		if err := tx.QueryRow(ctx,
-			`SELECT COALESCE(compute_plan_sha256,'')
+			`SELECT COALESCE(compute_plan_sha256,''),currency
 			   FROM quotes
 			  WHERE id=$1 AND buyer_id=$2`,
 			quoteID, buyerID,
-		).Scan(&quoteComputeSHA256); err != nil {
+		).Scan(&quoteComputeSHA256, &quoteCurrency); err != nil {
 			return fmt.Errorf("load exact-reuse origin quote compute authority: %w", err)
 		}
 		if quoteComputeSHA256 == "" ||
 			computePlan.OriginComputePlanSHA256 != quoteComputeSHA256 {
 			return fmt.Errorf("exact-reuse compute plan does not match its origin quote")
+		}
+		if quoteCurrency != jobCurrency {
+			return fmt.Errorf("%w: exact-reuse job currency %s does not match quote currency %s",
+				errCurrencyMismatch, jobCurrency, quoteCurrency)
 		}
 	} else if computePlan.OriginComputePlanSHA256 != "" {
 		return fmt.Errorf("unquoted exact reuse cannot carry an origin compute plan")
@@ -139,17 +147,17 @@ func (s *Store) SubmitExactReuseBatchJob(
 		   submit_idempotency_key, submit_request_sha256,
 		   workload_decision, workload_decision_sha256,
 		   compute_plan, compute_plan_sha256,
-		   quote_id, firm_quote, firm_quote_max_usd)
+		   quote_id, firm_quote, firm_quote_max_usd, currency)
 		VALUES ($1,$2,'complete',$3,$4,$5,$6,$7,'{}'::jsonb,$8,$8,0,0,
 		        'tracking','charged',
 		        $9,$10,'exact_result_reuse',
 		        NULLIF($11,''),NULLIF($12,''),$13::jsonb,$14,
-		        $15::jsonb,$16,$17,$18,$19)`,
+		        $15::jsonb,$16,$17,$18,$19,$20)`,
 		jobID, buyerID, jobType, modelRef, inputRef, outputRef, tier,
 		buyerCharge, inputRecords, inputBytes,
 		submitIdempotencyKey, submitRequestSHA256, workloadJSON, workloadSHA256,
 		computeJSON, computeSHA256,
-		nullUUID(quoteID), firmQuote, nullPosFloat(firmQuoteMaxUSD))
+		nullUUID(quoteID), firmQuote, nullPosFloat(firmQuoteMaxUSD), jobCurrency)
 	if err != nil {
 		return err
 	}
@@ -171,13 +179,13 @@ func (s *Store) SubmitExactReuseBatchJob(
 	// Money: buyer debit + platform take. No supplier_credit.
 	if _, err := insertLedgerEntryTx(ctx, tx, ledgerInsert{
 		Kind: KindBuyerCharge, BuyerID: &buyerID, TaskID: &taskID,
-		AmountMicros: -money.BuyerDebitMicros, PayoutStatus: PayoutReleased,
+		AmountMicros: -money.BuyerDebitMicros, Currency: jobCurrency, PayoutStatus: PayoutReleased,
 	}); err != nil {
 		return err
 	}
 	if _, err := insertLedgerEntryTx(ctx, tx, ledgerInsert{
 		Kind: KindPlatformTake, TaskID: &taskID,
-		AmountMicros: money.PlatformMicros, PayoutStatus: PayoutReleased,
+		AmountMicros: money.PlatformMicros, Currency: jobCurrency, PayoutStatus: PayoutReleased,
 	}); err != nil {
 		return err
 	}

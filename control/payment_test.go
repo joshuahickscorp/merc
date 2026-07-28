@@ -13,7 +13,7 @@ import (
 
 func TestSplitFrozenChargeDoesNotLeakBuyerSafetyFeeToSupplier(t *testing.T) {
 	buyer, supplier, task := uuid.New(), uuid.New(), uuid.New()
-	entries := splitFrozenCharge(buyer, supplier, task, 0.50, 0.05, 90, time.Unix(100, 0))
+	entries := splitFrozenCharge(buyer, supplier, task, "usd", 0.50, 0.05, 90, time.Unix(100, 0))
 	if len(entries) != 3 {
 		t.Fatalf("entries=%d want 3", len(entries))
 	}

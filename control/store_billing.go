@@ -63,18 +63,23 @@ func (s *Store) JobChargeInfo(ctx context.Context, jobID uuid.UUID) (buyerID uui
 	var firmQuote bool
 	var firmMax float64
 	var slaRefund float64
+	var currency string
 	err = s.pool.QueryRow(ctx,
-		`SELECT buyer_id, COALESCE(actual_usd,0), firm_quote, COALESCE(firm_quote_max_usd,0),
+		`SELECT buyer_id,currency,COALESCE(actual_usd,0),firm_quote,COALESCE(firm_quote_max_usd,0),
 		        COALESCE((SELECT SUM(le.amount_usd) FROM ledger_entries le
 		                  WHERE le.kind = 'sla_refund'
 		                    AND le.payout_ref = 'sla-' || jobs.id::text), 0)::float8
 		   FROM jobs WHERE id=$1`,
-		jobID).Scan(&buyerID, &actualUSD, &firmQuote, &firmMax, &slaRefund)
+		jobID).Scan(&buyerID, &currency, &actualUSD, &firmQuote, &firmMax, &slaRefund)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = errNotFound
 		return
 	}
 	if err != nil {
+		return
+	}
+	if err = RequireSettlementCurrency(currency); err != nil {
+		err = fmt.Errorf("job %s cannot be charged under this deployment: %w", jobID, err)
 		return
 	}
 	chargeUSD = actualUSD
@@ -156,14 +161,15 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 	var slaGuarantee int
 	var slaPremium *float64
 	err := s.pool.QueryRow(ctx,
-		`SELECT buyer_id, status, job_type, created_at,
+		`SELECT buyer_id,status,job_type,created_at,currency,
 		        COALESCE(estimated_usd,0), COALESCE(actual_usd,0),
 		        firm_quote, firm_quote_max_usd, billed_usd,
 		        charge_batch_id, stripe_pi,
 		        COALESCE(sla_guarantee_secs,0), sla_premium_usd, sla_met
 		 FROM jobs WHERE id = $1 AND buyer_id = $2`,
 		jobID, buyerID,
-	).Scan(&iv.BuyerID, &iv.Status, &iv.JobType, &iv.CreatedAt, &iv.EstimatedUSD, &iv.ActualUSD,
+	).Scan(&iv.BuyerID, &iv.Status, &iv.JobType, &iv.CreatedAt, &iv.Currency,
+		&iv.EstimatedUSD, &iv.ActualUSD,
 		&iv.FirmQuote, &firmMax, &billed, &chargeBatchID, &stripePI,
 		&slaGuarantee, &slaPremium, &iv.SLAMet)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -242,11 +248,6 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 			usdToMicros(*iv.ProcessorFeeAllocatedUSD)
 		netUSD := microsToUSD(netMicros)
 		iv.PlatformNetAfterProcessorUSD = &netUSD
-	}
-	if iv.Currency == "" {
-		// Pre-settlement invoice: no ledger rows yet — report the deployment
-		// settlement currency (the only currency new charges will use).
-		iv.Currency = SettlementCurrencyCode()
 	}
 	if quoted, ok, qerr := s.QuotedUSDForJob(ctx, jobID); qerr != nil {
 		return nil, qerr

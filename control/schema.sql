@@ -3149,7 +3149,196 @@ BEGIN
     ) THEN
         ALTER TABLE execution_contracts ADD COLUMN currency TEXT NOT NULL DEFAULT 'usd';
     END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='jobs' AND column_name='currency'
+    ) THEN
+        ALTER TABLE jobs ADD COLUMN currency TEXT NOT NULL DEFAULT 'usd';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='job_economic_plans' AND column_name='currency'
+    ) THEN
+        ALTER TABLE job_economic_plans ADD COLUMN currency TEXT NOT NULL DEFAULT 'usd';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='charge_batches' AND column_name='currency'
+    ) THEN
+        ALTER TABLE charge_batches ADD COLUMN currency TEXT NOT NULL DEFAULT 'usd';
+    END IF;
 END $cur$;
+
+-- Currency is part of quote authority, not display metadata. Historical quotes
+-- may predate these JSON fields, so the constraints are NOT VALID (enforced for
+-- every new/changed row without pretending old rows were currency-bound).
+ALTER TABLE quotes
+    DROP CONSTRAINT IF EXISTS quotes_economic_currency_bound;
+ALTER TABLE quotes
+    ADD CONSTRAINT quotes_economic_currency_bound CHECK (
+        economic_plan IS NULL
+        OR (
+            economic_plan #>> '{schedule,currency}' IS NOT NULL
+            AND economic_plan #>> '{schedule,currency}' = currency
+        )
+    ) NOT VALID;
+ALTER TABLE quotes
+    DROP CONSTRAINT IF EXISTS quotes_json_currency_bound;
+ALTER TABLE quotes
+    ADD CONSTRAINT quotes_json_currency_bound CHECK (
+        economic_plan IS NULL
+        OR quote_json IS NULL
+        OR (
+            quote_json->>'currency' IS NOT NULL
+            AND quote_json->>'currency' = currency
+            AND quote_json #>> '{economics,schedule,currency}' IS NOT NULL
+            AND quote_json #>> '{economics,schedule,currency}' = currency
+        )
+    ) NOT VALID;
+
+CREATE OR REPLACE FUNCTION cx_reject_quote_authority_update() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'quote authority for % is immutable', OLD.id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS quotes_authority_immutable ON quotes;
+CREATE TRIGGER quotes_authority_immutable
+    BEFORE UPDATE ON quotes
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_quote_authority_update();
+
+-- Accepted jobs carry currency as immutable execution and collection
+-- authority. Upgrade-era economic JSON is backfilled once from the historical
+-- USD default; every new plan must state and match it explicitly.
+DROP TRIGGER IF EXISTS job_economic_plans_immutable ON job_economic_plans;
+UPDATE job_economic_plans
+   SET plan_json = jsonb_set(plan_json, '{schedule,currency}', to_jsonb(currency), true)
+ WHERE plan_json #>> '{schedule,currency}' IS NULL;
+CREATE TRIGGER job_economic_plans_immutable
+    BEFORE UPDATE ON job_economic_plans
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_job_economic_plan_update();
+
+ALTER TABLE job_economic_plans
+    DROP CONSTRAINT IF EXISTS job_economic_plans_json_currency_bound;
+ALTER TABLE job_economic_plans
+    ADD CONSTRAINT job_economic_plans_json_currency_bound CHECK (
+        plan_json #>> '{schedule,currency}' IS NOT NULL
+        AND plan_json #>> '{schedule,currency}' = currency
+    ) NOT VALID;
+
+CREATE OR REPLACE FUNCTION cx_reject_job_currency_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.currency IS DISTINCT FROM NEW.currency
+       OR OLD.quote_id IS DISTINCT FROM NEW.quote_id THEN
+        RAISE EXCEPTION 'job quote/currency authority for % is immutable', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS jobs_currency_immutable ON jobs;
+CREATE TRIGGER jobs_currency_immutable
+    BEFORE UPDATE OF currency,quote_id ON jobs
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_job_currency_update();
+
+CREATE OR REPLACE FUNCTION cx_reject_task_job_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.job_id IS DISTINCT FROM NEW.job_id THEN
+        RAISE EXCEPTION 'task job authority for % is immutable', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS tasks_job_immutable ON tasks;
+CREATE TRIGGER tasks_job_immutable
+    BEFORE UPDATE OF job_id ON tasks
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_task_job_update();
+
+CREATE OR REPLACE FUNCTION cx_validate_job_quote_currency() RETURNS trigger AS $$
+DECLARE quote_currency TEXT;
+BEGIN
+    IF NEW.quote_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT currency INTO quote_currency FROM quotes WHERE id=NEW.quote_id;
+    IF quote_currency IS NULL OR quote_currency <> NEW.currency THEN
+        RAISE EXCEPTION 'job % currency % does not match quote % currency %',
+            NEW.id,NEW.currency,NEW.quote_id,quote_currency;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS jobs_quote_currency_bound ON jobs;
+CREATE CONSTRAINT TRIGGER jobs_quote_currency_bound
+    AFTER INSERT ON jobs
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_job_quote_currency();
+
+CREATE OR REPLACE FUNCTION cx_validate_job_plan_currency() RETURNS trigger AS $$
+DECLARE job_currency TEXT;
+BEGIN
+    SELECT currency INTO job_currency FROM jobs WHERE id=NEW.job_id;
+    IF job_currency IS NULL OR job_currency <> NEW.currency THEN
+        RAISE EXCEPTION 'job economic plan % currency % does not match job currency %',
+            NEW.job_id,NEW.currency,job_currency;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS job_economic_plans_currency_bound ON job_economic_plans;
+CREATE CONSTRAINT TRIGGER job_economic_plans_currency_bound
+    AFTER INSERT ON job_economic_plans
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_job_plan_currency();
+
+CREATE OR REPLACE FUNCTION cx_reject_charge_batch_currency_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.currency IS DISTINCT FROM NEW.currency THEN
+        RAISE EXCEPTION 'charge batch currency authority for % is immutable', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS charge_batches_currency_immutable ON charge_batches;
+CREATE TRIGGER charge_batches_currency_immutable
+    BEFORE UPDATE OF currency ON charge_batches
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_charge_batch_currency_update();
+
+CREATE OR REPLACE FUNCTION cx_reject_ledger_currency_target_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.currency IS DISTINCT FROM NEW.currency
+       OR OLD.task_id IS DISTINCT FROM NEW.task_id THEN
+        RAISE EXCEPTION 'ledger currency/task authority for % is immutable', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS ledger_currency_target_immutable ON ledger_entries;
+CREATE TRIGGER ledger_currency_target_immutable
+    BEFORE UPDATE OF currency,task_id ON ledger_entries
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_ledger_currency_target_update();
+
+-- Task ledger rows inherit their accepted job's immutable currency. This
+-- database-side fence catches bypasses of the sole Go ledger writer.
+CREATE OR REPLACE FUNCTION cx_validate_task_ledger_currency() RETURNS trigger AS $$
+DECLARE job_currency TEXT;
+BEGIN
+    IF NEW.task_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT j.currency INTO job_currency
+      FROM tasks t JOIN jobs j ON j.id=t.job_id
+     WHERE t.id=NEW.task_id;
+    IF job_currency IS NULL OR job_currency <> NEW.currency THEN
+        RAISE EXCEPTION 'ledger task % currency % does not match job currency %',
+            NEW.task_id,NEW.currency,job_currency;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS ledger_task_currency_bound ON ledger_entries;
+CREATE CONSTRAINT TRIGGER ledger_task_currency_bound
+    AFTER INSERT OR UPDATE ON ledger_entries
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_task_ledger_currency();
 
 -- Drop legacy currency='usd'-only CHECKs (auto-named or explicit) and install
 -- the supported-currency CHECK. Idempotent: never touch an already-correct
@@ -3163,6 +3352,9 @@ DECLARE
         'ledger_entries',
         'quotes',
         'execution_contracts',
+        'jobs',
+        'job_economic_plans',
+        'charge_batches',
         'buyer_charge_operations',
         'buyer_cash_collections',
         'platform_subsidy_funds',

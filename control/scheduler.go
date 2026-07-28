@@ -560,6 +560,10 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	      LIMIT 1
 	   ) runtime_authority
 	   WHERE j.status NOT IN ('cancelled','failed')
+	     -- A queued obligation is executable only by a deployment configured
+	     -- for the exact currency frozen at acceptance. Currency cutovers never
+	     -- reinterpret old numeric amounts.
+	     AND j.currency = $7
 	     AND runtime_authority.model_kind <> ''
 	     -- Only jobs that ACTUALLY have a claimable task right now reach here. A job
 	     -- with no queued/retrying-and-visible task this worker could take can never
@@ -860,11 +864,15 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 	tier := reputationTier(rep, jobsDone)
 
 	var c ClaimedTask
+	settlementCurrency := SettlementCurrencyCode()
+	if settlementCurrency == "" {
+		return nil, errors.New("task claim requires a configured settlement currency")
+	}
 	claimTaskQuery := ClaimTaskSQL
 	scanClaim := func(claimedByPredicate string) error {
 		return tx.QueryRow(ctx, claimTaskQuery(claimedByPredicate),
 			w.WorkerID, int(tier), selfCostRank, generatedRuntimeMatrixSHA256,
-			selfMinPayoutUsdHr, askDeferralWindow.String(),
+			selfMinPayoutUsdHr, askDeferralWindow.String(), settlementCurrency,
 		).Scan(&c.TaskID, &c.Attempt, &c.JobID, &c.JobType, &c.ModelRef, &c.ModelKind,
 			&c.RuntimeCellID, &c.RuntimeID, &c.RuntimeMatrixSHA, &c.InputRef, &c.ResultKey,
 			&c.OutputRef, &c.Tier, &c.MinMemoryGB, &c.HWClasses, &c.MaxDurationSecs,

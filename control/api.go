@@ -619,6 +619,12 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		if q.JobType != sub.JobType.Type || q.ModelRef != sub.Model.Ref || q.Tier != sub.Tier {
 			return JobSubmitResponse{}, &httpError{http.StatusConflict, "quote does not match this submission"}
 		}
+		if err := validateBoundQuoteCurrency(q); err != nil {
+			return JobSubmitResponse{}, &httpError{
+				http.StatusConflict,
+				"quote currency no longer matches this deployment; request a new quote",
+			}
+		}
 		if !q.EconomicExecutable || q.EconomicScheduleVersion == "" {
 			return JobSubmitResponse{}, &httpError{http.StatusConflict, "quote has no executable economic plan; request a new quote"}
 		}

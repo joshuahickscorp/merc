@@ -91,6 +91,10 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	if err := ValidateEconomicPlanSnapshot(j.EconomicPlan); err != nil {
 		return fmt.Errorf("refusing job without valid economic plan: %w", err)
 	}
+	jobCurrency := j.EconomicPlan.Schedule.Currency
+	if err := RequireSettlementCurrency(jobCurrency); err != nil {
+		return fmt.Errorf("refusing job outside the settlement currency: %w", err)
+	}
 	if err := ValidateComputePlanEconomicSnapshot(j.ComputePlan, j.WorkloadDecision, j.EconomicPlan); err != nil {
 		return fmt.Errorf("refusing job without valid compute plan: %w", err)
 	}
@@ -194,17 +198,21 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	}
 	defer tx.Rollback(ctx)
 	if j.QuoteID != uuid.Nil {
-		var quoteComputeSHA256 string
+		var quoteComputeSHA256, quoteCurrency string
 		if err := tx.QueryRow(ctx,
-			`SELECT COALESCE(compute_plan_sha256,'')
+			`SELECT COALESCE(compute_plan_sha256,''), currency
 			   FROM quotes
 			  WHERE id=$1 AND buyer_id=$2`,
 			j.QuoteID, j.BuyerID,
-		).Scan(&quoteComputeSHA256); err != nil {
+		).Scan(&quoteComputeSHA256, &quoteCurrency); err != nil {
 			return fmt.Errorf("load bound quote compute authority: %w", err)
 		}
 		if quoteComputeSHA256 == "" || quoteComputeSHA256 != computeSHA256 {
 			return errors.New("job compute plan does not match its bound quote")
+		}
+		if quoteCurrency != jobCurrency {
+			return fmt.Errorf("%w: job currency %s does not match bound quote currency %s",
+				errCurrencyMismatch, jobCurrency, quoteCurrency)
 		}
 	}
 
@@ -224,10 +232,10 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    economic_input_records, economic_input_bytes, economic_input_source,
 		    submit_idempotency_key, submit_request_sha256, prefix_id,
 		    workload_decision, workload_decision_sha256,
-		    compute_plan, compute_plan_sha256)
+		    compute_plan, compute_plan_sha256, currency)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
 		         $11,$12,$13,$14,$15,$16,$17,$18,$19,'tracking',$20,$21,$22,$23,$24,$25,$26,
-		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''),NULLIF($32,''),$33,$34,$35,$36)`,
+		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''),NULLIF($32,''),$33,$34,$35,$36,$37)`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
@@ -237,7 +245,7 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		nullPosInt(j.SLAGuaranteeSecs), nullPosFloat(j.SLAPremiumUSD),
 		economicInputRecords, economicInputBytes, economicInputSource,
 		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID,
-		workloadJSON, workloadSHA256, computeJSON, computeSHA256,
+		workloadJSON, workloadSHA256, computeJSON, computeSHA256, jobCurrency,
 	)
 	if err != nil {
 		return err
@@ -267,11 +275,11 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO job_economic_plans (
-		  job_id,plan_version,schedule_version,plan_json,initial_task_count,
+		  job_id,plan_version,schedule_version,currency,plan_json,initial_task_count,
 		  buyer_charge_per_task_usd,supplier_payout_per_task_usd,
 		  initial_buyer_charge_usd,reserved_buyer_charge_usd,sla_premium_usd,firm_quote_max_usd
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		j.ID, j.EconomicPlan.Version, j.EconomicPlan.Schedule.Version, planJSON,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		j.ID, j.EconomicPlan.Version, j.EconomicPlan.Schedule.Version, jobCurrency, planJSON,
 		j.EconomicPlan.Input.InitialTaskCount, j.EconomicPlan.BuyerChargePerTaskUSD,
 		j.EconomicPlan.SupplierPayoutPerTaskUSD, j.EconomicPlan.InitialBuyerChargeUSD,
 		j.EconomicPlan.ReservedBuyerChargeUSD, j.EconomicPlan.Input.SLAPremiumUSD,
@@ -547,6 +555,7 @@ type jobInternal struct {
 	BuyerID            uuid.UUID
 	TaskCount          int
 	EstimatedUSD       float64
+	Currency           string
 	VerificationPolicy []byte
 }
 
@@ -554,10 +563,10 @@ func (s *Store) getJobInternal(ctx context.Context, jobID uuid.UUID) (*jobIntern
 	var j jobInternal
 	err := s.pool.QueryRow(ctx,
 		`SELECT buyer_id, COALESCE(task_count,0), COALESCE(estimated_usd,0),
-		        COALESCE(verification_policy,'{}'::jsonb)
+		        currency, COALESCE(verification_policy,'{}'::jsonb)
 		 FROM jobs WHERE id = $1`,
 		jobID,
-	).Scan(&j.BuyerID, &j.TaskCount, &j.EstimatedUSD, &j.VerificationPolicy)
+	).Scan(&j.BuyerID, &j.TaskCount, &j.EstimatedUSD, &j.Currency, &j.VerificationPolicy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNotFound
 	}

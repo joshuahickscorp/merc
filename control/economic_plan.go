@@ -11,7 +11,11 @@ import (
 )
 
 type EconomicSchedule struct {
-	Version           string  `json:"version"`
+	Version string `json:"version"`
+	// Currency is the ISO settlement currency for every major-unit amount in
+	// this schedule and the plan derived from it. Historical field names retain
+	// their _usd suffix, but that suffix never overrides this authority.
+	Currency          string  `json:"currency"`
 	ProcessorPercent  float64 `json:"processor_percent"`
 	ProcessorFixedUSD float64 `json:"processor_fixed_usd"`
 	// MinChargeBatchUSD is the smallest amount the collector will ever put on a
@@ -150,6 +154,7 @@ func LoadEconomicScheduleFromEnv() (EconomicSchedule, error) {
 	}
 	schedule := EconomicSchedule{
 		Version:           version,
+		Currency:          SettlementCurrencyCode(),
 		ProcessorPercent:  processorBPS / 10_000,
 		ProcessorFixedUSD: fixed,
 		// Read from the collector rather than its own env var: the batch floor
@@ -184,6 +189,10 @@ func validateEconomicSchedule(s EconomicSchedule) string {
 	if s.Version == "" {
 		return "economic schedule version is required"
 	}
+	currency, err := ParseCurrency(s.Currency)
+	if err != nil || s.Currency != currency.Code() {
+		return "economic schedule currency must be a supported ISO settlement currency"
+	}
 	if !finiteNonNegative(s.ProcessorPercent) || s.ProcessorPercent >= 1 {
 		return "processor_percent must be finite and in [0,1)"
 	}
@@ -211,6 +220,7 @@ func blockedEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule, reason
 		Executable: false, BlockReason: reason, MinimumMarginHeadroomUSD: -1,
 		SupplierSettlementPolicy: supplierSettlementPolicyFloorCentCarryV1,
 		Assumptions: []string{
+			"every major-unit amount is denominated in schedule.currency; legacy _usd field names do not override that authority",
 			"quote-derived settlement is revenue, never independent execution cost",
 			"actual processor fees are reconciled after collection",
 		},
@@ -305,6 +315,7 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 		ReservedBuyerChargeUSD:   roundEconomicUSD(buyerPerTask*float64(in.InitialTaskCount+in.ExtraTaskReserve) + in.SLAPremiumUSD),
 		MinimumMarginHeadroomUSD: math.Inf(1),
 		Assumptions: []string{
+			"every major-unit amount is denominated in schedule.currency; legacy _usd field names do not override that authority",
 			"supplier payout is frozen from base compute, independent of buyer safety fee and refundable SLA premium",
 			"supplier liability is reserved at six decimals; provider cash floors to whole cents and every sub-cent remainder stays durably owed",
 			"the processor fixed fee is amortised over a minimum-size charge batch, matching how chargeOrDeferJob and FormChargeBatch actually settle",

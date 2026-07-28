@@ -154,7 +154,10 @@ func ledgerEntriesFromCanonical(rows []canonicalVerificationSettlement) ([]Ledge
 		if err != nil {
 			return nil, fmt.Errorf("invalid persisted settlement amount %q", row.AmountUSD)
 		}
-		entry := LedgerEntry{Kind: row.Kind, AmountUSD: amount, PayoutStatus: row.PayoutStatus}
+		entry := LedgerEntry{
+			Kind: row.Kind, AmountUSD: amount, Currency: row.Currency,
+			PayoutStatus: row.PayoutStatus,
+		}
 		if entry.SupplierID, err = optionalUUIDFromString(row.SupplierID); err != nil {
 			return nil, err
 		}

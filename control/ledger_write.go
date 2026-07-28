@@ -45,6 +45,7 @@ func moneyUSDInDomain(v float64) bool {
 // Both pgx.Tx and *pgxpool.Pool satisfy it.
 type ledgerExec interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 // ledgerInsert is the internal shape for production ledger writes. Amounts are
@@ -172,16 +173,28 @@ func insertJobDisputeClawbacksTx(ctx context.Context, db ledgerExec, jobID uuid.
 // insertJobSLAPremiumChargeTx records the once-only SLA premium buyer_charge
 // from the frozen economic plan (NUMERIC → NUMERIC, no float path).
 func insertJobSLAPremiumChargeTx(ctx context.Context, db ledgerExec, jobID uuid.UUID, payoutRef string) (pgconn.CommandTag, error) {
-	settle, err := SettlementCurrency()
-	if err != nil {
+	var jobCurrency, planCurrency string
+	if err := db.QueryRow(ctx, `
+		SELECT j.currency,p.currency
+		  FROM jobs j JOIN job_economic_plans p ON p.job_id=j.id
+		 WHERE j.id=$1`, jobID).Scan(&jobCurrency, &planCurrency); err != nil {
 		return pgconn.CommandTag{}, err
+	}
+	if jobCurrency != planCurrency {
+		return pgconn.CommandTag{}, fmt.Errorf(
+			"%w: job %s currency %s differs from economic plan %s",
+			errCurrencyMismatch, jobID, jobCurrency, planCurrency,
+		)
+	}
+	if err := RequireSettlementCurrency(jobCurrency); err != nil {
+		return pgconn.CommandTag{}, fmt.Errorf("job %s cannot settle SLA premium: %w", jobID, err)
 	}
 	return db.Exec(ctx, `
 		INSERT INTO ledger_entries (kind, buyer_id, amount_usd, currency, payout_status, payout_ref)
 		SELECT 'buyer_charge', j.buyer_id, -p.sla_premium_usd, $3, 'released', $2
 		  FROM jobs j JOIN job_economic_plans p ON p.job_id = j.id
 		 WHERE j.id = $1 AND j.status = 'complete' AND p.sla_premium_usd > 0
-		ON CONFLICT DO NOTHING`, jobID, payoutRef, settle.Code())
+		ON CONFLICT DO NOTHING`, jobID, payoutRef, jobCurrency)
 }
 
 // resolveLedgerInsert validates and fills currency on a ledger write. Empty
