@@ -190,15 +190,6 @@ func (s *Store) tryBatchExactReuse(ctx context.Context, identity string, fullPri
 	return hit, money, true, nil
 }
 
-// recordBatchExactReuseAfterComplete stores a finished batch job's primary
-// output under its request identity when the output is content-addressable.
-func (s *Store) recordBatchExactReuseAfterComplete(ctx context.Context, identity, resultRef string, outputTokens int64) error {
-	if identity == "" || resultRef == "" {
-		return nil
-	}
-	return s.StoreExactResult(ctx, identity, resultRef, outputTokens)
-}
-
 // batchFullPricePer1K is the catalogue per-1k rate used for class-aware pricing.
 func batchFullPricePer1K(pricePer1K float64) float64 {
 	if pricePer1K <= 0 {
