@@ -10,6 +10,7 @@ import (
 )
 
 func TestRuntimeCatalogPriceIsStableAcrossMigration(t *testing.T) {
+	pinBoardClockForPublication(t)
 	databaseURL := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -166,6 +167,7 @@ func TestRuntimeCatalogPriceIsStableAcrossMigration(t *testing.T) {
 }
 
 func TestApplyRepricingRollsBackEveryModelWhenOneTargetUpdateFails(t *testing.T) {
+	pinBoardClockForPublication(t)
 	databaseURL := requireTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -211,6 +211,14 @@ func loadPriceBoard() (*priceBoard, error) {
 			priceBoardErr = fmt.Errorf("price board has no classes")
 			return
 		}
+		// Parse the timestamp here so a malformed date is caught at load, but do
+		// not age-filter: the board is data, and the read-only price page should
+		// render what it says. Staleness is enforced where new pricing authority
+		// is minted, in BuildCataloguePriceSchedule.
+		if _, err := parseBoardTimestamp(b.FetchedAt); err != nil {
+			priceBoardErr = fmt.Errorf("price board fetched_at is unusable: %w", err)
+			return
+		}
 		sum := sha256.Sum256(raw)
 		priceBoardSHA256 = fmt.Sprintf("%x", sum[:])
 		priceBoardCached = &b
@@ -391,7 +399,14 @@ func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
 // the entire schedule; boot never applies a profitable subset and leaves the
 // rest on stale terms.
 func BuildCataloguePriceSchedule(supplierShare float64) (CataloguePriceSchedule, error) {
-	board, err := loadPriceBoard()
+	loaded, err := loadPriceBoard()
+	if err != nil {
+		return CataloguePriceSchedule{}, err
+	}
+	// Publication is where market evidence becomes pricing authority, so it is
+	// where age is enforced. Work on a copy: dropping stale rows must not mutate
+	// the cached board that the read-only price page renders.
+	board, err := boardAsOfPublication(loaded, priceBoardNow())
 	if err != nil {
 		return CataloguePriceSchedule{}, err
 	}

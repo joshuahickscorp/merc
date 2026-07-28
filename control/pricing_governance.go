@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 )
 
 // The catalogue used to price a class as min(observations). That is the most
@@ -79,6 +80,97 @@ const (
 	minBoardObservations    = 3
 	minBoardTotalConfidence = 1.0
 )
+
+// Age is the third way an observation stops being evidence, after count and
+// attribution. A row keeps its vendor-owned confidence of 1.0 forever, so
+// without this a board fetched once would price the catalogue indefinitely and
+// a single old row could still carry a class. Stale rows are dropped at load,
+// which lets the count and confidence floors above do the rest: a class that
+// falls below them is refused, and the previous catalogue price stands.
+const (
+	// An observation older than this is not current market evidence.
+	maxObservationAge = 45 * 24 * time.Hour
+	// A board whose own fetch is older than this cannot be published from at
+	// all, however fresh individual rows claim to be.
+	maxBoardAge = 60 * 24 * time.Hour
+)
+
+// Boards carry plain dates; observations sometimes carry a full timestamp.
+var boardTimestampLayouts = []string{time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02"}
+
+func parseBoardTimestamp(value string) (time.Time, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return time.Time{}, fmt.Errorf("timestamp is empty")
+	}
+	for _, layout := range boardTimestampLayouts {
+		if at, err := time.Parse(layout, trimmed); err == nil {
+			return at.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("timestamp %q is not RFC3339 or YYYY-MM-DD", trimmed)
+}
+
+// priceBoardNow is the clock publication ages the board against. It is a seam
+// so tests that exercise the committed board can pin a date near its fetch:
+// a wall-clock comparison against fixture data would otherwise turn every such
+// test into a dated failure that arrives with no code change.
+var priceBoardNow = func() time.Time { return time.Now().UTC() }
+
+// boardAsOfPublication returns a copy of the board with stale rows removed, or
+// an error if the board as a whole is too old to mint pricing authority from.
+// The copy matters: the cached board backs the read-only price page, which
+// should keep rendering what the board actually says.
+func boardAsOfPublication(board *priceBoard, now time.Time) (*priceBoard, error) {
+	boardAt, err := parseBoardTimestamp(board.FetchedAt)
+	if err != nil {
+		return nil, fmt.Errorf("price board fetched_at is unusable: %w", err)
+	}
+	copied := *board
+	copied.Classes = make(map[string]priceBoardClass, len(board.Classes))
+	for name, class := range board.Classes {
+		copied.Classes[name] = class
+	}
+	if err := dropStaleObservations(&copied, boardAt, now); err != nil {
+		return nil, err
+	}
+	return &copied, nil
+}
+
+// dropStaleObservations removes rows that are no longer current evidence, and
+// refuses a board that is wholly stale. Observations without their own
+// fetched_at inherit the board's, so an undated row cannot outlive the board.
+func dropStaleObservations(board *priceBoard, boardAt, now time.Time) error {
+	if now.Sub(boardAt) > maxBoardAge {
+		return fmt.Errorf(
+			"price board fetched_at %s is %.0f days old (ceiling %.0f days); refusing to price from it",
+			boardAt.Format("2006-01-02"), now.Sub(boardAt).Hours()/24, maxBoardAge.Hours()/24)
+	}
+	if boardAt.After(now.Add(24 * time.Hour)) {
+		return fmt.Errorf("price board fetched_at %s is in the future", boardAt.Format("2006-01-02"))
+	}
+	for name, class := range board.Classes {
+		kept := make([]priceBoardObservation, 0, len(class.Observations))
+		for _, obs := range class.Observations {
+			at := boardAt
+			if strings.TrimSpace(obs.FetchedAt) != "" {
+				parsed, err := parseBoardTimestamp(obs.FetchedAt)
+				if err != nil {
+					// An unparseable date is not a fresh date.
+					continue
+				}
+				at = parsed
+			}
+			if now.Sub(at) > maxObservationAge || at.After(now.Add(24*time.Hour)) {
+				continue
+			}
+			kept = append(kept, obs)
+		}
+		class.Observations = kept
+		board.Classes[name] = class
+	}
+	return nil
+}
 
 type errBoardUngoverned struct {
 	Class      string

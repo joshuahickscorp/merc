@@ -92,6 +92,7 @@ func TestMarketBoardIsWeightedMedianTimesMultiplier(t *testing.T) {
 }
 
 func TestCatalogueScheduleDigestBindsBoardPolicyAndEveryResult(t *testing.T) {
+	pinBoardClockForPublication(t)
 	schedule, err := BuildCataloguePriceSchedule(0.97)
 	if err != nil {
 		t.Fatal(err)
@@ -129,6 +130,7 @@ func TestCatalogueScheduleDigestBindsBoardPolicyAndEveryResult(t *testing.T) {
 }
 
 func TestCatalogueScheduleRequiresExplicitCrossCurrencyFX(t *testing.T) {
+	pinBoardClockForPublication(t)
 	installSettlementCurrencyForTest(t, "cad")
 	t.Setenv(priceFXRateEnv, "")
 	t.Setenv(priceFXRevisionEnv, "")
