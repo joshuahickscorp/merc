@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
-"""merc private canary: exercise every lane end to end and report what is real.
+"""merc capability inventory: exercise every lane and report what was observed.
 
-The goal's bar for a lane is specific -- buyer request, contract, scheduler,
-REAL worker or runtime, result, verification, buyer debit, supplier payable,
-positive merc contribution, receipt -- and public capability requires the lane
-to have cleared it.
+The goal's CANARY_PROVEN bar is specific -- the exact candidate must produce a
+receipt for buyer request, contract, scheduler, REAL worker or runtime, result,
+verification, buyer debit, supplier payable, and positive merc contribution.
+This legacy inventory does not produce that candidate-bound receipt. It can
+therefore report TESTED, or validate retained evidence as REAL_RUNTIME_PROVEN,
+but it can never mint CANARY_PROVEN from a capability probe plus a partial test.
 
-So the one thing this harness must never do is report a lane proven because its
-code exists. Every lane here declares the capability it needs; a lane whose
-capability is absent is reported EXTERNALLY_BLOCKED with the specific missing
-thing named, and it can never be reported CANARY_PROVEN in that run. There is no
-flag to override that, because a canary you can talk into passing is a receipt
-for nothing.
+Candidate canary authority belongs to scripts/go-closure-canary-rehearsal.sh,
+whose receipt is bound to an immutable image and exact candidate commit. Keeping
+that authority out of this script prevents a reachable endpoint or a boolean
+named ``full_path`` from becoming a receipt for work the command never did.
 
 Exit codes:
-  0  every lane reached CANARY_PROVEN
+  0  every lane reached CANARY_PROVEN (currently impossible by design)
   1  a lane ran and FAILED -- a real defect
-  2  a lane could not run because a capability is missing (not a defect)
+  2  one or more lanes lack candidate-bound canary proof (expected)
 
 Usage:
   python3 scripts/private-canary.py --out evidence/canary/private-canary.json
 """
 
 import argparse
+import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -32,8 +34,10 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_PATH = Path(REPO).resolve()
 
 
 # --------------------------------------------------------------- capabilities
@@ -183,13 +187,121 @@ CAPABILITIES = {
 }
 
 
+# --------------------------------------------------------- retained evidence
+# Retained receipts can preserve a REAL_RUNTIME_PROVEN fact across runs, but
+# they cannot prove that the current candidate image was exercised. The latter
+# is intentionally reserved for the formal GO-closure rehearsal.
+
+COMMON_CHAIN_FIELDS = (
+    "buyer_request",
+    "merc_contract",
+    "scheduler",
+    "real_worker_runtime",
+    "verification",
+    "buyer_debit",
+    "supplier_payable",
+    "positive_merc_contribution",
+    "receipt",
+)
+
+
+def _git(*args):
+    return subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True)
+
+
+def validate_retained_runtime_evidence(spec):
+    """Validate a committed historical real-runtime receipt.
+
+    A file supplied from /tmp, an untracked file, a dirty rewrite, a source
+    commit outside the current history, or a receipt containing only a
+    self-declared status is refused. This is provenance validation, not external
+    attestation; the result is capped at REAL_RUNTIME_PROVEN.
+    """
+    configured = Path(spec["path"])
+    candidate = configured if configured.is_absolute() else REPO_PATH / configured
+    if candidate.is_symlink():
+        return False, "receipt must not be a symlink", None
+    try:
+        path = candidate.resolve(strict=True)
+        relative = path.relative_to(REPO_PATH)
+    except (FileNotFoundError, ValueError):
+        return False, "receipt is missing or outside the merc repository", None
+    if not path.is_file():
+        return False, "receipt is not a regular file", None
+
+    rel = str(relative)
+    if _git("ls-files", "--error-unmatch", "--", rel).returncode != 0:
+        return False, "receipt is not tracked", None
+    if _git("diff", "--quiet", "--", rel).returncode != 0:
+        return False, "receipt has unstaged changes", None
+    if _git("diff", "--cached", "--quiet", "--", rel).returncode != 0:
+        return False, "receipt has staged changes", None
+
+    try:
+        raw = path.read_bytes()
+        receipt = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, f"receipt cannot be parsed: {exc}", None
+    if not isinstance(receipt, dict):
+        return False, "receipt root must be an object", None
+
+    commit = receipt.get("commit", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return False, "receipt source commit is not a full lowercase SHA", None
+    if _git("merge-base", "--is-ancestor", commit, "HEAD").returncode != 0:
+        return False, "receipt source commit is not an ancestor of HEAD", None
+    if (receipt.get("schema_version") != 1 or
+            receipt.get("kind") != "real_runtime_end_to_end" or
+            receipt.get("lane") != spec["lane"] or
+            receipt.get("evidence_level") != "REAL_RUNTIME_PROVEN" or
+            receipt.get("public_claim_allowed") is not False):
+        return False, "receipt identity or evidence ceiling is invalid", None
+    runtime = receipt.get("runtime", {})
+    if runtime.get("kind") != "REAL" or not runtime.get("engine") or not runtime.get("hardware"):
+        return False, "receipt lacks a concrete real runtime identity", None
+
+    chain = receipt.get("chain", {})
+    required = (*COMMON_CHAIN_FIELDS, spec["result_field"])
+    if not all(chain.get(field) is True for field in required):
+        return False, "receipt does not contain the complete observed chain", None
+
+    try:
+        if spec["money_shape"] == "batch":
+            money = receipt.get("money_usd", {})
+            buyer = -float(money.get("buyer_charge", 0))
+            supplier = float(money.get("supplier_credit", 0))
+            platform = float(money.get("platform_take", 0))
+        else:
+            money = receipt.get("receipt", {})
+            buyer = float(money.get("buyer_charge_usd", 0))
+            supplier = float(money.get("supplier_payable_usd", 0))
+            platform = float(money.get("platform_margin_usd", 0))
+    except (AttributeError, TypeError, ValueError):
+        return False, "receipt money fields are not numeric", None
+    if not all(math.isfinite(value) for value in (buyer, supplier, platform)):
+        return False, "receipt money fields must be finite", None
+    if buyer <= 0 or supplier <= 0 or platform <= 0:
+        return False, "receipt does not prove positive buyer, supplier, and merc money", None
+    if abs(buyer - supplier - platform) > 0.000001:
+        return False, "receipt money does not conserve to micro-USD precision", None
+
+    digest = hashlib.sha256(raw).hexdigest()
+    detail = {
+        "status": "REAL_RUNTIME_PROVEN",
+        "path": rel,
+        "sha256": digest,
+        "source_commit": commit,
+        "candidate_bound": False,
+        "public_claim_allowed": False,
+    }
+    return True, "committed historical real-runtime receipt validated", detail
+
+
 # ---------------------------------------------------------------------- lanes
 # Each lane names the capabilities it needs and the command that exercises it.
-# `full_path` records whether the command actually walks the goal's chain
-# (request -> contract -> real runtime -> verification -> debit -> payable ->
-# receipt) or only part of it. A lane whose command is real but whose chain is
-# partial is reported TESTED, never CANARY_PROVEN -- the distinction is the
-# whole point of the status vocabulary.
+# A passing command proves TESTED and nothing more. Selected lanes may also
+# point to a committed historical receipt; strict validation can lift those
+# lanes to REAL_RUNTIME_PROVEN. No field in this list can mint CANARY_PROVEN.
 
 def go_test(pattern):
     return ["go", "test", "-count=1", "-run", pattern, "."]
@@ -198,27 +310,43 @@ def go_test(pattern):
 LANES = [
     {"id": "batch_inference", "needs": ["database", "object_store", "local_runtime"],
      "cmd": go_test("TestJobTaskMoney|TestPayoutMoneyPath"), "cwd": "control",
-     "full_path": True,
+     "retained_evidence": {
+         "path": "evidence/canary/real-runtime-embed.json",
+         "lane": "batch_embeddings",
+         "result_field": "result",
+         "money_shape": "batch",
+     },
      "note": "proven end to end against a real Apple Silicon worker "
              "(evidence/canary/real-runtime-embed.json)"},
     {"id": "embeddings", "needs": ["database", "object_store", "local_runtime"],
      "cmd": go_test("TestBillingSchema|TestExactReuse"), "cwd": "control",
-     "full_path": True,
+     "retained_evidence": {
+         "path": "evidence/canary/real-runtime-embed.json",
+         "lane": "batch_embeddings",
+         "result_field": "result",
+         "money_shape": "batch",
+     },
      "note": "real 384-dim embeddings computed on Metal, honeypot-verified, settled"},
     {"id": "realtime", "needs": ["database", "real_inference_runtime"],
      "cmd": go_test("TestRealtimeStreamContractVerificationSettlementAndReceipt"),
-     "cwd": "control", "full_path": True,
+     "cwd": "control",
+     "retained_evidence": {
+         "path": "evidence/canary/real-runtime-realtime.json",
+         "lane": "openai_compatible_realtime",
+         "result_field": "result_stream",
+         "money_shape": "realtime",
+     },
      "note": "proven against a real llama.cpp/Metal engine: contract, real completion, "
              "VERIFIED receipt, CAPTURED authorization, positive margin "
              "(evidence/canary/real-runtime-realtime.json)"},
     {"id": "runpod_vllm", "needs": ["database", "cuda_runtime"],
      "cmd": go_test("TestCUDAAdmission|TestEngineAdmissible"), "cwd": "control",
-     "full_path": True,
      "note": "NVIDIA hardware and a pinned digest-addressed vLLM image; no Apple "
-             "Silicon engine substitutes for this"},
+             "Silicon engine substitutes for this; the retained provider receipt is "
+             "direct-runtime evidence, not a merc request-to-settlement chain"},
     {"id": "openai_sdk_conformance", "needs": ["database", "openai_sdks"],
      "cmd": go_test("TestRealtimeStreamContractVerificationSettlementAndReceipt"),
-     "cwd": "control", "full_path": False,
+     "cwd": "control",
      "note": ("official openai Python 2.48.0 and JS 6.49.0 against merc. Against a REAL "
               "engine the JS client passes all seven capabilities and Python passes six: "
               "parallel_tool_calls fails because llama.cpp cannot parse this model's tool "
@@ -226,65 +354,64 @@ LANES = [
               "incompatibility, which is the whole argument for real-runtime proof")},
     {"id": "object_storage", "needs": ["database", "object_store"],
      "cmd": go_test("TestJobObjectRetention|TestBuyerObjectDeletion|TestBuyerCannotReach"),
-     "cwd": "control", "full_path": True,
+     "cwd": "control",
      "note": "retention, deletion, tenant isolation against a live store"},
     {"id": "image_generation", "needs": ["cuda_runtime"],
-     "cmd": go_test("TestImage"), "cwd": "control", "full_path": False,
+     "cmd": go_test("TestImage"), "cwd": "control",
      "note": "governance only; no image runtime exists"},
     {"id": "lora", "needs": ["cuda_runtime"],
-     "cmd": go_test("TestLoRA"), "cwd": "control", "full_path": False,
+     "cmd": go_test("TestLoRA"), "cwd": "control",
      "note": "settlement arithmetic only; no trainer, no evaluator dispatch"},
     {"id": "multi_gpu", "needs": ["cuda_runtime"],
      "cmd": go_test("TestAdmittedPlansAlwaysFit|TestHostTopologyFromRegistration"),
-     "cwd": "control", "full_path": False,
+     "cwd": "control",
      "note": "admission only; no tensor-parallel runtime has served a request"},
     {"id": "external_model_onboarding", "needs": ["real_inference_runtime"],
      "cmd": ["bash", "scripts/onboard-model-canary.sh"], "cwd": ".",
-     "full_path": False,
      "note": ("a real external model taken through policy, identity, smoke, "
               "determinism and a measured benchmark against a live runtime, plus "
               "four refusal cases: non-commercial licence, remote_code, an alias "
               "the runtime does not serve, and an unpinned revision")},
     {"id": "refunds_disputes", "needs": ["database"],
      "cmd": go_test("TestResolveDispute|TestReversal"), "cwd": "control",
-     "full_path": True, "note": "dispute filing, freeze, resolution and payout control"},
+     "note": "dispute filing, freeze, resolution and payout control"},
     {"id": "payouts", "needs": ["database", "stripe_sandbox"],
      "cmd": go_test("TestWorkerEarnings|TestEarningsCarry|TestSupplierAccrual"),
-     "cwd": "control", "full_path": True,
+     "cwd": "control",
      "note": "accrual and reconciliation; a real transfer needs the sandbox"},
     {"id": "failure_recovery", "needs": ["database"],
      "cmd": go_test("TestStuckRunningJobs|TestRescueStuckJob"), "cwd": "control",
-     "full_path": True, "note": "stuck-job rescue and cancellation"},
+     "note": "stuck-job rescue and cancellation"},
     {"id": "receipt_verification", "needs": ["database"],
      "cmd": go_test("TestMoneyCompleteness|TestLedgerWrite"), "cwd": "control",
-     "full_path": True, "note": "ledger conservation and sole-writer enforcement"},
+     "note": "ledger conservation and sole-writer enforcement"},
     {"id": "backup_restore", "needs": [],
      "cmd": ["bash", "scripts/test-backup-schedule.sh"], "cwd": ".",
-     "full_path": True, "note": "backup scheduling and envelope"},
+     "note": "backup scheduling and envelope"},
     {"id": "buyer_dashboard", "needs": ["database"],
-     "cmd": ["node", "scripts/buyer-dashboard-live.mjs"], "cwd": ".", "full_path": True,
+     "cmd": ["node", "scripts/buyer-dashboard-live.mjs"], "cwd": ".",
      "note": "the page's own script signs in against a running merc and opens its "
              "workspace; every route it calls must be one merc serves"},
     {"id": "supplier_console", "needs": [],
-     "cmd": ["node", "scripts/test-supplier-console.mjs"], "cwd": ".", "full_path": True,
+     "cmd": ["node", "scripts/test-supplier-console.mjs"], "cwd": ".",
      "note": "worker-token auth, sub-cent money at ledger granularity, 4 payout-rail "
              "states and the refusal path, against recorded control-plane responses"},
     {"id": "price_board", "needs": ["database"],
      "cmd": go_test("TestPublicPriceBoardPage|TestPriceBoardObservations|TestPriceBoardWeighting"),
-     "cwd": "control", "full_path": True,
+     "cwd": "control",
      "note": "the published page's own arithmetic must match the server's, including "
              "where the confidence weights decide the answer"},
     {"id": "python_sdk", "needs": ["database", "object_store", "local_runtime"],
-     "cmd": ["python3", "scripts/sdk-live-python.py"], "cwd": ".", "full_path": True,
+     "cmd": ["python3", "scripts/sdk-live-python.py"], "cwd": ".",
      "note": "submits a real job to a running merc, waits for a real worker, fetches "
              "and validates the real 384-dim result"},
     {"id": "typescript_sdk", "needs": ["database", "object_store", "local_runtime"],
-     "cmd": ["node", "scripts/sdk-live-typescript.mjs"], "cwd": ".", "full_path": True,
+     "cmd": ["node", "scripts/sdk-live-typescript.mjs"], "cwd": ".",
      "note": "same end-to-end run; found three defects the stub tests could not "
              "(missing Idempotency-Key, array input, wrong cancel route)"},
     {"id": "alerts", "needs": [],
      "cmd": ["node", "scripts/site-build.mjs"], "cwd": ".",
-     "full_path": False, "note": "alert and dashboard validation only; no delivery to a receiver"},
+     "note": "alert and dashboard validation only; no delivery to a receiver"},
 ]
 
 
@@ -322,15 +449,26 @@ def failure_summary(output, limit=12):
     return "\n".join(out[:limit])
 
 def run_lane(lane, capabilities, timeout):
+    evidence_ok, evidence_reason, evidence_detail = False, "", None
+    if lane.get("retained_evidence"):
+        evidence_ok, evidence_reason, evidence_detail = validate_retained_runtime_evidence(
+            lane["retained_evidence"])
+
     missing = [c for c in lane["needs"] if not capabilities[c][0]]
     if missing:
-        return {
+        result = {
             "lane": lane["id"],
             "status": "EXTERNALLY_BLOCKED",
             "missing_capabilities": missing,
             "reason": "; ".join(capabilities[c][1] for c in missing),
             "note": lane["note"],
         }
+        if lane.get("retained_evidence"):
+            result["retained_evidence"] = evidence_detail or {
+                "status": "REJECTED",
+                "reason": evidence_reason,
+            }
+        return result
 
     try:
         proc = subprocess.run(lane["cmd"], cwd=os.path.join(REPO, lane["cwd"]),
@@ -344,14 +482,21 @@ def run_lane(lane, capabilities, timeout):
                 "reason": failure_summary(proc.stdout + proc.stderr),
                 "note": lane["note"]}
 
-    # Ran and passed. CANARY_PROVEN only if the command walks the whole chain;
-    # otherwise TESTED. A lane cannot promote itself by passing a partial test.
-    return {
+    # The command passing proves TESTED. A clean, committed retained receipt can
+    # preserve REAL_RUNTIME_PROVEN. Neither condition binds the current
+    # candidate image, so this script has no path to CANARY_PROVEN.
+    result = {
         "lane": lane["id"],
-        "status": "CANARY_PROVEN" if lane["full_path"] else "TESTED",
+        "status": "REAL_RUNTIME_PROVEN" if evidence_ok else "TESTED",
         "reason": "passed",
         "note": lane["note"],
     }
+    if lane.get("retained_evidence"):
+        result["retained_evidence"] = evidence_detail or {
+            "status": "REJECTED",
+            "reason": evidence_reason,
+        }
+    return result
 
 
 def main() -> int:
@@ -368,21 +513,36 @@ def main() -> int:
         by_status.setdefault(r["status"], []).append(r["lane"])
 
     proven = len(by_status.get("CANARY_PROVEN", []))
+    runtime_proven = len(by_status.get("REAL_RUNTIME_PROVEN", []))
+    retained = [
+        (r["lane"], r["retained_evidence"])
+        for r in results
+        if r.get("retained_evidence", {}).get("status") == "REAL_RUNTIME_PROVEN"
+    ]
     report = {
-        "schema_version": 1,
-        "kind": "merc_private_canary",
+        "schema_version": 2,
+        "kind": "merc_capability_inventory",
+        "candidate_canary_authority": "scripts/go-closure-canary-rehearsal.sh",
         "capabilities": {k: {"present": v[0], "detail": v[1]} for k, v in capabilities.items()},
         "lanes": results,
         "summary": {status: sorted(lanes) for status, lanes in sorted(by_status.items())},
         "lanes_total": len(LANES),
         "lanes_canary_proven": proven,
+        "lanes_real_runtime_proven": runtime_proven,
+        "retained_real_runtime_evidence": {
+            "validated_lanes": len(retained),
+            "unique_receipts": len({e["path"] for _, e in retained}),
+            "lanes": sorted(lane for lane, _ in retained),
+            "candidate_bound": False,
+        },
         "all_lanes_canary_proven": proven == len(LANES),
         "public_capability_allowed": proven == len(LANES),
-        "note": ("A lane is CANARY_PROVEN only when its command walks the full chain -- "
-                 "buyer request, contract, scheduler, real runtime, verification, buyer "
-                 "debit, supplier payable, receipt. A lane that passed a partial test is "
-                 "TESTED. A lane whose capability is missing is EXTERNALLY_BLOCKED and "
-                 "names what is missing. There is no override."),
+        "note": ("This inventory cannot mint CANARY_PROVEN. A passing command proves "
+                 "TESTED; a strict committed historical receipt may preserve "
+                 "REAL_RUNTIME_PROVEN. Only the formal immutable-image/exact-commit "
+                 "GO-closure rehearsal can produce candidate-bound canary authority. "
+                 "A missing current capability remains EXTERNALLY_BLOCKED even when "
+                 "retained historical evidence validates."),
     }
 
     out = os.path.join(REPO, args.out)
@@ -391,7 +551,8 @@ def main() -> int:
         json.dump(report, fh, indent=2)
         fh.write("\n")
 
-    print(f"private canary: {proven}/{len(LANES)} lanes CANARY_PROVEN")
+    print(f"capability inventory: {proven}/{len(LANES)} candidate-bound lanes CANARY_PROVEN; "
+          f"{len(retained)} lane(s) carry validated historical REAL_RUNTIME_PROVEN evidence")
     for status in sorted(by_status):
         print(f"  {status:20} {', '.join(sorted(by_status[status]))}")
     for name, (present, detail) in sorted(capabilities.items()):
@@ -400,7 +561,7 @@ def main() -> int:
 
     if by_status.get("FAILED"):
         return 1
-    if by_status.get("EXTERNALLY_BLOCKED"):
+    if proven != len(LANES):
         return 2
     return 0
 

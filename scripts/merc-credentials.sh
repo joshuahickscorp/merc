@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Blind-drop credentials for the merc private canary.
+# Blind-drop credentials for the merc capability inventory.
 #
 # Paste a RunPod key and a Stripe TEST key. This writes them to a chmod-600,
-# gitignored file, checks each one actually works, and tells you which canary
+# gitignored file, checks each one actually works, and tells you which inventory
 # lanes it unblocked. It never prints a secret value, and it refuses a live
-# Stripe key outright -- this path exists to unblock a local canary, and a key
-# that can move real money has no business in it.
+# Stripe key outright. Candidate-bound canary authority is produced separately
+# by scripts/go-closure-canary-rehearsal.sh.
 #
 # Usage, any of:
 #   bash scripts/merc-credentials.sh                    # prompts, input hidden
@@ -229,3 +229,5 @@ fi
 say ""
 say "next:"
 say "  source .merc-credentials.env && make private-canary"
+say "  (this inventories TESTED/REAL_RUNTIME_PROVEN evidence and stays non-zero"
+say "   until the separate exact-candidate GO-closure canary is complete)"

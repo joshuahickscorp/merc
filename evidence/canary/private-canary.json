@@ -1,155 +1,247 @@
 {
-  "schema_version": 1,
-  "kind": "merc_private_canary",
+  "schema_version": 2,
+  "kind": "merc_capability_inventory",
+  "candidate_canary_authority": "scripts/go-closure-canary-rehearsal.sh",
   "capabilities": {
     "local_runtime": {
-      "present": true,
-      "detail": "local Apple Silicon worker (candle/Metal) available"
+      "present": false,
+      "detail": "a local worker is not running; start cx-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1"
     },
     "real_inference_runtime": {
-      "present": true,
-      "detail": "real inference runtime serving at https://s5ufe0wuiu3fw7-8000.proxy.runpod.net/v1"
+      "present": false,
+      "detail": "no real inference runtime: set MERC_REALTIME_UPSTREAM and MERC_REALTIME_UPSTREAM_KEY (llama-server on Metal satisfies this)"
     },
     "database": {
-      "present": true,
-      "detail": "database configured"
+      "present": false,
+      "detail": "MERC_TEST_DATABASE_URL is not set"
     },
     "object_store": {
-      "present": true,
-      "detail": "object store reachable at 127.0.0.1:9123"
+      "present": false,
+      "detail": "S3_ENDPOINT is not set"
     },
     "cuda_runtime": {
-      "present": true,
-      "detail": "GPU runtime serving at https://s5ufe0wuiu3fw7-8000.proxy.runpod.net/v1"
+      "present": false,
+      "detail": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine"
     },
     "stripe_sandbox": {
-      "present": true,
-      "detail": "Stripe sandbox credential configured"
+      "present": false,
+      "detail": "STRIPE_SECRET_KEY is not set"
     },
     "openai_sdks": {
-      "present": true,
-      "detail": "official OpenAI SDKs available"
+      "present": false,
+      "detail": "official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)"
     }
   },
   "lanes": [
     {
       "lane": "batch_inference",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
-      "note": "proven end to end against a real Apple Silicon worker (evidence/canary/real-runtime-embed.json)"
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database",
+        "object_store",
+        "local_runtime"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start cx-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
+      "note": "proven end to end against a real Apple Silicon worker (evidence/canary/real-runtime-embed.json)",
+      "retained_evidence": {
+        "status": "REAL_RUNTIME_PROVEN",
+        "path": "evidence/canary/real-runtime-embed.json",
+        "sha256": "8d7d1abff526c5d46c6e9683a2dd90b7a57df2aea7b11fa023c97df27c4e6eed",
+        "source_commit": "58f33e665949e3d0449e9d379a7c097b1bada5af",
+        "candidate_bound": false,
+        "public_claim_allowed": false
+      }
     },
     {
       "lane": "embeddings",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
-      "note": "real 384-dim embeddings computed on Metal, honeypot-verified, settled"
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database",
+        "object_store",
+        "local_runtime"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start cx-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
+      "note": "real 384-dim embeddings computed on Metal, honeypot-verified, settled",
+      "retained_evidence": {
+        "status": "REAL_RUNTIME_PROVEN",
+        "path": "evidence/canary/real-runtime-embed.json",
+        "sha256": "8d7d1abff526c5d46c6e9683a2dd90b7a57df2aea7b11fa023c97df27c4e6eed",
+        "source_commit": "58f33e665949e3d0449e9d379a7c097b1bada5af",
+        "candidate_bound": false,
+        "public_claim_allowed": false
+      }
     },
     {
       "lane": "realtime",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
-      "note": "proven against a real llama.cpp/Metal engine: contract, real completion, VERIFIED receipt, CAPTURED authorization, positive margin (evidence/canary/real-runtime-realtime.json)"
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database",
+        "real_inference_runtime"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set; no real inference runtime: set MERC_REALTIME_UPSTREAM and MERC_REALTIME_UPSTREAM_KEY (llama-server on Metal satisfies this)",
+      "note": "proven against a real llama.cpp/Metal engine: contract, real completion, VERIFIED receipt, CAPTURED authorization, positive margin (evidence/canary/real-runtime-realtime.json)",
+      "retained_evidence": {
+        "status": "REAL_RUNTIME_PROVEN",
+        "path": "evidence/canary/real-runtime-realtime.json",
+        "sha256": "7dd168d769bdb0f084369ec2419e5be1a98a1c79ac294e998fcd85278431eb0a",
+        "source_commit": "9e84292ffab4b51e15b4b8b4dcc2fd814ad18c82",
+        "candidate_bound": false,
+        "public_claim_allowed": false
+      }
     },
     {
       "lane": "runpod_vllm",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
-      "note": "NVIDIA hardware and a pinned digest-addressed vLLM image; no Apple Silicon engine substitutes for this"
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database",
+        "cuda_runtime"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set; no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
+      "note": "NVIDIA hardware and a pinned digest-addressed vLLM image; no Apple Silicon engine substitutes for this; the retained provider receipt is direct-runtime evidence, not a merc request-to-settlement chain"
     },
     {
       "lane": "openai_sdk_conformance",
-      "status": "TESTED",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database",
+        "openai_sdks"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set; official OpenAI SDKs not configured (MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)",
       "note": "official openai Python 2.48.0 and JS 6.49.0 against merc. Against a REAL engine the JS client passes all seven capabilities and Python passes six: parallel_tool_calls fails because llama.cpp cannot parse this model's tool schema. Against the httptest fake it passed -- the fake was masking a real incompatibility, which is the whole argument for real-runtime proof"
     },
     {
       "lane": "object_storage",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database",
+        "object_store"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set",
       "note": "retention, deletion, tenant isolation against a live store"
     },
     {
       "lane": "image_generation",
-      "status": "TESTED",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "cuda_runtime"
+      ],
+      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
       "note": "governance only; no image runtime exists"
     },
     {
       "lane": "lora",
-      "status": "TESTED",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "cuda_runtime"
+      ],
+      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
       "note": "settlement arithmetic only; no trainer, no evaluator dispatch"
     },
     {
       "lane": "multi_gpu",
-      "status": "TESTED",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "cuda_runtime"
+      ],
+      "reason": "no GPU runtime: set MERC_GPU_ENDPOINT to a reachable pinned runtime and RUNPOD_API_KEY (or MERC_GPU_API_KEY) to authenticate. No RunPod credential exists on this machine",
       "note": "admission only; no tensor-parallel runtime has served a request"
     },
     {
       "lane": "external_model_onboarding",
-      "status": "TESTED",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "real_inference_runtime"
+      ],
+      "reason": "no real inference runtime: set MERC_REALTIME_UPSTREAM and MERC_REALTIME_UPSTREAM_KEY (llama-server on Metal satisfies this)",
       "note": "a real external model taken through policy, identity, smoke, determinism and a measured benchmark against a live runtime, plus four refusal cases: non-commercial licence, remote_code, an alias the runtime does not serve, and an unpinned revision"
     },
     {
       "lane": "refunds_disputes",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set",
       "note": "dispute filing, freeze, resolution and payout control"
     },
     {
       "lane": "payouts",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database",
+        "stripe_sandbox"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set; STRIPE_SECRET_KEY is not set",
       "note": "accrual and reconciliation; a real transfer needs the sandbox"
     },
     {
       "lane": "failure_recovery",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set",
       "note": "stuck-job rescue and cancellation"
     },
     {
       "lane": "receipt_verification",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set",
       "note": "ledger conservation and sole-writer enforcement"
     },
     {
       "lane": "backup_restore",
-      "status": "CANARY_PROVEN",
+      "status": "TESTED",
       "reason": "passed",
       "note": "backup scheduling and envelope"
     },
     {
       "lane": "buyer_dashboard",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set",
       "note": "the page's own script signs in against a running merc and opens its workspace; every route it calls must be one merc serves"
     },
     {
       "lane": "supplier_console",
-      "status": "CANARY_PROVEN",
+      "status": "TESTED",
       "reason": "passed",
       "note": "worker-token auth, sub-cent money at ledger granularity, 4 payout-rail states and the refusal path, against recorded control-plane responses"
     },
     {
       "lane": "price_board",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set",
       "note": "the published page's own arithmetic must match the server's, including where the confidence weights decide the answer"
     },
     {
       "lane": "python_sdk",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database",
+        "object_store",
+        "local_runtime"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start cx-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
       "note": "submits a real job to a running merc, waits for a real worker, fetches and validates the real 384-dim result"
     },
     {
       "lane": "typescript_sdk",
-      "status": "CANARY_PROVEN",
-      "reason": "passed",
+      "status": "EXTERNALLY_BLOCKED",
+      "missing_capabilities": [
+        "database",
+        "object_store",
+        "local_runtime"
+      ],
+      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start cx-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
       "note": "same end-to-end run; found three defects the stub tests could not (missing Idempotency-Key, array input, wrong cancel route)"
     },
     {
@@ -160,13 +252,17 @@
     }
   ],
   "summary": {
-    "CANARY_PROVEN": [
-      "backup_restore",
+    "EXTERNALLY_BLOCKED": [
       "batch_inference",
       "buyer_dashboard",
       "embeddings",
+      "external_model_onboarding",
       "failure_recovery",
+      "image_generation",
+      "lora",
+      "multi_gpu",
       "object_storage",
+      "openai_sdk_conformance",
       "payouts",
       "price_board",
       "python_sdk",
@@ -174,21 +270,28 @@
       "receipt_verification",
       "refunds_disputes",
       "runpod_vllm",
-      "supplier_console",
       "typescript_sdk"
     ],
     "TESTED": [
       "alerts",
-      "external_model_onboarding",
-      "image_generation",
-      "lora",
-      "multi_gpu",
-      "openai_sdk_conformance"
+      "backup_restore",
+      "supplier_console"
     ]
   },
   "lanes_total": 21,
-  "lanes_canary_proven": 15,
+  "lanes_canary_proven": 0,
+  "lanes_real_runtime_proven": 0,
+  "retained_real_runtime_evidence": {
+    "validated_lanes": 3,
+    "unique_receipts": 2,
+    "lanes": [
+      "batch_inference",
+      "embeddings",
+      "realtime"
+    ],
+    "candidate_bound": false
+  },
   "all_lanes_canary_proven": false,
   "public_capability_allowed": false,
-  "note": "A lane is CANARY_PROVEN only when its command walks the full chain -- buyer request, contract, scheduler, real runtime, verification, buyer debit, supplier payable, receipt. A lane that passed a partial test is TESTED. A lane whose capability is missing is EXTERNALLY_BLOCKED and names what is missing. There is no override."
+  "note": "This inventory cannot mint CANARY_PROVEN. A passing command proves TESTED; a strict committed historical receipt may preserve REAL_RUNTIME_PROVEN. Only the formal immutable-image/exact-commit GO-closure rehearsal can produce candidate-bound canary authority. A missing current capability remains EXTERNALLY_BLOCKED even when retained historical evidence validates."
 }
