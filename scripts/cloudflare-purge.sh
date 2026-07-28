@@ -47,6 +47,20 @@ purge_pages() {
   local proj="$1" acct; acct=$(account_id)
   [ -n "$acct" ] || die "no account visible"
   say "pages project $proj"
+
+  # Custom domains come off FIRST. The project delete refuses with 8000028
+  # while any remain, and that refusal arrives only after the deployment purge,
+  # so discovering it late costs a full pass.
+  local doms
+  doms=$(cf_request GET "/accounts/$acct/pages/projects/$proj/domains" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+for x in (d.get("result") or []): print(x["name"])' 2>/dev/null)
+  for dom in $doms; do
+    [ -z "$dom" ] && continue
+    cf_request DELETE "/accounts/$acct/pages/projects/$proj/domains/$dom" >/dev/null 2>&1 \
+      && ok "  removed custom domain $dom"
+  done
   local removed=0 page=1
   while :; do
     local ids
@@ -57,8 +71,10 @@ d=json.load(sys.stdin)
 for x in (d.get("result") or []): print(x["id"])' 2>/dev/null)
     [ -z "$ids" ] && break
     for id in $ids; do
-      # force=true removes even the currently-live deployment, which is the one
-      # that otherwise blocks the project delete.
+      # force=true clears ordinary deployments. The ACTIVE PRODUCTION one still
+      # refuses with 8000034 and cannot be removed individually at all -- it goes
+      # only when the project does, which is fine: the project delete is blocked
+      # by deployment COUNT, not by that last one.
       if cf_request DELETE "/accounts/$acct/pages/projects/$proj/deployments/$id?force=true" \
            | grep -q '"success":true'; then
         removed=$((removed+1))
