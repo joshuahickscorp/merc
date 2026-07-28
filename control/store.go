@@ -25,13 +25,21 @@ type Store struct {
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {
+	return newStoreWithVerificationLeaderConnections(pool, 0)
+}
+
+func NewStoreWithWorkerLeader(pool *pgxpool.Pool) *Store {
+	return newStoreWithVerificationLeaderConnections(pool, verificationWorkerLeaderConnections)
+}
+
+func newStoreWithVerificationLeaderConnections(pool *pgxpool.Pool, leaderConns int32) *Store {
 	maxConns := int32(0)
 	if pool != nil {
 		maxConns = pool.Config().MaxConns
 	}
 	return &Store{
 		pool:                  pool,
-		verificationResources: newVerificationResourceBudget(maxConns, verificationArtifactMemoryCeiling),
+		verificationResources: newVerificationResourceBudget(maxConns, leaderConns, verificationArtifactMemoryCeiling),
 	}
 }
 

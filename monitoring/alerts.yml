@@ -114,6 +114,30 @@ groups:
           summary: Verification or honeypot mismatch detected
           runbook: docs/RUNBOOKS.md#verification-failure-or-bad-result-dispute
 
+      - alert: MercVerificationBacklogOld
+        expr: merc_verification_oldest_open_age_seconds > 300
+        for: 5m
+        labels: {severity: page, runbook: verification-dispute}
+        annotations:
+          summary: Verification work has remained non-terminal for more than five minutes
+          runbook: docs/RUNBOOKS.md#verification-failure-or-bad-result-dispute
+
+      - alert: MercVerificationLeaseExpired
+        expr: merc_verification_expired_leases > 0
+        for: 2m
+        labels: {severity: page, runbook: verification-dispute}
+        annotations:
+          summary: Expired verification leases are not being reclaimed
+          runbook: docs/RUNBOOKS.md#verification-failure-or-bad-result-dispute
+
+      - alert: MercVerificationRecoveryNoProgress
+        expr: merc_ticker_seconds_since_progress{ticker="verification-recovery"} > 30
+        for: 15s
+        labels: {severity: page, runbook: background-loop}
+        annotations:
+          summary: Verification recovery is running without forward progress
+          runbook: docs/RUNBOOKS.md#control-plane-or-database-outage
+
       # No page-severity corruption alert: nothing in Go/Rust currently emits
       # cx_model_cache_corruption_total, and Prometheus does not scrape agents.
       # Keep the absent() ticket until a real telemetry collector lands.

@@ -422,7 +422,12 @@ func (s *Store) ClaimVerificationWork(ctx context.Context, owner string, lease t
 	if limit > verificationWorkMaxClaim {
 		limit = verificationWorkMaxClaim
 	}
-	rows, err := s.pool.Query(ctx, `
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `
 		WITH candidates AS (
 		 SELECT id FROM verification_work
 		 WHERE (status='pending' AND next_attempt_at<=now())
@@ -459,7 +464,8 @@ func (s *Store) ClaimVerificationWork(ctx context.Context, owner string, lease t
 	rows.Close()
 	out := make([]LeasedVerificationWork, 0, len(claimedRows))
 	for _, c := range claimedRows {
-		work, err := s.verificationWorkByID(ctx, c.id)
+		work, err := scanVerificationWork(tx.QueryRow(ctx,
+			`SELECT `+verificationWorkColumns+` FROM verification_work WHERE id=$1`, c.id))
 		if err != nil {
 			return nil, err
 		}
@@ -473,6 +479,9 @@ func (s *Store) ClaimVerificationWork(ctx context.Context, owner string, lease t
 		}
 		return out[i].Work.CreatedAt.Before(out[j].Work.CreatedAt)
 	})
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -482,8 +491,13 @@ func (s *Store) ClaimVerificationWorkForAttempt(ctx context.Context, taskID uuid
 	if taskID == uuid.Nil || attempt < 0 || owner == "" || len(owner) > 200 || lease <= 0 {
 		return out, errors.New("verification attempt claim requires task, attempt, owner, and positive lease")
 	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return out, err
+	}
+	defer tx.Rollback(ctx)
 	var id uuid.UUID
-	err := s.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		UPDATE verification_work
 		 SET status='leased',lease_owner=$3,lease_token=gen_random_uuid(),
 		     lease_expires_at=now()+make_interval(secs=>$4::double precision),
@@ -491,24 +505,31 @@ func (s *Store) ClaimVerificationWorkForAttempt(ctx context.Context, taskID uuid
 		 WHERE task_id=$1 AND attempt=$2
 		   AND ((status='pending')
 		        OR (status='leased' AND lease_expires_at<=now()))
-		 RETURNING id`, taskID, attempt, owner, lease.Seconds()).Scan(&id)
+		 RETURNING id,lease_token,lease_expires_at`,
+		taskID, attempt, owner, lease.Seconds(),
+	).Scan(&id, &out.Lease.Token, &out.Lease.ExpiresAt)
 	if err == nil {
-		out.Work, err = s.verificationWorkByID(ctx, id)
+		out.Work, err = scanVerificationWork(tx.QueryRow(ctx,
+			`SELECT `+verificationWorkColumns+` FROM verification_work WHERE id=$1`, id))
 		if err != nil {
 			return out, err
 		}
-		if err := s.pool.QueryRow(ctx, `SELECT lease_token,lease_expires_at FROM verification_work WHERE id=$1`, id).
-			Scan(&out.Lease.Token, &out.Lease.ExpiresAt); err != nil {
+		out.Lease.WorkID, out.Lease.Owner = id, owner
+		if err := tx.Commit(ctx); err != nil {
 			return out, err
 		}
-		out.Lease.WorkID, out.Lease.Owner = id, owner
 		return out, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return out, err
 	}
-	work, err := s.VerificationWorkForAttempt(ctx, taskID, attempt)
+	work, err := scanVerificationWork(tx.QueryRow(ctx,
+		`SELECT `+verificationWorkColumns+` FROM verification_work WHERE task_id=$1 AND attempt=$2`,
+		taskID, attempt))
 	if err != nil {
+		return out, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return out, err
 	}
 	if work.Status == VerificationWorkTerminal {

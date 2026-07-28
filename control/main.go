@@ -65,6 +65,21 @@ func parseDBMaxConns(raw string) (int32, error) {
 	return int32(n), nil
 }
 
+func validateExecutionDBCapacity(maxConns int32, workerLeaderEnabled bool) error {
+	leaderConns := int32(0)
+	if workerLeaderEnabled {
+		leaderConns = verificationWorkerLeaderConnections
+	}
+	required := leaderConns + verificationDBHeadroom + verificationDBConnectionsPerProcess
+	if maxConns < required {
+		return fmt.Errorf(
+			"DB_MAX_CONNS=%d cannot safely run verification: need at least %d (%d worker leader + %d verifier + %d API/background headroom)",
+			maxConns, required, leaderConns, verificationDBConnectionsPerProcess, verificationDBHeadroom,
+		)
+	}
+	return nil
+}
+
 // isProductionEnv matches the same spellings the hardening refusal accepts.
 func isProductionEnv(cxEnv string) bool {
 	return strings.EqualFold(cxEnv, "production") || strings.EqualFold(cxEnv, "prod")
@@ -270,6 +285,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid database pool configuration: %v", err)
 	}
+	seedMode := len(os.Args) > 1 && os.Args[1] == "seed"
+	runWorkers := os.Getenv("MERC_RUN_WORKERS") != "false"
+	if !seedMode {
+		if err := validateExecutionDBCapacity(poolCfg.MaxConns, runWorkers); err != nil {
+			log.Fatalf("invalid database pool configuration: %v", err)
+		}
+	}
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
@@ -286,8 +308,11 @@ func main() {
 	}
 
 	store := NewStore(pool)
+	if runWorkers && !seedMode {
+		store = NewStoreWithWorkerLeader(pool)
+	}
 
-	if len(os.Args) > 1 && os.Args[1] == "seed" {
+	if seedMode {
 		if err := validateSeedAllowed(os.Getenv("MERC_ENV"), stripeKey()); err != nil {
 			log.Fatal(err)
 		}
@@ -376,7 +401,7 @@ func main() {
 	workersCtx, stopWorkers := context.WithCancel(ctx)
 	defer stopWorkers()
 	workers := NewWorkers(store, storage, payout)
-	if os.Getenv("MERC_RUN_WORKERS") != "false" {
+	if runWorkers {
 		setWorkerElectionReadinessEnabled(true)
 		go runWorkerLeader(workersCtx, pool, workers)
 	} else {

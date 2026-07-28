@@ -40,6 +40,7 @@ services:
     environment:
       DATABASE_URL: postgres://cx:cx@postgres:5432/cx?sslmode=disable
       LISTEN_ADDR: ":8080"
+      DB_MAX_CONNS: ${DB_MAX_CONNS:-20}
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9000
       S3_REGION: us-east-1
