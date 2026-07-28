@@ -9,11 +9,31 @@
 #   bash scripts/mutation-test.sh
 #
 # Every mutation is reverted whether it is caught or not; the tree is restored
-# on any exit path.
+# on any exit path. Filtered contract mutations that do not exercise persistence
+# can opt into the fast suite with MERC_MUTATION_UNIT_ONLY=1; the default remains
+# the database-backed suite.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 CONTROL=control
+MERC_MUTATION_FILTER="${MERC_MUTATION_FILTER:-}"
+MERC_MUTATION_UNIT_ONLY="${MERC_MUTATION_UNIT_ONLY:-0}"
+if [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
+  [ -n "$MERC_MUTATION_FILTER" ] || {
+    echo "MERC_MUTATION_UNIT_ONLY=1 requires a narrow MERC_MUTATION_FILTER" >&2
+    exit 2
+  }
+else
+  : "${MERC_TEST_DATABASE_URL:?mutation testing needs a database}"
+fi
+
+repo_lock_id="$(printf '%s' "$PWD" | shasum -a 256 | cut -c1-16)"
+MUTATION_LOCK="${TMPDIR:-/tmp}/merc-mutation-${repo_lock_id}.lock"
+if ! mkdir "$MUTATION_LOCK" 2>/dev/null; then
+  echo "another mutation-test process owns $MUTATION_LOCK; refusing concurrent source mutation" >&2
+  exit 2
+fi
+
 BACKUP="$(mktemp -d "${TMPDIR:-/tmp}/merc-mutation.XXXXXX")"
 cleanup() {
   # Restore every file touched, always.
@@ -25,11 +45,21 @@ cleanup() {
     done
     rm -rf "$BACKUP"
   fi
+  rmdir "$MUTATION_LOCK" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-: "${MERC_TEST_DATABASE_URL:?mutation testing needs a database}"
-MERC_MUTATION_FILTER="${MERC_MUTATION_FILTER:-}"
+run_mutation_tests() {
+  if [ "$MERC_MUTATION_UNIT_ONLY" = "1" ]; then
+    (
+      cd "$CONTROL" &&
+        env -u MERC_TEST_DATABASE_URL MERC_ALLOW_SKIPPING_DB_TESTS=1 \
+          go test -count=1 ./... >/dev/null 2>&1
+    )
+  else
+    (cd "$CONTROL" && go test -count=1 ./... >/dev/null 2>&1)
+  fi
+}
 
 # file|description|sed-expression
 MUTATIONS=(
@@ -61,6 +91,11 @@ MUTATIONS=(
 "payment_authority.go|LIVE per-operation cap is ignored|s#amountMinor <= 0 || amountMinor > capMinor#amountMinor <= 0#"
 "payment_authority.go|LIVE recovery cannot remain operationally ready|s#return a.Activation != nil && (a.Active || a.RecoveryActive)#return a.Activation != nil \\&\\& a.Active#"
 "payment_authority.go|LIVE Stripe key can remain environment-inline|s#if strings.TrimSpace(os.Getenv(stripeSecretKeyFileEnv)) == \"\" ||#if false \\&\\&#"
+"stripe_api_contract.go|Stripe API version pin is deleted|s#req.Header.Set(\"Stripe-Version\", stripeAPIVersion)##"
+"stripe_api_contract.go|signed Stripe webhook ignores API version|s#if apiVersion != stripeAPIVersion {#if false {#"
+"stripe_api_contract.go|signed Stripe webhook ignores livemode|s#if \\*livemode != expectedLive {#if false {#"
+"billing.go|Stripe billing bypasses the pinned transport|s#resp, err := doStripeRequest(stripeHTTPClient, req)#resp, err := stripeHTTPClient.Do(req)#"
+"payment.go|Stripe payout bypasses the pinned transport|s#resp, err := doStripeRequest(p.http, req)#resp, err := p.http.Do(req)#"
 )
 
 caught=0
@@ -89,7 +124,7 @@ for entry in "${MUTATIONS[@]}"; do
     # Build first: a mutation that does not compile is not a useful test.
     if ! (cd "$CONTROL" && go build ./... >/dev/null 2>&1); then
       printf '%-58s %s\n' "$desc" "skip (does not compile)"
-    elif (cd "$CONTROL" && go test -count=1 ./... >/dev/null 2>&1); then
+    elif run_mutation_tests; then
       printf '%-58s %s\n' "$desc" "SURVIVED"
       survived=$((survived+1))
       SURVIVORS+=("$desc")

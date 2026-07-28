@@ -304,9 +304,10 @@ func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 		!s.requireOperationalControlActive(w, r, controlPayments) {
 		return
 	}
-	if _, err := authorizePaymentOperation(
+	authority, err := authorizePaymentOperation(
 		paymentOperationWebhook, 0, "", stripeKey(),
-	); err != nil {
+	)
+	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, "connect webhook authority is unavailable")
 		return
 	}
@@ -321,13 +322,21 @@ func (s *Server) handleConnectWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ev struct {
-		Type string `json:"type"`
-		Data struct {
+		Type       string `json:"type"`
+		APIVersion string `json:"api_version"`
+		Livemode   *bool  `json:"livemode"`
+		Data       struct {
 			Object map[string]any `json:"object"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(payload, &ev); err != nil {
 		writeErr(w, http.StatusBadRequest, "unparseable webhook body")
+		return
+	}
+	if err := validateStripeEventContract(
+		ev.APIVersion, ev.Livemode, authority.Mode == PaymentModeLive,
+	); err != nil {
+		writeErr(w, http.StatusBadRequest, "connect webhook contract mismatch")
 		return
 	}
 	if ev.Type == "account.updated" {

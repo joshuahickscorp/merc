@@ -83,6 +83,7 @@ ci:
 	bash scripts/test-agent-review-gaming.sh
 	bash scripts/test-technical-exercises-fail-closed.sh
 	bash scripts/test-canary-gaming.sh
+	MERC_STRIPE_WEBHOOK_VERSION_SELF_TEST=1 bash scripts/stripe-webhooks.sh
 	node scripts/site-build.mjs
 	node scripts/test-supplier-console.mjs
 	bash -n scripts/*.sh

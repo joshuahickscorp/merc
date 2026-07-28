@@ -22,11 +22,6 @@ import (
 // CONFIGURED currency is a direct answer to "can this platform pay a supplier",
 // and its absence predicts the failure before any money is at stake.
 
-// Pinned so this probe's parsing cannot drift when Stripe changes the account
-// default. NOTE: the rest of control's Stripe calls send no Stripe-Version at
-// all and therefore float with the account default -- that is a separate gap.
-const stripeAPIVersion = "2025-06-30.basil"
-
 type stripeBalanceResponse struct {
 	Available []struct {
 		Currency string `json:"currency"`
@@ -54,9 +49,7 @@ func (p StripePayout) settlementCurrencies(ctx context.Context) ([]string, error
 		return nil, err
 	}
 	req.SetBasicAuth(p.secret, "")
-	req.Header.Set("Stripe-Version", stripeAPIVersion)
-
-	resp, err := p.http.Do(req)
+	resp, err := doStripeRequest(p.http, req)
 	if err != nil {
 		return nil, fmt.Errorf("stripe balance probe: %w", err)
 	}
@@ -145,8 +138,7 @@ func (p StripePayout) accountCountry(ctx context.Context) string {
 		return ""
 	}
 	req.SetBasicAuth(p.secret, "")
-	req.Header.Set("Stripe-Version", stripeAPIVersion)
-	resp, err := p.http.Do(req)
+	resp, err := doStripeRequest(p.http, req)
 	if err != nil {
 		return ""
 	}

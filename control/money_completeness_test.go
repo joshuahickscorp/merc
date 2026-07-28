@@ -85,6 +85,9 @@ func TestStripeTransferReversalHTTPIdempotentShape(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		seenKeys = append(seenKeys, r.Header.Get("Idempotency-Key"))
+		if got := r.Header.Get("Stripe-Version"); got != stripeAPIVersion {
+			t.Errorf("Stripe-Version = %q, want %q", got, stripeAPIVersion)
+		}
 		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/reversals") {
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 			http.Error(w, "bad path", 500)
@@ -138,6 +141,9 @@ func TestStripeTransferReversalHTTPIdempotentShape(t *testing.T) {
 
 func TestStripeChargeRefundHTTPShape(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Stripe-Version"); got != stripeAPIVersion {
+			t.Errorf("Stripe-Version = %q, want %q", got, stripeAPIVersion)
+		}
 		if r.URL.Path != "/v1/refunds" {
 			t.Errorf("path = %s", r.URL.Path)
 		}

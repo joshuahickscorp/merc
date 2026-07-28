@@ -173,7 +173,7 @@ ask MERC_CONNECT_WEBHOOK_SECRET "whsec_… (DIFFERENT from the billing one)" \
 "https://dashboard.stripe.com/test/webhooks → 'Add endpoint' — a SECOND one
   URL:    https://YOUR-HOST/v1/stripe/connect-webhook
   Events: account.updated, transfer.created, transfer.reversed,
-          payout.paid, payout.failed
+          payout.created, payout.paid, payout.failed
 Create it, then reveal its own signing secret." \
 "Signs the CONNECT webhook — supplier payouts and transfer reversals. This is the one that tells you money left the platform."
 

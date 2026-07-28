@@ -111,6 +111,7 @@ func cmdPaymentActivationCheck(args []string) {
 		"provider_enabled":        authority.ProviderEnabled(),
 		"live_value_movement":     authority.LiveValueMovementEnabled(),
 		"payment_recovery_active": authority.RecoveryActive,
+		"stripe_api_version":      stripeAPIVersion,
 		"secret_values_printed":   false,
 		"network_accessed":        false,
 	}

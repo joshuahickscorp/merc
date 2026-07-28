@@ -82,13 +82,20 @@ turn them on by changing the database payment kill switch. `/readyz` remains
 green for the rest of the platform and reports:
 
 ```json
-{"status":"ready","payment_mode":"sealed","provider_enabled":false,"live_value_movement":false}
+{"status":"ready","payment_mode":"sealed","provider_enabled":false,"live_value_movement":false,"stripe_api_version":"2025-06-30.basil"}
 ```
 
 This is the correct mode while live Stripe, payment/legal approvals, and
 provider-side aggregate limits are unavailable. The ledger currency is explicit
 through `MERC_SETTLEMENT_CURRENCY`; the current sandbox authority is CAD, not a
 hardcoded USD assumption.
+
+Every control-plane and operator-script Stripe request pins
+`Stripe-Version: 2025-06-30.basil`. Charges, setup, reads, Connect onboarding,
+payouts, refunds, reversals, settlement probes, and webhook management therefore
+cannot inherit a different account-default API contract after deployment.
+Changing this version is a reviewed candidate change, never a Stripe Dashboard
+side effect.
 
 LIVE later requires all of the following at once:
 
@@ -212,25 +219,29 @@ approved, recreate them through the supervised Stripe procedure:
 ```bash
 stripe_secret="$(tr -d '\r\n' < "$STRIPE_SECRET_KEY_SOURCE")"
 curl -s https://api.stripe.com/v1/webhook_endpoints -u "$stripe_secret:" \
+  -H 'Stripe-Version: 2025-06-30.basil' \
   -d url=https://mercmerc.net/v1/stripe/webhook \
+  -d api_version=2025-06-30.basil \
   -d 'enabled_events[]=payment_intent.succeeded' \
   -d 'enabled_events[]=setup_intent.succeeded' \
   -d 'enabled_events[]=payment_method.attached' \
   -d 'enabled_events[]=charge.refunded' \
   -d 'enabled_events[]=charge.dispute.created' \
-  -d 'enabled_events[]=charge.dispute.closed' \
-  -d 'enabled_events[]=payout.created' \
-  -d 'enabled_events[]=payout.paid' \
-  -d 'enabled_events[]=payout.failed'
+  -d 'enabled_events[]=charge.dispute.closed'
 unset stripe_secret
 ```
 
 ```bash
 stripe_secret="$(tr -d '\r\n' < "$STRIPE_SECRET_KEY_SOURCE")"
 curl -s https://api.stripe.com/v1/webhook_endpoints -u "$stripe_secret:" \
+  -H 'Stripe-Version: 2025-06-30.basil' \
   -d url=https://mercmerc.net/v1/stripe/connect-webhook \
   -d connect=true \
-  -d 'enabled_events[]=account.updated'
+  -d api_version=2025-06-30.basil \
+  -d 'enabled_events[]=account.updated' \
+  -d 'enabled_events[]=payout.created' \
+  -d 'enabled_events[]=payout.paid' \
+  -d 'enabled_events[]=payout.failed'
 unset stripe_secret
 ```
 
@@ -240,6 +251,11 @@ Put each response's `secret` into `STRIPE_WEBHOOK_SECRET` and
 The two secrets **must differ** — that check stops a leaked billing secret being
 used to forge a Connect "payout succeeded" event. Then delete the two old
 `we_…` endpoints pointing at the dead tunnel.
+
+Prefer `scripts/stripe-webhooks.sh`, which performs these calls and refuses an
+existing endpoint whose `api_version` is null or different. Stripe does not
+permit changing that field in place: create a replacement, rotate the signing
+secret, verify signed delivery, and only then disable the old endpoint.
 
 ## 7. Then
 

@@ -64,6 +64,9 @@ func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
 			if r.Method != http.MethodPost || r.URL.Path != "/payment_intents" {
 				t.Errorf("request = %s %s, want POST /payment_intents", r.Method, r.URL.Path)
 			}
+			if got := r.Header.Get("Stripe-Version"); got != stripeAPIVersion {
+				t.Errorf("Stripe-Version = %q, want %q", got, stripeAPIVersion)
+			}
 			if got := r.Header.Get("Idempotency-Key"); got != "job-stable" {
 				t.Errorf("Idempotency-Key = %q, want job-stable", got)
 			}
@@ -186,7 +189,7 @@ func TestVerifyStripeSigRejectsReplayOutsideTolerance(t *testing.T) {
 
 func TestStripeWebhookRetriesSavedCardDatabaseFailures(t *testing.T) {
 	const secret = "whsec_webhook_test"
-	payload := []byte(`{"type":"setup_intent.succeeded","data":{"object":{"customer":"cus_known","payment_method":"pm_new"}}}`)
+	payload := []byte(`{"type":"setup_intent.succeeded","api_version":"2025-06-30.basil","livemode":false,"data":{"object":{"customer":"cus_known","payment_method":"pm_new"}}}`)
 	now := time.Now()
 	ts := fmt.Sprint(now.Unix())
 	mac := hmac.New(sha256.New, []byte(secret))

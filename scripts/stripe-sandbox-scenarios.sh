@@ -65,14 +65,16 @@ billing_endpoint="$(api GET "webhook_endpoints/$STRIPE_BILLING_WEBHOOK_ENDPOINT_
 connect_endpoint="$(api GET "webhook_endpoints/$STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID")"
 jq -e '
   . as $endpoint |
-  .livemode == false and .status == "enabled" and (.url | startswith("https://")) and
+  .livemode == false and .status == "enabled" and
+  .api_version == "2025-06-30.basil" and (.url | startswith("https://")) and
   ((.enabled_events | index("*")) != null or
    all("payment_intent.succeeded","charge.dispute.created","charge.dispute.closed";
      . as $event | ($endpoint.enabled_events | index($event)) != null))
 ' <<< "$billing_endpoint" >/dev/null
 jq -e '
   . as $endpoint |
-  .livemode == false and .status == "enabled" and (.url | startswith("https://")) and
+  .livemode == false and .status == "enabled" and
+  .api_version == "2025-06-30.basil" and (.url | startswith("https://")) and
   ((.enabled_events | index("*")) != null or
    all("payout.created","payout.paid","payout.failed";
      . as $event | ($endpoint.enabled_events | index($event)) != null))
@@ -85,7 +87,8 @@ verify_endpoint_secret() {
   secret="${!secret_name}"
   timestamp="$(date +%s)"
   payload="$(jq -nc --arg id "evt_cx_probe_${RUN_ID}_${probe_kind}" --argjson created "$timestamp" \
-    '{id:$id,type:"cx.sandbox.secret_probe",created:$created,data:{object:{id:"cx_sandbox_probe"}}}')"
+    '{id:$id,type:"cx.sandbox.secret_probe",api_version:"2025-06-30.basil",
+      livemode:false,created:$created,data:{object:{id:"cx_sandbox_probe"}}}')"
   digest="$(printf '%s\0%s' "$secret" "$payload" | python3 -c '
 import hashlib, hmac, sys
 timestamp = sys.argv[1].encode()
@@ -289,11 +292,13 @@ jq -e '.livemode == false and (.id | startswith("tr_"))' <<< "$(api GET "transfe
 
 jq -nc \
   --arg run "$RUN_ID" --arg dispute "$dispute_id" \
+  --arg stripe_api_version "2025-06-30.basil" \
   --arg payout_hold "$payout_hold_id" --arg payout_release "$payout_release_id" \
   --arg payout_failure "$payout_failure_id" --arg payout_reversal "$payout_reversal_id" \
   '{schema_version:1,status:"PASS",provider_mode:"test",run_id:$run,
     secret_values_recorded:false,
-    webhook:{endpoint_secrets_verified:true,delivery:true,replay_idempotent:true,out_of_order_safe:true},
+    webhook:{endpoint_secrets_verified:true,payload_api_version:$stripe_api_version,
+      delivery:true,replay_idempotent:true,out_of_order_safe:true},
     dispute:{opened:true,resolved:true,provider_object_class:($dispute|split("_")[0])},
     payout:{hold:true,release:true,failure:true,reversal:true,
       provider_object_classes:([$payout_hold,$payout_release,$payout_failure,$payout_reversal]|map(split("_")[0])|unique)},

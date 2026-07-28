@@ -275,12 +275,18 @@ gc_wait_service() {
 }
 
 gc_probe_release() {
-  local expected_commit="$1" base version reported modified
+  local expected_commit="$1" base ready version reported modified
   base="https://$STAGING_TLS_HOSTNAME"
   curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
     --connect-timeout 10 --max-time 30 "$base/healthz" >/dev/null
-  curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
-    --connect-timeout 10 --max-time 30 "$base/readyz" >/dev/null
+  ready="$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+    --connect-timeout 10 --max-time 30 "$base/readyz")"
+  jq -e '
+    .status == "ready" and
+    .stripe_api_version == "2025-06-30.basil" and
+    (.payment_mode == "sealed" or .payment_mode == "test" or .payment_mode == "live")
+  ' <<< "$ready" >/dev/null \
+    || gc_die "public /readyz does not bind the reviewed Stripe API contract"
   version="$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
     --connect-timeout 10 --max-time 30 "$base/version")"
   reported="$(jq -er '.commit' <<< "$version")"
