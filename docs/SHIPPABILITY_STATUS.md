@@ -59,6 +59,14 @@ claim only from both approved reviewed-build session transitions and requires
 those sessions to remain current through the rest of the fault storm. Hostile
 receipt and disposable-database tests run in CI. No external restart is claimed.
 
+Formal soak authority is fail-closed around one uninterrupted candidate
+container. Every raw sample carries the full container ID, configured immutable
+image, and content-addressed image ID; any recreation, restart, or substitution
+aborts the run. A separate hostile validator verifies the JSONL digest and
+re-derives sample coverage, agent presence, alert/dead-letter/task health, and
+all resource-growth bounds before the runner retains a schema-v2 PASS receipt.
+The required external 24-hour soak remains NOT EXECUTED.
+
 Real historical execution still matters: Apple M3 Ultra/Metal/Candle completed
 batch embeddings and llama.cpp completed realtime with verification and money.
 Direct RunPod/vLLM runtime evidence also remains, but its receipt does not show a
@@ -258,8 +266,8 @@ candidate-bound `CANARY_PROVEN`.
 
 | item | status | evidence |
 |---|---|---|
-| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 529 tracked files and **113,478** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
-| Rename zero-residue audit | `TESTED` | `scripts/rename-residue-audit.py`, in `make ci`. FROZEN 256 / BLOCKED 380 / **RESIDUE 0**. Frozen and blocked classes are itemised with a per-identifier reason in `docs/RENAME_REGISTER.md` §5. |
+| VisionMCP extracted | `TESTED` | VisionMCP remains a separate repository, with **zero** files tracked by merc. `scripts/validate-repo-boundary.py` runs in `make ci` and fails if any VisionMCP path enters merc's tree. merc currently has 531 tracked files and **114,418** owned LOC; none is VisionMCP. The untracked `live-instrument` design archive and its VisionMCP-linking `.mcp.json` remain preserved in their separate worktree and are intentionally excluded from this candidate. |
+| Rename zero-residue audit | `TESTED` | `scripts/rename-residue-audit.py`, in `make ci`. FROZEN 257 / BLOCKED 383 / **RESIDUE 0**. Frozen and blocked classes are itemised with a per-identifier reason in `docs/RENAME_REGISTER.md` §5. |
 
 ## Money and operations
 
