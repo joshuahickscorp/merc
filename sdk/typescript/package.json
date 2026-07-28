@@ -15,6 +15,6 @@
     "prepublishOnly": "npm run build"
   },
   "devDependencies": { "typescript": "^5.4.0" },
-  "repository": { "type": "git", "url": "https://github.com/joshuahickscorp/computexchange" },
+  "repository": { "type": "git", "url": "https://github.com/joshuahickscorp/merc" },
   "homepage": "https://mercmerc.net"
 }

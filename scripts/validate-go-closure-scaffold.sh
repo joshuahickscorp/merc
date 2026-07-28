@@ -11,6 +11,9 @@ pass() { printf 'validate-go-closure: PASS %s\n' "$*"; }
 skip() { printf 'validate-go-closure: SKIP %s\n' "$*"; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required"
+# Every assertion below is `rg ... || die`, so a missing rg would invert each
+# verdict rather than fail the run.
+command -v rg >/dev/null 2>&1 || die "ripgrep (rg) is required"
 [ -f "$COMPOSE" ] || die "missing compose manifest"
 [ -f "$INPUTS" ] || die "missing operator-input declaration"
 [ -f "$ENV_EXAMPLE" ] || die "missing environment template"

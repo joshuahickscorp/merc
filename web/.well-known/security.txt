@@ -13,11 +13,11 @@
 # staffed private-canary support surface.
 
 Contact: mailto:security-contact@example.invalid
-Contact: https://github.com/joshuahickscorp/computexchange/issues
+Contact: https://github.com/joshuahickscorp/merc/issues
 Preferred-Languages: en
 Canonical: https://mercmerc.net/.well-known/security.txt
 Policy: https://mercmerc.net/docs/SECURITY.md
-Acknowledgments: https://github.com/joshuahickscorp/computexchange/security/advisories
+Acknowledgments: https://github.com/joshuahickscorp/merc/security/advisories
 
 # [CONTACT REQUIRED]
 # [SECURITY CONTACT REQUIRED]

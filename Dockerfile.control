@@ -20,7 +20,7 @@ LABEL org.opencontainers.image.title="merc control plane" \
       org.opencontainers.image.version="${MERC_BUILD_VERSION}" \
       org.opencontainers.image.revision="${MERC_BUILD_COMMIT}" \
       org.opencontainers.image.created="${MERC_BUILD_DATE}" \
-      org.opencontainers.image.source="https://github.com/joshuahickscorp/computexchange"
+      org.opencontainers.image.source="https://github.com/joshuahickscorp/merc"
 WORKDIR /
 COPY --from=build /cx /cx
 COPY --from=build /cx-healthcheck /cx-healthcheck

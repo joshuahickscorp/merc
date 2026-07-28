@@ -137,7 +137,7 @@ fi
 if present GITHUB_RELEASE_REVIEWER_LOGIN && \
   [ "$GITHUB_RELEASE_REVIEWER_LOGIN" != "joshuahickscorp" ] && command_present gh; then
   reviewer_permission="$(gh api \
-    "repos/joshuahickscorp/computexchange/collaborators/$GITHUB_RELEASE_REVIEWER_LOGIN/permission" \
+    "repos/joshuahickscorp/merc/collaborators/$GITHUB_RELEASE_REVIEWER_LOGIN/permission" \
     --jq .permission 2>/dev/null || true)"
   case "$reviewer_permission" in admin|maintain|write) review_ok=true ;; esac
 fi
