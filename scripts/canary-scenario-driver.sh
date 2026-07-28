@@ -599,17 +599,23 @@ obs_id() {
 
 submit_job() {
   local kind="$1" sequence="$2" auth="${3:-}"
-  local body idem response code body_out job_id
+  local body idem response code body_out job_id submit_nonce
   auth="${auth:-$(primary_buyer_auth)}"
   # Include a high-resolution nonce so a retried scenario invocation never
   # silently replays a prior completed job via submit idempotency.
-  idem="canary-${MERC_CANARY_RUN_ID}-${kind}-${sequence}-$(date +%s%N)-${RANDOM}"
+  submit_nonce="$(date +%s%N)-${RANDOM}"
+  idem="canary-${MERC_CANARY_RUN_ID}-${kind}-${sequence}-${submit_nonce}"
   # Idempotency-Key max length is 128; keep well under it.
   idem="${idem:0:128}"
   if [ "$kind" = embed ]; then
     # Multi-line input forces multiple chunks so a local Metal agent cannot
     # finish the whole job between consecutive claim polls.
-    body="$(jq -nc --arg text "canary embed ${MERC_CANARY_RUN_ID} ${sequence}" \
+    #
+    # The nonce is part of the INPUT, not just the idempotency key. Exact-result
+    # reuse is keyed on the input, so a repeated invocation with identical text
+    # is served from cache: the job completes with task_count 0 and no supplier
+    # work, and the scenario then certifies the cache rather than the pipeline.
+    body="$(jq -nc --arg text "canary embed ${MERC_CANARY_RUN_ID} ${sequence} ${submit_nonce}" \
       --argjson n 24 \
       '{job_type:{type:"embed",batch_size:8},
         model:{ref:"all-minilm-l6-v2"},
@@ -619,7 +625,7 @@ submit_job() {
         tier:"batch",
         input:([range(0;$n)|({"text":($text+" row "+tostring)}|tostring)]|join("\n")+"\n")}')"
   elif [ "$kind" = batch_infer ]; then
-    body="$(jq -nc --arg prompt "Reply with only: canary-${sequence}" \
+    body="$(jq -nc --arg prompt "Reply with only: canary-${sequence}-${submit_nonce}" \
       '{job_type:{type:"batch_infer",max_tokens:12,temperature:0},
         model:{ref:"llama-3.2-1b-instruct-q4"},
         params:{split_size:1},
