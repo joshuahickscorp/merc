@@ -122,6 +122,27 @@ print(",".join(sorted({b["currency"] for b in d.get("available",[])+d.get("pendi
 }
 
 
+# The R2 dashboard shows a full S3 endpoint, often with the bucket appended:
+#   https://<account-id>.r2.cloudflarestorage.com/<bucket>
+# Pasting that where a bare account id was asked for produced
+# "https://https://....r2.cloudflarestorage.com/merc.r2.cloudflarestorage.com".
+# Accept whatever form the dashboard gave and reduce it to the account id, so
+# the prompt cannot be answered wrongly.
+normalise_account_id() {
+  local raw="$1"
+  raw="${raw#https://}"; raw="${raw#http://}"   # scheme, if pasted
+  raw="${raw%%/*}"                              # any /bucket path
+  raw="${raw%.r2.cloudflarestorage.com}"        # the endpoint suffix
+  printf '%s' "$raw"
+}
+
+# If a bucket came in on that path, it is a better default than a guess.
+bucket_from_endpoint() {
+  local raw="$1" path
+  raw="${raw#https://}"; raw="${raw#http://}"
+  case "$raw" in */*) path="${raw#*/}"; printf '%s' "${path%%/*}" ;; *) printf '' ;; esac
+}
+
 check_r2() {
   local acct="$1" akid="$2" secret="$3"
   if [ -z "$acct$akid$secret" ]; then skip "R2: not configured"; return 1; fi
@@ -131,6 +152,7 @@ check_r2() {
   # R2 speaks S3, and merc's storage layer is already an S3 client, so the check
   # that matters is whether the S3 endpoint answers -- not whether the Cloudflare
   # REST API likes the token. A signed ListBuckets is the cheapest real probe.
+  acct=$(normalise_account_id "$acct")
   local endpoint="https://${acct}.r2.cloudflarestorage.com"
   local code
   code=$(AWS_ACCESS_KEY_ID="$akid" AWS_SECRET_ACCESS_KEY="$secret" \
@@ -191,7 +213,13 @@ if [ "$CHECK_ONLY" -eq 0 ]; then
   say ""
   say "R2 object storage  (R2 dashboard -> Account Details -> API Tokens -> Manage)"
   say "  These are the S3 keys, NOT the general Cloudflare API token."
-  read_secret "  Cloudflare account id"   CLOUDFLARE_ACCOUNT_ID "${CLOUDFLARE_ACCOUNT_ID:-}"
+  read_secret "  Cloudflare account id OR the full R2 S3 endpoint" CLOUDFLARE_ACCOUNT_ID "${CLOUDFLARE_ACCOUNT_ID:-}"
+  if [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+    _maybe_bucket=$(bucket_from_endpoint "$CLOUDFLARE_ACCOUNT_ID")
+    CLOUDFLARE_ACCOUNT_ID=$(normalise_account_id "$CLOUDFLARE_ACCOUNT_ID")
+    [ -n "$_maybe_bucket" ] && { R2_BUCKET="$_maybe_bucket"; ok "  bucket taken from the endpoint: $R2_BUCKET"; }
+    ok "  account id: $CLOUDFLARE_ACCOUNT_ID"
+  fi
   read_secret "  R2 Access Key ID"        R2_ACCESS_KEY_ID      "${R2_ACCESS_KEY_ID:-}"
   read_secret "  R2 Secret Access Key"    R2_SECRET_ACCESS_KEY  "${R2_SECRET_ACCESS_KEY:-}"
 
