@@ -1,7 +1,0 @@
-{
-  "authority": "GOVERNED_BUILDER_INPUT",
-  "note": "How grooms will be scored \u2014 no oracle strand data",
-  "path": "builder_inputs/groom_evaluation_protocol.json",
-  "role": "protocol",
-  "target_id": "fur_animal"
-}

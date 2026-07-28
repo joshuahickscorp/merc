@@ -1,9 +1,0 @@
-{
-  "authority": "SEALED_ORACLE_ONLY",
-  "builder_visible": false,
-  "canary": "SEALED-V2-ORACLE-CANARY-soft_object",
-  "note": "Oracle fabric BSDF parameters",
-  "path": "oracle/hidden/materials/fabric_nodes.json",
-  "role": "hidden_material",
-  "target_id": "soft_object"
-}

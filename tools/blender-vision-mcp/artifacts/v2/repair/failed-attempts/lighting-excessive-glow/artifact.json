@@ -1,8 +1,0 @@
-{
-  "files": {},
-  "kind": "lighting",
-  "payload": {
-    "bloom": 0.7,
-    "shadow_floor": 0.45
-  }
-}

@@ -1,7 +1,0 @@
-{
-  "authority": "SPECIFIED",
-  "benchmark_case": "crud-relational",
-  "kind": "api_contract",
-  "rights_state": "OWNED",
-  "source_id": "api"
-}

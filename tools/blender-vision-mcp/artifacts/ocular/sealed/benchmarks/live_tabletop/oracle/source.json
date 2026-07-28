@@ -1,8 +1,0 @@
-{
-  "claim_boundary": [
-    "No live webcam on this host; synthetic tabletop sequence is diagnostic."
-  ],
-  "display_name": "Live tabletop multi-object memory",
-  "evidence_status": "synthetic",
-  "target_id": "live_tabletop"
-}

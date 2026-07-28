@@ -1,7 +1,0 @@
-{
-  "authority": "GOVERNED_BUILDER_INPUT",
-  "note": "Public capture and ethics requirements",
-  "path": "builder_inputs/capture_requirements.json",
-  "role": "requirements",
-  "target_id": "fur_animal"
-}

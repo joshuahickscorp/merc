@@ -1,9 +1,0 @@
-{
-  "authority": "SEALED_ORACLE_ONLY",
-  "builder_visible": false,
-  "canary": "SEALED-V2-ORACLE-CANARY-remote",
-  "note": "Holdout view indices reserved for evaluator",
-  "path": "oracle/hidden/cameras/holdout_views.json",
-  "role": "hidden_camera",
-  "target_id": "remote"
-}

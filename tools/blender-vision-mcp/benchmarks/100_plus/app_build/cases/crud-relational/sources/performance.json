@@ -1,7 +1,0 @@
-{
-  "authority": "SPECIFIED",
-  "benchmark_case": "crud-relational",
-  "kind": "performance_budget",
-  "rights_state": "OWNED",
-  "source_id": "performance"
-}

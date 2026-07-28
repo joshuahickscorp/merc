@@ -1,8 +1,0 @@
-{
-  "claim_boundary": [
-    "Fixture is not the user's remote."
-  ],
-  "display_name": "Consumer remote ocular loop",
-  "evidence_status": "synthetic",
-  "target_id": "remote"
-}

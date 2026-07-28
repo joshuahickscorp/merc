@@ -1,5 +1,0 @@
-{
-  "completed_at": "2026-07-26T05:06:18.438707+00:00",
-  "failure": "FileNotFoundError: [Errno 2] No such file or directory: '/Users/scammermike/Downloads/visionmcp-nocturne-one-sealed/db820c9-oracle/sealed-evaluator/hidden-mobile-trace.json'",
-  "schema_version": "1"
-}

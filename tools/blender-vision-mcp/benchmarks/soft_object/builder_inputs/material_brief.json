@@ -1,7 +1,0 @@
-{
-  "authority": "GOVERNED_BUILDER_INPUT",
-  "note": "Public textile class labels only",
-  "path": "builder_inputs/material_brief.json",
-  "role": "brief",
-  "target_id": "soft_object"
-}

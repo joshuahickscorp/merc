@@ -1,6 +1,0 @@
-{
-  "event_type": "LIGHT_CHANGED",
-  "fixture_class": "near_threshold",
-  "ground_truth": "sealed_gt/labels.json",
-  "n_frames": 4
-}

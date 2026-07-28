@@ -1,8 +1,0 @@
-HTTP/2 200
-alt-svc: h3=":443"; ma=2592000
-cache-control: public, max-age=86400
-content-type: text/javascript; charset=utf-8
-date: Sun, 26 Jul 2026 04:57:28 GMT
-via: 1.1 Caddy
-x-content-type-options: nosniff
-x-request-id: a8a6262b-2166-4436-975c-79cc62e77230

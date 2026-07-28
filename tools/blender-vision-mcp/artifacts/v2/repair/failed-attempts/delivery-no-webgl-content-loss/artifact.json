@@ -1,9 +1,0 @@
-{
-  "files": {},
-  "kind": "delivery",
-  "payload": {
-    "content_loss": 1.0,
-    "textual_equivalent_presence": 0.0,
-    "webgl_available": false
-  }
-}

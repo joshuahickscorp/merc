@@ -1,1 +1,0 @@
-{"schema_version":"1","ranked_choices":[{"portfolio":"3d-arch-hypotheses.json","winner":"arch-a-circular-24","candidate_count":3},{"portfolio":"app-loading-hypotheses.json","winner":"app-a-explicit-intent-dynamic-import","candidate_count":3}],"policy":"Lexicographic hard-contract compliance, then fidelity, then performance."}

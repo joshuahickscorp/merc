@@ -1,9 +1,0 @@
-{
-  "authority": "SEALED_ORACLE_ONLY",
-  "builder_visible": false,
-  "canary": "SEALED-V2-ORACLE-CANARY-fur_animal",
-  "note": "Hidden groom holdout view indices",
-  "path": "oracle/hidden/cameras/holdout_groom.json",
-  "role": "hidden_camera",
-  "target_id": "fur_animal"
-}

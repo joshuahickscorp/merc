@@ -1,9 +1,0 @@
-{
-  "authority": "SEALED_ORACLE_ONLY",
-  "builder_visible": false,
-  "canary": "SEALED-V2-ORACLE-CANARY-browser_round_trip",
-  "note": "Oracle DOM/AX snapshot for evaluator",
-  "path": "oracle/hidden/measurements/dom_ax_snapshot.json",
-  "role": "hidden_measurement",
-  "target_id": "browser_round_trip"
-}

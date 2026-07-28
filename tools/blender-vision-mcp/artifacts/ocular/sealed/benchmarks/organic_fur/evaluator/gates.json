@@ -1,9 +1,0 @@
-{
-  "acceptance_thresholds": {
-    "groom_not_mesh_only": true
-  },
-  "require_canary_absent_from_builder": true,
-  "require_split_digest_match": true,
-  "split_digest": "351cc6251011c1d6ac01ff5fb157bb058f7294cd459cded13ff984cc814cdbeb",
-  "target_id": "organic_fur"
-}
