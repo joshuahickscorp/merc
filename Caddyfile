@@ -7,6 +7,23 @@
 {$SITE_HOST:mercmerc.net} {
 	encode zstd gzip
 
+	# --- merc cache policy ---
+	# Compression already worked (zstd, 31.8KB -> 11.1KB on the landing page);
+	# what was missing was any Cache-Control at all, so every asset was refetched
+	# on every visit and a Cloudflare proxy would have had nothing to cache.
+	#
+	# Hashed and versioned assets cache hard: their URL changes when their content
+	# does. HTML deliberately does not, because the claim state on these pages is
+	# derived from receipts and a stale page would misrepresent it.
+	@immutable path /assets/* /logo/* *.woff2 *.png *.svg *.jpg *.webp
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+
+	@cacheable_html path / /buyer /admin /prices /supplier
+	header @cacheable_html Cache-Control "public, max-age=60, must-revalidate"
+
+	@json path *.json
+	header @json Cache-Control "public, max-age=300"
+
 	# Metrics remain available to an authorized scraper on the private service
 	# network; they are never exposed through the public TLS virtual host.
 	@metrics path /metrics
