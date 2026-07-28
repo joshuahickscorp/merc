@@ -1,5 +1,12 @@
 # Getting to 8.5 — a tutorial for the ten things only you can do
 
+> **Historical planning snapshot — superseded on 2026-07-28.** Do not use this
+> file as the current release checklist. The RunPod proof was completed and
+> Decision Zero was resolved as `KEEP-RT`; see `DECISION_ZERO_REVERSAL.md`.
+> Current external actions and release gates are authoritative in
+> `EXTERNAL_OPERATOR_HANDOFF.md`, `SHIPPABILITY_STATUS.md`, and
+> `ops/go-no-go.json`. This snapshot remains only to preserve decision history.
+
 Everything else is being built for you. This document is the complete list of
 what an agent cannot do on your behalf, why, and exactly how to do each one.
 
