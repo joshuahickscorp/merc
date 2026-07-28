@@ -131,6 +131,24 @@
       "unblocks": ["persistent_staging", "canary_rehearsal"]
     },
     {
+      "name": "MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE",
+      "accepted_form": "finite positive decimal expressing CAD settlement major units per one USD reference unit",
+      "minimum_scope": "operator-reviewed catalogue publication for this candidate",
+      "secret": false,
+      "used_by": "atomic USD-reference to CAD-settlement catalogue schedule",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "stripe_matrix", "canary_rehearsal"]
+    },
+    {
+      "name": "MERC_PRICE_FX_REVISION",
+      "accepted_form": "immutable non-empty identifier for the approved FX source, observation, and revision",
+      "minimum_scope": "audit the exact FX authority used by this candidate's catalogue",
+      "secret": false,
+      "used_by": "atomic USD-reference to CAD-settlement catalogue schedule",
+      "verification": "scripts/go-closure-deploy.sh --target ssh --activate candidate --check",
+      "unblocks": ["persistent_staging", "stripe_matrix", "canary_rehearsal"]
+    },
+    {
       "name": "MERC_CANDIDATE_CONTROL_IMAGE",
       "accepted_form": "published registry/repository@sha256:<64 lowercase hex> candidate reference",
       "minimum_scope": "pull access to the retained signed candidate image",

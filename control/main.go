@@ -309,10 +309,15 @@ func main() {
 		log.Fatalf("migrate failed: %v", err)
 	}
 
-	if n, rerr := store.ApplyRepricing(ctx, RepriceCatalogueFromSupplierEconomics(supplierShareRate)); rerr != nil {
-		log.Printf("repricing from supplier economics: %v (catalogue left as-is)", rerr)
+	priceSchedule, rerr := BuildCataloguePriceSchedule(supplierShareRate)
+	if rerr != nil {
+		log.Fatalf("catalogue price authority unavailable: %v", rerr)
+	}
+	if n, rerr := store.ApplyRepricing(ctx, priceSchedule); rerr != nil {
+		log.Fatalf("apply catalogue price schedule: %v", rerr)
 	} else if n > 0 {
-		log.Printf("repricing from supplier economics: %d catalogue price(s) updated from measured throughput", n)
+		log.Printf("catalogue price schedule %s: %d model price(s) updated atomically",
+			priceSchedule.SHA256, n)
 	}
 	// SupplierViabilityReport computes, per catalogue model, whether a supplier
 	// clears their own electricity at the price we advertise. It existed but was

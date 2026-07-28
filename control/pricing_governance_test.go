@@ -76,10 +76,11 @@ func TestUngovernedClassRefusesToPrice(t *testing.T) {
 	}
 }
 
-// Item 13: a price that cannot pay its supply side is refused unless an
-// operator records a subsidy receipt naming the authorising decision.
-func TestNegativeContributionIsRefusedWithoutAReceipt(t *testing.T) {
-	t.Setenv(subsidyReceiptEnv, "")
+// Item 13: a price that cannot pay its supply side is refused. The historical
+// free-form environment receipt is explicitly inert: payout subsidy authority
+// is durable and audited, while catalogue publication has no loss-making
+// bypass.
+func TestNegativeContributionCannotBePublishedOrEnvironmentSubsidized(t *testing.T) {
 	b := repricingBenchmarks[0]
 
 	// A price low enough that the supplier cannot cover electricity.
@@ -92,27 +93,19 @@ func TestNegativeContributionIsRefusedWithoutAReceipt(t *testing.T) {
 	if !errors.As(err, &neg) {
 		t.Fatalf("want errNegativeContribution, got %T: %v", err, err)
 	}
-	if !strings.Contains(err.Error(), subsidyReceiptEnv) {
-		t.Fatalf("refusal should name the override mechanism: %v", err)
+	if !strings.Contains(err.Error(), "cannot be subsidised") {
+		t.Fatalf("refusal should make the no-bypass policy explicit: %v", err)
 	}
 
-	// With an explicit receipt the same price is permitted.
-	t.Setenv(subsidyReceiptEnv, "DECISION-2026-07-27-canary-subsidy")
-	if err := governPublishedPrice(b, starve, 0.97); err != nil {
-		t.Fatalf("a receipted subsidy should permit the price: %v", err)
-	}
-
-	// A blank-ish receipt is not a receipt.
-	t.Setenv(subsidyReceiptEnv, "   ")
+	t.Setenv("MERC_PRICE_SUBSIDY_RECEIPT", "DECISION-legacy-free-form-bypass")
 	if err := governPublishedPrice(b, starve, 0.97); err == nil {
-		t.Fatal("whitespace must not count as a subsidy authorisation")
+		t.Fatal("legacy free-form subsidy environment value bypassed catalogue governance")
 	}
 }
 
 // The shipped board must actually clear the gate: if it does not, the catalogue
 // silently stops repricing and nobody notices.
 func TestShippedBoardPublishesAViablePrice(t *testing.T) {
-	t.Setenv(subsidyReceiptEnv, "")
 	results := RepriceCatalogueFromSupplierEconomics(0.97)
 	if len(results) == 0 {
 		t.Fatal("the shipped price board publishes no prices at all")

@@ -460,7 +460,10 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	jobType := sub.JobType.Type
 	tier := sub.Tier
 	scan := scanJSONL(inputBytes)
-	offeredRate := s.offeredRateUsdHrForSubmission(ctx, sub)
+	offeredRate, err := s.offeredRateUsdHrForSubmission(ctx, sub)
+	if err != nil {
+		return Quote{}, fmt.Errorf("resolving catalogue price authority: %w", err)
+	}
 	placement, err := placementRequirementFor(sub, workload, offeredRate)
 	if err != nil {
 		return Quote{}, fmt.Errorf("building placement requirement: %w", err)
@@ -484,7 +487,10 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		tasks = (scan.Records + split - 1) / split
 	}
 
-	expected := s.estimateJobUSD(ctx, sub.JobType.Type, sub.Model.Ref, len(inputBytes), scan.Records, sub.JobType.MaxTokens, sub.Tier)
+	expected, err := s.estimateJobSettlement(ctx, sub.JobType.Type, sub.Model.Ref, len(inputBytes), scan.Records, sub.JobType.MaxTokens, sub.Tier)
+	if err != nil {
+		return Quote{}, fmt.Errorf("pricing quote: %w", err)
+	}
 	primaryComputeUSD := expected
 	verifOverhead := roundUSD(expected * float64(sub.Verification.RedundancyFrac+sub.Verification.HoneypotFrac))
 	wantVerificationFloor := sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0

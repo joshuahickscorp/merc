@@ -651,7 +651,7 @@ CREATE TABLE IF NOT EXISTS models (
     kind           TEXT,
     dim            INT,                 -- embedding dimensionality (embed models)
     job_type       TEXT,
-    price_per_1k   NUMERIC(12,8),       -- USD / 1,000 units
+    price_per_1k   NUMERIC(12,8),       -- settlement-currency major units / 1,000 units
     min_memory_gb  REAL,
     hf_repo        TEXT                 -- HuggingFace repo to resolve weights from
 );
@@ -1807,6 +1807,155 @@ CREATE INDEX IF NOT EXISTS alpha_requests_retention_idx
 
 ALTER TABLE models ADD COLUMN IF NOT EXISTS price_source  TEXT DEFAULT 'seed';
 ALTER TABLE models ADD COLUMN IF NOT EXISTS price_formula TEXT;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS price_reference_currency TEXT;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS price_reference_per_1k NUMERIC(12,8);
+ALTER TABLE models ADD COLUMN IF NOT EXISTS price_currency TEXT;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS price_schedule_sha256 TEXT;
+ALTER TABLE models ADD COLUMN IF NOT EXISTS price_schedule_version INT;
+
+-- One append-only catalogue schedule binds the exact market-board bytes and
+-- every model price applied from them. Applying a schedule is one serializable
+-- transaction, so readers can never observe a half-old/half-new catalogue.
+CREATE TABLE IF NOT EXISTS catalogue_price_schedules (
+    sha256                 TEXT PRIMARY KEY CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+    version                INT NOT NULL CHECK (version = 1),
+    reference_currency     TEXT NOT NULL CHECK (reference_currency = 'usd'),
+    settlement_currency    TEXT NOT NULL CHECK (settlement_currency IN ('usd','cad','jpy')),
+    reference_to_settlement_rate DOUBLE PRECISION NOT NULL CHECK (reference_to_settlement_rate > 0),
+    fx_revision            TEXT NOT NULL CHECK (btrim(fx_revision) <> ''),
+    board_sha256           TEXT NOT NULL CHECK (board_sha256 ~ '^[0-9a-f]{64}$'),
+    board_schema_version   INT NOT NULL CHECK (board_schema_version = 1),
+    board_fetched_at       TEXT NOT NULL CHECK (btrim(board_fetched_at) <> ''),
+    positioning_multiplier DOUBLE PRECISION NOT NULL CHECK (positioning_multiplier > 0),
+    supplier_share         DOUBLE PRECISION NOT NULL CHECK (supplier_share > 0 AND supplier_share <= 1),
+    schedule_json          JSONB NOT NULL,
+    applied_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (schedule_json->>'sha256' = sha256),
+    CHECK ((schedule_json->>'version')::INT = version),
+    CHECK (schedule_json->>'reference_currency' = reference_currency),
+    CHECK (schedule_json->>'settlement_currency' = settlement_currency),
+    CHECK (schedule_json->>'fx_revision' = fx_revision),
+    CHECK (schedule_json->>'board_sha256' = board_sha256)
+);
+ALTER TABLE catalogue_price_schedules ADD COLUMN IF NOT EXISTS settlement_currency TEXT;
+ALTER TABLE catalogue_price_schedules ADD COLUMN IF NOT EXISTS reference_to_settlement_rate DOUBLE PRECISION;
+ALTER TABLE catalogue_price_schedules ADD COLUMN IF NOT EXISTS fx_revision TEXT;
+ALTER TABLE catalogue_price_schedules DROP CONSTRAINT IF EXISTS catalogue_price_schedules_fx_authority_complete;
+ALTER TABLE catalogue_price_schedules ADD CONSTRAINT catalogue_price_schedules_fx_authority_complete CHECK (
+    settlement_currency IN ('usd','cad','jpy')
+    AND reference_to_settlement_rate > 0
+    AND COALESCE(btrim(fx_revision),'') <> ''
+    AND schedule_json->>'settlement_currency' = settlement_currency
+    AND schedule_json->>'fx_revision' = fx_revision
+) NOT VALID;
+
+CREATE TABLE IF NOT EXISTS model_price_history (
+    schedule_sha256       TEXT NOT NULL REFERENCES catalogue_price_schedules(sha256),
+    model_id              TEXT NOT NULL REFERENCES models(id),
+    prior_price_per_1k    NUMERIC(12,8),
+    prior_price_source    TEXT,
+    reference_price_per_1k NUMERIC(12,8) NOT NULL CHECK (reference_price_per_1k > 0),
+    reference_currency    TEXT NOT NULL CHECK (reference_currency = 'usd'),
+    price_per_1k          NUMERIC(12,8) NOT NULL CHECK (price_per_1k > 0),
+    price_currency        TEXT NOT NULL CHECK (price_currency IN ('usd','cad','jpy')),
+    price_formula         TEXT NOT NULL CHECK (btrim(price_formula) <> ''),
+    applied_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (schedule_sha256,model_id)
+);
+ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS reference_price_per_1k NUMERIC(12,8);
+ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS price_currency TEXT;
+ALTER TABLE model_price_history DROP CONSTRAINT IF EXISTS model_price_history_currency_authority_complete;
+ALTER TABLE model_price_history ADD CONSTRAINT model_price_history_currency_authority_complete CHECK (
+    reference_price_per_1k > 0
+    AND reference_currency = 'usd'
+    AND price_currency IN ('usd','cad','jpy')
+) NOT VALID;
+
+CREATE OR REPLACE FUNCTION cx_reject_catalogue_price_audit_mutation() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION '% price authority is append-only', TG_TABLE_NAME;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS catalogue_price_schedules_append_only ON catalogue_price_schedules;
+CREATE TRIGGER catalogue_price_schedules_append_only
+    BEFORE UPDATE OR DELETE ON catalogue_price_schedules
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_catalogue_price_audit_mutation();
+DROP TRIGGER IF EXISTS model_price_history_append_only ON model_price_history;
+CREATE TRIGGER model_price_history_append_only
+    BEFORE UPDATE OR DELETE ON model_price_history
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_catalogue_price_audit_mutation();
+
+ALTER TABLE models DROP CONSTRAINT IF EXISTS models_price_schedule_sha256_valid;
+ALTER TABLE models ADD CONSTRAINT models_price_schedule_sha256_valid
+    CHECK (price_schedule_sha256 IS NULL OR price_schedule_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE models DROP CONSTRAINT IF EXISTS models_market_price_authority_complete;
+ALTER TABLE models ADD CONSTRAINT models_market_price_authority_complete CHECK (
+    price_source IS DISTINCT FROM 'market_board'
+    OR (
+        price_per_1k > 0
+        AND COALESCE(btrim(price_formula),'') <> ''
+        AND price_reference_currency = 'usd'
+        AND price_reference_per_1k > 0
+        AND price_currency IN ('usd','cad','jpy')
+        AND price_schedule_sha256 IS NOT NULL
+        AND price_schedule_version = 1
+    )
+) NOT VALID;
+ALTER TABLE models DROP CONSTRAINT IF EXISTS models_price_schedule_fkey;
+ALTER TABLE models ADD CONSTRAINT models_price_schedule_fkey
+    FOREIGN KEY (price_schedule_sha256) REFERENCES catalogue_price_schedules(sha256)
+    NOT VALID;
+
+-- Runtime-catalog synchronization may update non-price model metadata before a
+-- legacy price schedule has been upgraded. Leave those no-price-change updates
+-- alone, but reject every insertion or mutation of a market-board price unless
+-- it exactly matches the append-only schedule and per-model history record.
+CREATE OR REPLACE FUNCTION cx_validate_model_price_authority() RETURNS trigger AS $$
+DECLARE
+    authority_version INT;
+    authority_reference_currency TEXT;
+    authority_settlement_currency TEXT;
+    authority_reference_price NUMERIC(12,8);
+    authority_price NUMERIC(12,8);
+    authority_formula TEXT;
+BEGIN
+    IF TG_OP = 'UPDATE' AND ROW(
+        NEW.price_per_1k,NEW.price_source,NEW.price_formula,
+        NEW.price_reference_currency,NEW.price_reference_per_1k,
+        NEW.price_currency,NEW.price_schedule_sha256,NEW.price_schedule_version
+    ) IS NOT DISTINCT FROM ROW(
+        OLD.price_per_1k,OLD.price_source,OLD.price_formula,
+        OLD.price_reference_currency,OLD.price_reference_per_1k,
+        OLD.price_currency,OLD.price_schedule_sha256,OLD.price_schedule_version
+    ) THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.price_source IS DISTINCT FROM 'market_board' THEN
+        RETURN NEW;
+    END IF;
+    SELECT s.version,s.reference_currency,s.settlement_currency,
+           h.reference_price_per_1k,h.price_per_1k,h.price_formula
+      INTO authority_version,authority_reference_currency,authority_settlement_currency,
+           authority_reference_price,authority_price,authority_formula
+      FROM catalogue_price_schedules s
+      JOIN model_price_history h ON h.schedule_sha256=s.sha256
+     WHERE s.sha256=NEW.price_schedule_sha256 AND h.model_id=NEW.id;
+    IF NOT FOUND OR
+       NEW.price_schedule_version IS DISTINCT FROM authority_version OR
+       NEW.price_reference_currency IS DISTINCT FROM authority_reference_currency OR
+       NEW.price_currency IS DISTINCT FROM authority_settlement_currency OR
+       NEW.price_reference_per_1k IS DISTINCT FROM authority_reference_price OR
+       NEW.price_per_1k IS DISTINCT FROM authority_price OR
+       NEW.price_formula IS DISTINCT FROM authority_formula THEN
+        RAISE EXCEPTION 'model % market-board price does not match its append-only authority', NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS models_price_authority_guard ON models;
+CREATE TRIGGER models_price_authority_guard
+    BEFORE INSERT OR UPDATE ON models
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_model_price_authority();
 
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS firm_quote          BOOLEAN DEFAULT false;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS firm_quote_max_usd  NUMERIC(12,6);

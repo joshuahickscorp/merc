@@ -304,8 +304,8 @@ func TestHeartbeatLoadedModelsStayInsideProductionProjection(t *testing.T) {
 
 func productionCatalogRows() []ModelRow {
 	return []ModelRow{
-		{ID: "all-minilm-l6-v2", Kind: "embed", PricePer1K: .001, MinMemoryGB: 2, HFRepo: "sentence-transformers/all-MiniLM-L6-v2"},
-		{ID: "llama-3.2-1b-instruct-q4", Kind: "gguf", PricePer1K: .002, MinMemoryGB: 4, HFRepo: "unsloth/Llama-3.2-1B-Instruct-GGUF"},
+		{ID: "all-minilm-l6-v2", Kind: "embed", PricePer1K: .001, ReferencePricePer1K: .001, PriceReferenceCurrency: "usd", PriceCurrency: "usd", MinMemoryGB: 2, HFRepo: "sentence-transformers/all-MiniLM-L6-v2"},
+		{ID: "llama-3.2-1b-instruct-q4", Kind: "gguf", PricePer1K: .002, ReferencePricePer1K: .002, PriceReferenceCurrency: "usd", PriceCurrency: "usd", MinMemoryGB: 4, HFRepo: "unsloth/Llama-3.2-1B-Instruct-GGUF"},
 	}
 }
 

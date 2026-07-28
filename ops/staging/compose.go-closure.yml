@@ -24,6 +24,8 @@ x-control-environment: &control-environment
   MERC_CONNECT_RETURN_URL: https://${STAGING_TLS_HOSTNAME:?required}/admin?connect=return
   MERC_CONNECT_REFRESH_URL: https://${STAGING_TLS_HOSTNAME:?required}/admin?connect=refresh
   MERC_SETTLEMENT_CURRENCY: "cad"
+  MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE: ${MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE:?operator-approved CAD per USD catalogue rate required}
+  MERC_PRICE_FX_REVISION: ${MERC_PRICE_FX_REVISION:?immutable FX source/revision required}
   MERC_TOKEN_KEY: ${MERC_TOKEN_KEY:?at least 32 unpredictable bytes; required in .env.go-closure}
   MERC_VERIFICATION_SAMPLE_SECRET: ${MERC_VERIFICATION_SAMPLE_SECRET:?at least 32 unpredictable bytes; required in .env.go-closure}
   MERC_ECON_SCHEDULE_VERSION: "2026-07-19"

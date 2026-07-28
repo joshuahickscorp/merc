@@ -115,6 +115,7 @@ has that split authority:
 | | |
 |---|---|
 | Runtime authority | `MERC_SETTLEMENT_CURRENCY`, fixed to `cad` in the Level B staging manifest |
+| Catalogue FX authority | Operator-supplied `MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE` and immutable `MERC_PRICE_FX_REVISION`; boot refuses a missing cross-currency authority |
 | Stripe preflight | Requires a CAD platform balance bucket |
 | Connected account | Requires a distinct, project-controlled Canadian Sandbox account with payouts enabled |
 | Provider matrix | Creates and reconciles CAD PaymentIntents, refunds, transfers, bank fixtures, and payouts |

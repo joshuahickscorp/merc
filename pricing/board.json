@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "unit": "usd_per_1k_units",
-  "unit_note": "Catalogue price_per_1k is USD per 1000 billable units (≈ tokens; see estimateJobUSD). Observations below are converted from published per-1M-token list prices: usd_per_1k = usd_per_1m / 1000.",
+  "unit_note": "Reference prices are USD per 1000 billable units (approximately tokens). Observations below are converted from published per-1M-token list prices: usd_per_1k = usd_per_1m / 1000. Publication converts this reference into the configured settlement currency under the schedule-bound FX authority used by estimateJobSettlement.",
   "fetched_at": "2026-07-26",
   "positioning_multiplier": 0.9,
-  "positioning_note": "Catalogue price = min(observations in class) × positioning_multiplier. 0.9 aims ~10% under the cheapest observed list price for the class.",
+  "positioning_note": "Catalogue reference price = confidence-weighted median of governed class observations × positioning_multiplier. Vendor-owned sources carry more weight than third-party or unattributed rows; 0.9 positions the result 10% below that governed median.",
   "classes": {
     "embed_small": {
       "description": "Small general-purpose text embeddings (OpenAI text-embedding-3-small class / voyage-4-lite class). Maps to all-minilm-l6-v2.",

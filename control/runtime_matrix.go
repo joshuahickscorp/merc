@@ -304,9 +304,15 @@ func validateAdvertisedRuntimeCatalogRows(rows []ModelRow) error {
 		if !ok {
 			return fmt.Errorf("runtime matrix advertises model %q but the DB catalog has no row", modelID)
 		}
-		price := modelPrice(row)
+		price, err := modelPrice(row)
+		if err != nil {
+			return fmt.Errorf("runtime matrix advertises model %q without settlement-bound pricing: %w", modelID, err)
+		}
 		if math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
 			return fmt.Errorf("runtime matrix advertises model %q but its DB price is not positive", modelID)
+		}
+		if _, err := modelReferencePriceUSD(row); err != nil {
+			return fmt.Errorf("runtime matrix advertises model %q without USD payout-floor pricing: %w", modelID, err)
 		}
 		if row.Kind == "" || row.HFRepo == "" {
 			return fmt.Errorf("runtime matrix advertises model %q but its DB kind/repository metadata is incomplete", modelID)

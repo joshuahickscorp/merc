@@ -94,7 +94,8 @@ ok "SITE_HOST=${SITE_HOST:-mercmerc.net}"
 # and what it keeps, and a number guessed by a script is a number nobody chose.
 printf '\nstill needed — these are business decisions, not defaults\n'
 MISSING=0
-for name in MERC_ECON_SCHEDULE_VERSION MERC_PROCESSOR_PERCENT_BPS MERC_PROCESSOR_FIXED_USD \
+for name in MERC_SETTLEMENT_CURRENCY MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE MERC_PRICE_FX_REVISION \
+            MERC_ECON_SCHEDULE_VERSION MERC_PROCESSOR_PERCENT_BPS MERC_PROCESSOR_FIXED_USD \
             MERC_CONTROL_PLANE_PER_TASK_USD MERC_TARGET_MARGIN_BPS \
             MERC_ALERT_RECEIVER_URL_FILE GF_SECURITY_ADMIN_PASSWORD; do
   if [ -z "${!name:-}" ]; then bad "$name"; MISSING=$((MISSING+1))
