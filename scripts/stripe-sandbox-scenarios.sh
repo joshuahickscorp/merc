@@ -5,6 +5,10 @@ set -euo pipefail
 # validates credentials first; this script repeats the live-key refusal so it
 # is also safe when invoked directly. It never supports live mode.
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=scripts/lib/stripe-sandbox-contract.sh
+source "$ROOT/scripts/lib/stripe-sandbox-contract.sh"
+
 RUN_ID=""
 PAYMENT_INTENT=""
 CHARGE=""
@@ -35,6 +39,7 @@ done
 [[ "${STRIPE_SECRET_KEY:-}" =~ ^(sk_test_|rk_test_)[A-Za-z0-9_]+$ ]] || { echo "stripe-sandbox-scenarios: test key required" >&2; exit 1; }
 [[ "${STRIPE_WEBHOOK_SECRET:-}" =~ ^whsec_[A-Za-z0-9_]+$ ]] || { echo "stripe-sandbox-scenarios: billing webhook secret required" >&2; exit 1; }
 [[ "${MERC_CONNECT_WEBHOOK_SECRET:-}" =~ ^whsec_[A-Za-z0-9_]+$ ]] || { echo "stripe-sandbox-scenarios: Connect webhook secret required" >&2; exit 1; }
+[ "$STRIPE_WEBHOOK_SECRET" != "$MERC_CONNECT_WEBHOOK_SECRET" ] || { echo "stripe-sandbox-scenarios: webhook secrets must be distinct" >&2; exit 1; }
 [[ "$RUN_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "stripe-sandbox-scenarios: run id required" >&2; exit 1; }
 [[ "$PAYMENT_INTENT" =~ ^pi_[A-Za-z0-9]+$ && "$CHARGE" =~ ^ch_[A-Za-z0-9]+$ && "$TRANSFER" =~ ^tr_[A-Za-z0-9]+$ ]] || {
   echo "stripe-sandbox-scenarios: provider object identifiers required" >&2; exit 1;
@@ -42,7 +47,18 @@ done
 [[ "$CONNECTED_ACCOUNT" =~ ^acct_[A-Za-z0-9]+$ ]] || { echo "stripe-sandbox-scenarios: connected account required" >&2; exit 1; }
 [[ "${STRIPE_BILLING_WEBHOOK_ENDPOINT_ID:-}" =~ ^we_[A-Za-z0-9]+$ ]] || { echo "stripe-sandbox-scenarios: STRIPE_BILLING_WEBHOOK_ENDPOINT_ID required" >&2; exit 1; }
 [[ "${STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID:-}" =~ ^we_[A-Za-z0-9]+$ ]] || { echo "stripe-sandbox-scenarios: STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID required" >&2; exit 1; }
+merc_stripe_distinct_endpoint_ids \
+  "$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID" "$STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID" \
+  || { echo "stripe-sandbox-scenarios: webhook endpoint ids must be distinct" >&2; exit 1; }
+merc_stripe_valid_staging_hostname "${STAGING_TLS_HOSTNAME:-}" \
+  || { echo "stripe-sandbox-scenarios: exact STAGING_TLS_HOSTNAME required" >&2; exit 1; }
 command -v stripe >/dev/null 2>&1 || { echo "stripe-sandbox-scenarios: Stripe CLI required" >&2; exit 1; }
+settlement_currency="$MERC_STRIPE_CANDIDATE_CURRENCY"
+provided_settlement_currency="$(
+  printf '%s' "${MERC_SETTLEMENT_CURRENCY:-$settlement_currency}" | tr '[:upper:]' '[:lower:]'
+)"
+[ "$provided_settlement_currency" = "$settlement_currency" ] \
+  || { echo "stripe-sandbox-scenarios: settlement currency must match reviewed candidate" >&2; exit 1; }
 
 # The CLI must never fall back to a login profile. Export the key already proven
 # test-only, and clear all live/publishable aliases before the first call.
@@ -52,7 +68,7 @@ unset STRIPE_LIVE_SECRET_KEY STRIPE_PUBLISHABLE_KEY NEXT_PUBLIC_STRIPE_PUBLISHAB
 api() {
   local method="$1" path="$2"; shift 2
   printf 'user = "%s:"\n' "$STRIPE_SECRET_KEY" | curl --silent --show-error --config - \
-    --request "$method" --header 'Stripe-Version: 2025-06-30.basil' \
+    --request "$method" --header "Stripe-Version: $MERC_STRIPE_API_VERSION" \
     --connect-timeout 10 --max-time 45 "https://api.stripe.com/v1/$path" "$@"
 }
 
@@ -63,22 +79,14 @@ connected_api() {
 
 billing_endpoint="$(api GET "webhook_endpoints/$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID")"
 connect_endpoint="$(api GET "webhook_endpoints/$STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID")"
-jq -e '
-  . as $endpoint |
-  .livemode == false and .status == "enabled" and
-  .api_version == "2025-06-30.basil" and (.url | startswith("https://")) and
-  ((.enabled_events | index("*")) != null or
-   all("payment_intent.succeeded","charge.dispute.created","charge.dispute.closed";
-     . as $event | ($endpoint.enabled_events | index($event)) != null))
-' <<< "$billing_endpoint" >/dev/null
-jq -e '
-  . as $endpoint |
-  .livemode == false and .status == "enabled" and
-  .api_version == "2025-06-30.basil" and (.url | startswith("https://")) and
-  ((.enabled_events | index("*")) != null or
-   all("payout.created","payout.paid","payout.failed";
-     . as $event | ($endpoint.enabled_events | index($event)) != null))
-' <<< "$connect_endpoint" >/dev/null
+expected_billing_url="$(merc_stripe_expected_billing_url "$STAGING_TLS_HOSTNAME")"
+expected_connect_url="$(merc_stripe_expected_connect_url "$STAGING_TLS_HOSTNAME")"
+merc_stripe_endpoint_contract \
+  "$billing_endpoint" "$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID" "$expected_billing_url" \
+  "setup_intent.succeeded,payment_method.attached,payment_intent.succeeded,charge.refunded,charge.dispute.created,charge.dispute.funds_withdrawn,charge.dispute.funds_reinstated,charge.dispute.closed"
+merc_stripe_endpoint_contract \
+  "$connect_endpoint" "$STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID" "$expected_connect_url" \
+  "account.updated,payout.created,payout.paid,payout.failed"
 
 verify_endpoint_secret() {
   local endpoint_json="$1" secret_name="$2" probe_kind="$3"
@@ -86,8 +94,9 @@ verify_endpoint_secret() {
   endpoint_url="$(jq -er '.url | select(startswith("https://"))' <<< "$endpoint_json")"
   secret="${!secret_name}"
   timestamp="$(date +%s)"
-  payload="$(jq -nc --arg id "evt_cx_probe_${RUN_ID}_${probe_kind}" --argjson created "$timestamp" \
-    '{id:$id,type:"cx.sandbox.secret_probe",api_version:"2025-06-30.basil",
+  payload="$(jq -nc --arg id "evt_cx_probe_${RUN_ID}_${probe_kind}" \
+    --arg api_version "$MERC_STRIPE_API_VERSION" --argjson created "$timestamp" \
+    '{id:$id,type:"cx.sandbox.secret_probe",api_version:$api_version,
       livemode:false,created:$created,data:{object:{id:"cx_sandbox_probe"}}}')"
   digest="$(printf '%s\0%s' "$secret" "$payload" | python3 -c '
 import hashlib, hmac, sys
@@ -176,12 +185,14 @@ wait_delivered "$success_event_id"
 # evidence fixture. No card number or real payment instrument is used.
 disputed="$(api POST payment_intents \
   --header "Idempotency-Key: merc-matrix-$RUN_ID-dispute" \
-  --data-urlencode amount=1500 --data-urlencode currency=usd \
+  --data-urlencode amount=1500 --data-urlencode "currency=$settlement_currency" \
   --data-urlencode payment_method=pm_card_createDispute \
   --data-urlencode 'payment_method_types[]=card' --data-urlencode confirm=true \
   --data-urlencode "metadata[cx_matrix_run]=$RUN_ID")"
 disputed_pi="$(jq -er '.id | select(startswith("pi_"))' <<< "$disputed")"
 disputed_charge="$(jq -er '.latest_charge | select(startswith("ch_"))' <<< "$disputed")"
+jq -e --arg currency "$settlement_currency" \
+  '.livemode == false and .currency == $currency' <<< "$disputed" >/dev/null
 created_event="$(event_for_object charge.dispute.created "$disputed_charge")"
 created_event_id="$(jq -r .id <<< "$created_event")"
 dispute_id="$(jq -er '.data.object.id | select(startswith("dp_") or startswith("du_"))' <<< "$created_event")"
@@ -203,10 +214,16 @@ resend "$created_event_id" "$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID"
 resend "$closed_event_id" "$STRIPE_BILLING_WEBHOOK_ENDPOINT_ID"
 
 # Exercise connected-account payout semantics with Stripe's documented Sandbox
-# bank-account numbers. The account must be a project-controlled US test account;
+# bank-account numbers. The account must be a project-controlled Canadian test account;
 # no real bank/card details are accepted by this adapter.
 connected="$(api GET "accounts/$CONNECTED_ACCOUNT")"
-jq -e '.livemode == false and .country == "US" and .payouts_enabled == true' <<< "$connected" >/dev/null
+jq -e --arg id "$CONNECTED_ACCOUNT" \
+  --arg country "$MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY" '
+    .id == $id and (.livemode // false) == false and
+    .country == $country and .payouts_enabled == true
+  ' <<< "$connected" >/dev/null
+platform_account="$(api GET account)"
+[ "$(jq -er '.id | select(startswith("acct_"))' <<< "$platform_account")" != "$CONNECTED_ACCOUNT" ]
 original_interval="$(jq -er '.settings.payouts.schedule.interval' <<< "$connected")"
 original_weekly_anchor="$(jq -r '.settings.payouts.schedule.weekly_anchor // empty' <<< "$connected")"
 original_monthly_anchor="$(jq -r '.settings.payouts.schedule.monthly_anchor // empty' <<< "$connected")"
@@ -229,19 +246,27 @@ jq -e '.livemode == false and .settings.payouts.schedule.interval == "manual"' <
 
 success_bank_json="$(api POST "accounts/$CONNECTED_ACCOUNT/external_accounts" \
   --data-urlencode 'external_account[object]=bank_account' \
-  --data-urlencode 'external_account[country]=US' \
-  --data-urlencode 'external_account[currency]=usd' \
-  --data-urlencode 'external_account[routing_number]=110000000' \
-  --data-urlencode 'external_account[account_number]=000123456789')"
+  --data-urlencode "external_account[country]=$MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY" \
+  --data-urlencode "external_account[currency]=$settlement_currency" \
+  --data-urlencode "external_account[routing_number]=$MERC_STRIPE_CANDIDATE_PAYOUT_ROUTING" \
+  --data-urlencode "external_account[account_number]=$MERC_STRIPE_CANDIDATE_PAYOUT_SUCCESS_ACCOUNT")"
 success_bank="$(jq -er '.id | select(startswith("ba_"))' <<< "$success_bank_json")"
+jq -e --arg currency "$settlement_currency" \
+  --arg country "$MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY" '
+    .currency == $currency and .country == $country
+  ' <<< "$success_bank_json" >/dev/null
 
 failure_bank_json="$(api POST "accounts/$CONNECTED_ACCOUNT/external_accounts" \
   --data-urlencode 'external_account[object]=bank_account' \
-  --data-urlencode 'external_account[country]=US' \
-  --data-urlencode 'external_account[currency]=usd' \
-  --data-urlencode 'external_account[routing_number]=110000000' \
-  --data-urlencode 'external_account[account_number]=000111111116')"
+  --data-urlencode "external_account[country]=$MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY" \
+  --data-urlencode "external_account[currency]=$settlement_currency" \
+  --data-urlencode "external_account[routing_number]=$MERC_STRIPE_CANDIDATE_PAYOUT_ROUTING" \
+  --data-urlencode "external_account[account_number]=$MERC_STRIPE_CANDIDATE_PAYOUT_FAILURE_ACCOUNT")"
 failure_bank="$(jq -er '.id | select(startswith("ba_"))' <<< "$failure_bank_json")"
+jq -e --arg currency "$settlement_currency" \
+  --arg country "$MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY" '
+    .currency == $currency and .country == $country
+  ' <<< "$failure_bank_json" >/dev/null
 
 wait_payout_status() {
   local payout_id="$1" wanted="$2" deadline response
@@ -257,10 +282,12 @@ wait_payout_status() {
 
 released="$(connected_api POST payouts \
   --header "Idempotency-Key: merc-matrix-$RUN_ID-payout-release" \
-  --data-urlencode amount=40 --data-urlencode currency=usd \
+  --data-urlencode amount=40 --data-urlencode "currency=$settlement_currency" \
   --data-urlencode destination="$success_bank" \
   --data-urlencode "description=merc Sandbox release $RUN_ID")"
 payout_release_id="$(jq -er '.id | select(startswith("po_"))' <<< "$released")"
+jq -e --arg currency "$settlement_currency" \
+  '.livemode == false and .currency == $currency' <<< "$released" >/dev/null
 hold_event="$(event_for_object payout.created "$payout_release_id" connected)"
 wait_delivered "$(jq -r .id <<< "$hold_event")" connected
 wait_payout_status "$payout_release_id" paid >/dev/null
@@ -276,10 +303,12 @@ payout_reversal_id="$(jq -r .id <<< "$reversed")"
 
 failed="$(connected_api POST payouts \
   --header "Idempotency-Key: merc-matrix-$RUN_ID-payout-failure" \
-  --data-urlencode amount=30 --data-urlencode currency=usd \
+  --data-urlencode amount=30 --data-urlencode "currency=$settlement_currency" \
   --data-urlencode destination="$failure_bank" \
   --data-urlencode "description=merc Sandbox failure $RUN_ID")"
 payout_failure_id="$(jq -er '.id | select(startswith("po_"))' <<< "$failed")"
+jq -e --arg currency "$settlement_currency" \
+  '.livemode == false and .currency == $currency' <<< "$failed" >/dev/null
 wait_payout_status "$payout_failure_id" failed >/dev/null
 failed_event="$(event_for_object payout.failed "$payout_failure_id" connected)"
 wait_delivered "$(jq -r .id <<< "$failed_event")" connected
@@ -292,16 +321,20 @@ jq -e '.livemode == false and (.id | startswith("tr_"))' <<< "$(api GET "transfe
 
 jq -nc \
   --arg run "$RUN_ID" --arg dispute "$dispute_id" \
-  --arg stripe_api_version "2025-06-30.basil" \
+  --arg stripe_api_version "$MERC_STRIPE_API_VERSION" \
+  --arg settlement_currency "$settlement_currency" \
+  --arg connected_country "$MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY" \
   --arg payout_hold "$payout_hold_id" --arg payout_release "$payout_release_id" \
   --arg payout_failure "$payout_failure_id" --arg payout_reversal "$payout_reversal_id" \
   '{schema_version:1,status:"PASS",provider_mode:"test",run_id:$run,
     secret_values_recorded:false,
     webhook:{endpoint_secrets_verified:true,payload_api_version:$stripe_api_version,
+      staging_urls_exact:true,distinct_endpoint_ids:true,
       delivery:true,replay_idempotent:true,out_of_order_safe:true},
     dispute:{opened:true,resolved:true,provider_object_class:($dispute|split("_")[0])},
     payout:{hold:true,release:true,failure:true,reversal:true,
       provider_object_classes:([$payout_hold,$payout_release,$payout_failure,$payout_reversal]|map(split("_")[0])|unique)},
     reconciliation:{clean:true,provider_events_drained:true},
+    settlement:{currency:$settlement_currency,connected_account_country:$connected_country},
     cleanup:{parent_disposable_customer:true,fixture_objects:"retained in Sandbox provider log"},
     live_mode:"PROHIBITED"}'

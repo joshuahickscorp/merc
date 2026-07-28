@@ -50,6 +50,9 @@ case "$MODE" in
       (.services.postgres.volumes | map(select(.type=="volume")) | length) >= 1 and
       (.services.minio.volumes | map(select(.type=="volume")) | length) >= 1 and
       (.services.alertmanager.secrets | length) == 1 and
+      .services.control.environment.MERC_PAYMENT_MODE == "test" and
+      .services.control.environment.MERC_PAYMENT_PROVIDER == "stripe" and
+      .services.control.environment.MERC_SETTLEMENT_CURRENCY == "cad" and
       (.services.control.environment.MERC_PUBLIC_CONTROL_ORIGIN | startswith("https://")) and
       (.services.control.environment.S3_PUBLIC_ENDPOINT | startswith("https://"))
     ' "$TEMP/rendered.json" >/dev/null
@@ -65,7 +68,8 @@ case "$MODE" in
         non_root_control:true,dropped_capabilities:true,read_only_control:true,
         resource_limits:true,persistent_volumes:true,health_and_readiness:true,
         tls_only_staging_mode:true,backup_schedule:true,alert_routes:true,
-        rollback_digest_contract:true,source_identity_contract:true},
+        rollback_digest_contract:true,source_identity_contract:true,
+        payment_authority_contract:{mode:"test",provider:"stripe",currency:"cad"}},
       deployment_evidence:"NOT EXECUTED"}'
     ;;
   *) echo 'usage: scripts/release-staging.sh render|validate' >&2; exit 2 ;;

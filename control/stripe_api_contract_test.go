@@ -76,7 +76,10 @@ func TestEveryStripeOperatorScriptPinsSameVersion(t *testing.T) {
 		pinsLiteral := strings.Contains(string(body), wantHeader)
 		pinsVariable := strings.Contains(string(body), "STRIPE_API_VERSION="+stripeAPIVersion) &&
 			strings.Contains(string(body), "Stripe-Version: $STRIPE_API_VERSION")
-		if !pinsLiteral && !pinsVariable {
+		pinsSandboxAuthority := strings.Contains(string(body),
+			`source "$ROOT/scripts/lib/stripe-sandbox-contract.sh"`) &&
+			strings.Contains(string(body), "Stripe-Version: $MERC_STRIPE_API_VERSION")
+		if !pinsLiteral && !pinsVariable && !pinsSandboxAuthority {
 			t.Errorf("%s calls Stripe without pinned header %q", entry.Name(), wantHeader)
 		}
 		if entry.Name() == "stripe-webhooks.sh" {
@@ -98,8 +101,11 @@ func TestEveryStripeOperatorScriptPinsSameVersion(t *testing.T) {
 		}
 		if entry.Name() == "stripe-sandbox-scenarios.sh" {
 			for _, required := range []string{
-				`.api_version == "2025-06-30.basil"`,
+				`merc_stripe_endpoint_contract`,
+				`MERC_STRIPE_API_VERSION`,
 				`payload_api_version:$stripe_api_version`,
+				`staging_urls_exact:true`,
+				`settlement:{currency:$settlement_currency`,
 			} {
 				if !strings.Contains(string(body), required) {
 					t.Errorf("%s is missing webhook receipt-version guard %q", entry.Name(), required)

@@ -9,6 +9,11 @@ The stack is standalone and intentionally does not merge with
 runtime image is either fixed to a reviewed digest in the manifest or supplied
 as an exact `registry/repository@sha256:<64 hex>` reference. The deployment and
 rollback scripts pull and inspect those exact references before activation.
+The Level B control runtime is intentionally fixed to test-only Stripe payment
+authority (`MERC_PAYMENT_MODE=test`, `MERC_PAYMENT_PROVIDER=stripe`,
+`MERC_SETTLEMENT_CURRENCY=cad`); the Stripe Sandbox preflight and matrix bind
+every provider object and Canadian payout fixture to that same reviewed
+authority. These settings do not authorize live value.
 
 ## Operator preparation
 

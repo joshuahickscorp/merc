@@ -80,11 +80,11 @@
     "observability": "PASS static: 24 alert rules and 13 dashboard panels",
     "website": "PASS static/automated browser: desktop/mobile layout, focus order, labelled forms, dialog keyboard flow, memory-only credentials, reduced motion, and WCAG AA minimum contrast 6.06:1",
     "backup_envelope": "PASS local age encrypt/decrypt round trip plus isolated logical database/object restore; independent offsite copy remains NOT EXECUTED",
-    "staging_scaffold": "PASS static: 9 services and immutable image references",
+    "staging_scaffold": "PASS static: 9 services, immutable image references, and explicit test-only Stripe/CAD payment authority",
     "local_production_shape": "PASS: custom-CA TLS, HSTS/CSP, protected APIs, PostgreSQL, S3-compatible storage, metrics, alert router, backup worker, and two host Metal agents",
     "local_resilience": "PASS: prior-digest smoke, candidate forward recovery, six fault injections, zero measured job loss, seeded nine-component restart storm, stale-lease recovery, and zero duplicate financial effects",
     "privacy_and_incident_exercises": "PASS_TECHNICAL: DSAR/tombstone replay plus two technical tabletops; qualified human approvals remain NOT EXECUTED",
-    "payments": "SIMULATED PASS only: 4096 deterministic generated event sequences; Stripe test mode remains NOT EXECUTED and live mode PROHIBITED"
+    "payments": "SIMULATED PASS only: 4096 deterministic generated event sequences; formal Stripe Sandbox inputs, exact staging endpoints, Canadian connected account, provider objects, and receipts are CAD-bound, but Stripe test mode remains NOT EXECUTED and live mode PROHIBITED"
   },
   "independent_review": {
     "artifact": "ops/agent-review-notes.json",
