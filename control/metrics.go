@@ -39,6 +39,12 @@ type metricsState struct {
 	tasksDispatched           atomic.Int64
 	tasksCompleted            atomic.Int64
 	verificationMismatch      atomic.Int64
+	verificationProcessed     atomic.Int64
+	verificationRetried       atomic.Int64
+	verificationPassed        atomic.Int64
+	verificationPenalized     atomic.Int64
+	verificationNoPayout      atomic.Int64
+	verificationFailed        atomic.Int64
 	payoutsReleased           atomic.Int64
 	quarantines               atomic.Int64 // suppliers auto-quarantined (Verification V2 / fraud)
 	hedges                    atomic.Int64 // straggler hedge tasks inserted
@@ -175,6 +181,26 @@ func observeHTTPRequest(endpoint string, d time.Duration) {
 type queueAgeQuantiles struct {
 	tier, jobType string
 	p50, p95, p99 float64
+}
+
+type verificationBacklogSnapshot struct {
+	pending          int64
+	leased           int64
+	expired          int64
+	oldestAgeSeconds float64
+}
+
+func (s *Store) observabilityVerificationBacklog(ctx context.Context) (verificationBacklogSnapshot, error) {
+	var out verificationBacklogSnapshot
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE status='pending'),
+		       count(*) FILTER (WHERE status='leased'),
+		       count(*) FILTER (WHERE status='leased' AND lease_expires_at<=now()),
+		       COALESCE(EXTRACT(EPOCH FROM now()-MIN(created_at))
+		         FILTER (WHERE status IN ('pending','leased')),0)
+		  FROM verification_work`,
+	).Scan(&out.pending, &out.leased, &out.expired, &out.oldestAgeSeconds)
+	return out, err
 }
 
 func (s *Store) observabilityQueueAge(ctx context.Context) ([]queueAgeQuantiles, error) {
@@ -319,6 +345,14 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeCounter(w, "merc_jobs_submitted_total", "Jobs accepted by POST /v1/jobs.", metrics.jobsSubmitted.Load())
 	writeCounter(w, "merc_tasks_dispatched_total", "Tasks claimed by workers via poll.", metrics.tasksDispatched.Load())
 	writeCounter(w, "merc_tasks_completed_total", "Tasks committed and verified.", metrics.tasksCompleted.Load())
+	writeCounter(w, "merc_verification_processed_total", "Verification work processing attempts completed by foreground or recovery processors.", metrics.verificationProcessed.Load())
+	writeCounter(w, "merc_verification_retried_total", "Verification leases returned promptly to pending after a processing error.", metrics.verificationRetried.Load())
+	fmt.Fprintf(w, "# HELP merc_verification_terminal_total Verification work finalized by bounded outcome.\n")
+	fmt.Fprintf(w, "# TYPE merc_verification_terminal_total counter\n")
+	fmt.Fprintf(w, "merc_verification_terminal_total{outcome=%q} %d\n", OutcomePass, metrics.verificationPassed.Load())
+	fmt.Fprintf(w, "merc_verification_terminal_total{outcome=%q} %d\n", OutcomePassWithPenalty, metrics.verificationPenalized.Load())
+	fmt.Fprintf(w, "merc_verification_terminal_total{outcome=%q} %d\n", OutcomeLossNoPayout, metrics.verificationNoPayout.Load())
+	fmt.Fprintf(w, "merc_verification_terminal_total{outcome=%q} %d\n", OutcomeFail, metrics.verificationFailed.Load())
 	writeCounter(w, "merc_realtime_contracts_authorized_total", "Realtime execution contracts admitted to a worker.", metrics.realtimeAuthorized.Load())
 	// Counted, never labelled with the prompt: the point of a refusal is not to
 	// keep the thing it refused.
@@ -525,6 +559,21 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "merc_webhook_oldest_pending_age_seconds %.3f\n", backlog.oldestPendingSeconds)
 	}
 
+	fmt.Fprintf(w, "# HELP merc_verification_backlog Verification work rows by bounded lifecycle state.\n")
+	fmt.Fprintf(w, "# TYPE merc_verification_backlog gauge\n")
+	fmt.Fprintf(w, "# HELP merc_verification_expired_leases Verification work leases eligible for immediate recovery.\n")
+	fmt.Fprintf(w, "# TYPE merc_verification_expired_leases gauge\n")
+	fmt.Fprintf(w, "# HELP merc_verification_oldest_open_age_seconds Age of the oldest non-terminal verification work row.\n")
+	fmt.Fprintf(w, "# TYPE merc_verification_oldest_open_age_seconds gauge\n")
+	if backlog, err := s.store.observabilityVerificationBacklog(ctx); err != nil {
+		fmt.Fprintf(w, "# verification backlog unavailable: %s\n", err.Error())
+	} else {
+		fmt.Fprintf(w, "merc_verification_backlog{state=\"pending\"} %d\n", backlog.pending)
+		fmt.Fprintf(w, "merc_verification_backlog{state=\"leased\"} %d\n", backlog.leased)
+		fmt.Fprintf(w, "merc_verification_expired_leases %d\n", backlog.expired)
+		fmt.Fprintf(w, "merc_verification_oldest_open_age_seconds %.3f\n", backlog.oldestAgeSeconds)
+	}
+
 	now := time.Now()
 	fmt.Fprintf(w, "# HELP merc_ticker_seconds_since_success Seconds since a background ticker last completed a successful run.\n")
 	fmt.Fprintf(w, "# TYPE merc_ticker_seconds_since_success gauge\n")
@@ -535,6 +584,11 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# TYPE merc_ticker_interval_seconds gauge\n")
 	for name, seconds := range liveness.intervalSnapshot() {
 		fmt.Fprintf(w, "merc_ticker_interval_seconds{ticker=%q} %.3f\n", name, seconds)
+	}
+	fmt.Fprintf(w, "# HELP merc_ticker_seconds_since_progress Seconds since a currently running background sweep started or last reported forward progress.\n")
+	fmt.Fprintf(w, "# TYPE merc_ticker_seconds_since_progress gauge\n")
+	for name, seconds := range liveness.progressSnapshot(now) {
+		fmt.Fprintf(w, "merc_ticker_seconds_since_progress{ticker=%q} %.3f\n", name, seconds)
 	}
 
 	fmt.Fprintf(w, "# HELP merc_ticker_failures_total Lifetime count of a background ticker's fn returning an error.\n")

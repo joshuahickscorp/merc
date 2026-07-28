@@ -28,12 +28,16 @@ type Workers struct {
 }
 
 func NewWorkers(store *Store, storage *Storage, payout Payout) *Workers {
+	verification := NewVerificationProcessor(store, storage, NewVerifier(store).WithStorage(storage))
+	verification.drainProgress = func() {
+		liveness.markProgress(verificationRecoveryTickerName, time.Now())
+	}
 	return &Workers{
 		store:        store,
 		storage:      storage,
 		payout:       payout,
 		client:       newWebhookHTTPClient(),
-		verification: NewVerificationProcessor(store, storage, NewVerifier(store).WithStorage(storage)),
+		verification: verification,
 	}
 }
 
@@ -82,6 +86,9 @@ const (
 	// dropped its KV cache cannot stay marked warm for long after the
 	// 20×TTL retention window SweepStalePrefixState enforces.
 	prefixStateSweepInterval = 5 * time.Minute
+
+	verificationRecoveryTickerName        = "verification-recovery"
+	verificationRecoveryNoProgressTimeout = 30 * time.Second
 )
 
 var telemetryTables = []string{"worker_memory_samples", "task_durations", "job_events"}
@@ -94,18 +101,44 @@ type tickerLiveness struct {
 }
 
 type tickerStat struct {
-	interval    time.Duration
-	lastSuccess time.Time // zero until the first successful run
-	failures    int64
+	interval      time.Duration
+	maxNoProgress time.Duration
+	lastSuccess   time.Time // zero until the first successful run
+	startedAt     time.Time
+	lastProgress  time.Time
+	running       bool
+	failures      int64
 }
 
 var liveness = &tickerLiveness{entries: map[string]*tickerStat{}}
 
 func (l *tickerLiveness) register(name string, interval time.Duration) {
+	l.registerWithProgressTimeout(name, interval, time.Duration(staleMultiple)*interval)
+}
+
+func (l *tickerLiveness) registerWithProgressTimeout(name string, interval, maxNoProgress time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if _, ok := l.entries[name]; !ok {
-		l.entries[name] = &tickerStat{interval: interval}
+		l.entries[name] = &tickerStat{interval: interval, maxNoProgress: maxNoProgress}
+	}
+}
+
+func (l *tickerLiveness) markStart(name string, t time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if e, ok := l.entries[name]; ok {
+		e.startedAt = t
+		e.lastProgress = t
+		e.running = true
+	}
+}
+
+func (l *tickerLiveness) markProgress(name string, t time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if e, ok := l.entries[name]; ok && e.running && !t.Before(e.lastProgress) {
+		e.lastProgress = t
 	}
 }
 
@@ -114,6 +147,7 @@ func (l *tickerLiveness) markSuccess(name string, t time.Time) {
 	defer l.mu.Unlock()
 	if e, ok := l.entries[name]; ok {
 		e.lastSuccess = t
+		e.running = false
 	}
 }
 
@@ -122,6 +156,7 @@ func (l *tickerLiveness) markFailure(name string) {
 	defer l.mu.Unlock()
 	if e, ok := l.entries[name]; ok {
 		e.failures++
+		e.running = false
 	}
 }
 
@@ -142,7 +177,13 @@ func (l *tickerLiveness) stale(now, since time.Time) []string {
 	for name, e := range l.entries {
 		budget := time.Duration(staleMultiple) * e.interval
 		ref := e.lastSuccess
-		if ref.IsZero() {
+		if e.running {
+			budget = e.maxNoProgress
+			ref = e.lastProgress
+			if ref.IsZero() {
+				ref = e.startedAt
+			}
+		} else if ref.IsZero() {
 			ref = since // never succeeded -> measure staleness from the loop start
 		}
 		if now.Sub(ref) > budget {
@@ -150,6 +191,23 @@ func (l *tickerLiveness) stale(now, since time.Time) []string {
 		}
 	}
 	return bad
+}
+
+func (l *tickerLiveness) progressSnapshot(now time.Time) map[string]float64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	out := make(map[string]float64)
+	for name, e := range l.entries {
+		if !e.running {
+			continue
+		}
+		ref := e.lastProgress
+		if ref.IsZero() {
+			ref = e.startedAt
+		}
+		out[name] = now.Sub(ref).Seconds()
+	}
+	return out
 }
 
 func (l *tickerLiveness) snapshot(now, since time.Time) map[string]float64 {
@@ -207,7 +265,11 @@ func (wk *Workers) Run(ctx context.Context) {
 	loops.Add(len(tickers))
 	for _, ticker := range tickers {
 		t := ticker
-		liveness.register(t.name, t.interval)
+		if t.name == verificationRecoveryTickerName {
+			liveness.registerWithProgressTimeout(t.name, t.interval, verificationRecoveryNoProgressTimeout)
+		} else {
+			liveness.register(t.name, t.interval)
+		}
 		go func() {
 			defer loops.Done()
 			wk.tick(ctx, t.interval, t.name, t.fn)
@@ -285,6 +347,7 @@ func (wk *Workers) tick(ctx context.Context, d time.Duration, name string, fn fu
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			liveness.markStart(name, time.Now())
 			if err := fn(ctx); err != nil {
 				log.Printf("workers: %s: %v", name, err)
 				liveness.markFailure(name)

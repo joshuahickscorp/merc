@@ -55,3 +55,21 @@ func TestTickerIntervalSnapshotIsBoundedToRegisteredTickers(t *testing.T) {
 		t.Fatalf("unexpected interval snapshot: %#v", got)
 	}
 }
+
+func TestProgressingTickerUsesNoProgressBudgetInsteadOfScheduleInterval(t *testing.T) {
+	start := time.Unix(1_800_000_000, 0)
+	l := &tickerLiveness{entries: map[string]*tickerStat{}}
+	l.registerWithProgressTimeout("verification", 2*time.Second, 30*time.Second)
+	l.markStart("verification", start)
+
+	if stale := l.stale(start.Add(20*time.Second), start); len(stale) != 0 {
+		t.Fatalf("legitimately running sweep marked stale by schedule interval: %v", stale)
+	}
+	l.markProgress("verification", start.Add(20*time.Second))
+	if stale := l.stale(start.Add(45*time.Second), start); len(stale) != 0 {
+		t.Fatalf("recently progressing sweep marked stale: %v", stale)
+	}
+	if stale := l.stale(start.Add(51*time.Second), start); len(stale) != 1 || stale[0] != "verification" {
+		t.Fatalf("no-progress sweep did not become stale: %v", stale)
+	}
+}

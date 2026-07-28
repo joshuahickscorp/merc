@@ -128,6 +128,15 @@ buyer dispute endpoint once; allow the verification worker to resolve it. Ban or
 reputation changes require an attributed admin action. Repair buyer money only
 with an append-only compensating effect.
 
+For a recovery stall, compare `merc_verification_backlog`,
+`merc_verification_expired_leases`,
+`merc_verification_oldest_open_age_seconds`, and the
+`verification-recovery` progress ticker. Check PostgreSQL pool saturation before
+restarting anything. Cancellation returns owned leases to `pending`; confirm
+that transition and preserve the original error before allowing another
+recovery leader to claim them. Never edit a verification lease or terminal
+verdict directly.
+
 ## Money incident or payout hold
 
 Disable payout release, preserve Stripe event ids and idempotency keys, and query

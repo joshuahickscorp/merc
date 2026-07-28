@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,7 @@ const (
 	verificationLeaseDurationDefault                = 5 * time.Minute
 	verificationLeaseRenewalDefault                 = verificationLeaseDurationDefault / 3
 	verificationRetryDelay                          = time.Second
+	verificationLeaseReleaseTimeout                 = 5 * time.Second
 	verificationArtifactUnavailableMaxLeaseAttempts = 5
 )
 
@@ -42,6 +44,10 @@ type VerificationProcessor struct {
 
 	leaseDuration time.Duration
 	leaseRenewal  time.Duration
+	drainProgress func()
+	claimWork     func(context.Context, string, time.Duration, int) ([]LeasedVerificationWork, error)
+	processWork   func(context.Context, LeasedVerificationWork) (VerificationProcessResult, error)
+	releaseWork   func(context.Context, VerificationLease, time.Time, string) error
 }
 
 func NewVerificationProcessor(store *Store, storage *Storage, verifier *Verifier) *VerificationProcessor {
@@ -58,7 +64,7 @@ func NewVerificationProcessor(store *Store, storage *Storage, verifier *Verifier
 }
 
 func (p *VerificationProcessor) ProcessAttempt(ctx context.Context, taskID uuid.UUID, attempt int64) (VerificationProcessResult, error) {
-	if p.store == nil || p.store.verificationResources == nil || p.store.verificationResources.maxConns < 2 {
+	if p.store == nil || p.store.verificationResources == nil || p.store.verificationResources.processCapacity() == 0 {
 		return VerificationProcessResult{}, ErrVerificationPoolTooSmall
 	}
 	if !p.store.verificationResources.tryAcquireProcess() {
@@ -78,8 +84,9 @@ func (p *VerificationProcessor) ProcessAttempt(ctx context.Context, taskID uuid.
 	}
 	result, err := p.processLeased(ctx, leased)
 	if err != nil {
-		_ = p.store.ReleaseVerificationWork(context.Background(), leased.Lease,
-			time.Now().Add(verificationRetryDelay), err.Error())
+		if releaseErr := p.releaseVerificationWorkAfterError(leased.Lease, err); releaseErr != nil {
+			return result, errors.Join(err, releaseErr)
+		}
 		if errors.Is(err, ErrVerificationResourceBusy) || errors.Is(err, ErrVerificationChunkBusy) {
 			return VerificationProcessResult{Info: result.Info, Pending: true}, nil
 		}
@@ -94,40 +101,109 @@ func (p *VerificationProcessor) Drain(ctx context.Context, limit int) error {
 	if limit > verificationWorkMaxClaim {
 		limit = verificationWorkMaxClaim
 	}
-	if p.store == nil || p.store.verificationResources == nil || p.store.verificationResources.maxConns < 2 {
+	if p.store == nil || p.store.verificationResources == nil || p.store.verificationResources.processCapacity() == 0 {
 		return ErrVerificationPoolTooSmall
 	}
 	var first error
-	for processed := 0; processed < limit; processed++ {
-		if !p.store.verificationResources.tryAcquireProcess() {
+	for processed := 0; processed < limit; {
+		permits := 0
+		for permits < limit-processed && p.store.verificationResources.tryAcquireProcess() {
+			permits++
+		}
+		if permits == 0 {
 			break
 		}
-		leased, err := p.store.ClaimVerificationWork(ctx, p.owner, p.leaseDuration, 1)
+		leased, err := p.claimDrainWork(ctx, permits)
 		if err != nil {
-			p.store.verificationResources.releaseProcess()
+			for range permits {
+				p.store.verificationResources.releaseProcess()
+			}
 			if first != nil {
 				return first
 			}
 			return err
 		}
-		if len(leased) == 0 {
+		for unused := len(leased); unused < permits; unused++ {
 			p.store.verificationResources.releaseProcess()
+		}
+		if len(leased) == 0 {
 			break
 		}
-		item := leased[0]
-		_, processErr := p.processLeased(ctx, item)
-		p.store.verificationResources.releaseProcess()
-		if processErr != nil {
-			if first == nil && !errors.Is(processErr, ErrVerificationResourceBusy) && !errors.Is(processErr, ErrVerificationChunkBusy) {
+
+		errs := make([]error, len(leased))
+		var wave sync.WaitGroup
+		wave.Add(len(leased))
+		for i := range leased {
+			i := i
+			go func() {
+				defer wave.Done()
+				defer p.store.verificationResources.releaseProcess()
+				item := leased[i]
+				_, processErr := p.processDrainWork(ctx, item)
+				if processErr != nil {
+					releaseErr := p.releaseVerificationWorkAfterError(item.Lease, processErr)
+					if releaseErr != nil {
+						processErr = errors.Join(processErr, releaseErr)
+					}
+				}
+				errs[i] = processErr
+				if p.drainProgress != nil {
+					p.drainProgress()
+				}
+			}()
+		}
+		wave.Wait()
+		for _, processErr := range errs {
+			if processErr == nil ||
+				errors.Is(processErr, ErrVerificationResourceBusy) ||
+				errors.Is(processErr, ErrVerificationChunkBusy) {
+				continue
+			}
+			if first == nil {
 				first = processErr
 			}
-			if rerr := p.store.ReleaseVerificationWork(context.Background(), item.Lease,
-				time.Now().Add(verificationRetryDelay), processErr.Error()); rerr != nil && !errors.Is(rerr, ErrVerificationLeaseLost) {
-				log.Printf("verification: release work %s after error: %v", item.Work.ID, rerr)
-			}
+		}
+		processed += len(leased)
+		if len(leased) < permits {
+			break
 		}
 	}
 	return first
+}
+
+func (p *VerificationProcessor) claimDrainWork(ctx context.Context, limit int) ([]LeasedVerificationWork, error) {
+	if p.claimWork != nil {
+		return p.claimWork(ctx, p.owner, p.leaseDuration, limit)
+	}
+	return p.store.ClaimVerificationWork(ctx, p.owner, p.leaseDuration, limit)
+}
+
+func (p *VerificationProcessor) processDrainWork(ctx context.Context, leased LeasedVerificationWork) (VerificationProcessResult, error) {
+	if p.processWork != nil {
+		return p.processWork(ctx, leased)
+	}
+	return p.processLeased(ctx, leased)
+}
+
+func (p *VerificationProcessor) releaseVerificationWorkAfterError(lease VerificationLease, processErr error) error {
+	releaseCtx, cancel := context.WithTimeout(context.Background(), verificationLeaseReleaseTimeout)
+	defer cancel()
+	retryAt := time.Now().Add(verificationRetryDelay)
+	var err error
+	if p.releaseWork != nil {
+		err = p.releaseWork(releaseCtx, lease, retryAt, processErr.Error())
+	} else {
+		err = p.store.ReleaseVerificationWork(releaseCtx, lease, retryAt, processErr.Error())
+	}
+	if err == nil {
+		metrics.verificationRetried.Add(1)
+		return nil
+	}
+	if errors.Is(err, ErrVerificationLeaseLost) {
+		return nil
+	}
+	log.Printf("verification: release work %s after error: %v", lease.WorkID, err)
+	return fmt.Errorf("release verification work %s after error: %w", lease.WorkID, err)
 }
 
 func (p *VerificationProcessor) processLeased(ctx context.Context, leased LeasedVerificationWork) (VerificationProcessResult, error) {
@@ -162,13 +238,28 @@ func (p *VerificationProcessor) processLeased(ctx context.Context, leased Leased
 	result, err := p.processLeasedOnce(processCtx, leased)
 	close(stopHeartbeat)
 	heartbeatErr := <-heartbeatDone
+	metrics.verificationProcessed.Add(1)
 	if err == nil {
+		recordVerificationTerminalOutcome(result.Outcome)
 		return result, nil
 	}
 	if heartbeatErr != nil && ctx.Err() == nil {
 		return result, heartbeatErr
 	}
 	return result, err
+}
+
+func recordVerificationTerminalOutcome(outcome VerifyOutcome) {
+	switch outcome {
+	case OutcomePass:
+		metrics.verificationPassed.Add(1)
+	case OutcomePassWithPenalty:
+		metrics.verificationPenalized.Add(1)
+	case OutcomeLossNoPayout:
+		metrics.verificationNoPayout.Add(1)
+	case OutcomeFail:
+		metrics.verificationFailed.Add(1)
+	}
 }
 
 func (p *VerificationProcessor) processLeasedOnce(ctx context.Context, leased LeasedVerificationWork) (VerificationProcessResult, error) {

@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "4095fd611decc560220f0991a46a40d1a1d6a7ab66b6b421f16ff2c2bc8acd93",
+  "authority_sha256": "c9d604f5ddcba4d2ba971b1a7f24800b68f5fed10a96e6bd66c5e6c730a79d06",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -8,7 +8,7 @@
   },
   "files": {
     ".dockerignore": 41,
-    ".env.example": 116,
+    ".env.example": 119,
     ".github/CODEOWNERS": 34,
     ".github/ISSUE_TEMPLATE/bug_report.yml": 52,
     ".github/ISSUE_TEMPLATE/config.yml": 14,
@@ -59,7 +59,7 @@
     "bench/immutable/shared-prefix-v2.sha256": 1,
     "benchmarks/realtime-chat-v1.json": 11,
     "census/.gitignore": 4,
-    "census/CODEBASE_CENSUS.json": 812,
+    "census/CODEBASE_CENSUS.json": 814,
     "census/CODEBASE_CENSUS.md": 47,
     "cli/LICENSE": 202,
     "cli/README.md": 13,
@@ -142,10 +142,10 @@
     "control/ledger_write_property_test.go": 125,
     "control/lora_settlement.go": 271,
     "control/lora_settlement_test.go": 256,
-    "control/main.go": 438,
+    "control/main.go": 463,
     "control/max_usd_test.go": 31,
-    "control/metrics.go": 623,
-    "control/metrics_observability_test.go": 57,
+    "control/metrics.go": 677,
+    "control/metrics_observability_test.go": 75,
     "control/model_onboarding.go": 81,
     "control/model_onboarding_test.go": 83,
     "control/money_authority_audit.go": 180,
@@ -174,7 +174,7 @@
     "control/prepaid.go": 240,
     "control/prepaid_test.go": 280,
     "control/price_board_parity_test.go": 205,
-    "control/pricing.go": 719,
+    "control/pricing.go": 722,
     "control/pricing_extra.go": 44,
     "control/pricing_governance.go": 193,
     "control/pricing_governance_test.go": 135,
@@ -223,7 +223,7 @@
     "control/small_job_economics_test.go": 221,
     "control/storage.go": 381,
     "control/storage_memory_test.go": 30,
-    "control/store.go": 1627,
+    "control/store.go": 1635,
     "control/store_billing.go": 337,
     "control/store_disputes.go": 362,
     "control/store_jobs.go": 1112,
@@ -263,14 +263,16 @@
     "control/verification_artifact_test.go": 94,
     "control/verification_attempt.go": 133,
     "control/verification_attempt_cardinality_test.go": 40,
+    "control/verification_drain_test.go": 218,
     "control/verification_lifecycle.go": 433,
     "control/verification_plan.go": 197,
     "control/verification_plan_test.go": 392,
-    "control/verification_processor.go": 516,
-    "control/verification_resources.go": 216,
+    "control/verification_processor.go": 607,
+    "control/verification_resources.go": 232,
+    "control/verification_resources_test.go": 126,
     "control/verification_sampling_test.go": 42,
     "control/verification_state.go": 129,
-    "control/verification_work.go": 708,
+    "control/verification_work.go": 729,
     "control/verification_work_plan.go": 191,
     "control/webhook_delivery.go": 282,
     "control/webhook_delivery_test.go": 123,
@@ -279,13 +281,13 @@
     "control/worker_leader.go": 194,
     "control/worker_leader_test.go": 27,
     "control/worker_session_integration_test.go": 104,
-    "control/workers.go": 1103,
+    "control/workers.go": 1166,
     "control/workload_classification.go": 449,
     "control/workload_classification_test.go": 516,
     "control/workload_simulation_test.go": 431,
     "docker-compose.observability.yml": 144,
-    "docker-compose.prod.yml": 186,
-    "docker-compose.yml": 60,
+    "docker-compose.prod.yml": 187,
+    "docker-compose.yml": 61,
     "docs/ACCEPTABLE_USE_AND_ABUSE_RESPONSE.md": 135,
     "docs/BENCH_PROFILES_2026-07-27.md": 60,
     "docs/CANARY_TERMS.md": 192,
@@ -306,10 +308,10 @@
     "docs/PRIVACY_NOTICE_DRAFT.md": 101,
     "docs/QUICKSTART.md": 163,
     "docs/RENAME_REGISTER.md": 154,
-    "docs/RUNBOOKS.md": 205,
+    "docs/RUNBOOKS.md": 214,
     "docs/RUNTIME_MATRIX.md": 17,
     "docs/SECURITY.md": 99,
-    "docs/SHIPPABILITY_STATUS.md": 351,
+    "docs/SHIPPABILITY_STATUS.md": 352,
     "docs/SPEED_LANE_2026-07-27.md": 97,
     "docs/STRIPE_CONNECT.md": 143,
     "docs/STRIPE_SANDBOX_SETUP.md": 80,
@@ -376,7 +378,7 @@
     "macapp/ComputeExchangeAgent/sandbox-profile-test.sh": 160,
     "monitoring/README.md": 103,
     "monitoring/alertmanager.yml": 24,
-    "monitoring/alerts.yml": 198,
+    "monitoring/alerts.yml": 222,
     "monitoring/grafana/dashboards/merc-canary.json": 314,
     "monitoring/grafana/provisioning/dashboards/dashboards.yml": 10,
     "monitoring/grafana/provisioning/datasources/prometheus.yml": 9,
@@ -568,19 +570,19 @@
     },
     "documentation": {
       "files": 44,
-      "loc": 4702,
-      "code": 3706,
-      "blank": 996,
+      "loc": 4712,
+      "code": 3715,
+      "blank": 997,
       "comment": 0,
-      "bytes": 255210
+      "bytes": 256769
     },
     "go": {
-      "files": 214,
-      "loc": 63423,
-      "code": 56492,
-      "blank": 4014,
-      "comment": 2917,
-      "bytes": 2282788
+      "files": 216,
+      "loc": 64066,
+      "code": 57090,
+      "blank": 4055,
+      "comment": 2921,
+      "bytes": 2304538
     },
     "javascript": {
       "files": 8,
@@ -592,11 +594,11 @@
     },
     "json": {
       "files": 79,
-      "loc": 7479,
-      "code": 7479,
+      "loc": 7481,
+      "code": 7481,
       "blank": 0,
       "comment": 0,
-      "bytes": 338183
+      "bytes": 338282
     },
     "lockfile": {
       "files": 2,
@@ -608,11 +610,11 @@
     },
     "other": {
       "files": 19,
-      "loc": 1346,
-      "code": 1156,
+      "loc": 1349,
+      "code": 1159,
       "blank": 190,
       "comment": 0,
-      "bytes": 69646
+      "bytes": 69862
     },
     "python": {
       "files": 35,
@@ -680,11 +682,11 @@
     },
     "yaml": {
       "files": 16,
-      "loc": 1941,
-      "code": 1788,
-      "blank": 99,
+      "loc": 1967,
+      "code": 1811,
+      "blank": 102,
       "comment": 54,
-      "bytes": 74399
+      "bytes": 75577
     }
   },
   "owned_by_subsystem": {
@@ -706,19 +708,19 @@
     },
     "control": {
       "files": 152,
-      "loc": 43827,
-      "code": 38576,
-      "blank": 2832,
+      "loc": 43998,
+      "code": 38734,
+      "blank": 2845,
       "comment": 2419,
-      "bytes": 1588812
+      "bytes": 1596170
     },
     "documentation": {
       "files": 33,
-      "loc": 3839,
-      "code": 2995,
-      "blank": 844,
+      "loc": 3849,
+      "code": 3004,
+      "blank": 845,
       "comment": 0,
-      "bytes": 617991
+      "bytes": 619550
     },
     "interface": {
       "files": 29,
@@ -730,11 +732,11 @@
     },
     "ops": {
       "files": 117,
-      "loc": 10897,
-      "code": 10316,
-      "blank": 419,
+      "loc": 10928,
+      "code": 10344,
+      "blank": 422,
       "comment": 162,
-      "bytes": 484809
+      "bytes": 486302
     },
     "payment": {
       "files": 38,
@@ -769,21 +771,21 @@
       "bytes": 193214
     },
     "verification": {
-      "files": 21,
-      "loc": 6036,
-      "code": 5617,
-      "blank": 372,
-      "comment": 47,
-      "bytes": 220156
+      "files": 23,
+      "loc": 6508,
+      "code": 6057,
+      "blank": 400,
+      "comment": 51,
+      "bytes": 234548
     }
   },
   "ownership": {
-    "global_owned_loc": 120641,
-    "non_design_production_core_loc": 88687,
-    "test_loc": 20608,
-    "documentation_loc": 4702,
+    "global_owned_loc": 121325,
+    "non_design_production_core_loc": 88997,
+    "test_loc": 20970,
+    "documentation_loc": 4712,
     "python_loc": 9309,
-    "generated_loc": 5093,
+    "generated_loc": 5095,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -805,8 +807,8 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 9540083,
-  "tracked_files": 541,
+  "tracked_bytes": 9564885,
+  "tracked_files": 543,
   "untracked_files": 0,
-  "walked_files": 541
+  "walked_files": 543
 }

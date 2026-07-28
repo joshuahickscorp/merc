@@ -7,7 +7,13 @@ import (
 )
 
 const (
-	verificationDBHeadroom int32 = 2
+	// A verifier holds one session-level advisory-lock connection for its whole
+	// run. An ordinary query and the independent lease-renewal heartbeat can
+	// overlap, so worst-case demand is three connections. These values are a
+	// capacity contract, not estimates.
+	verificationDBConnectionsPerProcess int32 = 3
+	verificationDBHeadroom              int32 = 2
+	verificationWorkerLeaderConnections int32 = 1
 
 	// One maximum-sized primary and one maximum-sized redundancy artifact,
 	// plus digest/headroom, fit below this ceiling. Competing processors fail
@@ -17,7 +23,7 @@ const (
 
 var (
 	ErrVerificationResourceBusy = errors.New("verification resource budget is busy")
-	ErrVerificationPoolTooSmall = errors.New("verification requires at least two database connections")
+	ErrVerificationPoolTooSmall = errors.New("verification database capacity is unavailable")
 )
 
 type verificationResourceBudget struct {
@@ -25,19 +31,21 @@ type verificationResourceBudget struct {
 	bytes        *weightedByteBudget
 	maxConns     int32
 	reservedDB   int32
+	leaderDB     int32
 }
 
-func newVerificationResourceBudget(maxConns int32, byteCeiling int64) *verificationResourceBudget {
-	reserved := verificationDBHeadroom
-	if maxConns <= reserved {
-		reserved = maxConns - 1
+func newVerificationResourceBudget(maxConns, leaderConns int32, byteCeiling int64) *verificationResourceBudget {
+	if leaderConns < 0 {
+		leaderConns = 0
 	}
+	available := maxConns - leaderConns - verificationDBHeadroom
+	processes := int32(0)
+	if available >= verificationDBConnectionsPerProcess {
+		processes = available / verificationDBConnectionsPerProcess
+	}
+	reserved := maxConns - processes*verificationDBConnectionsPerProcess
 	if reserved < 0 {
 		reserved = 0
-	}
-	processes := maxConns - reserved
-	if maxConns < 2 {
-		processes = 0
 	}
 	if byteCeiling <= 0 {
 		byteCeiling = verificationArtifactMemoryCeiling
@@ -47,7 +55,15 @@ func newVerificationResourceBudget(maxConns int32, byteCeiling int64) *verificat
 		bytes:        newWeightedByteBudget(byteCeiling),
 		maxConns:     maxConns,
 		reservedDB:   reserved,
+		leaderDB:     leaderConns,
 	}
+}
+
+func (b *verificationResourceBudget) processCapacity() int {
+	if b == nil {
+		return 0
+	}
+	return cap(b.processSlots)
 }
 
 func (b *verificationResourceBudget) tryAcquireProcess() bool {
