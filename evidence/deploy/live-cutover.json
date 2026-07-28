@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "kind": "droplet_live_cutover",
+  "host": "192.241.134.31",
+  "site": "mercmerc.net",
+  "commit": "41db85b5",
+  "stripe_mode": "live",
+  "settlement_currency": "cad",
+  "containers": "control + control-2 healthy",
+  "defect_found": "The compose healthcheck self-probes with [\"/control\",\"healthcheck\"], a path from the previous distroless image. The merc image placed its binary at /app/merc, so every probe failed with 'stat /control: no such file or directory' and both containers sat unhealthy while the site served 200 externally. Fixed with a symlink rather than by editing compose, so the same image satisfies the existing healthcheck contract and rollback stays trivial.",
+  "rollback": {
+    "env": "/root/merc-cutover-backup/.env.pre-livekey",
+    "compose": "/root/merc-cutover-backup/docker-compose.prod.yml.pre-merc",
+    "image": "c8092caa87b2",
+    "db_dump": "/root/merc-cutover-backup/pg-202607272327.sql"
+  },
+  "warning": "Stripe is LIVE. Charges and payouts move real money."
+}
