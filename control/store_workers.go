@@ -102,8 +102,10 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 	_, err = tx.Exec(ctx,
 		`INSERT INTO workers
 		   (id, supplier_id, hw_class, engine, build_hash, memory_gb, bw_gbps, last_seen_at, version,
-		    supported_jobs, supported_models, min_payout_usd_hr, thermal_ok)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7, now(), $8,$9,$10,$11,$12)
+		    supported_jobs, supported_models, min_payout_usd_hr, thermal_ok,
+		    agent_session_id, agent_session_started_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7, now(), $8,$9,$10,$11,$12,$13,
+		         CASE WHEN $13::uuid IS NULL THEN NULL ELSE now() END)
 		 ON CONFLICT (id) DO UPDATE SET
 		   hw_class = EXCLUDED.hw_class,
 		   engine = EXCLUDED.engine,
@@ -115,9 +117,16 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		   supported_jobs = EXCLUDED.supported_jobs,
 		   supported_models = EXCLUDED.supported_models,
 		   min_payout_usd_hr = EXCLUDED.min_payout_usd_hr,
-		   thermal_ok = EXCLUDED.thermal_ok`,
+		   thermal_ok = EXCLUDED.thermal_ok,
+		   agent_session_started_at = CASE
+		     WHEN EXCLUDED.agent_session_id IS NOT NULL
+		      AND workers.agent_session_id IS DISTINCT FROM EXCLUDED.agent_session_id
+		     THEN now()
+		     ELSE workers.agent_session_started_at
+		   END,
+		   agent_session_id = COALESCE(EXCLUDED.agent_session_id, workers.agent_session_id)`,
 		cap.WorkerID, cap.SupplierID, cap.HWClass, cap.Engine, cap.BuildHash, cap.MemoryGB, cap.MemoryBwGbps, cap.AgentVersion,
-		cap.SupportedJobs, cap.SupportedModels, cap.MinPayoutUsdHr, thermalOK,
+		cap.SupportedJobs, cap.SupportedModels, cap.MinPayoutUsdHr, thermalOK, cap.AgentSessionID,
 	)
 	if err != nil {
 		return err

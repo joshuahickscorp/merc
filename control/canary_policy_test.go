@@ -40,7 +40,11 @@ func TestCanaryPolicyIsFailClosedAndBounded(t *testing.T) {
 	if !p.allowsWorker(workerID) || p.allowsWorker(uuid.New()) {
 		t.Fatal("worker allowlist was not exact")
 	}
-	approvedRuntime := WorkerCapability{AgentVersion: "0.1.0", BuildHash: "0123456789abcdef"}
+	sessionID := uuid.New()
+	approvedRuntime := WorkerCapability{
+		AgentVersion: "0.1.0", BuildHash: "0123456789abcdef",
+		AgentSessionID: &sessionID,
+	}
 	if !p.allowsWorkerRuntime(approvedRuntime) {
 		t.Fatal("reviewed worker runtime was rejected")
 	}
@@ -52,6 +56,11 @@ func TestCanaryPolicyIsFailClosedAndBounded(t *testing.T) {
 	approvedRuntime.BuildHash = "fedcba9876543210"
 	if p.allowsWorkerRuntime(approvedRuntime) {
 		t.Fatal("unreviewed source build was accepted")
+	}
+	approvedRuntime.BuildHash = "0123456789abcdef"
+	approvedRuntime.AgentSessionID = nil
+	if p.allowsWorkerRuntime(approvedRuntime) {
+		t.Fatal("worker without a process session identity was accepted")
 	}
 	valid := jobSubmit{
 		JobType:     JobType{Type: "batch_infer", MaxTokens: 256},

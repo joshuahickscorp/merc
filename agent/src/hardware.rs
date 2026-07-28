@@ -400,6 +400,7 @@ pub async fn detect_and_benchmark(
     WorkerCapability {
         worker_id: Uuid::new_v4(),
         supplier_id,
+        agent_session_id: Uuid::new_v4(),
         hw_class,
         engine: engine.to_string(),
         build_hash,

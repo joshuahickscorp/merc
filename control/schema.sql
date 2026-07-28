@@ -700,6 +700,14 @@ ALTER TABLE tasks ADD CONSTRAINT tasks_execution_identity_complete CHECK (
 );
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS engine TEXT NOT NULL DEFAULT 'candle';
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS build_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS agent_session_id UUID;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS agent_session_started_at TIMESTAMPTZ;
+ALTER TABLE workers DROP CONSTRAINT IF EXISTS workers_agent_session_pair;
+ALTER TABLE workers ADD CONSTRAINT workers_agent_session_pair CHECK (
+    (agent_session_id IS NULL) = (agent_session_started_at IS NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workers_agent_session_id_uniq
+    ON workers (agent_session_id) WHERE agent_session_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS task_execution_history (
     task_id     UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,

@@ -144,10 +144,25 @@ The agent restart driver is invoked as:
 $MERC_AGENT_RESTART_DRIVER restart-all 2
 ```
 
-Its JSON receipt must report `status: "PASS"`, `requested: 2`,
-`restart_count >= 2`, `distinct_agents >= 2`, and an evidence array at least as
-large as `restart_count`. The driver owns the project-controlled SSH/launchd
-details; this repository never accepts an arbitrary shell command from the env.
+The harness exports `MERC_RESTART_RUN_ID`, `MERC_RESTART_CANDIDATE_COMMIT`,
+`MERC_RESTART_CONTROL_IMAGE`, `MERC_RESTART_DRIVER_SHA256`,
+`MERC_RESTART_RUN_STARTED_AT`, `MERC_RESTART_RUN_STARTED_EPOCH`, and the
+approved worker IDs. The schema-v2 driver receipt is only an action receipt: it
+must bind those exact run/candidate/driver values and contain exactly two
+unique `approved_agent_supervisor` actions targeting the approved worker UUIDs
+inside the invocation window. The driver must be a canonical, non-symlink,
+non-group/world-writable executable in a non-group/world-writable directory,
+and its bytes must match `MERC_AGENT_RESTART_APPROVED_DRIVER_SHA256` before and
+after execution.
+
+Each cx-agent process generates a fresh `agent_session_id` at startup. MERC
+stores that UUID and its first registration time without resetting the time
+when the same process registers again. Before invoking the supervisor adapter,
+the restart storm reads two current reviewed sessions from PostgreSQL. It emits
+restart authority only after both approved worker rows independently change to
+new session UUIDs created during the run, heartbeat during the run, and remain
+current without a second unexpected restart through the remaining fault storm.
+The adapter cannot prove a restart by printing a count or boolean.
 
 Receipts are structural inputs, not automatic proof. Preserve the underlying
 provider, database, receiver, agent, and object identifiers. An independent
@@ -168,8 +183,9 @@ synced from the operator workstation or included in evidence.
 
 The restart storm performs two verified control restarts, one database restart,
 one object-store restart, one alerting restart, two bounded control-network
-interruptions, and delegates two distinct Metal-agent restarts to the strict
-adapter above. The final 24-hour soak refuses a shorter duration unless
+interruptions, and delegates the two Metal-agent supervisor actions to the
+reviewed adapter above while deriving actual restart proof from durable process
+session transitions. The final 24-hour soak refuses a shorter duration unless
 `--iteration` is supplied; iteration receipts are marked non-qualifying.
 
 These scripts never authorize Stripe live mode, real-value settlement, or

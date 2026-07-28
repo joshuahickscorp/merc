@@ -86,8 +86,12 @@ pass "bash syntax for staging harness"
 
 [ -x "$ROOT/scripts/validate-canary-scenario-receipt.py" ] \
   || die "canary scenario receipt validator is missing or not executable"
+[ -x "$ROOT/scripts/validate-agent-restart-receipt.py" ] \
+  || die "agent restart receipt validator is missing or not executable"
 python3 -m py_compile "$ROOT/scripts/validate-canary-scenario-receipt.py" \
   || die "canary scenario receipt validator does not compile"
+python3 -m py_compile "$ROOT/scripts/validate-agent-restart-receipt.py" \
+  || die "agent restart receipt validator does not compile"
 for contract in \
   'MERC_CANARY_RUN_ID' 'MERC_CANARY_CANDIDATE_COMMIT' \
   'MERC_CANARY_CONTROL_IMAGE' 'MERC_CANARY_DRIVER_SHA256' \
@@ -99,6 +103,17 @@ done
 rg -q 'scripts/validate-canary-scenario-receipt.py' "$ROOT/scripts/lib/go-closure-common.sh" \
   || die "deployment sync bundle omits the canary scenario receipt validator"
 pass "exact-run canary receipt validator and database corroboration"
+
+for contract in \
+  'MERC_AGENT_RESTART_APPROVED_DRIVER_SHA256' \
+  'agent_sessions_transitioned' \
+  'two_distinct_agents_restarted_from_database_session_transitions:true'; do
+  rg -q -- "$contract" "$ROOT/scripts/go-closure-restart-storm.sh" \
+    || die "restart storm lacks authority contract $contract"
+done
+rg -q 'scripts/validate-agent-restart-receipt.py' "$ROOT/scripts/lib/go-closure-common.sh" \
+  || die "deployment sync bundle omits the agent restart receipt validator"
+pass "reviewed restart driver and database process-session corroboration"
 
 while IFS= read -r documented_script; do
   [ -f "$ROOT/$documented_script" ] || die "README references missing $documented_script"
