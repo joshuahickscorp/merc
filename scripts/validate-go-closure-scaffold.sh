@@ -92,6 +92,8 @@ pass "bash syntax for staging harness"
   || die "GO-closure soak receipt validator is missing or not executable"
 [ -x "$ROOT/scripts/validate-backup-verification-receipt.py" ] \
   || die "backup verification receipt validator is missing or not executable"
+[ -x "$ROOT/scripts/validate-go-closure-evidence-chain.py" ] \
+  || die "final evidence-chain validator is missing or not executable"
 python3 -m py_compile "$ROOT/scripts/validate-canary-scenario-receipt.py" \
   || die "canary scenario receipt validator does not compile"
 python3 -m py_compile "$ROOT/scripts/validate-agent-restart-receipt.py" \
@@ -100,6 +102,8 @@ python3 -m py_compile "$ROOT/scripts/validate-go-closure-soak-receipt.py" \
   || die "GO-closure soak receipt validator does not compile"
 python3 -m py_compile "$ROOT/scripts/validate-backup-verification-receipt.py" \
   || die "backup verification receipt validator does not compile"
+python3 -m py_compile "$ROOT/scripts/validate-go-closure-evidence-chain.py" \
+  || die "final evidence-chain validator does not compile"
 for contract in \
   'MERC_CANARY_RUN_ID' 'MERC_CANARY_CANDIDATE_COMMIT' \
   'MERC_CANARY_CONTROL_IMAGE' 'MERC_CANARY_DRIVER_SHA256' \
@@ -152,6 +156,20 @@ done
 rg -q 'scripts/validate-backup-verification-receipt.py' "$ROOT/scripts/lib/go-closure-common.sh" \
   || die "deployment sync bundle omits the backup verification validator"
 pass "fresh encrypted offsite backup and independent-download authority"
+
+for contract in \
+  'ELIGIBLE_FOR_SUPERVISED_LEVEL_B_PRIVATE_CANARY_REVIEW' \
+  'live_payment_activation.*False' \
+  'validate-go-closure-soak-receipt.py' \
+  'validate-backup-verification-receipt.py' \
+  'validate-agent-restart-receipt.py' \
+  'validate-canary-scenario-receipt.py'; do
+  rg -q -- "$contract" "$ROOT/scripts/validate-go-closure-evidence-chain.py" \
+    || die "final evidence-chain validator lacks authority contract $contract"
+done
+rg -q 'scripts/validate-go-closure-evidence-chain.py' "$ROOT/scripts/lib/go-closure-common.sh" \
+  || die "deployment sync bundle omits the final evidence-chain validator"
+pass "fresh ordered exact-candidate final evidence authority"
 
 while IFS= read -r documented_script; do
   [ -f "$ROOT/$documented_script" ] || die "README references missing $documented_script"

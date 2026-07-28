@@ -434,6 +434,7 @@ gc_sync_bundle() {
     scripts/validate-canary-scenario-receipt.py
     scripts/go-closure-soak.sh
     scripts/validate-go-closure-soak-receipt.py
+    scripts/validate-go-closure-evidence-chain.py
     scripts/validate-go-closure-scaffold.sh
   )
   if [ "$target_mode" = local ]; then
