@@ -12,7 +12,7 @@ lifecycle and money authority; browser state is never authoritative.
 | Track | `GET /v1/jobs/{id}`, `/events`, `/failures` | explicit lifecycle plus typed failures | 404 for absent or other-buyer ids |
 | Cancel | `DELETE /v1/jobs/{id}` | repeatable `cancelled` response while owned | 409 once work or verification makes cancellation unsafe |
 | Download | `GET /v1/jobs/{id}/results` | buyer-scoped result references | incomplete, missing artifact, integrity failure |
-| Invoice / receipt | `/invoice`, `/receipt` | estimated and actual economics are labeled | incomplete settlement, provider outcome unknown |
+| Invoice / receipt | `/invoice`, `/receipt` | accepted composite pricing, exact authority digests, catalogue/FX provenance, and modeled-versus-settled economics are labeled | incomplete settlement, provider outcome unknown, legacy authority explicitly unverifiable |
 | Supplier onboarding | `/v1/supplier/*` | connected status and revocable device credential | KYC/provider pending, revoked enrollment, unsupported Mac |
 
 Every buyer request must treat `401` as re-authentication, `403` as lack of

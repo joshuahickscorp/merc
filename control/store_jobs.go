@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"reflect"
 	"strings"
 	"time"
 
@@ -83,6 +84,9 @@ func validateJobClaimAuthority(j *jobRow) error {
 	if j == nil {
 		return errors.New("job placement authority is missing")
 	}
+	if err := validatePlacementRequirement(j.PlacementRequirement, j.WorkloadDecision); err != nil {
+		return err
+	}
 	binding := j.WorkloadDecision.Binding
 	if j.JobType != j.WorkloadDecision.RuntimeJobType ||
 		j.JobType != binding.JobType.Type ||
@@ -93,6 +97,7 @@ func validateJobClaimAuthority(j *jobRow) error {
 		!sameStrings(j.DataResidency, binding.Constraints.DataResidency) ||
 		j.MinReputation != binding.MinReputation ||
 		j.MaxDurationSecs != binding.Constraints.MaxDurationSecs ||
+		j.OfferedRateUsdHr != j.PlacementRequirement.OfferedRateUsdHr ||
 		math.IsNaN(float64(j.OfferedRateUsdHr)) ||
 		math.IsInf(float64(j.OfferedRateUsdHr), 0) ||
 		j.OfferedRateUsdHr < 0 {
@@ -122,6 +127,12 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	}
 	if err := ValidateComputePlanEconomicSnapshot(j.ComputePlan, j.WorkloadDecision, j.EconomicPlan); err != nil {
 		return fmt.Errorf("refusing job without valid compute plan: %w", err)
+	}
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		j.PricingDecision, j.WorkloadDecision, j.ComputePlan,
+		j.PlacementRequirement, j.EconomicPlan,
+	); err != nil {
+		return fmt.Errorf("refusing job without valid composite pricing authority: %w", err)
 	}
 	if j.EconomicPlan.Input.InitialTaskCount != len(tasks) {
 		return fmt.Errorf("economic plan initial_task_count=%d does not match %d initial tasks",
@@ -217,21 +228,41 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	if err != nil {
 		return fmt.Errorf("hash compute plan: %w", err)
 	}
+	placementJSON, err := json.Marshal(j.PlacementRequirement)
+	if err != nil {
+		return fmt.Errorf("marshal placement requirement: %w", err)
+	}
+	placementSHA256, err := placementRequirementDigest(j.PlacementRequirement)
+	if err != nil {
+		return fmt.Errorf("hash placement requirement: %w", err)
+	}
+	pricingJSON, err := json.Marshal(j.PricingDecision)
+	if err != nil {
+		return fmt.Errorf("marshal pricing decision: %w", err)
+	}
+	pricingSHA256, err := pricingDecisionDigest(j.PricingDecision)
+	if err != nil {
+		return fmt.Errorf("hash pricing decision: %w", err)
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	if j.QuoteID != uuid.Nil {
-		var quoteComputeSHA256, quoteCurrency string
-		var quotePlacementJSON []byte
+		var quoteComputeSHA256, quoteCurrency, quotePlacementSHA256, quotePricingSHA256 string
+		var quotePricingJSON []byte
 		if err := tx.QueryRow(ctx,
 			`SELECT COALESCE(compute_plan_sha256,''),currency,
-			        quote_json->'placement_requirement'
+			        COALESCE(placement_requirement_sha256,''),
+			        COALESCE(pricing_decision_sha256,''),pricing_decision
 			   FROM quotes
 			  WHERE id=$1 AND buyer_id=$2`,
 			j.QuoteID, j.BuyerID,
-		).Scan(&quoteComputeSHA256, &quoteCurrency, &quotePlacementJSON); err != nil {
+		).Scan(
+			&quoteComputeSHA256, &quoteCurrency, &quotePlacementSHA256,
+			&quotePricingSHA256, &quotePricingJSON,
+		); err != nil {
 			return fmt.Errorf("load bound quote compute authority: %w", err)
 		}
 		if quoteComputeSHA256 == "" || quoteComputeSHA256 != computeSHA256 {
@@ -241,18 +272,23 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 			return fmt.Errorf("%w: job currency %s does not match bound quote currency %s",
 				errCurrencyMismatch, jobCurrency, quoteCurrency)
 		}
-		var quotePlacement PlacementRequirement
-		if err := json.Unmarshal(quotePlacementJSON, &quotePlacement); err != nil {
-			return fmt.Errorf("decode bound quote placement authority: %w", err)
+		if quotePlacementSHA256 == "" || quotePlacementSHA256 != placementSHA256 {
+			return errors.New("job offered rate and placement requirement do not match its bound quote")
 		}
-		if err := validatePlacementRequirement(quotePlacement, j.WorkloadDecision); err != nil {
-			return fmt.Errorf("bound quote placement authority is invalid: %w", err)
+		var quotePricing PricingDecision
+		if err := json.Unmarshal(quotePricingJSON, &quotePricing); err != nil {
+			return fmt.Errorf("decode bound quote pricing authority: %w", err)
 		}
-		if quotePlacement.OfferedRateUsdHr != j.OfferedRateUsdHr {
-			return fmt.Errorf(
-				"job offered rate %.6f does not match bound quote placement rate %.6f",
-				j.OfferedRateUsdHr, quotePlacement.OfferedRateUsdHr,
-			)
+		exactQuotePricing := pricingSHA256 == quotePricingSHA256
+		derivedQuotePricing :=
+			j.PricingDecision.OriginQuotePricingDecisionSHA256 == quotePricingSHA256
+		if quotePricingSHA256 == "" ||
+			(!exactQuotePricing && !derivedQuotePricing) ||
+			quotePricing.ComputePlanSHA256 != j.PricingDecision.ComputePlanSHA256 ||
+			quotePricing.PlacementRequirementSHA256 != placementSHA256 ||
+			quotePricing.WorkloadDecisionSHA256 != j.PricingDecision.WorkloadDecisionSHA256 ||
+			!reflect.DeepEqual(quotePricing.Catalogue, j.PricingDecision.Catalogue) {
+			return errors.New("job pricing decision does not derive from its bound quote")
 		}
 	}
 
@@ -272,10 +308,13 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    economic_input_records, economic_input_bytes, economic_input_source,
 		    submit_idempotency_key, submit_request_sha256, prefix_id,
 		    workload_decision, workload_decision_sha256,
-		    compute_plan, compute_plan_sha256, currency)
+		    compute_plan, compute_plan_sha256,
+		    placement_requirement, placement_requirement_sha256,
+		    pricing_decision, pricing_decision_sha256, currency)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
 		         $11,$12,$13,$14,$15,$16,$17,$18,$19,'tracking',$20,$21,$22,$23,$24,$25,$26,
-		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''),NULLIF($32,''),$33,$34,$35,$36,$37)`,
+		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''),NULLIF($32,''),
+		         $33,$34,$35,$36,$37,$38,$39,$40,$41)`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
@@ -285,7 +324,8 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		nullPosInt(j.SLAGuaranteeSecs), nullPosFloat(j.SLAPremiumUSD),
 		economicInputRecords, economicInputBytes, economicInputSource,
 		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID,
-		workloadJSON, workloadSHA256, computeJSON, computeSHA256, jobCurrency,
+		workloadJSON, workloadSHA256, computeJSON, computeSHA256,
+		placementJSON, placementSHA256, pricingJSON, pricingSHA256, jobCurrency,
 	)
 	if err != nil {
 		return err
@@ -386,6 +426,8 @@ type jobRow struct {
 	EconomicPlan               EconomicPlan
 	WorkloadDecision           WorkloadDecision
 	ComputePlan                ComputePlan
+	PlacementRequirement       PlacementRequirement
+	PricingDecision            PricingDecision
 	WebhookID                  uuid.UUID
 	WebhookURL                 string
 	WebhookSigningSecretSealed string
@@ -486,6 +528,120 @@ func (s *Store) JobComputePlan(ctx context.Context, jobID uuid.UUID) (*ComputePl
 		return nil, fmt.Errorf("frozen compute plan digest mismatch for job %s", jobID)
 	}
 	return &plan, nil
+}
+
+func (s *Store) JobPlacementRequirement(ctx context.Context, jobID uuid.UUID) (*PlacementRequirement, error) {
+	var blob []byte
+	var frozenSHA256 string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT placement_requirement,COALESCE(placement_requirement_sha256,'')
+		   FROM jobs WHERE id=$1`, jobID,
+	).Scan(&blob, &frozenSHA256); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errNotFound
+		}
+		return nil, err
+	}
+	if len(blob) == 0 {
+		// Exact reuse has no physical placement. Legacy physical jobs also
+		// remain explicitly unverifiable instead of receiving a reconstruction.
+		return nil, nil
+	}
+	var placement PlacementRequirement
+	if err := json.Unmarshal(blob, &placement); err != nil {
+		return nil, fmt.Errorf("decode placement requirement for job %s: %w", jobID, err)
+	}
+	workload, err := s.JobWorkloadDecision(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if workload == nil {
+		return nil, fmt.Errorf("job %s has placement without workload authority", jobID)
+	}
+	if err := validatePlacementRequirement(placement, *workload); err != nil {
+		return nil, fmt.Errorf("invalid placement requirement for job %s: %w", jobID, err)
+	}
+	gotSHA256, err := placementRequirementDigest(placement)
+	if err != nil {
+		return nil, err
+	}
+	if frozenSHA256 == "" || frozenSHA256 != gotSHA256 {
+		return nil, fmt.Errorf("frozen placement requirement digest mismatch for job %s", jobID)
+	}
+	return &placement, nil
+}
+
+func (s *Store) JobPricingDecision(ctx context.Context, jobID uuid.UUID) (*PricingDecision, error) {
+	var blob []byte
+	var frozenSHA256 string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT pricing_decision,COALESCE(pricing_decision_sha256,'')
+		   FROM jobs WHERE id=$1`, jobID,
+	).Scan(&blob, &frozenSHA256); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errNotFound
+		}
+		return nil, err
+	}
+	if len(blob) == 0 {
+		return nil, nil
+	}
+	var pricing PricingDecision
+	if err := json.Unmarshal(blob, &pricing); err != nil {
+		return nil, fmt.Errorf("decode pricing decision for job %s: %w", jobID, err)
+	}
+	workload, err := s.JobWorkloadDecision(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	compute, err := s.JobComputePlan(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if workload == nil || compute == nil {
+		return nil, fmt.Errorf("job %s pricing lacks workload or compute authority", jobID)
+	}
+	switch pricing.ExecutionMode {
+	case computeExecutionDistributed:
+		placement, err := s.JobPlacementRequirement(ctx, jobID)
+		if err != nil {
+			return nil, err
+		}
+		if placement == nil {
+			return nil, fmt.Errorf("job %s physical pricing lacks placement authority", jobID)
+		}
+		var economicBlob []byte
+		if err := s.pool.QueryRow(ctx,
+			`SELECT plan_json FROM job_economic_plans WHERE job_id=$1`, jobID,
+		).Scan(&economicBlob); err != nil {
+			return nil, fmt.Errorf("load economic plan for pricing on job %s: %w", jobID, err)
+		}
+		var economic EconomicPlan
+		if err := json.Unmarshal(economicBlob, &economic); err != nil {
+			return nil, fmt.Errorf("decode economic plan for pricing on job %s: %w", jobID, err)
+		}
+		if err := ValidateDistributedPricingDecisionSnapshot(
+			pricing, *workload, *compute, *placement, economic,
+		); err != nil {
+			return nil, fmt.Errorf("invalid physical pricing decision for job %s: %w", jobID, err)
+		}
+	case computeExecutionExactReuse:
+		if err := ValidateExactReusePricingDecisionSnapshot(
+			pricing, *workload, *compute,
+		); err != nil {
+			return nil, fmt.Errorf("invalid exact-reuse pricing decision for job %s: %w", jobID, err)
+		}
+	default:
+		return nil, fmt.Errorf("job %s pricing has unknown execution mode %q", jobID, pricing.ExecutionMode)
+	}
+	gotSHA256, err := pricingDecisionDigest(pricing)
+	if err != nil {
+		return nil, err
+	}
+	if frozenSHA256 == "" || frozenSHA256 != gotSHA256 {
+		return nil, fmt.Errorf("frozen pricing decision digest mismatch for job %s", jobID)
+	}
+	return &pricing, nil
 }
 
 type JobView struct {

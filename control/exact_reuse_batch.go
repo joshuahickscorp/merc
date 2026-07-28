@@ -22,6 +22,7 @@ func (s *Store) SubmitExactReuseBatchJob(
 	submitIdempotencyKey, submitRequestSHA256 string,
 	workloadDecision WorkloadDecision,
 	computePlan ComputePlan,
+	pricingDecision PricingDecision,
 	quoteID uuid.UUID,
 	firmQuote bool,
 	firmQuoteMaxUSD float64,
@@ -49,6 +50,11 @@ func (s *Store) SubmitExactReuseBatchJob(
 	if computePlan.ExecutionMode != computeExecutionExactReuse {
 		return fmt.Errorf("exact-reuse job requires exact-result-reuse compute mode")
 	}
+	if err := ValidateExactReusePricingDecisionSnapshot(
+		pricingDecision, workloadDecision, computePlan,
+	); err != nil {
+		return fmt.Errorf("invalid exact-reuse pricing decision: %w", err)
+	}
 	if int64(computePlan.InputRecords) != inputRecords || computePlan.InputBytes != inputBytes {
 		return fmt.Errorf("exact-reuse compute plan input geometry does not match the delivered job")
 	}
@@ -72,10 +78,24 @@ func (s *Store) SubmitExactReuseBatchJob(
 	if computePlan.BaseComputeUSD != roundEconomicUSD(buyerCharge) {
 		return fmt.Errorf("exact-reuse compute estimate does not match buyer settlement")
 	}
+	if pricingDecision.BuyerPrice != roundEconomicUSD(buyerCharge) {
+		return fmt.Errorf("exact-reuse pricing decision does not match buyer settlement")
+	}
+	if firmQuote && (firmQuoteMaxUSD <= 0 || buyerCharge > firmQuoteMaxUSD+0.000001) {
+		return fmt.Errorf("exact-reuse buyer charge exceeds the firm quote maximum")
+	}
 	platform := microsToUSD(money.PlatformMicros)
 	jobCurrency := SettlementCurrencyCode()
 	if err := RequireSettlementCurrency(jobCurrency); err != nil {
 		return fmt.Errorf("exact-reuse job requires settlement currency authority: %w", err)
+	}
+	pricingJSON, err := json.Marshal(pricingDecision)
+	if err != nil {
+		return fmt.Errorf("marshal exact-reuse pricing decision: %w", err)
+	}
+	pricingSHA256, err := pricingDecisionDigest(pricingDecision)
+	if err != nil {
+		return fmt.Errorf("hash exact-reuse pricing decision: %w", err)
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -84,18 +104,23 @@ func (s *Store) SubmitExactReuseBatchJob(
 	}
 	defer tx.Rollback(ctx)
 	if quoteID != uuid.Nil {
-		var quoteComputeSHA256, quoteCurrency string
+		var quoteComputeSHA256, quotePricingSHA256, quoteCurrency string
 		if err := tx.QueryRow(ctx,
-			`SELECT COALESCE(compute_plan_sha256,''),currency
+			`SELECT COALESCE(compute_plan_sha256,''),
+			        COALESCE(pricing_decision_sha256,''),currency
 			   FROM quotes
 			  WHERE id=$1 AND buyer_id=$2`,
 			quoteID, buyerID,
-		).Scan(&quoteComputeSHA256, &quoteCurrency); err != nil {
+		).Scan(&quoteComputeSHA256, &quotePricingSHA256, &quoteCurrency); err != nil {
 			return fmt.Errorf("load exact-reuse origin quote compute authority: %w", err)
 		}
 		if quoteComputeSHA256 == "" ||
 			computePlan.OriginComputePlanSHA256 != quoteComputeSHA256 {
 			return fmt.Errorf("exact-reuse compute plan does not match its origin quote")
+		}
+		if quotePricingSHA256 == "" ||
+			pricingDecision.OriginPricingDecisionSHA256 != quotePricingSHA256 {
+			return fmt.Errorf("exact-reuse pricing decision does not match its origin quote")
 		}
 		if quoteCurrency != jobCurrency {
 			return fmt.Errorf("%w: exact-reuse job currency %s does not match quote currency %s",
@@ -103,6 +128,8 @@ func (s *Store) SubmitExactReuseBatchJob(
 		}
 	} else if computePlan.OriginComputePlanSHA256 != "" {
 		return fmt.Errorf("unquoted exact reuse cannot carry an origin compute plan")
+	} else if pricingDecision.OriginPricingDecisionSHA256 != "" {
+		return fmt.Errorf("unquoted exact reuse cannot carry origin pricing authority")
 	}
 
 	// Fund gate (same shape as realtime): free credit or a payment method.
@@ -147,16 +174,17 @@ func (s *Store) SubmitExactReuseBatchJob(
 		   submit_idempotency_key, submit_request_sha256,
 		   workload_decision, workload_decision_sha256,
 		   compute_plan, compute_plan_sha256,
+		   pricing_decision, pricing_decision_sha256,
 		   quote_id, firm_quote, firm_quote_max_usd, currency)
 		VALUES ($1,$2,'complete',$3,$4,$5,$6,$7,'{}'::jsonb,$8,$8,0,0,
 		        'tracking','charged',
 		        $9,$10,'exact_result_reuse',
 		        NULLIF($11,''),NULLIF($12,''),$13::jsonb,$14,
-		        $15::jsonb,$16,$17,$18,$19,$20)`,
+		        $15::jsonb,$16,$17::jsonb,$18,$19,$20,$21,$22)`,
 		jobID, buyerID, jobType, modelRef, inputRef, outputRef, tier,
 		buyerCharge, inputRecords, inputBytes,
 		submitIdempotencyKey, submitRequestSHA256, workloadJSON, workloadSHA256,
-		computeJSON, computeSHA256,
+		computeJSON, computeSHA256, pricingJSON, pricingSHA256,
 		nullUUID(quoteID), firmQuote, nullPosFloat(firmQuoteMaxUSD), jobCurrency)
 	if err != nil {
 		return err

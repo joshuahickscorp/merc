@@ -3,14 +3,41 @@ package main
 import "github.com/google/uuid"
 
 type ClearingReceipt struct {
-	JobID        uuid.UUID         `json:"job_id"`
-	Status       string            `json:"status"`
-	Workload     *WorkloadDecision `json:"workload_decision,omitempty"`
-	ComputePlan  *ComputePlan      `json:"compute_plan,omitempty"`
-	Invoice      *InvoiceView      `json:"invoice"`
-	Verification Verification      `json:"verification"`
-	Classes      []string          `json:"verification_classes"`
-	Tasks        []TaskReceipt     `json:"tasks"`
+	JobID           uuid.UUID              `json:"job_id"`
+	Status          string                 `json:"status"`
+	AuthorityStatus string                 `json:"authority_status"`
+	Workload        *WorkloadDecision      `json:"workload_decision,omitempty"`
+	ComputePlan     *ComputePlan           `json:"compute_plan,omitempty"`
+	Placement       *PlacementRequirement  `json:"placement_requirement,omitempty"`
+	Pricing         *PricingDecision       `json:"pricing_decision,omitempty"`
+	Authority       ReceiptAuthority       `json:"authority"`
+	Reconciliation  *PricingReconciliation `json:"pricing_reconciliation,omitempty"`
+	Invoice         *InvoiceView           `json:"invoice"`
+	Verification    Verification           `json:"verification"`
+	Classes         []string               `json:"verification_classes"`
+	Tasks           []TaskReceipt          `json:"tasks"`
+}
+
+type ReceiptAuthority struct {
+	WorkloadDecisionSHA256     string `json:"workload_decision_sha256,omitempty"`
+	ComputePlanSHA256          string `json:"compute_plan_sha256,omitempty"`
+	PlacementRequirementSHA256 string `json:"placement_requirement_sha256,omitempty"`
+	PricingDecisionSHA256      string `json:"pricing_decision_sha256,omitempty"`
+}
+
+type PricingReconciliation struct {
+	Currency                    string   `json:"currency"`
+	AcceptedBuyerPrice          float64  `json:"accepted_buyer_price"`
+	MaximumBuyerPrice           float64  `json:"maximum_buyer_price"`
+	SettledBuyerPrice           float64  `json:"settled_buyer_price"`
+	ModeledSupplierCost         float64  `json:"modeled_supplier_cost"`
+	SettledSupplierCost         float64  `json:"settled_supplier_cost"`
+	ModeledPlatformContribution float64  `json:"modeled_platform_contribution"`
+	SettledPlatformTake         float64  `json:"settled_platform_take"`
+	ModeledPaymentCost          float64  `json:"modeled_payment_cost"`
+	SettledPaymentCost          *float64 `json:"settled_payment_cost,omitempty"`
+	CatalogueScheduleSHA256     string   `json:"catalogue_schedule_sha256"`
+	FXRevision                  string   `json:"fx_revision"`
 }
 
 type TaskReceipt struct {
@@ -45,15 +72,54 @@ func taskReceiptRowWithRuntime(chunkIndex int, status string, isHoneypot bool, e
 	}
 }
 
-func assembleClearingReceipt(jobID uuid.UUID, status string, workload *WorkloadDecision, computePlan *ComputePlan, inv *InvoiceView, verif Verification, classes []string, tasks []TaskReceipt) ClearingReceipt {
-	return ClearingReceipt{
-		JobID:        jobID,
-		Status:       status,
-		Workload:     workload,
-		ComputePlan:  computePlan,
-		Invoice:      inv,
-		Verification: verif,
-		Classes:      classes,
-		Tasks:        tasks,
+func assembleClearingReceipt(
+	jobID uuid.UUID,
+	status string,
+	workload *WorkloadDecision,
+	computePlan *ComputePlan,
+	placement *PlacementRequirement,
+	pricing *PricingDecision,
+	inv *InvoiceView,
+	verif Verification,
+	classes []string,
+	tasks []TaskReceipt,
+) ClearingReceipt {
+	out := ClearingReceipt{
+		JobID: jobID, Status: status, AuthorityStatus: "legacy_unverifiable",
+		Workload: workload, ComputePlan: computePlan, Placement: placement, Pricing: pricing,
+		Invoice: inv, Verification: verif, Classes: classes, Tasks: tasks,
 	}
+	if workload != nil {
+		out.Authority.WorkloadDecisionSHA256, _ = workloadDecisionDigest(*workload)
+	}
+	if computePlan != nil {
+		out.Authority.ComputePlanSHA256, _ = computePlanDigest(*computePlan)
+	}
+	if placement != nil {
+		out.Authority.PlacementRequirementSHA256, _ = placementRequirementDigest(*placement)
+	}
+	if pricing != nil {
+		out.Authority.PricingDecisionSHA256, _ = pricingDecisionDigest(*pricing)
+		out.AuthorityStatus = "verified"
+		reconciliation := &PricingReconciliation{
+			Currency:           pricing.Currency,
+			AcceptedBuyerPrice: pricing.BuyerPrice,
+			MaximumBuyerPrice:  pricing.MaximumBuyerPrice,
+			ModeledSupplierCost: roundEconomicUSD(
+				pricing.PrimarySupplierCost.Amount + pricing.VerificationCost.Amount,
+			),
+			ModeledPlatformContribution: pricing.PlatformContribution.Amount,
+			ModeledPaymentCost:          pricing.PaymentCost.Amount,
+			CatalogueScheduleSHA256:     pricing.Catalogue.ScheduleSHA256,
+			FXRevision:                  pricing.Catalogue.FXRevision,
+		}
+		if inv != nil {
+			reconciliation.SettledBuyerPrice = inv.ActualUSD
+			reconciliation.SettledSupplierCost = inv.SupplierPaidUSD
+			reconciliation.SettledPlatformTake = inv.PlatformTakeUSD
+			reconciliation.SettledPaymentCost = inv.ProcessorFeeAllocatedUSD
+		}
+		out.Reconciliation = reconciliation
+	}
+	return out
 }

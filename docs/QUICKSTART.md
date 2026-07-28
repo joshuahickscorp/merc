@@ -54,6 +54,11 @@ and do not reserve capacity or move money. With market-board catalogue prices,
 use enough text that the microdollar estimate stays positive (two short lines
 can round to $0 and return `409 conflict`).
 
+The response includes `pricing_decision`, which binds the workload, compute,
+placement and economic digests to the exact catalogue schedule, market-board
+digest and FX revision. Cost components that are not independently metered are
+reported as `unknown`; they are not silently presented as zero.
+
 ```bash
 curl -fsS "$MERC_URL/v1/quote" \
   -H "Authorization: Bearer $MERC_API_KEY" \
@@ -96,6 +101,17 @@ curl -fsS "$MERC_URL/v1/jobs/$JOB_ID" \
 
 Without a live agent the job stays queued; that is expected on a control-only
 stack.
+
+The clearing receipt exposes the same authority and its reconciliation:
+
+```bash
+curl -fsS "$MERC_URL/v1/jobs/$JOB_ID/receipt" \
+  -H "Authorization: Bearer $MERC_API_KEY"
+```
+
+New jobs report `authority_status: "verified"`. Historical jobs that predate
+composite pricing remain readable as `legacy_unverifiable`; the server never
+reconstructs their accepted price from today's catalogue.
 
 ### 6. Fetch results (after an agent completes the job)
 

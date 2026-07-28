@@ -161,8 +161,10 @@ type TaskDispatch struct {
 	OutputURL        string      `json:"output_url"`
 	PartialPutURL    string      `json:"partial_put_url,omitempty"` // presigned PUT for result_key+".partial" (checkpointable job types only)
 	ResultKey        string      `json:"result_key"`                // canonical result object key (agent echoes it)
-	OfferedRateUsdHr float32     `json:"offered_rate_usd_hr"`       // $/hr this task pays (matches the worker's min-payout gate)
-	Deadline         uint64      `json:"deadline"`
+	// Compatibility name: this is the modeled supplier ask admission ceiling
+	// in USD/hour. Settlement remains frozen per accepted task.
+	OfferedRateUsdHr float32 `json:"offered_rate_usd_hr"`
+	Deadline         uint64  `json:"deadline"`
 }
 
 type TaskCommit struct {

@@ -51,7 +51,10 @@ func TestAssembleClearingReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rc := assembleClearingReceipt(jobID, "complete", &workload, &computePlan, inv, verif, classes, tasks)
+	rc := assembleClearingReceipt(
+		jobID, "complete", &workload, &computePlan, nil, nil,
+		inv, verif, classes, tasks,
+	)
 
 	if rc.Invoice == nil || rc.Invoice.QuotedUSD == nil || *rc.Invoice.QuotedUSD != 9.5 {
 		t.Fatal("receipt must carry the QUOTE")
@@ -98,5 +101,42 @@ func TestTaskReceiptNeverLeaksHoneypotAnswer(t *testing.T) {
 	lower := strings.ToLower(string(b))
 	if strings.Contains(lower, "answer") || strings.Contains(lower, "result") {
 		t.Fatalf("a task drilldown must NOT expose any answer/result field; got %s", b)
+	}
+}
+
+func TestClearingReceiptExposesExactCompositePricingAndReconciliation(t *testing.T) {
+	workload, compute, placement, _, pricing := distributedPricingFixture(t)
+	jobID := uuid.New()
+	processor := 0.01
+	invoice := &InvoiceView{
+		JobID: jobID, Currency: pricing.Currency,
+		ActualUSD: pricing.BuyerPrice,
+		SupplierPaidUSD: roundEconomicUSD(
+			pricing.PrimarySupplierCost.Amount + pricing.VerificationCost.Amount,
+		),
+		PlatformTakeUSD:          pricing.PlatformContribution.Amount,
+		ProcessorFeeAllocatedUSD: &processor,
+	}
+	receipt := assembleClearingReceipt(
+		jobID, "complete", &workload, &compute, &placement, &pricing,
+		invoice, Verification{}, nil, nil,
+	)
+	wantPricingSHA, err := pricingDecisionDigest(pricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.AuthorityStatus != "verified" ||
+		receipt.Authority.PricingDecisionSHA256 != wantPricingSHA ||
+		receipt.Authority.PlacementRequirementSHA256 !=
+			pricing.PlacementRequirementSHA256 {
+		t.Fatalf("receipt lost composite authority: %+v", receipt.Authority)
+	}
+	if receipt.Reconciliation == nil ||
+		receipt.Reconciliation.CatalogueScheduleSHA256 !=
+			pricing.Catalogue.ScheduleSHA256 ||
+		receipt.Reconciliation.FXRevision != pricing.Catalogue.FXRevision ||
+		receipt.Reconciliation.AcceptedBuyerPrice != pricing.BuyerPrice ||
+		receipt.Reconciliation.SettledSupplierCost != invoice.SupplierPaidUSD {
+		t.Fatalf("receipt lost pricing reconciliation: %+v", receipt.Reconciliation)
 	}
 }
