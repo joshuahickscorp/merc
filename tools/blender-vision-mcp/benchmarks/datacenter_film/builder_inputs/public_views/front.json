@@ -1,7 +1,0 @@
-{
-  "authority": "GOVERNED_BUILDER_INPUT",
-  "note": "Declared public camera front view metadata",
-  "path": "builder_inputs/public_views/front.json",
-  "role": "public_view",
-  "target_id": "datacenter_film"
-}

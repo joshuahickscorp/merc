@@ -1,7 +1,0 @@
-{
-  "authority": "GOVERNED_BUILDER_INPUT",
-  "note": "Declared public hero view metadata",
-  "path": "builder_inputs/public_views/hero.json",
-  "role": "public_view",
-  "target_id": "datacenter_film"
-}

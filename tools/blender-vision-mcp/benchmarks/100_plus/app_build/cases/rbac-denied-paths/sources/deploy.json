@@ -1,7 +1,0 @@
-{
-  "authority": "SPECIFIED",
-  "benchmark_case": "rbac-denied-paths",
-  "kind": "deployment_target",
-  "rights_state": "OWNED",
-  "source_id": "deploy"
-}

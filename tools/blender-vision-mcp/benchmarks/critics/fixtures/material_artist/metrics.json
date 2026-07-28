@@ -1,9 +1,0 @@
-{
-  "albedo_variance": 0.4,
-  "feature_scale_m": 0.001,
-  "metalness": 0.95,
-  "normal_variance": 0.001,
-  "roughness": 0.85,
-  "specular_peak": 0.15,
-  "texture_scale_m": 0.05
-}

@@ -1,9 +1,0 @@
-{
-  "authority": "SEALED_ORACLE_ONLY",
-  "builder_visible": false,
-  "canary": "SEALED-V2-ORACLE-CANARY-datacenter_film",
-  "note": "Oracle-measured GLB and motion digests",
-  "path": "oracle/hidden/measurements/delivery_metrics.json",
-  "role": "hidden_measurement",
-  "target_id": "datacenter_film"
-}

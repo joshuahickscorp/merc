@@ -1,7 +1,0 @@
-{
-  "authority": "SPECIFIED",
-  "benchmark_case": "polling-status-recovery",
-  "kind": "slo",
-  "rights_state": "OWNED",
-  "source_id": "slo"
-}

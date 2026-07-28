@@ -1,7 +1,0 @@
-{
-  "artifact": "distributed-runtime.receipt.json",
-  "sha256": "2b97d4e9a848968bb0f49177e1f0d1b336fc4d0a4ee20fd8b68060c27627be03",
-  "source_git_head": "30ebe07a7b215761cf96ecd588fab17633bbf391",
-  "status": "BLOCKED_EXTERNAL",
-  "functional_passed": true
-}

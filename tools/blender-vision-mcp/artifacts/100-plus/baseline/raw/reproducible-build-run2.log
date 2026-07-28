@@ -1,9 +1,0 @@
-Building source distribution...
-Building wheel from source distribution...
-Successfully built artifacts/100-plus/baseline/builds/run2/blender_vision_mcp-0.1.0.tar.gz
-Successfully built artifacts/100-plus/baseline/builds/run2/blender_vision_mcp-0.1.0-py3-none-any.whl
-77b2c951621166bd1ddcbb7a06399a63e4fb280ea32c0ec1669a434dd8eebc1a  artifacts/100-plus/baseline/builds/run1/blender_vision_mcp-0.1.0-py3-none-any.whl
-702cfff8f1571f62e7e75f5d85209545093f84e3044606c6b46a564b4bd281ac  artifacts/100-plus/baseline/builds/run1/blender_vision_mcp-0.1.0.tar.gz
-77b2c951621166bd1ddcbb7a06399a63e4fb280ea32c0ec1669a434dd8eebc1a  artifacts/100-plus/baseline/builds/run2/blender_vision_mcp-0.1.0-py3-none-any.whl
-5acd1d0939aaa40264ed74604457834f878456777ff0e6c8ca11345bfbd03287  artifacts/100-plus/baseline/builds/run2/blender_vision_mcp-0.1.0.tar.gz
-artifacts/100-plus/baseline/builds/run1/blender_vision_mcp-0.1.0.tar.gz artifacts/100-plus/baseline/builds/run2/blender_vision_mcp-0.1.0.tar.gz differ: char 62175, line 247

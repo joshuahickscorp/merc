@@ -1,1 +1,0 @@
-{"schema_version":"1","id":"failure-010","attempt":"attempt-000","command":"npm run verify:3d","phase":"candidate_topology","exit_code":1,"severity":"P1","information_gain":"high","observations":["curve use_fill_caps produced unwelded endpoint topology","outer_shell boundary count became 56"],"downstream_gates_run":false,"recorded_before_source_change":true}

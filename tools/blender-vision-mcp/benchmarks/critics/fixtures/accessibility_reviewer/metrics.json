@@ -1,7 +1,0 @@
-{
-  "bg_luminance": 0.45,
-  "fg_luminance": 0.4,
-  "focus_order_completeness": 0.4,
-  "reduced_motion_equivalence": 0.5,
-  "textual_equivalent_presence": 0.0
-}

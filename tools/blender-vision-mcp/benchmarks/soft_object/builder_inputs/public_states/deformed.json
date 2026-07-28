@@ -1,7 +1,0 @@
-{
-  "authority": "GOVERNED_BUILDER_INPUT",
-  "note": "Public deformed-state view metadata",
-  "path": "builder_inputs/public_states/deformed.json",
-  "role": "public_view",
-  "target_id": "soft_object"
-}

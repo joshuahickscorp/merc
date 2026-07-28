@@ -1,5 +1,0 @@
-
-> nocturne-one@1.0.0 db:rollback
-> tsx server/migrate.ts down
-
-rolled back

@@ -1,7 +1,0 @@
-{
-  "failure_modes": [
-    "silhouette",
-    "background_separation",
-    "clipping"
-  ]
-}

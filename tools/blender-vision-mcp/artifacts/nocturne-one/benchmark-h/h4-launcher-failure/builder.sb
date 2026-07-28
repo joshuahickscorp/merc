@@ -1,6 +1,0 @@
-(version 1)
-(allow default)
-(deny file-read* (subpath "/Users/scammermike/Downloads/visionmcp-nocturne-one-sealed/db820c9-oracle/sealed-evaluator"))
-(deny file-write* (subpath "/Users/scammermike/Downloads/visionmcp-nocturne-one-sealed/db820c9-oracle/sealed-evaluator"))
-(deny file-read* (subpath "/Users/scammermike/Downloads"))
-(deny file-write* (subpath "/Users/scammermike/Downloads"))

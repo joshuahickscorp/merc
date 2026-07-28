@@ -1,5 +1,0 @@
-
-> nocturne-one@1.0.0 db:rollback
-> tsx scripts/migrate.ts down
-
-{"migration":"001_initial","direction":"down","changed":true,"database":"/private/tmp/nocturne-one-initial-app-eval-db820c9/application.sqlite3"}

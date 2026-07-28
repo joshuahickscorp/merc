@@ -1,7 +1,0 @@
-{
-  "authority": "GOVERNED_BUILDER_INPUT",
-  "note": "Public capture protocol the builder must satisfy",
-  "path": "builder_inputs/capture_requirements.json",
-  "role": "requirements",
-  "target_id": "remote"
-}

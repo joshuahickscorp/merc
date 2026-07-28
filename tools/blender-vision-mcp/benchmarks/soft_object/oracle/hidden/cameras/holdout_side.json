@@ -1,9 +1,0 @@
-{
-  "authority": "SEALED_ORACLE_ONLY",
-  "builder_visible": false,
-  "canary": "SEALED-V2-ORACLE-CANARY-soft_object",
-  "note": "Hidden side holdout under deformation",
-  "path": "oracle/hidden/cameras/holdout_side.json",
-  "role": "hidden_camera",
-  "target_id": "soft_object"
-}

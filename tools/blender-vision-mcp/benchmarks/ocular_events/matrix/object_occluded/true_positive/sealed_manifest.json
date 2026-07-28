@@ -1,6 +1,0 @@
-{
-  "event_type": "OBJECT_OCCLUDED",
-  "fixture_class": "true_positive",
-  "ground_truth": "sealed_gt/labels.json",
-  "n_frames": 5
-}

@@ -1,9 +1,0 @@
-{
-  "authority": "SEALED_ORACLE_ONLY",
-  "builder_visible": false,
-  "canary": "SEALED-V2-ORACLE-CANARY-organic",
-  "note": "Sculpture holdout camera",
-  "path": "oracle/hidden/cameras/sculpture_holdout.json",
-  "role": "hidden_camera",
-  "target_id": "organic"
-}

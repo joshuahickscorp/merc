@@ -1,6 +1,0 @@
-{
-  "event_type": "OBJECT_MOVED",
-  "fixture_class": "near_threshold",
-  "ground_truth": "sealed_gt/labels.json",
-  "n_frames": 6
-}

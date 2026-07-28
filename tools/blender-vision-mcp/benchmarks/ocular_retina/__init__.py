@@ -1,1 +1,0 @@
-"""Ocular retina benchmark fixtures."""

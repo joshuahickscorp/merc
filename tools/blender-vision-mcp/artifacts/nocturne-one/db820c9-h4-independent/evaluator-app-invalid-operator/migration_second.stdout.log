@@ -1,5 +1,0 @@
-
-> nocturne-one@1.0.0 db:migrate
-> tsx server/migrate.ts up
-
-migrated and seeded
