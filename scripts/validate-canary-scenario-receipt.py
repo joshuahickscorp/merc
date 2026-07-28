@@ -6,6 +6,12 @@ to the exact run, candidate commit, immutable image, and driver bytes; carry
 fresh observations from the expected source; and contain no secret-shaped
 values. The host rehearsal independently corroborates database-backed subjects
 after this structural/provenance gate passes.
+
+Every receipt field must be derivable from an observation. This validator does
+not re-assert hardcoded booleans the driver could invent; it checks structure,
+binding, windows, closed key sets, and that claimed sources match the scenario
+contract. Unmeasurable claims (e.g. backoff_schedule without PromQL) must not
+appear.
 """
 
 import argparse
@@ -30,8 +36,10 @@ EXPECTED_SOURCES = {
     "backup_independent_restore": "offsite_backup_provider",
     "stripe_test_matrix": "stripe_test_api",
     "real_alert_firing_resolution": "alert_receiver_api",
-    "post_rehearsal_invariant_audit": "merc_postgres.invariant_audit",
-    "bounded_retry_backoff_audit": "merc_prometheus",
+    # Aggregate SQL audit over tasks/jobs — not a non-existent invariant_audit table.
+    "post_rehearsal_invariant_audit": "merc_postgres.tasks",
+    # Retry ceiling is measured in PostgreSQL, not Prometheus, unless PromQL is used.
+    "bounded_retry_backoff_audit": "merc_postgres.tasks",
 }
 
 UUID_SUBJECT_SCENARIOS = {
@@ -55,9 +63,19 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 IMAGE = re.compile(r"^[A-Za-z0-9._:-]+(/[A-Za-z0-9._-]+)+@sha256:[0-9a-f]{64}$")
 RUN_ID = re.compile(r"^[0-9a-f]{32}$")
+# Keep aligned with scripts/canary-scenario-driver.sh SECRET / redact_secrets.
 SECRET = re.compile(
-    r"(sk_(?:test|live)_|rk_(?:test|live)_|pk_live_|whsec_|"
-    r"AGE-SECRET-KEY-|AKIA[0-9A-Z]{12,})",
+    r"(sk_(?:test|live)_[A-Za-z0-9]+|"
+    r"rk_(?:test|live)_[A-Za-z0-9]+|"
+    r"pk_(?:test|live)_[A-Za-z0-9]+|"
+    r"whsec_[A-Za-z0-9]+|"
+    r"cx_(?:test|live)_[A-Za-z0-9_-]+|"
+    r"cxw_[A-Za-z0-9_-]+|"
+    r"ca_[A-Za-z0-9]+|"
+    r"AGE-SECRET-KEY-[A-Za-z0-9+-]+|"
+    r"AKIA[0-9A-Z]{12,}|"
+    r"(?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|amqp|https?)://"
+    r"[^\s:/@]+:[^\s/@]+@)",
     re.IGNORECASE,
 )
 
@@ -104,6 +122,13 @@ def require_exact_bool(mapping, name, expected):
         fail(f"{name} must be {str(expected).lower()}")
 
 
+def require_bool(mapping, name):
+    value = mapping.get(name)
+    if value is not True and value is not False:
+        fail(f"{name} must be a boolean")
+    return value
+
+
 def validate_special(receipt, scenario):
     if scenario == "stripe_test_matrix":
         if (receipt.get("provider_mode") != "test" or
@@ -119,33 +144,55 @@ def validate_special(receipt, scenario):
         if firing == resolved:
             fail("alert firing and resolved receiver event IDs must differ")
     elif scenario == "backup_independent_restore":
+        # Critical path must be observed true. object_checks is measured and may
+        # be false on an honest --db-only restore drill.
         for field in (
             "encrypted_offsite_upload",
             "independent_download",
             "ciphertext_checksum_verified",
             "isolated_restore",
             "postgres_semantic_checks",
-            "object_checks",
         ):
             require_exact_bool(receipt, field, True)
+        require_bool(receipt, "object_checks")
     elif scenario == "post_rehearsal_invariant_audit":
-        expected = {
-            "tenant_leak": False,
-            "missing_artifact": False,
-            "duplicate_effects": False,
-            "ledger_imbalance": False,
-            "stuck_terminal_jobs": False,
-            "stuck_payouts": False,
-            "unreconciled_state": False,
-            "silent_webhook_loss": False,
-            "unbounded_growth": False,
+        # Only invariants the driver actually queries. unreconciled_state is not
+        # published because no reconciliation observation exists.
+        expected_keys = {
+            "tenant_leak",
+            "missing_artifact",
+            "duplicate_effects",
+            "ledger_imbalance",
+            "stuck_terminal_jobs",
+            "stuck_payouts",
+            "silent_webhook_loss",
+            "unbounded_growth",
         }
-        if receipt.get("invariants") != expected:
-            fail("post-rehearsal invariant map is incomplete or not clean")
+        invariants = receipt.get("invariants")
+        if not isinstance(invariants, dict) or set(invariants) != expected_keys:
+            fail("post-rehearsal invariant map keys do not match the measured set")
+        for key in expected_keys:
+            if invariants[key] is not False:
+                fail(f"invariant {key} must be false (clean)")
+        if "unreconciled_state" in receipt.get("invariants", {}):
+            fail("unreconciled_state must not appear without a reconciliation query")
+        if "unreconciled_state" in receipt:
+            fail("unreconciled_state must not appear without a reconciliation query")
     elif scenario == "bounded_retry_backoff_audit":
+        # backoff_schedule_within_policy is forbidden unless measured (it is not).
+        if "backoff_schedule_within_policy" in receipt:
+            fail(
+                "backoff_schedule_within_policy must not appear without a measured "
+                "requeue-delay observation"
+            )
         require_exact_bool(receipt, "max_attempts_within_policy", True)
-        require_exact_bool(receipt, "backoff_schedule_within_policy", True)
         require_exact_bool(receipt, "unbounded_retry_growth", False)
+        if not isinstance(receipt.get("observed_task_count"), int) \
+                or isinstance(receipt.get("observed_task_count"), bool) \
+                or receipt["observed_task_count"] < 1:
+            fail("bounded_retry_backoff_audit requires observed_task_count >= 1")
+
+
 def validate(receipt, args):
     scenario = args.scenario
     if scenario not in EXPECTED_SOURCES:
@@ -182,14 +229,21 @@ def validate(receipt, args):
     safety = receipt.get("safety")
     if not isinstance(safety, dict):
         fail("safety must be an object")
-    for field, expected in (
-        ("stripe_test_mode", True),
-        ("stripe_live_mode", False),
-        ("real_value", False),
-        ("approved_participants_only", True),
-        ("secret_values_recorded", False),
-    ):
-        require_exact_bool(safety, field, expected)
+    # Live value movement and live Stripe must never be certified by a canary.
+    require_exact_bool(safety, "stripe_live_mode", False)
+    require_exact_bool(safety, "real_value", False)
+    require_exact_bool(safety, "approved_participants_only", True)
+    require_exact_bool(safety, "secret_values_recorded", False)
+    # stripe_test_mode is derived from observed payment_mode (true only for test).
+    require_bool(safety, "stripe_test_mode")
+    payment_mode = safety.get("payment_mode")
+    if payment_mode not in ("sealed", "test"):
+        fail("safety.payment_mode must be sealed or test (observed from control plane)")
+    if payment_mode == "test" and safety.get("stripe_test_mode") is not True:
+        fail("safety.stripe_test_mode must be true when payment_mode is test")
+    if payment_mode == "sealed" and safety.get("stripe_test_mode") is not False:
+        fail("safety.stripe_test_mode must be false when payment_mode is sealed")
+    require_exact_bool(safety, "live_value_movement", False)
 
     run_started = parse_utc(args.run_started_at, "expected run_started_at")
     scenario_started = parse_utc(
@@ -297,7 +351,6 @@ def main():
         return 1
     print(f"canary-scenario-receipt: PASS {args.scenario} ({len(receipt['evidence'])} observations)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

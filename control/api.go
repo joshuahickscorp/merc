@@ -358,6 +358,8 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	// payment_mode / live_value_movement are always present once the authority
+	// parses so external canary observers can measure safety without inventing it.
 	if s.canary.Enabled && s.canary.configError != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "canary policy is incomplete"})
 		return
@@ -369,35 +371,45 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if !paymentAuthority.OperationallyReady() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"status":       "not_ready",
-			"reason":       "payment authority is outside its operational window",
-			"payment_mode": paymentAuthority.Mode,
-		})
-		return
-	}
-	if err := s.store.Ping(r.Context()); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "database unreachable"})
-		return
-	}
-	now := time.Now()
-	if !workerElectionRecentlyObserved(now) {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "background worker election is not progressing"})
-		return
-	}
-	if stale := liveness.stale(now, workersStarted()); len(stale) > 0 {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "stale_tickers": stale})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":                  "ready",
+	paymentFields := map[string]any{
 		"payment_mode":            paymentAuthority.Mode,
 		"provider_enabled":        paymentAuthority.ProviderEnabled(),
 		"live_value_movement":     paymentAuthority.LiveValueMovementEnabled(),
 		"payment_recovery_active": paymentAuthority.RecoveryActive,
 		"stripe_api_version":      stripeAPIVersion,
-	})
+	}
+	notReady := func(reason string, extra map[string]any) {
+		body := map[string]any{"status": "not_ready", "reason": reason}
+		for k, v := range paymentFields {
+			body[k] = v
+		}
+		for k, v := range extra {
+			body[k] = v
+		}
+		writeJSON(w, http.StatusServiceUnavailable, body)
+	}
+	if !paymentAuthority.OperationallyReady() {
+		notReady("payment authority is outside its operational window", nil)
+		return
+	}
+	if err := s.store.Ping(r.Context()); err != nil {
+		notReady("database unreachable", nil)
+		return
+	}
+	now := time.Now()
+	if !workerElectionRecentlyObserved(now) {
+		notReady("background worker election is not progressing", nil)
+		return
+	}
+	if stale := liveness.stale(now, workersStarted()); len(stale) > 0 {
+		notReady("stale background tickers", map[string]any{"stale_tickers": stale})
+		return
+	}
+	body := map[string]any{"status": "ready"}
+	for k, v := range paymentFields {
+		body[k] = v
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 type jobSubmit struct {
