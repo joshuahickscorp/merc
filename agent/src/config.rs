@@ -6,6 +6,40 @@ use uuid::Uuid;
 
 use crate::hardware::MemorySnapshot;
 
+/// Canonical per-user agent state directory (bench cache, status, install config).
+pub const AGENT_HOME_DIRNAME: &str = ".merc";
+/// Pre-rebrand state directory. Migrated into [`AGENT_HOME_DIRNAME`] when present.
+pub const LEGACY_AGENT_HOME_DIRNAME: &str = ".compute-exchange";
+
+/// Resolve `$HOME/.merc`, migrating `$HOME/.compute-exchange` when the new path
+/// is absent so an upgrade does not drop the bench cache or identity files.
+pub fn agent_home_dir() -> PathBuf {
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() => agent_home_dir_for(Path::new(&home)),
+        _ => PathBuf::from(AGENT_HOME_DIRNAME),
+    }
+}
+
+/// Resolve the agent home under an explicit home directory (also used by tests).
+pub fn agent_home_dir_for(home: &Path) -> PathBuf {
+    let modern = home.join(AGENT_HOME_DIRNAME);
+    let legacy = home.join(LEGACY_AGENT_HOME_DIRNAME);
+    if modern.exists() {
+        return modern;
+    }
+    if legacy.exists() {
+        match std::fs::rename(&legacy, &modern) {
+            Ok(()) => return modern,
+            Err(_) => {
+                // Cross-device or permission failure: keep reading the legacy tree
+                // rather than pretending state is gone.
+                return legacy;
+            }
+        }
+    }
+    modern
+}
+
 fn default_memory_headroom_gb() -> f32 {
     8.0
 }
@@ -502,7 +536,7 @@ mod tests {
             supplier_id = "00000000-0000-0000-0000-000000000000"
             power_only = false
             min_payout_usd_per_hr = 0.0
-            data_dir = "/tmp/cx-agent"
+            data_dir = "/tmp/merc-agent"
         "#;
         let c: AgentConfig = toml::from_str(base).unwrap();
         assert_eq!(c.checkpoint_secs, 30, "omitted -> the 30s default");
@@ -524,7 +558,7 @@ mod tests {
             max_cpu_pct = 90.0
             power_only = false
             min_payout_usd_per_hr = 0.0
-            data_dir = "/tmp/cx-agent"
+            data_dir = "/tmp/merc-agent"
         "#;
         let c: AgentConfig = toml::from_str(base).unwrap();
         assert_eq!(c.inference_backend, "candle");

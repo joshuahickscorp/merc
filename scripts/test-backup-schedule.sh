@@ -9,22 +9,22 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 die() { echo "[test-backup-schedule] ERROR: $*" >&2; exit 1; }
 log() { echo "[test-backup-schedule] $*"; }
 
-[ -f "$ROOT/ops/systemd/cx-backup.service" ] || die "missing ops/systemd/cx-backup.service"
-[ -f "$ROOT/ops/systemd/cx-backup.timer" ] || die "missing ops/systemd/cx-backup.timer"
-grep -q 'scripts/backup.sh' "$ROOT/ops/systemd/cx-backup.service" \
+[ -f "$ROOT/ops/systemd/merc-backup.service" ] || die "missing ops/systemd/merc-backup.service"
+[ -f "$ROOT/ops/systemd/merc-backup.timer" ] || die "missing ops/systemd/merc-backup.timer"
+grep -q 'scripts/backup.sh' "$ROOT/ops/systemd/merc-backup.service" \
   || die "service unit does not invoke scripts/backup.sh"
-grep -q 'OnCalendar=' "$ROOT/ops/systemd/cx-backup.timer" \
+grep -q 'OnCalendar=' "$ROOT/ops/systemd/merc-backup.timer" \
   || die "timer unit missing OnCalendar="
 grep -Eq 'merc_backup_age_seconds|93600' "$ROOT/monitoring/alerts.yml" \
   || die "stale-backup alert threshold missing from monitoring/alerts.yml"
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cx-backup-schedule.XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/merc-backup-schedule.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 STATUS="$WORK/last-successful-offsite-backup.unixtime"
 
 # Minimal dry-run inputs: no docker/aws/offsite required.
 export MERC_BACKUP_STATUS_FILE="$STATUS"
-export MERC_BACKUP_OFFSITE="s3://cx-backup-schedule-test/unused"
+export MERC_BACKUP_OFFSITE="s3://merc-backup-schedule-test/unused"
 export AWS_ACCESS_KEY_ID="test"
 export AWS_SECRET_ACCESS_KEY="test"
 # Prefix-only check in backup.sh; dry-run never encrypts.

@@ -3,14 +3,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/cx-agent-review-gaming.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/merc-agent-review-gaming.XXXXXX")"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
 rsync -a \
   --exclude '.git' \
   --exclude 'agent/target' \
-  --exclude 'control/cx' \
+  --exclude 'control/merc' \
   --exclude '.artifacts' \
   --exclude 'tools' \
   --exclude 'review' \

@@ -89,8 +89,9 @@ external change first:
 - `CX_*` environment variables on the droplet and in GitHub Actions secrets —
   the code already reads `MERC_*`, so code and environment must move together
   (one such gap was found and closed locally: `CX_CONNECT_WEBHOOK_SECRET`);
-- `/opt/computexchange`, `/etc/computexchange`, `/var/lib/computexchange`,
-  `~/.compute-exchange` — real directories on the droplet and supplier machines;
+- `/opt/computexchange`, `/etc/computexchange`, `/var/lib/computexchange` —
+  real directories on the droplet (supplier agent state now uses `~/.merc`,
+  with an in-repo migration from the pre-rebrand home directory);
 - Prometheus `job="computexchange-control"` and the `ComputeExchange*` alert
   names — Alertmanager fingerprints the label set, so the receiver's filters
   must be updated in the same change or pages vanish silently.

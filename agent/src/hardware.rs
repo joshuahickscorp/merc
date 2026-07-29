@@ -25,9 +25,7 @@ fn bench_cache_path() -> PathBuf {
         }
     }
     match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() => PathBuf::from(home)
-            .join(".compute-exchange")
-            .join("bench_cache.json"),
+        Ok(home) if !home.is_empty() => crate::config::agent_home_dir().join("bench_cache.json"),
         _ => PathBuf::from("bench_cache.json"),
     }
 }

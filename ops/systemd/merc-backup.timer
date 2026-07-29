@@ -7,7 +7,7 @@ Documentation=file:docs/RUNBOOKS.md
 OnCalendar=*-*-* 03:15:00
 Persistent=true
 RandomizedDelaySec=900
-Unit=cx-backup.service
+Unit=merc-backup.service
 
 [Install]
 WantedBy=timers.target

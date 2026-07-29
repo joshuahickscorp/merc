@@ -37,13 +37,17 @@ done
 if [ "$SOURCE_PROOF" = 1 ]; then
   [[ "$CANDIDATE" =~ ^sha256:[0-9a-f]{64}$ ]] \
     || die "local source proof image must use an immutable local image ID"
-  MERC_LOCAL_CONTROL_HEALTHCHECK="${MERC_LOCAL_CONTROL_HEALTHCHECK:-/cx-healthcheck}"
+  MERC_LOCAL_CONTROL_HEALTHCHECK="${MERC_LOCAL_CONTROL_HEALTHCHECK:-/merc-healthcheck}"
+  # Newly built images use /merc; retained rollback images still ship /cx.
+  MERC_LOCAL_CONTROL_ENTRYPOINT="${MERC_LOCAL_CONTROL_ENTRYPOINT:-/merc}"
 else
   [[ "$CANDIDATE" =~ @sha256:[0-9a-f]{64}$ ]] \
     || die "candidate image must use an immutable registry digest"
-  # The retained published images predate the dedicated probe. Keep the full
-  # binary fallback narrowly scoped to immutable legacy registry images.
+  # The retained published images predate the dedicated probe and the /merc
+  # entrypoint. Keep the full binary fallback narrowly scoped to immutable
+  # legacy registry images so a rollback to the prior image still works.
   MERC_LOCAL_CONTROL_HEALTHCHECK="${MERC_LOCAL_CONTROL_HEALTHCHECK:-/cx}"
+  MERC_LOCAL_CONTROL_ENTRYPOINT="${MERC_LOCAL_CONTROL_ENTRYPOINT:-/cx}"
 fi
 
 cleanup() {
@@ -66,7 +70,7 @@ trap cleanup EXIT INT TERM
 
 rm -rf "$ART"
 mkdir -p "$ART/tls" "$ART/agent1" "$ART/agent2" \
-  "$ART/home/.compute-exchange/agent1" "$ART/home/.compute-exchange/agent2" "$(dirname "$EVIDENCE")"
+  "$ART/home/.merc/agent1" "$ART/home/.merc/agent2" "$(dirname "$EVIDENCE")"
 chmod 700 "$ART" "$ART/tls"
 
 openssl ecparam -name prime256v1 -genkey -noout -out "$ART/tls/ca.key"
@@ -154,6 +158,7 @@ export MERC_LOCAL_CONTROL_IMAGE="$CANDIDATE"
 export MERC_LOCAL_CONTROL_PLATFORM="${MERC_LOCAL_CONTROL_PLATFORM:-linux/amd64}"
 export MERC_LOCAL_CONTROL_HEALTH_INTERVAL="${MERC_LOCAL_CONTROL_HEALTH_INTERVAL:-5s}"
 export MERC_LOCAL_CONTROL_HEALTHCHECK
+export MERC_LOCAL_CONTROL_ENTRYPOINT
 MERC_LOCAL_POSTGRES_PASSWORD="local-pg-$(openssl rand -hex 24)"
 MERC_LOCAL_MINIO_USER="localminio$(openssl rand -hex 8)"
 MERC_LOCAL_MINIO_PASSWORD="local-minio-$(openssl rand -hex 24)"
@@ -167,6 +172,7 @@ umask 077
   printf 'export MERC_LOCAL_CONTROL_IMAGE=%q\n' "$MERC_LOCAL_CONTROL_IMAGE"
   printf 'export MERC_LOCAL_CONTROL_PLATFORM=%q\n' "$MERC_LOCAL_CONTROL_PLATFORM"
   printf 'export MERC_LOCAL_CONTROL_HEALTHCHECK=%q\n' "$MERC_LOCAL_CONTROL_HEALTHCHECK"
+  printf 'export MERC_LOCAL_CONTROL_ENTRYPOINT=%q\n' "$MERC_LOCAL_CONTROL_ENTRYPOINT"
   printf 'export MERC_LOCAL_CONTROL_HEALTH_INTERVAL=%q\n' "$MERC_LOCAL_CONTROL_HEALTH_INTERVAL"
   printf 'export MERC_LOCAL_POSTGRES_PASSWORD=%q\n' "$MERC_LOCAL_POSTGRES_PASSWORD"
   printf 'export MERC_LOCAL_MINIO_USER=%q\n' "$MERC_LOCAL_MINIO_USER"
@@ -209,7 +215,7 @@ for service in postgres minio control caddy prometheus alertmanager backup-worke
     sleep 2
   done
 done
-docker exec "$(compose ps -q control)" /cx seed >/dev/null
+docker exec "$(compose ps -q control)" "${MERC_LOCAL_CONTROL_ENTRYPOINT:-/merc}" seed >/dev/null
 
 STAGE="TLS and HTTP assertions"
 CURL=(curl --noproxy '*' --silent --show-error --fail-with-body --cacert "$ART/tls/ca.crt" \
@@ -250,18 +256,18 @@ status="$("${CURL[@]}" --output /dev/null --write-out '%{http_code}' \
 STAGE="agent build and registration"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/.artifacts/local-production-cargo-target}"
 cargo build --release --manifest-path "$ROOT/agent/Cargo.toml" >/dev/null
-AGENT_BIN="$CARGO_TARGET_DIR/release/cx-agent"
+AGENT_BIN="$CARGO_TARGET_DIR/release/merc-agent"
 for n in 1 2; do
   printf 'control_url = "https://cx.localhost:18443"\nworker_token = "dev-worker-token-000%s"\n' "$n" > "$ART/agent$n/config.toml"
   printf 'supplier_id = "00000000-0000-0000-0000-0000000000a%s"\n' "$n" >> "$ART/agent$n/config.toml"
   printf 'power_only = false\nmin_payout_usd_per_hr = 0.0\n' >> "$ART/agent$n/config.toml"
-  printf 'memory_headroom_gb = 0.0\nmax_memory_pct = 0.0\ndata_dir = "%s/home/.compute-exchange/agent%s"\n' "$ART" "$n" >> "$ART/agent$n/config.toml"
+  printf 'memory_headroom_gb = 0.0\nmax_memory_pct = 0.0\ndata_dir = "%s/home/.merc/agent%s"\n' "$ART" "$n" >> "$ART/agent$n/config.toml"
 done
 start_agent() {
   n="$1"
   HOME="$ART/home" MERC_MODEL_CACHE="$MODEL_CACHE" \
     MERC_TLS_CA_FILE="$ART/tls/ca.crt" MERC_REQUIRE_SANDBOX=1 \
-    MERC_SANDBOX_PROFILE="$ROOT/macapp/MercAgent/cx-agent.sb" \
+    MERC_SANDBOX_PROFILE="$ROOT/macapp/ComputeExchangeAgent/merc-agent.sb" \
     "$AGENT_BIN" run --config "$ART/agent$n/config.toml" > "$ART/agent$n.log" 2>&1 &
   STARTED_AGENT_PID=$!
 }

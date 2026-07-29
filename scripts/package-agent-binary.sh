@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Package a built cx-agent into a versioned tarball + checksum fragment.
-# Usage: package-agent-binary.sh <os> <arch> <path-to-cx-agent>
+# Package a built merc-agent into a versioned tarball + checksum fragment.
+# Usage: package-agent-binary.sh <os> <arch> <path-to-merc-agent>
 set -euo pipefail
 
 OS="${1:?os required (darwin|linux)}"
@@ -16,21 +16,21 @@ if [[ -z "$VERSION" ]]; then
 fi
 COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 OUT="${MERC_AGENT_OUT:-$ROOT/.artifacts/agent-release}"
-NAME="cx-agent_${VERSION}_${OS}_${ARCH}"
+NAME="merc-agent_${VERSION}_${OS}_${ARCH}"
 
 mkdir -p "$OUT"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cx-agent-pkg.XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/merc-agent-pkg.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 STAGE="$WORK/$NAME"
 mkdir -p "$STAGE"
-install -m 0755 "$BIN_SRC" "$STAGE/cx-agent"
+install -m 0755 "$BIN_SRC" "$STAGE/merc-agent"
 cat >"$STAGE/README.txt" <<EOF
-cx-agent ${VERSION}
+merc-agent ${VERSION}
 commit ${COMMIT}
 target ${OS}/${ARCH}
 
-Install with scripts/install.sh (preferred) or copy cx-agent onto PATH.
+Install with scripts/install.sh (preferred) or copy merc-agent onto PATH.
 
 Linux/amd64 builds are CPU Candle only. control still rejects non-Apple
 hw_class values for worker registration; installing this binary does not
@@ -54,7 +54,7 @@ python3 -c "
 import json
 print(json.dumps({
   'schema_version': 1,
-  'component': 'cx-agent',
+  'component': 'merc-agent',
   'version': '''${VERSION}''',
   'commit': '''${COMMIT}''',
   'artifacts': [{

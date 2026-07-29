@@ -143,7 +143,7 @@ services:
       # visible through Docker inspection.
       - ${STRIPE_SECRET_KEY_SOURCE:-/dev/null}:/run/secrets/merc-stripe-secret-key:ro
     healthcheck:
-      test: [CMD, /cx-healthcheck]
+      test: [CMD, /merc-healthcheck]
       interval: 10s
       timeout: 4s
       retries: 5

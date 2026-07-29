@@ -181,7 +181,7 @@ this backup is NOT safe (single host). Investigate creds/endpoint/network."
 fi
 aws "${AWS_ARGS[@]}" s3 ls "$DEST/backup.tar.age" >/dev/null \
   || die "post-upload verify failed: encrypted bundle not visible at $DEST."
-VERIFY="$(mktemp -d "${TMPDIR:-/tmp}/cx-backup-verify.XXXXXX")"
+VERIFY="$(mktemp -d "${TMPDIR:-/tmp}/merc-backup-verify.XXXXXX")"
 trap 'rm -rf "$VERIFY"' EXIT
 aws "${AWS_ARGS[@]}" s3 cp --only-show-errors "$DEST/backup.tar.age" "$VERIFY/backup.tar.age" \
   || die "independent post-upload download failed"

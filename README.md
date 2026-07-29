@@ -6,7 +6,7 @@ currently proven production candidate remains intentionally narrow:
 - workloads: `embed` and `batch_infer`
 - models: `all-minilm-l6-v2` and `llama-3.2-1b-instruct-q4`
 - execution: Candle on Metal
-- programs: one Go `cx` control command and one Rust `cx-agent`
+- programs: one Go `merc` control command and one Rust `merc-agent`
 
 The Go control plane owns admission, quotes, job lifecycle, verification,
 settlement, and the PostgreSQL task queue. The Rust agent claims tasks, fetches

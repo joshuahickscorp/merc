@@ -8,7 +8,7 @@ for command_name in age age-keygen tar; do
   }
 done
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cx-backup-envelope.XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/merc-backup-envelope.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 mkdir -p "$WORK/payload/database" "$WORK/payload/objects"

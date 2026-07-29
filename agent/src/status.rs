@@ -386,9 +386,7 @@ fn status_path() -> PathBuf {
         }
     }
     match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() => PathBuf::from(home)
-            .join(".compute-exchange")
-            .join("status.json"),
+        Ok(home) if !home.is_empty() => crate::config::agent_home_dir().join("status.json"),
         _ => PathBuf::from("status.json"),
     }
 }

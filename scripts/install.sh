@@ -12,11 +12,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX="${MERC_PREFIX:-$HOME/.local/bin}"
-BIN="$PREFIX/cx-agent"
-HOMEDIR="$HOME/.compute-exchange"
+BIN="$PREFIX/merc-agent"
+LEGACY_BIN="$PREFIX/cx-agent"
+HOMEDIR="$HOME/.merc"
+LEGACY_HOMEDIR="$HOME/.compute-exchange"
 CONFIG="$HOMEDIR/agent.toml"
-PLIST="$HOME/Library/LaunchAgents/dev.computeexchange.agent.plist"
-LABEL="dev.computeexchange.agent"
+PLIST="$HOME/Library/LaunchAgents/dev.merc.agent.plist"
+LEGACY_PLIST="$HOME/Library/LaunchAgents/dev.computeexchange.agent.plist"
+LABEL="dev.merc.agent"
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH_RAW="$(uname -m)"
 case "$ARCH_RAW" in
@@ -105,13 +108,13 @@ verify_signature() {
 }
 
 fetch_prebuilt() {
-  local work archive name sums_url archive_url expected actual
-  work="$(mktemp -d "${TMPDIR:-/tmp}/cx-agent-install.XXXXXX")"
+  local work name sums_url archive_url expected actual
+  work="$(mktemp -d "${TMPDIR:-/tmp}/merc-agent-install.XXXXXX")"
   # shellcheck disable=SC2064
   trap "rm -rf '$work'" RETURN
 
   if [[ -n "$VERSION" ]]; then
-    name="cx-agent_${VERSION}_${OS}_${ARCH}.tar.gz"
+    name="merc-agent_${VERSION}_${OS}_${ARCH}.tar.gz"
     if [[ "$BASE_URL" == *"/latest/download" ]]; then
       archive_url="https://github.com/${REPO}/releases/download/agent-${VERSION}/${name}"
       sums_url="https://github.com/${REPO}/releases/download/agent-${VERSION}/SHA256SUMS"
@@ -128,7 +131,7 @@ fetch_prebuilt() {
       tag="$(printf '%s' "$api" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name",""))')"
       [[ "$tag" == agent-* ]] || die "latest release tag is not an agent release (got ${tag:-empty})"
       VERSION="${tag#agent-}"
-      name="cx-agent_${VERSION}_${OS}_${ARCH}.tar.gz"
+      name="merc-agent_${VERSION}_${OS}_${ARCH}.tar.gz"
       archive_url="https://github.com/${REPO}/releases/download/${tag}/${name}"
       sums_url="https://github.com/${REPO}/releases/download/${tag}/SHA256SUMS"
     else
@@ -163,11 +166,16 @@ fetch_prebuilt() {
 
   tar -C "$work" -xzf "$work/$name"
   local extracted
-  extracted="$(find "$work" -type f -name cx-agent | head -n 1)"
-  [[ -x "$extracted" ]] || die "archive did not contain an executable cx-agent"
+  extracted="$(find "$work" -type f \( -name merc-agent -o -name cx-agent \) | head -n 1)"
+  [[ -x "$extracted" ]] || die "archive did not contain an executable merc-agent"
   mkdir -p "$PREFIX"
   install -m 0755 "$extracted" "$BIN"
-  say "installed $BIN ($("$BIN" version 2>/dev/null || echo cx-agent))"
+  # Drop the pre-rebrand binary name so PATH does not keep serving the old one.
+  if [[ -e "$LEGACY_BIN" && "$LEGACY_BIN" != "$BIN" ]]; then
+    rm -f "$LEGACY_BIN"
+    say "removed legacy binary $LEGACY_BIN"
+  fi
+  say "installed $BIN ($("$BIN" version 2>/dev/null || echo merc-agent))"
 }
 
 build_from_source() {
@@ -178,18 +186,42 @@ build_from_source() {
     features=(--no-default-features)
   fi
   ( cd "$ROOT/agent" && cargo build --release "${features[@]}" ) || die "agent build failed"
-  local src="$ROOT/agent/target/release/cx-agent"
+  local src="$ROOT/agent/target/release/merc-agent"
   [[ -x "$src" ]] || die "built binary not found at $src"
   mkdir -p "$PREFIX"
   install -m 0755 "$src" "$BIN"
-  say "installed $BIN ($("$BIN" version 2>/dev/null || echo cx-agent))"
+  if [[ -e "$LEGACY_BIN" && "$LEGACY_BIN" != "$BIN" ]]; then
+    rm -f "$LEGACY_BIN"
+    say "removed legacy binary $LEGACY_BIN"
+  fi
+  say "installed $BIN ($("$BIN" version 2>/dev/null || echo merc-agent))"
+}
+
+migrate_legacy_state() {
+  # Preserve bench cache, identity, config, and logs from a pre-rebrand install.
+  if [[ -d "$HOMEDIR" ]]; then
+    return 0
+  fi
+  if [[ -d "$LEGACY_HOMEDIR" ]]; then
+    say "migrating agent state $LEGACY_HOMEDIR -> $HOMEDIR"
+    mv "$LEGACY_HOMEDIR" "$HOMEDIR" || die "could not migrate $LEGACY_HOMEDIR to $HOMEDIR"
+  fi
 }
 
 write_config() {
+  migrate_legacy_state
   mkdir -p "$HOMEDIR"
   if [[ -f "$CONFIG" ]]; then
     say "keeping existing config $CONFIG"
     return
+  fi
+  # Config may still live under the legacy path if migrate could not run earlier.
+  if [[ -f "$LEGACY_HOMEDIR/agent.toml" ]]; then
+    migrate_legacy_state
+    if [[ -f "$CONFIG" ]]; then
+      say "keeping migrated config $CONFIG"
+      return
+    fi
   fi
   umask 077
   cat >"$CONFIG" <<TOML
@@ -206,6 +238,12 @@ TOML
 }
 
 install_darwin_launchagent() {
+  # Stop the pre-rebrand label so we do not leave two KeepAlive agents racing.
+  if [[ -f "$LEGACY_PLIST" ]]; then
+    launchctl unload "$LEGACY_PLIST" 2>/dev/null || true
+    rm -f "$LEGACY_PLIST"
+    say "removed legacy LaunchAgent $LEGACY_PLIST"
+  fi
   cat >"$PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -246,8 +284,14 @@ if [[ "$MODE" == "check" ]]; then
   fi
   say "  would install binary to: $BIN"
   say "  would write starter config: $CONFIG (if missing)"
+  if [[ -d "$LEGACY_HOMEDIR" && ! -d "$HOMEDIR" ]]; then
+    say "  would migrate legacy state: $LEGACY_HOMEDIR -> $HOMEDIR"
+  fi
   if [[ "$OS" == "darwin" ]]; then
     say "  would install LaunchAgent: $PLIST"
+    if [[ -f "$LEGACY_PLIST" ]]; then
+      say "  would remove legacy LaunchAgent: $LEGACY_PLIST"
+    fi
   fi
   say "Run without --check to perform the install; --uninstall to remove it."
   exit 0

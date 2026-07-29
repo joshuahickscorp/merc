@@ -158,7 +158,7 @@ def cap_local_runtime():
     """A real merc worker on locally supported hardware.
 
     merc's original supply is Apple Silicon running candle on Metal, and this is
-    a real runtime by every definition the goal uses -- the shipped cx-agent
+    a real runtime by every definition the goal uses -- the shipped merc-agent
     binary executing a catalogue model and committing a verified result. It is
     not a substitute for CUDA supply, but a lane served by it has genuinely met
     the buyer-request-to-receipt chain, and reporting it as blocked would
@@ -167,11 +167,11 @@ def cap_local_runtime():
     import platform
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         return False, "not an Apple Silicon host"
-    agent = os.path.join(REPO, "agent", "target", "release", "cx-agent")
+    agent = os.path.join(REPO, "agent", "target", "release", "merc-agent")
     if not os.path.exists(agent):
-        return False, "cx-agent is not built (cargo build --release --features metal)"
+        return False, "merc-agent is not built (cargo build --release --features metal)"
     if not os.environ.get("MERC_LOCAL_WORKER_RUNNING", ""):
-        return False, ("a local worker is not running; start cx-agent against the control "
+        return False, ("a local worker is not running; start merc-agent against the control "
                        "plane and set MERC_LOCAL_WORKER_RUNNING=1")
     return True, "local Apple Silicon worker (candle/Metal) available"
 

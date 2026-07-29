@@ -67,6 +67,26 @@ FROZEN_PATHS = (
     ("ops/go-closure-inputs.json", "recorded receipt: absolute paths as they were"),
     (".github/workflows/publish-candidate.yml",
      "sigstore certificate identity records this exact path"),
+    # Process-rename cutover: these surfaces deliberately retain pre-rebrand
+    # binary/label/state-dir names so already-installed agents can be removed
+    # and so state migrates instead of being dropped.
+    ("scripts/uninstall.sh",
+     "retains pre-rebrand binary/label/state names so already-installed agents can be removed"),
+    ("scripts/install.sh",
+     "migrates and retires pre-rebrand binary/label/state names on upgrade"),
+    ("scripts/test-agent-uninstall-legacy.sh",
+     "proves uninstall still handles pre-rebrand names"),
+    ("agent/src/config.rs",
+     "LEGACY_AGENT_HOME_DIRNAME and migration from the pre-rebrand state dir"),
+    ("agent/src/main.rs",
+     "migration unit test and comments for the pre-rebrand state dir"),
+    ("docs/RUNBOOKS.md",
+     "operator cutover notes must name the pre-rebrand systemd units to disable"),
+    ("ops/systemd/",
+     "unit comments name the pre-rebrand units operators must disable first"),
+    ("ops/local/compose.rehearsal.yml",
+     "healthcheck default targets the retained pre-rebrand image; every caller "
+     "overrides it per image (/merc-healthcheck for current, /cx for legacy)"),
 )
 
 FROZEN_TOKENS = {
@@ -99,13 +119,13 @@ FROZEN_TOKEN_PREFIXES = {
 
 # --------------------------------------------------------------- BLOCKED rules
 # token-prefix -> external prerequisite.
+# Process names renamed in the process-rename cutover (cx-agent, cx-backup,
+# cx-healthcheck, dev.computeexchange.agent, ~/.compute-exchange) are NO LONGER
+# blocked: a reappearance outside a frozen compatibility surface is residue.
 BLOCKED_TOKENS = {
     "CX_": "droplet .env, GitHub Actions secrets and systemd units supply these; "
            "CX_TOKEN_KEY must be copied byte-identically or every sealed secret "
            "in Postgres becomes undecryptable",
-    "cx-agent": "binary name in Dockerfile.control, CI SHA256SUMS, .gitignore, "
-                ".dockerignore and the rollback image entrypoint",
-    "cx-backup": "systemd unit installed under this name; disable the old timer first",
     "cx-control": "published image tag",
     "cx-jobs": "object storage bucket name in a running deployment",
 }
@@ -119,10 +139,7 @@ BLOCKED_SUBSTRINGS = {
     "/opt/computexchange": "real directory on the droplet",
     "/etc/computexchange": "real directory on the droplet",
     "/var/lib/computexchange": "real directory on the droplet",
-    "~/.compute-exchange": "real directory on supplier machines",
-    ".compute-exchange": "real directory on supplier machines",
     "computexchange.net": "live production domain",
-    "dev.computeexchange.agent": "launchd label on already-installed agents",
     "macapp/ComputeExchangeAgent": "real directory with 8 consumers incl. a live claim gate",
     "computexchange/control": "published image tag",
     "computeexchange/control": "former Go module path in recorded output",
@@ -153,8 +170,6 @@ BLOCKED_SUBSTRINGS = {
     "computexchange-render-lab": "external asset pack name; the comment must keep matching it",
     "computexchange-benchmarks": "external asset pack name; the comment must keep matching it",
     "/var/lib/computeexchange": "real directory on supplier machines (two-e spelling)",
-    "cx-healthcheck": "static binary baked into the published image and named in "
-                      "the compose healthcheck; must move with the image",
     "/run/cx-health": "bind-mount path in a running deployment",
     "cx-metal": "generated asset filename; the ignore pattern must keep matching "
                 "what the builders emit",
@@ -206,6 +221,9 @@ SKIP_SUFFIXES = (".png", ".jpg", ".jpeg", ".glb", ".blend", ".zip", ".gz",
 def main() -> int:
     files = subprocess.run(["git", "ls-files"], capture_output=True, text=True,
                            check=True).stdout.split("\n")
+    # Also consider newly-added tracked-intent paths that exist on disk but are
+    # not yet in the index (e.g. git mv mid-edit in a worktree).
+    # Still scope to repo-relative paths under the working tree.
     counts = {"FROZEN": 0, "BLOCKED": 0, "RESIDUE": 0}
     residue = []
     blocked_reasons = {}
@@ -257,7 +275,6 @@ def main() -> int:
             print(f"  ... and {len(residue) - 25} more (see ops/rename-residue.json)")
         return 1
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

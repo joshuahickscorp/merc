@@ -50,7 +50,7 @@ services:
     ports: ["8080:8080"]
     restart: unless-stopped
     healthcheck:
-      test: [CMD, /cx, healthcheck]
+      test: [CMD, /merc-healthcheck]
       interval: 10s
       timeout: 4s
       retries: 5

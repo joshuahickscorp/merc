@@ -64,7 +64,7 @@ case "${1:-help}" in
     "${C[@]}" exec -e PGPASSWORD="$PW" postgres psql -U cx -d cx
     ;;
   env)       "${EDITOR:-nano}" .env && echo "now run: cx reload" ;;
-  backup)    cx-backup && echo "backup written to backups/" ;;
+  backup)    bash scripts/backup.sh && echo "backup written to backups/" ;;
   health)    curl -s -o /dev/null -w "control HTTP %{http_code} (404=up)\n" http://127.0.0.1:8080/ ;;
   *)
     cat <<'EOF'
