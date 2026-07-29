@@ -560,10 +560,66 @@ func (p *VerificationProcessor) taskPayoutEntriesAt(ctx context.Context, info *C
 	if err := RequireSettlementCurrency(j.Currency); err != nil {
 		return nil, fmt.Errorf("job %s cannot settle under this deployment: %w", info.JobID, err)
 	}
+	settled, err := p.store.observedOutputSettlementForTask(ctx, info, buyerCharge, supplierPayout)
+	if err != nil {
+		return nil, err
+	}
 	var policy VerificationPolicy
 	_ = json.Unmarshal(j.VerificationPolicy, &policy)
 	return splitFrozenCharge(j.BuyerID, info.SupplierID, info.TaskID,
-		j.Currency, buyerCharge, supplierPayout, policy.PayoutHoldSecs, at), nil
+		j.Currency, settled.BilledCharge, settled.SupplierPayout, policy.PayoutHoldSecs, at), nil
+}
+
+// observedOutputSettlementForTask loads frozen compute-plan authority and
+// applies settleObservedOutputTokens. Missing plan or non-generative work
+// returns the freeze unchanged (invariant 6/7).
+func (s *Store) observedOutputSettlementForTask(
+	ctx context.Context,
+	info *CommitTaskInfo,
+	frozenCharge, frozenPayout float64,
+) (observedOutputSettlement, error) {
+	// Default: settle the freeze exactly.
+	out := observedOutputSettlement{
+		BilledCharge:   frozenCharge,
+		SupplierPayout: frozenPayout,
+	}
+	if info == nil {
+		return out, nil
+	}
+	plan, err := s.JobComputePlan(ctx, info.JobID)
+	if err != nil {
+		return out, err
+	}
+	if plan == nil {
+		// Legacy job without a compute plan: no silent zeroing.
+		return out, nil
+	}
+	// reported_tokens_used is fenced on the task before settlement applies.
+	// CommitTaskInfo carries the same observation the fence checked.
+	hasReported := true
+	reported := int64(info.TokensUsed)
+	// Prefer the durable column when available so a re-plan without a fresh
+	// commit still settles from the fenced observation (and so NULL settles
+	// at the freeze per invariant 7).
+	var durable *int64
+	if err := s.pool.QueryRow(ctx,
+		`SELECT reported_tokens_used FROM tasks WHERE id=$1`, info.TaskID,
+	).Scan(&durable); err != nil {
+		return out, err
+	}
+	if durable == nil {
+		hasReported = false
+		reported = 0
+	} else {
+		reported = *durable
+		hasReported = true
+	}
+	return settleObservedOutputTokens(
+		frozenCharge, frozenPayout,
+		plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
+		info.ExpectedOutputRecords, info.jobMaxTokens,
+		reported, hasReported,
+	), nil
 }
 
 func (p *VerificationProcessor) lockChunk(ctx context.Context, jobID uuid.UUID, chunkIndex int) (func(), error) {
