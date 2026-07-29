@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "kind": "runpod_pod_scheduling_diagnosis",
+  "recorded_at": "2026-07-29T01:53:04.710129+00:00",
+  "authority": "OPERATOR_ACCOUNT_BLOCKED_NOT_MERC_DEFECT",
+  "summary": "Pods allocate and bill but never acquire a runtime, across every combination tried. Merc code is not implicated: no Merc component runs before a pod reaches a runtime.",
+  "account": {
+    "client_balance_usd_before": 17.1154584262,
+    "client_balance_usd_after": 17.0869980669,
+    "spend_usd": 0.0285,
+    "current_spend_per_hr": 0,
+    "spend_limit": 80,
+    "min_balance": 0,
+    "machine_quota": 0
+  },
+  "attempts": [
+    {
+      "pod": "56bbql1zb391wc",
+      "gpu": "NVIDIA RTX A4000",
+      "cloud": "COMMUNITY",
+      "api": "rest",
+      "image": "nvidia/cuda:12.4.1-base-ubuntu22.04",
+      "desired_status": "RUNNING",
+      "runtime": null,
+      "waited_seconds": 585,
+      "outcome": "never started",
+      "cost_per_hr": 0.17,
+      "torn_down": true
+    },
+    {
+      "pod": "oljnclfjewy5m6",
+      "gpu": "NVIDIA RTX A4000|A5000|A40",
+      "cloud": "SECURE",
+      "api": "rest",
+      "image": "nvidia/cuda:12.4.1-base-ubuntu22.04",
+      "desired_status": "RUNNING",
+      "runtime": null,
+      "waited_seconds": 180,
+      "outcome": "never started",
+      "cost_per_hr": 0.27,
+      "torn_down": true
+    }
+  ],
+  "prior_attempts_reference": "evidence/runpod/startup-diagnosis.json",
+  "variables_eliminated": {
+    "gpu_type": [
+      "A100 80GB PCIe (prior)",
+      "RTX A4000",
+      "RTX A5000",
+      "A40"
+    ],
+    "cloud_type": [
+      "ALL (prior)",
+      "COMMUNITY",
+      "SECURE"
+    ],
+    "api": [
+      "graphql (prior)",
+      "rest"
+    ],
+    "image": [
+      "vllm/vllm-openai:v0.6.3.post1 (prior)",
+      "nvidia/cuda:12.4.1-base-ubuntu22.04"
+    ]
+  },
+  "important_api_note": "desiredStatus reports what was requested, not what happened. It reads RUNNING for a pod that never started. runtime.uptimeInSeconds being null is the fact; desiredStatus is the intent.",
+  "teardown_verified": {
+    "pods_listed_after": 0,
+    "current_spend_per_hr_after": 0
+  },
+  "blocks": [
+    "runpod_vllm",
+    "multi_gpu",
+    "external CUDA execution",
+    "an approved worker independent of the local Mac"
+  ],
+  "external_action_required": "RunPod account cannot schedule pods. Balance, spend limit and minimum balance are all satisfied, so this needs RunPod support or account verification. machine_quota reads 0 and is worth asking them about."
+}
