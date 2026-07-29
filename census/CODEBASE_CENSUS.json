@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "3195a7a457ce9ccddeff2eb7bfc02552446b34c5770c8e755a371fca1906e523",
+  "authority_sha256": "bfa166bcce9c156198eee97eeb786d0000abb4a47570bf06e358024b5fd30cd9",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -47,7 +47,7 @@
     "agent/src/quantized_llama_batched.rs": 1316,
     "agent/src/runtime_authority.rs": 138,
     "agent/src/status.rs": 468,
-    "agent/src/tls.rs": 39,
+    "agent/src/tls.rs": 42,
     "agent/src/types.rs": 311,
     "agent/src/vllm.rs": 601,
     "agent/test_float_precision.toml": 17,
@@ -139,7 +139,7 @@
     "control/job_object_retention_test.go": 206,
     "control/job_submit_validate.go": 156,
     "control/job_submit_validate_test.go": 81,
-    "control/job_task_money_integration_test.go": 1402,
+    "control/job_task_money_integration_test.go": 1684,
     "control/latency_watchdog.go": 110,
     "control/ledger_write.go": 453,
     "control/ledger_write_property_test.go": 125,
@@ -601,11 +601,11 @@
     },
     "go": {
       "files": 227,
-      "loc": 69482,
-      "code": 61723,
-      "blank": 4309,
+      "loc": 69764,
+      "code": 61991,
+      "blank": 4323,
       "comment": 3450,
-      "bytes": 2510641
+      "bytes": 2522871
     },
     "javascript": {
       "files": 8,
@@ -649,11 +649,11 @@
     },
     "rust": {
       "files": 16,
-      "loc": 10760,
-      "code": 9770,
-      "blank": 839,
+      "loc": 10763,
+      "code": 9772,
+      "blank": 840,
       "comment": 151,
-      "bytes": 370098
+      "bytes": 370207
     },
     "shell": {
       "files": 70,
@@ -715,11 +715,11 @@
   "owned_by_subsystem": {
     "agent": {
       "files": 23,
-      "loc": 15042,
-      "code": 13602,
-      "blank": 1276,
+      "loc": 15045,
+      "code": 13604,
+      "blank": 1277,
       "comment": 164,
-      "bytes": 485066
+      "bytes": 485175
     },
     "contract": {
       "files": 3,
@@ -731,11 +731,11 @@
     },
     "control": {
       "files": 162,
-      "loc": 48185,
-      "code": 42343,
-      "blank": 3036,
+      "loc": 48467,
+      "code": 42611,
+      "blank": 3050,
       "comment": 2806,
-      "bytes": 1757850
+      "bytes": 1770080
     },
     "documentation": {
       "files": 39,
@@ -803,9 +803,9 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 132713,
-    "non_design_production_core_loc": 95543,
-    "test_loc": 23876,
+    "global_owned_loc": 132998,
+    "non_design_production_core_loc": 95546,
+    "test_loc": 24158,
     "documentation_loc": 6625,
     "python_loc": 9388,
     "generated_loc": 5118,
@@ -830,7 +830,7 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10069696,
+  "tracked_bytes": 10082035,
   "tracked_files": 566,
   "untracked_files": 0,
   "walked_files": 566
