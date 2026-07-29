@@ -556,7 +556,7 @@ func (s *Store) HistoricalP90DurationMs(ctx context.Context, jobType, modelRef s
 		        COALESCE(percentile_disc(0.9) WITHIN GROUP (ORDER BY duration_ms), 0)
 		   FROM task_durations
 		  WHERE job_type = $1
-		    AND ($2 = '' OR model_ref = $2)
+		    AND COALESCE(model_ref,'') = $2
 		    AND created_at > now() - make_interval(secs => $3)`,
 		jobType, modelRef, int(driftWindow.Seconds()),
 	).Scan(&samples, &p90ms)
@@ -662,8 +662,8 @@ func (s *Store) DriftRollup(ctx context.Context) ([]DriftRow, error) {
 		   FROM task_durations td
 		   LEFT JOIN jobs j ON j.id = td.job_id
 		  WHERE td.created_at > now() - make_interval(secs => $1)
-		  GROUP BY td.job_type, td.model_ref
-		  ORDER BY COUNT(*) DESC, td.job_type, td.model_ref`,
+		  GROUP BY td.job_type, COALESCE(td.model_ref,'')
+		  ORDER BY COUNT(*) DESC, td.job_type, COALESCE(td.model_ref,'')`,
 		int(driftWindow.Seconds()))
 	if err != nil {
 		return nil, err

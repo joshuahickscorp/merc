@@ -1505,6 +1505,8 @@ CREATE TABLE IF NOT EXISTS task_durations (
     worker_id UUID, engine TEXT, build_hash TEXT, task_id UUID
 );
 CREATE INDEX IF NOT EXISTS task_durations_type_model_idx ON task_durations (job_type, model_ref);
+CREATE INDEX IF NOT EXISTS task_durations_scope_idx
+    ON task_durations (job_type, (COALESCE(model_ref,'')), created_at DESC);
 
 CREATE TABLE IF NOT EXISTS job_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
