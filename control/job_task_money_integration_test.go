@@ -893,8 +893,12 @@ func TestSubmitJobTxBoundQuoteComputeMismatchFailsClosed(t *testing.T) {
 		t.Fatalf("seed mismatched quote compute authority: %v", err)
 	}
 
+	// Assert the exact refusal, not merely "bound quote": the currency and
+	// placement checks a few lines further down produce errors containing that
+	// same phrase, so a loose assertion passes even when the compute-authority
+	// check has been removed entirely. Mutation testing caught exactly that.
 	err := store.SubmitJobTx(ctx, job, tasks)
-	if err == nil || !strings.Contains(err.Error(), "bound quote") {
+	if err == nil || !strings.Contains(err.Error(), "job compute plan does not match its bound quote") {
 		t.Fatalf("bound quote compute mismatch accepted: %v", err)
 	}
 	if countJobRows(t, ctx, pool, f.JobID) != 0 {

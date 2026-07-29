@@ -23,7 +23,8 @@
     "decode_tokens_per_sec_median": 81.29,
     "samples": 3
   },
-  "canary_lane_runpod_vllm": "CANARY_PROVEN",
+  "canary_lane_runpod_vllm": "REAL_RUNTIME_PROVEN",
   "metal_comparison_note": "Metal measured 142 tok/s but on Qwen2.5-3B-Instruct-Q4_K_M, a different model and quantization from the CUDA 1.5B run. These numbers are NOT comparable and no Metal-vs-CUDA claim is made from them. A like-for-like comparison needs the same model and quality tier on both.",
-  "cost_usd_this_cycle": 0.46
+  "cost_usd_this_cycle": 0.46,
+  "classification_correction": "Downgraded from CANARY_PROVEN. This records a real CUDA vLLM run, but carries no Merc settlement chain: no quote, no task claim, no ledger entry, no candidate-bound receipt. By the vocabulary in evidence/canary/private-canary.json it is REAL_RUNTIME_PROVEN, and that file independently reports 0 candidate-bound lanes. The inference was real; the canary claim was not."
 }

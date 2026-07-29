@@ -5,7 +5,7 @@
   "capabilities": {
     "local_runtime": {
       "present": false,
-      "detail": "a local worker is not running; start cx-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1"
+      "detail": "a local worker is not running; start merc-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1"
     },
     "real_inference_runtime": {
       "present": false,
@@ -41,7 +41,7 @@
         "object_store",
         "local_runtime"
       ],
-      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start cx-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
+      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start merc-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
       "note": "proven end to end against a real Apple Silicon worker (evidence/canary/real-runtime-embed.json)",
       "retained_evidence": {
         "status": "REAL_RUNTIME_PROVEN",
@@ -60,7 +60,7 @@
         "object_store",
         "local_runtime"
       ],
-      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start cx-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
+      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start merc-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
       "note": "real 384-dim embeddings computed on Metal, honeypot-verified, settled",
       "retained_evidence": {
         "status": "REAL_RUNTIME_PROVEN",
@@ -230,7 +230,7 @@
         "object_store",
         "local_runtime"
       ],
-      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start cx-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
+      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start merc-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
       "note": "submits a real job to a running merc, waits for a real worker, fetches and validates the real 384-dim result"
     },
     {
@@ -241,7 +241,7 @@
         "object_store",
         "local_runtime"
       ],
-      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start cx-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
+      "reason": "MERC_TEST_DATABASE_URL is not set; S3_ENDPOINT is not set; a local worker is not running; start merc-agent against the control plane and set MERC_LOCAL_WORKER_RUNNING=1",
       "note": "same end-to-end run; found three defects the stub tests could not (missing Idempotency-Key, array input, wrong cancel route)"
     },
     {
