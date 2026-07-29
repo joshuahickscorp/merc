@@ -58,6 +58,23 @@ fn start_ack_disposition(
     }
 }
 
+enum CommitAckDisposition {
+    Done,
+    Report(RunError),
+}
+
+fn commit_ack_disposition(
+    result: std::result::Result<(), protocol::ProtocolError>,
+) -> CommitAckDisposition {
+    match result {
+        Ok(()) => CommitAckDisposition::Done,
+        Err(error) => CommitAckDisposition::Report(RunError::Inference {
+            backend: "control_plane",
+            msg: format!("commit_task failed after bounded retries: {error}"),
+        }),
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn sandbox_required_value(value: Option<&str>) -> bool {
     value.is_some_and(|value| {
@@ -2338,14 +2355,20 @@ async fn poll_and_spawn(
                     .run("result commit", ctx.client.commit_task(task_id, &commit))
                     .await
                 {
-                    Ok(Ok(())) => {
-                        tracing::info!(task = %task_id, "committed result");
-                        ctx.status.job_finished(task_id, None);
-                    }
-                    Ok(Err(e)) => {
-                        tracing::error!(task = %task_id, error = %e, "commit_task failed");
-                        ctx.status.job_finished(task_id, None);
-                    }
+                    Ok(result) => match commit_ack_disposition(result) {
+                        CommitAckDisposition::Done => {
+                            tracing::info!(task = %task_id, "committed result");
+                            ctx.status.job_finished(task_id, None);
+                        }
+                        CommitAckDisposition::Report(error) => {
+                            // A commit may be durable even if every response is
+                            // lost. The failure endpoint is inert after a
+                            // durable commit, releases an exact running
+                            // owner+attempt when commit never applied, and
+                            // fences a superseded execution.
+                            report_task_error(&ctx, &task, started, &error).await;
+                        }
+                    },
                     Err(error) => {
                         report_task_error(&ctx, &task, started, &RunError::from(error)).await;
                     }
@@ -2425,6 +2448,48 @@ mod tests {
             .to_string()
             .contains("start_task failed after bounded retries"));
         assert!(error.to_string().contains("503"));
+    }
+
+    #[test]
+    fn commit_ack_disposition_finishes_only_after_success() {
+        assert!(matches!(
+            commit_ack_disposition(Ok(())),
+            CommitAckDisposition::Done
+        ));
+    }
+
+    #[test]
+    fn commit_ack_disposition_reports_exhausted_protocol_error() {
+        let disposition = commit_ack_disposition(Err(protocol::ProtocolError::Status {
+            endpoint: "/v1/worker/task/{id}/commit".to_string(),
+            status: reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            body: "ambiguous commit acknowledgement".to_string(),
+        }));
+        let CommitAckDisposition::Report(error) = disposition else {
+            panic!("exhausted commit error must report failure and release residual ownership");
+        };
+        assert_eq!(failure::classify(&error, false), "internal_error");
+        assert!(error
+            .to_string()
+            .contains("commit_task failed after bounded retries"));
+        assert!(error.to_string().contains("503"));
+    }
+
+    #[test]
+    fn commit_ack_disposition_reports_ownership_conflict() {
+        let disposition = commit_ack_disposition(Err(protocol::ProtocolError::Status {
+            endpoint: "/v1/worker/task/{id}/commit".to_string(),
+            status: reqwest::StatusCode::CONFLICT,
+            body: "task is not claimed by this worker".to_string(),
+        }));
+        let CommitAckDisposition::Report(error) = disposition else {
+            panic!("commit ownership fence must enter the exact fail/release path");
+        };
+        assert_eq!(failure::classify(&error, false), "internal_error");
+        assert!(error.to_string().contains("409"));
+        assert!(error
+            .to_string()
+            .contains("task is not claimed by this worker"));
     }
 
     #[test]
