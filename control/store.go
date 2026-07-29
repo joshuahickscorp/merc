@@ -858,6 +858,21 @@ func (s *Store) TiebreakExists(ctx context.Context, jobID uuid.UUID, chunkIndex 
 
 var ErrEconomicReserveExhausted = errors.New("economic extra-task reserve exhausted or work is no longer pre-charge")
 
+// lockEconomicReserveTx is the first lock in every dynamic economic-obligation
+// insertion. Planned verification apply already establishes the global order
+// reserve -> task -> job; unplanned hedge/tiebreak paths must retain that order
+// or they can deadlock against the planned path on reserve <-> job.
+func lockEconomicReserveTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) error {
+	var locked uuid.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT job_id FROM job_economic_reserves WHERE job_id=$1 FOR UPDATE`,
+		jobID).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrEconomicReserveExhausted
+	}
+	return err
+}
+
 func consumeEconomicReserveTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) (buyerCharge, supplierPayout float64, err error) {
 	err = tx.QueryRow(ctx, `
 		UPDATE job_economic_reserves r

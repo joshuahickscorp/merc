@@ -550,21 +550,59 @@ func (s *Store) ChunkResults(ctx context.Context, jobID uuid.UUID, chunkIndex in
 	return out, rows.Err()
 }
 
+func existingTiebreakTaskTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	jobID uuid.UUID,
+	chunkIndex int,
+) (uuid.UUID, error) {
+	var existing uuid.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT id FROM tasks
+		 WHERE job_id=$1 AND COALESCE(chunk_index,0)=$2
+		   AND hedged_from IS NOT NULL AND is_redundancy=true
+		 ORDER BY created_at,id LIMIT 1`, jobID, chunkIndex).Scan(&existing)
+	return existing, err
+}
+
+func existingHedgeTaskTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	jobID, primaryTaskID uuid.UUID,
+) (uuid.UUID, error) {
+	var existing uuid.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT id FROM tasks
+		 WHERE job_id=$1 AND hedged_from=$2 AND is_redundancy=false
+		 ORDER BY created_at,id LIMIT 1`, jobID, primaryTaskID).Scan(&existing)
+	return existing, err
+}
+
+func lockLiveJobForDynamicTaskTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) error {
+	var status string
+	err := tx.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1 FOR UPDATE`, jobID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrEconomicReserveExhausted
+	}
+	if err != nil {
+		return err
+	}
+	if status != "queued" && status != "running" && status != "verifying" {
+		return ErrEconomicReserveExhausted
+	}
+	return nil
+}
+
 func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, peerWorker uuid.UUID, inputRef string, chunkIndex int) (uuid.UUID, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	defer tx.Rollback(ctx)
-	buyerCharge, supplierPayout, err := consumeEconomicReserveTx(ctx, tx, jobID)
-	if err != nil {
+
+	if err := lockEconomicReserveTx(ctx, tx, jobID); err != nil {
 		if errors.Is(err, ErrEconomicReserveExhausted) {
-			var existing uuid.UUID
-			qerr := tx.QueryRow(ctx, `
-				SELECT id FROM tasks
-				 WHERE job_id=$1 AND COALESCE(chunk_index,0)=$2
-				   AND hedged_from IS NOT NULL AND is_redundancy=true
-				 ORDER BY created_at LIMIT 1`, jobID, chunkIndex).Scan(&existing)
+			existing, qerr := existingTiebreakTaskTx(ctx, tx, jobID, chunkIndex)
 			if qerr == nil {
 				return existing, nil
 			}
@@ -574,16 +612,29 @@ func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, pe
 		}
 		return uuid.Nil, err
 	}
-	var existing uuid.UUID
-	err = tx.QueryRow(ctx, `
-		SELECT id FROM tasks
-		 WHERE job_id=$1 AND COALESCE(chunk_index,0)=$2
-		   AND hedged_from IS NOT NULL AND is_redundancy=true
-		 ORDER BY created_at LIMIT 1`, jobID, chunkIndex).Scan(&existing)
+	existing, err := existingTiebreakTaskTx(ctx, tx, jobID, chunkIndex)
 	if err == nil {
 		return existing, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, err
+	}
+
+	var lockedAnchor uuid.UUID
+	err = tx.QueryRow(ctx,
+		`SELECT id FROM tasks WHERE id=$1 AND job_id=$2 FOR UPDATE`,
+		primaryTaskID, jobID).Scan(&lockedAnchor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrEconomicReserveExhausted
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if err := lockLiveJobForDynamicTaskTx(ctx, tx, jobID); err != nil {
+		return uuid.Nil, err
+	}
+	buyerCharge, supplierPayout, err := consumeEconomicReserveTx(ctx, tx, jobID)
+	if err != nil {
 		return uuid.Nil, err
 	}
 	frozenClass, err := frozenTiebreakClassForAnchorTx(ctx, tx, primaryTaskID)
@@ -609,12 +660,16 @@ func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, pe
 	); err != nil {
 		return uuid.Nil, err
 	}
-	if _, err := tx.Exec(ctx,
+	tag, err := tx.Exec(ctx,
 		`UPDATE jobs
 		    SET task_count = task_count + 1,
 		        status = CASE WHEN status='verifying' THEN 'running' ELSE status END
-		  WHERE id = $1`, jobID); err != nil {
+		  WHERE id = $1 AND status IN ('queued','running','verifying')`, jobID)
+	if err != nil {
 		return uuid.Nil, err
+	}
+	if tag.RowsAffected() != 1 {
+		return uuid.Nil, ErrEconomicReserveExhausted
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return uuid.Nil, err
@@ -960,14 +1015,9 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 	}
 	defer tx.Rollback(ctx)
 
-	buyerCharge, supplierPayout, err := consumeEconomicReserveTx(ctx, tx, jobID)
-	if err != nil {
+	if err := lockEconomicReserveTx(ctx, tx, jobID); err != nil {
 		if errors.Is(err, ErrEconomicReserveExhausted) {
-			var existing uuid.UUID
-			qerr := tx.QueryRow(ctx, `
-				SELECT id FROM tasks
-				 WHERE job_id=$1 AND hedged_from=$2 AND is_redundancy=false
-				 ORDER BY created_at LIMIT 1`, jobID, primaryTaskID).Scan(&existing)
+			existing, qerr := existingHedgeTaskTx(ctx, tx, jobID, primaryTaskID)
 			if qerr == nil {
 				return existing, nil
 			}
@@ -975,6 +1025,13 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 				return uuid.Nil, qerr
 			}
 		}
+		return uuid.Nil, err
+	}
+	existing, err := existingHedgeTaskTx(ctx, tx, jobID, primaryTaskID)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, err
 	}
 
@@ -992,16 +1049,11 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 	if primaryStatus != "running" && primaryStatus != "verifying" {
 		return uuid.Nil, ErrEconomicReserveExhausted
 	}
-
-	var existing uuid.UUID
-	err = tx.QueryRow(ctx, `
-		SELECT id FROM tasks
-		 WHERE job_id=$1 AND hedged_from=$2 AND is_redundancy=false
-		 ORDER BY created_at LIMIT 1`, jobID, primaryTaskID).Scan(&existing)
-	if err == nil {
-		return existing, nil
+	if err := lockLiveJobForDynamicTaskTx(ctx, tx, jobID); err != nil {
+		return uuid.Nil, err
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	buyerCharge, supplierPayout, err := consumeEconomicReserveTx(ctx, tx, jobID)
+	if err != nil {
 		return uuid.Nil, err
 	}
 
