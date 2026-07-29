@@ -1050,6 +1050,19 @@ func TestStartTaskClaimedToRunningAndRejectsOtherWorker(t *testing.T) {
 	if execWorker != f.WorkerID {
 		t.Fatalf("execution_worker_id = %s, want %s", execWorker, f.WorkerID)
 	}
+
+	// A lost/ambiguous acknowledgement must be recoverable by replaying the
+	// exact owner+attempt start. The server contract is idempotent for that
+	// identity, while a changed attempt remains fenced.
+	if err := store.StartTask(ctx, taskID, f.WorkerID, 0); err != nil {
+		t.Fatalf("exact StartTask replay: %v", err)
+	}
+	if err := store.StartTask(ctx, taskID, f.WorkerID, 1); !errors.Is(err, errNotFound) {
+		t.Fatalf("wrong-attempt StartTask replay error = %v, want errNotFound", err)
+	}
+	if got := taskStatus(t, ctx, pool, taskID); got != "running" {
+		t.Fatalf("start replays changed task status to %q", got)
+	}
 }
 
 // --- CompleteTaskTx ---
