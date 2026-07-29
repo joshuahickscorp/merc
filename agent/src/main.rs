@@ -41,6 +41,23 @@ const MERC_SANDBOX_PROFILE_ENV: &str = "MERC_SANDBOX_PROFILE";
 
 const MERC_REQUIRE_SANDBOX_ENV: &str = "MERC_REQUIRE_SANDBOX";
 
+enum StartAckDisposition {
+    Run,
+    Report(RunError),
+}
+
+fn start_ack_disposition(
+    result: std::result::Result<(), protocol::ProtocolError>,
+) -> StartAckDisposition {
+    match result {
+        Ok(()) => StartAckDisposition::Run,
+        Err(error) => StartAckDisposition::Report(RunError::Inference {
+            backend: "control_plane",
+            msg: format!("start_task failed after bounded retries: {error}"),
+        }),
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn sandbox_required_value(value: Option<&str>) -> bool {
     value.is_some_and(|value| {
@@ -2255,7 +2272,17 @@ async fn poll_and_spawn(
             return Ok(());
         }
     };
-    start_result.context("start_task")?;
+    match start_ack_disposition(start_result) {
+        StartAckDisposition::Run => {}
+        StartAckDisposition::Report(error) => {
+            // A start request may be durable even when every acknowledgement
+            // is lost. Do not abandon that queued/running claim to the
+            // watchdog: use the same owner+attempt failure path as every other
+            // execution error, then return the polling slot immediately.
+            report_task_error(ctx, &task, received_at, &error).await;
+            return Ok(());
+        }
+    }
     ctx.status.job_started(
         task.task_id,
         task.attempt,
@@ -2374,6 +2401,31 @@ async fn report_task_error(
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
+    #[test]
+    fn start_ack_disposition_runs_only_after_success() {
+        assert!(matches!(
+            start_ack_disposition(Ok(())),
+            StartAckDisposition::Run
+        ));
+    }
+
+    #[test]
+    fn start_ack_disposition_reports_terminal_protocol_error() {
+        let disposition = start_ack_disposition(Err(protocol::ProtocolError::Status {
+            endpoint: "/v1/worker/task/{id}/start".to_string(),
+            status: reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            body: "ambiguous start acknowledgement".to_string(),
+        }));
+        let StartAckDisposition::Report(error) = disposition else {
+            panic!("terminal start error must report failure and release ownership");
+        };
+        assert_eq!(failure::classify(&error, false), "internal_error");
+        assert!(error
+            .to_string()
+            .contains("start_task failed after bounded retries"));
+        assert!(error.to_string().contains("503"));
+    }
 
     #[test]
     fn honeypot_known_answer_is_in_worker_wire_order_not_alphabetical() {
