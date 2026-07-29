@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -163,6 +164,13 @@ type InvoiceView struct {
 	SLAPremiumUSD                *float64 `json:"sla_premium_usd,omitempty"`
 	SLARefundUSD                 *float64 `json:"sla_refund_usd,omitempty"`
 	SLAMet                       *bool    `json:"sla_met,omitempty"`
+	// Generative batch observed-output settlement evidence (job totals).
+	// Present when any task carried an output-token ceiling so the buyer can
+	// audit ceiling vs observed vs rebate without a second API.
+	OutputTokenCeiling   *int64   `json:"output_token_ceiling,omitempty"`
+	ObservedOutputTokens *int64   `json:"observed_output_tokens,omitempty"`
+	FrozenBuyerChargeUSD *float64 `json:"frozen_buyer_charge_usd,omitempty"`
+	OutputTokenRebateUSD *float64 `json:"output_token_rebate_usd,omitempty"`
 }
 
 func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*InvoiceView, error) {
@@ -327,7 +335,118 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 	} else if ok {
 		iv.QuotedUSD = &quoted
 	}
+	if err := s.attachObservedOutputInvoiceEvidence(ctx, &iv); err != nil {
+		return nil, err
+	}
 	return &iv, nil
+}
+
+// attachObservedOutputInvoiceEvidence fills job-level ceiling/observed/rebate
+// totals from the same durable task columns and ledger amounts the per-task
+// receipt uses. No new tables; generative jobs only.
+func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *InvoiceView) error {
+	if iv == nil {
+		return nil
+	}
+	plan, err := s.JobComputePlan(ctx, iv.JobID)
+	if err != nil {
+		return err
+	}
+	if plan == nil || plan.EstimatedOutputTokens <= 0 {
+		return nil
+	}
+	var (
+		ceilingSum  int64
+		observedSum int64
+		frozenSum   float64
+		rebateSum   float64
+		tasks       int
+	)
+	rows, err := s.pool.Query(ctx, `
+		SELECT COALESCE(t.expected_output_records,0),
+		       t.reported_tokens_used,
+		       t.economic_buyer_charge_usd::float8,
+		       COALESCE((j.job_type_spec->>'max_tokens')::bigint,0),
+		       COALESCE((
+		         SELECT -le.amount_usd::float8 FROM ledger_entries le
+		          WHERE le.task_id = t.id AND le.kind = 'buyer_charge'
+		          LIMIT 1
+		       ),0)
+		  FROM tasks t
+		  JOIN jobs j ON j.id = t.job_id
+		 WHERE t.job_id = $1`, iv.JobID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			expectedRecords int64
+			reported        *int64
+			frozen          *float64
+			maxTokens       int64
+			billed          float64
+		)
+		if err := rows.Scan(&expectedRecords, &reported, &frozen, &maxTokens, &billed); err != nil {
+			return err
+		}
+		if expectedRecords <= 0 || maxTokens <= 0 ||
+			maxTokens > int64(^uint32(0)) ||
+			expectedRecords > math.MaxInt64/maxTokens {
+			continue
+		}
+		ceiling := expectedRecords * maxTokens
+		ceilingSum += ceiling
+		if reported != nil {
+			obs := *reported
+			if obs < 0 {
+				obs = 0
+			}
+			if obs > ceiling {
+				obs = ceiling
+			}
+			observedSum += obs
+		}
+		if frozen != nil && *frozen > 0 {
+			frozenSum += *frozen
+			if billed <= 0 {
+				hasReported := reported != nil
+				var r int64
+				if hasReported {
+					r = *reported
+				}
+				settled := settleObservedOutputTokens(
+					*frozen, *frozen,
+					plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
+					expectedRecords, uint32(maxTokens),
+					r, hasReported,
+				)
+				billed = settled.BilledCharge
+			}
+			rebate := roundUSD(*frozen - billed)
+			if rebate > 0 {
+				rebateSum += rebate
+			}
+		}
+		tasks++
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if tasks == 0 || ceilingSum == 0 {
+		return nil
+	}
+	iv.OutputTokenCeiling = &ceilingSum
+	iv.ObservedOutputTokens = &observedSum
+	if frozenSum > 0 {
+		fs := roundUSD(frozenSum)
+		iv.FrozenBuyerChargeUSD = &fs
+	}
+	if rebateSum > 0 {
+		rs := roundUSD(rebateSum)
+		iv.OutputTokenRebateUSD = &rs
+	}
+	return nil
 }
 
 func (s *Store) jobProcessorFeeAllocatedUSD(

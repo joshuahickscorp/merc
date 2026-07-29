@@ -462,32 +462,82 @@ func validateVerificationSettlementTx(ctx context.Context, tx pgx.Tx, info *Comm
 	}
 	var buyerID uuid.UUID
 	var jobCurrency string
-	var buyerCharge, supplierPayout float64
+	var frozenCharge, frozenPayout float64
+	var expectedRecords int64
+	var reportedTokens *int64
+	var jobMaxTokens int64
+	var computePlanJSON []byte
 	if err := tx.QueryRow(ctx, `
 		SELECT j.buyer_id,j.currency,
-		       t.economic_buyer_charge_usd::float8,t.economic_supplier_payout_usd::float8
+		       t.economic_buyer_charge_usd::float8,t.economic_supplier_payout_usd::float8,
+		       COALESCE(t.expected_output_records,0), t.reported_tokens_used,
+		       COALESCE((j.job_type_spec->>'max_tokens')::bigint,0),
+		       j.compute_plan
 		  FROM tasks t JOIN jobs j ON j.id=t.job_id WHERE t.id=$1`, info.TaskID).
-		Scan(&buyerID, &jobCurrency, &buyerCharge, &supplierPayout); err != nil {
+		Scan(&buyerID, &jobCurrency, &frozenCharge, &frozenPayout,
+			&expectedRecords, &reportedTokens, &jobMaxTokens, &computePlanJSON); err != nil {
 		return err
 	}
 	if err := RequireSettlementCurrency(jobCurrency); err != nil {
 		return fmt.Errorf("job %s cannot settle under this deployment: %w", info.JobID, err)
 	}
+	if frozenCharge <= 0 || frozenPayout < 0 || frozenPayout > frozenCharge {
+		return fmt.Errorf("task %s has invalid frozen economics", info.TaskID)
+	}
+
+	// Ledger amounts may be the freeze (embed / missing plan / missing
+	// observation) or the observed-output rebate. Recompute the only legal
+	// pair from durable authority; never re-read the planned settlement.
+	billedCharge, billedPayout := frozenCharge, frozenPayout
+	if len(computePlanJSON) > 0 {
+		var plan ComputePlan
+		if err := json.Unmarshal(computePlanJSON, &plan); err != nil {
+			return fmt.Errorf("decode compute plan for settlement check: %w", err)
+		}
+		hasReported := reportedTokens != nil
+		var reported int64
+		if hasReported {
+			reported = *reportedTokens
+		}
+		maxTok := uint32(0)
+		if jobMaxTokens > 0 && jobMaxTokens <= int64(^uint32(0)) {
+			maxTok = uint32(jobMaxTokens)
+		}
+		settled := settleObservedOutputTokens(
+			frozenCharge, frozenPayout,
+			plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
+			expectedRecords, maxTok,
+			reported, hasReported,
+		)
+		billedCharge, billedPayout = settled.BilledCharge, settled.SupplierPayout
+	}
+	// Invariant 2: settlement may only reduce.
+	if billedCharge > frozenCharge || billedPayout > frozenPayout {
+		return fmt.Errorf("settlement would exceed frozen task economics")
+	}
+	// Invariant 4.
+	if billedPayout < 0 || billedPayout > billedCharge {
+		return fmt.Errorf("settlement supplier payout out of range")
+	}
+
 	want := map[string]struct {
 		amount   string
 		buyer    *uuid.UUID
 		supplier *uuid.UUID
 	}{
-		KindBuyerCharge:    {amount: fmt.Sprintf("%.6f", -buyerCharge), buyer: &buyerID},
-		KindSupplierCredit: {amount: fmt.Sprintf("%.6f", supplierPayout), supplier: &info.SupplierID},
-		KindPlatformTake:   {amount: fmt.Sprintf("%.6f", buyerCharge-supplierPayout)},
+		KindBuyerCharge:    {amount: fmt.Sprintf("%.6f", -billedCharge), buyer: &buyerID},
+		KindSupplierCredit: {amount: fmt.Sprintf("%.6f", billedPayout), supplier: &info.SupplierID},
+		KindPlatformTake:   {amount: fmt.Sprintf("%.6f", billedCharge-billedPayout)},
+	}
+	if len(entries) != len(want) {
+		return fmt.Errorf("settlement has %d entries, want %d kinds", len(entries), len(want))
 	}
 	for _, entry := range entries {
 		expected, ok := want[entry.Kind]
 		if !ok || fmt.Sprintf("%.6f", entry.AmountUSD) != expected.amount ||
 			(entry.Currency != "" && entry.Currency != jobCurrency) ||
 			!sameOptionalUUID(entry.BuyerID, expected.buyer) || !sameOptionalUUID(entry.SupplierID, expected.supplier) {
-			return fmt.Errorf("settlement %q conflicts with frozen task economics", entry.Kind)
+			return fmt.Errorf("settlement %q conflicts with observed-output task economics", entry.Kind)
 		}
 	}
 	return nil

@@ -693,6 +693,12 @@ func (s *Store) ClawbackTaskCredit(ctx context.Context, supplierID, taskID uuid.
 }
 
 func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskReceipt, error) {
+	// Load frozen compute plan once so generative tasks can show ceiling /
+	// observed / rebate without inventing a parallel receipt path.
+	plan, planErr := s.JobComputePlan(ctx, jobID)
+	if planErr != nil {
+		return nil, planErr
+	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT COALESCE(t.chunk_index,0), t.status, t.is_honeypot,
 		        COALESCE(vw.input_snapshot->>'engine',t.execution_engine,''),
@@ -701,8 +707,18 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 		                  WHERE ve.task_id = t.id ORDER BY ve.created_at DESC LIMIT 1), ''),
 		        COALESCE(t.verification_outcome,''),
 		        COALESCE(t.runtime_cell_id,''), COALESCE(t.runtime_id,''),
-		        COALESCE(t.runtime_matrix_sha256,''), COALESCE(t.model_kind,'')
+		        COALESCE(t.runtime_matrix_sha256,''), COALESCE(t.model_kind,''),
+		        COALESCE(t.expected_output_records,0),
+		        t.reported_tokens_used,
+		        t.economic_buyer_charge_usd::float8,
+		        COALESCE((j.job_type_spec->>'max_tokens')::bigint,0),
+		        COALESCE((
+		          SELECT -le.amount_usd::float8 FROM ledger_entries le
+		           WHERE le.task_id = t.id AND le.kind = 'buyer_charge'
+		           LIMIT 1
+		        ),0)
 		 FROM tasks t
+		 JOIN jobs j ON j.id = t.job_id
 		 LEFT JOIN verification_work vw ON vw.task_id=t.id AND vw.attempt=t.retry_count
 		 WHERE t.job_id = $1
 		 ORDER BY COALESCE(t.chunk_index,0), t.id`,
@@ -721,13 +737,66 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 			kind, verdict                string
 			cellID, runtimeID, matrixSHA string
 			modelKind                    string
+			expectedRecords              int64
+			reportedTokens               *int64
+			frozenCharge                 *float64
+			maxTokens                    int64
+			billedCharge                 float64
 		)
 		if err := rows.Scan(&chunk, &status, &isHoneypot, &engine, &build, &kind, &verdict,
-			&cellID, &runtimeID, &matrixSHA, &modelKind); err != nil {
+			&cellID, &runtimeID, &matrixSHA, &modelKind,
+			&expectedRecords, &reportedTokens, &frozenCharge, &maxTokens, &billedCharge); err != nil {
 			return nil, err
 		}
-		out = append(out, taskReceiptRowWithRuntime(chunk, status, isHoneypot, engine, build,
-			kind, verdict, cellID, runtimeID, matrixSHA, modelKind))
+		tr := taskReceiptRowWithRuntime(chunk, status, isHoneypot, engine, build,
+			kind, verdict, cellID, runtimeID, matrixSHA, modelKind)
+		// Surface observed-output evidence only when the frozen plan priced
+		// generative output and this task had a positive ceiling.
+		if plan != nil && plan.EstimatedOutputTokens > 0 &&
+			expectedRecords > 0 && maxTokens > 0 &&
+			maxTokens <= int64(^uint32(0)) &&
+			expectedRecords <= math.MaxInt64/maxTokens {
+			ceiling := expectedRecords * maxTokens
+			tr.OutputTokenCeiling = &ceiling
+			if reportedTokens != nil {
+				observed := *reportedTokens
+				if observed < 0 {
+					observed = 0
+				}
+				if observed > ceiling {
+					observed = ceiling
+				}
+				tr.ObservedOutputTokens = &observed
+			}
+			if frozenCharge != nil && *frozenCharge > 0 {
+				fc := *frozenCharge
+				tr.FrozenBuyerChargeUSD = &fc
+				// Prefer the ledger (what was actually settled). Fall back to
+				// recomputing from the same pure function when no charge yet.
+				billed := billedCharge
+				if billed <= 0 {
+					hasReported := reportedTokens != nil
+					var reported int64
+					if hasReported {
+						reported = *reportedTokens
+					}
+					settled := settleObservedOutputTokens(
+						fc, fc, // payout unused for receipt charge fields
+						plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
+						expectedRecords, uint32(maxTokens),
+						reported, hasReported,
+					)
+					billed = settled.BilledCharge
+				}
+				tr.BilledBuyerChargeUSD = &billed
+				rebate := roundUSD(fc - billed)
+				if rebate < 0 {
+					rebate = 0
+				}
+				tr.OutputTokenRebateUSD = &rebate
+			}
+		}
+		out = append(out, tr)
 	}
 	return out, rows.Err()
 }

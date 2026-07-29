@@ -51,6 +51,14 @@ type TaskReceipt struct {
 	WorkerClass      string `json:"worker_class"`      // engine|build_hash (classKey); "" if unknown
 	VerificationKind string `json:"verification_kind"` // latest comparison event kind; "" if none
 	Verdict          string `json:"verdict"`           // durable current task verdict; "" until verified
+	// Generative batch settlement evidence. Present when the task had a
+	// generative output ceiling so the buyer can audit ceiling vs observed
+	// vs the rebate applied at ledger-write time. Omitted for embed/legacy.
+	OutputTokenCeiling   *int64   `json:"output_token_ceiling,omitempty"`
+	ObservedOutputTokens *int64   `json:"observed_output_tokens,omitempty"`
+	FrozenBuyerChargeUSD *float64 `json:"frozen_buyer_charge_usd,omitempty"`
+	BilledBuyerChargeUSD *float64 `json:"billed_buyer_charge_usd,omitempty"`
+	OutputTokenRebateUSD *float64 `json:"output_token_rebate_usd,omitempty"`
 }
 
 func taskReceiptRow(chunkIndex int, status string, isHoneypot bool, engine, build, kind, verdict string) TaskReceipt {
