@@ -269,6 +269,17 @@ enum Command {
     },
     Characterize,
     Version,
+    /// Measure a batch_infer known-answer honeypot against this binary's engine
+    /// build. Prints one JSON object with answer_class and known_answer for
+    /// scripts/seed-batch-infer-honeypot.sh / control seed.
+    HoneypotAnswer {
+        #[arg(long, default_value = "llama-3.2-1b-instruct-q4")]
+        model: String,
+        #[arg(long, default_value_t = 12)]
+        max_tokens: u32,
+        #[arg(long, default_value = "Reply with only: merc-honeypot-ok")]
+        prompt: String,
+    },
 }
 
 fn init_tracing() {
@@ -326,6 +337,14 @@ async fn main() -> Result<()> {
         Command::Version => {
             println!("merc-agent {AGENT_VERSION}");
             Ok(())
+        }
+        Command::HoneypotAnswer {
+            model,
+            max_tokens,
+            prompt,
+        } => {
+            init_tracing();
+            run_honeypot_answer(&model, max_tokens, &prompt).await
         }
         Command::Bench { config } => {
             init_tracing();
@@ -599,6 +618,70 @@ fn build_bench_prompts(stem: &str, b: usize, mode: BenchMode) -> Vec<String> {
                 .collect()
         }
     }
+}
+
+/// Measure a single greedy completion and emit the exact result bytes a worker
+/// would commit for a batch_infer honeypot, plus the engine|build_hash class.
+async fn run_honeypot_answer(model: &str, max_tokens: u32, prompt: &str) -> Result<()> {
+    let engine = "candle";
+    let build_hash = hardware::engine_build_hash(engine, AGENT_VERSION);
+    let answer_class = format!("{engine}|{build_hash}");
+    let pool = ModelPool::new();
+    let backend = inference::build_backend(inference::BackendKind::Candle, "", "", None)
+        .map_err(|e| anyhow::anyhow!("build candle backend: {e}"))?;
+    let params = inference::GenerateParams::greedy(max_tokens);
+    let completion = backend
+        .generate(model, prompt, params, &pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("honeypot generate: {e}"))?;
+    if completion.text.is_empty() {
+        anyhow::bail!("honeypot generate produced empty text");
+    }
+    let known_answer_bytes =
+        honeypot_known_answer_bytes(model, engine, &completion.text, completion.tokens)?;
+    let out = serde_json::json!({
+        "engine": engine,
+        "build_hash": build_hash,
+        "answer_class": answer_class,
+        "model": model,
+        "max_tokens": max_tokens,
+        "prompt": prompt,
+        "device": models::device_label(),
+        "agent_version": AGENT_VERSION,
+        // Only the exact bytes are emitted. A nested JSON object would be
+        // re-serialized by this envelope (and by any jq that reads it) in
+        // whatever order that serializer chooses, and control/verification.go
+        // compares batch_infer honeypots with bytes.Equal.
+        "known_answer_utf8": String::from_utf8_lossy(&known_answer_bytes),
+    });
+    println!("{}", serde_json::to_string_pretty(&out)?);
+    Ok(())
+}
+
+/// Serialize the exact bytes a worker commits for a one-completion batch_infer
+/// task. Built from `executor::BatchInferResult` itself, never from a hand-written
+/// `json!` literal: serde_json has no `preserve_order` feature here, so a `json!`
+/// map serializes its keys alphabetically while the derived struct serializes in
+/// declaration order. `control/verification.go` compares batch_infer honeypots
+/// with `bytes.Equal`, so an alphabetical answer never matches an honest commit —
+/// it quarantines the supplier and claws back its credit instead.
+fn honeypot_known_answer_bytes(
+    model: &str,
+    backend_name: &str,
+    text: &str,
+    tokens: usize,
+) -> Result<Vec<u8>> {
+    let result = executor::BatchInferResult {
+        job_type: "batch_infer",
+        model: executor::short_model_id(model, model),
+        inference_backend: backend_name.to_string(),
+        completions: vec![executor::Completion {
+            index: 0,
+            text: text.to_string(),
+            tokens,
+        }],
+    };
+    Ok(serde_json::to_vec(&result)?)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2287,6 +2370,22 @@ async fn report_task_error(
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
+    #[test]
+    fn honeypot_known_answer_is_in_worker_wire_order_not_alphabetical() {
+        let bytes = honeypot_known_answer_bytes("llama-3.2-1b-instruct-q4", "candle", "ok", 2)
+            .expect("serialize honeypot answer");
+        let text = String::from_utf8(bytes).expect("utf-8");
+        // control/verification.go compares batch_infer honeypots with bytes.Equal
+        // against what executor::BatchInferResult serializes, so the key order is
+        // load-bearing. A serde_json::json! literal would alphabetize this to
+        // completions/inference_backend/job_type/model and never match a commit.
+        assert_eq!(
+            text,
+            r#"{"job_type":"batch_infer","model":"llama-3.2-1b-instruct-q4","inference_backend":"candle","completions":[{"index":0,"text":"ok","tokens":2}]}"#,
+            "honeypot answer must be byte-identical to a worker's BatchInferResult commit"
+        );
+    }
 
     #[test]
     fn compressed_memory_fallback_is_bounded_and_fails_closed_without_stats() {
