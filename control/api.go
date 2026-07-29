@@ -1107,7 +1107,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		usedObservedHistory := historyErr == nil && observedP90ms > 0
 		p50 = sustainedBatchETASecs(p50, sub.Tier, usedObservedHistory)
 		etaRawSecs = p50
-		etaBias, etaBiasSamples, etaBiasErr := s.store.ETABiasFactor(ctx, sub.JobType.Type, sub.Tier)
+		etaBias, etaBiasSamples, etaBiasErr := s.store.ETABiasFactor(
+			ctx, sub.JobType.Type, sub.Tier, sub.Model.Ref,
+		)
 		etaCalibrated := etaBiasErr == nil && etaBiasSamples >= driftMinSamples && etaBias > 1
 		if etaCalibrated {
 			p50 = applyETABias(p50, etaBias)
