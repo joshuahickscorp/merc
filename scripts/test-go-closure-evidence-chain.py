@@ -52,8 +52,8 @@ SOURCES = {
     "backup_independent_restore": "offsite_backup_provider",
     "stripe_test_matrix": "stripe_test_api",
     "real_alert_firing_resolution": "alert_receiver_api",
-    "post_rehearsal_invariant_audit": "merc_postgres.invariant_audit",
-    "bounded_retry_backoff_audit": "merc_prometheus",
+    "post_rehearsal_invariant_audit": "merc_postgres.tasks",
+    "bounded_retry_backoff_audit": "merc_postgres.tasks",
 }
 UUID_SUBJECTS = set(SCENARIOS[:9])
 
@@ -144,6 +144,8 @@ def scenario_receipt(
             "real_value": False,
             "approved_participants_only": True,
             "secret_values_recorded": False,
+            "payment_mode": "test",
+            "live_value_movement": False,
         },
         "evidence": evidence,
     }
@@ -173,6 +175,7 @@ def scenario_receipt(
             }
         )
     elif scenario == "post_rehearsal_invariant_audit":
+        # Only invariants the driver actually queries (no unreconciled_state).
         receipt["invariants"] = {
             "tenant_leak": False,
             "missing_artifact": False,
@@ -180,16 +183,17 @@ def scenario_receipt(
             "ledger_imbalance": False,
             "stuck_terminal_jobs": False,
             "stuck_payouts": False,
-            "unreconciled_state": False,
             "silent_webhook_loss": False,
             "unbounded_growth": False,
         }
     elif scenario == "bounded_retry_backoff_audit":
+        # No backoff_schedule_within_policy without a measured requeue delay.
         receipt.update(
             {
                 "max_attempts_within_policy": True,
-                "backoff_schedule_within_policy": True,
                 "unbounded_retry_growth": False,
+                "observed_task_count": 1,
+                "observed_max_retry_count": 0,
             }
         )
     return receipt

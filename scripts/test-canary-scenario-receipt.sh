@@ -44,7 +44,9 @@ jq -n \
       stripe_live_mode:false,
       real_value:false,
       approved_participants_only:true,
-      secret_values_recorded:false
+      secret_values_recorded:false,
+      payment_mode:"test",
+      live_value_movement:false
     },
     evidence:[{
       id:"observation-stale-attempt-0001",
@@ -83,6 +85,11 @@ expect_fail fake_status '.evidence[0].http_status = 200'
 expect_fail current_not_newer '.evidence[0].current_attempt = 1'
 expect_fail state_changed '.evidence[0].after_state_sha256 = ("6" * 64)'
 expect_fail secret_in_receipt '.note = "whsec_not-a-real-secret"'
+expect_fail secret_cx_key '.note = "cx_test_abc123def456"'
+expect_fail secret_worker_token '.note = "cxw_worker_token_001"'
+expect_fail live_payment_mode '.safety.payment_mode = "live" | .safety.stripe_live_mode = true | .safety.stripe_test_mode = false'
+expect_fail missing_payment_mode 'del(.safety.payment_mode)'
+expect_fail live_value_movement '.safety.live_value_movement = true'
 expect_fail count_mismatch '.observed = 2'
 expect_fail nonfinite '.observed = nan'
 printf '{"schema_version":2,"schema_version":2}\n' > "$tmp/duplicate-key.json"

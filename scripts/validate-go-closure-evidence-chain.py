@@ -781,10 +781,13 @@ def expected_scenario_keys(scenario: str) -> set[str]:
     elif scenario == "post_rehearsal_invariant_audit":
         keys.add("invariants")
     elif scenario == "bounded_retry_backoff_audit":
+        # backoff_schedule_within_policy is not a load-bearing key: it must not
+        # appear without a measured requeue-delay observation.
         keys |= {
             "max_attempts_within_policy",
-            "backoff_schedule_within_policy",
             "unbounded_retry_growth",
+            "observed_task_count",
+            "observed_max_retry_count",
         }
     return keys
 
