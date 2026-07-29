@@ -1435,6 +1435,372 @@ func TestFailTaskTxReleasesRunningOwnerAndFencesForeignIdentity(t *testing.T) {
 	}
 }
 
+type taskLeaseProjection struct {
+	Status          string
+	ClaimedBy       *uuid.UUID
+	ClaimedAt       *time.Time
+	WorkerID        *uuid.UUID
+	ExecutionWorker *uuid.UUID
+	RetryCount      int
+}
+
+func readTaskLeaseProjection(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, taskID uuid.UUID,
+) taskLeaseProjection {
+	t.Helper()
+	var out taskLeaseProjection
+	if err := pool.QueryRow(ctx, `
+		SELECT status,claimed_by,claimed_at,worker_id,execution_worker_id,retry_count
+		  FROM tasks WHERE id=$1`, taskID).
+		Scan(&out.Status, &out.ClaimedBy, &out.ClaimedAt, &out.WorkerID,
+			&out.ExecutionWorker, &out.RetryCount); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestFailTaskTxTerminalReleasesLeaseAndSettlesOnce(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 1, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
+	})
+	taskID := f.TaskIDs[0]
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=$1`, taskID); err != nil {
+		t.Fatal(err)
+	}
+	beforeLedger := countBuyerLedger(t, ctx, pool, f.BuyerID)
+	report := FailureReport{
+		Class: "bad_input", Message: "buyer document cannot be decoded",
+		Backend: "embed", Model: "all-minilm-l6-v2", DurationMS: 900,
+	}
+
+	outcome, err := store.FailTaskTx(ctx, taskID, f.WorkerID, 0, report)
+	if err != nil || outcome != FailTerminal {
+		t.Fatalf("terminal failure = (%q,%v), want failed/nil", outcome, err)
+	}
+	projection := readTaskLeaseProjection(t, ctx, pool, taskID)
+	if projection.Status != "failed" || projection.ClaimedBy != nil ||
+		projection.ClaimedAt != nil || projection.WorkerID != nil ||
+		projection.ExecutionWorker == nil || *projection.ExecutionWorker != f.WorkerID ||
+		projection.RetryCount != 0 {
+		t.Fatalf("terminal task projection = %+v, want failed/released with execution identity", projection)
+	}
+	var jobStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if jobStatus != "failed" {
+		t.Fatalf("job status after terminal task failure = %q, want failed", jobStatus)
+	}
+	var failures, jobFailedEvents int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM task_failures WHERE task_id=$1`, taskID).Scan(&failures); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM job_events WHERE job_id=$1 AND event='job_failed'`,
+		f.JobID).Scan(&jobFailedEvents); err != nil {
+		t.Fatal(err)
+	}
+	if failures != 1 || jobFailedEvents != 1 {
+		t.Fatalf("terminal failure durable effects = failures %d/job_failed %d, want 1/1",
+			failures, jobFailedEvents)
+	}
+	if got := countBuyerLedger(t, ctx, pool, f.BuyerID); got != beforeLedger {
+		t.Fatalf("terminal failure minted ledger rows: before=%d after=%d", beforeLedger, got)
+	}
+
+	replay, err := store.FailTaskTx(ctx, taskID, f.WorkerID, 0, report)
+	if replay != FailNoop || !errors.Is(err, errNotOwner) {
+		t.Fatalf("released terminal replay = (%q,%v), want noop/errNotOwner", replay, err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM task_failures WHERE task_id=$1`, taskID).Scan(&failures); err != nil {
+		t.Fatal(err)
+	}
+	if failures != 1 {
+		t.Fatalf("terminal replay wrote %d failure rows, want 1", failures)
+	}
+}
+
+func TestFailTaskTxTerminalPendingVerificationIsAtomicAndRetryable(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 2, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
+	})
+	taskID, siblingID := f.TaskIDs[0], f.TaskIDs[1]
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=ANY($1::uuid[])`,
+		f.TaskIDs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET status='verifying' WHERE id=$1`, siblingID); err != nil {
+		t.Fatal(err)
+	}
+	report := FailureReport{
+		Class: "bad_input", Message: "terminal input failure while sibling verifies",
+		Backend: "embed", Model: "all-minilm-l6-v2", DurationMS: 900,
+	}
+
+	outcome, err := store.FailTaskTx(ctx, taskID, f.WorkerID, 0, report)
+	if outcome != FailNoop || !errors.Is(err, ErrJobVerificationPending) {
+		t.Fatalf("pending terminal failure = (%q,%v), want noop/ErrJobVerificationPending",
+			outcome, err)
+	}
+	pending := readTaskLeaseProjection(t, ctx, pool, taskID)
+	if pending.Status != "running" || pending.ClaimedBy == nil ||
+		*pending.ClaimedBy != f.WorkerID || pending.ClaimedAt == nil ||
+		pending.WorkerID == nil || *pending.WorkerID != f.WorkerID {
+		t.Fatalf("pending terminal failure was not fully rolled back: %+v", pending)
+	}
+	var failures int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM task_failures WHERE task_id=$1`, taskID).Scan(&failures); err != nil {
+		t.Fatal(err)
+	}
+	if failures != 0 {
+		t.Fatalf("pending terminal failure left %d failure rows", failures)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE tasks
+		   SET status='failed',claimed_by=NULL,claimed_at=NULL,worker_id=NULL
+		 WHERE id=$1`, siblingID); err != nil {
+		t.Fatal(err)
+	}
+	outcome, err = store.FailTaskTx(ctx, taskID, f.WorkerID, 0, report)
+	if err != nil || outcome != FailTerminal {
+		t.Fatalf("terminal failure retry after verification drained = (%q,%v), want failed/nil",
+			outcome, err)
+	}
+	released := readTaskLeaseProjection(t, ctx, pool, taskID)
+	if released.Status != "failed" || released.ClaimedBy != nil ||
+		released.ClaimedAt != nil || released.WorkerID != nil {
+		t.Fatalf("retried terminal failure did not release lease: %+v", released)
+	}
+}
+
+func TestConcurrentTerminalFailuresReleaseBothLeasesWithoutDeadlock(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 2, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
+	})
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=ANY($1::uuid[])`,
+		f.TaskIDs); err != nil {
+		t.Fatal(err)
+	}
+	beforeLedger := countBuyerLedger(t, ctx, pool, f.BuyerID)
+	report := FailureReport{
+		Class: "bad_input", Message: "two chunks independently rejected input",
+		Backend: "embed", Model: "all-minilm-l6-v2", DurationMS: 900,
+	}
+	type result struct {
+		outcome FailOutcome
+		err     error
+	}
+	results := make(chan result, len(f.TaskIDs))
+	var wg sync.WaitGroup
+	for _, taskID := range f.TaskIDs {
+		wg.Add(1)
+		go func(taskID uuid.UUID) {
+			defer wg.Done()
+			outcome, err := store.FailTaskTx(ctx, taskID, f.WorkerID, 0, report)
+			results <- result{outcome: outcome, err: err}
+		}(taskID)
+	}
+	wg.Wait()
+	close(results)
+	for result := range results {
+		if result.err != nil || result.outcome != FailTerminal {
+			t.Fatalf("concurrent terminal failure = (%q,%v), want failed/nil",
+				result.outcome, result.err)
+		}
+	}
+	for _, taskID := range f.TaskIDs {
+		projection := readTaskLeaseProjection(t, ctx, pool, taskID)
+		if projection.Status != "failed" || projection.ClaimedBy != nil ||
+			projection.ClaimedAt != nil || projection.WorkerID != nil {
+			t.Fatalf("concurrent terminal task %s retained lease: %+v", taskID, projection)
+		}
+	}
+	var failures, jobFailedEvents int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM task_failures WHERE job_id=$1`, f.JobID).Scan(&failures); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM job_events WHERE job_id=$1 AND event='job_failed'`,
+		f.JobID).Scan(&jobFailedEvents); err != nil {
+		t.Fatal(err)
+	}
+	if failures != 2 || jobFailedEvents != 1 {
+		t.Fatalf("concurrent effects = failures %d/job_failed %d, want 2/1",
+			failures, jobFailedEvents)
+	}
+	if got := countBuyerLedger(t, ctx, pool, f.BuyerID); got != beforeLedger {
+		t.Fatalf("concurrent terminal failures changed ledger rows: before=%d after=%d",
+			beforeLedger, got)
+	}
+}
+
+func TestFailTaskAndSettleJobReleasesLeaseAndHonorsPending(t *testing.T) {
+	t.Run("success and already-terminal task replay", func(t *testing.T) {
+		ctx, store, pool := openMoneyPathStore(t)
+		f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+			TaskCount: 1, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
+		})
+		taskID := f.TaskIDs[0]
+		beforeLedger := countBuyerLedger(t, ctx, pool, f.BuyerID)
+		if _, err := pool.Exec(ctx,
+			`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=$1`, taskID); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.FailTaskAndSettleJob(ctx, taskID, f.JobID); err != nil {
+			t.Fatalf("FailTaskAndSettleJob: %v", err)
+		}
+		projection := readTaskLeaseProjection(t, ctx, pool, taskID)
+		if projection.Status != "failed" || projection.ClaimedBy != nil ||
+			projection.ClaimedAt != nil || projection.WorkerID != nil ||
+			projection.ExecutionWorker == nil || *projection.ExecutionWorker != f.WorkerID {
+			t.Fatalf("reaper terminal projection = %+v", projection)
+		}
+		var jobStatus string
+		if err := pool.QueryRow(ctx,
+			`SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus); err != nil {
+			t.Fatal(err)
+		}
+		if jobStatus != "failed" {
+			t.Fatalf("reaper settlement left job status %q, want failed", jobStatus)
+		}
+		if got := countBuyerLedger(t, ctx, pool, f.BuyerID); got != beforeLedger {
+			t.Fatalf("reaper terminal failure changed ledger rows: before=%d after=%d",
+				beforeLedger, got)
+		}
+		if err := store.FailTaskAndSettleJob(ctx, taskID, f.JobID); err != nil {
+			t.Fatalf("replayed FailTaskAndSettleJob: %v", err)
+		}
+		if err := pool.QueryRow(ctx,
+			`SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus); err != nil {
+			t.Fatal(err)
+		}
+		if jobStatus != "failed" {
+			t.Fatalf("replayed reaper settlement changed job status to %q", jobStatus)
+		}
+		if got := countBuyerLedger(t, ctx, pool, f.BuyerID); got != beforeLedger {
+			t.Fatalf("replayed reaper terminal failure changed ledger rows: before=%d after=%d",
+				beforeLedger, got)
+		}
+	})
+
+	t.Run("pending verification rolls back", func(t *testing.T) {
+		ctx, store, pool := openMoneyPathStore(t)
+		f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+			TaskCount: 2, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
+		})
+		taskID, siblingID := f.TaskIDs[0], f.TaskIDs[1]
+		if _, err := pool.Exec(ctx,
+			`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=ANY($1::uuid[])`,
+			f.TaskIDs); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx,
+			`UPDATE tasks SET status='verifying' WHERE id=$1`, siblingID); err != nil {
+			t.Fatal(err)
+		}
+		err := store.FailTaskAndSettleJob(ctx, taskID, f.JobID)
+		if !errors.Is(err, ErrJobVerificationPending) {
+			t.Fatalf("pending FailTaskAndSettleJob error = %v, want ErrJobVerificationPending", err)
+		}
+		projection := readTaskLeaseProjection(t, ctx, pool, taskID)
+		if projection.Status != "running" || projection.ClaimedBy == nil ||
+			*projection.ClaimedBy != f.WorkerID || projection.ClaimedAt == nil ||
+			projection.WorkerID == nil || *projection.WorkerID != f.WorkerID {
+			t.Fatalf("pending reaper terminal failure was not rolled back: %+v", projection)
+		}
+	})
+}
+
+func TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation(t *testing.T) {
+	t.Run("terminal parent cannot select or requeue running residual", func(t *testing.T) {
+		ctx, store, pool := openMoneyPathStore(t)
+		f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+			TaskCount: 1, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
+		})
+		taskID := f.TaskIDs[0]
+		if _, err := pool.Exec(ctx,
+			`UPDATE tasks SET claimed_at=now()-interval '2 hours',started_at=now()-interval '2 hours'
+			  WHERE id=$1`, taskID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE jobs SET status='failed' WHERE id=$1`, f.JobID); err != nil {
+			t.Fatal(err)
+		}
+		stale, err := store.StaleRunningTasks(ctx, time.Minute, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range stale {
+			if item.ID == taskID {
+				t.Fatalf("terminal-parent task %s was selected as stale", taskID)
+			}
+		}
+		if err := store.RequeueStaleTask(ctx, taskID, time.Second); err != nil {
+			t.Fatal(err)
+		}
+		projection := readTaskLeaseProjection(t, ctx, pool, taskID)
+		if projection.Status != "running" || projection.RetryCount != 0 ||
+			projection.ClaimedBy == nil || *projection.ClaimedBy != f.WorkerID {
+			t.Fatalf("terminal-parent stale requeue mutated task: %+v", projection)
+		}
+		if err := store.FailTaskAndSettleJob(ctx, taskID, f.JobID); err != nil {
+			t.Fatalf("terminal-parent stale cleanup: %v", err)
+		}
+		cleaned := readTaskLeaseProjection(t, ctx, pool, taskID)
+		if cleaned.Status != "failed" || cleaned.ClaimedBy != nil ||
+			cleaned.ClaimedAt != nil || cleaned.WorkerID != nil {
+			t.Fatalf("terminal-parent stale cleanup retained lease: %+v", cleaned)
+		}
+	})
+
+	t.Run("active parent still selects and requeues", func(t *testing.T) {
+		ctx, store, pool := openMoneyPathStore(t)
+		f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+			TaskCount: 1, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
+		})
+		taskID := f.TaskIDs[0]
+		if _, err := pool.Exec(ctx,
+			`UPDATE tasks SET claimed_at=now()-interval '2 hours',started_at=now()-interval '2 hours'
+			  WHERE id=$1`, taskID); err != nil {
+			t.Fatal(err)
+		}
+		stale, err := store.StaleRunningTasks(ctx, time.Minute, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, item := range stale {
+			if item.ID == taskID {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("active-parent task %s was not selected as stale", taskID)
+		}
+		if err := store.RequeueStaleTask(ctx, taskID, time.Second); err != nil {
+			t.Fatal(err)
+		}
+		projection := readTaskLeaseProjection(t, ctx, pool, taskID)
+		if projection.Status != "queued" || projection.RetryCount != 1 ||
+			projection.ClaimedBy != nil || projection.ClaimedAt != nil ||
+			projection.WorkerID != nil {
+			t.Fatalf("active-parent stale requeue projection = %+v", projection)
+		}
+	})
+}
+
 // --- CompleteTaskTx ---
 
 func TestCompleteTaskTxHappyPathMovesTaskTerminal(t *testing.T) {

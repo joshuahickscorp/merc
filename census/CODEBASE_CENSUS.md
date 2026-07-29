@@ -1,8 +1,8 @@
 # Codebase census
 
-GLOBAL_OWNED_LOC: **132998** across 566 tracked files (10.08 MB).
+GLOBAL_OWNED_LOC: **133382** across 566 tracked files (10.10 MB).
 
-Non-design production core: 95546 LOC · tests: 24158 LOC · documentation: 6625 LOC · Python: 9388 LOC · generated: 5118 LOC · vendored upstream: 0 LOC.
+Non-design production core: 95564 LOC · tests: 24524 LOC · documentation: 6625 LOC · Python: 9388 LOC · generated: 5118 LOC · vendored upstream: 0 LOC.
 
 ## Owned LOC by language
 
@@ -11,7 +11,7 @@ Non-design production core: 95546 LOC · tests: 24158 LOC · documentation: 6625
 | binary | 20 | 0 |
 | config | 7 | 583 |
 | documentation | 50 | 6625 |
-| go | 227 | 69764 |
+| go | 227 | 70148 |
 | javascript | 8 | 1028 |
 | json | 80 | 7576 |
 | lockfile | 2 | 4012 |
@@ -32,7 +32,7 @@ Non-design production core: 95546 LOC · tests: 24158 LOC · documentation: 6625
 |---|--:|--:|
 | agent | 23 | 15045 |
 | contract | 3 | 483 |
-| control | 162 | 48467 |
+| control | 162 | 48851 |
 | documentation | 39 | 5741 |
 | interface | 29 | 1702 |
 | ops | 118 | 11048 |
