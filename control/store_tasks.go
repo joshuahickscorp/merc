@@ -828,10 +828,13 @@ type StaleTask struct {
 
 func (s *Store) StaleRunningTasks(ctx context.Context, timeout time.Duration, limit int) ([]StaleTask, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, job_id, retry_count FROM tasks
-		 WHERE status = 'running' AND claimed_at IS NOT NULL
-		   AND claimed_at < now() - make_interval(secs => $1)
-		 ORDER BY claimed_at ASC LIMIT $2`,
+		`SELECT t.id, t.job_id, t.retry_count
+		   FROM tasks t
+		   JOIN jobs j ON j.id = t.job_id
+		  WHERE t.status = 'running' AND t.claimed_at IS NOT NULL
+		    AND t.claimed_at < now() - make_interval(secs => $1)
+		    AND j.status NOT IN ('complete','cancelled','failed')
+		  ORDER BY t.claimed_at ASC LIMIT $2`,
 		timeout.Seconds(), limit)
 	if err != nil {
 		return nil, err
@@ -1027,12 +1030,17 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 func (s *Store) RequeueStaleTask(ctx context.Context, taskID uuid.UUID, backoff time.Duration) error {
 	_, err := s.pool.Exec(ctx,
 		`WITH requeued AS (
-		 UPDATE tasks
+		 UPDATE tasks t
 		   SET status = 'queued', claimed_by = NULL, claimed_at = NULL,
 		       worker_id = NULL, retry_count = retry_count + 1,
 		       visible_at = now() + make_interval(secs => $2)
-		 WHERE id = $1 AND status = 'running'
-		 RETURNING job_id
+		 WHERE t.id = $1 AND t.status = 'running'
+		   AND EXISTS (
+		     SELECT 1 FROM jobs j
+		      WHERE j.id = t.job_id
+		        AND j.status NOT IN ('complete','cancelled','failed')
+		   )
+		 RETURNING t.job_id
 		)
 		UPDATE jobs SET status = 'running'
 		 WHERE id IN (SELECT job_id FROM requeued) AND status = 'verifying'`,
@@ -1048,7 +1056,11 @@ func (s *Store) FailTaskAndSettleJob(ctx context.Context, taskID, jobID uuid.UUI
 	defer tx.Rollback(ctx)
 
 	ct, err := tx.Exec(ctx,
-		`UPDATE tasks SET status = 'failed'
+		`UPDATE tasks
+		    SET status = 'failed',
+		        claimed_by = NULL,
+		        claimed_at = NULL,
+		        worker_id = NULL
 		  WHERE id = $1 AND job_id=$2 AND status='running'`, taskID, jobID)
 	if err != nil {
 		return err

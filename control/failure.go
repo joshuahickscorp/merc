@@ -127,7 +127,13 @@ func (s *Store) FailTaskTx(ctx context.Context, taskID, workerID uuid.UUID, atte
 
 	terminal := !policy.retryable || int(retry) >= maxTaskRetries
 	if terminal {
-		if _, err := tx.Exec(ctx, `UPDATE tasks SET status = 'failed' WHERE id = $1`, taskID); err != nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE tasks
+			   SET status = 'failed',
+			       claimed_by = NULL,
+			       claimed_at = NULL,
+			       worker_id = NULL
+			 WHERE id = $1`, taskID); err != nil {
 			return FailNoop, err
 		}
 		flipped, err := failJobAndSettleOnce(ctx, tx, jobID)
