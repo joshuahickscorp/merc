@@ -893,12 +893,13 @@ func checkpointBeforeFail(ctx context.Context, store *Store, storage *Storage, j
 }
 
 func recordEtaCalibration(ctx context.Context, store *Store, jobID uuid.UUID) {
-	predicted, realized, err := store.RecordEtaCalibration(ctx, jobID)
+	_, quoted, realized, err := store.RecordEtaCalibration(ctx, jobID)
 	if err != nil {
 		log.Printf("eta calibration for job %s: %v (finalize unaffected)", jobID, err)
 		return
 	}
-	if predicted > 0 && float64(realized) > 1.2*float64(predicted) {
+	// This metric is a buyer-promise near miss, not raw-estimator drift.
+	if quoted > 0 && float64(realized) > 1.2*float64(quoted) {
 		metrics.watchdogNearMiss.Add(1)
 	}
 }

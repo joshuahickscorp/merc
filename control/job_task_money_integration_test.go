@@ -549,6 +549,7 @@ func validJobRow(t *testing.T, f moneyPathFixture, tasks []taskRow) *jobRow {
 		SplitSize:            1,
 		OfferedRateUsdHr:     placement.OfferedRateUsdHr,
 		ETASecs:              60,
+		ETARawSecs:           60,
 		SLAPremiumUSD:        economicPlan.Input.SLAPremiumUSD,
 		EconomicInputRecords: int64(inputRecords),
 		EconomicInputBytes:   inputBytes,
@@ -750,10 +751,15 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 	quoteID := uuid.New()
 	quote := Quote{
 		QuoteID: "q_" + quoteID.String(), bareID: quoteID,
-		JobType: job.JobType, Model: job.ModelRef, Tier: job.Tier,
+		etaRawP50Secs: job.ETARawSecs,
+		JobType:       job.JobType, Model: job.ModelRef, Tier: job.Tier,
 		Currency: job.EconomicPlan.Schedule.Currency,
 		Workload: job.WorkloadDecision, Placement: job.PlacementRequirement,
 		ComputePlan: job.ComputePlan, Pricing: job.PricingDecision,
+		Time: QuoteTime{
+			P50Secs: job.ComputePlan.ETAP50Secs, P90Secs: job.ComputePlan.ETAP90Secs,
+			WorstCaseSecs: job.ComputePlan.ETAWorstCaseSecs,
+		},
 		Economics:   job.EconomicPlan,
 		InputSHA256: strings.Repeat("a", 64),
 		ExpiresAt:   time.Now().Add(quoteTTL).UTC(),
@@ -778,10 +784,22 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 		t.Fatalf("bound quote pricing digest=%s want %s",
 			bound.PricingDecisionSHA256, quotePricingSHA)
 	}
+	if bound.ETARawSecs != job.ETARawSecs {
+		t.Fatalf("bound quote raw ETA=%d want %d", bound.ETARawSecs, job.ETARawSecs)
+	}
 
 	job.QuoteID = quoteID
 	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
 		t.Fatalf("submit quote-bound job: %v", err)
+	}
+	var storedRawETA int
+	if err := pool.QueryRow(ctx,
+		`SELECT eta_secs_raw FROM jobs WHERE id=$1`, f.JobID,
+	).Scan(&storedRawETA); err != nil {
+		t.Fatal(err)
+	}
+	if storedRawETA != bound.ETARawSecs {
+		t.Fatalf("job raw ETA=%d want frozen quote %d", storedRawETA, bound.ETARawSecs)
 	}
 
 	candidate := job.WorkloadDecision.RuntimeCandidates[0]

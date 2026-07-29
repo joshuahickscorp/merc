@@ -56,7 +56,7 @@ type metricsState struct {
 	longPollTimeouts          atomic.Int64 // worker long-poll waits that returned empty on timeout (§7 D1; 0 until the long-poll slice lands)
 	stuckCancels              atomic.Int64 // runs auto-cancelled past their deadline with no progress (checkpointed + partially settled; strike >= 1)
 	stuckRescues              atomic.Int64 // runs rescued on their FIRST stuck verdict (unfinished tasks requeued; strike 0 -> 1)
-	watchdogNearMiss          atomic.Int64 // finalized jobs that finished LATE (realized > 1.2 × predicted eta_secs)  -  the data that tunes stuckEtaFactor
+	watchdogNearMiss          atomic.Int64 // finalized jobs that finished LATE (realized > 1.2 × calibrated buyer-facing eta_secs)
 	reconcileDrift            atomic.Int64 // ledger-vs-Stripe discrepancies found by the reconcile audit
 	throttledHedges           atomic.Int64
 	hashTrustedRedundancy     atomic.Int64
@@ -379,7 +379,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeCounter(w, "merc_long_poll_timeouts_total", "Worker long-poll waits that returned empty on timeout.", metrics.longPollTimeouts.Load())
 	writeCounter(w, "merc_stuck_cancelled_total", "Stuck runs auto-cancelled by the watchdog (repeat stall past the deadline; checkpointed + settled at completed work).", metrics.stuckCancels.Load())
 	writeCounter(w, "merc_stuck_rescued_total", "Stuck runs rescued by the watchdog's first strike (unfinished tasks requeued to a different machine).", metrics.stuckRescues.Load())
-	writeCounter(w, "merc_watchdog_near_miss_total", "Jobs that finalized LATE (realized > 1.2x the predicted eta_secs)  -  calibration data for the watchdog's ETA factor.", metrics.watchdogNearMiss.Load())
+	writeCounter(w, "merc_watchdog_near_miss_total", "Jobs that finalized LATE (realized > 1.2x the calibrated buyer-facing eta_secs).", metrics.watchdogNearMiss.Load())
 	writeCounter(w, "merc_reconcile_drift_total", "Ledger-vs-Stripe discrepancies found by the reconcile audit (a genuine anomaly, not routine).", metrics.reconcileDrift.Load())
 	writeCounter(w, "merc_throttled_hedges_total", "Straggler hedges triggered by a worker's live throttled=true heartbeat (memory pressure or a detected sustained throughput drop), ahead of the elapsed-time hedge/stale-worker thresholds.", metrics.throttledHedges.Load())
 	writeCounter(w, "merc_hash_trusted_redundancy_total", "Redundancy comparisons that trusted a worker/peer SHA-256 match instead of re-fetching the peer's result object from S3 inside the commit request.", metrics.hashTrustedRedundancy.Load())

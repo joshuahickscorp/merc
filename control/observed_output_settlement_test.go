@@ -217,6 +217,20 @@ func TestObservedOutputSettlementMissingInputsSettleAtFreeze(t *testing.T) {
 	}
 }
 
+func TestEffectiveObservedOutputMaxTokensMatchesPricingDefault(t *testing.T) {
+	workload := WorkloadDecision{
+		Binding: WorkloadBinding{JobType: JobType{Type: "batch_infer"}},
+	}
+	plan := ComputePlan{EstimatedOutputTokens: defaultQuoteMaxTokens}
+	if got := effectiveObservedOutputMaxTokens(workload, plan); got != defaultQuoteMaxTokens {
+		t.Fatalf("effective max_tokens = %d, want pricing default %d", got, defaultQuoteMaxTokens)
+	}
+	workload.Binding.JobType.MaxTokens = 77
+	if got := effectiveObservedOutputMaxTokens(workload, plan); got != 77 {
+		t.Fatalf("explicit max_tokens = %d, want 77", got)
+	}
+}
+
 func TestObservedOutputSettlementDeterministic(t *testing.T) {
 	a := settleObservedOutputTokens(1.23, 0.80, 40, 200, 2, 128, 17, true)
 	b := settleObservedOutputTokens(1.23, 0.80, 40, 200, 2, 128, 17, true)
@@ -313,6 +327,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		MinMemoryGB: float32(workload.MinimumMemoryGB), MaxDurationSecs: 3600,
 		JobTypeSpec: jobTypeSpec, SplitSize: 1,
 		OfferedRateUsdHr: placement.OfferedRateUsdHr, ETASecs: compute.ETAP50Secs,
+		ETARawSecs:           compute.ETAP50Secs,
 		EconomicInputRecords: 1, EconomicInputBytes: 64,
 		EconomicInputSource: economicInputSourceSubmitStream,
 		EconomicPlan:        f.Plan, WorkloadDecision: workload, ComputePlan: compute,
@@ -374,5 +389,53 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	}
 	if roundUSD(ledgerNet) != 0 {
 		t.Fatalf("recovered settlement ledger net %.9f, want zero", ledgerNet)
+	}
+
+	// Presentation must use the same frozen workload authority as settlement,
+	// even if the older denormalized submission JSON drifts.
+	if _, err := pool.Exec(ctx,
+		`UPDATE jobs
+		    SET job_type_spec=jsonb_set(job_type_spec,'{max_tokens}','999'::jsonb)
+		  WHERE id=$1`, f.JobID); err != nil {
+		t.Fatal(err)
+	}
+	receipts, err := store.JobTaskReceipts(ctx, f.JobID)
+	if err != nil {
+		t.Fatalf("task receipts: %v", err)
+	}
+	if len(receipts) != 1 || receipts[0].OutputTokenCeiling == nil ||
+		*receipts[0].OutputTokenCeiling != 100 ||
+		receipts[0].ObservedOutputTokens == nil || *receipts[0].ObservedOutputTokens != 5 {
+		t.Fatalf("receipt did not preserve frozen 100/5 evidence: %+v", receipts)
+	}
+	invoice := InvoiceView{JobID: f.JobID}
+	if err := store.attachObservedOutputInvoiceEvidence(ctx, &invoice); err != nil {
+		t.Fatalf("invoice evidence: %v", err)
+	}
+	if invoice.OutputTokenCeiling == nil || *invoice.OutputTokenCeiling != 100 ||
+		invoice.ObservedOutputTokens == nil || *invoice.ObservedOutputTokens != 5 {
+		t.Fatalf("invoice did not preserve frozen 100/5 evidence: %+v", invoice)
+	}
+
+	// A negative durable observation is corrupt. Money holds its existing
+	// fail-closed settlement and presentation omits the observation instead of
+	// falsely advertising zero tokens.
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET reported_tokens_used=-1 WHERE id=$1`, tasks[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	receipts, err = store.JobTaskReceipts(ctx, f.JobID)
+	if err != nil {
+		t.Fatalf("task receipts after corrupt observation: %v", err)
+	}
+	if len(receipts) != 1 || receipts[0].ObservedOutputTokens != nil {
+		t.Fatalf("receipt advertised corrupt observation: %+v", receipts)
+	}
+	invoice = InvoiceView{JobID: f.JobID}
+	if err := store.attachObservedOutputInvoiceEvidence(ctx, &invoice); err != nil {
+		t.Fatalf("invoice corrupt evidence: %v", err)
+	}
+	if invoice.ObservedOutputTokens != nil {
+		t.Fatalf("invoice advertised corrupt observation: %+v", invoice)
 	}
 }

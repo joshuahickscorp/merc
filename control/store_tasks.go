@@ -277,7 +277,7 @@ type CommitTaskInfo struct {
 	engine                   string
 	buildHash                string
 	jobType                  string // parent job's job_type, for honeypot answer lookup
-	jobMaxTokens             uint32 // bounded projection of jobs.job_type_spec.max_tokens
+	jobMaxTokens             uint32 // bounded projection of frozen workload job_type.max_tokens
 	resultMaxBytes           int64
 	InputRef                 string // this task's input chunk key (honeypot answer lookup)
 	ResultKey                string // canonical server-side result key (verification fetch)
@@ -366,7 +366,7 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 		        COALESCE(t.result_key,''),
 		        t.execution_worker_id,t.execution_supplier_id,t.execution_hw_class,
 		        t.execution_engine,t.execution_build_hash,j.job_type,
-		        COALESCE((j.job_type_spec->>'max_tokens')::bigint,0),
+		        COALESCE((j.workload_decision #>> '{binding,job_type,max_tokens}')::bigint,0),
 		        COALESCE(j.model_ref,''), COALESCE(j.min_memory_gb,0),
 		        COALESCE(t.chunk_index,0), COALESCE(j.split_size,0),
 		        COALESCE(t.expected_output_records,0),
@@ -699,6 +699,14 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 	if planErr != nil {
 		return nil, planErr
 	}
+	workload, workloadErr := s.JobWorkloadDecision(ctx, jobID)
+	if workloadErr != nil {
+		return nil, workloadErr
+	}
+	var maxTokens uint32
+	if plan != nil && workload != nil {
+		maxTokens = effectiveObservedOutputMaxTokens(*workload, *plan)
+	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT COALESCE(t.chunk_index,0), t.status, t.is_honeypot,
 		        COALESCE(vw.input_snapshot->>'engine',t.execution_engine,''),
@@ -711,14 +719,12 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 		        COALESCE(t.expected_output_records,0),
 		        t.reported_tokens_used,
 		        t.economic_buyer_charge_usd::float8,
-		        COALESCE((j.job_type_spec->>'max_tokens')::bigint,0),
 		        COALESCE((
 		          SELECT -le.amount_usd::float8 FROM ledger_entries le
 		           WHERE le.task_id = t.id AND le.kind = 'buyer_charge'
 		           LIMIT 1
 		        ),0)
 		 FROM tasks t
-		 JOIN jobs j ON j.id = t.job_id
 		 LEFT JOIN verification_work vw ON vw.task_id=t.id AND vw.attempt=t.retry_count
 		 WHERE t.job_id = $1
 		 ORDER BY COALESCE(t.chunk_index,0), t.id`,
@@ -740,12 +746,11 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 			expectedRecords              int64
 			reportedTokens               *int64
 			frozenCharge                 *float64
-			maxTokens                    int64
 			billedCharge                 float64
 		)
 		if err := rows.Scan(&chunk, &status, &isHoneypot, &engine, &build, &kind, &verdict,
 			&cellID, &runtimeID, &matrixSHA, &modelKind,
-			&expectedRecords, &reportedTokens, &frozenCharge, &maxTokens, &billedCharge); err != nil {
+			&expectedRecords, &reportedTokens, &frozenCharge, &billedCharge); err != nil {
 			return nil, err
 		}
 		tr := taskReceiptRowWithRuntime(chunk, status, isHoneypot, engine, build,
@@ -754,19 +759,17 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 		// generative output and this task had a positive ceiling.
 		if plan != nil && plan.EstimatedOutputTokens > 0 &&
 			expectedRecords > 0 && maxTokens > 0 &&
-			maxTokens <= int64(^uint32(0)) &&
-			expectedRecords <= math.MaxInt64/maxTokens {
-			ceiling := expectedRecords * maxTokens
+			expectedRecords <= math.MaxInt64/int64(maxTokens) {
+			ceiling := expectedRecords * int64(maxTokens)
 			tr.OutputTokenCeiling = &ceiling
 			if reportedTokens != nil {
 				observed := *reportedTokens
-				if observed < 0 {
-					observed = 0
-				}
-				if observed > ceiling {
+				if observed >= 0 && observed > ceiling {
 					observed = ceiling
 				}
-				tr.ObservedOutputTokens = &observed
+				if observed >= 0 {
+					tr.ObservedOutputTokens = &observed
+				}
 			}
 			if frozenCharge != nil && *frozenCharge > 0 {
 				fc := *frozenCharge
@@ -783,7 +786,7 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 					settled := settleObservedOutputTokens(
 						fc, fc, // payout unused for receipt charge fields
 						plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
-						expectedRecords, uint32(maxTokens),
+						expectedRecords, maxTokens,
 						reported, hasReported,
 					)
 					billed = settled.BilledCharge

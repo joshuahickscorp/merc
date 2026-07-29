@@ -670,6 +670,12 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS data_residency     TEXT[];           -
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS split_size         INT;              -- adaptive chunk size chosen at submit
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS offered_rate_usd_hr REAL;            -- price-derived $/hr a worker earns running this (min-payout gate)
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS eta_secs           INT;              -- predicted completion seconds at submit
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS eta_secs_raw       INT;              -- uncalibrated p50 used only as the ETA learner denominator
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_eta_raw_valid;
+ALTER TABLE jobs ADD CONSTRAINT jobs_eta_raw_valid CHECK (
+    eta_secs_raw IS NULL
+    OR (eta_secs_raw > 0 AND eta_secs IS NOT NULL AND eta_secs >= eta_secs_raw)
+);
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS charge_status      TEXT NOT NULL DEFAULT 'not_attempted'; -- not_attempted|charged|failed|no_payment_method|deferred (queryable charge state, not log-only).
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS results_merged_at  TIMESTAMPTZ;      -- watermark: set when the buyer-ready artifact was last successfully merged, so GET /v1/jobs/{id}/results only re-merges once since completion instead of on every poll
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_type_spec      JSONB;
@@ -1173,6 +1179,13 @@ CREATE TABLE IF NOT EXISTS quotes (
     oom_risk           TEXT,             -- low|medium|high (conservative, explainable)
     confidence         REAL,             -- 0.0-1.0
     quote_json         JSONB             -- the full quote object returned to the buyer
+);
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS eta_p50_secs_raw INT;
+ALTER TABLE quotes DROP CONSTRAINT IF EXISTS quotes_eta_raw_valid;
+ALTER TABLE quotes ADD CONSTRAINT quotes_eta_raw_valid CHECK (
+    eta_p50_secs_raw IS NULL
+    OR (eta_p50_secs_raw > 0 AND eta_p50_secs IS NOT NULL
+        AND eta_p50_secs >= eta_p50_secs_raw)
 );
 
 
@@ -1695,7 +1708,10 @@ BEGIN
     IF OLD.workload_binding_sha256 IS DISTINCT FROM NEW.workload_binding_sha256
        OR OLD.workload_decision_sha256 IS DISTINCT FROM NEW.workload_decision_sha256
        OR OLD.compute_plan IS DISTINCT FROM NEW.compute_plan
-       OR OLD.compute_plan_sha256 IS DISTINCT FROM NEW.compute_plan_sha256 THEN
+       OR OLD.compute_plan_sha256 IS DISTINCT FROM NEW.compute_plan_sha256
+       OR OLD.eta_p50_secs IS DISTINCT FROM NEW.eta_p50_secs
+       OR OLD.eta_p90_secs IS DISTINCT FROM NEW.eta_p90_secs
+       OR OLD.eta_p50_secs_raw IS DISTINCT FROM NEW.eta_p50_secs_raw THEN
         RAISE EXCEPTION 'workload and compute authority for quote % is immutable', OLD.id;
     END IF;
     RETURN NEW;
@@ -1703,7 +1719,9 @@ END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS quotes_workload_authority_immutable ON quotes;
 CREATE TRIGGER quotes_workload_authority_immutable
-    BEFORE UPDATE OF workload_binding_sha256, workload_decision_sha256, compute_plan, compute_plan_sha256 ON quotes
+    BEFORE UPDATE OF workload_binding_sha256, workload_decision_sha256,
+        compute_plan, compute_plan_sha256, eta_p50_secs, eta_p90_secs,
+        eta_p50_secs_raw ON quotes
     FOR EACH ROW EXECUTE FUNCTION cx_reject_quote_workload_authority_update();
 
 -- Classification and placement assumptions are frozen with the job. Legacy
@@ -1728,7 +1746,9 @@ BEGIN
     IF OLD.workload_decision IS DISTINCT FROM NEW.workload_decision
        OR OLD.workload_decision_sha256 IS DISTINCT FROM NEW.workload_decision_sha256
        OR OLD.compute_plan IS DISTINCT FROM NEW.compute_plan
-       OR OLD.compute_plan_sha256 IS DISTINCT FROM NEW.compute_plan_sha256 THEN
+       OR OLD.compute_plan_sha256 IS DISTINCT FROM NEW.compute_plan_sha256
+       OR OLD.eta_secs IS DISTINCT FROM NEW.eta_secs
+       OR OLD.eta_secs_raw IS DISTINCT FROM NEW.eta_secs_raw THEN
         RAISE EXCEPTION 'workload and compute decision for job % is immutable', OLD.id;
     END IF;
     RETURN NEW;
@@ -1736,7 +1756,8 @@ END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS jobs_workload_decision_immutable ON jobs;
 CREATE TRIGGER jobs_workload_decision_immutable
-    BEFORE UPDATE OF workload_decision, workload_decision_sha256, compute_plan, compute_plan_sha256 ON jobs
+    BEFORE UPDATE OF workload_decision, workload_decision_sha256,
+        compute_plan, compute_plan_sha256, eta_secs, eta_secs_raw ON jobs
     FOR EACH ROW EXECUTE FUNCTION cx_reject_job_workload_decision_update();
 
 -- The scheduler reads these denormalized columns on every claim. They are a

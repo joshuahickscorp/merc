@@ -587,22 +587,10 @@ const etaBiasFactorMax = 3.0
 // that a burst of fast jobs talked us into.
 //
 // Below driftMinSamples the factor is exactly 1 and the quote is unchanged.
-//
-// Known ceiling — the loop corrects, but does not yet converge. recordEtaCalibration
-// stores jobs.eta_secs as predicted_secs, and eta_secs is the quote AFTER this
-// factor was applied. So once a correction is in force the observed ratio moves
-// back toward 1, the factor decays, and the next quotes go out uncorrected until
-// the bias reappears. The result oscillates between the raw estimate and the
-// corrected one over roughly one driftWindow instead of settling on the truth.
-// That is strictly better than the write-only table this replaced, and it is
-// safe in both phases because the factor is one-sided and capped — the worst
-// case is an honest ETA some of the time rather than never.
-//
-// ponytail: measures its own output. Converging needs the UNCALIBRATED
-// prediction persisted per job (a jobs.eta_secs_raw column, carried through the
-// quote row for bound quotes) so the ratio always measures raw estimator bias.
-// Do that before widening the clamp or adding downward calibration; both make
-// the oscillation worse, not better.
+// Calibration rows use jobs.eta_secs_raw as their denominator, so the learner
+// always measures the uncalibrated estimator rather than feeding its own
+// corrected buyer promise back into the next window. Legacy jobs with no raw
+// authority use eta_secs once and naturally age out of driftWindow.
 func (s *Store) ETABiasFactor(ctx context.Context, jobType, tier string) (factor float64, samples int, err error) {
 	var median float64
 	err = s.pool.QueryRow(ctx,
@@ -1600,20 +1588,30 @@ type DeadClaim struct {
 	JobType    string
 }
 
-func (s *Store) RecordEtaCalibration(ctx context.Context, jobID uuid.UUID) (predicted, realized int, err error) {
+func (s *Store) RecordEtaCalibration(
+	ctx context.Context, jobID uuid.UUID,
+) (rawPredicted, quotedPredicted, realized int, err error) {
 	err = s.pool.QueryRow(ctx,
-		`INSERT INTO eta_calibration (job_id, job_type, tier, predicted_secs, realized_secs)
-		 SELECT id, job_type, tier, eta_secs,
-		        GREATEST(0, EXTRACT(EPOCH FROM (now() - created_at)))::int
-		 FROM jobs
-		 WHERE id = $1 AND COALESCE(eta_secs, 0) > 0
-		 ON CONFLICT (job_id) DO NOTHING
-		 RETURNING predicted_secs, realized_secs`,
-		jobID).Scan(&predicted, &realized)
+		`WITH source AS (
+		   SELECT id, job_type, tier,
+		          COALESCE(eta_secs_raw, eta_secs) AS raw_predicted_secs,
+		          eta_secs AS quoted_predicted_secs,
+		          GREATEST(0, EXTRACT(EPOCH FROM (now() - created_at)))::int AS realized_secs
+		     FROM jobs
+		    WHERE id = $1 AND COALESCE(eta_secs_raw, eta_secs, 0) > 0
+		 ), inserted AS (
+		   INSERT INTO eta_calibration (job_id, job_type, tier, predicted_secs, realized_secs)
+		   SELECT id, job_type, tier, raw_predicted_secs, realized_secs FROM source
+		   ON CONFLICT (job_id) DO NOTHING
+		   RETURNING job_id, predicted_secs, realized_secs
+		 )
+		 SELECT i.predicted_secs, s.quoted_predicted_secs, i.realized_secs
+		   FROM inserted i JOIN source s ON s.id = i.job_id`,
+		jobID).Scan(&rawPredicted, &quotedPredicted, &realized)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, 0, nil // no ETA prediction (or already recorded)  -  nothing to calibrate
+		return 0, 0, 0, nil // no ETA prediction (or already recorded)  -  nothing to calibrate
 	}
-	return predicted, realized, err
+	return rawPredicted, quotedPredicted, realized, err
 }
 
 func (s *Store) MarkResultsMerged(ctx context.Context, jobID uuid.UUID, outputRecords, outputBytes int64) error {
