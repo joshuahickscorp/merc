@@ -30,7 +30,7 @@ machine; they all need real infrastructure or a real payment account.
 
 - Run sustained concurrent multi-job and restart soak tests. The current proof is
   two agents running a fixed script; cold-start time has been seen to vary from
-  about 3.2 seconds to 34 seconds.
+  about 3.3 seconds warm to a 34 second cold outlier.
 - Sign container images and add a container vulnerability scanner, once registry
   credentials exist.
 - Drop the unmaintained `paste` macro once Candle's dependency graph allows it.
