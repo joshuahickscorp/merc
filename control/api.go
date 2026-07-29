@@ -2391,6 +2391,12 @@ func (s *Server) finalizeJobIfDone(ctx context.Context, jobID uuid.UUID) error {
 		return err
 	}
 	if err := s.store.FinalizeJobTx(ctx, jobID); err != nil {
+		if errors.Is(err, ErrJobNotFinalizable) {
+			// The task commit is already durable. A concurrent obligation won
+			// the job lock after the advisory done check, so leave the job live
+			// for that work rather than turning a successful commit into 500.
+			return nil
+		}
 		return err
 	}
 	settleSLAOutcome(ctx, s.store, jobID)
