@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -566,6 +567,86 @@ func (s *Store) HistoricalP90DurationMs(ctx context.Context, jobType, modelRef s
 		return 0, samples, nil // too thin  -  caller falls back to the static target
 	}
 	return p90ms, samples, nil
+}
+
+// etaBiasFactorMax bounds how far realized-versus-predicted history may stretch a
+// quoted ETA. A window that is pathological (one job that sat queued for a day)
+// must not be able to quote an absurd completion time.
+const etaBiasFactorMax = 3.0
+
+// ETABiasFactor closes the loop that recordEtaCalibration opens. Every finalized
+// job writes its predicted and realized seconds to eta_calibration; this reads
+// the median realized/predicted ratio back so the next quote can correct for a
+// systematic bias instead of repeating it.
+//
+// The correction is deliberately one-sided: the returned factor is never below
+// 1. An ETA that is too optimistic misleads the buyer and burns SLA refunds, so
+// stretching it is both honest and safe. An ETA that is too pessimistic is only
+// unattractive, and shrinking it on this evidence would tighten the SLA bound
+// that deriveQuoteSLA computes from the same number — paying out on a promise
+// that a burst of fast jobs talked us into.
+//
+// Below driftMinSamples the factor is exactly 1 and the quote is unchanged.
+//
+// Known ceiling — the loop corrects, but does not yet converge. recordEtaCalibration
+// stores jobs.eta_secs as predicted_secs, and eta_secs is the quote AFTER this
+// factor was applied. So once a correction is in force the observed ratio moves
+// back toward 1, the factor decays, and the next quotes go out uncorrected until
+// the bias reappears. The result oscillates between the raw estimate and the
+// corrected one over roughly one driftWindow instead of settling on the truth.
+// That is strictly better than the write-only table this replaced, and it is
+// safe in both phases because the factor is one-sided and capped — the worst
+// case is an honest ETA some of the time rather than never.
+//
+// ponytail: measures its own output. Converging needs the UNCALIBRATED
+// prediction persisted per job (a jobs.eta_secs_raw column, carried through the
+// quote row for bound quotes) so the ratio always measures raw estimator bias.
+// Do that before widening the clamp or adding downward calibration; both make
+// the oscillation worse, not better.
+func (s *Store) ETABiasFactor(ctx context.Context, jobType, tier string) (factor float64, samples int, err error) {
+	var median float64
+	err = s.pool.QueryRow(ctx,
+		`SELECT COUNT(*),
+		        COALESCE(percentile_cont(0.5) WITHIN GROUP (
+		          ORDER BY realized_secs::float8 / predicted_secs), 1)
+		   FROM eta_calibration
+		  WHERE job_type = $1
+		    AND tier = $2
+		    AND predicted_secs > 0
+		    AND realized_secs >= 0
+		    AND created_at > now() - make_interval(secs => $3)`,
+		jobType, tier, int(driftWindow.Seconds()),
+	).Scan(&samples, &median)
+	if err != nil {
+		return 1, 0, err
+	}
+	if samples < driftMinSamples {
+		return 1, samples, nil
+	}
+	return clampETABiasFactor(median), samples, nil
+}
+
+func clampETABiasFactor(median float64) float64 {
+	if math.IsNaN(median) || math.IsInf(median, 0) || median <= 1 {
+		return 1
+	}
+	if median > etaBiasFactorMax {
+		return etaBiasFactorMax
+	}
+	return median
+}
+
+// applyETABias stretches a quoted ETA by a calibration factor from ETABiasFactor.
+// A factor of exactly 1 (the no-evidence case) returns secs unchanged.
+func applyETABias(secs int, factor float64) int {
+	if secs <= 0 || factor <= 1 || math.IsNaN(factor) || math.IsInf(factor, 0) {
+		return secs
+	}
+	stretched := int(math.Ceil(float64(secs) * factor))
+	if stretched < secs {
+		return secs // overflow guard: never shorten
+	}
+	return stretched
 }
 
 type DriftRow struct {

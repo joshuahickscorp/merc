@@ -1,5 +1,22 @@
 # Requirement proof matrix
 
+> **Superseded on 2026-07-29. Do not read this table as current state.**
+> `docs/SHIPPABILITY_STATUS.md` carries the maintained rung for every lane, and
+> `ops/go-no-go.json` plus `RELEASE_READINESS.md` carry the release decision.
+>
+> The rows below were accurate on 2026-07-21 and the tree has moved past several
+> of them. Five are now flatly contradicted by the code: the public price board
+> (`pricing/board.json`, `control/pricing_governance.go`, `web/prices.html`),
+> image generation (`control/image_generation.go`), LoRA eval payment
+> (`control/lora_settlement.go`), the TypeScript SDK (`sdk/typescript/`, builds
+> to `dist/`), and single-host multi-GPU (`control/multi_gpu_admission.go`) are
+> all marked "Not implemented" or validation-only here while the tree has
+> `IMPLEMENTED`-or-better evidence for each.
+>
+> This file is retained as an audit trail of what was claimed on 2026-07-21, not
+> as an operator checklist. A row here may not be used to promote or demote any
+> lane.
+
 Status as of 2026-07-21. `Tested` means automated software evidence. It does not
 mean a physical CUDA/vLLM runtime ran.
 

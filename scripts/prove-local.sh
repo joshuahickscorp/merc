@@ -202,6 +202,20 @@ if [ "$SKIP_LIVE" != "1" ]; then
   cp macapp/ComputeExchangeAgent/merc-agent.sb "$SANDBOX_ROOT/merc-agent.sb"
   AGENT_BIN="$SANDBOX_ROOT/merc-agent"
   MODEL_CACHE="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
+
+  # The batch_infer submit below asks for honeypot_frac 0.5, and createJob
+  # refuses (503) rather than admit a job whose only correctness check would be
+  # a record count. `merc seed` deliberately will not write a known answer it
+  # has not measured, because a probe no honest worker can pass quarantines the
+  # supplier that runs it. Measure one against the binary that is about to
+  # execute it -- byte-exact honeypots are bound to engine|build_hash.
+  MERC_AGENT_BIN="$AGENT_BIN" MERC_MODEL_CACHE="$MODEL_CACHE" \
+    DATABASE_URL="$DATABASE_URL" \
+    scripts/seed-batch-infer-honeypot.sh >"$ART/batch-infer-honeypot.json" 2>"$ART/batch-infer-honeypot.log"
+  jq -e '.status=="PASS" and (.known_answer_utf8|startswith("{\"job_type\":\"batch_infer\","))' \
+    "$ART/batch-infer-honeypot.json" >/dev/null \
+    || { echo "batch_infer honeypot measurement failed" >&2; tail -5 "$ART/batch-infer-honeypot.log" >&2; exit 1; }
+  record PASS honeypot "batch_infer known answer measured against this agent build"
   for n in 1 2; do
     token="dev-worker-token-000$n"
     supplier="00000000-0000-0000-0000-0000000000a$n"

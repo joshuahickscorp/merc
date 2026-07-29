@@ -15,7 +15,11 @@ Every cycle must distinguish implementation, automated tests, real-runtime
 proof, private-canary proof, production proof, and external blockers. A route,
 mock, unit test, dashboard, or unmeasured claim is never promoted to a higher
 proof level. The current detailed state is maintained in
-`REQUIREMENT_PROOF_MATRIX.md` and `VLLM_LANE_STATUS.md`.
+`docs/SHIPPABILITY_STATUS.md` (per-lane rung) and `RELEASE_READINESS.md` with
+`ops/go-no-go.json` (release decision). `REQUIREMENT_PROOF_MATRIX.md` is a
+superseded 2026-07-21 snapshot kept only as an audit trail. `VLLM_LANE_STATUS.md`
+was named here but has never existed in this repository; the vLLM lane's current
+rung lives in `docs/SHIPPABILITY_STATUS.md` alongside every other lane.
 
 Until the complete source text is imported through the normal documentation
 review path, the source with the digest above remains authoritative if this

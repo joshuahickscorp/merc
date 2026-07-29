@@ -1105,6 +1105,11 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		observedP90ms, _, historyErr := s.store.HistoricalP90DurationMs(ctx, sub.JobType.Type, sub.Model.Ref)
 		usedObservedHistory := historyErr == nil && observedP90ms > 0
 		p50 = sustainedBatchETASecs(p50, sub.Tier, usedObservedHistory)
+		etaBias, etaBiasSamples, etaBiasErr := s.store.ETABiasFactor(ctx, sub.JobType.Type, sub.Tier)
+		etaCalibrated := etaBiasErr == nil && etaBiasSamples >= driftMinSamples && etaBias > 1
+		if etaCalibrated {
+			p50 = applyETABias(p50, etaBias)
+		}
 		eta := QuoteTime{P50Secs: p50, P90Secs: p50 * 2, WorstCaseSecs: p50 * 4}
 		confidence := QuoteConfidence{
 			Score: workloadDecision.Confidence,
@@ -1123,7 +1128,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			actualRedundancy,
 			actualHoneypots,
 			eta,
-			computePlanETASource(plannerBacked, usedObservedHistory),
+			computePlanETASource(plannerBacked, usedObservedHistory, etaCalibrated),
 			basePrimaryCompute,
 			math.Max(0, baseComputeUSD-basePrimaryCompute),
 			confidence,

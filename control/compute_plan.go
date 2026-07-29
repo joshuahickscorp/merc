@@ -82,8 +82,14 @@ func estimatedOutputTokensForComputePlan(decision WorkloadDecision, records int)
 	return int64(records) * int64(perRecord)
 }
 
-func computePlanETASource(plannerBacked, observedHistory bool) string {
+// computePlanETASource names the strongest authority behind a quoted ETA.
+// "calibrated" outranks the rest: it means realized-versus-predicted history for
+// this job type and tier measurably corrected the number, which is a claim about
+// the estimate's accuracy that the weaker sources cannot make.
+func computePlanETASource(plannerBacked, observedHistory, calibrated bool) string {
 	switch {
+	case calibrated:
+		return "calibrated"
 	case observedHistory:
 		return "historical"
 	case plannerBacked:
@@ -283,7 +289,9 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 			plan.ETAWorstCaseSecs < plan.ETAP90Secs {
 			return errors.New("compute plan has invalid ETA bands")
 		}
-		if plan.ETASource != "planner" && plan.ETASource != "historical" && plan.ETASource != "static" {
+		switch plan.ETASource {
+		case "planner", "historical", "static", "calibrated":
+		default:
 			return errors.New("compute plan has invalid ETA source")
 		}
 	case computeExecutionExactReuse:

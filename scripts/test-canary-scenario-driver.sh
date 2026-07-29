@@ -548,14 +548,26 @@ PY
   fi
   grep -E 'demoWorkerID\s*=\s*"00000000-0000-4000-8000-0000000000b1"' control/seed.go >/dev/null \
     || fail "seed demoWorkerID is not a v4 UUID"
-  # batch_infer honeypot must be seeded (floor refuses otherwise).
+  # batch_infer honeypot: seed installs the INPUT, and must never write a known
+  # answer it has not measured. AvailableSeedHoneypots selects on shape alone, so
+  # an unmeasurable row is attached as a real probe and quarantines the honest
+  # supplier that runs it. A 503 from the verification floor is the correct
+  # behaviour until scripts/seed-batch-infer-honeypot.sh has run.
   grep -q 'honeypots/batch_infer' control/seed.go \
     || fail "seed.go does not install a batch_infer honeypot input"
-  grep -q "job_type='batch_infer'" control/seed.go \
-    || grep -q '"batch_infer"' control/seed.go \
-    || fail "seed.go does not insert a batch_infer honeypot row"
+  if grep -qiE 'unmeasured' control/seed.go; then
+    fail "seed.go still writes an unmeasured batch_infer known answer"
+  fi
+  grep -q 'MERC_BATCH_INFER_HONEYPOT_ANSWER' control/seed.go \
+    || fail "seed.go does not accept a measured batch_infer answer"
   [ -x scripts/seed-batch-infer-honeypot.sh ] \
     || fail "scripts/seed-batch-infer-honeypot.sh missing or not executable"
+  # The measured answer must reach the DB in worker wire order; bytes.Equal is
+  # the comparison, so an alphabetized json! answer can never match a commit.
+  grep -q 'known_answer_utf8' scripts/seed-batch-infer-honeypot.sh \
+    || fail "seed-batch-infer-honeypot.sh does not take the exact answer bytes"
+  grep -q 'seed-batch-infer-honeypot.sh' scripts/prove-local.sh \
+    || fail "prove-local.sh does not measure a batch_infer honeypot before submitting one"
   pass "structural: unique embed input, v4 workers, batch_infer honeypot, stripe subject binding"
 }
 

@@ -531,6 +531,15 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	observedP90ms, _, hErr := s.store.HistoricalP90DurationMs(ctx, jobType, sub.Model.Ref)
 	usedObservedHistory := hErr == nil && observedP90ms > 0
 	p50 = sustainedBatchETASecs(p50, tier, usedObservedHistory)
+	// Correct for measured optimism before the number is frozen. The SLA bound
+	// below is derived from conservativeSecs, so it has to move with the p50 or
+	// calibration would tighten the promise it was meant to make honest.
+	etaBias, etaBiasSamples, etaBiasErr := s.store.ETABiasFactor(ctx, jobType, tier)
+	etaCalibrated := etaBiasErr == nil && etaBiasSamples >= driftMinSamples && etaBias > 1
+	if etaCalibrated {
+		p50 = applyETABias(p50, etaBias)
+		conservativeSecs = applyETABias(conservativeSecs, etaBias)
+	}
 	eta := QuoteTime{P50Secs: p50, P90Secs: p50 * 2, WorstCaseSecs: p50 * 4}
 
 	eligibleNow, _ := s.store.EligibleWorkerCountFor(ctx, jobType, sub.Model.Ref, supply)
@@ -603,7 +612,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		warnings = append(warnings, "economics blocked: "+economicPlan.BlockReason)
 	}
 
-	etaSource := computePlanETASource(plannerBacked, usedObservedHistory)
+	etaSource := computePlanETASource(plannerBacked, usedObservedHistory, etaCalibrated)
 	computePlan, err := newDistributedComputePlan(
 		workload,
 		scan.Records,
