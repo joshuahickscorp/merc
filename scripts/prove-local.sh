@@ -90,8 +90,8 @@ workers_ready() {
   count="$(curl -fsS "$CONTROL_URL/admin/workers" \
     -H "$DEV_ADMIN_AUTH" | \
     jq '[.[] | select(
-      (.id == "00000000-0000-0000-0000-0000000000b1" or
-       .id == "00000000-0000-0000-0000-0000000000b2") and
+      (.id == "00000000-0000-4000-8000-0000000000b1" or
+       .id == "00000000-0000-4000-8000-0000000000b2") and
       .version != "seed" and .last_seen_at != null
     )] | length')"
   [ "$count" -ge "$expected" ]

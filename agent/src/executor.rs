@@ -892,7 +892,7 @@ fn load_llama_tokenizer(_model_ref: &str) -> Result<Tokenizer, RunError> {
     Tokenizer::from_file(&paths[0]).map_err(infer_err("batch_infer"))
 }
 
-fn short_model_id(model_ref: &str, fallback: &str) -> String {
+pub fn short_model_id(model_ref: &str, fallback: &str) -> String {
     if model_ref.trim().is_empty() {
         fallback.to_string()
     } else {

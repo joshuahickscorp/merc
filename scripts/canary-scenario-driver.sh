@@ -1369,23 +1369,40 @@ scenario_stripe_test_matrix() {
   jq -e '.status=="PASS" and .provider_mode=="test" and .webhook.application_outcomes_verified==true' \
     "$matrix_out" >/dev/null \
     || die "stripe_test_matrix: provider matrix did not prove PASS test-mode application outcomes"
-  subject="$(jq -r '.run_id // empty' "$matrix_out")"
-  [ -n "$subject" ] \
-    || die "stripe_test_matrix: matrix output missing run_id; refusing to mint a subject from the driver run id"
-  # Prefer a real provider object id when the matrix reports one.
+  # Subject must be a real Stripe test-mode object an auditor can resolve
+  # (pi_/ch_/tr_). Never mint from the driver run id — that is not a provider
+  # object and cannot be looked up in the Stripe dashboard or API.
   local provider_subject
   provider_subject="$(jq -r '.payment_intent // .charge // .transfer // empty' "$matrix_out" 2>/dev/null || true)"
-  if [ -n "$provider_subject" ]; then
-    subject="stripe-${provider_subject}"
-  else
-    subject="stripe-matrix-${subject}"
+  if [ -z "$provider_subject" ]; then
+    # Matrix script may not echo the parent fixtures; bind the env fixtures the
+    # parent already validated as real test-mode objects for this run.
+    for candidate in \
+      "${MERC_CANARY_STRIPE_PAYMENT_INTENT:-}" \
+      "${MERC_CANARY_STRIPE_CHARGE:-}" \
+      "${MERC_CANARY_STRIPE_TRANSFER:-}"; do
+      case "$candidate" in
+        pi_[A-Za-z0-9]*|ch_[A-Za-z0-9]*|tr_[A-Za-z0-9]*)
+          provider_subject="$candidate"
+          break
+          ;;
+      esac
+    done
   fi
+  case "$provider_subject" in
+    pi_[A-Za-z0-9]*|ch_[A-Za-z0-9]*|tr_[A-Za-z0-9]*)
+      subject="$provider_subject"
+      ;;
+    *)
+      die "stripe_test_matrix: no resolvable Stripe test object (pi_/ch_/tr_) from matrix output or MERC_CANARY_STRIPE_*; refusing to mint a subject from the driver run id"
+      ;;
+  esac
   # matrix_complete: require an explicit completeness signal when present; otherwise
-  # derive from the PASS + verified outcomes + run_id we already observed.
+  # derive from the PASS + verified outcomes + a resolvable provider subject.
   local matrix_complete
   matrix_complete="$(jq -r 'if .matrix_complete == true then "true"
     elif .matrix_complete == false then "false"
-    elif .status=="PASS" and .webhook.application_outcomes_verified==true and (.run_id|type=="string" and length>0) then "true"
+    elif .status=="PASS" and .webhook.application_outcomes_verified==true then "true"
     else "false" end' "$matrix_out")"
   [ "$matrix_complete" = true ] \
     || die "stripe_test_matrix: matrix_complete not observed as true"

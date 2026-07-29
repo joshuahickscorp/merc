@@ -387,12 +387,16 @@ jq -e '.livemode == false and (.id | startswith("tr_"))' <<< "$(api GET "transfe
 
 jq -nc \
   --arg run "$RUN_ID" --arg dispute "$dispute_id" \
+  --arg payment_intent "$PAYMENT_INTENT" --arg charge "$CHARGE" --arg transfer "$TRANSFER" \
+  --arg disputed_payment_intent "$disputed_pi" --arg disputed_charge "$disputed_charge" \
   --arg stripe_api_version "$MERC_STRIPE_API_VERSION" \
   --arg settlement_currency "$settlement_currency" \
   --arg connected_country "$MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY" \
   --arg payout_hold "$payout_hold_id" --arg payout_release "$payout_release_id" \
   --arg payout_failure "$payout_failure_id" --arg payout_reversal "$payout_reversal_id" \
   '{schema_version:1,status:"PASS",provider_mode:"test",run_id:$run,
+    payment_intent:$payment_intent,charge:$charge,transfer:$transfer,
+    disputed_payment_intent:$disputed_payment_intent,disputed_charge:$disputed_charge,
     secret_values_recorded:false,
     webhook:{endpoint_secrets_verified:true,payload_api_version:$stripe_api_version,
       staging_urls_exact:true,distinct_endpoint_ids:true,
