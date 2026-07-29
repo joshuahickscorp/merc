@@ -2432,3 +2432,788 @@ func TestFinalizeJobTxActualUSDAndSLAPremiumIdempotent(t *testing.T) {
 		t.Fatalf("actual_usd after second finalize=%.6f, want %.6f", actual2, wantActual)
 	}
 }
+
+// --- Dynamic economic obligations ---
+
+type dynamicObligationKind string
+
+const (
+	dynamicHedge    dynamicObligationKind = "hedge"
+	dynamicTiebreak dynamicObligationKind = "tiebreak"
+)
+
+type dynamicObligationSnapshot struct {
+	ConsumedTasks int
+	TaskCount     int
+	HedgeRows     int
+	TiebreakRows  int
+}
+
+type dynamicTaskProjection struct {
+	TaskCount    int
+	HedgeRows    int
+	TiebreakRows int
+}
+
+func insertDynamicObligation(
+	ctx context.Context,
+	store *Store,
+	kind dynamicObligationKind,
+	f moneyPathFixture,
+	primaryTaskID uuid.UUID,
+	chunkIndex int,
+) (uuid.UUID, error) {
+	switch kind {
+	case dynamicHedge:
+		return store.InsertHedgeTask(
+			ctx, f.JobID, primaryTaskID, f.OtherWorkerID, "money/input", chunkIndex,
+		)
+	case dynamicTiebreak:
+		return store.InsertTiebreakTask(
+			ctx, f.JobID, primaryTaskID, f.OtherWorkerID, "money/input", chunkIndex,
+		)
+	default:
+		return uuid.Nil, fmt.Errorf("unknown dynamic obligation kind %q", kind)
+	}
+}
+
+func readDynamicObligationSnapshot(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	jobID, primaryTaskID uuid.UUID,
+	chunkIndex int,
+) dynamicObligationSnapshot {
+	t.Helper()
+	var out dynamicObligationSnapshot
+	if err := pool.QueryRow(ctx, `
+		SELECT r.consumed_tasks,j.task_count,
+		       (SELECT count(*) FROM tasks h
+		         WHERE h.job_id=$1 AND h.hedged_from=$2 AND h.is_redundancy=false),
+		       (SELECT count(*) FROM tasks tb
+		         WHERE tb.job_id=$1 AND COALESCE(tb.chunk_index,0)=$3
+		           AND tb.hedged_from IS NOT NULL AND tb.is_redundancy=true)
+		  FROM job_economic_reserves r
+		  JOIN jobs j ON j.id=r.job_id
+		 WHERE r.job_id=$1`,
+		jobID, primaryTaskID, chunkIndex,
+	).Scan(&out.ConsumedTasks, &out.TaskCount, &out.HedgeRows, &out.TiebreakRows); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func readDynamicTaskProjection(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	jobID, primaryTaskID uuid.UUID,
+	chunkIndex int,
+) dynamicTaskProjection {
+	t.Helper()
+	var out dynamicTaskProjection
+	if err := pool.QueryRow(ctx, `
+		SELECT j.task_count,
+		       (SELECT count(*) FROM tasks h
+		         WHERE h.job_id=$1 AND h.hedged_from=$2 AND h.is_redundancy=false),
+		       (SELECT count(*) FROM tasks tb
+		         WHERE tb.job_id=$1 AND COALESCE(tb.chunk_index,0)=$3
+		           AND tb.hedged_from IS NOT NULL AND tb.is_redundancy=true)
+		  FROM jobs j WHERE j.id=$1`,
+		jobID, primaryTaskID, chunkIndex,
+	).Scan(&out.TaskCount, &out.HedgeRows, &out.TiebreakRows); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestDynamicTaskInsertsFenceTerminalParentsWithoutReserveMutation(t *testing.T) {
+	for _, kind := range []dynamicObligationKind{dynamicHedge, dynamicTiebreak} {
+		for _, terminal := range []string{"failed", "cancelled", "complete"} {
+			t.Run(string(kind)+"/"+terminal, func(t *testing.T) {
+				ctx, store, pool := openMoneyPathStore(t)
+				f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+					TaskCount: 1, TaskStatus: "running", ClaimWorker: true,
+					SeedJob: true, SeedPlanRows: true,
+				})
+				if _, err := pool.Exec(ctx,
+					`UPDATE jobs SET status=$2 WHERE id=$1`, f.JobID, terminal); err != nil {
+					t.Fatal(err)
+				}
+				before := readDynamicObligationSnapshot(
+					t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+				)
+
+				id, err := insertDynamicObligation(
+					ctx, store, kind, f, f.TaskIDs[0], 0,
+				)
+				if id != uuid.Nil || !errors.Is(err, ErrEconomicReserveExhausted) {
+					t.Fatalf("terminal insert = (%s,%v), want nil/ErrEconomicReserveExhausted",
+						id, err)
+				}
+				after := readDynamicObligationSnapshot(
+					t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+				)
+				if after != before {
+					t.Fatalf("terminal insert changed economics: before=%+v after=%+v",
+						before, after)
+				}
+			})
+		}
+	}
+}
+
+func TestDynamicTaskInsertEconomicGatesAreAtomic(t *testing.T) {
+	for _, kind := range []dynamicObligationKind{dynamicHedge, dynamicTiebreak} {
+		for _, gate := range []string{"reserve_exhausted", "job_max", "already_charged"} {
+			t.Run(string(kind)+"/"+gate, func(t *testing.T) {
+				ctx, store, pool := openMoneyPathStore(t)
+				f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+					TaskCount: 1, TaskStatus: "running", ClaimWorker: true,
+					SeedJob: true, SeedPlanRows: true,
+				})
+				switch gate {
+				case "reserve_exhausted":
+					if _, err := pool.Exec(ctx, `
+						UPDATE job_economic_reserves
+						   SET consumed_tasks=reserved_tasks
+						 WHERE job_id=$1`, f.JobID); err != nil {
+						t.Fatal(err)
+					}
+				case "job_max":
+					if _, err := pool.Exec(ctx,
+						`UPDATE jobs SET max_usd=$2 WHERE id=$1`,
+						f.JobID, f.Plan.InitialBuyerChargeUSD); err != nil {
+						t.Fatal(err)
+					}
+				case "already_charged":
+					if _, err := pool.Exec(ctx,
+						`UPDATE jobs SET charge_status='charged' WHERE id=$1`,
+						f.JobID); err != nil {
+						t.Fatal(err)
+					}
+				}
+				before := readDynamicObligationSnapshot(
+					t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+				)
+
+				id, err := insertDynamicObligation(
+					ctx, store, kind, f, f.TaskIDs[0], 0,
+				)
+				if id != uuid.Nil || !errors.Is(err, ErrEconomicReserveExhausted) {
+					t.Fatalf("gated insert = (%s,%v), want nil/ErrEconomicReserveExhausted",
+						id, err)
+				}
+				after := readDynamicObligationSnapshot(
+					t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+				)
+				if after != before {
+					t.Fatalf("gated insert changed economics: before=%+v after=%+v",
+						before, after)
+				}
+			})
+		}
+	}
+}
+
+func TestDynamicTaskInsertMissingReservePreservesRejectAndReplay(t *testing.T) {
+	for _, kind := range []dynamicObligationKind{dynamicHedge, dynamicTiebreak} {
+		t.Run(string(kind)+"/reject", func(t *testing.T) {
+			ctx, store, pool := openMoneyPathStore(t)
+			f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+				TaskCount: 1, TaskStatus: "running", ClaimWorker: true,
+				SeedJob: true, SeedPlanRows: true,
+			})
+			before := readDynamicTaskProjection(
+				t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+			)
+			if _, err := pool.Exec(ctx,
+				`DELETE FROM job_economic_reserves WHERE job_id=$1`, f.JobID); err != nil {
+				t.Fatal(err)
+			}
+
+			id, err := insertDynamicObligation(
+				ctx, store, kind, f, f.TaskIDs[0], 0,
+			)
+			if id != uuid.Nil || !errors.Is(err, ErrEconomicReserveExhausted) {
+				t.Fatalf("missing-reserve insert = (%s,%v), want nil/ErrEconomicReserveExhausted",
+					id, err)
+			}
+			after := readDynamicTaskProjection(
+				t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+			)
+			if after != before {
+				t.Fatalf("missing-reserve reject changed tasks: before=%+v after=%+v",
+					before, after)
+			}
+		})
+		t.Run(string(kind)+"/replay", func(t *testing.T) {
+			ctx, store, pool := openMoneyPathStore(t)
+			f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+				TaskCount: 1, TaskStatus: "running", ClaimWorker: true,
+				SeedJob: true, SeedPlanRows: true,
+			})
+			first, err := insertDynamicObligation(
+				ctx, store, kind, f, f.TaskIDs[0], 0,
+			)
+			if err != nil || first == uuid.Nil {
+				t.Fatalf("first insert = (%s,%v)", first, err)
+			}
+			before := readDynamicTaskProjection(
+				t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+			)
+			if _, err := pool.Exec(ctx,
+				`DELETE FROM job_economic_reserves WHERE job_id=$1`, f.JobID); err != nil {
+				t.Fatal(err)
+			}
+
+			replay, err := insertDynamicObligation(
+				ctx, store, kind, f, f.TaskIDs[0], 0,
+			)
+			if err != nil || replay != first {
+				t.Fatalf("missing-reserve replay = (%s,%v), want %s/nil",
+					replay, err, first)
+			}
+			after := readDynamicTaskProjection(
+				t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+			)
+			if after != before {
+				t.Fatalf("missing-reserve replay changed tasks: before=%+v after=%+v",
+					before, after)
+			}
+		})
+	}
+}
+
+func TestDynamicTaskInsertReplaySurvivesTerminalParent(t *testing.T) {
+	for _, kind := range []dynamicObligationKind{dynamicHedge, dynamicTiebreak} {
+		for _, terminal := range []string{"failed", "cancelled", "complete"} {
+			t.Run(string(kind)+"/"+terminal, func(t *testing.T) {
+				ctx, store, pool := openMoneyPathStore(t)
+				f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+					TaskCount: 1, TaskStatus: "running", ClaimWorker: true,
+					SeedJob: true, SeedPlanRows: true,
+				})
+				first, err := insertDynamicObligation(
+					ctx, store, kind, f, f.TaskIDs[0], 0,
+				)
+				if err != nil || first == uuid.Nil {
+					t.Fatalf("first insert = (%s,%v)", first, err)
+				}
+				before := readDynamicObligationSnapshot(
+					t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+				)
+				if _, err := pool.Exec(ctx,
+					`UPDATE jobs SET status=$2 WHERE id=$1`, f.JobID, terminal); err != nil {
+					t.Fatal(err)
+				}
+
+				replay, err := insertDynamicObligation(
+					ctx, store, kind, f, f.TaskIDs[0], 0,
+				)
+				if err != nil || replay != first {
+					t.Fatalf("terminal replay = (%s,%v), want %s/nil", replay, err, first)
+				}
+				if _, err := store.DetachUnfinishedTasksForTerminalJob(ctx, f.JobID); err != nil {
+					t.Fatalf("detach terminal obligations: %v", err)
+				}
+				detachedReplay, err := insertDynamicObligation(
+					ctx, store, kind, f, f.TaskIDs[0], 0,
+				)
+				if err != nil || detachedReplay != first {
+					t.Fatalf("detached replay = (%s,%v), want %s/nil",
+						detachedReplay, err, first)
+				}
+				after := readDynamicObligationSnapshot(
+					t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+				)
+				if after != before {
+					t.Fatalf("terminal replay changed economics: before=%+v after=%+v",
+						before, after)
+				}
+				var status string
+				if err := pool.QueryRow(ctx,
+					`SELECT status FROM tasks WHERE id=$1`, first).Scan(&status); err != nil {
+					t.Fatal(err)
+				}
+				wantStatus := "failed"
+				if terminal == "cancelled" {
+					wantStatus = "cancelled"
+				}
+				if status != wantStatus {
+					t.Fatalf("detached dynamic task status=%q, want %q", status, wantStatus)
+				}
+			})
+		}
+	}
+}
+
+func TestConcurrentDynamicTaskInsertIsIdempotent(t *testing.T) {
+	for _, kind := range []dynamicObligationKind{dynamicHedge, dynamicTiebreak} {
+		t.Run(string(kind), func(t *testing.T) {
+			ctx, store, pool := openMoneyPathStore(t)
+			f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+				TaskCount: 1, TaskStatus: "running", ClaimWorker: true,
+				SeedJob: true, SeedPlanRows: true,
+			})
+			type insertResult struct {
+				id  uuid.UUID
+				err error
+			}
+			const contenders = 8
+			start := make(chan struct{})
+			results := make(chan insertResult, contenders)
+			for i := 0; i < contenders; i++ {
+				go func() {
+					<-start
+					id, err := insertDynamicObligation(
+						ctx, store, kind, f, f.TaskIDs[0], 0,
+					)
+					results <- insertResult{id: id, err: err}
+				}()
+			}
+			close(start)
+
+			got := make([]insertResult, contenders)
+			for i := range got {
+				select {
+				case got[i] = <-results:
+				case <-time.After(15 * time.Second):
+					t.Fatal("concurrent dynamic inserts did not finish")
+				}
+				if got[i].err != nil || got[i].id == uuid.Nil {
+					t.Fatalf("concurrent insert %d = (%s,%v)", i, got[i].id, got[i].err)
+				}
+			}
+			for i := 1; i < len(got); i++ {
+				if got[i].id != got[0].id {
+					t.Fatalf("concurrent insert %d returned %s, want durable replay %s",
+						i, got[i].id, got[0].id)
+				}
+			}
+			var durable bool
+			if err := pool.QueryRow(ctx, `
+				SELECT EXISTS (
+				  SELECT 1 FROM tasks
+				   WHERE id=$1 AND job_id=$2 AND hedged_from=$3
+				     AND is_redundancy=$4
+				)`,
+				got[0].id, f.JobID, f.TaskIDs[0], kind == dynamicTiebreak,
+			).Scan(&durable); err != nil {
+				t.Fatal(err)
+			}
+			if !durable {
+				t.Fatalf("concurrent inserts returned non-durable id %s", got[0].id)
+			}
+			snap := readDynamicObligationSnapshot(
+				t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+			)
+			if snap.ConsumedTasks != 1 {
+				t.Fatalf("concurrent inserts consumed %d reserve tasks, want 1",
+					snap.ConsumedTasks)
+			}
+			switch kind {
+			case dynamicHedge:
+				if snap.HedgeRows != 1 || snap.TiebreakRows != 0 || snap.TaskCount != 1 {
+					t.Fatalf("concurrent hedge projection = %+v", snap)
+				}
+			case dynamicTiebreak:
+				if snap.HedgeRows != 0 || snap.TiebreakRows != 1 || snap.TaskCount != 2 {
+					t.Fatalf("concurrent tiebreak projection = %+v", snap)
+				}
+			}
+		})
+	}
+}
+
+func TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 1, TaskStatus: "running", ClaimWorker: true,
+		SeedJob: true, SeedPlanRows: true,
+	})
+	primaryTaskID := f.TaskIDs[0]
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=$1`,
+		primaryTaskID); err != nil {
+		t.Fatal(err)
+	}
+	info, err := store.CompleteTaskTx(
+		ctx, primaryTaskID, f.WorkerID, commitFor(f, primaryTaskID, 0),
+	)
+	if err != nil {
+		t.Fatalf("complete primary for planned apply: %v", err)
+	}
+	settled, err := store.observedOutputSettlementForTask(ctx, info)
+	if err != nil {
+		t.Fatalf("load planned settlement: %v", err)
+	}
+	var currency string
+	if err := pool.QueryRow(ctx,
+		`SELECT currency FROM jobs WHERE id=$1`, f.JobID).Scan(&currency); err != nil {
+		t.Fatal(err)
+	}
+	entries := splitFrozenCharge(
+		f.BuyerID, f.SupplierID, primaryTaskID, currency,
+		settled.BilledCharge, settled.SupplierPayout, 0, time.Now().UTC(),
+	)
+	effect := VerificationEffect{
+		Kind:          VerificationEffectInsertTiebreak,
+		JobID:         f.JobID,
+		PeerWorkerID:  f.OtherWorkerID,
+		PrimaryTaskID: primaryTaskID,
+		InputRef:      info.InputRef,
+		ChunkIndex:    info.ChunkIndex,
+	}
+	effect.ID = verificationEffectPayloadID(info.TaskID, info.Attempt, 0, effect)
+	effect.TaskID = effect.ID
+	decision := VerificationDecision{
+		Outcome: OutcomePass,
+		Effects: []VerificationEffect{effect},
+	}
+
+	type applyResult struct {
+		result VerificationApplyResult
+		err    error
+	}
+	type insertResult struct {
+		id  uuid.UUID
+		err error
+	}
+	start := make(chan struct{})
+	applied := make(chan applyResult, 1)
+	inserted := make(chan insertResult, 1)
+	go func() {
+		<-start
+		result, err := store.applyVerificationDecision(
+			ctx, info, decision, entries, nil, nil,
+		)
+		applied <- applyResult{result: result, err: err}
+	}()
+	go func() {
+		<-start
+		id, err := store.InsertTiebreakTask(
+			ctx, f.JobID, primaryTaskID, f.OtherWorkerID, info.InputRef, info.ChunkIndex,
+		)
+		inserted <- insertResult{id: id, err: err}
+	}()
+	close(start)
+
+	var apply applyResult
+	var insert insertResult
+	select {
+	case apply = <-applied:
+	case <-time.After(15 * time.Second):
+		t.Fatal("planned tiebreak apply did not finish")
+	}
+	select {
+	case insert = <-inserted:
+	case <-time.After(15 * time.Second):
+		t.Fatal("unplanned tiebreak insert did not finish")
+	}
+	if apply.err != nil || !apply.result.Applied {
+		t.Fatalf("planned tiebreak apply = (%+v,%v), want applied/nil",
+			apply.result, apply.err)
+	}
+	if insert.err != nil || insert.id == uuid.Nil {
+		t.Fatalf("unplanned tiebreak insert = (%s,%v)", insert.id, insert.err)
+	}
+	snap := readDynamicObligationSnapshot(
+		t, ctx, pool, f.JobID, primaryTaskID, info.ChunkIndex,
+	)
+	if snap.ConsumedTasks != 1 || snap.HedgeRows != 0 ||
+		snap.TiebreakRows != 1 || snap.TaskCount != 2 {
+		t.Fatalf("planned/unplanned convergence = %+v", snap)
+	}
+	var durableID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		SELECT id FROM tasks
+		 WHERE job_id=$1 AND COALESCE(chunk_index,0)=$2
+		   AND hedged_from IS NOT NULL AND is_redundancy=true`,
+		f.JobID, info.ChunkIndex,
+	).Scan(&durableID); err != nil {
+		t.Fatal(err)
+	}
+	if insert.id != durableID {
+		t.Fatalf("unplanned replay returned %s, durable tiebreak is %s",
+			insert.id, durableID)
+	}
+	if apply.result.TiebreaksInserted != 0 &&
+		(apply.result.TiebreaksInserted != 1 || durableID != effect.TaskID) {
+		t.Fatalf("planned insertion result %+v conflicts with durable id %s/effect %s",
+			apply.result, durableID, effect.TaskID)
+	}
+}
+
+func TestConcurrentTerminalFailureAndDynamicInsertHasNoReserveLeak(t *testing.T) {
+	for _, kind := range []dynamicObligationKind{dynamicHedge, dynamicTiebreak} {
+		for _, failureTarget := range []struct {
+			name  string
+			index int
+		}{
+			{name: "same_anchor", index: 0},
+			{name: "sibling", index: 1},
+		} {
+			t.Run(string(kind)+"/"+failureTarget.name, func(t *testing.T) {
+				ctx, store, pool := openMoneyPathStore(t)
+				f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+					TaskCount: 2, TaskStatus: "running", ClaimWorker: true,
+					SeedJob: true, SeedPlanRows: true,
+				})
+				if _, err := pool.Exec(ctx,
+					`UPDATE tasks SET claimed_at=now(),started_at=now()
+					  WHERE id=ANY($1::uuid[])`, f.TaskIDs); err != nil {
+					t.Fatal(err)
+				}
+				report := FailureReport{
+					Class: "bad_input", Message: "terminal race with dynamic obligation",
+					Backend: "embed", Model: "all-minilm-l6-v2", DurationMS: 1,
+				}
+				type failResult struct {
+					outcome FailOutcome
+					err     error
+				}
+				type insertResult struct {
+					id  uuid.UUID
+					err error
+				}
+				start := make(chan struct{})
+				failed := make(chan failResult, 1)
+				inserted := make(chan insertResult, 1)
+				go func() {
+					<-start
+					outcome, err := store.FailTaskTx(
+						ctx, f.TaskIDs[failureTarget.index], f.WorkerID, 0, report,
+					)
+					failed <- failResult{outcome: outcome, err: err}
+				}()
+				go func() {
+					<-start
+					id, err := insertDynamicObligation(
+						ctx, store, kind, f, f.TaskIDs[0], 0,
+					)
+					inserted <- insertResult{id: id, err: err}
+				}()
+				close(start)
+
+				var failure failResult
+				var insertion insertResult
+				select {
+				case failure = <-failed:
+				case <-time.After(15 * time.Second):
+					t.Fatal("terminal failure did not finish")
+				}
+				select {
+				case insertion = <-inserted:
+				case <-time.After(15 * time.Second):
+					t.Fatal("dynamic insertion did not finish")
+				}
+				if failure.err != nil || failure.outcome != FailTerminal {
+					t.Fatalf("terminal failure = (%q,%v), want failed/nil",
+						failure.outcome, failure.err)
+				}
+				if insertion.err != nil &&
+					!errors.Is(insertion.err, ErrEconomicReserveExhausted) {
+					t.Fatalf("dynamic insert race returned unexpected error: %v", insertion.err)
+				}
+				if insertion.err == nil && insertion.id == uuid.Nil {
+					t.Fatal("successful dynamic insert returned nil id")
+				}
+				if insertion.err != nil && insertion.id != uuid.Nil {
+					t.Fatalf("failed dynamic insert returned non-nil id %s", insertion.id)
+				}
+
+				snap := readDynamicObligationSnapshot(
+					t, ctx, pool, f.JobID, f.TaskIDs[0], 0,
+				)
+				dynamicRows := snap.HedgeRows + snap.TiebreakRows
+				if snap.ConsumedTasks != dynamicRows {
+					t.Fatalf("terminal race leaked reserve: %+v", snap)
+				}
+				if dynamicRows > 1 {
+					t.Fatalf("terminal race inserted %d dynamic obligations", dynamicRows)
+				}
+				if insertion.err == nil {
+					var buyerCharge, supplierPayout float64
+					err := pool.QueryRow(ctx, `
+						SELECT economic_buyer_charge_usd::float8,
+						       economic_supplier_payout_usd::float8
+						  FROM tasks
+						 WHERE id=$1 AND job_id=$2 AND hedged_from=$3
+						   AND is_redundancy=$4`,
+						insertion.id, f.JobID, f.TaskIDs[0], kind == dynamicTiebreak,
+					).Scan(&buyerCharge, &supplierPayout)
+					if err != nil {
+						t.Fatalf("successful insert id %s is not durable: %v", insertion.id, err)
+					}
+					if fmt.Sprintf("%.6f", buyerCharge) !=
+						fmt.Sprintf("%.6f", f.Plan.BuyerChargePerTaskUSD) ||
+						fmt.Sprintf("%.6f", supplierPayout) !=
+							fmt.Sprintf("%.6f", f.Plan.SupplierPayoutPerTaskUSD) {
+						t.Fatalf("dynamic economics = %.6f/%.6f, want %.6f/%.6f",
+							buyerCharge, supplierPayout,
+							f.Plan.BuyerChargePerTaskUSD, f.Plan.SupplierPayoutPerTaskUSD)
+					}
+				}
+				wantTaskCount := 2
+				if kind == dynamicTiebreak {
+					wantTaskCount += dynamicRows
+				}
+				if snap.TaskCount != wantTaskCount {
+					t.Fatalf("terminal race task_count=%d, want %d (snapshot %+v)",
+						snap.TaskCount, wantTaskCount, snap)
+				}
+				var jobStatus string
+				if err := pool.QueryRow(ctx,
+					`SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus); err != nil {
+					t.Fatal(err)
+				}
+				if jobStatus != "failed" {
+					t.Fatalf("terminal race left parent %q, want failed", jobStatus)
+				}
+				if _, err := store.DetachUnfinishedTasksForTerminalJob(ctx, f.JobID); err != nil {
+					t.Fatalf("detach terminal race residual: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestCompleteParentTasksAreNeitherClaimedNorExplainedAsEligible(t *testing.T) {
+	for _, pinned := range []bool{false, true} {
+		name := "unclaimed"
+		if pinned {
+			name = "pinned"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx, store, pool := openIsolatedMoneyPathStore(t)
+			f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+				TaskCount: 1, TaskStatus: "queued", ClaimWorker: false,
+				SeedJob: true, SeedPlanRows: true,
+			})
+			if pinned {
+				if _, err := pool.Exec(ctx, `
+					UPDATE tasks SET claimed_by=$2,claimed_at=now()
+					 WHERE id=$1`, f.TaskIDs[0], f.OtherWorkerID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := pool.Exec(ctx,
+				`UPDATE jobs SET status='complete' WHERE id=$1`, f.JobID); err != nil {
+				t.Fatal(err)
+			}
+
+			claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
+				WorkerID: f.OtherWorkerID, SupplierID: f.OtherSupplierID,
+			})
+			if err != nil {
+				t.Fatalf("claim against complete parent: %v", err)
+			}
+			if claimed != nil {
+				t.Fatalf("claimed task %s from complete parent", claimed.TaskID)
+			}
+			var status string
+			var claimedBy *uuid.UUID
+			if err := pool.QueryRow(ctx,
+				`SELECT status,claimed_by FROM tasks WHERE id=$1`, f.TaskIDs[0]).
+				Scan(&status, &claimedBy); err != nil {
+				t.Fatal(err)
+			}
+			if status != "queued" {
+				t.Fatalf("claim attempt changed complete-parent task to %q", status)
+			}
+			if pinned && (claimedBy == nil || *claimedBy != f.OtherWorkerID) {
+				t.Fatalf("claim attempt changed complete-parent pin to %v", claimedBy)
+			}
+			if !pinned && claimedBy != nil {
+				t.Fatalf("claim attempt added complete-parent pin %v", claimedBy)
+			}
+			explain, err := store.SchedulerExplain(ctx, f.OtherWorkerID)
+			if err != nil {
+				t.Fatalf("scheduler explain: %v", err)
+			}
+			if explain.Eligible != 0 || explain.NoQueuedTasks != 1 {
+				t.Fatalf("complete-parent explain = eligible %d/no_queue %d, want 0/1",
+					explain.Eligible, explain.NoQueuedTasks)
+			}
+		})
+	}
+}
+
+func TestClaimTaskRollsBackWhenParentTerminalizesDuringClaim(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 1, TaskStatus: "queued", ClaimWorker: false,
+		SeedJob: true, SeedPlanRows: true,
+	})
+
+	terminalTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer terminalTx.Rollback(ctx)
+	if _, err := terminalTx.Exec(ctx,
+		`UPDATE jobs SET status='complete' WHERE id=$1`, f.JobID); err != nil {
+		t.Fatal(err)
+	}
+
+	type claimResult struct {
+		task *ClaimedTask
+		err  error
+	}
+	result := make(chan claimResult, 1)
+	go func() {
+		task, err := store.ClaimTasksTx(ctx, WorkerAuth{
+			WorkerID: f.OtherWorkerID, SupplierID: f.OtherSupplierID,
+		})
+		result <- claimResult{task: task, err: err}
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	waiting := false
+	for time.Now().Before(deadline) {
+		if err := pool.QueryRow(ctx, `
+			SELECT EXISTS (
+			  SELECT 1 FROM pg_stat_activity
+			   WHERE datname=current_database()
+			     AND wait_event_type='Lock'
+			     AND query LIKE '%FROM jobs WHERE id=$1 FOR UPDATE%'
+			)`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !waiting {
+		t.Fatal("claim did not reach the parent lock behind terminal transition")
+	}
+	if err := terminalTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case got := <-result:
+		if got.err != nil || got.task != nil {
+			t.Fatalf("claim after concurrent terminal transition = (%+v,%v), want nil/nil",
+				got.task, got.err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("claim did not finish after terminal transition committed")
+	}
+	var taskStatus, jobStatus string
+	var claimedBy, workerID *uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		SELECT t.status,t.claimed_by,t.worker_id,j.status
+		  FROM tasks t JOIN jobs j ON j.id=t.job_id
+		 WHERE t.id=$1`, f.TaskIDs[0]).
+		Scan(&taskStatus, &claimedBy, &workerID, &jobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if taskStatus != "queued" || claimedBy != nil || workerID != nil ||
+		jobStatus != "complete" {
+		t.Fatalf("terminal claim race projection = task %q claimed %v worker %v job %q",
+			taskStatus, claimedBy, workerID, jobStatus)
+	}
+}

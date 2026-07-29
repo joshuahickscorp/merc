@@ -602,7 +602,7 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	      ORDER BY wac.cell_id, wac.runtime_id
 	      LIMIT 1
 	   ) runtime_authority
-	   WHERE j.status NOT IN ('cancelled','failed')
+	   WHERE j.status NOT IN ('cancelled','failed','complete')
 	     -- A queued obligation is executable only by a deployment configured
 	     -- for the exact currency frozen at acceptance. Currency cutovers never
 	     -- reinterpret old numeric amounts.
@@ -944,11 +944,18 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 			ON CONFLICT (task_id,attempt,worker_id) DO NOTHING`, c.TaskID); err != nil {
 			return nil, err
 		}
-		var lockedJob uuid.UUID
+		var parentStatus string
 		if err := tx.QueryRow(ctx,
-			`SELECT id FROM jobs WHERE id=$1 FOR UPDATE`, c.JobID,
-		).Scan(&lockedJob); err != nil {
+			`SELECT status FROM jobs WHERE id=$1 FOR UPDATE`, c.JobID,
+		).Scan(&parentStatus); err != nil {
 			return nil, err
+		}
+		if parentStatus != "queued" && parentStatus != "running" && parentStatus != "verifying" {
+			// The claim CTE runs under READ COMMITTED and can select the old
+			// version of a job while a concurrent terminal transition is still
+			// uncommitted. Recheck after acquiring the job lock; rollback below
+			// restores the candidate task and any tiebreak history atomically.
+			return nil, nil
 		}
 		var withinCap bool
 		if err := tx.QueryRow(ctx, `
@@ -1048,7 +1055,7 @@ func (s *Store) SchedulerExplain(ctx context.Context, workerID uuid.UUID) (*Sche
 		        WHERE t.status IN ('queued','retrying')
 		          AND COALESCE(t.visible_at, t.created_at) <= now()
 		          AND (t.claimed_by IS NULL OR (t.claimed_by = $1 AND t.started_at IS NULL))
-		          AND j.status NOT IN ('cancelled','failed')
+		          AND j.status NOT IN ('cancelled','failed','complete')
 		      ),
 		      classified AS (
 		        SELECT CASE

@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "8fe06e28a8c9040198ec3612d700ac8116ec926b20a29dd827ac67f25b194447",
+  "authority_sha256": "d93df925e07d780955404a3f15a37adf423aa01b47b17dc5efa861540711fbbe",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -139,7 +139,7 @@
     "control/job_object_retention_test.go": 206,
     "control/job_submit_validate.go": 156,
     "control/job_submit_validate_test.go": 81,
-    "control/job_task_money_integration_test.go": 2434,
+    "control/job_task_money_integration_test.go": 3219,
     "control/latency_watchdog.go": 110,
     "control/ledger_write.go": 453,
     "control/ledger_write_property_test.go": 125,
@@ -225,7 +225,7 @@
     "control/runtime_matrix.go": 357,
     "control/runtime_matrix_test.go": 389,
     "control/runtime_model_ingress_test.go": 36,
-    "control/scheduler.go": 1199,
+    "control/scheduler.go": 1206,
     "control/scheduler_ask_claim_integration_test.go": 145,
     "control/schema.sql": 3787,
     "control/seed.go": 222,
@@ -234,13 +234,13 @@
     "control/small_job_economics_test.go": 221,
     "control/storage.go": 381,
     "control/storage_memory_test.go": 30,
-    "control/store.go": 1718,
+    "control/store.go": 1733,
     "control/store_billing.go": 540,
     "control/store_disputes.go": 527,
     "control/store_jobs.go": 1394,
     "control/store_payouts.go": 1123,
     "control/store_prepaid.go": 388,
-    "control/store_tasks.go": 1201,
+    "control/store_tasks.go": 1253,
     "control/store_workers.go": 581,
     "control/strict_json.go": 110,
     "control/strict_json_test.go": 173,
@@ -266,7 +266,7 @@
     "control/tiebreak_retry_safety_test.go": 28,
     "control/types.go": 327,
     "control/verification.go": 616,
-    "control/verification_apply.go": 1090,
+    "control/verification_apply.go": 1095,
     "control/verification_apply_test.go": 55,
     "control/verification_artifact.go": 321,
     "control/verification_artifact_policy.go": 66,
@@ -601,11 +601,11 @@
     },
     "go": {
       "files": 227,
-      "loc": 70684,
-      "code": 62867,
-      "blank": 4353,
-      "comment": 3464,
-      "bytes": 2556072
+      "loc": 71548,
+      "code": 63685,
+      "blank": 4390,
+      "comment": 3473,
+      "bytes": 2583198
     },
     "javascript": {
       "files": 8,
@@ -731,11 +731,11 @@
     },
     "control": {
       "files": 162,
-      "loc": 49387,
-      "code": 43487,
-      "blank": 3080,
-      "comment": 2820,
-      "bytes": 1803281
+      "loc": 50246,
+      "code": 44300,
+      "blank": 3117,
+      "comment": 2829,
+      "bytes": 1830310
     },
     "documentation": {
       "files": 39,
@@ -795,17 +795,17 @@
     },
     "verification": {
       "files": 23,
-      "loc": 6570,
-      "code": 6088,
+      "loc": 6575,
+      "code": 6093,
       "blank": 404,
       "comment": 78,
-      "bytes": 237677
+      "bytes": 237774
     }
   },
   "ownership": {
-    "global_owned_loc": 133918,
-    "non_design_production_core_loc": 95716,
-    "test_loc": 24908,
+    "global_owned_loc": 134782,
+    "non_design_production_core_loc": 95795,
+    "test_loc": 25693,
     "documentation_loc": 6625,
     "python_loc": 9388,
     "generated_loc": 5118,
@@ -830,7 +830,7 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10115236,
+  "tracked_bytes": 10142362,
   "tracked_files": 566,
   "untracked_files": 0,
   "walked_files": 566

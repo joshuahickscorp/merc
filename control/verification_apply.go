@@ -75,10 +75,7 @@ func (s *Store) applyVerificationDecision(ctx context.Context, info *CommitTaskI
 	}
 	for _, effect := range decision.Effects {
 		if effect.Kind == VerificationEffectInsertTiebreak {
-			var lockedJob uuid.UUID
-			if err := tx.QueryRow(ctx, `
-				SELECT job_id FROM job_economic_reserves WHERE job_id=$1 FOR UPDATE`, info.JobID).
-				Scan(&lockedJob); err != nil {
+			if err := lockEconomicReserveTx(ctx, tx, info.JobID); err != nil {
 				return result, err
 			}
 			break
@@ -985,13 +982,17 @@ func verificationResolutionID(taskID uuid.UUID, kind string, sourceTaskID uuid.U
 
 func insertPlannedTiebreakTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInfo, effect VerificationEffect) (bool, error) {
 	var reserved, consumed int
-	if err := tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		SELECT reserved_tasks,consumed_tasks FROM job_economic_reserves
-		 WHERE job_id=$1 FOR UPDATE`, effect.JobID).Scan(&reserved, &consumed); err != nil {
+		 WHERE job_id=$1 FOR UPDATE`, effect.JobID).Scan(&reserved, &consumed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrEconomicReserveExhausted
+	}
+	if err != nil {
 		return false, err
 	}
 	var existing uuid.UUID
-	err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT id FROM tasks
 		 WHERE job_id=$1 AND COALESCE(chunk_index,0)=$2
 		   AND hedged_from IS NOT NULL AND is_redundancy=true
@@ -1039,12 +1040,16 @@ func insertPlannedTiebreakTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInf
 			return false, err
 		}
 	}
-	if _, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		UPDATE jobs
 		   SET task_count=task_count+1,
 		       status=CASE WHEN status='verifying' THEN 'running' ELSE status END
-		 WHERE id=$1`, effect.JobID); err != nil {
+		 WHERE id=$1 AND status IN ('queued','running','verifying')`, effect.JobID)
+	if err != nil {
 		return false, err
+	}
+	if tag.RowsAffected() != 1 {
+		return false, ErrEconomicReserveExhausted
 	}
 	return true, nil
 }
