@@ -48,6 +48,13 @@ func openMoneyPathStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
 	return openAdminMutationTestStore(t)
 }
 
+func openIsolatedMoneyPathStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
+	t.Helper()
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "TEST-money-path-isolated")
+	return openIsolatedTestStore(t)
+}
+
 func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 	ctx, store, pool := openMoneyPathStore(t)
 	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
@@ -1436,12 +1443,16 @@ func TestFailTaskTxReleasesRunningOwnerAndFencesForeignIdentity(t *testing.T) {
 }
 
 type taskLeaseProjection struct {
-	Status          string
-	ClaimedBy       *uuid.UUID
-	ClaimedAt       *time.Time
-	WorkerID        *uuid.UUID
-	ExecutionWorker *uuid.UUID
-	RetryCount      int
+	Status            string
+	ClaimedBy         *uuid.UUID
+	ClaimedAt         *time.Time
+	WorkerID          *uuid.UUID
+	ExecutionWorker   *uuid.UUID
+	ExecutionSupplier *uuid.UUID
+	ExecutionHW       *string
+	ExecutionEngine   *string
+	ExecutionBuild    *string
+	RetryCount        int
 }
 
 func readTaskLeaseProjection(
@@ -1450,10 +1461,13 @@ func readTaskLeaseProjection(
 	t.Helper()
 	var out taskLeaseProjection
 	if err := pool.QueryRow(ctx, `
-		SELECT status,claimed_by,claimed_at,worker_id,execution_worker_id,retry_count
+		SELECT status,claimed_by,claimed_at,worker_id,
+		       execution_worker_id,execution_supplier_id,execution_hw_class,
+		       execution_engine,execution_build_hash,retry_count
 		  FROM tasks WHERE id=$1`, taskID).
 		Scan(&out.Status, &out.ClaimedBy, &out.ClaimedAt, &out.WorkerID,
-			&out.ExecutionWorker, &out.RetryCount); err != nil {
+			&out.ExecutionWorker, &out.ExecutionSupplier, &out.ExecutionHW,
+			&out.ExecutionEngine, &out.ExecutionBuild, &out.RetryCount); err != nil {
 		t.Fatal(err)
 	}
 	return out
@@ -1799,6 +1813,376 @@ func TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation(t *testing.T) {
 			t.Fatalf("active-parent stale requeue projection = %+v", projection)
 		}
 	})
+}
+
+func TestDetachUnfinishedTasksForTerminalJobMappingsAndIdempotency(t *testing.T) {
+	testCases := []struct {
+		name       string
+		parent     string
+		detached   int64
+		wantStatus []string
+	}{
+		{
+			name: "active parent untouched", parent: "running", detached: 0,
+			wantStatus: []string{"queued", "retrying", "running", "complete", "failed", "cancelled"},
+		},
+		{
+			name: "failed parent maps unfinished to failed", parent: "failed", detached: 3,
+			wantStatus: []string{"failed", "failed", "failed", "complete", "failed", "cancelled"},
+		},
+		{
+			name: "cancelled parent maps unfinished to cancelled", parent: "cancelled", detached: 3,
+			wantStatus: []string{"cancelled", "cancelled", "cancelled", "complete", "failed", "cancelled"},
+		},
+		{
+			name: "complete parent defensively fails residuals", parent: "complete", detached: 3,
+			wantStatus: []string{"failed", "failed", "failed", "complete", "failed", "cancelled"},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, store, pool := openMoneyPathStore(t)
+			f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+				TaskCount: 6, TaskStatus: "running", ClaimWorker: true,
+				SeedJob: true, SeedPlanRows: true,
+			})
+			seedStatuses := []string{"queued", "retrying", "running", "complete", "failed", "cancelled"}
+			for i, status := range seedStatuses {
+				retryCount := 0
+				if status == "retrying" {
+					retryCount = 2
+				}
+				if _, err := pool.Exec(ctx, `
+					UPDATE tasks
+					   SET status=$2,retry_count=$3,claimed_at=now(),started_at=now()
+					 WHERE id=$1`, f.TaskIDs[i], status, retryCount); err != nil {
+					t.Fatalf("seed task %d as %s: %v", i, status, err)
+				}
+			}
+			if tc.parent != "running" {
+				if _, err := pool.Exec(ctx,
+					`UPDATE jobs SET status=$2 WHERE id=$1`, f.JobID, tc.parent); err != nil {
+					t.Fatalf("seed parent %s: %v", tc.parent, err)
+				}
+			}
+
+			beforeLedger := countBuyerLedger(t, ctx, pool, f.BuyerID)
+			var beforeEvents, beforeFailures int
+			if err := pool.QueryRow(ctx,
+				`SELECT count(*) FROM job_events WHERE job_id=$1`, f.JobID).Scan(&beforeEvents); err != nil {
+				t.Fatal(err)
+			}
+			if err := pool.QueryRow(ctx,
+				`SELECT count(*) FROM task_failures WHERE job_id=$1`, f.JobID).Scan(&beforeFailures); err != nil {
+				t.Fatal(err)
+			}
+			selected, err := store.TerminalJobsWithUnfinishedTasks(ctx, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, jobID := range selected {
+				found = found || jobID == f.JobID
+			}
+			if found != (tc.parent != "running") {
+				t.Fatalf("terminal janitor selection found=%v for parent %s", found, tc.parent)
+			}
+
+			detached, err := store.DetachUnfinishedTasksForTerminalJob(ctx, f.JobID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if detached != tc.detached {
+				t.Fatalf("detached rows = %d, want %d", detached, tc.detached)
+			}
+			for i, taskID := range f.TaskIDs {
+				got := readTaskLeaseProjection(t, ctx, pool, taskID)
+				if got.Status != tc.wantStatus[i] {
+					t.Fatalf("task %d status = %q, want %q", i, got.Status, tc.wantStatus[i])
+				}
+				if i < 3 && tc.parent != "running" &&
+					(got.ClaimedBy != nil || got.ClaimedAt != nil || got.WorkerID != nil) {
+					t.Fatalf("detached task %d retained lease: %+v", i, got)
+				}
+				if i < 3 && tc.parent == "running" &&
+					(got.ClaimedBy == nil || *got.ClaimedBy != f.WorkerID ||
+						got.ClaimedAt == nil ||
+						got.WorkerID == nil || *got.WorkerID != f.WorkerID) {
+					t.Fatalf("active-parent task %d lost lease: %+v", i, got)
+				}
+				if got.ExecutionWorker == nil || *got.ExecutionWorker != f.WorkerID ||
+					got.ExecutionSupplier == nil || *got.ExecutionSupplier != f.SupplierID ||
+					got.ExecutionHW == nil || *got.ExecutionHW != "apple_silicon_max" ||
+					got.ExecutionEngine == nil || *got.ExecutionEngine != "candle" ||
+					got.ExecutionBuild == nil || *got.ExecutionBuild != "deadbeefdeadbeef" {
+					t.Fatalf("task %d execution provenance changed: %+v", i, got)
+				}
+			}
+			if got := readTaskLeaseProjection(t, ctx, pool, f.TaskIDs[1]).RetryCount; got != 2 {
+				t.Fatalf("retrying task retry_count = %d, want preserved 2", got)
+			}
+			var jobStatus string
+			if err := pool.QueryRow(ctx,
+				`SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus); err != nil {
+				t.Fatal(err)
+			}
+			if jobStatus != tc.parent {
+				t.Fatalf("detach changed parent %s to %s", tc.parent, jobStatus)
+			}
+			if got := countBuyerLedger(t, ctx, pool, f.BuyerID); got != beforeLedger {
+				t.Fatalf("detach changed buyer ledger rows: before=%d after=%d", beforeLedger, got)
+			}
+			var afterEvents, afterFailures int
+			if err := pool.QueryRow(ctx,
+				`SELECT count(*) FROM job_events WHERE job_id=$1`, f.JobID).Scan(&afterEvents); err != nil {
+				t.Fatal(err)
+			}
+			if err := pool.QueryRow(ctx,
+				`SELECT count(*) FROM task_failures WHERE job_id=$1`, f.JobID).Scan(&afterFailures); err != nil {
+				t.Fatal(err)
+			}
+			if afterEvents != beforeEvents || afterFailures != beforeFailures {
+				t.Fatalf("detach changed audit rows: events %d->%d failures %d->%d",
+					beforeEvents, afterEvents, beforeFailures, afterFailures)
+			}
+			replay, err := store.DetachUnfinishedTasksForTerminalJob(ctx, f.JobID)
+			if err != nil || replay != 0 {
+				t.Fatalf("detach replay = (%d,%v), want 0/nil", replay, err)
+			}
+			selected, err = store.TerminalJobsWithUnfinishedTasks(ctx, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, jobID := range selected {
+				if jobID == f.JobID {
+					t.Fatalf("job %s remained selected after detach replay", f.JobID)
+				}
+			}
+		})
+	}
+}
+
+func TestDetachTerminalResidualIgnoresPendingButPreservesVerificationEvidence(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 2, TaskStatus: "running", ClaimWorker: true,
+		SeedJob: true, SeedPlanRows: true,
+	})
+	verifyingID, residualID := f.TaskIDs[0], f.TaskIDs[1]
+	info, err := store.CompleteTaskTx(ctx, verifyingID, f.WorkerID, commitFor(f, verifyingID, 0))
+	if err != nil || info == nil {
+		t.Fatalf("seed verification work = (%+v,%v)", info, err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=$1`, residualID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE jobs SET status='failed' WHERE id=$1`, f.JobID); err != nil {
+		t.Fatal(err)
+	}
+
+	var workID uuid.UUID
+	var workStatus string
+	if err := pool.QueryRow(ctx, `
+		SELECT id,status
+		  FROM verification_work
+		 WHERE task_id=$1 AND attempt=0`, verifyingID).Scan(&workID, &workStatus); err != nil {
+		t.Fatal(err)
+	}
+	detached, err := store.DetachUnfinishedTasksForTerminalJob(ctx, f.JobID)
+	if err != nil || detached != 1 {
+		t.Fatalf("terminal+pending detach = (%d,%v), want 1/nil", detached, err)
+	}
+	residual := readTaskLeaseProjection(t, ctx, pool, residualID)
+	if residual.Status != "failed" || residual.ClaimedBy != nil ||
+		residual.ClaimedAt != nil || residual.WorkerID != nil ||
+		residual.ExecutionWorker == nil || *residual.ExecutionWorker != f.WorkerID {
+		t.Fatalf("terminal+pending residual projection = %+v", residual)
+	}
+	afterVerifying := readTaskLeaseProjection(t, ctx, pool, verifyingID)
+	if afterVerifying.Status != "verifying" ||
+		afterVerifying.ClaimedBy == nil || *afterVerifying.ClaimedBy != f.WorkerID ||
+		afterVerifying.WorkerID == nil || *afterVerifying.WorkerID != f.WorkerID ||
+		afterVerifying.ExecutionWorker == nil ||
+		*afterVerifying.ExecutionWorker != f.WorkerID ||
+		afterVerifying.ExecutionSupplier == nil ||
+		*afterVerifying.ExecutionSupplier != f.SupplierID {
+		t.Fatalf("detach changed verifying evidence: %+v", afterVerifying)
+	}
+	var afterWorkStatus string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM verification_work WHERE id=$1`, workID).Scan(&afterWorkStatus); err != nil {
+		t.Fatal(err)
+	}
+	if afterWorkStatus != workStatus {
+		t.Fatalf("detach changed verification work %s from %q to %q",
+			workID, workStatus, afterWorkStatus)
+	}
+}
+
+func TestTerminalTaskDetachJanitorRepairsRetainedResidual(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 1, TaskStatus: "running", ClaimWorker: true,
+		SeedJob: true, SeedPlanRows: true,
+	})
+	taskID := f.TaskIDs[0]
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=$1`, taskID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE jobs SET status='failed' WHERE id=$1`, f.JobID); err != nil {
+		t.Fatal(err)
+	}
+	workers := &Workers{store: store}
+	if err := workers.detachTerminalJobTasks(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got := readTaskLeaseProjection(t, ctx, pool, taskID)
+	if got.Status != "failed" || got.ClaimedBy != nil ||
+		got.ClaimedAt != nil || got.WorkerID != nil {
+		t.Fatalf("janitor retained terminal residual: %+v", got)
+	}
+	if err := workers.detachTerminalJobTasks(ctx); err != nil {
+		t.Fatalf("janitor replay: %v", err)
+	}
+}
+
+func TestConcurrentTerminalDetachPassesAreIdempotent(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 3, TaskStatus: "running", ClaimWorker: true,
+		SeedJob: true, SeedPlanRows: true,
+	})
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=ANY($1::uuid[])`,
+		f.TaskIDs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE jobs SET status='failed' WHERE id=$1`, f.JobID); err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		detached int64
+		err      error
+	}
+	results := make(chan result, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			detached, err := store.DetachUnfinishedTasksForTerminalJob(ctx, f.JobID)
+			results <- result{detached: detached, err: err}
+		}()
+	}
+	var total int64
+	for i := 0; i < 2; i++ {
+		select {
+		case got := <-results:
+			if got.err != nil {
+				t.Fatalf("concurrent detach: %v", got.err)
+			}
+			total += got.detached
+		case <-time.After(15 * time.Second):
+			t.Fatal("concurrent detach passes did not finish")
+		}
+	}
+	if total != int64(len(f.TaskIDs)) {
+		t.Fatalf("concurrent detach total = %d, want %d", total, len(f.TaskIDs))
+	}
+	for _, taskID := range f.TaskIDs {
+		got := readTaskLeaseProjection(t, ctx, pool, taskID)
+		if got.Status != "failed" || got.ClaimedBy != nil ||
+			got.ClaimedAt != nil || got.WorkerID != nil {
+			t.Fatalf("concurrent detach retained task %s: %+v", taskID, got)
+		}
+	}
+}
+
+func TestConcurrentTerminalDetachCompleteAndFailConvergesWithoutDeadlock(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 3, TaskStatus: "running", ClaimWorker: true,
+		SeedJob: true, SeedPlanRows: true,
+	})
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=ANY($1::uuid[])`,
+		f.TaskIDs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE jobs SET status='failed' WHERE id=$1`, f.JobID); err != nil {
+		t.Fatal(err)
+	}
+	beforeLedger := countBuyerLedger(t, ctx, pool, f.BuyerID)
+	report := FailureReport{
+		Class: "bad_input", Message: "terminal parent concurrency probe",
+		Backend: "embed", Model: "all-minilm-l6-v2", DurationMS: 1,
+	}
+	type result struct {
+		kind     string
+		outcome  FailOutcome
+		detached int64
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 3)
+	go func() {
+		<-start
+		_, err := store.CompleteTaskTx(ctx, f.TaskIDs[0], f.WorkerID,
+			commitFor(f, f.TaskIDs[0], 0))
+		results <- result{kind: "complete", err: err}
+	}()
+	go func() {
+		<-start
+		outcome, err := store.FailTaskTx(ctx, f.TaskIDs[1], f.WorkerID, 0, report)
+		results <- result{kind: "fail", outcome: outcome, err: err}
+	}()
+	go func() {
+		<-start
+		detached, err := store.DetachUnfinishedTasksForTerminalJob(ctx, f.JobID)
+		results <- result{kind: "detach", detached: detached, err: err}
+	}()
+	close(start)
+
+	seen := make(map[string]result, 3)
+	for i := 0; i < 3; i++ {
+		select {
+		case got := <-results:
+			seen[got.kind] = got
+		case <-time.After(15 * time.Second):
+			t.Fatal("concurrent terminal detach/complete/fail did not finish")
+		}
+	}
+	if got := seen["complete"]; !errors.Is(got.err, errNotFound) {
+		t.Fatalf("complete under terminal parent error = %v, want errNotFound", got.err)
+	}
+	if got := seen["fail"]; !((got.outcome == FailTerminal && got.err == nil) ||
+		(got.outcome == FailNoop && errors.Is(got.err, errNotOwner))) {
+		t.Fatalf("concurrent fail result = (%q,%v)", got.outcome, got.err)
+	}
+	if got := seen["detach"]; got.err != nil {
+		t.Fatalf("concurrent detach = (%d,%v)", got.detached, got.err)
+	}
+	if _, err := store.DetachUnfinishedTasksForTerminalJob(ctx, f.JobID); err != nil {
+		t.Fatalf("convergence detach: %v", err)
+	}
+	for _, taskID := range f.TaskIDs {
+		got := readTaskLeaseProjection(t, ctx, pool, taskID)
+		if got.Status != "failed" || got.ClaimedBy != nil ||
+			got.ClaimedAt != nil || got.WorkerID != nil {
+			t.Fatalf("concurrent terminal task %s did not converge: %+v", taskID, got)
+		}
+	}
+	var jobStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1`, f.JobID).Scan(&jobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if jobStatus != "failed" {
+		t.Fatalf("concurrent detach reopened parent to %q", jobStatus)
+	}
+	if got := countBuyerLedger(t, ctx, pool, f.BuyerID); got != beforeLedger {
+		t.Fatalf("concurrent detach changed ledger rows: before=%d after=%d", beforeLedger, got)
+	}
 }
 
 // --- CompleteTaskTx ---

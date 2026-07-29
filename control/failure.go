@@ -320,6 +320,12 @@ func (s *Server) handleWorkerFail(w http.ResponseWriter, r *http.Request) {
 			log.Printf("fail: job lookup for checkpoint of task %s: %v", taskID, jerr)
 		} else {
 			checkpointBeforeFail(r.Context(), s.store, s.storage, jobID)
+			if detached, derr := s.store.DetachUnfinishedTasksForTerminalJob(r.Context(), jobID); derr != nil {
+				log.Printf("terminal-task-detach: job %s after worker fail: %v", jobID, derr)
+			} else if detached > 0 {
+				log.Printf("terminal-task-detach: job %s released %d unfinished sibling(s) after worker fail",
+					jobID, detached)
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"outcome": string(outcome)})
