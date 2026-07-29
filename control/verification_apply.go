@@ -462,60 +462,22 @@ func validateVerificationSettlementTx(ctx context.Context, tx pgx.Tx, info *Comm
 	}
 	var buyerID uuid.UUID
 	var jobCurrency string
-	var frozenCharge, frozenPayout float64
-	var expectedRecords int64
-	var reportedTokens *int64
-	var jobMaxTokens int64
-	var computePlanJSON []byte
 	if err := tx.QueryRow(ctx, `
-		SELECT j.buyer_id,j.currency,
-		       t.economic_buyer_charge_usd::float8,t.economic_supplier_payout_usd::float8,
-		       COALESCE(t.expected_output_records,0), t.reported_tokens_used,
-		       COALESCE((j.job_type_spec->>'max_tokens')::bigint,0),
-		       j.compute_plan
+		SELECT j.buyer_id, j.currency
 		  FROM tasks t JOIN jobs j ON j.id=t.job_id WHERE t.id=$1`, info.TaskID).
-		Scan(&buyerID, &jobCurrency, &frozenCharge, &frozenPayout,
-			&expectedRecords, &reportedTokens, &jobMaxTokens, &computePlanJSON); err != nil {
+		Scan(&buyerID, &jobCurrency); err != nil {
 		return err
 	}
 	if err := RequireSettlementCurrency(jobCurrency); err != nil {
 		return fmt.Errorf("job %s cannot settle under this deployment: %w", info.JobID, err)
 	}
-	if frozenCharge <= 0 || frozenPayout < 0 || frozenPayout > frozenCharge {
-		return fmt.Errorf("task %s has invalid frozen economics", info.TaskID)
+	// Recompute the only legal pair from durable authority through the SAME
+	// loader the planner used. Never trust the planned amounts.
+	settled, err := loadObservedOutputSettlement(ctx, tx, info.TaskID)
+	if err != nil {
+		return err
 	}
-
-	// Ledger amounts may be the freeze (embed / missing plan / missing
-	// observation) or the observed-output rebate. Recompute the only legal
-	// pair from durable authority; never re-read the planned settlement.
-	billedCharge, billedPayout := frozenCharge, frozenPayout
-	if len(computePlanJSON) > 0 {
-		var plan ComputePlan
-		if err := json.Unmarshal(computePlanJSON, &plan); err != nil {
-			return fmt.Errorf("decode compute plan for settlement check: %w", err)
-		}
-		hasReported := reportedTokens != nil
-		var reported int64
-		if hasReported {
-			reported = *reportedTokens
-		}
-		maxTok := uint32(0)
-		if jobMaxTokens > 0 && jobMaxTokens <= int64(^uint32(0)) {
-			maxTok = uint32(jobMaxTokens)
-		}
-		settled := settleObservedOutputTokens(
-			frozenCharge, frozenPayout,
-			plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
-			expectedRecords, maxTok,
-			reported, hasReported,
-		)
-		billedCharge, billedPayout = settled.BilledCharge, settled.SupplierPayout
-	}
-	// Invariant 2: settlement may only reduce.
-	if billedCharge > frozenCharge || billedPayout > frozenPayout {
-		return fmt.Errorf("settlement would exceed frozen task economics")
-	}
-	// Invariant 4.
+	billedCharge, billedPayout := settled.BilledCharge, settled.SupplierPayout
 	if billedPayout < 0 || billedPayout > billedCharge {
 		return fmt.Errorf("settlement supplier payout out of range")
 	}

@@ -1,6 +1,13 @@
 package main
 
-import "math"
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"math"
+
+	"github.com/google/uuid"
+)
 
 // minBillableSettlementUSD is the smallest positive buyer charge the ledger can
 // represent. Settlement may rebate unused generative output down to this floor
@@ -76,10 +83,14 @@ func settleObservedOutputTokens(
 		return out
 	}
 
-	observed := reportedTokens
-	if observed < 0 {
-		observed = 0
+	if reportedTokens < 0 {
+		// The production commit API accepts uint64 and therefore cannot
+		// produce a negative observation. If the durable projection is ever
+		// negative, treat it as corrupted authority and keep the freeze rather
+		// than turning the corruption into the maximum possible rebate.
+		return out
 	}
+	observed := reportedTokens
 	if observed > ceiling {
 		observed = ceiling
 	}
@@ -138,4 +149,120 @@ func settleObservedOutputTokens(
 		out.ObservedTokens = observed
 	}
 	return out
+}
+
+// loadObservedOutputSettlement is the ONE place settlement reads its inputs.
+//
+// It exists because the producer (verification planning) and the validator
+// (verification apply) each recomputed this pair from a different source, and
+// they diverged: the recovery path rebuilds CommitTaskInfo from a stored
+// snapshot that never carried jobMaxTokens, so the producer saw maxTokens=0 and
+// settled at the freeze while the validator read max_tokens from the job and
+// computed a rebate. Every apply then failed with "settlement buyer_charge
+// conflicts with observed-output task economics" and the job could never
+// finalize.
+//
+// Both callers now read the same columns through the same SQL. `q` is a pgx.Tx
+// for the validator (so it sees the transaction's snapshot) and the pool for
+// the planner.
+func loadObservedOutputSettlement(
+	ctx context.Context, q ledgerExec, taskID uuid.UUID,
+) (observedOutputSettlement, error) {
+	var (
+		frozenCharge, frozenPayout float64
+		expectedRecords            int64
+		reportedTokens             *int64
+		workloadJSON               []byte
+		workloadSHA256             string
+		computePlanJSON            []byte
+		computePlanSHA256          string
+		economicPlanJSON           []byte
+	)
+	if err := q.QueryRow(ctx, `
+		SELECT t.economic_buyer_charge_usd::float8, t.economic_supplier_payout_usd::float8,
+		       COALESCE(t.expected_output_records,0), t.reported_tokens_used,
+		       j.workload_decision, COALESCE(j.workload_decision_sha256,''),
+		       j.compute_plan, COALESCE(j.compute_plan_sha256,''),
+		       ep.plan_json
+		  FROM tasks t JOIN jobs j ON j.id = t.job_id
+		  LEFT JOIN job_economic_plans ep ON ep.job_id = j.id
+		 WHERE t.id = $1`, taskID).
+		Scan(&frozenCharge, &frozenPayout, &expectedRecords, &reportedTokens,
+			&workloadJSON, &workloadSHA256, &computePlanJSON, &computePlanSHA256,
+			&economicPlanJSON); err != nil {
+		return observedOutputSettlement{}, err
+	}
+	if !moneyUSDInDomain(frozenCharge) || !moneyUSDInDomain(frozenPayout) ||
+		frozenCharge <= 0 || frozenPayout < 0 || frozenPayout > frozenCharge {
+		return observedOutputSettlement{}, fmt.Errorf("task %s has invalid frozen economics", taskID)
+	}
+	out := observedOutputSettlement{BilledCharge: frozenCharge, SupplierPayout: frozenPayout}
+	if len(computePlanJSON) == 0 {
+		return out, nil // legacy job without a frozen plan settles at the freeze
+	}
+	if len(workloadJSON) == 0 {
+		return observedOutputSettlement{}, fmt.Errorf(
+			"task %s has a compute plan without workload authority", taskID)
+	}
+	var workload WorkloadDecision
+	if err := json.Unmarshal(workloadJSON, &workload); err != nil {
+		return observedOutputSettlement{}, fmt.Errorf(
+			"decode workload decision for settlement: %w", err)
+	}
+	if err := ValidateFrozenWorkloadDecisionSnapshot(workload); err != nil {
+		return observedOutputSettlement{}, fmt.Errorf(
+			"invalid frozen workload decision for settlement: %w", err)
+	}
+	gotWorkloadSHA256, err := workloadDecisionDigest(workload)
+	if err != nil {
+		return observedOutputSettlement{}, fmt.Errorf(
+			"hash workload decision for settlement: %w", err)
+	}
+	if workloadSHA256 == "" || workloadSHA256 != gotWorkloadSHA256 {
+		return observedOutputSettlement{}, fmt.Errorf(
+			"frozen workload decision digest mismatch for task %s", taskID)
+	}
+	var plan ComputePlan
+	if err := json.Unmarshal(computePlanJSON, &plan); err != nil {
+		return observedOutputSettlement{}, fmt.Errorf("decode compute plan for settlement: %w", err)
+	}
+	if err := ValidateFrozenComputePlanSnapshot(plan, workload); err != nil {
+		return observedOutputSettlement{}, fmt.Errorf(
+			"invalid frozen compute plan for settlement: %w", err)
+	}
+	gotComputeSHA256, err := computePlanDigest(plan)
+	if err != nil {
+		return observedOutputSettlement{}, fmt.Errorf(
+			"hash compute plan for settlement: %w", err)
+	}
+	if computePlanSHA256 == "" || computePlanSHA256 != gotComputeSHA256 {
+		return observedOutputSettlement{}, fmt.Errorf(
+			"frozen compute plan digest mismatch for task %s", taskID)
+	}
+	if plan.ExecutionMode == computeExecutionDistributed {
+		if len(economicPlanJSON) == 0 {
+			return observedOutputSettlement{}, fmt.Errorf(
+				"task %s has no frozen economic authority", taskID)
+		}
+		var economic EconomicPlan
+		if err := json.Unmarshal(economicPlanJSON, &economic); err != nil {
+			return observedOutputSettlement{}, fmt.Errorf(
+				"decode economic plan for settlement: %w", err)
+		}
+		if err := ValidateComputePlanEconomicSnapshot(plan, workload, economic); err != nil {
+			return observedOutputSettlement{}, fmt.Errorf(
+				"compute/economic authority mismatch for settlement: %w", err)
+		}
+	}
+	reported := int64(0)
+	hasReported := reportedTokens != nil
+	if hasReported {
+		reported = *reportedTokens
+	}
+	return settleObservedOutputTokens(
+		frozenCharge, frozenPayout,
+		plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
+		expectedRecords, workload.Binding.JobType.MaxTokens,
+		reported, hasReported,
+	), nil
 }

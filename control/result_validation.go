@@ -410,9 +410,15 @@ func preflightEmbeddingJSONVectors(raw []byte, maxRecords, dimensionBound uint64
 
 func validateBatchInferResult(body []byte, records resultRecordContract) error {
 	var r struct {
-		JobType     string `json:"job_type"`
-		Model       string `json:"model"`
-		Completions []struct {
+		JobType string `json:"job_type"`
+		Model   string `json:"model"`
+		// The agent has always reported which pluggable backend executed the
+		// job (executor::BatchInferResult). decodeStrictJSON rejects unknown
+		// fields, so omitting it here failed EVERY batch_infer artifact as
+		// artifact_invalid -- which docks reputation, claws back the credit and
+		// quarantines an honest supplier, on every attempt, forever.
+		InferenceBackend string `json:"inference_backend"`
+		Completions      []struct {
 			Index  int    `json:"index"`
 			Text   string `json:"text"`
 			Tokens uint64 `json:"tokens"`
@@ -424,6 +430,9 @@ func validateBatchInferResult(body []byte, records resultRecordContract) error {
 	if r.JobType != "batch_infer" || strings.TrimSpace(r.Model) == "" {
 		return invalidResultArtifact("batch_infer", resultValidationEnvelope, "job_type/model are missing or incorrect")
 	}
+	// inference_backend is accepted but not required: the verification class is
+	// bound from the worker-declared engine|build_hash, not from the artifact,
+	// and legacy artifacts predate the field.
 	if err := validateResultRecordCount("batch_infer", len(r.Completions), records); err != nil {
 		return err
 	}

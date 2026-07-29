@@ -198,8 +198,18 @@ fn inference_runtime_tuning_identity(engine: &str) -> String {
     )
 }
 
+/// The hardware class this host advertises at registration, as it appears on the
+/// wire. The verification class a worker declares is
+/// engine_build_hash_for_class(engine, version, THIS) -- not device_label() --
+/// so anything that must reproduce a worker's class byte-for-byte (the
+/// batch_infer honeypot measurement) has to hash the same string.
+pub fn detected_hw_class_wire() -> &'static str {
+    let brand = sysctl("machdep.cpu.brand_string").unwrap_or_else(|| "unknown".to_string());
+    classify(&brand).as_wire_str()
+}
+
 pub fn engine_build_hash(engine: &str, agent_version: &str) -> String {
-    engine_build_hash_for_class(engine, agent_version, crate::models::device_label())
+    engine_build_hash_for_class(engine, agent_version, detected_hw_class_wire())
 }
 
 pub fn engine_build_hash_for_class(
