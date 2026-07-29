@@ -510,6 +510,15 @@ func (wk *Workers) requeueStaleTasks(ctx context.Context) error {
 		if int(t.RetryCount) >= retryLimit {
 			checkpointBeforeFail(ctx, wk.store, wk.storage, t.JobID)
 			if ferr := wk.store.FailTaskAndSettleJob(ctx, t.ID, t.JobID); ferr != nil {
+				if errors.Is(ferr, ErrJobVerificationPending) {
+					// This task remains atomically running/owned until the
+					// job's verification authority drains. It will be selected
+					// again on a later tick; do not let the oldest pending job
+					// starve every later stale task in this batch.
+					log.Printf("workers: deferred terminal stale failure for task %s (job %s): verification pending",
+						t.ID, t.JobID)
+					continue
+				}
 				return ferr
 			}
 			if detached, derr := wk.store.DetachUnfinishedTasksForTerminalJob(ctx, t.JobID); derr != nil {

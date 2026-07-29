@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "d93df925e07d780955404a3f15a37adf423aa01b47b17dc5efa861540711fbbe",
+  "authority_sha256": "f936cb58d79b03e4ecb0ec2eb8657eb569563a3919a77997087648dd32d62e34",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -119,7 +119,7 @@
     "control/exact_reuse_batch.go": 313,
     "control/exact_reuse_path.go": 185,
     "control/exact_reuse_test.go": 213,
-    "control/failure.go": 368,
+    "control/failure.go": 376,
     "control/failure_test.go": 27,
     "control/fuzz_invariants_test.go": 287,
     "control/fuzz_test.go": 76,
@@ -139,7 +139,7 @@
     "control/job_object_retention_test.go": 206,
     "control/job_submit_validate.go": 156,
     "control/job_submit_validate_test.go": 81,
-    "control/job_task_money_integration_test.go": 3219,
+    "control/job_task_money_integration_test.go": 3370,
     "control/latency_watchdog.go": 110,
     "control/ledger_write.go": 453,
     "control/ledger_write_property_test.go": 125,
@@ -292,7 +292,7 @@
     "control/worker_leader.go": 194,
     "control/worker_leader_test.go": 27,
     "control/worker_session_integration_test.go": 104,
-    "control/workers.go": 1196,
+    "control/workers.go": 1205,
     "control/workload_classification.go": 449,
     "control/workload_classification_test.go": 521,
     "control/workload_simulation_test.go": 431,
@@ -601,11 +601,11 @@
     },
     "go": {
       "files": 227,
-      "loc": 71548,
-      "code": 63685,
-      "blank": 4390,
-      "comment": 3473,
-      "bytes": 2583198
+      "loc": 71716,
+      "code": 63838,
+      "blank": 4396,
+      "comment": 3482,
+      "bytes": 2589623
     },
     "javascript": {
       "files": 8,
@@ -731,11 +731,11 @@
     },
     "control": {
       "files": 162,
-      "loc": 50246,
-      "code": 44300,
-      "blank": 3117,
-      "comment": 2829,
-      "bytes": 1830310
+      "loc": 50414,
+      "code": 44453,
+      "blank": 3123,
+      "comment": 2838,
+      "bytes": 1836735
     },
     "documentation": {
       "files": 39,
@@ -803,9 +803,9 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 134782,
-    "non_design_production_core_loc": 95795,
-    "test_loc": 25693,
+    "global_owned_loc": 134950,
+    "non_design_production_core_loc": 95812,
+    "test_loc": 25844,
     "documentation_loc": 6625,
     "python_loc": 9388,
     "generated_loc": 5118,
@@ -830,7 +830,7 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10142362,
+  "tracked_bytes": 10148787,
   "tracked_files": 566,
   "untracked_files": 0,
   "walked_files": 566

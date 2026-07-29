@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -1596,6 +1598,74 @@ func TestFailTaskTxTerminalPendingVerificationIsAtomicAndRetryable(t *testing.T)
 	}
 }
 
+func TestWorkerFailVerificationPendingWireIsRetryableAndAtomic(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 2, TaskStatus: "running", ClaimWorker: true,
+		SeedJob: true, SeedPlanRows: true,
+	})
+	taskID, siblingID := f.TaskIDs[0], f.TaskIDs[1]
+	if _, err := pool.Exec(ctx, `
+		UPDATE tasks
+		   SET claimed_at=now(),started_at=now()
+		 WHERE id=ANY($1::uuid[])`, f.TaskIDs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET status='verifying' WHERE id=$1`, siblingID); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(FailureReport{
+		Class: "bad_input", Message: "terminal input failure while sibling verifies",
+		Backend: "embed", Model: "all-minilm-l6-v2", DurationMS: 900,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(
+		http.MethodPost, "/v1/worker/task/"+taskID.String()+"/fail",
+		strings.NewReader(string(body)),
+	)
+	req.SetPathValue("id", taskID.String())
+	req.Header.Set(taskAttemptHeaderName, "0")
+	req = req.WithContext(context.WithValue(
+		req.Context(), ctxWorker, &WorkerAuth{WorkerID: f.WorkerID},
+	))
+	rec := httptest.NewRecorder()
+
+	(&Server{store: store}).handleWorkerFail(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("pending fail status=%d body=%s, want 503", rec.Code, rec.Body.String())
+	}
+	if retryAfter := rec.Header().Get("Retry-After"); retryAfter == "" {
+		t.Fatal("pending fail response omitted Retry-After")
+	}
+	var apiErr APIError
+	if err := json.Unmarshal(rec.Body.Bytes(), &apiErr); err != nil {
+		t.Fatalf("decode pending fail response: %v body=%s", err, rec.Body.String())
+	}
+	if apiErr.Code != ErrCodeUnavailable || apiErr.Action != ActionRetryAfter ||
+		apiErr.Error != ErrJobVerificationPending.Error() {
+		t.Fatalf("pending fail response=%+v, want unavailable/retry_after/%q",
+			apiErr, ErrJobVerificationPending)
+	}
+	projection := readTaskLeaseProjection(t, ctx, pool, taskID)
+	if projection.Status != "running" || projection.ClaimedBy == nil ||
+		*projection.ClaimedBy != f.WorkerID || projection.ClaimedAt == nil ||
+		projection.WorkerID == nil || *projection.WorkerID != f.WorkerID {
+		t.Fatalf("pending wire response changed retained lease: %+v", projection)
+	}
+	var failures int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM task_failures WHERE task_id=$1`, taskID).Scan(&failures); err != nil {
+		t.Fatal(err)
+	}
+	if failures != 0 {
+		t.Fatalf("pending wire response retained %d rolled-back failure rows", failures)
+	}
+}
+
 func TestConcurrentTerminalFailuresReleaseBothLeasesWithoutDeadlock(t *testing.T) {
 	ctx, store, pool := openMoneyPathStore(t)
 	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
@@ -1735,6 +1805,87 @@ func TestFailTaskAndSettleJobReleasesLeaseAndHonorsPending(t *testing.T) {
 			t.Fatalf("pending reaper terminal failure was not rolled back: %+v", projection)
 		}
 	})
+}
+
+func TestStaleReaperPendingVerificationDoesNotStarveLaterJobs(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	pending := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 2, TaskStatus: "running", ClaimWorker: true,
+		SeedJob: true, SeedPlanRows: true,
+	})
+	later := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 1, TaskStatus: "running", ClaimWorker: true,
+		SeedJob: true, SeedPlanRows: true,
+	})
+	pendingTask, verifyingSibling := pending.TaskIDs[0], pending.TaskIDs[1]
+	laterTask := later.TaskIDs[0]
+	if _, err := pool.Exec(ctx, `
+		UPDATE tasks
+		   SET claimed_at=now()-interval '3 hours',
+		       started_at=now()-interval '3 hours',
+		       retry_count=$2
+		 WHERE id=$1`, pendingTask, maxTaskRetries); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE tasks
+		   SET status='verifying',claimed_at=now(),started_at=now()
+		 WHERE id=$1`, verifyingSibling); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE tasks
+		   SET claimed_at=now()-interval '2 hours',
+		       started_at=now()-interval '2 hours'
+		 WHERE id=$1`, laterTask); err != nil {
+		t.Fatal(err)
+	}
+
+	workers := &Workers{store: store}
+	if err := workers.requeueStaleTasks(ctx); err != nil {
+		t.Fatalf("stale sweep treated verification pending as fatal: %v", err)
+	}
+	pendingProjection := readTaskLeaseProjection(t, ctx, pool, pendingTask)
+	if pendingProjection.Status != "running" ||
+		pendingProjection.ClaimedBy == nil ||
+		*pendingProjection.ClaimedBy != pending.WorkerID ||
+		pendingProjection.RetryCount != maxTaskRetries {
+		t.Fatalf("pending oldest task did not remain atomically owned: %+v",
+			pendingProjection)
+	}
+	laterProjection := readTaskLeaseProjection(t, ctx, pool, laterTask)
+	if laterProjection.Status != "queued" ||
+		laterProjection.ClaimedBy != nil ||
+		laterProjection.WorkerID != nil ||
+		laterProjection.RetryCount != 1 {
+		t.Fatalf("later stale job was starved behind pending verification: %+v",
+			laterProjection)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE tasks
+		   SET status='failed',claimed_by=NULL,claimed_at=NULL,worker_id=NULL
+		 WHERE id=$1`, verifyingSibling); err != nil {
+		t.Fatal(err)
+	}
+	if err := workers.requeueStaleTasks(ctx); err != nil {
+		t.Fatalf("stale sweep after verification drained: %v", err)
+	}
+	pendingProjection = readTaskLeaseProjection(t, ctx, pool, pendingTask)
+	if pendingProjection.Status != "failed" ||
+		pendingProjection.ClaimedBy != nil ||
+		pendingProjection.WorkerID != nil {
+		t.Fatalf("deferred stale terminal failure did not converge: %+v",
+			pendingProjection)
+	}
+	var pendingJobStatus string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM jobs WHERE id=$1`, pending.JobID).Scan(&pendingJobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if pendingJobStatus != "failed" {
+		t.Fatalf("deferred stale job status=%q, want failed", pendingJobStatus)
+	}
 }
 
 func TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation(t *testing.T) {
