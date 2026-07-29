@@ -171,6 +171,9 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	if j.ETASecs != j.ComputePlan.ETAP50Secs {
 		return fmt.Errorf("job ETA %d does not match compute plan p50 %d", j.ETASecs, j.ComputePlan.ETAP50Secs)
 	}
+	if j.ETARawSecs <= 0 || j.ETARawSecs > j.ETASecs {
+		return fmt.Errorf("job raw ETA %d is not within calibrated ETA %d", j.ETARawSecs, j.ETASecs)
+	}
 	if j.EconomicInputRecords != int64(j.ComputePlan.InputRecords) ||
 		j.EconomicInputBytes != j.ComputePlan.InputBytes {
 		return fmt.Errorf("job input authority records=%d bytes=%d does not match compute plan %d/%d",
@@ -251,17 +254,19 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	defer tx.Rollback(ctx)
 	if j.QuoteID != uuid.Nil {
 		var quoteComputeSHA256, quoteCurrency, quotePlacementSHA256, quotePricingSHA256 string
+		var quoteETARawSecs int
 		var quotePricingJSON []byte
 		if err := tx.QueryRow(ctx,
 			`SELECT COALESCE(compute_plan_sha256,''),currency,
 			        COALESCE(placement_requirement_sha256,''),
-			        COALESCE(pricing_decision_sha256,''),pricing_decision
+			        COALESCE(pricing_decision_sha256,''),pricing_decision,
+			        COALESCE(eta_p50_secs_raw,0)
 			   FROM quotes
 			  WHERE id=$1 AND buyer_id=$2`,
 			j.QuoteID, j.BuyerID,
 		).Scan(
 			&quoteComputeSHA256, &quoteCurrency, &quotePlacementSHA256,
-			&quotePricingSHA256, &quotePricingJSON,
+			&quotePricingSHA256, &quotePricingJSON, &quoteETARawSecs,
 		); err != nil {
 			return fmt.Errorf("load bound quote compute authority: %w", err)
 		}
@@ -274,6 +279,9 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		}
 		if quotePlacementSHA256 == "" || quotePlacementSHA256 != placementSHA256 {
 			return errors.New("job offered rate and placement requirement do not match its bound quote")
+		}
+		if quoteETARawSecs <= 0 || quoteETARawSecs != j.ETARawSecs {
+			return errors.New("job raw ETA does not match its bound quote")
 		}
 		var quotePricing PricingDecision
 		if err := json.Unmarshal(quotePricingJSON, &quotePricing); err != nil {
@@ -303,7 +311,7 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		   (id, buyer_id, status, job_type, model_ref, input_ref, output_ref,
 		    tier, verification_policy, estimated_usd, actual_usd, task_count, tasks_done,
 		    min_memory_gb, max_duration_secs, hw_classes, data_residency, job_type_spec, split_size,
-		    offered_rate_usd_hr, eta_secs, max_usd, budget_state, quote_id, min_reputation,
+		    offered_rate_usd_hr, eta_secs, eta_secs_raw, max_usd, budget_state, quote_id, min_reputation,
 		    deadline_secs, firm_quote, firm_quote_max_usd, sla_guarantee_secs, sla_premium_usd,
 		    economic_input_records, economic_input_bytes, economic_input_source,
 		    submit_idempotency_key, submit_request_sha256, prefix_id,
@@ -312,13 +320,13 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    placement_requirement, placement_requirement_sha256,
 		    pricing_decision, pricing_decision_sha256, currency)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
-		         $11,$12,$13,$14,$15,$16,$17,$18,$19,'tracking',$20,$21,$22,$23,$24,$25,$26,
-		         $27,$28,$29,NULLIF($30,''),NULLIF($31,''),NULLIF($32,''),
-		         $33,$34,$35,$36,$37,$38,$39,$40,$41)`,
+		         $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'tracking',$21,$22,$23,$24,$25,$26,$27,
+		         $28,$29,$30,NULLIF($31,''),NULLIF($32,''),NULLIF($33,''),
+		         $34,$35,$36,$37,$38,$39,$40,$41,$42)`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
-		nullJSON(j.JobTypeSpec), j.SplitSize, j.OfferedRateUsdHr, j.ETASecs,
+		nullJSON(j.JobTypeSpec), j.SplitSize, j.OfferedRateUsdHr, j.ETASecs, j.ETARawSecs,
 		nullPosFloat(j.MaxUSD), nullUUID(j.QuoteID), j.MinReputation,
 		j.DeadlineSecs, j.FirmQuote, nullPosFloat(j.FirmQuoteMaxUSD),
 		nullPosInt(j.SLAGuaranteeSecs), nullPosFloat(j.SLAPremiumUSD),
@@ -412,6 +420,7 @@ type jobRow struct {
 	SplitSize                  int
 	OfferedRateUsdHr           float32
 	ETASecs                    int
+	ETARawSecs                 int
 	MaxUSD                     float64   // buyer hard spend cap (Budget Governor); 0 = no cap
 	QuoteID                    uuid.UUID // advisory quote bound to this job (Plane D D7); zero = none -> persisted NULL
 	MinReputation              float32   // Elite-supplier gate: claim only by suppliers with reputation >= this (0 = any)

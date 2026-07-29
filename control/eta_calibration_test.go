@@ -194,3 +194,92 @@ func TestETABiasFactorIsCappedAgainstAPathologicalWindow(t *testing.T) {
 		t.Fatalf("factor = %v, want the cap %v", factor, etaBiasFactorMax)
 	}
 }
+
+// TestRecordEtaCalibrationLearnsFromRawAndConverges proves the production
+// writer cannot feed its already-corrected buyer promise back into the learner.
+// A stable raw estimate of 100s that realizes in 200s must keep producing a 2x
+// bias even when every buyer-facing quote was already stretched to 200s.
+func TestRecordEtaCalibrationLearnsFromRawAndConverges(t *testing.T) {
+	store, pool, ctx := etaCalibrationTestStore(t)
+	jobType := "etaconverge_" + uuid.NewString()[:8]
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO buyers (id,email) VALUES ($1,$2)`,
+		buyerID, buyerID.String()+"@eta.invalid"); err != nil {
+		t.Fatalf("insert buyer: %v", err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(c, `DELETE FROM eta_calibration WHERE job_type=$1`, jobType)
+		_, _ = pool.Exec(c, `DELETE FROM jobs WHERE buyer_id=$1`, buyerID)
+		_, _ = pool.Exec(c, `DELETE FROM buyers WHERE id=$1`, buyerID)
+	})
+
+	for i := 0; i < driftMinSamples; i++ {
+		jobID := uuid.New()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO jobs
+			   (id,buyer_id,status,job_type,input_ref,tier,eta_secs,eta_secs_raw,created_at)
+			 VALUES ($1,$2,'complete',$3,$4,'batch',200,100,
+			         now() - interval '200 seconds')`,
+			jobID, buyerID, jobType, "eta/"+jobID.String()); err != nil {
+			t.Fatalf("insert job %d: %v", i, err)
+		}
+		raw, quoted, realized, err := store.RecordEtaCalibration(ctx, jobID)
+		if err != nil {
+			t.Fatalf("record job %d: %v", i, err)
+		}
+		if raw != 100 || quoted != 200 || realized < 200 || realized > 202 {
+			t.Fatalf("job %d calibration = raw %d quoted %d realized %d, want 100/200/about 200",
+				i, raw, quoted, realized)
+		}
+		againRaw, againQuoted, againRealized, err := store.RecordEtaCalibration(ctx, jobID)
+		if err != nil || againRaw != 0 || againQuoted != 0 || againRealized != 0 {
+			t.Fatalf("job %d duplicate calibration = %d/%d/%d err=%v, want inert",
+				i, againRaw, againQuoted, againRealized, err)
+		}
+	}
+
+	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch")
+	if err != nil {
+		t.Fatalf("ETABiasFactor: %v", err)
+	}
+	if samples != driftMinSamples || math.Abs(factor-2) > 0.02 {
+		t.Fatalf("converged factor = %v from %d samples, want about 2 from %d",
+			factor, samples, driftMinSamples)
+	}
+}
+
+func TestRecordEtaCalibrationKeepsLegacyJobsHonest(t *testing.T) {
+	store, pool, ctx := etaCalibrationTestStore(t)
+	jobType := "etalegacy_" + uuid.NewString()[:8]
+	buyerID, jobID := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO buyers (id,email) VALUES ($1,$2)`,
+		buyerID, buyerID.String()+"@eta.invalid"); err != nil {
+		t.Fatalf("insert buyer: %v", err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(c, `DELETE FROM eta_calibration WHERE job_id=$1`, jobID)
+		_, _ = pool.Exec(c, `DELETE FROM jobs WHERE id=$1`, jobID)
+		_, _ = pool.Exec(c, `DELETE FROM buyers WHERE id=$1`, buyerID)
+	})
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO jobs
+		   (id,buyer_id,status,job_type,input_ref,tier,eta_secs,created_at)
+		 VALUES ($1,$2,'complete',$3,$4,'batch',123,now() - interval '10 seconds')`,
+		jobID, buyerID, jobType, "eta/"+jobID.String()); err != nil {
+		t.Fatalf("insert legacy job: %v", err)
+	}
+	raw, quoted, realized, err := store.RecordEtaCalibration(ctx, jobID)
+	if err != nil {
+		t.Fatalf("record legacy job: %v", err)
+	}
+	if raw != 123 || quoted != 123 || realized < 10 {
+		t.Fatalf("legacy calibration = raw %d quoted %d realized %d, want 123/123/at least 10",
+			raw, quoted, realized)
+	}
+}

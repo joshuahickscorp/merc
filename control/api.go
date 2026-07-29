@@ -1088,7 +1088,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	spec, _ := json.Marshal(sub.JobType)
 	effectiveMinMem := float32(workloadDecision.MinimumMemoryGB)
 	var computePlan ComputePlan
-	var etaSecs int
+	var etaSecs, etaRawSecs int
 	if qBind != nil {
 		if qBind.ComputePlan.RedundancyTasks != actualRedundancy ||
 			qBind.ComputePlan.HoneypotTasks != actualHoneypots ||
@@ -1098,6 +1098,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		}
 		computePlan = qBind.ComputePlan
 		etaSecs = computePlan.ETAP50Secs
+		etaRawSecs = qBind.ETARawSecs
 	} else {
 		p50, _, plannerBacked := s.etaBandSecsFor(
 			ctx, placement.supplyRequirements(), len(tasks),
@@ -1105,6 +1106,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		observedP90ms, _, historyErr := s.store.HistoricalP90DurationMs(ctx, sub.JobType.Type, sub.Model.Ref)
 		usedObservedHistory := historyErr == nil && observedP90ms > 0
 		p50 = sustainedBatchETASecs(p50, sub.Tier, usedObservedHistory)
+		etaRawSecs = p50
 		etaBias, etaBiasSamples, etaBiasErr := s.store.ETABiasFactor(ctx, sub.JobType.Type, sub.Tier)
 		etaCalibrated := etaBiasErr == nil && etaBiasSamples >= driftMinSamples && etaBias > 1
 		if etaCalibrated {
@@ -1209,6 +1211,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		SplitSize:                  splitSize,
 		OfferedRateUsdHr:           offeredRate,
 		ETASecs:                    etaSecs,
+		ETARawSecs:                 etaRawSecs,
 		MaxUSD:                     sub.MaxUSD,   // Budget Governor cap (0 = none -> persisted NULL)
 		QuoteID:                    boundQuoteID, // D7 quote binding (zero = none -> persisted NULL)
 		DeadlineSecs:               sub.DeadlineSecs,

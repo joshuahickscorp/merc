@@ -355,25 +355,35 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 	if plan == nil || plan.EstimatedOutputTokens <= 0 {
 		return nil
 	}
+	workload, err := s.JobWorkloadDecision(ctx, iv.JobID)
+	if err != nil {
+		return err
+	}
+	if workload == nil {
+		return nil
+	}
+	maxTokens := effectiveObservedOutputMaxTokens(*workload, *plan)
+	if maxTokens == 0 {
+		return nil
+	}
 	var (
-		ceilingSum  int64
-		observedSum int64
-		frozenSum   float64
-		rebateSum   float64
-		tasks       int
+		ceilingSum        int64
+		observedSum       int64
+		observationsValid = true
+		frozenSum         float64
+		rebateSum         float64
+		tasks             int
 	)
 	rows, err := s.pool.Query(ctx, `
 		SELECT COALESCE(t.expected_output_records,0),
 		       t.reported_tokens_used,
 		       t.economic_buyer_charge_usd::float8,
-		       COALESCE((j.job_type_spec->>'max_tokens')::bigint,0),
 		       COALESCE((
 		         SELECT -le.amount_usd::float8 FROM ledger_entries le
 		          WHERE le.task_id = t.id AND le.kind = 'buyer_charge'
 		          LIMIT 1
 		       ),0)
 		  FROM tasks t
-		  JOIN jobs j ON j.id = t.job_id
 		 WHERE t.job_id = $1`, iv.JobID)
 	if err != nil {
 		return err
@@ -384,28 +394,27 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 			expectedRecords int64
 			reported        *int64
 			frozen          *float64
-			maxTokens       int64
 			billed          float64
 		)
-		if err := rows.Scan(&expectedRecords, &reported, &frozen, &maxTokens, &billed); err != nil {
+		if err := rows.Scan(&expectedRecords, &reported, &frozen, &billed); err != nil {
 			return err
 		}
 		if expectedRecords <= 0 || maxTokens <= 0 ||
-			maxTokens > int64(^uint32(0)) ||
-			expectedRecords > math.MaxInt64/maxTokens {
+			expectedRecords > math.MaxInt64/int64(maxTokens) {
 			continue
 		}
-		ceiling := expectedRecords * maxTokens
+		ceiling := expectedRecords * int64(maxTokens)
 		ceilingSum += ceiling
 		if reported != nil {
 			obs := *reported
 			if obs < 0 {
-				obs = 0
-			}
-			if obs > ceiling {
+				observationsValid = false
+			} else if obs > ceiling {
 				obs = ceiling
 			}
-			observedSum += obs
+			if obs >= 0 {
+				observedSum += obs
+			}
 		}
 		if frozen != nil && *frozen > 0 {
 			frozenSum += *frozen
@@ -418,7 +427,7 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 				settled := settleObservedOutputTokens(
 					*frozen, *frozen,
 					plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
-					expectedRecords, uint32(maxTokens),
+					expectedRecords, maxTokens,
 					r, hasReported,
 				)
 				billed = settled.BilledCharge
@@ -437,7 +446,9 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 		return nil
 	}
 	iv.OutputTokenCeiling = &ceilingSum
-	iv.ObservedOutputTokens = &observedSum
+	if observationsValid {
+		iv.ObservedOutputTokens = &observedSum
+	}
 	if frozenSum > 0 {
 		fs := roundUSD(frozenSum)
 		iv.FrozenBuyerChargeUSD = &fs

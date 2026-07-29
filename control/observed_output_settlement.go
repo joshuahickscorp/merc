@@ -31,6 +31,19 @@ type observedOutputSettlement struct {
 	RebateUSD      float64
 }
 
+// effectiveObservedOutputMaxTokens returns the frozen per-record ceiling used
+// by pricing, settlement and presentation. Generative requests that omitted an
+// explicit max_tokens were priced and planned with defaultQuoteMaxTokens, so a
+// zero in the original binding must resolve to that same default everywhere.
+func effectiveObservedOutputMaxTokens(workload WorkloadDecision, plan ComputePlan) uint32 {
+	maxTokens := workload.Binding.JobType.MaxTokens
+	if maxTokens == 0 && generativeJobType(workload.Binding.JobType.Type) &&
+		plan.EstimatedOutputTokens > 0 {
+		return defaultQuoteMaxTokens
+	}
+	return maxTokens
+}
+
 // settleObservedOutputTokens bounds generative batch settlement by tokens the
 // worker actually reported, relative to the frozen output ceiling.
 //
@@ -262,7 +275,7 @@ func loadObservedOutputSettlement(
 	return settleObservedOutputTokens(
 		frozenCharge, frozenPayout,
 		plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
-		expectedRecords, workload.Binding.JobType.MaxTokens,
+		expectedRecords, effectiveObservedOutputMaxTokens(workload, plan),
 		reported, hasReported,
 	), nil
 }

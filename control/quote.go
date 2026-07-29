@@ -185,7 +185,8 @@ type Quote struct {
 	SLA           *QuoteSLA            `json:"sla,omitempty"`
 	Economics     EconomicPlan         `json:"economics"`
 
-	bareID uuid.UUID // quotes.id primary key (the <uuid> inside QuoteID); not on the wire
+	bareID        uuid.UUID // quotes.id primary key (the <uuid> inside QuoteID); not on the wire
+	etaRawP50Secs int       // pre-calibration learner input; persisted separately, never a buyer promise
 }
 
 func serviceTierSemantics(tier string) string {
@@ -531,6 +532,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	observedP90ms, _, hErr := s.store.HistoricalP90DurationMs(ctx, jobType, sub.Model.Ref)
 	usedObservedHistory := hErr == nil && observedP90ms > 0
 	p50 = sustainedBatchETASecs(p50, tier, usedObservedHistory)
+	rawP50 := p50
 	// Correct for measured optimism before the number is frozen. The SLA bound
 	// below is derived from conservativeSecs, so it has to move with the p50 or
 	// calibration would tighten the promise it was meant to make honest.
@@ -645,6 +647,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	return Quote{
 		QuoteID:       "q_" + bareID.String(),
 		bareID:        bareID,
+		etaRawP50Secs: rawP50,
 		ExpiresAt:     time.Now().Add(quoteTTL).UTC(),
 		InputSHA256:   hex.EncodeToString(sum[:]),
 		JobType:       jobType,
@@ -992,6 +995,10 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 	); err != nil {
 		return fmt.Errorf("refusing quote without valid composite pricing authority: %w", err)
 	}
+	if q.etaRawP50Secs <= 0 || q.Time.P50Secs < q.etaRawP50Secs ||
+		q.ComputePlan.ETAP50Secs != q.Time.P50Secs {
+		return errors.New("refusing quote without valid raw and calibrated ETA authority")
+	}
 	decisionSHA256, err := workloadDecisionDigest(q.Workload)
 	if err != nil {
 		return fmt.Errorf("hashing quote workload decision: %w", err)
@@ -1038,6 +1045,7 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		   (id, buyer_id, job_type, model_ref, tier, records, input_bytes,
 		    estimated_tokens, malformed_records, split_size, task_count, eligible_now,
 		    cost_expected_usd, cost_min_usd, cost_max_usd, eta_p50_secs, eta_p90_secs,
+		    eta_p50_secs_raw,
 		    oom_risk, confidence, quote_json, expires_at, input_sha256,
 		    sla_guaranteed_secs, sla_premium_usd,
 		    economic_schedule_version, economic_plan, economic_executable,
@@ -1045,11 +1053,12 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		    compute_plan, compute_plan_sha256,
 		    placement_requirement, placement_requirement_sha256,
 		    pricing_decision, pricing_decision_sha256, currency)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)`,
 		q.bareID, buyerID, q.JobType, q.Model, q.Tier, q.Input.Records, q.Input.Bytes,
 		q.Input.EstimatedTokens, q.Input.MalformedRecords, q.Execution.RecommendedSplitSize,
 		q.Execution.EstimatedTasks, q.Execution.EligibleWorkersNow,
 		q.Cost.ExpectedUSD, q.Cost.MinUSD, q.Cost.MaxUSD, q.Time.P50Secs, q.Time.P90Secs,
+		q.etaRawP50Secs,
 		q.Execution.OOMRisk, q.Confidence.Score, blob, q.ExpiresAt, q.InputSHA256,
 		slaSecs, slaPremium,
 		q.Economics.Schedule.Version, planBlob, q.Economics.Executable,
@@ -1079,6 +1088,7 @@ type boundQuote struct {
 	InputSHA256             string
 	CostExpUSD              float64
 	CostMaxUSD              float64
+	ETARawSecs              int
 	Expired                 bool
 	SLAGuaranteedSecs       int
 	SLAPremiumUSD           float64
@@ -1105,6 +1115,7 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 		`SELECT id, job_type, COALESCE(model_ref,''), COALESCE(tier,''),
 		        COALESCE(input_sha256,''), COALESCE(cost_expected_usd,0),
 		        COALESCE(cost_max_usd,0),
+		        COALESCE(eta_p50_secs_raw,0),
 		        (expires_at IS NOT NULL AND expires_at <= now()) AS expired,
 		        COALESCE(sla_guaranteed_secs,0), COALESCE(sla_premium_usd,0)::float8,
 		        COALESCE(economic_schedule_version,''), economic_plan,
@@ -1119,7 +1130,8 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 		   FROM quotes
 		  WHERE id = $1 AND buyer_id = $2`,
 		quoteID, buyerID,
-	).Scan(&q.ID, &q.JobType, &q.ModelRef, &q.Tier, &q.InputSHA256, &q.CostExpUSD, &q.CostMaxUSD, &q.Expired,
+	).Scan(&q.ID, &q.JobType, &q.ModelRef, &q.Tier, &q.InputSHA256, &q.CostExpUSD, &q.CostMaxUSD,
+		&q.ETARawSecs, &q.Expired,
 		&q.SLAGuaranteedSecs, &q.SLAPremiumUSD, &q.EconomicScheduleVersion, &planBlob, &q.EconomicExecutable,
 		&q.WorkloadBindingSHA256, &q.WorkloadDecisionSHA256,
 		&computeBlob, &q.ComputePlanSHA256,
@@ -1140,6 +1152,9 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 	if len(computeBlob) > 0 {
 		if err := json.Unmarshal(computeBlob, &q.ComputePlan); err != nil {
 			return nil, fmt.Errorf("decoding quote compute plan: %w", err)
+		}
+		if q.ETARawSecs <= 0 || q.ComputePlan.ETAP50Secs < q.ETARawSecs {
+			return nil, errors.New("frozen quote lacks valid raw ETA authority; request a new quote")
 		}
 	}
 	if len(placementBlob) > 0 {
