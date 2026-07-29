@@ -1184,6 +1184,40 @@ func TestCompleteTaskTxHappyPathMovesTaskTerminal(t *testing.T) {
 	if n := countBuyerLedger(t, ctx, pool, f.BuyerID); n != beforeLedger {
 		t.Fatalf("CompleteTaskTx minted ledger rows: before=%d after=%d", beforeLedger, n)
 	}
+
+	// A commit can be durable even when every acknowledgement is lost. The
+	// agent then reports its commit protocol error through fail_task. Once the
+	// task is verifying, that exact owner+attempt failure must be inert: it
+	// cannot requeue delivered work, add a failure row, duplicate verification,
+	// or create a money effect.
+	outcome, err := store.FailTaskTx(ctx, taskID, f.WorkerID, 0, FailureReport{
+		Class: "internal_error", Message: "commit_task failed after bounded retries",
+		Backend: "embed", Model: "all-minilm-l6-v2", DurationMS: 1400,
+	})
+	if err != nil || outcome != FailNoop {
+		t.Fatalf("failure report after durable commit = (%q,%v), want noop/nil", outcome, err)
+	}
+	if got := taskStatus(t, ctx, pool, taskID); got != "verifying" {
+		t.Fatalf("post-commit failure report changed status to %q", got)
+	}
+	var failures int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM task_failures WHERE task_id=$1`, taskID).Scan(&failures); err != nil {
+		t.Fatal(err)
+	}
+	if failures != 0 {
+		t.Fatalf("post-commit failure report wrote %d failure rows", failures)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM verification_work WHERE task_id=$1 AND attempt=0`, taskID).Scan(&work); err != nil {
+		t.Fatal(err)
+	}
+	if work != 1 {
+		t.Fatalf("post-commit failure report changed verification work rows to %d", work)
+	}
+	if n := countBuyerLedger(t, ctx, pool, f.BuyerID); n != beforeLedger {
+		t.Fatalf("post-commit failure report changed ledger rows: before=%d after=%d", beforeLedger, n)
+	}
 }
 
 func TestCompleteTaskTxFailClosedWrongWorkerAttemptAndTerminal(t *testing.T) {
