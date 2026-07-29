@@ -23,10 +23,21 @@ const (
 	KindSupplierCredit = "supplier_credit"
 	KindPlatformTake   = "platform_take"
 	KindClawback       = "clawback"
+	KindBuyerRefund    = "buyer_refund"
+	KindPlatformRefund = "platform_refund"
 	KindPrepaidTopup   = "prepaid_topup"
 	KindPrepaidDebit   = "prepaid_debit"
 	KindPrepaidRefund  = "prepaid_refund"
 	KindStripeFee      = "stripe_fee"
+)
+
+// Buyer-refund funding destinations after an internal ledger credit is recorded.
+// Card cash is intentionally external: this control plane records the obligation
+// and leaves the Stripe refund call to a separate, authority-gated settlement step.
+const (
+	refundFundingPrepaidBalance      = "prepaid_balance"
+	refundFundingExternalCardPending = "external_card_pending"
+	refundFundingLedgerOnly          = "ledger_only"
 )
 
 const (

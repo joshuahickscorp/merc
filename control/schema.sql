@@ -1359,6 +1359,43 @@ CREATE TRIGGER dispute_events_append_only
 BEFORE UPDATE OR DELETE ON dispute_events
 FOR EACH ROW EXECUTE FUNCTION reject_dispute_event_mutation();
 
+-- Buyer-facing receipt of a dispute-driven refund. One row per dispute proves
+-- the funding destination and whether a card refund still needs external
+-- settlement. Ledger buyer_refund / platform_refund rows are the money;
+-- this table is the durable cause + funding receipt.
+CREATE TABLE IF NOT EXISTS job_dispute_refunds (
+    dispute_id             UUID PRIMARY KEY REFERENCES disputes(id) ON DELETE RESTRICT,
+    job_id                 UUID NOT NULL REFERENCES jobs(id) ON DELETE RESTRICT,
+    buyer_id               UUID NOT NULL,
+    currency               TEXT NOT NULL CHECK (currency IN ('usd','cad','jpy')),
+    buyer_refund_usd       NUMERIC(12,6) NOT NULL CHECK (buyer_refund_usd >= 0),
+    platform_refund_usd    NUMERIC(12,6) NOT NULL CHECK (platform_refund_usd >= 0),
+    supplier_clawback_usd  NUMERIC(12,6) NOT NULL CHECK (supplier_clawback_usd >= 0),
+    funding_destination    TEXT NOT NULL CHECK (funding_destination IN
+                             ('prepaid_balance','external_card_pending','ledger_only')),
+    external_cash_state    TEXT NOT NULL CHECK (external_cash_state IN
+                             ('NOT_REQUESTED','NOT_APPLICABLE')),
+    reason_code            TEXT NOT NULL CHECK (reason_code = 'DISPUTE_UPHELD'),
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (job_id, buyer_id) REFERENCES jobs(id, buyer_id) ON DELETE RESTRICT,
+    CHECK (
+      (funding_destination = 'external_card_pending' AND external_cash_state = 'NOT_REQUESTED')
+      OR (funding_destination <> 'external_card_pending' AND external_cash_state = 'NOT_APPLICABLE')
+    )
+);
+CREATE INDEX IF NOT EXISTS job_dispute_refunds_job_idx
+    ON job_dispute_refunds (job_id, created_at);
+CREATE OR REPLACE FUNCTION reject_job_dispute_refund_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'job dispute refunds are append-only';
+END;
+$$;
+DROP TRIGGER IF EXISTS job_dispute_refunds_append_only ON job_dispute_refunds;
+CREATE TRIGGER job_dispute_refunds_append_only
+BEFORE UPDATE OR DELETE ON job_dispute_refunds
+FOR EACH ROW EXECUTE FUNCTION reject_job_dispute_refund_mutation();
+
 CREATE TABLE IF NOT EXISTS verification_events (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id      UUID NOT NULL REFERENCES jobs,

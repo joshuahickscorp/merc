@@ -129,16 +129,28 @@ type InvoiceView struct {
 	CreatedAt time.Time `json:"created_at"`
 	// Currency is the settlement currency of this invoice's cash (ISO code).
 	// Historical rows keep the currency they settled in.
-	Currency        string   `json:"currency"`
-	EstimatedUSD    float64  `json:"estimated_usd"`
-	ActualUSD       float64  `json:"actual_usd"`
-	ChargedUSD      float64  `json:"charged_usd"`
-	SupplierPaidUSD float64  `json:"supplier_credit_usd"`
-	PlatformTakeUSD float64  `json:"platform_take_usd"`
-	QuotedUSD       *float64 `json:"quoted_usd,omitempty"`
-	FirmQuote       bool     `json:"firm_quote,omitempty"`
-	FirmQuoteMaxUSD *float64 `json:"firm_quote_max_usd,omitempty"`
-	BilledUSD       *float64 `json:"billed_usd,omitempty"`
+	Currency        string  `json:"currency"`
+	EstimatedUSD    float64 `json:"estimated_usd"`
+	ActualUSD       float64 `json:"actual_usd"`
+	ChargedUSD      float64 `json:"charged_usd"`
+	SupplierPaidUSD float64 `json:"supplier_credit_usd"`
+	PlatformTakeUSD float64 `json:"platform_take_usd"`
+	// BuyerRefundUSD is the positive sum of buyer_refund ledger rows for this
+	// job (task-scoped plus dispute-keyed SLA premium refunds). Zero when none.
+	BuyerRefundUSD float64 `json:"buyer_refund_usd,omitempty"`
+	// NetChargedUSD is gross charged minus buyer refunds, both in the job
+	// currency. Present when the ledger has charge and/or refund rows.
+	NetChargedUSD *float64 `json:"net_charged_usd,omitempty"`
+	// RefundCause is a buyer-visible reason when a dispute (or other) refund
+	// exists — e.g. "dispute_upheld". Empty when no refund.
+	RefundCause string `json:"refund_cause,omitempty"`
+	// RefundFundingDestination records where the refund went:
+	// prepaid_balance | external_card_pending | ledger_only.
+	RefundFundingDestination string   `json:"refund_funding_destination,omitempty"`
+	QuotedUSD                *float64 `json:"quoted_usd,omitempty"`
+	FirmQuote                bool     `json:"firm_quote,omitempty"`
+	FirmQuoteMaxUSD          *float64 `json:"firm_quote_max_usd,omitempty"`
+	BilledUSD                *float64 `json:"billed_usd,omitempty"`
 	// ProcessorFeeAllocatedUSD is reconciliation attribution, not an
 	// additional buyer charge. Batch fees appear only after the complete,
 	// conserved allocation is durable.
@@ -210,6 +222,8 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 		return nil, err
 	}
 	defer rows.Close()
+	var chargeLedger, refundLedger float64
+	hasChargeOrRefundLedger := false
 	for rows.Next() {
 		var kind, currency string
 		var amt float64
@@ -227,21 +241,80 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 		switch kind {
 		case "supplier_credit", "clawback":
 			iv.SupplierPaidUSD += amt // clawback is negative -> reduces net paid
-		case "platform_take":
+		case "platform_take", "platform_refund":
+			// platform_refund is negative and reduces net platform take
 			iv.PlatformTakeUSD += amt
 		case "buyer_charge":
-			iv.ChargedUSD += amt
+			chargeLedger += amt
+			hasChargeOrRefundLedger = true
+		case "buyer_refund":
+			refundLedger += amt
+			hasChargeOrRefundLedger = true
 		}
 	}
-	if iv.ChargedUSD == 0 {
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Job-level SLA premium charge/refund rows have no task_id and are not
+	// joined above. Include them so the receipt shows the full buyer picture.
+	var slaCharge, slaRefund float64
+	if err := s.pool.QueryRow(ctx, `
+		SELECT
+		  COALESCE(SUM(amount_usd) FILTER (WHERE kind='buyer_charge'),0)::float8,
+		  COALESCE(SUM(amount_usd) FILTER (WHERE kind='buyer_refund'),0)::float8
+		  FROM ledger_entries
+		 WHERE task_id IS NULL AND buyer_id = $1
+		   AND (
+		     payout_ref = $2
+		     OR payout_ref LIKE 'dispute-sla-refund-%'
+		   )`, buyerID, slaPremiumChargeRef(jobID)).
+		Scan(&slaCharge, &slaRefund); err != nil {
+		return nil, err
+	}
+	if slaCharge != 0 || slaRefund != 0 {
+		chargeLedger += slaCharge
+		refundLedger += slaRefund
+		hasChargeOrRefundLedger = true
+	}
+
+	// ChargedUSD historically held the signed sum of buyer_charge (negative).
+	// Preserve that assignment when ledger charges exist so existing clients
+	// that inspect the signed total still see the gross charge rows; when no
+	// charge rows exist, fall back to actual/estimated as before.
+	if chargeLedger != 0 {
+		iv.ChargedUSD = chargeLedger
+	} else if iv.ChargedUSD == 0 {
 		if iv.ActualUSD > 0 {
 			iv.ChargedUSD = iv.ActualUSD
 		} else {
 			iv.ChargedUSD = iv.EstimatedUSD
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if refundLedger > 0 {
+		iv.BuyerRefundUSD = refundLedger
+	}
+	if hasChargeOrRefundLedger {
+		// Net spend: -(charge + refund) with charge negative, refund positive.
+		net := -(chargeLedger + refundLedger)
+		// Present as the remaining amount owed/kept: positive means buyer still
+		// pays that much; zero means fully refunded.
+		iv.NetChargedUSD = &net
+	}
+	if iv.BuyerRefundUSD > 0 {
+		var cause, funding string
+		if err := s.pool.QueryRow(ctx, `
+			SELECT reason_code, funding_destination
+			  FROM job_dispute_refunds
+			 WHERE job_id = $1
+			 ORDER BY created_at DESC
+			 LIMIT 1`, jobID).Scan(&cause, &funding); err == nil {
+			iv.RefundCause = strings.ToLower(cause)
+			iv.RefundFundingDestination = funding
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		} else {
+			iv.RefundCause = "buyer_refund"
+		}
 	}
 	if iv.ProcessorFeeAllocatedUSD != nil {
 		netMicros := usdToMicros(iv.PlatformTakeUSD) -

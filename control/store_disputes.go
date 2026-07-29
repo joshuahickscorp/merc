@@ -301,6 +301,8 @@ func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution str
 		return err
 	}
 	clawedCredits := int64(0)
+	var refundResult disputeBuyerRefundResult
+	var fundingDestination string
 	if resolution == "upheld" {
 		// Append a balancing liability effect for every task credit.  Existing
 		// verification clawbacks are idempotently retained by the task/kind key.
@@ -338,6 +340,19 @@ func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution str
 			    WHERE kind='supplier_credit' AND task_id IS NOT NULL)`, jobID); err != nil {
 			return err
 		}
+
+		// Credit the buyer. Ledger buyer_refund rows feed every balance formula
+		// that already subtracts kind IN ('buyer_charge','buyer_refund'). Funding
+		// destination decides whether prepaid liability is restored or a card
+		// refund is left as an external settlement step.
+		refundResult, err = insertJobDisputeBuyerRefundsTx(ctx, tx, jobID, id)
+		if err != nil {
+			return err
+		}
+		fundingDestination, err = applyDisputeBuyerRefundFundingTx(ctx, tx, jobID, id, refundResult)
+		if err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE dispute_payout_holds
@@ -347,16 +362,166 @@ func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution str
 	}
 	detail, _ := json.Marshal(map[string]any{
 		"from": before, "resolution": resolution, "new_clawback_entries": clawedCredits,
+		"buyer_refund_micros":    refundResult.BuyerRefundMicros,
+		"platform_refund_micros": refundResult.PlatformRefundMicros,
+		"tasks_refunded":         refundResult.TasksRefunded,
+		"funding_destination":    fundingDestination,
+		"currency":               refundResult.Currency,
 	})
 	if err := appendDisputeEventTx(ctx, tx, id, jobID, resolution, detail); err != nil {
 		return err
 	}
 	buyerText := "Dispute rejected: independent re-verification agreed with the original result; held payouts are eligible again"
 	if resolution == "upheld" {
-		buyerText = "Dispute upheld: supplier liabilities were clawed back"
+		buyerText = disputeUpheldBuyerText(refundResult, fundingDestination)
 	}
 	if err := insertEventTx(ctx, tx, jobID, nil, "dispute_"+resolution, buyerText, detail); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func disputeUpheldBuyerText(refund disputeBuyerRefundResult, funding string) string {
+	if refund.BuyerRefundMicros <= 0 {
+		return "Dispute upheld: supplier liabilities were clawed back"
+	}
+	amount := microsToUSD(refund.BuyerRefundMicros)
+	switch funding {
+	case refundFundingPrepaidBalance:
+		return fmt.Sprintf(
+			"Dispute upheld: $%.6f refunded to your prepaid balance (supplier liabilities clawed back)",
+			amount)
+	case refundFundingExternalCardPending:
+		return fmt.Sprintf(
+			"Dispute upheld: $%.6f buyer refund recorded; card refund is pending external settlement (supplier liabilities clawed back)",
+			amount)
+	default:
+		return fmt.Sprintf(
+			"Dispute upheld: $%.6f buyer refund recorded on the ledger (supplier liabilities clawed back)",
+			amount)
+	}
+}
+
+// applyDisputeBuyerRefundFundingTx materialises the funding side-effect of a
+// dispute buyer refund and records an append-only job_dispute_refunds receipt.
+//
+// Rules (explicit, receipted):
+//   - prepaid_debit present on any refunded task → restore that liability to
+//     the buyer's prepaid balance (internal; no Stripe).
+//   - else job has a charged card collection → ledger credit only;
+//     external_cash_state=NOT_REQUESTED (Stripe refund is a separate step).
+//   - else ledger_only (free credit / never card-charged).
+//
+// Idempotent on dispute_id: a concurrent or retried resolution that already
+// wrote the receipt is a no-op for funding.
+func applyDisputeBuyerRefundFundingTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	jobID, disputeID uuid.UUID,
+	refund disputeBuyerRefundResult,
+) (string, error) {
+	if refund.BuyerRefundMicros < 0 {
+		return "", fmt.Errorf("job %s dispute refund amount is negative", jobID)
+	}
+
+	var buyerID uuid.UUID
+	var chargeStatus string
+	var stripePI *string
+	if err := tx.QueryRow(ctx, `
+		SELECT buyer_id, charge_status, stripe_pi FROM jobs WHERE id=$1`, jobID).
+		Scan(&buyerID, &chargeStatus, &stripePI); err != nil {
+		return "", err
+	}
+
+	// Prepaid restore amount: sum of prepaid_debit abs amounts on tasks that
+	// received a buyer_refund. Fail closed if debit and refund disagree.
+	var prepaidRestoreMicros int64
+	var prepaidMismatch bool
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(SUM((-d.amount_usd) * 1000000)::bigint, 0),
+		       EXISTS (
+		         SELECT 1
+		           FROM ledger_entries d
+		           JOIN tasks t ON t.id = d.task_id
+		           JOIN ledger_entries r ON r.task_id = d.task_id AND r.kind = 'buyer_refund'
+		          WHERE t.job_id = $1 AND d.kind = 'prepaid_debit'
+		            AND (-d.amount_usd) IS DISTINCT FROM r.amount_usd
+		       )
+		  FROM ledger_entries d
+		  JOIN tasks t ON t.id = d.task_id
+		  JOIN ledger_entries r ON r.task_id = d.task_id AND r.kind = 'buyer_refund'
+		 WHERE t.job_id = $1 AND d.kind = 'prepaid_debit'`, jobID).
+		Scan(&prepaidRestoreMicros, &prepaidMismatch); err != nil {
+		return "", err
+	}
+	if prepaidMismatch {
+		return "", fmt.Errorf("job %s prepaid_debit does not match buyer_refund; refusing funding restore", jobID)
+	}
+
+	var hasCardCollection bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM buyer_cash_collections
+		   WHERE job_id = $1 AND source_kind IN ('job','batch') AND received_cents > 0
+		) OR (
+		  SELECT charge_status = 'charged' AND COALESCE(stripe_pi,'') <> ''
+		    FROM jobs WHERE id = $1
+		)`, jobID).Scan(&hasCardCollection); err != nil {
+		return "", err
+	}
+
+	funding := refundFundingLedgerOnly
+	externalCash := "NOT_APPLICABLE"
+	switch {
+	case prepaidRestoreMicros > 0:
+		funding = refundFundingPrepaidBalance
+		externalCash = "NOT_APPLICABLE"
+		if err := creditPrepaidBalanceTx(ctx, tx, buyerID, prepaidRestoreMicros); err != nil {
+			return "", err
+		}
+	case refund.BuyerRefundMicros > 0 && hasCardCollection:
+		funding = refundFundingExternalCardPending
+		externalCash = "NOT_REQUESTED"
+	case refund.BuyerRefundMicros > 0:
+		funding = refundFundingLedgerOnly
+		externalCash = "NOT_APPLICABLE"
+	}
+
+	// Append-only receipt. UNIQUE(dispute_id) makes concurrent resolution of
+	// the same dispute write funding effects at most once (second insert is a
+	// no-op after the first committed under the dispute row lock).
+	currency := refund.Currency
+	if currency == "" {
+		currency = "usd"
+	}
+	// Only receipt a funding row when there is a buyer-visible refund. Pure
+	// clawback-without-charge cases (legacy fixtures) keep the clawback path
+	// but do not invent a zero-dollar refund receipt.
+	if refund.BuyerRefundMicros > 0 || refund.PlatformRefundMicros > 0 {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO job_dispute_refunds
+			  (dispute_id, job_id, buyer_id, currency,
+			   buyer_refund_usd, platform_refund_usd, supplier_clawback_usd,
+			   funding_destination, external_cash_state, reason_code)
+			VALUES (
+			  $1, $2, $3, $4,
+			  ($5::numeric / 1000000),
+			  ($6::numeric / 1000000),
+			  COALESCE((
+			    SELECT SUM(-le.amount_usd)
+			      FROM ledger_entries le JOIN tasks t ON t.id = le.task_id
+			     WHERE t.job_id = $2 AND le.kind = 'clawback'
+			  ), 0),
+			  $7, $8, 'DISPUTE_UPHELD'
+			)
+			ON CONFLICT (dispute_id) DO NOTHING`,
+			disputeID, jobID, buyerID, currency,
+			refund.BuyerRefundMicros, refund.PlatformRefundMicros,
+			funding, externalCash); err != nil {
+			return "", err
+		}
+	}
+	_ = chargeStatus
+	_ = stripePI
+	return funding, nil
 }
