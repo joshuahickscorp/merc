@@ -281,12 +281,14 @@ gc_probe_release() {
     --connect-timeout 10 --max-time 30 "$base/healthz" >/dev/null
   ready="$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
     --connect-timeout 10 --max-time 30 "$base/readyz")"
+  # Canary / go-closure rehearsal must never mint authority under live payment mode.
   jq -e '
     .status == "ready" and
     .stripe_api_version == "2025-06-30.basil" and
-    (.payment_mode == "sealed" or .payment_mode == "test" or .payment_mode == "live")
+    (.payment_mode == "sealed" or .payment_mode == "test") and
+    .live_value_movement == false
   ' <<< "$ready" >/dev/null \
-    || gc_die "public /readyz does not bind the reviewed Stripe API contract"
+    || gc_die "public /readyz does not bind the reviewed Stripe API contract (sealed|test, live_value_movement=false required)"
   version="$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
     --connect-timeout 10 --max-time 30 "$base/version")"
   reported="$(jq -er '.commit' <<< "$version")"
