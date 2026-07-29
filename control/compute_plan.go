@@ -307,6 +307,26 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 	return nil
 }
 
+// settlementBaseFromComputeEstimate is the economic Input.BaseComputeUSD that
+// BuildEconomicPlan freezes for a given unfloored compute-plan money sum.
+//
+// The compute plan records estimation authority (primary + verification). The
+// economic plan records settlement authority: the min-billable floor may raise
+// that estimate so a supplier who performs work is never reserved $0. Routing
+// and estimation keep the unfloored discrimination between small jobs; only
+// settlement sees the floor. Agreement is therefore:
+//
+//	economic.Input.BaseComputeUSD == max(computeSum, minBillable)
+//
+// not a requirement that the compute plan rewrite its estimate upward.
+func settlementBaseFromComputeEstimate(computeSum float64, supplierShare float64, initialTasks int) float64 {
+	computeSum = roundEconomicUSD(computeSum)
+	if minTotal := minBillableBaseComputeMicros(supplierShare, initialTasks); usdToMicros(computeSum) < minTotal {
+		return microsToUSD(minTotal)
+	}
+	return computeSum
+}
+
 func ValidateComputePlanEconomicSnapshot(plan ComputePlan, decision WorkloadDecision, economic EconomicPlan) error {
 	if err := ValidateFrozenComputePlanSnapshot(plan, decision); err != nil {
 		return err
@@ -321,10 +341,20 @@ func ValidateComputePlanEconomicSnapshot(plan ComputePlan, decision WorkloadDeci
 		return fmt.Errorf("compute plan total_initial_tasks=%d does not match economic initial_task_count=%d",
 			plan.TotalInitialTasks, economic.Input.InitialTaskCount)
 	}
-	frozenBase := roundEconomicUSD(plan.BaseComputeUSD + plan.VerificationOverheadUSD)
-	if math.Abs(frozenBase-economic.Input.BaseComputeUSD) > 0.000001 {
-		return fmt.Errorf("compute plan base plus verification $%.6f does not match economic base $%.6f",
-			frozenBase, economic.Input.BaseComputeUSD)
+	// Estimation (compute) vs settlement (economic): the economic base must be
+	// exactly the floored form of the compute-plan money sum. Exact equality
+	// still holds when the estimate is already above the min-billable floor;
+	// when the floor raises the base, the delta must be exactly the floor
+	// lift — not an arbitrary excess. This is not a relaxation of authority:
+	// a compute sum that cannot produce the frozen economic base (or an
+	// economic base that invents money beyond floor(compute)) still fails.
+	frozenCompute := roundEconomicUSD(plan.BaseComputeUSD + plan.VerificationOverheadUSD)
+	expectedEconomic := settlementBaseFromComputeEstimate(
+		frozenCompute, economic.Input.SupplierShare, economic.Input.InitialTaskCount,
+	)
+	if math.Abs(expectedEconomic-economic.Input.BaseComputeUSD) > 0.000001 {
+		return fmt.Errorf("compute plan base plus verification $%.6f (settlement form $%.6f) does not match economic base $%.6f",
+			frozenCompute, expectedEconomic, economic.Input.BaseComputeUSD)
 	}
 	return nil
 }
