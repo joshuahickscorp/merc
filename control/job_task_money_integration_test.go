@@ -392,6 +392,8 @@ func seedMoneyPathFixture(t *testing.T, ctx context.Context, store *Store, pool 
 		c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		// verification_work references tasks with ON DELETE RESTRICT.
+		_, _ = pool.Exec(c, `DELETE FROM task_failures WHERE job_id=$1 OR task_id = ANY($2::uuid[])`,
+			f.JobID, f.TaskIDs)
 		_, _ = pool.Exec(c, `DELETE FROM verification_work_plans WHERE work_id IN (
 			SELECT id FROM verification_work WHERE job_id=$1 OR task_id = ANY($2::uuid[]))`,
 			f.JobID, f.TaskIDs)
@@ -1062,6 +1064,92 @@ func TestStartTaskClaimedToRunningAndRejectsOtherWorker(t *testing.T) {
 	}
 	if got := taskStatus(t, ctx, pool, taskID); got != "running" {
 		t.Fatalf("start replays changed task status to %q", got)
+	}
+}
+
+func TestFailTaskTxReleasesRunningOwnerAndFencesForeignIdentity(t *testing.T) {
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 1, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
+	})
+	taskID := f.TaskIDs[0]
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=$1`,
+		taskID); err != nil {
+		t.Fatal(err)
+	}
+	report := FailureReport{
+		Class: "internal_error", Message: "start_task failed after bounded retries",
+		Backend: "embed", Model: "all-minilm-l6-v2", DurationMS: 1400,
+	}
+	beforeLedger := countBuyerLedger(t, ctx, pool, f.BuyerID)
+
+	outcome, err := store.FailTaskTx(ctx, taskID, f.OtherWorkerID, 0, report)
+	if outcome != FailNoop || !errors.Is(err, errNotOwner) {
+		t.Fatalf("foreign failure report = (%q,%v), want noop/errNotOwner", outcome, err)
+	}
+	outcome, err = store.FailTaskTx(ctx, taskID, f.WorkerID, 1, report)
+	if outcome != FailNoop || !errors.Is(err, errNotOwner) {
+		t.Fatalf("wrong-attempt failure report = (%q,%v), want noop/errNotOwner", outcome, err)
+	}
+	var failures int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM task_failures WHERE task_id=$1`, taskID).Scan(&failures); err != nil {
+		t.Fatal(err)
+	}
+	if failures != 0 {
+		t.Fatalf("fenced reports wrote %d failure rows", failures)
+	}
+
+	outcome, err = store.FailTaskTx(ctx, taskID, f.WorkerID, 0, report)
+	if err != nil || outcome != FailRequeued {
+		t.Fatalf("exact-owner running failure report = (%q,%v), want requeued/nil", outcome, err)
+	}
+	var (
+		status               string
+		claimedBy, workerID  *uuid.UUID
+		retryCount           int
+		visibleAfterDatabase bool
+	)
+	if err := pool.QueryRow(ctx,
+		`SELECT status,claimed_by,worker_id,retry_count,visible_at > now()
+		   FROM tasks WHERE id=$1`, taskID,
+	).Scan(&status, &claimedBy, &workerID, &retryCount, &visibleAfterDatabase); err != nil {
+		t.Fatal(err)
+	}
+	if status != "retrying" || claimedBy != nil || workerID != nil ||
+		retryCount != 1 || !visibleAfterDatabase {
+		t.Fatalf("released task = status=%q claimed=%v worker=%v retry=%d future_visible=%t",
+			status, claimedBy, workerID, retryCount, visibleAfterDatabase)
+	}
+	var (
+		failureClass                        string
+		retryable, buyerFault               bool
+		failureWorker, failureJob, eventJob uuid.UUID
+	)
+	if err := pool.QueryRow(ctx,
+		`SELECT failure_class,retryable,buyer_fault,worker_id,job_id
+		   FROM task_failures WHERE task_id=$1`, taskID,
+	).Scan(&failureClass, &retryable, &buyerFault, &failureWorker, &failureJob); err != nil {
+		t.Fatal(err)
+	}
+	if failureClass != "internal_error" || !retryable || buyerFault ||
+		failureWorker != f.WorkerID || failureJob != f.JobID {
+		t.Fatalf("persisted failure = class=%q retryable=%t buyer_fault=%t worker=%s job=%s",
+			failureClass, retryable, buyerFault, failureWorker, failureJob)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT job_id FROM job_events
+		  WHERE task_id=$1 AND event='task_requeued'`, taskID,
+	).Scan(&eventJob); err != nil {
+		t.Fatal(err)
+	}
+	if eventJob != f.JobID {
+		t.Fatalf("requeue event job=%s, want %s", eventJob, f.JobID)
+	}
+	if got := countBuyerLedger(t, ctx, pool, f.BuyerID); got != beforeLedger {
+		t.Fatalf("start-failure release changed buyer ledger rows: before=%d after=%d",
+			beforeLedger, got)
 	}
 }
 
