@@ -9,7 +9,7 @@ fi
 command -v sandbox-exec >/dev/null 2>&1 || { echo "FAIL: sandbox-exec not found"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROFILE="$SCRIPT_DIR/cx-agent.sb"
+PROFILE="$SCRIPT_DIR/merc-agent.sb"
 [ -f "$PROFILE" ] || { echo "FAIL: profile not found at $PROFILE"; exit 1; }
 
 FAKE="$(mktemp -d "$HOME/.merc-sandbox-test.XXXXXX")"
@@ -18,7 +18,7 @@ trap cleanup EXIT INT TERM
 
 H="$FAKE/home"
 MODELCACHE="$H/.cache/huggingface"
-DATADIR="$H/.compute-exchange"
+DATADIR="$H/.merc"
 mkdir -p "$H/.ssh" "$H/.gnupg" "$H/.aws" "$H/Library/Keychains" "$H/Library/LaunchAgents" \
          "$H/Documents" "$H/Desktop" "$H/Downloads" "$MODELCACHE" "$DATADIR"
 echo "PRIVATE-SSH-KEY"        > "$H/.ssh/id_rsa"
@@ -52,7 +52,7 @@ expect_deny() {
   if run "$@" >/dev/null 2>&1; then bad "DENY   $label  -  hostile access SUCCEEDED (containment breach)"; else ok "DENY   $label"; fi
 }
 
-echo "sandbox-profile-test: proving cx-agent.sb against standalone binaries"
+echo "sandbox-profile-test: proving merc-agent.sb against standalone binaries"
 echo "  profile : $PROFILE"
 echo "  fakeHOME: $H"
 echo
@@ -157,4 +157,4 @@ if [ "$FAIL" -gt 0 ]; then
   printf '\033[1;31mFAIL: %d containment row(s) regressed (%d ok)\033[0m\n' "$FAIL" "$PASS" >&2
   exit 1
 fi
-printf '\033[1;32mPASS: all %d containment rows held  -  cx-agent.sb contains the blast radius\033[0m\n' "$PASS"
+printf '\033[1;32mPASS: all %d containment rows held  -  merc-agent.sb contains the blast radius\033[0m\n' "$PASS"

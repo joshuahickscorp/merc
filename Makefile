@@ -78,6 +78,7 @@ ci:
 	python3 scripts/validate-claim-surfaces.py
 	python3 scripts/rename-residue-audit.py
 	bash scripts/test-agent-install-signature.sh
+	bash scripts/test-agent-uninstall-legacy.sh
 	python3 scripts/validate-repo-boundary.py
 	python3 scripts/test-bench-accounting.py
 	bash scripts/test-readiness-gaming.sh

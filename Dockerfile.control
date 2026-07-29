@@ -9,8 +9,8 @@ COPY control/ ./
 COPY ops/healthcheck.c /tmp/healthcheck.c
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -ldflags="-s -w -X main.controlVersion=${MERC_BUILD_VERSION} -X main.controlCommit=${MERC_BUILD_COMMIT} -X main.controlBuildDate=${MERC_BUILD_DATE}" \
-    -o /cx . && \
-    cc -static -Os -s -Wall -Wextra -Werror -o /cx-healthcheck /tmp/healthcheck.c
+    -o /merc . && \
+    cc -static -Os -s -Wall -Wextra -Werror -o /merc-healthcheck /tmp/healthcheck.c
 
 FROM gcr.io/distroless/static:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
 ARG MERC_BUILD_VERSION=dev
@@ -22,10 +22,10 @@ LABEL org.opencontainers.image.title="merc control plane" \
       org.opencontainers.image.created="${MERC_BUILD_DATE}" \
       org.opencontainers.image.source="https://github.com/joshuahickscorp/merc"
 WORKDIR /
-COPY --from=build /cx /cx
-COPY --from=build /cx-healthcheck /cx-healthcheck
+COPY --from=build /merc /merc
+COPY --from=build /merc-healthcheck /merc-healthcheck
 COPY web/index.html web/buyer.html web/admin.html /web/
 COPY web/favicon.ico /web/favicon.ico
 USER nonroot:nonroot
 EXPOSE 8080
-ENTRYPOINT ["/cx"]
+ENTRYPOINT ["/merc"]

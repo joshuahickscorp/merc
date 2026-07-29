@@ -43,9 +43,9 @@ jobs:
         run: |
           cd agent
           cargo build --release
-          test -x target/release/cx-agent
+          test -x target/release/merc-agent
       - name: Package
-        run: bash scripts/package-agent-binary.sh darwin arm64 agent/target/release/cx-agent
+        run: bash scripts/package-agent-binary.sh darwin arm64 agent/target/release/merc-agent
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-darwin-arm64-${{ env.CANDIDATE_SHA }}
@@ -66,9 +66,9 @@ jobs:
           cd agent
           # Metal is Darwin-only; Linux suppliers get a CPU Candle binary.
           cargo build --release --no-default-features
-          test -x target/release/cx-agent
+          test -x target/release/merc-agent
       - name: Package
-        run: bash scripts/package-agent-binary.sh linux amd64 agent/target/release/cx-agent
+        run: bash scripts/package-agent-binary.sh linux amd64 agent/target/release/merc-agent
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-linux-amd64-${{ env.CANDIDATE_SHA }}
@@ -144,7 +144,7 @@ jobs:
               })
           manifest = {
               "schema_version": 1,
-              "component": "cx-agent",
+              "component": "merc-agent",
               "version": version,
               "commit": commit,
               "artifacts": artifacts,
@@ -185,9 +185,9 @@ jobs:
           set -euo pipefail
           cd "$OUT"
           gh release create "$GITHUB_REF_NAME" \
-            --title "cx-agent ${AGENT_VERSION}" \
+            --title "merc-agent ${AGENT_VERSION}" \
             --notes "$(printf '%s\n' \
-              "Prebuilt cx-agent binaries for install.sh (darwin/arm64 Metal, linux/amd64 CPU Candle)." \
+              "Prebuilt merc-agent binaries for install.sh (darwin/arm64 Metal, linux/amd64 CPU Candle)." \
               "" \
               "Checksums: SHA256SUMS (cosign keyless bundle alongside each file)." \
               "" \

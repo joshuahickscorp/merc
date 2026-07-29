@@ -470,7 +470,7 @@ func writeAudit(root, dir string, records []fileRecord) {
 		"owned_by_subsystem": rollup(records, func(r fileRecord) string { return r.Subsystem }),
 		"dependencies":       directDependencies(root),
 		"surface": map[string]any{
-			"binaries": []string{"cx", "cx-agent"}, "routes": routeCount(root), "tables": tableCount(root),
+			"binaries": []string{"merc", "merc-agent"}, "routes": routeCount(root), "tables": tableCount(root),
 			"workloads": []string{"embed", "batch_infer"}, "runtimes": []string{"candle_metal"},
 		},
 		"files": files,

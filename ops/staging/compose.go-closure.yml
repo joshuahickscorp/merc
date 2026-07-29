@@ -137,7 +137,7 @@ services:
     volumes:
       - ../../.artifacts/go-closure-health:/run/cx-health:ro
     healthcheck:
-      test: [CMD, /cx-healthcheck]
+      test: [CMD, /merc-healthcheck]
       interval: 10s
       timeout: 4s
       retries: 12

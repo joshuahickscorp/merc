@@ -20,8 +20,29 @@ hash input). Every FREEZE below was confirmed against the file it names.
 | Website copy | titles, og:title, wordmark, footer, claims-ledger label, `site.webmanifest`, and the `site-build.mjs` brand assertion |
 | Model owner | `control/api.go` `OwnedBy` |
 | GitHub repository | Renamed to `joshuahickscorp/merc`. Old URLs redirect. Local `origin` re-pointed, and the repo URL updated in `.github/ISSUE_TEMPLATE/config.yml`, `Dockerfile.control` `image.source`, `scripts/install.sh` `MERC_AGENT_REPO` default, `scripts/release-doctor.sh`, `sdk/typescript/package.json`, `web/.well-known/security.txt`, `web/buyer.html`, `web/index.html`. `publish-candidate.yml` derives the cosign `--certificate-identity` from `$GITHUB_REPOSITORY`, so signing follows the rename with no edit; the recorded `certificate_identity` values under `evidence/` keep the old URL because they record what was actually verified. |
+| Supplier agent binary | `cx-agent` → `merc-agent` (Cargo package/bin, `scripts/install.sh` / `package-agent-binary.sh`, agent-release and CI evidence artifacts, canary/rehearsal drivers, sandbox profile `merc-agent.sb`) |
+| Control container binary | `/cx` → `/merc`, `cx-healthcheck` → `merc-healthcheck` in `Dockerfile.control`, compose healthchecks, and CI control evidence packaging |
+| launchd label | `dev.computeexchange.agent` → `dev.merc.agent` |
+| systemd backup units | `cx-backup.service` / `cx-backup.timer` → `merc-backup.*` under `ops/systemd/` |
+| Agent state directory | `~/.compute-exchange` → `~/.merc`, with migrate-on-read in the agent and migrate-on-install in `scripts/install.sh` |
 
 `make ci` exits 0 after each step.
+
+### Compatibility retained after the process rename
+
+- **`scripts/uninstall.sh`** still removes the pre-rebrand binary (`$PREFIX/cx-agent`),
+  launchd label (`dev.computeexchange.agent`), and state dir (`~/.compute-exchange`),
+  in addition to the modern names. `scripts/test-agent-uninstall-legacy.sh` fails if
+  that dual handling disappears.
+- **Retained rollback image entrypoint `/cx`.** Local rehearsal and go-closure
+  rollback paths select the healthcheck/entrypoint per image via
+  `MERC_LOCAL_CONTROL_HEALTHCHECK` and `MERC_LOCAL_CONTROL_ENTRYPOINT` (legacy
+  registry digests keep `/cx`; newly built images use `/merc` and
+  `/merc-healthcheck`). Do not hard-code the new entrypoint for prior images.
+- **Hosts with `cx-backup.*` installed** must
+  `systemctl disable --now cx-backup.timer` before enabling `merc-backup.timer`,
+  or the old timer keeps running the old script path. Documented in
+  `docs/RUNBOOKS.md` and the unit file comments.
 
 ## 2. Blocked — needs a change outside this repository first
 
@@ -36,11 +57,9 @@ still looks plausible.
 | Prometheus `job="computexchange-control"` and `external_labels.service` | These are part of the alert label set Alertmanager fingerprints and ships to the operator receiver. Update the receiver's filters first or pages vanish silently while both services look healthy. |
 | `ComputeExchange*` alert names (24) + the 72 `cx_*` metric names | Must land in one commit with the receiver update. `validate-observability.mjs` only checks each name exists in its own file — it never checks an alert's expr references a metric that is actually emitted. Verify with `promtool check rules` and a live scrape. |
 | `macapp/ComputeExchangeAgent/` | Real directory with 8 consumers including a live claim gate (`proof/claims/claim-policy.json`). Needs `git mv` plus all consumers in one commit. |
-| `/opt/computexchange`, `/etc/computexchange`, `/var/lib/computexchange`, `~/.compute-exchange` | Real directories on the droplet and on supplier machines. |
-| `cx-backup.service` / `cx-backup.timer` | Installed under those names. `systemctl disable --now` the old timer before reinstalling, or the old unit keeps running the old script path. |
-| `dev.computeexchange.agent` launchd label | Already-installed agents carry the old label; renaming it means `uninstall.sh` no longer finds them. |
+| `/opt/computexchange`, `/etc/computexchange`, `/var/lib/computexchange` | Real directories on the droplet. |
 | Postgres role/database `cx` | `ALTER DATABASE` needs no active connections, or keep the name and treat it as configuration. |
-| `cx-agent` binary, `control/cx` binary | Named in `Dockerfile.control`, CI `SHA256SUMS`, `.gitignore`, `.dockerignore`, and the retained rollback image's `/cx` entrypoint. All must move together. |
+| `scripts/cx` operator CLI wrapper | Pairs with host install path conventions; not part of the process/binary cutover above. |
 
 ## 3. Frozen — never rename
 
@@ -116,7 +135,9 @@ externally blocked. It runs in `make ci`.
 | BLOCKED | 346 | needs an external change first |
 | RESIDUE | 0 | nothing is stopping it — a defect |
 
-Scoped to `git ls-files` per §4.
+Scoped to `git ls-files` per §4. Counts above are the 2026-07-27 baseline; the
+process-rename cutover moves several former BLOCKED families into landed +
+compatibility-frozen surfaces, so live counts from the script supersede the table.
 
 ### Frozen identifiers this register did not previously list
 

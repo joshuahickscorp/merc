@@ -116,7 +116,7 @@ CONTROL_HEALTH_INTERVAL=5s
 KEEP=1 KEEP_AGENTS=1 MERC_LOCAL_SOURCE_PROOF=1 \
   MERC_LOCAL_PROJECT="$PROJECT" MERC_LOCAL_ARTIFACT_DIR="$ART/topology" \
   MERC_LOCAL_EVIDENCE_FILE="$TOPOLOGY_RECEIPT" MERC_LOCAL_CONTROL_IMAGE="$LOCAL_IMAGE" \
-  MERC_LOCAL_CONTROL_HEALTHCHECK=/cx-healthcheck \
+  MERC_LOCAL_CONTROL_HEALTHCHECK=/merc-healthcheck \
   MERC_LOCAL_CONTROL_HEALTH_INTERVAL="$CONTROL_HEALTH_INTERVAL" \
   MERC_LOCAL_CONTROL_PLATFORM="$PLATFORM" bash "$ROOT/scripts/local-production-rehearsal.sh"
 
@@ -214,8 +214,8 @@ start_agent() {
   local model_cache="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
   HOME="$ART/topology/home" MERC_MODEL_CACHE="$model_cache" \
     MERC_TLS_CA_FILE="$ART/topology/tls/ca.crt" MERC_REQUIRE_SANDBOX=1 \
-    MERC_SANDBOX_PROFILE="$ROOT/macapp/MercAgent/cx-agent.sb" \
-    "$ROOT/.artifacts/local-production-cargo-target/release/cx-agent" run \
+    MERC_SANDBOX_PROFILE="$ROOT/macapp/ComputeExchangeAgent/merc-agent.sb" \
+    "$ROOT/.artifacts/local-production-cargo-target/release/merc-agent" run \
     --config "$ART/topology/agent$n/config.toml" > "$output" 2>&1 &
   STARTED_PID=$!
 }
@@ -260,7 +260,7 @@ SQL
   [ "$(jq -r .commit <<< "$prior_version")" = 0387766c5d0e8f9e5b64e8cbef215edcd07784bd ]
 
   export MERC_LOCAL_CONTROL_IMAGE="$LOCAL_IMAGE" MERC_LOCAL_CONTROL_PLATFORM="$PLATFORM" \
-    MERC_LOCAL_CONTROL_HEALTHCHECK=/cx-healthcheck
+    MERC_LOCAL_CONTROL_HEALTHCHECK=/merc-healthcheck
   forward_started="$(date +%s)"
   compose up -d --no-deps --force-recreate control >/dev/null
   wait_service control; wait_control

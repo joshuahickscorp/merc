@@ -60,7 +60,7 @@ impl ControlPlaneClient {
         let http = crate::tls::client_builder()
             .map_err(|error| ProtocolError::TLSConfig(error.to_string()))?
             .timeout(REQUEST_TIMEOUT)
-            .user_agent(concat!("cx-agent/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("merc-agent/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("reqwest client builds with rustls");
         Ok(Self {

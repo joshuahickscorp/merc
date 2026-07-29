@@ -231,9 +231,10 @@ scripts/go-closure-restart-storm.sh --target ssh --execute
 scripts/go-closure-soak.sh --target ssh --duration 86400 --execute
 ```
 
-**Gate:** all fourteen scenarios PASS, restart storm PASS, 24-hour soak PASS with
-RSS growth inside `MERC_SOAK_MAX_RSS_GROWTH_BYTES`, zero firing page alerts at the
-end, and a post-run database with no open terminal tasks and a zero ledger sum.
+**Gate (required before proceed):** all fourteen scenarios PASS, restart storm
+PASS, and the required 24-hour soak has completed with RSS growth inside
+`MERC_SOAK_MAX_RSS_GROWTH_BYTES`, zero firing page alerts at the end, and a
+post-run database with no open terminal tasks and a zero ledger sum.
 
 ---
 

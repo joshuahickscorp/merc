@@ -30,12 +30,12 @@ pass() { printf 'ok: %s\n' "$*"; }
 release="$work/release"
 mkdir -p "$release"
 version="v0.0.0-test"
-name="cx-agent_${version}_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz"
+name="merc-agent_${version}_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz"
 
 mkdir -p "$work/payload"
-printf '#!/bin/sh\necho cx-agent test fixture\n' > "$work/payload/cx-agent"
-chmod +x "$work/payload/cx-agent"
-tar -C "$work/payload" -czf "$release/$name" cx-agent
+printf '#!/bin/sh\necho merc-agent test fixture\n' > "$work/payload/merc-agent"
+chmod +x "$work/payload/merc-agent"
+tar -C "$work/payload" -czf "$release/$name" merc-agent
 
 digest="$(cd "$release" && { command -v sha256sum >/dev/null 2>&1 && sha256sum "$name" || shasum -a 256 "$name"; })"
 printf '%s\n' "$digest" > "$release/SHA256SUMS"
@@ -70,25 +70,25 @@ fi
 output="$(run_install)"
 grep -q "no cosign bundle published" <<<"$output" \
   || fail "unsigned artifact was not refused; got: $(tail -2 <<<"$output")"
-[[ ! -x "$work/bin/cx-agent" ]] || fail "unsigned artifact was installed"
+[[ ! -x "$work/bin/merc-agent" ]] || fail "unsigned artifact was installed"
 pass "unsigned artifact is refused by default"
 
 # 2. The operator can accept digest-only verification, but only on purpose.
 output="$(run_install MERC_AGENT_ALLOW_UNVERIFIED=1)"
 grep -q "no signature published" <<<"$output" \
   || fail "explicit opt-out did not proceed; got: $(tail -2 <<<"$output")"
-[[ -x "$work/bin/cx-agent" ]] || fail "explicit opt-out did not install"
+[[ -x "$work/bin/merc-agent" ]] || fail "explicit opt-out did not install"
 pass "digest-only install requires MERC_AGENT_ALLOW_UNVERIFIED=1"
 
 # 3. A bundle that exists but does not verify against the pinned publisher must
 #    fail closed rather than counting as a signature.
-rm -f "$work/bin/cx-agent"
+rm -f "$work/bin/merc-agent"
 printf '{"base64Signature":"","cert":"","rekorBundle":{}}' > "$release/${name}.cosign.bundle"
 printf '{"base64Signature":"","cert":"","rekorBundle":{}}' > "$release/SHA256SUMS.cosign.bundle"
 output="$(run_install)"
 grep -q "cosign could not verify" <<<"$output" \
   || fail "a bundle from the wrong publisher was accepted; got: $(tail -2 <<<"$output")"
-[[ ! -x "$work/bin/cx-agent" ]] || fail "unverifiable artifact was installed"
+[[ ! -x "$work/bin/merc-agent" ]] || fail "unverifiable artifact was installed"
 pass "a bundle that does not match the pinned identity is refused"
 
 # 4. The pinned identity must name this repository's release workflow, not any

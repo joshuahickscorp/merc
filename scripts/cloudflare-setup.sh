@@ -41,7 +41,7 @@ cat <<'INTRO'
        permissions and has no Zone section, so tokens made there cannot touch
        DNS records.
   2. "Create Token"  →  "Create Custom Token"  →  Get started
-  3. Name it something you will recognise, e.g.  cx-agent-dns
+  3. Name it something you will recognise, e.g.  merc-agent-dns
 
   Permissions — add these four rows:
 

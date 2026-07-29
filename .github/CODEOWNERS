@@ -22,8 +22,8 @@
 /control/scheduler.go @joshuahickscorp
 /control/store.go @joshuahickscorp
 /agent/ @joshuahickscorp
-/macapp/MercAgent/MercAgent.entitlements @joshuahickscorp
-/macapp/MercAgent/cx-agent.sb @joshuahickscorp
+/macapp/ComputeExchangeAgent/MercAgent.entitlements @joshuahickscorp
+/macapp/ComputeExchangeAgent/merc-agent.sb @joshuahickscorp
 
 # Release and deployment
 /.github/ @joshuahickscorp

@@ -158,7 +158,7 @@ non-group/world-writable executable in a non-group/world-writable directory,
 and its bytes must match `MERC_AGENT_RESTART_APPROVED_DRIVER_SHA256` before and
 after execution.
 
-Each cx-agent process generates a fresh `agent_session_id` at startup. MERC
+Each merc-agent process generates a fresh `agent_session_id` at startup. MERC
 stores that UUID and its first registration time without resetting the time
 when the same process registers again. Before invoking the supervisor adapter,
 the restart storm reads two current reviewed sessions from PostgreSQL. It emits

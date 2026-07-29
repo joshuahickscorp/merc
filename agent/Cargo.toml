@@ -1,12 +1,12 @@
 [package]
-name = "cx-agent"
+name = "merc-agent"
 version = "0.1.0"
 edition = "2021"
 description = "merc Apple Silicon supplier agent"
 license = "Apache-2.0"
 
 [[bin]]
-name = "cx-agent"
+name = "merc-agent"
 path = "src/main.rs"
 
 [dependencies]

@@ -60,11 +60,11 @@ fn sandbox_required() -> bool {
 fn sandbox_wrap_failed(message: &str) {
     if sandbox_required() {
         tracing::error!(
-            "cx-agent refused to start: {message}. {MERC_REQUIRE_SANDBOX_ENV}=1 requires the macOS seatbelt sandbox"
+            "merc-agent refused to start: {message}. {MERC_REQUIRE_SANDBOX_ENV}=1 requires the macOS seatbelt sandbox"
         );
         std::process::exit(78);
     }
-    tracing::warn!("cx-agent is running UNSANDBOXED: {message}");
+    tracing::warn!("merc-agent is running UNSANDBOXED: {message}");
 }
 
 #[cfg(target_os = "macos")]
@@ -79,7 +79,7 @@ fn reexec_under_sandbox_if_needed() {
         Some(p) => p,
         None => {
             sandbox_wrap_failed(&format!(
-                "no seatbelt profile found (set {MERC_SANDBOX_PROFILE_ENV} to cx-agent.sb, or launch via the MercAgent .app); buyer-payload filesystem/network containment is not active"
+                "no seatbelt profile found (set {MERC_SANDBOX_PROFILE_ENV} to merc-agent.sb, or launch via the MercAgent .app); buyer-payload filesystem/network containment is not active"
             ));
             return;
         }
@@ -106,7 +106,7 @@ fn reexec_under_sandbox_if_needed() {
     let tmpdir = std::env::var("TMPDIR").unwrap_or_else(|_| "/private/var/folders".to_string());
 
     tracing::info!(
-        "re-executing cx-agent under the macOS seatbelt sandbox (profile: {})",
+        "re-executing merc-agent under the macOS seatbelt sandbox (profile: {})",
         profile.display()
     );
 
@@ -140,7 +140,7 @@ fn resolve_sandbox_profile() -> Option<PathBuf> {
         .map(PathBuf::from);
     let exe_sibling = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|d| d.join("cx-agent.sb")));
+        .and_then(|exe| exe.parent().map(|d| d.join("merc-agent.sb")));
     pick_sandbox_profile(override_path, exe_sibling, |p| p.is_file())
 }
 
@@ -181,11 +181,15 @@ fn sandbox_model_cache_dir() -> String {
 
 #[cfg(target_os = "macos")]
 fn sandbox_data_dir(home: &str) -> String {
-    format!("{home}/.compute-exchange")
+    // Migrate ~/.compute-exchange → ~/.merc when needed so the seatbelt DATADIR
+    // param covers the tree the agent will actually write.
+    config::agent_home_dir_for(std::path::Path::new(home))
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[derive(Parser)]
-#[command(name = "cx-agent", version = AGENT_VERSION, about = "merc supplier agent")]
+#[command(name = "merc-agent", version = AGENT_VERSION, about = "merc supplier agent")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -320,7 +324,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Version => {
-            println!("cx-agent {AGENT_VERSION}");
+            println!("merc-agent {AGENT_VERSION}");
             Ok(())
         }
         Command::Bench { config } => {
@@ -421,11 +425,7 @@ struct CharacterizationReceipt {
 async fn run_characterize() -> Result<()> {
     let benchmark_cache = std::env::var("MERC_BENCH_CACHE_PATH")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                .join(".compute-exchange")
-                .join("bench_cache.json")
-        });
+        .unwrap_or_else(|_| config::agent_home_dir().join("bench_cache.json"));
     let reused_benchmark_cache = benchmark_cache.is_file();
     let pool = ModelPool::new();
     let capability =
@@ -662,7 +662,7 @@ async fn run_bench_batch(
 
     let device = models::device_label();
     let build_hash = hardware::engine_build_hash("candle", AGENT_VERSION);
-    eprintln!("== cx-agent bench-batch ==");
+    eprintln!("== merc-agent bench-batch ==");
     eprintln!(
         "device={device} model={model} max_tokens={max_tokens} mode={} build_hash={build_hash} backends={:?}",
         mode.label(),
@@ -1056,7 +1056,7 @@ fn run_bench_sustained(
     let device = models::device_label();
     let engine = "candle";
     let build_hash = hardware::engine_build_hash(engine, AGENT_VERSION);
-    eprintln!("== cx-agent bench-sustained ==");
+    eprintln!("== merc-agent bench-sustained ==");
     eprintln!(
         "device={device} model={model} batch={batch} max_tokens={max_tokens} \
          duration={minutes}min window={window_secs}s build_hash={build_hash}"
@@ -1207,7 +1207,7 @@ async fn run_bench_concurrency(
     let device = models::device_label();
     let engine = "candle";
     let build_hash = hardware::engine_build_hash(engine, AGENT_VERSION);
-    eprintln!("== cx-agent bench-concurrency ==");
+    eprintln!("== merc-agent bench-concurrency ==");
     eprintln!(
         "device={device} model={model} embed_tasks={embed_tasks} llama_tasks={llama_tasks} \
          max_tokens={max_tokens} build_hash={build_hash}"
@@ -2508,8 +2508,8 @@ mod tests {
     #[test]
     fn pick_sandbox_profile_prefers_override_then_sibling_then_none() {
         use std::path::Path;
-        let over = PathBuf::from("/opt/cx/override.sb");
-        let sib = PathBuf::from("/Applications/CX.app/Contents/Resources/cx-agent.sb");
+        let over = PathBuf::from("/opt/merc/override.sb");
+        let sib = PathBuf::from("/Applications/Merc.app/Contents/Resources/merc-agent.sb");
 
         let all_exist = |_: &Path| true;
         assert_eq!(
@@ -2545,11 +2545,32 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn sandbox_data_dir_is_compute_exchange_under_home() {
+    fn sandbox_data_dir_is_merc_under_home() {
+        let tmp =
+            std::env::temp_dir().join(format!("merc-agent-sandbox-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
         assert_eq!(
-            sandbox_data_dir("/Users/alice"),
-            "/Users/alice/.compute-exchange"
+            sandbox_data_dir(tmp.to_str().unwrap()),
+            tmp.join(".merc").to_string_lossy()
         );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn agent_home_migrates_legacy_compute_exchange_dir() {
+        let tmp =
+            std::env::temp_dir().join(format!("merc-agent-home-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let legacy = tmp.join(".compute-exchange");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("bench_cache.json"), b"{}").unwrap();
+        let home = config::agent_home_dir_for(&tmp);
+        assert_eq!(home, tmp.join(".merc"));
+        assert!(home.join("bench_cache.json").is_file());
+        assert!(!legacy.exists());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[cfg(target_os = "macos")]

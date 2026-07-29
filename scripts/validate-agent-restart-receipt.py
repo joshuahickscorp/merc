@@ -3,7 +3,7 @@
 
 The reviewed restart adapter can request a supervisor action. Only PostgreSQL
 agent-session transitions observed by go-closure-restart-storm.sh prove that
-the two approved cx-agent processes actually restarted.
+the two approved merc-agent processes actually restarted.
 """
 
 import argparse

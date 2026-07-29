@@ -78,7 +78,7 @@ DRY_RUN_OK=false
 if grep -q -- '--dry-run' "$ROOT/scripts/backup.sh"; then
   set +e
   MERC_BACKUP_STATUS_FILE="$DRY_RUN_STATUS" \
-  MERC_BACKUP_OFFSITE="s3://cx-backup-age-metric-test/unused" \
+  MERC_BACKUP_OFFSITE="s3://merc-backup-age-metric-test/unused" \
   AWS_ACCESS_KEY_ID="test" \
   AWS_SECRET_ACCESS_KEY="test" \
   MERC_BACKUP_ENCRYPTION_RECIPIENT="age1dryrunqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq" \

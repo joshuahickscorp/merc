@@ -123,9 +123,9 @@ rm -rf "$ART"
 mkdir -p "$ART"
 : >"$LEDGER"
 
-(cd control && go build -o "$ART/cx" .)
-"$ART/cx" audit codebase --out census
-SOURCE_START="$("$ART/cx" source-id --root "$ROOT" --field source_sha256)"
+(cd control && go build -o "$ART/merc" .)
+"$ART/merc" audit codebase --out census
+SOURCE_START="$("$ART/merc" source-id --root "$ROOT" --field source_sha256)"
 record PASS source-bound "source_sha256=$SOURCE_START"
 record PASS census "authoritative census regenerated before source binding"
 
@@ -188,8 +188,8 @@ record PASS lifecycle "central reducer accepted a legal transition and rejected 
 
 SAMPLE_SECRET="$(openssl rand -hex 32)"
 TOKEN_KEY="$(openssl rand -hex 32)"
-MERC_VERIFICATION_SAMPLE_SECRET="$SAMPLE_SECRET" MERC_TOKEN_KEY="$TOKEN_KEY" "$ART/cx" seed >"$ART/seed.log"
-MERC_VERIFICATION_SAMPLE_SECRET="$SAMPLE_SECRET" MERC_TOKEN_KEY="$TOKEN_KEY" "$ART/cx" >"$ART/control.log" 2>&1 &
+MERC_VERIFICATION_SAMPLE_SECRET="$SAMPLE_SECRET" MERC_TOKEN_KEY="$TOKEN_KEY" "$ART/merc" seed >"$ART/seed.log"
+MERC_VERIFICATION_SAMPLE_SECRET="$SAMPLE_SECRET" MERC_TOKEN_KEY="$TOKEN_KEY" "$ART/merc" >"$ART/control.log" 2>&1 &
 CONTROL_PID=$!
 wait_for 30 curl -fsS "$CONTROL_URL/readyz"
 record PASS control "ready endpoint passed"
@@ -197,34 +197,34 @@ record PASS control "ready endpoint passed"
 if [ "$SKIP_LIVE" != "1" ]; then
   cargo build --release --manifest-path agent/Cargo.toml
   SANDBOX_ROOT="$(mktemp -d /private/tmp/cx-prove.XXXXXX)"
-  mkdir -p "$SANDBOX_ROOT/home/.compute-exchange"
-  cp "$CARGO_TARGET_DIR/release/cx-agent" "$SANDBOX_ROOT/cx-agent"
-  cp macapp/MercAgent/cx-agent.sb "$SANDBOX_ROOT/cx-agent.sb"
-  AGENT_BIN="$SANDBOX_ROOT/cx-agent"
+  mkdir -p "$SANDBOX_ROOT/home/.merc"
+  cp "$CARGO_TARGET_DIR/release/merc-agent" "$SANDBOX_ROOT/merc-agent"
+  cp macapp/ComputeExchangeAgent/merc-agent.sb "$SANDBOX_ROOT/merc-agent.sb"
+  AGENT_BIN="$SANDBOX_ROOT/merc-agent"
   MODEL_CACHE="${MERC_MODEL_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
   for n in 1 2; do
     token="dev-worker-token-000$n"
     supplier="00000000-0000-0000-0000-0000000000a$n"
-    mkdir -p "$SANDBOX_ROOT/home/.compute-exchange/agent$n"
+    mkdir -p "$SANDBOX_ROOT/home/.merc/agent$n"
     {
       printf 'control_url = "%s"\n' "$CONTROL_URL"
       printf 'worker_token = "%s"\n' "$token"
       printf 'supplier_id = "%s"\n' "$supplier"
       printf 'max_cpu_pct = 100.0\npower_only = false\nmin_payout_usd_per_hr = 0.0\n'
       printf 'memory_headroom_gb = 0.0\nmax_memory_pct = 0.0\n'
-      printf 'data_dir = "%s"\n' "$SANDBOX_ROOT/home/.compute-exchange/agent$n"
+      printf 'data_dir = "%s"\n' "$SANDBOX_ROOT/home/.merc/agent$n"
     } >"$SANDBOX_ROOT/agent$n.toml"
   done
 
   HOME="$SANDBOX_ROOT/home" MERC_MODEL_CACHE="$MODEL_CACHE" \
-    MERC_SANDBOX_PROFILE="$SANDBOX_ROOT/cx-agent.sb" MERC_REQUIRE_SANDBOX=1 \
+    MERC_SANDBOX_PROFILE="$SANDBOX_ROOT/merc-agent.sb" MERC_REQUIRE_SANDBOX=1 \
     MERC_CONTROL_URL="$CONTROL_URL" MERC_WORKER_TOKEN=dev-worker-token-0001 \
     "$AGENT_BIN" run --config "$SANDBOX_ROOT/agent1.toml" >"$ART/agent1.log" 2>&1 &
   AGENT_PID=$!
   wait_for 300 workers_ready 1
 
   HOME="$SANDBOX_ROOT/home" MERC_MODEL_CACHE="$MODEL_CACHE" \
-    MERC_SANDBOX_PROFILE="$SANDBOX_ROOT/cx-agent.sb" MERC_REQUIRE_SANDBOX=1 \
+    MERC_SANDBOX_PROFILE="$SANDBOX_ROOT/merc-agent.sb" MERC_REQUIRE_SANDBOX=1 \
     MERC_CONTROL_URL="$CONTROL_URL" MERC_WORKER_TOKEN=dev-worker-token-0002 \
     "$AGENT_BIN" run --config "$SANDBOX_ROOT/agent2.toml" >"$ART/agent2.log" 2>&1 &
   AGENT2_PID=$!
@@ -317,6 +317,6 @@ else
   record SKIP customer-path "SKIP_LIVE=1"
 fi
 
-SOURCE_END="$("$ART/cx" source-id --root "$ROOT" --field source_sha256)"
+SOURCE_END="$("$ART/merc" source-id --root "$ROOT" --field source_sha256)"
 [ "$SOURCE_START" = "$SOURCE_END" ]
 record PASS source-stable "source fingerprint unchanged"

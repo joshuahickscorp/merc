@@ -7,7 +7,7 @@ supplier_id = "00000000-0000-0000-0000-000000000000"
 power_only = false          # true = refuse to run on battery
 # quiet_hours = [22, 6]     # local hours [start, end); wraps midnight; agent aborts in-flight work too
 min_payout_usd_per_hr = 0.0 # decline work paying less than this
-data_dir = "/tmp/cx-agent"  # scratch dir (job data is wiped post-commit)
+data_dir = "/tmp/merc-agent"  # scratch dir (job data is wiped post-commit)
 
 memory_headroom_gb = 8.0    # GB reserved for YOUR use; lower it on a dedicated box
 max_memory_pct = 85.0       # pause new work once physical memory use hits this %

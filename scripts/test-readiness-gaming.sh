@@ -11,7 +11,7 @@ trap cleanup EXIT
 rsync -a \
   --exclude '.git' \
   --exclude 'agent/target' \
-  --exclude 'control/cx' \
+  --exclude 'control/merc' \
   --exclude '.artifacts' \
   --exclude 'tools' \
   --exclude 'review' \

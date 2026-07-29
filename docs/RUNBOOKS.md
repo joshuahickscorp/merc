@@ -191,11 +191,14 @@ fixture. This proves the mechanism locally; production readiness additionally
 requires a successful `scripts/backup.sh` upload to independent offsite storage
 followed by `scripts/restore.sh` from that uploaded copy.
 
-Daily backups are scheduled by `ops/systemd/cx-backup.timer` (install the unit
+Daily backups are scheduled by `ops/systemd/merc-backup.timer` (install the unit
 pair on the host, point `EnvironmentFile` at offsite creds and
-`MERC_BACKUP_STATUS_FILE`). After a verified offsite upload, `scripts/backup.sh`
-atomically updates that status file; control exports `merc_backup_age_seconds`
-for the 26h stale-backup page.
+`MERC_BACKUP_STATUS_FILE`). Hosts that previously ran the pre-rebrand units must
+`systemctl disable --now cx-backup.timer` (and the matching `.service`) before
+enabling `merc-backup.timer`, or the old timer keeps firing the old script path.
+After a verified offsite upload, `scripts/backup.sh` atomically updates that
+status file; control exports `merc_backup_age_seconds` for the 26h stale-backup
+page.
 
 ## Rollback rehearsal
 
