@@ -940,6 +940,123 @@ func (s *Store) JobCheckpointInfo(ctx context.Context, jobID uuid.UUID) (outputR
 	return outputRef, tasksDone, err
 }
 
+// DetachUnfinishedTasksForTerminalJob releases non-verification work that can
+// no longer commit because its parent is durably terminal. It deliberately
+// runs in its own transaction: callers must not add these sibling locks to a
+// FailTaskTx transaction, whose established lock order is one task then job.
+//
+// Eligible tasks are locked in the same stable order as cancellation paths.
+// The UPDATE is restricted to those exact IDs so a concurrent hedge/tiebreak
+// insert is left for the durable janitor's next pass instead of being acquired
+// out of order. Verification rows and execution provenance are evidence and
+// remain untouched.
+func (s *Store) DetachUnfinishedTasksForTerminalJob(
+	ctx context.Context,
+	jobID uuid.UUID,
+) (int64, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		SELECT id
+		  FROM tasks
+		 WHERE job_id=$1 AND status IN ('queued','retrying','running')
+		 ORDER BY id
+		 FOR UPDATE`, jobID)
+	if err != nil {
+		return 0, err
+	}
+	var taskIDs []uuid.UUID
+	for rows.Next() {
+		var taskID uuid.UUID
+		if err := rows.Scan(&taskID); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		taskIDs = append(taskIDs, taskID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if len(taskIDs) == 0 {
+		return 0, tx.Commit(ctx)
+	}
+
+	var jobStatus string
+	if err := tx.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1`, jobID).Scan(&jobStatus); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, tx.Commit(ctx)
+		}
+		return 0, err
+	}
+	var taskStatus string
+	switch jobStatus {
+	case "cancelled":
+		taskStatus = "cancelled"
+	case "failed", "complete":
+		taskStatus = "failed"
+	default:
+		return 0, tx.Commit(ctx)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE tasks
+		   SET status=$3,
+		       claimed_by=NULL,
+		       claimed_at=NULL,
+		       worker_id=NULL
+		 WHERE job_id=$1
+		   AND id=ANY($2::uuid[])
+		   AND status IN ('queued','retrying','running')`,
+		jobID, taskIDs, taskStatus)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// TerminalJobsWithUnfinishedTasks selects durable janitor work. Pending
+// verification is intentionally not a filter here: once the parent is already
+// terminal, non-verification tasks cannot commit and must not retain capacity.
+// Verifying tasks and verification_work remain untouched by the detach helper.
+func (s *Store) TerminalJobsWithUnfinishedTasks(
+	ctx context.Context,
+	limit int,
+) ([]uuid.UUID, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT j.id
+		  FROM jobs j
+		 WHERE j.status IN ('failed','cancelled','complete')
+		   AND EXISTS (
+		     SELECT 1
+		       FROM tasks t
+		      WHERE t.job_id=j.id
+		        AND t.status IN ('queued','retrying','running')
+		   )
+		 ORDER BY j.terminal_at NULLS FIRST, j.id
+		 LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var jobIDs []uuid.UUID
+	for rows.Next() {
+		var jobID uuid.UUID
+		if err := rows.Scan(&jobID); err != nil {
+			return nil, err
+		}
+		jobIDs = append(jobIDs, jobID)
+	}
+	return jobIDs, rows.Err()
+}
+
 func failJobAndSettleOnce(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) (flipped bool, err error) {
 	status, pending, err := jobTerminalTransitionStateTx(ctx, tx, jobID)
 	if err != nil {

@@ -245,6 +245,7 @@ func (wk *Workers) Run(ctx context.Context) {
 		{verificationRecoveryInterval, "verification-recovery", wk.recoverVerification},
 		{pinnedTiebreakInterval, "pinned-tiebreak-recovery", wk.recoverPinnedTiebreaks},
 		{staleInterval, "stale-requeue", wk.requeueStaleTasks},
+		{staleInterval, "terminal-task-detach", wk.detachTerminalJobTasks},
 		{finalizationInterval, "job-finalize", wk.finalizeJobs},
 		{webhookInterval, "webhook-sweep", wk.deliverPendingWebhooks},
 		{hedgeInterval, "straggler-hedge", wk.hedgeStragglers},
@@ -511,6 +512,13 @@ func (wk *Workers) requeueStaleTasks(ctx context.Context) error {
 			if ferr := wk.store.FailTaskAndSettleJob(ctx, t.ID, t.JobID); ferr != nil {
 				return ferr
 			}
+			if detached, derr := wk.store.DetachUnfinishedTasksForTerminalJob(ctx, t.JobID); derr != nil {
+				log.Printf("workers: terminal-task-detach: job %s after stale failure: %v",
+					t.JobID, derr)
+			} else if detached > 0 {
+				log.Printf("workers: terminal-task-detach: job %s released %d unfinished sibling(s) after stale failure",
+					t.JobID, detached)
+			}
 			log.Printf("workers: task %s failed after %d retries (job %s settled at completed work)", t.ID, t.RetryCount, t.JobID)
 			continue
 		}
@@ -525,6 +533,27 @@ func (wk *Workers) requeueStaleTasks(ctx context.Context) error {
 		log.Printf("workers: requeued stale task %s (retry %d, backoff %s)", t.ID, t.RetryCount+1, backoff)
 	}
 	return nil
+}
+
+func (wk *Workers) detachTerminalJobTasks(ctx context.Context) error {
+	jobIDs, err := wk.store.TerminalJobsWithUnfinishedTasks(ctx, sweepBatch)
+	if err != nil {
+		return err
+	}
+	var detachErrs []error
+	for _, jobID := range jobIDs {
+		detached, err := wk.store.DetachUnfinishedTasksForTerminalJob(ctx, jobID)
+		if err != nil {
+			log.Printf("workers: terminal-task-detach: job %s: %v", jobID, err)
+			detachErrs = append(detachErrs, fmt.Errorf("job %s: %w", jobID, err))
+			continue
+		}
+		if detached > 0 {
+			log.Printf("workers: terminal-task-detach: job %s released %d unfinished task(s)",
+				jobID, detached)
+		}
+	}
+	return errors.Join(detachErrs...)
 }
 
 func (wk *Workers) resolveDisputes(ctx context.Context) error {
