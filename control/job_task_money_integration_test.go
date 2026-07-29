@@ -1022,6 +1022,98 @@ func TestSubmitJobTxSLAPremiumMismatchFailsClosed(t *testing.T) {
 
 // --- StartTask ---
 
+type dynamicTiebreakStartSnapshot struct {
+	Status, ClaimedBy, WorkerID, ExecutionWorkerID, ExecutionSupplierID string
+	ExecutionHWClass, ExecutionEngine, ExecutionBuildHash               string
+	RuntimeCellID, RuntimeID, RuntimeMatrixSHA256, ModelKind            string
+	IsRedundancy                                                        bool
+	HedgedFrom                                                          string
+	RetryCount                                                          int
+	VerificationHWClass, VerificationEngine, VerificationBuildHash      string
+	StartedAt                                                           string
+}
+
+func seedDynamicTiebreakStartFixture(t *testing.T) (
+	context.Context, *Store, *pgxpool.Pool, moneyPathFixture, uuid.UUID,
+) {
+	t.Helper()
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 1, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
+	})
+	anchorID := f.TaskIDs[0]
+	if _, err := pool.Exec(ctx,
+		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=$1`,
+		anchorID); err != nil {
+		t.Fatalf("stamp anchor execution: %v", err)
+	}
+	tiebreakID, err := store.InsertTiebreakTask(
+		ctx, f.JobID, anchorID, f.OtherWorkerID, "money/input", 0,
+	)
+	if err != nil {
+		t.Fatalf("insert production tiebreak: %v", err)
+	}
+	inserted := dynamicTiebreakSnapshot(t, ctx, pool, tiebreakID)
+	if inserted.Status != "queued" ||
+		inserted.ClaimedBy != f.OtherWorkerID.String() ||
+		!inserted.IsRedundancy ||
+		inserted.HedgedFrom != anchorID.String() ||
+		inserted.RetryCount != 0 ||
+		inserted.VerificationHWClass != "apple_silicon_max" ||
+		inserted.VerificationEngine != "candle" ||
+		inserted.VerificationBuildHash != "deadbeefdeadbeef" {
+		t.Fatalf("inserted tiebreak has invalid dynamic geometry: %+v", inserted)
+	}
+	return ctx, store, pool, f, tiebreakID
+}
+
+func dynamicTiebreakSnapshot(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, taskID uuid.UUID,
+) dynamicTiebreakStartSnapshot {
+	t.Helper()
+	var snap dynamicTiebreakStartSnapshot
+	if err := pool.QueryRow(ctx, `
+		SELECT status,
+		       COALESCE(claimed_by::text,''),COALESCE(worker_id::text,''),
+		       COALESCE(execution_worker_id::text,''),COALESCE(execution_supplier_id::text,''),
+		       COALESCE(execution_hw_class,''),COALESCE(execution_engine,''),
+		       COALESCE(execution_build_hash,''),
+		       COALESCE(runtime_cell_id,''),COALESCE(runtime_id,''),
+		       COALESCE(runtime_matrix_sha256,''),COALESCE(model_kind,''),
+		       COALESCE(is_redundancy,false),COALESCE(hedged_from::text,''),
+		       COALESCE(retry_count,0),
+		       COALESCE(verification_hw_class,''),COALESCE(verification_engine,''),
+		       COALESCE(verification_build_hash,''),
+		       COALESCE(started_at::text,'')
+		  FROM tasks WHERE id=$1`, taskID).
+		Scan(&snap.Status, &snap.ClaimedBy, &snap.WorkerID,
+			&snap.ExecutionWorkerID, &snap.ExecutionSupplierID,
+			&snap.ExecutionHWClass, &snap.ExecutionEngine, &snap.ExecutionBuildHash,
+			&snap.RuntimeCellID, &snap.RuntimeID, &snap.RuntimeMatrixSHA256,
+			&snap.ModelKind, &snap.IsRedundancy, &snap.HedgedFrom, &snap.RetryCount,
+			&snap.VerificationHWClass, &snap.VerificationEngine,
+			&snap.VerificationBuildHash, &snap.StartedAt); err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+func dynamicTiebreakHistoryCounts(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	taskID, workerID, supplierID uuid.UUID, attempt int16,
+) (exact, total int) {
+	t.Helper()
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (
+		         WHERE attempt=$2 AND worker_id=$3 AND supplier_id=$4
+		       ),COUNT(*)
+		  FROM task_execution_history WHERE task_id=$1`,
+		taskID, attempt, workerID, supplierID).Scan(&exact, &total); err != nil {
+		t.Fatal(err)
+	}
+	return exact, total
+}
+
 func TestStartTaskClaimedToRunningAndRejectsOtherWorker(t *testing.T) {
 	ctx, store, pool := openMoneyPathStore(t)
 	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
@@ -1065,6 +1157,196 @@ func TestStartTaskClaimedToRunningAndRejectsOtherWorker(t *testing.T) {
 	if got := taskStatus(t, ctx, pool, taskID); got != "running" {
 		t.Fatalf("start replays changed task status to %q", got)
 	}
+}
+
+func TestStartTaskDynamicTiebreakHistoryAndReplayFences(t *testing.T) {
+	t.Run("queued start mints one exact history identity", func(t *testing.T) {
+		ctx, store, pool, f, taskID := seedDynamicTiebreakStartFixture(t)
+		workerID, supplierID := f.OtherWorkerID, f.OtherSupplierID
+		before := dynamicTiebreakSnapshot(t, ctx, pool, taskID)
+		if before.Status != "queued" || before.ClaimedBy != workerID.String() ||
+			before.WorkerID != "" || before.ExecutionWorkerID != "" ||
+			before.ExecutionSupplierID != "" || before.StartedAt != "" {
+			t.Fatalf("unexpected queued tiebreak identity: %+v", before)
+		}
+		if exact, total := dynamicTiebreakHistoryCounts(
+			t, ctx, pool, taskID, workerID, supplierID, 0,
+		); exact != 0 || total != 0 {
+			t.Fatalf("queued tiebreak history = exact %d/total %d, want 0/0", exact, total)
+		}
+
+		if err := store.StartTask(ctx, taskID, f.WorkerID, 0); !errors.Is(err, errNotFound) {
+			t.Fatalf("foreign queued start error = %v, want errNotFound", err)
+		}
+		if err := store.StartTask(ctx, taskID, workerID, 1); !errors.Is(err, errNotFound) {
+			t.Fatalf("wrong-attempt queued start error = %v, want errNotFound", err)
+		}
+		if got := dynamicTiebreakSnapshot(t, ctx, pool, taskID); got != before {
+			t.Fatalf("fenced queued starts mutated task:\nbefore=%+v\nafter=%+v", before, got)
+		}
+
+		if err := store.StartTask(ctx, taskID, workerID, 0); err != nil {
+			t.Fatalf("exact dynamic tiebreak start: %v", err)
+		}
+		started := dynamicTiebreakSnapshot(t, ctx, pool, taskID)
+		if started.Status != "running" ||
+			started.ClaimedBy != workerID.String() ||
+			started.WorkerID != workerID.String() ||
+			started.ExecutionWorkerID != workerID.String() ||
+			started.ExecutionSupplierID != supplierID.String() ||
+			started.ExecutionHWClass != "apple_silicon_max" ||
+			started.ExecutionEngine != "candle" ||
+			started.ExecutionBuildHash != "deadbeefdeadbeef" ||
+			started.StartedAt == "" {
+			t.Fatalf("started tiebreak has wrong execution identity: %+v", started)
+		}
+		if started.RuntimeCellID != "" || started.RuntimeID != "" ||
+			started.RuntimeMatrixSHA256 != "" || started.ModelKind != "" {
+			t.Fatalf("direct StartTask invented runtime provenance: %+v", started)
+		}
+		if exact, total := dynamicTiebreakHistoryCounts(
+			t, ctx, pool, taskID, workerID, supplierID, 0,
+		); exact != 1 || total != 1 {
+			t.Fatalf("started tiebreak history = exact %d/total %d, want 1/1", exact, total)
+		}
+
+		if err := store.StartTask(ctx, taskID, workerID, 0); err != nil {
+			t.Fatalf("exact dynamic tiebreak replay: %v", err)
+		}
+		if err := store.StartTask(ctx, taskID, workerID, 1); !errors.Is(err, errNotFound) {
+			t.Fatalf("wrong-attempt running replay error = %v, want errNotFound", err)
+		}
+		if err := store.StartTask(ctx, taskID, f.WorkerID, 0); !errors.Is(err, errNotFound) {
+			t.Fatalf("foreign running replay error = %v, want errNotFound", err)
+		}
+		if got := dynamicTiebreakSnapshot(t, ctx, pool, taskID); got != started {
+			t.Fatalf("replays mutated execution identity:\nstarted=%+v\nafter=%+v", started, got)
+		}
+		if exact, total := dynamicTiebreakHistoryCounts(
+			t, ctx, pool, taskID, workerID, supplierID, 0,
+		); exact != 1 || total != 1 {
+			t.Fatalf("replayed tiebreak history = exact %d/total %d, want 1/1", exact, total)
+		}
+	})
+
+	t.Run("claim then start preserves frozen runtime authority", func(t *testing.T) {
+		ctx, store, pool, f, taskID := seedDynamicTiebreakStartFixture(t)
+		workerID, supplierID := f.OtherWorkerID, f.OtherSupplierID
+
+		claimed, err := store.ClaimTasksTx(ctx, WorkerAuth{
+			WorkerID: workerID, SupplierID: supplierID,
+		})
+		if err != nil {
+			t.Fatalf("claim pinned dynamic tiebreak: %v", err)
+		}
+		if claimed == nil || claimed.TaskID != taskID || claimed.Attempt != 0 {
+			t.Fatalf("claimed dynamic tiebreak = %+v, want task %s attempt 0", claimed, taskID)
+		}
+		claimedSnap := dynamicTiebreakSnapshot(t, ctx, pool, taskID)
+		if claimedSnap.Status != "running" ||
+			claimedSnap.ClaimedBy != workerID.String() ||
+			claimedSnap.WorkerID != workerID.String() ||
+			claimedSnap.ExecutionWorkerID != workerID.String() ||
+			claimedSnap.ExecutionSupplierID != supplierID.String() ||
+			claimedSnap.ExecutionHWClass != "apple_silicon_max" ||
+			claimedSnap.ExecutionEngine != "candle" ||
+			claimedSnap.ExecutionBuildHash != "deadbeefdeadbeef" ||
+			claimedSnap.RuntimeCellID != "cell" ||
+			claimedSnap.RuntimeID != "rt" ||
+			claimedSnap.RuntimeMatrixSHA256 != generatedRuntimeMatrixSHA256 ||
+			claimedSnap.ModelKind != "hf" ||
+			claimedSnap.StartedAt == "" {
+			t.Fatalf("claimed tiebreak authority is not exact: %+v", claimedSnap)
+		}
+		if exact, total := dynamicTiebreakHistoryCounts(
+			t, ctx, pool, taskID, workerID, supplierID, 0,
+		); exact != 1 || total != 1 {
+			t.Fatalf("claimed tiebreak history = exact %d/total %d, want 1/1", exact, total)
+		}
+
+		if err := store.StartTask(ctx, taskID, workerID, 0); err != nil {
+			t.Fatalf("start acknowledgement replay after claim: %v", err)
+		}
+		if got := dynamicTiebreakSnapshot(t, ctx, pool, taskID); got != claimedSnap {
+			t.Fatalf("StartTask changed claim-frozen authority:\nclaimed=%+v\nafter=%+v", claimedSnap, got)
+		}
+		if exact, total := dynamicTiebreakHistoryCounts(
+			t, ctx, pool, taskID, workerID, supplierID, 0,
+		); exact != 1 || total != 1 {
+			t.Fatalf("claim/start replay history = exact %d/total %d, want 1/1", exact, total)
+		}
+	})
+
+	t.Run("unrelated history cannot authorize running replay", func(t *testing.T) {
+		ctx, store, pool, f, taskID := seedDynamicTiebreakStartFixture(t)
+		workerID, supplierID := f.OtherWorkerID, f.OtherSupplierID
+		ct, err := pool.Exec(ctx, `
+			UPDATE tasks
+			   SET status='running',started_at=now(),worker_id=$2,
+			       execution_worker_id=$2,execution_supplier_id=$3,
+			       execution_hw_class='apple_silicon_max',
+			       execution_engine='candle',execution_build_hash='deadbeefdeadbeef'
+			 WHERE id=$1 AND status='queued' AND claimed_by=$2`,
+			taskID, workerID, supplierID)
+		if err != nil {
+			t.Fatalf("build hostile running tiebreak: %v", err)
+		}
+		if ct.RowsAffected() != 1 {
+			t.Fatalf("hostile running transition changed %d rows, want 1", ct.RowsAffected())
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO task_execution_history (task_id,attempt,worker_id,supplier_id)
+			VALUES ($1,0,$2,$3)`,
+			taskID, f.WorkerID, f.SupplierID); err != nil {
+			t.Fatalf("insert unrelated history: %v", err)
+		}
+		before := dynamicTiebreakSnapshot(t, ctx, pool, taskID)
+		if before.Status != "running" ||
+			before.ClaimedBy != workerID.String() ||
+			before.WorkerID != workerID.String() ||
+			before.ExecutionWorkerID != workerID.String() ||
+			before.ExecutionSupplierID != supplierID.String() ||
+			!before.IsRedundancy ||
+			before.HedgedFrom != f.TaskIDs[0].String() ||
+			before.RetryCount != 0 {
+			t.Fatalf("hostile tiebreak does not reach the exact-history gate: %+v", before)
+		}
+		if exact, total := dynamicTiebreakHistoryCounts(
+			t, ctx, pool, taskID, workerID, supplierID, 0,
+		); exact != 0 || total != 1 {
+			t.Fatalf("hostile history = exact %d/total %d, want 0/1", exact, total)
+		}
+
+		if err := store.StartTask(ctx, taskID, workerID, 0); !errors.Is(err, errNotFound) {
+			t.Fatalf("unrelated-history replay error = %v, want errNotFound", err)
+		}
+		if got := dynamicTiebreakSnapshot(t, ctx, pool, taskID); got != before {
+			t.Fatalf("unrelated-history fence mutated task:\nbefore=%+v\nafter=%+v", before, got)
+		}
+		if exact, total := dynamicTiebreakHistoryCounts(
+			t, ctx, pool, taskID, workerID, supplierID, 0,
+		); exact != 0 || total != 1 {
+			t.Fatalf("fenced history = exact %d/total %d, want 0/1", exact, total)
+		}
+
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO task_execution_history (task_id,attempt,worker_id,supplier_id)
+			VALUES ($1,0,$2,$3)`,
+			taskID, workerID, supplierID); err != nil {
+			t.Fatalf("insert exact replay history: %v", err)
+		}
+		if err := store.StartTask(ctx, taskID, workerID, 0); err != nil {
+			t.Fatalf("exact-history running replay: %v", err)
+		}
+		if got := dynamicTiebreakSnapshot(t, ctx, pool, taskID); got != before {
+			t.Fatalf("exact running replay mutated task:\nbefore=%+v\nafter=%+v", before, got)
+		}
+		if exact, total := dynamicTiebreakHistoryCounts(
+			t, ctx, pool, taskID, workerID, supplierID, 0,
+		); exact != 1 || total != 2 {
+			t.Fatalf("authorized history = exact %d/total %d, want 1/2", exact, total)
+		}
+	})
 }
 
 func TestFailTaskTxReleasesRunningOwnerAndFencesForeignIdentity(t *testing.T) {

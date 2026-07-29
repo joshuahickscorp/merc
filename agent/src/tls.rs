@@ -1,10 +1,15 @@
 use anyhow::{Context, Result};
 
 pub fn client_builder() -> Result<reqwest::ClientBuilder> {
+    let configured_ca = std::env::var("MERC_TLS_CA_FILE").ok();
+    client_builder_with_ca(configured_ca.as_deref())
+}
+
+fn client_builder_with_ca(configured_ca: Option<&str>) -> Result<reqwest::ClientBuilder> {
     let mut builder = reqwest::Client::builder();
-    if let Ok(path) = std::env::var("MERC_TLS_CA_FILE") {
+    if let Some(path) = configured_ca {
         if !path.trim().is_empty() {
-            let pem = std::fs::read(&path).with_context(|| "reading configured TLS CA file")?;
+            let pem = std::fs::read(path).with_context(|| "reading configured TLS CA file")?;
             if !pem
                 .windows(b"-----BEGIN CERTIFICATE-----".len())
                 .any(|part| part == b"-----BEGIN CERTIFICATE-----")
@@ -30,9 +35,7 @@ mod tests {
     fn invalid_custom_ca_fails_closed() {
         let path = std::env::temp_dir().join(format!("merc-invalid-ca-{}.pem", std::process::id()));
         std::fs::write(&path, b"not a certificate").unwrap();
-        std::env::set_var("MERC_TLS_CA_FILE", &path);
-        let result = client_builder();
-        std::env::remove_var("MERC_TLS_CA_FILE");
+        let result = client_builder_with_ca(path.to_str());
         let _ = std::fs::remove_file(path);
         assert!(result.is_err());
     }
