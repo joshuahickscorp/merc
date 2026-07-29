@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -699,17 +700,46 @@ func (s *Store) ApplyRepricing(ctx context.Context, schedule CataloguePriceSched
 			}
 			continue
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO model_price_history (
-			  schedule_sha256,model_id,prior_price_per_1k,prior_price_source,
-			  reference_price_per_1k,reference_currency,price_per_1k,
-			  price_currency,price_formula
-			) VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8,$9)`,
-			schedule.SHA256, result.ModelID, priorPrice, priorSource,
-			result.ReferencePricePer1K, schedule.ReferenceCurrency,
-			result.PricePer1K, schedule.SettlementCurrency, result.Formula,
-		); err != nil {
-			return 0, fmt.Errorf("record price history for %s: %w", result.ModelID, err)
+		// The skip above is keyed on models.price_schedule_sha256, but this row is
+		// keyed on (schedule_sha256, model_id). Anything that resets model price
+		// state without clearing the history - a re-seed, or a restore that brings
+		// back one table and not the other - makes the skip miss while the row
+		// still exists, and the control plane then cannot start at all. Recovery
+		// is exactly when that must not happen.
+		//
+		// An existing row describing the same transition is therefore not an
+		// error; one describing a different outcome for the same schedule still is.
+		var recordedPrice, recordedReference float64
+		var recordedCurrency, recordedFormula string
+		switch err := tx.QueryRow(ctx, `
+			SELECT price_per_1k,reference_price_per_1k,price_currency,price_formula
+			  FROM model_price_history WHERE schedule_sha256=$1 AND model_id=$2`,
+			schedule.SHA256, result.ModelID,
+		).Scan(&recordedPrice, &recordedReference, &recordedCurrency, &recordedFormula); {
+		case errors.Is(err, pgx.ErrNoRows):
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO model_price_history (
+				  schedule_sha256,model_id,prior_price_per_1k,prior_price_source,
+				  reference_price_per_1k,reference_currency,price_per_1k,
+				  price_currency,price_formula
+				) VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8,$9)`,
+				schedule.SHA256, result.ModelID, priorPrice, priorSource,
+				result.ReferencePricePer1K, schedule.ReferenceCurrency,
+				result.PricePer1K, schedule.SettlementCurrency, result.Formula,
+			); err != nil {
+				return 0, fmt.Errorf("record price history for %s: %w", result.ModelID, err)
+			}
+		case err != nil:
+			return 0, fmt.Errorf("read recorded price history for %s: %w", result.ModelID, err)
+		default:
+			if math.Abs(recordedPrice-result.PricePer1K) > 0.0000000001 ||
+				math.Abs(recordedReference-result.ReferencePricePer1K) > 0.0000000001 ||
+				recordedCurrency != schedule.SettlementCurrency ||
+				recordedFormula != result.Formula {
+				return 0, fmt.Errorf(
+					"model %s already has a different recorded outcome for schedule %s",
+					result.ModelID, schedule.SHA256)
+			}
 		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE models
