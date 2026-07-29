@@ -964,7 +964,12 @@ func (wk *Workers) finalizeJobs(ctx context.Context) error {
 			}
 		}
 		if cerr := wk.store.FinalizeJobTx(ctx, j.ID); cerr != nil {
-			log.Printf("workers: completing/settling job %s: %v", j.ID, cerr)
+			if errors.Is(cerr, ErrJobNotFinalizable) {
+				log.Printf("workers: deferred finalizing job %s: unfinished obligation won the finalization race",
+					j.ID)
+			} else {
+				log.Printf("workers: completing/settling job %s: %v", j.ID, cerr)
+			}
 			continue
 		}
 		_ = wk.store.InsertJobEvent(ctx, j.ID, nil, "job_completed", "Job completed; results ready", nil)

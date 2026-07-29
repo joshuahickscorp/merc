@@ -1227,6 +1227,8 @@ type CompletableJob struct {
 	OutputRef string
 }
 
+var ErrJobNotFinalizable = errors.New("job is not finalizable")
+
 func (s *Store) FinalizableJobs(ctx context.Context, limit int) ([]CompletableJob, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT j.id, j.buyer_id, COALESCE(j.output_ref,'')
@@ -1277,10 +1279,53 @@ func (s *Store) completeJobEconomics(
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx,
-		`UPDATE jobs SET status='complete'
-		  WHERE id=$1 AND status IN ('running','verifying','complete')`, jobID); err != nil {
+
+	var status string
+	err = tx.QueryRow(ctx,
+		`SELECT status FROM jobs WHERE id=$1 FOR UPDATE`, jobID,
+	).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	}
+	if err != nil {
 		return err
+	}
+	if status != "complete" {
+		if status != "running" && status != "verifying" {
+			return fmt.Errorf("%w: job %s is %s", ErrJobNotFinalizable, jobID, status)
+		}
+		// Keep this as a separate statement after the job lock so READ COMMITTED
+		// gives the finalizability check an explicit post-lock snapshot. Every
+		// production task insertion takes this same job lock before its INSERT,
+		// so either its committed obligation is visible here or it waits until
+		// this transaction makes the parent terminal and then rolls back.
+		var finalizable bool
+		if err := tx.QueryRow(ctx, `
+			SELECT j.task_count > 0
+			       AND NOT EXISTS (
+			         SELECT 1 FROM tasks t
+			          WHERE t.job_id=j.id AND t.status NOT IN ('complete','failed')
+			       )
+			       AND EXISTS (
+			         SELECT 1 FROM tasks t
+			          WHERE t.job_id=j.id AND t.status='complete'
+			       )
+			  FROM jobs j WHERE j.id=$1`, jobID).Scan(&finalizable); err != nil {
+			return err
+		}
+		if !finalizable {
+			return fmt.Errorf("%w: job %s changed after finalizable selection",
+				ErrJobNotFinalizable, jobID)
+		}
+		tag, err := tx.Exec(ctx,
+			`UPDATE jobs SET status='complete'
+			  WHERE id=$1 AND status IN ('running','verifying')`, jobID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return fmt.Errorf("%w: job %s lost live status", ErrJobNotFinalizable, jobID)
+		}
 	}
 	reachRecoveryBoundary(ctx, probe, BoundaryCompleteAfterJobProjection)
 	if _, err := insertJobSLAPremiumChargeTx(ctx, tx, jobID, slaPremiumChargeRef(jobID)); err != nil {

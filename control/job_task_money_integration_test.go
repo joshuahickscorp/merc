@@ -2507,6 +2507,181 @@ func TestCompleteTaskTxConcurrentCompletesYieldOneSuccessEffect(t *testing.T) {
 
 // --- FinalizeJobTx / completeJobEconomics ---
 
+func TestFinalizeJobTxRechecksAfterConcurrentTiebreakInsert(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	const sla = 0.08
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+		TaskCount: 1, TaskStatus: "complete", ClaimWorker: true,
+		SeedJob: true, SeedPlanRows: true, SLAPremium: sla,
+	})
+	primaryTaskID := f.TaskIDs[0]
+	if _, err := pool.Exec(ctx,
+		`UPDATE jobs SET status='verifying' WHERE id=$1`, f.JobID); err != nil {
+		t.Fatal(err)
+	}
+	done, err := store.JobAllTasksDone(ctx, f.JobID)
+	if err != nil || !done {
+		t.Fatalf("pre-race done selection = (%t,%v), want true/nil", done, err)
+	}
+
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(ctx)
+	var blockedStatus string
+	if err := blocker.QueryRow(ctx,
+		`SELECT status FROM jobs WHERE id=$1 FOR UPDATE`, f.JobID).Scan(&blockedStatus); err != nil {
+		t.Fatal(err)
+	}
+	if blockedStatus != "verifying" {
+		t.Fatalf("blocked job status=%q, want verifying", blockedStatus)
+	}
+
+	type insertResult struct {
+		id  uuid.UUID
+		err error
+	}
+	inserted := make(chan insertResult, 1)
+	go func() {
+		id, err := store.InsertTiebreakTask(
+			ctx, f.JobID, primaryTaskID, f.OtherWorkerID, "money/input", 0,
+		)
+		inserted <- insertResult{id: id, err: err}
+	}()
+	waitForJobLockWaiters := func(want int) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			var waiting int
+			if err := pool.QueryRow(ctx, `
+				SELECT count(*)
+				  FROM pg_stat_activity
+				 WHERE datname=current_database()
+				   AND wait_event_type='Lock'
+				   AND query LIKE '%SELECT status FROM jobs WHERE id=$1 FOR UPDATE%'`,
+			).Scan(&waiting); err != nil {
+				t.Fatal(err)
+			}
+			if waiting >= want {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("saw fewer than %d waiter(s) on the finalization job lock", want)
+	}
+	waitForJobLockWaiters(1)
+
+	finalized := make(chan error, 1)
+	go func() {
+		finalized <- store.FinalizeJobTx(ctx, f.JobID)
+	}()
+	waitForJobLockWaiters(2)
+	if err := blocker.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var tiebreakID uuid.UUID
+	select {
+	case result := <-inserted:
+		if result.err != nil || result.id == uuid.Nil {
+			t.Fatalf("tiebreak insertion = (%s,%v)", result.id, result.err)
+		}
+		tiebreakID = result.id
+	case <-time.After(10 * time.Second):
+		t.Fatal("tiebreak insertion did not finish after blocker committed")
+	}
+	select {
+	case err := <-finalized:
+		if !errors.Is(err, ErrJobNotFinalizable) {
+			t.Fatalf("finalize behind committed tiebreak error=%v, want ErrJobNotFinalizable", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("finalization did not finish after tiebreak committed")
+	}
+
+	var jobStatus, tiebreakStatus string
+	var premiumRows, consumed, taskCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT status,task_count,
+		       (SELECT consumed_tasks FROM job_economic_reserves WHERE job_id=$1),
+		       (SELECT count(*) FROM ledger_entries
+		         WHERE kind='buyer_charge' AND task_id IS NULL AND payout_ref=$2)
+		  FROM jobs WHERE id=$1`,
+		f.JobID, slaPremiumChargeRef(f.JobID),
+	).Scan(&jobStatus, &taskCount, &consumed, &premiumRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM tasks WHERE id=$1`, tiebreakID).Scan(&tiebreakStatus); err != nil {
+		t.Fatal(err)
+	}
+	if jobStatus != "running" || tiebreakStatus != "queued" ||
+		taskCount != 2 || consumed != 1 || premiumRows != 0 {
+		t.Fatalf("refused finalize projection = job %q/tiebreak %q/tasks %d/reserve %d/premium %d",
+			jobStatus, tiebreakStatus, taskCount, consumed, premiumRows)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE tasks
+		   SET status='failed',claimed_by=NULL,claimed_at=NULL,worker_id=NULL
+		 WHERE id=$1`, tiebreakID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinalizeJobTx(ctx, f.JobID); err != nil {
+		t.Fatalf("finalize after obligation drained: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT status,
+		       (SELECT count(*) FROM ledger_entries
+		         WHERE kind='buyer_charge' AND task_id IS NULL AND payout_ref=$2)
+		  FROM jobs WHERE id=$1`,
+		f.JobID, slaPremiumChargeRef(f.JobID),
+	).Scan(&jobStatus, &premiumRows); err != nil {
+		t.Fatal(err)
+	}
+	if jobStatus != "complete" || premiumRows != 1 {
+		t.Fatalf("converged finalize = status %q/premium %d, want complete/1",
+			jobStatus, premiumRows)
+	}
+}
+
+func TestFinalizeJobTxRejectsNonCompleteTerminalStates(t *testing.T) {
+	for _, status := range []string{"failed", "cancelled"} {
+		t.Run(status, func(t *testing.T) {
+			ctx, store, pool := openIsolatedMoneyPathStore(t)
+			f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
+				TaskCount: 1, TaskStatus: "complete", ClaimWorker: true,
+				SeedJob: true, SeedPlanRows: true, SLAPremium: 0.08,
+			})
+			if _, err := pool.Exec(ctx,
+				`UPDATE jobs SET status=$2 WHERE id=$1`, f.JobID, status); err != nil {
+				t.Fatal(err)
+			}
+			err := store.FinalizeJobTx(ctx, f.JobID)
+			if !errors.Is(err, ErrJobNotFinalizable) {
+				t.Fatalf("FinalizeJobTx(%s) error=%v, want ErrJobNotFinalizable",
+					status, err)
+			}
+			var after string
+			var premiumRows int
+			if err := pool.QueryRow(ctx, `
+				SELECT status,
+				       (SELECT count(*) FROM ledger_entries
+				         WHERE kind='buyer_charge' AND task_id IS NULL AND payout_ref=$2)
+				  FROM jobs WHERE id=$1`,
+				f.JobID, slaPremiumChargeRef(f.JobID),
+			).Scan(&after, &premiumRows); err != nil {
+				t.Fatal(err)
+			}
+			if after != status || premiumRows != 0 {
+				t.Fatalf("rejected %s finalize changed status/premium to %q/%d",
+					status, after, premiumRows)
+			}
+		})
+	}
+}
+
 func TestFinalizeJobTxActualUSDAndSLAPremiumIdempotent(t *testing.T) {
 	ctx, store, pool := openMoneyPathStore(t)
 	const sla = 0.08
