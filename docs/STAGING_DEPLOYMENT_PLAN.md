@@ -74,6 +74,17 @@ the rehearsal re-checks the bytes before and after every scenario.
 `MERC_VERIFICATION_SAMPLE_SECRET` (≥32 unpredictable bytes; a predictable value
 tells a supplier when it is unobserved), and:
 
+> **`MERC_VERIFICATION_SAMPLE_SECRET` — also immutable against an existing
+> database.** Verification sampling decisions are HMAC-derived from it and are
+> recorded per attempt. Change it against a populated database and every stored
+> decision conflicts with the recomputed one: `verification-recovery` fails on
+> every pass, its ticker goes stale, and `/readyz` drops to 503 with
+> `stale_tickers: ["verification-recovery"]`. Observed exactly that way on a
+> local stack after the secret was changed between runs — 341 rows carrying
+> decisions from the previous secret. The refusal is correct: a sampling
+> decision must be immutable, or a supplier could be re-rolled out of being
+> observed. Treat it with the same care as the token key below.
+
 > **`MERC_TOKEN_KEY` — copy byte-identically, never regenerate.**
 > `control/crypto.go` derives the AES key as `sha256(value)`. Against an
 > existing database, a new value makes every sealed OAuth token and webhook
