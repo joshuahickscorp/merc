@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use reqwest::{Client, Response, StatusCode};
+use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use uuid::Uuid;
 
 use crate::types::{
@@ -11,8 +11,11 @@ use crate::types::{
 const POLL_TIMEOUT: Duration = Duration::from_secs(35);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
-const COMMIT_MAX_ATTEMPTS: usize = 4;
-const COMMIT_RETRY_BASE_DELAY: Duration = Duration::from_millis(200);
+const IDEMPOTENT_MAX_ATTEMPTS: usize = 4;
+#[cfg(not(test))]
+const IDEMPOTENT_RETRY_BASE_DELAY: Duration = Duration::from_millis(200);
+#[cfg(test)]
+const IDEMPOTENT_RETRY_BASE_DELAY: Duration = Duration::from_millis(1);
 
 const POLL_PATH: &str = "/v1/worker/poll?wait_ms=25000";
 
@@ -96,6 +99,67 @@ impl ControlPlaneClient {
             status,
             body,
         })
+    }
+
+    async fn send_idempotent<F>(
+        &self,
+        endpoint: &str,
+        operation: &str,
+        mut request: F,
+    ) -> Result<(), ProtocolError>
+    where
+        F: FnMut() -> RequestBuilder,
+    {
+        let mut delay = IDEMPOTENT_RETRY_BASE_DELAY;
+
+        for attempt in 0..IDEMPOTENT_MAX_ATTEMPTS {
+            match request().send().await {
+                Ok(resp) if resp.status().is_success() => return Ok(()),
+                Ok(resp) => {
+                    let status = resp.status();
+                    let retryable =
+                        status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error();
+                    if retryable && attempt + 1 < IDEMPOTENT_MAX_ATTEMPTS {
+                        tracing::warn!(
+                            %operation,
+                            attempt = attempt + 1,
+                            max_attempts = IDEMPOTENT_MAX_ATTEMPTS,
+                            %status,
+                            delay_ms = delay.as_millis(),
+                            "transient status; retrying identical idempotent request"
+                        );
+                        drop(resp);
+                        tokio::time::sleep(delay).await;
+                        delay *= 2;
+                        continue;
+                    }
+
+                    let body = resp.text().await.unwrap_or_default();
+                    return Err(ProtocolError::Status {
+                        endpoint: endpoint.to_string(),
+                        status,
+                        body,
+                    });
+                }
+                Err(err) => {
+                    if attempt + 1 == IDEMPOTENT_MAX_ATTEMPTS {
+                        return Err(Self::transport(endpoint, err));
+                    }
+                    tracing::warn!(
+                        %operation,
+                        attempt = attempt + 1,
+                        max_attempts = IDEMPOTENT_MAX_ATTEMPTS,
+                        error = %err,
+                        delay_ms = delay.as_millis(),
+                        "transport failure; retrying identical idempotent request"
+                    );
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
+                }
+            }
+        }
+
+        unreachable!("bounded idempotent retry loop always returns")
     }
 
     pub async fn register(
@@ -197,16 +261,13 @@ impl ControlPlaneClient {
     pub async fn start_task(&self, task_id: Uuid, attempt: i16) -> Result<(), ProtocolError> {
         let endpoint = "/v1/worker/task/{id}/start";
         let path = format!("/v1/worker/task/{task_id}/start");
-        let resp = self
-            .http
-            .post(self.url(&path))
-            .header("X-Worker-Token", &self.token)
-            .header("X-Task-Attempt", attempt)
-            .send()
-            .await
-            .map_err(|e| Self::transport(endpoint, e))?;
-        Self::expect_status(endpoint, resp, &[StatusCode::NO_CONTENT, StatusCode::OK]).await?;
-        Ok(())
+        self.send_idempotent(endpoint, "start_task", || {
+            self.http
+                .post(self.url(&path))
+                .header("X-Worker-Token", &self.token)
+                .header("X-Task-Attempt", attempt)
+        })
+        .await
     }
 
     pub async fn commit_task(
@@ -216,62 +277,13 @@ impl ControlPlaneClient {
     ) -> Result<(), ProtocolError> {
         let endpoint = "/v1/worker/task/{id}/commit";
         let path = format!("/v1/worker/task/{task_id}/commit");
-        let mut delay = COMMIT_RETRY_BASE_DELAY;
-
-        for attempt in 0..COMMIT_MAX_ATTEMPTS {
-            let sent = self
-                .http
+        self.send_idempotent(endpoint, "commit_task", || {
+            self.http
                 .post(self.url(&path))
                 .header("X-Worker-Token", &self.token)
                 .json(commit)
-                .send()
-                .await;
-
-            match sent {
-                Ok(resp) if resp.status().is_success() => return Ok(()),
-                Ok(resp) => {
-                    let status = resp.status();
-                    let retryable =
-                        status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error();
-                    if retryable && attempt + 1 < COMMIT_MAX_ATTEMPTS {
-                        tracing::warn!(
-                            attempt = attempt + 1,
-                            max_attempts = COMMIT_MAX_ATTEMPTS,
-                            %status,
-                            delay_ms = delay.as_millis(),
-                            "commit_task: transient status, retrying identical commit"
-                        );
-                        drop(resp);
-                        tokio::time::sleep(delay).await;
-                        delay *= 2;
-                        continue;
-                    }
-
-                    let body = resp.text().await.unwrap_or_default();
-                    return Err(ProtocolError::Status {
-                        endpoint: endpoint.to_string(),
-                        status,
-                        body,
-                    });
-                }
-                Err(err) => {
-                    if attempt + 1 == COMMIT_MAX_ATTEMPTS {
-                        return Err(Self::transport(endpoint, err));
-                    }
-                    tracing::warn!(
-                        attempt = attempt + 1,
-                        max_attempts = COMMIT_MAX_ATTEMPTS,
-                        error = %err,
-                        delay_ms = delay.as_millis(),
-                        "commit_task: transport failure, retrying identical commit"
-                    );
-                    tokio::time::sleep(delay).await;
-                    delay *= 2;
-                }
-            }
-        }
-
-        unreachable!("bounded commit retry loop always returns")
+        })
+        .await
     }
 
     pub async fn fail_task(
@@ -347,5 +359,236 @@ impl ControlPlaneClient {
                 endpoint: endpoint.to_string(),
                 source: e,
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn spawn_request_server(
+        statuses: Vec<u16>,
+    ) -> (
+        String,
+        Arc<AtomicUsize>,
+        Arc<tokio::sync::Mutex<Vec<String>>>,
+    ) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let requests = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let requests_for_server = requests.clone();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_server = calls.clone();
+
+        tokio::spawn(async move {
+            for status in statuses {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 16384];
+                let mut total = 0usize;
+                let header_end = loop {
+                    let n = socket.read(&mut buf[total..]).await.unwrap();
+                    total += n;
+                    if let Some(pos) = buf[..total].windows(4).position(|w| w == b"\r\n\r\n") {
+                        break pos + 4;
+                    }
+                    if n == 0 {
+                        break total;
+                    }
+                };
+                let headers = String::from_utf8_lossy(&buf[..header_end]).to_lowercase();
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.strip_prefix("content-length:")
+                            .and_then(|value| value.trim().parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                while total < header_end + content_length {
+                    let n = socket.read(&mut buf[total..]).await.unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    total += n;
+                }
+                calls_for_server.fetch_add(1, Ordering::SeqCst);
+                requests_for_server
+                    .lock()
+                    .await
+                    .push(String::from_utf8_lossy(&buf[..total]).to_string());
+
+                // Closing after receipt but before any HTTP response models the
+                // true ambiguous-ack transport case: the server may have made
+                // the operation durable even though the client sees no status.
+                if status == 0 {
+                    socket.shutdown().await.ok();
+                    continue;
+                }
+
+                let (reason, body) = match status {
+                    202 => ("Accepted", ""),
+                    204 => ("No Content", ""),
+                    400 => ("Bad Request", "invalid"),
+                    409 => ("Conflict", "fenced"),
+                    429 => ("Too Many Requests", "retry"),
+                    500 => ("Internal Server Error", "transient"),
+                    503 => ("Service Unavailable", "transient"),
+                    _ => ("Status", "unexpected"),
+                };
+                let response = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+                socket.shutdown().await.ok();
+            }
+        });
+
+        (format!("http://{addr}"), calls, requests)
+    }
+
+    #[tokio::test]
+    async fn start_task_retries_identical_request_after_500() {
+        let (base, calls, requests) = spawn_request_server(vec![500, 204]).await;
+        let client = ControlPlaneClient::new(base, "worker-token").unwrap();
+        let task_id = Uuid::new_v4();
+
+        client
+            .start_task(task_id, 7)
+            .await
+            .expect("ambiguous 500 must recover through exact owner re-entry");
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 2);
+        for request in requests.iter() {
+            let request = request.to_lowercase();
+            assert!(request.starts_with(&format!(
+                "post /v1/worker/task/{task_id}/start http/1.1\r\n"
+            )));
+            assert!(request.contains("\r\nx-task-attempt: 7\r\n"));
+            assert!(request.contains("\r\nx-worker-token: worker-token\r\n"));
+        }
+    }
+
+    #[tokio::test]
+    async fn start_task_does_not_retry_ownership_conflict() {
+        let (base, calls, _) = spawn_request_server(vec![409, 204]).await;
+        let client = ControlPlaneClient::new(base, "worker-token").unwrap();
+        let err = client
+            .start_task(Uuid::new_v4(), 0)
+            .await
+            .expect_err("409 is an ownership fence, not a transient failure");
+
+        match err {
+            ProtocolError::Status { status, .. } => assert_eq!(status, StatusCode::CONFLICT),
+            other => panic!("unexpected error: {other}"),
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn start_task_persistent_5xx_retry_is_bounded() {
+        let (base, calls, _) = spawn_request_server(vec![503; IDEMPOTENT_MAX_ATTEMPTS]).await;
+        let client = ControlPlaneClient::new(base, "worker-token").unwrap();
+        let err = client
+            .start_task(Uuid::new_v4(), 0)
+            .await
+            .expect_err("persistent 5xx must fail after the retry bound");
+
+        match err {
+            ProtocolError::Status { status, .. } => {
+                assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE)
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), IDEMPOTENT_MAX_ATTEMPTS);
+    }
+
+    #[tokio::test]
+    async fn start_task_retries_after_response_transport_drop() {
+        let (base, calls, requests) = spawn_request_server(vec![0, 204]).await;
+        let client = ControlPlaneClient::new(base, "worker-token").unwrap();
+        let task_id = Uuid::new_v4();
+
+        client
+            .start_task(task_id, 3)
+            .await
+            .expect("lost response must recover through exact start replay");
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0], requests[1]);
+    }
+
+    #[tokio::test]
+    async fn start_task_retries_429_but_not_bad_request() {
+        let (retry_base, retry_calls, _) = spawn_request_server(vec![429, 204]).await;
+        let retry_client = ControlPlaneClient::new(retry_base, "worker-token").unwrap();
+        retry_client
+            .start_task(Uuid::new_v4(), 0)
+            .await
+            .expect("429 is transient");
+        assert_eq!(retry_calls.load(Ordering::SeqCst), 2);
+
+        let (fenced_base, fenced_calls, _) = spawn_request_server(vec![400, 204]).await;
+        let fenced_client = ControlPlaneClient::new(fenced_base, "worker-token").unwrap();
+        let err = fenced_client
+            .start_task(Uuid::new_v4(), 0)
+            .await
+            .expect_err("400 must remain terminal");
+        match err {
+            ProtocolError::Status { status, .. } => assert_eq!(status, StatusCode::BAD_REQUEST),
+            other => panic!("unexpected error: {other}"),
+        }
+        assert_eq!(fenced_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn commit_task_preserves_body_and_path_across_shared_retry() {
+        let (base, calls, requests) = spawn_request_server(vec![500, 202]).await;
+        let client = ControlPlaneClient::new(base, "worker-token").unwrap();
+        let task_id = Uuid::new_v4();
+        let commit = TaskCommit {
+            task_id,
+            attempt: 4,
+            result_key: "results/task.json".to_string(),
+            duration_ms: 1234,
+            tokens_used: 17,
+            result_sha256: "ab".repeat(32),
+            hardware_temp_c: Some(54.5),
+            inference_backend: "candle".to_string(),
+        };
+
+        client
+            .commit_task(task_id, &commit)
+            .await
+            .expect("shared helper must preserve commit retry semantics");
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 2);
+        let bodies = requests
+            .iter()
+            .map(|request| {
+                let (headers, body) = request.split_once("\r\n\r\n").unwrap();
+                let headers = headers.to_lowercase();
+                assert!(headers.starts_with(&format!(
+                    "post /v1/worker/task/{task_id}/commit http/1.1\r\n"
+                )));
+                assert!(headers.contains("\r\nx-worker-token: worker-token\r\n"));
+                body
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(bodies[0], bodies[1]);
+        let body: serde_json::Value = serde_json::from_str(bodies[0]).unwrap();
+        assert_eq!(body["attempt"], 4);
+        assert_eq!(body["result_key"], "results/task.json");
+        assert_eq!(body["inference_backend"], "candle");
     }
 }
