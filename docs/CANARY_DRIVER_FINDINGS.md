@@ -253,3 +253,38 @@ Defect: When a sink line carries Alertmanager's native webhook payload, the pars
 Failure: The operator points MERC_CANARY_ALERT_SINK_FILE at the natural sink - a JSONL dump of the raw Alertmanager webhook POSTs, which have no event_id field. The probe alert fires and resolves correctly and both deliveries land in the sink, but the parser extracts the same fingerprint for both, the 120s loop at lines 1138-1172 never satisfies firing_id != resolved_id, and the driver dies with 'no observed distinct firing/resolved receiver event IDs' despite the alert pipeline working exactly as required.
 
 Suggested fix: Derive distinct IDs when falling back, e.g. hash fingerprint together with the delivery status/timestamp, or require an explicit per-delivery event_id and drop the fingerprint fallback entirely so the failure message points at the sink format.
+
+---
+
+## Resolved: `fail outcome was 'noop'` is not a product defect
+
+Raised earlier as a candidate control-plane bug: `forced_retry` and
+`stale_attempt_commit_rejection` post a worker failure and the control plane
+answers `noop` with HTTP 200, leaving `retry_count` at 0.
+
+Measured, on the two tasks from the run that reported it:
+
+```
+042839a6-00a8-4454-b0b8-b3fbb73fce3b | complete | retry_count 0
+41e61772-fcee-40e2-8612-3f119687bb04 | complete | retry_count 0
+```
+
+Both were already `complete`. `FailTaskTx` (`control/failure.go:108`) returns
+`FailNoop` with a nil error - hence HTTP 200 - when a task's status is not
+`running`, `queued` or `retrying`.
+
+That is correct. Failing an already-settled task must be idempotent; treating a
+late failure report as a requeue would let it undo work that was verified and
+paid for.
+
+The defect is in the scenario, not the platform: it needs to observe a task in a
+failable state, and an M3 Ultra finishes the chunk first. The driver already
+tries to widen the window by submitting 24 rows to force multiple chunks, which
+is not enough on fast local hardware.
+
+Fix direction, not yet implemented: have the driver claim the task itself with an
+approved worker token so the real agent cannot take it, making the attempt
+lifecycle deterministic instead of racing. A bounded setup-retry on a fresh task
+is the weaker alternative - acceptable only because failing to establish a
+precondition is different from failing the assertion, and it must still fail
+closed when no failable task can ever be observed.
