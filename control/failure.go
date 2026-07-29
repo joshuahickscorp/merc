@@ -308,6 +308,14 @@ func (s *Server) handleWorkerFail(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, errNotOwner):
 		writeErr(w, http.StatusConflict, "task is not claimed by this worker")
 		return
+	case errors.Is(err, ErrJobVerificationPending):
+		// The terminal failure report was not committed: its job still has
+		// verification authority in flight and the exact task lease remains
+		// owned. Keep this distinct from both an ownership conflict (409 is
+		// terminal-success for fail_task) and an internal fault (500). The
+		// agent's bounded idempotent 5xx retry and Retry-After semantics apply.
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
 	case err != nil:
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
