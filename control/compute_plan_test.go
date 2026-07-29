@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
@@ -121,6 +122,134 @@ func TestBoundQuoteSplitNeverConsultsLivePlanner(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("bound submit consulted live planner %d time(s)", calls)
+	}
+}
+
+// Small multi-task embeds (the canary shape: many primary chunks + a floor
+// honeypot against a micro-USD catalogue price) freeze an unfloored compute
+// estimate while BuildEconomicPlan raises Input.BaseComputeUSD to the
+// min-billable settlement floor. The authorities must still agree: the
+// economic base is exactly the floored form of the compute sum. Rewriting the
+// compute plan upward to match the floor would collapse every micro-job into
+// the same estimate and erase cost discrimination among exactly the jobs the
+// floor touches — a settlement concern must not rewrite estimation.
+func TestComputePlanKeepsUnflooredEstimateUnderMinBillableSettlementFloor(t *testing.T) {
+	decision, _, _ := computePlanFixture(t)
+	const cataloguePrimary = 0.000001 // one micro-USD: estimate floor for a tiny embed
+	const primaryTasks = 24
+	const honeypotTasks = 1
+	totalTasks := primaryTasks + honeypotTasks
+	// Unfloored expansion: round(1µ * 25/24) stays 1µ, so verif rounds to $0 —
+	// the canary disagreement shape before the floor-aware binding.
+	unfloored := roundEconomicUSD(cataloguePrimary * float64(totalTasks) / float64(primaryTasks))
+	if unfloored != cataloguePrimary {
+		t.Fatalf("fixture no longer reproduces zero-expansion rounding: unfloored=%v primary=%v",
+			unfloored, cataloguePrimary)
+	}
+	economic := BuildEconomicPlan(EconomicPlanInput{
+		BaseComputeUSD:   unfloored,
+		InitialTaskCount: totalTasks,
+		ExtraTaskReserve: economicExtraTaskReserve(primaryTasks),
+		SupplierShare:    0.97,
+	}, testEconomicSchedule())
+	if !economic.Executable {
+		t.Fatalf("economics blocked: %s", economic.BlockReason)
+	}
+	if economic.Input.BaseComputeUSD <= unfloored {
+		t.Fatalf("expected min-billable floor to raise base above unfloored %v, got %v",
+			unfloored, economic.Input.BaseComputeUSD)
+	}
+
+	// Estimation freeze: unfloored primary + (expansion − primary). This is
+	// what submit/quote already freeze; it must validate against floored economics.
+	plan, err := newDistributedComputePlan(
+		decision, primaryTasks, 512, 1, primaryTasks, 0, honeypotTasks,
+		QuoteTime{P50Secs: 30, P90Secs: 60, WorstCaseSecs: 120}, "static",
+		cataloguePrimary, math.Max(0, unfloored-cataloguePrimary),
+		QuoteConfidence{Score: 0.8, Reasons: []string{"unfloored estimate freeze"}},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("unfloored compute plan: %v", err)
+	}
+	if err := ValidateComputePlanEconomicSnapshot(plan, decision, economic); err != nil {
+		t.Fatalf("unfloored compute must bind floored settlement economics: %v", err)
+	}
+	computeSum := roundEconomicUSD(plan.BaseComputeUSD + plan.VerificationOverheadUSD)
+	if computeSum != unfloored {
+		t.Fatalf("compute sum %v drifted from unfloored estimate %v", computeSum, unfloored)
+	}
+	if computeSum >= economic.Input.BaseComputeUSD {
+		t.Fatalf("fixture lost the floor gap: compute %v economic %v",
+			computeSum, economic.Input.BaseComputeUSD)
+	}
+	// Settlement form of the estimate must be exactly the frozen economic base.
+	if got := settlementBaseFromComputeEstimate(computeSum, economic.Input.SupplierShare, totalTasks); got != economic.Input.BaseComputeUSD {
+		t.Fatalf("settlement form %v != economic base %v", got, economic.Input.BaseComputeUSD)
+	}
+}
+
+// True money disagreement (not the min-billable floor relationship) still fails.
+// The floor-aware binding must not accept an arbitrary economic base above or
+// below the floored form of the compute sum.
+func TestComputePlanStillRejectsTrueMoneyDisagreement(t *testing.T) {
+	decision, plan, economic := computePlanFixture(t)
+
+	// Inflate economic base far above floor(compute) without changing compute.
+	inflated := economic
+	inflated.Input.BaseComputeUSD = economic.Input.BaseComputeUSD + 1.0
+	// Rebuild so ValidateEconomicPlanSnapshot round-trips; we then force the
+	// input base past the floor relationship while keeping a valid plan shape.
+	inflated = BuildEconomicPlan(EconomicPlanInput{
+		BaseComputeUSD:   economic.Input.BaseComputeUSD + 1.0,
+		InitialTaskCount: economic.Input.InitialTaskCount,
+		ExtraTaskReserve: economic.Input.ExtraTaskReserve,
+		SupplierShare:    economic.Input.SupplierShare,
+		SLAPremiumUSD:    economic.Input.SLAPremiumUSD,
+		FirmQuoteMaxUSD:  economic.Input.FirmQuoteMaxUSD,
+	}, economic.Schedule)
+	if !inflated.Executable {
+		t.Fatalf("inflated economics blocked: %s", inflated.BlockReason)
+	}
+	if err := ValidateComputePlanEconomicSnapshot(plan, decision, inflated); err == nil {
+		t.Fatal("compute plan accepted an economic base above floor(compute sum)")
+	}
+
+	// Deflate compute below the economic base without the floor covering the gap:
+	// set compute sum to something whose floor is still below the fixture economic
+	// base (fixture economic is $0.40 — well above min-billable).
+	deflated := plan
+	deflated.BaseComputeUSD = 0.01
+	deflated.VerificationOverheadUSD = 0.01
+	if err := ValidateComputePlanEconomicSnapshot(deflated, decision, economic); err == nil {
+		t.Fatal("economic base above floor(deflated compute) was accepted")
+	}
+}
+
+func TestSettlementBaseFromComputeEstimateMatchesBuildEconomicPlanFloor(t *testing.T) {
+	for _, tc := range []struct {
+		raw   float64
+		tasks int
+		share float64
+	}{
+		{0.000001, 25, 0.97}, // canary micro-job
+		{0.000001, 1, 0.8},
+		{0.40, 4, 0.97}, // already above floor
+		{1.0, 1, 1.0},
+	} {
+		economic := BuildEconomicPlan(EconomicPlanInput{
+			BaseComputeUSD:   tc.raw,
+			InitialTaskCount: tc.tasks,
+			SupplierShare:    tc.share,
+		}, testEconomicSchedule())
+		if !economic.Executable {
+			continue
+		}
+		got := settlementBaseFromComputeEstimate(tc.raw, tc.share, tc.tasks)
+		if math.Abs(got-economic.Input.BaseComputeUSD) > 0.000001 {
+			t.Fatalf("raw=%v tasks=%d share=%v: settlement form %v != BuildEconomicPlan %v",
+				tc.raw, tc.tasks, tc.share, got, economic.Input.BaseComputeUSD)
+		}
 	}
 }
 

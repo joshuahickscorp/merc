@@ -867,7 +867,7 @@ func (wk *Workers) rescueDeadClaims(ctx context.Context) error {
 		taskID := d.TaskID
 		_ = wk.store.InsertJobEvent(ctx, d.JobID, &taskID, "task_rescued_dead_worker",
 			"Chunk moved to a different machine: the machine running it stopped responding. "+
-				"No retry was counted against the task.", nil)
+				"This attempt was counted as a retry.", nil)
 		if d.JobType != "custom" && d.SupplierID != uuid.Nil {
 			if derr := wk.store.DockReputationMild(ctx, d.SupplierID, EventThermalThrottle); derr != nil {
 				log.Printf("workers: docking supplier %s for dead claim on task %s: %v", d.SupplierID, d.TaskID, derr)
