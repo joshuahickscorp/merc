@@ -576,8 +576,8 @@ const etaBiasFactorMax = 3.0
 
 // ETABiasFactor closes the loop that recordEtaCalibration opens. Every finalized
 // job writes its predicted and realized seconds to eta_calibration; this reads
-// the median realized/predicted ratio back so the next quote can correct for a
-// systematic bias instead of repeating it.
+// the model-scoped median realized/predicted ratio back so the next quote can
+// correct for a systematic bias instead of letting one model stretch another.
 //
 // The correction is deliberately one-sided: the returned factor is never below
 // 1. An ETA that is too optimistic misleads the buyer and burns SLA refunds, so
@@ -591,7 +591,9 @@ const etaBiasFactorMax = 3.0
 // always measures the uncalibrated estimator rather than feeding its own
 // corrected buyer promise back into the next window. Legacy jobs with no raw
 // authority use eta_secs once and naturally age out of driftWindow.
-func (s *Store) ETABiasFactor(ctx context.Context, jobType, tier string) (factor float64, samples int, err error) {
+func (s *Store) ETABiasFactor(
+	ctx context.Context, jobType, tier, modelRef string,
+) (factor float64, samples int, err error) {
 	var median float64
 	err = s.pool.QueryRow(ctx,
 		`SELECT COUNT(*),
@@ -600,10 +602,11 @@ func (s *Store) ETABiasFactor(ctx context.Context, jobType, tier string) (factor
 		   FROM eta_calibration
 		  WHERE job_type = $1
 		    AND tier = $2
+		    AND COALESCE(model_ref,'') = $3
 		    AND predicted_secs > 0
 		    AND realized_secs >= 0
-		    AND created_at > now() - make_interval(secs => $3)`,
-		jobType, tier, int(driftWindow.Seconds()),
+		    AND created_at > now() - make_interval(secs => $4)`,
+		jobType, tier, modelRef, int(driftWindow.Seconds()),
 	).Scan(&samples, &median)
 	if err != nil {
 		return 1, 0, err
@@ -1593,15 +1596,16 @@ func (s *Store) RecordEtaCalibration(
 ) (rawPredicted, quotedPredicted, realized int, err error) {
 	err = s.pool.QueryRow(ctx,
 		`WITH source AS (
-		   SELECT id, job_type, tier,
+		   SELECT id, job_type, tier, COALESCE(model_ref,'') AS model_ref,
 		          COALESCE(eta_secs_raw, eta_secs) AS raw_predicted_secs,
 		          eta_secs AS quoted_predicted_secs,
 		          GREATEST(0, EXTRACT(EPOCH FROM (now() - created_at)))::int AS realized_secs
 		     FROM jobs
 		    WHERE id = $1 AND COALESCE(eta_secs_raw, eta_secs, 0) > 0
 		 ), inserted AS (
-		   INSERT INTO eta_calibration (job_id, job_type, tier, predicted_secs, realized_secs)
-		   SELECT id, job_type, tier, raw_predicted_secs, realized_secs FROM source
+		   INSERT INTO eta_calibration
+		     (job_id, job_type, tier, model_ref, predicted_secs, realized_secs)
+		   SELECT id, job_type, tier, model_ref, raw_predicted_secs, realized_secs FROM source
 		   ON CONFLICT (job_id) DO NOTHING
 		   RETURNING job_id, predicted_secs, realized_secs
 		 )

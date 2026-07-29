@@ -89,13 +89,14 @@ func etaCalibrationTestStore(t *testing.T) (*Store, *pgxpool.Pool, context.Conte
 // insertETACalibrationRows writes calibration history for a job type that no
 // other test uses, so the read is not contaminated by a shared database.
 func insertETACalibrationRows(t *testing.T, pool *pgxpool.Pool, ctx context.Context,
-	jobType, tier string, pairs [][2]int) {
+	jobType, tier, modelRef string, pairs [][2]int) {
 	t.Helper()
 	for _, p := range pairs {
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO eta_calibration (job_id, job_type, tier, predicted_secs, realized_secs)
-			 VALUES ($1,$2,$3,$4,$5)`,
-			uuid.New(), jobType, tier, p[0], p[1]); err != nil {
+			`INSERT INTO eta_calibration
+			   (job_id, job_type, tier, model_ref, predicted_secs, realized_secs)
+			 VALUES ($1,$2,$3,$4,$5,$6)`,
+			uuid.New(), jobType, tier, modelRef, p[0], p[1]); err != nil {
 			t.Fatalf("insert eta_calibration: %v", err)
 		}
 	}
@@ -113,12 +114,13 @@ func insertETACalibrationRows(t *testing.T, pool *pgxpool.Pool, ctx context.Cont
 func TestETABiasFactorClosesTheCalibrationLoop(t *testing.T) {
 	store, pool, ctx := etaCalibrationTestStore(t)
 	jobType := "etacal_" + uuid.NewString()[:8]
+	modelRef := "eta-loop-model"
 
 	// Below the sample floor there is no evidence, so the quote is untouched.
-	insertETACalibrationRows(t, pool, ctx, jobType, "batch", [][2]int{
+	insertETACalibrationRows(t, pool, ctx, jobType, "batch", modelRef, [][2]int{
 		{100, 200}, {100, 200},
 	})
-	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch")
+	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef)
 	if err != nil {
 		t.Fatalf("ETABiasFactor: %v", err)
 	}
@@ -131,10 +133,10 @@ func TestETABiasFactorClosesTheCalibrationLoop(t *testing.T) {
 	}
 
 	// Past the floor, a consistent 2x overrun is corrected.
-	insertETACalibrationRows(t, pool, ctx, jobType, "batch", [][2]int{
+	insertETACalibrationRows(t, pool, ctx, jobType, "batch", modelRef, [][2]int{
 		{100, 200}, {100, 200}, {100, 200}, {50, 100},
 	})
-	factor, samples, err = store.ETABiasFactor(ctx, jobType, "batch")
+	factor, samples, err = store.ETABiasFactor(ctx, jobType, "batch", modelRef)
 	if err != nil {
 		t.Fatalf("ETABiasFactor: %v", err)
 	}
@@ -149,7 +151,7 @@ func TestETABiasFactorClosesTheCalibrationLoop(t *testing.T) {
 	}
 
 	// Tier is part of the key: priority history must not correct a batch quote.
-	other, otherSamples, err := store.ETABiasFactor(ctx, jobType, "priority")
+	other, otherSamples, err := store.ETABiasFactor(ctx, jobType, "priority", modelRef)
 	if err != nil {
 		t.Fatalf("ETABiasFactor(priority): %v", err)
 	}
@@ -164,10 +166,11 @@ func TestETABiasFactorClosesTheCalibrationLoop(t *testing.T) {
 func TestETABiasFactorNeverShrinksAnETA(t *testing.T) {
 	store, pool, ctx := etaCalibrationTestStore(t)
 	jobType := "etacal_" + uuid.NewString()[:8]
-	insertETACalibrationRows(t, pool, ctx, jobType, "batch", [][2]int{
+	modelRef := "eta-fast-model"
+	insertETACalibrationRows(t, pool, ctx, jobType, "batch", modelRef, [][2]int{
 		{100, 10}, {100, 10}, {100, 10}, {100, 10}, {100, 10}, {100, 10},
 	})
-	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch")
+	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef)
 	if err != nil {
 		t.Fatalf("ETABiasFactor: %v", err)
 	}
@@ -183,15 +186,108 @@ func TestETABiasFactorNeverShrinksAnETA(t *testing.T) {
 func TestETABiasFactorIsCappedAgainstAPathologicalWindow(t *testing.T) {
 	store, pool, ctx := etaCalibrationTestStore(t)
 	jobType := "etacal_" + uuid.NewString()[:8]
-	insertETACalibrationRows(t, pool, ctx, jobType, "batch", [][2]int{
+	modelRef := "eta-pathological-model"
+	insertETACalibrationRows(t, pool, ctx, jobType, "batch", modelRef, [][2]int{
 		{1, 86400}, {1, 86400}, {1, 86400}, {1, 86400}, {1, 86400},
 	})
-	factor, _, err := store.ETABiasFactor(ctx, jobType, "batch")
+	factor, _, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef)
 	if err != nil {
 		t.Fatalf("ETABiasFactor: %v", err)
 	}
 	if factor != etaBiasFactorMax {
 		t.Fatalf("factor = %v, want the cap %v", factor, etaBiasFactorMax)
+	}
+}
+
+func TestETABiasFactorIsModelScopedWithoutLegacyBleed(t *testing.T) {
+	store, pool, ctx := etaCalibrationTestStore(t)
+	jobType := "etamodelscope_" + uuid.NewString()[:8]
+	modelA, modelB := "slow-model", "fast-model"
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO buyers (id,email) VALUES ($1,$2)`,
+		buyerID, buyerID.String()+"@eta.invalid"); err != nil {
+		t.Fatalf("insert buyer: %v", err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(c, `DELETE FROM eta_calibration WHERE job_type=$1`, jobType)
+		_, _ = pool.Exec(c, `DELETE FROM jobs WHERE buyer_id=$1`, buyerID)
+		_, _ = pool.Exec(c, `DELETE FROM buyers WHERE id=$1`, buyerID)
+	})
+
+	// Exercise the production writer for both named models. If it ever drops or
+	// rewrites model_ref, this read-side isolation test must fail.
+	for _, model := range []struct {
+		ref          string
+		realizedSecs int
+	}{
+		{modelA, 200},
+		{modelB, 100},
+	} {
+		for range driftMinSamples {
+			jobID := uuid.New()
+			if _, err := pool.Exec(ctx,
+				`INSERT INTO jobs
+				   (id,buyer_id,status,job_type,model_ref,input_ref,tier,
+				    eta_secs,eta_secs_raw,created_at)
+				 VALUES ($1,$2,'complete',$3,$4,$5,'batch',100,100,
+				         now() - make_interval(secs => $6))`,
+				jobID, buyerID, jobType, model.ref, "eta/"+jobID.String(),
+				model.realizedSecs); err != nil {
+				t.Fatalf("insert %s job: %v", model.ref, err)
+			}
+			raw, _, realized, err := store.RecordEtaCalibration(ctx, jobID)
+			if err != nil {
+				t.Fatalf("record %s job: %v", model.ref, err)
+			}
+			if raw != 100 || realized < model.realizedSecs || realized > model.realizedSecs+2 {
+				t.Fatalf("%s calibration raw/realized=%d/%d, want 100/about %d",
+					model.ref, raw, realized, model.realizedSecs)
+			}
+		}
+	}
+
+	for range driftMinSamples {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO eta_calibration
+			   (job_id,job_type,tier,predicted_secs,realized_secs)
+			 VALUES ($1,$2,'batch',100,300)`,
+			uuid.New(), jobType); err != nil {
+			t.Fatalf("insert legacy calibration: %v", err)
+		}
+	}
+
+	factorA, samplesA, err := store.ETABiasFactor(ctx, jobType, "batch", modelA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	factorB, samplesB, err := store.ETABiasFactor(ctx, jobType, "batch", modelB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyFactor, legacySamples, err := store.ETABiasFactor(ctx, jobType, "batch", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingFactor, missingSamples, err := store.ETABiasFactor(ctx, jobType, "batch", "unseen-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if samplesA != driftMinSamples || math.Abs(factorA-2) > 0.001 {
+		t.Fatalf("slow model factor=%v samples=%d, want 2/%d", factorA, samplesA, driftMinSamples)
+	}
+	if samplesB != driftMinSamples || math.Abs(factorB-1) > 0.02 {
+		t.Fatalf("fast model factor=%v samples=%d, want about 1/%d",
+			factorB, samplesB, driftMinSamples)
+	}
+	if legacySamples != driftMinSamples || legacyFactor != etaBiasFactorMax {
+		t.Fatalf("legacy factor=%v samples=%d, want cap %v/%d",
+			legacyFactor, legacySamples, etaBiasFactorMax, driftMinSamples)
+	}
+	if missingSamples != 0 || missingFactor != 1 {
+		t.Fatalf("unseen model inherited factor=%v samples=%d", missingFactor, missingSamples)
 	}
 }
 
@@ -202,6 +298,7 @@ func TestETABiasFactorIsCappedAgainstAPathologicalWindow(t *testing.T) {
 func TestRecordEtaCalibrationLearnsFromRawAndConverges(t *testing.T) {
 	store, pool, ctx := etaCalibrationTestStore(t)
 	jobType := "etaconverge_" + uuid.NewString()[:8]
+	modelRef := "eta-converge-model"
 	buyerID := uuid.New()
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO buyers (id,email) VALUES ($1,$2)`,
@@ -220,10 +317,10 @@ func TestRecordEtaCalibrationLearnsFromRawAndConverges(t *testing.T) {
 		jobID := uuid.New()
 		if _, err := pool.Exec(ctx,
 			`INSERT INTO jobs
-			   (id,buyer_id,status,job_type,input_ref,tier,eta_secs,eta_secs_raw,created_at)
-			 VALUES ($1,$2,'complete',$3,$4,'batch',200,100,
+			   (id,buyer_id,status,job_type,model_ref,input_ref,tier,eta_secs,eta_secs_raw,created_at)
+			 VALUES ($1,$2,'complete',$3,$4,$5,'batch',200,100,
 			         now() - interval '200 seconds')`,
-			jobID, buyerID, jobType, "eta/"+jobID.String()); err != nil {
+			jobID, buyerID, jobType, modelRef, "eta/"+jobID.String()); err != nil {
 			t.Fatalf("insert job %d: %v", i, err)
 		}
 		raw, quoted, realized, err := store.RecordEtaCalibration(ctx, jobID)
@@ -241,7 +338,7 @@ func TestRecordEtaCalibrationLearnsFromRawAndConverges(t *testing.T) {
 		}
 	}
 
-	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch")
+	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef)
 	if err != nil {
 		t.Fatalf("ETABiasFactor: %v", err)
 	}

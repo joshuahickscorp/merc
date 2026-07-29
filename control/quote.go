@@ -536,7 +536,9 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	// Correct for measured optimism before the number is frozen. The SLA bound
 	// below is derived from conservativeSecs, so it has to move with the p50 or
 	// calibration would tighten the promise it was meant to make honest.
-	etaBias, etaBiasSamples, etaBiasErr := s.store.ETABiasFactor(ctx, jobType, tier)
+	etaBias, etaBiasSamples, etaBiasErr := s.store.ETABiasFactor(
+		ctx, jobType, tier, sub.Model.Ref,
+	)
 	etaCalibrated := etaBiasErr == nil && etaBiasSamples >= driftMinSamples && etaBias > 1
 	if etaCalibrated {
 		p50 = applyETABias(p50, etaBias)

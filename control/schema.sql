@@ -1540,7 +1540,10 @@ CREATE TABLE IF NOT EXISTS eta_calibration (
     realized_secs  INT,
     created_at     TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE eta_calibration ADD COLUMN IF NOT EXISTS model_ref TEXT;
 CREATE INDEX IF NOT EXISTS eta_calibration_type_idx ON eta_calibration (job_type, tier, created_at DESC);
+CREATE INDEX IF NOT EXISTS eta_calibration_scope_idx
+    ON eta_calibration (job_type, tier, (COALESCE(model_ref,'')), created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS eta_calibration_job_uniq ON eta_calibration (job_id);
 
 CREATE TABLE IF NOT EXISTS charge_batches (
