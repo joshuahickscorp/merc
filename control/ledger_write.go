@@ -170,6 +170,178 @@ func insertJobDisputeClawbacksTx(ctx context.Context, db ledgerExec, jobID uuid.
 		ON CONFLICT (task_id, kind) DO NOTHING`, jobID)
 }
 
+// disputeBuyerRefundResult is the NUMERIC-domain outcome of recording dispute
+// buyer/platform refunds for one job. Amounts are micro-units of the job
+// settlement currency.
+type disputeBuyerRefundResult struct {
+	BuyerRefundMicros    int64
+	PlatformRefundMicros int64
+	TasksRefunded        int64
+	SLARefundMicros      int64
+	Currency             string
+}
+
+// insertJobDisputeBuyerRefundsTx credits the buyer for every task-scoped
+// buyer_charge on the job, and reverses each matching platform_take.
+//
+// Design (and why the existing (task_id, kind) unique index works):
+//
+//   - Settlement writes at most one buyer_charge and one platform_take per
+//     task (ledger_task_kind_uniq). A full dispute refund is therefore also
+//     one buyer_refund and one platform_refund per task — the same uniqueness
+//     shape as clawback. Retries and concurrent resolvers hit ON CONFLICT DO
+//     NOTHING and cannot double-refund.
+//   - Amounts are NUMERIC copies of the charge/take rows (no float path). A
+//     refund row is therefore exactly equal to the charge it reverses; the
+//     post-condition check refuses any task whose net charge+refund is
+//     positive (refund > charge).
+//   - Partial multi-row refunds of the same kind on one task are not
+//     representable under (task_id, kind). That is intentional for dispute
+//     resolution, which is a full job-scope reversal. Future partial-refund
+//     products would need a different uniqueness key and must not weaken this
+//     one.
+//   - Job-level SLA premium charges (no task_id) are refunded once via
+//     payout_ref uniqueness keyed by dispute id.
+//
+// Currency is copied from the charge/take being reversed so historical USD
+// jobs stay USD under a CAD deployment.
+func insertJobDisputeBuyerRefundsTx(
+	ctx context.Context,
+	db ledgerExec,
+	jobID, disputeID uuid.UUID,
+) (disputeBuyerRefundResult, error) {
+	var out disputeBuyerRefundResult
+	if err := db.QueryRow(ctx, `SELECT currency FROM jobs WHERE id=$1`, jobID).
+		Scan(&out.Currency); err != nil {
+		return out, err
+	}
+	if err := RequireSettlementCurrency(out.Currency); err != nil {
+		// Historical jobs may still settle a supported non-process currency
+		// that was the authority when the job was accepted. Refunds preserve
+		// that authority rather than converting; only refuse unknown codes.
+		if _, perr := ParseCurrency(out.Currency); perr != nil {
+			return out, fmt.Errorf("job %s refund refused: unsupported currency %q", jobID, out.Currency)
+		}
+	}
+
+	// Task-scoped buyer refunds: exact reverse of each buyer_charge.
+	ct, err := db.Exec(ctx, `
+		INSERT INTO ledger_entries
+		  (kind, buyer_id, task_id, amount_usd, currency, payout_status, payout_ref)
+		SELECT 'buyer_refund', le.buyer_id, le.task_id, -le.amount_usd, le.currency, 'released',
+		       'dispute-refund-' || $2::text || '-' || le.task_id::text
+		  FROM ledger_entries le
+		  JOIN tasks t ON t.id = le.task_id
+		 WHERE t.job_id = $1
+		   AND le.kind = 'buyer_charge'
+		   AND le.amount_usd < 0
+		   AND le.task_id IS NOT NULL
+		   AND le.buyer_id IS NOT NULL
+		   AND le.currency = (SELECT currency FROM jobs WHERE id = $1)
+		ON CONFLICT (task_id, kind) DO NOTHING`, jobID, disputeID)
+	if err != nil {
+		return out, err
+	}
+	out.TasksRefunded = ct.RowsAffected()
+
+	// Reverse platform take so conservation holds after clawback + refund.
+	if _, err := db.Exec(ctx, `
+		INSERT INTO ledger_entries
+		  (kind, task_id, amount_usd, currency, payout_status, payout_ref)
+		SELECT 'platform_refund', le.task_id, -le.amount_usd, le.currency, 'released',
+		       'dispute-platform-refund-' || $2::text || '-' || le.task_id::text
+		  FROM ledger_entries le
+		  JOIN tasks t ON t.id = le.task_id
+		 WHERE t.job_id = $1
+		   AND le.kind = 'platform_take'
+		   AND le.amount_usd > 0
+		   AND le.task_id IS NOT NULL
+		   AND le.currency = (SELECT currency FROM jobs WHERE id = $1)
+		ON CONFLICT (task_id, kind) DO NOTHING`, jobID, disputeID); err != nil {
+		return out, err
+	}
+
+	// Job-level SLA premium charge (no task_id): once per dispute via payout_ref.
+	slaRef := "dispute-sla-refund-" + disputeID.String()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO ledger_entries
+		  (kind, buyer_id, amount_usd, currency, payout_status, payout_ref)
+		SELECT 'buyer_refund', le.buyer_id, -le.amount_usd, le.currency, 'released', $2
+		  FROM ledger_entries le
+		 WHERE le.kind = 'buyer_charge'
+		   AND le.task_id IS NULL
+		   AND le.payout_ref = $3
+		   AND le.amount_usd < 0
+		   AND le.buyer_id IS NOT NULL
+		   AND le.currency = (SELECT currency FROM jobs WHERE id = $1)
+		   AND NOT EXISTS (
+		         SELECT 1 FROM ledger_entries r
+		          WHERE r.kind = 'buyer_refund' AND r.payout_ref = $2
+		       )`, jobID, slaRef, slaPremiumChargeRef(jobID)); err != nil {
+		return out, err
+	}
+
+	// Fail closed: no task may have refunds exceeding its charges.
+	var overRefunded bool
+	if err := db.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM (
+		    SELECT le.task_id, COALESCE(SUM(le.amount_usd), 0) AS net
+		      FROM ledger_entries le
+		      JOIN tasks t ON t.id = le.task_id
+		     WHERE t.job_id = $1
+		       AND le.kind IN ('buyer_charge', 'buyer_refund')
+		       AND le.task_id IS NOT NULL
+		     GROUP BY le.task_id
+		  ) x WHERE x.net > 0
+		)`, jobID).Scan(&overRefunded); err != nil {
+		return out, err
+	}
+	if overRefunded {
+		return out, fmt.Errorf("job %s buyer refund would exceed charged amount on at least one task", jobID)
+	}
+
+	// Fail closed: currency mix on refund rows is refused (should be impossible
+	// given the currency predicates above, but prove it).
+	var mixed int
+	if err := db.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT le.currency)
+		  FROM ledger_entries le
+		  JOIN tasks t ON t.id = le.task_id
+		 WHERE t.job_id = $1
+		   AND le.kind IN ('buyer_charge','buyer_refund','platform_take','platform_refund',
+		                   'supplier_credit','clawback')`, jobID).Scan(&mixed); err != nil {
+		return out, err
+	}
+	if mixed > 1 {
+		return out, fmt.Errorf("%w: job %s ledger mixes currencies across charge/refund rows",
+			errCurrencyMismatch, jobID)
+	}
+
+	// Totals in micro-units for the dispute receipt / prepaid restore.
+	if err := db.QueryRow(ctx, `
+		SELECT
+		  COALESCE((SELECT (SUM(le.amount_usd) * 1000000)::bigint
+		              FROM ledger_entries le JOIN tasks t ON t.id = le.task_id
+		             WHERE t.job_id = $1 AND le.kind = 'buyer_refund'), 0)
+		  + COALESCE((SELECT (SUM(le.amount_usd) * 1000000)::bigint
+		              FROM ledger_entries le
+		             WHERE le.kind = 'buyer_refund'
+		               AND le.payout_ref = $2), 0),
+		  COALESCE((SELECT (-SUM(le.amount_usd) * 1000000)::bigint
+		              FROM ledger_entries le JOIN tasks t ON t.id = le.task_id
+		             WHERE t.job_id = $1 AND le.kind = 'platform_refund'), 0),
+		  COALESCE((SELECT (SUM(le.amount_usd) * 1000000)::bigint
+		              FROM ledger_entries le
+		             WHERE le.kind = 'buyer_refund'
+		               AND le.payout_ref = $2), 0)
+		`, jobID, slaRef).
+		Scan(&out.BuyerRefundMicros, &out.PlatformRefundMicros, &out.SLARefundMicros); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
 // insertJobSLAPremiumChargeTx records the once-only SLA premium buyer_charge
 // from the frozen economic plan (NUMERIC → NUMERIC, no float path).
 func insertJobSLAPremiumChargeTx(ctx context.Context, db ledgerExec, jobID uuid.UUID, payoutRef string) (pgconn.CommandTag, error) {
@@ -223,7 +395,13 @@ func resolveLedgerInsert(e ledgerInsert) (ledgerInsert, error) {
 	if serr != nil {
 		return ledgerInsert{}, serr
 	}
-	if !got.Equal(settle) && e.Kind != KindClawback {
+	// Reversal kinds may preserve the historical currency of the row they
+	// reverse (clawback, buyer_refund, platform_refund). New money must match
+	// the process settlement currency.
+	if !got.Equal(settle) &&
+		e.Kind != KindClawback &&
+		e.Kind != KindBuyerRefund &&
+		e.Kind != KindPlatformRefund {
 		return ledgerInsert{}, fmt.Errorf("%w: ledger insert currency %s does not match settlement %s",
 			errCurrencyMismatch, got, settle)
 	}

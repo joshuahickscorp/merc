@@ -307,6 +307,28 @@ func (s *Store) DebitPrepaidForTask(ctx context.Context, buyerID, taskID uuid.UU
 	return tx.Commit(ctx)
 }
 
+// creditPrepaidBalanceTx restores prepaid liability after a dispute (or other
+// internal) refund. It does not write a prepaid_topup cash row — the cash
+// already sat on the platform as prepaid liability that was spent and is now
+// un-spent. Callers must enforce idempotency (e.g. job_dispute_refunds).
+func creditPrepaidBalanceTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64) error {
+	if amountMicros <= 0 {
+		return fmt.Errorf("prepaid credit requires positive micro-units, got %d", amountMicros)
+	}
+	if buyerID == uuid.Nil {
+		return fmt.Errorf("prepaid credit requires buyer_id")
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros, updated_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (buyer_id) DO UPDATE
+		  SET balance_micros = buyer_prepaid_balances.balance_micros + EXCLUDED.balance_micros,
+		      updated_at = now()`, buyerID, amountMicros); err != nil {
+		return err
+	}
+	return nil
+}
+
 // debitPrepaidForTaskTx reduces prepaid liability for a settled task's buyer_charge.
 // Concurrency: SELECT … FOR UPDATE on the balance row; the UPDATE requires
 // balance_micros >= amount so two simultaneous debits cannot both succeed when
