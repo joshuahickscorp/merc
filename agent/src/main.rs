@@ -624,7 +624,12 @@ fn build_bench_prompts(stem: &str, b: usize, mode: BenchMode) -> Vec<String> {
 /// would commit for a batch_infer honeypot, plus the engine|build_hash class.
 async fn run_honeypot_answer(model: &str, max_tokens: u32, prompt: &str) -> Result<()> {
     let engine = "candle";
-    let build_hash = hardware::engine_build_hash(engine, AGENT_VERSION);
+    // Hash the class this host ADVERTISES, exactly as register() does. Using
+    // engine_build_hash (which folds in device_label(), "metal") produced a
+    // different hash from the one the running agent declares, so every seeded
+    // honeypot failed honeypot_class_mismatch and quarantined the supplier.
+    let hw_class = hardware::detected_hw_class_wire();
+    let build_hash = hardware::engine_build_hash_for_class(engine, AGENT_VERSION, hw_class);
     let answer_class = format!("{engine}|{build_hash}");
     let pool = ModelPool::new();
     let backend = inference::build_backend(inference::BackendKind::Candle, "", "", None)
@@ -647,6 +652,7 @@ async fn run_honeypot_answer(model: &str, max_tokens: u32, prompt: &str) -> Resu
         "max_tokens": max_tokens,
         "prompt": prompt,
         "device": models::device_label(),
+        "hw_class": hw_class,
         "agent_version": AGENT_VERSION,
         // Only the exact bytes are emitted. A nested JSON object would be
         // re-serialized by this envelope (and by any jq that reads it) in

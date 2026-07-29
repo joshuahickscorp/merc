@@ -15,6 +15,7 @@ KEEP="${KEEP:-0}"
 SKIP_LIVE="${SKIP_LIVE:-0}"
 USE_DOCKER="${USE_DOCKER:-0}"
 MERC_PROOF_COMPOSE_PROJECT=""
+TEST_DATABASE_URL=""
 CONTROL_PID=""
 AGENT_PID=""
 AGENT2_PID=""
@@ -31,6 +32,12 @@ export S3_ACCESS_KEY="minioadmin"
 export S3_SECRET_KEY="minioadmin"
 export S3_REGION="us-east-1"
 export LISTEN_ADDR="127.0.0.1:$CONTROL_PORT"
+# The control plane refuses to start without an explicit settlement currency.
+# This proof is hermetic and shadow-ledgered: its economic inputs below are all
+# USD-denominated and the reference board is USD, so USD settles under identity
+# FX and needs no operator-supplied rate. Staging and canary run CAD, which
+# additionally requires a bound FX revision; override to exercise that path.
+export MERC_SETTLEMENT_CURRENCY="${MERC_SETTLEMENT_CURRENCY:-usd}"
 export MERC_ECON_SCHEDULE_VERSION="prove-v1"
 export MERC_PROCESSOR_PERCENT_BPS="290"
 export MERC_PROCESSOR_FIXED_USD="0.30"
@@ -129,13 +136,10 @@ SOURCE_START="$("$ART/merc" source-id --root "$ROOT" --field source_sha256)"
 record PASS source-bound "source_sha256=$SOURCE_START"
 record PASS census "authoritative census regenerated before source binding"
 
-test -z "$(gofmt -l control)"
-(cd control && go vet ./... && go test ./... && go test -race ./...)
-(cd agent && cargo fmt --all -- --check && cargo clippy --all-targets --no-default-features -- -D warnings && cargo test --no-default-features)
-bash scripts/verify-python-sdk-package.sh
-node scripts/site-build.mjs
-record PASS local-gates "format, vet, race, Rust, SDK, and site gates passed"
-
+# Dependencies come up BEFORE the unit gates. S3_ENDPOINT is exported at the
+# top of this script, so the object-storage tests in `go test ./...` connect
+# to it for real; running them first meant they dialled a port nothing was
+# listening on yet and failed the whole proof before it started.
 if [ "$USE_DOCKER" = "1" ]; then
   # A proof must never inherit jobs, workers, object bytes, or idempotency keys
   # from a prior run. The unique project owns disposable volumes that cleanup
@@ -144,17 +148,26 @@ if [ "$USE_DOCKER" = "1" ]; then
   export COMPOSE_PROJECT_NAME="$MERC_PROOF_COMPOSE_PROJECT"
   docker compose up -d postgres minio createbuckets
   export DATABASE_URL="postgres://cx:cx@127.0.0.1:5432/cx?sslmode=disable"
+  TEST_DATABASE_URL="postgres://cx:cx@127.0.0.1:5432/cx_prove_tests?sslmode=disable"
   export S3_ENDPOINT="http://127.0.0.1:9000"
   export S3_PUBLIC_ENDPOINT="$S3_ENDPOINT"
   wait_for 60 psql "$DATABASE_URL" -c 'select 1'
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE cx_prove_tests' >/dev/null
 else
   for tool in initdb pg_ctl createdb minio mc; do
     command -v "$tool" >/dev/null || { echo "missing native dependency: $tool" >&2; exit 1; }
   done
   initdb -D "$PGDATA" -U cx --auth=trust -E UTF8 --locale=C >"$ART/postgres.log"
-  pg_ctl -D "$PGDATA" -o "-p $PGPORT -c listen_addresses=127.0.0.1" -l "$ART/postgres.log" -w start
+  # The cluster is initdb'd with --locale=C, so start the postmaster in the same
+  # locale. Inheriting an unset or invalid one makes PostgreSQL 17 on macOS die
+  # with "postmaster became multithreaded during startup", which reads like a
+  # crash but is only the caller's environment leaking into a proof that is
+  # supposed to be hermetic.
+  LC_ALL=C LANG=C pg_ctl -D "$PGDATA" -o "-p $PGPORT -c listen_addresses=127.0.0.1" -l "$ART/postgres.log" -w start
   PG_STARTED=1
   createdb -h 127.0.0.1 -p "$PGPORT" -U cx cx
+  createdb -h 127.0.0.1 -p "$PGPORT" -U cx cx_prove_tests
+  TEST_DATABASE_URL="postgres://cx@127.0.0.1:$PGPORT/cx_prove_tests?sslmode=disable"
   MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
     minio server "$ART/minio" --address "127.0.0.1:$MINIO_PORT" >"$ART/minio.log" 2>&1 &
   MINIO_PID=$!
@@ -164,9 +177,23 @@ else
 fi
 record PASS dependencies "PostgreSQL and MinIO are healthy"
 
+# Full Go and race tests get a separate disposable database in the proof's own
+# fresh PostgreSQL cluster. Never inherit MERC_TEST_DATABASE_URL from the caller:
+# doing so made a nominally hermetic proof query an unrelated developer/CI
+# database, or fail outright when the variable was absent.
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
+export MERC_TEST_DATABASE_URL="$TEST_DATABASE_URL"
+
+test -z "$(gofmt -l control)"
+(cd control && go vet ./... && go test ./... && go test -race ./...)
+(cd agent && cargo fmt --all -- --check && cargo clippy --all-targets --no-default-features -- -D warnings && cargo test --no-default-features)
+bash scripts/verify-python-sdk-package.sh
+node scripts/site-build.mjs
+record PASS local-gates "format, vet, race, Rust, SDK, and site gates passed"
+
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
-(cd control && MERC_TEST_DATABASE_URL="$DATABASE_URL" go test ./... -run '^(TestBillingCustomerCanonicalSchema|TestListWorkersToleratesLegacyNullTelemetry|TestRuntimeCatalogPriceIsStableAcrossMigration|TestPrivilegedAdminMutationsHaveCompleteAtomicAudit|TestPrivilegedMutationIdempotentConcurrentReplay|TestConcurrentNamedOperatorsRetainIndependentAttribution|TestRevocationWinsRaceBeforePrivilegedMutation|TestAdminMutationRollsBackWhenAuditInsertFails|TestOperationalControlsAreDurableAndActorAudited|TestOperationalControlMutationFailsClosed|TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout|TestDisputeFilingOwnershipTerminalReasonAndWindowBoundaries|TestDisputeAPIUsesAuthenticatedOwnerAndStrictBoundedReason|TestConcurrentDisputeFilingsCreateOnlyOneActiveCase|TestDisputeFilingWinsQueuedPayoutClaimRace|TestDSARDeletionTombstoneAndRestoreReplay|TestSupportAndSecurityTechnicalTabletops)$' -count=1)
+(cd control && MERC_TEST_DATABASE_URL="$TEST_DATABASE_URL" go test ./... -run '^(TestBillingCustomerCanonicalSchema|TestListWorkersToleratesLegacyNullTelemetry|TestRuntimeCatalogPriceIsStableAcrossMigration|TestPrivilegedAdminMutationsHaveCompleteAtomicAudit|TestPrivilegedMutationIdempotentConcurrentReplay|TestConcurrentNamedOperatorsRetainIndependentAttribution|TestRevocationWinsRaceBeforePrivilegedMutation|TestAdminMutationRollsBackWhenAuditInsertFails|TestOperationalControlsAreDurableAndActorAudited|TestOperationalControlMutationFailsClosed|TestDisputeFilingAtomicallyFreezesAndTerminalResolutionControlsPayout|TestDisputeFilingOwnershipTerminalReasonAndWindowBoundaries|TestDisputeAPIUsesAuthenticatedOwnerAndStrictBoundedReason|TestConcurrentDisputeFilingsCreateOnlyOneActiveCase|TestDisputeFilingWinsQueuedPayoutClaimRace|TestDSARDeletionTombstoneAndRestoreReplay|TestSupportAndSecurityTechnicalTabletops)$' -count=1)
 record PASS schema "canonical schema applies twice"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 DO $$

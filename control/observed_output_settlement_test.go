@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,6 +194,7 @@ func TestObservedOutputSettlementMissingInputsSettleAtFreeze(t *testing.T) {
 		{"zero ceiling records", 10, 100, 0, 100, 5, true},
 		{"zero max tokens", 10, 100, 1, 0, 5, true},
 		{"negative estimated out treated as missing", 10, -1, 1, 100, 5, true},
+		{"negative durable report fails closed", 10, 100, 1, 100, -1, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -235,5 +238,141 @@ func TestObservedOutputSettlementMinBillableFloor(t *testing.T) {
 	}
 	if got.BilledCharge > 0.000002 {
 		t.Fatalf("floor raised above freeze: %.9f", got.BilledCharge)
+	}
+}
+
+// This is the exact recovery regression that blocked every generative finalize:
+// verification work snapshots deliberately do not duplicate job max_tokens, so
+// rebuilt CommitTaskInfo has jobMaxTokens=0. Planning and apply must both load
+// the same frozen workload/compute/economic authority and agree on the rebate.
+func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openMoneyPathStore(t)
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
+
+	sub, herr := normalizeAndValidateJobSubmit(jobSubmit{
+		JobType: JobType{Type: "batch_infer", MaxTokens: 100},
+		Model:   ModelRef{Kind: "gguf", Ref: "llama-3.2-1b-instruct-q4"},
+		Constraints: JobConstraints{
+			MaxDurationSecs: 3600,
+		},
+		Tier: "batch",
+	})
+	if herr != nil {
+		t.Fatalf("normalize batch workload: %s", herr.msg)
+	}
+	workload, err := buildWorkloadDecision(sub, strings.Repeat("c", 64))
+	if err != nil {
+		t.Fatalf("build workload decision: %v", err)
+	}
+	compute, err := newDistributedComputePlan(
+		workload,
+		1,
+		64,
+		1,
+		1,
+		0,
+		0,
+		QuoteTime{P50Secs: 60, P90Secs: 120, WorstCaseSecs: 240},
+		"static",
+		f.Plan.Input.BaseComputeUSD,
+		0,
+		QuoteConfidence{Score: 0.9, Reasons: []string{"snapshot recovery regression fixture"}},
+		[]string{"single local regression fixture"},
+	)
+	if err != nil {
+		t.Fatalf("build compute plan: %v", err)
+	}
+	authority := catalogueAuthorityFixture(
+		t, workload, f.Plan.Schedule.Currency, f.Plan.Input.SupplierShare,
+	)
+	placement := placementForPricingFixture(t, workload, authority)
+	pricing, err := newDistributedPricingDecision(
+		workload, compute, placement, f.Plan, authority, sub.Tier, "",
+	)
+	if err != nil {
+		t.Fatalf("build pricing decision: %v", err)
+	}
+	jobTypeSpec, err := json.Marshal(sub.JobType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verificationPolicy, err := json.Marshal(sub.Verification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := makeTasks(f, 1)
+	tasks[0].ExpectedOutputRecords = 1
+	f.TaskIDs = []uuid.UUID{tasks[0].ID}
+	job := &jobRow{
+		ID: f.JobID, BuyerID: f.BuyerID,
+		JobType: "batch_infer", ModelRef: "llama-3.2-1b-instruct-q4",
+		InputRef: "money/batch-input-" + f.JobID.String(), OutputRef: "money/batch-output-" + f.JobID.String(),
+		Tier: sub.Tier, VerificationPolicy: verificationPolicy,
+		EstimatedUSD: f.Plan.InitialBuyerChargeUSD, TaskCount: 1,
+		MinMemoryGB: float32(workload.MinimumMemoryGB), MaxDurationSecs: 3600,
+		JobTypeSpec: jobTypeSpec, SplitSize: 1,
+		OfferedRateUsdHr: placement.OfferedRateUsdHr, ETASecs: compute.ETAP50Secs,
+		EconomicInputRecords: 1, EconomicInputBytes: 64,
+		EconomicInputSource: economicInputSourceSubmitStream,
+		EconomicPlan:        f.Plan, WorkloadDecision: workload, ComputePlan: compute,
+		PlacementRequirement: placement, PricingDecision: pricing,
+	}
+	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
+		t.Fatalf("submit batch job: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE jobs SET status='running' WHERE id=$1`, f.JobID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE tasks
+		   SET status='running', claimed_by=$2, claimed_at=now(), worker_id=$2,
+		       execution_worker_id=$2, execution_supplier_id=$3,
+		       execution_hw_class='apple_silicon_max',
+		       execution_engine='candle', execution_build_hash='deadbeefdeadbeef'
+		 WHERE id=$1`, tasks[0].ID, f.WorkerID, f.SupplierID); err != nil {
+		t.Fatal(err)
+	}
+
+	commit := commitFor(f, tasks[0].ID, 0)
+	commit.TokensUsed = 5
+	if _, err := store.CompleteTaskTx(ctx, tasks[0].ID, f.WorkerID, commit); err != nil {
+		t.Fatalf("stage committed result: %v", err)
+	}
+	work, err := store.VerificationWorkForAttempt(ctx, tasks[0].ID, 0)
+	if err != nil {
+		t.Fatalf("load verification work: %v", err)
+	}
+	recovered, _, err := commitInfoFromVerificationWork(work)
+	if err != nil {
+		t.Fatalf("recover commit info: %v", err)
+	}
+	if recovered.jobMaxTokens != 0 {
+		t.Fatalf("snapshot unexpectedly duplicated max_tokens: %d", recovered.jobMaxTokens)
+	}
+	settled, err := store.observedOutputSettlementForTask(ctx, recovered)
+	if err != nil {
+		t.Fatalf("plan recovered settlement: %v", err)
+	}
+	if !settled.Applied || settled.CeilingTokens != 100 || settled.ObservedTokens != 5 ||
+		settled.BilledCharge >= f.Plan.BuyerChargePerTaskUSD {
+		t.Fatalf("recovered settlement did not apply bounded rebate: %+v", settled)
+	}
+	entries := splitFrozenCharge(
+		f.BuyerID, f.SupplierID, tasks[0].ID, "usd",
+		settled.BilledCharge, settled.SupplierPayout, 0, time.Now().UTC(),
+	)
+	if err := store.FinalizeTaskVerification(ctx, recovered, OutcomePass, entries); err != nil {
+		t.Fatalf("apply rejected planner's recovered settlement: %v", err)
+	}
+	var ledgerNet float64
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(sum(amount_usd),0)::float8 FROM ledger_entries WHERE task_id=$1`,
+		tasks[0].ID,
+	).Scan(&ledgerNet); err != nil {
+		t.Fatal(err)
+	}
+	if roundUSD(ledgerNet) != 0 {
+		t.Fatalf("recovered settlement ledger net %.9f, want zero", ledgerNet)
 	}
 }

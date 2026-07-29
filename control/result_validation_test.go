@@ -236,3 +236,35 @@ func binaryEmbeddingForValidation(dim uint32, rows [][]float32) []byte {
 	}
 	return body
 }
+
+// TestBatchInferArtifactAcceptsTheShapeTheAgentActuallyCommits is a regression
+// for a production outage that every unit test missed because every fixture was
+// written by hand.
+//
+// executor::BatchInferResult has always carried inference_backend, and
+// decodeStrictJSON rejects unknown fields, so the control plane failed EVERY
+// real batch_infer artifact as artifact_invalid -- docking reputation, clawing
+// back the task credit and quarantining the honest supplier that produced it,
+// on every attempt. The fixtures above all omitted the field, so the suite
+// stayed green while no batch_infer job on the platform could ever complete.
+//
+// These bytes are copied verbatim from a worker commit captured in a local
+// two-agent run (jobs/2ba5040b.../tasks/6c00857b.../attempt-0/result.json).
+func TestBatchInferArtifactAcceptsTheShapeTheAgentActuallyCommits(t *testing.T) {
+	committed := []byte(`{"job_type":"batch_infer","model":"llama-3.2-1b-instruct-q4","inference_backend":"candle","completions":[{"index":0,"text":"I cannot provide information or guidance on illegal or harmful activities,","tokens":12}]}`)
+	info := &CommitTaskInfo{
+		jobType:               "batch_infer",
+		ModelRef:              "llama-3.2-1b-instruct-q4",
+		ExpectedOutputRecords: 1,
+	}
+	if err := validateTaskResultArtifact(info, committed); err != nil {
+		t.Fatalf("real worker artifact rejected as invalid: %v", err)
+	}
+
+	// A genuinely unknown field must still be refused: accepting the real shape
+	// is not licence to accept anything.
+	unknown := []byte(`{"job_type":"batch_infer","model":"m","inference_backend":"candle","smuggled":1,"completions":[{"index":0,"text":"ok","tokens":1}]}`)
+	if err := validateTaskResultArtifact(info, unknown); err == nil {
+		t.Fatal("artifact with an unknown field was accepted")
+	}
+}

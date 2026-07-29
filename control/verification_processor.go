@@ -550,17 +550,10 @@ func (p *VerificationProcessor) taskPayoutEntriesAt(ctx context.Context, info *C
 	if err != nil {
 		return nil, err
 	}
-	buyerCharge, supplierPayout, err := p.store.TaskEconomicAmounts(ctx, info.TaskID)
-	if err != nil {
-		return nil, err
-	}
-	if buyerCharge <= 0 || supplierPayout < 0 || supplierPayout > buyerCharge {
-		return nil, fmt.Errorf("task %s has invalid frozen economics", info.TaskID)
-	}
 	if err := RequireSettlementCurrency(j.Currency); err != nil {
 		return nil, fmt.Errorf("job %s cannot settle under this deployment: %w", info.JobID, err)
 	}
-	settled, err := p.store.observedOutputSettlementForTask(ctx, info, buyerCharge, supplierPayout)
+	settled, err := p.store.observedOutputSettlementForTask(ctx, info)
 	if err != nil {
 		return nil, err
 	}
@@ -570,56 +563,16 @@ func (p *VerificationProcessor) taskPayoutEntriesAt(ctx context.Context, info *C
 		j.Currency, settled.BilledCharge, settled.SupplierPayout, policy.PayoutHoldSecs, at), nil
 }
 
-// observedOutputSettlementForTask loads frozen compute-plan authority and
-// applies settleObservedOutputTokens. Missing plan or non-generative work
-// returns the freeze unchanged (invariant 6/7).
+// observedOutputSettlementForTask settles through the shared loader so the
+// planner and validateVerificationSettlementTx cannot disagree.
 func (s *Store) observedOutputSettlementForTask(
 	ctx context.Context,
 	info *CommitTaskInfo,
-	frozenCharge, frozenPayout float64,
 ) (observedOutputSettlement, error) {
-	// Default: settle the freeze exactly.
-	out := observedOutputSettlement{
-		BilledCharge:   frozenCharge,
-		SupplierPayout: frozenPayout,
-	}
 	if info == nil {
-		return out, nil
+		return observedOutputSettlement{}, errors.New("observed-output settlement requires task authority")
 	}
-	plan, err := s.JobComputePlan(ctx, info.JobID)
-	if err != nil {
-		return out, err
-	}
-	if plan == nil {
-		// Legacy job without a compute plan: no silent zeroing.
-		return out, nil
-	}
-	// reported_tokens_used is fenced on the task before settlement applies.
-	// CommitTaskInfo carries the same observation the fence checked.
-	hasReported := true
-	reported := int64(info.TokensUsed)
-	// Prefer the durable column when available so a re-plan without a fresh
-	// commit still settles from the fenced observation (and so NULL settles
-	// at the freeze per invariant 7).
-	var durable *int64
-	if err := s.pool.QueryRow(ctx,
-		`SELECT reported_tokens_used FROM tasks WHERE id=$1`, info.TaskID,
-	).Scan(&durable); err != nil {
-		return out, err
-	}
-	if durable == nil {
-		hasReported = false
-		reported = 0
-	} else {
-		reported = *durable
-		hasReported = true
-	}
-	return settleObservedOutputTokens(
-		frozenCharge, frozenPayout,
-		plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
-		info.ExpectedOutputRecords, info.jobMaxTokens,
-		reported, hasReported,
-	), nil
+	return loadObservedOutputSettlement(ctx, s.pool, info.TaskID)
 }
 
 func (p *VerificationProcessor) lockChunk(ctx context.Context, jobID uuid.UUID, chunkIndex int) (func(), error) {
