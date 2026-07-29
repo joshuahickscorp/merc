@@ -2391,7 +2391,7 @@ async fn report_task_error(
         .fail_task(task.task_id, task.attempt, &report)
         .await
     {
-        tracing::warn!(task = %task.task_id, error = %failure_error, "fail_task report failed (stale reaper remains the fallback)");
+        tracing::warn!(task = %task.task_id, error = %failure_error, "fail_task report exhausted bounded delivery retries; stale reaper is the final fallback");
     }
     ctx.status
         .job_finished(task.task_id, Some(error.to_string()));
