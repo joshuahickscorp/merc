@@ -63,6 +63,12 @@ func (s simResult) deliveredTotal() int64 { return s.deliveredPromptToks + s.out
 func (s simResult) physicalTotal() int64  { return s.physicalPromptToks + s.outputToks }
 
 // runArchetype drives one workload through the real store and policies.
+// simulationTenant derives a stable tenant id from an archetype name, so a
+// re-run of the simulation produces the same identities.
+func simulationTenant(name string) string {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("merc-simulation-tenant/"+name)).String()
+}
+
 func runArchetype(t *testing.T, ctx context.Context, store *Store, worker uuid.UUID,
 	a archetype, requests int, seed int64) simResult {
 	t.Helper()
@@ -95,7 +101,12 @@ func runArchetype(t *testing.T, ctx context.Context, store *Store, worker uuid.U
 		toks := tokensFor(p, s)
 
 		ident, err := RequestIdentity{
-			ModelID: "llama-3.2-1b-instruct-q8", ModelRevision: "main",
+			// One simulated tenant per archetype. Reuse and coalescing are
+			// within-tenant properties, so a simulation that shared one identity
+			// space across tenants would report savings the product refuses to
+			// take.
+			TenantScope: simulationTenant(a.name),
+			ModelID:     "llama-3.2-1b-instruct-q8", ModelRevision: "main",
 			Input: fmt.Sprintf("%s/%d/%d", a.name, p, s),
 			TopP:  1, Seed: 1, MaxTokens: a.outputTokens,
 		}.Compute()
@@ -226,12 +237,15 @@ func maxInt64(a, b int64) int64 {
 // database: exactly one must lead, the rest must wait, and the count must
 // reconcile.
 func TestConcurrentCoalescingElectsExactlyOneLeaderPerIdentity(t *testing.T) {
-	ctx, store, pool := openPayoutTestStore(t)
+	ctx, store, _ := openPayoutTestStore(t)
 
 	const identities = 8
 	const callersEach = 16
 
-	leaderJob := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00})
+	// One tenant, many distinct requests: the interesting case for leader
+	// election. Cross-tenant separation is a different property, proved in
+	// TestIdenticalRequestsInDifferentTenantsNeverCoalesce.
+	tenant := uuid.New()
 
 	type outcome struct {
 		identity string
@@ -242,7 +256,8 @@ func TestConcurrentCoalescingElectsExactlyOneLeaderPerIdentity(t *testing.T) {
 	idents := make([]string, identities)
 	for i := range idents {
 		id, err := RequestIdentity{
-			ModelID: "llama-3.2-1b-instruct-q8", ModelRevision: "main",
+			TenantScope: tenant.String(),
+			ModelID:     "llama-3.2-1b-instruct-q8", ModelRevision: "main",
 			Input: fmt.Sprintf("concurrent-%s-%d", uuid.NewString(), i),
 			TopP:  1, Seed: 1, MaxTokens: 32,
 		}.Compute()
@@ -256,15 +271,16 @@ func TestConcurrentCoalescingElectsExactlyOneLeaderPerIdentity(t *testing.T) {
 	for _, id := range idents {
 		for c := 0; c < callersEach; c++ {
 			wg.Add(1)
-			go func(identity string) {
+			go func(identity string, caller int) {
 				defer wg.Done()
-				lead, err := store.ClaimInflightLeader(ctx, identity, leaderJob.jobID)
+				role, err := store.ClaimInflightExecution(
+					ctx, identity, tenant, fmt.Sprintf("caller-%d", caller))
 				if err != nil {
 					results <- outcome{identity, false}
 					return
 				}
-				results <- outcome{identity, lead}
-			}(id)
+				results <- outcome{identity, role.Leader}
+			}(id, c)
 		}
 	}
 	wg.Wait()
@@ -291,9 +307,9 @@ func TestConcurrentCoalescingElectsExactlyOneLeaderPerIdentity(t *testing.T) {
 	// Follower counts must reconcile: every non-leader registered as a waiter.
 	var totalFollowers int64
 	for _, id := range idents {
-		f, err := store.ReleaseInflight(ctx, id)
+		f, err := store.InflightFollowers(ctx, id)
 		if err != nil {
-			t.Fatalf("release: %v", err)
+			t.Fatalf("follower count: %v", err)
 		}
 		totalFollowers += f
 	}
@@ -362,13 +378,18 @@ func TestHostileBuyerCannotWeaponiseReuseMechanisms(t *testing.T) {
 		}
 
 		// Coalescing: an unrecognised identity must always EXECUTE rather than
-		// silently waiting on someone else's work.
-		lead, err := store.ClaimInflightLeader(ctx, h, uuid.New())
+		// silently waiting on someone else's work, and must be reported
+		// ineligible rather than quietly taking a governed slot under a forged
+		// key.
+		role, err := store.ClaimInflightExecution(ctx, h, uuid.New(), "hostile")
 		if err != nil {
 			t.Fatalf("hostile identity %q errored on claim: %v", h, err)
 		}
-		if !lead {
+		if !role.Leader {
 			t.Fatalf("hostile identity %q coalesced onto another request", h)
+		}
+		if !role.Ineligible {
+			t.Fatalf("hostile identity %q was admitted as a governed in-flight key", h)
 		}
 	}
 

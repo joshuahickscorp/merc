@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+
+	"github.com/google/uuid"
 )
 
 // Live-path wiring for exact result reuse.
@@ -20,7 +22,9 @@ import (
 // payload prepareRealtimeRequest already produced. Non-deterministic sampling
 // yields errNonDeterministic from Compute — callers treat that as "not
 // cacheable", never as a hard failure.
-func realtimeIdentityFromPayload(profile VLLMRuntimeProfile, payload map[string]any) (string, error) {
+func realtimeIdentityFromPayload(
+	buyerID uuid.UUID, profile VLLMRuntimeProfile, payload map[string]any,
+) (string, error) {
 	model, _ := payload["model"].(string)
 	inputBlob, err := canonicalJSON(payload["messages"])
 	if err != nil {
@@ -52,6 +56,10 @@ func realtimeIdentityFromPayload(profile VLLMRuntimeProfile, payload map[string]
 		maxTokens = int(n)
 	}
 	id := RequestIdentity{
+		// The tenant is part of the key, not a filter applied after the lookup.
+		// A filter still requires the row to be found first, which is the
+		// existence side channel this closes.
+		TenantScope:   buyerID.String(),
 		ModelID:       model,
 		ModelRevision: profile.ModelRevision,
 		Input:         string(inputBlob),
