@@ -261,6 +261,7 @@ func (wk *Workers) Run(ctx context.Context) {
 		{budgetStopInterval, "budget-stop-sweep", wk.sweepBudgetStops},
 		{realtimeRecoveryInterval, "realtime-contract-recovery", wk.recoverRealtimeContracts},
 		{noPeerWatchdogInterval, "no-peer-watchdog", wk.reapNoPeerWedged},
+		{overheadSweepInterval, "execution-overhead", wk.sweepExecutionOverhead},
 	}
 	var loops sync.WaitGroup
 	loops.Add(len(tickers))

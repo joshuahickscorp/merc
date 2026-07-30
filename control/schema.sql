@@ -3949,3 +3949,81 @@ CREATE INDEX IF NOT EXISTS plan_actuals_class_scope_idx
     ON plan_actuals (observation_class, metric, model_ref,
                      (COALESCE(input_depth_band,'')), runtime_id, created_at DESC);
 ALTER TABLE plan_actuals ADD COLUMN IF NOT EXISTS workload_class TEXT NOT NULL DEFAULT '';
+
+-- ---------------------------------------------------------------------------
+-- execution_overhead_actuals: what the reliable outcome costs, kept apart from
+-- what the base workload costs.
+--
+-- plan_actuals deliberately ignores hedges, verification replicas, retries,
+-- failures and cancellations. That is right for training a base runtime
+-- estimator and wrong for pricing: a lane can have a perfectly calibrated base
+-- planner while the real cost of delivering a successful outcome on it is twice
+-- the estimate, because it retries constantly or verifies heavily.
+--
+-- These two datasets must never train each other. This one exists for failure
+-- reserve, verification price, retry policy, topology risk, supplier and
+-- provider cost, and pricing confidence. It must not train runtime duration,
+-- output-token or base-compute estimates.
+--
+-- Classes:
+--   VERIFICATION_COMPUTE  honeypot and redundancy task rows, including tiebreaks
+--   HEDGE_COMPUTE         dynamic copies (hedged_from set) that are not
+--                         verification work
+--   FAILED_COMPUTE        task rows that ended failed
+--   CANCELLED_COMPUTE     task rows that ended cancelled
+--   RETRY_COMPUTE         EXTRA ATTEMPTS beyond the first, not extra rows
+--   CACHE_AVOIDED         exact-reuse delivery: physical compute not spent
+--
+-- The first four PARTITION the non-primary task rows of a job, so their task
+-- counts sum without double counting. RETRY_COMPUTE does not partition with
+-- them: it measures attempts, and a retried verification task contributes its
+-- row to VERIFICATION_COMPUTE and its extra attempts here. CACHE_AVOIDED has no
+-- task rows at all.
+--
+-- measured_supplier_usd is money actually attributable to those task rows.
+-- avoided_estimate_usd is counterfactual — the frozen estimate of compute that
+-- was never spent — and is populated only for CACHE_AVOIDED. They are separate
+-- columns rather than one, because a measured cost and an avoided estimate in
+-- the same column is exactly the kind of thing that reads as fact three months
+-- later.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS execution_overhead_actuals (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id                UUID NOT NULL,
+    overhead_class        TEXT NOT NULL,
+    job_type              TEXT NOT NULL,
+    workload_class        TEXT NOT NULL DEFAULT '',
+    tier                  TEXT NOT NULL,
+    model_ref             TEXT NOT NULL DEFAULT '',
+    input_depth_band      TEXT,
+    runtime_profile_id    TEXT NOT NULL DEFAULT '',
+    hw_class              TEXT NOT NULL DEFAULT '',
+    job_terminal_status   TEXT NOT NULL,
+    tasks                 INT NOT NULL DEFAULT 0,
+    attempts              INT NOT NULL DEFAULT 0,
+    tokens                BIGINT NOT NULL DEFAULT 0,
+    measured_supplier_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+    avoided_estimate_usd  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT execution_overhead_class_known CHECK (overhead_class IN (
+        'VERIFICATION_COMPUTE','HEDGE_COMPUTE','FAILED_COMPUTE',
+        'CANCELLED_COMPUTE','RETRY_COMPUTE','CACHE_AVOIDED')),
+    CONSTRAINT execution_overhead_terminal_status CHECK (
+        job_terminal_status IN ('complete','failed','cancelled')),
+    CONSTRAINT execution_overhead_nonnegative CHECK (
+        tasks >= 0 AND attempts >= 0 AND tokens >= 0
+        AND measured_supplier_usd >= 0 AND avoided_estimate_usd >= 0),
+    CONSTRAINT execution_overhead_avoided_only_on_cache CHECK (
+        avoided_estimate_usd = 0 OR overhead_class = 'CACHE_AVOIDED'),
+    CONSTRAINT execution_overhead_depth_band_valid CHECK (
+        input_depth_band IS NULL OR input_depth_band IN ('short','medium','long'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS execution_overhead_job_class_uniq
+    ON execution_overhead_actuals (job_id, overhead_class);
+CREATE INDEX IF NOT EXISTS execution_overhead_scope_idx
+    ON execution_overhead_actuals (overhead_class, job_type, model_ref,
+                                   runtime_profile_id, created_at DESC);
+-- The sweep marker. A job is swept once; the watermark keeps the scan bounded
+-- as the jobs table grows.
+CREATE INDEX IF NOT EXISTS jobs_terminal_at_idx
+    ON jobs (terminal_at) WHERE terminal_at IS NOT NULL;

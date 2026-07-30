@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -98,13 +99,30 @@ type authorityCell struct {
 }
 
 type authorityRuntimeProfile struct {
-	RuntimeID      string `json:"runtime_id"`
+	RuntimeID string `json:"runtime_id"`
+	// Revision makes profile CONTENT immutable under a stable identity. A
+	// profile that changes which model, quantization, hardware or capability it
+	// means must take a new revision; keeping r1 while its meaning changes would
+	// make every receipt, benchmark and calibration bucket that named r1
+	// ambiguous after the fact.
+	//
+	// The identity is (runtime_id, revision) and the content is bound by
+	// ContentDigest. runtime_id alone stays stable so task provenance rows and
+	// frozen workload decisions that carry it keep meaning what they said.
+	Revision string `json:"revision"`
+	// SupersededBy names the runtime_id that replaced this one, or is empty.
+	// It is excluded from the content digest: superseding is something that
+	// happens TO a profile, not part of what the profile means.
+	SupersededBy   string `json:"superseded_by"`
 	Engine         string `json:"engine"`
 	EngineRevision string `json:"engine_revision"`
 	Adapter        string `json:"adapter"`
-	Lifecycle      string `json:"lifecycle"`
-	Device         string `json:"device"`
-	Hardware       struct {
+	// Lifecycle is excluded from the content digest. A profile is expected to
+	// move VALIDATED to REAL_RUNTIME_PROVEN to CANARY to ACTIVE without becoming
+	// a different profile; that progression is the whole point of the state.
+	Lifecycle string `json:"lifecycle"`
+	Device    string `json:"device"`
+	Hardware  struct {
 		Platforms   []string `json:"platforms"`
 		DeviceCount struct {
 			Minimum int `json:"minimum"`
@@ -126,6 +144,33 @@ type authorityRuntimeProfile struct {
 	QualityTier        string          `json:"quality_tier"`
 	Evidence           []string        `json:"evidence"`
 	Cells              []authorityCell `json:"cells"`
+}
+
+// runtimeProfileRevisionPattern is deliberately narrow. A revision is a counter,
+// not a description: "r2" sorts and compares, "v2-mixed-bit-retune" invites
+// someone to edit the meaning without changing the string.
+var runtimeProfileRevisionPattern = regexp.MustCompile(`^r[1-9][0-9]*$`)
+
+// ContentDigest binds everything a profile MEANS: engine, adapter, device,
+// hardware, parallelism, capabilities, benchmark authority, quality tier and
+// cells. Lifecycle and SupersededBy are excluded because both are expected to
+// change without the profile becoming a different profile.
+//
+// The digest is computed over the decoded struct, not the file bytes, so
+// reformatting runtime-authority.json or reordering its keys cannot change it.
+// That is the opposite of generatedRuntimeMatrixSHA256, which digests the raw
+// bytes and therefore moves on whitespace: a document-level digest answers
+// "is this the same file", a profile digest answers "is this the same runtime".
+func (p authorityRuntimeProfile) ContentDigest() (string, error) {
+	content := p
+	content.Lifecycle = ""
+	content.SupersededBy = ""
+	blob, err := json.Marshal(content)
+	if err != nil {
+		return "", fmt.Errorf("marshal runtime profile %q: %w", p.RuntimeID, err)
+	}
+	sum := sha256.Sum256(blob)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // declaredCapabilities lists the capability and parallelism flags this profile
@@ -270,6 +315,24 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 			return fmt.Errorf("runtime profile %q is declared twice", profile.RuntimeID)
 		}
 		seenRuntime[profile.RuntimeID] = true
+		if !runtimeProfileRevisionPattern.MatchString(profile.Revision) {
+			return fmt.Errorf("runtime %q has revision %q, want r1, r2, …",
+				profile.RuntimeID, profile.Revision)
+		}
+		if _, err := profile.ContentDigest(); err != nil {
+			return err
+		}
+		if profile.SupersededBy != "" {
+			if profile.SupersededBy == profile.RuntimeID {
+				return fmt.Errorf("runtime %q supersedes itself", profile.RuntimeID)
+			}
+			// A superseded profile has been replaced. Continuing to route buyer
+			// work to it means the replacement was never actually adopted.
+			if runtimeLifecycleRoutable(profile.Lifecycle) {
+				return fmt.Errorf("runtime %q is superseded by %q but still routable",
+					profile.RuntimeID, profile.SupersededBy)
+			}
+		}
 
 		rank, known := runtimeLifecycleRank(profile.Lifecycle)
 		if !known {
@@ -350,6 +413,12 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 		if !servedModels[model.ID] {
 			return fmt.Errorf(
 				"model %q is admitted but no routable runtime profile serves it", model.ID)
+		}
+	}
+	for _, profile := range authority.Runtimes {
+		if profile.SupersededBy != "" && !seenRuntime[profile.SupersededBy] {
+			return fmt.Errorf("runtime %q is superseded by %q, which is not registered",
+				profile.RuntimeID, profile.SupersededBy)
 		}
 	}
 	return nil

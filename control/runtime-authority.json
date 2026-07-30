@@ -93,6 +93,8 @@
   "runtimes": [
     {
       "runtime_id": "candle_metal",
+      "revision": "r1",
+      "superseded_by": "",
       "engine": "candle",
       "engine_revision": "",
       "adapter": "merc-candle",
@@ -147,6 +149,8 @@
     },
     {
       "runtime_id": "mlx_metal",
+      "revision": "r1",
+      "superseded_by": "",
       "engine": "mlx",
       "engine_revision": "",
       "adapter": "merc-mlx",
@@ -193,6 +197,8 @@
     },
     {
       "runtime_id": "llama_cpp_metal",
+      "revision": "r1",
+      "superseded_by": "",
       "engine": "llama_cpp",
       "engine_revision": "",
       "adapter": "merc-llama-cpp",
@@ -239,6 +245,8 @@
     },
     {
       "runtime_id": "vllm_cuda",
+      "revision": "r1",
+      "superseded_by": "",
       "engine": "vllm",
       "engine_revision": "",
       "adapter": "merc-vllm",
