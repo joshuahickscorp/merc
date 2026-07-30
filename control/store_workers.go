@@ -87,6 +87,14 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 	if err != nil {
 		return fmt.Errorf("projecting worker runtime capabilities: %w", err)
 	}
+	// Governed profile identity, resolved from the engine the agent reports
+	// rather than from anything the worker gets to name. This is where the
+	// profile's device-count range and per-cell memory floor become an actual
+	// admission constraint instead of a declaration nothing compared against.
+	profile, err := ResolveWorkerRuntimeProfile(cap)
+	if err != nil {
+		return fmt.Errorf("resolving worker runtime profile: %w", err)
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -103,12 +111,13 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		`INSERT INTO workers
 		   (id, supplier_id, hw_class, engine, build_hash, memory_gb, bw_gbps, last_seen_at, version,
 		    supported_jobs, supported_models, min_payout_usd_hr, thermal_ok,
-		    agent_session_id, agent_session_started_at)
+		    agent_session_id, agent_session_started_at, runtime_profile_id)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7, now(), $8,$9,$10,$11,$12,$13,
-		         CASE WHEN $13::uuid IS NULL THEN NULL ELSE now() END)
+		         CASE WHEN $13::uuid IS NULL THEN NULL ELSE now() END, $14)
 		 ON CONFLICT (id) DO UPDATE SET
 		   hw_class = EXCLUDED.hw_class,
 		   engine = EXCLUDED.engine,
+		   runtime_profile_id = EXCLUDED.runtime_profile_id,
 		   build_hash = EXCLUDED.build_hash,
 		   memory_gb = EXCLUDED.memory_gb,
 		   bw_gbps = EXCLUDED.bw_gbps,
@@ -127,6 +136,7 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		   agent_session_id = COALESCE(EXCLUDED.agent_session_id, workers.agent_session_id)`,
 		cap.WorkerID, cap.SupplierID, cap.HWClass, cap.Engine, cap.BuildHash, cap.MemoryGB, cap.MemoryBwGbps, cap.AgentVersion,
 		cap.SupportedJobs, cap.SupportedModels, cap.MinPayoutUsdHr, thermalOK, cap.AgentSessionID,
+		profile.RuntimeID,
 	)
 	if err != nil {
 		return err

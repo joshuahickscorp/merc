@@ -4027,3 +4027,148 @@ CREATE INDEX IF NOT EXISTS execution_overhead_scope_idx
 -- as the jobs table grows.
 CREATE INDEX IF NOT EXISTS jobs_terminal_at_idx
     ON jobs (terminal_at) WHERE terminal_at IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Governed runtime profile identity.
+--
+-- Until now the database's only opinion about runtimes was
+-- `workers_engine_valid CHECK (engine = 'candle')`. That is a string check
+-- standing in for a registry: it cannot express which cells a runtime serves,
+-- what hardware it needs, whether it is routable, or whether its meaning has
+-- changed since a worker enrolled against it.
+--
+-- These tables are synchronized from the embedded runtime-authority.json under
+-- the schema migration lock. The document stays the source of truth; the
+-- database becomes able to REFUSE things the document forbids, at the point
+-- where a worker row is written rather than only at process start.
+--
+-- The migration is deliberately additive. `workers.engine` and
+-- `workers_engine_valid` both stay, and workers.runtime_profile_id starts
+-- nullable, so a deployment carrying legacy worker rows keeps running while the
+-- backfill and reconciliation happen. Dropping the old check before every
+-- worker reconciles would turn a governance improvement into an outage.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS runtime_engines (
+    engine     TEXT PRIMARY KEY,
+    adapter    TEXT NOT NULL,
+    synced_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS runtime_profiles (
+    runtime_profile_id  TEXT PRIMARY KEY,
+    revision            TEXT NOT NULL,
+    -- Content identity. The sync REFUSES to change this for an existing
+    -- (id, revision): a profile whose meaning changed must take a new revision,
+    -- or every receipt and calibration bucket that named the old one becomes
+    -- ambiguous after the fact.
+    profile_digest      TEXT NOT NULL,
+    engine              TEXT NOT NULL REFERENCES runtime_engines(engine),
+    adapter             TEXT NOT NULL,
+    lifecycle           TEXT NOT NULL,
+    routable            BOOLEAN NOT NULL,
+    quality_tier        TEXT NOT NULL DEFAULT '',
+    benchmark_authority TEXT NOT NULL DEFAULT '',
+    -- The matrix digest of the authority document this row was synced from.
+    source_identity     TEXT NOT NULL,
+    superseded_by       TEXT NOT NULL DEFAULT '',
+    device_min          INT NOT NULL DEFAULT 1,
+    device_max          INT NOT NULL DEFAULT 1,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT runtime_profiles_revision_shape CHECK (revision ~ '^r[1-9][0-9]*$'),
+    CONSTRAINT runtime_profiles_digest_shape CHECK (profile_digest ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT runtime_profiles_lifecycle_known CHECK (lifecycle IN (
+        'DRAFT','VALIDATED','REAL_RUNTIME_PROVEN','CANARY','ACTIVE',
+        'QUARANTINED','RETIRED')),
+    -- Routability is derived, never independently asserted. A row claiming to
+    -- be routable at DRAFT would be a second, disagreeing source of truth.
+    CONSTRAINT runtime_profiles_routable_derived CHECK (
+        routable = (lifecycle IN ('CANARY','ACTIVE'))),
+    -- A routable profile must name what proves it.
+    CONSTRAINT runtime_profiles_routable_evidenced CHECK (
+        NOT routable OR (benchmark_authority <> '' AND quality_tier <> '')),
+    CONSTRAINT runtime_profiles_devices CHECK (device_min >= 1 AND device_max >= device_min),
+    CONSTRAINT runtime_profiles_supersession CHECK (
+        superseded_by <> runtime_profile_id AND (superseded_by = '' OR NOT routable))
+);
+
+CREATE TABLE IF NOT EXISTS runtime_profile_models (
+    runtime_profile_id TEXT NOT NULL REFERENCES runtime_profiles(runtime_profile_id) ON DELETE CASCADE,
+    cell_id            TEXT NOT NULL,
+    job_type           TEXT NOT NULL,
+    model_id           TEXT NOT NULL,
+    runner             TEXT NOT NULL,
+    min_memory_gb      REAL NOT NULL,
+    verification       TEXT NOT NULL,
+    -- Denormalized from runtime_profiles so the partial index below can exist:
+    -- a PostgreSQL index predicate cannot contain a subquery. The sync writes
+    -- both together, and a test asserts they never disagree.
+    routable           BOOLEAN NOT NULL DEFAULT false,
+    PRIMARY KEY (runtime_profile_id, cell_id),
+    CONSTRAINT runtime_profile_models_memory CHECK (min_memory_gb > 0)
+);
+ALTER TABLE runtime_profile_models ADD COLUMN IF NOT EXISTS routable BOOLEAN NOT NULL DEFAULT false;
+-- Two ROUTABLE profiles may not claim one cell id. Non-routable profiles may
+-- describe the same cell, which is how a challenger is registered at all.
+CREATE UNIQUE INDEX IF NOT EXISTS runtime_profile_models_routable_cell_uniq
+    ON runtime_profile_models (cell_id) WHERE routable;
+
+CREATE TABLE IF NOT EXISTS runtime_profile_hardware (
+    runtime_profile_id TEXT NOT NULL REFERENCES runtime_profiles(runtime_profile_id) ON DELETE CASCADE,
+    platform           TEXT NOT NULL,
+    PRIMARY KEY (runtime_profile_id, platform)
+);
+
+CREATE TABLE IF NOT EXISTS runtime_profile_capabilities (
+    runtime_profile_id TEXT NOT NULL REFERENCES runtime_profiles(runtime_profile_id) ON DELETE CASCADE,
+    capability         TEXT NOT NULL,
+    PRIMARY KEY (runtime_profile_id, capability)
+);
+
+-- A1/A2 step 1: additive, nullable. Legacy worker rows keep working.
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS runtime_profile_id TEXT;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'workers_runtime_profile_fk'
+    ) THEN
+        ALTER TABLE workers ADD CONSTRAINT workers_runtime_profile_fk
+            FOREIGN KEY (runtime_profile_id) REFERENCES runtime_profiles(runtime_profile_id);
+    END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS workers_runtime_profile_idx
+    ON workers (runtime_profile_id) WHERE runtime_profile_id IS NOT NULL;
+
+-- Dual validation during the transition. `engine` is retained for
+-- read-compatibility and must agree with the profile; the profile is the
+-- governed identity and the engine string is the legacy shadow of it.
+--
+-- A NULL profile is tolerated (legacy row awaiting backfill). A NON-NULL
+-- profile must exist, must not be RETIRED, and must agree with the engine.
+CREATE OR REPLACE FUNCTION cx_validate_worker_runtime_profile() RETURNS trigger AS $$
+DECLARE
+    p RECORD;
+BEGIN
+    IF NEW.runtime_profile_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT * INTO p FROM runtime_profiles
+     WHERE runtime_profile_id = NEW.runtime_profile_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'worker % advertises unregistered runtime profile %',
+            NEW.id, NEW.runtime_profile_id;
+    END IF;
+    IF p.lifecycle = 'RETIRED' THEN
+        RAISE EXCEPTION 'worker % advertises retired runtime profile %',
+            NEW.id, NEW.runtime_profile_id;
+    END IF;
+    IF NEW.engine IS NOT NULL AND NEW.engine <> '' AND NEW.engine <> p.engine THEN
+        RAISE EXCEPTION 'worker % declares engine % but profile % is engine %',
+            NEW.id, NEW.engine, NEW.runtime_profile_id, p.engine;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS workers_runtime_profile_valid ON workers;
+CREATE TRIGGER workers_runtime_profile_valid
+    BEFORE INSERT OR UPDATE OF runtime_profile_id, engine ON workers
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_worker_runtime_profile();
