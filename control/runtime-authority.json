@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "matrix_version": "2026-07-30.2",
+  "matrix_version": "2026-07-30.3",
   "engines": [
     {
       "engine": "candle",
@@ -93,7 +93,7 @@
   "runtimes": [
     {
       "runtime_id": "candle_metal",
-      "revision": "r2",
+      "revision": "r3",
       "superseded_by": "",
       "engine": "candle",
       "engine_revision": "",
@@ -123,10 +123,11 @@
         "prefix_cache": true,
         "speculation": false
       },
-      "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r2.json",
+      "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json",
       "quality_tier": "OUTCOME_EQUIVALENT",
       "evidence": [
-        "evidence/canary/real-runtime-realtime.json"
+        "evidence/canary/real-runtime-realtime.json",
+        "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json"
       ],
       "cells": [
         {
@@ -197,7 +198,7 @@
     },
     {
       "runtime_id": "llama_cpp_metal",
-      "revision": "r2",
+      "revision": "r3",
       "superseded_by": "",
       "engine": "llama_cpp",
       "engine_revision": "",
@@ -227,11 +228,12 @@
         "prefix_cache": false,
         "speculation": false
       },
-      "benchmark_authority": "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json",
+      "benchmark_authority": "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json",
       "quality_tier": "UNPROVEN",
       "evidence": [
         "docs/SPEED_LANE_2026-07-27.md",
-        "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json"
+        "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json",
+        "evidence/perf/runtime-benchmarks/candle-vs-llama-cpp-metal-r3.json"
       ],
       "cells": [
         {

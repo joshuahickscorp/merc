@@ -534,10 +534,12 @@ var benchmarkAuthorityManifest = loadBenchmarkAuthorityManifest()
 type benchmarkReceiptSummary struct {
 	RuntimeProfileID string `json:"runtime_profile_id"`
 	// ThroughputMeasured separates "this profile has a receipt" from "this
-	// profile has a comparable throughput number". candle_metal's receipt names
-	// candle_metal and measures nothing, which is the honest state until it is
-	// benchmarked on the same harness as its challenger.
+	// profile has a comparable throughput number".
 	ThroughputMeasured bool `json:"throughput_measured"`
+	// ByteDeterministic records whether the measured engine reproduced its own
+	// serial output under batching. A cell whose verification is byte_exact
+	// cannot be served by an engine that does not.
+	ByteDeterministic bool `json:"byte_deterministic"`
 }
 
 func loadBenchmarkAuthorityManifest() map[string]benchmarkReceiptSummary {
@@ -574,6 +576,21 @@ func validateBenchmarkAuthorityBinding(profile authorityRuntimeProfile) error {
 		return fmt.Errorf(
 			"runtime %q names benchmark authority %q, but that receipt is evidence for %q",
 			profile.RuntimeID, profile.BenchmarkAuthority, receipt.RuntimeProfileID)
+	}
+	// The measurement that produced this rule: llama_cpp_metal came back 4.31x
+	// faster than the incumbent at peak and diverged from its own serial output
+	// at every batch size tested. The batch_infer cell declares byte_exact
+	// verification. Promoting on throughput alone would have routed buyer work to
+	// an engine that cannot satisfy the verification contract the cell sells.
+	if runtimeLifecycleRoutable(profile.Lifecycle) && !receipt.ByteDeterministic {
+		for _, cell := range profile.Cells {
+			if cell.Verification == "byte_exact" {
+				return fmt.Errorf(
+					"runtime %q is routable and serves byte_exact cell %q, but its "+
+						"benchmark authority records that it is not byte-deterministic",
+					profile.RuntimeID, cell.ID)
+			}
+		}
 	}
 	return nil
 }
