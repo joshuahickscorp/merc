@@ -185,7 +185,10 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/sch
 export MERC_TEST_DATABASE_URL="$TEST_DATABASE_URL"
 
 test -z "$(gofmt -l control)"
-(cd control && go vet ./... && go test ./... && go test -race ./...)
+# JSON emits package lifecycle events while retaining the test command's normal
+# semantics.  The closure proof monitor consumes those events for progress
+# heartbeats; a quiet race run is not by itself a hang.
+(cd control && go vet ./... && go test -json ./... && go test -json -race ./...)
 (cd agent && cargo fmt --all -- --check && cargo clippy --all-targets --no-default-features -- -D warnings && cargo test --no-default-features)
 bash scripts/verify-python-sdk-package.sh
 node scripts/site-build.mjs
