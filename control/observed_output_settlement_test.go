@@ -317,11 +317,17 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	if err != nil {
 		t.Fatalf("build workload decision: %v", err)
 	}
+	jobDepth := testInputDepthProfile(1)
+	jobDepthAccumulator := newInputDepthAccumulator()
+	jobDepthAccumulator.addBody(strings.Repeat("x", 3000))
+	if jobDepth, err = jobDepthAccumulator.profile(); err != nil {
+		t.Fatalf("build long job depth fixture: %v", err)
+	}
 	compute, err := newDistributedComputePlan(
 		workload,
 		1,
-		64,
-		testInputDepthProfile(1),
+		4096,
+		jobDepth,
 		1,
 		1,
 		0,
@@ -367,7 +373,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		JobTypeSpec: jobTypeSpec, SplitSize: 1,
 		OfferedRateUsdHr: placement.OfferedRateUsdHr, ETASecs: compute.ETAP50Secs,
 		ETARawSecs:           compute.ETAP50Secs,
-		EconomicInputRecords: 1, EconomicInputBytes: 64,
+		EconomicInputRecords: 1, EconomicInputBytes: 4096,
 		EconomicInputSource: economicInputSourceSubmitStream,
 		EconomicPlan:        f.Plan, WorkloadDecision: workload, ComputePlan: compute,
 		PlacementRequirement: placement, PricingDecision: pricing,
@@ -465,6 +471,12 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		tasks[0].ID,
 	).Scan(&durationDepthBand); err != nil {
 		t.Fatalf("read finalized task duration depth band: %v", err)
+	}
+	// The fixture deliberately makes the job p90 long while the original task
+	// chunk is short. A duration must follow immutable task geometry, not job
+	// aggregate authority.
+	if compute.InputDepthProfile.P90DepthBand != inputDepthBandLong {
+		t.Fatalf("fixture job p90=%q, want long", compute.InputDepthProfile.P90DepthBand)
 	}
 	if durationDepthBand == nil || *durationDepthBand != inputDepthBandShort {
 		t.Fatalf("finalized task duration depth band=%v, want short", durationDepthBand)

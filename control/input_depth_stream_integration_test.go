@@ -58,4 +58,10 @@ func TestStreamSplitAndUploadMeasuresExactFullInputDepth(t *testing.T) {
 	if streamedDepth.P90DepthBand != inputDepthBandLong {
 		t.Fatalf("full-stream p90 band=%q, want long", streamedDepth.P90DepthBand)
 	}
+	// Runtime learning consumes a task-level bucket, not this job-wide p90. The
+	// first chunk is short while the second carries the long outlier.
+	if tasks[0].InputDepthBand != inputDepthBandShort || tasks[1].InputDepthBand != inputDepthBandLong {
+		t.Fatalf("per-task depth bands=%q/%q, want short/long",
+			tasks[0].InputDepthBand, tasks[1].InputDepthBand)
+	}
 }

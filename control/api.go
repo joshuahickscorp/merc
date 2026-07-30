@@ -955,6 +955,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			JobID:                 jobID,
 			IsRedundancy:          true,
 			InputRef:              p.InputRef,
+			InputDepthBand:        p.InputDepthBand,
 			ResultKey:             taskAttemptResultKey(jobID, taskID, 0),
 			ChunkIndex:            p.ChunkIndex,
 			ExpectedOutputRecords: p.ExpectedOutputRecords,
@@ -3544,14 +3545,15 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobT
 
 	nextIndex := 0
 	depthAcc := newInputDepthAccumulator()
+	chunkDepthAcc := newInputDepthAccumulator()
 
 	br := bufio.NewReaderSize(input, 64<<10)
 	var lineBuf bytes.Buffer
 	linesInChunk := 0
 	lineNumber := 0
-	flush := func() {
+	flush := func() error {
 		if linesInChunk == 0 {
-			return
+			return nil
 		}
 		expectedRecords := linesInChunk
 		idx := nextIndex
@@ -3559,12 +3561,18 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobT
 		chunk := append([]byte(nil), lineBuf.Bytes()...) // copy: lineBuf is reused next iteration
 		lineBuf.Reset()
 		linesInChunk = 0
+		chunkDepth, profileErr := chunkDepthAcc.profile()
+		if profileErr != nil {
+			return profileErr
+		}
+		chunkDepthAcc = newInputDepthAccumulator()
 		taskID := uuid.New()
 		chunkKey := fmt.Sprintf("jobs/%s/tasks/%s/input.jsonl", jobID, taskID)
 		tasks = append(tasks, taskRow{
 			ID:                    taskID,
 			JobID:                 jobID,
 			InputRef:              chunkKey,
+			InputDepthBand:        chunkDepth.P90DepthBand,
 			ResultKey:             taskAttemptResultKey(jobID, taskID, 0),
 			ChunkIndex:            idx,
 			ExpectedOutputRecords: int64(expectedRecords),
@@ -3572,6 +3580,7 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobT
 		grp.Go(func() error {
 			return s.storage.PutObject(gctx, chunkKey, chunk, "application/x-ndjson")
 		})
+		return nil
 	}
 
 	for {
@@ -3588,12 +3597,16 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobT
 					return tasks, totalBytes, totalRecords, exactInputBytes, depth, sum256, verr
 				}
 				depthAcc.addBody(body)
+				chunkDepthAcc.addBody(body)
 				lineBuf.Write(trimmed)
 				lineBuf.WriteByte('\n')
 				linesInChunk++
 				totalRecords++ // one non-blank JSONL line = one record (per-record output-token pricing)
 				if linesInChunk >= splitSize {
-					flush()
+					if ferr := flush(); ferr != nil {
+						_ = grp.Wait()
+						return nil, 0, 0, 0, depth, sum256, ferr
+					}
 				}
 			}
 		}
@@ -3605,7 +3618,10 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobT
 			break
 		}
 	}
-	flush() // the final, possibly-short chunk
+	if ferr := flush(); ferr != nil { // the final, possibly-short chunk
+		_ = grp.Wait()
+		return nil, 0, 0, 0, depth, sum256, ferr
+	}
 	if werr := grp.Wait(); werr != nil {
 		return nil, 0, 0, 0, depth, sum256, werr
 	}

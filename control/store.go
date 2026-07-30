@@ -203,6 +203,13 @@ func nullPosInt64(v int64) any {
 	return v
 }
 
+func nullInputDepthBand(band string) any {
+	if band == "" {
+		return nil
+	}
+	return band
+}
+
 func nullSHA256Hex(h string) any {
 	if len(h) != 64 {
 		return nil

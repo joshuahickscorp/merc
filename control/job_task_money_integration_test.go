@@ -583,11 +583,12 @@ func makeTasks(f moneyPathFixture, n int) []taskRow {
 			id = f.TaskIDs[i]
 		}
 		out[i] = taskRow{
-			ID:         id,
-			JobID:      f.JobID,
-			InputRef:   fmt.Sprintf("money/input/chunk-%d", i),
-			ResultKey:  taskAttemptResultKey(f.JobID, id, 0),
-			ChunkIndex: i,
+			ID:             id,
+			JobID:          f.JobID,
+			InputRef:       fmt.Sprintf("money/input/chunk-%d", i),
+			InputDepthBand: inputDepthBandShort,
+			ResultKey:      taskAttemptResultKey(f.JobID, id, 0),
+			ChunkIndex:     i,
 		}
 	}
 	return out
@@ -3293,6 +3294,13 @@ func TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock(t *testing.
 	if insert.id != durableID {
 		t.Fatalf("unplanned replay returned %s, durable tiebreak is %s",
 			insert.id, durableID)
+	}
+	var tiebreakDepthBand *string
+	if err := pool.QueryRow(ctx, `SELECT input_depth_band FROM tasks WHERE id=$1`, durableID).Scan(&tiebreakDepthBand); err != nil {
+		t.Fatalf("read durable tiebreak depth authority: %v", err)
+	}
+	if tiebreakDepthBand == nil || *tiebreakDepthBand != inputDepthBandShort {
+		t.Fatalf("durable tiebreak depth authority=%v, want short", tiebreakDepthBand)
 	}
 	if apply.result.TiebreaksInserted != 0 &&
 		(apply.result.TiebreaksInserted != 1 || durableID != effect.TaskID) {
