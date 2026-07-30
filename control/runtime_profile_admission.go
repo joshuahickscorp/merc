@@ -169,7 +169,7 @@ func governedProfileIdentity(engine string) (id, revision, digest string, err er
 	if err != nil {
 		return "", "", "", err
 	}
-	digest, err = profile.ContentDigest()
+	digest, err = profile.ContentDigest(runtimeAuthorityModels)
 	if err != nil {
 		return "", "", "", err
 	}

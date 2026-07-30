@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "matrix_version": "2026-07-30.5",
+  "matrix_version": "2026-07-30.6",
   "engines": [
     {
       "engine": "candle",
@@ -47,6 +47,14 @@
           "path": "model.safetensors",
           "bytes": 90868376,
           "sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+        },
+        {
+          "repo": "leliuga/all-MiniLM-L6-v2-GGUF",
+          "revision": "ddf2e25d5b8530422e7b14aa39f33a657ff9aec0",
+          "path": "all-MiniLM-L6-v2.F16.gguf",
+          "bytes": 45949216,
+          "sha256": "797b70c4edf85907fe0a49eb85811256f65fa0f7bf52166b147fd16be2be4662",
+          "wire_kind": "gguf"
         }
       ],
       "license": "Apache-2.0",
@@ -93,7 +101,7 @@
   "runtimes": [
     {
       "runtime_id": "candle_metal",
-      "revision": "r4",
+      "revision": "r5",
       "superseded_by": "",
       "engine": "candle",
       "engine_revision": "",
@@ -153,7 +161,7 @@
     },
     {
       "runtime_id": "mlx_metal",
-      "revision": "r2",
+      "revision": "r3",
       "superseded_by": "",
       "engine": "mlx",
       "engine_revision": "",
@@ -204,7 +212,7 @@
     },
     {
       "runtime_id": "llama_cpp_metal",
-      "revision": "r5",
+      "revision": "r6",
       "superseded_by": "",
       "engine": "llama_cpp",
       "engine_revision": "",
@@ -268,7 +276,7 @@
     },
     {
       "runtime_id": "vllm_cuda",
-      "revision": "r2",
+      "revision": "r3",
       "superseded_by": "",
       "engine": "vllm",
       "engine_revision": "",

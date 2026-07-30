@@ -127,7 +127,7 @@ func TestFreshDatabaseStartsWithAGovernedRegistry(t *testing.T) {
 				id, lifecycle, routable, profile.Lifecycle,
 				runtimeLifecycleRoutable(profile.Lifecycle))
 		}
-		want, err := profile.ContentDigest()
+		want, err := profile.ContentDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -317,7 +317,7 @@ func currentCandleDigest(t *testing.T) string {
 	if !ok {
 		t.Fatal("candle_metal is not registered")
 	}
-	d, err := p.ContentDigest()
+	d, err := p.ContentDigest(runtimeAuthorityModels)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -752,6 +752,210 @@ func TestRegistryAndDocumentAgreeOnEveryRoutableCell(t *testing.T) {
 	if len(inDoc) != len(generatedAdvertisedRuntimeCapabilities) {
 		t.Errorf("%d routable cells in the document, %d in the advertised projection",
 			len(inDoc), len(generatedAdvertisedRuntimeCapabilities))
+	}
+}
+
+// A revision bump against a POPULATED database, which is the case a bump
+// actually occurs in and the one that had never been exercised.
+//
+// Registering the second runtime's GGUF embed artifact widened the content
+// digest, so every profile took a new revision — the first real bump this schema
+// has seen. It failed three separate ways, each of which is invisible against an
+// empty table:
+//
+//  1. the sync inserted the new revision before demoting the old one, and
+//     runtime_profiles_one_current is a partial unique index enforced per
+//     statement, so a valid profile aborted the whole migration on a duplicate key;
+//  2. the superseded revision stayed routable, so its cells kept claiming
+//     runtime_profile_models_routable_cell_uniq and the profile collided with its
+//     own past through an index meant to separate two DIFFERENT profiles;
+//  3. the "adopt the surviving revision" backfill matched child rows on
+//     runtime_profile_id alone, which collapsed r_old's and r_new's cells onto one
+//     key the moment a second revision existed.
+//
+// This drives a bump the way an upgrade does: sync, plant the current state as
+// history, bump, sync again.
+func TestRevisionBumpSucceedsAgainstAPopulatedRegistry(t *testing.T) {
+	_, pool, ctx := freshMigratedDatabase(t)
+
+	documentRevision, err := currentRevisionOf(ctx, pool, "candle_metal")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Rewind the database to the state an upgrade starts from: an OLDER revision
+	// that is current, routable, and owns every cell — which is what the document's
+	// revision is about to take over. `prior` is any revision the document does
+	// not define.
+	const prior = "r99"
+	if _, err := pool.Exec(ctx, `
+		UPDATE runtime_profiles SET is_current = false, routable = false
+		 WHERE runtime_profile_id = 'candle_metal'`); err != nil {
+		t.Fatalf("demote the document revision: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO runtime_profiles
+		  (runtime_profile_id, revision, profile_digest, engine, adapter, lifecycle,
+		   routable, quality_tier, benchmark_authority, source_identity, is_current)
+		SELECT runtime_profile_id, $1, repeat('a',64), engine, adapter, 'ACTIVE',
+		       true, quality_tier, benchmark_authority, source_identity, true
+		  FROM runtime_profiles
+		 WHERE runtime_profile_id='candle_metal' AND revision=$2`,
+		prior, documentRevision); err != nil {
+		t.Fatalf("plant the prior revision: %v", err)
+	}
+	// Hand the cells over in that order: the index that caught bug 2 also
+	// refuses to let the fixture hold one cell routable twice, which is the
+	// invariant working.
+	if _, err := pool.Exec(ctx, `
+		UPDATE runtime_profile_models SET routable = false
+		 WHERE runtime_profile_id='candle_metal' AND revision=$1`,
+		documentRevision); err != nil {
+		t.Fatalf("un-route the document revision's cells: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO runtime_profile_models
+		  (runtime_profile_id, revision, cell_id, job_type, model_id, runner,
+		   min_memory_gb, verification, routable)
+		SELECT runtime_profile_id, $1, cell_id, job_type, model_id, runner,
+		       min_memory_gb, verification, true
+		  FROM runtime_profile_models
+		 WHERE runtime_profile_id='candle_metal' AND revision=$2`,
+		prior, documentRevision); err != nil {
+		t.Fatalf("plant the prior revision's cells: %v", err)
+	}
+
+	// Re-applying the whole schema is what an upgrade does, and it is where all
+	// three bugs aborted.
+	store := NewStore(pool)
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("upgrade a registry whose current revision is older than the document: %v", err)
+	}
+
+	// The document's revision took over.
+	current, err := currentRevisionOf(ctx, pool, "candle_metal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current != documentRevision {
+		t.Fatalf("current revision is %s, want the document's %s", current, documentRevision)
+	}
+	// And the prior revision is retained, not deleted.
+	var retained int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM runtime_profiles
+		 WHERE runtime_profile_id='candle_metal' AND revision=$1`, prior).Scan(&retained); err != nil {
+		t.Fatal(err)
+	}
+	if retained != 1 {
+		t.Fatal("the upgrade destroyed the revision it superseded")
+	}
+
+	// The document's revision is current and unique; the planted one is not.
+	var currents int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM runtime_profiles
+		 WHERE runtime_profile_id='candle_metal' AND is_current`).Scan(&currents); err != nil {
+		t.Fatal(err)
+	}
+	if currents != 1 {
+		t.Fatalf("%d current revisions of candle_metal, want exactly 1", currents)
+	}
+
+	// And no non-current revision is still routable or still claiming a cell.
+	var strayProfiles, strayCells int
+	if err := pool.QueryRow(ctx, `
+		SELECT (SELECT COUNT(*) FROM runtime_profiles WHERE routable AND NOT is_current),
+		       (SELECT COUNT(*) FROM runtime_profile_models m
+		          JOIN runtime_profiles p
+		            ON p.runtime_profile_id = m.runtime_profile_id AND p.revision = m.revision
+		         WHERE m.routable AND NOT p.is_current)`).
+		Scan(&strayProfiles, &strayCells); err != nil {
+		t.Fatal(err)
+	}
+	if strayProfiles != 0 || strayCells != 0 {
+		t.Fatalf("%d superseded profiles and %d superseded cells are still routable",
+			strayProfiles, strayCells)
+	}
+}
+
+func currentRevisionOf(ctx context.Context, pool *pgxpool.Pool, id string) (string, error) {
+	var revision string
+	err := pool.QueryRow(ctx,
+		`SELECT revision FROM runtime_profiles WHERE runtime_profile_id=$1 AND is_current`, id).
+		Scan(&revision)
+	return revision, err
+}
+
+// The content digest must move when the BYTES a profile executes move, not only
+// when its description does.
+//
+// A cell names a model by id, and a model id is not weights. Before resolved
+// artifacts entered the digest, repointing the `gguf` wire kind at a different
+// file changed every executed byte while the profile kept its revision and its
+// digest — so a receipt naming that revision resolved to a row that no longer
+// described what ran.
+func TestContentDigestMovesWhenResolvedArtifactsMove(t *testing.T) {
+	doc := mutableAuthority(t)
+	models := doc.authorityModels()
+
+	var profile authorityRuntimeProfile
+	for _, candidate := range doc.Runtimes {
+		if candidate.RuntimeID == "candle_metal" {
+			profile = candidate
+		}
+	}
+	before, err := profile.ContentDigest(models)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Swap the bytes behind the model the profile's first cell resolves, leaving
+	// every field of the profile itself untouched.
+	swapped := make(map[string]authorityModel, len(models))
+	for id, model := range models {
+		if id == profile.Cells[0].Model {
+			artifacts := append([]authorityArtifact(nil), model.Artifacts...)
+			artifacts[0].SHA256 = strings.Repeat("f", 64)
+			model.Artifacts = artifacts
+		}
+		swapped[id] = model
+	}
+	after, err := profile.ContentDigest(swapped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("repointing a resolved artifact left the profile's content digest unchanged")
+	}
+}
+
+// A cell may not declare an artifact format the document has no bytes for.
+//
+// Unreachable while one wire kind existed — every artifact matched it — and
+// reachable the moment cells could declare their own. The llama.cpp embed cell
+// declared `gguf` against a model that listed only safetensors, which is a cell
+// an agent can be dispatched to and cannot serve.
+func TestCellCannotDeclareAWireKindWithNoArtifact(t *testing.T) {
+	doc := mutableAuthority(t)
+	for i := range doc.Models {
+		if doc.Models[i].ID != "all-minilm-l6-v2" {
+			continue
+		}
+		kept := doc.Models[i].Artifacts[:0:0]
+		for _, artifact := range doc.Models[i].Artifacts {
+			if wireKindForArtifact(artifact, doc.Models[i].WireKind) != "gguf" {
+				kept = append(kept, artifact)
+			}
+		}
+		doc.Models[i].Artifacts = kept
+	}
+	err := validateRuntimeAuthorityDocument(doc)
+	if err == nil {
+		t.Fatal("a cell declaring gguf against a model with no gguf artifact was accepted")
+	}
+	if !strings.Contains(err.Error(), "declares no \"gguf\" artifact") {
+		t.Errorf("refusal said %q", err.Error())
 	}
 }
 

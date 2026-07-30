@@ -26,19 +26,45 @@ type authorityModel struct {
 	HFRevision  string  `json:"hf_revision"`
 	// Onboarding posture. Enforced by validateModelOnboarding; see
 	// control/model_onboarding.go for why each one is a hard gate.
-	License             string `json:"license"`
-	LicenseURL          string `json:"license_url"`
-	CommercialUse       bool   `json:"commercial_use"`
-	AttributionRequired bool   `json:"attribution_required"`
-	AttributionText     string `json:"attribution_text"`
-	RemoteCode          bool   `json:"remote_code"`
-	Artifacts           []struct {
-		Repo     string `json:"repo,omitempty"`
-		Revision string `json:"revision,omitempty"`
-		Path     string `json:"path"`
-		SHA256   string `json:"sha256"`
-		Bytes    int64  `json:"bytes"`
-	} `json:"artifacts"`
+	License             string              `json:"license"`
+	LicenseURL          string              `json:"license_url"`
+	CommercialUse       bool                `json:"commercial_use"`
+	AttributionRequired bool                `json:"attribution_required"`
+	AttributionText     string              `json:"attribution_text"`
+	RemoteCode          bool                `json:"remote_code"`
+	Artifacts           []authorityArtifact `json:"artifacts"`
+}
+
+// authorityArtifact is one downloadable file backing a model.
+//
+// WireKind exists for the same reason authorityCell.WireKind does. Format is a
+// property of the (runtime, model) pair, so a model serving two runtimes carries
+// the artifacts for both: all-minilm-l6-v2 ships safetensors for candle and a
+// GGUF of the same logical weights for llama.cpp. An empty value inherits the
+// model's declared kind, which is what every artifact meant when one format
+// existed.
+//
+// Without this an agent asked to serve a GGUF cell would fetch — and verify the
+// digest of — the safetensors it has no loader for, and a cell could declare a
+// format the document has no bytes for at all.
+type authorityArtifact struct {
+	Repo     string `json:"repo,omitempty"`
+	Revision string `json:"revision,omitempty"`
+	Path     string `json:"path"`
+	SHA256   string `json:"sha256"`
+	Bytes    int64  `json:"bytes"`
+	WireKind string `json:"wire_kind,omitempty"`
+}
+
+// artifactsFor returns the artifacts a runtime loading `kind` must fetch.
+func (m authorityModel) artifactsFor(kind string) []authorityArtifact {
+	out := make([]authorityArtifact, 0, len(m.Artifacts))
+	for _, artifact := range m.Artifacts {
+		if wireKindForArtifact(artifact, m.WireKind) == kind {
+			out = append(out, artifact)
+		}
+	}
+	return out
 }
 
 // Runtime lifecycle. The whole point of the state machine is that only the last
@@ -119,6 +145,14 @@ func wireKindFor(cell authorityCell, modelKind string) string {
 	return modelKind
 }
 
+// wireKindForArtifact resolves an artifact's format, falling back to the model's.
+func wireKindForArtifact(artifact authorityArtifact, modelKind string) string {
+	if artifact.WireKind != "" {
+		return artifact.WireKind
+	}
+	return modelKind
+}
+
 type authorityRuntimeProfile struct {
 	RuntimeID string `json:"runtime_id"`
 	// Revision makes profile CONTENT immutable under a stable identity. A
@@ -184,24 +218,70 @@ var runtimeProfileRevisionPattern = regexp.MustCompile(`^r[1-9][0-9]*$`)
 // ContentDigest binds everything a profile MEANS: engine and its revision,
 // tokenizer revision, chat template, adapter, source identity, device,
 // hardware, device count, per-cell memory, parallelism, capabilities,
-// benchmark authority, quality tier and cells. Lifecycle and SupersededBy are excluded because both are expected to
-// change without the profile becoming a different profile.
+// benchmark authority, quality tier, cells, and the exact artifact bytes each
+// cell resolves to. Lifecycle and SupersededBy are excluded because both are
+// expected to change without the profile becoming a different profile.
 //
 // The digest is computed over the decoded struct, not the file bytes, so
 // reformatting runtime-authority.json or reordering its keys cannot change it.
 // That is the opposite of generatedRuntimeMatrixSHA256, which digests the raw
 // bytes and therefore moves on whitespace: a document-level digest answers
 // "is this the same file", a profile digest answers "is this the same runtime".
-func (p authorityRuntimeProfile) ContentDigest() (string, error) {
-	content := p
+//
+// Resolved artifacts are part of the answer. A cell names a model by id, and a
+// model id is not weights: swapping which GGUF backs the `gguf` wire kind would
+// otherwise change every byte a profile executes while it kept the same revision
+// and the same digest — the exact ambiguity this digest exists to refuse.
+//
+// Only the artifacts THIS profile's cells resolve are bound, so the coupling
+// does not spread. Adding a GGUF of MiniLM for llama.cpp moves llama_cpp_metal's
+// digest, because llama.cpp now loads bytes it could not load before, and leaves
+// candle_metal's alone, because candle still resolves the same three safetensors.
+func (p authorityRuntimeProfile) ContentDigest(models map[string]authorityModel) (string, error) {
+	content := struct {
+		authorityRuntimeProfile
+		ResolvedArtifacts []string `json:"resolved_artifacts"`
+	}{authorityRuntimeProfile: p}
 	content.Lifecycle = ""
 	content.SupersededBy = ""
+
+	seen := make(map[string]bool)
+	for _, cell := range p.Cells {
+		model, ok := models[cell.Model]
+		if !ok {
+			return "", fmt.Errorf("runtime profile %q cell %q names undefined model %q",
+				p.RuntimeID, cell.ID, cell.Model)
+		}
+		for _, artifact := range model.artifactsFor(wireKindFor(cell, model.WireKind)) {
+			repo, revision := artifact.Repo, artifact.Revision
+			if repo == "" {
+				repo, revision = model.HFRepo, model.HFRevision
+			}
+			// Digest last: the identity is the bytes, and repo/revision/path are
+			// the provenance that names them.
+			seen[fmt.Sprintf("%s@%s/%s:%s", repo, revision, artifact.Path, artifact.SHA256)] = true
+		}
+	}
+	for entry := range seen {
+		content.ResolvedArtifacts = append(content.ResolvedArtifacts, entry)
+	}
+	sort.Strings(content.ResolvedArtifacts)
+
 	blob, err := json.Marshal(content)
 	if err != nil {
 		return "", fmt.Errorf("marshal runtime profile %q: %w", p.RuntimeID, err)
 	}
 	sum := sha256.Sum256(blob)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// authorityModels indexes the document's model catalogue for digest resolution.
+func (d runtimeAuthorityDocument) authorityModels() map[string]authorityModel {
+	out := make(map[string]authorityModel, len(d.Models))
+	for _, model := range d.Models {
+		out[model.ID] = model
+	}
+	return out
 }
 
 // declaredCapabilities lists the capability and parallelism flags this profile
@@ -264,6 +344,8 @@ var (
 	generatedRuntimeMatrixVersion          = runtimeAuthority.MatrixVersion
 	generatedRuntimeMatrixSHA256           = runtimeAuthoritySHA256()
 	generatedAdvertisedRuntimeCapabilities = projectRuntimeCapabilities(runtimeAuthority)
+	// The model catalogue every ContentDigest resolves its artifacts against.
+	runtimeAuthorityModels = runtimeAuthority.authorityModels()
 )
 
 func loadRuntimeAuthority() runtimeAuthorityDocument {
@@ -329,9 +411,15 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 		adapters[engine.Engine] = engine.Adapter
 	}
 
-	modelIDs := make(map[string]bool, len(authority.Models))
+	modelsByID := make(map[string]authorityModel, len(authority.Models))
 	for _, model := range authority.Models {
-		modelIDs[model.ID] = true
+		modelsByID[model.ID] = model
+		for _, artifact := range model.Artifacts {
+			if !knownWireKind(wireKindForArtifact(artifact, model.WireKind)) {
+				return fmt.Errorf("model %q artifact %q declares unknown wire kind %q",
+					model.ID, artifact.Path, artifact.WireKind)
+			}
+		}
 	}
 
 	seenRuntime := make(map[string]bool, len(authority.Runtimes))
@@ -350,7 +438,7 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 			return fmt.Errorf("runtime %q has revision %q, want r1, r2, …",
 				profile.RuntimeID, profile.Revision)
 		}
-		if _, err := profile.ContentDigest(); err != nil {
+		if _, err := profile.ContentDigest(modelsByID); err != nil {
 			return err
 		}
 		if profile.SupersededBy != "" {
@@ -427,13 +515,24 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 				return fmt.Errorf("runtime %q declares cell %q twice", profile.RuntimeID, cell.ID)
 			}
 			seenCellInProfile[cell.ID] = true
-			if !modelIDs[cell.Model] {
+			model, modelKnown := modelsByID[cell.Model]
+			if !modelKnown {
 				return fmt.Errorf("runtime %q cell %q references undefined model %q",
 					profile.RuntimeID, cell.ID, cell.Model)
 			}
 			if cell.WireKind != "" && !knownWireKind(cell.WireKind) {
 				return fmt.Errorf("runtime %q cell %q declares unknown wire kind %q",
 					profile.RuntimeID, cell.ID, cell.WireKind)
+			}
+			// A declared format with no artifacts behind it is a cell nothing can
+			// serve. Before per-cell wire kinds existed this was unreachable — one
+			// format meant every artifact matched it — and declaring the llama.cpp
+			// GGUF embed cell made it reachable for the first time.
+			cellKind := wireKindFor(cell, model.WireKind)
+			if len(model.artifactsFor(cellKind)) == 0 {
+				return fmt.Errorf(
+					"runtime %q cell %q serves model %q as %q, which declares no %q artifact",
+					profile.RuntimeID, cell.ID, cell.Model, cellKind, cellKind)
 			}
 			if !routable {
 				continue

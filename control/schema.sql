@@ -4322,6 +4322,27 @@ END $$;
 -- resolves.
 ALTER TABLE runtime_profiles ADD COLUMN IF NOT EXISTS is_current BOOLEAN NOT NULL DEFAULT true;
 
+-- Routability belongs to the CURRENT revision, not to every revision that was
+-- ever routable.
+--
+-- The original derived CHECK was `routable = (lifecycle IN ('CANARY','ACTIVE'))`,
+-- written when one row existed per profile. Once history is retained that is
+-- wrong in a way that blocks the migration outright: promoting candle_metal to a
+-- new revision leaves the old revision ACTIVE, therefore routable, therefore
+-- claiming its cells in runtime_profile_models_routable_cell_uniq — and the new
+-- revision's identical cells collide with the profile's own past. The index was
+-- meant to stop two DIFFERENT profiles owning one cell; it caught one profile
+-- colliding with itself.
+--
+-- A superseded revision cannot receive work no matter what lifecycle it was
+-- retired at, because another revision is current. Deriving routability from
+-- is_current as well as lifecycle states that, and keeps the old revision's
+-- lifecycle verbatim as history requires.
+UPDATE runtime_profiles SET routable = false WHERE routable AND NOT is_current;
+ALTER TABLE runtime_profiles DROP CONSTRAINT IF EXISTS runtime_profiles_routable_derived;
+ALTER TABLE runtime_profiles ADD CONSTRAINT runtime_profiles_routable_derived CHECK (
+    routable = (is_current AND lifecycle IN ('CANARY','ACTIVE')));
+
 ALTER TABLE runtime_profile_models
     ADD COLUMN IF NOT EXISTS revision TEXT NOT NULL DEFAULT 'r1';
 ALTER TABLE runtime_profile_hardware
@@ -4329,14 +4350,43 @@ ALTER TABLE runtime_profile_hardware
 ALTER TABLE runtime_profile_capabilities
     ADD COLUMN IF NOT EXISTS revision TEXT NOT NULL DEFAULT 'r1';
 
--- Adopt the surviving revision for existing child rows before re-keying, so the
--- rebuild does not orphan them.
+-- Adopt the current revision for child rows left holding the 'r1' column
+-- default, so the re-key below does not orphan them.
+--
+-- Scoped to ORPHANS — rows whose (id, revision) names no profile revision that
+-- exists. The first cut matched on runtime_profile_id alone, which was correct
+-- while exactly one revision existed per profile and destructive the moment a
+-- second one did: it rewrote every historical child row to the surviving
+-- revision, collapsing r4's and r5's cells onto one key. That is a duplicate-key
+-- abort on a good database, and it would have been silent data loss if the key
+-- had allowed it.
 UPDATE runtime_profile_models m SET revision = p.revision
-  FROM runtime_profiles p WHERE p.runtime_profile_id = m.runtime_profile_id;
+  FROM runtime_profiles p
+ WHERE p.runtime_profile_id = m.runtime_profile_id AND p.is_current
+   AND NOT EXISTS (SELECT 1 FROM runtime_profiles q
+                    WHERE q.runtime_profile_id = m.runtime_profile_id
+                      AND q.revision = m.revision);
 UPDATE runtime_profile_hardware h SET revision = p.revision
-  FROM runtime_profiles p WHERE p.runtime_profile_id = h.runtime_profile_id;
+  FROM runtime_profiles p
+ WHERE p.runtime_profile_id = h.runtime_profile_id AND p.is_current
+   AND NOT EXISTS (SELECT 1 FROM runtime_profiles q
+                    WHERE q.runtime_profile_id = h.runtime_profile_id
+                      AND q.revision = h.revision);
 UPDATE runtime_profile_capabilities c SET revision = p.revision
-  FROM runtime_profiles p WHERE p.runtime_profile_id = c.runtime_profile_id;
+  FROM runtime_profiles p
+ WHERE p.runtime_profile_id = c.runtime_profile_id AND p.is_current
+   AND NOT EXISTS (SELECT 1 FROM runtime_profiles q
+                    WHERE q.runtime_profile_id = c.runtime_profile_id
+                      AND q.revision = c.revision);
+
+-- The denormalized copy of routability follows the same rule, and must be
+-- repaired here rather than above: `revision` does not exist on the child table
+-- until the ALTER two statements up.
+UPDATE runtime_profile_models m SET routable = false
+  FROM runtime_profiles p
+ WHERE p.runtime_profile_id = m.runtime_profile_id
+   AND p.revision = m.revision
+   AND m.routable AND NOT p.is_current;
 
 -- Both the original auto-generated names AND the ones this block creates, or a
 -- reapply cannot drop the primary key it is about to rebuild.

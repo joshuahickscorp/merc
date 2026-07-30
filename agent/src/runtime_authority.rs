@@ -56,6 +56,14 @@ struct Cell {
     job: String,
     model: String,
     runner: String,
+    /// Artifact format THIS runtime loads the model from; empty inherits the
+    /// model's. Format belongs to the (runtime, model) pair — candle serves
+    /// MiniLM from safetensors and llama.cpp serves the same logical model from
+    /// a GGUF — and the control plane made it per-cell. Reading only
+    /// `model.wire_kind` here would have a worker advertise `hf` for a cell that
+    /// serves GGUF the moment a non-candle profile became routable.
+    #[serde(default)]
+    wire_kind: String,
     min_memory_gb: f64,
     verification: String,
 }
@@ -125,7 +133,11 @@ fn projection() -> &'static Projection {
                     hardware_classes: profile.hardware.platforms.clone(),
                     job: cell.job.clone(),
                     model: cell.model.clone(),
-                    model_kind: model.wire_kind.clone(),
+                    model_kind: if cell.wire_kind.is_empty() {
+                        model.wire_kind.clone()
+                    } else {
+                        cell.wire_kind.clone()
+                    },
                     runner: cell.runner.clone(),
                     min_memory_gb: cell.min_memory_gb,
                     verification: cell.verification.clone(),

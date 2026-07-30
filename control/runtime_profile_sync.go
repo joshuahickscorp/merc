@@ -51,7 +51,7 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 	}
 
 	for _, profile := range runtimeAuthority.Runtimes {
-		digest, err := profile.ContentDigest()
+		digest, err := profile.ContentDigest(runtimeAuthorityModels)
 		if err != nil {
 			return err
 		}
@@ -59,6 +59,39 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 			return err
 		}
 		routable := runtimeLifecycleRoutable(profile.Lifecycle)
+
+		// Demote every other revision of this profile BEFORE inserting the new
+		// one. Retained, never deleted: a receipt that named an older revision
+		// must still resolve.
+		//
+		// Order is load-bearing. runtime_profiles_one_current is a partial unique
+		// index enforced per statement, so inserting r5 while r4 still holds
+		// is_current violates it — the whole migration aborts with a duplicate
+		// key on a profile whose content is perfectly valid. The first real
+		// revision bump against a populated database is what surfaced this; a
+		// bump had only ever been exercised against an empty table, where the
+		// demote-after ordering is indistinguishable from the correct one.
+		// Routability goes with is_current: another revision is about to become
+		// the current one, so this row can no longer receive work. The lifecycle
+		// it was retired at is kept verbatim — that is the history.
+		if _, err := tx.Exec(ctx, `
+			UPDATE runtime_profiles SET is_current = false, routable = false
+			 WHERE runtime_profile_id = $1 AND revision <> $2 AND is_current`,
+			profile.RuntimeID, profile.Revision); err != nil {
+			return fmt.Errorf("demote prior revisions of %q: %w", profile.RuntimeID, err)
+		}
+		// And the denormalized copy the cell-uniqueness index reads, or the
+		// superseded revision keeps claiming every cell the new one declares.
+		if _, err := tx.Exec(ctx, `
+			UPDATE runtime_profile_models m SET routable = false
+			  FROM runtime_profiles p
+			 WHERE p.runtime_profile_id = m.runtime_profile_id
+			   AND p.revision = m.revision
+			   AND m.runtime_profile_id = $1 AND m.revision <> $2
+			   AND m.routable AND NOT p.is_current`,
+			profile.RuntimeID, profile.Revision); err != nil {
+			return fmt.Errorf("demote prior revision cells of %q: %w", profile.RuntimeID, err)
+		}
 
 		// Insert the revision if absent; NEVER overwrite an existing one's
 		// content. assertNoContentDrift has already refused a changed digest
@@ -88,15 +121,6 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 			return fmt.Errorf("sync runtime profile %q %s: %w",
 				profile.RuntimeID, profile.Revision, err)
 		}
-		// Demote every other revision of this profile. Retained, never deleted:
-		// a receipt that named an older revision must still resolve.
-		if _, err := tx.Exec(ctx, `
-			UPDATE runtime_profiles SET is_current = false
-			 WHERE runtime_profile_id = $1 AND revision <> $2 AND is_current`,
-			profile.RuntimeID, profile.Revision); err != nil {
-			return fmt.Errorf("demote prior revisions of %q: %w", profile.RuntimeID, err)
-		}
-
 		// Child rows are replaced wholesale. They are pure projections of the
 		// profile content that assertNoContentDrift just pinned, so a replace
 		// cannot lose information the document does not still carry.
