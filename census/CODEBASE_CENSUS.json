@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "9abd7ecb41f2cd53aaa6011c6eadca2bd708b690a7df109c1b851a415810bf00",
+  "authority_sha256": "65ca28427cfcdaac356e4b860517f1dc56f721a169a9584705a3f71bb953fd1f",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -420,7 +420,7 @@
     "ops/local/compose.rehearsal.yml": 222,
     "ops/model-provenance.json": 78,
     "ops/readiness.json": 125,
-    "ops/rename-residue.json": 40,
+    "ops/rename-residue.json": 41,
     "ops/repo-boundary.json": 10,
     "ops/rust-paste-audit.json": 36,
     "ops/staging/README.md": 239,
@@ -622,11 +622,11 @@
     },
     "json": {
       "files": 80,
-      "loc": 7581,
-      "code": 7581,
+      "loc": 7582,
+      "code": 7582,
       "blank": 0,
       "comment": 0,
-      "bytes": 342000
+      "bytes": 342048
     },
     "lockfile": {
       "files": 2,
@@ -760,11 +760,11 @@
     },
     "ops": {
       "files": 118,
-      "loc": 11053,
-      "code": 10467,
+      "loc": 11054,
+      "code": 10468,
       "blank": 423,
       "comment": 163,
-      "bytes": 491602
+      "bytes": 491650
     },
     "payment": {
       "files": 39,
@@ -808,8 +808,8 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 137252,
-    "non_design_production_core_loc": 96745,
+    "global_owned_loc": 137253,
+    "non_design_production_core_loc": 96746,
     "test_loc": 27208,
     "documentation_loc": 6625,
     "python_loc": 9388,
@@ -835,7 +835,7 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10235448,
+  "tracked_bytes": 10235496,
   "tracked_files": 571,
   "untracked_files": 0,
   "walked_files": 571
