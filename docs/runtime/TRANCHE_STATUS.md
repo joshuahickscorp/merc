@@ -14,7 +14,7 @@ and every "not done" row says so plainly rather than being described as partial.
 | 1 | PostgreSQL governs immutable runtime profiles | **done** — `(runtime_profile_id, revision)` key, history retained, delete refused by trigger, content drift refused at sync |
 | 2 | Every worker binds profile ID, revision and digest | **done** — three-column identity with a NULL-safe CHECK and a composite FK; dispatch capability refused without it |
 | 3 | Candle remains active and backward compatible | **done** — full suite green, `candle_metal` still the only routable profile |
-| 4 | A second runtime is REAL_RUNTIME_PROVEN through the full Merc chain | **NOT done** — engine proven, chain not driven. See below |
+| 4 | A second runtime is REAL_RUNTIME_PROVEN through the full Merc chain | **NOT done** — engine proven, routing mechanism built, chain not driven. See below |
 | 5 | RuntimeSelector produces shadow decisions and regret measurements | **NOT done** — not started |
 | 6 | Routing has not changed without promotion evidence | **done** — `llama_cpp_metal` is still `VALIDATED`; the advertised projection is still exactly the two candle cells, asserted by test |
 | 7 | In-flight coalescing works with one payable and independent discounted receipts | **done** — wired into the realtime lane, proved under 128-way concurrency |
@@ -23,6 +23,38 @@ and every "not done" row says so plainly rather than being described as partial.
 | 10 | No calibration or overhead authority can affect money | **done** — call-graph gate, mutation-verified |
 | 11 | Full suite green | **done** — on an isolated database; see the caveat below |
 | 12 | Branch pushed | **done** |
+
+## Runtime authority is cell-specific
+
+Added after the profile-level lifecycle was identified as too coarse. The proof
+boundary is finer than the profile: llama.cpp's embed cell is proven and its
+byte_exact generation cell is measured unsuitable, so one lifecycle would let the
+first promote the second.
+
+Cells now carry their own lifecycle, benchmark authority, quality tier, rejection
+reason and measured parallelism limits, and the CELL is the routable unit in both
+the Go and Rust projections. A profile cannot inflate a cell and a cell cannot
+outrank its profile. `REJECTED_FOR_CONTRACT` is a decision with a required stated
+reason, not a synonym for unfinished. `REAL_RUNTIME_PROVEN` is evidence rather
+than permission — reachable by directed routing, never by ordinary buyer traffic.
+
+Receipts declare which models they measured, so a MiniLM comparison can no longer
+be cited as evidence about Llama generation on the same engine.
+
+## Directed routing
+
+An operator or a test can force a governed job onto a named cell. The name is a
+server-side argument, never read from the buyer wire, and is frozen into the
+decision so the choice is auditable and the stored decision reconstructs as
+itself. The reachable set is VALIDATED and above with terminal states excluded —
+the floor is VALIDATED because a cell reaches REAL_RUNTIME_PROVEN *by* being
+driven through the chain, so requiring it first would make the state unreachable.
+
+Building it surfaced a coupling that would have blocked any second runtime:
+worker matching used the BUYER's declared model kind, so a request naming
+`all-minilm-l6-v2` as `hf` could never reach llama.cpp's GGUF cell whatever the
+evidence said. The frozen cell now supplies the kind and the scheduler compares
+against that.
 
 ## What item 4 is actually missing
 
@@ -41,6 +73,14 @@ What has not been driven is those bytes through submit → claim → start → c
 verify → settle → payable → receipt on `llama_cpp_metal`. That is the whole of
 what stands between `VALIDATED` and `REAL_RUNTIME_PROVEN`, and the lifecycle has
 deliberately not been moved without it.
+
+The concrete blocker is a fixture, not a design gap. Verification settles against
+a stored result artifact, and every verification test in this tree constructs its
+processor with a `nil` Storage — they exercise leasing and drain mechanics, never
+an artifact round trip. Driving the chain end to end needs an object-storage
+fixture (the compose MinIO is available to `make dev-up` but no test uses it).
+That fixture is the next piece of work, and it unblocks the chain for both cells
+at once.
 
 ## Caveats that are not caveats about this branch
 
