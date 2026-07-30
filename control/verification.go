@@ -517,13 +517,21 @@ func (v *Verifier) dispatchTiebreak(ctx context.Context, info *CommitTaskInfo, a
 	return nil
 }
 
-const embeddingCosineThreshold = 0.999
-
+// resultsAgree decides whether an observed artifact satisfies the equivalence
+// contract its cell sells.
+//
+// The embed arm delegates to the governed comparator (embedding_comparator.go)
+// rather than testing a mean here. A mean alone conceals a localized error: one
+// zeroed row among 999 perfect ones averages to exactly 0.999 and used to pass
+// this threshold. The comparator checks cardinality, per-row dimensions, finite
+// values, nonzero norms and a per-row cosine floor, and records the failing row.
+//
+// `a` is the governed reference and `b` the candidate. Every caller passes the
+// known/winning answer first.
 func resultsAgree(jobType string, a, b []byte) bool {
 	switch jobType {
 	case "embed":
-		sim, ok := meanCosine(a, b)
-		return ok && sim >= embeddingCosineThreshold
+		return CompareEmbeddings(a, b).Passed
 	case "batch_infer":
 		return bytes.Equal(a, b)
 	default:
@@ -557,25 +565,9 @@ func parseEmbeddingVectors(obj []byte) (vectors [][]float64, ok bool) {
 	return rows, true
 }
 
-func meanCosine(a, b []byte) (sim float64, ok bool) {
-	va, okA := parseEmbeddingVectors(a)
-	vb, okB := parseEmbeddingVectors(b)
-	if !okA || !okB {
-		return 0, false
-	}
-	if len(va) == 0 || len(va) != len(vb) {
-		return 0, false
-	}
-	var total float64
-	for i := range va {
-		c := cosine(va[i], vb[i])
-		if math.IsNaN(c) {
-			return 0, false
-		}
-		total += c
-	}
-	return total / float64(len(va)), true
-}
+// meanCosine is deleted. It was the whole of the old embed contract, and leaving
+// it beside the comparator would leave a second, laxer equivalence authority for
+// someone to call by accident.
 
 func cosine(a, b []float64) float64 {
 	if len(a) == 0 || len(a) != len(b) {
