@@ -61,15 +61,22 @@ estimator change from the measured band through the promotion gate.
 
 | item | state |
 |---|---|
-| exact-result cache | `control/exact_reuse.go` — content-addressed identity, own settlement path |
-| in-flight coalescing | **implemented but NOT wired** — `ClaimInflightLeader`/`ReleaseInflight` (`control/exact_reuse.go:256`) have no caller outside their own file and tests. An earlier revision of this table wrongly marked it done. |
+| exact-result cache | `control/exact_reuse.go` — content-addressed identity, own settlement path. **Now tenant-scoped**: it was shared across buyers, which is a cache-existence side channel. |
+| in-flight coalescing | **WIRED** — `control/inflight_coalescing.go`, governed `inflight_executions` with lease, state machine, bounded re-election and expiry; called from the realtime lane after the exact-cache miss. The old unwired `ClaimInflightLeader`/`ReleaseInflight` and `inflight_requests` are deleted. |
 | tokenized prefix trie | `control/prefix_routing.go:173` — `ComputePrefixChain` over token ids, `DeepestWarmPrefix`, value-ranked eviction (`EvictPrefixCacheToBudget`) |
 | KV-hit-aware routing | prefix warmth feeds the scheduler; `prefixWarmTTL` is deliberately shorter than model warmth |
 | tokenization / tool-schema caches | absent |
 | image / audio preprocessing caches | not applicable — no image or audio runtime exists (`docs/SHIPPABILITY_STATUS.md`; the image route returns 503) |
 | deterministic JSON / tool scaffolding | absent |
 
-Remaining work here is small and unblocked.
+Coalescing proves the shape the milestone asks for: 128 concurrent callers elect
+exactly one leader, the followers reconcile, one supplier payable, an independent
+discounted receipt each, positive Merc contribution, and physical tokens that do
+not grow with the followers. Cross-tenant sharing is deliberately not attempted —
+`RequestIdentity` carries a tenant scope, so two tenants issuing byte-identical
+requests never meet.
+
+Tokenization and tool-schema caches remain absent and unblocked.
 
 ## 3. Continuous batching — PARTIAL
 
@@ -120,20 +127,54 @@ The migration is deliberately mid-transition: `runtime_profile_id` is nullable,
 `workers.engine` and `workers_engine_valid` both remain, and a trigger
 dual-validates. `ReconcileWorkerRuntimeProfiles` is the gate for the rest.
 
+**Update 2026-07-30, later.** The second runtime is chosen, driven and measured.
+`docs/runtime/SECOND_RUNTIME_CENSUS.md` records why it is `llama_cpp_metal` on
+the **embed** cell and not MLX and not the infer cell: MLX is not installed and
+has no agent code path at all, and llama.cpp's `batch_infer` cell is `byte_exact`
+in the one configuration where llama.cpp is byte-deterministic on Metal and runs
+at 1.02× serial there, so proving the chain on it would prove it on a
+configuration Merc would never route to.
+
+Done since:
+
+- `RuntimeDriver` (`agent/src/runtime_driver.rs`) — validate, launch, health,
+  embed, cancel, drain, metrics — implemented by `CandleDriver` and
+  `LlamaCppDriver`, with `EmbedRunner` as a real caller rather than a parallel
+  abstraction. `LlamaCppDriver::validate` refuses a `byte_exact` cell outright.
+- Artifact format now reaches the artifact list, not just the cell:
+  `all-minilm-l6-v2` declares the GGUF llama.cpp loads beside the safetensors
+  candle loads, and a cell declaring a format with no bytes behind it is refused.
+- The profile content digest binds each cell's **resolved artifacts**, so
+  repointing which GGUF backs `gguf` can no longer change every executed byte
+  while the revision and digest stand still.
+- A receipt-bound benchmark authority exists for the embed cell:
+  `evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json`,
+  produced by `merc-agent bench-embed` — one harness, one corpus, both drivers,
+  the quality gate evaluated before any timing. llama.cpp wins at every batch
+  size measured (1.5×, 6.7×, 2.7×, 1.2× at batch 1/8/32/128) and clears the 0.999
+  cosine gate at 0.999998 minimum.
+
 Remaining to reach the milestone:
 
 1. migration steps 6–7 — `NOT NULL`, then drop `workers_engine_valid`, gated on
-   a clean reconciliation in a real deployment;
-2. the control-plane adapter boundary (`RuntimeProfileAdapter`: ID,
-   ValidateProfile, ValidateWorker, Estimate, Supports). The execution half —
-   launch, health, execute, cancel, drain, metrics — belongs to the agent-side
-   Rust driver and would be fiction in Go;
-3. a receipt-bound benchmark authority for a second profile.
-   `benchmark_authority` is empty for all three non-routable profiles, and both
-   the document validator and a DB CHECK refuse routability without one. A
-   Markdown speed report is supporting evidence, not authority;
-4. a complete Merc chain — task, verification, money, receipt — on that profile;
-5. `RuntimeSelector` in shadow mode plus regret measurement.
+   a clean reconciliation in a real deployment. Steps 6–8 are currently satisfied
+   by the stronger dispatch-time invariant (`worker_capability_requires_profile`)
+   rather than by `NOT NULL`, because enrollment legitimately creates a worker row
+   before any profile is known;
+2. a complete Merc chain — task, verification, money, payable, receipt — on
+   `llama_cpp_metal`. The engine executes real work through the driver and clears
+   the gate; what has not been driven is that output through submit → claim →
+   commit → verify → settle → receipt. Until that runs, `llama_cpp_metal` stays
+   `VALIDATED`: a benchmark is a prerequisite for `REAL_RUNTIME_PROVEN`, not a
+   substitute for the chain;
+3. `RuntimeSelector` in shadow mode plus regret measurement.
+
+A governance note that falls out of the measurements and will matter at step 2:
+`validateBenchmarkAuthorityBinding` refuses a **routable** profile that serves a
+`byte_exact` cell on a benchmark authority recording non-byte-determinism.
+`llama_cpp_metal` declares such a cell, so it cannot become routable while it
+does — correctly. Reaching CANARY on the embed cell therefore means dropping the
+infer cell from that profile, not arguing with the rule.
 
 ### The original blocker, for the record
 
