@@ -142,6 +142,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /admin/fraud-flags", s.authAdmin(http.HandlerFunc(s.handleAdminFraudFlags)))
 	mux.Handle("GET /admin/fraud", s.authAdmin(http.HandlerFunc(s.handleAdminFraud)))
 	mux.Handle("GET /admin/drift", s.authAdmin(http.HandlerFunc(s.handleAdminDrift)))
+	mux.Handle("GET /admin/plan-accuracy", s.authAdmin(http.HandlerFunc(s.handleAdminPlanAccuracy)))
 	mux.Handle("GET /admin/quotes", s.authAdmin(http.HandlerFunc(s.handleAdminQuoteDrift)))
 	mux.Handle("GET /admin/scheduler/explain", s.authAdmin(http.HandlerFunc(s.handleAdminSchedulerExplain)))
 	mux.Handle("POST /admin/workers/{id}/suspend", s.authAdmin(http.HandlerFunc(s.handleAdminSuspend)))
@@ -2425,6 +2426,7 @@ func (s *Server) finalizeJobIfDone(ctx context.Context, jobID uuid.UUID) error {
 	}
 	settleSLAOutcome(ctx, s.store, jobID)
 	recordEtaCalibration(ctx, s.store, jobID)
+	recordPlanActuals(ctx, s.store, jobID)
 	s.chargeForJob(ctx, jobID)
 	return nil
 }
@@ -2483,6 +2485,18 @@ func (s *Server) handleAdminDrift(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// handleAdminPlanAccuracy is the read side of the perf lane's calibration
+// evidence. It reports realized-versus-predicted error per metric and scope and
+// never changes a quote, price, or reserve.
+func (s *Server) handleAdminPlanAccuracy(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.store.PlanAccuracy(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
 }
 
 func (s *Server) handleAdminQuoteDrift(w http.ResponseWriter, r *http.Request) {

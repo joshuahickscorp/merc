@@ -68,7 +68,9 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// 61 after the [KEEP-RT] reversal: the five realtime routes (chat/completions,
 	// the receipt read, two worker offer endpoints and the admin refund) returned
 	// with the lane once CUDA hardware admission made it servable.
-	if checked != 62 {
-		t.Fatalf("checked %d protected routes, want 62", checked)
+	// 63 after the perf lane: GET /admin/plan-accuracy reports realized-versus-
+	// predicted planning error and is operator-only like every other admin read.
+	if checked != 63 {
+		t.Fatalf("checked %d protected routes, want 63", checked)
 	}
 }

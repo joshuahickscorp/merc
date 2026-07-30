@@ -189,6 +189,7 @@
         "GET /admin/fraud-flags",
         "GET /admin/jobs",
         "GET /admin/payouts",
+        "GET /admin/plan-accuracy",
         "GET /admin/quotes",
         "GET /admin/scheduler/explain",
         "GET /admin/workers",

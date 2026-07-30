@@ -3872,3 +3872,47 @@ BEGIN
         END IF;
     END LOOP;
 END $cur$;
+
+-- ---------------------------------------------------------------------------
+-- plan_actuals: the perf lane's ground truth.
+--
+-- eta_calibration already closes the loop for ONE predicted quantity (duration).
+-- Phase 1 of the execution frontier is calibrated compute planning, and a
+-- calibrated planner needs a measured error for every quantity it predicts, not
+-- just time. Each finalized job writes one row per metric holding the frozen
+-- prediction beside the realized value, scoped exactly the way eta_calibration
+-- is scoped (job_type, tier, model_ref, input_depth_band) plus the runtime and
+-- hardware class that actually executed it.
+--
+-- This table is OBSERVED-ONLY by construction. Nothing in the money, reserve,
+-- pricing or admission path reads it. Reserving less because a learner says
+-- outputs are usually short would under-fund the job whose outputs are long,
+-- and the frozen economic plan is release-proven authority.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS plan_actuals (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id           UUID NOT NULL,
+    metric           TEXT NOT NULL,
+    job_type         TEXT NOT NULL,
+    tier             TEXT NOT NULL,
+    model_ref        TEXT NOT NULL DEFAULT '',
+    input_depth_band TEXT,
+    -- '' means the executing tasks did not agree on one runtime/hardware class.
+    -- A mixed-fleet job must not be attributed to a single cell.
+    runtime_id       TEXT NOT NULL DEFAULT '',
+    hw_class         TEXT NOT NULL DEFAULT '',
+    predicted        DOUBLE PRECISION NOT NULL,
+    realized         DOUBLE PRECISION NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT plan_actuals_predicted_positive CHECK (predicted > 0),
+    CONSTRAINT plan_actuals_realized_nonnegative CHECK (realized >= 0),
+    CONSTRAINT plan_actuals_input_depth_band_valid
+        CHECK (input_depth_band IS NULL OR input_depth_band IN ('short','medium','long')),
+    CONSTRAINT plan_actuals_metric_known
+        CHECK (metric IN ('output_tokens','task_count','task_attempts','compute_usd'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS plan_actuals_job_metric_uniq
+    ON plan_actuals (job_id, metric);
+CREATE INDEX IF NOT EXISTS plan_actuals_scope_idx
+    ON plan_actuals (metric, job_type, tier, model_ref,
+                     (COALESCE(input_depth_band,'')), created_at DESC);
