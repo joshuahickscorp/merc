@@ -91,6 +91,7 @@ type launchPlan struct {
 	SourceSHA256         string            `json:"source_sha256"`
 	ConfigSHA256         string            `json:"config_sha256"`
 	SecretNamesSHA256    string            `json:"secret_names_sha256"`
+	RemoteProfileSHA256  string            `json:"remote_profile_sha256"`
 	IdentityFingerprints map[string]string `json:"identity_secret_fingerprints"`
 	RequiredCommands     []string          `json:"required_commands"`
 	LiveMoneyProhibited  bool              `json:"live_money_prohibited"`
@@ -136,6 +137,18 @@ type launchInputs struct {
 		Accepted string `json:"accepted_form"`
 	} `json:"missing"`
 	Ready bool `json:"ready"`
+}
+
+type launchInput struct {
+	Name     string `json:"name"`
+	Secret   bool   `json:"secret"`
+	UsedBy   string `json:"used_by"`
+	Accepted string `json:"accepted_form"`
+}
+
+type launchInputContract struct {
+	SchemaVersion int           `json:"schema_version"`
+	Inputs        []launchInput `json:"inputs"`
 }
 
 func releaseRepoRoot() string {
@@ -262,6 +275,42 @@ func secretNameDigest(values map[string]string) string {
 	return sha256Hex([]byte(strings.Join(names, "\n")))
 }
 
+func loadLaunchInputContract(root string) (launchInputContract, error) {
+	var contract launchInputContract
+	raw, err := os.ReadFile(filepath.Join(root, "ops", "go-closure-inputs.json"))
+	if err != nil {
+		return contract, err
+	}
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		return contract, fmt.Errorf("parse input contract: %w", err)
+	}
+	if contract.SchemaVersion != 1 || len(contract.Inputs) == 0 {
+		return contract, errors.New("unsupported input contract schema")
+	}
+	return contract, nil
+}
+
+func remoteProfileDigest(root string, values map[string]string) (string, error) {
+	contract, err := loadLaunchInputContract(root)
+	if err != nil {
+		return "", err
+	}
+	names := make([]string, 0, len(contract.Inputs))
+	for _, input := range contract.Inputs {
+		names = append(names, input.Name)
+	}
+	sort.Strings(names)
+	var material strings.Builder
+	material.WriteString("merc-level-b-remote-profile-v1\x00")
+	for _, name := range names {
+		material.WriteString(name)
+		material.WriteByte(0)
+		material.WriteString(values[name])
+		material.WriteByte(0)
+	}
+	return sha256Hex([]byte(material.String())), nil
+}
+
 func identitySecretFingerprints(values map[string]string) (map[string]string, error) {
 	out := make(map[string]string, len(identityCriticalLaunchSecrets))
 	for _, name := range identityCriticalLaunchSecrets {
@@ -347,6 +396,10 @@ func compileLaunchPlan(root, environment, configPath, secretsPath string) (launc
 		CandidateCommit: commit, SourceSHA256: fp.SourceSHA256, ConfigSHA256: sha256Hex(configBytes),
 		SecretNamesSHA256: secretNameDigest(secrets), LiveMoneyProhibited: true,
 		RequiredCommands: []string{"doctor", "apply", "canary", "soak", "prove", "go-no-go"}}
+	plan.RemoteProfileSHA256, err = remoteProfileDigest(root, mergeLaunchValues(configValues, secrets))
+	if err != nil {
+		return launchPlan{}, err
+	}
 	plan.IdentityFingerprints, err = identitySecretFingerprints(secrets)
 	if err != nil {
 		return launchPlan{}, err
@@ -378,6 +431,42 @@ func runReleaseDoctor(root string, secrets map[string]string) ([]byte, error) {
 		cmd.Env = append(cmd.Env, name+"="+value)
 	}
 	return cmd.Output()
+}
+
+type remoteReleaseIdentity struct {
+	SchemaVersion   int    `json:"schema_version"`
+	Kind            string `json:"kind"`
+	Status          string `json:"status"`
+	ProfileSHA256   string `json:"profile_sha256"`
+	CandidateCommit string `json:"candidate_commit"`
+	ControlImage    string `json:"control_image"`
+}
+
+func runRemoteReleaseIdentity(root, envFile string, plan launchPlan) error {
+	cmd := exec.Command(filepath.Join(root, "scripts", "go-closure-release-identity.sh"), "--target", "ssh")
+	cmd.Dir = root
+	cmd.Env = append(scrubbedReleaseEnv(os.Environ()), "MERC_GO_CLOSURE_ENV_FILE="+envFile)
+	output, err := cmd.Output()
+	if err != nil {
+		exitCode := -1
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+		return fmt.Errorf("remote staging identity probe failed (exit=%d output_sha256=%s)", exitCode, sha256Hex(output))
+	}
+	var identity remoteReleaseIdentity
+	if err := json.Unmarshal(output, &identity); err != nil {
+		return fmt.Errorf("parse remote staging identity: %w", err)
+	}
+	if identity.SchemaVersion != 1 || identity.Kind != "merc_level_b_remote_input_profile" || identity.Status != "PASS" ||
+		len(identity.ProfileSHA256) != 64 || identity.CandidateCommit != plan.CandidateCommit {
+		return errors.New("remote staging identity response is incomplete or candidate-mismatched")
+	}
+	if identity.ProfileSHA256 != plan.RemoteProfileSHA256 {
+		return errors.New("remote staging input profile drifted from sealed plan; reseal only after reconciling the host and operator files")
+	}
+	return nil
 }
 
 func shellQuoteEnvValue(value string) string {
@@ -526,6 +615,9 @@ func executeReleaseAdapters(root string, state launchState, operation string, va
 		return state, fmt.Errorf("prepare adapter environment: %w", err)
 	}
 	defer cleanup()
+	if err := runRemoteReleaseIdentity(root, envFile, state.Plan); err != nil {
+		return state, err
+	}
 	for _, adapter := range adapters {
 		script, err := adapterScript(adapter.Name)
 		if err != nil {
@@ -588,24 +680,9 @@ func scrubbedReleaseEnv(env []string) []string {
 }
 
 func buildLaunchInputs(root string, values map[string]string) (launchInputs, error) {
-	raw, err := os.ReadFile(filepath.Join(root, "ops", "go-closure-inputs.json"))
+	contract, err := loadLaunchInputContract(root)
 	if err != nil {
 		return launchInputs{}, err
-	}
-	var contract struct {
-		SchemaVersion int `json:"schema_version"`
-		Inputs        []struct {
-			Name     string `json:"name"`
-			Secret   bool   `json:"secret"`
-			UsedBy   string `json:"used_by"`
-			Accepted string `json:"accepted_form"`
-		} `json:"inputs"`
-	}
-	if err := json.Unmarshal(raw, &contract); err != nil {
-		return launchInputs{}, fmt.Errorf("parse input contract: %w", err)
-	}
-	if contract.SchemaVersion != 1 {
-		return launchInputs{}, errors.New("unsupported input contract schema")
 	}
 	var out launchInputs
 	out.SchemaVersion = 1
