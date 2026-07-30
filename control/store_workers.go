@@ -95,6 +95,13 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 	if err != nil {
 		return fmt.Errorf("resolving worker runtime profile: %w", err)
 	}
+	// The full identity, not just the name. A worker enrolled against r1 is not
+	// interchangeable with one enrolled against r4: it may be running a
+	// different tokenizer, template or device budget.
+	profileDigest, err := profile.ContentDigest()
+	if err != nil {
+		return fmt.Errorf("digesting worker runtime profile: %w", err)
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -111,13 +118,16 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		`INSERT INTO workers
 		   (id, supplier_id, hw_class, engine, build_hash, memory_gb, bw_gbps, last_seen_at, version,
 		    supported_jobs, supported_models, min_payout_usd_hr, thermal_ok,
-		    agent_session_id, agent_session_started_at, runtime_profile_id)
+		    agent_session_id, agent_session_started_at, runtime_profile_id,
+		    runtime_profile_revision, runtime_profile_digest)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7, now(), $8,$9,$10,$11,$12,$13,
-		         CASE WHEN $13::uuid IS NULL THEN NULL ELSE now() END, $14)
+		         CASE WHEN $13::uuid IS NULL THEN NULL ELSE now() END, $14,$15,$16)
 		 ON CONFLICT (id) DO UPDATE SET
 		   hw_class = EXCLUDED.hw_class,
 		   engine = EXCLUDED.engine,
 		   runtime_profile_id = EXCLUDED.runtime_profile_id,
+		   runtime_profile_revision = EXCLUDED.runtime_profile_revision,
+		   runtime_profile_digest = EXCLUDED.runtime_profile_digest,
 		   build_hash = EXCLUDED.build_hash,
 		   memory_gb = EXCLUDED.memory_gb,
 		   bw_gbps = EXCLUDED.bw_gbps,
@@ -136,7 +146,7 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		   agent_session_id = COALESCE(EXCLUDED.agent_session_id, workers.agent_session_id)`,
 		cap.WorkerID, cap.SupplierID, cap.HWClass, cap.Engine, cap.BuildHash, cap.MemoryGB, cap.MemoryBwGbps, cap.AgentVersion,
 		cap.SupportedJobs, cap.SupportedModels, cap.MinPayoutUsdHr, thermalOK, cap.AgentSessionID,
-		profile.RuntimeID,
+		profile.RuntimeID, profile.Revision, profileDigest,
 	)
 	if err != nil {
 		return err

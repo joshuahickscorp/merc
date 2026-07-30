@@ -384,6 +384,7 @@ func seedMoneyPathFixture(t *testing.T, ctx context.Context, store *Store, pool 
 			workerID, supplierID); err != nil {
 			t.Fatalf("insert worker: %v", err)
 		}
+		bindWorkerToGovernedProfile(t, pool, ctx, workerID)
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO worker_authorized_capabilities
 			  (worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256)
@@ -824,6 +825,7 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	bindWorkerToGovernedProfile(t, pool, ctx, f.WorkerID)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO worker_authorized_capabilities
 		  (worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256)

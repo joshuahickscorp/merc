@@ -4204,3 +4204,88 @@ ALTER TABLE execution_overhead_actuals
     CHECK (recorder_version >= 1);
 CREATE INDEX IF NOT EXISTS execution_overhead_recorder_idx
     ON execution_overhead_actuals (recorder_version, overhead_class, created_at DESC);
+
+-- Worker binding to the FULL profile identity: id, revision, and content digest.
+--
+-- runtime_profile_id alone is not identity. A profile whose meaning changed
+-- takes a new revision, and a worker enrolled against r1 is not interchangeable
+-- with one enrolled against r4 — it may be running a different tokenizer, a
+-- different template, or a different device budget. Recording only the id would
+-- make those indistinguishable after the fact, which is the exact failure the
+-- digest exists to prevent.
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS runtime_profile_revision TEXT;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS runtime_profile_digest TEXT;
+ALTER TABLE workers DROP CONSTRAINT IF EXISTS workers_runtime_profile_identity;
+-- num_nonnulls, not an OR of IS NULL / IS NOT NULL branches.
+--
+-- The first version of this constraint was written as
+--   (all three NULL) OR (id NOT NULL AND revision ~ ... AND digest ~ ...)
+-- which is a three-valued-logic trap: with a NULL revision the second branch
+-- evaluates to NULL, the OR evaluates to NULL, and SQL ACCEPTS a CHECK that is
+-- NULL rather than false. A worker could keep a profile id with no revision.
+-- Caught by its own test.
+ALTER TABLE workers ADD CONSTRAINT workers_runtime_profile_identity CHECK (
+    num_nonnulls(runtime_profile_id, runtime_profile_revision, runtime_profile_digest) IN (0, 3)
+    AND (runtime_profile_revision IS NULL OR runtime_profile_revision ~ '^r[1-9][0-9]*$')
+    AND (runtime_profile_digest IS NULL OR runtime_profile_digest ~ '^[0-9a-f]{64}$')
+);
+
+-- Migration steps 6-8, corrected.
+--
+-- The directive says to make the profile reference NOT NULL once workers
+-- reconcile. Applied literally that is wrong for this schema, and the test suite
+-- proved it: enrollment creates a worker row BEFORE the agent has registered any
+-- capability (see CreateWorkerToken and control/enrollment.go), so at that moment
+-- there is legitimately no profile to bind. NOT NULL turned enrollment into a
+-- constraint violation on a freshly migrated database.
+--
+-- The invariant that actually matters is narrower and stronger: a worker may not
+-- be DISPATCHABLE without a complete governed profile identity. An enrollment
+-- placeholder holds no authorized capabilities, so it can never be claimed —
+-- being NULL there is correct, not a gap.
+--
+-- So the binding is enforced where dispatch authority is granted:
+-- worker_authorized_capabilities rows are only written by UpsertWorker, which
+-- resolves and validates the profile first. This trigger makes that structural
+-- rather than a property of one call site.
+CREATE OR REPLACE FUNCTION cx_require_worker_profile_for_dispatch() RETURNS trigger AS $$
+DECLARE
+    pid TEXT; prev TEXT; dig TEXT;
+BEGIN
+    SELECT runtime_profile_id, runtime_profile_revision, runtime_profile_digest
+      INTO pid, prev, dig
+      FROM workers WHERE id = NEW.worker_id;
+    IF pid IS NULL OR prev IS NULL OR dig IS NULL THEN
+        RAISE EXCEPTION
+          'worker % cannot hold dispatch capability without a governed runtime profile identity',
+          NEW.worker_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS worker_capability_requires_profile ON worker_authorized_capabilities;
+CREATE TRIGGER worker_capability_requires_profile
+    BEFORE INSERT OR UPDATE ON worker_authorized_capabilities
+    FOR EACH ROW EXECUTE FUNCTION cx_require_worker_profile_for_dispatch();
+
+-- Step 8 still applies once reconciliation is clean: the engine string check is
+-- superseded by the governed foreign key plus the profile-agreement trigger.
+-- `engine` itself stays as a read-compatibility field until every reader
+-- migrates (step 10).
+DO $$
+DECLARE
+    unreconciled INT;
+BEGIN
+    SELECT COUNT(*) INTO unreconciled
+      FROM workers w
+     WHERE w.runtime_profile_id IS NOT NULL
+       AND COALESCE(w.engine,'') <> ''
+       AND NOT EXISTS (SELECT 1 FROM runtime_profiles p
+                        WHERE p.runtime_profile_id = w.runtime_profile_id
+                          AND p.engine = w.engine);
+    IF unreconciled = 0 THEN
+        ALTER TABLE workers DROP CONSTRAINT IF EXISTS workers_engine_valid;
+    ELSE
+        RAISE NOTICE 'workers_engine_valid retained: % engine-mismatched worker(s)', unreconciled;
+    END IF;
+END $$;

@@ -160,3 +160,18 @@ func ResolveWorkerRuntimeProfile(cap WorkerCapability) (authorityRuntimeProfile,
 	}
 	return profile, nil
 }
+
+// governedProfileIdentity returns the (id, revision, digest) triple for the
+// single routable profile. Used where a caller needs to stamp a worker row with
+// governed identity outside the normal enrollment path.
+func governedProfileIdentity(engine string) (id, revision, digest string, err error) {
+	profile, err := routableProfileForEngine(engine)
+	if err != nil {
+		return "", "", "", err
+	}
+	digest, err = profile.ContentDigest()
+	if err != nil {
+		return "", "", "", err
+	}
+	return profile.RuntimeID, profile.Revision, digest, nil
+}
