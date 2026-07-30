@@ -1,100 +1,110 @@
-# Four runtimes, one harness, two platforms
+# Four runtimes, one harness, two platforms — final
 
-Measured 2026-07-30. Every row came from `merc-agent bench-batch`
-(build `e9796eeb069ba4b0`), same prompt, `max_tokens=48`, 3 repetitions,
-batch sizes 1/8/32/64. Receipts in `evidence/perf/runtime-benchmarks/`.
+Measured 2026-07-30, re-run after fixing every defect found in the first pass.
+All rows: `merc-agent bench-batch`, same prompt, `max_tokens=48`, **5 repetitions**,
+batch 1/8/32/64. Receipts in `evidence/perf/runtime-benchmarks/`.
 
 ## Results
 
 **Apple M3 Ultra (Metal)** — tokens/sec
 
-| engine | serial | b8 | b32 | b64 | peak | vs serial | byte-determinism |
+| engine | serial | b8 | b32 | b64 | peak | scaling | byte-determinism |
 |---|---:|---:|---:|---:|---:|---:|---|
-| candle | 214.2 | 427.8 | 501.0 | 495.6 | **501.0** | 2.34× | IDENTICAL everywhere |
-| llama.cpp | 332.5 | 597.2 | 1553.5 | 2161.5 | **2161.5** | 6.50× | **DIVERGES at b≥8** |
-| MLX | 311.7 | — | — | — | 311.7 | — | not measured |
+| candle *(in-process, pinned q4)* | 225.9 | 439.6 | 502.6 | 509.9 | **509.9** | 2.26× | IDENTICAL |
+| llama.cpp *(HTTP, np=64, pinned q4)* | 330.5 | 596.5 | 1538.7 | 2184.4 | **2184.4** | 6.61× | **DIVERGES b≥8** |
+| MLX *(HTTP, mlx-community 4bit)* | 310.7 | 306.8 | 305.9 | 305.6 | **310.7** | 1.00× | IDENTICAL |
 
-**NVIDIA L4 (CUDA, RunPod)** — tokens/sec
+**CUDA (RunPod, vLLM, HF bf16)** — tokens/sec
 
-| engine | serial | b8 | b32 | b64 | peak | vs serial | byte-determinism |
+| GPU | serial | b8 | b32 | b64 | peak | scaling | byte-determinism |
 |---|---:|---:|---:|---:|---:|---:|---|
-| vLLM | 74.4 | 446.1 | 1746.6 | 3078.4 | **3078.4** | 41.40× | IDENTICAL everywhere |
+| NVIDIA L4 | 74.4 | 446.1 | 1746.6 | 3078.4 | **3078.4** | 41.40× | IDENTICAL |
+| NVIDIA A40 | 151.6 | 989.0 | 3011.2 | 4677.2 | **4677.2** | 30.84× | IDENTICAL |
 
-## What is and is not comparable
+## Verdict
 
-**Comparable:** engines within one platform on the same artifact. candle and
-llama.cpp both served the exact pinned GGUF q4 (`b69aef11…`, sha256
-`3f5a2242…`). That comparison is clean.
+**Non-determinism under batching is an engine property, and llama.cpp is the
+only engine of four that has it.**
 
-**Not comparable:** anything across the platform line, and MLX against either.
+The first pass raised the hypothesis that high throughput might be inherently
+incompatible with `byte_exact` verification, which would have argued for
+weakening the verification strategy. That is now refuted on **two independent
+NVIDIA cards**: vLLM reached 41.4× and 30.8× serial with byte-identical output
+at every batch size. candle batches 2.26× and stays identical. Only llama.cpp
+diverges — and it is the fastest engine on Metal.
 
-- L4 versus M3 Ultra is different silicon at a different price point.
-- vLLM served HF bf16 weights, not the pinned GGUF q4. Different quantization.
-- MLX cannot load the pinned GGUF, so it ran a different 4-bit build
-  (`mlx-community/Llama-3.2-1B-Instruct-4bit`).
+So `byte_exact` stays. The rule already enforced at load — a routable profile
+serving a `byte_exact` cell whose receipt records non-determinism is refused —
+is the right rule, and llama.cpp is exactly the case it was written for.
 
-Reading "vLLM 3078 beats llama.cpp 2161" as a runtime result would be wrong
-three times over. The cross-platform numbers are useful for *scaling shape*, not
-for ranking engines.
+**On Metal, candle remains correct for byte_exact cells.** Not because it is
+fastest (it is 4.3× slower than llama.cpp at peak) but because it is the only
+Metal engine that both batches and stays deterministic. MLX does not batch at
+all; llama.cpp batches and diverges.
 
-## The finding that matters
+**MLX does not continuous-batch through `mlx_lm.server`.** Flat at ~306 tok/s
+from batch 1 to 64, CV under 0.6%. This is a measured negative, not a failure to
+measure.
 
-**Non-determinism under batching is an engine property, not the price of
-continuous batching.**
+## What is comparable
 
-Last measurement raised the hypothesis that every high-throughput engine might be
-incompatible with `byte_exact` verification, which would have argued for changing
-the verification strategy. vLLM refutes it: **41.40× serial throughput with
-byte-identical output at every batch size.** llama.cpp reached 6.50× and diverged
-from its own serial output at every batch size tested.
+**Clean:** candle vs llama.cpp. Both served the exact pinned artifact
+(`b69aef11…`, sha256 `3f5a2242…`).
 
-So Merc should not relax `byte_exact`. It should prefer engines that stay
-deterministic under batching, and that is now a governed refusal — a routable
-profile serving a `byte_exact` cell whose receipt records non-determinism is
-rejected at load.
+**Confounded, do not rank across these lines:**
 
-Secondary: the L4 is the *slowest* serial engine measured (74.4 tok/s, a third of
-Metal) and by far the best scaler (41.4× against Metal's best of 6.5×). Serial
-throughput predicted nothing about batched throughput on any of the four.
+- L4/A40 vs M3 Ultra — different silicon, different price.
+- vLLM served HF **bf16**, not the pinned GGUF q4. **Unfixed** — see below.
+- MLX cannot load the pinned GGUF and ran a different 4-bit build.
+- candle runs **in-process**; the other three go over HTTP. Serial numbers carry
+  loopback overhead the candle row does not.
 
-## Two measurement artifacts, both mine, both recorded
+Serial throughput predicted nothing about batched throughput on any engine. The
+L4 is the slowest serial engine measured and the best scaler.
 
-1. **llama.cpp launched with `-np 8`** collapsed to 0.76× serial at batch 32 and
-   looked far worse than candle. With `-np 64` it reached 6.50×. Server
-   configuration, not engine behaviour.
-2. **MLX batching is unmeasured, not absent.** `mlx_lm.server` is a
-   single-threaded Python `http.server` and dropped the concurrent connections at
-   batch 8; the failure was at the transport. Measuring MLX needs an in-process
-   `batch_generate` harness or a concurrent server.
+## Fixed since the first pass
 
-Both are the same lesson: the serving configuration dominated the apparent
-engine result, twice, in opposite directions. Any future runtime tournament has
-to pin and publish the server configuration alongside the number, or it is
-measuring the operator.
+1. **The agent could not start.** Schema v2 replaced the single `runtime` object
+   with `runtimes[]`, and `agent/src/runtime_authority.rs` still expected v1 —
+   it panicked at load with `missing field 'runtime'`. The Go suite never caught
+   it because it does not build the Rust agent. The agent now projects only
+   routable profiles, matching the control plane; 106 agent tests green. This was
+   a latent production defect, not a benchmark issue.
+2. **MLX batching, previously unmeasured.** The first diagnosis (single-threaded
+   server) was wrong: `mlx_lm` already uses `ThreadingHTTPServer`. The real cause
+   was the 5-connection listen backlog, so the 6th simultaneous connection was
+   refused by the kernel. Raised to 256 and it measures cleanly.
+3. **The harness asserted the answer.** It printed a hardcoded note claiming
+   continuous batching is not byte-deterministic. vLLM disproved it. Determinism
+   is now reported per backend from measurement.
+4. **The RunPod wrapper reported success on a failed provision.** No capacity →
+   it fell through to a stale `.merc-runpod.env`, benchmarked a dead pod, got
+   404, exited 0. It now deletes that file and requires `up` to succeed.
+5. **3 reps → 5** on every run.
 
-Note: the harness prints a static line reading "openai_http is NOT marked
-verified-work-capable: continuous batching is not byte-deterministic". vLLM
-contradicts it. The note is a hardcoded assumption and should become a
-per-measurement result.
+## Not fixed, and why
+
+**vLLM ran HF bf16, not the pinned GGUF q4.** Serving GGUF under vLLM needs a
+configuration that could not be verified without paying per attempt, and the
+script's own history records two A100s billed for 25 minutes each on a silent
+failure. The determinism finding — the one that mattered — is independent of
+quantization, and it reproduced on two cards. The throughput numbers were already
+declared non-comparable across platforms.
 
 ## Cost
 
-$0.03. NVIDIA L4 at $0.39/hr, torn down by the wrapper's own trap; balance
-$17.07 → $17.04, no pods left running. RTX A5000 had no capacity on SECURE or
-COMMUNITY, and 4090 none either — the wrapper walks a GPU list and bills nothing
-for a combination that has no capacity.
+**$0.08 total.** L4 $0.03, A40 $0.05. Balance $17.07 → $16.99. Both pods torn
+down by the wrapper's own trap; none left running. RTX A5000, RTX 4090 and (on
+the second attempt) L4 had no capacity — a combination with no capacity bills
+nothing.
 
 ## Lifecycle after this
 
-Nothing moved. `candle_metal` stays ACTIVE, everything else stays non-routable.
+Nothing moved.
 
 | profile | lifecycle | why not routable |
 |---|---|---|
 | `candle_metal` | ACTIVE | — |
-| `llama_cpp_metal` | VALIDATED | fails `byte_exact` under batching |
-| `mlx_metal` | VALIDATED | batching unmeasured; different artifact |
+| `llama_cpp_metal` | VALIDATED | fails `byte_exact` under batching, confirmed at 5 reps |
+| `mlx_metal` | VALIDATED | does not batch; different artifact |
 | `vllm_cuda` | DRAFT | different artifact; no Merc chain; no CUDA supplier |
-
-vLLM is the most interesting candidate on this evidence and the furthest from
-routable: it needs the pinned artifact, a quality tier, and a complete
-task→verification→money→receipt chain before any of this counts.

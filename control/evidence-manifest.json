@@ -22,11 +22,11 @@
   "evidence/perf/runtime-benchmarks/mlx-metal-llama1-4bit-r1.json": {
     "runtime_profile_id": "mlx_metal",
     "throughput_measured": true,
-    "byte_deterministic": false
+    "byte_deterministic": true
   },
   "evidence/perf/runtime-benchmarks/vllm-cuda-llama1-r1.json": {
     "runtime_profile_id": "vllm_cuda",
-    "throughput_measured": true,
+    "throughput_measured": false,
     "byte_deterministic": true
   }
 }

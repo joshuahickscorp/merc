@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "merc_source_commit": "c1d529745d220c48a46c4b1eac4d271ac41e1f5e",
-  "harness": "merc-agent bench-batch (build e9796eeb069ba4b0)",
+  "merc_source_commit": "c212dcb1e801ee8d030aa57ece165488c8d29114",
+  "harness": "merc-agent bench-batch (rebuilt after the schema-v2 agent fix)",
   "harness_settings": {
     "prompt": "Write a detailed paragraph about the ocean and its wonders:",
     "max_tokens": 48,
-    "reps": 3,
+    "reps": 5,
     "mode": "identical",
     "batch_sizes": [
       1,
@@ -14,33 +14,37 @@
       64
     ]
   },
-  "measured_at": "2026-07-30T16:05:00Z",
+  "measured_at": "2026-07-30T16:20:00Z",
   "runtime_profile_id": "mlx_metal",
   "profile_revision": "r1",
   "engine": "mlx",
+  "transport": "openai_http",
+  "server_settings": "mlx_lm.server with request_queue_size raised to 256",
   "model_id": "mlx-community/Llama-3.2-1B-Instruct-4bit",
-  "model_note": "NOT the artifact the catalogue pins. MLX cannot serve the pinned GGUF, so this is a different 4-bit build of the same base model. Any comparison against candle or llama.cpp is confounded by quantization.",
+  "model_note": "NOT the pinned GGUF; MLX cannot load it. Different 4-bit build.",
+  "hardware": {
+    "gpu": "Apple M3 Ultra",
+    "device": "metal"
+  },
   "physical_throughput": {
-    "serial_tokens_per_sec": 311.7,
+    "serial_tokens_per_sec": 310.7,
     "by_batch": {
-      "1": 308.8
+      "1": 305.9,
+      "8": 306.8,
+      "32": 305.9,
+      "64": 305.6
     },
-    "peak_tokens_per_sec": 311.7,
+    "peak_tokens_per_sec": 310.7,
     "peak_batch": 1,
-    "decode_tokens_per_sec": 311.7
+    "peak_multiple_of_serial": 1.0,
+    "decode_tokens_per_sec": 310.7
   },
-  "benchmark_status": "SERIAL_ONLY",
-  "harness_limitation": "mlx_lm.server is a single-threaded Python http.server and drops concurrent connections; batch>=8 failed at the transport, not in the engine. MLX batching is NOT MEASURED, which is different from MLX not batching. Measuring it needs an in-process batch_generate harness or a concurrent server.",
   "byte_determinism": {
-    "vs_serial": "NOT_MEASURED",
-    "satisfies_byte_exact_verification": false,
-    "note": "unknown, not disproven: batching never ran"
+    "vs_serial": "IDENTICAL",
+    "diverges_at_batch": [],
+    "satisfies_byte_exact_verification": true,
+    "note": "Trivially identical: it never batched, so there was nothing to diverge."
   },
-  "not_established": {
-    "batched_throughput": "transport failure, see harness_limitation",
-    "quality_tier": "no A/B run",
-    "delivered_throughput": "none",
-    "cost": "none",
-    "merc_chain": "none"
-  }
+  "benchmark_status": "PHYSICAL_THROUGHPUT_MEASURED",
+  "finding": "Flat at ~306 tok/s from batch 1 to 64, CV under 0.6%. mlx_lm.server serializes generation; it does not continuous-batch. The earlier 'transport failure' diagnosis was wrong twice over: mlx_lm already uses ThreadingHTTPServer, and the real cause was the 5-connection listen backlog. With the backlog raised the requests all land and are simply served one at a time. Whether MLX the LIBRARY can batch (it exposes batch_generate) is untested here."
 }
