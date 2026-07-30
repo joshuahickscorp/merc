@@ -4307,3 +4307,90 @@ BEGIN
         RAISE NOTICE 'workers_engine_valid retained: % engine-mismatched worker(s)', unreconciled;
     END IF;
 END $$;
+
+-- (runtime_profile_id, revision) is the immutable key; history is never lost.
+--
+-- The first cut used runtime_profile_id alone as the primary key and UPDATEd the
+-- row on a revision bump. candle_metal went r1 -> r2 -> r3 -> r4 and only r4
+-- survived, so a task, receipt or benchmark that bound candle_metal r2 pointed
+-- at a row that no longer existed — the exact ambiguity the content digest was
+-- introduced to prevent, reintroduced by the table holding it.
+--
+-- Historical revisions are now retained forever. Exactly one revision per
+-- profile is current; lifecycle moves apply to that one, and superseded
+-- revisions keep their content verbatim so anything that named them still
+-- resolves.
+ALTER TABLE runtime_profiles ADD COLUMN IF NOT EXISTS is_current BOOLEAN NOT NULL DEFAULT true;
+
+ALTER TABLE runtime_profile_models
+    ADD COLUMN IF NOT EXISTS revision TEXT NOT NULL DEFAULT 'r1';
+ALTER TABLE runtime_profile_hardware
+    ADD COLUMN IF NOT EXISTS revision TEXT NOT NULL DEFAULT 'r1';
+ALTER TABLE runtime_profile_capabilities
+    ADD COLUMN IF NOT EXISTS revision TEXT NOT NULL DEFAULT 'r1';
+
+-- Adopt the surviving revision for existing child rows before re-keying, so the
+-- rebuild does not orphan them.
+UPDATE runtime_profile_models m SET revision = p.revision
+  FROM runtime_profiles p WHERE p.runtime_profile_id = m.runtime_profile_id;
+UPDATE runtime_profile_hardware h SET revision = p.revision
+  FROM runtime_profiles p WHERE p.runtime_profile_id = h.runtime_profile_id;
+UPDATE runtime_profile_capabilities c SET revision = p.revision
+  FROM runtime_profiles p WHERE p.runtime_profile_id = c.runtime_profile_id;
+
+-- Both the original auto-generated names AND the ones this block creates, or a
+-- reapply cannot drop the primary key it is about to rebuild.
+ALTER TABLE runtime_profile_models       DROP CONSTRAINT IF EXISTS runtime_profile_models_profile_fk;
+ALTER TABLE runtime_profile_hardware     DROP CONSTRAINT IF EXISTS runtime_profile_hardware_profile_fk;
+ALTER TABLE runtime_profile_capabilities DROP CONSTRAINT IF EXISTS runtime_profile_capabilities_profile_fk;
+ALTER TABLE runtime_profile_models       DROP CONSTRAINT IF EXISTS runtime_profile_models_runtime_profile_id_fkey;
+ALTER TABLE runtime_profile_hardware     DROP CONSTRAINT IF EXISTS runtime_profile_hardware_runtime_profile_id_fkey;
+ALTER TABLE runtime_profile_capabilities DROP CONSTRAINT IF EXISTS runtime_profile_capabilities_runtime_profile_id_fkey;
+ALTER TABLE workers                      DROP CONSTRAINT IF EXISTS workers_runtime_profile_fk;
+
+ALTER TABLE runtime_profile_models       DROP CONSTRAINT IF EXISTS runtime_profile_models_pkey;
+ALTER TABLE runtime_profile_hardware     DROP CONSTRAINT IF EXISTS runtime_profile_hardware_pkey;
+ALTER TABLE runtime_profile_capabilities DROP CONSTRAINT IF EXISTS runtime_profile_capabilities_pkey;
+ALTER TABLE runtime_profiles             DROP CONSTRAINT IF EXISTS runtime_profiles_pkey;
+
+ALTER TABLE runtime_profiles
+    ADD CONSTRAINT runtime_profiles_pkey PRIMARY KEY (runtime_profile_id, revision);
+ALTER TABLE runtime_profile_models
+    ADD CONSTRAINT runtime_profile_models_pkey PRIMARY KEY (runtime_profile_id, revision, cell_id);
+ALTER TABLE runtime_profile_hardware
+    ADD CONSTRAINT runtime_profile_hardware_pkey PRIMARY KEY (runtime_profile_id, revision, platform);
+ALTER TABLE runtime_profile_capabilities
+    ADD CONSTRAINT runtime_profile_capabilities_pkey PRIMARY KEY (runtime_profile_id, revision, capability);
+
+ALTER TABLE runtime_profile_models ADD CONSTRAINT runtime_profile_models_profile_fk
+    FOREIGN KEY (runtime_profile_id, revision)
+    REFERENCES runtime_profiles(runtime_profile_id, revision) ON DELETE CASCADE;
+ALTER TABLE runtime_profile_hardware ADD CONSTRAINT runtime_profile_hardware_profile_fk
+    FOREIGN KEY (runtime_profile_id, revision)
+    REFERENCES runtime_profiles(runtime_profile_id, revision) ON DELETE CASCADE;
+ALTER TABLE runtime_profile_capabilities ADD CONSTRAINT runtime_profile_capabilities_profile_fk
+    FOREIGN KEY (runtime_profile_id, revision)
+    REFERENCES runtime_profiles(runtime_profile_id, revision) ON DELETE CASCADE;
+
+-- Exactly one current revision per profile.
+CREATE UNIQUE INDEX IF NOT EXISTS runtime_profiles_one_current
+    ON runtime_profiles (runtime_profile_id) WHERE is_current;
+
+-- A worker binds the exact revision it enrolled against, not merely the name.
+ALTER TABLE workers ADD CONSTRAINT workers_runtime_profile_fk
+    FOREIGN KEY (runtime_profile_id, runtime_profile_revision)
+    REFERENCES runtime_profiles(runtime_profile_id, revision);
+
+-- Historical revisions are evidence. Deleting one would strand every receipt
+-- that named it.
+CREATE OR REPLACE FUNCTION cx_refuse_runtime_profile_delete() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION
+      'runtime profile %/% may not be deleted; historical revisions are receipt evidence',
+      OLD.runtime_profile_id, OLD.revision;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS runtime_profiles_no_delete ON runtime_profiles;
+CREATE TRIGGER runtime_profiles_no_delete
+    BEFORE DELETE ON runtime_profiles
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_runtime_profile_delete();
