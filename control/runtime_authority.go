@@ -657,25 +657,45 @@ DELETE FROM models WHERE id NOT IN (SELECT id FROM desired)`, runtimeAuthorityJS
 var benchmarkAuthorityManifestJSON []byte
 
 // benchmarkAuthorityManifest maps each profile's declared benchmark authority
-// path to the runtime_profile_id that receipt claims.
+// path to the runtime profiles that receipt is evidence for.
 //
-// The manifest is generated (see scripts/gen-benchmark-manifest.py) and embedded
-// because the control plane must validate this at process start, where the
-// repository working tree is not guaranteed to be present — a container ships
-// the binary, not evidence/.
+// It is embedded because the control plane must validate this at process start,
+// where the repository working tree is not guaranteed to be present — a
+// container ships the binary, not evidence/. TestBenchmarkManifestMatchesTheReceipts
+// keeps the embedded copy honest against the files themselves.
 var benchmarkAuthorityManifest = loadBenchmarkAuthorityManifest()
 
 // benchmarkReceiptSummary is what the control plane needs to know about a
 // receipt without shipping evidence/ into the container.
 type benchmarkReceiptSummary struct {
-	RuntimeProfileID string `json:"runtime_profile_id"`
+	// RuntimeProfileIDs is a list because the receipt a tournament actually
+	// needs is a COMPARISON: one harness, one corpus, one output contract, both
+	// profiles. Splitting that into one receipt per profile to satisfy a
+	// singular field would destroy the only property that makes the two numbers
+	// comparable, which is that they were taken together.
+	RuntimeProfileIDs []string `json:"runtime_profile_ids"`
 	// ThroughputMeasured separates "this profile has a receipt" from "this
 	// profile has a comparable throughput number".
 	ThroughputMeasured bool `json:"throughput_measured"`
 	// ByteDeterministic records whether the measured engine reproduced its own
 	// serial output under batching. A cell whose verification is byte_exact
 	// cannot be served by an engine that does not.
+	//
+	// For a receipt that measures several profiles this is the conjunction: a
+	// comparison may only vouch for byte-determinism if every profile in it was
+	// byte-deterministic, because the field is read to decide whether a profile
+	// may serve a byte_exact cell.
 	ByteDeterministic bool `json:"byte_deterministic"`
+}
+
+// isEvidenceFor reports whether this receipt names the given profile.
+func (r benchmarkReceiptSummary) isEvidenceFor(runtimeProfileID string) bool {
+	for _, id := range r.RuntimeProfileIDs {
+		if id == runtimeProfileID {
+			return true
+		}
+	}
+	return false
 }
 
 func loadBenchmarkAuthorityManifest() map[string]benchmarkReceiptSummary {
@@ -708,10 +728,10 @@ func validateBenchmarkAuthorityBinding(profile authorityRuntimeProfile) error {
 			"runtime %q names benchmark authority %q, which is not a known receipt",
 			profile.RuntimeID, profile.BenchmarkAuthority)
 	}
-	if receipt.RuntimeProfileID != profile.RuntimeID {
+	if !receipt.isEvidenceFor(profile.RuntimeID) {
 		return fmt.Errorf(
-			"runtime %q names benchmark authority %q, but that receipt is evidence for %q",
-			profile.RuntimeID, profile.BenchmarkAuthority, receipt.RuntimeProfileID)
+			"runtime %q names benchmark authority %q, but that receipt is evidence for %v",
+			profile.RuntimeID, profile.BenchmarkAuthority, receipt.RuntimeProfileIDs)
 	}
 	// The measurement that produced this rule: llama_cpp_metal came back 4.31x
 	// faster than the incumbent at peak and diverged from its own serial output
@@ -738,5 +758,5 @@ func validateBenchmarkAuthorityBinding(profile authorityRuntimeProfile) error {
 // calls the result evidence.
 func profileThroughputIsMeasured(profile authorityRuntimeProfile) bool {
 	receipt, known := benchmarkAuthorityManifest[profile.BenchmarkAuthority]
-	return known && receipt.RuntimeProfileID == profile.RuntimeID && receipt.ThroughputMeasured
+	return known && receipt.isEvidenceFor(profile.RuntimeID) && receipt.ThroughputMeasured
 }

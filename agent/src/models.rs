@@ -125,8 +125,38 @@ pub const LLAMA_TOKENIZER: ModelSpec = ModelSpec {
     }],
 };
 
+/// The same logical MiniLM, as the GGUF llama.cpp loads.
+///
+/// Format belongs to the (runtime, model) pair: candle serves this model from
+/// safetensors and llama.cpp cannot load those at all. Both are pinned in
+/// control/runtime-authority.json under the model's artifact list, the GGUF
+/// tagged `wire_kind: gguf`, and `model_pins_match_runtime_authority` checks
+/// every field of both against it.
+const EMBED_GGUF: ModelSpec = ModelSpec {
+    repo: "leliuga/all-MiniLM-L6-v2-GGUF",
+    revision: "ddf2e25d5b8530422e7b14aa39f33a657ff9aec0",
+    files: &[ModelFile {
+        name: "all-MiniLM-L6-v2.F16.gguf",
+        sha256: "797b70c4edf85907fe0a49eb85811256f65fa0f7bf52166b147fd16be2be4662",
+        bytes: 45_949_216,
+    }],
+};
+
 pub fn embed_spec(_model_ref: &str) -> (&'static str, ModelSpec) {
     (EMBED_MINILM_ID, EMBED)
+}
+
+/// The embed artifact for a given wire kind. `hf` is candle's safetensors,
+/// `gguf` is llama.cpp's — the same weights, a format each engine can load.
+pub fn embed_spec_for_kind(kind: &str) -> Result<ModelSpec, RunError> {
+    match kind {
+        "hf" => Ok(EMBED),
+        "gguf" => Ok(EMBED_GGUF),
+        other => Err(RunError::Inference {
+            backend: "embed",
+            msg: format!("no embed artifact for wire kind {other:?}"),
+        }),
+    }
 }
 
 pub fn llama_gguf_spec(_model_ref: &str) -> ModelSpec {
@@ -245,6 +275,41 @@ mod tests {
         let wrong_size = ModelFile { bytes: 17, ..valid };
         assert!(verify_file(&path, &wrong_size).is_err());
         let _ = std::fs::remove_file(path);
+    }
+
+    // The GGUF is pinned on the MiniLM model, not on a repo of its own, so it
+    // cannot be located by hf_repo like the others. It is the artifact the
+    // llama.cpp embed cell resolves, and swapping it would change every byte
+    // that runtime executes.
+    #[test]
+    fn gguf_embed_pin_matches_runtime_authority() {
+        let authority: serde_json::Value =
+            serde_json::from_str(include_str!("../../control/runtime-authority.json"))
+                .expect("runtime authority json");
+        let artifact = authority["models"]
+            .as_array()
+            .expect("models array")
+            .iter()
+            .find(|entry| entry["id"].as_str() == Some(EMBED_MINILM_ID))
+            .expect("minilm authority")["artifacts"]
+            .as_array()
+            .expect("artifacts")
+            .iter()
+            .find(|entry| entry["wire_kind"].as_str() == Some("gguf"))
+            .expect("a gguf embed artifact");
+        let file = EMBED_GGUF.files[0];
+        assert_eq!(artifact["repo"].as_str(), Some(EMBED_GGUF.repo));
+        assert_eq!(artifact["revision"].as_str(), Some(EMBED_GGUF.revision));
+        assert_eq!(artifact["path"].as_str(), Some(file.name));
+        assert_eq!(artifact["sha256"].as_str(), Some(file.sha256));
+        assert_eq!(artifact["bytes"].as_u64(), Some(file.bytes));
+    }
+
+    #[test]
+    fn embed_spec_for_kind_refuses_a_format_with_no_artifact() {
+        assert_eq!(embed_spec_for_kind("hf").unwrap().repo, EMBED.repo);
+        assert_eq!(embed_spec_for_kind("gguf").unwrap().repo, EMBED_GGUF.repo);
+        assert!(embed_spec_for_kind("onnx").is_err());
     }
 
     #[test]

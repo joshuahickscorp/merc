@@ -60,6 +60,14 @@ fn default_openai_base_url() -> String {
     "http://127.0.0.1:8099/v1".to_string()
 }
 
+fn default_embed_runtime() -> String {
+    "candle_metal".to_string()
+}
+
+fn default_llama_embed_url() -> String {
+    "http://127.0.0.1:8188".to_string()
+}
+
 fn default_openai_model() -> String {
     "cx-chat-1b".to_string()
 }
@@ -114,6 +122,21 @@ pub struct AgentConfig {
     /// Optional bearer token for the engine (openai_http only).
     #[serde(default)]
     pub openai_api_key: Option<String>,
+    /// Which governed runtime profile drives the embed cell: `candle_metal`
+    /// (default, in-process safetensors) or `llama_cpp_metal` (GGUF via a
+    /// llama-server this operator runs).
+    ///
+    /// Separate from `inference_backend` on purpose. That knob chooses the
+    /// batch_infer engine; this one chooses the embed runtime, and the two are
+    /// genuinely independent — llama.cpp is disqualified from byte_exact
+    /// batch_infer on Metal and qualified for the cosine-verified embed cell, so
+    /// collapsing them into one setting would force an operator to accept the
+    /// engine's worst cell to get its best one.
+    #[serde(default = "default_embed_runtime")]
+    pub embed_runtime: String,
+    /// Base URL of the llama-server serving embeddings (`llama_cpp_metal` only).
+    #[serde(default = "default_llama_embed_url")]
+    pub llama_embed_base_url: String,
     #[serde(skip, default)]
     pub thermal_pressure: Option<ThermalPressure>,
     #[serde(skip, default)]
@@ -365,6 +388,8 @@ mod tests {
             openai_base_url: default_openai_base_url(),
             openai_model: default_openai_model(),
             openai_api_key: None,
+            embed_runtime: default_embed_runtime(),
+            llama_embed_base_url: default_llama_embed_url(),
             thermal_pressure: None,
             prefs_path: None,
         }

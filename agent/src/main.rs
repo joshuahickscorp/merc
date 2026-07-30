@@ -9,6 +9,7 @@ mod pool;
 mod protocol;
 mod quantized_llama_batched; // vendored + patched candle quantized_llama (bsz>1 batched prefill)
 mod runtime_authority;
+mod runtime_driver;
 mod status;
 mod tls;
 mod types;
@@ -301,6 +302,28 @@ enum Command {
         #[arg(long, default_value_t = 24)]
         max_tokens: u32,
     },
+    /// Measure the embed cell on two runtime profiles over one corpus, and emit
+    /// the receipt shape a profile's `benchmark_authority` must point at.
+    ///
+    /// One harness, one corpus, one output contract, both drivers. A comparison
+    /// assembled from two harnesses measures the harnesses.
+    BenchEmbed {
+        #[arg(long, default_value = "all-minilm-l6-v2")]
+        model: String,
+        /// The merc commit this receipt is evidence for.
+        #[arg(long, default_value = "")]
+        source_commit: String,
+        /// llama-server started with `--embedding --pooling mean` on the pinned GGUF.
+        #[arg(long, default_value = "http://127.0.0.1:8188")]
+        llama_base_url: String,
+        #[arg(long, default_value = "1,8,32,128")]
+        batch_sizes: String,
+        #[arg(long, default_value_t = 3)]
+        reps: u32,
+        /// Where to write the receipt JSON. Printed to stdout when empty.
+        #[arg(long, default_value = "")]
+        out: String,
+    },
     Characterize,
     Version,
     /// Measure a batch_infer known-answer honeypot against this binary's engine
@@ -433,6 +456,25 @@ async fn main() -> Result<()> {
         } => {
             init_tracing();
             run_bench_concurrency(&permits, embed_tasks, llama_tasks, &model, max_tokens).await
+        }
+        Command::BenchEmbed {
+            model,
+            source_commit,
+            llama_base_url,
+            batch_sizes,
+            reps,
+            out,
+        } => {
+            init_tracing();
+            run_bench_embed(
+                &model,
+                &source_commit,
+                &llama_base_url,
+                &batch_sizes,
+                reps,
+                &out,
+            )
+            .await
         }
         Command::Characterize => {
             init_tracing();
@@ -945,6 +987,177 @@ async fn run_bench_batch(
     Ok(())
 }
 
+/// The embed corpus. Fixed in the binary so a receipt cannot be produced against
+/// a corpus nobody can reconstruct, and hashed into the receipt so two runs that
+/// claim to be comparable can be shown to be.
+const EMBED_BENCH_CORPUS: &[&str] = &[
+    "The water cycle moves water through the atmosphere, land and oceans.",
+    "Merc settles every task against a receipt.",
+    "short",
+    "A considerably longer sentence, written so the comparison covers more than one \
+     length bucket and exercises the tokenizer well past its first few tokens.",
+    "Numbers like 3.14159 and dates like 2026-07-30 appear in real buyer input.",
+    "Embeddings are compared by cosine, not by bytes.",
+    "Supplier payouts are held until verification clears.",
+    "A quantized model is a different product, not a cheaper one.",
+];
+
+/// Measure the embed cell on both runtime profiles over one corpus.
+async fn run_bench_embed(
+    model: &str,
+    source_commit: &str,
+    llama_base_url: &str,
+    batch_sizes: &str,
+    reps: u32,
+    out: &str,
+) -> Result<()> {
+    use runtime_driver::{cosine, CandleDriver, LlamaCppDriver, LlamaServerSupervision};
+    use sha2::{Digest, Sha256};
+
+    let sizes: Vec<usize> = batch_sizes
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .filter(|n| *n > 0)
+        .collect();
+    if sizes.is_empty() {
+        anyhow::bail!("no batch sizes given (e.g. --batch-sizes 1,8,32)");
+    }
+
+    let candle: Arc<dyn runtime_driver::RuntimeDriver> = Arc::new(CandleDriver::new());
+    let llama_concrete = Arc::new(LlamaCppDriver::new(LlamaServerSupervision::Attach {
+        base_url: llama_base_url.to_string(),
+    })?);
+    let llama: Arc<dyn runtime_driver::RuntimeDriver> = llama_concrete.clone();
+    candle.launch().await?;
+    llama
+        .launch()
+        .await
+        .with_context(|| format!("llama-server at {llama_base_url} must be serving"))?;
+    let engine_props = llama_concrete.engine_properties().await?;
+
+    let pool = ModelPool::new();
+    let corpus_digest = {
+        let mut hasher = Sha256::new();
+        for line in EMBED_BENCH_CORPUS {
+            hasher.update(line.as_bytes());
+            hasher.update([0u8]);
+        }
+        format!("{:x}", hasher.finalize())
+    };
+
+    // One shared quality measurement over the whole corpus, before any timing:
+    // a throughput number for a runtime that does not clear its cell's
+    // verification gate is not a result, it is a distraction.
+    let base: Vec<String> = EMBED_BENCH_CORPUS.iter().map(|s| s.to_string()).collect();
+    let ours = candle.embed(model, &base, &pool).await?;
+    let theirs = llama.embed(model, &base, &pool).await?;
+    let mut min_cosine = f32::MAX;
+    let mut sum_cosine = 0.0_f32;
+    for (a, b) in ours.iter().zip(&theirs) {
+        let c = cosine(a, b).context("cosine over mismatched vectors")?;
+        min_cosine = min_cosine.min(c);
+        sum_cosine += c;
+    }
+    let mean_cosine = sum_cosine / ours.len() as f32;
+
+    let mut rows = Vec::new();
+    for &batch in &sizes {
+        let texts: Vec<String> = (0..batch)
+            .map(|i| EMBED_BENCH_CORPUS[i % EMBED_BENCH_CORPUS.len()].to_string())
+            .collect();
+        for (label, driver) in [("candle_metal", &candle), ("llama_cpp_metal", &llama)] {
+            // Warm once outside the measured reps; a cold load is a deployment
+            // property, not a throughput property.
+            driver.embed(model, &texts, &pool).await?;
+            let mut per_rep_s: Vec<f64> = Vec::new();
+            for _ in 0..reps.max(1) {
+                let started = std::time::Instant::now();
+                let vectors = driver.embed(model, &texts, &pool).await?;
+                anyhow::ensure!(
+                    vectors.len() == batch,
+                    "{label} returned {} rows",
+                    vectors.len()
+                );
+                per_rep_s.push(started.elapsed().as_secs_f64());
+            }
+            per_rep_s.sort_by(|a, b| a.partial_cmp(b).expect("no NaN timings"));
+            let median = per_rep_s[per_rep_s.len() / 2];
+            rows.push(serde_json::json!({
+                "runtime_profile_id": label,
+                "batch": batch,
+                "reps": per_rep_s.len(),
+                "median_wall_s": median,
+                "min_wall_s": per_rep_s[0],
+                "max_wall_s": per_rep_s[per_rep_s.len() - 1],
+                "texts_per_sec": batch as f64 / median,
+            }));
+            eprintln!(
+                "{label:>16} batch={batch:<4} median={median:.4}s  {:.1} texts/s",
+                batch as f64 / median
+            );
+        }
+    }
+
+    let receipt = serde_json::json!({
+        "schema_version": 1,
+        "question": "What does the embed cell cost and deliver on each of the two registered \
+                     runtime profiles, measured on one harness over one corpus?",
+        "harness": format!("merc-agent {AGENT_VERSION} bench-embed"),
+        "authority_matrix_version": runtime_authority::version(),
+        "authority_matrix_sha256": runtime_authority::sha256(),
+        "merc_source_commit": source_commit,
+        "model_id": model,
+        "profiles": runtime_authority::profile_identities(&["candle_metal", "llama_cpp_metal"]),
+        "model_artifacts": runtime_authority::model_artifacts(model),
+        "hardware": {
+            "hw_class": hardware::detected_hw_class_wire(),
+            "device": models::device_label(),
+            "memory_gb": hardware::read_memory_snapshot().total_gb,
+        },
+        "engine_configuration": {
+            "llama_cpp_metal": engine_props,
+            "candle_metal": {
+                "device": models::device_label(),
+                "note": "in-process; no server configuration to report",
+            },
+        },
+        "corpus": {
+            "texts": EMBED_BENCH_CORPUS.len(),
+            "sha256": corpus_digest,
+        },
+        "quality": {
+            "verification": "cosine",
+            "gate": 0.999,
+            "min_cosine": min_cosine,
+            "mean_cosine": mean_cosine,
+            "passes": min_cosine >= 0.999,
+            "reference": "candle_metal",
+        },
+        "measurements": rows,
+        "not_established": {
+            "energy": "power draw is not metered on this host",
+            "provider_cost": "both profiles run on the same owned hardware here; no provider \
+                              invoice separates them",
+            "concurrency": "one client, sequential requests; this is not a concurrency sweep",
+            "engine_tuning": "llama-server was measured AS CONFIGURED, at whatever n_ctx and \
+                              total_slots engine_configuration records. A batch larger than its \
+                              slots queues inside the server, so a row where candle wins at a \
+                              large batch is a statement about THIS server configuration and \
+                              not about llama.cpp. No flag sweep was run.",
+            "quantization_sweep": "llama.cpp was measured at F16 only",
+        },
+    });
+
+    let rendered = serde_json::to_string_pretty(&receipt)?;
+    if out.is_empty() {
+        println!("{rendered}");
+    } else {
+        std::fs::write(out, rendered + "\n").with_context(|| format!("writing {out}"))?;
+        eprintln!("receipt written to {out}");
+    }
+    Ok(())
+}
+
 /// Locate and invoke `scripts/real-engine.sh` from the repo root or CWD.
 fn run_real_engine_script(action: &str) -> Result<()> {
     let candidates = [
@@ -1408,10 +1621,15 @@ async fn run_bench_concurrency(
 
     let candle_backend: std::sync::Arc<dyn inference::InferenceBackend> =
         std::sync::Arc::new(inference::CandleBackend);
+    // The bench measures candle against candle; the embed lane runs through the
+    // same driver boundary a claimed task does.
+    let embed_runner = Arc::new(executor::EmbedRunner::new(Arc::new(
+        runtime_driver::CandleDriver::new(),
+    )));
     eprintln!("warming models (cold load happens once, not counted in any sweep point)...");
     {
         let warm_pool = ModelPool::new();
-        executor::EmbedRunner
+        embed_runner
             .run(&embed_manifest, &embed_input, &warm_pool)
             .await
             .map_err(|e| anyhow::anyhow!("warmup embed: {e}"))?;
@@ -1444,7 +1662,7 @@ async fn run_bench_concurrency(
     );
     for &permits in &permit_sweep {
         let pool = Arc::new(ModelPool::new());
-        executor::EmbedRunner
+        embed_runner
             .run(&embed_manifest, &embed_input, &pool)
             .await
             .map_err(|e| anyhow::anyhow!("re-warm embed: {e}"))?;
@@ -1469,10 +1687,11 @@ async fn run_bench_concurrency(
             let pool = pool.clone();
             let manifest = embed_manifest.clone();
             let input = embed_input.clone();
+            let runner = embed_runner.clone();
             set.spawn(async move {
                 let permit = sem.acquire_owned().await.expect("semaphore never closed");
                 let t = Instant::now();
-                let res = executor::EmbedRunner.run(&manifest, &input, &pool).await;
+                let res = runner.run(&manifest, &input, &pool).await;
                 drop(permit);
                 ("embed", t.elapsed().as_secs_f64(), res.is_ok())
             });
@@ -2045,6 +2264,20 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
         cfg.openai_api_key.as_deref(),
     )
     .map_err(|e| anyhow::anyhow!("inference backend: {e}"))?;
+    // The embed lane's runtime is chosen separately: llama.cpp is disqualified
+    // from byte_exact batch_infer on Metal and qualified for the cosine-verified
+    // embed cell, so one knob for both would force an operator to take the
+    // engine's worst cell to get its best one.
+    let embed_driver =
+        runtime_driver::build_embed_driver(&cfg.embed_runtime, &cfg.llama_embed_base_url)
+            .map_err(|e| anyhow::anyhow!("embed runtime: {e}"))?;
+    // Fail at startup, not at the first claimed task, if the runtime is not
+    // serving. A worker that enrolls against a runtime it cannot reach will
+    // claim work and then fail it, with the supplier already on the hook.
+    embed_driver
+        .launch()
+        .await
+        .map_err(|e| anyhow::anyhow!("embed runtime {}: {e}", embed_driver.runtime_id()))?;
     if !backend_kind.supports_verified_work() {
         tracing::warn!(
             backend = backend_kind.as_str(),
@@ -2084,7 +2317,7 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
     let ctx = WorkCtx {
         client: Arc::new(client),
         cap: Arc::new(cap),
-        runners: Arc::new(default_runners(inference)),
+        runners: Arc::new(default_runners(inference, embed_driver)),
         pool,
         s3,
         min_payout_usd_per_hr: cfg.min_payout_usd_per_hr,

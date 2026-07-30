@@ -11,6 +11,7 @@ use crate::deadline::DeadlineError;
 use crate::inference::{GenerateParams, InferenceBackend};
 use crate::models;
 use crate::pool::ModelPool;
+use crate::runtime_driver::RuntimeDriver;
 use crate::types::{JobManifest, JobType, ModelKind, WorkerCapability};
 
 #[derive(Debug, Clone)]
@@ -401,13 +402,28 @@ impl Embedder {
     }
 }
 
-pub struct EmbedRunner;
+/// The embed lane, behind the runtime driver boundary.
+///
+/// The runner used to call `pool.embedder()` directly, which hardwired embedding
+/// to Candle: a llama.cpp worker had no way to serve the cell it is registered
+/// for. It now holds whichever driver this agent was configured with, and asks
+/// that driver whether it can serve the cell rather than testing the model kind
+/// itself — `hf` versus `gguf` is the driver's business, not the runner's.
+pub struct EmbedRunner {
+    driver: std::sync::Arc<dyn RuntimeDriver>,
+}
+
+impl EmbedRunner {
+    pub fn new(driver: std::sync::Arc<dyn RuntimeDriver>) -> Self {
+        Self { driver }
+    }
+}
 
 #[async_trait]
 impl JobRunner for EmbedRunner {
     async fn can_run(&self, manifest: &JobManifest, cap: &WorkerCapability) -> bool {
         matches!(manifest.job_type, JobType::Embed { .. })
-            && matches!(manifest.model.kind, ModelKind::Hf)
+            && self.driver.serves_kind(manifest.model.kind.as_wire_str())
             && meets_memory(manifest, cap)
     }
 
@@ -425,7 +441,10 @@ impl JobRunner for EmbedRunner {
             .collect();
         let count = texts.len();
 
-        let vectors = embed_texts(pool, &manifest.model.model_ref, texts).await?;
+        let vectors = self
+            .driver
+            .embed(&manifest.model.model_ref, &texts, pool)
+            .await?;
 
         let binary = wants_binary(manifest);
         let (bytes, is_binary) = if binary {
@@ -477,20 +496,6 @@ fn wants_binary(manifest: &JobManifest) -> bool {
         .get("embed_binary")
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
-}
-
-async fn embed_texts(
-    pool: &ModelPool,
-    model_ref: &str,
-    texts: Vec<String>,
-) -> Result<Vec<Vec<f32>>, RunError> {
-    let embedder = pool.embedder(model_ref).await?;
-    tokio::task::spawn_blocking(move || {
-        let backend = embedder.blocking_lock();
-        backend.embed(&texts)
-    })
-    .await
-    .map_err(infer_err("embed"))?
 }
 
 const PAD_BUCKET: usize = 16;
@@ -1048,9 +1053,12 @@ impl JobRunner for BatchInferRunner {
     }
 }
 
-pub fn default_runners(inference: std::sync::Arc<dyn InferenceBackend>) -> Vec<Box<dyn JobRunner>> {
+pub fn default_runners(
+    inference: std::sync::Arc<dyn InferenceBackend>,
+    embed_driver: std::sync::Arc<dyn RuntimeDriver>,
+) -> Vec<Box<dyn JobRunner>> {
     vec![
-        Box::new(EmbedRunner),
+        Box::new(EmbedRunner::new(embed_driver)),
         Box::new(BatchInferRunner { inference }),
     ]
 }
