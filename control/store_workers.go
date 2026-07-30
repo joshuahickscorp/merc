@@ -98,7 +98,7 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 	// The full identity, not just the name. A worker enrolled against r1 is not
 	// interchangeable with one enrolled against r4: it may be running a
 	// different tokenizer, template or device budget.
-	profileDigest, err := profile.ContentDigest()
+	profileDigest, err := profile.ContentDigest(runtimeAuthorityModels)
 	if err != nil {
 		return fmt.Errorf("digesting worker runtime profile: %w", err)
 	}

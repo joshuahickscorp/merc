@@ -241,11 +241,17 @@ func TestRegisteredRuntimesCiteEvidenceForTheirLifecycle(t *testing.T) {
 // QUARANTINED, or mlx_metal from VALIDATED to CANARY, must not require a new
 // revision: the progression is the point of the state machine.
 func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
+	// Pinned under the artifact-resolving digest. Every profile took a new
+	// revision when the derivation widened: the previous digests were computed
+	// without resolved artifacts, so they are not comparable values, and editing
+	// them in place under the old revision would have silently redefined what
+	// r4/r2/r5/r2 meant to every receipt that named them. Those revisions are
+	// retained in runtime_profiles with their own digests and still resolve.
 	pinned := map[string]string{
-		"candle_metal":    "71bbad206e231addf18255ebc185a157896852da325c0adc6d24d7f1aab0f161",
-		"mlx_metal":       "eae98b142b2cb598592f934672730f2399489166d726cada11608d5b6c9f2e7a",
-		"llama_cpp_metal": "539e6c5e239ca58903204bc8d883c7eaaed9be8abdf6b243ef0c29fed48b451f",
-		"vllm_cuda":       "0878e0fd6adbd401175e069c22b90598b8d47fdb3a5bee206b66c9e2590eaee5",
+		"candle_metal":    "9e65e807fdc0ec4633b3a9b5c3261696f3aecd0fe834f49f873cce536c4885f3",
+		"mlx_metal":       "67b688419eb3a1a58bc369a01e7c280fbefde32dfdc5ac1109a45508ce4bfd57",
+		"llama_cpp_metal": "b6455407d7a4cb9736552eb7879e4bd4f91e6eb56b6cfdd7c2441c34fb2fb260",
+		"vllm_cuda":       "4825a0c3b06e3a6c4bb19c61747ab5dc11ad402e306e926b579c9bb8c435f55b",
 	}
 	doc := mutableAuthority(t)
 	if len(doc.Runtimes) != len(pinned) {
@@ -258,7 +264,7 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 			t.Errorf("runtime %q has no pinned content digest", profile.RuntimeID)
 			continue
 		}
-		got, err := profile.ContentDigest()
+		got, err := profile.ContentDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatalf("digest %q: %v", profile.RuntimeID, err)
 		}
@@ -275,7 +281,7 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 // replacing it.
 func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 	base := mutableAuthority(t).Runtimes[0]
-	want, err := base.ContentDigest()
+	want, err := base.ContentDigest(runtimeAuthorityModels)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +292,7 @@ func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 	} {
 		moved := base
 		mutate(&moved)
-		got, err := moved.ContentDigest()
+		got, err := moved.ContentDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -301,15 +307,19 @@ func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 		"revision":            func(p *authorityRuntimeProfile) { p.Revision = "r99" },
 		"quality tier":        func(p *authorityRuntimeProfile) { p.QualityTier = "MODEL_EXACT" },
 		"benchmark authority": func(p *authorityRuntimeProfile) { p.BenchmarkAuthority = "elsewhere" },
-		"cell model":          func(p *authorityRuntimeProfile) { p.Cells[0].Model = "other-model" },
-		"memory floor":        func(p *authorityRuntimeProfile) { p.Cells[0].MinMemoryGB = 99 },
-		"device count":        func(p *authorityRuntimeProfile) { p.Hardware.DeviceCount.Maximum = 8 },
-		"capability":          func(p *authorityRuntimeProfile) { p.Capabilities.Speculation = true },
+		// A real other model, not a made-up id: the digest now resolves each
+		// cell's artifacts, so an undefined model is a hard error rather than a
+		// different digest, and the mutation would prove nothing.
+		"cell model":     func(p *authorityRuntimeProfile) { p.Cells[0].Model = "llama-3.2-1b-instruct-q4" },
+		"cell wire kind": func(p *authorityRuntimeProfile) { p.Cells[0].WireKind = "gguf" },
+		"memory floor":   func(p *authorityRuntimeProfile) { p.Cells[0].MinMemoryGB = 99 },
+		"device count":   func(p *authorityRuntimeProfile) { p.Hardware.DeviceCount.Maximum = 8 },
+		"capability":     func(p *authorityRuntimeProfile) { p.Capabilities.Speculation = true },
 	} {
 		moved := base
 		moved.Cells = append([]authorityCell(nil), base.Cells...)
 		mutate(&moved)
-		got, err := moved.ContentDigest()
+		got, err := moved.ContentDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -559,7 +569,7 @@ func TestBothMetalProfilesAreMeasuredAndComparable(t *testing.T) {
 // indistinguishable in provenance).
 func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) {
 	base := mutableAuthority(t).Runtimes[0]
-	want, err := base.ContentDigest()
+	want, err := base.ContentDigest(runtimeAuthorityModels)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -580,8 +590,13 @@ func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) 
 		"capability":          func(p *authorityRuntimeProfile) { p.Capabilities.Speculation = true },
 		"quality tier":        func(p *authorityRuntimeProfile) { p.QualityTier = "MODEL_EXACT" },
 		"benchmark authority": func(p *authorityRuntimeProfile) { p.BenchmarkAuthority = "elsewhere" },
-		"cell model":          func(p *authorityRuntimeProfile) { p.Cells[0].Model = "other" },
+		"cell model":          func(p *authorityRuntimeProfile) { p.Cells[0].Model = "llama-3.2-1b-instruct-q4" },
 		"cell memory":         func(p *authorityRuntimeProfile) { p.Cells[0].MinMemoryGB = 99 },
+		// Artifact format is what the runtime actually loads. candle's Cells[0]
+		// serves MiniLM as `hf`; flipping it to `gguf` resolves a different file
+		// entirely, and a digest that missed that would let a profile swap every
+		// executed byte while keeping its revision.
+		"cell wire kind": func(p *authorityRuntimeProfile) { p.Cells[0].WireKind = "gguf" },
 		// A value the cell does not already have: candle's Cells[0] is the embed
 		// cell, which is cosine already, so asserting "cosine" tested nothing.
 		"cell verification": func(p *authorityRuntimeProfile) {
@@ -591,7 +606,7 @@ func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) 
 		moved := base
 		moved.Cells = append([]authorityCell(nil), base.Cells...)
 		mutate(&moved)
-		got, err := moved.ContentDigest()
+		got, err := moved.ContentDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -609,7 +624,7 @@ func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) 
 	} {
 		moved := base
 		mutate(&moved)
-		got, err := moved.ContentDigest()
+		got, err := moved.ContentDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}
