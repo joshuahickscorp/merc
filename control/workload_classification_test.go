@@ -52,7 +52,7 @@ func TestWorkloadDecisionIsServerClassifiedAndRevisionPinned(t *testing.T) {
 		decision.RuntimeCandidates[0].CellID != "candle-metal-llama1-infer" {
 		t.Fatalf("decision did not resolve one exact runtime cell: %+v", decision.RuntimeCandidates)
 	}
-	if !decision.Deterministic || !decision.ExactResultCacheEligible ||
+	if !decision.Deterministic || decision.ExactResultCacheEligible ||
 		!decision.PrefixReuseEligible || decision.InflightCoalescingEligible {
 		t.Fatalf("decision over/under-stated reuse eligibility: %+v", decision)
 	}
@@ -250,53 +250,25 @@ func TestWorkloadDecisionDigestBindsDerivedAuthority(t *testing.T) {
 	}
 }
 
-func TestBatchRequestIdentityUsesCompleteFrozenDecision(t *testing.T) {
+func TestBatchExactReuseIsDisabledForCurrentAndHistoricalDecisions(t *testing.T) {
 	sub := validBatchWorkloadSubmit(t)
 	decision, err := buildWorkloadDecision(sub, strings.Repeat("1", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := batchRequestIdentity(decision)
-	if !ValidRequestIdentity(base) {
-		t.Fatalf("invalid batch reuse identity %q", base)
+	if decision.ExactResultCacheEligible {
+		t.Fatal("new workload decision re-enabled the unsafe batch exact-result cache")
 	}
-
-	revisionChanged := decision
-	revisionChanged.ModelRevision = strings.Repeat("2", 40)
-	if got := batchRequestIdentity(revisionChanged); got == "" || got == base {
-		t.Fatal("pinned model revision did not change exact-reuse identity")
+	if got := batchRequestIdentity(decision); got != "" {
+		t.Fatalf("disabled batch exact reuse produced identity %q", got)
 	}
-
-	runtimeChanged := decision
-	runtimeChanged.RuntimeCandidates = append(
-		[]WorkloadRuntimeCandidate(nil), decision.RuntimeCandidates...,
-	)
-	runtimeChanged.RuntimeCandidates[0].CellID = "different-runtime-cell"
-	if got := batchRequestIdentity(runtimeChanged); got == "" || got == base {
-		t.Fatal("frozen runtime cell did not change exact-reuse identity")
-	}
-
-	sub.Params = json.RawMessage(`{"split_size":17}`)
-	paramsChanged, err := buildWorkloadDecision(sub, strings.Repeat("1", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := batchRequestIdentity(paramsChanged); got == "" || got == base {
-		t.Fatal("normalized workload params did not change exact-reuse identity")
-	}
-
-	inputChanged, err := buildWorkloadDecision(validBatchWorkloadSubmit(t), strings.Repeat("3", 64))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := batchRequestIdentity(inputChanged); got == "" || got == base {
-		t.Fatal("input commitment did not change exact-reuse identity")
-	}
-
-	ineligible := decision
-	ineligible.ExactResultCacheEligible = false
-	if got := batchRequestIdentity(ineligible); got != "" {
-		t.Fatalf("reuse-ineligible decision produced cache key %q", got)
+	// A frozen pre-disable decision must also be unable to read or populate the
+	// cache. Otherwise an old job completing after this fix could retain the
+	// record-count-as-token meter for a future release.
+	historical := decision
+	historical.ExactResultCacheEligible = true
+	if got := batchRequestIdentity(historical); got != "" {
+		t.Fatalf("historical batch decision bypassed the exact-reuse kill switch: %q", got)
 	}
 }
 

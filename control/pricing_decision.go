@@ -257,10 +257,7 @@ func estimateJobSettlementWithAuthority(
 	if a.JobType != jobType {
 		return 0, fmt.Errorf("catalogue job type %s does not match %s", a.JobType, jobType)
 	}
-	units := float64(nLines)
-	if byteUnits := float64(inputBytesLen) / bytesPerTokenHeuristic; byteUnits > units {
-		units = byteUnits
-	}
+	units := settlementInputUnitsForGeometry(nLines, int64(inputBytesLen))
 	if generativeJobType(jobType) && nLines > 0 {
 		outTokensPerRecord := maxTokens
 		if outTokensPerRecord == 0 {
@@ -273,6 +270,19 @@ func estimateJobSettlementWithAuthority(
 		return microsToUSD(1), nil
 	}
 	return rounded, nil
+}
+
+// pricingBillableUnitsForComputePlan keeps historical pricing decisions
+// verifiable while making every newly written (v3) decision use the exact
+// input-side units that created the catalogue money estimate. Version-1 and
+// version-2 receipts retain their historical body/whole-input presentation;
+// they must not be silently reinterpreted or re-priced after acceptance.
+func pricingBillableUnitsForComputePlan(compute ComputePlan) float64 {
+	input := float64(compute.EstimatedInputTokens)
+	if compute.Version == computePlanVersion {
+		input = compute.SettlementInputUnits
+	}
+	return input + float64(compute.EstimatedOutputTokens)
 }
 
 // supplierAdmissionCeilingUSDHr is a modeled ask ceiling used solely by the
@@ -376,7 +386,7 @@ func newDistributedPricingDecision(
 	primarySupplier := economic.SupplierPayoutPerTaskUSD * float64(compute.PrimaryTasks)
 	verification := economic.SupplierPayoutPerTaskUSD *
 		float64(compute.RedundancyTasks+compute.HoneypotTasks)
-	billableUnits := float64(compute.EstimatedInputTokens + compute.EstimatedOutputTokens)
+	billableUnits := pricingBillableUnitsForComputePlan(compute)
 	unitsPerSec := throughputOf(workload.RuntimeJobType)
 	expectedSeconds := 0.0
 	if compute.PrimaryTasks > 0 && unitsPerSec > 0 {
@@ -480,7 +490,7 @@ func newExactReusePricingDecision(
 		WorkloadDecisionSHA256: workloadSHA, ComputePlanSHA256: computeSHA,
 		OriginPricingDecisionSHA256: originPricingSHA,
 		Catalogue:                   catalogue,
-		BillableUnits:               float64(compute.EstimatedInputTokens + compute.EstimatedOutputTokens),
+		BillableUnits:               pricingBillableUnitsForComputePlan(compute),
 		BuyerPrice:                  buyerCharge, MaximumBuyerPrice: buyerCharge,
 		PrimarySupplierCost: notApplicableCost(
 			"no physical supplier executes an exact-result reuse delivery"),

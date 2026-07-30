@@ -9,6 +9,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// batchExactReuseEnabled must remain false until cache-hit billing is bound to
+// a complete, auditable batch meter. The retired writer recorded merged output
+// record counts in exact_result_cache.output_tokens, but the hit path charged
+// that field as token units. Guard here, rather than only in newly built
+// workload decisions, so a historical accepted job that still carries the old
+// eligibility bit cannot populate another poisoned cache row during merge.
+//
+// Realtime exact reuse does not use this guard: it stores and bills verified
+// completion-token counts through its own request identity path.
+const batchExactReuseEnabled = false
+
 // SubmitExactReuseBatchJob records a batch job that is served entirely from the
 // exact-result cache: the buyer is billed at the reuse class, no tasks are
 // queued, and no supplier is credited.
@@ -274,7 +285,7 @@ func (s *Store) maybeCacheCompletedBatchJob(
 // workload decision. This binds input, normalized params, output shape, model
 // kind, pinned revision and runtime authority in one versioned key.
 func batchRequestIdentity(decision WorkloadDecision) string {
-	if !decision.ExactResultCacheEligible {
+	if !batchExactReuseEnabled || !decision.ExactResultCacheEligible {
 		return ""
 	}
 	if err := ValidateFrozenWorkloadDecisionSnapshot(decision); err != nil {

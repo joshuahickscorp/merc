@@ -44,16 +44,16 @@ func effectiveObservedOutputMaxTokens(workload WorkloadDecision, plan ComputePla
 	return maxTokens
 }
 
-// settlementInputUnitsForComputePlan preserves the unit composition that
-// created the frozen price. Version-2 EstimatedInputTokens is selected-body
-// planning authority, while the current catalogue freeze is still based on
-// max(record count, whole-input bytes/4). Feeding body tokens into the unused
-// output rebate would silently change buyer charges and supplier payouts.
-func settlementInputUnitsForComputePlan(plan ComputePlan) int64 {
+// settlementInputUnitsForComputePlan preserves the input-unit composition that
+// created the frozen price. Version-3 records the exact catalogue authority.
+// Version-1/2 plans predate that field, so they retain their existing rounded
+// whole-input compatibility rule instead of being re-priced from selected-body
+// depth estimates after acceptance.
+func settlementInputUnitsForComputePlan(plan ComputePlan) float64 {
 	if plan.Version == computePlanVersion {
-		return estimatedInputTokensForComputePlanV1(plan.InputRecords, plan.InputBytes)
+		return plan.SettlementInputUnits
 	}
-	return plan.EstimatedInputTokens
+	return float64(estimatedInputTokensForComputePlanV1(plan.InputRecords, plan.InputBytes))
 }
 
 // settleObservedOutputTokens bounds generative batch settlement by tokens the
@@ -74,7 +74,7 @@ func settlementInputUnitsForComputePlan(plan ComputePlan) int64 {
 // Settlement may only reduce relative to the freeze.
 func settleObservedOutputTokens(
 	frozenCharge, frozenPayout float64,
-	estimatedIn, estimatedOut int64,
+	estimatedIn float64, estimatedOut int64,
 	expectedOutputRecords int64,
 	maxTokens uint32,
 	reportedTokens int64,
@@ -88,10 +88,11 @@ func settleObservedOutputTokens(
 		frozenCharge <= 0 || frozenPayout < 0 || frozenPayout > frozenCharge {
 		return out
 	}
-	if !hasReported || estimatedOut <= 0 || estimatedIn < 0 {
+	if !hasReported || estimatedOut <= 0 || math.IsNaN(estimatedIn) ||
+		math.IsInf(estimatedIn, 0) || estimatedIn < 0 {
 		return out
 	}
-	totalUnits := estimatedIn + estimatedOut
+	totalUnits := estimatedIn + float64(estimatedOut)
 	if totalUnits <= 0 {
 		return out
 	}
@@ -120,7 +121,7 @@ func settleObservedOutputTokens(
 		observed = ceiling
 	}
 
-	outputUnitShare := float64(estimatedOut) / float64(totalUnits)
+	outputUnitShare := float64(estimatedOut) / totalUnits
 	unusedShare := outputUnitShare * (1.0 - float64(observed)/float64(ceiling))
 	if unusedShare < 0 {
 		unusedShare = 0

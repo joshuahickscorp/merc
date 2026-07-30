@@ -70,6 +70,7 @@ func TestComputePlanRejectsGeometryPlacementAndEconomicTampering(t *testing.T) {
 		{"memory floor", func(p *ComputePlan) { p.MinimumMemoryGB++ }},
 		{"input records", func(p *ComputePlan) { p.InputRecords++ }},
 		{"input tokens", func(p *ComputePlan) { p.EstimatedInputTokens++ }},
+		{"settlement input units", func(p *ComputePlan) { p.SettlementInputUnits++ }},
 		{"base compute", func(p *ComputePlan) { p.BaseComputeUSD += 0.01 }},
 	}
 	for _, tc := range tests {
@@ -278,10 +279,21 @@ func TestExactReusePlanBindsOriginWithoutInventingPhysicalWork(t *testing.T) {
 	}
 }
 
-func TestV2ComputePlanRejectsDepthProfileTampering(t *testing.T) {
+func TestV3ComputePlanSeparatesPlanningDepthFromSettlementUnits(t *testing.T) {
+	_, plan, _ := computePlanFixture(t)
+	if plan.Version != computePlanVersion || plan.InputDepthProfile == nil {
+		t.Fatalf("fixture is not a current v3 plan: version=%d profile=%v", plan.Version, plan.InputDepthProfile)
+	}
+	if plan.EstimatedInputTokens != 4 || plan.SettlementInputUnits != 128 {
+		t.Fatalf("fixture failed to preserve distinct planning/money units: body=%d settlement=%v",
+			plan.EstimatedInputTokens, plan.SettlementInputUnits)
+	}
+}
+
+func TestV3ComputePlanRejectsDepthProfileAndSettlementAuthorityTampering(t *testing.T) {
 	decision, plan, _ := computePlanFixture(t)
 	if plan.Version != computePlanVersion || plan.InputDepthProfile == nil {
-		t.Fatalf("fixture is not a current v2 plan: version=%d profile=%v",
+		t.Fatalf("fixture is not a current v3 plan: version=%d profile=%v",
 			plan.Version, plan.InputDepthProfile)
 	}
 	// Band tampering
@@ -297,6 +309,13 @@ func TestV2ComputePlanRejectsDepthProfileTampering(t *testing.T) {
 	mutant.EstimatedInputTokens++
 	if err := ValidateFrozenComputePlanSnapshot(mutant, decision); err == nil {
 		t.Fatal("accepted estimated_input_tokens disagreeing with profile")
+	}
+	// Settlement units use the full frozen JSONL geometry, not the selected
+	// body-depth profile. Neither authority may be substituted for the other.
+	mutant = plan
+	mutant.SettlementInputUnits = float64(plan.EstimatedInputTokens)
+	if err := ValidateFrozenComputePlanSnapshot(mutant, decision); err == nil {
+		t.Fatal("accepted settlement units rewritten to selected-body tokens")
 	}
 	// Record count vs profile
 	mutant = plan
@@ -314,7 +333,7 @@ func TestV2ComputePlanRejectsDepthProfileTampering(t *testing.T) {
 	mutant = plan
 	mutant.InputDepthProfile = nil
 	if err := ValidateFrozenComputePlanSnapshot(mutant, decision); err == nil {
-		t.Fatal("accepted v2 plan without depth profile")
+		t.Fatal("accepted v3 plan without depth profile")
 	}
 	// Profile version tampering
 	mutant = plan
@@ -342,12 +361,24 @@ func TestV2ComputePlanRejectsDepthProfileTampering(t *testing.T) {
 
 func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 	decision, modern, _ := computePlanFixture(t)
+	// Exact-result reuse was eligible when v1/v2 plans were emitted. Rebuild
+	// that frozen workload authority explicitly so the compatibility fixture
+	// remains a byte-for-byte historical record after new batch decisions
+	// fail-close that unsafe cache path.
+	historicalDecision := decision
+	historicalDecision.ExactResultCacheEligible = true
+	historicalDecisionSHA, err := workloadDecisionDigest(historicalDecision)
+	if err != nil {
+		t.Fatalf("hash historical workload decision: %v", err)
+	}
 	// Reconstruct a version-1 plan shape with the historical bytes/4 token rule.
 	v1 := modern
 	v1.Version = computePlanVersionV1
+	v1.WorkloadDecisionSHA256 = historicalDecisionSHA
 	v1.InputDepthProfile = nil
 	v1.EstimatedInputTokens = estimatedInputTokensForComputePlanV1(v1.InputRecords, v1.InputBytes)
-	if err := ValidateFrozenComputePlanSnapshot(v1, decision); err != nil {
+	v1.SettlementInputUnits = 0
+	if err := ValidateFrozenComputePlanSnapshot(v1, historicalDecision); err != nil {
 		t.Fatalf("historical v1 plan rejected: %v", err)
 	}
 	digest, err := computePlanDigest(v1)
@@ -365,15 +396,30 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 	// V1 still rejects token tampering under the old rule.
 	tampered := v1
 	tampered.EstimatedInputTokens++
-	if err := ValidateFrozenComputePlanSnapshot(tampered, decision); err == nil {
+	if err := ValidateFrozenComputePlanSnapshot(tampered, historicalDecision); err == nil {
 		t.Fatal("v1 plan accepted token tampering")
 	}
 	// V1 rejects a smuggled depth profile.
 	tampered = v1
 	depth := testInputDepthProfile(v1.InputRecords)
 	tampered.InputDepthProfile = &depth
-	if err := ValidateFrozenComputePlanSnapshot(tampered, decision); err == nil {
+	if err := ValidateFrozenComputePlanSnapshot(tampered, historicalDecision); err == nil {
 		t.Fatal("v1 plan accepted an input depth profile")
+	}
+	// Version 2 is retained exactly as written before v3 introduced explicit
+	// settlement units. Historical pricing/receipt validation must not invent a
+	// field and thereby change an accepted plan's digest.
+	v2 := modern
+	v2.Version = computePlanVersionV2
+	v2.WorkloadDecisionSHA256 = historicalDecisionSHA
+	v2.SettlementInputUnits = 0
+	if err := ValidateFrozenComputePlanSnapshot(v2, historicalDecision); err != nil {
+		t.Fatalf("historical v2 plan rejected: %v", err)
+	}
+	tampered = v2
+	tampered.SettlementInputUnits = settlementInputUnitsForGeometry(v2.InputRecords, v2.InputBytes)
+	if err := ValidateFrozenComputePlanSnapshot(tampered, historicalDecision); err == nil {
+		t.Fatal("v2 plan accepted a post-hoc settlement authority field")
 	}
 	// Unsupported version still fails.
 	bad := v1
@@ -381,7 +427,7 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 	if _, err := computePlanDigest(bad); err == nil {
 		t.Fatal("unsupported version was hashable")
 	}
-	if err := ValidateFrozenComputePlanSnapshot(bad, decision); err == nil {
+	if err := ValidateFrozenComputePlanSnapshot(bad, historicalDecision); err == nil {
 		t.Fatal("unsupported version passed validation")
 	}
 }

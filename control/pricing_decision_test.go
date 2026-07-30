@@ -114,6 +114,40 @@ func TestDistributedPricingDecisionUsesExplicitUnknownCostStates(t *testing.T) {
 	}
 }
 
+func TestV3PricingBillableUnitsUseFrozenSettlementAuthority(t *testing.T) {
+	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
+	if compute.Version != computePlanVersion {
+		t.Fatalf("fixture plan version=%d, want current v3", compute.Version)
+	}
+	if compute.EstimatedInputTokens == int64(compute.SettlementInputUnits) {
+		t.Fatal("fixture does not distinguish selected-body planning tokens from settlement units")
+	}
+	want := compute.SettlementInputUnits + float64(compute.EstimatedOutputTokens)
+	if pricing.BillableUnits != want {
+		t.Fatalf("pricing billable_units=%v, want frozen settlement units %v", pricing.BillableUnits, want)
+	}
+	if pricing.BillableUnits == float64(compute.EstimatedInputTokens+compute.EstimatedOutputTokens) {
+		t.Fatal("pricing still presents selected-body planning tokens as money units")
+	}
+
+	// Historical v2 decisions retain their original computed presentation and
+	// remain verifiable; only newly frozen v3 plans gain the reconciled field.
+	historical := compute
+	historical.Version = computePlanVersionV2
+	historical.SettlementInputUnits = 0
+	historicalPricing, err := newDistributedPricingDecision(
+		workload, historical, placement, economic, pricing.Catalogue,
+		workload.Binding.Tier, "",
+	)
+	if err != nil {
+		t.Fatalf("rebuild historical v2 pricing: %v", err)
+	}
+	wantHistorical := float64(historical.EstimatedInputTokens + historical.EstimatedOutputTokens)
+	if historicalPricing.BillableUnits != wantHistorical {
+		t.Fatalf("historical v2 billable_units=%v, want preserved %v", historicalPricing.BillableUnits, wantHistorical)
+	}
+}
+
 func TestExactReusePricingHasNoPhysicalSupplierOrPlacement(t *testing.T) {
 	workload, origin, _, _, originPricing := distributedPricingFixture(t)
 	originSHA, err := pricingDecisionDigest(originPricing)
