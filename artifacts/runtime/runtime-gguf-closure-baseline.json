@@ -1,0 +1,63 @@
+{
+  "artifact_confound_carried_in": {
+    "candle": "pinned q4 GGUF",
+    "llama_cpp": "pinned q4 GGUF",
+    "mlx": "different 4-bit conversion",
+    "vllm": "HF bf16, NOT the pinned GGUF - this is the gap this pass must close"
+  },
+  "authority_document": {
+    "lifecycle": {
+      "candle": "ACTIVE",
+      "llama_cpp": "VALIDATED",
+      "mlx": "VALIDATED",
+      "vllm": "DRAFT"
+    },
+    "matrix_version": "2026-07-30.3",
+    "path": "control/runtime-authority.json",
+    "schema_version": 2,
+    "sha256": "2a6e5c8708c067409e6b8019d0cda18ae799e718042cdc6358c647415330eed6",
+    "uses_runtimes_array": true
+  },
+  "claim_boundary": "Baseline only. No benchmark in this file is re-measured here; the reported history is carried forward as unverified until re-run against the canonical manifest.",
+  "claimed_fixes_verified": {
+    "down_all_iterates_and_relists": {
+      "evidence": "scripts/runpod-vllm.sh down-all terminates each id then list_pods",
+      "status": "PRESENT"
+    },
+    "mlx_listen_backlog_at_least_256": {
+      "evidence": "no 'backlog' setting in any MLX path; only unrelated webhook_backlog metrics in scripts/local-resilience-rehearsal.sh",
+      "status": "NOT_FOUND"
+    },
+    "runpod_stale_env_files_deleted_before_provisioning": {
+      "evidence": "no rm/unlink of stale env, pod id, url or port files in scripts/runpod-vllm.sh",
+      "status": "NOT_FOUND"
+    },
+    "schema_v2_uses_runtimes_array": {
+      "evidence": "control/runtime-authority.json has runtimes[] and schema_version 2",
+      "status": "PRESENT"
+    },
+    "terminate_retries_and_verifies_absence": {
+      "evidence": "scripts/runpod-vllm.sh terminate() loops 1..3, calls pod_exists, prints '(verified)' only on absence",
+      "status": "PRESENT"
+    }
+  },
+  "git": {
+    "branch": "perf/execution-frontier",
+    "sha": "160afc5f9ab0b78eef26f064ec3bb9ef2fb3876b",
+    "tree_clean": true
+  },
+  "provider_state_at_baseline": {
+    "client_balance_usd": 16.87,
+    "command": "bash scripts/runpod-vllm.sh list",
+    "pods_running": 0,
+    "verified_zero_pods": true
+  },
+  "recorded_before_any_modification": true,
+  "schema": "merc.runtime.gguf-closure-baseline/v1",
+  "test_baseline": {
+    "command_go": "MERC_ALLOW_SKIPPING_DB_TESTS=1 go test ./...",
+    "command_rust": "cargo test",
+    "go_control_plane": "ok (merc/control)",
+    "rust_agent": "106 passed; 0 failed; 0 ignored"
+  }
+}
