@@ -681,6 +681,8 @@ func releaseAdapters(operation string) ([]releaseAdapter, error) {
 			{Name: "private-canary", Args: append(ssh, "--execute"), SuccessStatus: "canary_complete"},
 			{Name: "qualifying-soak", Args: append(ssh, "--duration", "86400", "--execute"), SuccessStatus: "soak_complete"},
 		}, nil
+	case "destroy":
+		return []releaseAdapter{{Name: "controlled-teardown", Args: append(ssh, "--execute"), SuccessStatus: "destroyed"}}, nil
 	}
 	return nil, fmt.Errorf("no audited adapter for release %s", operation)
 }
@@ -697,6 +699,8 @@ func adapterScript(name string) (string, error) {
 		return "go-closure-canary-rehearsal.sh", nil
 	case "qualifying-soak":
 		return "go-closure-soak.sh", nil
+	case "controlled-teardown":
+		return "go-closure-destroy.sh", nil
 	default:
 		return "", fmt.Errorf("unknown audited adapter %s", name)
 	}
@@ -712,6 +716,8 @@ func adapterFailureStatus(name string) string {
 		return "canary_failed"
 	case "qualifying-soak":
 		return "soak_failed"
+	case "controlled-teardown":
+		return "destroy_failed"
 	default:
 		return "adapter_failed"
 	}
@@ -729,6 +735,12 @@ func operationAllowed(status, operation string) bool {
 		return status == "canary_complete" || status == "soak_failed"
 	case "launch":
 		return status == "planned" || strings.HasSuffix(status, "_failed")
+	case "destroy":
+		switch status {
+		case "planned", "applied", "rollback_rehearsed", "restart_rehearsed", "canary_complete", "soak_complete",
+			"apply_failed", "rollback_failed", "canary_failed", "soak_failed", "destroy_failed":
+			return true
+		}
 	}
 	return false
 }
@@ -743,6 +755,8 @@ func resumeOperation(status string) (string, error) {
 		return "canary", nil
 	case "canary_complete", "soak_failed":
 		return "soak", nil
+	case "destroy_failed":
+		return "", errors.New("controlled teardown must be retried explicitly with --confirm-destroy")
 	}
 	return "", fmt.Errorf("state %q has no safe resumable operation", status)
 }
@@ -949,6 +963,7 @@ func dispatchLaunchRelease(args []string) {
 	approve := fs.String("approve-plan", "", "exact plan SHA-256 required for stateful commands")
 	apply := fs.Bool("apply", false, "acknowledge a stateful launch action")
 	uiListen := fs.String("listen", "127.0.0.1:0", "loopback address for release ui")
+	destroyConfirm := fs.String("confirm-destroy", "", "repeat exact plan SHA-256 to confirm controlled teardown")
 	fs.Parse(args[1:])
 	if *environment != levelBEnvironment {
 		fatalf("Level C and non-staging environments are prohibited")
@@ -1015,6 +1030,9 @@ func dispatchLaunchRelease(args []string) {
 		}
 		if *approve == "" || *approve != plan.PlanSHA256 {
 			fatalf("release %s refuses mutation without --approve-plan %s", command, plan.PlanSHA256)
+		}
+		if command == "destroy" && *destroyConfirm != plan.PlanSHA256 {
+			fatalf("release destroy requires --confirm-destroy %s; persistent volumes and evidence remain preserved", plan.PlanSHA256)
 		}
 		state, err := readLaunchState(root)
 		if err != nil {

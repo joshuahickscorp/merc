@@ -134,6 +134,9 @@ func TestReleaseStateTransitionsAreFailClosed(t *testing.T) {
 	if _, err := resumeOperation("deploy-candidate_running"); err == nil {
 		t.Fatal("ambiguous interrupted adapter was made resumable")
 	}
+	if _, err := resumeOperation("destroy_failed"); err == nil {
+		t.Fatal("failed teardown was made implicitly resumable")
+	}
 }
 
 func TestReleaseAdaptersUseAuditedScriptsOnly(t *testing.T) {
@@ -147,8 +150,9 @@ func TestReleaseAdaptersUseAuditedScriptsOnly(t *testing.T) {
 	if script, err := adapterScript(adapters[2].Name); err != nil || script != "go-closure-restart-storm.sh" {
 		t.Fatalf("restart adapter script=%q err=%v", script, err)
 	}
-	if _, err := releaseAdapters("destroy"); err == nil {
-		t.Fatal("destroy unexpectedly has an audited adapter")
+	destroy, err := releaseAdapters("destroy")
+	if err != nil || len(destroy) != 1 || destroy[0].Name != "controlled-teardown" {
+		t.Fatalf("destroy adapter=%+v err=%v", destroy, err)
 	}
 }
 

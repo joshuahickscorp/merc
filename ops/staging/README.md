@@ -263,3 +263,10 @@ random `127.0.0.1` port by default and prints the loopback URL. The handler is
 read-only, emits `Cache-Control: no-store`, and exposes only typed release
 state, typed root evidence, the readiness score, decision labels, and P1 IDs/
 owners. It rejects wildcard and non-loopback bind addresses.
+
+`merc release destroy` is a controlled service teardown, not a data eraser. It
+requires `--apply`, `--approve-plan <PLAN_SHA256>`, and
+`--confirm-destroy <PLAN_SHA256>`, then stops only the audited Compose services
+and writes an exact teardown receipt. It preserves persistent volumes, staged
+evidence, offsite backups, the operator environment file, and images. Any
+destruction of those durable materials must be separately scoped and approved.
