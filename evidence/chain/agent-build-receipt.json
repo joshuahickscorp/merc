@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "kind": "agent_build_receipt",
+  "merc_source_commit": "0ab1d535ac2645c96d8309c56602cb7a60c0f84b",
+  "branch": "perf/execution-frontier",
+  "binary": "agent/target/release/merc-agent",
+  "sha256": "57ce11e2f630db8b313b5862ca01b11f817455c1f89f1c8059de211bdc9ce59a",
+  "bytes": 11216880,
+  "toolchain": {
+    "rustc": "rustc 1.94.1 (e408947bf 2026-03-25) (Homebrew)",
+    "cargo": "cargo 1.94.1 (Homebrew)"
+  },
+  "runtime_authority_matrix": "2026-07-30.7",
+  "note": "Rebuilt from source after agent/target was deleted during cleanup. Not carried over from another branch or a prior build."
+}

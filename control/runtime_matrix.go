@@ -80,15 +80,25 @@ func projectWorkerRuntimeCapabilities(cap WorkerCapability) ([]generatedRuntimeC
 	if err := validateWorkerCapabilityShape(cap); err != nil {
 		return nil, err
 	}
-	lane := make([]generatedRuntimeCapability, 0, len(generatedAdvertisedRuntimeCapabilities))
-	for _, candidate := range generatedAdvertisedRuntimeCapabilities {
+	// The DIRECTED set, which is the advertised set plus cells reachable only by
+	// operator or test routing.
+	//
+	// A worker had to be able to advertise an advertised cell, which made the
+	// llama.cpp embed cell unreachable: it is VALIDATED, so no worker could offer
+	// it, so no worker could execute the chain that would prove it, so it could
+	// never leave VALIDATED. Enrolment widens to the directed set to break that
+	// circle; what stops it widening the PRODUCT is that ordinary dispatch is
+	// gated on the frozen runtime candidate, and directed candidates are only
+	// frozen by an operator or a test.
+	lane := make([]generatedRuntimeCapability, 0, len(generatedDirectedRuntimeCapabilities))
+	for _, candidate := range generatedDirectedRuntimeCapabilities {
 		if candidate.Engine == cap.Engine && generatedCapabilityHasHWClass(candidate, cap.HWClass) {
 			lane = append(lane, candidate)
 		}
 	}
 	if len(lane) == 0 {
 		return nil, fmt.Errorf(
-			"runtime engine=%q hw_class=%q has no advertised production cell (matrix %s)",
+			"runtime engine=%q hw_class=%q has no reachable production cell (matrix %s)",
 			cap.Engine, cap.HWClass, generatedRuntimeMatrixVersion,
 		)
 	}
@@ -372,4 +382,19 @@ func (s *Store) ValidateAdvertisedRuntimeCatalog(ctx context.Context) error {
 		return fmt.Errorf("reading model catalog for runtime-matrix validation: %w", err)
 	}
 	return validateAdvertisedRuntimeCatalogRows(rows)
+}
+
+// advertisedRuntimeCell reports whether a cell is in the buyer-facing projection.
+//
+// Enrolment projects the DIRECTED set, which is deliberately wider, so this is
+// how a stored worker capability records which of the two it came from. A
+// directed-only capability is real and claimable — but only by a job whose
+// frozen decision names it.
+func advertisedRuntimeCell(cellID string) bool {
+	for _, candidate := range generatedAdvertisedRuntimeCapabilities {
+		if candidate.ID == cellID {
+			return true
+		}
+	}
+	return false
 }

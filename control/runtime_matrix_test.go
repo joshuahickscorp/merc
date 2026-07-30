@@ -237,8 +237,8 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 		mutate  func(*WorkerCapability)
 		pattern string
 	}{
-		{name: "unknown engine", mutate: func(c *WorkerCapability) { c.Engine = "other" }, pattern: "no advertised production cell"},
-		{name: "unknown hardware", mutate: func(c *WorkerCapability) { c.HWClass = "other" }, pattern: "no advertised production cell"},
+		{name: "unknown engine", mutate: func(c *WorkerCapability) { c.Engine = "other" }, pattern: "no reachable production cell"},
+		{name: "unknown hardware", mutate: func(c *WorkerCapability) { c.HWClass = "other" }, pattern: "no reachable production cell"},
 		{
 			name: "unknown model",
 			mutate: func(c *WorkerCapability) {

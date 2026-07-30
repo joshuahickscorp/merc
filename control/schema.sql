@@ -1130,6 +1130,17 @@ CREATE TABLE IF NOT EXISTS worker_authorized_capabilities (
     CHECK (matrix_sha256 ~ '^[0-9a-f]{64}$')
 );
 ALTER TABLE worker_authorized_capabilities ADD COLUMN IF NOT EXISTS model_kind TEXT;
+-- Whether this capability may take ORDINARY buyer work.
+--
+-- Workers may now enrol against directed-only cells, because a cell reaches
+-- REAL_RUNTIME_PROVEN by being driven through the chain and a worker that cannot
+-- advertise it can never be the one driving. That widening needs a floor: the
+-- scheduler's frozen-candidate filter has a legacy `workload_decision IS NULL`
+-- escape hatch, and without this column a directed-only worker could claim a
+-- legacy job and execute unproven buyer work. Recorded per capability rather than
+-- per worker, because one worker can hold both kinds.
+ALTER TABLE worker_authorized_capabilities
+    ADD COLUMN IF NOT EXISTS routable BOOLEAN NOT NULL DEFAULT true;
 DELETE FROM worker_authorized_capabilities
  WHERE COALESCE(model_kind,'') NOT IN ('gguf','hf');
 ALTER TABLE worker_authorized_capabilities ALTER COLUMN model_kind SET NOT NULL;
