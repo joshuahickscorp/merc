@@ -40,8 +40,9 @@ func TestScanJSONLCountsAndFields(t *testing.T) {
 	if s.MalformedRecords != 0 || s.FirstBadLine != 0 {
 		t.Fatalf("clean input flagged malformed: %+v", s)
 	}
-	if s.EstimatedTokens <= 0 || int(s.EstimatedTokens) < s.Bytes/4 {
-		t.Fatalf("estimated_tokens=%d for %d bytes looks wrong", s.EstimatedTokens, s.Bytes)
+	if s.EstimatedTokens != s.InputDepth.EstimatedTokens || s.EstimatedTokens != 5 {
+		t.Fatalf("estimated_tokens=%d input_depth=%+v, want selected-body estimate 5",
+			s.EstimatedTokens, s.InputDepth)
 	}
 	want := []string{"id", "prompt", "text"}
 	if len(s.DetectedFields) != 3 || s.DetectedFields[0] != "id" ||

@@ -36,6 +36,7 @@ func computePlanFixture(t *testing.T) (WorkloadDecision, ComputePlan, EconomicPl
 		decision,
 		4,
 		512,
+		testInputDepthProfile(4),
 		2,
 		2,
 		1,
@@ -163,7 +164,7 @@ func TestComputePlanKeepsUnflooredEstimateUnderMinBillableSettlementFloor(t *tes
 	// Estimation freeze: unfloored primary + (expansion − primary). This is
 	// what submit/quote already freeze; it must validate against floored economics.
 	plan, err := newDistributedComputePlan(
-		decision, primaryTasks, 512, 1, primaryTasks, 0, honeypotTasks,
+		decision, primaryTasks, 512, testInputDepthProfile(primaryTasks), 1, primaryTasks, 0, honeypotTasks,
 		QuoteTime{P50Secs: 30, P90Secs: 60, WorstCaseSecs: 120}, "static",
 		cataloguePrimary, math.Max(0, unfloored-cataloguePrimary),
 		QuoteConfidence{Score: 0.8, Reasons: []string{"unfloored estimate freeze"}},
@@ -255,7 +256,7 @@ func TestSettlementBaseFromComputeEstimateMatchesBuildEconomicPlanFloor(t *testi
 
 func TestExactReusePlanBindsOriginWithoutInventingPhysicalWork(t *testing.T) {
 	decision, origin, _ := computePlanFixture(t)
-	reuse, err := newExactReuseComputePlan(decision, 4, 512, 0.05, &origin)
+	reuse, err := newExactReuseComputePlan(decision, 4, 512, testInputDepthProfile(4), 0.05, &origin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,5 +272,133 @@ func TestExactReusePlanBindsOriginWithoutInventingPhysicalWork(t *testing.T) {
 	}
 	if err := ValidateFrozenComputePlanSnapshot(reuse, decision); err != nil {
 		t.Fatalf("exact reuse plan rejected: %v", err)
+	}
+	if reuse.InputDepthProfile == nil || reuse.Version != computePlanVersion {
+		t.Fatal("exact reuse plan must carry current input depth profile authority")
+	}
+}
+
+func TestV2ComputePlanRejectsDepthProfileTampering(t *testing.T) {
+	decision, plan, _ := computePlanFixture(t)
+	if plan.Version != computePlanVersion || plan.InputDepthProfile == nil {
+		t.Fatalf("fixture is not a current v2 plan: version=%d profile=%v",
+			plan.Version, plan.InputDepthProfile)
+	}
+	// Band tampering
+	mutant := plan
+	depth := *plan.InputDepthProfile
+	depth.P90DepthBand = inputDepthBandLong
+	mutant.InputDepthProfile = &depth
+	if err := ValidateFrozenComputePlanSnapshot(mutant, decision); err == nil {
+		t.Fatal("accepted tampered p90 depth band")
+	}
+	// Token tampering on plan while profile stays
+	mutant = plan
+	mutant.EstimatedInputTokens++
+	if err := ValidateFrozenComputePlanSnapshot(mutant, decision); err == nil {
+		t.Fatal("accepted estimated_input_tokens disagreeing with profile")
+	}
+	// Record count vs profile
+	mutant = plan
+	depth = *plan.InputDepthProfile
+	depth.ShortRecords++
+	// re-derive tokens/p90 so only the count mismatch vs InputRecords remains
+	// (validateInputDepthProfile may still pass if p90/tokens recomputed inconsistently)
+	depth.EstimatedTokens = estimateTokensFromCounts(int(depth.BodyRunes), int(depth.BodyASCIIBytes), int(depth.BodyBytes))
+	depth.P90DepthBand = deriveP90DepthBand(depth.ShortRecords, depth.MediumRecords, depth.LongRecords)
+	mutant.InputDepthProfile = &depth
+	if err := ValidateFrozenComputePlanSnapshot(mutant, decision); err == nil {
+		t.Fatal("accepted depth profile counts that disagree with input_records")
+	}
+	// Dropping the profile entirely
+	mutant = plan
+	mutant.InputDepthProfile = nil
+	if err := ValidateFrozenComputePlanSnapshot(mutant, decision); err == nil {
+		t.Fatal("accepted v2 plan without depth profile")
+	}
+	// Profile version tampering
+	mutant = plan
+	depth = *plan.InputDepthProfile
+	depth.Version = 99
+	mutant.InputDepthProfile = &depth
+	if err := ValidateFrozenComputePlanSnapshot(mutant, decision); err == nil {
+		t.Fatal("accepted unsupported depth profile version")
+	}
+	// The selected bodies must fit inside the exact frozen input byte count.
+	mutant = plan
+	depth = *plan.InputDepthProfile
+	depth.BodyBytes = plan.InputBytes + 1
+	depth.BodyRunes = depth.BodyBytes
+	depth.BodyASCIIBytes = depth.BodyBytes
+	depth.EstimatedTokens = estimateTokensFromCounts(
+		int(depth.BodyRunes), int(depth.BodyASCIIBytes), int(depth.BodyBytes),
+	)
+	mutant.EstimatedInputTokens = depth.EstimatedTokens
+	mutant.InputDepthProfile = &depth
+	if err := ValidateFrozenComputePlanSnapshot(mutant, decision); err == nil {
+		t.Fatal("accepted selected-body bytes greater than exact input bytes")
+	}
+}
+
+func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
+	decision, modern, _ := computePlanFixture(t)
+	// Reconstruct a version-1 plan shape with the historical bytes/4 token rule.
+	v1 := modern
+	v1.Version = computePlanVersionV1
+	v1.InputDepthProfile = nil
+	v1.EstimatedInputTokens = estimatedInputTokensForComputePlanV1(v1.InputRecords, v1.InputBytes)
+	if err := ValidateFrozenComputePlanSnapshot(v1, decision); err != nil {
+		t.Fatalf("historical v1 plan rejected: %v", err)
+	}
+	digest, err := computePlanDigest(v1)
+	if err != nil {
+		t.Fatalf("historical v1 plan not hashable: %v", err)
+	}
+	if digest == "" || len(digest) != 64 {
+		t.Fatalf("unexpected v1 digest %q", digest)
+	}
+	const historicalV1FixtureDigest = "afde5895202f42a2defbb15c4cb72f6a02c30fdcba4daca171d7f639903d5160"
+	if digest != historicalV1FixtureDigest {
+		t.Fatalf("historical v1 digest changed: got %s want %s",
+			digest, historicalV1FixtureDigest)
+	}
+	// V1 still rejects token tampering under the old rule.
+	tampered := v1
+	tampered.EstimatedInputTokens++
+	if err := ValidateFrozenComputePlanSnapshot(tampered, decision); err == nil {
+		t.Fatal("v1 plan accepted token tampering")
+	}
+	// V1 rejects a smuggled depth profile.
+	tampered = v1
+	depth := testInputDepthProfile(v1.InputRecords)
+	tampered.InputDepthProfile = &depth
+	if err := ValidateFrozenComputePlanSnapshot(tampered, decision); err == nil {
+		t.Fatal("v1 plan accepted an input depth profile")
+	}
+	// Unsupported version still fails.
+	bad := v1
+	bad.Version = 99
+	if _, err := computePlanDigest(bad); err == nil {
+		t.Fatal("unsupported version was hashable")
+	}
+	if err := ValidateFrozenComputePlanSnapshot(bad, decision); err == nil {
+		t.Fatal("unsupported version passed validation")
+	}
+}
+
+func TestBoundQuoteRefusesDifferentMeasuredDepthProfile(t *testing.T) {
+	_, plan, _ := computePlanFixture(t)
+	if plan.InputDepthProfile == nil {
+		t.Fatal("fixture missing depth profile")
+	}
+	measured := *plan.InputDepthProfile
+	if !inputDepthProfilesEqual(*plan.InputDepthProfile, measured) {
+		t.Fatal("identical profiles should equal")
+	}
+	measured.LongRecords++
+	measured.ShortRecords--
+	measured.P90DepthBand = deriveP90DepthBand(measured.ShortRecords, measured.MediumRecords, measured.LongRecords)
+	if inputDepthProfilesEqual(*plan.InputDepthProfile, measured) {
+		t.Fatal("distinct profiles should not equal — bound submit must refuse")
 	}
 }

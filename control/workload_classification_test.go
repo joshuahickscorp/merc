@@ -331,6 +331,8 @@ func TestWorkloadInputShapeFailsBeforeExecution(t *testing.T) {
 		"array":           []byte("[\"not\",\"an\",\"object\"]\n"),
 		"missing body":    []byte("{\"id\":\"1\"}\n"),
 		"non-string body": []byte("{\"text\":7}\n"),
+		"duplicate body":  []byte("{\"text\":\"first\",\"text\":\"second\"}\n"),
+		"invalid utf8":    append([]byte("{\"text\":\""), 0xff, '"', '}', '\n'),
 		"empty":           []byte("\n \n"),
 	} {
 		t.Run(name, func(t *testing.T) {

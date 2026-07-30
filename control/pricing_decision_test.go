@@ -121,7 +121,7 @@ func TestExactReusePricingHasNoPhysicalSupplierOrPlacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	reuseCompute, err := newExactReuseComputePlan(
-		workload, origin.InputRecords, origin.InputBytes, 0.01, &origin,
+		workload, origin.InputRecords, origin.InputBytes, testInputDepthProfile(origin.InputRecords), 0.01, &origin,
 	)
 	if err != nil {
 		t.Fatal(err)

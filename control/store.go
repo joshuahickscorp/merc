@@ -550,15 +550,19 @@ const driftMinSamples = 5
 
 const driftWindow = 24 * time.Hour
 
-func (s *Store) HistoricalP90DurationMs(ctx context.Context, jobType, modelRef string) (p90ms int64, samples int, err error) {
+// HistoricalP90DurationMs is scoped by (job_type, model_ref, input_depth_band).
+// An empty inputDepthBand addresses only the legacy NULL/empty bucket so new
+// band-specific callers never inherit undepth-scoped history.
+func (s *Store) HistoricalP90DurationMs(ctx context.Context, jobType, modelRef, inputDepthBand string) (p90ms int64, samples int, err error) {
 	err = s.pool.QueryRow(ctx,
 		`SELECT COUNT(*),
 		        COALESCE(percentile_disc(0.9) WITHIN GROUP (ORDER BY duration_ms), 0)
 		   FROM task_durations
 		  WHERE job_type = $1
 		    AND COALESCE(model_ref,'') = $2
-		    AND created_at > now() - make_interval(secs => $3)`,
-		jobType, modelRef, int(driftWindow.Seconds()),
+		    AND COALESCE(input_depth_band,'') = $3
+		    AND created_at > now() - make_interval(secs => $4)`,
+		jobType, modelRef, inputDepthBand, int(driftWindow.Seconds()),
 	).Scan(&samples, &p90ms)
 	if err != nil {
 		return 0, 0, err
@@ -576,8 +580,9 @@ const etaBiasFactorMax = 3.0
 
 // ETABiasFactor closes the loop that recordEtaCalibration opens. Every finalized
 // job writes its predicted and realized seconds to eta_calibration; this reads
-// the model-scoped median realized/predicted ratio back so the next quote can
-// correct for a systematic bias instead of letting one model stretch another.
+// the (job_type, tier, model_ref, input_depth_band)-scoped median
+// realized/predicted ratio back so the next quote can correct for a systematic
+// bias without letting unlike input depths stretch each other.
 //
 // The correction is deliberately one-sided: the returned factor is never below
 // 1. An ETA that is too optimistic misleads the buyer and burns SLA refunds, so
@@ -591,8 +596,11 @@ const etaBiasFactorMax = 3.0
 // always measures the uncalibrated estimator rather than feeding its own
 // corrected buyer promise back into the next window. Legacy jobs with no raw
 // authority use eta_secs once and naturally age out of driftWindow.
+//
+// An empty inputDepthBand addresses only the legacy NULL/empty bucket; new
+// callers pass a validated non-empty band so legacy rows never bleed into it.
 func (s *Store) ETABiasFactor(
-	ctx context.Context, jobType, tier, modelRef string,
+	ctx context.Context, jobType, tier, modelRef, inputDepthBand string,
 ) (factor float64, samples int, err error) {
 	var median float64
 	err = s.pool.QueryRow(ctx,
@@ -603,10 +611,11 @@ func (s *Store) ETABiasFactor(
 		  WHERE job_type = $1
 		    AND tier = $2
 		    AND COALESCE(model_ref,'') = $3
+		    AND COALESCE(input_depth_band,'') = $4
 		    AND predicted_secs > 0
 		    AND realized_secs >= 0
-		    AND created_at > now() - make_interval(secs => $4)`,
-		jobType, tier, modelRef, int(driftWindow.Seconds()),
+		    AND created_at > now() - make_interval(secs => $5)`,
+		jobType, tier, modelRef, inputDepthBand, int(driftWindow.Seconds()),
 	).Scan(&samples, &median)
 	if err != nil {
 		return 1, 0, err
@@ -1609,18 +1618,27 @@ type DeadClaim struct {
 func (s *Store) RecordEtaCalibration(
 	ctx context.Context, jobID uuid.UUID,
 ) (rawPredicted, quotedPredicted, realized int, err error) {
+	// input_depth_band is derived from the job's frozen compute-plan JSON so
+	// calibration writes share the same authority as quotes and receipts.
 	err = s.pool.QueryRow(ctx,
 		`WITH source AS (
 		   SELECT id, job_type, tier, COALESCE(model_ref,'') AS model_ref,
 		          COALESCE(eta_secs_raw, eta_secs) AS raw_predicted_secs,
 		          eta_secs AS quoted_predicted_secs,
-		          GREATEST(0, EXTRACT(EPOCH FROM (now() - created_at)))::int AS realized_secs
+		          GREATEST(0, EXTRACT(EPOCH FROM (now() - created_at)))::int AS realized_secs,
+		          CASE
+		            WHEN compute_plan->'input_depth_profile'->>'p90_depth_band'
+		                 IN ('short','medium','long')
+		            THEN compute_plan->'input_depth_profile'->>'p90_depth_band'
+		            ELSE NULL
+		          END AS input_depth_band
 		     FROM jobs
 		    WHERE id = $1 AND COALESCE(eta_secs_raw, eta_secs, 0) > 0
 		 ), inserted AS (
 		   INSERT INTO eta_calibration
-		     (job_id, job_type, tier, model_ref, predicted_secs, realized_secs)
-		   SELECT id, job_type, tier, model_ref, raw_predicted_secs, realized_secs FROM source
+		     (job_id, job_type, tier, model_ref, input_depth_band, predicted_secs, realized_secs)
+		   SELECT id, job_type, tier, model_ref, input_depth_band, raw_predicted_secs, realized_secs
+		     FROM source
 		   ON CONFLICT (job_id) DO NOTHING
 		   RETURNING job_id, predicted_secs, realized_secs
 		 )

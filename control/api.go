@@ -770,7 +770,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		canonicalWriter = canonicalPut.writer
 	}
 
-	tasks, _, totalRecords, exactInputBytes, sum256, serr := s.streamSplitAndUpload(
+	tasks, _, totalRecords, exactInputBytes, measuredDepth, sum256, serr := s.streamSplitAndUpload(
 		ctx, jobID, sub.JobType.Type, inputReader, splitSize, canonicalWriter,
 	)
 	if canonicalPut != nil {
@@ -851,6 +851,11 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			return JobSubmitResponse{}, &httpError{http.StatusConflict,
 				"quote compute geometry no longer matches the exact submit stream; request a new quote"}
 		}
+		if qBind.ComputePlan.InputDepthProfile == nil ||
+			!inputDepthProfilesEqual(*qBind.ComputePlan.InputDepthProfile, measuredDepth) {
+			return JobSubmitResponse{}, &httpError{http.StatusConflict,
+				"quote input depth profile no longer matches the exact submit stream; request a new quote"}
+		}
 		boundQuoteID = qBind.ID
 	}
 
@@ -885,6 +890,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 				workloadDecision,
 				totalRecords,
 				int64(exactInputBytes),
+				measuredDepth,
 				reuseBuyerCharge,
 				originComputePlan,
 			)
@@ -1100,15 +1106,18 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		etaSecs = computePlan.ETAP50Secs
 		etaRawSecs = qBind.ETARawSecs
 	} else {
+		depthBand := measuredDepth.P90DepthBand
 		p50, _, plannerBacked := s.etaBandSecsFor(
-			ctx, placement.supplyRequirements(), len(tasks),
+			ctx, placement.supplyRequirements(), len(tasks), depthBand,
 		)
-		observedP90ms, _, historyErr := s.store.HistoricalP90DurationMs(ctx, sub.JobType.Type, sub.Model.Ref)
+		observedP90ms, _, historyErr := s.store.HistoricalP90DurationMs(
+			ctx, sub.JobType.Type, sub.Model.Ref, depthBand,
+		)
 		usedObservedHistory := historyErr == nil && observedP90ms > 0
 		p50 = sustainedBatchETASecs(p50, sub.Tier, usedObservedHistory)
 		etaRawSecs = p50
 		etaBias, etaBiasSamples, etaBiasErr := s.store.ETABiasFactor(
-			ctx, sub.JobType.Type, sub.Tier, sub.Model.Ref,
+			ctx, sub.JobType.Type, sub.Tier, sub.Model.Ref, depthBand,
 		)
 		etaCalibrated := etaBiasErr == nil && etaBiasSamples >= driftMinSamples && etaBias > 1
 		if etaCalibrated {
@@ -1127,6 +1136,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			workloadDecision,
 			totalRecords,
 			int64(exactInputBytes),
+			measuredDepth,
 			splitSize,
 			nPrimary,
 			actualRedundancy,
@@ -1137,7 +1147,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			math.Max(0, baseComputeUSD-basePrimaryCompute),
 			confidence,
 			[]string{
-				"token counts use a documented byte-and-record heuristic rather than the model tokenizer",
+				"token counts use a documented body-depth estimator rather than the model tokenizer",
 				"ETA is a frozen estimate; queue contention after acceptance can change wall-clock completion",
 				"power draw and provider-specific energy cost are not yet modeled",
 			},
@@ -3398,11 +3408,12 @@ func perTaskSecsFromP90(p90ms int64) int {
 	return secs
 }
 
-func (s *Server) etaBandSecs(ctx context.Context, jobType, modelRef string, minMemGB float32, nTasks int) (eta, conservative int, plannerBacked bool) {
+func (s *Server) etaBandSecs(ctx context.Context, jobType, modelRef string, minMemGB float32, nTasks int, inputDepthBand string) (eta, conservative int, plannerBacked bool) {
 	return s.etaBandSecsFor(
 		ctx,
 		normalizedSupplyRequirements(jobType, modelRef, QuoteSupplyRequirements{MinMemoryGB: minMemGB}),
 		nTasks,
+		inputDepthBand,
 	)
 }
 
@@ -3410,9 +3421,10 @@ func (s *Server) etaBandSecsFor(
 	ctx context.Context,
 	req QuoteSupplyRequirements,
 	nTasks int,
+	inputDepthBand string,
 ) (eta, conservative int, plannerBacked bool) {
 	jobType, modelRef := req.JobType, req.ModelRef
-	p90ms, _, err := s.store.HistoricalP90DurationMs(ctx, jobType, modelRef)
+	p90ms, _, err := s.store.HistoricalP90DurationMs(ctx, jobType, modelRef, inputDepthBand)
 	if err != nil {
 		p90ms = 0
 	}
@@ -3503,7 +3515,7 @@ func newStreamingPut(ctx context.Context, storage *Storage, key, contentType str
 
 func (sp *streamingPut) wait() error { return <-sp.done }
 
-func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobType string, input io.Reader, splitSize int, canonicalTee io.Writer) (tasks []taskRow, totalBytes int, totalRecords int, exactInputBytes int, sum256 [32]byte, err error) {
+func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobType string, input io.Reader, splitSize int, canonicalTee io.Writer) (tasks []taskRow, totalBytes int, totalRecords int, exactInputBytes int, depth InputDepthProfile, sum256 [32]byte, err error) {
 	if splitSize <= 0 {
 		splitSize = defaultSplitSize
 	}
@@ -3518,6 +3530,7 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobT
 	grp.SetLimit(uploadConcurrency)
 
 	nextIndex := 0
+	depthAcc := newInputDepthAccumulator()
 
 	br := bufio.NewReaderSize(input, 64<<10)
 	var lineBuf bytes.Buffer
@@ -3556,10 +3569,12 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobT
 			trimmed := bytes.TrimRight(line, "\r\n")
 			totalBytes += len(trimmed)
 			if len(bytes.TrimSpace(trimmed)) != 0 {
-				if verr := validateWorkloadJSONLRecord(jobType, trimmed, lineNumber); verr != nil {
+				body, verr := parseWorkloadJSONLRecord(jobType, trimmed, lineNumber)
+				if verr != nil {
 					_ = grp.Wait()
-					return tasks, totalBytes, totalRecords, exactInputBytes, sum256, verr
+					return tasks, totalBytes, totalRecords, exactInputBytes, depth, sum256, verr
 				}
+				depthAcc.addBody(body)
 				lineBuf.Write(trimmed)
 				lineBuf.WriteByte('\n')
 				linesInChunk++
@@ -3572,18 +3587,24 @@ func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobT
 		if rerr != nil {
 			if rerr != io.EOF {
 				_ = grp.Wait()
-				return nil, 0, 0, 0, sum256, rerr
+				return nil, 0, 0, 0, depth, sum256, rerr
 			}
 			break
 		}
 	}
 	flush() // the final, possibly-short chunk
 	if werr := grp.Wait(); werr != nil {
-		return nil, 0, 0, 0, sum256, werr
+		return nil, 0, 0, 0, depth, sum256, werr
 	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ChunkIndex < tasks[j].ChunkIndex })
 	copy(sum256[:], hasher.Sum(nil))
-	return tasks, totalBytes, totalRecords, exactInputBytes, sum256, nil
+	if totalRecords > 0 {
+		depth, err = depthAcc.profile()
+		if err != nil {
+			return nil, 0, 0, 0, depth, sum256, err
+		}
+	}
+	return tasks, totalBytes, totalRecords, exactInputBytes, depth, sum256, nil
 }
 
 func countNonBlankJSONLRecords(data []byte) int {

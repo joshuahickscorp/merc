@@ -44,6 +44,18 @@ func effectiveObservedOutputMaxTokens(workload WorkloadDecision, plan ComputePla
 	return maxTokens
 }
 
+// settlementInputUnitsForComputePlan preserves the unit composition that
+// created the frozen price. Version-2 EstimatedInputTokens is selected-body
+// planning authority, while the current catalogue freeze is still based on
+// max(record count, whole-input bytes/4). Feeding body tokens into the unused
+// output rebate would silently change buyer charges and supplier payouts.
+func settlementInputUnitsForComputePlan(plan ComputePlan) int64 {
+	if plan.Version == computePlanVersion {
+		return estimatedInputTokensForComputePlanV1(plan.InputRecords, plan.InputBytes)
+	}
+	return plan.EstimatedInputTokens
+}
+
 // settleObservedOutputTokens bounds generative batch settlement by tokens the
 // worker actually reported, relative to the frozen output ceiling.
 //
@@ -274,7 +286,7 @@ func loadObservedOutputSettlement(
 	}
 	return settleObservedOutputTokens(
 		frozenCharge, frozenPayout,
-		plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
+		settlementInputUnitsForComputePlan(plan), plan.EstimatedOutputTokens,
 		expectedRecords, effectiveObservedOutputMaxTokens(workload, plan),
 		reported, hasReported,
 	), nil

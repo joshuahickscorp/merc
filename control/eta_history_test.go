@@ -12,12 +12,22 @@ import (
 func insertTaskDurationRows(t *testing.T, pool *pgxpool.Pool, ctx context.Context,
 	jobType string, modelRef *string, durationMS, count int) {
 	t.Helper()
+	insertTaskDurationRowsWithBand(t, pool, ctx, jobType, modelRef, "", durationMS, count)
+}
+
+func insertTaskDurationRowsWithBand(t *testing.T, pool *pgxpool.Pool, ctx context.Context,
+	jobType string, modelRef *string, band string, durationMS, count int) {
+	t.Helper()
+	var bandArg any
+	if band != "" {
+		bandArg = band
+	}
 	for range count {
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO task_durations (job_type,model_ref,duration_ms)
-			 VALUES ($1,$2,$3)`,
-			jobType, modelRef, durationMS); err != nil {
-			t.Fatalf("insert task duration: %v", err)
+			`INSERT INTO task_durations (job_type,model_ref,duration_ms,input_depth_band)
+			 VALUES ($1,$2,$3,$4)`,
+			jobType, modelRef, durationMS, bandArg); err != nil {
+			t.Fatalf("insert task duration band=%q: %v", band, err)
 		}
 	}
 }
@@ -54,7 +64,7 @@ func TestHistoricalP90DurationMsIsExactModelScoped(t *testing.T) {
 		{model: "thin-model", wantP90MS: 0, wantSamples: driftMinSamples - 1},
 		{model: "unseen-model", wantP90MS: 0, wantSamples: 0},
 	} {
-		p90ms, samples, err := store.HistoricalP90DurationMs(ctx, jobType, tc.model)
+		p90ms, samples, err := store.HistoricalP90DurationMs(ctx, jobType, tc.model, "")
 		if err != nil {
 			t.Fatalf("HistoricalP90DurationMs(%q): %v", tc.model, err)
 		}
@@ -91,5 +101,42 @@ func TestHistoricalP90DurationMsIsExactModelScoped(t *testing.T) {
 	thin := byModel["thin-model"]
 	if thin.Samples != driftMinSamples-1 || thin.UsingObservedP90 {
 		t.Fatalf("thin DriftRollup = %+v, want untrusted %d-sample row", thin, driftMinSamples-1)
+	}
+}
+
+// TestHistoricalP90DurationMsIsInputDepthBandScoped proves short/long/legacy
+// duration buckets cannot contaminate each other.
+func TestHistoricalP90DurationMsIsInputDepthBandScoped(t *testing.T) {
+	store, pool, ctx := etaCalibrationTestStore(t)
+	jobType := "etahistdepth_" + uuid.NewString()[:8]
+	model := "depth-history-model"
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(c, `DELETE FROM task_durations WHERE job_type=$1`, jobType)
+	})
+
+	insertTaskDurationRowsWithBand(t, pool, ctx, jobType, stringRef(model), inputDepthBandShort, 100, driftMinSamples)
+	insertTaskDurationRowsWithBand(t, pool, ctx, jobType, stringRef(model), inputDepthBandLong, 5000, driftMinSamples)
+	insertTaskDurationRowsWithBand(t, pool, ctx, jobType, stringRef(model), "", 9000, driftMinSamples)
+
+	for _, tc := range []struct {
+		band        string
+		wantP90MS   int64
+		wantSamples int
+	}{
+		{band: inputDepthBandShort, wantP90MS: 100, wantSamples: driftMinSamples},
+		{band: inputDepthBandLong, wantP90MS: 5000, wantSamples: driftMinSamples},
+		{band: "", wantP90MS: 9000, wantSamples: driftMinSamples},
+		{band: inputDepthBandMedium, wantP90MS: 0, wantSamples: 0},
+	} {
+		p90ms, samples, err := store.HistoricalP90DurationMs(ctx, jobType, model, tc.band)
+		if err != nil {
+			t.Fatalf("HistoricalP90DurationMs(band=%q): %v", tc.band, err)
+		}
+		if p90ms != tc.wantP90MS || samples != tc.wantSamples {
+			t.Fatalf("HistoricalP90DurationMs(band=%q) = %dms/%d samples, want %dms/%d",
+				tc.band, p90ms, samples, tc.wantP90MS, tc.wantSamples)
+		}
 	}
 }

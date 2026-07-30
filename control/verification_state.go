@@ -93,8 +93,16 @@ func (s *Store) FinalizeTaskVerification(ctx context.Context, info *CommitTaskIn
 
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO task_durations
-		   (task_id, job_id, job_type, model_ref, split_size, duration_ms, worker_id, engine, build_hash)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		   (task_id, job_id, job_type, model_ref, split_size, duration_ms, worker_id, engine, build_hash, input_depth_band)
+		 VALUES (
+		   $1,$2,$3,$4,$5,$6,$7,$8,$9,
+		   (SELECT CASE
+		      WHEN compute_plan->'input_depth_profile'->>'p90_depth_band'
+		           IN ('short','medium','long')
+		      THEN compute_plan->'input_depth_profile'->>'p90_depth_band'
+		      ELSE NULL
+		    END FROM jobs WHERE id = $2)
+		 )`,
 		info.TaskID, info.JobID, info.jobType, info.ModelRef, info.SplitSize, int64(info.DurationMS),
 		info.WorkerID, info.engine, info.buildHash,
 	); err != nil {

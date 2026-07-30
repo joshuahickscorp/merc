@@ -426,7 +426,7 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 				}
 				settled := settleObservedOutputTokens(
 					*frozen, *frozen,
-					plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
+					settlementInputUnitsForComputePlan(*plan), plan.EstimatedOutputTokens,
 					expectedRecords, maxTokens,
 					r, hasReported,
 				)

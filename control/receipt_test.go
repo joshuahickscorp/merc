@@ -36,6 +36,7 @@ func TestAssembleClearingReceipt(t *testing.T) {
 		workload,
 		1,
 		128,
+		testInputDepthProfile(1),
 		1,
 		1,
 		0,

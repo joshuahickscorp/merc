@@ -54,7 +54,7 @@ type FieldStat struct {
 type QuoteInputScan struct {
 	Records          int         `json:"records"`          // non-blank JSONL lines
 	Bytes            int         `json:"bytes"`            // total input bytes
-	EstimatedTokens  int64       `json:"estimated_tokens"` // byte/token heuristic, not exact
+	EstimatedTokens  int64       `json:"estimated_tokens"` // selected-body estimate; same authority as ComputePlan
 	MalformedRecords int         `json:"malformed_records"`
 	BlankRecords     int         `json:"blank_records"`   // blank/whitespace lines (skipped, never records)
 	SkippedRecords   int         `json:"skipped_records"` // blank + malformed: lines NOT usable as input (item 23)
@@ -64,6 +64,9 @@ type QuoteInputScan struct {
 	DetectedFields   []string    `json:"detected_fields"` // sorted union of top-level keys in the sample
 	RecommendedField string      `json:"recommended_field,omitempty"`
 	FieldStats       []FieldStat `json:"field_stats,omitempty"`
+	// InputDepth is the deterministic body-depth profile over every accepted
+	// record and is frozen into ComputePlan.
+	InputDepth InputDepthProfile `json:"input_depth,omitempty"`
 }
 
 func scanJSONL(data []byte) QuoteInputScan {
@@ -72,7 +75,7 @@ func scanJSONL(data []byte) QuoteInputScan {
 	fieldStrLen := map[string]int{}
 	fieldOccur := map[string]int{}
 	lineNo := 0
-	totalRunes, totalASCII := 0, 0
+	depthAcc := newInputDepthAccumulator()
 	for _, raw := range bytes.Split(data, []byte("\n")) {
 		lineNo++
 		ln := bytes.TrimRight(raw, "\r")
@@ -82,40 +85,38 @@ func scanJSONL(data []byte) QuoteInputScan {
 		}
 		scan.Records++
 		scan.Bytes += len(ln)
-		totalRunes += utf8.RuneCount(ln)
-		for _, b := range ln {
-			if b < 128 {
-				totalASCII++
-			}
-		}
 		if len(ln) > scan.MaxLineBytes {
 			scan.MaxLineBytes = len(ln)
 		}
-		if !json.Valid(ln) {
+		obj, err := decodeStrictRawJSONObject(ln)
+		if err != nil {
 			scan.MalformedRecords++
 			if scan.FirstBadLine == 0 {
 				scan.FirstBadLine = lineNo
 			}
 			continue
 		}
+		if body, err := selectJSONLBody(obj); err == nil {
+			depthAcc.addBody(body)
+		}
 		if scan.SampledRecords < fieldSampleN {
-			var obj map[string]json.RawMessage
-			if json.Unmarshal(ln, &obj) == nil {
-				for k, v := range obj {
-					fields[k] = true
-					fieldOccur[k]++
-					if s, ok := jsonStringValue(v); ok {
-						fieldStrLen[k] += utf8.RuneCountInString(s)
-					}
+			for k, v := range obj {
+				fields[k] = true
+				fieldOccur[k]++
+				if s, ok := jsonStringValue(v); ok {
+					fieldStrLen[k] += utf8.RuneCountInString(s)
 				}
 			}
 			scan.SampledRecords++
 		}
 	}
 	scan.SkippedRecords = scan.BlankRecords + scan.MalformedRecords
-	scan.EstimatedTokens = estimateTokensFromCounts(totalRunes, totalASCII, scan.Bytes)
 	scan.DetectedFields = sortedKeys(fields)
 	scan.FieldStats, scan.RecommendedField = recommendField(fields, fieldStrLen, fieldOccur)
+	if depth, err := depthAcc.profile(); err == nil {
+		scan.InputDepth = depth
+		scan.EstimatedTokens = depth.EstimatedTokens
+	}
 	return scan
 }
 
@@ -528,8 +529,9 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		modelMinMem = m.MinMemoryGB
 	}
 
-	p50, conservativeSecs, plannerBacked := s.etaBandSecsFor(ctx, supply, tasks)
-	observedP90ms, _, hErr := s.store.HistoricalP90DurationMs(ctx, jobType, sub.Model.Ref)
+	depthBand := scan.InputDepth.P90DepthBand
+	p50, conservativeSecs, plannerBacked := s.etaBandSecsFor(ctx, supply, tasks, depthBand)
+	observedP90ms, _, hErr := s.store.HistoricalP90DurationMs(ctx, jobType, sub.Model.Ref, depthBand)
 	usedObservedHistory := hErr == nil && observedP90ms > 0
 	p50 = sustainedBatchETASecs(p50, tier, usedObservedHistory)
 	rawP50 := p50
@@ -537,7 +539,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	// below is derived from conservativeSecs, so it has to move with the p50 or
 	// calibration would tighten the promise it was meant to make honest.
 	etaBias, etaBiasSamples, etaBiasErr := s.store.ETABiasFactor(
-		ctx, jobType, tier, sub.Model.Ref,
+		ctx, jobType, tier, sub.Model.Ref, depthBand,
 	)
 	etaCalibrated := etaBiasErr == nil && etaBiasSamples >= driftMinSamples && etaBias > 1
 	if etaCalibrated {
@@ -617,10 +619,24 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	}
 
 	etaSource := computePlanETASource(plannerBacked, usedObservedHistory, etaCalibrated)
+	if err := validateInputDepthProfile(scan.InputDepth); err != nil {
+		return Quote{}, fmt.Errorf("measuring input depth profile: %w", err)
+	}
+	classified, ok := checkedInputDepthRecordCount(
+		scan.InputDepth.ShortRecords,
+		scan.InputDepth.MediumRecords,
+		scan.InputDepth.LongRecords,
+	)
+	if !ok || classified != scan.Records {
+		return Quote{}, fmt.Errorf(
+			"input depth profile covers %d records but scan counted %d",
+			classified, scan.Records)
+	}
 	computePlan, err := newDistributedComputePlan(
 		workload,
 		scan.Records,
 		int64(len(inputBytes)),
+		scan.InputDepth,
 		split,
 		tasks,
 		redundancyTasks,
@@ -631,7 +647,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		math.Max(0, baseComputeUSD-primaryComputeUSD),
 		conf,
 		[]string{
-			"token counts use a documented byte-and-record heuristic rather than the model tokenizer",
+			"token counts use a documented body-depth estimator rather than the model tokenizer",
 			"ETA is a frozen estimate; queue contention after acceptance can change wall-clock completion",
 			"power draw and provider-specific energy cost are not yet modeled",
 		},
