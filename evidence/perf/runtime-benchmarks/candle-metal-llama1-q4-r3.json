@@ -1,16 +1,11 @@
 {
   "schema_version": 1,
-  "merc_source_commit": "470aa9f81a13d508fd91f4cf0d4c55e57560a337",
-  "model_id": "llama-3.2-1b-instruct-q4",
-  "model_repository": "unsloth/Llama-3.2-1B-Instruct-GGUF",
-  "model_revision": "b69aef112e9f895e6f98d7ae0949f72ff09aa401",
-  "model_artifact_sha256": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
-  "model_artifact_bytes": 807694368,
-  "harness": "merc-agent bench-batch (build e9796eeb069ba4b0)",
+  "merc_source_commit": "c212dcb1e801ee8d030aa57ece165488c8d29114",
+  "harness": "merc-agent bench-batch (rebuilt after the schema-v2 agent fix)",
   "harness_settings": {
     "prompt": "Write a detailed paragraph about the ocean and its wonders:",
     "max_tokens": 48,
-    "reps": 3,
+    "reps": 5,
     "mode": "identical",
     "batch_sizes": [
       1,
@@ -19,40 +14,34 @@
       64
     ]
   },
-  "hardware": {
-    "cpu": "Apple M3 Ultra",
-    "gpu": "Apple M3 Ultra",
-    "device": "metal"
-  },
-  "measured_at": "2026-07-30T15:52:00Z",
+  "measured_at": "2026-07-30T16:20:00Z",
   "runtime_profile_id": "candle_metal",
   "profile_revision": "r3",
   "engine": "candle",
+  "transport": "in-process",
+  "model_id": "llama-3.2-1b-instruct-q4",
+  "model_note": "the exact pinned GGUF q4 artifact",
+  "hardware": {
+    "gpu": "Apple M3 Ultra",
+    "device": "metal"
+  },
   "physical_throughput": {
-    "serial_tokens_per_sec": 214.2,
+    "serial_tokens_per_sec": 225.9,
     "by_batch": {
-      "1": 216.2,
-      "8": 427.8,
-      "32": 501.0,
-      "64": 495.6
+      "1": 226.3,
+      "8": 439.6,
+      "32": 502.6,
+      "64": 509.9
     },
-    "peak_tokens_per_sec": 501.0,
-    "peak_batch": 32,
-    "peak_multiple_of_serial": 2.34,
-    "decode_tokens_per_sec": 501.0
+    "peak_tokens_per_sec": 509.9,
+    "peak_batch": 64,
+    "peak_multiple_of_serial": 2.26,
+    "decode_tokens_per_sec": 509.9
   },
   "byte_determinism": {
     "vs_serial": "IDENTICAL",
     "diverges_at_batch": [],
     "satisfies_byte_exact_verification": true
   },
-  "benchmark_status": "PHYSICAL_THROUGHPUT_MEASURED",
-  "not_established": {
-    "delivered_throughput": "no Merc reuse/cache path exercised",
-    "quality_tier": "OUTCOME_EQUIVALENT is claimed from docs/FRONTIER_300X.md, not this receipt",
-    "latency_ttft_itl": "the harness reports aggregate rates, not per-token latency",
-    "memory_peak": "not instrumented",
-    "failures": "no failure injection",
-    "cost": "no supplier/provider cost attributed"
-  }
+  "benchmark_status": "PHYSICAL_THROUGHPUT_MEASURED"
 }

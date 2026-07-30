@@ -923,7 +923,15 @@ async fn run_bench_batch(
         "notes": [
             "openai_http fans out concurrent /v1/chat/completions so the ENGINE continuous-batches",
             "candle path is the in-process baseline (static length-bucket batching)",
-            "openai_http is NOT marked verified-work-capable: continuous batching is not byte-deterministic"
+            // Determinism under batching is MEASURED per backend above, not
+            // assumed here. This note previously asserted that openai_http is
+            // never verified-work-capable because continuous batching is not
+            // byte-deterministic. vLLM on an L4 disproved it: 41.4x serial
+            // throughput with byte-identical output at every batch size, while
+            // llama.cpp diverged from its own serial output everywhere. It is
+            // an engine property, not a property of batching, and a hardcoded
+            // claim here would have buried the one result that mattered.
+            "byte-determinism is measured per backend; see each backend's determinism field"
         ],
     });
     println!("{}", serde_json::to_string_pretty(&record)?);

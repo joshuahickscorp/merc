@@ -53,7 +53,7 @@ echo "== bench-batch through the same harness as the Metal profiles =="
 "$ROOT/agent/target/release/merc-agent" bench-batch \
   --backends openai_http \
   --batch-sizes 1,8,32,64 \
-  --max-tokens 48 --reps 3 \
+  --max-tokens 48 --reps "${MERC_BENCH_REPS:-3}" \
   --openai-base-url "$MERC_GPU_ENDPOINT" \
   --openai-model "$MODEL" \
   --openai-api-key "$MERC_GPU_API_KEY" 2>&1 | tee "$OUT"
