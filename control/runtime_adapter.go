@@ -59,9 +59,11 @@ type RuntimeEstimate struct {
 	ThroughputSource string  `json:"throughput_source"`
 	QualityTier      string  `json:"quality_tier"`
 	Routable         bool    `json:"routable"`
-	// Comparable is true only when the profile names a benchmark authority. A
-	// worker-reported rate on an unproven profile is real information about that
-	// worker and is not evidence that the profile is faster.
+	// Comparable is true only when the profile's benchmark authority actually
+	// contains a throughput measurement. Having a receipt and having a comparable
+	// number are different facts: candle_metal's receipt names candle_metal and
+	// measures nothing, so comparing it against a measured challenger would not
+	// be a tournament, it would be a coin toss with a citation.
 	Comparable bool     `json:"comparable"`
 	Evidence   []string `json:"evidence,omitempty"`
 }
@@ -125,7 +127,7 @@ func (a genericProfileAdapter) Estimate(
 		QualityTier:      profile.QualityTier,
 		Routable:         runtimeLifecycleRoutable(profile.Lifecycle),
 		ThroughputSource: throughputSourceUnmeasured,
-		Comparable:       profile.BenchmarkAuthority != "",
+		Comparable:       profileThroughputIsMeasured(profile),
 		Evidence:         append([]string(nil), profile.Evidence...),
 	}
 	if profile.BenchmarkAuthority != "" {

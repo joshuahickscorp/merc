@@ -381,6 +381,9 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 				"runtime %q is routable without a benchmark authority and quality tier",
 				profile.RuntimeID)
 		}
+		if err := validateBenchmarkAuthorityBinding(profile); err != nil {
+			return err
+		}
 
 		seenCellInProfile := make(map[string]bool, len(profile.Cells))
 		for _, cell := range profile.Cells {
@@ -512,4 +515,75 @@ DELETE FROM models WHERE id NOT IN (SELECT id FROM desired)`, runtimeAuthorityJS
 		return fmt.Errorf("synchronize runtime model catalog: %w", err)
 	}
 	return nil
+}
+
+//go:embed evidence-manifest.json
+var benchmarkAuthorityManifestJSON []byte
+
+// benchmarkAuthorityManifest maps each profile's declared benchmark authority
+// path to the runtime_profile_id that receipt claims.
+//
+// The manifest is generated (see scripts/gen-benchmark-manifest.py) and embedded
+// because the control plane must validate this at process start, where the
+// repository working tree is not guaranteed to be present — a container ships
+// the binary, not evidence/.
+var benchmarkAuthorityManifest = loadBenchmarkAuthorityManifest()
+
+// benchmarkReceiptSummary is what the control plane needs to know about a
+// receipt without shipping evidence/ into the container.
+type benchmarkReceiptSummary struct {
+	RuntimeProfileID string `json:"runtime_profile_id"`
+	// ThroughputMeasured separates "this profile has a receipt" from "this
+	// profile has a comparable throughput number". candle_metal's receipt names
+	// candle_metal and measures nothing, which is the honest state until it is
+	// benchmarked on the same harness as its challenger.
+	ThroughputMeasured bool `json:"throughput_measured"`
+}
+
+func loadBenchmarkAuthorityManifest() map[string]benchmarkReceiptSummary {
+	out := map[string]benchmarkReceiptSummary{}
+	if err := json.Unmarshal(benchmarkAuthorityManifestJSON, &out); err != nil {
+		panic(fmt.Sprintf("decode embedded benchmark authority manifest: %v", err))
+	}
+	return out
+}
+
+// validateBenchmarkAuthorityBinding closes the hole that let candle_metal claim
+// routability backed by a benchmark receipt for a DIFFERENT engine.
+//
+// The original check was that benchmark_authority is a non-empty string. That
+// is satisfied by any path, and the first thing it let through was a real file
+// describing vLLM at bf16 on a different model revision, whose own
+// benchmark_status said UNPROVEN. A profile's evidence must at minimum NAME the
+// profile it is evidence for.
+//
+// It is still not proof of a measurement — a receipt can name a profile and
+// measure nothing, which is exactly what candle's honest receipt does. What this
+// enforces is that the pointer is not simply wrong.
+func validateBenchmarkAuthorityBinding(profile authorityRuntimeProfile) error {
+	if profile.BenchmarkAuthority == "" {
+		return nil // only routable profiles are required to have one
+	}
+	receipt, known := benchmarkAuthorityManifest[profile.BenchmarkAuthority]
+	if !known {
+		return fmt.Errorf(
+			"runtime %q names benchmark authority %q, which is not a known receipt",
+			profile.RuntimeID, profile.BenchmarkAuthority)
+	}
+	if receipt.RuntimeProfileID != profile.RuntimeID {
+		return fmt.Errorf(
+			"runtime %q names benchmark authority %q, but that receipt is evidence for %q",
+			profile.RuntimeID, profile.BenchmarkAuthority, receipt.RuntimeProfileID)
+	}
+	return nil
+}
+
+// profileThroughputIsMeasured reports whether this profile's benchmark authority
+// actually contains a throughput measurement. Having a receipt and having a
+// comparable number are different facts, and conflating them is how a runtime
+// tournament compares a measured challenger against an unmeasured incumbent and
+// calls the result evidence.
+func profileThroughputIsMeasured(profile authorityRuntimeProfile) bool {
+	receipt, known := benchmarkAuthorityManifest[profile.BenchmarkAuthority]
+	return known && receipt.RuntimeProfileID == profile.RuntimeID && receipt.ThroughputMeasured
 }

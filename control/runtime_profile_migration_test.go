@@ -299,8 +299,11 @@ func TestSyncRefusesProfileContentDriftUnderTheSameRevision(t *testing.T) {
 		  WHERE runtime_profile_id='candle_metal'`); err == nil {
 		t.Fatal("the database accepted a malformed revision")
 	}
+	// A revision the document does not use: the drift check only fires when the
+	// stored and document revisions match, so this is exactly the "the profile
+	// moved on" case that must be allowed to re-sync.
 	if _, err := pool.Exec(ctx,
-		`UPDATE runtime_profiles SET revision='r2'
+		`UPDATE runtime_profiles SET revision='r99'
 		  WHERE runtime_profile_id='candle_metal'`); err != nil {
 		t.Fatalf("bump revision: %v", err)
 	}

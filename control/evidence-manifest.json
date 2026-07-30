@@ -1,0 +1,10 @@
+{
+  "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r2.json": {
+    "runtime_profile_id": "candle_metal",
+    "throughput_measured": false
+  },
+  "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json": {
+    "runtime_profile_id": "llama_cpp_metal",
+    "throughput_measured": true
+  }
+}
