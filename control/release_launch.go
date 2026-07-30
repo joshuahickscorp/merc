@@ -948,6 +948,7 @@ func dispatchLaunchRelease(args []string) {
 	secrets := fs.String("secrets-file", filepath.Join(root, ".merc-launch.env"), "mode-0600 secret file")
 	approve := fs.String("approve-plan", "", "exact plan SHA-256 required for stateful commands")
 	apply := fs.Bool("apply", false, "acknowledge a stateful launch action")
+	uiListen := fs.String("listen", "127.0.0.1:0", "loopback address for release ui")
 	fs.Parse(args[1:])
 	if *environment != levelBEnvironment {
 		fatalf("Level C and non-staging environments are prohibited")
@@ -991,12 +992,19 @@ func dispatchLaunchRelease(args []string) {
 		printLaunch(state)
 	case "prove", "evidence", "go-no-go":
 		cmdReleaseEvidence(root, command, *environment, *config, *secrets)
-	case "render", "ui":
+	case "ui":
+		if err := serveReleaseUI(root, *uiListen); err != nil {
+			fatalf("release ui: %v", err)
+		}
+	case "render":
 		plan, err := compileLaunchPlan(root, *environment, *config, *secrets)
 		if err != nil {
 			fatalf("release %s: %v", command, err)
 		}
-		printLaunch(map[string]any{"schema_version": 1, "kind": "merc_level_b_release_" + strings.ReplaceAll(command, "-", "_"), "plan": plan, "level_b": "NO_GO until external receipts verify", "level_c": "NO_GO_PROHIBITED"})
+		printLaunch(map[string]any{"schema_version": 1, "kind": "merc_level_b_release_render", "plan": plan,
+			"execution_order":  []string{"remote_input_profile", "deploy_candidate", "rollback_forward_rehearsal", "restart_storm", "private_canary", "qualifying_24h_soak", "exact_evidence_chain", "readiness_go_no_go"},
+			"receipt_contract": "one exact PASS receipt per adapter plus the configured governance receipt; never latest or glob",
+			"level_b":          "NO_GO until external receipts verify", "level_c": "NO_GO_PROHIBITED"})
 	default:
 		if !*apply {
 			fatalf("release %s requires --apply; dry-run with merc release plan", command)
