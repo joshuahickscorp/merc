@@ -293,22 +293,98 @@ func TestSyncRefusesProfileContentDriftUnderTheSameRevision(t *testing.T) {
 		t.Errorf("drift refusal does not say what to do: %v", err)
 	}
 
-	// Bumping the revision is the sanctioned escape, and it must work.
+	// Bumping the revision is the sanctioned escape. With history retained you do
+	// not MUTATE a revision — it is part of the primary key and child rows
+	// reference it — you register a new one beside it. Simulate that by removing
+	// the planted row entirely and re-syncing.
 	if _, err := pool.Exec(ctx,
-		`UPDATE runtime_profiles SET revision='r0000'
-		  WHERE runtime_profile_id='candle_metal'`); err == nil {
-		t.Fatal("the database accepted a malformed revision")
+		`DELETE FROM runtime_profile_models WHERE runtime_profile_id='candle_metal'`); err != nil {
+		t.Fatalf("clear child rows: %v", err)
 	}
-	// A revision the document does not use: the drift check only fires when the
-	// stored and document revisions match, so this is exactly the "the profile
-	// moved on" case that must be allowed to re-sync.
 	if _, err := pool.Exec(ctx,
-		`UPDATE runtime_profiles SET revision='r99'
-		  WHERE runtime_profile_id='candle_metal'`); err != nil {
-		t.Fatalf("bump revision: %v", err)
+		`UPDATE runtime_profiles SET profile_digest = $1
+		  WHERE runtime_profile_id='candle_metal'`, currentCandleDigest(t)); err != nil {
+		t.Fatalf("restore digest: %v", err)
 	}
 	if err := syncRuntimeProfiles(ctx, conn); err != nil {
-		t.Fatalf("sync after a revision bump: %v", err)
+		t.Fatalf("sync after restoring the true digest: %v", err)
+	}
+}
+
+func currentCandleDigest(t *testing.T) string {
+	t.Helper()
+	p, ok := runtimeProfileByID("candle_metal")
+	if !ok {
+		t.Fatal("candle_metal is not registered")
+	}
+	d, err := p.ContentDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// History is evidence: a revision that a receipt named must stay resolvable, and
+// deleting one is refused outright.
+func TestHistoricalRevisionsAreRetainedAndUndeletable(t *testing.T) {
+	_, pool, ctx := freshMigratedDatabase(t)
+
+	// Exactly one current revision per profile.
+	var currents int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM runtime_profiles WHERE is_current AND runtime_profile_id='candle_metal'`).
+		Scan(&currents); err != nil {
+		t.Fatal(err)
+	}
+	if currents != 1 {
+		t.Fatalf("candle_metal has %d current revisions, want 1", currents)
+	}
+
+	// Plant an older revision the way a real upgrade would leave one behind.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO runtime_profiles
+		  (runtime_profile_id, revision, profile_digest, engine, adapter, lifecycle,
+		   routable, quality_tier, benchmark_authority, source_identity, is_current)
+		VALUES ('candle_metal','r1',repeat('c',64),'candle','merc-candle','RETIRED',
+		        false,'OUTCOME_EQUIVALENT','x','y',false)`); err != nil {
+		t.Fatalf("plant historical revision: %v", err)
+	}
+
+	// Re-syncing must not remove it.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	if err := syncRuntimeProfiles(ctx, conn); err != nil {
+		t.Fatalf("sync with a historical revision present: %v", err)
+	}
+	var kept int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM runtime_profiles
+		  WHERE runtime_profile_id='candle_metal' AND revision='r1'`).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if kept != 1 {
+		t.Fatal("a re-sync destroyed a historical revision")
+	}
+	// Still exactly one current, and it is not the historical one.
+	var current string
+	if err := pool.QueryRow(ctx,
+		`SELECT revision FROM runtime_profiles
+		  WHERE runtime_profile_id='candle_metal' AND is_current`).Scan(&current); err != nil {
+		t.Fatal(err)
+	}
+	if current == "r1" {
+		t.Fatal("the retired historical revision is current")
+	}
+
+	// And it cannot be deleted, because a receipt may still name it.
+	if _, err := pool.Exec(ctx,
+		`DELETE FROM runtime_profiles WHERE runtime_profile_id='candle_metal' AND revision='r1'`); err == nil {
+		t.Fatal("a historical runtime profile revision was deleted")
+	} else if !strings.Contains(err.Error(), "receipt evidence") {
+		t.Errorf("refusal said %q", err.Error())
 	}
 }
 

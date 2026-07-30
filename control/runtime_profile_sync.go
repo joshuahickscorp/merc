@@ -59,35 +59,42 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 			return err
 		}
 		routable := runtimeLifecycleRoutable(profile.Lifecycle)
+
+		// Insert the revision if absent; NEVER overwrite an existing one's
+		// content. assertNoContentDrift has already refused a changed digest
+		// under an existing revision, so a conflict here is a re-sync of
+		// identical content and the content columns are simply re-asserted.
+		//
+		// Lifecycle, routability and supersession are the only things that move,
+		// and they move on the row for THIS revision. Historical revisions keep
+		// the lifecycle they were retired at.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO runtime_profiles
 			  (runtime_profile_id, revision, profile_digest, engine, adapter, lifecycle,
 			   routable, quality_tier, benchmark_authority, source_identity,
-			   superseded_by, device_min, device_max, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
-			ON CONFLICT (runtime_profile_id) DO UPDATE SET
-			  -- Content columns are re-asserted, not changed: assertNoContentDrift
-			  -- has already proven they are identical for this revision.
-			  revision = EXCLUDED.revision,
-			  profile_digest = EXCLUDED.profile_digest,
-			  engine = EXCLUDED.engine,
-			  adapter = EXCLUDED.adapter,
-			  quality_tier = EXCLUDED.quality_tier,
-			  benchmark_authority = EXCLUDED.benchmark_authority,
-			  device_min = EXCLUDED.device_min,
-			  device_max = EXCLUDED.device_max,
-			  -- These two are the ones that may legitimately move.
+			   superseded_by, device_min, device_max, is_current, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,now())
+			ON CONFLICT (runtime_profile_id, revision) DO UPDATE SET
 			  lifecycle = EXCLUDED.lifecycle,
 			  routable = EXCLUDED.routable,
 			  superseded_by = EXCLUDED.superseded_by,
-			  source_identity = EXCLUDED.source_identity,
+			  is_current = true,
 			  updated_at = now()`,
 			profile.RuntimeID, profile.Revision, digest, profile.Engine, profile.Adapter,
 			profile.Lifecycle, routable, profile.QualityTier, profile.BenchmarkAuthority,
-			generatedRuntimeMatrixSHA256, profile.SupersededBy,
+			profile.SourceIdentity, profile.SupersededBy,
 			profile.Hardware.DeviceCount.Minimum, profile.Hardware.DeviceCount.Maximum,
 		); err != nil {
-			return fmt.Errorf("sync runtime profile %q: %w", profile.RuntimeID, err)
+			return fmt.Errorf("sync runtime profile %q %s: %w",
+				profile.RuntimeID, profile.Revision, err)
+		}
+		// Demote every other revision of this profile. Retained, never deleted:
+		// a receipt that named an older revision must still resolve.
+		if _, err := tx.Exec(ctx, `
+			UPDATE runtime_profiles SET is_current = false
+			 WHERE runtime_profile_id = $1 AND revision <> $2 AND is_current`,
+			profile.RuntimeID, profile.Revision); err != nil {
+			return fmt.Errorf("demote prior revisions of %q: %w", profile.RuntimeID, err)
 		}
 
 		// Child rows are replaced wholesale. They are pure projections of the
@@ -96,35 +103,39 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 		for _, table := range []string{
 			"runtime_profile_models", "runtime_profile_hardware", "runtime_profile_capabilities",
 		} {
+			// Scoped to THIS revision. A wholesale delete by profile id would
+			// destroy the child rows of every historical revision.
 			if _, err := tx.Exec(ctx,
-				`DELETE FROM `+table+` WHERE runtime_profile_id = $1`, profile.RuntimeID); err != nil {
-				return fmt.Errorf("clear %s for %q: %w", table, profile.RuntimeID, err)
+				`DELETE FROM `+table+` WHERE runtime_profile_id = $1 AND revision = $2`,
+				profile.RuntimeID, profile.Revision); err != nil {
+				return fmt.Errorf("clear %s for %q %s: %w",
+					table, profile.RuntimeID, profile.Revision, err)
 			}
 		}
 		for _, cell := range profile.Cells {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO runtime_profile_models
-				  (runtime_profile_id, cell_id, job_type, model_id, runner,
+				  (runtime_profile_id, revision, cell_id, job_type, model_id, runner,
 				   min_memory_gb, verification, routable)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-				profile.RuntimeID, cell.ID, cell.Job, cell.Model, cell.Runner,
-				cell.MinMemoryGB, cell.Verification, routable); err != nil {
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+				profile.RuntimeID, profile.Revision, cell.ID, cell.Job, cell.Model,
+				cell.Runner, cell.MinMemoryGB, cell.Verification, routable); err != nil {
 				return fmt.Errorf("sync cell %q of %q: %w", cell.ID, profile.RuntimeID, err)
 			}
 		}
 		for _, platform := range profile.Hardware.Platforms {
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO runtime_profile_hardware (runtime_profile_id, platform)
-				VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-				profile.RuntimeID, platform); err != nil {
+				INSERT INTO runtime_profile_hardware (runtime_profile_id, revision, platform)
+				VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+				profile.RuntimeID, profile.Revision, platform); err != nil {
 				return fmt.Errorf("sync platform %q of %q: %w", platform, profile.RuntimeID, err)
 			}
 		}
 		for _, capability := range profile.declaredCapabilities() {
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO runtime_profile_capabilities (runtime_profile_id, capability)
-				VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-				profile.RuntimeID, capability); err != nil {
+				INSERT INTO runtime_profile_capabilities (runtime_profile_id, revision, capability)
+				VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+				profile.RuntimeID, profile.Revision, capability); err != nil {
 				return fmt.Errorf("sync capability %q of %q: %w",
 					capability, profile.RuntimeID, err)
 			}
@@ -151,7 +162,8 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 		  FROM runtime_profiles p
 		 WHERE w.runtime_profile_id IS NULL
 		   AND p.engine = w.engine
-		   AND p.routable`); err != nil {
+		   AND p.routable
+		   AND p.is_current`); err != nil {
 		return fmt.Errorf("backfill worker runtime profiles: %w", err)
 	}
 	return tx.Commit(ctx)
@@ -160,17 +172,21 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 func assertNoContentDrift(
 	ctx context.Context, tx pgx.Tx, profile authorityRuntimeProfile, digest string,
 ) error {
-	var existingRevision, existingDigest string
+	// Scoped to the exact revision. With history retained there are several rows
+	// per profile, and drift is only meaningful against the row claiming the same
+	// revision — an older revision having a different digest is the point.
+	var existingDigest string
 	err := tx.QueryRow(ctx,
-		`SELECT revision, profile_digest FROM runtime_profiles WHERE runtime_profile_id = $1`,
-		profile.RuntimeID).Scan(&existingRevision, &existingDigest)
+		`SELECT profile_digest FROM runtime_profiles
+		  WHERE runtime_profile_id = $1 AND revision = $2`,
+		profile.RuntimeID, profile.Revision).Scan(&existingDigest)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // first registration
+		return nil // this revision is new
 	}
 	if err != nil {
 		return err
 	}
-	if existingRevision == profile.Revision && existingDigest != digest {
+	if existingDigest != digest {
 		return fmt.Errorf(
 			"%w: %s is still revision %s but its content digest moved from %s to %s; "+
 				"bump the revision instead of editing the profile in place",
@@ -214,6 +230,7 @@ func (s *Store) ReconcileWorkerRuntimeProfiles(ctx context.Context) (WorkerRunti
 		           AND NOT EXISTS (
 		             SELECT 1 FROM runtime_profiles p
 		              WHERE p.runtime_profile_id = w.runtime_profile_id
+		                AND p.revision = w.runtime_profile_revision
 		                AND p.engine = w.engine))
 		  FROM workers w`).
 		Scan(&out.TotalWorkers, &out.Backfilled, &out.Unreconciled, &out.EngineMismatched)
