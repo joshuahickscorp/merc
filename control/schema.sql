@@ -3916,3 +3916,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS plan_actuals_job_metric_uniq
 CREATE INDEX IF NOT EXISTS plan_actuals_scope_idx
     ON plan_actuals (metric, job_type, tier, model_ref,
                      (COALESCE(input_depth_band,'')), created_at DESC);
+
+-- plan_actuals truth boundary.
+--
+-- A learner that trains on a verification replica, a hedge copy, a cache hit or
+-- a seeded fixture is not measuring the estimator; it is measuring the fleet's
+-- bookkeeping. observation_class names what produced the realized value so a
+-- reader never has to infer it, and so the calibration resolver can restrict
+-- itself to PRIMARY_EXECUTION without silently dropping the rest from view.
+--
+-- Only three classes are reachable at job granularity today:
+--   PRIMARY_EXECUTION  a genuine distributed execution for a real buyer
+--   CACHE_HIT          exact-result reuse: delivered, physically not recomputed
+--   SYNTHETIC_TEST     a seeded demo buyer
+-- RETRY_ATTEMPT, VERIFICATION_REPLAY, HONEYPOT and DYNAMIC_COPY are task-level
+-- phenomena that this table handles by aggregation rule rather than by row
+-- class: honeypot and redundancy tasks are excluded from output_tokens, hedge
+-- copies collapse to one row per chunk_index, and retries are measured on
+-- purpose by task_attempts. COALESCED_FOLLOWER is unreachable because
+-- ClaimInflightLeader has no caller. Adding a value to this CHECK is a one-line
+-- migration; recording a class nothing can produce would be the same mistake as
+-- recording a guess as a measurement.
+ALTER TABLE plan_actuals ADD COLUMN IF NOT EXISTS observation_class TEXT
+    NOT NULL DEFAULT 'PRIMARY_EXECUTION';
+ALTER TABLE plan_actuals DROP CONSTRAINT IF EXISTS plan_actuals_observation_class_known;
+ALTER TABLE plan_actuals ADD CONSTRAINT plan_actuals_observation_class_known
+    CHECK (observation_class IN ('PRIMARY_EXECUTION','CACHE_HIT','SYNTHETIC_TEST'));
+-- The resolver reads PRIMARY_EXECUTION at six scope levels; the index leads
+-- with the class so the narrow levels stay cheap as the table grows.
+DROP INDEX IF EXISTS plan_actuals_scope_idx;
+CREATE INDEX IF NOT EXISTS plan_actuals_class_scope_idx
+    ON plan_actuals (observation_class, metric, model_ref,
+                     (COALESCE(input_depth_band,'')), runtime_id, created_at DESC);
+ALTER TABLE plan_actuals ADD COLUMN IF NOT EXISTS workload_class TEXT NOT NULL DEFAULT '';
