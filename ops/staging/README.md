@@ -257,3 +257,9 @@ duplicated, outside-root, or non-JSON receipt path; it never chooses a newest
 file or glob. A PASS root receipt is only evidence-chain eligibility for the
 supervised private canary. `merc release go-no-go` separately applies the
 current readiness ledger, so unresolved P1 entries still produce `NO_GO`.
+
+For an operator-only release status view, run `merc release ui`. It binds to a
+random `127.0.0.1` port by default and prints the loopback URL. The handler is
+read-only, emits `Cache-Control: no-store`, and exposes only typed release
+state, typed root evidence, the readiness score, decision labels, and P1 IDs/
+owners. It rejects wildcard and non-loopback bind addresses.
