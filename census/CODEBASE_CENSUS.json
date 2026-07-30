@@ -60,7 +60,7 @@
     "benchmarks/realtime-chat-v1.json": 11,
     "census/.gitignore": 4,
     "census/CODEBASE_CENSUS.json": 842,
-    "census/CODEBASE_CENSUS.md": 49,
+    "census/CODEBASE_CENSUS.md": 47,
     "cli/LICENSE": 202,
     "cli/README.md": 13,
     "control/accounts.go": 397,
@@ -598,11 +598,11 @@
     },
     "documentation": {
       "files": 50,
-      "loc": 6627,
-      "code": 5206,
-      "blank": 1421,
+      "loc": 6625,
+      "code": 5205,
+      "blank": 1420,
       "comment": 0,
-      "bytes": 374415
+      "bytes": 374276
     },
     "go": {
       "files": 232,
@@ -760,11 +760,11 @@
     },
     "ops": {
       "files": 118,
-      "loc": 11055,
-      "code": 10468,
-      "blank": 424,
+      "loc": 11053,
+      "code": 10467,
+      "blank": 423,
       "comment": 163,
-      "bytes": 491741
+      "bytes": 491602
     },
     "payment": {
       "files": 39,
@@ -808,12 +808,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 137254,
+    "global_owned_loc": 137252,
     "non_design_production_core_loc": 96745,
     "test_loc": 27208,
-    "documentation_loc": 6627,
+    "documentation_loc": 6625,
     "python_loc": 9388,
-    "generated_loc": 5125,
+    "generated_loc": 5123,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -835,8 +835,8 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10235587,
-  "tracked_files": 570,
-  "untracked_files": 1,
+  "tracked_bytes": 10235448,
+  "tracked_files": 571,
+  "untracked_files": 0,
   "walked_files": 571
 }
