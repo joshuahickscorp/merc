@@ -9,7 +9,11 @@ import (
 	"math"
 )
 
-const computePlanVersion = 1
+// computePlanVersion is the version written for newly frozen plans.
+// Historical version-1 plans remain readable and settleable.
+const computePlanVersion = 2
+
+const computePlanVersionV1 = 1
 
 const (
 	computeExecutionDistributed = "distributed"
@@ -22,34 +26,39 @@ const (
 // snapshots. Dynamic supply may affect when a task is claimed, but never the
 // purchased geometry recorded here.
 type ComputePlan struct {
-	Version                 int      `json:"version"`
-	ExecutionMode           string   `json:"execution_mode"`
-	WorkloadBindingSHA256   string   `json:"workload_binding_sha256"`
-	WorkloadDecisionSHA256  string   `json:"workload_decision_sha256"`
-	OriginComputePlanSHA256 string   `json:"origin_compute_plan_sha256,omitempty"`
-	InputRecords            int      `json:"input_records"`
-	InputBytes              int64    `json:"input_bytes"`
-	EstimatedInputTokens    int64    `json:"estimated_input_tokens"`
-	EstimatedOutputTokens   int64    `json:"estimated_output_tokens"`
-	SplitSize               int      `json:"split_size"`
-	PrimaryTasks            int      `json:"primary_tasks"`
-	RedundancyTasks         int      `json:"redundancy_tasks"`
-	HoneypotTasks           int      `json:"honeypot_tasks"`
-	TotalInitialTasks       int      `json:"total_initial_tasks"`
-	MinimumMemoryGB         float64  `json:"minimum_memory_gb"`
-	ETAP50Secs              int      `json:"eta_p50_secs"`
-	ETAP90Secs              int      `json:"eta_p90_secs"`
-	ETAWorstCaseSecs        int      `json:"eta_worst_case_secs"`
-	ETASource               string   `json:"eta_source"`
-	BaseComputeUSD          float64  `json:"base_compute_usd"`
-	VerificationOverheadUSD float64  `json:"verification_overhead_usd"`
-	Confidence              float64  `json:"confidence"`
-	ConfidenceReasons       []string `json:"confidence_reasons"`
-	Unknowns                []string `json:"unknowns,omitempty"`
+	Version                 int                `json:"version"`
+	ExecutionMode           string             `json:"execution_mode"`
+	WorkloadBindingSHA256   string             `json:"workload_binding_sha256"`
+	WorkloadDecisionSHA256  string             `json:"workload_decision_sha256"`
+	OriginComputePlanSHA256 string             `json:"origin_compute_plan_sha256,omitempty"`
+	InputRecords            int                `json:"input_records"`
+	InputBytes              int64              `json:"input_bytes"`
+	EstimatedInputTokens    int64              `json:"estimated_input_tokens"`
+	EstimatedOutputTokens   int64              `json:"estimated_output_tokens"`
+	InputDepthProfile       *InputDepthProfile `json:"input_depth_profile,omitempty"`
+	SplitSize               int                `json:"split_size"`
+	PrimaryTasks            int                `json:"primary_tasks"`
+	RedundancyTasks         int                `json:"redundancy_tasks"`
+	HoneypotTasks           int                `json:"honeypot_tasks"`
+	TotalInitialTasks       int                `json:"total_initial_tasks"`
+	MinimumMemoryGB         float64            `json:"minimum_memory_gb"`
+	ETAP50Secs              int                `json:"eta_p50_secs"`
+	ETAP90Secs              int                `json:"eta_p90_secs"`
+	ETAWorstCaseSecs        int                `json:"eta_worst_case_secs"`
+	ETASource               string             `json:"eta_source"`
+	BaseComputeUSD          float64            `json:"base_compute_usd"`
+	VerificationOverheadUSD float64            `json:"verification_overhead_usd"`
+	Confidence              float64            `json:"confidence"`
+	ConfidenceReasons       []string           `json:"confidence_reasons"`
+	Unknowns                []string           `json:"unknowns,omitempty"`
+}
+
+func supportedComputePlanVersion(version int) bool {
+	return version == computePlanVersionV1 || version == computePlanVersion
 }
 
 func computePlanDigest(plan ComputePlan) (string, error) {
-	if plan.Version != computePlanVersion {
+	if !supportedComputePlanVersion(plan.Version) {
 		return "", fmt.Errorf("unsupported compute plan version %d", plan.Version)
 	}
 	blob, err := json.Marshal(plan)
@@ -60,7 +69,9 @@ func computePlanDigest(plan ComputePlan) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func estimatedInputTokensForComputePlan(records int, inputBytes int64) int64 {
+// estimatedInputTokensForComputePlanV1 is the historical whole-input bytes/4 rule
+// used by version-1 plans. Version-2 plans derive tokens from InputDepthProfile.
+func estimatedInputTokensForComputePlanV1(records int, inputBytes int64) int64 {
 	if records <= 0 || inputBytes <= 0 {
 		return 0
 	}
@@ -121,6 +132,7 @@ func newDistributedComputePlan(
 	decision WorkloadDecision,
 	inputRecords int,
 	inputBytes int64,
+	depth InputDepthProfile,
 	splitSize int,
 	primaryTasks int,
 	redundancyTasks int,
@@ -136,6 +148,18 @@ func newDistributedComputePlan(
 	if err != nil {
 		return ComputePlan{}, err
 	}
+	if err := validateInputDepthProfile(depth); err != nil {
+		return ComputePlan{}, fmt.Errorf("invalid input depth profile: %w", err)
+	}
+	classified, ok := checkedInputDepthRecordCount(
+		depth.ShortRecords, depth.MediumRecords, depth.LongRecords,
+	)
+	if !ok || classified != inputRecords {
+		return ComputePlan{}, fmt.Errorf(
+			"input depth profile record counts %d do not match input_records %d",
+			classified, inputRecords)
+	}
+	depthCopy := depth
 	plan := ComputePlan{
 		Version:                 computePlanVersion,
 		ExecutionMode:           computeExecutionDistributed,
@@ -143,8 +167,9 @@ func newDistributedComputePlan(
 		WorkloadDecisionSHA256:  decisionSHA256,
 		InputRecords:            inputRecords,
 		InputBytes:              inputBytes,
-		EstimatedInputTokens:    estimatedInputTokensForComputePlan(inputRecords, inputBytes),
+		EstimatedInputTokens:    depth.EstimatedTokens,
 		EstimatedOutputTokens:   estimatedOutputTokensForComputePlan(decision, inputRecords),
+		InputDepthProfile:       &depthCopy,
 		SplitSize:               splitSize,
 		PrimaryTasks:            primaryTasks,
 		RedundancyTasks:         redundancyTasks,
@@ -171,6 +196,7 @@ func newExactReuseComputePlan(
 	decision WorkloadDecision,
 	inputRecords int,
 	inputBytes int64,
+	depth InputDepthProfile,
 	buyerChargeUSD float64,
 	origin *ComputePlan,
 ) (ComputePlan, error) {
@@ -178,6 +204,18 @@ func newExactReuseComputePlan(
 	if err != nil {
 		return ComputePlan{}, err
 	}
+	if err := validateInputDepthProfile(depth); err != nil {
+		return ComputePlan{}, fmt.Errorf("invalid input depth profile: %w", err)
+	}
+	classified, ok := checkedInputDepthRecordCount(
+		depth.ShortRecords, depth.MediumRecords, depth.LongRecords,
+	)
+	if !ok || classified != inputRecords {
+		return ComputePlan{}, fmt.Errorf(
+			"input depth profile record counts %d do not match input_records %d",
+			classified, inputRecords)
+	}
+	depthCopy := depth
 	plan := ComputePlan{
 		Version:                computePlanVersion,
 		ExecutionMode:          computeExecutionExactReuse,
@@ -185,8 +223,9 @@ func newExactReuseComputePlan(
 		WorkloadDecisionSHA256: decisionSHA256,
 		InputRecords:           inputRecords,
 		InputBytes:             inputBytes,
-		EstimatedInputTokens:   estimatedInputTokensForComputePlan(inputRecords, inputBytes),
+		EstimatedInputTokens:   depth.EstimatedTokens,
 		EstimatedOutputTokens:  estimatedOutputTokensForComputePlan(decision, inputRecords),
+		InputDepthProfile:      &depthCopy,
 		ETASource:              computeExecutionExactReuse,
 		BaseComputeUSD:         roundEconomicUSD(buyerChargeUSD),
 		MinimumMemoryGB:        decision.MinimumMemoryGB,
@@ -222,8 +261,12 @@ func validSHA256(value string) bool {
 // ValidateFrozenComputePlanSnapshot validates only authority embedded in the
 // plan and its frozen workload decision. It deliberately does not consult the
 // current fleet, model catalogue or runtime matrix.
+//
+// Version 1 keeps the historical whole-input bytes/4 token rule and requires no
+// depth profile. Version 2 requires a self-consistent InputDepthProfile and
+// binds EstimatedInputTokens to that profile.
 func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecision) error {
-	if plan.Version != computePlanVersion {
+	if !supportedComputePlanVersion(plan.Version) {
 		return fmt.Errorf("unsupported compute plan version %d", plan.Version)
 	}
 	if err := ValidateFrozenWorkloadDecisionSnapshot(decision); err != nil {
@@ -240,8 +283,36 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 	if plan.InputRecords <= 0 || plan.InputBytes <= 0 {
 		return errors.New("compute plan requires positive input records and bytes")
 	}
-	if plan.EstimatedInputTokens != estimatedInputTokensForComputePlan(plan.InputRecords, plan.InputBytes) {
-		return errors.New("compute plan input-token estimate does not match its frozen input geometry")
+	switch plan.Version {
+	case computePlanVersionV1:
+		if plan.InputDepthProfile != nil {
+			return errors.New("version-1 compute plan cannot carry an input depth profile")
+		}
+		if plan.EstimatedInputTokens != estimatedInputTokensForComputePlanV1(plan.InputRecords, plan.InputBytes) {
+			return errors.New("compute plan input-token estimate does not match its frozen input geometry")
+		}
+	case computePlanVersion:
+		if plan.InputDepthProfile == nil {
+			return errors.New("version-2 compute plan requires an input depth profile")
+		}
+		if err := validateInputDepthProfile(*plan.InputDepthProfile); err != nil {
+			return fmt.Errorf("compute plan input depth profile invalid: %w", err)
+		}
+		classified, ok := checkedInputDepthRecordCount(
+			plan.InputDepthProfile.ShortRecords,
+			plan.InputDepthProfile.MediumRecords,
+			plan.InputDepthProfile.LongRecords,
+		)
+		if !ok || classified != plan.InputRecords {
+			return fmt.Errorf("compute plan input_records=%d does not match depth profile counts %d",
+				plan.InputRecords, classified)
+		}
+		if plan.InputDepthProfile.BodyBytes > plan.InputBytes {
+			return errors.New("compute plan input depth body bytes exceed its frozen input bytes")
+		}
+		if plan.EstimatedInputTokens != plan.InputDepthProfile.EstimatedTokens {
+			return errors.New("compute plan input-token estimate does not match its frozen input depth profile")
+		}
 	}
 	if plan.EstimatedOutputTokens != estimatedOutputTokensForComputePlan(decision, plan.InputRecords) {
 		return errors.New("compute plan output-token estimate does not match its frozen workload")

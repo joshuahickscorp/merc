@@ -384,45 +384,40 @@ func (e *workloadInputError) Error() string {
 	return fmt.Sprintf("invalid workload input at line %d: %s", e.Line, e.Msg)
 }
 
-// validateWorkloadJSONLRecord mirrors the two admitted agent runners. It stops
+// parseWorkloadJSONLRecord mirrors the two admitted agent runners. It stops
 // malformed or shape-less records before storage, scheduling and billing,
 // rather than letting a worker discover them after a contract exists.
-func validateWorkloadJSONLRecord(jobType string, line []byte, lineNumber int) error {
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(line, &object); err != nil {
-		return &workloadInputError{Line: lineNumber, Msg: "record must be a JSON object"}
-	}
-	if object == nil {
-		return &workloadInputError{Line: lineNumber, Msg: "record must be a JSON object"}
+//
+// Body selection is centralized in selectJSONLBody so validation, quote depth
+// scanning and streaming submit cannot diverge from the Rust runner rule
+// (text present and non-null wins; otherwise prompt; empty winning text fails).
+// The selected body is returned so streaming submit can validate and measure
+// each record with one JSON decode.
+func parseWorkloadJSONLRecord(jobType string, line []byte, lineNumber int) (string, error) {
+	object, err := decodeStrictRawJSONObject(line)
+	if err != nil {
+		return "", &workloadInputError{Line: lineNumber, Msg: err.Error()}
 	}
 	if raw, exists := object["id"]; exists && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		var id string
 		if err := json.Unmarshal(raw, &id); err != nil {
-			return &workloadInputError{Line: lineNumber, Msg: "id must be a string when present"}
+			return "", &workloadInputError{Line: lineNumber, Msg: "id must be a string when present"}
 		}
 	}
 
-	bodyFound := false
-	for _, field := range []string{"text", "prompt"} {
-		raw, exists := object[field]
-		if !exists || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			continue
-		}
-		var body string
-		if err := json.Unmarshal(raw, &body); err != nil {
-			return &workloadInputError{Line: lineNumber, Msg: field + " must be a string"}
-		}
-		if strings.TrimSpace(body) != "" {
-			bodyFound = true
-		}
-	}
-	if !bodyFound {
-		return &workloadInputError{
+	body, err := selectJSONLBody(object)
+	if err != nil {
+		return "", &workloadInputError{
 			Line: lineNumber,
-			Msg:  fmt.Sprintf("%s records require a non-empty text or prompt string", jobType),
+			Msg:  fmt.Sprintf("%s %s", jobType, err.Error()),
 		}
 	}
-	return nil
+	return body, nil
+}
+
+func validateWorkloadJSONLRecord(jobType string, line []byte, lineNumber int) error {
+	_, err := parseWorkloadJSONLRecord(jobType, line, lineNumber)
+	return err
 }
 
 func validateWorkloadJSONL(jobType string, data []byte) error {

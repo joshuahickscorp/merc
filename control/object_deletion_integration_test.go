@@ -15,7 +15,7 @@ func openObjectStorageForTest(t *testing.T) *Storage {
 	t.Helper()
 	for _, key := range []string{"S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY"} {
 		if strings.TrimSpace(os.Getenv(key)) == "" {
-			t.Skipf("%s is not set (need MinIO/S3 for object deletion integration test)", key)
+			t.Skipf("%s is not set (need MinIO/S3 for object-storage integration test)", key)
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

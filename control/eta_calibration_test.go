@@ -120,7 +120,7 @@ func TestETABiasFactorClosesTheCalibrationLoop(t *testing.T) {
 	insertETACalibrationRows(t, pool, ctx, jobType, "batch", modelRef, [][2]int{
 		{100, 200}, {100, 200},
 	})
-	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef)
+	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef, "")
 	if err != nil {
 		t.Fatalf("ETABiasFactor: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestETABiasFactorClosesTheCalibrationLoop(t *testing.T) {
 	insertETACalibrationRows(t, pool, ctx, jobType, "batch", modelRef, [][2]int{
 		{100, 200}, {100, 200}, {100, 200}, {50, 100},
 	})
-	factor, samples, err = store.ETABiasFactor(ctx, jobType, "batch", modelRef)
+	factor, samples, err = store.ETABiasFactor(ctx, jobType, "batch", modelRef, "")
 	if err != nil {
 		t.Fatalf("ETABiasFactor: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestETABiasFactorClosesTheCalibrationLoop(t *testing.T) {
 	}
 
 	// Tier is part of the key: priority history must not correct a batch quote.
-	other, otherSamples, err := store.ETABiasFactor(ctx, jobType, "priority", modelRef)
+	other, otherSamples, err := store.ETABiasFactor(ctx, jobType, "priority", modelRef, "")
 	if err != nil {
 		t.Fatalf("ETABiasFactor(priority): %v", err)
 	}
@@ -170,7 +170,7 @@ func TestETABiasFactorNeverShrinksAnETA(t *testing.T) {
 	insertETACalibrationRows(t, pool, ctx, jobType, "batch", modelRef, [][2]int{
 		{100, 10}, {100, 10}, {100, 10}, {100, 10}, {100, 10}, {100, 10},
 	})
-	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef)
+	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef, "")
 	if err != nil {
 		t.Fatalf("ETABiasFactor: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestETABiasFactorIsCappedAgainstAPathologicalWindow(t *testing.T) {
 	insertETACalibrationRows(t, pool, ctx, jobType, "batch", modelRef, [][2]int{
 		{1, 86400}, {1, 86400}, {1, 86400}, {1, 86400}, {1, 86400},
 	})
-	factor, _, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef)
+	factor, _, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef, "")
 	if err != nil {
 		t.Fatalf("ETABiasFactor: %v", err)
 	}
@@ -259,19 +259,19 @@ func TestETABiasFactorIsModelScopedWithoutLegacyBleed(t *testing.T) {
 		}
 	}
 
-	factorA, samplesA, err := store.ETABiasFactor(ctx, jobType, "batch", modelA)
+	factorA, samplesA, err := store.ETABiasFactor(ctx, jobType, "batch", modelA, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	factorB, samplesB, err := store.ETABiasFactor(ctx, jobType, "batch", modelB)
+	factorB, samplesB, err := store.ETABiasFactor(ctx, jobType, "batch", modelB, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyFactor, legacySamples, err := store.ETABiasFactor(ctx, jobType, "batch", "")
+	legacyFactor, legacySamples, err := store.ETABiasFactor(ctx, jobType, "batch", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	missingFactor, missingSamples, err := store.ETABiasFactor(ctx, jobType, "batch", "unseen-model")
+	missingFactor, missingSamples, err := store.ETABiasFactor(ctx, jobType, "batch", "unseen-model", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestRecordEtaCalibrationLearnsFromRawAndConverges(t *testing.T) {
 		}
 	}
 
-	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef)
+	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef, "")
 	if err != nil {
 		t.Fatalf("ETABiasFactor: %v", err)
 	}
@@ -378,5 +378,160 @@ func TestRecordEtaCalibrationKeepsLegacyJobsHonest(t *testing.T) {
 	if raw != 123 || quoted != 123 || realized < 10 {
 		t.Fatalf("legacy calibration = raw %d quoted %d realized %d, want 123/123/at least 10",
 			raw, quoted, realized)
+	}
+}
+
+// insertETACalibrationRowsWithBand writes band-scoped calibration history.
+func insertETACalibrationRowsWithBand(t *testing.T, pool *pgxpool.Pool, ctx context.Context,
+	jobType, tier, modelRef, band string, pairs [][2]int) {
+	t.Helper()
+	var bandArg any
+	if band != "" {
+		bandArg = band
+	}
+	for _, p := range pairs {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO eta_calibration
+			   (job_id, job_type, tier, model_ref, input_depth_band, predicted_secs, realized_secs)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			uuid.New(), jobType, tier, modelRef, bandArg, p[0], p[1]); err != nil {
+			t.Fatalf("insert eta_calibration band=%q: %v", band, err)
+		}
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(c, `DELETE FROM eta_calibration WHERE job_type=$1`, jobType)
+	})
+}
+
+// TestETABiasFactorIsInputDepthBandScoped proves long-depth 2x bias does not
+// stretch short quotes, and legacy NULL-band rows do not bleed into either.
+func TestETABiasFactorIsInputDepthBandScoped(t *testing.T) {
+	store, pool, ctx := etaCalibrationTestStore(t)
+	jobType := "etadepth_" + uuid.NewString()[:8]
+	modelRef := "eta-depth-model"
+
+	// >=5 long rows at 2x should not affect short.
+	pairs2x := make([][2]int, driftMinSamples)
+	for i := range pairs2x {
+		pairs2x[i] = [2]int{100, 200}
+	}
+	insertETACalibrationRowsWithBand(t, pool, ctx, jobType, "batch", modelRef, inputDepthBandLong, pairs2x)
+
+	// Legacy NULL/empty bucket also 3x pathological — must not affect named bands.
+	pairs3x := make([][2]int, driftMinSamples)
+	for i := range pairs3x {
+		pairs3x[i] = [2]int{100, 300}
+	}
+	insertETACalibrationRowsWithBand(t, pool, ctx, jobType, "batch", modelRef, "", pairs3x)
+
+	longFactor, longSamples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef, inputDepthBandLong)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if longSamples != driftMinSamples || math.Abs(longFactor-2) > 0.001 {
+		t.Fatalf("long factor=%v samples=%d, want 2/%d", longFactor, longSamples, driftMinSamples)
+	}
+
+	shortFactor, shortSamples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef, inputDepthBandShort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shortSamples != 0 || shortFactor != 1 {
+		t.Fatalf("short inherited long history: factor=%v samples=%d", shortFactor, shortSamples)
+	}
+
+	legacyFactor, legacySamples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacySamples != driftMinSamples || legacyFactor != etaBiasFactorMax {
+		t.Fatalf("legacy factor=%v samples=%d, want cap %v/%d",
+			legacyFactor, legacySamples, etaBiasFactorMax, driftMinSamples)
+	}
+
+	// Short history must not affect long.
+	pairs1x := make([][2]int, driftMinSamples)
+	for i := range pairs1x {
+		pairs1x[i] = [2]int{100, 100}
+	}
+	insertETACalibrationRowsWithBand(t, pool, ctx, jobType, "batch", modelRef, inputDepthBandShort, pairs1x)
+	shortFactor, shortSamples, err = store.ETABiasFactor(ctx, jobType, "batch", modelRef, inputDepthBandShort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shortSamples != driftMinSamples || shortFactor != 1 {
+		t.Fatalf("short factor=%v samples=%d, want 1/%d", shortFactor, shortSamples, driftMinSamples)
+	}
+	longFactor, longSamples, err = store.ETABiasFactor(ctx, jobType, "batch", modelRef, inputDepthBandLong)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if longSamples != driftMinSamples || math.Abs(longFactor-2) > 0.001 {
+		t.Fatalf("long contaminated by short: factor=%v samples=%d", longFactor, longSamples)
+	}
+}
+
+// TestRecordEtaCalibrationDerivesBandFromFrozenPlan proves the production writer
+// freezes the job's compute-plan p90 depth band onto the calibration row.
+func TestRecordEtaCalibrationDerivesBandFromFrozenPlan(t *testing.T) {
+	store, pool, ctx := etaCalibrationTestStore(t)
+	jobType := "etabandwrite_" + uuid.NewString()[:8]
+	modelRef := "eta-band-write-model"
+	buyerID, jobID := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO buyers (id,email) VALUES ($1,$2)`,
+		buyerID, buyerID.String()+"@eta.invalid"); err != nil {
+		t.Fatalf("insert buyer: %v", err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(c, `DELETE FROM eta_calibration WHERE job_id=$1`, jobID)
+		_, _ = pool.Exec(c, `DELETE FROM jobs WHERE id=$1`, jobID)
+		_, _ = pool.Exec(c, `DELETE FROM buyers WHERE id=$1`, buyerID)
+	})
+	planJSON := []byte(`{"version":2,"input_depth_profile":{"p90_depth_band":"long"}}`)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO jobs
+		   (id,buyer_id,status,job_type,model_ref,input_ref,tier,
+		    eta_secs,eta_secs_raw,compute_plan,created_at)
+		 VALUES ($1,$2,'complete',$3,$4,$5,'batch',200,100,$6,
+		         now() - interval '200 seconds')`,
+		jobID, buyerID, jobType, modelRef, "eta/"+jobID.String(), planJSON); err != nil {
+		t.Fatalf("insert job with depth plan: %v", err)
+	}
+	raw, quoted, realized, err := store.RecordEtaCalibration(ctx, jobID)
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if raw != 100 || quoted != 200 || realized < 200 {
+		t.Fatalf("calibration raw/quoted/realized=%d/%d/%d unexpected", raw, quoted, realized)
+	}
+	var band *string
+	if err := pool.QueryRow(ctx,
+		`SELECT input_depth_band FROM eta_calibration WHERE job_id=$1`, jobID,
+	).Scan(&band); err != nil {
+		t.Fatalf("read band: %v", err)
+	}
+	if band == nil || *band != inputDepthBandLong {
+		t.Fatalf("recorded band=%v, want long", band)
+	}
+	// Band-scoped read finds the row; empty/legacy bucket does not.
+	factor, samples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef, inputDepthBandLong)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if samples != 1 {
+		t.Fatalf("long-band samples=%d, want 1", samples)
+	}
+	_ = factor
+	_, legacySamples, err := store.ETABiasFactor(ctx, jobType, "batch", modelRef, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacySamples != 0 {
+		t.Fatalf("legacy bucket saw band-scoped row: samples=%d", legacySamples)
 	}
 }

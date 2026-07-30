@@ -1454,6 +1454,7 @@ ALTER TABLE IF EXISTS job_events     ADD COLUMN IF NOT EXISTS task_id UUID;
 ALTER TABLE IF EXISTS task_durations ADD COLUMN IF NOT EXISTS task_id UUID;
 ALTER TABLE IF EXISTS task_durations ADD COLUMN IF NOT EXISTS engine TEXT;
 ALTER TABLE IF EXISTS task_durations ADD COLUMN IF NOT EXISTS build_hash TEXT;
+ALTER TABLE IF EXISTS task_durations ADD COLUMN IF NOT EXISTS input_depth_band TEXT;
 
 DO $$
 BEGIN
@@ -1472,10 +1473,12 @@ BEGIN
         CREATE TABLE task_durations_compact (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             job_id UUID, job_type TEXT, model_ref TEXT, split_size INT, duration_ms BIGINT,
-            worker_id UUID, engine TEXT, build_hash TEXT, task_id UUID
+            worker_id UUID, engine TEXT, build_hash TEXT, task_id UUID, input_depth_band TEXT
         );
         INSERT INTO task_durations_compact
-        SELECT id,created_at,job_id,job_type,model_ref,split_size,duration_ms,worker_id,engine,build_hash,task_id FROM task_durations;
+        SELECT id,created_at,job_id,job_type,model_ref,split_size,duration_ms,
+               worker_id,engine,build_hash,task_id,input_depth_band
+          FROM task_durations;
         DROP TABLE task_durations CASCADE;
         ALTER TABLE task_durations_compact RENAME TO task_durations;
     END IF;
@@ -1507,6 +1510,31 @@ CREATE TABLE IF NOT EXISTS task_durations (
 CREATE INDEX IF NOT EXISTS task_durations_type_model_idx ON task_durations (job_type, model_ref);
 CREATE INDEX IF NOT EXISTS task_durations_scope_idx
     ON task_durations (job_type, (COALESCE(model_ref,'')), created_at DESC);
+ALTER TABLE task_durations ADD COLUMN IF NOT EXISTS input_depth_band TEXT;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='task_durations'::regclass
+           AND conname='task_durations_input_depth_band_valid'
+    ) THEN
+        ALTER TABLE task_durations ADD CONSTRAINT task_durations_input_depth_band_valid
+            CHECK (input_depth_band IS NULL OR input_depth_band IN ('short','medium','long'))
+            NOT VALID;
+    END IF;
+END $$;
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='task_durations'::regclass
+           AND conname='task_durations_input_depth_band_valid'
+           AND NOT convalidated
+    ) THEN
+        ALTER TABLE task_durations
+            VALIDATE CONSTRAINT task_durations_input_depth_band_valid;
+    END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS task_durations_scope_depth_idx
+    ON task_durations (job_type, (COALESCE(model_ref,'')), (COALESCE(input_depth_band,'')), created_at DESC);
 
 CREATE TABLE IF NOT EXISTS job_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1543,9 +1571,34 @@ CREATE TABLE IF NOT EXISTS eta_calibration (
     created_at     TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE eta_calibration ADD COLUMN IF NOT EXISTS model_ref TEXT;
+ALTER TABLE eta_calibration ADD COLUMN IF NOT EXISTS input_depth_band TEXT;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='eta_calibration'::regclass
+           AND conname='eta_calibration_input_depth_band_valid'
+    ) THEN
+        ALTER TABLE eta_calibration ADD CONSTRAINT eta_calibration_input_depth_band_valid
+            CHECK (input_depth_band IS NULL OR input_depth_band IN ('short','medium','long'))
+            NOT VALID;
+    END IF;
+END $$;
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='eta_calibration'::regclass
+           AND conname='eta_calibration_input_depth_band_valid'
+           AND NOT convalidated
+    ) THEN
+        ALTER TABLE eta_calibration
+            VALIDATE CONSTRAINT eta_calibration_input_depth_band_valid;
+    END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS eta_calibration_type_idx ON eta_calibration (job_type, tier, created_at DESC);
 CREATE INDEX IF NOT EXISTS eta_calibration_scope_idx
     ON eta_calibration (job_type, tier, (COALESCE(model_ref,'')), created_at DESC);
+CREATE INDEX IF NOT EXISTS eta_calibration_scope_depth_idx
+    ON eta_calibration (job_type, tier, (COALESCE(model_ref,'')), (COALESCE(input_depth_band,'')), created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS eta_calibration_job_uniq ON eta_calibration (job_id);
 
 CREATE TABLE IF NOT EXISTS charge_batches (

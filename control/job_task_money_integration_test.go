@@ -83,6 +83,7 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		decision,
 		1,
 		128,
+		testInputDepthProfile(1),
 		1,
 		1,
 		0,
@@ -98,7 +99,7 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		t.Fatalf("build exact-reuse origin plan: %v", err)
 	}
 	computePlan, err := newExactReuseComputePlan(
-		decision, 1, 128, microsToUSD(money.BuyerDebitMicros), &originPlan,
+		decision, 1, 128, testInputDepthProfile(1), microsToUSD(money.BuyerDebitMicros), &originPlan,
 	)
 	if err != nil {
 		t.Fatalf("build exact-reuse compute plan: %v", err)
@@ -520,6 +521,7 @@ func validJobRow(t *testing.T, f moneyPathFixture, tasks []taskRow) *jobRow {
 		workload,
 		inputRecords,
 		inputBytes,
+		testInputDepthProfile(inputRecords),
 		1,
 		len(tasks),
 		0,
@@ -3155,13 +3157,26 @@ func TestConcurrentDynamicTaskInsertIsIdempotent(t *testing.T) {
 func TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock(t *testing.T) {
 	ctx, store, pool := openMoneyPathStore(t)
 	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
-		TaskCount: 1, TaskStatus: "running", ClaimWorker: true,
-		SeedJob: true, SeedPlanRows: true,
+		TaskCount: 1,
 	})
-	primaryTaskID := f.TaskIDs[0]
+	tasks := makeTasks(f, 1)
+	job := validJobRow(t, f, tasks)
+	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
+		t.Fatalf("submit frozen-authority fixture: %v", err)
+	}
+	primaryTaskID := tasks[0].ID
 	if _, err := pool.Exec(ctx,
-		`UPDATE tasks SET claimed_at=now(),started_at=now() WHERE id=$1`,
-		primaryTaskID); err != nil {
+		`UPDATE jobs SET status='running' WHERE id=$1`, f.JobID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE tasks
+		   SET status='running', claimed_by=$2, claimed_at=now(), started_at=now(),
+		       worker_id=$2, execution_worker_id=$2, execution_supplier_id=$3,
+		       execution_hw_class='apple_silicon_max',
+		       execution_engine='candle', execution_build_hash='deadbeefdeadbeef'
+		 WHERE id=$1`,
+		primaryTaskID, f.WorkerID, f.SupplierID); err != nil {
 		t.Fatal(err)
 	}
 	info, err := store.CompleteTaskTx(
@@ -3240,6 +3255,20 @@ func TestPlannedAndUnplannedTiebreakInsertionConvergeWithoutDeadlock(t *testing.
 	if apply.err != nil || !apply.result.Applied {
 		t.Fatalf("planned tiebreak apply = (%+v,%v), want applied/nil",
 			apply.result, apply.err)
+	}
+	var durationDepthBand *string
+	if err := pool.QueryRow(ctx, `
+		SELECT input_depth_band
+		  FROM task_durations
+		 WHERE task_id=$1
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		primaryTaskID,
+	).Scan(&durationDepthBand); err != nil {
+		t.Fatalf("read applied task duration depth band: %v", err)
+	}
+	if durationDepthBand == nil || *durationDepthBand != inputDepthBandShort {
+		t.Fatalf("applied task duration depth band=%v, want short", durationDepthBand)
 	}
 	if insert.err != nil || insert.id == uuid.Nil {
 		t.Fatalf("unplanned tiebreak insert = (%s,%v)", insert.id, insert.err)

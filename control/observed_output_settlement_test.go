@@ -231,6 +231,36 @@ func TestEffectiveObservedOutputMaxTokensMatchesPricingDefault(t *testing.T) {
 	}
 }
 
+func TestSettlementInputUnitsPreserveV1V2EconomicComposition(t *testing.T) {
+	v1 := ComputePlan{
+		Version:              computePlanVersionV1,
+		InputRecords:         2,
+		InputBytes:           100,
+		EstimatedInputTokens: 25,
+	}
+	v2 := v1
+	v2.Version = computePlanVersion
+	v2.EstimatedInputTokens = 3 // selected bodies exclude JSON framing/metadata
+
+	v1Units := settlementInputUnitsForComputePlan(v1)
+	v2Units := settlementInputUnitsForComputePlan(v2)
+	if v1Units != 25 || v2Units != v1Units {
+		t.Fatalf("settlement input units v1/v2=%d/%d, want 25/25", v1Units, v2Units)
+	}
+
+	v1Settlement := settleObservedOutputTokens(1, 0.7, v1Units, 200, 2, 100, 20, true)
+	v2Settlement := settleObservedOutputTokens(1, 0.7, v2Units, 200, 2, 100, 20, true)
+	if v2Settlement != v1Settlement {
+		t.Fatalf("v2 body-depth planning changed frozen economics: v1=%+v v2=%+v",
+			v1Settlement, v2Settlement)
+	}
+	if changed := settleObservedOutputTokens(
+		1, 0.7, v2.EstimatedInputTokens, 200, 2, 100, 20, true,
+	); changed == v1Settlement {
+		t.Fatal("test fixture does not expose the body-token settlement regression")
+	}
+}
+
 func TestObservedOutputSettlementDeterministic(t *testing.T) {
 	a := settleObservedOutputTokens(1.23, 0.80, 40, 200, 2, 128, 17, true)
 	b := settleObservedOutputTokens(1.23, 0.80, 40, 200, 2, 128, 17, true)
@@ -283,6 +313,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		workload,
 		1,
 		64,
+		testInputDepthProfile(1),
 		1,
 		1,
 		0,
@@ -373,12 +404,62 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		settled.BilledCharge >= f.Plan.BuyerChargePerTaskUSD {
 		t.Fatalf("recovered settlement did not apply bounded rebate: %+v", settled)
 	}
+	// Before verification writes the ledger, both presentation fallbacks must
+	// preserve the historical whole-input economic composition. Compute-plan
+	// v2 uses selected-body tokens for depth, which must not change the frozen
+	// buyer charge split.
+	var preLedgerEntries int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM ledger_entries WHERE task_id=$1`,
+		tasks[0].ID,
+	).Scan(&preLedgerEntries); err != nil {
+		t.Fatal(err)
+	}
+	if preLedgerEntries != 0 {
+		t.Fatalf("fixture already has %d ledger entries before fallback checks", preLedgerEntries)
+	}
+	wantRebate := roundUSD(f.Plan.BuyerChargePerTaskUSD - settled.BilledCharge)
+	preLedgerReceipts, err := store.JobTaskReceipts(ctx, f.JobID)
+	if err != nil {
+		t.Fatalf("pre-ledger task receipts: %v", err)
+	}
+	if len(preLedgerReceipts) != 1 ||
+		preLedgerReceipts[0].BilledBuyerChargeUSD == nil ||
+		*preLedgerReceipts[0].BilledBuyerChargeUSD != settled.BilledCharge ||
+		preLedgerReceipts[0].OutputTokenRebateUSD == nil ||
+		*preLedgerReceipts[0].OutputTokenRebateUSD != wantRebate {
+		t.Fatalf("pre-ledger receipt fallback diverged from settlement: got=%+v want billed/rebate=%.6f/%.6f",
+			preLedgerReceipts, settled.BilledCharge, wantRebate)
+	}
+	preLedgerInvoice := InvoiceView{JobID: f.JobID}
+	if err := store.attachObservedOutputInvoiceEvidence(ctx, &preLedgerInvoice); err != nil {
+		t.Fatalf("pre-ledger invoice evidence: %v", err)
+	}
+	if preLedgerInvoice.OutputTokenRebateUSD == nil ||
+		*preLedgerInvoice.OutputTokenRebateUSD != wantRebate {
+		t.Fatalf("pre-ledger invoice fallback rebate=%v, want %.6f",
+			preLedgerInvoice.OutputTokenRebateUSD, wantRebate)
+	}
 	entries := splitFrozenCharge(
 		f.BuyerID, f.SupplierID, tasks[0].ID, "usd",
 		settled.BilledCharge, settled.SupplierPayout, 0, time.Now().UTC(),
 	)
 	if err := store.FinalizeTaskVerification(ctx, recovered, OutcomePass, entries); err != nil {
 		t.Fatalf("apply rejected planner's recovered settlement: %v", err)
+	}
+	var durationDepthBand *string
+	if err := pool.QueryRow(ctx, `
+		SELECT input_depth_band
+		  FROM task_durations
+		 WHERE task_id=$1
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		tasks[0].ID,
+	).Scan(&durationDepthBand); err != nil {
+		t.Fatalf("read finalized task duration depth band: %v", err)
+	}
+	if durationDepthBand == nil || *durationDepthBand != inputDepthBandShort {
+		t.Fatalf("finalized task duration depth band=%v, want short", durationDepthBand)
 	}
 	var ledgerNet float64
 	if err := pool.QueryRow(ctx,

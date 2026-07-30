@@ -840,7 +840,7 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 					}
 					settled := settleObservedOutputTokens(
 						fc, fc, // payout unused for receipt charge fields
-						plan.EstimatedInputTokens, plan.EstimatedOutputTokens,
+						settlementInputUnitsForComputePlan(*plan), plan.EstimatedOutputTokens,
 						expectedRecords, maxTokens,
 						reported, hasReported,
 					)
