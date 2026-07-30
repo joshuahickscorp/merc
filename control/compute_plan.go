@@ -10,10 +10,12 @@ import (
 )
 
 // computePlanVersion is the version written for newly frozen plans.
-// Historical version-1 plans remain readable and settleable.
-const computePlanVersion = 2
+// Historical version-1 and version-2 plans remain readable and settleable.
+const computePlanVersion = 3
 
 const computePlanVersionV1 = 1
+
+const computePlanVersionV2 = 2
 
 const (
 	computeExecutionDistributed = "distributed"
@@ -26,14 +28,21 @@ const (
 // snapshots. Dynamic supply may affect when a task is claimed, but never the
 // purchased geometry recorded here.
 type ComputePlan struct {
-	Version                 int                `json:"version"`
-	ExecutionMode           string             `json:"execution_mode"`
-	WorkloadBindingSHA256   string             `json:"workload_binding_sha256"`
-	WorkloadDecisionSHA256  string             `json:"workload_decision_sha256"`
-	OriginComputePlanSHA256 string             `json:"origin_compute_plan_sha256,omitempty"`
-	InputRecords            int                `json:"input_records"`
-	InputBytes              int64              `json:"input_bytes"`
-	EstimatedInputTokens    int64              `json:"estimated_input_tokens"`
+	Version                 int    `json:"version"`
+	ExecutionMode           string `json:"execution_mode"`
+	WorkloadBindingSHA256   string `json:"workload_binding_sha256"`
+	WorkloadDecisionSHA256  string `json:"workload_decision_sha256"`
+	OriginComputePlanSHA256 string `json:"origin_compute_plan_sha256,omitempty"`
+	InputRecords            int    `json:"input_records"`
+	InputBytes              int64  `json:"input_bytes"`
+	EstimatedInputTokens    int64  `json:"estimated_input_tokens"`
+	// SettlementInputUnits is the exact input-side unit count that the frozen
+	// catalogue price used. It is deliberately separate from
+	// EstimatedInputTokens: the latter is a selected-body depth estimate for
+	// planning and ETA, whereas settlement prices complete JSONL input geometry.
+	// Version 3 writes this as max(records, input_bytes/4), without a rounding
+	// conversion, so pricing, settlement, and the receipt share one authority.
+	SettlementInputUnits    float64            `json:"settlement_input_units,omitempty"`
 	EstimatedOutputTokens   int64              `json:"estimated_output_tokens"`
 	InputDepthProfile       *InputDepthProfile `json:"input_depth_profile,omitempty"`
 	SplitSize               int                `json:"split_size"`
@@ -54,7 +63,7 @@ type ComputePlan struct {
 }
 
 func supportedComputePlanVersion(version int) bool {
-	return version == computePlanVersionV1 || version == computePlanVersion
+	return version == computePlanVersionV1 || version == computePlanVersionV2 || version == computePlanVersion
 }
 
 func computePlanDigest(plan ComputePlan) (string, error) {
@@ -80,6 +89,21 @@ func estimatedInputTokensForComputePlanV1(records int, inputBytes int64) int64 {
 		return int64(records)
 	}
 	return byBytes
+}
+
+// settlementInputUnitsForGeometry is the input-side unit formula already used
+// by estimateJobSettlementWithAuthority. Keep it in one place: a fractional
+// byte-derived unit is real pricing authority, not a token-estimator rounding
+// detail. New compute plans freeze this exact result in SettlementInputUnits.
+func settlementInputUnitsForGeometry(records int, inputBytes int64) float64 {
+	if records <= 0 || inputBytes <= 0 {
+		return 0
+	}
+	units := float64(records)
+	if byteUnits := float64(inputBytes) / bytesPerTokenHeuristic; byteUnits > units {
+		units = byteUnits
+	}
+	return units
 }
 
 func estimatedOutputTokensForComputePlan(decision WorkloadDecision, records int) int64 {
@@ -168,6 +192,7 @@ func newDistributedComputePlan(
 		InputRecords:            inputRecords,
 		InputBytes:              inputBytes,
 		EstimatedInputTokens:    depth.EstimatedTokens,
+		SettlementInputUnits:    settlementInputUnitsForGeometry(inputRecords, inputBytes),
 		EstimatedOutputTokens:   estimatedOutputTokensForComputePlan(decision, inputRecords),
 		InputDepthProfile:       &depthCopy,
 		SplitSize:               splitSize,
@@ -224,6 +249,7 @@ func newExactReuseComputePlan(
 		InputRecords:           inputRecords,
 		InputBytes:             inputBytes,
 		EstimatedInputTokens:   depth.EstimatedTokens,
+		SettlementInputUnits:   settlementInputUnitsForGeometry(inputRecords, inputBytes),
 		EstimatedOutputTokens:  estimatedOutputTokensForComputePlan(decision, inputRecords),
 		InputDepthProfile:      &depthCopy,
 		ETASource:              computeExecutionExactReuse,
@@ -262,9 +288,12 @@ func validSHA256(value string) bool {
 // plan and its frozen workload decision. It deliberately does not consult the
 // current fleet, model catalogue or runtime matrix.
 //
-// Version 1 keeps the historical whole-input bytes/4 token rule and requires no
-// depth profile. Version 2 requires a self-consistent InputDepthProfile and
-// binds EstimatedInputTokens to that profile.
+// Version 1 keeps the historical rounded whole-input bytes/4 token rule and
+// requires no depth profile. Version 2 adds a self-consistent InputDepthProfile
+// and binds EstimatedInputTokens to that profile. Version 3 additionally
+// freezes the exact fractional input unit count that catalogue pricing used, so
+// settlement, pricing receipts, and supplier-time modeling cannot call the
+// planning depth estimate a money unit.
 func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecision) error {
 	if !supportedComputePlanVersion(plan.Version) {
 		return fmt.Errorf("unsupported compute plan version %d", plan.Version)
@@ -288,12 +317,15 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 		if plan.InputDepthProfile != nil {
 			return errors.New("version-1 compute plan cannot carry an input depth profile")
 		}
+		if plan.SettlementInputUnits != 0 {
+			return errors.New("version-1 compute plan cannot carry settlement input units")
+		}
 		if plan.EstimatedInputTokens != estimatedInputTokensForComputePlanV1(plan.InputRecords, plan.InputBytes) {
 			return errors.New("compute plan input-token estimate does not match its frozen input geometry")
 		}
-	case computePlanVersion:
+	case computePlanVersionV2, computePlanVersion:
 		if plan.InputDepthProfile == nil {
-			return errors.New("version-2 compute plan requires an input depth profile")
+			return fmt.Errorf("version-%d compute plan requires an input depth profile", plan.Version)
 		}
 		if err := validateInputDepthProfile(*plan.InputDepthProfile); err != nil {
 			return fmt.Errorf("compute plan input depth profile invalid: %w", err)
@@ -312,6 +344,18 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 		}
 		if plan.EstimatedInputTokens != plan.InputDepthProfile.EstimatedTokens {
 			return errors.New("compute plan input-token estimate does not match its frozen input depth profile")
+		}
+		if plan.Version == computePlanVersionV2 {
+			if plan.SettlementInputUnits != 0 {
+				return errors.New("version-2 compute plan cannot carry settlement input units")
+			}
+		} else {
+			wantSettlementUnits := settlementInputUnitsForGeometry(plan.InputRecords, plan.InputBytes)
+			if math.IsNaN(plan.SettlementInputUnits) || math.IsInf(plan.SettlementInputUnits, 0) ||
+				plan.SettlementInputUnits <= 0 ||
+				math.Abs(plan.SettlementInputUnits-wantSettlementUnits) > 0.000000001 {
+				return errors.New("compute plan settlement input units do not match its frozen input geometry")
+			}
 		}
 	}
 	if plan.EstimatedOutputTokens != estimatedOutputTokensForComputePlan(decision, plan.InputRecords) {

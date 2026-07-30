@@ -27,7 +27,7 @@ func TestObservedOutputSettlementOneRecordMaxTokens256Observed5(t *testing.T) {
 
 	got := settleObservedOutputTokens(
 		frozenCharge, frozenPayout,
-		estimatedIn, estimatedOut,
+		float64(estimatedIn), estimatedOut,
 		records, maxTokens,
 		observed, true,
 	)
@@ -138,7 +138,7 @@ func TestObservedOutputSettlementSupplierWithinBilledCharge(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := settleObservedOutputTokens(
 				tc.charge, tc.payout,
-				tc.inTok, tc.outTok,
+				float64(tc.inTok), tc.outTok,
 				tc.records, tc.maxTokens,
 				tc.observed, true,
 			)
@@ -200,7 +200,7 @@ func TestObservedOutputSettlementMissingInputsSettleAtFreeze(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := settleObservedOutputTokens(
 				frozenCharge, frozenPayout,
-				tc.inTok, tc.outTok,
+				float64(tc.inTok), tc.outTok,
 				tc.records, tc.maxTokens,
 				tc.observed, tc.hasReported,
 			)
@@ -231,21 +231,25 @@ func TestEffectiveObservedOutputMaxTokensMatchesPricingDefault(t *testing.T) {
 	}
 }
 
-func TestSettlementInputUnitsPreserveV1V2EconomicComposition(t *testing.T) {
+func TestSettlementInputUnitsPreserveHistoryAndUseV3FrozenAuthority(t *testing.T) {
 	v1 := ComputePlan{
 		Version:              computePlanVersionV1,
 		InputRecords:         2,
-		InputBytes:           100,
-		EstimatedInputTokens: 25,
+		InputBytes:           101,
+		EstimatedInputTokens: 26,
 	}
 	v2 := v1
-	v2.Version = computePlanVersion
+	v2.Version = computePlanVersionV2
 	v2.EstimatedInputTokens = 3 // selected bodies exclude JSON framing/metadata
+	v3 := v2
+	v3.Version = computePlanVersion
+	v3.SettlementInputUnits = 25.25 // exact max(records, input_bytes/4) price authority
 
 	v1Units := settlementInputUnitsForComputePlan(v1)
 	v2Units := settlementInputUnitsForComputePlan(v2)
-	if v1Units != 25 || v2Units != v1Units {
-		t.Fatalf("settlement input units v1/v2=%d/%d, want 25/25", v1Units, v2Units)
+	v3Units := settlementInputUnitsForComputePlan(v3)
+	if v1Units != 26 || v2Units != v1Units || v3Units != 25.25 {
+		t.Fatalf("settlement input units v1/v2/v3=%v/%v/%v, want 26/26/25.25", v1Units, v2Units, v3Units)
 	}
 
 	v1Settlement := settleObservedOutputTokens(1, 0.7, v1Units, 200, 2, 100, 20, true)
@@ -255,9 +259,13 @@ func TestSettlementInputUnitsPreserveV1V2EconomicComposition(t *testing.T) {
 			v1Settlement, v2Settlement)
 	}
 	if changed := settleObservedOutputTokens(
-		1, 0.7, v2.EstimatedInputTokens, 200, 2, 100, 20, true,
+		1, 0.7, float64(v2.EstimatedInputTokens), 200, 2, 100, 20, true,
 	); changed == v1Settlement {
 		t.Fatal("test fixture does not expose the body-token settlement regression")
+	}
+	v3Settlement := settleObservedOutputTokens(1, 0.7, v3Units, 200, 2, 100, 20, true)
+	if v3Settlement == v1Settlement {
+		t.Fatal("v3 settlement did not use its exact frozen fractional money authority")
 	}
 }
 
@@ -405,9 +413,9 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		t.Fatalf("recovered settlement did not apply bounded rebate: %+v", settled)
 	}
 	// Before verification writes the ledger, both presentation fallbacks must
-	// preserve the historical whole-input economic composition. Compute-plan
-	// v2 uses selected-body tokens for depth, which must not change the frozen
-	// buyer charge split.
+	// preserve the frozen whole-input economic composition. Compute-plan v3
+	// carries selected-body depth separately from the exact catalogue units, so
+	// neither presentation path may change the buyer charge split.
 	var preLedgerEntries int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM ledger_entries WHERE task_id=$1`,

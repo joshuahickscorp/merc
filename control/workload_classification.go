@@ -266,9 +266,15 @@ func buildWorkloadDecisionFromBinding(binding WorkloadBinding) (WorkloadDecision
 			Device:          capability.Device,
 			HardwareClasses: append([]string(nil), capability.HardwareClasses...),
 		}},
-		MinimumMemoryGB:            minMemory,
-		Deterministic:              true,
-		ExactResultCacheEligible:   true,
+		MinimumMemoryGB: minMemory,
+		Deterministic:   true,
+		// Batch exact-result reuse is intentionally disabled until its price
+		// authority can meter the full reused workload. The prior path stored
+		// merged record counts as cache "output_tokens" and then billed those
+		// counts as token units, which is not valid for either embedding input
+		// geometry or generative output. Realtime reuse has a separate,
+		// completion-token-metered path and is unaffected.
+		ExactResultCacheEligible:   false,
 		PrefixReuseEligible:        prefixEligible,
 		InflightCoalescingEligible: false,
 		VerificationStrategy:       verificationStrategyFor(binding, capability),
