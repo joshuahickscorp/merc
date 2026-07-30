@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     result_ref    TEXT,
     result_key    TEXT,
     input_ref     TEXT,                   -- per-task input chunk object key (null = inherit job.input_ref)
+    input_depth_band TEXT,                 -- immutable primary-chunk depth bucket for runtime learning
     expected_output_records BIGINT,
     is_honeypot   BOOLEAN DEFAULT false,
     is_redundancy BOOLEAN DEFAULT false,
@@ -94,6 +95,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_buyer_submit_idempotency_uniq
     ON jobs (buyer_id, submit_idempotency_key)
     WHERE submit_idempotency_key IS NOT NULL;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS input_ref TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS input_depth_band TEXT;
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_input_depth_band_valid;
+ALTER TABLE tasks ADD CONSTRAINT tasks_input_depth_band_valid
+    CHECK (input_depth_band IS NULL OR input_depth_band IN ('short','medium','long'));
+CREATE OR REPLACE FUNCTION cx_reject_input_depth_band_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.input_depth_band IS DISTINCT FROM NEW.input_depth_band THEN
+        RAISE EXCEPTION 'task input depth band for % is immutable', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS tasks_input_depth_band_immutable ON tasks;
+CREATE TRIGGER tasks_input_depth_band_immutable
+    BEFORE UPDATE OF input_depth_band ON tasks
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_input_depth_band_update();
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS result_key TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS expected_output_records BIGINT;
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_expected_output_records_positive;

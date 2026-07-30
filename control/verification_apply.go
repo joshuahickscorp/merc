@@ -291,11 +291,13 @@ func (s *Store) applyVerificationDecision(ctx context.Context, info *CommitTaskI
 		VALUES (
 		  $1,$2,$3,$4,$5,$6,$7,$8,$9,
 		  (SELECT CASE
-		     WHEN compute_plan->'input_depth_profile'->>'p90_depth_band'
-		          IN ('short','medium','long')
-		     THEN compute_plan->'input_depth_profile'->>'p90_depth_band'
+		     WHEN COALESCE(is_honeypot,false)=false
+		      AND COALESCE(is_redundancy,false)=false
+		      AND hedged_from IS NULL
+		      AND input_depth_band IN ('short','medium','long')
+		     THEN input_depth_band
 		     ELSE NULL
-		   END FROM jobs WHERE id = $2)
+		   END FROM tasks WHERE id = $1)
 		)`,
 		info.TaskID, info.JobID, info.jobType, info.ModelRef, info.SplitSize,
 		int64(info.DurationMS), info.WorkerID, info.engine, info.buildHash); err != nil {
@@ -1048,11 +1050,12 @@ func insertPlannedTiebreakTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInf
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO tasks
 		  (id,job_id,status,is_honeypot,is_redundancy,retry_count,input_ref,result_key,
-		   chunk_index,hedged_from,expected_output_records,
+		   input_depth_band,chunk_index,hedged_from,expected_output_records,
 		   verification_hw_class,verification_engine,verification_build_hash,
 		   claimed_by,claimed_at,visible_at,
 		   economic_buyer_charge_usd,economic_supplier_payout_usd)
-		VALUES ($1,$2,'queued',false,true,0,$3,$4,$5,$6,
+		VALUES ($1,$2,'queued',false,true,0,$3,$4,
+		        (SELECT input_depth_band FROM tasks WHERE id=$6),$5,$6,
 		        (SELECT expected_output_records FROM tasks WHERE id=$6),
 		        $7,$8,$9,NULL,NULL,now(),$10,$11)`,
 		effect.TaskID, effect.JobID, effect.InputRef, resultKey, effect.ChunkIndex,

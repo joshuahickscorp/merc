@@ -143,6 +143,13 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	}
 	var primaryTasks, redundancyTasks, honeypotTasks int
 	for _, task := range tasks {
+		if task.InputDepthBand != "" && !validInputDepthBand(task.InputDepthBand) {
+			return fmt.Errorf("task %s has invalid input depth band %q", task.ID, task.InputDepthBand)
+		}
+		if j.EconomicInputSource == economicInputSourceSubmitStream && !task.IsHoneypot &&
+			!validInputDepthBand(task.InputDepthBand) {
+			return fmt.Errorf("streamed task %s lacks frozen input depth authority", task.ID)
+		}
 		switch {
 		case task.IsHoneypot:
 			honeypotTasks++
@@ -391,12 +398,12 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		_, err = tx.CopyFrom(ctx,
 			pgx.Identifier{"tasks"},
 			[]string{"id", "job_id", "status", "is_honeypot", "is_redundancy", "retry_count",
-				"input_ref", "result_key", "chunk_index", "expected_output_records", "visible_at",
+				"input_ref", "input_depth_band", "result_key", "chunk_index", "expected_output_records", "visible_at",
 				"economic_buyer_charge_usd", "economic_supplier_payout_usd"},
 			pgx.CopyFromSlice(len(tasks), func(i int) ([]any, error) {
 				t := tasks[i]
 				return []any{t.ID, t.JobID, "queued", t.IsHoneypot, t.IsRedundancy, int16(0),
-					t.InputRef, t.ResultKey, t.ChunkIndex, nullPosInt64(t.ExpectedOutputRecords), now,
+					t.InputRef, nullInputDepthBand(t.InputDepthBand), t.ResultKey, t.ChunkIndex, nullPosInt64(t.ExpectedOutputRecords), now,
 					j.EconomicPlan.BuyerChargePerTaskUSD, j.EconomicPlan.SupplierPayoutPerTaskUSD}, nil
 			}),
 		)

@@ -104,11 +104,13 @@ func (s *Store) FinalizeTaskVerification(ctx context.Context, info *CommitTaskIn
 		 VALUES (
 		   $1,$2,$3,$4,$5,$6,$7,$8,$9,
 		   (SELECT CASE
-		      WHEN compute_plan->'input_depth_profile'->>'p90_depth_band'
-		           IN ('short','medium','long')
-		      THEN compute_plan->'input_depth_profile'->>'p90_depth_band'
+		      WHEN COALESCE(is_honeypot,false)=false
+		       AND COALESCE(is_redundancy,false)=false
+		       AND hedged_from IS NULL
+		       AND input_depth_band IN ('short','medium','long')
+		      THEN input_depth_band
 		      ELSE NULL
-		    END FROM jobs WHERE id = $2)
+		    END FROM tasks WHERE id = $1)
 		 )`,
 		info.TaskID, info.JobID, info.jobType, info.ModelRef, info.SplitSize, int64(info.DurationMS),
 		info.WorkerID, info.engine, info.buildHash,

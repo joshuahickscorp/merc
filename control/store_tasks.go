@@ -89,11 +89,15 @@ func (s *Store) AdminForceRequeueTask(ctx context.Context, actor AdminActor, tas
 }
 
 type taskRow struct {
-	ID                    uuid.UUID
-	JobID                 uuid.UUID
-	IsHoneypot            bool
-	IsRedundancy          bool
-	InputRef              string
+	ID           uuid.UUID
+	JobID        uuid.UUID
+	IsHoneypot   bool
+	IsRedundancy bool
+	InputRef     string
+	// InputDepthBand is the immutable depth bucket for this exact input chunk.
+	// It is deliberately task-scoped: a job-wide p90 loses the mixed-input
+	// geometry that task-duration learning needs.
+	InputDepthBand        string
 	ResultKey             string
 	ChunkIndex            int
 	ExpectedOutputRecords int64 // 0 = explicit legacy/opaque unknown, persisted NULL
@@ -647,11 +651,12 @@ func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, pe
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO tasks
 		   (id, job_id, status, is_honeypot, is_redundancy, retry_count,
-		    input_ref, result_key, chunk_index, hedged_from,expected_output_records,
+		    input_ref, input_depth_band, result_key, chunk_index, hedged_from,expected_output_records,
 		    verification_hw_class,verification_engine,verification_build_hash,
 		    claimed_by, claimed_at, visible_at,
 		    economic_buyer_charge_usd,economic_supplier_payout_usd)
-		 VALUES ($1,$2,'queued',false,true,0,$3,$4,$5,$6,
+		 VALUES ($1,$2,'queued',false,true,0,$3,
+		         (SELECT input_depth_band FROM tasks WHERE id=$6),$4,$5,$6,
 		         (SELECT expected_output_records FROM tasks WHERE id=$6),
 		         $7,$8,$9,$10,now(),now(),$11,$12)`,
 		id, jobID, inputRef, resultKey, chunkIndex, primaryTaskID,
@@ -1062,10 +1067,11 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 	_, err = tx.Exec(ctx,
 		`INSERT INTO tasks
 		   (id, job_id, status, is_honeypot, is_redundancy, retry_count,
-		    input_ref, result_key, chunk_index, hedged_from,expected_output_records,
+		    input_ref, input_depth_band, result_key, chunk_index, hedged_from,expected_output_records,
 		    claimed_by, claimed_at, visible_at,
 		    economic_buyer_charge_usd,economic_supplier_payout_usd)
-		 VALUES ($1,$2,'queued',false,false,0,$3,$4,$5,$6,
+		 VALUES ($1,$2,'queued',false,false,0,$3,
+		         (SELECT input_depth_band FROM tasks WHERE id=$6),$4,$5,$6,
 		         (SELECT expected_output_records FROM tasks WHERE id=$6),
 		         $7, now(), now(),$8,$9)`,
 		id, jobID, inputRef, resultKey, chunkIndex, primaryTaskID, peerWorker,

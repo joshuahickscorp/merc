@@ -122,6 +122,15 @@ func depthBandForTokens(tokens int64) string {
 	}
 }
 
+func validInputDepthBand(band string) bool {
+	switch band {
+	case inputDepthBandShort, inputDepthBandMedium, inputDepthBandLong:
+		return true
+	default:
+		return false
+	}
+}
+
 // deriveP90DepthBand ranks short < medium < long and returns the band at
 // ceil(0.9*N). Empty input has no p90.
 func deriveP90DepthBand(short, medium, longCount int) string {
