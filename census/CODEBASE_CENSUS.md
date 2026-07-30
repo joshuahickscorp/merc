@@ -1,10 +1,8 @@
 # Codebase census
 
-GLOBAL_OWNED_LOC: **137254** across 570 tracked files (10.24 MB).
+GLOBAL_OWNED_LOC: **137252** across 571 tracked files (10.24 MB).
 
-> 1 additional file(s) are present in the working tree but **not in the git index**. They were in no CI run and can back no release gate.
-
-Non-design production core: 96745 LOC · tests: 27208 LOC · documentation: 6627 LOC · Python: 9388 LOC · generated: 5125 LOC · vendored upstream: 0 LOC.
+Non-design production core: 96745 LOC · tests: 27208 LOC · documentation: 6625 LOC · Python: 9388 LOC · generated: 5123 LOC · vendored upstream: 0 LOC.
 
 ## Owned LOC by language
 
@@ -12,7 +10,7 @@ Non-design production core: 96745 LOC · tests: 27208 LOC · documentation: 6627
 |---|--:|--:|
 | binary | 20 | 0 |
 | config | 7 | 583 |
-| documentation | 50 | 6627 |
+| documentation | 50 | 6625 |
 | go | 232 | 73943 |
 | javascript | 8 | 1028 |
 | json | 80 | 7581 |
@@ -37,7 +35,7 @@ Non-design production core: 96745 LOC · tests: 27208 LOC · documentation: 6627
 | control | 167 | 52558 |
 | documentation | 39 | 5741 |
 | interface | 29 | 1702 |
-| ops | 118 | 11055 |
+| ops | 118 | 11053 |
 | payment | 39 | 13123 |
 | proof | 119 | 25858 |
 | sdk | 10 | 1193 |
