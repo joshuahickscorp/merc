@@ -541,13 +541,20 @@ func TestUpsertWorkerEnforcesTheGovernedProfile(t *testing.T) {
 	}
 }
 
-// Not yet done, and the test says so rather than a comment: NOT NULL and
-// dropping workers_engine_valid are steps 6 and 7, gated on a clean
-// reconciliation in a real deployment. This asserts the transition state is
-// exactly what it claims — additive, both checks present, nothing dropped.
-func TestMigrationIsStillInTheAdditiveTransitionState(t *testing.T) {
+// The migration's end state, corrected by evidence.
+//
+// The directive's step 6 was "make the profile reference NOT NULL". Applied
+// literally it broke a freshly migrated database: enrollment creates a worker
+// row BEFORE the agent registers any capability, so at that moment there is
+// legitimately no profile to bind, and the test suite caught it immediately.
+//
+// The invariant that actually matters is narrower and stronger — a worker may
+// not be DISPATCHABLE without a complete governed identity — so it is enforced
+// where dispatch authority is granted rather than where a row is created.
+func TestDispatchRequiresGovernedProfileIdentityNotRowCreation(t *testing.T) {
 	_, pool, ctx := freshMigratedDatabase(t)
 
+	// The placeholder path must still work: an enrolling worker has no profile.
 	var nullable string
 	if err := pool.QueryRow(ctx, `
 		SELECT is_nullable FROM information_schema.columns
@@ -555,18 +562,80 @@ func TestMigrationIsStillInTheAdditiveTransitionState(t *testing.T) {
 		t.Fatalf("read column: %v", err)
 	}
 	if nullable != "YES" {
-		t.Error("runtime_profile_id is already NOT NULL; step 6 requires a clean " +
-			"reconciliation in a real deployment first")
+		t.Error("runtime_profile_id is NOT NULL; enrollment creates a worker row " +
+			"before any profile exists and would fail")
 	}
 
-	var legacyCheck int
-	if err := pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM pg_constraint WHERE conname='workers_engine_valid'`).
-		Scan(&legacyCheck); err != nil {
+	supplierID, workerID := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO suppliers (id,email,reputation,status) VALUES ($1,$2,0.5,'active')`,
+		supplierID, "dispatch+"+supplierID.String()+"@example.test"); err != nil {
+		t.Fatalf("insert supplier: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO workers (id,supplier_id,hw_class) VALUES ($1,$2,'apple_silicon_ultra')`,
+		workerID, supplierID); err != nil {
+		t.Fatalf("an enrollment placeholder was refused: %v", err)
+	}
+
+	// But it may not hold dispatch capability without governed identity.
+	_, err := pool.Exec(ctx, `
+		INSERT INTO worker_authorized_capabilities
+		  (worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256)
+		VALUES ($1,'candle-metal-minilm-embed','candle_metal','embed',
+		        'all-minilm-l6-v2','hf',$2)`, workerID, generatedRuntimeMatrixSHA256)
+	if err == nil {
+		t.Fatal("a worker with no governed profile was granted dispatch capability")
+	}
+	if !strings.Contains(err.Error(), "governed runtime profile identity") {
+		t.Errorf("refusal said %q", err.Error())
+	}
+
+	// With the full identity — id, revision AND digest — it is allowed.
+	id, revision, digest, err := governedProfileIdentity("candle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE workers SET engine='candle', runtime_profile_id=$2,
+		                    runtime_profile_revision=$3, runtime_profile_digest=$4
+		  WHERE id=$1`, workerID, id, revision, digest); err != nil {
+		t.Fatalf("bind governed identity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO worker_authorized_capabilities
+		  (worker_id,cell_id,runtime_id,job_type,model_ref,model_kind,matrix_sha256)
+		VALUES ($1,'candle-metal-minilm-embed','candle_metal','embed',
+		        'all-minilm-l6-v2','hf',$2)`, workerID, generatedRuntimeMatrixSHA256); err != nil {
+		t.Fatalf("a fully bound worker was refused dispatch capability: %v", err)
+	}
+
+	// Partial identity is not identity: the CHECK refuses id without revision.
+	if _, err := pool.Exec(ctx,
+		`UPDATE workers SET runtime_profile_revision=NULL WHERE id=$1`, workerID); err == nil {
+		t.Error("a worker kept a profile id with no revision")
+	}
+
+	// Step 8: on a reconciled database the legacy engine string check is gone,
+	// superseded by the governed foreign key and the agreement trigger.
+	var legacy int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM pg_constraint WHERE conname='workers_engine_valid'`).
+		Scan(&legacy); err != nil {
 		t.Fatalf("read constraint: %v", err)
 	}
-	if legacyCheck != 1 {
-		t.Error("workers_engine_valid was dropped before the reconciliation pass")
+	if legacy != 0 {
+		t.Error("workers_engine_valid survived on a fully reconciled database")
+	}
+	// `engine` itself stays as a read-compatibility column until step 10.
+	var engineCol int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		 WHERE table_name='workers' AND column_name='engine'`).Scan(&engineCol); err != nil {
+		t.Fatalf("read engine column: %v", err)
+	}
+	if engineCol != 1 {
+		t.Error("the engine compatibility column was removed before its readers migrated")
 	}
 }
 

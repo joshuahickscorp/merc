@@ -138,9 +138,16 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 	// Only rows whose engine actually matches are backfilled. A row that somehow
 	// carries a different engine is left NULL and surfaces in the reconciliation
 	// report rather than being silently relabelled.
+	//
+	// All THREE identity columns, not just the id. workers_runtime_profile_identity
+	// requires 0 or 3 non-nulls, and this backfill was writing 1 — caught by that
+	// constraint once it was made NULL-safe. Partial identity is not identity: a
+	// row naming a profile with no revision cannot say which meaning of it.
 	if _, err := tx.Exec(ctx, `
 		UPDATE workers w
-		   SET runtime_profile_id = p.runtime_profile_id
+		   SET runtime_profile_id = p.runtime_profile_id,
+		       runtime_profile_revision = p.revision,
+		       runtime_profile_digest = p.profile_digest
 		  FROM runtime_profiles p
 		 WHERE w.runtime_profile_id IS NULL
 		   AND p.engine = w.engine
