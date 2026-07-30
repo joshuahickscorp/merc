@@ -94,3 +94,19 @@ func TestLaunchPlanIncludesOnlyIdentityFingerprintDigests(t *testing.T) {
 		t.Fatalf("secret values leaked into release fingerprint output: %s", raw)
 	}
 }
+
+func TestBuildLaunchInputsReportsMissingContractEntries(t *testing.T) {
+	root := filepath.Clean(filepath.Join(".."))
+	inputs, err := buildLaunchInputs(root, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inputs.Ready || len(inputs.Missing) < 8 {
+		t.Fatalf("missing input contract=%+v", inputs)
+	}
+	for _, missing := range inputs.Missing {
+		if missing.Name == "STRIPE_SECRET_KEY" && !missing.Secret {
+			t.Fatal("Stripe secret classification lost")
+		}
+	}
+}

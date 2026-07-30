@@ -272,10 +272,10 @@ func scrubbedReleaseEnv(env []string) []string {
 	return out
 }
 
-func cmdLaunchInputs(root, secretsPath string) {
+func buildLaunchInputs(root string, values map[string]string) (launchInputs, error) {
 	raw, err := os.ReadFile(filepath.Join(root, "ops", "go-closure-inputs.json"))
 	if err != nil {
-		fatalf("read input contract: %v", err)
+		return launchInputs{}, err
 	}
 	var contract struct {
 		SchemaVersion int `json:"schema_version"`
@@ -286,16 +286,11 @@ func cmdLaunchInputs(root, secretsPath string) {
 			Accepted string `json:"accepted_form"`
 		} `json:"inputs"`
 	}
-	if err := json.Unmarshal(raw, &contract); err != nil || contract.SchemaVersion != 1 {
-		fatalf("input contract invalid: %v", err)
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		return launchInputs{}, fmt.Errorf("parse input contract: %w", err)
 	}
-	values, err := loadLaunchSecrets(secretsPath)
-	if os.IsNotExist(err) {
-		values = map[string]string{}
-		err = nil
-	}
-	if err != nil {
-		fatalf("read secrets file: %v", err)
+	if contract.SchemaVersion != 1 {
+		return launchInputs{}, errors.New("unsupported input contract schema")
 	}
 	var out launchInputs
 	out.SchemaVersion = 1
@@ -310,6 +305,21 @@ func cmdLaunchInputs(root, secretsPath string) {
 		}
 	}
 	out.Ready = len(out.Missing) == 0
+	return out, nil
+}
+
+func cmdLaunchInputs(root, secretsPath string) {
+	values, err := loadLaunchSecrets(secretsPath)
+	if os.IsNotExist(err) {
+		values, err = map[string]string{}, nil
+	}
+	if err != nil {
+		fatalf("read secrets file: %v", err)
+	}
+	out, err := buildLaunchInputs(root, values)
+	if err != nil {
+		fatalf("release inputs: %v", err)
+	}
 	printLaunch(out)
 }
 
@@ -386,7 +396,11 @@ func dispatchLaunchRelease(args []string) {
 		}
 		out, err := runReleaseDoctor(root, values)
 		if err != nil {
-			printLaunch(map[string]any{"schema_version": 1, "status": "REFUSED", "command": command, "plan_sha256": plan.PlanSHA256, "reason": "external input bundle incomplete", "doctor": json.RawMessage(out), "resume": "supply only the missing fields reported by merc release doctor, then resume with the same exact plan"})
+			inputs, inputErr := buildLaunchInputs(root, values)
+			if inputErr != nil {
+				fatalf("release %s input contract: %v", command, inputErr)
+			}
+			printLaunch(map[string]any{"schema_version": 1, "status": "REFUSED", "command": command, "plan_sha256": plan.PlanSHA256, "reason": "external input bundle incomplete", "doctor": json.RawMessage(out), "missing_inputs": inputs.Missing, "resume": "supply only the missing inputs, reseal merc release plan, then resume with the new approved plan"})
 			fatalf("release %s refused: external input bundle incomplete", command)
 		}
 		fatalf("release %s adapter is not implemented; refusing to claim external execution", command)
