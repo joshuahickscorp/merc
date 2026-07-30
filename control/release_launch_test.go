@@ -79,3 +79,18 @@ func TestLaunchStateIsPrivateAndRoundTrips(t *testing.T) {
 		t.Fatalf("state roundtrip got=%+v want=%+v", got, want)
 	}
 }
+
+func TestLaunchPlanIncludesOnlyIdentityFingerprintDigests(t *testing.T) {
+	values := map[string]string{"MERC_TOKEN_KEY": "super-secret", "MERC_VERIFICATION_SAMPLE_SECRET": "different-secret"}
+	fingerprints, err := identitySecretFingerprints(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := canonicalProofJSON(fingerprints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "super-secret") || strings.Contains(string(raw), "different-secret") {
+		t.Fatalf("secret values leaked into release fingerprint output: %s", raw)
+	}
+}

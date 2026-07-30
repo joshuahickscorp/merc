@@ -387,7 +387,7 @@ func dispatchLaunchRelease(args []string) {
 		out, err := runReleaseDoctor(root, values)
 		if err != nil {
 			printLaunch(map[string]any{"schema_version": 1, "status": "REFUSED", "command": command, "plan_sha256": plan.PlanSHA256, "reason": "external input bundle incomplete", "doctor": json.RawMessage(out), "resume": "supply only the missing fields reported by merc release doctor, then resume with the same exact plan"})
-			return
+			fatalf("release %s refused: external input bundle incomplete", command)
 		}
 		fatalf("release %s adapter is not implemented; refusing to claim external execution", command)
 	}
