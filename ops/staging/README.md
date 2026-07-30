@@ -246,3 +246,14 @@ live-payment activation, or public-launch authority.
 
 These scripts never authorize Stripe live mode, real-value settlement, or
 unrestricted public access.
+
+For the authoritative CLI flow, put the safe-relative governance receipt path
+(for example `evidence/go-closure/governance-<candidate>.json`) in
+`ops/launch/level-b.yaml` under `evidence.governance_receipt` before sealing
+the plan. `merc release launch` captures the five other exact paths from the
+single PASS line of each audited adapter, then invokes
+`go-closure-evidence-proof.sh` with all six paths. It refuses an absent,
+duplicated, outside-root, or non-JSON receipt path; it never chooses a newest
+file or glob. A PASS root receipt is only evidence-chain eligibility for the
+supervised private canary. `merc release go-no-go` separately applies the
+current readiness ledger, so unresolved P1 entries still produce `NO_GO`.

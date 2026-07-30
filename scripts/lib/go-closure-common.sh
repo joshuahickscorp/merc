@@ -430,6 +430,7 @@ gc_sync_bundle() {
     scripts/lib/go-closure-common.sh
     scripts/go-closure-deploy.sh
     scripts/go-closure-release-identity.sh
+    scripts/go-closure-evidence-proof.sh
     scripts/go-closure-rollback-rehearsal.sh
     scripts/go-closure-restart-storm.sh
     scripts/validate-agent-restart-receipt.py

@@ -44,3 +44,7 @@ review:
   github_reviewer_login: ""
 governance:
   approval_bundle_path: ""
+evidence:
+  # Restricted, safe-relative path under STAGING_DEPLOYMENT_ROOT. This exact
+  # signed governance receipt must exist before the one-button launch starts.
+  governance_receipt: ""
