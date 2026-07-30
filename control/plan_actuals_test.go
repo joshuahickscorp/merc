@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"math"
+	"sort"
 	"testing"
 	"time"
 
@@ -79,6 +80,41 @@ func TestPlanAccuracySummaryRefusesMismatchedSeries(t *testing.T) {
 	}
 }
 
+// PlanAccuracy computes percentiles in PostgreSQL and planAccuracySummary
+// computes them in Go. If those two ever disagree, one of them is lying about
+// the estimator and there is no way to tell which from the report alone.
+//
+// The earlier version of this cross-check only exercised a window of identical
+// samples, where every percentile implementation agrees by construction. These
+// windows are the ones that actually discriminate: odd, even, single-element,
+// and a heavy right tail where interpolation matters most.
+func TestContinuousPercentileMatchesPostgres(t *testing.T) {
+	_, pool, ctx := planActualsTestStore(t)
+	for _, window := range [][]float64{
+		{7},
+		{0.5, 1.5},
+		{1, 2, 3, 4, 5},
+		{1, 2, 3, 10},
+		{0.1, 0.1, 0.2, 50},
+	} {
+		values := make([]float64, len(window))
+		copy(values, window)
+		sort.Float64s(values)
+		for _, q := range []float64{0.5, 0.9} {
+			var want float64
+			if err := pool.QueryRow(ctx,
+				`SELECT percentile_cont($1) WITHIN GROUP (ORDER BY v)
+				   FROM unnest($2::float8[]) AS s(v)`, q, window).Scan(&want); err != nil {
+				t.Fatalf("postgres percentile_cont(%v) over %v: %v", q, window, err)
+			}
+			if got := continuousPercentile(values, q); math.Abs(got-want) > 0.000000001 {
+				t.Errorf("percentile_cont(%v) over %v: Go %v, PostgreSQL %v",
+					q, window, got, want)
+			}
+		}
+	}
+}
+
 func planActualsTestStore(t *testing.T) (*Store, *pgxpool.Pool, context.Context) {
 	t.Helper()
 	databaseURL := requireTestDatabase(t)
@@ -96,9 +132,6 @@ func planActualsTestStore(t *testing.T) (*Store, *pgxpool.Pool, context.Context)
 	return store, pool, ctx
 }
 
-// planActualsFixtureJob inserts a job with a frozen distributed compute plan and
-// the tasks that realized it. It writes only the columns RecordPlanActuals reads,
-// so it cannot accidentally assert behaviour that depends on money state.
 // planActualsFixtureOptions overrides the parts of the job that decide its
 // observation class. Zero value means an ordinary complete job for a real buyer.
 type planActualsFixtureOptions struct {
@@ -106,6 +139,9 @@ type planActualsFixtureOptions struct {
 	jobStatus string
 }
 
+// planActualsFixtureJob inserts a job with a frozen distributed compute plan and
+// the tasks that realized it. It writes only the columns RecordPlanActuals reads,
+// so it cannot accidentally assert behaviour that depends on money state.
 func planActualsFixtureJob(
 	t *testing.T, pool *pgxpool.Pool, ctx context.Context,
 	jobType string, predictedTasks int, predictedOutputTokens int64,
