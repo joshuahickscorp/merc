@@ -140,10 +140,18 @@ func TestRuntimeAuthorityValidationRefusesEveryUngovernedShape(t *testing.T) {
 				// actually has a bound benchmark receipt, so this mutation fails
 				// the cell-collision rule rather than tripping the evidence
 				// binding first and testing nothing.
+				// The embed cell, whose verification is cosine rather than
+				// byte_exact: this mutation is about the cell collision, and a
+				// byte_exact cell would trip the determinism rule first and test
+				// nothing.
 				challenger := runtimeIndex(t, *d, "llama_cpp_metal")
 				d.Runtimes[challenger].Lifecycle = runtimeLifecycleActive
 				d.Runtimes[challenger].QualityTier = "OUTCOME_EQUIVALENT"
-				d.Runtimes[challenger].Cells[0].ID = "candle-metal-llama1-infer"
+				d.Runtimes[challenger].Cells = []authorityCell{{
+					ID: "candle-metal-minilm-embed", Job: "embed",
+					Model: "all-minilm-l6-v2", Runner: "embed",
+					MinMemoryGB: 2, Verification: "cosine",
+				}}
 			}},
 		{"a sellable model no routable runtime serves", "no routable runtime profile serves",
 			func(d *runtimeAuthorityDocument) {
@@ -234,9 +242,9 @@ func TestRegisteredRuntimesCiteEvidenceForTheirLifecycle(t *testing.T) {
 // revision: the progression is the point of the state machine.
 func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 	pinned := map[string]string{
-		"candle_metal":    "01ae8606222886fffb8f9710754eaaa24b4b1bcbe4d2ba72ec27e82db3444463",
+		"candle_metal":    "ac7ae951af37f1c59df108bc1cfbd7ef397377f6352f07be4d03181646d65c3d",
 		"mlx_metal":       "91c1d6b83a1148b58f29a30cd37057631d9d40c4f086c4b9ff79c07c4ed02f88",
-		"llama_cpp_metal": "7709c848f4f75e1d5599aa0fbb72b0ed0a748cc765ec4f2202f3716067b740c5",
+		"llama_cpp_metal": "9a58317192b8e6ba17bdaf24c631045fda55994299395b56bed84b8f611e7267",
 		"vllm_cuda":       "e1f18591a44d6b9c98e257a1187c3a04f0fc5365472789250993938431dd8c99",
 	}
 	doc := mutableAuthority(t)
@@ -467,5 +475,76 @@ func TestLlamaCppBenchmarkReceiptIsBoundAndHonestAboutItsLimits(t *testing.T) {
 	if runtimeLifecycleRoutable(profile.Lifecycle) {
 		t.Error("a physical-throughput measurement made llama_cpp_metal routable; " +
 			"routability also needs a proven quality tier and a complete Merc chain")
+	}
+}
+
+// The measurement that produced this rule, kept as a regression.
+//
+// llama_cpp_metal came back 4.31x faster than the incumbent at peak on identical
+// inputs, and diverged from its OWN serial output at every batch size tested.
+// The batch_infer cell declares byte_exact verification. Promoting on throughput
+// alone would have routed buyer work to an engine that cannot satisfy the
+// verification contract the cell sells.
+func TestThroughputCannotPromoteAProfileThatFailsItsVerificationContract(t *testing.T) {
+	doc := mutableAuthority(t)
+	challenger := runtimeIndex(t, doc, "llama_cpp_metal")
+
+	// Its receipt says it is faster. That is not enough.
+	summary, ok := benchmarkAuthorityManifest[doc.Runtimes[challenger].BenchmarkAuthority]
+	if !ok {
+		t.Fatalf("llama_cpp_metal has no known benchmark receipt")
+	}
+	if !summary.ThroughputMeasured {
+		t.Fatal("llama_cpp_metal's receipt records no throughput; this test is vacuous")
+	}
+	if summary.ByteDeterministic {
+		t.Fatal("llama_cpp_metal's receipt now claims byte determinism; " +
+			"re-measure before relaxing this test")
+	}
+
+	// Promoting it must be refused, naming the cell whose contract it breaks.
+	doc.Runtimes[challenger].Lifecycle = runtimeLifecycleActive
+	doc.Runtimes[challenger].QualityTier = "OUTCOME_EQUIVALENT"
+	doc.Runtimes[challenger].Cells[0].ID = "llama-cpp-metal-only-cell"
+	err := validateRuntimeAuthorityDocument(doc)
+	if err == nil {
+		t.Fatal("a non-byte-deterministic engine was promoted onto a byte_exact cell")
+	}
+	if !strings.Contains(err.Error(), "not byte-deterministic") {
+		t.Errorf("refusal said %q, want it to name the determinism failure", err.Error())
+	}
+
+	// The incumbent measures byte-identical at every batch size, so the rule
+	// does not simply refuse everything.
+	clean := mutableAuthority(t)
+	if err := validateRuntimeAuthorityDocument(clean); err != nil {
+		t.Fatalf("the byte-deterministic incumbent was refused: %v", err)
+	}
+}
+
+// Both profiles are now measured on one harness, so a comparison is finally
+// meaningful — and the comparison is what says the fast one may not be used.
+func TestBothMetalProfilesAreMeasuredAndComparable(t *testing.T) {
+	cap := adapterTestWorker()
+	estimates, err := EstimateAcrossRegisteredRuntimes(inferWorkload(), cap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]RuntimeEstimate{}
+	for _, e := range estimates {
+		byID[e.RuntimeProfileID] = e
+	}
+	for _, id := range []string{"candle_metal", "llama_cpp_metal"} {
+		if !byID[id].Comparable {
+			t.Errorf("%s has a measured receipt but is not comparable", id)
+		}
+	}
+	for _, id := range []string{"mlx_metal", "vllm_cuda"} {
+		if byID[id].Comparable {
+			t.Errorf("%s has no measured receipt but is comparable", id)
+		}
+	}
+	if byID["llama_cpp_metal"].Routable {
+		t.Error("the faster profile is routable; it fails byte_exact verification")
 	}
 }

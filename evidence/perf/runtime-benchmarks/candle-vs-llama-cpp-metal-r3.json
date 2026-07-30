@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "merc_source_commit": "470aa9f81a13d508fd91f4cf0d4c55e57560a337",
+  "comparison": "candle_metal r3 vs llama_cpp_metal r3",
+  "identical": [
+    "model artifact sha256",
+    "prompt",
+    "max_tokens",
+    "reps",
+    "batch sizes",
+    "harness build",
+    "hardware"
+  ],
+  "tokens_per_sec": {
+    "1": {
+      "candle": 216.2,
+      "llama_cpp": 332.1,
+      "llama_cpp_over_candle": 1.536
+    },
+    "8": {
+      "candle": 427.8,
+      "llama_cpp": 597.2,
+      "llama_cpp_over_candle": 1.396
+    },
+    "32": {
+      "candle": 501.0,
+      "llama_cpp": 1553.5,
+      "llama_cpp_over_candle": 3.101
+    },
+    "64": {
+      "candle": 495.6,
+      "llama_cpp": 2161.5,
+      "llama_cpp_over_candle": 4.361
+    }
+  },
+  "peak_ratio_llama_cpp_over_candle": 4.314,
+  "verdict": "llama_cpp_metal is 4.31x faster at peak and is NOT byte-deterministic under batching. The batch_infer cell requires byte_exact verification, so throughput alone cannot promote it. Routing on speed here would have broken the verification contract.",
+  "earlier_measurement_was_misconfigured": "A first run launched llama-server with -np 8 and showed llama.cpp collapsing to 0.76x serial at batch 32. That was the harness operator's server configuration, not an engine property. Recorded so the corrected number is not mistaken for cherry-picking."
+}

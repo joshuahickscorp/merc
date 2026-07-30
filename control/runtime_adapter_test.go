@@ -83,12 +83,12 @@ func TestEstimateNeverCallsAnUnbenchmarkedProfileComparable(t *testing.T) {
 	if !candle.Supported || !candle.Routable {
 		t.Fatalf("candle_metal estimate = %+v, want supported and routable", candle)
 	}
-	// candle_metal HAS a receipt and it measures nothing. Comparable must track
-	// the measurement, not the existence of a citation — otherwise the first
-	// runtime tournament compares a measured challenger against an unmeasured
-	// incumbent and calls the result evidence.
-	if candle.Comparable {
-		t.Error("candle_metal is comparable, but its receipt records no throughput")
+	// candle_metal is now measured on the same harness as its challenger, so it
+	// is comparable. It was NOT for one commit, when its receipt named the
+	// profile and measured nothing — Comparable tracks the measurement, not the
+	// existence of a citation.
+	if !candle.Comparable {
+		t.Error("candle_metal has a measured receipt but is not comparable")
 	}
 	if candle.TokensPerSec != 285 {
 		t.Errorf("candle_metal tokens/sec = %v, want the worker's 285", candle.TokensPerSec)
