@@ -217,10 +217,31 @@ func (c authorityCell) Routable(profile authorityRuntimeProfile) bool {
 }
 
 // ReachableByDirectedRouting reports whether an operator or a test may force
-// work onto this cell by naming it. Proven and routable cells qualify.
+// work onto this cell by naming it explicitly.
+//
+// VALIDATED and above, terminal states excluded. The floor is VALIDATED rather
+// than REAL_RUNTIME_PROVEN because of the order evidence is actually collected
+// in: a cell reaches REAL_RUNTIME_PROVEN BY being driven through the complete
+// Merc chain, so requiring it beforehand would make the state unreachable and
+// the whole lifecycle a dead end. DRAFT is excluded because a draft cell has not
+// been measured at all, and terminal states because they are exclusions.
+//
+// This is not routability. Nothing here reaches ordinary buyer traffic: the
+// advertised catalogue stays routable-only, and a directed cell is reached only
+// when an operator or a test freezes it into a workload decision.
 func (c authorityCell) ReachableByDirectedRouting(profile authorityRuntimeProfile) bool {
 	state := c.EffectiveLifecycle(profile)
-	return state == runtimeLifecycleRealRuntimeProven || runtimeLifecycleRoutable(state)
+	validated, _ := cellLifecycleRank(runtimeLifecycleValidated)
+	rank, known := cellLifecycleRank(state)
+	if !known {
+		return false
+	}
+	switch state {
+	case runtimeLifecycleQuarantined, runtimeLifecycleRetired,
+		runtimeLifecycleRejectedForContract:
+		return false
+	}
+	return rank >= validated
 }
 
 // benchmarkAuthorityFor resolves the cell's own receipt, falling back to the
@@ -450,6 +471,12 @@ var (
 	generatedRuntimeMatrixVersion          = runtimeAuthority.MatrixVersion
 	generatedRuntimeMatrixSHA256           = runtimeAuthoritySHA256()
 	generatedAdvertisedRuntimeCapabilities = projectRuntimeCapabilities(runtimeAuthority)
+	// Cells an operator or a test may name explicitly. A superset of the
+	// advertised set, and NOT a catalogue: nothing here is quoted to a buyer or
+	// matched by ordinary admission. It exists so a governed job can be driven
+	// through a cell that is being proven, which is the only way a cell ever
+	// reaches REAL_RUNTIME_PROVEN.
+	generatedDirectedRuntimeCapabilities = projectDirectedRuntimeCapabilities(runtimeAuthority)
 	// The model catalogue every ContentDigest resolves its artifacts against.
 	runtimeAuthorityModels = runtimeAuthority.authorityModels()
 )
@@ -744,7 +771,25 @@ func runtimeAuthoritySHA256() string {
 	return hex.EncodeToString(sum[:])
 }
 
+// projectDirectedRuntimeCapabilities lists every cell an operator or a test may
+// name. It reuses the same construction as the advertised projection so the two
+// cannot describe one cell differently; only the eligibility predicate differs.
+func projectDirectedRuntimeCapabilities(authority runtimeAuthorityDocument) []generatedRuntimeCapability {
+	return projectCells(authority, func(p authorityRuntimeProfile, c authorityCell) bool {
+		return c.ReachableByDirectedRouting(p)
+	})
+}
+
 func projectRuntimeCapabilities(authority runtimeAuthorityDocument) []generatedRuntimeCapability {
+	return projectCells(authority, func(p authorityRuntimeProfile, c authorityCell) bool {
+		return c.Routable(p)
+	})
+}
+
+func projectCells(
+	authority runtimeAuthorityDocument,
+	include func(authorityRuntimeProfile, authorityCell) bool,
+) []generatedRuntimeCapability {
 	models := make(map[string]struct {
 		kind string
 		job  string
@@ -787,7 +832,7 @@ func projectRuntimeCapabilities(authority runtimeAuthorityDocument) []generatedR
 	seen := make(map[string]bool)
 	for _, profile := range authority.Runtimes {
 		for _, cell := range profile.Cells {
-			if !cell.Routable(profile) {
+			if !include(profile, cell) {
 				continue
 			}
 			model, ok := models[cell.Model]

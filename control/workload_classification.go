@@ -38,9 +38,23 @@ type WorkloadBinding struct {
 }
 
 type WorkloadRuntimeCandidate struct {
-	CellID          string   `json:"cell_id"`
-	RuntimeID       string   `json:"runtime_id"`
-	Engine          string   `json:"engine"`
+	CellID    string `json:"cell_id"`
+	RuntimeID string `json:"runtime_id"`
+	Engine    string `json:"engine"`
+	// ModelKind is the artifact format THIS cell loads, which is not necessarily
+	// the one the buyer named.
+	//
+	// Format belongs to the (runtime, model) pair: candle serves MiniLM from
+	// safetensors and llama.cpp serves the same logical model from a GGUF, and
+	// the two agree to 0.999998 cosine. Matching a worker against the BINDING's
+	// kind therefore let a buyer pick the runtime by naming a format — a request
+	// for all-minilm-l6-v2 as `hf` could never reach llama.cpp, whatever the
+	// evidence said. The frozen cell is what will execute, so the cell supplies
+	// the kind and the binding keeps recording what the buyer asked for.
+	//
+	// Empty on rows frozen before this field existed; readers fall back to the
+	// binding's kind, which is what those rows meant.
+	ModelKind       string   `json:"model_kind,omitempty"`
 	Device          string   `json:"device"`
 	HardwareClasses []string `json:"hardware_classes"`
 }
@@ -56,25 +70,30 @@ type WorkloadParallelism struct {
 // persisted on quotes. The full decision is frozen on jobs and exposed in the
 // buyer receipt.
 type WorkloadDecision struct {
-	Version                    int                        `json:"version"`
-	BindingSHA256              string                     `json:"binding_sha256"`
-	Binding                    WorkloadBinding            `json:"binding"`
-	WorkloadClass              string                     `json:"workload_class"`
-	RuntimeJobType             string                     `json:"runtime_job_type"`
-	ModelRevision              string                     `json:"model_revision"`
-	RuntimeCandidates          []WorkloadRuntimeCandidate `json:"runtime_candidates"`
-	MinimumMemoryGB            float64                    `json:"minimum_memory_gb"`
-	Deterministic              bool                       `json:"deterministic"`
-	ExactResultCacheEligible   bool                       `json:"exact_result_cache_eligible"`
-	PrefixReuseEligible        bool                       `json:"prefix_reuse_eligible"`
-	InflightCoalescingEligible bool                       `json:"inflight_coalescing_eligible"`
-	VerificationStrategy       string                     `json:"verification_strategy"`
-	LatencyClass               string                     `json:"latency_class"`
-	PrivacyClass               string                     `json:"privacy_class"`
-	Parallelism                WorkloadParallelism        `json:"parallelism"`
-	Confidence                 float64                    `json:"confidence"`
-	Evidence                   []string                   `json:"evidence"`
-	Unknowns                   []string                   `json:"unknowns,omitempty"`
+	Version           int                        `json:"version"`
+	BindingSHA256     string                     `json:"binding_sha256"`
+	Binding           WorkloadBinding            `json:"binding"`
+	WorkloadClass     string                     `json:"workload_class"`
+	RuntimeJobType    string                     `json:"runtime_job_type"`
+	ModelRevision     string                     `json:"model_revision"`
+	RuntimeCandidates []WorkloadRuntimeCandidate `json:"runtime_candidates"`
+	// DirectedCellID names the cell an operator or a test forced this workload
+	// onto, or is empty for ordinary admission. Frozen into the decision so a
+	// receipt records that the choice was made by directed routing rather than by
+	// the catalogue, and so the stored decision reconstructs as itself.
+	DirectedCellID             string              `json:"directed_cell_id,omitempty"`
+	MinimumMemoryGB            float64             `json:"minimum_memory_gb"`
+	Deterministic              bool                `json:"deterministic"`
+	ExactResultCacheEligible   bool                `json:"exact_result_cache_eligible"`
+	PrefixReuseEligible        bool                `json:"prefix_reuse_eligible"`
+	InflightCoalescingEligible bool                `json:"inflight_coalescing_eligible"`
+	VerificationStrategy       string              `json:"verification_strategy"`
+	LatencyClass               string              `json:"latency_class"`
+	PrivacyClass               string              `json:"privacy_class"`
+	Parallelism                WorkloadParallelism `json:"parallelism"`
+	Confidence                 float64             `json:"confidence"`
+	Evidence                   []string            `json:"evidence"`
+	Unknowns                   []string            `json:"unknowns,omitempty"`
 }
 
 func canonicalizeJobParams(raw json.RawMessage) (json.RawMessage, error) {
@@ -177,14 +196,59 @@ func workloadDecisionDigest(decision WorkloadDecision) (string, error) {
 }
 
 func runtimeCapabilityForBinding(binding WorkloadBinding) (generatedRuntimeCapability, error) {
+	return runtimeCapabilityForBindingDirected(binding, "")
+}
+
+// runtimeCapabilityForBindingDirected resolves the cell that will execute a
+// workload, optionally forced to a named one.
+//
+// With no directed cell this is ordinary admission: exactly one ADVERTISED cell
+// must match, and "exactly one" is the rule that keeps a buyer request from
+// being ambiguous about what will run it.
+//
+// With a directed cell an operator or a test names the cell explicitly, and the
+// search widens to cells reachable by directed routing — a superset that
+// includes cells being proven. That widening is the only way a cell ever reaches
+// REAL_RUNTIME_PROVEN, since it gets there BY being driven through the complete
+// Merc chain. The directed name never comes from the buyer wire; see
+// buildWorkloadDecisionDirected.
+func runtimeCapabilityForBindingDirected(
+	binding WorkloadBinding, directedCellID string,
+) (generatedRuntimeCapability, error) {
+	pool := generatedAdvertisedRuntimeCapabilities
+	if directedCellID != "" {
+		pool = generatedDirectedRuntimeCapabilities
+	}
 	var matches []generatedRuntimeCapability
-	for _, candidate := range generatedAdvertisedRuntimeCapabilities {
-		if candidate.Job == binding.JobType.Type && candidate.Model == binding.Model.Ref &&
-			candidate.ModelKind == binding.Model.Kind {
-			matches = append(matches, candidate)
+	for _, candidate := range pool {
+		if directedCellID != "" && candidate.ID != directedCellID {
+			continue
 		}
+		// The directed cell still has to fit the workload. Naming a cell is a
+		// choice of runtime, never a licence to run a model on a cell that does
+		// not serve it.
+		if candidate.Job != binding.JobType.Type || candidate.Model != binding.Model.Ref {
+			continue
+		}
+		// Artifact format is NOT matched against the buyer's declaration when a
+		// cell is named. The buyer asks for a model; the cell decides which of
+		// that model's artifacts it loads. Requiring them to agree would make the
+		// buyer's `kind` a runtime selector, which is precisely the coupling that
+		// kept llama.cpp's proven embed cell unreachable for a request naming the
+		// same logical model.
+		if directedCellID == "" && candidate.ModelKind != binding.Model.Kind {
+			continue
+		}
+		matches = append(matches, candidate)
 	}
 	if len(matches) != 1 {
+		if directedCellID != "" {
+			return generatedRuntimeCapability{}, fmt.Errorf(
+				"directed runtime cell %q does not serve job_type=%q model=%q kind=%q "+
+					"(matched %d reachable cells)",
+				directedCellID, binding.JobType.Type, binding.Model.Ref,
+				binding.Model.Kind, len(matches))
+		}
 		return generatedRuntimeCapability{}, fmt.Errorf(
 			"workload classification requires one runtime cell for job_type=%q model=%q kind=%q; found %d",
 			binding.JobType.Type, binding.Model.Ref, binding.Model.Kind, len(matches))
@@ -216,11 +280,17 @@ func verificationStrategyFor(binding WorkloadBinding, capability generatedRuntim
 }
 
 func buildWorkloadDecisionFromBinding(binding WorkloadBinding) (WorkloadDecision, error) {
+	return buildWorkloadDecisionFromBindingDirected(binding, "")
+}
+
+func buildWorkloadDecisionFromBindingDirected(
+	binding WorkloadBinding, directedCellID string,
+) (WorkloadDecision, error) {
 	digest, err := workloadBindingDigest(binding)
 	if err != nil {
 		return WorkloadDecision{}, err
 	}
-	capability, err := runtimeCapabilityForBinding(binding)
+	capability, err := runtimeCapabilityForBindingDirected(binding, directedCellID)
 	if err != nil {
 		return WorkloadDecision{}, err
 	}
@@ -261,8 +331,10 @@ func buildWorkloadDecisionFromBinding(binding WorkloadBinding) (WorkloadDecision
 		WorkloadClass:  workloadClass,
 		RuntimeJobType: capability.Job,
 		ModelRevision:  modelRevisionFor(binding.Model.Ref),
+		DirectedCellID: directedCellID,
 		RuntimeCandidates: []WorkloadRuntimeCandidate{{
 			CellID: capability.ID, RuntimeID: capability.Runtime, Engine: capability.Engine,
+			ModelKind:       capability.ModelKind,
 			Device:          capability.Device,
 			HardwareClasses: append([]string(nil), capability.HardwareClasses...),
 		}},
@@ -304,6 +376,23 @@ func buildWorkloadDecision(sub jobSubmit, inputSHA256 string) (WorkloadDecision,
 	return buildWorkloadDecisionFromBinding(binding)
 }
 
+// buildWorkloadDecisionDirected freezes a decision onto a named runtime cell.
+//
+// The directed cell is a SERVER-side argument and is never read from jobSubmit,
+// so a buyer cannot name a cell by crafting a request. It is frozen into the
+// decision rather than applied and forgotten, so a receipt can say which cell was
+// chosen and by what authority, and so ValidateWorkloadDecisionSnapshot can
+// reconstruct the same decision from the stored row.
+func buildWorkloadDecisionDirected(
+	sub jobSubmit, inputSHA256, directedCellID string,
+) (WorkloadDecision, error) {
+	binding, err := canonicalWorkloadBinding(sub, inputSHA256)
+	if err != nil {
+		return WorkloadDecision{}, err
+	}
+	return buildWorkloadDecisionFromBindingDirected(binding, directedCellID)
+}
+
 func ValidateWorkloadDecisionSnapshot(decision WorkloadDecision) error {
 	if err := ValidateFrozenWorkloadDecisionSnapshot(decision); err != nil {
 		return err
@@ -311,9 +400,27 @@ func ValidateWorkloadDecisionSnapshot(decision WorkloadDecision) error {
 	if decision.Version != workloadDecisionVersion {
 		return fmt.Errorf("unsupported workload decision version %d", decision.Version)
 	}
-	expected, err := buildWorkloadDecisionFromBinding(decision.Binding)
+	// Reconstructed WITH the stored directed cell: a decision frozen onto a
+	// directed cell must validate as itself, not as the decision ordinary
+	// admission would have produced.
+	expected, err := buildWorkloadDecisionFromBindingDirected(
+		decision.Binding, decision.DirectedCellID)
 	if err != nil {
 		return err
+	}
+	// A decision frozen before runtime candidates carried model_kind keeps its
+	// bytes and therefore its digest. Reconstructing it today would add the
+	// field and fail a decision that was correct when it was written, so the
+	// reconstruction drops back to the stored shape for those rows.
+	//
+	// Scoped to absence, not to disagreement: a stored kind that DIFFERS from the
+	// authority's is tampering and still fails. This only forgives a field that
+	// did not exist yet.
+	for i := range expected.RuntimeCandidates {
+		if i < len(decision.RuntimeCandidates) &&
+			decision.RuntimeCandidates[i].ModelKind == "" {
+			expected.RuntimeCandidates[i].ModelKind = ""
+		}
 	}
 	gotJSON, err := json.Marshal(decision)
 	if err != nil {
