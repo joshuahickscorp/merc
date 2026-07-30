@@ -424,8 +424,7 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	              AND (
 	                j.workload_decision IS NULL
 	                OR (
-	                  wac2.model_kind = j.workload_decision #>> '{binding,model,kind}'
-	                  AND EXISTS (
+	                  EXISTS (
 	                    SELECT 1
 	                      FROM jsonb_array_elements(
 	                        COALESCE(j.workload_decision->'runtime_candidates','[]'::jsonb)
@@ -433,6 +432,16 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	                     WHERE frozen2->>'cell_id' = wac2.cell_id
 	                       AND frozen2->>'runtime_id' = wac2.runtime_id
 	                       AND frozen2->>'engine' = COALESCE(w2.engine,'')
+                     -- The FROZEN CELL's artifact format, not the buyer's
+                     -- declaration. A buyer names a model; the cell decides which
+                     -- of that model's artifacts it loads. Comparing against the
+                     -- binding made the buyer's kind a runtime selector, so a request
+                     -- for all-minilm-l6-v2 as hf could never reach llama.cpp's GGUF
+                     -- cell whatever the evidence said. COALESCE keeps decisions
+                     -- frozen before the field existed matching as they did.
+                     AND wac2.model_kind = COALESCE(
+                           NULLIF(frozen2->>'model_kind',''),
+                           j.workload_decision #>> '{binding,model,kind}')
 	                  )
 	                )
 	              )
@@ -480,8 +489,7 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	              AND (
 	                j.workload_decision IS NULL
 	                OR (
-	                  wac3.model_kind = j.workload_decision #>> '{binding,model,kind}'
-	                  AND EXISTS (
+	                  EXISTS (
 	                    SELECT 1
 	                      FROM jsonb_array_elements(
 	                        COALESCE(j.workload_decision->'runtime_candidates','[]'::jsonb)
@@ -489,6 +497,16 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	                     WHERE frozen3->>'cell_id' = wac3.cell_id
 	                       AND frozen3->>'runtime_id' = wac3.runtime_id
 	                       AND frozen3->>'engine' = COALESCE(w3.engine,'')
+                     -- The FROZEN CELL's artifact format, not the buyer's
+                     -- declaration. A buyer names a model; the cell decides which
+                     -- of that model's artifacts it loads. Comparing against the
+                     -- binding made the buyer's kind a runtime selector, so a request
+                     -- for all-minilm-l6-v2 as hf could never reach llama.cpp's GGUF
+                     -- cell whatever the evidence said. COALESCE keeps decisions
+                     -- frozen before the field existed matching as they did.
+                     AND wac3.model_kind = COALESCE(
+                           NULLIF(frozen3->>'model_kind',''),
+                           j.workload_decision #>> '{binding,model,kind}')
 	                  )
 	                )
 	              )
@@ -587,8 +605,7 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	        AND (
 	          j.workload_decision IS NULL
 	          OR (
-	            wac.model_kind = j.workload_decision #>> '{binding,model,kind}'
-	            AND EXISTS (
+	            EXISTS (
 	              SELECT 1
 	                FROM jsonb_array_elements(
 	                  COALESCE(j.workload_decision->'runtime_candidates','[]'::jsonb)
@@ -596,6 +613,16 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	               WHERE frozen->>'cell_id' = wac.cell_id
 	                 AND frozen->>'runtime_id' = wac.runtime_id
 	                 AND frozen->>'engine' = me.engine
+                     -- The FROZEN CELL's artifact format, not the buyer's
+                     -- declaration. A buyer names a model; the cell decides which
+                     -- of that model's artifacts it loads. Comparing against the
+                     -- binding made the buyer's kind a runtime selector, so a request
+                     -- for all-minilm-l6-v2 as hf could never reach llama.cpp's GGUF
+                     -- cell whatever the evidence said. COALESCE keeps decisions
+                     -- frozen before the field existed matching as they did.
+                     AND wac.model_kind = COALESCE(
+                           NULLIF(frozen->>'model_kind',''),
+                           j.workload_decision #>> '{binding,model,kind}')
 	            )
 	          )
 	        )

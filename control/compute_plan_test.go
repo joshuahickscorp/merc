@@ -390,6 +390,14 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 	// fail-close that unsafe cache path.
 	historicalDecision := decision
 	historicalDecision.ExactResultCacheEligible = true
+	// Runtime candidates gained model_kind after this fixture was published.
+	// A decision stored before that keeps its bytes, so the fixture must too,
+	// or it stops being the historical record it exists to be.
+	historicalDecision.RuntimeCandidates = append(
+		[]WorkloadRuntimeCandidate(nil), decision.RuntimeCandidates...)
+	for i := range historicalDecision.RuntimeCandidates {
+		historicalDecision.RuntimeCandidates[i].ModelKind = ""
+	}
 	historicalDecisionSHA, err := workloadDecisionDigest(historicalDecision)
 	if err != nil {
 		t.Fatalf("hash historical workload decision: %v", err)
