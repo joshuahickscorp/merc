@@ -147,7 +147,15 @@ func ResolveWorkerRuntimeProfile(cap WorkerCapability) (authorityRuntimeProfile,
 	if err != nil {
 		return authorityRuntimeProfile{}, err
 	}
-	if err := ValidateWorkerAgainstProfile(profile, cap); err != nil {
+	// Through the adapter boundary rather than around it. Today every engine uses
+	// the generic adapter and this is the same check either way; the point is
+	// that a runtime with genuinely different admission rules changes its own
+	// adapter instead of this function.
+	adapter, err := AdapterForProfile(profile)
+	if err != nil {
+		return authorityRuntimeProfile{}, err
+	}
+	if err := adapter.ValidateWorker(profile, cap); err != nil {
 		return authorityRuntimeProfile{}, err
 	}
 	return profile, nil
