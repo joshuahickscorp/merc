@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -192,6 +193,43 @@ func TestRemoteProfileDigestBindsEveryDeclaredInput(t *testing.T) {
 	}
 	if strings.TrimSpace(string(got)) != first {
 		t.Fatalf("shell/go profile mismatch got=%q want=%q", got, first)
+	}
+}
+
+func TestAdapterReceiptsAreExactAndRemainUnderStagingEvidence(t *testing.T) {
+	got, err := extractAdapterReceipt("/srv/merc", []byte("go-closure: PASS receipt: /srv/merc/evidence/go-closure/deploy.json\n"))
+	if err != nil || got != "evidence/go-closure/deploy.json" {
+		t.Fatalf("receipt got=%q err=%v", got, err)
+	}
+	for _, output := range [][]byte{
+		[]byte("go-closure: PASS receipt: /tmp/outside.json\n"),
+		[]byte("go-closure: PASS receipt: /srv/merc/evidence/go-closure/one.json\ngo-closure: PASS receipt: /srv/merc/evidence/go-closure/two.json\n"),
+		[]byte("no receipt\n"),
+	} {
+		if _, err := extractAdapterReceipt("/srv/merc", output); err == nil {
+			t.Fatalf("unsafe receipt output accepted: %q", output)
+		}
+	}
+}
+
+func TestRootEvidenceIsPrivateAndStateBound(t *testing.T) {
+	root := t.TempDir()
+	evidence := releaseRootEvidence{SchemaVersion: 1, Kind: "merc_level_b_release_root_evidence", Status: "PASS",
+		PlanSHA256: "plan", CandidateCommit: "commit", RemoteProfileSHA256: "profile",
+		Receipts: map[string]string{"deploy": "evidence/go-closure/deploy.json"}, EvidenceChain: json.RawMessage(`{"status":"PASS"}`)}
+	if err := writeReleaseEvidence(root, evidence); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(releaseEvidencePath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("root evidence mode=%#o, want 0600", info.Mode().Perm())
+	}
+	raw, err := os.ReadFile(releaseEvidencePath(root))
+	if err != nil || strings.Contains(string(raw), "super-secret-value") {
+		t.Fatalf("root evidence read err=%v raw=%q", err, raw)
 	}
 }
 

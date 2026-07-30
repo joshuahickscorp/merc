@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -81,6 +82,9 @@ type launchConfig struct {
 	Governance struct {
 		ApprovalBundlePath string `yaml:"approval_bundle_path" json:"approval_bundle_path"`
 	} `yaml:"governance" json:"governance"`
+	Evidence struct {
+		GovernanceReceipt string `yaml:"governance_receipt" json:"governance_receipt"`
+	} `yaml:"evidence" json:"evidence"`
 }
 
 type launchPlan struct {
@@ -116,6 +120,7 @@ type adapterRun struct {
 	ExitCode     int    `json:"exit_code"`
 	OutputSHA256 string `json:"output_sha256"`
 	OutputBytes  int    `json:"output_bytes"`
+	ReceiptPath  string `json:"receipt_path,omitempty"`
 }
 
 type releaseAdapter struct {
@@ -469,6 +474,149 @@ func runRemoteReleaseIdentity(root, envFile string, plan launchPlan) error {
 	return nil
 }
 
+var adapterReceiptLine = regexp.MustCompile(`(?m)PASS receipt: ([^\r\n[:space:]]+)`)
+
+func safeRemoteEvidencePath(deploymentRoot, value string) (string, error) {
+	clean := strings.TrimSpace(value)
+	if clean == "" || strings.Contains(clean, "\\") || strings.Contains(clean, "\x00") {
+		return "", errors.New("receipt path is empty or unsafe")
+	}
+	deploymentRoot = filepath.ToSlash(filepath.Clean(deploymentRoot))
+	if filepath.IsAbs(clean) {
+		// Adapter output originates on staging; compare lexical POSIX paths here
+		// because the local workstation need not mount the remote root.
+		clean = filepath.ToSlash(clean)
+		remoteRoot := filepath.ToSlash(deploymentRoot)
+		if !strings.HasPrefix(clean, remoteRoot+"/") {
+			return "", errors.New("adapter receipt is outside the staging root")
+		}
+		clean = strings.TrimPrefix(clean, remoteRoot+"/")
+	}
+	if strings.HasPrefix(clean, "/") || strings.Contains(clean, "..") || !strings.HasPrefix(clean, "evidence/go-closure/") || !strings.HasSuffix(clean, ".json") {
+		return "", errors.New("adapter receipt must be a safe evidence/go-closure JSON path")
+	}
+	return clean, nil
+}
+
+func extractAdapterReceipt(deploymentRoot string, output []byte) (string, error) {
+	matches := adapterReceiptLine.FindAllSubmatch(output, -1)
+	if len(matches) != 1 {
+		return "", fmt.Errorf("adapter must emit exactly one PASS receipt line, got %d", len(matches))
+	}
+	return safeRemoteEvidencePath(deploymentRoot, string(matches[0][1]))
+}
+
+func stateReceiptPath(state launchState, name string) (string, error) {
+	for index := len(state.AdapterHistory) - 1; index >= 0; index-- {
+		run := state.AdapterHistory[index]
+		if run.Name == name && run.ExitCode == 0 && run.ReceiptPath != "" {
+			return run.ReceiptPath, nil
+		}
+	}
+	return "", fmt.Errorf("no exact successful receipt recorded for %s", name)
+}
+
+type releaseRootEvidence struct {
+	SchemaVersion        int               `json:"schema_version"`
+	Kind                 string            `json:"kind"`
+	Status               string            `json:"status"`
+	PlanSHA256           string            `json:"plan_sha256"`
+	CandidateCommit      string            `json:"candidate_commit"`
+	RemoteProfileSHA256  string            `json:"remote_profile_sha256"`
+	Receipts             map[string]string `json:"receipts"`
+	EvidenceChainSHA256  string            `json:"evidence_chain_sha256"`
+	EvidenceChain        json.RawMessage   `json:"evidence_chain"`
+	SecretValuesRecorded bool              `json:"secret_values_recorded"`
+}
+
+func releaseEvidencePath(root string) string {
+	return filepath.Join(root, ".merc-release", "evidence.json")
+}
+
+func exactEvidenceReceiptSet(state launchState, cfg launchConfig) (map[string]string, error) {
+	items := []struct{ key, adapter string }{
+		{"deploy", "deploy-candidate"}, {"rollback", "rollback-forward-rehearsal"},
+		{"restart", "restart-storm"}, {"canary", "private-canary"}, {"soak", "qualifying-soak"},
+	}
+	receipts := make(map[string]string, len(items)+1)
+	for _, item := range items {
+		path, err := stateReceiptPath(state, item.adapter)
+		if err != nil {
+			return nil, err
+		}
+		receipts[item.key] = path
+	}
+	governance, err := safeRemoteEvidencePath(cfg.Staging.DeploymentRoot, cfg.Evidence.GovernanceReceipt)
+	if err != nil {
+		return nil, fmt.Errorf("governance receipt: %w", err)
+	}
+	receipts["governance"] = governance
+	return receipts, nil
+}
+
+func runRemoteEvidenceProof(root, envFile string, plan launchPlan, state launchState, cfg launchConfig) (releaseRootEvidence, error) {
+	var rootEvidence releaseRootEvidence
+	receipts, err := exactEvidenceReceiptSet(state, cfg)
+	if err != nil {
+		return rootEvidence, err
+	}
+	cmd := exec.Command(filepath.Join(root, "scripts", "go-closure-evidence-proof.sh"),
+		"--target", "ssh", "--deploy", receipts["deploy"], "--rollback", receipts["rollback"],
+		"--restart", receipts["restart"], "--canary", receipts["canary"], "--soak", receipts["soak"], "--governance", receipts["governance"])
+	cmd.Dir = root
+	cmd.Env = append(scrubbedReleaseEnv(os.Environ()), "MERC_GO_CLOSURE_ENV_FILE="+envFile)
+	output, err := cmd.Output()
+	if err != nil {
+		exitCode := -1
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+		return rootEvidence, fmt.Errorf("remote evidence proof failed (exit=%d output_sha256=%s)", exitCode, sha256Hex(output))
+	}
+	var chain struct {
+		SchemaVersion int    `json:"schema_version"`
+		Kind          string `json:"kind"`
+		Status        string `json:"status"`
+		Candidate     string `json:"candidate_commit"`
+	}
+	if err := json.Unmarshal(output, &chain); err != nil {
+		return rootEvidence, fmt.Errorf("parse remote evidence proof: %w", err)
+	}
+	if chain.SchemaVersion != 1 || chain.Kind != "merc_go_closure_evidence_chain_validation" || chain.Status != "PASS" || chain.Candidate != plan.CandidateCommit {
+		return rootEvidence, errors.New("remote evidence proof is incomplete or candidate-mismatched")
+	}
+	rootEvidence = releaseRootEvidence{SchemaVersion: 1, Kind: "merc_level_b_release_root_evidence", Status: "PASS",
+		PlanSHA256: plan.PlanSHA256, CandidateCommit: plan.CandidateCommit, RemoteProfileSHA256: plan.RemoteProfileSHA256,
+		Receipts: receipts, EvidenceChainSHA256: sha256Hex(output), EvidenceChain: append(json.RawMessage(nil), output...), SecretValuesRecorded: false}
+	return rootEvidence, nil
+}
+
+func writeReleaseEvidence(root string, evidence releaseRootEvidence) error {
+	if err := os.MkdirAll(filepath.Dir(releaseEvidencePath(root)), 0o700); err != nil {
+		return err
+	}
+	raw, err := canonicalProofJSON(evidence)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(releaseEvidencePath(root), append(raw, '\n'), 0o600)
+}
+
+func runReadinessDecision(root string) (string, string, error) {
+	cmd := exec.Command("python3", filepath.Join(root, "scripts", "validate-readiness.py"))
+	cmd.Dir = root
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", "", fmt.Errorf("readiness validation failed (output_sha256=%s)", sha256Hex(output))
+	}
+	text := string(output)
+	if strings.Contains(text, "Level B GO") {
+		return "GO", text, nil
+	}
+	return "NO_GO", text, nil
+}
+
 func shellQuoteEnvValue(value string) string {
 	// The audited adapters source their operator file with POSIX shell.  Single
 	// quoting every value prevents an operator-supplied dollar, backtick, or
@@ -643,17 +791,30 @@ func executeReleaseAdapters(root string, state launchState, operation string, va
 				exitCode = -1
 			}
 		}
-		state.AdapterHistory = append(state.AdapterHistory, adapterRun{
+		run := adapterRun{
 			Name: adapter.Name, StartedAt: started.Format(time.RFC3339), FinishedAt: finished.Format(time.RFC3339),
 			ExitCode: exitCode, OutputSHA256: sha256Hex(output), OutputBytes: len(output),
-		})
+		}
 		if runErr != nil {
+			state.AdapterHistory = append(state.AdapterHistory, run)
 			state.Status = adapterFailureStatus(adapter.Name)
 			if err := writeLaunchState(root, state); err != nil {
 				return state, fmt.Errorf("record failed adapter: %w", err)
 			}
 			return state, fmt.Errorf("audited adapter %s failed (exit=%d output_sha256=%s)", adapter.Name, exitCode, sha256Hex(output))
 		}
+		receiptPath, receiptErr := extractAdapterReceipt(values["STAGING_DEPLOYMENT_ROOT"], output)
+		if receiptErr != nil {
+			run.ExitCode = -2
+			state.AdapterHistory = append(state.AdapterHistory, run)
+			state.Status = adapterFailureStatus(adapter.Name)
+			if err := writeLaunchState(root, state); err != nil {
+				return state, fmt.Errorf("record receipt-less adapter: %w", err)
+			}
+			return state, fmt.Errorf("audited adapter %s succeeded without an exact safe receipt: %w", adapter.Name, receiptErr)
+		}
+		run.ReceiptPath = receiptPath
+		state.AdapterHistory = append(state.AdapterHistory, run)
 		state.Status = adapter.SuccessStatus
 		if err := writeLaunchState(root, state); err != nil {
 			return state, fmt.Errorf("record successful adapter: %w", err)
@@ -723,6 +884,61 @@ func cmdLaunchInputs(root, configPath, environment, secretsPath string) {
 	printLaunch(out)
 }
 
+func cmdReleaseEvidence(root, command, environment, configPath, secretsPath string) {
+	plan, err := compileLaunchPlan(root, environment, configPath, secretsPath)
+	if err != nil {
+		fatalf("release %s: %v", command, err)
+	}
+	state, err := readLaunchState(root)
+	if err != nil {
+		fatalf("release %s requires a sealed release state: %v", command, err)
+	}
+	if state.Plan.PlanSHA256 != plan.PlanSHA256 || state.Plan.RemoteProfileSHA256 != plan.RemoteProfileSHA256 ||
+		!equalStringMap(state.Plan.IdentityFingerprints, plan.IdentityFingerprints) {
+		fatalf("release %s refused: sealed plan identity drifted; reseal and reapprove", command)
+	}
+	values, err := loadLaunchSecrets(secretsPath)
+	if err != nil {
+		fatalf("release %s: %v", command, err)
+	}
+	cfg, _, err := loadLaunchConfig(configPath, environment)
+	if err != nil {
+		fatalf("release %s config: %v", command, err)
+	}
+	configValues, err := launchConfigValuesForRoot(root, cfg)
+	if err != nil {
+		fatalf("release %s source identity: %v", command, err)
+	}
+	allValues := mergeLaunchValues(configValues, values)
+	allValues["MERC_CANDIDATE_COMMIT"] = plan.CandidateCommit
+	envFile, cleanup, err := writeAdapterEnv(root, allValues)
+	if err != nil {
+		fatalf("release %s adapter environment: %v", command, err)
+	}
+	defer cleanup()
+	if err := runRemoteReleaseIdentity(root, envFile, plan); err != nil {
+		fatalf("release %s: %v", command, err)
+	}
+	evidence, err := runRemoteEvidenceProof(root, envFile, plan, state, cfg)
+	if err != nil {
+		fatalf("release %s: %v", command, err)
+	}
+	if err := writeReleaseEvidence(root, evidence); err != nil {
+		fatalf("release %s write root evidence: %v", command, err)
+	}
+	if command == "go-no-go" {
+		decision, report, err := runReadinessDecision(root)
+		if err != nil {
+			fatalf("release go-no-go: %v", err)
+		}
+		printLaunch(map[string]any{"schema_version": 1, "kind": "merc_level_b_release_go_no_go",
+			"level_b": decision, "level_c": "NO_GO_PROHIBITED", "root_evidence": evidence,
+			"readiness_report_sha256": sha256Hex([]byte(report))})
+		return
+	}
+	printLaunch(evidence)
+}
+
 func dispatchLaunchRelease(args []string) {
 	command := args[0]
 	root := releaseRepoRoot()
@@ -773,7 +989,9 @@ func dispatchLaunchRelease(args []string) {
 			fatalf("release status: no sealed release state: %v", err)
 		}
 		printLaunch(state)
-	case "render", "evidence", "go-no-go", "ui":
+	case "prove", "evidence", "go-no-go":
+		cmdReleaseEvidence(root, command, *environment, *config, *secrets)
+	case "render", "ui":
 		plan, err := compileLaunchPlan(root, *environment, *config, *secrets)
 		if err != nil {
 			fatalf("release %s: %v", command, err)
@@ -812,6 +1030,11 @@ func dispatchLaunchRelease(args []string) {
 		}
 		allValues := mergeLaunchValues(configValues, values)
 		allValues["MERC_CANDIDATE_COMMIT"] = plan.CandidateCommit
+		if command == "launch" {
+			if _, err := safeRemoteEvidencePath(cfg.Staging.DeploymentRoot, cfg.Evidence.GovernanceReceipt); err != nil {
+				fatalf("release launch requires a safe exact governance receipt before mutation: %v", err)
+			}
+		}
 		out, err := runReleaseDoctor(root, allValues)
 		if err != nil {
 			inputs, inputErr := buildLaunchInputs(root, allValues)
@@ -831,6 +1054,13 @@ func dispatchLaunchRelease(args []string) {
 		state, err = executeReleaseAdapters(root, state, operation, allValues)
 		if err != nil {
 			fatalf("release %s: %v", command, err)
+		}
+		if command == "launch" {
+			// The one-button path does not infer receipt names: every adapter
+			// recorded its exact PASS receipt, and this call binds all of them to
+			// the final evidence-chain and readiness decision.
+			cmdReleaseEvidence(root, "go-no-go", *environment, *config, *secrets)
+			return
 		}
 		printLaunch(map[string]any{"schema_version": 1, "status": state.Status, "operation": operation,
 			"plan_sha256": plan.PlanSHA256, "level_b": "external receipts still require independent review", "level_c": "NO_GO_PROHIBITED"})

@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "12f51f3b1ea105aeb8fa05d2c30d577442f8c213d05ade7c1b2374d543c3a884",
+  "authority_sha256": "c9ad9935c01bba33305f7e24b632d509cc1c00a5a09953a88562f1718fafb234",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -59,7 +59,7 @@
     "bench/immutable/shared-prefix-v2.sha256": 1,
     "benchmarks/realtime-chat-v1.json": 11,
     "census/.gitignore": 4,
-    "census/CODEBASE_CENSUS.json": 846,
+    "census/CODEBASE_CENSUS.json": 847,
     "census/CODEBASE_CENSUS.md": 47,
     "cli/LICENSE": 202,
     "cli/README.md": 13,
@@ -216,8 +216,8 @@
     "control/receipt_test.go": 143,
     "control/reconcile.go": 147,
     "control/recovery_boundary.go": 60,
-    "control/release_launch.go": 850,
-    "control/release_launch_test.go": 227,
+    "control/release_launch.go": 1080,
+    "control/release_launch_test.go": 265,
     "control/remote_response.go": 26,
     "control/reputation.go": 65,
     "control/request_body_limit_test.go": 74,
@@ -417,7 +417,7 @@
     "ops/governance-approval-bundle.schema.json": 65,
     "ops/governance-review-packets.json": 83,
     "ops/healthcheck.c": 96,
-    "ops/launch/level-b.yaml": 46,
+    "ops/launch/level-b.yaml": 50,
     "ops/legal-review.json": 140,
     "ops/live-payment-activation.schema.json": 110,
     "ops/local/compose.rehearsal.yml": 222,
@@ -426,7 +426,7 @@
     "ops/rename-residue.json": 41,
     "ops/repo-boundary.json": 10,
     "ops/rust-paste-audit.json": 36,
-    "ops/staging/README.md": 248,
+    "ops/staging/README.md": 259,
     "ops/staging/compose.go-closure.yml": 295,
     "ops/staging/env.go-closure.example": 71,
     "ops/stripe-secret-exposure.json": 1,
@@ -463,6 +463,7 @@
     "scripts/gateway-parity.py": 644,
     "scripts/go-closure-canary-rehearsal.sh": 473,
     "scripts/go-closure-deploy.sh": 117,
+    "scripts/go-closure-evidence-proof.sh": 63,
     "scripts/go-closure-release-identity.sh": 76,
     "scripts/go-closure-restart-storm.sh": 346,
     "scripts/go-closure-rollback-rehearsal.sh": 180,
@@ -470,7 +471,7 @@
     "scripts/install.sh": 311,
     "scripts/lib/cloudflare-auth.sh": 57,
     "scripts/lib/compose-prod.sh": 38,
-    "scripts/lib/go-closure-common.sh": 455,
+    "scripts/lib/go-closure-common.sh": 456,
     "scripts/lib/stripe-sandbox-contract.sh": 70,
     "scripts/local-independent-restore.sh": 174,
     "scripts/local-production-rehearsal.sh": 346,
@@ -538,7 +539,7 @@
     "scripts/validate-canary-scenario-receipt.py": 356,
     "scripts/validate-claim-surfaces.py": 148,
     "scripts/validate-go-closure-evidence-chain.py": 1117,
-    "scripts/validate-go-closure-scaffold.sh": 246,
+    "scripts/validate-go-closure-scaffold.sh": 247,
     "scripts/validate-go-closure-soak-receipt.py": 615,
     "scripts/validate-governance.py": 240,
     "scripts/validate-independent-reviews.py": 184,
@@ -602,19 +603,19 @@
     },
     "documentation": {
       "files": 50,
-      "loc": 6634,
-      "code": 5213,
-      "blank": 1421,
+      "loc": 6645,
+      "code": 5223,
+      "blank": 1422,
       "comment": 0,
-      "bytes": 374818
+      "bytes": 375549
     },
     "go": {
       "files": 234,
-      "loc": 75280,
-      "code": 67011,
-      "blank": 4552,
-      "comment": 3717,
-      "bytes": 2724096
+      "loc": 75548,
+      "code": 67261,
+      "blank": 4565,
+      "comment": 3722,
+      "bytes": 2735332
     },
     "javascript": {
       "files": 8,
@@ -626,11 +627,11 @@
     },
     "json": {
       "files": 80,
-      "loc": 7586,
-      "code": 7586,
+      "loc": 7587,
+      "code": 7587,
       "blank": 0,
       "comment": 0,
-      "bytes": 342214
+      "bytes": 342263
     },
     "lockfile": {
       "files": 2,
@@ -665,12 +666,12 @@
       "bytes": 370207
     },
     "shell": {
-      "files": 71,
-      "loc": 14291,
-      "code": 12046,
-      "blank": 1135,
-      "comment": 1110,
-      "bytes": 638664
+      "files": 72,
+      "loc": 14356,
+      "code": 12100,
+      "blank": 1141,
+      "comment": 1115,
+      "bytes": 640778
     },
     "sql": {
       "files": 1,
@@ -714,11 +715,11 @@
     },
     "yaml": {
       "files": 17,
-      "loc": 2013,
-      "code": 1856,
+      "loc": 2017,
+      "code": 1858,
       "blank": 102,
-      "comment": 55,
-      "bytes": 76572
+      "comment": 57,
+      "bytes": 76762
     }
   },
   "owned_by_subsystem": {
@@ -740,11 +741,11 @@
     },
     "control": {
       "files": 169,
-      "loc": 53888,
-      "code": 47536,
-      "blank": 3279,
-      "comment": 3073,
-      "bytes": 1967468
+      "loc": 54156,
+      "code": 47786,
+      "blank": 3292,
+      "comment": 3078,
+      "bytes": 1978704
     },
     "documentation": {
       "files": 39,
@@ -764,11 +765,11 @@
     },
     "ops": {
       "files": 119,
-      "loc": 11114,
-      "code": 10526,
-      "blank": 424,
-      "comment": 164,
-      "bytes": 493348
+      "loc": 11130,
+      "code": 10539,
+      "blank": 425,
+      "comment": 166,
+      "bytes": 494318
     },
     "payment": {
       "files": 39,
@@ -779,12 +780,12 @@
       "bytes": 469707
     },
     "proof": {
-      "files": 120,
-      "loc": 25936,
-      "code": 22144,
-      "blank": 2272,
-      "comment": 1520,
-      "bytes": 1080988
+      "files": 121,
+      "loc": 26001,
+      "code": 22198,
+      "blank": 2278,
+      "comment": 1525,
+      "bytes": 1083102
     },
     "sdk": {
       "files": 10,
@@ -812,12 +813,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 138745,
-    "non_design_production_core_loc": 97917,
-    "test_loc": 27516,
-    "documentation_loc": 6634,
+    "global_owned_loc": 139094,
+    "non_design_production_core_loc": 98216,
+    "test_loc": 27554,
+    "documentation_loc": 6645,
     "python_loc": 9388,
-    "generated_loc": 5127,
+    "generated_loc": 5128,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -839,8 +840,8 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10291499,
-  "tracked_files": 575,
+  "tracked_bytes": 10305819,
+  "tracked_files": 576,
   "untracked_files": 0,
-  "walked_files": 575
+  "walked_files": 576
 }

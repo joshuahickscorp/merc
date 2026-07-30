@@ -80,6 +80,7 @@ pass "canary envelope and ignored secret file"
 scripts=(
   scripts/go-closure-deploy.sh
   scripts/go-closure-release-identity.sh
+  scripts/go-closure-evidence-proof.sh
   scripts/go-closure-rollback-rehearsal.sh
   scripts/go-closure-restart-storm.sh
   scripts/go-closure-canary-rehearsal.sh
