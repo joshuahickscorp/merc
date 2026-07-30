@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_from": "HEAD, the working tree, and (optionally) a live database",
   "source": {
-    "commit": "7031eec6d0099bf6f8c125ffc871f5cc8336dd39",
+    "commit": "0bf2ee20fd3d892fb931c3542e41c37702160953",
     "branch": "perf/execution-frontier",
     "tree_clean": false,
     "pushed": true
@@ -263,10 +263,10 @@
       }
     ],
     "workers": {
-      "total": 228,
-      "bound_to_profile": 227,
+      "total": 266,
+      "bound_to_profile": 265,
       "unbound": 1,
-      "with_digest": 227
+      "with_digest": 265
     },
     "present_constraints": [
       "workers_runtime_profile_fk",
