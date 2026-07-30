@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "candidate_commit": "",
+  "scope": "supervised Level-B Stripe-test-mode private canary only",
+  "approved_buyers": [],
+  "approved_workers": [],
+  "enrollment_authority": "",
+  "reviewed_agent_versions": [],
+  "reviewed_build_hashes": [],
+  "scenario_driver": "",
+  "scenario_driver_sha256": "",
+  "restart_driver": "",
+  "restart_driver_sha256": ""
+}

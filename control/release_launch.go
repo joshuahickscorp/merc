@@ -156,6 +156,35 @@ type launchInputContract struct {
 	Inputs        []launchInput `json:"inputs"`
 }
 
+// launchInputBundle is the operator-facing reduction of the detailed adapter
+// contract.  The detailed names remain the runtime authority; this view makes
+// clear that they are supplied through eight external decisions, rather than
+// forty-six unrelated prompts.
+type launchInputBundle struct {
+	ID          string   `json:"id"`
+	Class       string   `json:"class"`
+	Gate        string   `json:"gate"`
+	Inputs      []string `json:"inputs"`
+	SecretStore string   `json:"secret_store"`
+}
+
+var minimalLaunchInputBundles = []launchInputBundle{
+	{ID: "staging", Class: "EXTERNAL_EVENT", Gate: "persistent TLS staging", SecretStore: ".merc-launch.env (0600) for credentials; level-b.yaml for topology", Inputs: []string{"STAGING_SSH_TARGET", "STAGING_TLS_HOSTNAME", "STAGING_DEPLOYMENT_ROOT", "STAGING_BIND_ADDRESS", "ACME_EMAIL", "POSTGRES_PASSWORD", "MERC_TOKEN_KEY", "MERC_VERIFICATION_SAMPLE_SECRET", "MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE", "MERC_PRICE_FX_REVISION", "MERC_CANDIDATE_CONTROL_IMAGE", "MERC_PRIOR_CONTROL_IMAGE", "MERC_PRIOR_COMMIT", "MERC_PROMETHEUS_IMAGE", "MERC_ALERTMANAGER_IMAGE", "MERC_GRAFANA_IMAGE", "MERC_NODE_EXPORTER_IMAGE"}},
+	{ID: "artifact-storage", Class: "EXTERNAL_EVENT", Gate: "persistent artifact storage", SecretStore: ".merc-launch.env (0600)", Inputs: []string{"STAGING_STORAGE_TLS_HOSTNAME", "MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "GF_SECURITY_ADMIN_PASSWORD"}},
+	{ID: "offsite-backup", Class: "EXTERNAL_EVENT", Gate: "independent encrypted backup and restore", SecretStore: ".merc-launch.env (0600); age identity in separate 0600 file", Inputs: []string{"MERC_BACKUP_OFFSITE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "MERC_BACKUP_ENCRYPTION_RECIPIENT", "MERC_BACKUP_DECRYPTION_IDENTITY_FILE"}},
+	{ID: "stripe-sandbox", Class: "EXTERNAL_EVENT", Gate: "Stripe CAD sandbox matrix", SecretStore: ".merc-launch.env (0600)", Inputs: []string{"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "MERC_CONNECT_WEBHOOK_SECRET", "MERC_CONNECT_CLIENT_ID", "STRIPE_TEST_CONNECTED_ACCOUNT_ID", "STRIPE_BILLING_WEBHOOK_ENDPOINT_ID", "STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID"}},
+	{ID: "alerting", Class: "EXTERNAL_EVENT", Gate: "real alert delivery and resolution", SecretStore: ".merc-launch.env (0600)", Inputs: []string{"ALERT_RECEIVER_WEBHOOK_URL", "ALERT_RECEIVER_NAME"}},
+	{ID: "participants", Class: "HUMAN_APPROVAL", Gate: "approved buyer/worker canary", SecretStore: "ops/launch/participants.template.json completed outside git", Inputs: []string{"MERC_CANARY_APPROVED_BUYER_EMAILS", "MERC_CANARY_APPROVED_WORKER_IDS", "MERC_CANARY_APPROVED_AGENT_VERSIONS", "MERC_CANARY_APPROVED_BUILD_HASHES", "MERC_CANARY_SCENARIO_DRIVER", "MERC_CANARY_APPROVED_DRIVER_SHA256", "MERC_AGENT_RESTART_DRIVER", "MERC_AGENT_RESTART_APPROVED_DRIVER_SHA256"}},
+	{ID: "independent-review", Class: "HUMAN_APPROVAL", Gate: "independent accountable review and retest", SecretStore: "approved reviewer record outside git", Inputs: []string{"GITHUB_RELEASE_REVIEWER_LOGIN"}},
+	{ID: "governance", Class: "HUMAN_APPROVAL", Gate: "candidate-bound governance approvals", SecretStore: "restricted governance evidence store", Inputs: []string{"GOVERNANCE_APPROVAL_BUNDLE_PATH"}},
+}
+
+var launchInputClassifications = map[string]string{
+	"MERC_CANDIDATE_COMMIT":        "AUTO_DISCOVER",
+	"STAGING_STORAGE_TLS_HOSTNAME": "DERIVE_FROM_OTHER_INPUT",
+	"STAGING_BIND_ADDRESS":         "OPERATOR_DECISION",
+}
+
 func releaseRepoRoot() string {
 	if root := strings.TrimSpace(os.Getenv("MERC_REPO_ROOT")); root != "" {
 		return root
@@ -230,9 +259,15 @@ func loadLaunchConfig(path, environment string) (launchConfig, []byte, error) {
 
 func launchConfigValues(cfg launchConfig) map[string]string {
 	join := func(values []string) string { return strings.Join(values, ",") }
+	storageHostname := cfg.Staging.StorageHostname
+	if storageHostname == "" && cfg.Staging.TLSHostname != "" {
+		// The private object endpoint is mechanically derived from the selected
+		// staging base name; the deployment check still requires DNS/TLS proof.
+		storageHostname = "objects." + cfg.Staging.TLSHostname
+	}
 	return map[string]string{
 		"MERC_CANDIDATE_CONTROL_IMAGE": cfg.Candidate.ControlImage, "MERC_PRIOR_CONTROL_IMAGE": cfg.Candidate.PriorImage, "MERC_PRIOR_COMMIT": cfg.Candidate.PriorCommit,
-		"STAGING_SSH_TARGET": cfg.Staging.SSHTarget, "STAGING_TLS_HOSTNAME": cfg.Staging.TLSHostname, "STAGING_DEPLOYMENT_ROOT": cfg.Staging.DeploymentRoot, "STAGING_STORAGE_TLS_HOSTNAME": cfg.Staging.StorageHostname, "STAGING_BIND_ADDRESS": cfg.Staging.BindAddress, "ACME_EMAIL": cfg.Staging.ACMEEmail,
+		"STAGING_SSH_TARGET": cfg.Staging.SSHTarget, "STAGING_TLS_HOSTNAME": cfg.Staging.TLSHostname, "STAGING_DEPLOYMENT_ROOT": cfg.Staging.DeploymentRoot, "STAGING_STORAGE_TLS_HOSTNAME": storageHostname, "STAGING_BIND_ADDRESS": cfg.Staging.BindAddress, "ACME_EMAIL": cfg.Staging.ACMEEmail,
 		"MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE": cfg.Pricing.ReferenceToSettlementRate, "MERC_PRICE_FX_REVISION": cfg.Pricing.FXRevision,
 		"MERC_PROMETHEUS_IMAGE": cfg.Images.Prometheus, "MERC_ALERTMANAGER_IMAGE": cfg.Images.Alertmanager, "MERC_GRAFANA_IMAGE": cfg.Images.Grafana, "MERC_NODE_EXPORTER_IMAGE": cfg.Images.NodeExporter,
 		"MERC_BACKUP_OFFSITE": cfg.Backup.Offsite, "MERC_BACKUP_ENCRYPTION_RECIPIENT": cfg.Backup.EncryptionRecipient,
@@ -875,7 +910,17 @@ func buildLaunchInputs(root string, values map[string]string) (launchInputs, err
 	return out, nil
 }
 
-func cmdLaunchInputs(root, configPath, environment, secretsPath string) {
+func inputClassification(in launchInput) string {
+	if classification := launchInputClassifications[in.Name]; classification != "" {
+		return classification
+	}
+	if in.Secret {
+		return "OPERATOR_SECRET"
+	}
+	return "OPERATOR_DECISION"
+}
+
+func cmdLaunchInputs(root, configPath, environment, secretsPath string, minimal, explain bool) {
 	cfg, _, err := loadLaunchConfig(configPath, environment)
 	if err != nil {
 		fatalf("release inputs config: %v", err)
@@ -891,9 +936,39 @@ func cmdLaunchInputs(root, configPath, environment, secretsPath string) {
 	if err != nil {
 		fatalf("release inputs source identity: %v", err)
 	}
-	out, err := buildLaunchInputs(root, mergeLaunchValues(configValues, values))
+	allValues := mergeLaunchValues(configValues, values)
+	if minimal {
+		bundles := make([]map[string]any, 0, len(minimalLaunchInputBundles))
+		for _, bundle := range minimalLaunchInputBundles {
+			missing := make([]string, 0, len(bundle.Inputs))
+			for _, name := range bundle.Inputs {
+				if strings.TrimSpace(allValues[name]) == "" && launchInputClassifications[name] != "AUTO_DISCOVER" && launchInputClassifications[name] != "DERIVE_FROM_OTHER_INPUT" {
+					missing = append(missing, name)
+				}
+			}
+			bundles = append(bundles, map[string]any{"id": bundle.ID, "class": bundle.Class, "gate": bundle.Gate,
+				"secret_store": bundle.SecretStore, "missing": missing, "ready": len(missing) == 0})
+		}
+		printLaunch(map[string]any{"schema_version": 1, "kind": "merc_level_b_minimal_inputs", "irreducible_external_bundle_count": len(bundles),
+			"external_events_not_inputs": []string{"24_hour_soak", "real_alert_firing_and_resolution", "external_backup_restore", "Stripe_CAD_matrix", "approved_canary_execution"}, "bundles": bundles})
+		return
+	}
+	out, err := buildLaunchInputs(root, allValues)
 	if err != nil {
 		fatalf("release inputs: %v", err)
+	}
+	if explain {
+		explanations := make([]map[string]any, 0, len(out.Missing))
+		contract, contractErr := loadLaunchInputContract(root)
+		if contractErr != nil {
+			fatalf("release inputs explain: %v", contractErr)
+		}
+		for _, in := range contract.Inputs {
+			explanations = append(explanations, map[string]any{"name": in.Name, "classification": inputClassification(in), "secret": in.Secret,
+				"provided": strings.TrimSpace(allValues[in.Name]) != "", "used_by": in.UsedBy, "accepted_form": in.Accepted})
+		}
+		printLaunch(map[string]any{"schema_version": 1, "kind": "merc_level_b_input_explanation", "items": explanations})
+		return
 	}
 	printLaunch(out)
 }
@@ -961,16 +1036,20 @@ func dispatchLaunchRelease(args []string) {
 	config := fs.String("config", filepath.Join(root, "ops", "launch", "level-b.yaml"), "launch config")
 	secrets := fs.String("secrets-file", filepath.Join(root, ".merc-launch.env"), "mode-0600 secret file")
 	approve := fs.String("approve-plan", "", "exact plan SHA-256 required for stateful commands")
+	planOut := fs.String("out", "", "optional private path for the sealed plan JSON")
 	apply := fs.Bool("apply", false, "acknowledge a stateful launch action")
 	uiListen := fs.String("listen", "127.0.0.1:0", "loopback address for release ui")
 	destroyConfirm := fs.String("confirm-destroy", "", "repeat exact plan SHA-256 to confirm controlled teardown")
+	minimal := fs.Bool("minimal", false, "emit the eight external input bundles")
+	explain := fs.Bool("explain", false, "classify every detailed launch input")
+	_ = fs.Bool("json", true, "output canonical JSON (default)")
 	fs.Parse(args[1:])
 	if *environment != levelBEnvironment {
 		fatalf("Level C and non-staging environments are prohibited")
 	}
 	switch command {
 	case "inputs":
-		cmdLaunchInputs(root, *config, *environment, *secrets)
+		cmdLaunchInputs(root, *config, *environment, *secrets, *minimal, *explain)
 	case "doctor":
 		cfg, _, err := loadLaunchConfig(*config, *environment)
 		if err != nil {
@@ -997,6 +1076,26 @@ func dispatchLaunchRelease(args []string) {
 		}
 		if err := writeLaunchState(root, launchState{SchemaVersion: 2, Status: "planned", Plan: plan}); err != nil {
 			fatalf("seal release plan: %v", err)
+		}
+		if strings.TrimSpace(*planOut) != "" {
+			if filepath.IsAbs(*planOut) {
+				fatalf("release plan --out must be a repository-relative path")
+			}
+			outputPath := filepath.Join(root, filepath.Clean(*planOut))
+			relativeOutput, relErr := filepath.Rel(root, outputPath)
+			if relErr != nil || relativeOutput == ".." || strings.HasPrefix(relativeOutput, ".."+string(filepath.Separator)) {
+				fatalf("release plan --out escapes repository")
+			}
+			raw, encodeErr := canonicalProofJSON(plan)
+			if encodeErr != nil {
+				fatalf("encode release plan: %v", encodeErr)
+			}
+			if mkdirErr := os.MkdirAll(filepath.Dir(outputPath), 0o700); mkdirErr != nil {
+				fatalf("create release plan directory: %v", mkdirErr)
+			}
+			if writeErr := atomicWrite(outputPath, append(raw, '\n'), 0o600); writeErr != nil {
+				fatalf("write release plan: %v", writeErr)
+			}
 		}
 		printLaunch(plan)
 	case "status":
