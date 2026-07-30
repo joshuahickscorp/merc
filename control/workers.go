@@ -974,6 +974,7 @@ func (wk *Workers) finalizeJobs(ctx context.Context) error {
 		}
 		_ = wk.store.InsertJobEvent(ctx, j.ID, nil, "job_completed", "Job completed; results ready", nil)
 		recordEtaCalibration(ctx, wk.store, j.ID)
+		recordPlanActuals(ctx, wk.store, j.ID)
 	}
 	return nil
 }
