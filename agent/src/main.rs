@@ -337,6 +337,34 @@ enum Command {
         #[arg(long, default_value = "Reply with only: merc-honeypot-ok")]
         prompt: String,
     },
+    /// Emit the exact bytes a worker commits for an embed task, executed on a
+    /// named runtime cell.
+    ///
+    /// Same reason HoneypotAnswer exists: the control plane needs the real
+    /// commit bytes, and a hand-written fixture is a different artifact that
+    /// merely looks like one. This is the bridge that lets a Go integration test
+    /// drive REAL engine output through the Merc chain rather than a plausible
+    /// stand-in — which is the whole difference between a benchmarked engine and
+    /// a proven runtime cell.
+    EmitEmbedArtifact {
+        /// `candle_metal` (in-process safetensors) or `llama_cpp_metal` (GGUF
+        /// via a llama-server this operator runs).
+        #[arg(long, default_value = "candle_metal")]
+        runtime: String,
+        #[arg(long, default_value = "all-minilm-l6-v2")]
+        model: String,
+        #[arg(long, default_value = "http://127.0.0.1:8188")]
+        llama_base_url: String,
+        /// JSONL, one {"id":..,"text":..} per line. Reads stdin when empty.
+        #[arg(long, default_value = "")]
+        input: String,
+        /// Where to write the committed bytes.
+        #[arg(long)]
+        out: String,
+        /// Emit the compact float32 artifact instead of JSON.
+        #[arg(long, default_value_t = false)]
+        binary: bool,
+    },
 }
 
 fn init_tracing() {
@@ -475,6 +503,17 @@ async fn main() -> Result<()> {
                 &out,
             )
             .await
+        }
+        Command::EmitEmbedArtifact {
+            runtime,
+            model,
+            llama_base_url,
+            input,
+            out,
+            binary,
+        } => {
+            init_tracing();
+            run_emit_embed_artifact(&runtime, &model, &llama_base_url, &input, &out, binary).await
         }
         Command::Characterize => {
             init_tracing();
@@ -984,6 +1023,99 @@ async fn run_bench_batch(
              --require-deterministic was set — failing the determinism gate"
         );
     }
+    Ok(())
+}
+
+/// Emit the exact commit bytes for an embed task on a named runtime cell.
+async fn run_emit_embed_artifact(
+    runtime: &str,
+    model: &str,
+    llama_base_url: &str,
+    input: &str,
+    out: &str,
+    binary: bool,
+) -> Result<()> {
+    use executor::{EmbedRunner, JobRunner};
+    use sha2::{Digest, Sha256};
+
+    let driver = runtime_driver::build_embed_driver(runtime, llama_base_url)
+        .map_err(|e| anyhow::anyhow!("embed runtime: {e}"))?;
+    driver
+        .launch()
+        .await
+        .with_context(|| format!("runtime {} must be serving", driver.runtime_id()))?;
+
+    let body = if input.is_empty() {
+        let mut buffer = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut buffer)
+            .context("reading input from stdin")?;
+        buffer
+    } else {
+        std::fs::read_to_string(input).with_context(|| format!("reading {input}"))?
+    };
+
+    // The cell decides the artifact format, exactly as the control plane's
+    // per-cell wire_kind says: candle loads safetensors, llama.cpp loads the
+    // GGUF of the same logical model.
+    let kind = if driver.serves_kind("gguf") {
+        types::ModelKind::Gguf
+    } else {
+        types::ModelKind::Hf
+    };
+    let manifest = types::JobManifest {
+        id: uuid::Uuid::nil(),
+        job_type: types::JobType::Embed {
+            binary,
+            batch_size: 0,
+        },
+        model: types::ModelRef {
+            kind,
+            model_ref: model.to_string(),
+        },
+        inputs: vec![],
+        output: types::OutputRef { url: String::new() },
+        params: serde_json::Value::Null,
+        constraints: types::JobConstraints {
+            min_memory_gb: 0.0,
+            hw_classes: None,
+            max_duration_secs: 600,
+            data_residency: None,
+        },
+        verification: types::VerificationPolicy {
+            redundancy_frac: 0.0,
+            honeypot_frac: 0.0,
+            payout_hold_secs: 0,
+        },
+        tier: types::ServiceTier::Batch,
+    };
+
+    // The PRODUCTION runner, not a bespoke call into the driver: the bytes have
+    // to be what a claimed task would actually commit, including the artifact
+    // encoding and the token accounting.
+    let runner = EmbedRunner::new(driver.clone());
+    let pool = ModelPool::new();
+    let output = runner
+        .run(&manifest, body.as_bytes(), &pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("embed execution on {}: {e}", driver.runtime_id()))?;
+
+    std::fs::write(out, &output.result).with_context(|| format!("writing {out}"))?;
+    let digest = format!("{:x}", Sha256::digest(&output.result));
+    println!(
+        "{}",
+        serde_json::json!({
+            "runtime_profile_id": driver.runtime_id(),
+            "model": model,
+            "wire_kind": if kind == types::ModelKind::Gguf { "gguf" } else { "hf" },
+            "artifact_path": out,
+            "artifact_sha256": digest,
+            "artifact_bytes": output.result.len(),
+            "binary": output.binary,
+            "tokens_used": output.tokens_used,
+            "duration_ms": output.duration_ms,
+            "driver_metrics": driver.metrics(),
+        })
+    );
     Ok(())
 }
 
