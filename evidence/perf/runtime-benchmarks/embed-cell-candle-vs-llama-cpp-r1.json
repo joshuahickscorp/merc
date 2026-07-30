@@ -1,0 +1,172 @@
+{
+  "authority_matrix_sha256": "075c588a8ded0eb9f44b06837a2eb46b2a8d9a44439ad82816357ddb2556c1d4",
+  "authority_matrix_version": "2026-07-30.6",
+  "corpus": {
+    "sha256": "01fcad50dcc300f12f31f91d3ae356746382ef9961594715563958829bad59f9",
+    "texts": 8
+  },
+  "engine_configuration": {
+    "candle_metal": {
+      "device": "metal",
+      "note": "in-process; no server configuration to report"
+    },
+    "llama_cpp_metal": {
+      "build_info": "b9430-d48a56eff",
+      "model_path": "/Users/scammermike/.cache/huggingface/hub/models--leliuga--all-MiniLM-L6-v2-GGUF/snapshots/ddf2e25d5b8530422e7b14aa39f33a657ff9aec0/all-MiniLM-L6-v2.F16.gguf",
+      "n_ctx": 256,
+      "total_slots": 128
+    }
+  },
+  "hardware": {
+    "device": "metal",
+    "hw_class": "apple_silicon_ultra",
+    "memory_gb": 103.07921600341797
+  },
+  "harness": "merc-agent 0.1.0 bench-embed",
+  "measurements": [
+    {
+      "batch": 1,
+      "max_wall_s": 0.00342875,
+      "median_wall_s": 0.003074875,
+      "min_wall_s": 0.002988792,
+      "reps": 5,
+      "runtime_profile_id": "candle_metal",
+      "texts_per_sec": 325.21647221431766
+    },
+    {
+      "batch": 1,
+      "max_wall_s": 0.002210834,
+      "median_wall_s": 0.002043792,
+      "min_wall_s": 0.002031041,
+      "reps": 5,
+      "runtime_profile_id": "llama_cpp_metal",
+      "texts_per_sec": 489.2865810219435
+    },
+    {
+      "batch": 8,
+      "max_wall_s": 0.044848625,
+      "median_wall_s": 0.024500084,
+      "min_wall_s": 0.024213792,
+      "reps": 5,
+      "runtime_profile_id": "candle_metal",
+      "texts_per_sec": 326.5294927152087
+    },
+    {
+      "batch": 8,
+      "max_wall_s": 0.0038905,
+      "median_wall_s": 0.003670583,
+      "min_wall_s": 0.003619958,
+      "reps": 5,
+      "runtime_profile_id": "llama_cpp_metal",
+      "texts_per_sec": 2179.4902880550585
+    },
+    {
+      "batch": 32,
+      "max_wall_s": 0.027514583,
+      "median_wall_s": 0.026790333,
+      "min_wall_s": 0.026529291,
+      "reps": 5,
+      "runtime_profile_id": "candle_metal",
+      "texts_per_sec": 1194.4607034186547
+    },
+    {
+      "batch": 32,
+      "max_wall_s": 0.010569583,
+      "median_wall_s": 0.009988875,
+      "min_wall_s": 0.008682542,
+      "reps": 5,
+      "runtime_profile_id": "llama_cpp_metal",
+      "texts_per_sec": 3203.5639649109635
+    },
+    {
+      "batch": 128,
+      "max_wall_s": 0.053773708,
+      "median_wall_s": 0.038098084,
+      "min_wall_s": 0.037581375,
+      "reps": 5,
+      "runtime_profile_id": "candle_metal",
+      "texts_per_sec": 3359.749009950212
+    },
+    {
+      "batch": 128,
+      "max_wall_s": 0.03230175,
+      "median_wall_s": 0.031999041,
+      "min_wall_s": 0.031481167,
+      "reps": 5,
+      "runtime_profile_id": "llama_cpp_metal",
+      "texts_per_sec": 4000.1198785926117
+    }
+  ],
+  "merc_source_commit": "c0cf09360b64b15b16b8405659e350669b6d72e4",
+  "model_artifacts": {
+    "by_wire_kind": {
+      "gguf": [
+        {
+          "path": "all-MiniLM-L6-v2.F16.gguf",
+          "repo": "leliuga/all-MiniLM-L6-v2-GGUF",
+          "revision": "ddf2e25d5b8530422e7b14aa39f33a657ff9aec0",
+          "sha256": "797b70c4edf85907fe0a49eb85811256f65fa0f7bf52166b147fd16be2be4662"
+        }
+      ],
+      "hf": [
+        {
+          "path": "config.json",
+          "repo": "sentence-transformers/all-MiniLM-L6-v2",
+          "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+          "sha256": "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41"
+        },
+        {
+          "path": "tokenizer.json",
+          "repo": "sentence-transformers/all-MiniLM-L6-v2",
+          "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+          "sha256": "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037"
+        },
+        {
+          "path": "model.safetensors",
+          "repo": "sentence-transformers/all-MiniLM-L6-v2",
+          "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+          "sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+        }
+      ]
+    },
+    "quantization": null
+  },
+  "model_id": "all-minilm-l6-v2",
+  "not_established": {
+    "concurrency": "one client, sequential requests; this is not a concurrency sweep",
+    "energy": "power draw is not metered on this host",
+    "engine_tuning": "llama-server was measured AS CONFIGURED, at whatever n_ctx and total_slots engine_configuration records. A batch larger than its slots queues inside the server, so a row where candle wins at a large batch is a statement about THIS server configuration and not about llama.cpp. No flag sweep was run.",
+    "provider_cost": "both profiles run on the same owned hardware here; no provider invoice separates them",
+    "quantization_sweep": "llama.cpp was measured at F16 only"
+  },
+  "profiles": {
+    "candle_metal": {
+      "engine": "candle",
+      "engine_revision": "",
+      "lifecycle": "ACTIVE",
+      "quality_tier": "OUTCOME_EQUIVALENT",
+      "revision": "r5",
+      "runtime_profile_id": "candle_metal",
+      "tokenizer_revision": "b69aef112e9f895e6f98d7ae0949f72ff09aa401"
+    },
+    "llama_cpp_metal": {
+      "engine": "llama_cpp",
+      "engine_revision": "",
+      "lifecycle": "VALIDATED",
+      "quality_tier": "UNPROVEN",
+      "revision": "r6",
+      "runtime_profile_id": "llama_cpp_metal",
+      "tokenizer_revision": "b69aef112e9f895e6f98d7ae0949f72ff09aa401"
+    }
+  },
+  "quality": {
+    "gate": 0.999,
+    "mean_cosine": 0.9999992847442627,
+    "min_cosine": 0.9999985694885254,
+    "passes": true,
+    "reference": "candle_metal",
+    "verification": "cosine"
+  },
+  "question": "What does the embed cell cost and deliver on each of the two registered runtime profiles, measured on one harness over one corpus?",
+  "schema_version": 1
+}

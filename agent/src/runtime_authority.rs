@@ -26,7 +26,14 @@ struct Authority {
 #[derive(Debug, Deserialize)]
 struct RuntimeProfile {
     runtime_id: String,
+    revision: String,
     engine: String,
+    #[serde(default)]
+    engine_revision: String,
+    #[serde(default)]
+    tokenizer_revision: String,
+    #[serde(default)]
+    quality_tier: String,
     lifecycle: String,
     device: String,
     hardware: Hardware,
@@ -97,8 +104,14 @@ fn projection() -> &'static Projection {
             serde_json::from_str(AUTHORITY_JSON).expect("decode embedded runtime authority");
         assert_eq!(authority.schema_version, 2, "unsupported runtime authority");
         assert!(!authority.matrix_version.is_empty());
-        assert!(!authority.models.is_empty(), "runtime authority defines no models");
-        assert!(!authority.runtimes.is_empty(), "runtime authority defines no runtimes");
+        assert!(
+            !authority.models.is_empty(),
+            "runtime authority defines no models"
+        );
+        assert!(
+            !authority.runtimes.is_empty(),
+            "runtime authority defines no runtimes"
+        );
 
         let mut capabilities: Vec<RuntimeCapability> = Vec::new();
         for profile in &authority.runtimes {
@@ -166,4 +179,66 @@ pub fn sha256() -> &'static str {
 
 pub fn capabilities() -> &'static [RuntimeCapability] {
     &projection().capabilities
+}
+
+/// The governed identity of the named profiles, straight from the embedded
+/// document.
+///
+/// A benchmark receipt that names a profile without its revision is evidence for
+/// a name, not for a configuration: `llama_cpp_metal` has meant five different
+/// things. The content digest is deliberately NOT restated here — it is derived
+/// from the document by the control plane, and copying a derived value into a
+/// file is how it goes stale. `bindBenchmarkReceipts` resolves (id, revision) to
+/// the digest in PostgreSQL, where the binding is checked rather than asserted.
+pub fn profile_identities(ids: &[&str]) -> serde_json::Value {
+    let authority: Authority =
+        serde_json::from_str(AUTHORITY_JSON).expect("decode embedded runtime authority");
+    let mut out = serde_json::Map::new();
+    for id in ids {
+        if let Some(profile) = authority.runtimes.iter().find(|p| p.runtime_id == *id) {
+            out.insert(
+                (*id).to_string(),
+                serde_json::json!({
+                    "runtime_profile_id": profile.runtime_id,
+                    "revision": profile.revision,
+                    "engine": profile.engine,
+                    "engine_revision": profile.engine_revision,
+                    "lifecycle": profile.lifecycle,
+                    "quality_tier": profile.quality_tier,
+                    "tokenizer_revision": profile.tokenizer_revision,
+                }),
+            );
+        }
+    }
+    serde_json::Value::Object(out)
+}
+
+/// The exact artifacts backing a model, per wire kind. Two runtimes serving one
+/// model id are not serving one file, and a receipt that recorded only the id
+/// could not tell a reader which bytes were measured.
+pub fn model_artifacts(model_id: &str) -> serde_json::Value {
+    let raw: serde_json::Value =
+        serde_json::from_str(AUTHORITY_JSON).expect("decode embedded runtime authority");
+    let Some(model) = raw["models"]
+        .as_array()
+        .and_then(|models| models.iter().find(|m| m["id"].as_str() == Some(model_id)))
+    else {
+        return serde_json::Value::Null;
+    };
+    let default_kind = model["wire_kind"].as_str().unwrap_or_default();
+    let mut out = serde_json::Map::new();
+    for artifact in model["artifacts"].as_array().into_iter().flatten() {
+        let kind = artifact["wire_kind"].as_str().unwrap_or(default_kind);
+        out.entry(kind.to_string())
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()))
+            .as_array_mut()
+            .expect("array")
+            .push(serde_json::json!({
+                "repo": artifact["repo"].as_str().unwrap_or(model["hf_repo"].as_str().unwrap_or_default()),
+                "revision": artifact["revision"].as_str().unwrap_or(model["hf_revision"].as_str().unwrap_or_default()),
+                "path": artifact["path"],
+                "sha256": artifact["sha256"],
+            }));
+    }
+    serde_json::json!({ "quantization": model["quant"], "by_wire_kind": out })
 }
