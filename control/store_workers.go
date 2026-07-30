@@ -160,10 +160,15 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 	for _, authorized := range projected {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO worker_authorized_capabilities
-				   (worker_id, cell_id, runtime_id, job_type, model_ref, model_kind, matrix_sha256)
-				 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+				   (worker_id, cell_id, runtime_id, job_type, model_ref, model_kind,
+				    matrix_sha256, routable)
+				 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 			cap.WorkerID, authorized.ID, authorized.Runtime, authorized.Job,
-			authorized.Model, authorized.ModelKind, generatedRuntimeMatrixSHA256); err != nil {
+			authorized.Model, authorized.ModelKind, generatedRuntimeMatrixSHA256,
+			// Routability comes from the ADVERTISED projection, never from the
+			// worker. A directed-only capability is recorded as non-routable so
+			// the scheduler's legacy branch cannot dispatch ordinary work to it.
+			advertisedRuntimeCell(authorized.ID)); err != nil {
 			return err
 		}
 	}

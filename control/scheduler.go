@@ -422,7 +422,15 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	              AND wac2.model_ref = COALESCE(j.model_ref,'')
 	              AND wac2.matrix_sha256 = $4
 	              AND (
-	                j.workload_decision IS NULL
+	                -- A legacy job carries no frozen runtime candidate, so this is the
+	                -- one branch that matches a capability against no named cell.
+	                -- Workers may now enrol against DIRECTED-ONLY cells, because a cell
+	                -- reaches REAL_RUNTIME_PROVEN by being driven through the chain and a
+	                -- worker that cannot advertise it can never drive it. Without the
+	                -- routable test here, that widening would let a directed-only
+	                -- capability pick up ordinary buyer work through the one filter that
+	                -- asks nothing.
+	                (j.workload_decision IS NULL AND wac2.routable)
 	                OR (
 	                  EXISTS (
 	                    SELECT 1
@@ -487,7 +495,15 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	              AND wac3.model_ref = COALESCE(j.model_ref,'')
 	              AND wac3.matrix_sha256 = $4
 	              AND (
-	                j.workload_decision IS NULL
+	                -- A legacy job carries no frozen runtime candidate, so this is the
+	                -- one branch that matches a capability against no named cell.
+	                -- Workers may now enrol against DIRECTED-ONLY cells, because a cell
+	                -- reaches REAL_RUNTIME_PROVEN by being driven through the chain and a
+	                -- worker that cannot advertise it can never drive it. Without the
+	                -- routable test here, that widening would let a directed-only
+	                -- capability pick up ordinary buyer work through the one filter that
+	                -- asks nothing.
+	                (j.workload_decision IS NULL AND wac3.routable)
 	                OR (
 	                  EXISTS (
 	                    SELECT 1
@@ -603,7 +619,15 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	        -- admission decision. Legacy rows predate workload authority and
 	        -- retain the generated-matrix filter above.
 	        AND (
-	          j.workload_decision IS NULL
+	          -- A legacy job carries no frozen runtime candidate, so this is the
+	          -- one branch that matches a capability against no named cell.
+	          -- Workers may now enrol against DIRECTED-ONLY cells, because a cell
+	          -- reaches REAL_RUNTIME_PROVEN by being driven through the chain and a
+	          -- worker that cannot advertise it can never drive it. Without the
+	          -- routable test here, that widening would let a directed-only
+	          -- capability pick up ordinary buyer work through the one filter that
+	          -- asks nothing.
+	          (j.workload_decision IS NULL AND wac.routable)
 	          OR (
 	            EXISTS (
 	              SELECT 1
