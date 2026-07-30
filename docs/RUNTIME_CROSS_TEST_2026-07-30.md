@@ -154,3 +154,45 @@ Nothing moved.
 | `llama_cpp_metal` | VALIDATED | fails `byte_exact` under batching, confirmed at 5 reps |
 | `mlx_metal` | VALIDATED | does not batch; different artifact |
 | `vllm_cuda` | DRAFT | different artifact; no Merc chain; no CUDA supplier |
+
+## Determinism sweep: is llama.cpp's divergence a policy or a kernel?
+
+The previous receipt left this open: does a llama.cpp configuration exist on
+Metal that is both batched and byte-deterministic? Swept, 3 reps each, same
+harness and artifact.
+
+| configuration | peak tok/s | × serial | byte-determinism |
+|---|---:|---:|---|
+| continuous batching, `-np 64` | 2184.4 | 6.61× | DIVERGES |
+| continuous batching **disabled**, `-np 64` | 936.3 | 2.78× | DIVERGES |
+| single-chunk prefill, `-ub 2048` | 1554.4 | 4.68× | DIVERGES |
+| **serialised, `-np 1`** | 341.3 | 1.02× | **IDENTICAL** |
+
+**No.** llama.cpp on Metal reproduces its own serial output only when serialised
+to one slot. Disabling continuous batching does not restore determinism, and
+neither does single-chunk prefill — so the divergence lives in the **batched
+kernel path**, not in the scheduling policy. That is a stronger and more useful
+statement than "continuous batching is non-deterministic", which is what the
+first pass would have concluded.
+
+### This inverts the second-runtime choice
+
+For a `byte_exact` cell, `llama_cpp_metal` is **dominated** by `candle_metal`:
+
+| | deterministic throughput | × serial |
+|---|---:|---:|
+| candle_metal | 509.9 | 2.26× |
+| llama_cpp_metal (`-np 1`, its only deterministic setting) | 341.3 | 1.02× |
+
+Not a speed-versus-verification trade-off. The challenger is **strictly worse at
+the only setting where it is usable**.
+
+The "least new code" heuristic picked llama.cpp because its binaries were already
+installed and it loads the pinned artifact. That optimised the wrong thing: the
+cheapest runtime to wire is one that cannot serve the cell it would be wired for.
+On this evidence the second runtime for `byte_exact` work should be **vLLM**,
+which is the only measured engine that is both fast and byte-deterministic —
+at the cost of CUDA hardware and a supplier that does not exist yet.
+
+llama.cpp is not disqualified everywhere: the `embed` cell verifies by `cosine`,
+not byte identity, and nothing here speaks against it there.
