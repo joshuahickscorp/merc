@@ -33,12 +33,13 @@ type moneyPathFixture struct {
 }
 
 type moneyPathSeedOpts struct {
-	TaskCount    int
-	TaskStatus   string // queued | running | verifying | complete
-	ClaimWorker  bool   // set claimed_by / execution fields for the primary worker
-	SLAPremium   float64
-	SeedPlanRows bool // insert job_economic_plans + reserves for non-SubmitJobTx tests
-	SeedJob      bool
+	TaskCount       int
+	TaskStatus      string // queued | running | verifying | complete
+	ClaimWorker     bool   // set claimed_by / execution fields for the primary worker
+	SLAPremium      float64
+	SeedPlanRows    bool // insert job_economic_plans + reserves for non-SubmitJobTx tests
+	SeedJob         bool
+	PrepaidRequired bool
 }
 
 func openMoneyPathStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
@@ -436,10 +437,10 @@ func seedMoneyPathJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f m
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO jobs (id,buyer_id,status,job_type,model_ref,input_ref,task_count,tasks_done,
 		                  offered_rate_usd_hr,min_memory_gb,tier,estimated_usd,actual_usd,
-		                  firm_quote,sla_premium_usd)
+			                  firm_quote,sla_premium_usd,prepaid_required)
 		VALUES ($1,$2,'running','embed','all-minilm-l6-v2','money/input',$3,0,
-		        10.0,0,'batch',$4,0,false,$5)`,
-		f.JobID, f.BuyerID, opts.TaskCount, f.Plan.InitialBuyerChargeUSD, opts.SLAPremium); err != nil {
+		        10.0,0,'batch',$4,0,false,$5,$6)`,
+		f.JobID, f.BuyerID, opts.TaskCount, f.Plan.InitialBuyerChargeUSD, opts.SLAPremium, opts.PrepaidRequired); err != nil {
 		t.Fatalf("insert job: %v", err)
 	}
 

@@ -2763,6 +2763,23 @@ CREATE TABLE IF NOT EXISTS buyer_prepaid_balances (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Funding authority is accepted with a job, not inferred from a future
+-- process environment.  Legacy jobs deliberately default to deferred-card
+-- behaviour; only new default-mode batch submissions set this true.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS prepaid_required BOOLEAN NOT NULL DEFAULT false;
+CREATE OR REPLACE FUNCTION cx_reject_job_prepaid_required_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.prepaid_required IS DISTINCT FROM NEW.prepaid_required THEN
+        RAISE EXCEPTION 'job prepaid funding authority for % is immutable', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS jobs_prepaid_required_immutable ON jobs;
+CREATE TRIGGER jobs_prepaid_required_immutable
+    BEFORE UPDATE OF prepaid_required ON jobs
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_job_prepaid_required_update();
+
 CREATE TABLE IF NOT EXISTS prepaid_topup_operations (
     operation_key   TEXT PRIMARY KEY CHECK (btrim(operation_key) <> ''),
     buyer_id        UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,

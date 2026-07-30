@@ -34,10 +34,6 @@ func (s *Store) BuyerPrepaidBalanceMicros(ctx context.Context, buyerID uuid.UUID
 	return bal, err
 }
 
-// BuyerPrepaidAvailableMicros is balance minus open-job estimated spend
-// (queued/running/verifying). Used at job admission so concurrent open jobs
-// cannot oversubscribe the same liability.
-
 func (s *Store) BeginPrepaidTopup(ctx context.Context, operationKey string, buyerID uuid.UUID, amountCents int64) error {
 	operationKey = strings.TrimSpace(operationKey)
 	if operationKey == "" || buyerID == uuid.Nil || amountCents <= 0 {
@@ -141,11 +137,6 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 	return tx.Commit(ctx)
 }
 
-// debitPrepaidForTaskTx reduces prepaid liability for a settled task's buyer_charge.
-// Concurrency: SELECT … FOR UPDATE on the balance row; the UPDATE requires
-// balance_micros >= amount so two simultaneous debits cannot both succeed when
-// only one fits.
-
 func (s *Store) ListRefundableTopups(ctx context.Context, buyerID uuid.UUID) ([]refundableTopup, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT payment_intent, amount_cents
@@ -166,9 +157,6 @@ func (s *Store) ListRefundableTopups(ctx context.Context, buyerID uuid.UUID) ([]
 	}
 	return out, rows.Err()
 }
-
-// DebitPrepaidRefund returns unspent liability to the buyer (card refund already
-// initiated by the caller). Records prepaid_refund ledger row and drops balance.
 
 // DebitPrepaidRefund returns unspent liability to the buyer (card refund already
 // initiated by the caller). Records prepaid_refund ledger row and drops balance.
@@ -223,9 +211,6 @@ func (s *Store) DebitPrepaidRefund(ctx context.Context, operationKey string, buy
 	return tx.Commit(ctx)
 }
 
-// debitPrepaidForSLAPremiumTx debits prepaid for the job-level SLA premium
-// buyer_charge (no task_id). Idempotent on payout_ref.
-
 func (s *Store) PrepaidTopupPending(ctx context.Context, operationKey string) (buyerID uuid.UUID, amountCents int64, err error) {
 	err = s.pool.QueryRow(ctx, `
 		SELECT buyer_id, amount_cents FROM prepaid_topup_operations
@@ -235,10 +220,6 @@ func (s *Store) PrepaidTopupPending(ctx context.Context, operationKey string) (b
 	}
 	return buyerID, amountCents, err
 }
-
-// CreditPrepaidTopup is the single-writer credit path: materialised balance +
-// prepaid_topup ledger row + top-up cash collection. Idempotent on operation_key
-// and payment_intent.
 
 type refundableTopup struct {
 	PaymentIntent string
@@ -277,21 +258,74 @@ func (s *Store) SeedPrepaidBalance(ctx context.Context, buyerID uuid.UUID, micro
 	return tx.Commit(ctx)
 }
 
-// BuyerPrepaidAvailableMicros is balance minus open-job estimated spend
-// (queued/running/verifying). Used at job admission so concurrent open jobs
-// cannot oversubscribe the same liability.
+// BuyerPrepaidAvailableMicros is an informational view of materialised balance
+// less every open prepay-required job's remaining frozen reservation. Admission
+// uses reservePrepaidForJobTx instead, which locks the balance row.
 func (s *Store) BuyerPrepaidAvailableMicros(ctx context.Context, buyerID uuid.UUID) (int64, error) {
-	var available int64
-	err := s.pool.QueryRow(ctx, `
-		SELECT GREATEST(
-		  COALESCE((SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1), 0)
-		  - COALESCE((
-		      SELECT SUM((COALESCE(estimated_usd,0)*1000000)::bigint)
-		        FROM jobs
-		       WHERE buyer_id=$1 AND status IN ('queued','running','verifying')
-		    ), 0),
-		  0)`, buyerID).Scan(&available)
-	return available, err
+	bal, err := s.BuyerPrepaidBalanceMicros(ctx, buyerID)
+	if err != nil {
+		return 0, err
+	}
+	reserved, err := prepaidOpenReservationMicros(ctx, s.pool, buyerID)
+	if err != nil {
+		return 0, err
+	}
+	if bal <= reserved {
+		return 0, nil
+	}
+	return bal - reserved, nil
+}
+
+// reservePrepaidForJobTx is the admission-side serialization point. It locks
+// the buyer's balance row and includes every other open job's *remaining*
+// frozen reservation, so neither concurrent submits nor a concurrent task
+// settlement can oversubscribe cash already collected from the buyer.
+func reservePrepaidForJobTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64) error {
+	if buyerID == uuid.Nil || amountMicros <= 0 {
+		return fmt.Errorf("prepaid reservation requires buyer and positive micro-USD")
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
+		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
+		return err
+	}
+	var balance int64
+	if err := tx.QueryRow(ctx, `
+		SELECT balance_micros FROM buyer_prepaid_balances
+		 WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&balance); err != nil {
+		return err
+	}
+	reserved, err := prepaidOpenReservationMicros(ctx, tx, buyerID)
+	if err != nil {
+		return err
+	}
+	if balance-reserved < amountMicros {
+		return errInsufficientPrepaid
+	}
+	return nil
+}
+
+// prepaidOpenReservationMicros sums the unfunded portion of frozen plans for
+// live prepay jobs. A task/SLA debit consumes balance and reduces this virtual
+// reservation by the same amount; terminal jobs release unused reserve by
+// simply leaving this query.
+func prepaidOpenReservationMicros(ctx context.Context, db ledgerExec, buyerID uuid.UUID) (int64, error) {
+	var reserved int64
+	err := db.QueryRow(ctx, `
+		SELECT COALESCE(SUM(GREATEST(0::bigint,
+			  (p.reserved_buyer_charge_usd * 1000000)::bigint - COALESCE((
+			    SELECT SUM((-le.amount_usd * 1000000)::bigint)
+			      FROM ledger_entries le
+			     WHERE le.kind='prepaid_debit'
+			       AND (le.task_id IN (SELECT id FROM tasks WHERE job_id=j.id)
+			            OR le.payout_ref='prepaid-sla-' || j.id::text)
+			  ), 0)
+		)), 0)::bigint
+		  FROM jobs j
+		  JOIN job_economic_plans p ON p.job_id=j.id
+		 WHERE j.buyer_id=$1 AND j.prepaid_required
+		   AND j.status IN ('queued','running','verifying')`, buyerID).Scan(&reserved)
+	return reserved, err
 }
 
 // DebitPrepaidForTask is the pool-level wrapper used by unit tests.
@@ -383,6 +417,54 @@ func debitPrepaidForTaskTx(ctx context.Context, tx pgx.Tx, buyerID, taskID uuid.
 		}
 	}
 	return nil
+}
+
+func prepaidSLAPremiumDebitRef(jobID uuid.UUID) string { return "prepaid-sla-" + jobID.String() }
+
+// debitPrepaidForSLAPremiumTx is the job-level counterpart to task settlement.
+// It is keyed by an immutable payout reference because SLA premium charges have
+// no task_id. The caller creates the corresponding buyer_charge in this same
+// transaction before requesting the debit.
+func debitPrepaidForSLAPremiumTx(ctx context.Context, tx pgx.Tx, buyerID, jobID uuid.UUID, amountMicros int64) error {
+	if amountMicros <= 0 {
+		return fmt.Errorf("prepaid SLA debit requires positive micro-USD, got %d", amountMicros)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
+		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
+		return err
+	}
+	var balance int64
+	if err := tx.QueryRow(ctx, `
+		SELECT balance_micros FROM buyer_prepaid_balances WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&balance); err != nil {
+		return err
+	}
+	if balance < amountMicros {
+		return errInsufficientPrepaid
+	}
+	ct, err := tx.Exec(ctx, `
+		UPDATE buyer_prepaid_balances SET balance_micros=balance_micros-$2, updated_at=now()
+		 WHERE buyer_id=$1 AND balance_micros >= $2`, buyerID, amountMicros)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() != 1 {
+		return errInsufficientPrepaid
+	}
+	buyer := buyerID
+	ct, err = insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
+		Kind: KindPrepaidDebit, BuyerID: &buyer, AmountMicros: -amountMicros,
+		PayoutStatus: PayoutReleased, PayoutRef: prepaidSLAPremiumDebitRef(jobID),
+	})
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		_, err = tx.Exec(ctx, `
+			UPDATE buyer_prepaid_balances SET balance_micros=balance_micros+$2, updated_at=now()
+			 WHERE buyer_id=$1`, buyerID, amountMicros)
+	}
+	return err
 }
 
 // DebitPrepaidForTask is the pool-level wrapper used by unit tests.
