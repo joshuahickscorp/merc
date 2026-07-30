@@ -49,6 +49,15 @@ scripts/go-closure-restart-storm.sh --target ssh --check
 scripts/go-closure-canary-rehearsal.sh --target ssh --check
 ```
 
+The guarded `merc release launch` flow first runs
+`go-closure-release-identity.sh --target ssh`. It synchronizes only the
+reviewed non-secret harness, then compares a SHA-256 profile of every declared
+operator input on the staging host with the sealed local plan. Neither the
+profile nor the release state records secret values, and the command never
+copies `.env.go-closure` to staging. A mismatch is a fail-closed remote-drift
+refusal; reconcile the two approved operator files, reseal the plan, and obtain
+a new approval before retrying.
+
 Mutating operations require the literal `--execute` flag:
 
 ```sh

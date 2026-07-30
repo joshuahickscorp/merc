@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -147,6 +148,50 @@ func TestReleaseAdaptersUseAuditedScriptsOnly(t *testing.T) {
 	}
 	if _, err := releaseAdapters("destroy"); err == nil {
 		t.Fatal("destroy unexpectedly has an audited adapter")
+	}
+}
+
+func TestRemoteProfileDigestBindsEveryDeclaredInput(t *testing.T) {
+	root := filepath.Clean(filepath.Join(".."))
+	values := map[string]string{
+		"MERC_TOKEN_KEY": "first", "STAGING_TLS_HOSTNAME": "staging.example.test",
+	}
+	first, err := remoteProfileDigest(root, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated, err := remoteProfileDigest(root, map[string]string{
+		"STAGING_TLS_HOSTNAME": "staging.example.test", "MERC_TOKEN_KEY": "first",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := remoteProfileDigest(root, map[string]string{
+		"MERC_TOKEN_KEY": "changed", "STAGING_TLS_HOSTNAME": "staging.example.test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != repeated || first == changed || len(first) != 64 {
+		t.Fatalf("remote profile continuity first=%s repeated=%s changed=%s", first, repeated, changed)
+	}
+	contract, err := loadLaunchInputContract(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := append([]string{}, os.Environ()...)
+	env = append(env, "MERC_RELEASE_IDENTITY_PROFILE_SELF_TEST=1")
+	for _, input := range contract.Inputs {
+		env = append(env, input.Name+"="+values[input.Name])
+	}
+	cmd := exec.Command(filepath.Join(root, "scripts", "go-closure-release-identity.sh"))
+	cmd.Env = env
+	got, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("shell profile: %v", err)
+	}
+	if strings.TrimSpace(string(got)) != first {
+		t.Fatalf("shell/go profile mismatch got=%q want=%q", got, first)
 	}
 }
 
