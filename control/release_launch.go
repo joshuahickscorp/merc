@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -97,9 +98,29 @@ type launchPlan struct {
 }
 
 type launchState struct {
-	SchemaVersion int        `json:"schema_version"`
-	Status        string     `json:"status"`
-	Plan          launchPlan `json:"plan"`
+	SchemaVersion  int          `json:"schema_version"`
+	Status         string       `json:"status"`
+	Plan           launchPlan   `json:"plan"`
+	LastOperation  string       `json:"last_operation,omitempty"`
+	AdapterHistory []adapterRun `json:"adapter_history,omitempty"`
+}
+
+// adapterRun records execution continuity without retaining command output.
+// Adapter output can include operator-specific topology data and is therefore
+// intentionally represented only by a digest and byte count.
+type adapterRun struct {
+	Name         string `json:"name"`
+	StartedAt    string `json:"started_at"`
+	FinishedAt   string `json:"finished_at"`
+	ExitCode     int    `json:"exit_code"`
+	OutputSHA256 string `json:"output_sha256"`
+	OutputBytes  int    `json:"output_bytes"`
+}
+
+type releaseAdapter struct {
+	Name          string
+	Args          []string
+	SuccessStatus string
 }
 
 var identityCriticalLaunchSecrets = []string{
@@ -203,6 +224,20 @@ func launchConfigValues(cfg launchConfig) map[string]string {
 	}
 }
 
+func launchConfigValuesForRoot(root string, cfg launchConfig) (map[string]string, error) {
+	values := launchConfigValues(cfg)
+	if cfg.Candidate.Commit != "" {
+		values["MERC_CANDIDATE_COMMIT"] = cfg.Candidate.Commit
+		return values, nil
+	}
+	fp, err := launchSource(root)
+	if err != nil {
+		return nil, err
+	}
+	values["MERC_CANDIDATE_COMMIT"] = fp.Head
+	return values, nil
+}
+
 func mergeLaunchValues(config, secrets map[string]string) map[string]string {
 	out := make(map[string]string, len(config)+len(secrets))
 	for name, value := range config {
@@ -267,7 +302,7 @@ func readLaunchState(root string) (launchState, error) {
 	if err := json.Unmarshal(raw, &state); err != nil {
 		return state, fmt.Errorf("parse release state: %w", err)
 	}
-	if state.SchemaVersion != 1 || state.Status == "" || state.Plan.PlanSHA256 == "" {
+	if state.SchemaVersion != 1 && state.SchemaVersion != 2 || state.Status == "" || state.Plan.PlanSHA256 == "" {
 		return state, errors.New("invalid release state")
 	}
 	return state, nil
@@ -296,7 +331,10 @@ func compileLaunchPlan(root, environment, configPath, secretsPath string) (launc
 	if commit != fp.Head {
 		return launchPlan{}, fmt.Errorf("config candidate commit %s is not exact HEAD %s", commit, fp.Head)
 	}
-	configValues := launchConfigValues(cfg)
+	configValues, err := launchConfigValuesForRoot(root, cfg)
+	if err != nil {
+		return launchPlan{}, err
+	}
 	configValues["MERC_CANDIDATE_COMMIT"] = commit
 	inputs, err := buildLaunchInputs(root, mergeLaunchValues(configValues, secrets))
 	if err != nil {
@@ -340,6 +378,196 @@ func runReleaseDoctor(root string, secrets map[string]string) ([]byte, error) {
 		cmd.Env = append(cmd.Env, name+"="+value)
 	}
 	return cmd.Output()
+}
+
+func shellQuoteEnvValue(value string) string {
+	// The audited adapters source their operator file with POSIX shell.  Single
+	// quoting every value prevents an operator-supplied dollar, backtick, or
+	// command substitution from changing launch semantics.
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func writeAdapterEnv(root string, values map[string]string) (string, func(), error) {
+	dir := filepath.Join(root, ".merc-release")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", nil, err
+	}
+	file, err := os.CreateTemp(dir, "adapter-env-*")
+	if err != nil {
+		return "", nil, err
+	}
+	path := file.Name()
+	cleanup := func() { _ = os.Remove(path) }
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", nil, err
+	}
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if _, err := fmt.Fprintf(file, "%s=%s\n", name, shellQuoteEnvValue(values[name])); err != nil {
+			_ = file.Close()
+			cleanup()
+			return "", nil, err
+		}
+	}
+	if err := file.Close(); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	return path, cleanup, nil
+}
+
+func releaseAdapters(operation string) ([]releaseAdapter, error) {
+	ssh := []string{"--target", "ssh"}
+	switch operation {
+	case "apply":
+		return []releaseAdapter{{Name: "deploy-candidate", Args: append(ssh, "--activate", "candidate", "--execute"), SuccessStatus: "applied"}}, nil
+	case "rollback":
+		return []releaseAdapter{{Name: "rollback-forward-rehearsal", Args: append(ssh, "--execute"), SuccessStatus: "rollback_rehearsed"}}, nil
+	case "canary":
+		return []releaseAdapter{
+			{Name: "restart-storm", Args: append(ssh, "--execute"), SuccessStatus: "restart_rehearsed"},
+			{Name: "private-canary", Args: append(ssh, "--execute"), SuccessStatus: "canary_complete"},
+		}, nil
+	case "soak":
+		return []releaseAdapter{{Name: "qualifying-soak", Args: append(ssh, "--duration", "86400", "--execute"), SuccessStatus: "soak_complete"}}, nil
+	case "launch":
+		return []releaseAdapter{
+			{Name: "deploy-candidate", Args: append(ssh, "--activate", "candidate", "--execute"), SuccessStatus: "applied"},
+			{Name: "rollback-forward-rehearsal", Args: append(ssh, "--execute"), SuccessStatus: "rollback_rehearsed"},
+			{Name: "restart-storm", Args: append(ssh, "--execute"), SuccessStatus: "restart_rehearsed"},
+			{Name: "private-canary", Args: append(ssh, "--execute"), SuccessStatus: "canary_complete"},
+			{Name: "qualifying-soak", Args: append(ssh, "--duration", "86400", "--execute"), SuccessStatus: "soak_complete"},
+		}, nil
+	}
+	return nil, fmt.Errorf("no audited adapter for release %s", operation)
+}
+
+func adapterScript(name string) (string, error) {
+	switch name {
+	case "deploy-candidate":
+		return "go-closure-deploy.sh", nil
+	case "rollback-forward-rehearsal":
+		return "go-closure-rollback-rehearsal.sh", nil
+	case "restart-storm":
+		return "go-closure-restart-storm.sh", nil
+	case "private-canary":
+		return "go-closure-canary-rehearsal.sh", nil
+	case "qualifying-soak":
+		return "go-closure-soak.sh", nil
+	default:
+		return "", fmt.Errorf("unknown audited adapter %s", name)
+	}
+}
+
+func adapterFailureStatus(name string) string {
+	switch name {
+	case "deploy-candidate":
+		return "apply_failed"
+	case "rollback-forward-rehearsal":
+		return "rollback_failed"
+	case "restart-storm", "private-canary":
+		return "canary_failed"
+	case "qualifying-soak":
+		return "soak_failed"
+	default:
+		return "adapter_failed"
+	}
+}
+
+func operationAllowed(status, operation string) bool {
+	switch operation {
+	case "apply":
+		return status == "planned" || status == "apply_failed"
+	case "rollback":
+		return status == "applied" || status == "rollback_failed"
+	case "canary":
+		return status == "rollback_rehearsed" || status == "restart_rehearsed" || status == "canary_failed"
+	case "soak":
+		return status == "canary_complete" || status == "soak_failed"
+	case "launch":
+		return status == "planned" || strings.HasSuffix(status, "_failed")
+	}
+	return false
+}
+
+func resumeOperation(status string) (string, error) {
+	switch status {
+	case "planned", "apply_failed":
+		return "apply", nil
+	case "applied", "rollback_failed":
+		return "rollback", nil
+	case "rollback_rehearsed", "restart_rehearsed", "canary_failed":
+		return "canary", nil
+	case "canary_complete", "soak_failed":
+		return "soak", nil
+	}
+	return "", fmt.Errorf("state %q has no safe resumable operation", status)
+}
+
+func executeReleaseAdapters(root string, state launchState, operation string, values map[string]string) (launchState, error) {
+	if !operationAllowed(state.Status, operation) {
+		return state, fmt.Errorf("release %s is not allowed from state %q", operation, state.Status)
+	}
+	if operation == "launch" && state.Status != "planned" {
+		return state, fmt.Errorf("release launch only starts from planned; use resume from state %q", state.Status)
+	}
+	adapters, err := releaseAdapters(operation)
+	if err != nil {
+		return state, err
+	}
+	envFile, cleanup, err := writeAdapterEnv(root, values)
+	if err != nil {
+		return state, fmt.Errorf("prepare adapter environment: %w", err)
+	}
+	defer cleanup()
+	for _, adapter := range adapters {
+		script, err := adapterScript(adapter.Name)
+		if err != nil {
+			return state, err
+		}
+		state.Status = adapter.Name + "_running"
+		state.LastOperation = operation
+		if err := writeLaunchState(root, state); err != nil {
+			return state, fmt.Errorf("record running adapter: %w", err)
+		}
+		started := time.Now().UTC()
+		cmd := exec.Command(filepath.Join(root, "scripts", script), adapter.Args...)
+		cmd.Dir = root
+		cmd.Env = append(scrubbedReleaseEnv(os.Environ()), "MERC_GO_CLOSURE_ENV_FILE="+envFile)
+		output, runErr := cmd.CombinedOutput()
+		finished := time.Now().UTC()
+		exitCode := 0
+		if runErr != nil {
+			var exitErr *exec.ExitError
+			if errors.As(runErr, &exitErr) {
+				exitCode = exitErr.ExitCode()
+			} else {
+				exitCode = -1
+			}
+		}
+		state.AdapterHistory = append(state.AdapterHistory, adapterRun{
+			Name: adapter.Name, StartedAt: started.Format(time.RFC3339), FinishedAt: finished.Format(time.RFC3339),
+			ExitCode: exitCode, OutputSHA256: sha256Hex(output), OutputBytes: len(output),
+		})
+		if runErr != nil {
+			state.Status = adapterFailureStatus(adapter.Name)
+			if err := writeLaunchState(root, state); err != nil {
+				return state, fmt.Errorf("record failed adapter: %w", err)
+			}
+			return state, fmt.Errorf("audited adapter %s failed (exit=%d output_sha256=%s)", adapter.Name, exitCode, sha256Hex(output))
+		}
+		state.Status = adapter.SuccessStatus
+		if err := writeLaunchState(root, state); err != nil {
+			return state, fmt.Errorf("record successful adapter: %w", err)
+		}
+	}
+	return state, nil
 }
 
 func scrubbedReleaseEnv(env []string) []string {
@@ -407,11 +635,9 @@ func cmdLaunchInputs(root, configPath, environment, secretsPath string) {
 	if err != nil {
 		fatalf("read secrets file: %v", err)
 	}
-	configValues := launchConfigValues(cfg)
-	if configValues["MERC_CANDIDATE_COMMIT"] == "" {
-		if fp, fpErr := launchSource(root); fpErr == nil {
-			configValues["MERC_CANDIDATE_COMMIT"] = fp.Head
-		}
+	configValues, err := launchConfigValuesForRoot(root, cfg)
+	if err != nil {
+		fatalf("release inputs source identity: %v", err)
 	}
 	out, err := buildLaunchInputs(root, mergeLaunchValues(configValues, values))
 	if err != nil {
@@ -445,7 +671,11 @@ func dispatchLaunchRelease(args []string) {
 		if err != nil {
 			fatalf("release doctor: %v", err)
 		}
-		out, err := runReleaseDoctor(root, mergeLaunchValues(launchConfigValues(cfg), values))
+		configValues, err := launchConfigValuesForRoot(root, cfg)
+		if err != nil {
+			fatalf("release doctor source identity: %v", err)
+		}
+		out, err := runReleaseDoctor(root, mergeLaunchValues(configValues, values))
 		if err != nil {
 			fmt.Print(string(out))
 			fatalf("Level B launch inputs are not ready")
@@ -456,7 +686,7 @@ func dispatchLaunchRelease(args []string) {
 		if err != nil {
 			fatalf("release plan: %v", err)
 		}
-		if err := writeLaunchState(root, launchState{SchemaVersion: 1, Status: "planned", Plan: plan}); err != nil {
+		if err := writeLaunchState(root, launchState{SchemaVersion: 2, Status: "planned", Plan: plan}); err != nil {
 			fatalf("seal release plan: %v", err)
 		}
 		printLaunch(plan)
@@ -473,8 +703,8 @@ func dispatchLaunchRelease(args []string) {
 		}
 		printLaunch(map[string]any{"schema_version": 1, "kind": "merc_level_b_release_" + strings.ReplaceAll(command, "-", "_"), "plan": plan, "level_b": "NO_GO until external receipts verify", "level_c": "NO_GO_PROHIBITED"})
 	default:
-		if command == "launch" && !*apply {
-			fatalf("release launch requires --apply; dry-run with merc release plan")
+		if !*apply {
+			fatalf("release %s requires --apply; dry-run with merc release plan", command)
 		}
 		plan, err := compileLaunchPlan(root, *environment, *config, *secrets)
 		if err != nil {
@@ -499,7 +729,12 @@ func dispatchLaunchRelease(args []string) {
 		if err != nil {
 			fatalf("release %s config: %v", command, err)
 		}
-		allValues := mergeLaunchValues(launchConfigValues(cfg), values)
+		configValues, err := launchConfigValuesForRoot(root, cfg)
+		if err != nil {
+			fatalf("release %s source identity: %v", command, err)
+		}
+		allValues := mergeLaunchValues(configValues, values)
+		allValues["MERC_CANDIDATE_COMMIT"] = plan.CandidateCommit
 		out, err := runReleaseDoctor(root, allValues)
 		if err != nil {
 			inputs, inputErr := buildLaunchInputs(root, allValues)
@@ -509,7 +744,19 @@ func dispatchLaunchRelease(args []string) {
 			printLaunch(map[string]any{"schema_version": 1, "status": "REFUSED", "command": command, "plan_sha256": plan.PlanSHA256, "reason": "external input bundle incomplete", "doctor": json.RawMessage(out), "missing_inputs": inputs.Missing, "resume": "supply only the missing inputs, reseal merc release plan, then resume with the new approved plan"})
 			fatalf("release %s refused: external input bundle incomplete", command)
 		}
-		fatalf("release %s adapter is not implemented; refusing to claim external execution", command)
+		operation := command
+		if command == "resume" {
+			operation, err = resumeOperation(state.Status)
+			if err != nil {
+				fatalf("release resume: %v", err)
+			}
+		}
+		state, err = executeReleaseAdapters(root, state, operation, allValues)
+		if err != nil {
+			fatalf("release %s: %v", command, err)
+		}
+		printLaunch(map[string]any{"schema_version": 1, "status": state.Status, "operation": operation,
+			"plan_sha256": plan.PlanSHA256, "level_b": "external receipts still require independent review", "level_c": "NO_GO_PROHIBITED"})
 	}
 }
 

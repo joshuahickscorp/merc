@@ -70,7 +70,7 @@ func TestScrubbedReleaseEnvDropsPaymentAndLaunchCredentials(t *testing.T) {
 
 func TestLaunchStateIsPrivateAndRoundTrips(t *testing.T) {
 	root := t.TempDir()
-	want := launchState{SchemaVersion: 1, Status: "planned", Plan: launchPlan{PlanSHA256: "abc", IdentityFingerprints: map[string]string{"MERC_TOKEN_KEY": "fingerprint"}}}
+	want := launchState{SchemaVersion: 2, Status: "planned", Plan: launchPlan{PlanSHA256: "abc", IdentityFingerprints: map[string]string{"MERC_TOKEN_KEY": "fingerprint"}}}
 	if err := writeLaunchState(root, want); err != nil {
 		t.Fatal(err)
 	}
@@ -87,6 +87,66 @@ func TestLaunchStateIsPrivateAndRoundTrips(t *testing.T) {
 	}
 	if got.Status != want.Status || got.Plan.PlanSHA256 != want.Plan.PlanSHA256 || !equalStringMap(got.Plan.IdentityFingerprints, want.Plan.IdentityFingerprints) {
 		t.Fatalf("state roundtrip got=%+v want=%+v", got, want)
+	}
+}
+
+func TestAdapterEnvironmentIsShellQuotedAndPrivate(t *testing.T) {
+	root := t.TempDir()
+	path, cleanup, err := writeAdapterEnv(root, map[string]string{"STRIPE_SECRET_KEY": "sk_test_$literal'quote"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("adapter env mode=%#o, want 0600", info.Mode().Perm())
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(raw), "STRIPE_SECRET_KEY='sk_test_$literal'\"'\"'quote'\n"; got != want {
+		t.Fatalf("adapter env=%q want %q", got, want)
+	}
+}
+
+func TestReleaseStateTransitionsAreFailClosed(t *testing.T) {
+	if !operationAllowed("planned", "apply") || operationAllowed("planned", "canary") {
+		t.Fatal("planned release operation guard is unsafe")
+	}
+	if !operationAllowed("canary_complete", "soak") || operationAllowed("soak_complete", "soak") {
+		t.Fatal("soak operation guard is unsafe")
+	}
+	for _, tc := range []struct{ status, want string }{
+		{"planned", "apply"}, {"apply_failed", "apply"}, {"applied", "rollback"},
+		{"rollback_rehearsed", "canary"}, {"canary_complete", "soak"},
+	} {
+		got, err := resumeOperation(tc.status)
+		if err != nil || got != tc.want {
+			t.Fatalf("resume %s got %q err=%v want %q", tc.status, got, err, tc.want)
+		}
+	}
+	if _, err := resumeOperation("deploy-candidate_running"); err == nil {
+		t.Fatal("ambiguous interrupted adapter was made resumable")
+	}
+}
+
+func TestReleaseAdaptersUseAuditedScriptsOnly(t *testing.T) {
+	adapters, err := releaseAdapters("launch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adapters) != 5 || adapters[0].Name != "deploy-candidate" || adapters[4].Name != "qualifying-soak" {
+		t.Fatalf("launch adapters=%+v", adapters)
+	}
+	if script, err := adapterScript(adapters[2].Name); err != nil || script != "go-closure-restart-storm.sh" {
+		t.Fatalf("restart adapter script=%q err=%v", script, err)
+	}
+	if _, err := releaseAdapters("destroy"); err == nil {
+		t.Fatal("destroy unexpectedly has an audited adapter")
 	}
 }
 

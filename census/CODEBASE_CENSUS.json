@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "4c1782f49f0f9ed17e66fd0ef03cec6bf60abc1640dba7b4ee13f72021035e52",
+  "authority_sha256": "fd6c98c6cde2c5b9da8e24c22971d053f7f3936d18f5bb7d86f2a16b567dfe96",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -16,7 +16,7 @@
     ".github/workflows/agent-release.yml": 195,
     ".github/workflows/ci.yml": 281,
     ".github/workflows/publish-candidate.yml": 181,
-    ".gitignore": 138,
+    ".gitignore": 139,
     "CHANGELOG.md": 43,
     "Caddyfile": 69,
     "Dockerfile.control": 31,
@@ -59,7 +59,7 @@
     "bench/immutable/shared-prefix-v2.sha256": 1,
     "benchmarks/realtime-chat-v1.json": 11,
     "census/.gitignore": 4,
-    "census/CODEBASE_CENSUS.json": 842,
+    "census/CODEBASE_CENSUS.json": 845,
     "census/CODEBASE_CENSUS.md": 47,
     "cli/LICENSE": 202,
     "cli/README.md": 13,
@@ -216,6 +216,8 @@
     "control/receipt_test.go": 143,
     "control/reconcile.go": 147,
     "control/recovery_boundary.go": 60,
+    "control/release_launch.go": 773,
+    "control/release_launch_test.go": 182,
     "control/remote_response.go": 26,
     "control/reputation.go": 65,
     "control/request_body_limit_test.go": 74,
@@ -256,7 +258,7 @@
     "control/stripe_cash_outcome_integration_test.go": 76,
     "control/stripe_settlement.go": 161,
     "control/stripe_settlement_test.go": 125,
-    "control/stripe_simulator.go": 698,
+    "control/stripe_simulator.go": 700,
     "control/stripe_simulator_test.go": 100,
     "control/supplier_accrual.go": 129,
     "control/supplier_accrual_test.go": 285,
@@ -415,6 +417,7 @@
     "ops/governance-approval-bundle.schema.json": 65,
     "ops/governance-review-packets.json": 83,
     "ops/healthcheck.c": 96,
+    "ops/launch/level-b.yaml": 46,
     "ops/legal-review.json": 140,
     "ops/live-payment-activation.schema.json": 110,
     "ops/local/compose.rehearsal.yml": 222,
@@ -590,11 +593,11 @@
     },
     "config": {
       "files": 7,
-      "loc": 583,
-      "code": 376,
+      "loc": 584,
+      "code": 377,
       "blank": 98,
       "comment": 109,
-      "bytes": 20941
+      "bytes": 20956
     },
     "documentation": {
       "files": 50,
@@ -605,12 +608,12 @@
       "bytes": 374276
     },
     "go": {
-      "files": 232,
-      "loc": 74201,
-      "code": 66005,
-      "blank": 4493,
-      "comment": 3703,
-      "bytes": 2684133
+      "files": 234,
+      "loc": 75158,
+      "code": 66896,
+      "blank": 4545,
+      "comment": 3717,
+      "bytes": 2719897
     },
     "javascript": {
       "files": 8,
@@ -622,11 +625,11 @@
     },
     "json": {
       "files": 80,
-      "loc": 7582,
-      "code": 7582,
+      "loc": 7585,
+      "code": 7585,
       "blank": 0,
       "comment": 0,
-      "bytes": 342048
+      "bytes": 342164
     },
     "lockfile": {
       "files": 2,
@@ -709,12 +712,12 @@
       "bytes": 75640
     },
     "yaml": {
-      "files": 16,
-      "loc": 1967,
-      "code": 1811,
+      "files": 17,
+      "loc": 2013,
+      "code": 1856,
       "blank": 102,
-      "comment": 54,
-      "bytes": 75597
+      "comment": 55,
+      "bytes": 76572
     }
   },
   "owned_by_subsystem": {
@@ -735,12 +738,12 @@
       "bytes": 23052
     },
     "control": {
-      "files": 167,
-      "loc": 52811,
-      "code": 46532,
-      "blank": 3220,
-      "comment": 3059,
-      "bytes": 1927698
+      "files": 169,
+      "loc": 53766,
+      "code": 47421,
+      "blank": 3272,
+      "comment": 3073,
+      "bytes": 1963269
     },
     "documentation": {
       "files": 39,
@@ -759,20 +762,20 @@
       "bytes": 4540363
     },
     "ops": {
-      "files": 118,
-      "loc": 11054,
-      "code": 10468,
+      "files": 119,
+      "loc": 11104,
+      "code": 10517,
       "blank": 423,
-      "comment": 163,
-      "bytes": 491650
+      "comment": 164,
+      "bytes": 492756
     },
     "payment": {
       "files": 39,
-      "loc": 13123,
-      "code": 11809,
+      "loc": 13125,
+      "code": 11811,
       "blank": 759,
       "comment": 555,
-      "bytes": 469514
+      "bytes": 469707
     },
     "proof": {
       "files": 119,
@@ -808,12 +811,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 137528,
-    "non_design_production_core_loc": 96940,
-    "test_loc": 27289,
+    "global_owned_loc": 138535,
+    "non_design_production_core_loc": 97762,
+    "test_loc": 27471,
     "documentation_loc": 6625,
     "python_loc": 9388,
-    "generated_loc": 5123,
+    "generated_loc": 5126,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -835,8 +838,8 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10247526,
-  "tracked_files": 571,
+  "tracked_bytes": 10284396,
+  "tracked_files": 574,
   "untracked_files": 0,
-  "walked_files": 571
+  "walked_files": 574
 }
