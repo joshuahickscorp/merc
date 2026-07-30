@@ -348,10 +348,14 @@ func TestAdvertisedRuntimeCatalogFailsClosedOnDrift(t *testing.T) {
 			t.Fatalf("error=%v", err)
 		}
 	})
+	// The catalog row must describe an artifact SOME advertised cell actually
+	// serves. This used to read "the one wire kind this model requires"; wire
+	// kind now belongs to the (runtime, model) pair, so a model may legitimately
+	// have several — but not one that nothing serves.
 	t.Run("supported but wrong wire kind", func(t *testing.T) {
 		rows := productionCatalogRows()
 		rows[0].Kind = "gguf"
-		if err := validateAdvertisedRuntimeCatalogRows(rows); err == nil || !strings.Contains(err.Error(), "requires wire kind") {
+		if err := validateAdvertisedRuntimeCatalogRows(rows); err == nil || !strings.Contains(err.Error(), "no advertised runtime cell serves") {
 			t.Fatalf("error=%v", err)
 		}
 	})

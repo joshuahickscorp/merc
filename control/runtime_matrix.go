@@ -287,17 +287,35 @@ func validateAdvertisedRuntimeCatalogRows(rows []ModelRow) error {
 		byID[row.ID] = row
 	}
 	requiredMemory := map[string]float64{}
-	requiredWireKind := map[string]string{}
+	// Wire kinds are collected as a SET, not asserted unique.
+	//
+	// This check used to refuse two routable cells declaring different wire
+	// kinds for one model. That was right while one runtime existed and is wrong
+	// now: artifact format belongs to the (runtime, model) pair. candle loads
+	// all-minilm-l6-v2 from safetensors and llama.cpp loads the same logical
+	// model from a GGUF, and their embeddings agree at 0.999999 cosine against a
+	// 0.999 gate — the divergence a uniqueness rule was guarding against does not
+	// exist here.
+	//
+	// What is still enforced: every advertised wire kind must be one an agent can
+	// load, and the catalogue's own kind must be one of them, so the DB row and
+	// the runtimes cannot describe unrelated artifacts.
+	requiredWireKinds := map[string]map[string]bool{}
 	for _, cap := range generatedAdvertisedRuntimeCapabilities {
-		if cap.Model != "" && cap.MinMemoryGB > requiredMemory[cap.Model] {
+		if cap.Model == "" {
+			continue
+		}
+		if cap.MinMemoryGB > requiredMemory[cap.Model] {
 			requiredMemory[cap.Model] = cap.MinMemoryGB
 		}
-		if cap.Model != "" {
-			if previous := requiredWireKind[cap.Model]; previous != "" && previous != cap.ModelKind {
-				return fmt.Errorf("runtime matrix gives model %q conflicting wire kinds %q and %q", cap.Model, previous, cap.ModelKind)
-			}
-			requiredWireKind[cap.Model] = cap.ModelKind
+		if !knownWireKind(cap.ModelKind) {
+			return fmt.Errorf("runtime matrix advertises unknown wire kind %q for model %q",
+				cap.ModelKind, cap.Model)
 		}
+		if requiredWireKinds[cap.Model] == nil {
+			requiredWireKinds[cap.Model] = map[string]bool{}
+		}
+		requiredWireKinds[cap.Model][cap.ModelKind] = true
 	}
 	for modelID, minMemory := range requiredMemory {
 		row, ok := byID[modelID]
@@ -321,10 +339,10 @@ func validateAdvertisedRuntimeCatalogRows(rows []ModelRow) error {
 		if err != nil {
 			return fmt.Errorf("runtime matrix advertises model %q with unusable catalog kind: %w", modelID, err)
 		}
-		if expected := requiredWireKind[modelID]; wireKind != expected {
+		if !requiredWireKinds[modelID][wireKind] {
 			return fmt.Errorf(
-				"runtime matrix requires wire kind %q for model %q but catalog kind %q maps to %q",
-				expected, modelID, row.Kind, wireKind,
+				"catalog kind %q for model %q maps to wire kind %q, which no advertised runtime cell serves",
+				row.Kind, modelID, wireKind,
 			)
 		}
 		if float64(row.MinMemoryGB) < minMemory {

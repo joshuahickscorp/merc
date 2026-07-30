@@ -90,12 +90,33 @@ type authorityEngine struct {
 }
 
 type authorityCell struct {
-	ID           string  `json:"id"`
-	Job          string  `json:"job"`
-	Model        string  `json:"model"`
-	Runner       string  `json:"runner"`
+	ID     string `json:"id"`
+	Job    string `json:"job"`
+	Model  string `json:"model"`
+	Runner string `json:"runner"`
+	// WireKind is the artifact format THIS runtime loads the model from. Empty
+	// inherits the model's declared kind, which is what every cell did when one
+	// runtime existed.
+	//
+	// Format belongs to the (runtime, model) pair, not to the model. candle
+	// serves all-minilm-l6-v2 from safetensors and llama.cpp serves the same
+	// logical model from a GGUF; a global wire_kind cannot express that, and
+	// measurement showed the two agree at 0.999999 cosine against a 0.999 gate,
+	// so the difference is real and admissible rather than hypothetical.
+	WireKind     string  `json:"wire_kind,omitempty"`
 	MinMemoryGB  float64 `json:"min_memory_gb"`
 	Verification string  `json:"verification"`
+}
+
+// knownWireKind is the closed set an agent can actually load.
+func knownWireKind(kind string) bool { return kind == "gguf" || kind == "hf" }
+
+// wireKindFor resolves a cell's artifact format, falling back to the model's.
+func wireKindFor(cell authorityCell, modelKind string) string {
+	if cell.WireKind != "" {
+		return cell.WireKind
+	}
+	return modelKind
 }
 
 type authorityRuntimeProfile struct {
@@ -410,6 +431,10 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 				return fmt.Errorf("runtime %q cell %q references undefined model %q",
 					profile.RuntimeID, cell.ID, cell.Model)
 			}
+			if cell.WireKind != "" && !knownWireKind(cell.WireKind) {
+				return fmt.Errorf("runtime %q cell %q declares unknown wire kind %q",
+					profile.RuntimeID, cell.ID, cell.WireKind)
+			}
 			if !routable {
 				continue
 			}
@@ -492,7 +517,9 @@ func projectRuntimeCapabilities(authority runtimeAuthorityDocument) []generatedR
 			capabilities = append(capabilities, generatedRuntimeCapability{
 				ID: cell.ID, Runtime: profile.RuntimeID, Engine: profile.Engine,
 				Device: profile.Device, HardwareClasses: profile.Hardware.Platforms,
-				Job: cell.Job, Model: cell.Model, ModelKind: model.kind, Runner: cell.Runner,
+				Job: cell.Job, Model: cell.Model,
+				ModelKind:   wireKindFor(cell, model.kind),
+				Runner:      cell.Runner,
 				MinMemoryGB: cell.MinMemoryGB, Verification: cell.Verification,
 			})
 		}

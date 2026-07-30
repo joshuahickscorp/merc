@@ -4216,6 +4216,24 @@ CREATE INDEX IF NOT EXISTS execution_overhead_recorder_idx
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS runtime_profile_revision TEXT;
 ALTER TABLE workers ADD COLUMN IF NOT EXISTS runtime_profile_digest TEXT;
 ALTER TABLE workers DROP CONSTRAINT IF EXISTS workers_runtime_profile_identity;
+-- Repair partial identity BEFORE tightening the constraint.
+--
+-- A database migrated while the backfill wrote only runtime_profile_id (and
+-- before the CHECK was made NULL-safe) holds rows with 1 of 3 identity columns.
+-- Adding the constraint over them fails the whole migration — observed on the
+-- shared development database, which is exactly the shape a real deployment
+-- mid-rollout would have.
+--
+-- Partial identity carries no information: a profile name with no revision
+-- cannot say which meaning of it. So the repair is to clear it and let the
+-- governed backfill in syncRuntimeProfiles repopulate all three together.
+UPDATE workers
+   SET runtime_profile_id = NULL,
+       runtime_profile_revision = NULL,
+       runtime_profile_digest = NULL
+ WHERE num_nonnulls(runtime_profile_id, runtime_profile_revision, runtime_profile_digest)
+       NOT IN (0, 3);
+
 -- num_nonnulls, not an OR of IS NULL / IS NOT NULL branches.
 --
 -- The first version of this constraint was written as

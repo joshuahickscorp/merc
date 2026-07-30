@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "matrix_version": "2026-07-30.4",
+  "matrix_version": "2026-07-30.5",
   "engines": [
     {
       "engine": "candle",
@@ -204,7 +204,7 @@
     },
     {
       "runtime_id": "llama_cpp_metal",
-      "revision": "r4",
+      "revision": "r5",
       "superseded_by": "",
       "engine": "llama_cpp",
       "engine_revision": "",
@@ -242,7 +242,9 @@
       "evidence": [
         "docs/SPEED_LANE_2026-07-27.md",
         "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json",
-        "evidence/perf/runtime-benchmarks/candle-vs-llama-cpp-metal-r3.json"
+        "evidence/perf/runtime-benchmarks/candle-vs-llama-cpp-metal-r3.json",
+        "evidence/perf/runtime-benchmarks/llama-cpp-metal-embed-cosine-gate.json",
+        "evidence/perf/runtime-benchmarks/llama-cpp-metal-determinism-sweep.json"
       ],
       "cells": [
         {
@@ -252,6 +254,15 @@
           "runner": "batch_infer",
           "min_memory_gb": 4,
           "verification": "byte_exact"
+        },
+        {
+          "id": "llama-cpp-metal-minilm-embed",
+          "job": "embed",
+          "model": "all-minilm-l6-v2",
+          "runner": "embed",
+          "wire_kind": "gguf",
+          "min_memory_gb": 2,
+          "verification": "cosine"
         }
       ]
     },

@@ -244,7 +244,7 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 	pinned := map[string]string{
 		"candle_metal":    "71bbad206e231addf18255ebc185a157896852da325c0adc6d24d7f1aab0f161",
 		"mlx_metal":       "eae98b142b2cb598592f934672730f2399489166d726cada11608d5b6c9f2e7a",
-		"llama_cpp_metal": "ddf27e8b24c2bdd9b6146c6ad0139164a87027ba94d72d23c5175690e05b6dc8",
+		"llama_cpp_metal": "539e6c5e239ca58903204bc8d883c7eaaed9be8abdf6b243ef0c29fed48b451f",
 		"vllm_cuda":       "0878e0fd6adbd401175e069c22b90598b8d47fdb3a5bee206b66c9e2590eaee5",
 	}
 	doc := mutableAuthority(t)
@@ -630,5 +630,96 @@ func TestEveryProfileDeclaresItsProvenance(t *testing.T) {
 		if p.ChatTemplateID == "" {
 			t.Errorf("%s declares no chat_template_id", p.RuntimeID)
 		}
+	}
+}
+
+// Artifact format belongs to the (runtime, model) pair, not to the model.
+//
+// This was the blocker the last tranche stopped at: candle serves
+// all-minilm-l6-v2 from safetensors and llama.cpp serves the same logical model
+// from a GGUF, and a globally-declared wire_kind could not express it. The
+// measurement that made it worth fixing rather than working around: the two
+// agree at 0.999999 mean cosine against a 0.999 verification gate.
+func TestWireKindBelongsToTheRuntimeModelPair(t *testing.T) {
+	doc := mutableAuthority(t)
+	if err := validateRuntimeAuthorityDocument(doc); err != nil {
+		t.Fatalf("embedded authority does not validate: %v", err)
+	}
+
+	var embedCell *authorityCell
+	for i, p := range doc.Runtimes {
+		if p.RuntimeID != "llama_cpp_metal" {
+			continue
+		}
+		for j := range doc.Runtimes[i].Cells {
+			if doc.Runtimes[i].Cells[j].Job == "embed" {
+				embedCell = &doc.Runtimes[i].Cells[j]
+			}
+		}
+	}
+	if embedCell == nil {
+		t.Fatal("llama_cpp_metal has no embed cell")
+	}
+	if embedCell.WireKind != "gguf" {
+		t.Fatalf("embed cell wire kind = %q, want gguf", embedCell.WireKind)
+	}
+	if embedCell.Verification != "cosine" {
+		t.Fatalf("embed cell verification = %q; the whole point is that it is not "+
+			"byte_exact, which llama.cpp cannot satisfy under batching",
+			embedCell.Verification)
+	}
+
+	// The model itself still declares 'hf' — candle's format. Two runtimes, one
+	// logical model, two artifact formats, and the document now says so.
+	var model authorityModel
+	for _, m := range doc.Models {
+		if m.ID == "all-minilm-l6-v2" {
+			model = m
+		}
+	}
+	if model.WireKind != "hf" {
+		t.Fatalf("model wire kind = %q, want hf (candle's format)", model.WireKind)
+	}
+
+	// An unset cell wire kind still inherits the model's, which is what every
+	// cell did when one runtime existed.
+	if got := wireKindFor(authorityCell{}, model.WireKind); got != "hf" {
+		t.Errorf("an unset cell wire kind resolved to %q, want the model's hf", got)
+	}
+	if got := wireKindFor(authorityCell{WireKind: "gguf"}, model.WireKind); got != "gguf" {
+		t.Errorf("a declared cell wire kind resolved to %q, want gguf", got)
+	}
+
+	// The format set is still closed: an agent cannot be asked to load something
+	// it has no loader for.
+	bad := mutableAuthority(t)
+	for i := range bad.Runtimes {
+		if bad.Runtimes[i].RuntimeID == "llama_cpp_metal" {
+			bad.Runtimes[i].Cells[0].WireKind = "onnx"
+		}
+	}
+	err := validateRuntimeAuthorityDocument(bad)
+	if err == nil {
+		t.Fatal("an unknown wire kind was accepted")
+	}
+	if !strings.Contains(err.Error(), "unknown wire kind") {
+		t.Errorf("refusal said %q", err.Error())
+	}
+}
+
+// Registering the embed cell must not have widened what is sellable: the cell is
+// on a VALIDATED profile and cannot reach the advertised projection.
+func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
+	for _, cap := range generatedAdvertisedRuntimeCapabilities {
+		if cap.ID == "llama-cpp-metal-minilm-embed" {
+			t.Fatal("a cell on a VALIDATED profile reached the advertised projection")
+		}
+		if cap.Runtime != "candle_metal" {
+			t.Errorf("non-routable runtime %q is advertised", cap.Runtime)
+		}
+	}
+	if len(generatedAdvertisedRuntimeCapabilities) != 2 {
+		t.Fatalf("advertised projection has %d cells, want the 2 candle cells",
+			len(generatedAdvertisedRuntimeCapabilities))
 	}
 }
