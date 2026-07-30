@@ -601,6 +601,8 @@ func dispatchRelease(cmd string, args []string) bool {
 		fatalf("release requires stripe-simulate, stripe-check, approvals-check, payment-activation-sign, or payment-activation-check")
 	}
 	switch args[0] {
+	case "doctor", "inputs", "plan", "render", "apply", "launch", "status", "canary", "soak", "prove", "rollback", "destroy", "resume", "evidence", "go-no-go", "ui":
+		dispatchLaunchRelease(args)
 	case "stripe-simulate":
 		fs := flag.NewFlagSet("release stripe-simulate", flag.ExitOnError)
 		seed := fs.Int64("seed", 20260719, "deterministic simulator seed")

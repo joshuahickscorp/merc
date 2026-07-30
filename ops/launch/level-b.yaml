@@ -1,0 +1,5 @@
+schema_version: 1
+environment: staging
+candidate:
+  # Leave blank to bind the plan to exact HEAD. A supplied value must equal HEAD.
+  commit: ""
