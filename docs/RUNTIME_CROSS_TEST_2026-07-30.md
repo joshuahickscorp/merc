@@ -196,3 +196,41 @@ at the cost of CUDA hardware and a supplier that does not exist yet.
 
 llama.cpp is not disqualified everywhere: the `embed` cell verifies by `cosine`,
 not byte identity, and nothing here speaks against it there.
+
+## Can llama.cpp serve the *embed* cell instead?
+
+`byte_exact` disqualifies llama.cpp on Metal. The `embed` cell verifies by
+`cosine` against `embeddingCosineThreshold = 0.999`
+(`control/verification.go:520`) — a threshold calibrated for two runs of the
+same implementation. Whether a different engine clears it was open.
+
+Measured: llama.cpp F16 GGUF embeddings against the pinned F32 safetensors
+reference, 6 texts, 384-dim, normalized.
+
+| | value |
+|---|---:|
+| mean cosine | **0.999999** |
+| min cosine | 0.999999 |
+| gate | 0.999 |
+
+Clears it with roughly a thousandfold margin on the allowed tolerance. **The
+picture is cell-specific, not engine-wide**: llama.cpp is disqualified for
+`byte_exact` work on Metal and comfortably qualified for cosine-verified
+embeddings.
+
+### The next blocker is structural, not configuration
+
+`wire_kind` is declared **globally per model**. `all-minilm-l6-v2` is `hf`
+because candle serves safetensors; llama.cpp needs the GGUF of the same logical
+model. A cell cannot currently say "this runtime serves this model from a
+different artifact format", and `validateAdvertisedRuntimeCatalogRows` actively
+refuses conflicting wire kinds for one model — correctly, under the current
+single-runtime assumption.
+
+So registering a llama.cpp embed cell requires artifact format to move from the
+**model** to the **(runtime, model)** pair. That is a schema change to the
+authority document, and it is the honest next step for Lane B rather than
+something to work around.
+
+Not established: embedding throughput, any Merc chain, and whether quantizations
+below F16 still clear 0.999.

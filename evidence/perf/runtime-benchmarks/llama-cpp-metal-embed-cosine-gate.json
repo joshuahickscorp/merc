@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "merc_source_commit": "0c356bf3d31a9eeebb94f54824d7f3839c896211",
+  "runtime_profile_id": "llama_cpp_metal",
+  "engine": "llama_cpp",
+  "question": "Can llama.cpp serve the embed cell, whose verification is cosine rather than byte_exact, given it is disqualified for byte_exact work?",
+  "gate": {
+    "name": "embeddingCosineThreshold",
+    "value": 0.999,
+    "source": "control/verification.go:520",
+    "note": "Calibrated for two runs of the SAME implementation. Whether a different engine clears it was the open question."
+  },
+  "comparison": {
+    "reference": "sentence-transformers/all-MiniLM-L6-v2 (F32 safetensors, the pinned artifact)",
+    "candidate": "leliuga/all-MiniLM-L6-v2-GGUF F16 via llama-server --embedding --pooling mean",
+    "texts": 6,
+    "dimension": 384,
+    "normalized": true
+  },
+  "result": {
+    "mean_cosine": 0.999999,
+    "min_cosine": 0.999999,
+    "passes": true,
+    "margin": "~1000x below the 0.001 tolerance the gate allows"
+  },
+  "conclusion": "llama_cpp_metal CAN serve a cosine-verified embed cell. Combined with the determinism sweep, the picture is cell-specific rather than engine-wide: llama.cpp is disqualified for byte_exact work on Metal and clears the embed gate comfortably.",
+  "blocking_structural_gap": "The authority models wire_kind GLOBALLY per model: all-minilm-l6-v2 is declared 'hf' because candle serves safetensors. llama.cpp needs the GGUF of the same logical model. A cell cannot currently express 'this runtime serves this model from a different artifact format', and validateAdvertisedRuntimeCatalogRows actively refuses conflicting wire kinds for one model. Registering a llama.cpp embed cell therefore needs artifact format to move from the model to the (runtime, model) pair. That is a schema change, not a config edit, and it is the next real blocker.",
+  "not_established": {
+    "throughput": "embedding throughput was not benchmarked",
+    "merc_chain": "no task, verification, settlement or receipt path exercised",
+    "quantization_sweep": "only F16 tested; Q4 and below may not clear 0.999"
+  }
+}
