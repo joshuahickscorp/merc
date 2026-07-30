@@ -56,12 +56,37 @@ func recordPlanActuals(ctx context.Context, store *Store, jobID uuid.UUID) {
 	}
 }
 
+// Observation classes. Only PRIMARY_EXECUTION trains ordinary planning; the
+// others are recorded rather than dropped so coverage stays visible.
+const (
+	planClassPrimaryExecution = "PRIMARY_EXECUTION"
+	planClassCacheHit         = "CACHE_HIT"
+	planClassSyntheticTest    = "SYNTHETIC_TEST"
+)
+
 // RecordPlanActuals writes one row per observable metric for a finalized job,
 // pairing the frozen compute-plan prediction with the realized value.
 //
-// Only distributed plans are recorded. An exact-reuse plan performs no physical
-// execution: its task geometry is zero by validation and its base_compute_usd is
-// a delivery charge, so comparing either against a fleet is meaningless.
+// The truth boundary is enforced here rather than at read time, because a
+// contaminated row that reaches the table has already lost the context needed to
+// classify it:
+//
+//   - Only a job in terminal `complete` status is recorded. A failed or
+//     cancelled job realized a partial fleet against a whole-job prediction.
+//   - Realized output tokens count ONE row per chunk_index. A hedge or tiebreak
+//     is a dynamic copy of a logical unit of work, and summing both the original
+//     and its copy would inflate realized output by the hedge rate. The original
+//     wins the tie; a chunk delivered only by its hedge still counts once.
+//   - Honeypot and redundancy tasks are excluded from output tokens: that is
+//     verification work, not the buyer's output.
+//   - Retries are not excluded, they are the point of task_attempts. A retried
+//     task's reported_tokens_used is overwritten by its winning attempt, so the
+//     chunk still contributes once.
+//   - An exact-reuse delivery is recorded as CACHE_HIT with realized physical
+//     output of zero, which is the truth: the tokens were delivered, not
+//     recomputed. Labelling beats dropping, because a dropped row hides reuse
+//     coverage entirely.
+//   - A seeded demo buyer is recorded as SYNTHETIC_TEST.
 //
 // runtime_id and hw_class are recorded only when every task that actually
 // executed agrees on one value. A job spread across two hardware classes must
@@ -71,29 +96,48 @@ func (s *Store) RecordPlanActuals(ctx context.Context, jobID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `
 		WITH job AS (
 		  SELECT j.id, j.job_type, j.tier, COALESCE(j.model_ref,'') AS model_ref,
+		         COALESCE(j.workload_decision->>'workload_class','') AS workload_class,
 		         CASE
 		           WHEN j.compute_plan->'input_depth_profile'->>'p90_depth_band'
 		                IN ('short','medium','long')
 		           THEN j.compute_plan->'input_depth_profile'->>'p90_depth_band'
 		         END AS depth_band,
+		         CASE
+		           WHEN j.buyer_id::text IN ($2, $3) THEN 'SYNTHETIC_TEST'
+		           WHEN j.compute_plan->>'execution_mode' = 'exact_result_reuse'
+		             THEN 'CACHE_HIT'
+		           ELSE 'PRIMARY_EXECUTION'
+		         END AS observation_class,
 		         (j.compute_plan->>'estimated_output_tokens')::float8 AS pred_output_tokens,
-		         (j.compute_plan->>'total_initial_tasks')::float8     AS pred_tasks,
+		         COALESCE((j.compute_plan->>'total_initial_tasks')::float8, 0) AS pred_tasks,
 		         ((j.compute_plan->>'base_compute_usd')::float8
 		          + COALESCE((j.compute_plan->>'verification_overhead_usd')::float8, 0))
 		           AS pred_usd,
 		         COALESCE(j.actual_usd, 0)::float8 AS real_usd
 		    FROM jobs j
 		   WHERE j.id = $1
+		     AND j.status = 'complete'
 		     AND j.compute_plan IS NOT NULL
-		     AND j.compute_plan->>'execution_mode' = 'distributed'
+		     AND j.compute_plan->>'execution_mode'
+		         IN ('distributed','exact_result_reuse')
+		), delivered_chunks AS (
+		  -- One observation per logical unit of work. hedged_from IS NULL first
+		  -- so the original wins over its dynamic copy; a chunk delivered only by
+		  -- a hedge still contributes exactly once.
+		  SELECT DISTINCT ON (COALESCE(chunk_index, 0))
+		         COALESCE(reported_tokens_used, 0) AS tokens
+		    FROM tasks
+		   WHERE job_id = $1
+		     AND status = 'complete'
+		     AND NOT COALESCE(is_honeypot, false)
+		     AND NOT COALESCE(is_redundancy, false)
+		   ORDER BY COALESCE(chunk_index, 0),
+		            (hedged_from IS NULL) DESC,
+		            completed_at ASC NULLS LAST
 		), fleet AS (
 		  SELECT COUNT(*)::float8 AS task_rows,
 		         (COUNT(*) + COALESCE(SUM(retry_count), 0))::float8 AS attempts,
-		         COALESCE(SUM(
-		           CASE WHEN NOT COALESCE(is_honeypot, false)
-		                 AND NOT COALESCE(is_redundancy, false)
-		                 AND status = 'complete'
-		                THEN COALESCE(reported_tokens_used, 0) ELSE 0 END), 0)::float8
+		         (SELECT COALESCE(SUM(tokens), 0)::float8 FROM delivered_chunks)
 		           AS output_tokens,
 		         CASE WHEN COUNT(DISTINCT runtime_id)
 		                     FILTER (WHERE COALESCE(runtime_id,'') <> '') = 1
@@ -113,16 +157,18 @@ func (s *Store) RecordPlanActuals(ctx context.Context, jobID uuid.UUID) error {
 		  UNION ALL SELECT 'compute_usd',   j.pred_usd,   j.real_usd  FROM job j
 		)
 		INSERT INTO plan_actuals
-		  (job_id, metric, job_type, tier, model_ref, input_depth_band,
-		   runtime_id, hw_class, predicted, realized)
-		SELECT j.id, p.metric, j.job_type, j.tier, j.model_ref, j.depth_band,
+		  (job_id, metric, observation_class, job_type, workload_class, tier,
+		   model_ref, input_depth_band, runtime_id, hw_class, predicted, realized)
+		SELECT j.id, p.metric, j.observation_class, j.job_type, j.workload_class,
+		       j.tier, j.model_ref, j.depth_band,
 		       f.runtime_id, f.hw_class, p.predicted, p.realized
 		  FROM job j, fleet f, pairs p
 		 WHERE p.predicted > 0
 		   AND p.realized >= 0
 		   AND p.predicted = p.predicted   -- reject NaN from a malformed frozen plan
 		   AND p.realized = p.realized
-		ON CONFLICT (job_id, metric) DO NOTHING`, jobID)
+		ON CONFLICT (job_id, metric) DO NOTHING`,
+		jobID, demoBuyerID, demoAdminBuyerID)
 	return err
 }
 
@@ -130,16 +176,20 @@ func (s *Store) RecordPlanActuals(ctx context.Context, jobID uuid.UUID) error {
 // evidence. Ratios are realized/predicted: 1.0 is a perfect estimator, below 1
 // means the plan over-predicted, above 1 means it under-predicted.
 type PlanAccuracyRow struct {
-	Metric         string  `json:"metric"`
-	JobType        string  `json:"job_type"`
-	Tier           string  `json:"tier"`
-	ModelRef       string  `json:"model_ref"`
-	InputDepthBand string  `json:"input_depth_band"`
-	RuntimeID      string  `json:"runtime_id"`
-	HWClass        string  `json:"hw_class"`
-	Samples        int     `json:"samples"`
-	MedianRatio    float64 `json:"median_ratio"`
-	P90Ratio       float64 `json:"p90_ratio"`
+	Metric string `json:"metric"`
+	// ObservationClass is first because it decides whether the rest is usable.
+	// A bucket that looks excellent is worthless if it is all CACHE_HIT.
+	ObservationClass string  `json:"observation_class"`
+	JobType          string  `json:"job_type"`
+	WorkloadClass    string  `json:"workload_class"`
+	Tier             string  `json:"tier"`
+	ModelRef         string  `json:"model_ref"`
+	InputDepthBand   string  `json:"input_depth_band"`
+	RuntimeID        string  `json:"runtime_id"`
+	HWClass          string  `json:"hw_class"`
+	Samples          int     `json:"samples"`
+	MedianRatio      float64 `json:"median_ratio"`
+	P90Ratio         float64 `json:"p90_ratio"`
 	// MAPE is the mean absolute percentage error over the window. It is the
 	// number a promotion argues against: a calibration that moves the median to
 	// 1.0 while widening the spread has not improved the estimator.
@@ -157,8 +207,8 @@ type PlanAccuracyRow struct {
 // reads plan_actuals only; it never writes and never feeds a quote.
 func (s *Store) PlanAccuracy(ctx context.Context) ([]PlanAccuracyRow, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT metric, job_type, tier, model_ref, COALESCE(input_depth_band,''),
-		        runtime_id, hw_class,
+		`SELECT metric, observation_class, job_type, workload_class, tier, model_ref,
+		        COALESCE(input_depth_band,''), runtime_id, hw_class,
 		        COUNT(*),
 		        percentile_cont(0.5) WITHIN GROUP (ORDER BY realized / predicted),
 		        percentile_cont(0.9) WITHIN GROUP (ORDER BY realized / predicted),
@@ -166,10 +216,10 @@ func (s *Store) PlanAccuracy(ctx context.Context) ([]PlanAccuracyRow, error) {
 		   FROM plan_actuals
 		  WHERE predicted > 0
 		    AND created_at > now() - make_interval(secs => $1)
-		  GROUP BY metric, job_type, tier, model_ref, COALESCE(input_depth_band,''),
-		           runtime_id, hw_class
-		  ORDER BY metric, job_type, tier, model_ref, COALESCE(input_depth_band,''),
-		           runtime_id, hw_class`,
+		  GROUP BY metric, observation_class, job_type, workload_class, tier, model_ref,
+		           COALESCE(input_depth_band,''), runtime_id, hw_class
+		  ORDER BY metric, observation_class, job_type, workload_class, tier, model_ref,
+		           COALESCE(input_depth_band,''), runtime_id, hw_class`,
 		int(driftWindow.Seconds()))
 	if err != nil {
 		return nil, err
@@ -179,9 +229,9 @@ func (s *Store) PlanAccuracy(ctx context.Context) ([]PlanAccuracyRow, error) {
 	out := []PlanAccuracyRow{}
 	for rows.Next() {
 		var r PlanAccuracyRow
-		if err := rows.Scan(&r.Metric, &r.JobType, &r.Tier, &r.ModelRef,
-			&r.InputDepthBand, &r.RuntimeID, &r.HWClass, &r.Samples,
-			&r.MedianRatio, &r.P90Ratio, &r.MAPE); err != nil {
+		if err := rows.Scan(&r.Metric, &r.ObservationClass, &r.JobType, &r.WorkloadClass,
+			&r.Tier, &r.ModelRef, &r.InputDepthBand, &r.RuntimeID, &r.HWClass,
+			&r.Samples, &r.MedianRatio, &r.P90Ratio, &r.MAPE); err != nil {
 			return nil, err
 		}
 		r.Trusted = r.Samples >= driftMinSamples

@@ -99,11 +99,19 @@ func planActualsTestStore(t *testing.T) (*Store, *pgxpool.Pool, context.Context)
 // planActualsFixtureJob inserts a job with a frozen distributed compute plan and
 // the tasks that realized it. It writes only the columns RecordPlanActuals reads,
 // so it cannot accidentally assert behaviour that depends on money state.
+// planActualsFixtureOptions overrides the parts of the job that decide its
+// observation class. Zero value means an ordinary complete job for a real buyer.
+type planActualsFixtureOptions struct {
+	buyerID   string
+	jobStatus string
+}
+
 func planActualsFixtureJob(
 	t *testing.T, pool *pgxpool.Pool, ctx context.Context,
 	jobType string, predictedTasks int, predictedOutputTokens int64,
 	predictedUSD, realizedUSD float64,
 	tasks []planActualsFixtureTask,
+	opts planActualsFixtureOptions,
 ) uuid.UUID {
 	t.Helper()
 	supplierID, workerID := uuid.New(), uuid.New()
@@ -126,32 +134,58 @@ func planActualsFixtureJob(
 		"verification_overhead_usd": 0,
 		"input_depth_profile":       map[string]any{"p90_depth_band": "medium"},
 	}
+	buyerID := opts.buyerID
+	if buyerID == "" {
+		buyerID = uuid.NewString()
+	}
+	status := opts.jobStatus
+	if status == "" {
+		status = "complete"
+	}
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO jobs (id, buyer_id, status, job_type, tier, model_ref, input_ref,
-		                   actual_usd, compute_plan)
-		 VALUES ($1,$2,'complete',$3,'batch','plan-actuals-model','in',$4,$5)`,
-		jobID, uuid.New(), jobType, realizedUSD, plan); err != nil {
+		                   actual_usd, compute_plan, workload_decision)
+		 VALUES ($1,$2,$3,$4,'batch','plan-actuals-model','in',$5,$6,$7)`,
+		jobID, buyerID, status, jobType, realizedUSD, plan,
+		map[string]any{"workload_class": "batch_generation"}); err != nil {
 		t.Fatalf("insert job: %v", err)
 	}
-	for _, task := range tasks {
+	// Task ids are recorded so a fixture can hedge one explicitly.
+	byIndex := map[int]uuid.UUID{}
+	for i, task := range tasks {
+		taskID := uuid.New()
+		chunk := task.chunkIndex
+		if !task.explicitChunk {
+			chunk = i // distinct logical unit per task unless the fixture says otherwise
+		}
+		var hedgedFrom any
+		if task.hedgedFromChunk != nil {
+			origin, ok := byIndex[*task.hedgedFromChunk]
+			if !ok {
+				t.Fatalf("hedge references chunk %d before it exists", *task.hedgedFromChunk)
+			}
+			hedgedFrom = origin
+		}
 		// tasks_execution_identity_complete and tasks_runtime_provenance_complete:
 		// a task that names an executing hardware class or runtime must carry the
 		// whole identity. The fixture obeys the same rules the runtime does, so
 		// the test cannot pass against a shape production could never produce.
 		if _, err := pool.Exec(ctx,
 			`INSERT INTO tasks (id, job_id, status, is_honeypot, is_redundancy,
-			                    retry_count, reported_tokens_used,
+			                    retry_count, reported_tokens_used, chunk_index,
+			                    hedged_from, completed_at,
 			                    runtime_id, runtime_cell_id, runtime_matrix_sha256, model_kind,
 			                    execution_worker_id, execution_supplier_id,
 			                    execution_hw_class, execution_engine,
 			                    execution_build_hash)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'plan-actuals-cell',
-			         repeat('a',64),'gguf',$9,$10,$11,'candle','plan-actuals-build')`,
-			uuid.New(), jobID, task.status, task.honeypot, task.redundancy,
-			task.retries, task.tokens, task.runtimeID,
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),$10,'plan-actuals-cell',
+			         repeat('a',64),'gguf',$11,$12,$13,'candle','plan-actuals-build')`,
+			taskID, jobID, task.status, task.honeypot, task.redundancy,
+			task.retries, task.tokens, chunk, hedgedFrom, task.runtimeID,
 			workerID, supplierID, task.hwClass); err != nil {
 			t.Fatalf("insert task: %v", err)
 		}
+		byIndex[chunk] = taskID
 	}
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -171,7 +205,15 @@ type planActualsFixtureTask struct {
 	retries              int
 	tokens               int64
 	runtimeID, hwClass   string
+	// chunkIndex is the logical unit of work this task delivers. Unset means
+	// "one task, one chunk" in fixture order. explicitChunk lets a fixture put
+	// two tasks on the same chunk, which is what a hedge actually looks like.
+	chunkIndex      int
+	explicitChunk   bool
+	hedgedFromChunk *int
 }
+
+func chunk(i int) *int { return &i }
 
 func planActualsRow(t *testing.T, pool *pgxpool.Pool, ctx context.Context,
 	jobID uuid.UUID, metric string) (predicted, realized float64, runtimeID, hwClass, band string) {
@@ -205,7 +247,7 @@ func TestRecordPlanActualsCapturesEveryObservableMetric(t *testing.T) {
 			{status: "complete", tokens: 900, retries: 2, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 			{status: "complete", honeypot: true, tokens: 500, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 			{status: "complete", redundancy: true, tokens: 500, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
-		})
+		}, planActualsFixtureOptions{})
 
 	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
 		t.Fatalf("RecordPlanActuals: %v", err)
@@ -264,7 +306,7 @@ func TestRecordPlanActualsRefusesToAttributeAMixedFleetJob(t *testing.T) {
 		[]planActualsFixtureTask{
 			{status: "complete", tokens: 1000, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 			{status: "complete", tokens: 1000, runtimeID: "candle_metal", hwClass: "apple_silicon_base"},
-		})
+		}, planActualsFixtureOptions{})
 	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
 		t.Fatalf("RecordPlanActuals: %v", err)
 	}
@@ -277,18 +319,20 @@ func TestRecordPlanActualsRefusesToAttributeAMixedFleetJob(t *testing.T) {
 	}
 }
 
-// An exact-reuse plan performs no physical execution: its task geometry is zero
-// by validation and its base_compute_usd is a delivery charge. Recording it would
-// report a 0/0 fan-out error against a fleet that never ran.
-func TestRecordPlanActualsIgnoresExactReuseDelivery(t *testing.T) {
+// An exact-reuse delivery is labelled, not dropped. Dropping it hid reuse
+// coverage entirely; labelling records the truth — the tokens were delivered and
+// physically recomputed zero times — while keeping it out of ordinary training.
+func TestRecordPlanActualsLabelsExactReuseAsCacheHit(t *testing.T) {
 	store, pool, ctx := planActualsTestStore(t)
 	jobID := uuid.New()
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO jobs (id, buyer_id, status, job_type, tier, input_ref, actual_usd, compute_plan)
-		 VALUES ($1,$2,'complete','batch_infer','batch','in',0.5,$3)`,
+		`INSERT INTO jobs (id, buyer_id, status, job_type, tier, model_ref, input_ref,
+		                   actual_usd, compute_plan)
+		 VALUES ($1,$2,'complete','batch_infer','batch','plan-actuals-model','in',0.5,$3)`,
 		jobID, uuid.New(), map[string]any{
-			"execution_mode":   "exact_result_reuse",
-			"base_compute_usd": 0.5,
+			"execution_mode":          "exact_result_reuse",
+			"base_compute_usd":        0.5,
+			"estimated_output_tokens": 1000,
 		}); err != nil {
 		t.Fatalf("insert reuse job: %v", err)
 	}
@@ -301,13 +345,110 @@ func TestRecordPlanActualsIgnoresExactReuseDelivery(t *testing.T) {
 	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
 		t.Fatalf("RecordPlanActuals: %v", err)
 	}
-	var rowCount int
+
+	var class string
+	var realized float64
 	if err := pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM plan_actuals WHERE job_id=$1`, jobID).Scan(&rowCount); err != nil {
-		t.Fatalf("count: %v", err)
+		`SELECT observation_class, realized FROM plan_actuals
+		  WHERE job_id=$1 AND metric=$2`, jobID, planMetricOutputTokens).
+		Scan(&class, &realized); err != nil {
+		t.Fatalf("read reuse row: %v", err)
 	}
-	if rowCount != 0 {
-		t.Fatalf("exact-reuse job wrote %d plan_actuals rows, want 0", rowCount)
+	if class != planClassCacheHit {
+		t.Errorf("observation_class = %q, want %q", class, planClassCacheHit)
+	}
+	if realized != 0 {
+		t.Errorf("realized physical output = %v, want 0 for a cache hit", realized)
+	}
+	// No physical fan-out means no task geometry to compare, so those metrics
+	// must be absent rather than recorded as a 0/0 error.
+	var fanoutRows int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM plan_actuals
+		  WHERE job_id=$1 AND metric IN ($2,$3)`,
+		jobID, planMetricTaskCount, planMetricTaskAttempts).Scan(&fanoutRows); err != nil {
+		t.Fatalf("count fan-out rows: %v", err)
+	}
+	if fanoutRows != 0 {
+		t.Fatalf("cache hit recorded %d task-geometry rows, want 0", fanoutRows)
+	}
+}
+
+// A hedge is a dynamic copy of a logical unit of work. Summing the original and
+// its copy would inflate realized output by the hedge rate, making the ceiling
+// estimator look accurate exactly when the fleet is struggling enough to hedge.
+func TestRecordPlanActualsCountsAHedgedChunkOnce(t *testing.T) {
+	store, pool, ctx := planActualsTestStore(t)
+	jobType := "planact_" + uuid.NewString()[:8]
+	// Two logical chunks. Chunk 1 was hedged and both copies completed.
+	jobID := planActualsFixtureJob(t, pool, ctx, jobType, 2, 2000, 1.00, 1.00,
+		[]planActualsFixtureTask{
+			{status: "complete", tokens: 400, chunkIndex: 0, explicitChunk: true,
+				runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+			{status: "complete", tokens: 400, chunkIndex: 1, explicitChunk: true,
+				runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+			{status: "complete", tokens: 400, chunkIndex: 1, explicitChunk: true,
+				hedgedFromChunk: chunk(1),
+				runtimeID:       "candle_metal", hwClass: "apple_silicon_ultra"},
+		}, planActualsFixtureOptions{})
+	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
+		t.Fatalf("RecordPlanActuals: %v", err)
+	}
+	_, realized, _, _, _ := planActualsRow(t, pool, ctx, jobID, planMetricOutputTokens)
+	if realized != 800 {
+		t.Fatalf("realized output tokens = %v, want 800 (two chunks, the hedge counted once)", realized)
+	}
+	// The hedge is still visible where it belongs: fan-out.
+	_, tasks, _, _, _ := planActualsRow(t, pool, ctx, jobID, planMetricTaskCount)
+	if tasks != 3 {
+		t.Fatalf("realized task_count = %v, want 3 (the hedge is real fan-out)", tasks)
+	}
+}
+
+// A seeded demo buyer is a fixture, not a customer. Training on it measures the
+// seed script.
+func TestRecordPlanActualsLabelsSeededBuyersAsSynthetic(t *testing.T) {
+	store, pool, ctx := planActualsTestStore(t)
+	jobType := "planact_" + uuid.NewString()[:8]
+	jobID := planActualsFixtureJob(t, pool, ctx, jobType, 1, 1000, 1.00, 1.00,
+		[]planActualsFixtureTask{
+			{status: "complete", tokens: 500, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+		}, planActualsFixtureOptions{buyerID: demoBuyerID})
+	if err := store.RecordPlanActuals(ctx, jobID); err != nil {
+		t.Fatalf("RecordPlanActuals: %v", err)
+	}
+	var class string
+	if err := pool.QueryRow(ctx,
+		`SELECT observation_class FROM plan_actuals WHERE job_id=$1 AND metric=$2`,
+		jobID, planMetricOutputTokens).Scan(&class); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if class != planClassSyntheticTest {
+		t.Fatalf("observation_class = %q, want %q", class, planClassSyntheticTest)
+	}
+}
+
+// A failed or cancelled job realized a partial fleet against a whole-job
+// prediction. Recording it would report an error the estimator never made.
+func TestRecordPlanActualsRefusesNonTerminalCompleteJobs(t *testing.T) {
+	store, pool, ctx := planActualsTestStore(t)
+	for _, status := range []string{"failed", "cancelled", "running"} {
+		jobType := "planact_" + uuid.NewString()[:8]
+		jobID := planActualsFixtureJob(t, pool, ctx, jobType, 2, 2000, 1.00, 1.00,
+			[]planActualsFixtureTask{
+				{status: "complete", tokens: 500, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+			}, planActualsFixtureOptions{jobStatus: status})
+		if err := store.RecordPlanActuals(ctx, jobID); err != nil {
+			t.Fatalf("RecordPlanActuals(%s): %v", status, err)
+		}
+		var rowCount int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM plan_actuals WHERE job_id=$1`, jobID).Scan(&rowCount); err != nil {
+			t.Fatalf("count: %v", err)
+		}
+		if rowCount != 0 {
+			t.Errorf("a %s job wrote %d plan_actuals rows, want 0", status, rowCount)
+		}
 	}
 }
 
@@ -322,7 +463,7 @@ func TestPlanAccuracyReportsUntrustedBucketsWithoutHidingThem(t *testing.T) {
 			[]planActualsFixtureTask{
 				{status: "complete", tokens: 250, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
 				{status: "complete", tokens: 250, runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
-			})
+			}, planActualsFixtureOptions{})
 		if err := store.RecordPlanActuals(ctx, jobID); err != nil {
 			t.Fatalf("RecordPlanActuals: %v", err)
 		}
