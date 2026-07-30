@@ -3,3 +3,44 @@ environment: staging
 candidate:
   # Leave blank to bind the plan to exact HEAD. A supplied value must equal HEAD.
   commit: ""
+  control_image: ""
+  prior_image: ""
+  prior_commit: ""
+staging:
+  ssh_target: ""
+  tls_hostname: ""
+  deployment_root: ""
+  storage_tls_hostname: ""
+  bind_address: ""
+  acme_email: ""
+pricing:
+  reference_to_settlement_rate: ""
+  fx_revision: ""
+images:
+  prometheus: ""
+  alertmanager: ""
+  grafana: ""
+  node_exporter: ""
+backup:
+  offsite: ""
+  encryption_recipient: ""
+stripe:
+  connect_client_id: ""
+  test_connected_account_id: ""
+  billing_webhook_endpoint_id: ""
+  connect_webhook_endpoint_id: ""
+canary:
+  approved_buyer_emails: []
+  approved_worker_ids: []
+  approved_agent_versions: []
+  approved_build_hashes: []
+  scenario_driver: ""
+  scenario_driver_sha256: ""
+  restart_driver: ""
+  restart_driver_sha256: ""
+alert:
+  receiver_name: ""
+review:
+  github_reviewer_login: ""
+governance:
+  approval_bundle_path: ""

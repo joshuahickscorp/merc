@@ -37,6 +37,16 @@ func TestLoadLaunchConfigRejectsLevelC(t *testing.T) {
 	}
 }
 
+func TestLoadLaunchConfigRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "unknown.yaml")
+	if err := os.WriteFile(path, []byte("schema_version: 1\nenvironment: staging\nunreviewed: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadLaunchConfig(path, "staging"); err == nil || !strings.Contains(err.Error(), "field") {
+		t.Fatalf("unknown config field error=%v", err)
+	}
+}
+
 func TestIdentitySecretFingerprintsDetectContinuityDrift(t *testing.T) {
 	first, err := identitySecretFingerprints(map[string]string{"MERC_TOKEN_KEY": "one", "MERC_VERIFICATION_SAMPLE_SECRET": "two"})
 	if err != nil {
