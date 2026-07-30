@@ -11,7 +11,7 @@ measured throughput authorities and are not restated here.
 No global refactor. The boundaries the Execution Brain needs mostly exist
 already under different names, listed per step.
 
-## 1. Calibrated compute planning — STARTED
+## 1. Calibrated compute planning — MEASURING
 
 Existing: `control/compute_plan.go` freezes the geometry; `eta_calibration` plus
 `Store.ETABiasFactor` (`control/store.go:609`) close the loop for duration only,
@@ -35,15 +35,34 @@ Not recorded, and why:
 | storage / transfer bytes | `jobs.economic_output_bytes` is realized, but no predicted byte count is frozen in the plan to compare against. |
 | duration | already owned by `eta_calibration`. Two learners over one quantity is a bug. |
 
+Truth boundary (`control/plan_actuals.go`, `control/plan_calibration.go`):
+
+- `observation_class` is `PRIMARY_EXECUTION`, `CACHE_HIT` or `SYNTHETIC_TEST`.
+  Only the first trains ordinary planning; the others are labelled rather than
+  dropped so reuse and fixture coverage stay visible.
+- A hedged chunk counts once. Summing an original and its dynamic copy inflated
+  realized output by the hedge rate, which made the ceiling estimator look most
+  accurate exactly when the fleet was struggling enough to hedge.
+- Only terminal `complete` jobs are recorded.
+- `ResolvePlanCalibration` walks exact → runtime+model+depth → model+depth →
+  model → workload_class → global and names the level and sample count it landed
+  on. An empty scope field is skipped, never matched as a wildcard.
+- `CalibrationPromotable` gates any use: 100-sample floor, MAPE ≤ 35%,
+  p90/median ≤ 2.0, no active drift alarm, named revision, shadow window that
+  measurably improved, receipt digest. `AffectsMoney` is refused outright.
+- `TestCalibrationIsUnreachableFromMoneyAndAdmissionPaths` enforces the
+  separation in the build: 22 money/pricing/settlement/admission files may not
+  reference calibration, and nothing outside a 6-file allowlist may either.
+
 Next: enough finalized jobs to fill a trusted bucket, then argue the first
-estimator change from the measured band.
+estimator change from the measured band through the promotion gate.
 
 ## 2. Work elimination — LARGELY DONE
 
 | item | state |
 |---|---|
 | exact-result cache | `control/exact_reuse.go` — content-addressed identity, own settlement path |
-| in-flight coalescing | `control/exact_reuse.go:256` — `inflight_requests` leader/follower |
+| in-flight coalescing | **implemented but NOT wired** — `ClaimInflightLeader`/`ReleaseInflight` (`control/exact_reuse.go:256`) have no caller outside their own file and tests. An earlier revision of this table wrongly marked it done. |
 | tokenized prefix trie | `control/prefix_routing.go:173` — `ComputePrefixChain` over token ids, `DeepestWarmPrefix`, value-ranked eviction (`EvictPrefixCacheToBudget`) |
 | KV-hit-aware routing | prefix warmth feeds the scheduler; `prefixWarmTTL` is deliberately shorter than model warmth |
 | tokenization / tool-schema caches | absent |
@@ -63,7 +82,40 @@ That is memory-budgeted **static** batching inside one task. Token-budget
 batching across arriving requests, length bucketing, adaptive queue delay and
 latency classes do not exist. Unblocked.
 
-## 4. Runtime tournament — BLOCKED ON AUTHORITY SCHEMA
+## 4. Runtime tournament — SCHEMA UNBLOCKED, PRODUCT STILL SINGLE-RUNTIME
+
+**Update 2026-07-30.** The schema blocker below is resolved. `runtime-authority.json`
+is now v2 with a `runtimes[]` registry, governed invariants replacing the
+two-model/two-cell count check, and lifecycle states that decide routability.
+Four profiles are registered:
+
+| profile | lifecycle | routable | evidence |
+|---|---|---|---|
+| `candle_metal` | ACTIVE | yes | `evidence/canary/real-runtime-realtime.json` |
+| `mlx_metal` | VALIDATED | no | `docs/SPEED_LANE_2026-07-27.md` |
+| `llama_cpp_metal` | VALIDATED | no | `docs/SPEED_LANE_2026-07-27.md` |
+| `vllm_cuda` | DRAFT | no | `evidence/runpod/cuda-first-proof.json` |
+
+Only CANARY and ACTIVE profiles project into the advertised capability set, so
+registration widened nothing that is sellable. A benchmark that ran outside the
+product carries a profile to VALIDATED and no further.
+
+**Merc has a multi-runtime schema, not a multi-runtime product.** The milestone
+is one governed workload executed through two independently registered profiles
+at the same declared quality tier, with complete execution and money receipts,
+comparable benchmark evidence, and a shadow selector that predicted the better
+one. Remaining to reach it:
+
+1. governed DB profile identity — `workers_engine_valid CHECK (engine='candle')`
+   is still a string check rather than a foreign key into the registry;
+2. the runtime-adapter boundary;
+3. `RuntimeSelector` in shadow mode — compute, record, compare, change nothing;
+4. a benchmark authority for a second profile (`benchmark_authority` is empty
+   for all three non-routable profiles, and the validator refuses routability
+   without one);
+5. a complete Merc canary chain on that profile.
+
+### The original blocker, for the record
 
 MLX versus llama.cpp is already **measured** on this hardware
 (`docs/SPEED_LANE_2026-07-27.md`). What does not exist is the authority to
