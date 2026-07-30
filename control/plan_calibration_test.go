@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"math"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -314,15 +313,9 @@ func TestCalibrationIsUnreachableFromMoneyAndAdmissionPaths(t *testing.T) {
 		if allowed[name] {
 			t.Fatalf("%s is in both the guarded and allowed lists", name)
 		}
-		body, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		for _, needle := range needles {
-			if strings.Contains(string(body), needle) {
-				t.Errorf("%s references %q: calibration must not reach money, price, "+
-					"reserve, settlement or admission authority", name, needle)
-			}
+		if refs := codeReferences(t, name, needles); len(refs) != 0 {
+			t.Errorf("%s references %v: calibration must not reach money, price, "+
+				"reserve, settlement or admission authority", name, refs)
 		}
 	}
 
@@ -333,18 +326,14 @@ func TestCalibrationIsUnreachableFromMoneyAndAdmissionPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range entries {
-		if allowed[name] {
+		// Test files cannot be a decision path, and excluding them keeps the
+		// allowlist about production code rather than about fixtures.
+		if allowed[name] || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		body, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		for _, needle := range needles {
-			if strings.Contains(string(body), needle) {
-				t.Errorf("%s references %q but is not on the calibration allowlist; "+
-					"add it deliberately or move the read", name, needle)
-			}
+		if refs := codeReferences(t, name, needles); len(refs) != 0 {
+			t.Errorf("%s references %v but is not on the calibration allowlist; "+
+				"add it deliberately or move the read", name, refs)
 		}
 	}
 }
