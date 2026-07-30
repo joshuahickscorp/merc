@@ -44,6 +44,61 @@ const (
 // must never hold a long transaction against jobs the money path is using.
 const overheadSweepBatch = 200
 
+// overheadTickerName is registered ADVISORY: this sweep records analytics, and a
+// backlog in it must never take the control plane out of rotation. /readyz
+// failing because a cost rollup fell behind would stop serving buyers to protect
+// a number nobody is waiting on.
+const overheadTickerName = "execution-overhead"
+
+// overheadRecorderVersion is stamped on every observation. When the
+// classification rules change, rows recorded under the old rules stay
+// identifiable instead of being silently averaged with the new ones.
+const overheadRecorderVersion = 1
+
+// overheadBacklogAlertThreshold is where a backlog stops being normal. Below it
+// the sweep is simply working; above it, sustained, something is wrong and the
+// health surface says so — without gating readiness.
+const overheadBacklogAlertThreshold = 5000
+
+// OverheadSweepHealth is the separate health surface for a non-authoritative
+// loop. It reports the two things that actually matter — how far behind the
+// sweep is, and how old the oldest unobserved job is — rather than a boolean
+// that would either lie or take the process down.
+type OverheadSweepHealth struct {
+	Backlog                int        `json:"backlog"`
+	OldestUnobservedAt     *time.Time `json:"oldest_unobserved_terminal_at,omitempty"`
+	OldestUnobservedAgeSec float64    `json:"oldest_unobserved_age_secs"`
+	BacklogThreshold       int        `json:"backlog_threshold"`
+	Degraded               bool       `json:"degraded"`
+	RecorderVersion        int        `json:"recorder_version"`
+}
+
+// ExecutionOverheadHealth reports sweep progress without asserting readiness.
+func (s *Store) ExecutionOverheadHealth(ctx context.Context) (OverheadSweepHealth, error) {
+	out := OverheadSweepHealth{
+		BacklogThreshold: overheadBacklogAlertThreshold,
+		RecorderVersion:  overheadRecorderVersion,
+	}
+	var oldest *time.Time
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*), MIN(j.terminal_at)
+		  FROM jobs j
+		 WHERE j.terminal_at IS NOT NULL
+		   AND j.compute_plan IS NOT NULL
+		   AND NOT EXISTS (
+		     SELECT 1 FROM execution_overhead_actuals o WHERE o.job_id = j.id
+		   )`).Scan(&out.Backlog, &oldest)
+	if err != nil {
+		return out, err
+	}
+	out.OldestUnobservedAt = oldest
+	if oldest != nil {
+		out.OldestUnobservedAgeSec = time.Since(*oldest).Seconds()
+	}
+	out.Degraded = out.Backlog >= overheadBacklogAlertThreshold
+	return out, nil
+}
+
 // sweepExecutionOverhead records overhead for terminal jobs that have none yet.
 //
 // This is a sweep rather than a hook inside failJobAndSettleOnce or the cancel
@@ -114,7 +169,7 @@ func (s *Store) JobsMissingOverheadActuals(ctx context.Context, limit int) ([]uu
 func (s *Store) RecordExecutionOverhead(ctx context.Context, jobID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `
 		WITH job AS (
-		  SELECT j.id, j.job_type, j.tier, j.status,
+		  SELECT j.id, j.job_type, j.tier, j.status, j.terminal_at,
 		         COALESCE(j.model_ref,'') AS model_ref,
 		         COALESCE(j.workload_decision->>'workload_class','') AS workload_class,
 		         CASE
@@ -130,6 +185,7 @@ func (s *Store) RecordExecutionOverhead(ctx context.Context, jobID uuid.UUID) er
 		     AND j.compute_plan IS NOT NULL
 		), classified AS (
 		  SELECT
+		    t.id AS task_id,
 		    CASE
 		      WHEN COALESCE(t.is_honeypot,false) OR COALESCE(t.is_redundancy,false)
 		        THEN 'VERIFICATION_COMPUTE'
@@ -158,23 +214,31 @@ func (s *Store) RecordExecutionOverhead(ctx context.Context, jobID uuid.UUID) er
 		         COUNT(*)::int AS attempts,
 		         COALESCE(SUM(tokens), 0)::bigint AS tokens,
 		         COALESCE(SUM(supplier_usd), 0) AS measured_supplier_usd,
-		         0::float8 AS avoided_estimate_usd
+		         0::float8 AS avoided_estimate_usd,
+		         COALESCE(ARRAY_AGG(task_id ORDER BY task_id), '{}')::uuid[] AS source_task_ids
 		    FROM classified
 		   WHERE overhead_class <> 'PRIMARY'
 		   GROUP BY overhead_class
 		), retries AS (
+		  -- RETRY_COMPUTE carries ZERO money on purpose. The supplier payout for
+		  -- a retried task already sits in whichever partitioning class owns that
+		  -- task row, so charging it again here would mint operational cost that
+		  -- was never paid. This class measures extra ATTEMPTS, nothing else.
 		  SELECT 'RETRY_COMPUTE'::text AS overhead_class,
 		         COUNT(*) FILTER (WHERE retries > 0)::int AS tasks,
 		         COALESCE(SUM(retries), 0)::int AS attempts,
 		         0::bigint AS tokens,
 		         0::float8 AS measured_supplier_usd,
-		         0::float8 AS avoided_estimate_usd
+		         0::float8 AS avoided_estimate_usd,
+		         COALESCE(ARRAY_AGG(task_id ORDER BY task_id)
+		                  FILTER (WHERE retries > 0), '{}')::uuid[] AS source_task_ids
 		    FROM classified
 		), cache AS (
 		  SELECT 'CACHE_AVOIDED'::text AS overhead_class,
 		         0::int AS tasks, 0::int AS attempts, 0::bigint AS tokens,
 		         0::float8 AS measured_supplier_usd,
-		         j.plan_base_usd AS avoided_estimate_usd
+		         j.plan_base_usd AS avoided_estimate_usd,
+		         '{}'::uuid[] AS source_task_ids
 		    FROM job j
 		   WHERE j.execution_mode = 'exact_result_reuse'
 		), all_classes AS (
@@ -185,15 +249,19 @@ func (s *Store) RecordExecutionOverhead(ctx context.Context, jobID uuid.UUID) er
 		INSERT INTO execution_overhead_actuals
 		  (job_id, overhead_class, job_type, workload_class, tier, model_ref,
 		   input_depth_band, runtime_profile_id, hw_class, job_terminal_status,
-		   tasks, attempts, tokens, measured_supplier_usd, avoided_estimate_usd)
+		   tasks, attempts, tokens, measured_supplier_usd, avoided_estimate_usd,
+		   source_terminal_at, recorder_version, authority_matrix_sha256,
+		   source_task_ids)
 		SELECT j.id, c.overhead_class, j.job_type, j.workload_class, j.tier,
 		       j.model_ref, j.depth_band, f.runtime_id, f.hw_class, j.status,
 		       c.tasks, c.attempts, c.tokens, c.measured_supplier_usd,
-		       c.avoided_estimate_usd
+		       c.avoided_estimate_usd,
+		       j.terminal_at, $2, $3, c.source_task_ids
 		  FROM job j, fleet f, all_classes c
 		 WHERE c.tasks > 0 OR c.attempts > 0 OR c.tokens > 0
 		    OR c.measured_supplier_usd > 0 OR c.avoided_estimate_usd > 0
-		ON CONFLICT (job_id, overhead_class) DO NOTHING`, jobID)
+		ON CONFLICT (job_id, overhead_class) DO NOTHING`,
+		jobID, overheadRecorderVersion, generatedRuntimeMatrixSHA256)
 	return err
 }
 

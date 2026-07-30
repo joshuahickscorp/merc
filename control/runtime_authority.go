@@ -116,6 +116,15 @@ type authorityRuntimeProfile struct {
 	SupersededBy   string `json:"superseded_by"`
 	Engine         string `json:"engine"`
 	EngineRevision string `json:"engine_revision"`
+	// Tokenizer and chat template are part of what a profile MEANS: identical
+	// weights under a different template are a different product, and a
+	// benchmark taken under one does not transfer to the other.
+	TokenizerRevision string `json:"tokenizer_revision"`
+	ChatTemplateID    string `json:"chat_template_id"`
+	// SourceIdentity records where this profile came from. Two documents could
+	// otherwise define byte-identical content and be indistinguishable in
+	// provenance.
+	SourceIdentity string `json:"source_identity"`
 	Adapter        string `json:"adapter"`
 	// Lifecycle is excluded from the content digest. A profile is expected to
 	// move VALIDATED to REAL_RUNTIME_PROVEN to CANARY to ACTIVE without becoming
@@ -151,9 +160,10 @@ type authorityRuntimeProfile struct {
 // someone to edit the meaning without changing the string.
 var runtimeProfileRevisionPattern = regexp.MustCompile(`^r[1-9][0-9]*$`)
 
-// ContentDigest binds everything a profile MEANS: engine, adapter, device,
-// hardware, parallelism, capabilities, benchmark authority, quality tier and
-// cells. Lifecycle and SupersededBy are excluded because both are expected to
+// ContentDigest binds everything a profile MEANS: engine and its revision,
+// tokenizer revision, chat template, adapter, source identity, device,
+// hardware, device count, per-cell memory, parallelism, capabilities,
+// benchmark authority, quality tier and cells. Lifecycle and SupersededBy are excluded because both are expected to
 // change without the profile becoming a different profile.
 //
 // The digest is computed over the decoded struct, not the file bytes, so

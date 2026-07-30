@@ -103,11 +103,16 @@ type tickerLiveness struct {
 type tickerStat struct {
 	interval      time.Duration
 	maxNoProgress time.Duration
-	lastSuccess   time.Time // zero until the first successful run
-	startedAt     time.Time
-	lastProgress  time.Time
-	running       bool
-	failures      int64
+	// advisory tickers never make the process report not-ready. An analytics
+	// sweep that falls behind is a reason to look, not a reason to take the
+	// control plane out of rotation and stop serving buyers. Their health is
+	// reported separately, with the backlog that actually matters.
+	advisory     bool
+	lastSuccess  time.Time // zero until the first successful run
+	startedAt    time.Time
+	lastProgress time.Time
+	running      bool
+	failures     int64
 }
 
 var liveness = &tickerLiveness{entries: map[string]*tickerStat{}}
@@ -122,6 +127,29 @@ func (l *tickerLiveness) registerWithProgressTimeout(name string, interval, maxN
 	if _, ok := l.entries[name]; !ok {
 		l.entries[name] = &tickerStat{interval: interval, maxNoProgress: maxNoProgress}
 	}
+}
+
+// registerAdvisory registers a ticker whose staleness is observable but never
+// gates readiness. The exclusion is declared here rather than by special-casing
+// a name inside stale(), so a reader of the ticker table can see which loops are
+// load-bearing and which are bookkeeping.
+func (l *tickerLiveness) registerAdvisory(name string, interval time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, ok := l.entries[name]; !ok {
+		l.entries[name] = &tickerStat{
+			interval:      interval,
+			maxNoProgress: time.Duration(staleMultiple) * interval,
+			advisory:      true,
+		}
+	}
+}
+
+func (l *tickerLiveness) isAdvisory(name string) bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	e, ok := l.entries[name]
+	return ok && e.advisory
 }
 
 func (l *tickerLiveness) markStart(name string, t time.Time) {
@@ -175,6 +203,9 @@ func (l *tickerLiveness) stale(now, since time.Time) []string {
 	defer l.mu.RUnlock()
 	var bad []string
 	for name, e := range l.entries {
+		if e.advisory {
+			continue // observable, never a readiness gate
+		}
 		budget := time.Duration(staleMultiple) * e.interval
 		ref := e.lastSuccess
 		if e.running {
@@ -267,7 +298,9 @@ func (wk *Workers) Run(ctx context.Context) {
 	loops.Add(len(tickers))
 	for _, ticker := range tickers {
 		t := ticker
-		if t.name == verificationRecoveryTickerName {
+		if t.name == overheadTickerName {
+			liveness.registerAdvisory(t.name, t.interval)
+		} else if t.name == verificationRecoveryTickerName {
 			liveness.registerWithProgressTimeout(t.name, t.interval, verificationRecoveryNoProgressTimeout)
 		} else {
 			liveness.register(t.name, t.interval)

@@ -5,6 +5,7 @@ import (
 	"math"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -304,5 +305,191 @@ func TestOverheadAndBaseActualsCannotTrainEachOther(t *testing.T) {
 			t.Errorf("%s references %v but is not on the overhead allowlist; "+
 				"promoting overhead into a decision is a deliberate change", name, refs)
 		}
+	}
+}
+
+// Phase 0 B: summing monetary overhead classes must neither mint nor
+// double-count supplier cost.
+//
+// The specific hazard: a retried task's supplier payout already sits in
+// whichever partitioning class owns that task row. If RETRY_COMPUTE also
+// carried money, a job with retries would report operational cost that was
+// never paid to anyone.
+func TestOverheadMoneyIsIncrementalAndConserved(t *testing.T) {
+	store, pool, ctx := planActualsTestStore(t)
+	jobType := "ovh_" + uuid.NewString()[:8]
+
+	// Every task carries a supplier payout. Two are primary (one retried
+	// twice), the rest are overhead of one class each.
+	jobID := planActualsFixtureJob(t, pool, ctx, jobType, 2, 2000, 1.00, 1.00,
+		[]planActualsFixtureTask{
+			{status: "complete", tokens: 500, chunkIndex: 0, explicitChunk: true,
+				buyerUSD: 1.00, supplierUSD: 0.25,
+				runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+			{status: "complete", tokens: 500, retries: 2, chunkIndex: 1, explicitChunk: true,
+				buyerUSD: 1.00, supplierUSD: 0.25,
+				runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+			{status: "complete", tokens: 500, chunkIndex: 1, explicitChunk: true,
+				hedgedFromChunk: chunk(1), buyerUSD: 1.00, supplierUSD: 0.25,
+				runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+			{status: "complete", redundancy: true, tokens: 100, chunkIndex: 0, explicitChunk: true,
+				buyerUSD: 1.00, supplierUSD: 0.25,
+				runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+			{status: "failed", chunkIndex: 3, explicitChunk: true,
+				buyerUSD: 1.00, supplierUSD: 0.25,
+				runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+		}, planActualsFixtureOptions{})
+
+	if err := store.RecordExecutionOverhead(ctx, jobID); err != nil {
+		t.Fatalf("RecordExecutionOverhead: %v", err)
+	}
+
+	var jobSupplierTotal, overheadTotal, retryMoney float64
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(economic_supplier_payout_usd),0)::float8
+		   FROM tasks WHERE job_id=$1`, jobID).Scan(&jobSupplierTotal); err != nil {
+		t.Fatalf("sum task payouts: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(measured_supplier_usd),0)
+		   FROM execution_overhead_actuals WHERE job_id=$1`, jobID).Scan(&overheadTotal); err != nil {
+		t.Fatalf("sum overhead: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(measured_supplier_usd),0)
+		   FROM execution_overhead_actuals WHERE job_id=$1 AND overhead_class=$2`,
+		jobID, overheadClassRetry).Scan(&retryMoney); err != nil {
+		t.Fatalf("sum retry money: %v", err)
+	}
+
+	if retryMoney != 0 {
+		t.Errorf("RETRY_COMPUTE carries $%.4f; retries measure extra ATTEMPTS, and "+
+			"the payout already sits in the class that owns the task row", retryMoney)
+	}
+	// Three overhead task rows out of five, at $0.25 each.
+	if math.Abs(overheadTotal-0.75) > 0.000001 {
+		t.Errorf("overhead supplier total $%.4f, want $0.75 (hedge + redundancy + failed)",
+			overheadTotal)
+	}
+	// Minting check: overhead can never exceed what the job actually paid out.
+	if overheadTotal > jobSupplierTotal+0.000001 {
+		t.Errorf("overhead $%.4f exceeds the job's total supplier payout $%.4f: minted cost",
+			overheadTotal, jobSupplierTotal)
+	}
+	// And the two primary rows must be left for the base authority.
+	if math.Abs((jobSupplierTotal-overheadTotal)-0.50) > 0.000001 {
+		t.Errorf("primary remainder $%.4f, want $0.50 (two primary task rows)",
+			jobSupplierTotal-overheadTotal)
+	}
+}
+
+// Phase 0 A: idempotence must not rest on a timestamp cursor. Concurrent
+// sweeps, replays and restarts all converge on one row per (job, class).
+func TestOverheadRecordingIsIdempotentUnderConcurrentSweeps(t *testing.T) {
+	store, pool, ctx := planActualsTestStore(t)
+	jobType := "ovh_" + uuid.NewString()[:8]
+	jobID := planActualsFixtureJob(t, pool, ctx, jobType, 1, 1000, 1.00, 1.00,
+		[]planActualsFixtureTask{
+			{status: "failed", runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+			{status: "complete", redundancy: true, tokens: 10,
+				runtimeID: "candle_metal", hwClass: "apple_silicon_ultra"},
+		}, planActualsFixtureOptions{})
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := store.RecordExecutionOverhead(ctx, jobID); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent RecordExecutionOverhead: %v", err)
+	}
+
+	var rows int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM execution_overhead_actuals WHERE job_id=$1`,
+		jobID).Scan(&rows); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	// FAILED_COMPUTE and VERIFICATION_COMPUTE, once each, after 8 racing sweeps.
+	if rows != 2 {
+		t.Fatalf("8 concurrent sweeps produced %d rows, want 2", rows)
+	}
+
+	// Provenance is stamped, so a later rule change is distinguishable rather
+	// than silently averaged with these rows.
+	var version int
+	var matrix string
+	var terminalAt *time.Time
+	var taskIDs []uuid.UUID
+	if err := pool.QueryRow(ctx,
+		`SELECT recorder_version, authority_matrix_sha256, source_terminal_at, source_task_ids
+		   FROM execution_overhead_actuals WHERE job_id=$1 AND overhead_class=$2`,
+		jobID, overheadClassFailed).Scan(&version, &matrix, &terminalAt, &taskIDs); err != nil {
+		t.Fatalf("read provenance: %v", err)
+	}
+	if version != overheadRecorderVersion {
+		t.Errorf("recorder_version = %d, want %d", version, overheadRecorderVersion)
+	}
+	if matrix != generatedRuntimeMatrixSHA256 {
+		t.Error("observation does not record the runtime authority in force")
+	}
+	if terminalAt == nil {
+		t.Error("observation does not record the source terminal time")
+	}
+	if len(taskIDs) != 1 {
+		t.Errorf("source_task_ids has %d entries, want the 1 failed task", len(taskIDs))
+	}
+}
+
+// Phase 0 C: an analytics backlog must never make the process report not-ready.
+func TestOverheadSweepIsAdvisoryAndNeverGatesReadiness(t *testing.T) {
+	liveness.registerAdvisory(overheadTickerName, overheadSweepInterval)
+	if !liveness.isAdvisory(overheadTickerName) {
+		t.Fatal("the overhead sweep is not registered advisory")
+	}
+	// Far past any staleness budget, with no success ever recorded.
+	started := time.Now().Add(-72 * time.Hour)
+	for _, name := range liveness.stale(time.Now(), started) {
+		if name == overheadTickerName {
+			t.Fatal("a stale analytics sweep put the control plane out of rotation")
+		}
+	}
+
+	// A load-bearing ticker in the same state still does gate readiness, so
+	// this is an exclusion for one loop rather than a hole in the check.
+	liveness.register("phase0-probe-authoritative", time.Second)
+	found := false
+	for _, name := range liveness.stale(time.Now(), started) {
+		if name == "phase0-probe-authoritative" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("staleness detection is broken for authoritative tickers")
+	}
+}
+
+func TestOverheadHealthReportsBacklogWithoutAsserting(t *testing.T) {
+	store, _, ctx := planActualsTestStore(t)
+	health, err := store.ExecutionOverheadHealth(ctx)
+	if err != nil {
+		t.Fatalf("ExecutionOverheadHealth: %v", err)
+	}
+	if health.BacklogThreshold != overheadBacklogAlertThreshold {
+		t.Errorf("threshold = %d, want %d", health.BacklogThreshold, overheadBacklogAlertThreshold)
+	}
+	if health.RecorderVersion != overheadRecorderVersion {
+		t.Errorf("recorder version = %d, want %d", health.RecorderVersion, overheadRecorderVersion)
+	}
+	if health.Degraded != (health.Backlog >= overheadBacklogAlertThreshold) {
+		t.Error("degraded does not follow from the backlog it reports")
 	}
 }

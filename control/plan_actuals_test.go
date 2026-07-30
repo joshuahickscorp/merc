@@ -213,12 +213,15 @@ func planActualsFixtureJob(
 			                    runtime_id, runtime_cell_id, runtime_matrix_sha256, model_kind,
 			                    execution_worker_id, execution_supplier_id,
 			                    execution_hw_class, execution_engine,
-			                    execution_build_hash)
+			                    execution_build_hash,
+			                    economic_buyer_charge_usd, economic_supplier_payout_usd)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),$10,'plan-actuals-cell',
-			         repeat('a',64),'gguf',$11,$12,$13,'candle','plan-actuals-build')`,
+			         repeat('a',64),'gguf',$11,$12,$13,'candle','plan-actuals-build',
+			         NULLIF($14::numeric,0), CASE WHEN $14::numeric = 0 THEN NULL ELSE $15::numeric END)`,
 			taskID, jobID, task.status, task.honeypot, task.redundancy,
 			task.retries, task.tokens, chunk, hedgedFrom, task.runtimeID,
-			workerID, supplierID, task.hwClass); err != nil {
+			workerID, supplierID, task.hwClass,
+			task.buyerUSD, task.supplierUSD); err != nil {
 			t.Fatalf("insert task: %v", err)
 		}
 		byIndex[chunk] = taskID
@@ -247,6 +250,9 @@ type planActualsFixtureTask struct {
 	chunkIndex      int
 	explicitChunk   bool
 	hedgedFromChunk *int
+	// Frozen per-task economics. They are immutable once written (a trigger
+	// enforces it), so a fixture that needs them must set them at INSERT.
+	buyerUSD, supplierUSD float64
 }
 
 func chunk(i int) *int { return &i }

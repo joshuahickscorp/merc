@@ -4172,3 +4172,35 @@ DROP TRIGGER IF EXISTS workers_runtime_profile_valid ON workers;
 CREATE TRIGGER workers_runtime_profile_valid
     BEFORE INSERT OR UPDATE OF runtime_profile_id, engine ON workers
     FOR EACH ROW EXECUTE FUNCTION cx_validate_worker_runtime_profile();
+
+-- Observation provenance for execution_overhead_actuals.
+--
+-- Idempotence here does NOT rest on the sweep's cursor. The sweep selects jobs
+-- by `NOT EXISTS (an overhead row)`, and the unique index below is the backstop,
+-- so a replay, a restart, a clock shift, two overlapping sweeps, or a
+-- re-terminalized job all converge on one row per (job, class). A timestamp
+-- watermark would have been the fragile design; existence is not.
+--
+-- What was missing is provenance. A row recorded under one classification rule
+-- and a row recorded under the next were indistinguishable, so changing the
+-- rules would have silently averaged two different measurements together.
+ALTER TABLE execution_overhead_actuals
+    ADD COLUMN IF NOT EXISTS source_terminal_at TIMESTAMPTZ;
+ALTER TABLE execution_overhead_actuals
+    ADD COLUMN IF NOT EXISTS recorder_version INT NOT NULL DEFAULT 1;
+-- The runtime authority in force when the observation was taken.
+ALTER TABLE execution_overhead_actuals
+    ADD COLUMN IF NOT EXISTS authority_matrix_sha256 TEXT NOT NULL DEFAULT '';
+ALTER TABLE execution_overhead_actuals
+    ADD COLUMN IF NOT EXISTS runtime_profile_revision TEXT NOT NULL DEFAULT '';
+-- The task rows this observation summarised, so a later reader can re-derive it
+-- instead of trusting the aggregate.
+ALTER TABLE execution_overhead_actuals
+    ADD COLUMN IF NOT EXISTS source_task_ids UUID[] NOT NULL DEFAULT '{}';
+ALTER TABLE execution_overhead_actuals
+    DROP CONSTRAINT IF EXISTS execution_overhead_recorder_version_positive;
+ALTER TABLE execution_overhead_actuals
+    ADD CONSTRAINT execution_overhead_recorder_version_positive
+    CHECK (recorder_version >= 1);
+CREATE INDEX IF NOT EXISTS execution_overhead_recorder_idx
+    ON execution_overhead_actuals (recorder_version, overhead_class, created_at DESC);

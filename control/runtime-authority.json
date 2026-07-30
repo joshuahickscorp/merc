@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "matrix_version": "2026-07-30.3",
+  "matrix_version": "2026-07-30.4",
   "engines": [
     {
       "engine": "candle",
@@ -93,10 +93,13 @@
   "runtimes": [
     {
       "runtime_id": "candle_metal",
-      "revision": "r3",
+      "revision": "r4",
       "superseded_by": "",
       "engine": "candle",
       "engine_revision": "",
+      "tokenizer_revision": "b69aef112e9f895e6f98d7ae0949f72ff09aa401",
+      "chat_template_id": "llama-3.2-instruct",
+      "source_identity": "control/runtime-authority.json",
       "adapter": "merc-candle",
       "lifecycle": "ACTIVE",
       "device": "metal",
@@ -150,10 +153,13 @@
     },
     {
       "runtime_id": "mlx_metal",
-      "revision": "r1",
+      "revision": "r2",
       "superseded_by": "",
       "engine": "mlx",
       "engine_revision": "",
+      "tokenizer_revision": "",
+      "chat_template_id": "llama-3.2-instruct",
+      "source_identity": "control/runtime-authority.json",
       "adapter": "merc-mlx",
       "lifecycle": "VALIDATED",
       "device": "metal",
@@ -198,10 +204,13 @@
     },
     {
       "runtime_id": "llama_cpp_metal",
-      "revision": "r3",
+      "revision": "r4",
       "superseded_by": "",
       "engine": "llama_cpp",
       "engine_revision": "",
+      "tokenizer_revision": "b69aef112e9f895e6f98d7ae0949f72ff09aa401",
+      "chat_template_id": "llama-3.2-instruct",
+      "source_identity": "control/runtime-authority.json",
       "adapter": "merc-llama-cpp",
       "lifecycle": "VALIDATED",
       "device": "metal",
@@ -248,10 +257,13 @@
     },
     {
       "runtime_id": "vllm_cuda",
-      "revision": "r1",
+      "revision": "r2",
       "superseded_by": "",
       "engine": "vllm",
       "engine_revision": "",
+      "tokenizer_revision": "",
+      "chat_template_id": "llama-3.2-instruct",
+      "source_identity": "control/runtime-authority.json",
       "adapter": "merc-vllm",
       "lifecycle": "DRAFT",
       "device": "cuda",
