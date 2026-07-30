@@ -147,10 +147,18 @@ func TestRuntimeAuthorityValidationRefusesEveryUngovernedShape(t *testing.T) {
 				challenger := runtimeIndex(t, *d, "llama_cpp_metal")
 				d.Runtimes[challenger].Lifecycle = runtimeLifecycleActive
 				d.Runtimes[challenger].QualityTier = "OUTCOME_EQUIVALENT"
+				// A well-formed cell in every OTHER respect, so the collision
+				// rule is what refuses it. Its benchmark authority must measure
+				// this cell's model, or the per-cell evidence rule fires first
+				// and this stops testing what it says it tests.
 				d.Runtimes[challenger].Cells = []authorityCell{{
 					ID: "candle-metal-minilm-embed", Job: "embed",
 					Model: "all-minilm-l6-v2", Runner: "embed",
 					MinMemoryGB: 2, Verification: "cosine",
+					Lifecycle:   runtimeLifecycleActive,
+					QualityTier: "OUTCOME_EQUIVALENT",
+					BenchmarkAuthority: "evidence/perf/runtime-benchmarks/" +
+						"embed-cell-candle-vs-llama-cpp-r1.json",
 				}}
 			}},
 		{"a sellable model no routable runtime serves", "no routable runtime profile serves",
@@ -248,9 +256,9 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 	// r4/r2/r5/r2 meant to every receipt that named them. Those revisions are
 	// retained in runtime_profiles with their own digests and still resolve.
 	pinned := map[string]string{
-		"candle_metal":    "9e65e807fdc0ec4633b3a9b5c3261696f3aecd0fe834f49f873cce536c4885f3",
+		"candle_metal":    "08dd1df094fd52a67bcbb842062c76467f1c2180bc4bec4f943857dcad4ba1f1",
 		"mlx_metal":       "67b688419eb3a1a58bc369a01e7c280fbefde32dfdc5ac1109a45508ce4bfd57",
-		"llama_cpp_metal": "b6455407d7a4cb9736552eb7879e4bd4f91e6eb56b6cfdd7c2441c34fb2fb260",
+		"llama_cpp_metal": "f01370666e3b8d9f38e307a5094ecfc2e7425b1aaba26f17d1a1d062efe6d74d",
 		"vllm_cuda":       "4825a0c3b06e3a6c4bb19c61747ab5dc11ad402e306e926b579c9bb8c435f55b",
 	}
 	doc := mutableAuthority(t)
@@ -572,9 +580,26 @@ func TestThroughputCannotPromoteAProfileThatFailsItsVerificationContract(t *test
 	}
 
 	// Promoting it must be refused, naming the cell whose contract it breaks.
+	//
+	// The promotion has to be attempted on the CELL now, not on the profile.
+	// Making the profile ACTIVE no longer promotes anything by itself — that is
+	// the correction cell-level authority exists to make — so a mutation that
+	// only touched the profile would be refused by nothing and pass this test
+	// while proving the opposite of what it claims.
 	doc.Runtimes[challenger].Lifecycle = runtimeLifecycleActive
 	doc.Runtimes[challenger].QualityTier = "OUTCOME_EQUIVALENT"
-	doc.Runtimes[challenger].Cells[0].ID = "llama-cpp-metal-only-cell"
+	byteExact := -1
+	for i, cell := range doc.Runtimes[challenger].Cells {
+		if cell.Verification == "byte_exact" {
+			byteExact = i
+		}
+	}
+	if byteExact < 0 {
+		t.Fatal("llama_cpp_metal declares no byte_exact cell; this test is vacuous")
+	}
+	doc.Runtimes[challenger].Cells[byteExact].Lifecycle = runtimeLifecycleActive
+	doc.Runtimes[challenger].Cells[byteExact].RejectionReason = ""
+	doc.Runtimes[challenger].Cells[byteExact].QualityTier = "OUTCOME_EQUIVALENT"
 	err := validateRuntimeAuthorityDocument(doc)
 	if err == nil {
 		t.Fatal("a non-byte-deterministic engine was promoted onto a byte_exact cell")

@@ -445,12 +445,24 @@ func TestRoutabilityCannotBeAssertedIndependently(t *testing.T) {
 		t.Fatalf("%d cell rows disagree with their profile's routability", mismatched)
 	}
 
+	// Routability is derived from the CELL's lifecycle now, so asserting it on
+	// its own is refused rather than merely inconsistent. Promoting a cell means
+	// moving its lifecycle; flipping the flag is not a promotion, it is a claim
+	// with no evidence behind it.
+	if _, err := pool.Exec(ctx,
+		`UPDATE runtime_profile_models SET routable=true
+		  WHERE runtime_profile_id='mlx_metal'`); err == nil {
+		t.Fatal("a cell was marked routable without its lifecycle moving")
+	}
+
 	// Only one routable profile may own a cell id. Promoting a challenger onto an
 	// occupied cell must collide at the database, not just in the document.
 	if _, err := pool.Exec(ctx,
-		`UPDATE runtime_profile_models SET routable=true
+		`UPDATE runtime_profile_models
+		    SET lifecycle='ACTIVE', routable=true,
+		        benchmark_authority='evidence/x.json', quality_tier='OUTCOME_EQUIVALENT'
 		  WHERE runtime_profile_id='mlx_metal'`); err != nil {
-		t.Fatalf("mark challenger cells routable: %v", err)
+		t.Fatalf("promote challenger cells: %v", err)
 	}
 	_, err := pool.Exec(ctx,
 		`UPDATE runtime_profile_models SET cell_id='candle-metal-llama1-infer'
@@ -807,8 +819,10 @@ func TestRevisionBumpSucceedsAgainstAPopulatedRegistry(t *testing.T) {
 	// Hand the cells over in that order: the index that caught bug 2 also
 	// refuses to let the fixture hold one cell routable twice, which is the
 	// invariant working.
+	// Lifecycle and routability move together: the derived CHECK refuses one
+	// without the other, which is the point of deriving it.
 	if _, err := pool.Exec(ctx, `
-		UPDATE runtime_profile_models SET routable = false
+		UPDATE runtime_profile_models SET routable = false, lifecycle='VALIDATED'
 		 WHERE runtime_profile_id='candle_metal' AND revision=$1`,
 		documentRevision); err != nil {
 		t.Fatalf("un-route the document revision's cells: %v", err)
@@ -816,9 +830,11 @@ func TestRevisionBumpSucceedsAgainstAPopulatedRegistry(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO runtime_profile_models
 		  (runtime_profile_id, revision, cell_id, job_type, model_id, runner,
-		   min_memory_gb, verification, routable)
+		   min_memory_gb, verification, routable, lifecycle, quality_tier,
+		   benchmark_authority)
 		SELECT runtime_profile_id, $1, cell_id, job_type, model_id, runner,
-		       min_memory_gb, verification, true
+		       min_memory_gb, verification, true, 'ACTIVE', quality_tier,
+		       benchmark_authority
 		  FROM runtime_profile_models
 		 WHERE runtime_profile_id='candle_metal' AND revision=$2`,
 		prior, documentRevision); err != nil {

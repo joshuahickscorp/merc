@@ -4478,6 +4478,71 @@ UPDATE runtime_profile_capabilities c SET revision = p.revision
                     WHERE q.runtime_profile_id = c.runtime_profile_id
                       AND q.revision = c.revision);
 
+-- Cell-level authority.
+--
+-- The proof boundary turned out to be finer than the profile. llama_cpp_metal's
+-- embed cell is measured faster than candle at every batch size and clears the
+-- governed cosine gate; its batch_infer cell diverges from its own serial output
+-- under batching and cannot satisfy the byte_exact contract it declares. With one
+-- lifecycle on the profile, promoting the proven cell would have promoted the
+-- unusable one alongside it.
+--
+-- lifecycle here is the cell's EFFECTIVE state — its own, floored by its
+-- profile's — so a query does not have to recompute the rule to get the answer
+-- the control plane acted on.
+ALTER TABLE runtime_profile_models
+    ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAULT 'DRAFT';
+ALTER TABLE runtime_profile_models
+    ADD COLUMN IF NOT EXISTS quality_tier TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_profile_models
+    ADD COLUMN IF NOT EXISTS benchmark_authority TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_profile_models
+    ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_profile_models
+    ADD COLUMN IF NOT EXISTS max_batch INT NOT NULL DEFAULT 0;
+ALTER TABLE runtime_profile_models
+    ADD COLUMN IF NOT EXISTS max_concurrency INT NOT NULL DEFAULT 0;
+
+ALTER TABLE runtime_profile_models
+    DROP CONSTRAINT IF EXISTS runtime_profile_models_lifecycle_known;
+ALTER TABLE runtime_profile_models
+    ADD CONSTRAINT runtime_profile_models_lifecycle_known CHECK (lifecycle IN (
+        'DRAFT','VALIDATED','REAL_RUNTIME_PROVEN','CANARY','ACTIVE',
+        'QUARANTINED','REJECTED_FOR_CONTRACT','RETIRED'));
+
+-- Routability is derived from the CELL's lifecycle, never asserted beside it.
+-- REAL_RUNTIME_PROVEN is deliberately not routable: it is the evidence a
+-- promotion is argued from, and a cell that became routable by reaching it would
+-- be promoting itself.
+ALTER TABLE runtime_profile_models
+    DROP CONSTRAINT IF EXISTS runtime_profile_models_routable_derived;
+ALTER TABLE runtime_profile_models
+    ADD CONSTRAINT runtime_profile_models_routable_derived CHECK (
+        routable = (lifecycle IN ('CANARY','ACTIVE')));
+
+-- A rejection states what it was rejected for. Without a reason it is
+-- indistinguishable from an oversight.
+ALTER TABLE runtime_profile_models
+    DROP CONSTRAINT IF EXISTS runtime_profile_models_rejection_reasoned;
+ALTER TABLE runtime_profile_models
+    ADD CONSTRAINT runtime_profile_models_rejection_reasoned CHECK (
+        (lifecycle = 'REJECTED_FOR_CONTRACT') = (btrim(rejection_reason) <> ''));
+
+-- Work can reach a REAL_RUNTIME_PROVEN cell through directed routing, so the
+-- evidence requirement starts there rather than at routability.
+ALTER TABLE runtime_profile_models
+    DROP CONSTRAINT IF EXISTS runtime_profile_models_evidenced;
+ALTER TABLE runtime_profile_models
+    ADD CONSTRAINT runtime_profile_models_evidenced CHECK (
+        lifecycle NOT IN ('REAL_RUNTIME_PROVEN','CANARY','ACTIVE')
+        OR (btrim(benchmark_authority) <> '' AND btrim(quality_tier) <> ''));
+
+ALTER TABLE runtime_profile_models
+    DROP CONSTRAINT IF EXISTS runtime_profile_models_parallelism_nonneg;
+ALTER TABLE runtime_profile_models
+    ADD CONSTRAINT runtime_profile_models_parallelism_nonneg CHECK (
+        max_batch >= 0 AND max_concurrency >= 0);
+
 -- The denormalized copy of routability follows the same rule, and must be
 -- repaired here rather than above: `revision` does not exist on the child table
 -- until the ALTER two statements up.

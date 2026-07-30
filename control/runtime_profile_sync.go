@@ -82,8 +82,15 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 		}
 		// And the denormalized copy the cell-uniqueness index reads, or the
 		// superseded revision keeps claiming every cell the new one declares.
+		//
+		// Lifecycle moves with routability, because routability is derived from
+		// it and the CHECK refuses one without the other. A superseded revision's
+		// cell is recorded as RETIRED rather than left claiming ACTIVE while
+		// flagged unroutable — the latter is a row that contradicts itself, and
+		// the constraint exists to make that unrepresentable.
 		if _, err := tx.Exec(ctx, `
-			UPDATE runtime_profile_models m SET routable = false
+			UPDATE runtime_profile_models m
+			   SET routable = false, lifecycle = 'RETIRED'
 			  FROM runtime_profiles p
 			 WHERE p.runtime_profile_id = m.runtime_profile_id
 			   AND p.revision = m.revision
@@ -137,13 +144,21 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 			}
 		}
 		for _, cell := range profile.Cells {
+			// The cell's EFFECTIVE lifecycle, and routability derived from it —
+			// not the profile's. A profile-level ACTIVE must not carry a
+			// REJECTED_FOR_CONTRACT cell into the routable set with it.
+			effective := cell.EffectiveLifecycle(profile)
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO runtime_profile_models
 				  (runtime_profile_id, revision, cell_id, job_type, model_id, runner,
-				   min_memory_gb, verification, routable)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+				   min_memory_gb, verification, routable, lifecycle, quality_tier,
+				   benchmark_authority, rejection_reason, max_batch, max_concurrency)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
 				profile.RuntimeID, profile.Revision, cell.ID, cell.Job, cell.Model,
-				cell.Runner, cell.MinMemoryGB, cell.Verification, routable); err != nil {
+				cell.Runner, cell.MinMemoryGB, cell.Verification,
+				cell.Routable(profile), effective,
+				cell.qualityTierFor(profile), cell.benchmarkAuthorityFor(profile),
+				cell.RejectionReason, cell.MaxBatch, cell.MaxConcurrency); err != nil {
 				return fmt.Errorf("sync cell %q of %q: %w", cell.ID, profile.RuntimeID, err)
 			}
 		}

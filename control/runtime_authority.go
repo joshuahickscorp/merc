@@ -132,6 +132,112 @@ type authorityCell struct {
 	WireKind     string  `json:"wire_kind,omitempty"`
 	MinMemoryGB  float64 `json:"min_memory_gb"`
 	Verification string  `json:"verification"`
+
+	// Lifecycle, benchmark authority and quality tier are per CELL, because the
+	// evidence is per cell.
+	//
+	// llama_cpp_metal is the case that forced this. Its embed cell is measured
+	// faster than candle at every batch size and clears the governed cosine gate
+	// at 0.999998; its batch_infer cell diverges from its own serial output in
+	// every batched configuration on Metal and is unusable for the byte_exact
+	// contract it declares. One lifecycle on the profile would let the embedding
+	// proof promote the generation cell, which is precisely the thing the
+	// evidence says must not happen. The proof boundary is finer than the
+	// profile, so the lifecycle has to be too.
+	//
+	// Empty inherits the profile's, which is what every cell meant before the
+	// field existed.
+	Lifecycle string `json:"lifecycle,omitempty"`
+	// BenchmarkAuthority is the receipt for THIS cell. A receipt measuring
+	// MiniLM embeddings is not evidence about Llama generation, and letting one
+	// pointer cover both is how a runtime gets promoted on the wrong number.
+	BenchmarkAuthority string `json:"benchmark_authority,omitempty"`
+	QualityTier        string `json:"quality_tier,omitempty"`
+	// RejectionReason is required by, and only by, REJECTED_FOR_CONTRACT. A
+	// rejection without a stated reason is indistinguishable from an oversight,
+	// and the next person to read it will assume it was one.
+	RejectionReason string `json:"rejection_reason,omitempty"`
+	// Parallelism limits this cell was actually measured under. Zero means
+	// unstated rather than unlimited; the selector treats unstated as "cannot
+	// promise", never as "no ceiling".
+	MaxBatch       int `json:"max_batch,omitempty"`
+	MaxConcurrency int `json:"max_concurrency,omitempty"`
+}
+
+// Cell lifecycle. The profile states plus one that only makes sense per cell.
+//
+// REJECTED_FOR_CONTRACT means measurement proved this runtime cannot satisfy the
+// contract this cell sells — not that it is unfinished, and not that it might be
+// promoted later once someone gets round to it. llama.cpp on Metal cannot be
+// both batched and byte-deterministic, so its byte_exact cell is rejected rather
+// than left at VALIDATED where it reads as work in progress.
+const runtimeLifecycleRejectedForContract = "REJECTED_FOR_CONTRACT"
+
+// cellLifecycleRank orders the cell states. REJECTED_FOR_CONTRACT ranks with the
+// other terminal exclusions: it is not partial progress toward routability.
+func cellLifecycleRank(state string) (int, bool) {
+	if state == runtimeLifecycleRejectedForContract {
+		return 0, true
+	}
+	return runtimeLifecycleRank(state)
+}
+
+// EffectiveLifecycle is the cell's own state, floored by its profile's.
+//
+// A profile cannot inflate a cell: promoting llama_cpp_metal to ACTIVE must not
+// drag a REJECTED_FOR_CONTRACT cell up with it. A cell cannot outrank its
+// profile either — a DRAFT profile has no proven anything, so a cell inside it
+// claiming ACTIVE is claiming something the profile has not established.
+func (c authorityCell) EffectiveLifecycle(profile authorityRuntimeProfile) string {
+	own := c.Lifecycle
+	if own == "" {
+		return profile.Lifecycle
+	}
+	ownRank, ownKnown := cellLifecycleRank(own)
+	profileRank, profileKnown := cellLifecycleRank(profile.Lifecycle)
+	if !ownKnown || !profileKnown {
+		return own
+	}
+	if ownRank <= profileRank {
+		return own
+	}
+	return profile.Lifecycle
+}
+
+// Routable reports whether this cell may take ORDINARY buyer work.
+//
+// REAL_RUNTIME_PROVEN is deliberately not routable. It means a real engine
+// executed real work through the complete Merc chain, which is the evidence a
+// promotion argument is built FROM, not the promotion itself. Reaching it
+// through explicit operator or test routing is how the next evidence gets
+// collected; reaching it through ordinary buyer traffic would be the promotion
+// happening by accident.
+func (c authorityCell) Routable(profile authorityRuntimeProfile) bool {
+	return runtimeLifecycleRoutable(c.EffectiveLifecycle(profile))
+}
+
+// ReachableByDirectedRouting reports whether an operator or a test may force
+// work onto this cell by naming it. Proven and routable cells qualify.
+func (c authorityCell) ReachableByDirectedRouting(profile authorityRuntimeProfile) bool {
+	state := c.EffectiveLifecycle(profile)
+	return state == runtimeLifecycleRealRuntimeProven || runtimeLifecycleRoutable(state)
+}
+
+// benchmarkAuthorityFor resolves the cell's own receipt, falling back to the
+// profile's.
+func (c authorityCell) benchmarkAuthorityFor(profile authorityRuntimeProfile) string {
+	if c.BenchmarkAuthority != "" {
+		return c.BenchmarkAuthority
+	}
+	return profile.BenchmarkAuthority
+}
+
+// qualityTierFor resolves the cell's own tier, falling back to the profile's.
+func (c authorityCell) qualityTierFor(profile authorityRuntimeProfile) string {
+	if c.QualityTier != "" {
+		return c.QualityTier
+	}
+	return profile.QualityTier
 }
 
 // knownWireKind is the closed set an agent can actually load.
@@ -494,8 +600,8 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 		if len(profile.Cells) == 0 {
 			return fmt.Errorf("runtime %q declares no cells", profile.RuntimeID)
 		}
-		routable := runtimeLifecycleRoutable(profile.Lifecycle)
-		if routable && (profile.BenchmarkAuthority == "" || profile.QualityTier == "") {
+		profileRoutable := runtimeLifecycleRoutable(profile.Lifecycle)
+		if profileRoutable && (profile.BenchmarkAuthority == "" || profile.QualityTier == "") {
 			return fmt.Errorf(
 				"runtime %q is routable without a benchmark authority and quality tier",
 				profile.RuntimeID)
@@ -534,7 +640,10 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 					"runtime %q cell %q serves model %q as %q, which declares no %q artifact",
 					profile.RuntimeID, cell.ID, cell.Model, cellKind, cellKind)
 			}
-			if !routable {
+			if err := validateCellAuthority(profile, cell); err != nil {
+				return err
+			}
+			if !cell.Routable(profile) {
 				continue
 			}
 			if owner, taken := seenRoutableCell[cell.ID]; taken {
@@ -557,6 +666,75 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 			return fmt.Errorf("runtime %q is superseded by %q, which is not registered",
 				profile.RuntimeID, profile.SupersededBy)
 		}
+	}
+	return nil
+}
+
+// validateCellAuthority enforces the rules that only make sense per cell.
+func validateCellAuthority(profile authorityRuntimeProfile, cell authorityCell) error {
+	where := fmt.Sprintf("runtime %q cell %q", profile.RuntimeID, cell.ID)
+
+	if cell.Lifecycle != "" {
+		if _, known := cellLifecycleRank(cell.Lifecycle); !known {
+			return fmt.Errorf("%s has unknown lifecycle %q", where, cell.Lifecycle)
+		}
+	}
+	effective := cell.EffectiveLifecycle(profile)
+
+	// A rejection must say what it was rejected FOR. Without a reason it reads
+	// as an oversight, and the next person to look will treat it as one.
+	if cell.Lifecycle == runtimeLifecycleRejectedForContract && cell.RejectionReason == "" {
+		return fmt.Errorf("%s is REJECTED_FOR_CONTRACT with no rejection_reason", where)
+	}
+	if cell.Lifecycle != runtimeLifecycleRejectedForContract && cell.RejectionReason != "" {
+		return fmt.Errorf("%s states a rejection_reason but is %q", where, cell.Lifecycle)
+	}
+
+	// Evidence is required at the point work can actually reach the cell, and
+	// REAL_RUNTIME_PROVEN is such a point: directed routing sends real buyer work
+	// there even though ordinary traffic does not.
+	provenRank, _ := cellLifecycleRank(runtimeLifecycleRealRuntimeProven)
+	rank, _ := cellLifecycleRank(effective)
+	if rank >= provenRank {
+		if cell.benchmarkAuthorityFor(profile) == "" {
+			return fmt.Errorf("%s is %s with no benchmark authority", where, effective)
+		}
+		if cell.qualityTierFor(profile) == "" {
+			return fmt.Errorf("%s is %s with no quality tier", where, effective)
+		}
+	}
+
+	// The receipt must be evidence for THIS profile and THIS cell's model. A
+	// MiniLM embedding measurement is not evidence about Llama generation, and
+	// the whole reason cells have their own authority is to stop one standing in
+	// for the other.
+	if authority := cell.benchmarkAuthorityFor(profile); authority != "" {
+		receipt, known := benchmarkAuthorityManifest[authority]
+		if !known {
+			return fmt.Errorf("%s names benchmark authority %q, which is not a known receipt",
+				where, authority)
+		}
+		if !receipt.isEvidenceFor(profile.RuntimeID) {
+			return fmt.Errorf("%s names benchmark authority %q, which is evidence for %v",
+				where, authority, receipt.RuntimeProfileIDs)
+		}
+		if len(receipt.ModelIDs) > 0 && !receipt.measures(cell.Model) {
+			return fmt.Errorf(
+				"%s serves model %q but its benchmark authority %q measures %v",
+				where, cell.Model, authority, receipt.ModelIDs)
+		}
+		// The measured determinism decides which verification contracts this
+		// cell may sell, at every level work can reach it — not only when it is
+		// routable. Directed routing is real buyer work.
+		if rank >= provenRank && cell.Verification == "byte_exact" && !receipt.ByteDeterministic {
+			return fmt.Errorf(
+				"%s is verified byte_exact and %s, but its benchmark authority records "+
+					"that it is not byte-deterministic", where, effective)
+		}
+	}
+
+	if cell.MaxBatch < 0 || cell.MaxConcurrency < 0 {
+		return fmt.Errorf("%s declares a negative parallelism limit", where)
 	}
 	return nil
 }
@@ -598,15 +776,20 @@ func projectRuntimeCapabilities(authority runtimeAuthorityDocument) []generatedR
 			min  float64
 		}{model.WireKind, model.Job, model.MinMemoryGB}
 	}
-	// ONLY routable profiles are projected. This is the property that makes
-	// registering a runtime safe: a VALIDATED or DRAFT profile is fully
-	// described, addressable and comparable, and still cannot be advertised to a
-	// worker, quoted to a buyer, or matched by admission. Registering MLX did not
-	// widen what Merc sells by one cell.
+	// ONLY routable CELLS are projected, not routable profiles.
+	//
+	// This is the property that makes registering a runtime safe: a VALIDATED or
+	// DRAFT cell is fully described, addressable and comparable, and still cannot
+	// be advertised to a worker, quoted to a buyer, or matched by admission.
+	// Making it per cell is what stops llama.cpp's proven embedding cell from
+	// dragging its rejected generation cell into the advertised set with it.
 	var capabilities []generatedRuntimeCapability
 	seen := make(map[string]bool)
-	for _, profile := range authority.RoutableRuntimes() {
+	for _, profile := range authority.Runtimes {
 		for _, cell := range profile.Cells {
+			if !cell.Routable(profile) {
+				continue
+			}
 			model, ok := models[cell.Model]
 			if seen[cell.ID] || !ok || cell.ID == "" || cell.Job != model.job ||
 				cell.Runner != cell.Job || cell.MinMemoryGB < model.min || cell.Verification == "" {
@@ -674,6 +857,13 @@ type benchmarkReceiptSummary struct {
 	// singular field would destroy the only property that makes the two numbers
 	// comparable, which is that they were taken together.
 	RuntimeProfileIDs []string `json:"runtime_profile_ids"`
+	// ModelIDs is what the receipt actually measured. A receipt naming a profile
+	// is not evidence about every cell that profile declares: the embed
+	// comparison measures MiniLM and says nothing whatsoever about Llama
+	// generation on the same engine. Empty means the receipt predates the field
+	// and is treated as unscoped rather than as covering nothing, so an old
+	// receipt does not become a hard failure the day this landed.
+	ModelIDs []string `json:"model_ids,omitempty"`
 	// ThroughputMeasured separates "this profile has a receipt" from "this
 	// profile has a comparable throughput number".
 	ThroughputMeasured bool `json:"throughput_measured"`
@@ -692,6 +882,16 @@ type benchmarkReceiptSummary struct {
 func (r benchmarkReceiptSummary) isEvidenceFor(runtimeProfileID string) bool {
 	for _, id := range r.RuntimeProfileIDs {
 		if id == runtimeProfileID {
+			return true
+		}
+	}
+	return false
+}
+
+// measures reports whether this receipt actually measured the given model.
+func (r benchmarkReceiptSummary) measures(modelID string) bool {
+	for _, id := range r.ModelIDs {
+		if id == modelID {
 			return true
 		}
 	}
@@ -733,21 +933,19 @@ func validateBenchmarkAuthorityBinding(profile authorityRuntimeProfile) error {
 			"runtime %q names benchmark authority %q, but that receipt is evidence for %v",
 			profile.RuntimeID, profile.BenchmarkAuthority, receipt.RuntimeProfileIDs)
 	}
-	// The measurement that produced this rule: llama_cpp_metal came back 4.31x
-	// faster than the incumbent at peak and diverged from its own serial output
-	// at every batch size tested. The batch_infer cell declares byte_exact
-	// verification. Promoting on throughput alone would have routed buyer work to
-	// an engine that cannot satisfy the verification contract the cell sells.
-	if runtimeLifecycleRoutable(profile.Lifecycle) && !receipt.ByteDeterministic {
-		for _, cell := range profile.Cells {
-			if cell.Verification == "byte_exact" {
-				return fmt.Errorf(
-					"runtime %q is routable and serves byte_exact cell %q, but its "+
-						"benchmark authority records that it is not byte-deterministic",
-					profile.RuntimeID, cell.ID)
-			}
-		}
-	}
+	// The determinism rule moved to validateCellAuthority, where it belongs.
+	//
+	// It used to read: if the PROFILE is routable and ANY of its cells is
+	// byte_exact, refuse on a non-byte-deterministic receipt. That was correct
+	// while a profile was the unit of promotion and wrong once the evidence
+	// turned out to be per cell — it would refuse to let llama_cpp_metal's proven
+	// embedding cell become routable because a different, rejected cell on the
+	// same profile declares byte_exact. Punishing the proven cell for the
+	// rejected one's contract is the same conflation as promoting the rejected
+	// one for the proven one's evidence, in the other direction.
+	//
+	// The per-cell version compares each cell's own verification contract against
+	// its own benchmark authority, at every level work can reach that cell.
 	return nil
 }
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "matrix_version": "2026-07-30.6",
+  "matrix_version": "2026-07-30.7",
   "engines": [
     {
       "engine": "candle",
@@ -101,7 +101,7 @@
   "runtimes": [
     {
       "runtime_id": "candle_metal",
-      "revision": "r5",
+      "revision": "r6",
       "superseded_by": "",
       "engine": "candle",
       "engine_revision": "",
@@ -147,7 +147,11 @@
           "model": "all-minilm-l6-v2",
           "runner": "embed",
           "min_memory_gb": 2,
-          "verification": "cosine"
+          "verification": "cosine",
+          "lifecycle": "ACTIVE",
+          "quality_tier": "OUTCOME_EQUIVALENT",
+          "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+          "max_batch": 128
         },
         {
           "id": "candle-metal-llama1-infer",
@@ -155,7 +159,11 @@
           "model": "llama-3.2-1b-instruct-q4",
           "runner": "batch_infer",
           "min_memory_gb": 4,
-          "verification": "byte_exact"
+          "verification": "byte_exact",
+          "lifecycle": "ACTIVE",
+          "quality_tier": "OUTCOME_EQUIVALENT",
+          "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json",
+          "max_batch": 128
         }
       ]
     },
@@ -212,7 +220,7 @@
     },
     {
       "runtime_id": "llama_cpp_metal",
-      "revision": "r6",
+      "revision": "r7",
       "superseded_by": "",
       "engine": "llama_cpp",
       "engine_revision": "",
@@ -261,7 +269,11 @@
           "model": "llama-3.2-1b-instruct-q4",
           "runner": "batch_infer",
           "min_memory_gb": 4,
-          "verification": "byte_exact"
+          "verification": "byte_exact",
+          "lifecycle": "REJECTED_FOR_CONTRACT",
+          "quality_tier": "UNPROVEN",
+          "benchmark_authority": "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json",
+          "rejection_reason": "This cell sells byte_exact verification and llama.cpp on Metal cannot provide it: the determinism sweep found divergence from its own serial output in every batched configuration tested, and the only byte-identical setting runs at 1.02x serial while candle batches to 2.26x AND stays byte-identical. Not unfinished work - measured unsuitability for the contract this cell declares."
         },
         {
           "id": "llama-cpp-metal-minilm-embed",
@@ -270,7 +282,12 @@
           "runner": "embed",
           "wire_kind": "gguf",
           "min_memory_gb": 2,
-          "verification": "cosine"
+          "verification": "cosine",
+          "lifecycle": "VALIDATED",
+          "quality_tier": "OUTCOME_EQUIVALENT",
+          "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+          "max_batch": 128,
+          "max_concurrency": 128
         }
       ]
     },
