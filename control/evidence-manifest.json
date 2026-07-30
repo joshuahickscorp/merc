@@ -18,5 +18,15 @@
     "runtime_profile_id": "llama_cpp_metal",
     "throughput_measured": true,
     "byte_deterministic": false
+  },
+  "evidence/perf/runtime-benchmarks/mlx-metal-llama1-4bit-r1.json": {
+    "runtime_profile_id": "mlx_metal",
+    "throughput_measured": true,
+    "byte_deterministic": false
+  },
+  "evidence/perf/runtime-benchmarks/vllm-cuda-llama1-r1.json": {
+    "runtime_profile_id": "vllm_cuda",
+    "throughput_measured": true,
+    "byte_deterministic": true
   }
 }
