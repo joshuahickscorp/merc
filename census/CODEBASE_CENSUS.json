@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "25a482ae4a586fa955e8eae62e5e32526062f903a033cb77e795d83fd07f8bb2",
+  "authority_sha256": "9a5c8af70137b18a851e1af89d3b3a120dfa18ae9df5297a450fb326d607e002",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -93,8 +93,8 @@
     "control/charge_retry_test.go": 111,
     "control/charge_threshold_test.go": 96,
     "control/collect.go": 955,
-    "control/compute_plan.go": 439,
-    "control/compute_plan_test.go": 404,
+    "control/compute_plan.go": 483,
+    "control/compute_plan_test.go": 450,
     "control/connect.go": 116,
     "control/contract_binding_shape_test.go": 122,
     "control/crypto.go": 85,
@@ -116,7 +116,7 @@
     "control/eta_history_test.go": 142,
     "control/evidence.go": 210,
     "control/exact_reuse.go": 291,
-    "control/exact_reuse_batch.go": 313,
+    "control/exact_reuse_batch.go": 324,
     "control/exact_reuse_path.go": 185,
     "control/exact_reuse_test.go": 213,
     "control/failure.go": 376,
@@ -162,8 +162,8 @@
     "control/multi_gpu_admission_test.go": 296,
     "control/notify.go": 77,
     "control/object_deletion_integration_test.go": 268,
-    "control/observed_output_settlement.go": 293,
-    "control/observed_output_settlement_test.go": 522,
+    "control/observed_output_settlement.go": 294,
+    "control/observed_output_settlement_test.go": 530,
     "control/operational_controls.go": 222,
     "control/operational_controls_integration_test.go": 76,
     "control/payment.go": 526,
@@ -184,8 +184,8 @@
     "control/prepaid_test.go": 280,
     "control/price_board_parity_test.go": 205,
     "control/pricing.go": 767,
-    "control/pricing_decision.go": 625,
-    "control/pricing_decision_test.go": 177,
+    "control/pricing_decision.go": 635,
+    "control/pricing_decision_test.go": 211,
     "control/pricing_decision_test_helpers_test.go": 61,
     "control/pricing_extra.go": 44,
     "control/pricing_freshness_test.go": 214,
@@ -297,8 +297,8 @@
     "control/worker_leader_test.go": 27,
     "control/worker_session_integration_test.go": 104,
     "control/workers.go": 1210,
-    "control/workload_classification.go": 444,
-    "control/workload_classification_test.go": 523,
+    "control/workload_classification.go": 450,
+    "control/workload_classification_test.go": 495,
     "control/workload_simulation_test.go": 431,
     "docker-compose.observability.yml": 144,
     "docker-compose.prod.yml": 187,
@@ -605,11 +605,11 @@
     },
     "go": {
       "files": 231,
-      "loc": 73354,
-      "code": 65271,
-      "blank": 4469,
-      "comment": 3614,
-      "bytes": 2647953
+      "loc": 73486,
+      "code": 65354,
+      "blank": 4471,
+      "comment": 3661,
+      "bytes": 2655519
     },
     "javascript": {
       "files": 8,
@@ -735,11 +735,11 @@
     },
     "control": {
       "files": 166,
-      "loc": 52036,
-      "code": 45870,
-      "blank": 3196,
-      "comment": 2970,
-      "bytes": 1894502
+      "loc": 52168,
+      "code": 45953,
+      "blank": 3198,
+      "comment": 3017,
+      "bytes": 1902068
     },
     "documentation": {
       "files": 39,
@@ -807,9 +807,9 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 136645,
-    "non_design_production_core_loc": 96468,
-    "test_loc": 26879,
+    "global_owned_loc": 136777,
+    "non_design_production_core_loc": 96540,
+    "test_loc": 26939,
     "documentation_loc": 6625,
     "python_loc": 9388,
     "generated_loc": 5122,
@@ -834,7 +834,7 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10209481,
+  "tracked_bytes": 10217047,
   "tracked_files": 570,
   "untracked_files": 0,
   "walked_files": 570
