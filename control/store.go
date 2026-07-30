@@ -105,6 +105,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := syncRuntimeCatalog(ctx, conn); err != nil {
 		return err
 	}
+	// Governed runtime identity. This refuses to start when a registered
+	// profile's content changed without a revision bump, which is the point:
+	// continuing would leave the database describing one runtime and the process
+	// describing another.
+	if err := syncRuntimeProfiles(ctx, conn); err != nil {
+		return err
+	}
 	release()
 	if _, err := s.ReconcileLegacyVerifyingTasks(ctx); err != nil {
 		return fmt.Errorf("reconcile legacy verification: %w", err)
