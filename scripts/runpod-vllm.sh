@@ -59,11 +59,35 @@ rest() {
 
 json() { python3 -c "import json,sys;print(json.dumps(json.load(sys.stdin)))"; }
 
+# Terminate and VERIFY. The previous version discarded the DELETE result with
+# `|| true` and printed "terminated" unconditionally, so a failed teardown
+# reported success while the pod kept billing -- observed on 2026-07-30, when a
+# run logged "pod torn down by the exit trap" and left an A40 running at
+# $0.44/hr alongside a second pod. Announcing a teardown that did not happen is
+# worse than a noisy failure, because nobody goes looking.
+pod_exists() {
+  gql '{"query":"query { myself { pods { id } } }"}' \
+  | python3 -c "
+import json,sys
+d=json.load(sys.stdin); m=(d.get('data') or {}).get('myself') or {}
+print('yes' if any(p['id']=='$1' for p in (m.get('pods') or [])) else 'no')" 2>/dev/null
+}
+
 terminate() {
-  local id="$1"
+  local id="$1" attempt
   [ -z "$id" ] && return 0
-  rest DELETE "/pods/$id" >/dev/null 2>&1 || true
-  say "  terminated $id"
+  for attempt in 1 2 3; do
+    rest DELETE "/pods/$id" >/dev/null 2>&1 || true
+    sleep 3
+    if [ "$(pod_exists "$id")" = "no" ]; then
+      say "  terminated $id (verified)"
+      return 0
+    fi
+    say "  teardown attempt $attempt did not take for $id; retrying"
+  done
+  say "  !! FAILED TO TERMINATE $id -- IT IS STILL BILLING"
+  say "  !! run: bash scripts/runpod-vllm.sh down-all"
+  return 1
 }
 
 list_pods() {

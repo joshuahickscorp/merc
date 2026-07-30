@@ -82,21 +82,67 @@ L4 is the slowest serial engine measured and the best scaler.
    404, exited 0. It now deletes that file and requires `up` to succeed.
 5. **3 reps → 5** on every run.
 
-## Not fixed, and why
+## Transport confound — now bounded, not hand-waved
 
-**vLLM ran HF bf16, not the pinned GGUF q4.** Serving GGUF under vLLM needs a
-configuration that could not be verified without paying per attempt, and the
-script's own history records two A100s billed for 25 minutes each on a silent
-failure. The determinism finding — the one that mattered — is independent of
-quantization, and it reproduced on two cards. The throughput numbers were already
-declared non-comparable across platforms.
+candle runs in-process; the other three go over HTTP loopback. Measured directly
+against llama-server on this machine:
+
+| measurement | median | share of a 48-token request |
+|---|---:|---:|
+| `GET /v1/models` round trip (n=200) | 0.223 ms | **0.13%** |
+| 1-token completion (transport + prefill + 1 decode) | 6.53 ms | 3.7% |
+| 48-token completion | 178.21 ms | — |
+
+Pure HTTP transport is **0.13%** of a benchmark request. It does not move any
+conclusion here, and the in-process candle row is comparable to the HTTP rows
+within that bound.
+
+## Not fixed: vLLM ran HF bf16, not the pinned GGUF q4
+
+Attempted and failed. GGUF under vLLM needs `--model` to be a local file, so the
+pod needs a download-then-serve command, which needs a `dockerEntrypoint`
+override. Two attempts (A40, L4) served **HTTP 404 for 900 s** and were torn
+down without ever answering. Cost $0.08 for nothing.
+
+The cause was not isolated. Either the entrypoint override replaces RunPod's
+in-container agent so the HTTP proxy never wires to port 8000 — which
+`runpod-create-payload.py` explicitly warned about and which I dismissed on the
+grounds that readiness no longer polls `pod.runtime` — or the download-then-serve
+command failed inside the container. 404 rather than connection-refused says the
+proxy was reachable with nothing behind it, which leans toward the first, and
+toward the warning having been right.
+
+Distinguishing them needs container logs the script cannot fetch, at the cost of
+another pod. Stopped there rather than guessing at money per attempt. GGUF mode
+is left in the code, disabled by default, with the failure recorded next to it.
+
+The determinism finding is independent of quantization and reproduced on two
+cards, so this gap does not touch the verdict.
 
 ## Cost
 
-**$0.08 total.** L4 $0.03, A40 $0.05. Balance $17.07 → $16.99. Both pods torn
-down by the wrapper's own trap; none left running. RTX A5000, RTX 4090 and (on
-the second attempt) L4 had no capacity — a combination with no capacity bills
-nothing.
+**$0.16 total**, balance $17.07 → $16.91, no pods left running.
+
+| run | GPU | cost | outcome |
+|---|---|---:|---|
+| bf16 | L4 | $0.03 | measured |
+| bf16 | A40 | $0.05 | measured |
+| GGUF | A40 | ~$0.05 | 404, torn down |
+| GGUF | L4 | ~$0.03 | 404, killed |
+
+A GPU/cloud combination with no capacity bills nothing; A5000 and 4090 were
+refused repeatedly.
+
+### A teardown that lied
+
+The GGUF run logged "pod torn down by the exit trap" and left the A40 **running
+at $0.44/hr**, alongside a second pod. `terminate()` discarded the DELETE result
+with `|| true` and printed "terminated" unconditionally, so a failed teardown
+reported success. Both pods were killed manually by `down-all`.
+
+`terminate()` now retries three times and **verifies the pod is gone** before
+claiming it, and shouts the recovery command if it cannot. Announcing a teardown
+that did not happen is worse than a noisy failure, because nobody goes looking.
 
 ## Lifecycle after this
 
