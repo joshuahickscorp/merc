@@ -1,17 +1,24 @@
 {
-  "schema_version": 1,
-  "matrix_version": "2026-07-27.1",
-  "runtime": {
-    "id": "candle_metal",
-    "engine": "candle",
-    "device": "metal",
-    "hardware_classes": [
-      "apple_silicon_base",
-      "apple_silicon_pro",
-      "apple_silicon_max",
-      "apple_silicon_ultra"
-    ]
-  },
+  "schema_version": 2,
+  "matrix_version": "2026-07-30.1",
+  "engines": [
+    {
+      "engine": "candle",
+      "adapter": "merc-candle"
+    },
+    {
+      "engine": "mlx",
+      "adapter": "merc-mlx"
+    },
+    {
+      "engine": "llama_cpp",
+      "adapter": "merc-llama-cpp"
+    },
+    {
+      "engine": "vllm",
+      "adapter": "merc-vllm"
+    }
+  ],
   "models": [
     {
       "id": "all-minilm-l6-v2",
@@ -83,22 +90,198 @@
       "remote_code": false
     }
   ],
-  "cells": [
+  "runtimes": [
     {
-      "id": "candle-metal-minilm-embed",
-      "job": "embed",
-      "model": "all-minilm-l6-v2",
-      "runner": "embed",
-      "min_memory_gb": 2,
-      "verification": "cosine"
+      "runtime_id": "candle_metal",
+      "engine": "candle",
+      "engine_revision": "",
+      "adapter": "merc-candle",
+      "lifecycle": "ACTIVE",
+      "device": "metal",
+      "hardware": {
+        "platforms": [
+          "apple_silicon_base",
+          "apple_silicon_pro",
+          "apple_silicon_max",
+          "apple_silicon_ultra"
+        ],
+        "device_count": {
+          "minimum": 1,
+          "maximum": 1
+        }
+      },
+      "parallelism": {
+        "continuous_batching": false,
+        "tensor_parallel": false,
+        "pipeline_parallel": false,
+        "data_parallel": false
+      },
+      "capabilities": {
+        "streaming": false,
+        "prefix_cache": true,
+        "speculation": false
+      },
+      "benchmark_authority": "control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json",
+      "quality_tier": "OUTCOME_EQUIVALENT",
+      "evidence": [
+        "evidence/canary/real-runtime-realtime.json"
+      ],
+      "cells": [
+        {
+          "id": "candle-metal-minilm-embed",
+          "job": "embed",
+          "model": "all-minilm-l6-v2",
+          "runner": "embed",
+          "min_memory_gb": 2,
+          "verification": "cosine"
+        },
+        {
+          "id": "candle-metal-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "runner": "batch_infer",
+          "min_memory_gb": 4,
+          "verification": "byte_exact"
+        }
+      ]
     },
     {
-      "id": "candle-metal-llama1-infer",
-      "job": "batch_infer",
-      "model": "llama-3.2-1b-instruct-q4",
-      "runner": "batch_infer",
-      "min_memory_gb": 4,
-      "verification": "byte_exact"
+      "runtime_id": "mlx_metal",
+      "engine": "mlx",
+      "engine_revision": "",
+      "adapter": "merc-mlx",
+      "lifecycle": "VALIDATED",
+      "device": "metal",
+      "hardware": {
+        "platforms": [
+          "apple_silicon_base",
+          "apple_silicon_pro",
+          "apple_silicon_max",
+          "apple_silicon_ultra"
+        ],
+        "device_count": {
+          "minimum": 1,
+          "maximum": 1
+        }
+      },
+      "parallelism": {
+        "continuous_batching": false,
+        "tensor_parallel": false,
+        "pipeline_parallel": false,
+        "data_parallel": false
+      },
+      "capabilities": {
+        "streaming": false,
+        "prefix_cache": false,
+        "speculation": false
+      },
+      "benchmark_authority": "",
+      "quality_tier": "UNPROVEN",
+      "evidence": [
+        "docs/SPEED_LANE_2026-07-27.md"
+      ],
+      "cells": [
+        {
+          "id": "mlx-metal-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "runner": "batch_infer",
+          "min_memory_gb": 4,
+          "verification": "byte_exact"
+        }
+      ]
+    },
+    {
+      "runtime_id": "llama_cpp_metal",
+      "engine": "llama_cpp",
+      "engine_revision": "",
+      "adapter": "merc-llama-cpp",
+      "lifecycle": "VALIDATED",
+      "device": "metal",
+      "hardware": {
+        "platforms": [
+          "apple_silicon_base",
+          "apple_silicon_pro",
+          "apple_silicon_max",
+          "apple_silicon_ultra"
+        ],
+        "device_count": {
+          "minimum": 1,
+          "maximum": 1
+        }
+      },
+      "parallelism": {
+        "continuous_batching": false,
+        "tensor_parallel": false,
+        "pipeline_parallel": false,
+        "data_parallel": false
+      },
+      "capabilities": {
+        "streaming": false,
+        "prefix_cache": false,
+        "speculation": false
+      },
+      "benchmark_authority": "",
+      "quality_tier": "UNPROVEN",
+      "evidence": [
+        "docs/SPEED_LANE_2026-07-27.md"
+      ],
+      "cells": [
+        {
+          "id": "llama-cpp-metal-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "runner": "batch_infer",
+          "min_memory_gb": 4,
+          "verification": "byte_exact"
+        }
+      ]
+    },
+    {
+      "runtime_id": "vllm_cuda",
+      "engine": "vllm",
+      "engine_revision": "",
+      "adapter": "merc-vllm",
+      "lifecycle": "DRAFT",
+      "device": "cuda",
+      "hardware": {
+        "platforms": [
+          "nvidia_24gb",
+          "nvidia_48gb",
+          "nvidia_80gb"
+        ],
+        "device_count": {
+          "minimum": 1,
+          "maximum": 1
+        }
+      },
+      "parallelism": {
+        "continuous_batching": false,
+        "tensor_parallel": false,
+        "pipeline_parallel": false,
+        "data_parallel": false
+      },
+      "capabilities": {
+        "streaming": false,
+        "prefix_cache": false,
+        "speculation": false
+      },
+      "benchmark_authority": "",
+      "quality_tier": "UNPROVEN",
+      "evidence": [
+        "evidence/runpod/cuda-first-proof.json",
+        "evidence/perf/cuda-throughput-correction.json"
+      ],
+      "cells": [
+        {
+          "id": "vllm-cuda-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "runner": "batch_infer",
+          "min_memory_gb": 4,
+          "verification": "byte_exact"
+        }
+      ]
     }
   ]
 }
