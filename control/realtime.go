@@ -730,6 +730,66 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The cache missed. That leaves the other way the work can already be
+	// happening: an identical request from this same tenant executing right now.
+	// The cache serves repeats over time; this serves arrivals that overlap,
+	// before there is anything to cache.
+	//
+	// Streaming is excluded for the same reason exact reuse is: a follower would
+	// receive a complete JSON body for a request that asked for SSE.
+	var coalesceLeaderRef string
+	if !prepared.Stream {
+		stage = time.Now()
+		identity, leaderRef, coalescedContract, coalescedBody, followed, coalesceErr :=
+			s.tryRealtimeCoalescedDelivery(r.Context(), auth.BuyerID, requestID, idempotencyKey, prepared)
+		pathTiming.mark("coalesce", stage)
+		switch {
+		case coalesceErr != nil:
+			if errors.Is(coalesceErr, errRealtimeInsufficientFunds) {
+				writeOpenAIError(w, http.StatusPaymentRequired, coalesceErr.Error(), "insufficient_quota", "insufficient_quota")
+				return
+			}
+			log.Printf("coalesced delivery failed, executing live: %v", coalesceErr)
+		case followed:
+			receiptPath := "/v1/realtime/requests/" + coalescedContract.ID.String() + "/receipt"
+			w.Header().Set("X-Merc-Contract-ID", coalescedContract.ID.String())
+			w.Header().Set("X-Merc-Receipt", receiptPath)
+			w.Header().Set("X-Merc-Max-USD", fmt.Sprintf("%.6f", coalescedContract.MaximumPriceUSD))
+			// A distinct header from X-Merc-Exact-Reuse. The buyer got the same
+			// discount and it came from a different mechanism; reporting them as
+			// one would make the two impossible to tell apart in the field.
+			w.Header().Set("X-Merc-Coalesced", "1")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(coalescedBody)
+			metrics.realtimeVerified.Add(1)
+			pathTiming.log(false, coalescedContract.ID.String())
+			return
+		default:
+			// This caller leads. It executes below and publishes to whoever
+			// joined behind it once its result is stored.
+			coalesceLeaderRef = leaderRef
+			if leaderRef != "" {
+				// Every path out of this handler that is not a successful
+				// publish must release the followers. There are a dozen such
+				// exits — every upstream error, every settlement failure, every
+				// early return — and one of them being forgotten leaves a set of
+				// callers waiting out the full lease for an answer that is never
+				// coming. A defer covers all of them at once, and it is inert
+				// after a successful publish because ResolveInflightFailure only
+				// matches a row still RUNNING under this leader.
+				defer func() {
+					releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := s.store.ResolveInflightFailure(releaseCtx, identity, leaderRef,
+						"leader returned without publishing a result"); err != nil {
+						log.Printf("inflight release: %v", err)
+					}
+				}()
+			}
+		}
+	}
+
 	stage = time.Now()
 	contract, replay, err := s.store.AuthorizeRealtimeContract(r.Context(), RealtimeContractAuthorization{
 		RequestID: requestID, BuyerID: auth.BuyerID, Profile: prepared.Profile,
@@ -942,7 +1002,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// cache write, and so a slow object store is bounded.
 	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	stage = time.Now()
-	s.maybeStoreRealtimeExactResult(cacheCtx, prepared, body, completion.Usage.CompletionTokens)
+	s.maybeStoreRealtimeExactResult(cacheCtx, auth.BuyerID, prepared, coalesceLeaderRef,
+		body, completion.Usage.CompletionTokens)
 	pathTiming.mark("exact_cache_store", stage)
 	cacheCancel()
 	pathTiming.log(false, contract.ID.String())
@@ -961,7 +1022,7 @@ func (s *Server) tryRealtimeExactReuse(
 	if err != nil {
 		return RealtimeContract{}, nil, false, nil
 	}
-	identity, err := realtimeIdentityFromPayload(prepared.Profile, payload)
+	identity, err := realtimeIdentityFromPayload(buyerID, prepared.Profile, payload)
 	if err != nil {
 		// Non-deterministic or incomplete identity: not eligible for reuse.
 		return RealtimeContract{}, nil, false, nil
@@ -1003,20 +1064,130 @@ func (s *Server) tryRealtimeExactReuse(
 }
 
 // maybeStoreRealtimeExactResult caches a verified live response under its
-// request identity when sampling is deterministic. Failures are logged only:
-// a cache-write miss must not fail a successful buyer response.
-func (s *Server) maybeStoreRealtimeExactResult(ctx context.Context, prepared preparedRealtimeRequest, body []byte, completionTokens int64) {
+// request identity when sampling is deterministic, and publishes it to any
+// callers that coalesced onto this execution.
+//
+// Failures are logged only: a cache-write miss must not fail a successful buyer
+// response. A publish failure is different in kind — followers are waiting — so
+// it releases them explicitly rather than letting them time out on the lease.
+func (s *Server) maybeStoreRealtimeExactResult(
+	ctx context.Context, buyerID uuid.UUID, prepared preparedRealtimeRequest,
+	leaderRef string, body []byte, completionTokens int64,
+) {
 	payload, err := decodeRealtimePayload(prepared.Body)
 	if err != nil {
 		return
 	}
-	identity, err := realtimeIdentityFromPayload(prepared.Profile, payload)
+	identity, err := realtimeIdentityFromPayload(buyerID, prepared.Profile, payload)
 	if err != nil {
 		return
 	}
-	if _, err := s.store.StoreExactResultBytes(ctx, s.storage, identity, body, completionTokens); err != nil {
+	ref, err := s.store.StoreExactResultBytes(ctx, s.storage, identity, body, completionTokens)
+	if err != nil {
 		log.Printf("exact reuse store failed: %v", err)
+		if leaderRef != "" {
+			// Followers cannot be served from a result that was never stored.
+			// Failing them now costs them a live execution each; leaving them to
+			// discover it via lease expiry costs them that AND the wait.
+			if err := s.store.ResolveInflightFailure(ctx, identity, leaderRef,
+				"leader could not store its result"); err != nil {
+				log.Printf("inflight failure publish: %v", err)
+			}
+		}
+		return
 	}
+	if leaderRef == "" {
+		return
+	}
+	sum := sha256.Sum256(body)
+	if err := s.store.ResolveInflightSuccess(
+		ctx, identity, leaderRef, ref, hex.EncodeToString(sum[:]), completionTokens,
+	); err != nil {
+		log.Printf("inflight result publish: %v", err)
+	}
+}
+
+// tryRealtimeCoalescedDelivery collapses identical concurrent requests onto one
+// execution.
+//
+// Called only after the exact-result cache has missed, which is the window this
+// exists for: the cache serves requests that repeat over time, and this serves
+// requests that arrive together, before there is anything to cache.
+//
+// Returns leaderRef when this caller must execute. Returns a contract and body
+// when it rode someone else's execution instead.
+func (s *Server) tryRealtimeCoalescedDelivery(
+	ctx context.Context,
+	buyerID uuid.UUID,
+	requestID, idempotencyKey string,
+	prepared preparedRealtimeRequest,
+) (identity, leaderRef string, contract RealtimeContract, body []byte, followed bool, err error) {
+	payload, decodeErr := decodeRealtimePayload(prepared.Body)
+	if decodeErr != nil {
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+	identity, identityErr := realtimeIdentityFromPayload(buyerID, prepared.Profile, payload)
+	if identityErr != nil {
+		// Non-deterministic sampling: two runs need not agree, so collapsing
+		// them would hand one buyer another's roll of the dice.
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+
+	role, err := s.store.ClaimInflightExecution(ctx, identity, buyerID, requestID)
+	if err != nil {
+		// Coalescing is an optimization. A fault in it means execute live, never
+		// fail the buyer.
+		log.Printf("inflight claim failed, executing live: %v", err)
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+	if role.Ineligible {
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+	if role.Leader {
+		return identity, requestID, RealtimeContract{}, nil, false, nil
+	}
+
+	result, ok, err := s.store.AwaitInflightResult(ctx, identity, buyerID)
+	if err != nil || !ok {
+		// The leader failed, the lease expired, or this caller's own context
+		// ended. In every case: execute live rather than fail.
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+	body, err = s.store.LoadExactResultBytes(ctx, s.storage, result.ResultRef)
+	if err != nil {
+		return "", "", RealtimeContract{}, nil, false, nil
+	}
+
+	fullPer1K := fullPricePer1KFromRealtime(
+		prepared.Profile.BuyerInputUSDPerMillionTokens,
+		prepared.Profile.BuyerOutputUSDPerMillionTokens,
+	)
+	delivered := result.Tokens
+	if delivered <= 0 {
+		delivered = 1
+	}
+	// The follower performed no physical work, so the supplier is owed nothing
+	// for it — the leader's own settlement is the one payable for the one
+	// execution. Same money shape as a cache hit; the classes differ because the
+	// stories differ, and the invariant checked here is the one that matters:
+	// this must not mint a second supplier liability.
+	money := SettleReuseHitMoney(delivered, fullPer1K)
+	if !money.Conserved() || money.SupplierLiabilityMicros != 0 {
+		return "", "", RealtimeContract{}, nil, false,
+			fmt.Errorf("coalesced money invariant broken: %+v", money)
+	}
+	hit := ExactCacheHit{ResultRef: result.ResultRef, OutputTokens: delivered}
+	contract, _, err = s.store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
+		RequestID: requestID, BuyerID: buyerID, Profile: prepared.Profile,
+		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
+		MaximumPriceUSD:   microsToUSD(money.BuyerDebitMicros),
+		EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
+		DeadlineAt:        time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+	}, hit, money, result.ResultSHA256)
+	if err != nil {
+		return "", "", RealtimeContract{}, nil, false, err
+	}
+	return "", "", contract, body, true, nil
 }
 
 func (s *Server) handleRealtimeReceipt(w http.ResponseWriter, r *http.Request) {

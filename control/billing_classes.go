@@ -23,6 +23,12 @@ const (
 	ClassPrefixReusedInput = "prefix_reused_input"
 	ClassExactCachedInput  = "exact_cached_input"
 	ClassExactResultReuse  = "exact_result_reuse"
+	// ClassCoalescedDelivery is a follower on an execution that is happening
+	// now, as distinct from a hit on one that happened before. Both cost the
+	// follower zero physical work; only this one has a supplier being paid for
+	// the underlying run in the same window, and merging them would make one
+	// payable look like it covered N buyers' worth of independent cache hits.
+	ClassCoalescedDelivery = "coalesced_delivery"
 )
 
 // physicalClasses is the authority for which classes consumed supplier compute.
@@ -32,6 +38,7 @@ var physicalClasses = map[string]bool{
 	ClassPrefixReusedInput: false,
 	ClassExactCachedInput:  false,
 	ClassExactResultReuse:  false,
+	ClassCoalescedDelivery: false,
 }
 
 // TokenAccounting is one job's tokens split by class.

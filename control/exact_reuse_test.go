@@ -7,9 +7,14 @@ import (
 	"github.com/google/uuid"
 )
 
+// A fixed tenant, so two calls with the same input agree. Tenant separation has
+// its own tests; these are about determinism and cache shape.
+const detIdentityTenant = "11111111-1111-4111-8111-111111111111"
+
 func detIdentity(input string) RequestIdentity {
 	return RequestIdentity{
-		ModelID: "llama-3.2-1b-instruct-q8", ModelRevision: "main@2026-07-27",
+		TenantScope: detIdentityTenant,
+		ModelID:     "llama-3.2-1b-instruct-q8", ModelRevision: "main@2026-07-27",
 		Input: input, Temperature: 0, TopP: 1, Seed: 42, MaxTokens: 64,
 	}
 }
@@ -73,8 +78,8 @@ func TestEveryOutputAffectingFieldChangesIdentity(t *testing.T) {
 
 // Moving a value between fields must not collide.
 func TestIdentityFieldsCannotBeConfused(t *testing.T) {
-	a := RequestIdentity{ModelID: "m", Input: "AB", Tools: "", TopP: 1}
-	b := RequestIdentity{ModelID: "m", Input: "A", Tools: "B", TopP: 1}
+	a := RequestIdentity{TenantScope: detIdentityTenant, ModelID: "m", Input: "AB", Tools: "", TopP: 1}
+	b := RequestIdentity{TenantScope: detIdentityTenant, ModelID: "m", Input: "A", Tools: "B", TopP: 1}
 	ida, err := a.Compute()
 	if err != nil {
 		t.Fatal(err)
@@ -131,59 +136,12 @@ func TestExactResultRoundTripAndMissIsNotAGuess(t *testing.T) {
 	}
 }
 
-// Identical deterministic requests arriving together must execute once.
-func TestInflightCoalescingElectsOneLeader(t *testing.T) {
-	ctx, store, pool := openPayoutTestStore(t)
+// Coalescing moved to inflight_coalescing_test.go when it gained a lease, a
+// state machine and a production caller. The test that stood here exercised
+// ClaimInflightLeader/ReleaseInflight, which are deleted: they proved that a
+// second caller did not become leader, and could not prove what the second
+// caller then DID, because there was nothing for it to wait on.
 
-	id, err := detIdentity("coalesce-" + uuid.NewString()).Compute()
-	if err != nil {
-		t.Fatal(err)
-	}
-	leader := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00})
-	follower := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{creditUSD: 1.00})
-
-	isLeader, err := store.ClaimInflightLeader(ctx, id, leader.jobID)
-	if err != nil || !isLeader {
-		t.Fatalf("first caller should lead: %v %v", isLeader, err)
-	}
-	isLeader2, err := store.ClaimInflightLeader(ctx, id, follower.jobID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if isLeader2 {
-		t.Fatal("a second identical request also became leader; the work would run twice")
-	}
-
-	followers, err := store.ReleaseInflight(ctx, id)
-	if err != nil {
-		t.Fatalf("release: %v", err)
-	}
-	if followers != 1 {
-		t.Fatalf("followers = %d, want 1", followers)
-	}
-
-	// After release the next request leads again rather than waiting forever.
-	third, err := store.ClaimInflightLeader(ctx, id, leader.jobID)
-	if err != nil || !third {
-		t.Fatalf("after release a new request must lead: %v %v", third, err)
-	}
-	if _, err := store.ReleaseInflight(ctx, id); err != nil {
-		t.Fatal(err)
-	}
-
-	// An uncacheable request always executes rather than silently coalescing.
-	if lead, err := store.ClaimInflightLeader(ctx, "not-an-identity", leader.jobID); err != nil || !lead {
-		t.Fatalf("non-deterministic work must always execute: %v %v", lead, err)
-	}
-}
-
-// Tenant isolation.
-//
-// The cache key is request identity alone -- correct, because deterministic
-// inference on identical input yields identical output for every buyer. But the
-// scheduler writes results to jobs/<job_id>/..., which belongs to ONE buyer.
-// Caching that path under a shared key would hand a later buyer a reference
-// into someone else's job namespace.
 func TestExactCacheRefusesTenantScopedReferences(t *testing.T) {
 	ctx, store, _ := openPayoutTestStore(t)
 

@@ -33,12 +33,12 @@ const (
 	overheadClassCancelled    = "CANCELLED_COMPUTE"
 	overheadClassRetry        = "RETRY_COMPUTE"
 	overheadClassCacheAvoided = "CACHE_AVOIDED"
+	// COALESCING_AVOIDED was deliberately absent until coalescing had a
+	// production caller: a class nothing can produce reports a permanent zero
+	// that reads as "we measured this and there was none". It is added in the
+	// same change that wires it, which is the condition the previous note set.
+	overheadClassCoalescingAvoided = "COALESCING_AVOIDED"
 )
-
-// COALESCING_AVOIDED is deliberately absent. ClaimInflightLeader has no
-// production caller, so no job can be a coalesced follower, and a class nothing
-// can produce would report a permanent zero that reads as "we measured this and
-// there was none". Add it in the same change that wires coalescing.
 
 // overheadSweepBatch bounds one pass. The sweep is a background observer; it
 // must never hold a long transaction against jobs the money path is using.

@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -30,8 +29,21 @@ import (
 
 var requestIdentityPattern = regexp.MustCompile(`^req_[0-9a-f]{64}$`)
 
-// RequestIdentity is every input that can change the output.
+// RequestIdentity is every input that can change the output, plus the tenant it
+// belongs to.
+//
+// TenantScope is not an input to the model and it is still part of the identity,
+// because reuse across tenants is a cache-existence side channel: buyer B
+// discovers that buyer A ran a particular request by observing that the same
+// request comes back at the reuse price. The content is identical either way —
+// the leak is the timing and the bill, not the bytes — which is exactly the kind
+// of leak that is invisible in a correctness test.
+//
+// Scoping it costs a cache miss the first time each tenant asks. That is the
+// right trade, and it is why the tranche says not to start with global
+// cross-tenant sharing.
 type RequestIdentity struct {
+	TenantScope   string
 	ModelID       string
 	ModelRevision string
 	Adapter       string
@@ -69,8 +81,16 @@ func (r RequestIdentity) Compute() (string, error) {
 	if strings.TrimSpace(r.ModelID) == "" || strings.TrimSpace(r.Input) == "" {
 		return "", fmt.Errorf("request identity requires at least a model and an input")
 	}
+	// An empty tenant scope is refused rather than hashed as "". A caller that
+	// forgets to pass the buyer would otherwise silently produce one shared key
+	// for everyone — the exact leak TenantScope exists to close, reintroduced by
+	// omission and passing every test that only checks the bytes.
+	if strings.TrimSpace(r.TenantScope) == "" {
+		return "", fmt.Errorf("request identity requires a tenant scope")
+	}
 	fields := map[string]any{
-		"model": r.ModelID, "revision": r.ModelRevision, "adapter": r.Adapter,
+		"tenant": r.TenantScope,
+		"model":  r.ModelID, "revision": r.ModelRevision, "adapter": r.Adapter,
 		"input": r.Input, "tools": r.Tools, "schema": r.Schema,
 		"temperature": r.Temperature, "top_p": r.TopP, "seed": r.Seed,
 		"max_tokens": r.MaxTokens, "policy": r.Policy,
@@ -82,7 +102,10 @@ func (r RequestIdentity) Compute() (string, error) {
 	sort.Strings(keys)
 
 	h := sha256.New()
-	h.Write([]byte("merc-request-identity-v1\x00"))
+	// v2: the identity became tenant-scoped. Bumping the domain separator makes
+	// every v1 key miss rather than resolve under the new meaning. A miss costs
+	// work; a stale hit under a changed identity definition would be wrong.
+	h.Write([]byte("merc-request-identity-v2\x00"))
 	for _, k := range keys {
 		blob, err := json.Marshal(fields[k])
 		if err != nil {
@@ -244,48 +267,12 @@ func (s ReuseHitSettlement) Conserved() bool {
 	return s.BuyerDebitMicros == s.SupplierLiabilityMicros+s.PlatformMicros
 }
 
-// --------------------------------------------------------------------------
-// In-flight coalescing
-
-// ClaimInflightLeader tries to become the executing request for an identity.
+// In-flight coalescing lives in inflight_coalescing.go.
 //
-// Returns true when this caller should execute. False means an identical
-// deterministic request is already running and this one should wait for it: one
-// execution, many receipts, and the cost allocated by policy rather than
-// charged N times for work done once.
-func (s *Store) ClaimInflightLeader(ctx context.Context, identity string, jobID uuid.UUID) (bool, error) {
-	if !ValidRequestIdentity(identity) {
-		return true, nil // uncacheable: always execute
-	}
-	ct, err := s.pool.Exec(ctx, `
-		INSERT INTO inflight_requests (request_identity, leader_job_id)
-		VALUES ($1,$2) ON CONFLICT (request_identity) DO NOTHING`, identity, jobID)
-	if err != nil {
-		return false, err
-	}
-	if ct.RowsAffected() == 1 {
-		return true, nil
-	}
-	if _, err := s.pool.Exec(ctx, `
-		UPDATE inflight_requests SET followers = followers + 1
-		 WHERE request_identity = $1`, identity); err != nil {
-		return false, err
-	}
-	return false, nil
-}
-
-// ReleaseInflight clears the in-flight marker and reports how many followers
-// waited on this execution.
-func (s *Store) ReleaseInflight(ctx context.Context, identity string) (int64, error) {
-	if !ValidRequestIdentity(identity) {
-		return 0, nil
-	}
-	var followers int64
-	err := s.pool.QueryRow(ctx, `
-		DELETE FROM inflight_requests WHERE request_identity = $1
-		 RETURNING followers`, identity).Scan(&followers)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil
-	}
-	return followers, err
-}
+// The two functions that used to sit here — ClaimInflightLeader and
+// ReleaseInflight — are gone rather than kept beside the governed path. They had
+// no caller and could not have had one: a follower that waits must know what it
+// is waiting for and when to give up, and there was no state, no lease, no
+// result and no expiry to tell it. Keeping them alongside inflight_executions
+// would leave two independently writable coalescing authorities, which is the
+// failure the runtime registry work spent this whole branch removing elsewhere.

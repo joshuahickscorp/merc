@@ -2976,7 +2976,14 @@ INSERT INTO billing_token_classes (class, physical_work, description) VALUES
   ('prefix_reused_input', false, 'Prompt tokens served from a shared prefix computed once for many requests.'),
   ('exact_cached_input', false, 'Prompt tokens whose entire result was already computed for an identical request.'),
   ('generated_output',  true,  'Tokens decoded by the model for this request.'),
-  ('exact_result_reuse', false, 'A complete prior result returned without any model execution.')
+  ('exact_result_reuse', false, 'A complete prior result returned without any model execution.'),
+  -- Distinct from exact_result_reuse on purpose. A cache hit reuses work that
+  -- finished in the past and was already paid for; a coalesced delivery rides an
+  -- execution happening RIGHT NOW, which the leader is paying a supplier for in
+  -- this same window. Same zero physical work for the follower, different
+  -- supplier-liability story, and collapsing them would make one supplier payable
+  -- look like it covered N buyers' worth of independently-cached work.
+  ('coalesced_delivery', false, 'A result delivered from an execution already in flight for an identical request in the same tenant.')
 ON CONFLICT (class) DO UPDATE
   SET physical_work = EXCLUDED.physical_work, description = EXCLUDED.description;
 
@@ -3042,14 +3049,82 @@ CREATE TABLE IF NOT EXISTS exact_result_cache (
 CREATE INDEX IF NOT EXISTS exact_result_cache_hits_idx
     ON exact_result_cache (hits DESC, last_hit_at DESC NULLS LAST);
 
--- In-flight coalescing: identical deterministic requests arriving while one is
--- already executing wait for it rather than each paying full inference.
-CREATE TABLE IF NOT EXISTS inflight_requests (
-    request_identity TEXT PRIMARY KEY CHECK (request_identity ~ '^req_[0-9a-f]{64}$'),
-    leader_job_id    UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    started_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    followers        BIGINT NOT NULL DEFAULT 0 CHECK (followers >= 0)
+-- inflight_requests is superseded by inflight_executions below and dropped.
+--
+-- It held a request identity, a leader job and a follower counter, and it had no
+-- caller — it could not have had one: a follower that waits needs to know what it
+-- is waiting FOR and when to stop waiting, and there was no state, no lease, no
+-- result and no expiry to tell it. A leader that crashed held the identity
+-- forever. Dropping rather than keeping it beside the governed table, because two
+-- independently writable coalescing authorities is the failure this branch spent
+-- its length removing from runtime identity.
+--
+-- Safe to drop: nothing ever wrote to it in production, since nothing called the
+-- two functions that would have.
+DROP TABLE IF EXISTS inflight_requests;
+
+-- ---------------------------------------------------------------------------
+-- Governed in-flight executions.
+--
+-- One physical execution, many delivery authorities. A follower gets its own
+-- Merc identity, its own receipt and its own buyer debit; what it does NOT get
+-- is a second run of the model, and what the supplier does NOT get is a second
+-- payable for work performed once.
+--
+-- request_identity is already tenant-scoped (RequestIdentity.TenantScope), so
+-- two tenants issuing byte-identical requests hold two different identities and
+-- never coalesce. tenant_scope is stored beside it anyway, because an invariant
+-- that lives only in a hash cannot be asserted by a query, and this one is a
+-- privacy boundary rather than a performance detail.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS inflight_executions (
+    request_identity  TEXT PRIMARY KEY CHECK (request_identity ~ '^req_[0-9a-f]{64}$'),
+    tenant_scope      UUID NOT NULL,
+    -- The leader's own Merc identity. Not a foreign key to jobs: the realtime
+    -- lane coalesces contracts, the batch lane coalesces jobs, and pinning this
+    -- to one table would make the other lane invent a row to satisfy it.
+    leader_ref        TEXT NOT NULL CHECK (btrim(leader_ref) <> ''),
+    state             TEXT NOT NULL CHECK (state IN ('RUNNING','COMPLETE','FAILED')),
+    -- The lease is what makes a crashed leader recoverable. A follower that
+    -- observes an expired lease may take over; one that observes a live lease
+    -- must wait.
+    lease_expires_at  TIMESTAMPTZ NOT NULL,
+    -- How many times leadership has changed hands. Bounded re-election: an
+    -- identity that keeps losing its leader is a failing request, not an
+    -- infinite retry loop, and it must stop rather than burn a slot forever.
+    elections         INT NOT NULL DEFAULT 1 CHECK (elections >= 1),
+    followers         BIGINT NOT NULL DEFAULT 0 CHECK (followers >= 0),
+    -- Set exactly when state='COMPLETE'. The content artifact, not the bytes:
+    -- a job-scoped reference would let a follower's receipt point at the
+    -- leader's job, which is a cross-tenant handle even within one tenant's
+    -- scope and a broken authority besides.
+    result_ref        TEXT,
+    result_sha256     TEXT CHECK (result_sha256 IS NULL OR result_sha256 ~ '^[0-9a-f]{64}$'),
+    result_tokens     BIGINT CHECK (result_tokens IS NULL OR result_tokens >= 0),
+    -- Set exactly when state='FAILED'.
+    failure           TEXT,
+    started_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at       TIMESTAMPTZ,
+    -- When this row stops being useful at all, regardless of state. A COMPLETE
+    -- row is a short-lived hand-off, not a cache: the exact-result cache is the
+    -- durable store, and leaving completions here would quietly become a second
+    -- one with different eviction rules.
+    expires_at        TIMESTAMPTZ NOT NULL,
+    CONSTRAINT inflight_state_shape CHECK (
+        (state = 'RUNNING'  AND result_ref IS NULL AND failure IS NULL AND resolved_at IS NULL)
+     OR (state = 'COMPLETE' AND result_ref IS NOT NULL AND result_sha256 IS NOT NULL
+         AND result_tokens IS NOT NULL AND failure IS NULL AND resolved_at IS NOT NULL)
+     OR (state = 'FAILED'   AND result_ref IS NULL AND btrim(COALESCE(failure,'')) <> ''
+         AND resolved_at IS NOT NULL)
+    )
 );
+
+CREATE INDEX IF NOT EXISTS inflight_executions_expiry_idx
+    ON inflight_executions (expires_at);
+-- Followers poll by identity within their own tenant; the scope is part of the
+-- predicate so a lookup cannot be written that crosses it by omission.
+CREATE INDEX IF NOT EXISTS inflight_executions_tenant_idx
+    ON inflight_executions (tenant_scope, request_identity);
 
 -- Realtime inference is a separate contract lifecycle from retained batch
 -- jobs. The control plane remains authoritative: worker offers only advertise
@@ -3934,7 +4009,7 @@ CREATE INDEX IF NOT EXISTS plan_actuals_scope_idx
 -- class: honeypot and redundancy tasks are excluded from output_tokens, hedge
 -- copies collapse to one row per chunk_index, and retries are measured on
 -- purpose by task_attempts. COALESCED_FOLLOWER is unreachable because
--- ClaimInflightLeader has no caller. Adding a value to this CHECK is a one-line
+-- Coalescing is wired now (inflight_executions). Adding a value to this CHECK is a one-line
 -- migration; recording a class nothing can produce would be the same mistake as
 -- recording a guess as a measurement.
 ALTER TABLE plan_actuals ADD COLUMN IF NOT EXISTS observation_class TEXT
@@ -4007,7 +4082,8 @@ CREATE TABLE IF NOT EXISTS execution_overhead_actuals (
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT execution_overhead_class_known CHECK (overhead_class IN (
         'VERIFICATION_COMPUTE','HEDGE_COMPUTE','FAILED_COMPUTE',
-        'CANCELLED_COMPUTE','RETRY_COMPUTE','CACHE_AVOIDED')),
+        'CANCELLED_COMPUTE','RETRY_COMPUTE','CACHE_AVOIDED',
+        'COALESCING_AVOIDED')),
     CONSTRAINT execution_overhead_terminal_status CHECK (
         job_terminal_status IN ('complete','failed','cancelled')),
     CONSTRAINT execution_overhead_nonnegative CHECK (
@@ -4204,6 +4280,29 @@ ALTER TABLE execution_overhead_actuals
     CHECK (recorder_version >= 1);
 CREATE INDEX IF NOT EXISTS execution_overhead_recorder_idx
     ON execution_overhead_actuals (recorder_version, overhead_class, created_at DESC);
+
+-- COALESCING_AVOIDED joins the class set now that coalescing has a production
+-- caller. Both CHECKs are re-stated here as well as in the CREATE TABLE, because
+-- CREATE TABLE IF NOT EXISTS is a no-op on a database that already has the table
+-- and its old constraint — an inline edit alone would work on a fresh apply and
+-- silently do nothing on every existing deployment.
+ALTER TABLE execution_overhead_actuals
+    DROP CONSTRAINT IF EXISTS execution_overhead_class_known;
+ALTER TABLE execution_overhead_actuals
+    ADD CONSTRAINT execution_overhead_class_known CHECK (overhead_class IN (
+        'VERIFICATION_COMPUTE','HEDGE_COMPUTE','FAILED_COMPUTE',
+        'CANCELLED_COMPUTE','RETRY_COMPUTE','CACHE_AVOIDED',
+        'COALESCING_AVOIDED'));
+-- Avoided cost is an estimate of work that did not happen, and there are now two
+-- ways for work not to happen: a cache hit, and a follower riding an execution
+-- already in flight. Neither may attach an avoided estimate to a class that
+-- describes work that DID happen.
+ALTER TABLE execution_overhead_actuals
+    DROP CONSTRAINT IF EXISTS execution_overhead_avoided_only_on_cache;
+ALTER TABLE execution_overhead_actuals
+    ADD CONSTRAINT execution_overhead_avoided_only_on_cache CHECK (
+        avoided_estimate_usd = 0
+        OR overhead_class IN ('CACHE_AVOIDED','COALESCING_AVOIDED'));
 
 -- Worker binding to the FULL profile identity: id, revision, and content digest.
 --
