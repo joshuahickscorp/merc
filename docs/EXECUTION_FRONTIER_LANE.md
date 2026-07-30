@@ -104,16 +104,36 @@ product carries a profile to VALIDATED and no further.
 is one governed workload executed through two independently registered profiles
 at the same declared quality tier, with complete execution and money receipts,
 comparable benchmark evidence, and a shadow selector that predicted the better
-one. Remaining to reach it:
+one.
 
-1. governed DB profile identity — `workers_engine_valid CHECK (engine='candle')`
-   is still a string check rather than a foreign key into the registry;
-2. the runtime-adapter boundary;
-3. `RuntimeSelector` in shadow mode — compute, record, compare, change nothing;
-4. a benchmark authority for a second profile (`benchmark_authority` is empty
-   for all three non-routable profiles, and the validator refuses routability
-   without one);
-5. a complete Merc canary chain on that profile.
+**Done since.** Governed identity now lives in PostgreSQL: `runtime_engines`,
+`runtime_profiles`, `runtime_profile_models`, `runtime_profile_hardware`,
+`runtime_profile_capabilities`, synced under the migration lock. Routability is
+a derived column with a CHECK, not an assertable flag, and a partial unique
+index refuses two routable profiles claiming one cell. Content immutability is
+enforced at sync — an existing `(runtime_profile_id, revision)` whose digest
+moved is a hard refusal. Worker admission validates engine, platform,
+per-claimed-cell memory and device count against the profile; `device_count`
+was pure documentation before this.
+
+The migration is deliberately mid-transition: `runtime_profile_id` is nullable,
+`workers.engine` and `workers_engine_valid` both remain, and a trigger
+dual-validates. `ReconcileWorkerRuntimeProfiles` is the gate for the rest.
+
+Remaining to reach the milestone:
+
+1. migration steps 6–7 — `NOT NULL`, then drop `workers_engine_valid`, gated on
+   a clean reconciliation in a real deployment;
+2. the control-plane adapter boundary (`RuntimeProfileAdapter`: ID,
+   ValidateProfile, ValidateWorker, Estimate, Supports). The execution half —
+   launch, health, execute, cancel, drain, metrics — belongs to the agent-side
+   Rust driver and would be fiction in Go;
+3. a receipt-bound benchmark authority for a second profile.
+   `benchmark_authority` is empty for all three non-routable profiles, and both
+   the document validator and a DB CHECK refuse routability without one. A
+   Markdown speed report is supporting evidence, not authority;
+4. a complete Merc chain — task, verification, money, receipt — on that profile;
+5. `RuntimeSelector` in shadow mode plus regret measurement.
 
 ### The original blocker, for the record
 
