@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "65ca28427cfcdaac356e4b860517f1dc56f721a169a9584705a3f71bb953fd1f",
+  "authority_sha256": "22fe5abec7eb773e36b000368f6f3278554df6a128ab2e7d50e51f46838025ec",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -71,7 +71,7 @@
     "control/admin_mutation_audit_test.go": 456,
     "control/admin_workers_integration_test.go": 59,
     "control/alpha_request.go": 69,
-    "control/api.go": 3769,
+    "control/api.go": 3773,
     "control/api_error.go": 156,
     "control/api_error_test.go": 220,
     "control/audit.go": 537,
@@ -85,7 +85,7 @@
     "control/billing_schema_integration_test.go": 81,
     "control/billing_test.go": 246,
     "control/buildinfo.go": 41,
-    "control/buyer.go": 725,
+    "control/buyer.go": 738,
     "control/buyer_charge_operations.go": 203,
     "control/buyer_refund_test.go": 610,
     "control/canary_policy.go": 312,
@@ -93,8 +93,8 @@
     "control/charge_retry_test.go": 111,
     "control/charge_threshold_test.go": 96,
     "control/collect.go": 963,
-    "control/compute_plan.go": 483,
-    "control/compute_plan_test.go": 450,
+    "control/compute_plan.go": 582,
+    "control/compute_plan_test.go": 478,
     "control/connect.go": 116,
     "control/contract_binding_shape_test.go": 122,
     "control/crypto.go": 85,
@@ -186,7 +186,7 @@
     "control/price_board_parity_test.go": 205,
     "control/pricing.go": 767,
     "control/pricing_decision.go": 635,
-    "control/pricing_decision_test.go": 211,
+    "control/pricing_decision_test.go": 212,
     "control/pricing_decision_test_helpers_test.go": 61,
     "control/pricing_extra.go": 44,
     "control/pricing_freshness_test.go": 214,
@@ -197,7 +197,7 @@
     "control/pricing_viability_test.go": 39,
     "control/prove.go": 163,
     "control/prove_registry.go": 48,
-    "control/quote.go": 1281,
+    "control/quote.go": 1292,
     "control/quote_currency_integration_test.go": 151,
     "control/quote_stats_test.go": 23,
     "control/quote_test.go": 475,
@@ -606,11 +606,11 @@
     },
     "go": {
       "files": 232,
-      "loc": 73943,
-      "code": 65790,
-      "blank": 4482,
-      "comment": 3671,
-      "bytes": 2673020
+      "loc": 74099,
+      "code": 65916,
+      "blank": 4490,
+      "comment": 3693,
+      "bytes": 2679663
     },
     "javascript": {
       "files": 8,
@@ -736,11 +736,11 @@
     },
     "control": {
       "files": 167,
-      "loc": 52558,
-      "code": 46322,
-      "blank": 3209,
-      "comment": 3027,
-      "bytes": 1916742
+      "loc": 52714,
+      "code": 46448,
+      "blank": 3217,
+      "comment": 3049,
+      "bytes": 1923385
     },
     "documentation": {
       "files": 39,
@@ -808,9 +808,9 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 137253,
-    "non_design_production_core_loc": 96746,
-    "test_loc": 27208,
+    "global_owned_loc": 137409,
+    "non_design_production_core_loc": 96873,
+    "test_loc": 27237,
     "documentation_loc": 6625,
     "python_loc": 9388,
     "generated_loc": 5123,
@@ -835,7 +835,7 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10235496,
+  "tracked_bytes": 10242139,
   "tracked_files": 571,
   "untracked_files": 0,
   "walked_files": 571

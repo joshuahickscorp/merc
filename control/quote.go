@@ -287,9 +287,12 @@ type QuoteCost struct {
 }
 
 type QuoteTime struct {
-	P50Secs       int `json:"p50_secs"`
-	P90Secs       int `json:"p90_secs"`
-	WorstCaseSecs int `json:"worst_case_secs"`
+	P50Secs int `json:"p50_secs"`
+	// P90Secs is a compatibility field. Its exact semantics are declared by
+	// ConfidenceBandMethod; it is never implied to be an observed percentile.
+	P90Secs              int    `json:"p90_secs"`
+	WorstCaseSecs        int    `json:"worst_case_secs"`
+	ConfidenceBandMethod string `json:"confidence_band_method,omitempty"`
 }
 
 type QuoteConfidence struct {
@@ -534,6 +537,11 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	observedP90ms, _, hErr := s.store.HistoricalP90DurationMs(ctx, jobType, sub.Model.Ref, depthBand)
 	usedObservedHistory := hErr == nil && observedP90ms > 0
 	p50 = sustainedBatchETASecs(p50, tier, usedObservedHistory)
+	if plannerBacked && conservativeSecs < p50 {
+		// Sustained-throughput derating applies to the p50 after planner output;
+		// do not leave its conservative bound below that buyer-visible estimate.
+		conservativeSecs = p50
+	}
 	rawP50 := p50
 	// Correct for measured optimism before the number is frozen. The SLA bound
 	// below is derived from conservativeSecs, so it has to move with the p50 or
@@ -546,7 +554,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		p50 = applyETABias(p50, etaBias)
 		conservativeSecs = applyETABias(conservativeSecs, etaBias)
 	}
-	eta := QuoteTime{P50Secs: p50, P90Secs: p50 * 2, WorstCaseSecs: p50 * 4}
+	eta := quoteTimeFromETABands(p50, conservativeSecs, plannerBacked)
 
 	eligibleNow, _ := s.store.EligibleWorkerCountFor(ctx, jobType, sub.Model.Ref, supply)
 	warmEligible, _ := s.store.WarmEligibleWorkerCountFor(ctx, jobType, sub.Model.Ref, supply)
@@ -1014,7 +1022,10 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 		return fmt.Errorf("refusing quote without valid composite pricing authority: %w", err)
 	}
 	if q.etaRawP50Secs <= 0 || q.Time.P50Secs < q.etaRawP50Secs ||
-		q.ComputePlan.ETAP50Secs != q.Time.P50Secs {
+		q.ComputePlan.ETAP50Secs != q.Time.P50Secs ||
+		q.ComputePlan.ETAP90Secs != q.Time.P90Secs ||
+		q.ComputePlan.ETAWorstCaseSecs != q.Time.WorstCaseSecs ||
+		q.ComputePlan.ETAConfidenceBandMethod != q.Time.ConfidenceBandMethod {
 		return errors.New("refusing quote without valid raw and calibrated ETA authority")
 	}
 	decisionSHA256, err := workloadDecisionDigest(q.Workload)

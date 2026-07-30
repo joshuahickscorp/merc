@@ -490,13 +490,14 @@ type quoteResp struct {
 		ColdStartRisk        string `json:"cold_start_risk"`
 	} `json:"execution"`
 	ComputePlan struct {
-		SplitSize         int     `json:"split_size"`
-		PrimaryTasks      int     `json:"primary_tasks"`
-		RedundancyTasks   int     `json:"redundancy_tasks"`
-		HoneypotTasks     int     `json:"honeypot_tasks"`
-		TotalInitialTasks int     `json:"total_initial_tasks"`
-		MinimumMemoryGB   float64 `json:"minimum_memory_gb"`
-		ETASource         string  `json:"eta_source"`
+		SplitSize               int     `json:"split_size"`
+		PrimaryTasks            int     `json:"primary_tasks"`
+		RedundancyTasks         int     `json:"redundancy_tasks"`
+		HoneypotTasks           int     `json:"honeypot_tasks"`
+		TotalInitialTasks       int     `json:"total_initial_tasks"`
+		MinimumMemoryGB         float64 `json:"minimum_memory_gb"`
+		ETASource               string  `json:"eta_source"`
+		ETAConfidenceBandMethod string  `json:"eta_confidence_band_method"`
 	} `json:"compute_plan"`
 	Cost struct {
 		MinUSD      float64 `json:"min_usd"`
@@ -504,8 +505,9 @@ type quoteResp struct {
 		MaxUSD      float64 `json:"max_usd"`
 	} `json:"cost"`
 	Time struct {
-		P50Secs int `json:"p50_secs"`
-		P90Secs int `json:"p90_secs"`
+		P50Secs              int    `json:"p50_secs"`
+		P90Secs              int    `json:"p90_secs"`
+		ConfidenceBandMethod string `json:"confidence_band_method"`
 	} `json:"time"`
 	Budget struct {
 		SuggestedMaxUSD float64 `json:"suggested_max_usd"`
@@ -581,10 +583,21 @@ func printQuote(q quoteResp, model, typ, tier, inputPath string) {
 	}
 	p("  Supply   : %d eligible now", q.Execution.EligibleWorkersNow)
 	p("  Cost     : $%.4f-$%.4f expected $%.4f", q.Cost.MinUSD, q.Cost.MaxUSD, q.Cost.ExpectedUSD)
+	etaLabel := "p90"
+	bandMethod := q.Time.ConfidenceBandMethod
+	if bandMethod == "" {
+		bandMethod = q.ComputePlan.ETAConfidenceBandMethod
+	}
+	switch bandMethod {
+	case etaBandMethodPlannerConservativeBound:
+		etaLabel = "conservative model"
+	case etaBandMethodSyntheticMultiples:
+		etaLabel = "advisory band"
+	}
 	if q.ComputePlan.ETASource != "" {
-		p("  ETA      : p50 %s, p90 %s (%s)", humanSecs(q.Time.P50Secs), humanSecs(q.Time.P90Secs), q.ComputePlan.ETASource)
+		p("  ETA      : p50 %s, %s %s (%s)", humanSecs(q.Time.P50Secs), etaLabel, humanSecs(q.Time.P90Secs), q.ComputePlan.ETASource)
 	} else {
-		p("  ETA      : p50 %s, p90 %s", humanSecs(q.Time.P50Secs), humanSecs(q.Time.P90Secs))
+		p("  ETA      : p50 %s, %s %s", humanSecs(q.Time.P50Secs), etaLabel, humanSecs(q.Time.P90Secs))
 	}
 	p("  Risk     : %s OOM, %s cold-start", q.Execution.OOMRisk, q.Execution.ColdStartRisk)
 	for _, w := range q.Warnings {

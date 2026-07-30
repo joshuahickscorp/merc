@@ -41,7 +41,7 @@ func computePlanFixture(t *testing.T) (WorkloadDecision, ComputePlan, EconomicPl
 		2,
 		1,
 		1,
-		QuoteTime{P50Secs: 30, P90Secs: 60, WorstCaseSecs: 120},
+		quoteTimeFromETABands(30, 50, true),
 		"planner",
 		0.20,
 		0.20,
@@ -71,6 +71,10 @@ func TestComputePlanRejectsGeometryPlacementAndEconomicTampering(t *testing.T) {
 		{"input records", func(p *ComputePlan) { p.InputRecords++ }},
 		{"input tokens", func(p *ComputePlan) { p.EstimatedInputTokens++ }},
 		{"settlement input units", func(p *ComputePlan) { p.SettlementInputUnits++ }},
+		{"ETA confidence-band method", func(p *ComputePlan) {
+			p.ETAConfidenceBandMethod = etaBandMethodSyntheticMultiples
+		}},
+		{"ETA band/source provenance", func(p *ComputePlan) { p.ETASource = "static" }},
 		{"base compute", func(p *ComputePlan) { p.BaseComputeUSD += 0.01 }},
 	}
 	for _, tc := range tests {
@@ -98,6 +102,25 @@ func TestComputePlanDigestBindsEveryExecutionField(t *testing.T) {
 	}
 	if original == changed {
 		t.Fatal("compute-plan digest did not bind ETA authority")
+	}
+}
+
+func TestQuoteTimeFromETABandsIsExplicitAndNeverLetsThePlannerBoundFallBelowP50(t *testing.T) {
+	planner := quoteTimeFromETABands(150, 120, true)
+	if planner.P50Secs != 150 || planner.P90Secs != 150 || planner.WorstCaseSecs != 600 ||
+		planner.ConfidenceBandMethod != etaBandMethodPlannerConservativeBound {
+		t.Fatalf("planner ETA band = %+v, want p50=150 conservative=150 worst=600 with explicit model-bound semantics", planner)
+	}
+
+	planner = quoteTimeFromETABands(100, 250, true)
+	if planner.P90Secs != 250 || planner.WorstCaseSecs != 500 {
+		t.Fatalf("planner ETA band = %+v, want conservative=250 and worst=500", planner)
+	}
+
+	synthetic := quoteTimeFromETABands(100, 0, false)
+	if synthetic.P90Secs != 200 || synthetic.WorstCaseSecs != 400 ||
+		synthetic.ConfidenceBandMethod != etaBandMethodSyntheticMultiples {
+		t.Fatalf("synthetic ETA band = %+v, want 2x/4x advisory multiples", synthetic)
 	}
 }
 
@@ -166,7 +189,7 @@ func TestComputePlanKeepsUnflooredEstimateUnderMinBillableSettlementFloor(t *tes
 	// what submit/quote already freeze; it must validate against floored economics.
 	plan, err := newDistributedComputePlan(
 		decision, primaryTasks, 512, testInputDepthProfile(primaryTasks), 1, primaryTasks, 0, honeypotTasks,
-		QuoteTime{P50Secs: 30, P90Secs: 60, WorstCaseSecs: 120}, "static",
+		quoteTimeFromETABands(30, 0, false), "static",
 		cataloguePrimary, math.Max(0, unfloored-cataloguePrimary),
 		QuoteConfidence{Score: 0.8, Reasons: []string{"unfloored estimate freeze"}},
 		nil,
@@ -279,10 +302,10 @@ func TestExactReusePlanBindsOriginWithoutInventingPhysicalWork(t *testing.T) {
 	}
 }
 
-func TestV3ComputePlanSeparatesPlanningDepthFromSettlementUnits(t *testing.T) {
+func TestV4ComputePlanSeparatesPlanningDepthFromSettlementUnits(t *testing.T) {
 	_, plan, _ := computePlanFixture(t)
 	if plan.Version != computePlanVersion || plan.InputDepthProfile == nil {
-		t.Fatalf("fixture is not a current v3 plan: version=%d profile=%v", plan.Version, plan.InputDepthProfile)
+		t.Fatalf("fixture is not a current v4 plan: version=%d profile=%v", plan.Version, plan.InputDepthProfile)
 	}
 	if plan.EstimatedInputTokens != 4 || plan.SettlementInputUnits != 128 {
 		t.Fatalf("fixture failed to preserve distinct planning/money units: body=%d settlement=%v",
@@ -290,10 +313,10 @@ func TestV3ComputePlanSeparatesPlanningDepthFromSettlementUnits(t *testing.T) {
 	}
 }
 
-func TestV3ComputePlanRejectsDepthProfileAndSettlementAuthorityTampering(t *testing.T) {
+func TestV4ComputePlanRejectsDepthProfileAndSettlementAuthorityTampering(t *testing.T) {
 	decision, plan, _ := computePlanFixture(t)
 	if plan.Version != computePlanVersion || plan.InputDepthProfile == nil {
-		t.Fatalf("fixture is not a current v3 plan: version=%d profile=%v",
+		t.Fatalf("fixture is not a current v4 plan: version=%d profile=%v",
 			plan.Version, plan.InputDepthProfile)
 	}
 	// Band tampering
@@ -333,7 +356,7 @@ func TestV3ComputePlanRejectsDepthProfileAndSettlementAuthorityTampering(t *test
 	mutant = plan
 	mutant.InputDepthProfile = nil
 	if err := ValidateFrozenComputePlanSnapshot(mutant, decision); err == nil {
-		t.Fatal("accepted v3 plan without depth profile")
+		t.Fatal("accepted v4 plan without depth profile")
 	}
 	// Profile version tampering
 	mutant = plan
@@ -378,6 +401,10 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 	v1.InputDepthProfile = nil
 	v1.EstimatedInputTokens = estimatedInputTokensForComputePlanV1(v1.InputRecords, v1.InputBytes)
 	v1.SettlementInputUnits = 0
+	v1.ETAConfidenceBandMethod = ""
+	// This historical fixture predates v4 ETA-band semantics and must preserve
+	// its already-published digest exactly.
+	v1.ETAP90Secs = 60
 	if err := ValidateFrozenComputePlanSnapshot(v1, historicalDecision); err != nil {
 		t.Fatalf("historical v1 plan rejected: %v", err)
 	}
@@ -413,6 +440,7 @@ func TestHistoricalV1ComputePlanRemainsValidUnderOldTokenRule(t *testing.T) {
 	v2.Version = computePlanVersionV2
 	v2.WorkloadDecisionSHA256 = historicalDecisionSHA
 	v2.SettlementInputUnits = 0
+	v2.ETAConfidenceBandMethod = ""
 	if err := ValidateFrozenComputePlanSnapshot(v2, historicalDecision); err != nil {
 		t.Fatalf("historical v2 plan rejected: %v", err)
 	}

@@ -273,13 +273,13 @@ func estimateJobSettlementWithAuthority(
 }
 
 // pricingBillableUnitsForComputePlan keeps historical pricing decisions
-// verifiable while making every newly written (v3) decision use the exact
+// verifiable while making every version-3-and-later decision use the exact
 // input-side units that created the catalogue money estimate. Version-1 and
 // version-2 receipts retain their historical body/whole-input presentation;
 // they must not be silently reinterpreted or re-priced after acceptance.
 func pricingBillableUnitsForComputePlan(compute ComputePlan) float64 {
 	input := float64(compute.EstimatedInputTokens)
-	if compute.Version == computePlanVersion {
+	if compute.Version == computePlanVersionV3 || compute.Version == computePlanVersion {
 		input = compute.SettlementInputUnits
 	}
 	return input + float64(compute.EstimatedOutputTokens)
