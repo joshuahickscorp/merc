@@ -4,42 +4,60 @@
       "candle_metal"
     ],
     "throughput_measured": false,
-    "byte_deterministic": false
+    "byte_deterministic": false,
+    "model_ids": [
+      "llama-3.2-1b-instruct-q4"
+    ]
   },
   "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json": {
     "runtime_profile_ids": [
       "candle_metal"
     ],
     "throughput_measured": true,
-    "byte_deterministic": true
+    "byte_deterministic": true,
+    "model_ids": [
+      "llama-3.2-1b-instruct-q4"
+    ]
   },
   "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json": {
     "runtime_profile_ids": [
       "llama_cpp_metal"
     ],
     "throughput_measured": true,
-    "byte_deterministic": false
+    "byte_deterministic": false,
+    "model_ids": [
+      "llama-3.2-1b-instruct-q4"
+    ]
   },
   "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json": {
     "runtime_profile_ids": [
       "llama_cpp_metal"
     ],
     "throughput_measured": true,
-    "byte_deterministic": false
+    "byte_deterministic": false,
+    "model_ids": [
+      "llama-3.2-1b-instruct-q4"
+    ]
   },
   "evidence/perf/runtime-benchmarks/mlx-metal-llama1-4bit-r1.json": {
     "runtime_profile_ids": [
       "mlx_metal"
     ],
     "throughput_measured": true,
-    "byte_deterministic": true
+    "byte_deterministic": true,
+    "model_ids": [
+      "llama-3.2-1b-instruct-q4"
+    ]
   },
   "evidence/perf/runtime-benchmarks/vllm-cuda-llama1-r1.json": {
     "runtime_profile_ids": [
       "vllm_cuda"
     ],
     "throughput_measured": false,
-    "byte_deterministic": true
+    "byte_deterministic": true,
+    "model_ids": [
+      "llama-3.2-1b-instruct-q4"
+    ]
   },
   "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json": {
     "runtime_profile_ids": [
@@ -47,6 +65,9 @@
       "llama_cpp_metal"
     ],
     "throughput_measured": true,
-    "byte_deterministic": false
+    "byte_deterministic": false,
+    "model_ids": [
+      "all-minilm-l6-v2"
+    ]
   }
 }

@@ -49,6 +49,20 @@ fn lifecycle_is_routable(lifecycle: &str) -> bool {
     lifecycle == "CANARY" || lifecycle == "ACTIVE"
 }
 
+/// Mirrors the control plane's ordering. Terminal exclusions rank below DRAFT:
+/// they are not partial progress toward routability.
+fn lifecycle_rank(lifecycle: &str) -> u8 {
+    match lifecycle {
+        "QUARANTINED" | "RETIRED" | "REJECTED_FOR_CONTRACT" => 0,
+        "DRAFT" => 1,
+        "VALIDATED" => 2,
+        "REAL_RUNTIME_PROVEN" => 3,
+        "CANARY" => 4,
+        "ACTIVE" => 5,
+        _ => 0,
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct Model {
     id: String,
@@ -71,6 +85,13 @@ struct Cell {
     /// serves GGUF the moment a non-candle profile became routable.
     #[serde(default)]
     wire_kind: String,
+    /// This cell's own lifecycle; empty inherits the profile's. The control
+    /// plane made the lifecycle per cell because the evidence is per cell —
+    /// llama.cpp's embed cell is proven and its byte_exact generation cell is
+    /// rejected — and a worker projecting the profile's state would advertise
+    /// the rejected one.
+    #[serde(default)]
+    lifecycle: String,
     min_memory_gb: f64,
     verification: String,
 }
@@ -119,10 +140,19 @@ fn projection() -> &'static Projection {
             assert!(!profile.engine.is_empty());
             assert!(!profile.device.is_empty());
             assert!(!profile.hardware.platforms.is_empty());
-            if !lifecycle_is_routable(&profile.lifecycle) {
-                continue;
-            }
             for cell in &profile.cells {
+                // A cell's own lifecycle, floored by its profile's: a profile
+                // cannot inflate a cell, and a cell cannot outrank its profile.
+                let effective = if cell.lifecycle.is_empty() {
+                    profile.lifecycle.as_str()
+                } else if lifecycle_rank(&cell.lifecycle) <= lifecycle_rank(&profile.lifecycle) {
+                    cell.lifecycle.as_str()
+                } else {
+                    profile.lifecycle.as_str()
+                };
+                if !lifecycle_is_routable(effective) {
+                    continue;
+                }
                 let model = authority
                     .models
                     .iter()
