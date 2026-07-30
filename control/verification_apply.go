@@ -142,7 +142,11 @@ func (s *Store) applyVerificationDecision(ctx context.Context, info *CommitTaskI
 	}
 
 	var parentStatus string
-	if err := tx.QueryRow(ctx, `SELECT status FROM jobs WHERE id=$1 FOR UPDATE`, info.JobID).Scan(&parentStatus); err != nil {
+	var prepaidRequired bool
+	var prepaidBuyerID uuid.UUID
+	if err := tx.QueryRow(ctx, `
+		SELECT status,prepaid_required,buyer_id FROM jobs WHERE id=$1 FOR UPDATE`, info.JobID).
+		Scan(&parentStatus, &prepaidRequired, &prepaidBuyerID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return result, errNotFound
 		}
@@ -307,6 +311,25 @@ func (s *Store) applyVerificationDecision(ctx context.Context, info *CommitTaskI
 	for _, entry := range settlementEntries {
 		if err := insertNewLedgerEntryTx(ctx, tx, entry); err != nil {
 			return result, err
+		}
+		reachRecoveryBoundary(ctx, probe, BoundaryAcceptedAfterLedger)
+	}
+	if prepaidRequired && len(settlementEntries) > 0 {
+		var buyerChargeMicros int64
+		for _, entry := range settlementEntries {
+			if entry.Kind != KindBuyerCharge {
+				continue
+			}
+			if entry.BuyerID == nil || *entry.BuyerID != prepaidBuyerID || entry.AmountUSD >= 0 || buyerChargeMicros != 0 {
+				return result, fmt.Errorf("prepaid settlement has invalid buyer charge for task %s", info.TaskID)
+			}
+			buyerChargeMicros = usdToMicros(-entry.AmountUSD)
+		}
+		if buyerChargeMicros <= 0 {
+			return result, fmt.Errorf("prepaid settlement has no buyer charge for task %s", info.TaskID)
+		}
+		if err := debitPrepaidForTaskTx(ctx, tx, prepaidBuyerID, info.TaskID, buyerChargeMicros); err != nil {
+			return result, fmt.Errorf("debit prepaid settlement for task %s: %w", info.TaskID, err)
 		}
 		reachRecoveryBoundary(ctx, probe, BoundaryAcceptedAfterLedger)
 	}

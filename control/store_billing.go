@@ -64,14 +64,19 @@ func (s *Store) JobChargeInfo(ctx context.Context, jobID uuid.UUID) (buyerID uui
 	var firmQuote bool
 	var firmMax float64
 	var slaRefund float64
+	var prepaidCoverage float64
 	var currency string
 	err = s.pool.QueryRow(ctx,
 		`SELECT buyer_id,currency,COALESCE(actual_usd,0),firm_quote,COALESCE(firm_quote_max_usd,0),
 		        COALESCE((SELECT SUM(le.amount_usd) FROM ledger_entries le
 		                  WHERE le.kind = 'sla_refund'
-		                    AND le.payout_ref = 'sla-' || jobs.id::text), 0)::float8
+		                    AND le.payout_ref = 'sla-' || jobs.id::text), 0)::float8,
+		        COALESCE((SELECT SUM(-le.amount_usd) FROM ledger_entries le
+		                  WHERE le.kind = 'prepaid_debit'
+		                    AND (le.task_id IN (SELECT id FROM tasks WHERE job_id=jobs.id)
+		                         OR le.payout_ref = 'prepaid-sla-' || jobs.id::text)), 0)::float8
 		   FROM jobs WHERE id=$1`,
-		jobID).Scan(&buyerID, &currency, &actualUSD, &firmQuote, &firmMax, &slaRefund)
+		jobID).Scan(&buyerID, &currency, &actualUSD, &firmQuote, &firmMax, &slaRefund, &prepaidCoverage)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = errNotFound
 		return
@@ -91,6 +96,12 @@ func (s *Store) JobChargeInfo(ctx context.Context, jobID uuid.UUID) (buyerID uui
 		chargeUSD -= slaRefund
 		if chargeUSD < 0 {
 			chargeUSD = 0 // the remedy nets the bill down, never into a negative charge
+		}
+	}
+	if prepaidCoverage > 0 {
+		chargeUSD -= prepaidCoverage
+		if chargeUSD < 0 {
+			chargeUSD = 0
 		}
 	}
 	return

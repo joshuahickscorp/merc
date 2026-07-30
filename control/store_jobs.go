@@ -252,6 +252,12 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if j.PrepaidRequired {
+		if err := reservePrepaidForJobTx(ctx, tx, j.BuyerID,
+			usdToMicros(j.EconomicPlan.ReservedBuyerChargeUSD)); err != nil {
+			return err
+		}
+	}
 	if j.QuoteID != uuid.Nil {
 		var quoteComputeSHA256, quoteCurrency, quotePlacementSHA256, quotePricingSHA256 string
 		var quoteETARawSecs int
@@ -318,11 +324,11 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    workload_decision, workload_decision_sha256,
 		    compute_plan, compute_plan_sha256,
 		    placement_requirement, placement_requirement_sha256,
-		    pricing_decision, pricing_decision_sha256, currency)
+		    pricing_decision, pricing_decision_sha256, currency, prepaid_required)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
 		         $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'tracking',$21,$22,$23,$24,$25,$26,$27,
 		         $28,$29,$30,NULLIF($31,''),NULLIF($32,''),NULLIF($33,''),
-		         $34,$35,$36,$37,$38,$39,$40,$41,$42)`,
+		         $34,$35,$36,$37,$38,$39,$40,$41,$42,$43)`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
@@ -333,7 +339,7 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		economicInputRecords, economicInputBytes, economicInputSource,
 		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID,
 		workloadJSON, workloadSHA256, computeJSON, computeSHA256,
-		placementJSON, placementSHA256, pricingJSON, pricingSHA256, jobCurrency,
+		placementJSON, placementSHA256, pricingJSON, pricingSHA256, jobCurrency, j.PrepaidRequired,
 	)
 	if err != nil {
 		return err
@@ -402,33 +408,36 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 }
 
 type jobRow struct {
-	ID                         uuid.UUID
-	BuyerID                    uuid.UUID
-	JobType                    string
-	ModelRef                   string
-	InputRef                   string
-	OutputRef                  string
-	Tier                       string
-	VerificationPolicy         []byte // jsonb
-	EstimatedUSD               float64
-	TaskCount                  int
-	MinMemoryGB                float32
-	MaxDurationSecs            uint32
-	HWClasses                  []string // nil = any class
-	DataResidency              []string // nil = unrestricted
-	JobTypeSpec                []byte   // jsonb: the full submitted JobType (tag + fields)
-	SplitSize                  int
-	OfferedRateUsdHr           float32
-	ETASecs                    int
-	ETARawSecs                 int
-	MaxUSD                     float64   // buyer hard spend cap (Budget Governor); 0 = no cap
-	QuoteID                    uuid.UUID // advisory quote bound to this job (Plane D D7); zero = none -> persisted NULL
-	MinReputation              float32   // Elite-supplier gate: claim only by suppliers with reputation >= this (0 = any)
-	DeadlineSecs               int       // watchdog policy: -1 opt out, 0 default, 60..604800 explicit wall-clock deadline
-	FirmQuote                  bool
-	FirmQuoteMaxUSD            float64
-	SLAGuaranteeSecs           int
-	SLAPremiumUSD              float64
+	ID                 uuid.UUID
+	BuyerID            uuid.UUID
+	JobType            string
+	ModelRef           string
+	InputRef           string
+	OutputRef          string
+	Tier               string
+	VerificationPolicy []byte // jsonb
+	EstimatedUSD       float64
+	TaskCount          int
+	MinMemoryGB        float32
+	MaxDurationSecs    uint32
+	HWClasses          []string // nil = any class
+	DataResidency      []string // nil = unrestricted
+	JobTypeSpec        []byte   // jsonb: the full submitted JobType (tag + fields)
+	SplitSize          int
+	OfferedRateUsdHr   float32
+	ETASecs            int
+	ETARawSecs         int
+	MaxUSD             float64   // buyer hard spend cap (Budget Governor); 0 = no cap
+	QuoteID            uuid.UUID // advisory quote bound to this job (Plane D D7); zero = none -> persisted NULL
+	MinReputation      float32   // Elite-supplier gate: claim only by suppliers with reputation >= this (0 = any)
+	DeadlineSecs       int       // watchdog policy: -1 opt out, 0 default, 60..604800 explicit wall-clock deadline
+	FirmQuote          bool
+	FirmQuoteMaxUSD    float64
+	SLAGuaranteeSecs   int
+	SLAPremiumUSD      float64
+	// PrepaidRequired freezes default-mode batch funding at acceptance. It is
+	// false for legacy and explicitly deferred-charge jobs.
+	PrepaidRequired            bool
 	EconomicInputRecords       int64
 	EconomicInputBytes         int64
 	EconomicInputSource        string
@@ -1281,6 +1290,8 @@ func (s *Store) completeJobEconomics(
 	defer tx.Rollback(ctx)
 
 	var status string
+	var buyerID uuid.UUID
+	var prepaidRequired bool
 	err = tx.QueryRow(ctx,
 		`SELECT status FROM jobs WHERE id=$1 FOR UPDATE`, jobID,
 	).Scan(&status)
@@ -1288,6 +1299,13 @@ func (s *Store) completeJobEconomics(
 		return errNotFound
 	}
 	if err != nil {
+		return err
+	}
+	// The status lock above serializes terminalisation against task insertion.
+	// Read frozen funding authority only after that lock is held.
+	if err := tx.QueryRow(ctx,
+		`SELECT buyer_id,prepaid_required FROM jobs WHERE id=$1`, jobID,
+	).Scan(&buyerID, &prepaidRequired); err != nil {
 		return err
 	}
 	if status != "complete" {
@@ -1328,8 +1346,20 @@ func (s *Store) completeJobEconomics(
 		}
 	}
 	reachRecoveryBoundary(ctx, probe, BoundaryCompleteAfterJobProjection)
-	if _, err := insertJobSLAPremiumChargeTx(ctx, tx, jobID, slaPremiumChargeRef(jobID)); err != nil {
+	slaCharge, err := insertJobSLAPremiumChargeTx(ctx, tx, jobID, slaPremiumChargeRef(jobID))
+	if err != nil {
 		return err
+	}
+	if prepaidRequired && slaCharge.RowsAffected() == 1 {
+		var slaPremiumMicros int64
+		if err := tx.QueryRow(ctx, `
+			SELECT (sla_premium_usd * 1000000)::bigint
+			  FROM job_economic_plans WHERE job_id=$1`, jobID).Scan(&slaPremiumMicros); err != nil {
+			return err
+		}
+		if err := debitPrepaidForSLAPremiumTx(ctx, tx, buyerID, jobID, slaPremiumMicros); err != nil {
+			return fmt.Errorf("debit prepaid SLA premium for job %s: %w", jobID, err)
+		}
 	}
 	reachRecoveryBoundary(ctx, probe, BoundaryCompleteAfterSLAPremium)
 	if _, err := tx.Exec(ctx,

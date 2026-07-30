@@ -71,6 +71,13 @@ func (s *Store) FinalizeTaskVerification(ctx context.Context, info *CommitTaskIn
 	if err := validateVerificationSettlementTx(ctx, tx, info, outcome, entries); err != nil {
 		return err
 	}
+	var prepaidRequired bool
+	var prepaidBuyerID uuid.UUID
+	if err := tx.QueryRow(ctx, `
+		SELECT prepaid_required,buyer_id FROM jobs WHERE id=$1 FOR UPDATE`, info.JobID).
+		Scan(&prepaidRequired, &prepaidBuyerID); err != nil {
+		return err
+	}
 
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO task_verdicts
@@ -112,6 +119,24 @@ func (s *Store) FinalizeTaskVerification(ctx context.Context, info *CommitTaskIn
 	for _, entry := range entries {
 		if _, err := insertLedgerEntryOnTaskConflictDoNothingTx(ctx, tx, ledgerInsertFromEntry(entry)); err != nil {
 			return err
+		}
+	}
+	if prepaidRequired && len(entries) > 0 {
+		var buyerChargeMicros int64
+		for _, entry := range entries {
+			if entry.Kind != KindBuyerCharge {
+				continue
+			}
+			if entry.BuyerID == nil || *entry.BuyerID != prepaidBuyerID || entry.AmountUSD >= 0 || buyerChargeMicros != 0 {
+				return fmt.Errorf("prepaid settlement has invalid buyer charge for task %s", info.TaskID)
+			}
+			buyerChargeMicros = usdToMicros(-entry.AmountUSD)
+		}
+		if buyerChargeMicros <= 0 {
+			return fmt.Errorf("prepaid settlement has no buyer charge for task %s", info.TaskID)
+		}
+		if err := debitPrepaidForTaskTx(ctx, tx, prepaidBuyerID, info.TaskID, buyerChargeMicros); err != nil {
+			return fmt.Errorf("debit prepaid settlement for task %s: %w", info.TaskID, err)
 		}
 	}
 

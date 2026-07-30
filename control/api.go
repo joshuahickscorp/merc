@@ -588,7 +588,11 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 	wantVerificationFloor := sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0
 
-	if stripeKey() != "" {
+	// Default batch execution spends a real prepaid liability. Card/free-credit
+	// admission remains only for explicitly deferred collection and non-batch
+	// tiers; the durable field on jobRow freezes this choice at acceptance.
+	prepaidRequired := stripeKey() != "" && sub.Tier == "batch" && prepaidBalanceRequired()
+	if stripeKey() != "" && !prepaidRequired {
 		_, pm, berr := s.store.GetBillingCustomer(ctx, buyerID)
 		switch {
 		case berr != nil && !errors.Is(berr, errNotFound):
@@ -1231,6 +1235,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		FirmQuoteMaxUSD:            firmQuoteMaxUSD,  // the real charge ceiling (0 = not firm -> persisted NULL)
 		SLAGuaranteeSecs:           slaGuaranteeSecs, // wave 2A time guarantee (0 = none -> persisted NULL)
 		SLAPremiumUSD:              slaPremiumUSD,    // wave 2A premium = the miss remedy (0 = none -> NULL)
+		PrepaidRequired:            prepaidRequired,
 		EconomicInputRecords:       int64(totalRecords),
 		EconomicInputBytes:         int64(exactInputBytes),
 		EconomicInputSource:        economicInputSourceSubmitStream,
@@ -1248,6 +1253,10 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		PrefixChain:                prefixChain,
 	}
 	if err := s.store.SubmitJobTx(ctx, jr, tasks); err != nil {
+		if errors.Is(err, errInsufficientPrepaid) {
+			return JobSubmitResponse{}, &httpError{http.StatusPaymentRequired,
+				"insufficient prepaid balance for this job's reserved execution budget; top up via POST /v1/billing/topup"}
+		}
 		if sub.IdempotencyKey != "" && isUniqueViolation(err) {
 			// The deterministic idempotency job ID means these object keys may
 			// belong to the winning concurrent submission. Never delete them.

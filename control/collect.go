@@ -29,7 +29,11 @@ const firmChargeAmountSQL = `GREATEST(0, CASE
 	ELSE COALESCE(actual_usd,0)
 END - COALESCE((SELECT SUM(le.amount_usd) FROM ledger_entries le
                 WHERE le.kind = 'sla_refund'
-                  AND le.payout_ref = 'sla-' || jobs.id::text), 0))`
+                  AND le.payout_ref = 'sla-' || jobs.id::text), 0)
+    - COALESCE((SELECT SUM(-le.amount_usd) FROM ledger_entries le
+                WHERE le.kind = 'prepaid_debit'
+                  AND (le.task_id IN (SELECT id FROM tasks WHERE job_id=jobs.id)
+                       OR le.payout_ref = 'prepaid-sla-' || jobs.id::text)), 0))`
 
 const stripeMinChargeUSD = 0.50
 
@@ -262,7 +266,7 @@ func (s *Store) ReflipNoCardJobs(ctx context.Context) (int64, error) {
 		`UPDATE jobs SET charge_status = 'deferred', deferred_at = now()
 		 WHERE charge_status = 'no_payment_method'
 		   AND charge_batch_id IS NULL
-		   AND COALESCE(actual_usd, 0) > 0
+		   AND `+firmChargeAmountSQL+` > 0
 		   AND currency = $1
 		   AND buyer_id IN (SELECT buyer_id FROM billing_customers
 		                    WHERE COALESCE(default_payment_method,'') <> '')`,
@@ -285,13 +289,16 @@ func (s *Store) ReflipNoCardJobs(ctx context.Context) (int64, error) {
 // waiting -- the receivable simply rolls forward until it is worth collecting.
 func (s *Store) BuyersDueForBatch(ctx context.Context, thresholdUSD float64, maxAge time.Duration, limit int) ([]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT buyer_id FROM jobs
-		 WHERE charge_status = 'deferred' AND charge_batch_id IS NULL
-		   AND COALESCE(actual_usd, 0) > 0
-		   AND currency = $5
+		`SELECT buyer_id FROM (
+		   SELECT buyer_id,created_at,deferred_at,`+firmChargeAmountSQL+` AS due_usd
+		     FROM jobs
+		    WHERE charge_status = 'deferred' AND charge_batch_id IS NULL
+		      AND currency = $5
+		 ) deferred_jobs
+		 WHERE due_usd > 0
 		 GROUP BY buyer_id
-		 HAVING SUM(actual_usd) >= $1 AND SUM(actual_usd) >= $4
-		    AND (SUM(actual_usd) >= $1
+		 HAVING SUM(due_usd) >= $1 AND SUM(due_usd) >= $4
+		    AND (SUM(due_usd) >= $1
 		         OR MIN(COALESCE(deferred_at, created_at)) < now() - make_interval(secs => $2))
 		 ORDER BY MIN(COALESCE(deferred_at, created_at)) ASC LIMIT $3`,
 		thresholdUSD, maxAge.Seconds(), limit, stripeMinChargeUSD, SettlementCurrencyCode())
@@ -341,7 +348,7 @@ func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch C
 	rows, err := tx.Query(ctx,
 		`SELECT id, `+firmChargeAmountSQL+`::float8 FROM jobs
 		 WHERE buyer_id = $1 AND charge_status = 'deferred' AND charge_batch_id IS NULL
-		   AND COALESCE(actual_usd, 0) > 0
+		   AND `+firmChargeAmountSQL+` > 0
 		   AND currency = $2
 		 ORDER BY created_at ASC
 		 LIMIT 500
@@ -380,7 +387,8 @@ func (s *Store) FormChargeBatch(ctx context.Context, buyerID uuid.UUID) (batch C
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE jobs SET charge_batch_id = $1, billed_usd = `+firmChargeAmountSQL+`
-		 WHERE id = ANY($2::uuid[]) AND charge_status = 'deferred' AND charge_batch_id IS NULL`,
+		 WHERE id = ANY($2::uuid[]) AND charge_status = 'deferred' AND charge_batch_id IS NULL
+		   AND `+firmChargeAmountSQL+` > 0`,
 		batch.ID, ids); err != nil {
 		return batch, false, err
 	}
@@ -395,7 +403,7 @@ func (s *Store) TerminalUnattemptedJobs(ctx context.Context, limit int) ([]uuid.
 	rows, err := s.pool.Query(ctx,
 		`SELECT id FROM jobs
 		 WHERE status IN ('complete','failed','cancelled')
-		   AND COALESCE(actual_usd, 0) > 0
+		   AND `+firmChargeAmountSQL+` > 0
 		   AND charge_status = 'not_attempted'
 		   AND currency = $2
 		 ORDER BY created_at ASC LIMIT $1`, limit, SettlementCurrencyCode())

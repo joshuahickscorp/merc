@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "9a5c8af70137b18a851e1af89d3b3a120dfa18ae9df5297a450fb326d607e002",
+  "authority_sha256": "9abd7ecb41f2cd53aaa6011c6eadca2bd708b690a7df109c1b851a415810bf00",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -59,8 +59,8 @@
     "bench/immutable/shared-prefix-v2.sha256": 1,
     "benchmarks/realtime-chat-v1.json": 11,
     "census/.gitignore": 4,
-    "census/CODEBASE_CENSUS.json": 841,
-    "census/CODEBASE_CENSUS.md": 47,
+    "census/CODEBASE_CENSUS.json": 842,
+    "census/CODEBASE_CENSUS.md": 49,
     "cli/LICENSE": 202,
     "cli/README.md": 13,
     "control/accounts.go": 397,
@@ -71,7 +71,7 @@
     "control/admin_mutation_audit_test.go": 456,
     "control/admin_workers_integration_test.go": 59,
     "control/alpha_request.go": 69,
-    "control/api.go": 3760,
+    "control/api.go": 3769,
     "control/api_error.go": 156,
     "control/api_error_test.go": 220,
     "control/audit.go": 537,
@@ -92,7 +92,7 @@
     "control/canary_policy_test.go": 174,
     "control/charge_retry_test.go": 111,
     "control/charge_threshold_test.go": 96,
-    "control/collect.go": 955,
+    "control/collect.go": 963,
     "control/compute_plan.go": 483,
     "control/compute_plan_test.go": 450,
     "control/connect.go": 116,
@@ -143,7 +143,7 @@
     "control/job_object_retention_test.go": 206,
     "control/job_submit_validate.go": 156,
     "control/job_submit_validate_test.go": 81,
-    "control/job_task_money_integration_test.go": 3574,
+    "control/job_task_money_integration_test.go": 3575,
     "control/latency_watchdog.go": 110,
     "control/ledger_write.go": 453,
     "control/ledger_write_property_test.go": 125,
@@ -181,6 +181,7 @@
     "control/prefix_routing_test.go": 408,
     "control/prefix_routing_wiring_test.go": 532,
     "control/prepaid.go": 240,
+    "control/prepaid_funding_integration_test.go": 268,
     "control/prepaid_test.go": 280,
     "control/price_board_parity_test.go": 205,
     "control/pricing.go": 767,
@@ -231,7 +232,7 @@
     "control/runtime_model_ingress_test.go": 36,
     "control/scheduler.go": 1206,
     "control/scheduler_ask_claim_integration_test.go": 145,
-    "control/schema.sql": 3840,
+    "control/schema.sql": 3857,
     "control/seed.go": 222,
     "control/shape_routing.go": 124,
     "control/shape_routing_test.go": 101,
@@ -239,11 +240,11 @@
     "control/storage.go": 381,
     "control/storage_memory_test.go": 30,
     "control/store.go": 1751,
-    "control/store_billing.go": 540,
+    "control/store_billing.go": 551,
     "control/store_disputes.go": 527,
-    "control/store_jobs.go": 1439,
+    "control/store_jobs.go": 1469,
     "control/store_payouts.go": 1123,
-    "control/store_prepaid.go": 388,
+    "control/store_prepaid.go": 470,
     "control/store_tasks.go": 1253,
     "control/store_workers.go": 581,
     "control/strict_json.go": 110,
@@ -270,7 +271,7 @@
     "control/tiebreak_retry_safety_test.go": 28,
     "control/types.go": 327,
     "control/verification.go": 616,
-    "control/verification_apply.go": 1103,
+    "control/verification_apply.go": 1126,
     "control/verification_apply_test.go": 55,
     "control/verification_artifact.go": 321,
     "control/verification_artifact_policy.go": 66,
@@ -286,7 +287,7 @@
     "control/verification_resources.go": 232,
     "control/verification_resources_test.go": 126,
     "control/verification_sampling_test.go": 42,
-    "control/verification_state.go": 137,
+    "control/verification_state.go": 162,
     "control/verification_work.go": 729,
     "control/verification_work_plan.go": 191,
     "control/webhook_delivery.go": 282,
@@ -597,19 +598,19 @@
     },
     "documentation": {
       "files": 50,
-      "loc": 6625,
-      "code": 5205,
-      "blank": 1420,
+      "loc": 6627,
+      "code": 5206,
+      "blank": 1421,
       "comment": 0,
-      "bytes": 374276
+      "bytes": 374415
     },
     "go": {
-      "files": 231,
-      "loc": 73486,
-      "code": 65354,
-      "blank": 4471,
-      "comment": 3661,
-      "bytes": 2655519
+      "files": 232,
+      "loc": 73943,
+      "code": 65790,
+      "blank": 4482,
+      "comment": 3671,
+      "bytes": 2673020
     },
     "javascript": {
       "files": 8,
@@ -621,11 +622,11 @@
     },
     "json": {
       "files": 80,
-      "loc": 7580,
-      "code": 7580,
+      "loc": 7581,
+      "code": 7581,
       "blank": 0,
       "comment": 0,
-      "bytes": 341944
+      "bytes": 342000
     },
     "lockfile": {
       "files": 2,
@@ -669,11 +670,11 @@
     },
     "sql": {
       "files": 1,
-      "loc": 3840,
-      "code": 3415,
-      "blank": 197,
-      "comment": 228,
-      "bytes": 204858
+      "loc": 3857,
+      "code": 3428,
+      "blank": 198,
+      "comment": 231,
+      "bytes": 205702
     },
     "text": {
       "files": 2,
@@ -734,12 +735,12 @@
       "bytes": 23052
     },
     "control": {
-      "files": 166,
-      "loc": 52168,
-      "code": 45953,
-      "blank": 3198,
-      "comment": 3017,
-      "bytes": 1902068
+      "files": 167,
+      "loc": 52558,
+      "code": 46322,
+      "blank": 3209,
+      "comment": 3027,
+      "bytes": 1916742
     },
     "documentation": {
       "files": 39,
@@ -759,19 +760,19 @@
     },
     "ops": {
       "files": 118,
-      "loc": 11052,
-      "code": 10466,
-      "blank": 423,
+      "loc": 11055,
+      "code": 10468,
+      "blank": 424,
       "comment": 163,
-      "bytes": 491546
+      "bytes": 491741
     },
     "payment": {
       "files": 39,
-      "loc": 13104,
-      "code": 11790,
+      "loc": 13123,
+      "code": 11809,
       "blank": 759,
       "comment": 555,
-      "bytes": 468660
+      "bytes": 469514
     },
     "proof": {
       "files": 119,
@@ -791,28 +792,28 @@
     },
     "store": {
       "files": 1,
-      "loc": 3840,
-      "code": 3415,
-      "blank": 197,
-      "comment": 228,
-      "bytes": 204858
+      "loc": 3857,
+      "code": 3428,
+      "blank": 198,
+      "comment": 231,
+      "bytes": 205702
     },
     "verification": {
       "files": 23,
-      "loc": 6591,
-      "code": 6109,
+      "loc": 6639,
+      "code": 6157,
       "blank": 404,
       "comment": 78,
-      "bytes": 238321
+      "bytes": 240294
     }
   },
   "ownership": {
-    "global_owned_loc": 136777,
-    "non_design_production_core_loc": 96540,
-    "test_loc": 26939,
-    "documentation_loc": 6625,
+    "global_owned_loc": 137254,
+    "non_design_production_core_loc": 96745,
+    "test_loc": 27208,
+    "documentation_loc": 6627,
     "python_loc": 9388,
-    "generated_loc": 5122,
+    "generated_loc": 5125,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -834,8 +835,8 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10217047,
+  "tracked_bytes": 10235587,
   "tracked_files": 570,
-  "untracked_files": 0,
-  "walked_files": 570
+  "untracked_files": 1,
+  "walked_files": 571
 }
