@@ -1,5 +1,5 @@
 {
-  "authority_sha256": "6fdc56977b0fdf6c457a90448c897dfa5b11f66329e5dbe410523755a468505e",
+  "authority_sha256": "0b17963a168c22fbc4730d928e04d37af59609a22605d0ab7d677f1963e781fe",
   "dependencies": {
     "go_direct": 5,
     "cargo_direct": 24,
@@ -59,7 +59,7 @@
     "bench/immutable/shared-prefix-v2.sha256": 1,
     "benchmarks/realtime-chat-v1.json": 11,
     "census/.gitignore": 4,
-    "census/CODEBASE_CENSUS.json": 850,
+    "census/CODEBASE_CENSUS.json": 851,
     "census/CODEBASE_CENSUS.md": 47,
     "cli/LICENSE": 202,
     "cli/README.md": 13,
@@ -489,7 +489,7 @@
     "scripts/package-agent-binary.sh": 70,
     "scripts/price-board-page-prices.mjs": 78,
     "scripts/private-canary.py": 570,
-    "scripts/prove-local.sh": 363,
+    "scripts/prove-local.sh": 366,
     "scripts/quality-suite.py": 183,
     "scripts/realtime-openai-node-conformance.mjs": 212,
     "scripts/realtime-openai-python-conformance.py": 204,
@@ -500,6 +500,7 @@
     "scripts/restore-drill.sh": 434,
     "scripts/restore.sh": 125,
     "scripts/rollback.sh": 40,
+    "scripts/run-full-proof-monitored.sh": 118,
     "scripts/runpod-create-payload.py": 73,
     "scripts/runpod-vllm.sh": 177,
     "scripts/runtime-parity-sweep.py": 205,
@@ -630,11 +631,11 @@
     },
     "json": {
       "files": 80,
-      "loc": 7590,
-      "code": 7590,
+      "loc": 7591,
+      "code": 7591,
       "blank": 0,
       "comment": 0,
-      "bytes": 342376
+      "bytes": 342424
     },
     "lockfile": {
       "files": 2,
@@ -669,12 +670,12 @@
       "bytes": 370207
     },
     "shell": {
-      "files": 73,
-      "loc": 14419,
-      "code": 12152,
-      "blank": 1147,
-      "comment": 1120,
-      "bytes": 642968
+      "files": 74,
+      "loc": 14540,
+      "code": 12250,
+      "blank": 1158,
+      "comment": 1132,
+      "bytes": 647590
     },
     "sql": {
       "files": 1,
@@ -768,11 +769,11 @@
     },
     "ops": {
       "files": 119,
-      "loc": 11146,
-      "code": 10553,
+      "loc": 11147,
+      "code": 10554,
       "blank": 427,
       "comment": 166,
-      "bytes": 495251
+      "bytes": 495299
     },
     "payment": {
       "files": 39,
@@ -783,12 +784,12 @@
       "bytes": 469707
     },
     "proof": {
-      "files": 122,
-      "loc": 26064,
-      "code": 22250,
-      "blank": 2284,
-      "comment": 1530,
-      "bytes": 1085292
+      "files": 123,
+      "loc": 26185,
+      "code": 22348,
+      "blank": 2295,
+      "comment": 1542,
+      "bytes": 1089914
     },
     "sdk": {
       "files": 10,
@@ -816,12 +817,12 @@
     }
   },
   "ownership": {
-    "global_owned_loc": 139368,
-    "non_design_production_core_loc": 98417,
+    "global_owned_loc": 139490,
+    "non_design_production_core_loc": 98538,
     "test_loc": 27611,
     "documentation_loc": 6658,
     "python_loc": 9388,
-    "generated_loc": 5131,
+    "generated_loc": 5132,
     "vendored_upstream_loc": 0,
     "relocated_loc": 0,
     "first_party_patch_loc": 0
@@ -843,8 +844,8 @@
       "batch_infer"
     ]
   },
-  "tracked_bytes": 10317063,
-  "tracked_files": 579,
+  "tracked_bytes": 10321733,
+  "tracked_files": 580,
   "untracked_files": 0,
-  "walked_files": 579
+  "walked_files": 580
 }

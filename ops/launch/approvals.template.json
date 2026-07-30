@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "candidate_commit": "",
+  "scope": "supervised Level-B Stripe-test-mode private canary only",
+  "independent_review": {
+    "reviewer": "",
+    "report_path": "",
+    "retest_status": "PENDING"
+  },
+  "governance_bundle_path": "",
+  "note": "Copy completed approval evidence to the restricted governance store; do not commit names, signatures, or secret values here."
+}
