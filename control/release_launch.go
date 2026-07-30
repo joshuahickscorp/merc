@@ -6,6 +6,7 @@ package main
 // own process environment.
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,8 +28,58 @@ type launchConfig struct {
 	SchemaVersion int    `yaml:"schema_version" json:"schema_version"`
 	Environment   string `yaml:"environment" json:"environment"`
 	Candidate     struct {
-		Commit string `yaml:"commit" json:"commit"`
+		Commit       string `yaml:"commit" json:"commit"`
+		ControlImage string `yaml:"control_image" json:"control_image"`
+		PriorImage   string `yaml:"prior_image" json:"prior_image"`
+		PriorCommit  string `yaml:"prior_commit" json:"prior_commit"`
 	} `yaml:"candidate" json:"candidate"`
+	Staging struct {
+		SSHTarget       string `yaml:"ssh_target" json:"ssh_target"`
+		TLSHostname     string `yaml:"tls_hostname" json:"tls_hostname"`
+		DeploymentRoot  string `yaml:"deployment_root" json:"deployment_root"`
+		StorageHostname string `yaml:"storage_tls_hostname" json:"storage_tls_hostname"`
+		BindAddress     string `yaml:"bind_address" json:"bind_address"`
+		ACMEEmail       string `yaml:"acme_email" json:"acme_email"`
+	} `yaml:"staging" json:"staging"`
+	Pricing struct {
+		ReferenceToSettlementRate string `yaml:"reference_to_settlement_rate" json:"reference_to_settlement_rate"`
+		FXRevision                string `yaml:"fx_revision" json:"fx_revision"`
+	} `yaml:"pricing" json:"pricing"`
+	Images struct {
+		Prometheus   string `yaml:"prometheus" json:"prometheus"`
+		Alertmanager string `yaml:"alertmanager" json:"alertmanager"`
+		Grafana      string `yaml:"grafana" json:"grafana"`
+		NodeExporter string `yaml:"node_exporter" json:"node_exporter"`
+	} `yaml:"images" json:"images"`
+	Backup struct {
+		Offsite             string `yaml:"offsite" json:"offsite"`
+		EncryptionRecipient string `yaml:"encryption_recipient" json:"encryption_recipient"`
+	} `yaml:"backup" json:"backup"`
+	Stripe struct {
+		ConnectClientID          string `yaml:"connect_client_id" json:"connect_client_id"`
+		TestConnectedAccountID   string `yaml:"test_connected_account_id" json:"test_connected_account_id"`
+		BillingWebhookEndpointID string `yaml:"billing_webhook_endpoint_id" json:"billing_webhook_endpoint_id"`
+		ConnectWebhookEndpointID string `yaml:"connect_webhook_endpoint_id" json:"connect_webhook_endpoint_id"`
+	} `yaml:"stripe" json:"stripe"`
+	Canary struct {
+		ApprovedBuyerEmails   []string `yaml:"approved_buyer_emails" json:"approved_buyer_emails"`
+		ApprovedWorkerIDs     []string `yaml:"approved_worker_ids" json:"approved_worker_ids"`
+		ApprovedAgentVersions []string `yaml:"approved_agent_versions" json:"approved_agent_versions"`
+		ApprovedBuildHashes   []string `yaml:"approved_build_hashes" json:"approved_build_hashes"`
+		ScenarioDriver        string   `yaml:"scenario_driver" json:"scenario_driver"`
+		ScenarioDriverSHA256  string   `yaml:"scenario_driver_sha256" json:"scenario_driver_sha256"`
+		RestartDriver         string   `yaml:"restart_driver" json:"restart_driver"`
+		RestartDriverSHA256   string   `yaml:"restart_driver_sha256" json:"restart_driver_sha256"`
+	} `yaml:"canary" json:"canary"`
+	Alert struct {
+		ReceiverName string `yaml:"receiver_name" json:"receiver_name"`
+	} `yaml:"alert" json:"alert"`
+	Review struct {
+		GitHubReviewerLogin string `yaml:"github_reviewer_login" json:"github_reviewer_login"`
+	} `yaml:"review" json:"review"`
+	Governance struct {
+		ApprovalBundlePath string `yaml:"approval_bundle_path" json:"approval_bundle_path"`
+	} `yaml:"governance" json:"governance"`
 }
 
 type launchPlan struct {
@@ -126,7 +177,9 @@ func loadLaunchConfig(path, environment string) (launchConfig, []byte, error) {
 	if err != nil {
 		return cfg, nil, err
 	}
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&cfg); err != nil {
 		return cfg, nil, fmt.Errorf("parse launch config: %w", err)
 	}
 	if cfg.SchemaVersion != 1 || cfg.Environment != environment || environment != levelBEnvironment {
@@ -134,6 +187,31 @@ func loadLaunchConfig(path, environment string) (launchConfig, []byte, error) {
 	}
 	canonical, err := canonicalProofJSON(cfg)
 	return cfg, canonical, err
+}
+
+func launchConfigValues(cfg launchConfig) map[string]string {
+	join := func(values []string) string { return strings.Join(values, ",") }
+	return map[string]string{
+		"MERC_CANDIDATE_CONTROL_IMAGE": cfg.Candidate.ControlImage, "MERC_PRIOR_CONTROL_IMAGE": cfg.Candidate.PriorImage, "MERC_PRIOR_COMMIT": cfg.Candidate.PriorCommit,
+		"STAGING_SSH_TARGET": cfg.Staging.SSHTarget, "STAGING_TLS_HOSTNAME": cfg.Staging.TLSHostname, "STAGING_DEPLOYMENT_ROOT": cfg.Staging.DeploymentRoot, "STAGING_STORAGE_TLS_HOSTNAME": cfg.Staging.StorageHostname, "STAGING_BIND_ADDRESS": cfg.Staging.BindAddress, "ACME_EMAIL": cfg.Staging.ACMEEmail,
+		"MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE": cfg.Pricing.ReferenceToSettlementRate, "MERC_PRICE_FX_REVISION": cfg.Pricing.FXRevision,
+		"MERC_PROMETHEUS_IMAGE": cfg.Images.Prometheus, "MERC_ALERTMANAGER_IMAGE": cfg.Images.Alertmanager, "MERC_GRAFANA_IMAGE": cfg.Images.Grafana, "MERC_NODE_EXPORTER_IMAGE": cfg.Images.NodeExporter,
+		"MERC_BACKUP_OFFSITE": cfg.Backup.Offsite, "MERC_BACKUP_ENCRYPTION_RECIPIENT": cfg.Backup.EncryptionRecipient,
+		"MERC_CONNECT_CLIENT_ID": cfg.Stripe.ConnectClientID, "STRIPE_TEST_CONNECTED_ACCOUNT_ID": cfg.Stripe.TestConnectedAccountID, "STRIPE_BILLING_WEBHOOK_ENDPOINT_ID": cfg.Stripe.BillingWebhookEndpointID, "STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID": cfg.Stripe.ConnectWebhookEndpointID,
+		"MERC_CANARY_APPROVED_BUYER_EMAILS": join(cfg.Canary.ApprovedBuyerEmails), "MERC_CANARY_APPROVED_WORKER_IDS": join(cfg.Canary.ApprovedWorkerIDs), "MERC_CANARY_APPROVED_AGENT_VERSIONS": join(cfg.Canary.ApprovedAgentVersions), "MERC_CANARY_APPROVED_BUILD_HASHES": join(cfg.Canary.ApprovedBuildHashes), "MERC_CANARY_SCENARIO_DRIVER": cfg.Canary.ScenarioDriver, "MERC_CANARY_APPROVED_DRIVER_SHA256": cfg.Canary.ScenarioDriverSHA256, "MERC_AGENT_RESTART_DRIVER": cfg.Canary.RestartDriver, "MERC_AGENT_RESTART_APPROVED_DRIVER_SHA256": cfg.Canary.RestartDriverSHA256,
+		"ALERT_RECEIVER_NAME": cfg.Alert.ReceiverName, "GITHUB_RELEASE_REVIEWER_LOGIN": cfg.Review.GitHubReviewerLogin, "GOVERNANCE_APPROVAL_BUNDLE_PATH": cfg.Governance.ApprovalBundlePath,
+	}
+}
+
+func mergeLaunchValues(config, secrets map[string]string) map[string]string {
+	out := make(map[string]string, len(config)+len(secrets))
+	for name, value := range config {
+		out[name] = value
+	}
+	for name, value := range secrets {
+		out[name] = value
+	}
+	return out
 }
 
 func launchSource(root string) (sourceFingerprintResult, error) { return sourceFingerprint(root) }
@@ -217,6 +295,15 @@ func compileLaunchPlan(root, environment, configPath, secretsPath string) (launc
 	}
 	if commit != fp.Head {
 		return launchPlan{}, fmt.Errorf("config candidate commit %s is not exact HEAD %s", commit, fp.Head)
+	}
+	configValues := launchConfigValues(cfg)
+	configValues["MERC_CANDIDATE_COMMIT"] = commit
+	inputs, err := buildLaunchInputs(root, mergeLaunchValues(configValues, secrets))
+	if err != nil {
+		return launchPlan{}, err
+	}
+	if !inputs.Ready {
+		return launchPlan{}, fmt.Errorf("launch configuration/input bundle incomplete: %d required entries missing (run merc release inputs)", len(inputs.Missing))
 	}
 	plan := launchPlan{SchemaVersion: 1, Kind: "merc_level_b_release_plan", Environment: environment,
 		CandidateCommit: commit, SourceSHA256: fp.SourceSHA256, ConfigSHA256: sha256Hex(configBytes),
@@ -308,7 +395,11 @@ func buildLaunchInputs(root string, values map[string]string) (launchInputs, err
 	return out, nil
 }
 
-func cmdLaunchInputs(root, secretsPath string) {
+func cmdLaunchInputs(root, configPath, environment, secretsPath string) {
+	cfg, _, err := loadLaunchConfig(configPath, environment)
+	if err != nil {
+		fatalf("release inputs config: %v", err)
+	}
 	values, err := loadLaunchSecrets(secretsPath)
 	if os.IsNotExist(err) {
 		values, err = map[string]string{}, nil
@@ -316,7 +407,13 @@ func cmdLaunchInputs(root, secretsPath string) {
 	if err != nil {
 		fatalf("read secrets file: %v", err)
 	}
-	out, err := buildLaunchInputs(root, values)
+	configValues := launchConfigValues(cfg)
+	if configValues["MERC_CANDIDATE_COMMIT"] == "" {
+		if fp, fpErr := launchSource(root); fpErr == nil {
+			configValues["MERC_CANDIDATE_COMMIT"] = fp.Head
+		}
+	}
+	out, err := buildLaunchInputs(root, mergeLaunchValues(configValues, values))
 	if err != nil {
 		fatalf("release inputs: %v", err)
 	}
@@ -338,13 +435,17 @@ func dispatchLaunchRelease(args []string) {
 	}
 	switch command {
 	case "inputs":
-		cmdLaunchInputs(root, *secrets)
+		cmdLaunchInputs(root, *config, *environment, *secrets)
 	case "doctor":
+		cfg, _, err := loadLaunchConfig(*config, *environment)
+		if err != nil {
+			fatalf("release doctor config: %v", err)
+		}
 		values, err := loadLaunchSecrets(*secrets)
 		if err != nil {
 			fatalf("release doctor: %v", err)
 		}
-		out, err := runReleaseDoctor(root, values)
+		out, err := runReleaseDoctor(root, mergeLaunchValues(launchConfigValues(cfg), values))
 		if err != nil {
 			fmt.Print(string(out))
 			fatalf("Level B launch inputs are not ready")
@@ -394,9 +495,14 @@ func dispatchLaunchRelease(args []string) {
 		if err != nil {
 			fatalf("release %s: %v", command, err)
 		}
-		out, err := runReleaseDoctor(root, values)
+		cfg, _, err := loadLaunchConfig(*config, *environment)
 		if err != nil {
-			inputs, inputErr := buildLaunchInputs(root, values)
+			fatalf("release %s config: %v", command, err)
+		}
+		allValues := mergeLaunchValues(launchConfigValues(cfg), values)
+		out, err := runReleaseDoctor(root, allValues)
+		if err != nil {
+			inputs, inputErr := buildLaunchInputs(root, allValues)
 			if inputErr != nil {
 				fatalf("release %s input contract: %v", command, inputErr)
 			}
