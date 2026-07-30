@@ -114,10 +114,10 @@ func TestDistributedPricingDecisionUsesExplicitUnknownCostStates(t *testing.T) {
 	}
 }
 
-func TestV3PricingBillableUnitsUseFrozenSettlementAuthority(t *testing.T) {
+func TestV4PricingBillableUnitsUseFrozenSettlementAuthority(t *testing.T) {
 	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
 	if compute.Version != computePlanVersion {
-		t.Fatalf("fixture plan version=%d, want current v3", compute.Version)
+		t.Fatalf("fixture plan version=%d, want current v4", compute.Version)
 	}
 	if compute.EstimatedInputTokens == int64(compute.SettlementInputUnits) {
 		t.Fatal("fixture does not distinguish selected-body planning tokens from settlement units")
@@ -131,10 +131,11 @@ func TestV3PricingBillableUnitsUseFrozenSettlementAuthority(t *testing.T) {
 	}
 
 	// Historical v2 decisions retain their original computed presentation and
-	// remain verifiable; only newly frozen v3 plans gain the reconciled field.
+	// remain verifiable; version 3 and later plans carry the reconciled field.
 	historical := compute
 	historical.Version = computePlanVersionV2
 	historical.SettlementInputUnits = 0
+	historical.ETAConfidenceBandMethod = ""
 	historicalPricing, err := newDistributedPricingDecision(
 		workload, historical, placement, economic, pricing.Catalogue,
 		workload.Binding.Tier, "",

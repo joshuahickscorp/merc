@@ -49,7 +49,7 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 		ComputePlan:   compute,
 		Time: QuoteTime{
 			P50Secs: compute.ETAP50Secs, P90Secs: compute.ETAP90Secs,
-			WorstCaseSecs: compute.ETAWorstCaseSecs,
+			WorstCaseSecs: compute.ETAWorstCaseSecs, ConfidenceBandMethod: compute.ETAConfidenceBandMethod,
 		},
 		Pricing:     pricing,
 		Economics:   economic,

@@ -10,12 +10,14 @@ import (
 )
 
 // computePlanVersion is the version written for newly frozen plans.
-// Historical version-1 and version-2 plans remain readable and settleable.
-const computePlanVersion = 3
+// Historical version-1 through version-3 plans remain readable and settleable.
+const computePlanVersion = 4
 
 const computePlanVersionV1 = 1
 
 const computePlanVersionV2 = 2
+
+const computePlanVersionV3 = 3
 
 const (
 	computeExecutionDistributed = "distributed"
@@ -42,28 +44,35 @@ type ComputePlan struct {
 	// planning and ETA, whereas settlement prices complete JSONL input geometry.
 	// Version 3 writes this as max(records, input_bytes/4), without a rounding
 	// conversion, so pricing, settlement, and the receipt share one authority.
-	SettlementInputUnits    float64            `json:"settlement_input_units,omitempty"`
-	EstimatedOutputTokens   int64              `json:"estimated_output_tokens"`
-	InputDepthProfile       *InputDepthProfile `json:"input_depth_profile,omitempty"`
-	SplitSize               int                `json:"split_size"`
-	PrimaryTasks            int                `json:"primary_tasks"`
-	RedundancyTasks         int                `json:"redundancy_tasks"`
-	HoneypotTasks           int                `json:"honeypot_tasks"`
-	TotalInitialTasks       int                `json:"total_initial_tasks"`
-	MinimumMemoryGB         float64            `json:"minimum_memory_gb"`
-	ETAP50Secs              int                `json:"eta_p50_secs"`
-	ETAP90Secs              int                `json:"eta_p90_secs"`
-	ETAWorstCaseSecs        int                `json:"eta_worst_case_secs"`
-	ETASource               string             `json:"eta_source"`
-	BaseComputeUSD          float64            `json:"base_compute_usd"`
-	VerificationOverheadUSD float64            `json:"verification_overhead_usd"`
-	Confidence              float64            `json:"confidence"`
-	ConfidenceReasons       []string           `json:"confidence_reasons"`
-	Unknowns                []string           `json:"unknowns,omitempty"`
+	SettlementInputUnits  float64            `json:"settlement_input_units,omitempty"`
+	EstimatedOutputTokens int64              `json:"estimated_output_tokens"`
+	InputDepthProfile     *InputDepthProfile `json:"input_depth_profile,omitempty"`
+	SplitSize             int                `json:"split_size"`
+	PrimaryTasks          int                `json:"primary_tasks"`
+	RedundancyTasks       int                `json:"redundancy_tasks"`
+	HoneypotTasks         int                `json:"honeypot_tasks"`
+	TotalInitialTasks     int                `json:"total_initial_tasks"`
+	MinimumMemoryGB       float64            `json:"minimum_memory_gb"`
+	ETAP50Secs            int                `json:"eta_p50_secs"`
+	ETAP90Secs            int                `json:"eta_p90_secs"`
+	ETAWorstCaseSecs      int                `json:"eta_worst_case_secs"`
+	ETASource             string             `json:"eta_source"`
+	// ETAConfidenceBandMethod makes the semantic source of eta_p90_secs
+	// explicit. It is deliberately separate from ETASource: the latter explains
+	// the p50 authority, while this describes how the uncertainty bands were
+	// constructed. Version 4 writes it; its omission on older plans preserves
+	// their historical JSON and digest.
+	ETAConfidenceBandMethod string   `json:"eta_confidence_band_method,omitempty"`
+	BaseComputeUSD          float64  `json:"base_compute_usd"`
+	VerificationOverheadUSD float64  `json:"verification_overhead_usd"`
+	Confidence              float64  `json:"confidence"`
+	ConfidenceReasons       []string `json:"confidence_reasons"`
+	Unknowns                []string `json:"unknowns,omitempty"`
 }
 
 func supportedComputePlanVersion(version int) bool {
-	return version == computePlanVersionV1 || version == computePlanVersionV2 || version == computePlanVersion
+	return version == computePlanVersionV1 || version == computePlanVersionV2 ||
+		version == computePlanVersionV3 || version == computePlanVersion
 }
 
 func computePlanDigest(plan ComputePlan) (string, error) {
@@ -131,6 +140,63 @@ func computePlanETASource(plannerBacked, observedHistory, calibrated bool) strin
 		return "planner"
 	default:
 		return "static"
+	}
+}
+
+const (
+	// etaBandMethodPlannerConservativeBound means eta_p90_secs contains the
+	// planner's conservative rate-model bound. It is not represented as an
+	// empirically measured statistical percentile.
+	etaBandMethodPlannerConservativeBound = "planner_conservative_bound"
+	// etaBandMethodSyntheticMultiples means eta_p90_secs and worst_case_secs
+	// are deterministic multiples of p50, rather than observed percentiles.
+	etaBandMethodSyntheticMultiples = "synthetic_multiples"
+	etaBandMethodExactResultReuse   = "exact_result_reuse"
+)
+
+func saturatingETAMultiple(secs, multiple int) int {
+	if secs <= 0 || multiple <= 0 {
+		return 0
+	}
+	maxInt := int(^uint(0) >> 1)
+	if secs > maxInt/multiple {
+		return maxInt
+	}
+	return secs * multiple
+}
+
+func maxETA(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// quoteTimeFromETABands freezes buyer-visible ETA bands without calling a
+// modeled conservative rate bound a measured percentile. Planner-backed
+// estimates surface that bound in the compatibility p90 field and label its
+// method. Fallback estimates retain their advisory synthetic bands with the
+// same explicit label.
+func quoteTimeFromETABands(p50Secs, conservativeSecs int, plannerBacked bool) QuoteTime {
+	if p50Secs < 0 {
+		p50Secs = 0
+	}
+	if plannerBacked {
+		if conservativeSecs < p50Secs {
+			conservativeSecs = p50Secs
+		}
+		return QuoteTime{
+			P50Secs:              p50Secs,
+			P90Secs:              conservativeSecs,
+			WorstCaseSecs:        maxETA(saturatingETAMultiple(p50Secs, 4), saturatingETAMultiple(conservativeSecs, 2)),
+			ConfidenceBandMethod: etaBandMethodPlannerConservativeBound,
+		}
+	}
+	return QuoteTime{
+		P50Secs:              p50Secs,
+		P90Secs:              saturatingETAMultiple(p50Secs, 2),
+		WorstCaseSecs:        saturatingETAMultiple(p50Secs, 4),
+		ConfidenceBandMethod: etaBandMethodSyntheticMultiples,
 	}
 }
 
@@ -205,6 +271,7 @@ func newDistributedComputePlan(
 		ETAP90Secs:              eta.P90Secs,
 		ETAWorstCaseSecs:        eta.WorstCaseSecs,
 		ETASource:               etaSource,
+		ETAConfidenceBandMethod: eta.ConfidenceBandMethod,
 		BaseComputeUSD:          roundEconomicUSD(baseComputeUSD),
 		VerificationOverheadUSD: roundEconomicUSD(verificationOverheadUSD),
 		Confidence:              confidence.Score,
@@ -242,20 +309,21 @@ func newExactReuseComputePlan(
 	}
 	depthCopy := depth
 	plan := ComputePlan{
-		Version:                computePlanVersion,
-		ExecutionMode:          computeExecutionExactReuse,
-		WorkloadBindingSHA256:  decision.BindingSHA256,
-		WorkloadDecisionSHA256: decisionSHA256,
-		InputRecords:           inputRecords,
-		InputBytes:             inputBytes,
-		EstimatedInputTokens:   depth.EstimatedTokens,
-		SettlementInputUnits:   settlementInputUnitsForGeometry(inputRecords, inputBytes),
-		EstimatedOutputTokens:  estimatedOutputTokensForComputePlan(decision, inputRecords),
-		InputDepthProfile:      &depthCopy,
-		ETASource:              computeExecutionExactReuse,
-		BaseComputeUSD:         roundEconomicUSD(buyerChargeUSD),
-		MinimumMemoryGB:        decision.MinimumMemoryGB,
-		Confidence:             1,
+		Version:                 computePlanVersion,
+		ExecutionMode:           computeExecutionExactReuse,
+		WorkloadBindingSHA256:   decision.BindingSHA256,
+		WorkloadDecisionSHA256:  decisionSHA256,
+		InputRecords:            inputRecords,
+		InputBytes:              inputBytes,
+		EstimatedInputTokens:    depth.EstimatedTokens,
+		SettlementInputUnits:    settlementInputUnitsForGeometry(inputRecords, inputBytes),
+		EstimatedOutputTokens:   estimatedOutputTokensForComputePlan(decision, inputRecords),
+		InputDepthProfile:       &depthCopy,
+		ETASource:               computeExecutionExactReuse,
+		ETAConfidenceBandMethod: etaBandMethodExactResultReuse,
+		BaseComputeUSD:          roundEconomicUSD(buyerChargeUSD),
+		MinimumMemoryGB:         decision.MinimumMemoryGB,
+		Confidence:              1,
 		ConfidenceReasons: []string{
 			"content-addressed result identity matched the complete frozen workload decision",
 			"physical execution fan-out is zero because a verified prior result is materialized",
@@ -293,7 +361,8 @@ func validSHA256(value string) bool {
 // and binds EstimatedInputTokens to that profile. Version 3 additionally
 // freezes the exact fractional input unit count that catalogue pricing used, so
 // settlement, pricing receipts, and supplier-time modeling cannot call the
-// planning depth estimate a money unit.
+// planning depth estimate a money unit. Version 4 adds the explicit semantics
+// behind the frozen ETA uncertainty bands.
 func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecision) error {
 	if !supportedComputePlanVersion(plan.Version) {
 		return fmt.Errorf("unsupported compute plan version %d", plan.Version)
@@ -323,7 +392,7 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 		if plan.EstimatedInputTokens != estimatedInputTokensForComputePlanV1(plan.InputRecords, plan.InputBytes) {
 			return errors.New("compute plan input-token estimate does not match its frozen input geometry")
 		}
-	case computePlanVersionV2, computePlanVersion:
+	case computePlanVersionV2, computePlanVersionV3, computePlanVersion:
 		if plan.InputDepthProfile == nil {
 			return fmt.Errorf("version-%d compute plan requires an input depth profile", plan.Version)
 		}
@@ -357,6 +426,9 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 				return errors.New("compute plan settlement input units do not match its frozen input geometry")
 			}
 		}
+	}
+	if plan.Version < computePlanVersion && plan.ETAConfidenceBandMethod != "" {
+		return errors.New("pre-version-4 compute plan cannot carry ETA confidence-band semantics")
 	}
 	if plan.EstimatedOutputTokens != estimatedOutputTokensForComputePlan(decision, plan.InputRecords) {
 		return errors.New("compute plan output-token estimate does not match its frozen workload")
@@ -404,6 +476,30 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 			plan.ETAWorstCaseSecs < plan.ETAP90Secs {
 			return errors.New("compute plan has invalid ETA bands")
 		}
+		if plan.Version == computePlanVersion {
+			switch plan.ETAConfidenceBandMethod {
+			case etaBandMethodPlannerConservativeBound:
+				if plan.ETASource == "static" {
+					return errors.New("planner conservative ETA bands cannot claim a static p50 source")
+				}
+				if plan.ETAWorstCaseSecs != maxETA(
+					saturatingETAMultiple(plan.ETAP50Secs, 4),
+					saturatingETAMultiple(plan.ETAP90Secs, 2),
+				) {
+					return errors.New("planner conservative ETA bands do not match their frozen formula")
+				}
+			case etaBandMethodSyntheticMultiples:
+				if plan.ETASource == "planner" {
+					return errors.New("planner-backed p50 cannot carry synthetic ETA bands")
+				}
+				if plan.ETAP90Secs != saturatingETAMultiple(plan.ETAP50Secs, 2) ||
+					plan.ETAWorstCaseSecs != saturatingETAMultiple(plan.ETAP50Secs, 4) {
+					return errors.New("synthetic ETA bands do not match their frozen formula")
+				}
+			default:
+				return errors.New("compute plan has invalid ETA confidence-band method")
+			}
+		}
 		switch plan.ETASource {
 		case "planner", "historical", "static", "calibrated":
 		default:
@@ -417,6 +513,9 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 		if plan.ETAP50Secs != 0 || plan.ETAP90Secs != 0 || plan.ETAWorstCaseSecs != 0 ||
 			plan.ETASource != computeExecutionExactReuse {
 			return errors.New("exact-reuse compute plan must freeze zero execution ETA")
+		}
+		if plan.Version == computePlanVersion && plan.ETAConfidenceBandMethod != etaBandMethodExactResultReuse {
+			return errors.New("exact-reuse compute plan must identify its zero ETA semantics")
 		}
 		if plan.VerificationOverheadUSD != 0 {
 			return errors.New("exact-reuse compute plan cannot charge physical verification overhead")

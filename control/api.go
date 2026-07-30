@@ -1111,7 +1111,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		etaRawSecs = qBind.ETARawSecs
 	} else {
 		depthBand := measuredDepth.P90DepthBand
-		p50, _, plannerBacked := s.etaBandSecsFor(
+		p50, conservativeSecs, plannerBacked := s.etaBandSecsFor(
 			ctx, placement.supplyRequirements(), len(tasks), depthBand,
 		)
 		observedP90ms, _, historyErr := s.store.HistoricalP90DurationMs(
@@ -1119,6 +1119,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		)
 		usedObservedHistory := historyErr == nil && observedP90ms > 0
 		p50 = sustainedBatchETASecs(p50, sub.Tier, usedObservedHistory)
+		if plannerBacked && conservativeSecs < p50 {
+			conservativeSecs = p50
+		}
 		etaRawSecs = p50
 		etaBias, etaBiasSamples, etaBiasErr := s.store.ETABiasFactor(
 			ctx, sub.JobType.Type, sub.Tier, sub.Model.Ref, depthBand,
@@ -1126,8 +1129,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		etaCalibrated := etaBiasErr == nil && etaBiasSamples >= driftMinSamples && etaBias > 1
 		if etaCalibrated {
 			p50 = applyETABias(p50, etaBias)
+			conservativeSecs = applyETABias(conservativeSecs, etaBias)
 		}
-		eta := QuoteTime{P50Secs: p50, P90Secs: p50 * 2, WorstCaseSecs: p50 * 4}
+		eta := quoteTimeFromETABands(p50, conservativeSecs, plannerBacked)
 		confidence := QuoteConfidence{
 			Score: workloadDecision.Confidence,
 			Reasons: []string{

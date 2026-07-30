@@ -242,7 +242,7 @@ func TestSettlementInputUnitsPreserveHistoryAndUseV3FrozenAuthority(t *testing.T
 	v2.Version = computePlanVersionV2
 	v2.EstimatedInputTokens = 3 // selected bodies exclude JSON framing/metadata
 	v3 := v2
-	v3.Version = computePlanVersion
+	v3.Version = computePlanVersionV3
 	v3.SettlementInputUnits = 25.25 // exact max(records, input_bytes/4) price authority
 
 	v1Units := settlementInputUnitsForComputePlan(v1)
@@ -326,7 +326,7 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 		1,
 		0,
 		0,
-		QuoteTime{P50Secs: 60, P90Secs: 120, WorstCaseSecs: 240},
+		quoteTimeFromETABands(60, 0, false),
 		"static",
 		f.Plan.Input.BaseComputeUSD,
 		0,

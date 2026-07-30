@@ -45,12 +45,12 @@ func effectiveObservedOutputMaxTokens(workload WorkloadDecision, plan ComputePla
 }
 
 // settlementInputUnitsForComputePlan preserves the input-unit composition that
-// created the frozen price. Version-3 records the exact catalogue authority.
-// Version-1/2 plans predate that field, so they retain their existing rounded
+// created the frozen price. Version 3 and later record the exact catalogue
+// authority. Version-1/2 plans predate that field, so they retain their existing rounded
 // whole-input compatibility rule instead of being re-priced from selected-body
 // depth estimates after acceptance.
 func settlementInputUnitsForComputePlan(plan ComputePlan) float64 {
-	if plan.Version == computePlanVersion {
+	if plan.Version == computePlanVersionV3 || plan.Version == computePlanVersion {
 		return plan.SettlementInputUnits
 	}
 	return float64(estimatedInputTokensForComputePlanV1(plan.InputRecords, plan.InputBytes))

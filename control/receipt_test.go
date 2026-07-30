@@ -41,7 +41,7 @@ func TestAssembleClearingReceipt(t *testing.T) {
 		1,
 		0,
 		0,
-		QuoteTime{P50Secs: 10, P90Secs: 20, WorstCaseSecs: 40},
+		quoteTimeFromETABands(10, 0, false),
 		"static",
 		0.1,
 		0,
