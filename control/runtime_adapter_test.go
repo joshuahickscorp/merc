@@ -83,8 +83,12 @@ func TestEstimateNeverCallsAnUnbenchmarkedProfileComparable(t *testing.T) {
 	if !candle.Supported || !candle.Routable {
 		t.Fatalf("candle_metal estimate = %+v, want supported and routable", candle)
 	}
-	if !candle.Comparable {
-		t.Error("candle_metal names a benchmark authority but is not comparable")
+	// candle_metal HAS a receipt and it measures nothing. Comparable must track
+	// the measurement, not the existence of a citation — otherwise the first
+	// runtime tournament compares a measured challenger against an unmeasured
+	// incumbent and calls the result evidence.
+	if candle.Comparable {
+		t.Error("candle_metal is comparable, but its receipt records no throughput")
 	}
 	if candle.TokensPerSec != 285 {
 		t.Errorf("candle_metal tokens/sec = %v, want the worker's 285", candle.TokensPerSec)
@@ -97,12 +101,18 @@ func TestEstimateNeverCallsAnUnbenchmarkedProfileComparable(t *testing.T) {
 			candle.ThroughputSource, throughputSourceWorkerReported)
 	}
 
-	for _, id := range []string{"mlx_metal", "llama_cpp_metal", "vllm_cuda"} {
-		e := byID[id]
-		if e.Comparable {
-			t.Errorf("%s has no benchmark_authority but is marked comparable", id)
+	// llama_cpp_metal is the only profile with a measured throughput receipt,
+	// and it is still not routable: measurement is necessary, not sufficient.
+	if !byID["llama_cpp_metal"].Comparable {
+		t.Error("llama_cpp_metal has a measured receipt but is not comparable")
+	}
+	for _, id := range []string{"mlx_metal", "vllm_cuda"} {
+		if byID[id].Comparable {
+			t.Errorf("%s has no measured receipt but is marked comparable", id)
 		}
-		if e.Routable {
+	}
+	for _, id := range []string{"mlx_metal", "llama_cpp_metal", "vllm_cuda"} {
+		if byID[id].Routable {
 			t.Errorf("%s is marked routable", id)
 		}
 	}

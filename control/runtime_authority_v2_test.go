@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -135,11 +136,14 @@ func TestRuntimeAuthorityValidationRefusesEveryUngovernedShape(t *testing.T) {
 			}},
 		{"two routable runtimes claiming one cell", "claimed by both",
 			func(d *runtimeAuthorityDocument) {
-				mlx := runtimeIndex(t, *d, "mlx_metal")
-				d.Runtimes[mlx].Lifecycle = runtimeLifecycleActive
-				d.Runtimes[mlx].BenchmarkAuthority = "docs/SPEED_LANE_2026-07-27.md"
-				d.Runtimes[mlx].QualityTier = "OUTCOME_EQUIVALENT"
-				d.Runtimes[mlx].Cells[0].ID = "candle-metal-llama1-infer"
+				// llama_cpp_metal rather than mlx_metal: it is the profile that
+				// actually has a bound benchmark receipt, so this mutation fails
+				// the cell-collision rule rather than tripping the evidence
+				// binding first and testing nothing.
+				challenger := runtimeIndex(t, *d, "llama_cpp_metal")
+				d.Runtimes[challenger].Lifecycle = runtimeLifecycleActive
+				d.Runtimes[challenger].QualityTier = "OUTCOME_EQUIVALENT"
+				d.Runtimes[challenger].Cells[0].ID = "candle-metal-llama1-infer"
 			}},
 		{"a sellable model no routable runtime serves", "no routable runtime profile serves",
 			func(d *runtimeAuthorityDocument) {
@@ -230,9 +234,9 @@ func TestRegisteredRuntimesCiteEvidenceForTheirLifecycle(t *testing.T) {
 // revision: the progression is the point of the state machine.
 func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 	pinned := map[string]string{
-		"candle_metal":    "ddc5c69b975cbf3e6208afc4a76c063459d78c8aa4245f5e4adeb9bdcacf2339",
+		"candle_metal":    "01ae8606222886fffb8f9710754eaaa24b4b1bcbe4d2ba72ec27e82db3444463",
 		"mlx_metal":       "91c1d6b83a1148b58f29a30cd37057631d9d40c4f086c4b9ff79c07c4ed02f88",
-		"llama_cpp_metal": "a6416e8a136d9a6538ec009142a0d9ac17c7515125f51c819a6f5a34c5e973ca",
+		"llama_cpp_metal": "7709c848f4f75e1d5599aa0fbb72b0ed0a748cc765ec4f2202f3716067b740c5",
 		"vllm_cuda":       "e1f18591a44d6b9c98e257a1187c3a04f0fc5365472789250993938431dd8c99",
 	}
 	doc := mutableAuthority(t)
@@ -286,7 +290,7 @@ func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 	// Anything that changes what the profile MEANS must move the digest.
 	for name, mutate := range map[string]func(p *authorityRuntimeProfile){
 		"engine":              func(p *authorityRuntimeProfile) { p.Engine = "mlx" },
-		"revision":            func(p *authorityRuntimeProfile) { p.Revision = "r2" },
+		"revision":            func(p *authorityRuntimeProfile) { p.Revision = "r99" },
 		"quality tier":        func(p *authorityRuntimeProfile) { p.QualityTier = "MODEL_EXACT" },
 		"benchmark authority": func(p *authorityRuntimeProfile) { p.BenchmarkAuthority = "elsewhere" },
 		"cell model":          func(p *authorityRuntimeProfile) { p.Cells[0].Model = "other-model" },
@@ -348,5 +352,120 @@ func TestSupersededProfilesCannotBeRoutable(t *testing.T) {
 			t.Errorf("%s refused with %q, want a message containing %q",
 				tc.name, err.Error(), tc.want)
 		}
+	}
+}
+
+// The hole this closes was real and I put it there: candle_metal claimed
+// routability backed by control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json
+// — a receipt for a different ENGINE, a different dtype, a different model
+// revision, whose own benchmark_status said UNPROVEN. The check at the time was
+// "benchmark_authority is a non-empty string", which any path satisfies.
+//
+// A profile's evidence must at minimum name the profile it is evidence for.
+// This is not proof of a measurement: candle's honest receipt names candle and
+// measures nothing, and that is the correct state to be in until it is
+// benchmarked on the same harness as its challenger.
+func TestBenchmarkAuthorityMustNameTheProfileItEvidences(t *testing.T) {
+	if err := validateRuntimeAuthorityDocument(mutableAuthority(t)); err != nil {
+		t.Fatalf("the embedded authority does not validate: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name, want string
+		mutate     func(*runtimeAuthorityDocument)
+	}{
+		{"a receipt for another profile", "evidence for",
+			func(d *runtimeAuthorityDocument) {
+				d.Runtimes[runtimeIndex(t, *d, "candle_metal")].BenchmarkAuthority =
+					"evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json"
+			}},
+		{"a path that is not a known receipt", "not a known receipt",
+			func(d *runtimeAuthorityDocument) {
+				d.Runtimes[runtimeIndex(t, *d, "candle_metal")].BenchmarkAuthority =
+					"docs/SPEED_LANE_2026-07-27.md"
+			}},
+		{"the original defect verbatim", "not a known receipt",
+			func(d *runtimeAuthorityDocument) {
+				d.Runtimes[runtimeIndex(t, *d, "candle_metal")].BenchmarkAuthority =
+					"control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json"
+			}},
+	} {
+		doc := mutableAuthority(t)
+		tc.mutate(&doc)
+		err := validateRuntimeAuthorityDocument(doc)
+		if err == nil {
+			t.Errorf("%s was accepted", tc.name)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s refused with %q, want a message containing %q",
+				tc.name, err.Error(), tc.want)
+		}
+	}
+}
+
+// llama_cpp_metal now carries a real measurement taken on this machine against
+// the exact pinned artifact. It is still not routable, and the receipt says why.
+func TestLlamaCppBenchmarkReceiptIsBoundAndHonestAboutItsLimits(t *testing.T) {
+	raw, err := os.ReadFile("../evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json")
+	if err != nil {
+		t.Fatalf("read receipt: %v", err)
+	}
+	var receipt struct {
+		RuntimeProfileID    string            `json:"runtime_profile_id"`
+		ModelArtifactSHA256 string            `json:"model_artifact_sha256"`
+		ModelRevision       string            `json:"model_revision"`
+		BenchmarkStatus     string            `json:"benchmark_status"`
+		NotEstablished      map[string]string `json:"not_established"`
+		PhysicalThroughput  struct {
+			PrefillTokensPerSec float64 `json:"prefill_tokens_per_sec"`
+			DecodeTokensPerSec  float64 `json:"decode_tokens_per_sec"`
+		} `json:"physical_throughput"`
+	}
+	if err := json.Unmarshal(raw, &receipt); err != nil {
+		t.Fatalf("decode receipt: %v", err)
+	}
+
+	// Bound to the exact artifact the catalogue prices, not to "a llama 1B".
+	var model authorityModel
+	for _, m := range runtimeAuthority.Models {
+		if m.ID == "llama-3.2-1b-instruct-q4" {
+			model = m
+		}
+	}
+	if receipt.ModelRevision != model.HFRevision {
+		t.Errorf("receipt model revision %s, authority pins %s",
+			receipt.ModelRevision, model.HFRevision)
+	}
+	var pinnedSHA string
+	for _, a := range model.Artifacts {
+		if strings.HasSuffix(a.Path, ".gguf") {
+			pinnedSHA = a.SHA256
+		}
+	}
+	if receipt.ModelArtifactSHA256 != pinnedSHA {
+		t.Errorf("receipt artifact %s, authority pins %s",
+			receipt.ModelArtifactSHA256, pinnedSHA)
+	}
+	if receipt.PhysicalThroughput.PrefillTokensPerSec <= 0 ||
+		receipt.PhysicalThroughput.DecodeTokensPerSec <= 0 {
+		t.Error("the receipt claims PHYSICAL_THROUGHPUT_MEASURED with no rates")
+	}
+
+	// And it must name what it does NOT establish, because a benchmark receipt
+	// read three months later is exactly where an unstated gap becomes a claim.
+	for _, gap := range []string{"quality_tier", "delivered_throughput", "merc_chain", "cost"} {
+		if receipt.NotEstablished[gap] == "" {
+			t.Errorf("receipt does not state what it fails to establish about %q", gap)
+		}
+	}
+
+	profile, ok := runtimeProfileByID("llama_cpp_metal")
+	if !ok {
+		t.Fatal("llama_cpp_metal is not registered")
+	}
+	if runtimeLifecycleRoutable(profile.Lifecycle) {
+		t.Error("a physical-throughput measurement made llama_cpp_metal routable; " +
+			"routability also needs a proven quality tier and a complete Merc chain")
 	}
 }
