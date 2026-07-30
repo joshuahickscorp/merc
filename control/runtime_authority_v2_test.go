@@ -242,10 +242,10 @@ func TestRegisteredRuntimesCiteEvidenceForTheirLifecycle(t *testing.T) {
 // revision: the progression is the point of the state machine.
 func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 	pinned := map[string]string{
-		"candle_metal":    "ac7ae951af37f1c59df108bc1cfbd7ef397377f6352f07be4d03181646d65c3d",
-		"mlx_metal":       "91c1d6b83a1148b58f29a30cd37057631d9d40c4f086c4b9ff79c07c4ed02f88",
-		"llama_cpp_metal": "9a58317192b8e6ba17bdaf24c631045fda55994299395b56bed84b8f611e7267",
-		"vllm_cuda":       "e1f18591a44d6b9c98e257a1187c3a04f0fc5365472789250993938431dd8c99",
+		"candle_metal":    "71bbad206e231addf18255ebc185a157896852da325c0adc6d24d7f1aab0f161",
+		"mlx_metal":       "eae98b142b2cb598592f934672730f2399489166d726cada11608d5b6c9f2e7a",
+		"llama_cpp_metal": "ddf27e8b24c2bdd9b6146c6ad0139164a87027ba94d72d23c5175690e05b6dc8",
+		"vllm_cuda":       "0878e0fd6adbd401175e069c22b90598b8d47fdb3a5bee206b66c9e2590eaee5",
 	}
 	doc := mutableAuthority(t)
 	if len(doc.Runtimes) != len(pinned) {
@@ -546,5 +546,89 @@ func TestBothMetalProfilesAreMeasuredAndComparable(t *testing.T) {
 	}
 	if byID["llama_cpp_metal"].Routable {
 		t.Error("the faster profile is routable; it fails byte_exact verification")
+	}
+}
+
+// Phase 0 D: the digest must cover every field that changes what a profile
+// MEANS, and none that describe where it is in its lifecycle.
+//
+// Two gaps were real and are closed here: tokenizer/chat-template revision
+// (identical weights under a different template are a different product, and a
+// benchmark under one does not transfer to the other) and source identity (two
+// documents could otherwise define byte-identical content and be
+// indistinguishable in provenance).
+func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) {
+	base := mutableAuthority(t).Runtimes[0]
+	want, err := base.ContentDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Semantic: must move the digest.
+	for name, mutate := range map[string]func(p *authorityRuntimeProfile){
+		"engine":              func(p *authorityRuntimeProfile) { p.Engine = "mlx" },
+		"engine revision":     func(p *authorityRuntimeProfile) { p.EngineRevision = "deadbeef" },
+		"tokenizer revision":  func(p *authorityRuntimeProfile) { p.TokenizerRevision = "other" },
+		"chat template":       func(p *authorityRuntimeProfile) { p.ChatTemplateID = "other" },
+		"source identity":     func(p *authorityRuntimeProfile) { p.SourceIdentity = "elsewhere" },
+		"adapter":             func(p *authorityRuntimeProfile) { p.Adapter = "merc-mlx" },
+		"revision":            func(p *authorityRuntimeProfile) { p.Revision = "r99" },
+		"device":              func(p *authorityRuntimeProfile) { p.Device = "cuda" },
+		"platform":            func(p *authorityRuntimeProfile) { p.Hardware.Platforms = []string{"x"} },
+		"device count":        func(p *authorityRuntimeProfile) { p.Hardware.DeviceCount.Maximum = 8 },
+		"parallelism":         func(p *authorityRuntimeProfile) { p.Parallelism.TensorParallel = true },
+		"capability":          func(p *authorityRuntimeProfile) { p.Capabilities.Speculation = true },
+		"quality tier":        func(p *authorityRuntimeProfile) { p.QualityTier = "MODEL_EXACT" },
+		"benchmark authority": func(p *authorityRuntimeProfile) { p.BenchmarkAuthority = "elsewhere" },
+		"cell model":          func(p *authorityRuntimeProfile) { p.Cells[0].Model = "other" },
+		"cell memory":         func(p *authorityRuntimeProfile) { p.Cells[0].MinMemoryGB = 99 },
+		// A value the cell does not already have: candle's Cells[0] is the embed
+		// cell, which is cosine already, so asserting "cosine" tested nothing.
+		"cell verification": func(p *authorityRuntimeProfile) {
+			p.Cells[0].Verification = "definitely-not-the-current-strategy"
+		},
+	} {
+		moved := base
+		moved.Cells = append([]authorityCell(nil), base.Cells...)
+		mutate(&moved)
+		got, err := moved.ContentDigest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == want {
+			t.Errorf("changing the %s did not move the content digest", name)
+		}
+	}
+
+	// Lifecycle: must NOT move the digest, or promotion would look like
+	// replacement and every promoted profile would need a new revision.
+	for name, mutate := range map[string]func(p *authorityRuntimeProfile){
+		"lifecycle":     func(p *authorityRuntimeProfile) { p.Lifecycle = runtimeLifecycleCanary },
+		"quarantine":    func(p *authorityRuntimeProfile) { p.Lifecycle = runtimeLifecycleQuarantined },
+		"superseded_by": func(p *authorityRuntimeProfile) { p.SupersededBy = "something" },
+	} {
+		moved := base
+		mutate(&moved)
+		got, err := moved.ContentDigest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("changing the %s moved the content digest", name)
+		}
+	}
+}
+
+// Every registered profile must carry the provenance the digest binds. A blank
+// source identity would make the digest cover an empty string rather than a
+// fact.
+func TestEveryProfileDeclaresItsProvenance(t *testing.T) {
+	for _, p := range mutableAuthority(t).Runtimes {
+		if p.SourceIdentity == "" {
+			t.Errorf("%s declares no source_identity", p.RuntimeID)
+		}
+		if p.ChatTemplateID == "" {
+			t.Errorf("%s declares no chat_template_id", p.RuntimeID)
+		}
 	}
 }
