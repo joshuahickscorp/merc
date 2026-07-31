@@ -3,6 +3,12 @@
 Audited against the code on 2026-07-28. Statuses use the goal's vocabulary.
 Nothing here is inferred from intent; each row was probed against the tree.
 
+> Newer than this file for the runtime selector, batching, execution modes and
+> the §20 prohibitions: `docs/MASTER_PROGRAMME_LEDGER.md`, with machine-readable
+> receipts at `evidence/state/branch-state-step1.json` and
+> `evidence/state/must-not-do-audit.json`. Where the two disagree, the receipts
+> are the authority — this file is prose and prose drifts.
+
 **A `CANARY_PROVEN` receipt is capability evidence, not release authorization.**
 `public_capability_allowed` remains false, Level B remains `NO_GO`, and Level C
 live money/public launch remains prohibited.
