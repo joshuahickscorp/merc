@@ -65,6 +65,15 @@ var productionReachability = []reachabilityClaim{
 			"permitted trade for batch work, whose deadline absorbs it.",
 	},
 	{
+		From:   "Server.createJob",
+		Target: "ChooseExecutionMode",
+		Consequence: "no job records which execution mode it was placed in or why. Batch " +
+			"work reaches POOL by construction today, so nothing about placement CHANGES " +
+			"when this edge is gone — which is exactly the failure mode: the moment a " +
+			"second mode is reachable, 'by construction' and 'by decision' become " +
+			"indistinguishable, and only a stored reason tells them apart afterwards.",
+	},
+	{
 		From:   "Workers.Run",
 		Target: "Store.sweepExpiredInflight",
 		Consequence: "expired inflight_executions rows are never deleted and the table grows " +
@@ -160,13 +169,6 @@ var knownUnwired = map[string]string{
 	"TrafficClassForRealtime": "the realtime lane's traffic class. handleChatCompletions " +
 		"does not consult it, so INTERACTIVE's 4,096-token budget and 2s queue wait " +
 		"bound nothing in production.",
-	"ChooseExecutionMode": "placement across POOL, REPLICA_SERVICE, LOCAL_CLUSTER and " +
-		"CLOUD_BACKSTOP, including the refusal of tightly coupled work on a WAN fabric. " +
-		"Admission freezes one runtime candidate and the scheduler fans tasks out, which " +
-		"IS pool mode — but it is pool mode by construction rather than by decision, so " +
-		"nothing consults this and no placement reason reaches a receipt.",
-	"CouplingForParallelism": "the frozen decision's parallelism read as a coupling class. " +
-		"Unused while ChooseExecutionMode is unwired.",
 	"buildWorkloadDecisionDirected": "directed routing. Real and reachable only from " +
 		"tests; there is no operator entry point, so every second-runtime chain " +
 		"proof submits a test-constructed job row rather than going through the API.",

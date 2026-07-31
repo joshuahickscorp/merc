@@ -116,6 +116,47 @@ type ShadowSelection struct {
 	// basis is the ladder, because there was no comparison.
 	SelectionBasis string `json:"selection_basis"`
 	CostHWClass    string `json:"cost_hw_class"`
+	// ExecutionMode is where the workload was placed and why. Empty when the
+	// placement rule refused every mode, which is a state worth being able to see
+	// rather than one to paper over with a default.
+	ExecutionMode       string `json:"execution_mode"`
+	ExecutionModeReason string `json:"execution_mode_reason"`
+}
+
+// withExecutionMode records the placement decision for this workload.
+//
+// Batch work reaches POOL today by construction — admission freezes one cell and
+// the scheduler fans tasks out with no inter-worker communication — and that is
+// exactly why the decision is worth storing: once a second mode is reachable,
+// "by construction" and "by decision" stop being the same thing, and only a
+// stored reason distinguishes them afterwards.
+//
+// The fabric is reported as UNKNOWN because nothing in this tree measures link
+// bandwidth or latency between workers. That is not a placeholder: an unmeasured
+// fabric is precisely what ChooseExecutionMode refuses to place tightly coupled
+// work on, so passing UNKNOWN is the honest input and the refusal it produces is
+// the correct answer.
+func (s ShadowSelection) withExecutionMode(decision WorkloadDecision) ShadowSelection {
+	placement, err := ChooseExecutionMode(PlacementRequest{
+		WorkloadClass: decision.WorkloadClass,
+		Coupling:      CouplingForParallelism(decision.Parallelism),
+		Degree:        decision.Parallelism.TensorParallelDegree,
+		Fabric:        FabricUnknown,
+		// A job that reached this point was admitted against a frozen runtime
+		// candidate, so community capacity for it existed. The deadline is not at
+		// risk at submit time — nothing has run yet — and a cloud backstop is not
+		// asserted, because no buyer term in this tree says a provider is allowed.
+		CommunityCapacityAvailable: true,
+		CloudBackstopPermitted:     false,
+	})
+	if err != nil {
+		// Every mode refused. The reason is the error, and it is recorded nowhere
+		// else; the caller logs it.
+		return s
+	}
+	s.ExecutionMode = string(placement.Mode)
+	s.ExecutionModeReason = placement.Explain()
+	return s
 }
 
 // Diverged reports whether the shadow would have chosen differently. This is the
@@ -306,7 +347,7 @@ func (s *Store) RecordShadowSelection(ctx context.Context, jobID string, sel Sha
 		jobID, sel.RuntimeMatrixSHA, sel.PolicyRevision, sel.JobType, sel.ModelRef,
 		sel.ModelKind, sel.WorkloadClass, sel.LatencyClass, sel.RoutedCellID,
 		sel.ShadowCellID, string(considered), string(excluded), sel.SelectionPolicy,
-		sel.SelectionBasis, sel.CostHWClass)
+		sel.SelectionBasis, sel.CostHWClass, sel.ExecutionMode, sel.ExecutionModeReason)
 	return err
 }
 
