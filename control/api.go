@@ -132,6 +132,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/worker/task/{id}/commit", s.authWorker(http.HandlerFunc(s.handleWorkerCommit)))
 	mux.Handle("POST /v1/worker/task/{id}/fail", s.authWorker(http.HandlerFunc(s.handleWorkerFail))) // Plane C/D: immediate typed failure
 	mux.Handle("GET /v1/worker/earnings", s.authWorker(http.HandlerFunc(s.handleWorkerEarnings)))
+	mux.Handle("GET /v1/worker/viability", s.authWorker(http.HandlerFunc(s.handleWorkerViability)))       // why this worker is or is not offered work
 	mux.Handle("GET /v1/worker/verification", s.authWorker(http.HandlerFunc(s.handleWorkerVerification))) // trust panel (Supplier onboarding & safety 7->8)
 	mux.Handle("GET /v1/worker/connect/status", s.authWorker(http.HandlerFunc(s.handleWorkerConnectStatus)))
 
@@ -2483,6 +2484,36 @@ func (s *Server) handleWorkerEarnings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, e)
 }
 
+// handleWorkerViability answers "why am I not being offered any work".
+//
+// A default install writes min_payout_usd_per_hr = 0.05 and the scheduler
+// filters on offered_rate_usd_hr >= min_payout_usd_hr. When that filter excludes
+// a worker it does so silently and forever: no task, no error, no log the
+// supplier can see. This endpoint is the missing half of that gate - every
+// routable cell, what it is expected to earn, and the reason when it is not
+// enough.
+func (s *Server) handleWorkerViability(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	hwClass, minPayout, err := s.store.WorkerAdmissionTerms(r.Context(), auth.WorkerID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// The report quotes the same catalogue authority admission uses, so it can
+	// never explain the gate with a price the gate did not apply.
+	rows := SupplierAdmissionViability(
+		hwClass, minPayout, supplierShareRate, "batch", time.Now(),
+		func(modelID string) (float64, error) {
+			authority, err := s.store.LoadCataloguePriceAuthority(r.Context(), modelID)
+			if err != nil {
+				return 0, err
+			}
+			return authority.ReferencePricePer1K, nil
+		},
+	)
+	writeJSON(w, http.StatusOK, rows)
+}
+
 func (s *Server) handleWorkerVerification(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
 	v, err := s.store.SupplierVerification(r.Context(), auth.SupplierID)
@@ -3286,20 +3317,35 @@ func hasExplicitSplitSize(params json.RawMessage) bool {
 	return json.Unmarshal(params, &p) == nil && p.SplitSize > 0
 }
 
-var jobTypeThroughput = map[string]float64{
+// sizingRecordsPerSec answers "how many INPUT RECORDS a second", which is the
+// only question adaptive split sizing asks. It has no economic authority and
+// must never acquire one: supplier admission and expected earnings read the
+// governed runtime-cell benchmark binding in runtime_cell_performance.go.
+//
+// The separation exists because one map used to answer both questions in two
+// incompatible units. Pricing multiplied these numbers by a per-1000-BILLABLE-
+// UNIT price, where a billable unit is a token; sizing reads them as records.
+// batch_infer at 4 is roughly right as records/s at 48 output tokens each, and
+// roughly fifty times wrong as tokens/s - and the tokens/s reading is the one
+// that decided whether a default install could claim any work.
+//
+// These stay static because task geometry is a scheduling choice with its own
+// failure modes (a task too large to retry cheaply, a fan-out too narrow to use
+// the fleet), not a measurement.
+var sizingRecordsPerSec = map[string]float64{
 	"embed":       200,
 	"batch_infer": 4,
 }
 
-func throughputOf(jobType string) float64 {
-	if v, ok := jobTypeThroughput[jobType]; ok && v > 0 {
+func recordsPerSecForSizing(jobType string) float64 {
+	if v, ok := sizingRecordsPerSec[jobType]; ok && v > 0 {
 		return v
 	}
 	return 10
 }
 
 func effectiveThroughput(jobType string, avgLineBytes float64) float64 {
-	base := throughputOf(jobType)
+	base := recordsPerSecForSizing(jobType)
 	switch jobType {
 	case "batch_infer":
 		const refBytes = 140.0

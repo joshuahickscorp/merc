@@ -17,7 +17,20 @@
     "byte_deterministic": true,
     "model_ids": [
       "llama-3.2-1b-instruct-q4"
-    ]
+    ],
+    "measured_at": "2026-07-30T16:20:00Z",
+    "hw_class": "apple_silicon_ultra",
+    "throughput": {
+      "candle_metal": {
+        "unit": "tokens",
+        "precision": "Q4_K_M GGUF",
+        "operating_batch": 1,
+        "units_per_sec_at_operating_batch": 225.9,
+        "peak_units_per_sec": 509.9,
+        "peak_batch": 64,
+        "basis": "physical_throughput.serial_tokens_per_sec, the un-batched decode rate. The sweep publishes one number per batch and no per-repetition wall times, so its slowest point is the only defensible floor."
+      }
+    }
   },
   "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json": {
     "runtime_profile_ids": [
@@ -37,7 +50,20 @@
     "byte_deterministic": false,
     "model_ids": [
       "llama-3.2-1b-instruct-q4"
-    ]
+    ],
+    "measured_at": "2026-07-30T16:20:00Z",
+    "hw_class": "apple_silicon_ultra",
+    "throughput": {
+      "llama_cpp_metal": {
+        "unit": "tokens",
+        "precision": "Q4_K_M GGUF",
+        "operating_batch": 1,
+        "units_per_sec_at_operating_batch": 330.5,
+        "peak_units_per_sec": 2184.4,
+        "peak_batch": 64,
+        "basis": "physical_throughput.serial_tokens_per_sec, the un-batched decode rate. The sweep publishes one number per batch and no per-repetition wall times, so its slowest point is the only defensible floor."
+      }
+    }
   },
   "evidence/perf/runtime-benchmarks/mlx-metal-llama1-4bit-r1.json": {
     "runtime_profile_ids": [
@@ -68,6 +94,28 @@
     "byte_deterministic": false,
     "model_ids": [
       "all-minilm-l6-v2"
-    ]
+    ],
+    "measured_at": "2026-07-30T00:00:00Z",
+    "hw_class": "apple_silicon_ultra",
+    "throughput": {
+      "candle_metal": {
+        "unit": "embeddings",
+        "precision": "none (fp32 safetensors)",
+        "operating_batch": 128,
+        "units_per_sec_at_operating_batch": 2380.345428289974,
+        "peak_units_per_sec": 3359.749009950212,
+        "peak_batch": 128,
+        "basis": "128 texts divided by max_wall_s at batch 128: the SLOWEST of five repetitions, not the median rate the receipt quotes."
+      },
+      "llama_cpp_metal": {
+        "unit": "embeddings",
+        "precision": "F16 GGUF",
+        "operating_batch": 128,
+        "units_per_sec_at_operating_batch": 3962.6336034425385,
+        "peak_units_per_sec": 4000.1198785926117,
+        "peak_batch": 128,
+        "basis": "128 texts divided by max_wall_s at batch 128: the SLOWEST of five repetitions, not the median rate the receipt quotes."
+      }
+    }
   }
 }

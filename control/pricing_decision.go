@@ -10,6 +10,7 @@ import (
 	"math"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -288,6 +289,11 @@ func pricingBillableUnitsForComputePlan(compute ComputePlan) float64 {
 // supplierAdmissionCeilingUSDHr is a modeled ask ceiling used solely by the
 // scheduler's min-payout eligibility gate. It is not a promise of realized
 // hourly earnings: actual payment follows accepted task units.
+//
+// The throughput comes from the governed runtime-cell performance binding, not
+// from a constant in this package. A hardcoded rate here decided whether a
+// default install could claim any work at all, and it was wrong by more than an
+// order of magnitude with nothing in the build able to notice.
 func supplierAdmissionCeilingUSDHr(a CataloguePriceAuthority, jobType, tier string) (float64, error) {
 	if err := validateCataloguePriceAuthority(a); err != nil {
 		return 0, err
@@ -295,8 +301,8 @@ func supplierAdmissionCeilingUSDHr(a CataloguePriceAuthority, jobType, tier stri
 	if a.JobType != jobType {
 		return 0, errors.New("catalogue job type does not match placement job type")
 	}
-	return throughputOf(jobType) * 3600 / 1000 *
-		a.ReferencePricePer1K * a.SupplierShare * tierMultiplier(tier), nil
+	unitsPerSec, _ := admissionUnitsPerSec(jobType, a.ModelID, time.Now())
+	return expectedSupplierUSDHr(unitsPerSec, a.ReferencePricePer1K, a.SupplierShare, tier), nil
 }
 
 func modeledCost(amount float64, basis string) PricingCostComponent {
@@ -329,6 +335,33 @@ func newDistributedPricingDecision(
 	tier string,
 	originQuotePricingSHA string,
 ) (PricingDecision, error) {
+	unitsPerSec, _ := admissionUnitsPerSec(workload.RuntimeJobType, catalogue.ModelID, time.Now())
+	return distributedPricingDecisionAtRate(
+		workload, compute, placement, economic, catalogue, tier,
+		originQuotePricingSHA, unitsPerSec,
+	)
+}
+
+// distributedPricingDecisionAtRate takes the supplier unit rate rather than
+// resolving it, so verifying a stored decision does not depend on what the
+// runtime evidence says TODAY.
+//
+// The rate became time-dependent when it started coming from a dated benchmark:
+// a receipt crossing the revalidation window would otherwise change the rebuilt
+// number and make every already-accepted job in the database fail its own
+// snapshot check months after acceptance. The frozen rate adds no freedom to a
+// forged decision - the ceiling equality below still pins it to the placement
+// authority and the catalogue.
+func distributedPricingDecisionAtRate(
+	workload WorkloadDecision,
+	compute ComputePlan,
+	placement PlacementRequirement,
+	economic EconomicPlan,
+	catalogue CataloguePriceAuthority,
+	tier string,
+	originQuotePricingSHA string,
+	unitsPerSec float64,
+) (PricingDecision, error) {
 	if err := ValidateComputePlanEconomicSnapshot(compute, workload, economic); err != nil {
 		return PricingDecision{}, err
 	}
@@ -348,11 +381,23 @@ func newDistributedPricingDecision(
 	if originQuotePricingSHA != "" && !validSHA256(originQuotePricingSHA) {
 		return PricingDecision{}, errors.New("origin quote pricing digest is invalid")
 	}
-	derivedCeiling, err := supplierAdmissionCeilingUSDHr(catalogue, workload.RuntimeJobType, tier)
-	if err != nil {
-		return PricingDecision{}, err
+	if catalogue.JobType != workload.RuntimeJobType {
+		return PricingDecision{}, errors.New("catalogue job type does not match placement job type")
 	}
-	if math.Abs(float64(placement.OfferedRateUsdHr)-derivedCeiling) > 0.000001 {
+	derivedCeiling := expectedSupplierUSDHr(
+		unitsPerSec, catalogue.ReferencePricePer1K, catalogue.SupplierShare, tier)
+	// The tolerance is relative because the only difference being allowed for is
+	// the float32 round-trip the wire contract imposes, and that error scales
+	// with the value. A fixed absolute epsilon silently became a real constraint
+	// once throughput came from a measurement instead of a small hardcoded
+	// number: the same lossless round-trip that passed at $0.007/hr failed at
+	// $58/hr. 1e-6 relative is roughly eight float32 ulps and still far below any
+	// economically meaningful discrepancy.
+	tolerance := math.Abs(derivedCeiling) * 0.000001
+	if tolerance < 0.000001 {
+		tolerance = 0.000001
+	}
+	if math.Abs(float64(placement.OfferedRateUsdHr)-derivedCeiling) > tolerance {
 		return PricingDecision{}, errors.New("placement supplier admission ceiling was not derived from catalogue authority")
 	}
 	// The scheduler and wire contract use float32. Freeze that exact operational
@@ -387,7 +432,6 @@ func newDistributedPricingDecision(
 	verification := economic.SupplierPayoutPerTaskUSD *
 		float64(compute.RedundancyTasks+compute.HoneypotTasks)
 	billableUnits := pricingBillableUnitsForComputePlan(compute)
-	unitsPerSec := throughputOf(workload.RuntimeJobType)
 	expectedSeconds := 0.0
 	if compute.PrimaryTasks > 0 && unitsPerSec > 0 {
 		expectedSeconds = billableUnits / unitsPerSec *
@@ -435,7 +479,7 @@ func newDistributedPricingDecision(
 			"buyer price less modeled supplier, processor and control-plane costs"),
 		Confidence: compute.Confidence,
 		Assumptions: []string{
-			"supplier admission uses modeled static throughput and the USD reference schedule",
+			"supplier admission uses the governed runtime-cell benchmark binding, haircut to a conservative lower bound, and the USD reference schedule",
 			"actual supplier liability is frozen per accepted task, not by elapsed wall-clock hour",
 			"unknown cost components are not silently treated as modeled zero",
 		},
@@ -603,9 +647,9 @@ func ValidateDistributedPricingDecisionSnapshot(
 	placement PlacementRequirement,
 	economic EconomicPlan,
 ) error {
-	rebuilt, err := newDistributedPricingDecision(
+	rebuilt, err := distributedPricingDecisionAtRate(
 		workload, compute, placement, economic, decision.Catalogue, decision.Tier,
-		decision.OriginQuotePricingDecisionSHA256,
+		decision.OriginQuotePricingDecisionSHA256, decision.ExpectedSupplierUnitsPerSec,
 	)
 	if err != nil {
 		return err

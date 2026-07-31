@@ -289,6 +289,17 @@ type AdminWorker struct {
 	Status            string     `json:"status"`
 }
 
+// WorkerAdmissionTerms is the pair of facts that decide whether this worker can
+// ever be offered a task: the hardware class the runtime document must serve,
+// and the reservation price the scheduler filters on.
+func (s *Store) WorkerAdmissionTerms(ctx context.Context, workerID uuid.UUID) (hwClass string, minPayoutUSDHr float64, err error) {
+	err = s.pool.QueryRow(ctx,
+		`SELECT COALESCE(hw_class,''), COALESCE(min_payout_usd_hr, 0)
+		   FROM workers WHERE id = $1`, workerID,
+	).Scan(&hwClass, &minPayoutUSDHr)
+	return hwClass, minPayoutUSDHr, err
+}
+
 func (s *Store) DeleteOldWorkerMemorySamples(ctx context.Context, before time.Time) (int64, error) {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM worker_memory_samples WHERE created_at < $1`, before)
 	if err != nil {
