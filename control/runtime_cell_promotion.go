@@ -192,6 +192,12 @@ func (s *Store) EvaluateCellPromotion(
 		refuse("challenger %s failed verification %d of %d times; a cheaper rejected unit is not cheaper",
 			scope.CellID, evidence.ChallengerCost.VerificationFails, evidence.ChallengerCost.VerificationSamples)
 	}
+	if evidence.ChallengerCost.TerminalFails > 0 {
+		refuse("challenger %s failed outright on %d of %d terminal attempts; work that never "+
+			"produced a result is not cheap work",
+			scope.CellID, evidence.ChallengerCost.TerminalFails,
+			evidence.ChallengerCost.TerminalAttempts)
+	}
 	if evidence.ChallengerCost.VerificationSamples == 0 {
 		refuse("challenger %s has no verified sample; cost without a verification outcome is unproven",
 			scope.CellID)
