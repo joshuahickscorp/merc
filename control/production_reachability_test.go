@@ -75,6 +75,14 @@ var productionReachability = []reachabilityClaim{
 	},
 	{
 		From:   "Server.createJob",
+		Target: "Store.RecordShadowSelection",
+		Consequence: "shadow runtime selection stops being recorded. Nothing about routing " +
+			"changes -- that is the point of it -- so the loss is silent: the only " +
+			"evidence about whether a proven-but-directed-only cell would have been " +
+			"chosen simply stops accumulating.",
+	},
+	{
+		From:   "Server.createJob",
 		Target: "Store.SubmitJobTx",
 		Consequence: "job submission stops persisting anything. Included as a control: if " +
 			"this claim ever fails, the graph itself is broken and every other " +
