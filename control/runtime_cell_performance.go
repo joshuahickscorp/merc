@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 )
@@ -97,12 +98,16 @@ type RuntimeCellPerformance struct {
 	BenchmarkedAt      string `json:"benchmarked_at,omitempty"`
 	BenchmarkBasis     string `json:"benchmark_basis,omitempty"`
 
-	Unit                    string  `json:"unit"`
-	ObservedUnitsPerSec     float64 `json:"observed_units_per_sec"`
-	ObservedPeakUnitsPerSec float64 `json:"observed_peak_units_per_sec"`
+	Unit                string  `json:"unit"`
+	ObservedUnitsPerSec float64 `json:"observed_units_per_sec"`
+	// ObservedBestUnitsPerSec is the best number anywhere in the receipt's
+	// sweep. It is NOT necessarily a peak: on a comparison receipt it is the
+	// best batch's MEDIAN of five repetitions. It exists to be refused, never
+	// reached for.
+	ObservedBestUnitsPerSec float64 `json:"observed_best_units_per_sec"`
 	Haircut                 float64 `json:"haircut"`
 	// ConservativeUnitsPerSec is the only rate any caller may use for money or
-	// admission. It is a haircut lower bound, never the peak of a batch sweep.
+	// admission. It is a haircut lower bound, never the best point of a sweep.
 	ConservativeUnitsPerSec float64 `json:"conservative_units_per_sec"`
 
 	Status     string  `json:"status"`
@@ -188,7 +193,7 @@ func resolveCellPerformance(
 	out.BenchmarkedAt = receipt.MeasuredAt
 	out.BenchmarkBasis = measurement.Basis
 	out.ObservedUnitsPerSec = measurement.UnitsPerSecAtOperatingBatch
-	out.ObservedPeakUnitsPerSec = measurement.PeakUnitsPerSec
+	out.ObservedBestUnitsPerSec = measurement.BestObservedUnitsPerSec
 
 	measuredAt, err := time.Parse(time.RFC3339, receipt.MeasuredAt)
 	if err != nil {
@@ -196,7 +201,7 @@ func resolveCellPerformance(
 		// as fresh forever - it is treated as no measurement at all.
 		out.Reason = fmt.Sprintf("receipt %q has no parseable measurement date",
 			out.BenchmarkAuthority)
-		out.ObservedUnitsPerSec, out.ObservedPeakUnitsPerSec = 0, 0
+		out.ObservedUnitsPerSec, out.ObservedBestUnitsPerSec = 0, 0
 		return out
 	}
 	age := at.Sub(measuredAt)
@@ -218,11 +223,21 @@ func resolveCellPerformance(
 // routableCellPerformance is every cell that may take ordinary buyer work for
 // this job type and model, slowest first. Slowest first because the callers
 // that pick one element pick the conservative one.
-func routableCellPerformance(jobType, modelID string, at time.Time) []RuntimeCellPerformance {
+//
+// onlyCells, when non-empty, narrows the set to the cells a frozen workload
+// decision may actually land on. Without it the whole catalogue for the model is
+// in scope, so a job pinned to a fast cell is priced at a slow cell it can never
+// be routed to.
+func routableCellPerformance(
+	jobType, modelID string, onlyCells []string, at time.Time,
+) []RuntimeCellPerformance {
 	var out []RuntimeCellPerformance
 	for _, profile := range runtimeAuthority.Runtimes {
 		for _, cell := range profile.Cells {
 			if cell.Job != jobType || cell.Model != modelID || !cell.Routable(profile) {
+				continue
+			}
+			if len(onlyCells) > 0 && !slices.Contains(onlyCells, cell.ID) {
 				continue
 			}
 			out = append(out, resolveCellPerformance(profile, cell, at))
@@ -240,17 +255,36 @@ func routableCellPerformance(jobType, modelID string, at time.Time) []RuntimeCel
 // admissionUnitsPerSec is the rate the control plane may offer a supplier for
 // this workload, and the cell that rate came from.
 //
-// It is the SLOWEST routable cell, because a posted job carries one offered
-// rate and may land on any of them. Offering the fastest cell's rate would
-// admit suppliers whose floor the cell they actually get cannot clear, which
-// reintroduces the silent no-claim failure one level down.
+// It is the SLOWEST cell the workload can land on, because a posted job carries
+// one offered rate and may reach any of them. Offering the fastest cell's rate
+// would admit suppliers whose floor the cell they actually get cannot clear,
+// which reintroduces the silent no-claim failure one level down.
 //
-// No routable cell means the fallback, not an error: refusing to price a
-// workload nothing can execute would turn a routing gap into a 5xx on submit.
-// The rate is small enough that admission rejects it, which is the honest
-// outcome.
-func admissionUnitsPerSec(jobType, modelID string, at time.Time) (float64, RuntimeCellPerformance) {
-	cells := routableCellPerformance(jobType, modelID, at)
+// An unproven cell REFUSES instead of joining that minimum. Its rate is
+// unprovenFallbackUnitsPerSec, deliberately below every realistic payout floor,
+// so one unproven routable cell would drag the offered rate for the whole
+// (job, model) to nothing and no supplier could claim any of it - the silent
+// no-claim failure this file exists to remove, one level further down. Of the
+// three ways out, refusing is the only loud one: excluding the cell from the
+// minimum prices the job off cells it may not land on, so a supplier routed to
+// the unproven one is promised a rate nothing has shown that cell can produce;
+// and a named degraded posture is the same 1 unit/s wearing a label. The state
+// is also not as impossible as it looks. schema.sql's
+// runtime_profile_models_evidenced CHECK forbids a routable cell with an EMPTY
+// benchmark_authority, not one whose named receipt fails to measure it - a
+// receipt that loses its throughput block, names another engine, or publishes a
+// batch above the cell's max_batch lands here with the CHECK satisfied. That is
+// a contradiction between two governed documents, and it should stop admission
+// with the cell named rather than quietly reprice the market.
+//
+// No routable cell at all is a different fact and keeps the fallback: refusing
+// to price a workload nothing can execute would turn a routing gap into a 5xx
+// on submit. The rate is small enough that admission rejects it, which is the
+// honest outcome.
+func admissionUnitsPerSec(
+	jobType, modelID string, onlyCells []string, at time.Time,
+) (float64, RuntimeCellPerformance, error) {
+	cells := routableCellPerformance(jobType, modelID, onlyCells, at)
 	if len(cells) == 0 {
 		return unprovenFallbackUnitsPerSec, RuntimeCellPerformance{
 			JobType: jobType, ModelID: modelID,
@@ -258,9 +292,67 @@ func admissionUnitsPerSec(jobType, modelID string, at time.Time) (float64, Runti
 			Status:                  cellThroughputUnproven,
 			Reason: fmt.Sprintf(
 				"no routable runtime cell serves job %q on model %q", jobType, modelID),
+		}, nil
+	}
+	for _, cell := range cells {
+		if cell.Status == cellThroughputUnproven {
+			return 0, cell, unprovenRoutableCellRefusal(cell, jobType, modelID)
 		}
 	}
-	return cells[0].ConservativeUnitsPerSec, cells[0]
+	return cells[0].ConservativeUnitsPerSec, cells[0], nil
+}
+
+func unprovenRoutableCellRefusal(cell RuntimeCellPerformance, jobType, modelID string) error {
+	return fmt.Errorf(
+		"cell %q may take job %q on model %q but has no usable benchmark authority, "+
+			"so no rate may be offered for it: %s",
+		cell.CellID, jobType, modelID, cell.Reason)
+}
+
+// governedAdmissionUnitRates is every supplier unit rate the cell authority can
+// produce for this workload.
+//
+// A frozen pricing decision is verified against this set rather than against the
+// single rate resolvable at the instant of verification, because which posture a
+// cell resolves to is a function of the wall clock: the same receipt is MEASURED
+// before its revalidation window closes and STALE after. Re-resolving would make
+// every already-accepted job in the database fail its own snapshot check on the
+// day a receipt aged out, months after acceptance and with nothing about the
+// decision having changed. Both governed haircuts are therefore admissible - and
+// a number that is neither did not come from the receipt at all, which is the
+// property the snapshot check actually needs.
+//
+// Callers pass the decision's frozen runtime candidates, and
+// validatePlacementRequirement admits exactly one, so in the pricing path this
+// set describes one cell.
+func governedAdmissionUnitRates(
+	jobType, modelID string, onlyCells []string, at time.Time,
+) ([]float64, error) {
+	cells := routableCellPerformance(jobType, modelID, onlyCells, at)
+	if len(cells) == 0 {
+		return []float64{unprovenFallbackUnitsPerSec}, nil
+	}
+	out := make([]float64, 0, 2*len(cells))
+	for _, cell := range cells {
+		if cell.Status == cellThroughputUnproven {
+			return nil, unprovenRoutableCellRefusal(cell, jobType, modelID)
+		}
+		out = append(out,
+			cell.ObservedUnitsPerSec*measuredThroughputHaircut,
+			cell.ObservedUnitsPerSec*staleThroughputHaircut)
+	}
+	return out, nil
+}
+
+// admissionCellsForWorkload is the frozen candidate set a workload decision may
+// be routed to. Pricing reads it so the offered rate describes the cells this
+// job can actually reach, not every cell in the catalogue that serves the model.
+func admissionCellsForWorkload(workload WorkloadDecision) []string {
+	out := make([]string, 0, len(workload.RuntimeCandidates))
+	for _, candidate := range workload.RuntimeCandidates {
+		out = append(out, candidate.CellID)
+	}
+	return out
 }
 
 // SupplierCellViability is one row of the answer to "why am I not being offered
