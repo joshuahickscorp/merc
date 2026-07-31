@@ -24,8 +24,26 @@ LABEL org.opencontainers.image.title="merc control plane" \
 WORKDIR /
 COPY --from=build /merc /merc
 COPY --from=build /merc-healthcheck /merc-healthcheck
-COPY web/index.html web/buyer.html web/admin.html /web/
-COPY web/favicon.ico /web/favicon.ico
+# The release artifact.
+#
+# This image could not start. The catalogue price authority is read from
+# pricing/board.json, the final stage is distroless with WORKDIR /, and this file
+# copied the binary and three HTML pages -- so every candidate path missed and
+# startup reached log.Fatalf("catalogue price authority unavailable"). The live
+# host was up only because it had been assembled by hand, which means the revenue
+# host could not be rebuilt from the repository.
+#
+# One absolute path, named by production configuration, digest reported on
+# /version. Not another fallback: the more places a file can be found, the less a
+# successful start says about which one was loaded.
+COPY pricing/board.json /etc/merc/pricing/board.json
+
+# The whole web surface, not the three pages that happened to be listed. The
+# router serves /prices, /supplier, /assets/site/{path...} and
+# /.well-known/security.txt, and none of those files were in the image -- a
+# missing page is a 404 rather than a dead process, which is exactly why nobody
+# noticed.
+COPY web/ /web/
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/merc"]

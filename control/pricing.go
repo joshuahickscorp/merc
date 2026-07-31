@@ -9,8 +9,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -162,35 +160,33 @@ var (
 	priceBoardSHA256 string
 )
 
-func defaultPriceBoardPath() string {
-	// Prefer env override, then repo-relative from the running binary / CWD,
-	// then a path resolved from this source file (works under `go test`).
-	if p := os.Getenv("MERC_PRICE_BOARD"); p != "" {
-		return p
-	}
-	candidates := []string{
-		"pricing/board.json",
-		"../pricing/board.json",
-	}
-	if _, file, _, ok := runtime.Caller(0); ok {
-		candidates = append(candidates, filepath.Join(filepath.Dir(file), "..", "pricing", "board.json"))
-	}
-	for _, c := range candidates {
-		if st, err := os.Stat(c); err == nil && !st.IsDir() {
-			return c
-		}
-	}
-	return "pricing/board.json"
-}
+// priceBoardSource records WHERE the loaded board came from, so /version can say
+// so. A deployment that cannot answer "which price board are you serving from"
+// cannot be audited after the fact.
+var priceBoardSource string
 
 func loadPriceBoard() (*priceBoard, error) {
 	priceBoardOnce.Do(func() {
-		path := defaultPriceBoardPath()
-		raw, err := os.ReadFile(path)
+		resolved, err := resolvePriceBoard(os.Getenv("MERC_ENV"))
 		if err != nil {
-			priceBoardErr = fmt.Errorf("read price board %s: %w", path, err)
+			priceBoardErr = err
 			return
 		}
+		path := resolved.Path
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			priceBoardErr = fmt.Errorf("read price board %s (%s): %w",
+				path, resolved.Source, err)
+			return
+		}
+		// Before parsing. Bytes the operator did not approve must not be given the
+		// chance to be well-formed.
+		digest, err := verifyPriceBoardDigest(raw, resolved.ExpectedDigest)
+		if err != nil {
+			priceBoardErr = err
+			return
+		}
+		priceBoardSource = resolved.Source
 		var b priceBoard
 		if err := json.Unmarshal(raw, &b); err != nil {
 			priceBoardErr = fmt.Errorf("parse price board %s: %w", path, err)
@@ -220,8 +216,7 @@ func loadPriceBoard() (*priceBoard, error) {
 			priceBoardErr = fmt.Errorf("price board fetched_at is unusable: %w", err)
 			return
 		}
-		sum := sha256.Sum256(raw)
-		priceBoardSHA256 = fmt.Sprintf("%x", sum[:])
+		priceBoardSHA256 = digest
 		priceBoardCached = &b
 	})
 	return priceBoardCached, priceBoardErr

@@ -95,6 +95,7 @@ ci:
 	  status=$$?; python3 "$(CURDIR)/scripts/summarize-go-test-json.py" "$(CI_TEST_JSON)"; \
 	  exit $$status
 	@bash scripts/assert-no-test-skips.sh "$(CI_TEST_JSON)"
+	@bash scripts/test-release-image-boots.sh
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
 	python3 -m json.tool proto/manifest.schema.json >/dev/null
 	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null

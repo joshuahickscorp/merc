@@ -2,9 +2,9 @@
   "schema_version": 1,
   "generated_from": "HEAD, the working tree, and (optionally) a live database",
   "source": {
-    "commit": "e4fd899355431b6674ed429ca73523ff6a36969d",
+    "commit": "7d6de054be547488bb86185d03642bfc198e0bfe",
     "branch": "perf/execution-frontier",
-    "tree_clean": false,
+    "tree_clean": true,
     "pushed": true
   },
   "authority_document": {
@@ -337,7 +337,7 @@
     "coalescing_status": "handler_wired",
     "second_runtime_driver": true,
     "directed_routing": true,
-    "selector_type_present": false,
+    "selector_type_present": true,
     "selector_tables": {
       "runtime_selector_decisions": false,
       "runtime_selector_outcomes": false,
@@ -372,8 +372,8 @@
   "checkpoint_authority": {
     "present": true,
     "binds_current_head": true,
-    "head": "e4fd899355431b6674ed429ca73523ff6a36969d",
-    "worktree_digest": "df044381ea7ef3b739843ee89644acedd363d40e2fcc2600f13897f686d1bada",
+    "head": "7d6de054be547488bb86185d03642bfc198e0bfe",
+    "worktree_digest": "593771cf0445742a484fac9e998a8b9fe8ccb2308270f102e08f406ac7dab578",
     "mutation_restored": true,
     "steps": {
       "worktree-validation": 0,
@@ -387,8 +387,12 @@
     "push_eligible": true
   },
   "dead_or_unwired_symbols": {
-    "RenewInflightLease": [],
-    "sweepExpiredInflight": [],
+    "RenewInflightLease": [
+      "control/realtime.go:820"
+    ],
+    "sweepExpiredInflight": [
+      "control/inflight_coalescing.go:288"
+    ],
     "InflightFollowers": [],
     "ClassCoalescedDelivery": [],
     "buildWorkloadDecisionDirected": [],

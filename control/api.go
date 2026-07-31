@@ -3039,11 +3039,19 @@ func (s *Server) handleSupplierConsole(w http.ResponseWriter, r *http.Request) {
 // so the published price and the evidence behind it come from one file rather
 // than from a number typed into a page.
 func (s *Server) handlePriceBoardData(w http.ResponseWriter, r *http.Request) {
-	path := os.Getenv("PRICE_BOARD_PATH")
-	if path == "" {
-		path = "pricing/board.json"
+	// The SAME resolution the pricing authority uses, not a second opinion.
+	//
+	// This read its own hardcoded "pricing/board.json" and its own PRICE_BOARD_PATH
+	// variable, so in the release image it 404'd while the catalogue was priced
+	// perfectly well from /etc/merc/pricing/board.json. Two resolutions of one
+	// file is how the published board and the board that sets prices drift apart,
+	// which is the exact thing serving this route was supposed to prevent.
+	resolved, err := resolvePriceBoard(os.Getenv("MERC_ENV"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "price board unavailable")
+		return
 	}
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(resolved.Path)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "price board unavailable")
 		return
