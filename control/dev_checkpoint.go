@@ -85,7 +85,7 @@ func dispatchDev(command string, args []string) bool {
 		return false
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: merc dev checkpoint [flags]")
+		fmt.Fprintln(os.Stderr, "usage: merc dev {checkpoint|checkpoint-verify|authority}")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -93,6 +93,8 @@ func dispatchDev(command string, args []string) bool {
 		os.Exit(runDevCheckpoint(args[1:]))
 	case "checkpoint-verify":
 		os.Exit(runDevCheckpointVerify(args[1:]))
+	case "authority":
+		os.Exit(runDevAuthority())
 	default:
 		fmt.Fprintf(os.Stderr, "unknown dev subcommand %q\n", args[0])
 		os.Exit(2)

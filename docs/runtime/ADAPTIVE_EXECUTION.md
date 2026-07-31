@@ -308,6 +308,69 @@ stale-attempt/tiebreak interactions beyond the existing
 `TestStaleAttemptOutputIsNotVerified`. Those need the agent's download path
 instrumented, not the control plane.
 
+## State reconciliation, 2026-07-31
+
+Run against HEAD `e4fd8993` because the accumulated progress history contained
+incompatible snapshots. Every checkpoint the history named — `0bf2ee20`,
+`2d62ee06`, `41d7c768`, `579edc0e`, `c7506e6d`, `a0b52cb8`, `e4fd8993` — is an
+ancestor of HEAD; nothing was missing and nothing needed rebuilding. The branch is
+clean and level with its upstream.
+
+Six subsystems were classified from source by independent readers and each
+classification was then adversarially re-checked. `evidence/state/current-execution-frontier.json`
+carries the machine-readable result; the runtime digests in it come from
+`merc dev authority`, which calls the same functions admission and dispatch call,
+so the receipt cannot restate a number a previous report chose.
+
+| Subsystem | Classification |
+|---|---|
+| runtime authority in PostgreSQL | PRODUCTION_WIRED |
+| activation policy | PRODUCTION_WIRED |
+| second runtime (llama.cpp) | REAL_RUNTIME_PROVEN |
+| exact-result reuse cache | PRODUCTION_WIRED |
+| in-flight coalescing | PRODUCTION_WIRED |
+| execution overhead actuals | PRODUCTION_WIRED |
+| token-budget batching | IMPLEMENTED_UNWIRED |
+| tokenization / tool-schema caches | ABSENT |
+| RuntimeSelector | ABSENT |
+
+**The second runtime is REAL_RUNTIME_PROVEN, not ECONOMICALLY_PROVEN.** Real agent
+processes executed real llama-server embeddings through the real driver, and the
+real verification and settlement transactions wrote real ledger rows that
+conserve. What did not happen is a buyer request: `buildWorkloadDecisionDirected`
+has zero production callers, so every chain proof submits a test-constructed job
+row rather than going through `POST /v1/jobs`. The money is real and its origin is
+a fixture. That is exactly the rung `llama_cpp_metal` already sits at, so the
+authority and the classification agree.
+
+### Claims the reconciliation had to withdraw
+
+Recorded in full in
+`evidence/state/correction-2026-07-31-coalescing-and-directed-routing.json`.
+
+- **Coalescing is wired but not economically proven.** The 128-way test drives
+  `Store.ClaimInflightExecution` directly — it executes nothing and settles
+  nothing — and the money test is arithmetic against no database. The two halves
+  have never been joined.
+- **`RenewInflightLease` has zero production callers.** `inflightLeaseTTL` is 30
+  seconds, so a leader whose execution runs longer can be taken over mid-flight.
+- **`sweepExpiredInflight` has zero production callers** and is not in the workers
+  ticker table. Expired `inflight_executions` rows accumulate.
+- **`ClassCoalescedDelivery` is never written.** Followers settle through
+  `SettleRealtimeExactReuse` and are recorded as `exact_reuse`, so coalesced
+  revenue cannot be counted separately.
+- **`MERC_SHAPE_AWARE_ROUTING=1` is inert.** `ClaimTaskSQL` passes
+  `shapeNoPreference` unconditionally; `preferenceForTier` has no production
+  caller.
+- **`EvictPrefixCacheToBudget` and `DeepestWarmPrefix` have zero production
+  callers.** The scheduler uses its own inline warm-depth SQL, so two definitions
+  of warm depth exist and only one is live.
+- **`SelectBatch` and `TokenBudgetFor` have zero production callers**, and one
+  latency class is defined where the directive names four.
+
+None of these were introduced by this tranche. They are claims that outran their
+wiring, and a caller census is the only thing that finds them.
+
 ## Against the directive's stop conditions
 
 | # | Condition | State |

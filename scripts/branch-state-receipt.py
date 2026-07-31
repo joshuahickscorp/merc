@@ -2,9 +2,16 @@
 """Emit one machine-readable state receipt for the current HEAD.
 
 Written because a progress report is prose and prose drifts. Every field here is
-read from the tree, from git, or from a live database — never from a previous
-report. Where a fact cannot be determined without a database, the field says so
-rather than guessing.
+read from the tree, from git, from the product's own authority code, or from a
+live database — never from a previous report. Where a fact cannot be determined
+without a database, the field says so rather than guessing.
+
+Two fields in the first version were hard-coded rather than derived —
+`full_merc_chain_proof: False` and `lifecycle_ceiling_until_chain: "VALIDATED"` —
+and they went stale the moment the chain completed, which is precisely the drift
+this file exists to prevent. Anything that can be computed is now computed, and
+the runtime digests come from `merc dev authority`, which calls the same functions
+admission and dispatch call.
 
     python3 scripts/branch-state-receipt.py \
         --database-url postgres://cx:cx@localhost:5432/merc_state \
@@ -40,7 +47,12 @@ def read(path):
 
 
 def grep_count(pattern, *paths, exclude_tests=True):
-    """Count files whose CODE matches, excluding _test.go when asked."""
+    """Files whose CODE matches, excluding _test.go when asked.
+
+    Returns FILES, not occurrences. A caller that wants a count of definitions
+    must use count_matches — reporting file count as case count reported the
+    fourteen-case failure matrix as two, because it lives in two files.
+    """
     hits = []
     for path in paths:
         full = os.path.join(ROOT, path)
@@ -52,6 +64,20 @@ def grep_count(pattern, *paths, exclude_tests=True):
             if re.search(pattern, read(os.path.join(path, entry))):
                 hits.append(f"{path}/{entry}")
     return hits
+
+
+def count_matches(pattern, *paths, exclude_tests=False):
+    """Total occurrences, across files. See grep_count for why both exist."""
+    total = 0
+    for path in paths:
+        full = os.path.join(ROOT, path)
+        if not os.path.isdir(full):
+            continue
+        for entry in sorted(os.listdir(full)):
+            if not entry.endswith(".go") or (exclude_tests and entry.endswith("_test.go")):
+                continue
+            total += len(re.findall(pattern, read(os.path.join(path, entry))))
+    return total
 
 
 def authority_state():
@@ -150,6 +176,117 @@ def probe_database(url):
     }
 
 
+def dev_authority():
+    """Runtime authority as the PRODUCT computes it, not as the document reads.
+
+    Shelling to the binary rather than reimplementing the digest in Python is the
+    whole point: a second implementation would drift, and a receipt whose numbers
+    are its own opinion is not evidence.
+    """
+    out = subprocess.run(
+        ["go", "run", ".", "dev", "authority"],
+        cwd=os.path.join(ROOT, "control"),
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        return {"error": out.stderr.strip()[-2000:]}
+    try:
+        return json.loads(out.stdout)
+    except ValueError as error:
+        return {"error": f"unparseable: {error}"}
+
+
+def callers(pattern, *, exclude=()):
+    """Production callers only: no tests, no definition sites the caller names."""
+    hits = grep_count(pattern, "control")
+    return [h for h in hits if not any(h.endswith(e) for e in exclude)]
+
+
+def latest_checkpoint_receipt():
+    directory = os.path.join(ROOT, "evidence", "checkpoint")
+    if not os.path.isdir(directory):
+        return {"present": False, "reason": "no evidence/checkpoint directory"}
+    receipts = []
+    for entry in sorted(os.listdir(directory)):
+        if not entry.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(directory, entry)) as handle:
+                receipts.append(json.load(handle))
+        except (OSError, ValueError):
+            continue
+    if not receipts:
+        return {"present": False, "reason": "no receipts on disk"}
+    head = git("rev-parse", "HEAD")
+    for receipt in receipts:
+        if receipt.get("head") == head:
+            steps = receipt.get("steps", [])
+            return {
+                "present": True,
+                "binds_current_head": True,
+                "head": receipt["head"],
+                "worktree_digest": receipt.get("worktree_digest", ""),
+                "mutation_restored": receipt.get("mutation_restored", False),
+                "steps": {s["name"]: s.get("exit_code", 1) for s in steps},
+                "push_eligible": (
+                    receipt.get("mutation_restored", False)
+                    and bool(steps)
+                    and all(s.get("exit_code", 1) == 0 and not s.get("skipped")
+                            for s in steps)
+                ),
+            }
+    return {
+        "present": True,
+        "binds_current_head": False,
+        "receipts_for": [r.get("head", "")[:12] for r in receipts],
+        "current_head": head[:12],
+    }
+
+
+def production_callers(symbol):
+    """Non-test references to a symbol, excluding its own declaration and comments.
+
+    Crude but honest: a line that declares `func X(` or `X = ` or that begins with
+    a comment is not a call. Everything else in a non-test .go file is. This is
+    what separates "the function exists" from "something runs it", which is the
+    single distinction every stale progress report in this repository got wrong.
+    """
+    out = []
+    for path in ("control", "agent/src"):
+        full = os.path.join(ROOT, path)
+        if not os.path.isdir(full):
+            continue
+        for entry in sorted(os.listdir(full)):
+            if not (entry.endswith(".go") or entry.endswith(".rs")):
+                continue
+            if entry.endswith("_test.go"):
+                continue
+            for number, line in enumerate(read(os.path.join(path, entry)).splitlines(), 1):
+                if symbol not in line:
+                    continue
+                stripped = line.strip()
+                if stripped.startswith("//") or stripped.startswith("--"):
+                    continue
+                if re.search(rf"^\s*(func|pub fn|fn)\s+(\([^)]*\)\s*)?{re.escape(symbol)}\b", line):
+                    continue
+                if re.search(rf"^\s*{re.escape(symbol)}\s*(=|:)", line):
+                    continue
+                out.append(f"{path}/{entry}:{number}")
+    return out
+
+
+def classify(symbol_callers, *, schema_present, note):
+    if symbol_callers:
+        return {"classification": "PRODUCTION_WIRED", "callers": symbol_callers, "note": note}
+    if schema_present:
+        return {"classification": "IMPLEMENTED_UNWIRED", "callers": [], "note": note}
+    return {"classification": "ABSENT", "callers": [], "note": note}
+
+
+def schema_has(schema, *fragments):
+    return {fragment: (fragment in schema) for fragment in fragments}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--database-url", default=os.environ.get("MERC_STATE_DATABASE_URL", ""))
@@ -158,12 +295,21 @@ def main():
 
     matrix_version, profiles = authority_state()
     schema = read("control/schema.sql")
+    authority = dev_authority()
 
-    coalescing_callers = grep_count(r"ClaimInflightExecution\(", "control")
     # The definition site is not a caller. Excluding it is the difference between
     # "wired" and "declared", which is the exact thing prose gets wrong.
-    coalescing_callers = [c for c in coalescing_callers
-                          if not c.endswith("inflight_coalescing.go")]
+    coalescing_callers = callers(
+        r"ClaimInflightExecution\(", exclude=("inflight_coalescing.go",))
+    coalescing_resolvers = callers(
+        r"ResolveInflightSuccess\(|ResolveInflightFailure\(|AwaitInflightResult\(",
+        exclude=("inflight_coalescing.go",))
+    activation_writers = callers(
+        r"ApplyActivationPolicy\(|syncActivationPolicy\(|loadActivationAtStartup\(",
+        exclude=("activation_policy.go",))
+    verification_class_writers = callers(
+        r"deriveTaskVerificationClass\(|governComputePlanVerificationClass\(",
+        exclude=("verification_class.go",))
 
     receipt = {
         "schema_version": 1,
@@ -193,23 +339,83 @@ def main():
                 if c["effective_lifecycle"] == "REJECTED_FOR_CONTRACT"
             ],
         },
+        "runtime_authority_computed": authority,
+        "activation_policy": {
+            "table_declared": "runtime_activation_policies" in schema,
+            "append_only_trigger":
+                "runtime_activation_policies_append_only" in schema,
+            "promotion_receipt_required":
+                "runtime_activation_policies_promotion_evidenced" in schema,
+            "capability_manifest_version_column":
+                "capability_manifest_version" in schema,
+            "digest_history_table":
+                "runtime_profile_digest_history" in schema,
+            "production_writers": activation_writers,
+        },
         "capability_wiring": {
             "coalescing_production_callers": coalescing_callers,
+            "coalescing_resolver_callers": coalescing_resolvers,
+            "coalescing_lease_table": "inflight_executions" in schema,
             "coalescing_status": (
                 "handler_wired" if coalescing_callers else "primitive_only"),
             "second_runtime_driver": bool(
                 os.path.exists(os.path.join(ROOT, "agent/src/runtime_driver.rs"))),
             "directed_routing": bool(
                 grep_count(r"func buildWorkloadDecisionDirected", "control")),
-            "selector_present": bool(grep_count(r"RuntimeSelector", "control")),
+            "selector_type_present": bool(grep_count(r"RuntimeSelector", "control")),
+            "selector_tables": schema_has(
+                schema, "runtime_selector_decisions", "runtime_selector_outcomes",
+                "runtime_selector_promotions"),
             "tokenization_cache_callers": grep_count(
                 r"TokenizationCache|tokenizationCache", "control"),
             "tool_schema_cache_callers": grep_count(
                 r"ToolSchemaCache|toolSchemaCache", "control"),
+            "exact_reuse_batch_enabled":
+                "const batchExactReuseEnabled = false" not in
+                read("control/exact_reuse_batch.go"),
             "batching_authority": "control/batch_policy.go:SelectBatch"
             if grep_count(r"func SelectBatch", "control") else "absent",
-            "artifact_backed_integration_harness": bool(
-                grep_count(r"func newArtifactHarness", "control")),
+            "batching_traffic_classes": [
+                name for name in
+                ("INTERACTIVE", "BATCH_PRIORITY", "BATCH_STANDARD", "BACKGROUND")
+                if grep_count(name, "control")
+            ],
+            "overhead_actuals_table": "execution_overhead_actuals" in schema,
+            "overhead_actuals_writers": callers(
+                r"execution_overhead_actuals", exclude=()),
+            "verification_class_writers": verification_class_writers,
+            "verification_classes_declared": schema_has(
+                schema, "tasks_verification_class_known",
+                "tasks_derive_verification_class",
+                "verification_work_governed_class_selected"),
+            # A TEST harness, named as one. It is what makes the chain and
+            # failure-matrix proofs possible, and it is not a production caller;
+            # reporting it under either label alone would be misleading.
+            "artifact_test_harness": grep_count(
+                r"func newArtifactHarness", "control", exclude_tests=False),
+            "checkpoint_cli": bool(grep_count(r"func runDevCheckpoint", "control")),
+            "pre_push_hook_present": os.path.exists(
+                os.path.join(ROOT, ".githooks", "pre-push")),
+        },
+        "checkpoint_authority": latest_checkpoint_receipt(),
+        # Mechanical caller counts, not a reading of the code's intentions. A
+        # symbol whose only non-test appearance is its own declaration is dead,
+        # whatever the comment above it says it is for.
+        "dead_or_unwired_symbols": {
+            symbol: production_callers(symbol)
+            for symbol in (
+                "RenewInflightLease",
+                "sweepExpiredInflight",
+                "InflightFollowers",
+                "ClassCoalescedDelivery",
+                "buildWorkloadDecisionDirected",
+                "EvictPrefixCacheToBudget",
+                "DeepestWarmPrefix",
+                "PrefixCacheValue",
+                "preferenceForTier",
+                "SelectBatch",
+                "TokenBudgetFor",
+            )
         },
         "unresolved_migrations": {
             # Read from the schema text, because the intent lives there and the
@@ -221,12 +427,35 @@ def main():
             "runtime_profile_id_nullable_by_design":
                 "worker_capability_requires_profile" in schema,
         },
+        # DERIVED. The first version of this block asserted
+        # full_merc_chain_proof: False and a VALIDATED ceiling, and both went
+        # stale the moment the chain completed. Nothing here is a constant that
+        # a previous report chose.
         "second_runtime_evidence": {
             "benchmark_receipt":
                 "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
-            "engine_level_proof": True,
-            "full_merc_chain_proof": False,
-            "lifecycle_ceiling_until_chain": "VALIDATED",
+            "autonomous_agent_chain_tests": [
+                name for name in (
+                    "control/two_agent_enrollment_test.go",
+                    "control/second_runtime_chain_test.go",
+                    "control/second_runtime_verification_test.go",
+                    "control/rejection_economics_test.go",
+                    "control/receipt_tamper_test.go",
+                    "control/failure_matrix_test.go",
+                    "control/failure_matrix_agent_test.go",
+                ) if os.path.exists(os.path.join(ROOT, name))
+            ],
+            "chain_receipt_present": os.path.exists(
+                os.path.join(ROOT, "evidence/chain/two-agent-product-chain.json")),
+            "llama_cpp_cell_lifecycles": {
+                cell["cell_id"]: cell["effective_lifecycle"]
+                for p in profiles if p["runtime_profile_id"] == "llama_cpp_metal"
+                for cell in p["cells"]
+            },
+            "failure_matrix_cases": count_matches(
+                r"func TestFailureMatrix\w+\(", "control"),
+            "failure_matrix_agent_process_cases": count_matches(
+                r"func TestFailureMatrix(AgentDeath|RuntimeUnavailable)\w*\(", "control"),
         },
         "grok_status": "DEFERRED_USAGE_LIMIT",
         "adversarial_review_label": "NOT_GROK_INDEPENDENT",
