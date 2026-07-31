@@ -192,9 +192,39 @@ because nothing ran the whole target:
   `MERC_TEST_S3_*` and `MERC_LLAMA_EMBED_URL` through when the environment has
   them, so a machine with MinIO and a llama-server actually runs those tests.
 
-All five are fixed. The point is not the fixes; it is that "full suite green" at
-the last checkpoint meant `go test ./...`, and the gate is what makes the
-difference visible.
+A sixth appeared once the first five were fixed and the gate got far enough to
+run `make ci` at all: **`go test ./...` has no `-timeout`, so it used the 10
+minute default**, and the suite is about fourteen minutes on a host with object
+storage and a local engine. It died mid-run with a timeout panic naming
+`TestBothAgentsExecuteADirectedJobEndToEnd`, which reads as a hung test rather
+than as a budget. `make ci` could not have passed on such a host since the
+agent-process tests landed.
+
+All six are fixed. The point is not the fixes; it is that "full suite green" at
+the last checkpoint meant `go test ./...` with a hand-typed `-timeout`, and the
+gate is what makes the difference visible.
+
+The mutation suite it runs came back **33 caught, 0 survived**, and the
+worktree content digest matched before and after — which is the restoration
+proof, not an assumption about what the mutation script intended.
+
+### And one the gate did not catch, because I broke its rule by hand
+
+A checkpoint was killed mid-mutation. Its `mutation-test.sh` **survived the
+kill**, and I removed its lock directory by hand on the assumption it was stale.
+It then went on rewriting source files for the next hour — through a later
+checkpoint whose restoration digest happened to be taken in a clean moment, and
+into a `make ci` run that failed on four tests that were exercising mutated code.
+Thirteen files were still mutated when I finally looked.
+
+"Never run CI while mutation tooling modifies the same tree" was the one rule the
+directive stated outright, and a content digest at a single instant does not
+enforce it: between two mutations the tree can match by luck. The checkpoint now
+refuses to **start** while `scripts/mutation-test.sh` holds its lock, and refuses
+to **trust** the restoration digest if the lock is still held after the suite
+returns. `TestCheckpointReadsTheMutationScriptsOwnLock` pins the two derivations
+of the lock path together, because if they ever diverge the guard stops guarding
+silently.
 
 ## 3. The llama.cpp failure matrix
 

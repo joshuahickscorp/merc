@@ -75,9 +75,14 @@ CI_TEST_ENV = MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" \
   MERC_TEST_S3_SECRET_KEY="$(MERC_TEST_S3_SECRET_KEY)" \
   MERC_LLAMA_EMBED_URL="$(MERC_LLAMA_EMBED_URL)"
 
+# -timeout 45m, not the 10m default. The suite grew agent-PROCESS tests: two
+# merc-agent binaries cold-load and benchmark both retained models before they
+# register, and the whole suite runs about fourteen minutes on a host that has
+# object storage and a local engine. The default killed `make ci` mid-run with a
+# ten-minute panic, which read as a hung test rather than as a budget.
 ci:
 	cd control && test -z "$$(gofmt -l .)" && go vet ./... && \
-	  $(CI_TEST_ENV) go test ./...
+	  $(CI_TEST_ENV) go test -timeout 45m ./...
 	@bash scripts/assert-no-test-skips.sh
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
 	python3 -m json.tool proto/manifest.schema.json >/dev/null
