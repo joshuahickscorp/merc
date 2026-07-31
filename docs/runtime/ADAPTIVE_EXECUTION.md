@@ -204,9 +204,28 @@ All six are fixed. The point is not the fixes; it is that "full suite green" at
 the last checkpoint meant `go test ./...` with a hand-typed `-timeout`, and the
 gate is what makes the difference visible.
 
-The mutation suite it runs came back **33 caught, 0 survived**, and the
-worktree content digest matched before and after — which is the restoration
-proof, not an assumption about what the mutation script intended.
+The mutation suite came back **32 caught, 1 survived**, and the survivor is a
+real hole:
+
+> `exact reuse hashes request shape but not runtime authority` — **SURVIVED**
+
+`batchRequestIdentity` derives the batch reuse key from the whole frozen workload
+decision. Swapping that for the binding alone changes nothing any test can see,
+because `batchExactReuseEnabled` is a compile-time `false` and the function
+returns before it reaches the digest. A surviving mutation on disabled code is
+not a passing grade; it is a hole waiting for the day the flag is flipped back —
+two jobs frozen onto different runtime cells would share a reuse key, and the
+second buyer would be served the first runtime's bytes at the reuse price with a
+receipt naming a cell that never ran. Now asserted at source, with the property
+itself (identical bindings, different decision digests) proved first so the source
+check is anchored to a real difference rather than to a spelling.
+
+An earlier run of the same suite reported **33 caught, 0 survived**. That number
+is void: it was measured while a stray mutation runner was concurrently rewriting
+the tree, which makes tests fail — and therefore mutations read as "caught" — for
+entirely the wrong reason. It is recorded here rather than quietly replaced,
+because a corrupted green is exactly the kind of result this whole gate exists to
+stop being believed.
 
 ### And one the gate did not catch, because I broke its rule by hand
 
