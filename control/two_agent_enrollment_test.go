@@ -612,23 +612,27 @@ func TestBothAgentsSettleThroughTheProductionPath(t *testing.T) {
 				t.Fatalf("%s: upload %s: %v", tc.name, key, err)
 			}
 		}
-		// The governed reference has to exist BEFORE the task is claimed: the
-		// verification plan is created from the commit snapshot, so a honeypot
-		// seeded afterwards arrives too late and the processor returns no
-		// decision at all. Candle is the ACTIVE authority, so its own committed
-		// output is the approved answer, and the challenger is graded against a
-		// reference it did not produce — the only shape in which one supplier's
-		// grade is not another supplier's opinion.
-		if tc.name == "llama_cpp" {
-			if err := store.InsertHoneypot(
-				jobCtx, "embed", tasks[0].InputRef, results["candle"].body, ""); err != nil {
-				t.Fatalf("%s: seed governed reference: %v", tc.name, err)
-			}
-			if _, err := pool.Exec(jobCtx,
-				`UPDATE tasks SET is_honeypot=true WHERE id=$1`, tasks[0].ID); err != nil {
-				t.Fatal(err)
-			}
-		}
+		// NOTE ON WHAT THIS DOES AND DOES NOT VERIFY.
+		//
+		// Both tasks go through Merc's ORDINARY sampled verification, not a
+		// governed-reference comparison. An earlier version of this test seeded a
+		// honeypot and claimed the challenger was graded against candle's approved
+		// output; it was not. The seeding ran `UPDATE tasks SET is_honeypot=true`
+		// before SubmitJobTx had inserted the task, so it matched zero rows and the
+		// task stayed an ordinary one — the claim was wrong and is withdrawn here.
+		//
+		// Setting the flag on the task ROW does work, and then SubmitJobTx
+		// correctly refuses the job: the compute plan prices task classes, and a
+		// honeypot the plan never declared would be unpaid work. A real
+		// governed-reference grade therefore needs a job whose plan declares a
+		// honeypot alongside its primary, which is a larger fixture than this
+		// test, and it is not claimed until it exists.
+		//
+		// What IS verified here: two enrolled agents execute autonomously, both
+		// outputs reach a terminal `pass` through the production verification path,
+		// both settle, and the money conserves. The cross-cell equivalence itself
+		// is graded by the governed comparator in
+		// TestBothAgentsExecuteADirectedJobEndToEnd.
 
 		if err := store.SubmitJobTx(jobCtx, job, tasks); err != nil {
 			t.Fatalf("%s: submit: %v", tc.name, err)
@@ -885,7 +889,6 @@ func TestBothAgentsProduceVerifiableReceipts(t *testing.T) {
 	t.Cleanup(cancel)
 
 	corpus := []byte(`{"id":"0","text":"A receipt names the runtime that produced it."}` + "\n")
-	var candleBody []byte
 
 	for _, tc := range []struct {
 		name, cell string
@@ -904,24 +907,11 @@ func TestBothAgentsProduceVerifiableReceipts(t *testing.T) {
 				t.Fatalf("%s: upload %s: %v", tc.name, key, err)
 			}
 		}
-		if tc.name == "llama_cpp" {
-			if err := store.InsertHoneypot(
-				jobCtx, "embed", tasks[0].InputRef, candleBody, ""); err != nil {
-				t.Fatalf("seed governed reference: %v", err)
-			}
-			if _, err := pool.Exec(jobCtx,
-				`UPDATE tasks SET is_honeypot=true WHERE id=$1`, tasks[0].ID); err != nil {
-				t.Fatal(err)
-			}
-		}
 		if err := store.SubmitJobTx(jobCtx, job, tasks); err != nil {
 			t.Fatalf("%s: submit: %v", tc.name, err)
 		}
 
-		body, _ := waitForCommittedResult(t, jobCtx, pool, artifacts, tasks[0].ID, tc.name)
-		if tc.name == "candle" {
-			candleBody = body
-		}
+		waitForCommittedResult(t, jobCtx, pool, artifacts, tasks[0].ID, tc.name)
 		if outcome := waitForVerificationOutcome(t, jobCtx, pool, tasks[0].ID); outcome != "pass" {
 			t.Fatalf("%s: verification outcome %q, want pass", tc.name, outcome)
 		}

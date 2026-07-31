@@ -509,6 +509,20 @@ func validJobRow(t *testing.T, f moneyPathFixture, tasks []taskRow) *jobRow {
 func validJobRowDirected(
 	t *testing.T, f moneyPathFixture, tasks []taskRow, directedCellID string,
 ) *jobRow {
+	return validJobRowClasses(t, f, tasks, directedCellID, len(tasks), 0, 0)
+}
+
+// validJobRowClasses builds a job whose compute plan declares the task classes
+// it will actually be submitted with.
+//
+// SubmitJobTx refuses a task set whose primary/redundancy/honeypot counts do not
+// match the plan, which is correct — a honeypot the plan never priced would be
+// unpaid work — and it means a honeypot-bearing job cannot be made by flipping a
+// flag on a one-primary fixture.
+func validJobRowClasses(
+	t *testing.T, f moneyPathFixture, tasks []taskRow, directedCellID string,
+	primary, redundancy, honeypot int,
+) *jobRow {
 	t.Helper()
 	workload, err := buildWorkloadDecisionDirected(jobSubmit{
 		JobType: JobType{Type: "embed"},
@@ -525,7 +539,10 @@ func validJobRowDirected(
 	if economicPlan.Input.InitialTaskCount != len(tasks) {
 		economicPlan = buildTestEconomicPlan(t, len(tasks), economicPlan.Input.SLAPremiumUSD)
 	}
-	inputRecords := len(tasks)
+	// Input geometry follows the PRIMARY count, not the total. Redundancy and
+	// honeypot tasks re-run or probe the same input; counting them as records
+	// would claim the buyer submitted work they did not.
+	inputRecords := primary
 	inputBytes := int64(inputRecords * 128)
 	computePlan, err := newDistributedComputePlan(
 		workload,
@@ -533,9 +550,9 @@ func validJobRowDirected(
 		inputBytes,
 		testInputDepthProfile(inputRecords),
 		1,
-		len(tasks),
-		0,
-		0,
+		primary,
+		redundancy,
+		honeypot,
 		quoteTimeFromETABands(60, 0, false),
 		"static",
 		economicPlan.Input.BaseComputeUSD,
