@@ -270,11 +270,16 @@ def check_no_visionmcp():
 def check_no_live_stripe_keys():
     """13. No live Stripe credential is present or accepted.
 
-    A test that proves a live key is REFUSED has to name one, so `sk_live_` in a
+    A test that proves a live key is REFUSED has to name one, so the live-mode
+    secret prefix appearing in a
     test, a doc or a test driver is evidence of the guard rather than a breach of
     it. What would be a breach is the prefix in shipped code or configuration, or a
     string long enough to be an actual Stripe secret anywhere at all.
     """
+    # Assembled rather than written out, because a scanner that spells the prefix
+    # it hunts for matches its own source — the first run of this check reported
+    # scripts/must-not-do-audit.py as the offender.
+    prefix = "sk_" + "live_"
     fixture_paths, production_paths, credential_shaped = [], [], []
     for path in tracked_files():
         if path.endswith((".png", ".jpg", ".pdf", ".gguf", ".blend")):
@@ -283,23 +288,28 @@ def check_no_live_stripe_keys():
         if not os.path.isfile(full) or os.path.getsize(full) > 4_000_000:
             continue
         body = read(path)
-        matches = re.findall(r"sk_live_[A-Za-z0-9_]+", body)
+        matches = re.findall(prefix + r"[A-Za-z0-9_]+", body)
         if not matches:
             continue
         # A real Stripe secret is 24+ base62 characters after the prefix. The
-        # fixtures in this tree read sk_live_accident, sk_live_x and the like.
-        if any(len(m) - len("sk_live_") >= 24 and "_" not in m[len("sk_live_"):] for m in matches):
+        # fixtures in this tree use short, obviously-fake tails.
+        if any(len(m) - len(prefix) >= 24 and "_" not in m[len(prefix):] for m in matches):
             credential_shaped.append(path)
+        # docs, tests and evidence are RECORDS: naming the prefix there is how a
+        # refusal gets asserted or reported. What would be a breach is the prefix
+        # in shipped code or configuration.
         is_fixture = (
             path.endswith("_test.go")
             or path.startswith("docs/")
+            or path.startswith("evidence/")
             or re.match(r"scripts/test-", path)
         )
         (fixture_paths if is_fixture else production_paths).append(path)
     if credential_shaped:
-        return FAIL, f"a credential-shaped sk_live_ value appears in: {sorted(credential_shaped)}"
+        return FAIL, f"a credential-shaped live-mode value appears in: {sorted(credential_shaped)}"
     if production_paths:
-        return FAIL, f"sk_live_ appears outside tests and docs: {sorted(production_paths)}"
+        return FAIL, ("a live-mode secret prefix appears outside tests, docs and evidence: "
+                      f"{sorted(production_paths)}")
     guard = read("control/payment_authority.go")
     if "LIVE payment mode requires MERC_ENV=production" not in guard:
         return FAIL, "payment authority no longer gates live mode on the production environment"
