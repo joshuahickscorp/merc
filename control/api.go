@@ -721,9 +721,20 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		placement = qBind.Placement
 		offeredRate = placement.OfferedRateUsdHr
 	} else {
+		// The planning workload is resolved BEFORE the rate, because the rate is
+		// the slowest cell this job can be routed to and the candidate set is what
+		// says which cells those are. Pricing against the whole catalogue for the
+		// model offers a job pinned to a fast cell at a slow cell's rate.
+		planningWorkload, perr := buildWorkloadDecision(sub, strings.Repeat("0", sha256.Size*2))
+		if perr != nil {
+			return JobSubmitResponse{}, &httpError{
+				http.StatusBadRequest, "resolving placement authority: " + perr.Error(),
+			}
+		}
 		var offeredRate64 float64
 		offeredRate64, err = supplierAdmissionCeilingUSDHr(
 			cataloguePrice, sub.JobType.Type, sub.Tier,
+			admissionCellsForWorkload(planningWorkload),
 		)
 		if err != nil {
 			return JobSubmitResponse{}, &httpError{
@@ -731,12 +742,6 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			}
 		}
 		offeredRate = float32(offeredRate64)
-		planningWorkload, perr := buildWorkloadDecision(sub, strings.Repeat("0", sha256.Size*2))
-		if perr != nil {
-			return JobSubmitResponse{}, &httpError{
-				http.StatusBadRequest, "resolving placement authority: " + perr.Error(),
-			}
-		}
 		placement, perr = placementRequirementFor(sub, planningWorkload, offeredRate)
 		if perr != nil {
 			return JobSubmitResponse{}, &httpError{
@@ -1199,10 +1204,27 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		return JobSubmitResponse{}, &httpError{http.StatusConflict,
 			"compute and economic authority disagree: " + err.Error()}
 	}
-	pricingDecision, pricingErr := newDistributedPricingDecision(
-		workloadDecision, computePlan, placement, economicPlan,
-		cataloguePrice, sub.Tier, "",
-	)
+	// A bound quote's supplier unit rate is pinned exactly like its catalogue
+	// price: the quote already froze a placement offered rate, and re-resolving
+	// the rate live here compared today's evidence against that frozen number.
+	// A receipt crossing its 180-day revalidation window between quote and
+	// submit therefore turned an accepted quote into a 409 the buyer could do
+	// nothing about - the quote had not changed, and neither had anything the
+	// buyer controls.
+	buildPricingDecision := func(originQuotePricingSHA string) (PricingDecision, error) {
+		if qBind != nil {
+			return distributedPricingDecisionAtRate(
+				workloadDecision, computePlan, placement, economicPlan,
+				cataloguePrice, sub.Tier, originQuotePricingSHA,
+				qBind.Pricing.ExpectedSupplierUnitsPerSec,
+			)
+		}
+		return newDistributedPricingDecision(
+			workloadDecision, computePlan, placement, economicPlan,
+			cataloguePrice, sub.Tier, originQuotePricingSHA,
+		)
+	}
+	pricingDecision, pricingErr := buildPricingDecision("")
 	if pricingErr != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusConflict,
 			"composite pricing authority disagrees: " + pricingErr.Error()}
@@ -1214,10 +1236,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 				"hashing composite pricing authority: " + digestErr.Error()}
 		}
 		if candidateSHA != qBind.PricingDecisionSHA256 {
-			pricingDecision, pricingErr = newDistributedPricingDecision(
-				workloadDecision, computePlan, placement, economicPlan,
-				cataloguePrice, sub.Tier, qBind.PricingDecisionSHA256,
-			)
+			pricingDecision, pricingErr = buildPricingDecision(qBind.PricingDecisionSHA256)
 			if pricingErr != nil {
 				return JobSubmitResponse{}, &httpError{http.StatusConflict,
 					"binding accepted quote pricing authority: " + pricingErr.Error()}
@@ -3496,29 +3515,6 @@ func (s *Server) plannerETASecsFor(
 	log.Printf("planner: eta jobType=%s model=%s tasks=%d queued_ahead=%d live_fleet=%d width=%d per_task=%ds eta=%ds (conservative %ds) [MODELED]",
 		jobType, modelRef, nTasks, queuedAhead, len(rates), plan.Width, perTaskSecs, eta, conservative)
 	return eta, conservative, true
-}
-
-func (s *Server) offeredRateUsdHr(ctx context.Context, jobType, modelRef string) (float32, error) {
-	authority, err := s.store.LoadCataloguePriceAuthority(ctx, modelRef)
-	if err != nil {
-		return 0, fmt.Errorf("load model %s: %w", modelRef, err)
-	}
-	ceiling, err := supplierAdmissionCeilingUSDHr(authority, jobType, "batch")
-	if err != nil {
-		return 0, err
-	}
-	return float32(ceiling), nil
-}
-
-func (s *Server) offeredRateUsdHrForSubmission(ctx context.Context, sub jobSubmit) (float32, error) {
-	authority, err := s.store.LoadCataloguePriceAuthority(ctx, sub.Model.Ref)
-	if err != nil {
-		return 0, err
-	}
-	ceiling, err := supplierAdmissionCeilingUSDHr(
-		authority, sub.JobType.Type, sub.Tier,
-	)
-	return float32(ceiling), err
 }
 
 func perTaskSecsFromP90(p90ms int64) int {

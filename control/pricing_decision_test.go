@@ -210,3 +210,81 @@ func TestBoundQuoteCatalogueSelectionNeverReadsCurrentModelPrice(t *testing.T) {
 			got, pricing.Catalogue)
 	}
 }
+
+// The validator must re-derive the supplier unit rate from the governed cell
+// authority, never from the record being checked.
+//
+// Rebuilding with decision.ExpectedSupplierUnitsPerSec made this self-certifying.
+// The rebuild derives the admission ceiling from that rate and compares it to the
+// placement's offered rate, so an attacker who can rewrite a stored pricing
+// decision - and can therefore rewrite the stored placement beside it - gets a
+// composite that verifies at any rate at all. Here the whole set is internally
+// consistent and every digest matches; the only thing wrong with it is that no
+// benchmark in the tree produces the rate.
+func TestStoredPricingDecisionCannotCertifyItsOwnSupplierRate(t *testing.T) {
+	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
+
+	forgedRate := pricing.ExpectedSupplierUnitsPerSec * 10
+	forgedPlacement := placement
+	forgedPlacement.OfferedRateUsdHr = float32(expectedSupplierUSDHr(
+		forgedRate, pricing.Catalogue.ReferencePricePer1K,
+		pricing.Catalogue.SupplierShare, pricing.Tier,
+	))
+	forged, err := distributedPricingDecisionAtRate(
+		workload, compute, forgedPlacement, economic, pricing.Catalogue,
+		pricing.Tier, "", forgedRate,
+	)
+	if err != nil {
+		t.Fatalf("the forgery is meant to be internally consistent: %v", err)
+	}
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		forged, workload, compute, forgedPlacement, economic,
+	); err == nil {
+		t.Fatalf("a decision claiming %v units/s validated against itself at a "+
+			"$%.5f/hr admission ceiling", forgedRate, forged.SupplierAdmissionCeilingUSDHr)
+	}
+}
+
+// A quote freezes a supplier unit rate; the receipt behind it keeps ageing.
+// Rebuilding a bound submission from live evidence compared today's posture
+// against the quote's frozen offered rate, so a receipt crossing its 180-day
+// revalidation window between quote and submit turned an accepted quote into a
+// 409 - on a quote nothing the buyer controls had changed.
+func TestQuoteFrozenSupplierRateSurvivesTheRevalidationBoundary(t *testing.T) {
+	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
+
+	// What the SAME receipt yields once it is past its window.
+	stalePostureRate := pricing.ExpectedSupplierUnitsPerSec /
+		measuredThroughputHaircut * staleThroughputHaircut
+	stalePlacement := placement
+	stalePlacement.OfferedRateUsdHr = float32(expectedSupplierUSDHr(
+		stalePostureRate, pricing.Catalogue.ReferencePricePer1K,
+		pricing.Catalogue.SupplierShare, pricing.Tier,
+	))
+
+	// This is the 409: live resolution refuses a quote frozen on the other side
+	// of the boundary, in either direction.
+	if _, err := newDistributedPricingDecision(
+		workload, compute, stalePlacement, economic, pricing.Catalogue, pricing.Tier, "",
+	); err == nil {
+		t.Fatal("live re-resolution accepted a rate from the other posture; " +
+			"this test no longer describes the boundary")
+	}
+
+	// Binding the quote's own frozen rate accepts it, and the stored snapshot
+	// still verifies, because both governed postures of the same measurement are
+	// admissible and a rate from neither is not.
+	bound, err := distributedPricingDecisionAtRate(
+		workload, compute, stalePlacement, economic, pricing.Catalogue,
+		pricing.Tier, "", stalePostureRate,
+	)
+	if err != nil {
+		t.Fatalf("binding the quote's frozen rate: %v", err)
+	}
+	if err := ValidateDistributedPricingDecisionSnapshot(
+		bound, workload, compute, stalePlacement, economic,
+	); err != nil {
+		t.Fatalf("a decision at a governed stale-posture rate failed its own "+
+			"snapshot check: %v", err)
+	}
+}

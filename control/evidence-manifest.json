@@ -26,9 +26,9 @@
         "precision": "Q4_K_M GGUF",
         "operating_batch": 1,
         "units_per_sec_at_operating_batch": 225.9,
-        "peak_units_per_sec": 509.9,
-        "peak_batch": 64,
-        "basis": "physical_throughput.serial_tokens_per_sec, the un-batched decode rate. The sweep publishes one number per batch and no per-repetition wall times, so its slowest point is the only defensible floor."
+        "best_observed_units_per_sec": 509.9,
+        "best_observed_batch": 64,
+        "basis": "physical_throughput.serial_tokens_per_sec, the un-batched decode rate. The sweep publishes one number per batch and no per-repetition wall times, so its slowest point is the only defensible floor. best_observed_units_per_sec is the sweep's own physical_throughput.peak_tokens_per_sec, recorded to be refused."
       }
     }
   },
@@ -59,9 +59,9 @@
         "precision": "Q4_K_M GGUF",
         "operating_batch": 1,
         "units_per_sec_at_operating_batch": 330.5,
-        "peak_units_per_sec": 2184.4,
-        "peak_batch": 64,
-        "basis": "physical_throughput.serial_tokens_per_sec, the un-batched decode rate. The sweep publishes one number per batch and no per-repetition wall times, so its slowest point is the only defensible floor."
+        "best_observed_units_per_sec": 2184.4,
+        "best_observed_batch": 64,
+        "basis": "physical_throughput.serial_tokens_per_sec, the un-batched decode rate. The sweep publishes one number per batch and no per-repetition wall times, so its slowest point is the only defensible floor. best_observed_units_per_sec is the sweep's own physical_throughput.peak_tokens_per_sec, recorded to be refused."
       }
     }
   },
@@ -103,18 +103,18 @@
         "precision": "none (fp32 safetensors)",
         "operating_batch": 128,
         "units_per_sec_at_operating_batch": 2380.345428289974,
-        "peak_units_per_sec": 3359.749009950212,
-        "peak_batch": 128,
-        "basis": "128 texts divided by max_wall_s at batch 128: the SLOWEST of five repetitions, not the median rate the receipt quotes."
+        "best_observed_units_per_sec": 3359.749009950212,
+        "best_observed_batch": 128,
+        "basis": "128 texts divided by max_wall_s at batch 128: the SLOWEST of five repetitions, not the median rate the receipt quotes. best_observed_units_per_sec is that receipt-quoted texts_per_sec at its best batch, which is a MEDIAN of five repetitions and not a peak; it is a ceiling to refuse, not a rate anything may be offered at."
       },
       "llama_cpp_metal": {
         "unit": "embeddings",
         "precision": "F16 GGUF",
         "operating_batch": 128,
         "units_per_sec_at_operating_batch": 3962.6336034425385,
-        "peak_units_per_sec": 4000.1198785926117,
-        "peak_batch": 128,
-        "basis": "128 texts divided by max_wall_s at batch 128: the SLOWEST of five repetitions, not the median rate the receipt quotes."
+        "best_observed_units_per_sec": 4000.1198785926117,
+        "best_observed_batch": 128,
+        "basis": "128 texts divided by max_wall_s at batch 128: the SLOWEST of five repetitions, not the median rate the receipt quotes. best_observed_units_per_sec is that receipt-quoted texts_per_sec at its best batch, which is a MEDIAN of five repetitions and not a peak; it is a ceiling to refuse, not a rate anything may be offered at."
       }
     }
   }

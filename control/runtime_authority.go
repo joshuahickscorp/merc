@@ -935,10 +935,11 @@ type benchmarkReceiptSummary struct {
 
 // benchmarkThroughput is one profile's measured rate inside one receipt.
 //
-// Peak is recorded so it can be REFUSED rather than quietly reached for. The
-// number admission is allowed to use is UnitsPerSecAtOperatingBatch, and the
-// only reason peak is here at all is so a test can assert the two never meet
-// and the supplier report can show the gap it is not being paid on.
+// The best observation is recorded so it can be REFUSED rather than quietly
+// reached for. The number admission is allowed to use is
+// UnitsPerSecAtOperatingBatch, and the only reason the best one is here at all
+// is so a test can assert the two never meet and the supplier report can show
+// the gap it is not being paid on.
 type benchmarkThroughput struct {
 	// Unit is the billable unit the rate counts, not the engine's favourite
 	// metric. "tokens" and "embeddings" price differently, and a rate whose unit
@@ -951,8 +952,14 @@ type benchmarkThroughput struct {
 	// only promise a rate the cell's own batch policy actually permits.
 	OperatingBatch              int     `json:"operating_batch"`
 	UnitsPerSecAtOperatingBatch float64 `json:"units_per_sec_at_operating_batch"`
-	PeakUnitsPerSec             float64 `json:"peak_units_per_sec"`
-	PeakBatch                   int     `json:"peak_batch"`
+	// BestObservedUnitsPerSec is the best number anywhere in the sweep, and it is
+	// not always a peak: on a comparison receipt it is the best batch's MEDIAN of
+	// five repetitions, which is why the field is no longer called one. Calling a
+	// median a peak in the one file whose whole job is stating the basis is the
+	// same ungoverned number this binding replaced, wearing a label.
+	// BestObservedBatch is the batch it was seen at.
+	BestObservedUnitsPerSec float64 `json:"best_observed_units_per_sec"`
+	BestObservedBatch       int     `json:"best_observed_batch"`
 	// Basis states how the quoted number was taken out of the receipt, so the
 	// next reader can check it instead of trusting it.
 	Basis string `json:"basis"`

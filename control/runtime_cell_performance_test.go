@@ -49,7 +49,10 @@ func cellByID(t *testing.T, id string) (authorityRuntimeProfile, authorityCell) 
 // With jobTypeThroughput["embed"] = 200 this asserts $0.0126/hr against a
 // $0.05/hr floor and fails.
 func TestMeasuredCellClearsTheDefaultInstallPayoutFloor(t *testing.T) {
-	unitsPerSec, cell := admissionUnitsPerSec("embed", "all-minilm-l6-v2", benchmarkNow)
+	unitsPerSec, cell, err := admissionUnitsPerSec("embed", "all-minilm-l6-v2", nil, benchmarkNow)
+	if err != nil {
+		t.Fatalf("admission refused the embed cell: %v", err)
+	}
 	if cell.Status != cellThroughputMeasured {
 		t.Fatalf("embed cell resolved %s (%s), want a measured benchmark",
 			cell.Status, cell.Reason)
@@ -63,9 +66,9 @@ func TestMeasuredCellClearsTheDefaultInstallPayoutFloor(t *testing.T) {
 			offered, defaultInstallMinPayoutUSDHr, unitsPerSec, cell.Unit,
 			cell.BenchmarkAuthority)
 	}
-	t.Logf("cell=%s %.1f %s/s conservative (observed %.1f, peak %.1f) -> $%.5f/hr",
+	t.Logf("cell=%s %.1f %s/s conservative (observed %.1f, best %.1f) -> $%.5f/hr",
 		cell.CellID, unitsPerSec, cell.Unit, cell.ObservedUnitsPerSec,
-		cell.ObservedPeakUnitsPerSec, offered)
+		cell.ObservedBestUnitsPerSec, offered)
 }
 
 // The constant this file tests admission against has to be the number the
@@ -152,9 +155,11 @@ func TestStaleBenchmarkDegradesRatherThanSilentlyPassing(t *testing.T) {
 	}
 }
 
-// "Never a peak number" is the rule; this is the check. Every routable cell's
-// admissible rate must sit strictly below what the receipt's best point showed.
-func TestNoAdmissibleRateIsAPeakNumber(t *testing.T) {
+// "Never the best number in the sweep" is the rule; this is the check. Every
+// routable cell's admissible rate must sit strictly below the receipt's best
+// observation - which on a comparison receipt is a median of five repetitions
+// at the best batch, not a peak.
+func TestNoAdmissibleRateReachesTheBestObservation(t *testing.T) {
 	checked := 0
 	for _, profile := range runtimeAuthority.Runtimes {
 		for _, cell := range profile.Cells {
@@ -166,9 +171,9 @@ func TestNoAdmissibleRateIsAPeakNumber(t *testing.T) {
 				continue
 			}
 			checked++
-			if got.ConservativeUnitsPerSec >= got.ObservedPeakUnitsPerSec {
-				t.Errorf("cell %s is admitted at %v units/s against a measured peak of %v",
-					got.CellID, got.ConservativeUnitsPerSec, got.ObservedPeakUnitsPerSec)
+			if got.ConservativeUnitsPerSec >= got.ObservedBestUnitsPerSec {
+				t.Errorf("cell %s is admitted at %v units/s against a best observation of %v",
+					got.CellID, got.ConservativeUnitsPerSec, got.ObservedBestUnitsPerSec)
 			}
 			if got.ConservativeUnitsPerSec >= got.ObservedUnitsPerSec {
 				t.Errorf("cell %s is admitted at %v units/s with no haircut on the "+
@@ -297,7 +302,7 @@ func TestManifestThroughputIsDerivableFromTheReceipts(t *testing.T) {
 				path, summary.MeasuredAt)
 		}
 		for profileID, throughput := range summary.Throughput {
-			want, peak := 0.0, 0.0
+			want, best := 0.0, 0.0
 			if len(receipt.Measurements) > 0 {
 				// A comparison receipt: the slowest repetition at the quoted batch.
 				for _, m := range receipt.Measurements {
@@ -306,15 +311,22 @@ func TestManifestThroughputIsDerivableFromTheReceipts(t *testing.T) {
 					}
 					want = float64(m.Batch) / m.MaxWallS
 				}
+				// texts_per_sec is batch/median_wall_s, so the best of them is a
+				// MEDIAN and not a peak. The manifest field is named for what this
+				// number is, and the basis has to say so out loud.
 				for _, m := range receipt.Measurements {
-					if m.RuntimeID == profileID && m.TextsPerSec > peak {
-						peak = m.TextsPerSec
+					if m.RuntimeID == profileID && m.TextsPerSec > best {
+						best = m.TextsPerSec
 					}
+				}
+				if !strings.Contains(throughput.Basis, "MEDIAN") {
+					t.Errorf("%s: %s publishes a median best observation without saying so: %q",
+						path, profileID, throughput.Basis)
 				}
 			} else {
 				// A single-profile sweep: the un-batched serial rate.
 				want = receipt.PhysicalThroughput.SerialTokensPerSec
-				peak = receipt.PhysicalThroughput.PeakTokensPerSec
+				best = receipt.PhysicalThroughput.PeakTokensPerSec
 			}
 			if want <= 0 {
 				t.Errorf("%s: nothing in the receipt backs %s at batch %d",
@@ -325,14 +337,122 @@ func TestManifestThroughputIsDerivableFromTheReceipts(t *testing.T) {
 				t.Errorf("%s: manifest says %s does %v units/s, the receipt says %v",
 					path, profileID, throughput.UnitsPerSecAtOperatingBatch, want)
 			}
-			if math.Abs(throughput.PeakUnitsPerSec-peak) > 0.0001 {
-				t.Errorf("%s: manifest says %s peaks at %v, the receipt says %v",
-					path, profileID, throughput.PeakUnitsPerSec, peak)
+			if math.Abs(throughput.BestObservedUnitsPerSec-best) > 0.0001 {
+				t.Errorf("%s: manifest says %s tops out at %v, the receipt says %v",
+					path, profileID, throughput.BestObservedUnitsPerSec, best)
 			}
 			if throughput.Unit == "" || throughput.Basis == "" || throughput.Precision == "" {
 				t.Errorf("%s: %s publishes a rate with no unit, basis or precision",
 					path, profileID)
 			}
 		}
+	}
+}
+
+// mutableRuntimeAuthority swaps in a copy of the compiled runtime document for
+// the duration of one test. The profile and cell slices are copied rather than
+// aliased, or a mutation would reach through the copy into the package-level
+// document and outlive the test.
+func mutableRuntimeAuthority(t *testing.T) *runtimeAuthorityDocument {
+	t.Helper()
+	saved := runtimeAuthority
+	t.Cleanup(func() { runtimeAuthority = saved })
+	edited := runtimeAuthority
+	edited.Runtimes = append([]authorityRuntimeProfile(nil), runtimeAuthority.Runtimes...)
+	for i := range edited.Runtimes {
+		edited.Runtimes[i].Cells = append([]authorityCell(nil), edited.Runtimes[i].Cells...)
+	}
+	runtimeAuthority = edited
+	return &runtimeAuthority
+}
+
+func mutableCell(t *testing.T, doc *runtimeAuthorityDocument, cellID string) *authorityCell {
+	t.Helper()
+	for i := range doc.Runtimes {
+		for j := range doc.Runtimes[i].Cells {
+			if doc.Runtimes[i].Cells[j].ID == cellID {
+				return &doc.Runtimes[i].Cells[j]
+			}
+		}
+	}
+	t.Fatalf("no cell %q in the runtime authority document", cellID)
+	return nil
+}
+
+// An unproven cell resolves to unprovenFallbackUnitsPerSec, which is below every
+// realistic payout floor by construction. Letting that number into the minimum
+// drives the offered rate for the WHOLE (job, model) to nothing, so no supplier
+// clears its floor, nothing claims, and nothing says why - the silent no-claim
+// failure this file exists to remove, reintroduced one level down.
+//
+// schema.sql's runtime_profile_models_evidenced CHECK only forbids an ACTIVE
+// cell with an EMPTY benchmark_authority. A cell whose named receipt does not
+// measure it satisfies the CHECK and lands here, which is what this test builds.
+func TestUnprovenRoutableCellRefusesAdmissionRatherThanCollapsingIt(t *testing.T) {
+	doc := mutableRuntimeAuthority(t)
+	cell := mutableCell(t, doc, "candle-metal-minilm-embed")
+	cell.BenchmarkAuthority = "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json"
+
+	rate, resolved, err := admissionUnitsPerSec("embed", "all-minilm-l6-v2", nil, benchmarkNow)
+	if err == nil {
+		t.Fatalf("a routable cell with no usable benchmark priced admission at %v units/s "+
+			"on cell %q (%s)", rate, resolved.CellID, resolved.Status)
+	}
+	if !strings.Contains(err.Error(), "candle-metal-minilm-embed") {
+		t.Errorf("the refusal does not name the cell an operator has to fix: %v", err)
+	}
+
+	// The premise, stated rather than assumed: had the fallback been allowed to
+	// participate, this is the hourly rate the market would have been offered.
+	collapsed := expectedSupplierUSDHr(unprovenFallbackUnitsPerSec,
+		boardReferencePrice(t, "all-minilm-l6-v2", "embed"), supplierShareRate, "batch")
+	if collapsed >= defaultInstallMinPayoutUSDHr {
+		t.Fatalf("the fallback offers $%.5f/hr, which clears the $%.5f/hr default floor; "+
+			"this test no longer describes a collapse",
+			collapsed, defaultInstallMinPayoutUSDHr)
+	}
+
+	// And the same refusal has to reach the frozen-snapshot path, or a stored
+	// decision could be verified against an authority admission itself refuses.
+	if _, err := governedAdmissionUnitRates(
+		"embed", "all-minilm-l6-v2", nil, benchmarkNow,
+	); err == nil {
+		t.Error("the governed rate set accepted a cell admission refuses")
+	}
+}
+
+// A job is pinned to one runtime candidate before it is priced, but admission
+// took the minimum over every routable cell serving the model. With two routable
+// cells of different speed, a job pinned to the fast one is offered the slow
+// one's rate and its supplier is underpaid for work it can actually do.
+func TestAdmissionPricesTheCellsTheJobCanReach(t *testing.T) {
+	doc := mutableRuntimeAuthority(t)
+	// llama.cpp's embed cell is measured faster than candle's at every batch in
+	// the same receipt, and is held back by lifecycle rather than by evidence.
+	// Promoting it here gives the model two routable cells that disagree.
+	for i := range doc.Runtimes {
+		if doc.Runtimes[i].RuntimeID == "llama_cpp_metal" {
+			doc.Runtimes[i].Lifecycle = runtimeLifecycleActive
+		}
+	}
+	mutableCell(t, doc, "llama-cpp-metal-minilm-embed").Lifecycle = runtimeLifecycleActive
+
+	catalogueWide, slowCell, err := admissionUnitsPerSec(
+		"embed", "all-minilm-l6-v2", nil, benchmarkNow)
+	if err != nil {
+		t.Fatalf("catalogue-wide admission: %v", err)
+	}
+	pinned, fastCell, err := admissionUnitsPerSec(
+		"embed", "all-minilm-l6-v2", []string{"llama-cpp-metal-minilm-embed"}, benchmarkNow)
+	if err != nil {
+		t.Fatalf("pinned admission: %v", err)
+	}
+	if fastCell.CellID != "llama-cpp-metal-minilm-embed" {
+		t.Fatalf("pinning to one candidate resolved cell %q", fastCell.CellID)
+	}
+	if pinned <= catalogueWide {
+		t.Fatalf("a job pinned to %s is priced at %v units/s, no better than the "+
+			"catalogue-wide minimum %v units/s taken from %s",
+			fastCell.CellID, pinned, catalogueWide, slowCell.CellID)
 	}
 }
