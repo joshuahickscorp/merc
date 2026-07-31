@@ -160,6 +160,42 @@ paperwork. `.githooks/pre-push` calls `merc dev checkpoint-verify`; the logic is
 in the CLI so the same rule can be run by hand or by CI without depending on
 anyone's local hook configuration. Remote CI remains authoritative.
 
+Receipts are **not** committed. A receipt is bound to a commit hash, so
+committing one would create a commit that itself has no receipt, and the hook
+would refuse the very commit carrying the proof.
+
+### What the gate found on its first run
+
+`make ci` was already red at `579edc0e`, in five places, none of them noticed
+because nothing ran the whole target:
+
+- **the route-count tripwire was stale.** `validate-authorization-matrix.py`
+  asserts exactly 81 reviewed routes; 82 have been registered since
+  `GET /admin/plan-accuracy` landed in `b0004f00`. The route WAS added to the
+  matrix — only the constant was missed. Because `validate-readiness.py` scores
+  `auth_matrix_complete` for 3 points under source-and-CI and 8 under security,
+  the stale constant silently cost **11 readiness points**, and the declared score
+  of 83 had been reading as a receipt-derived 72 ever since.
+- **the MiniLM GGUF was never recorded in `ops/model-provenance.json`.** It was
+  added to the runtime authority and pinned in `agent/src/models.rs`, and the
+  governance validator wants all three to agree.
+- **`cargo clippy -- -D warnings` was red** on five dead-code items and a
+  `mod tests` with public items after it. The dead code is the `RuntimeDriver`
+  boundary's unused half (`validate`, `cancel`, `drain`), the GGUF embed spec, and
+  the supervised-launch arm of `LlamaServerSupervision` — all deliberate shape
+  rather than leftovers, so each now carries an explicit allow and a reason
+  instead of a warning nobody reads.
+- **`assert-no-test-skips.sh` was red** because every test that needs object
+  storage or a local engine skips, and the allowlist had two entries. Those
+  skips are now named — 36 of them — which is the honest cost of a gate that
+  lists every skip rather than accepting a category. `make ci` also now passes
+  `MERC_TEST_S3_*` and `MERC_LLAMA_EMBED_URL` through when the environment has
+  them, so a machine with MinIO and a llama-server actually runs those tests.
+
+All five are fixed. The point is not the fixes; it is that "full suite green" at
+the last checkpoint meant `go test ./...`, and the gate is what makes the
+difference visible.
+
 ## 3. The llama.cpp failure matrix
 
 `REAL_RUNTIME_PROVEN` was recorded with an explicitly incomplete failure matrix

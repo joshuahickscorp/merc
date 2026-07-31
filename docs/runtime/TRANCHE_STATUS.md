@@ -3,6 +3,13 @@
 Branch `perf/execution-frontier`, as of 2026-07-30. `release/rc1-go-closure`
 untouched.
 
+> Superseded in part by [ADAPTIVE_EXECUTION.md](ADAPTIVE_EXECUTION.md), which
+> records the capability/activation split, governed verification classes, the
+> checkpoint gate and the llama.cpp failure matrix. In particular, the "Not
+> established" note below about the failure matrix is now largely closed and the
+> claim that a lifecycle promotion is a coordinated agent deploy is no longer
+> true — that was the defect the split removed.
+
 This is what is done, what is not, and what the not-done items are blocked on.
 Nothing here is projected: every "done" row has a test or a receipt behind it,
 and every "not done" row says so plainly rather than being described as partial.
