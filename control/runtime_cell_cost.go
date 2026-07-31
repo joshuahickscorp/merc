@@ -74,6 +74,18 @@ type MeasuredCellCost struct {
 	VerificationSamples int     `json:"verification_samples"`
 	VerificationFails   int     `json:"verification_fails"`
 
+	// Terminal execution outcomes for this cell, over a WIDER set than Samples:
+	// every primary task that reached a terminal state on it, including the ones
+	// that failed outright and therefore delivered no units at all.
+	//
+	// Without this the measurement had a hole big enough to promote a crashing
+	// cell. Samples counts completed tasks only, so a cell that failed half the
+	// work it claimed looked exactly as clean as one that failed none — the
+	// failures simply were not in the sample. The verification term catches a
+	// REJECTED result; nothing caught a task that never produced one.
+	TerminalAttempts int `json:"terminal_attempts"`
+	TerminalFails    int `json:"terminal_fails"`
+
 	// Measured reports whether this row cleared minCellCostSamples. A caller
 	// that ranks on an unmeasured row is ranking on noise, so the flag travels
 	// with the number instead of being recomputed by every reader.
@@ -96,15 +108,19 @@ func unknownCostComponents() []string {
 // ExpectedVerifiedOutcomeUSDPerUnit is the cost of a unit that PASSES.
 //
 //	supplier cost per unit
-//	  × (1 + retry rate)          -- the attempts actually observed, not one
-//	  ÷ (1 - verification failure) -- a rejected result buys nothing and re-runs
+//	  × (1 + retry rate)           -- the attempts actually observed, not one
+//	  ÷ (1 - verification failure)  -- a rejected result buys nothing and re-runs
+//	  ÷ (1 - terminal failure)      -- a crashed task buys nothing either
 //
-// The second term is what makes this a verified-outcome cost rather than an
-// execution cost. A cell that is 30% cheaper per attempt and fails verification
-// a third of the time is not cheaper, and ranking on execution cost alone would
-// promote it. ok is false when the cell has no verified-outcome cost at all
-// (every result rejected), which is a refusal to divide by zero and call the
-// answer infinite.
+// The two divisions are what make this a verified-OUTCOME cost rather than an
+// execution cost. A cell 30% cheaper per attempt that fails verification a third
+// of the time is not cheaper; neither is one that fails outright a third of the
+// time, and only the second denominator catches that — the sample of completed
+// tasks cannot, because a task that crashed is not in it.
+//
+// ok is false when the cell has no verified-outcome cost at all (everything
+// rejected or everything failed), which is a refusal to divide by zero and call
+// the answer infinite.
 func (c MeasuredCellCost) ExpectedVerifiedOutcomeUSDPerUnit() (float64, bool) {
 	if c.SupplierUSDPerUnit <= 0 {
 		return 0, false
@@ -113,10 +129,14 @@ func (c MeasuredCellCost) ExpectedVerifiedOutcomeUSDPerUnit() (float64, bool) {
 	if c.VerificationSamples > 0 {
 		pass = 1 - float64(c.VerificationFails)/float64(c.VerificationSamples)
 	}
-	if pass <= 0 {
+	delivered := 1.0
+	if c.TerminalAttempts > 0 {
+		delivered = 1 - float64(c.TerminalFails)/float64(c.TerminalAttempts)
+	}
+	if pass <= 0 || delivered <= 0 {
 		return 0, false
 	}
-	cost := c.SupplierUSDPerUnit * (1 + c.RetryRate) / pass
+	cost := c.SupplierUSDPerUnit * (1 + c.RetryRate) / pass / delivered
 	if math.IsNaN(cost) || math.IsInf(cost, 0) {
 		return 0, false
 	}
@@ -161,20 +181,47 @@ func (s *Store) MeasuredCellCostsByHardware(
 		     AND COALESCE(t.expected_output_records,0) > 0
 		     AND j.job_type = $1
 		     AND COALESCE(j.model_ref,'') = $2
+		), terminal_tasks AS (
+		  -- Wider than primary_tasks on purpose: every primary task that reached a
+		  -- terminal state ON this cell, including the ones that failed and
+		  -- therefore have no duration, no units and no verification outcome. A
+		  -- task that failed before it was ever claimed has no execution hardware
+		  -- and is not this cell's failure, so it is excluded.
+		  SELECT t.runtime_cell_id AS cell_id,
+		         COALESCE(t.execution_hw_class,'') AS hw_class,
+		         t.status
+		    FROM tasks t
+		    JOIN jobs j ON j.id = t.job_id
+		   WHERE t.status IN ('complete','failed')
+		     AND t.runtime_cell_id IS NOT NULL
+		     AND COALESCE(t.execution_hw_class,'') <> ''
+		     AND NOT COALESCE(t.is_honeypot,false)
+		     AND NOT COALESCE(t.is_redundancy,false)
+		     AND t.hedged_from IS NULL
+		     AND j.job_type = $1
+		     AND COALESCE(j.model_ref,'') = $2
+		), terminal_rollup AS (
+		  SELECT hw_class, cell_id,
+		         COUNT(*)::int AS attempts,
+		         COUNT(*) FILTER (WHERE status = 'failed')::int AS fails
+		    FROM terminal_tasks GROUP BY hw_class, cell_id
 		)
-		SELECT hw_class, cell_id,
-		       MIN(runtime_id), MIN(engine),
+		SELECT p.hw_class, p.cell_id,
+		       MIN(p.runtime_id), MIN(p.engine),
 		       COUNT(*)::int,
-		       SUM(units)::bigint,
+		       SUM(p.units)::bigint,
 		       percentile_cont(0.5) WITHIN GROUP (
-		         ORDER BY duration_ms::float8 / units::float8),
-		       SUM(supplier_usd),
-		       SUM(retries)::float8 / COUNT(*)::float8,
-		       COUNT(*) FILTER (WHERE outcome IS NOT NULL)::int,
-		       COUNT(*) FILTER (WHERE outcome IS NOT NULL AND outcome <> 'pass')::int
-		  FROM primary_tasks
-		 GROUP BY hw_class, cell_id
-		 ORDER BY hw_class, cell_id`, jobType, modelRef)
+		         ORDER BY p.duration_ms::float8 / p.units::float8),
+		       SUM(p.supplier_usd),
+		       SUM(p.retries)::float8 / COUNT(*)::float8,
+		       COUNT(*) FILTER (WHERE p.outcome IS NOT NULL)::int,
+		       COUNT(*) FILTER (WHERE p.outcome IS NOT NULL AND p.outcome <> 'pass')::int,
+		       COALESCE(MIN(r.attempts), 0), COALESCE(MIN(r.fails), 0)
+		  FROM primary_tasks p
+		  LEFT JOIN terminal_rollup r
+		         ON r.hw_class = p.hw_class AND r.cell_id = p.cell_id
+		 GROUP BY p.hw_class, p.cell_id
+		 ORDER BY p.hw_class, p.cell_id`, jobType, modelRef)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +233,8 @@ func (s *Store) MeasuredCellCostsByHardware(
 		var supplierTotal float64
 		if err := rows.Scan(&c.HWClass, &c.CellID, &c.RuntimeID, &c.Engine, &c.Samples,
 			&c.Units, &c.MedianMsPerUnit, &supplierTotal, &c.RetryRate,
-			&c.VerificationSamples, &c.VerificationFails); err != nil {
+			&c.VerificationSamples, &c.VerificationFails,
+			&c.TerminalAttempts, &c.TerminalFails); err != nil {
 			return nil, err
 		}
 		c.JobType, c.ModelRef = jobType, modelRef

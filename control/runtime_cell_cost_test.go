@@ -48,6 +48,23 @@ func TestVerifiedOutcomeCostChargesForRetriesAndRejections(t *testing.T) {
 		name: "a cell with no measured supplier cost is not free",
 		cost: MeasuredCellCost{SupplierUSDPerUnit: 0, VerificationSamples: 40},
 		ok:   false,
+	}, {
+		// The hole the completed-task sample cannot see: a cell that failed a
+		// quarter of what it claimed. Those tasks delivered nothing, so the units
+		// that DID arrive have to carry them.
+		name: "a task that crashed buys nothing either",
+		cost: MeasuredCellCost{
+			SupplierUSDPerUnit: 0.001, VerificationSamples: 30,
+			TerminalAttempts: 40, TerminalFails: 10,
+		},
+		want: 0.001 / 0.75, ok: true,
+	}, {
+		name: "a cell that fails everything has no verified-outcome cost",
+		cost: MeasuredCellCost{
+			SupplierUSDPerUnit: 0.001, VerificationSamples: 1,
+			TerminalAttempts: 8, TerminalFails: 8,
+		},
+		ok: false,
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := tc.cost.ExpectedVerifiedOutcomeUSDPerUnit()
@@ -401,6 +418,99 @@ func TestCellPromotionGateRefusesACheaperCellThatFailsVerification(t *testing.T)
 	if evidence.SavingFraction <= 0 {
 		t.Fatalf("the saving is real and should be reported even when refused: %v",
 			evidence.SavingFraction)
+	}
+}
+
+// seedFailedCellTasks writes n primary tasks that reached 'failed' ON a cell:
+// execution identity present, no units, no duration, no verification outcome.
+func seedFailedCellTasks(
+	t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool,
+	w costWorker, cellID, runtimeID string, n int,
+) {
+	t.Helper()
+	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
+	tasks := makeTasks(f, 1)
+	f.TaskIDs = []uuid.UUID{tasks[0].ID}
+	job := validJobRowDirected(t, f, tasks, cellID)
+	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
+		t.Fatalf("submit %s job: %v", cellID, err)
+	}
+	for i := 0; i < n; i++ {
+		id := uuid.New()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO tasks
+			  (id, job_id, input_ref, result_key, chunk_index, status,
+			   started_at, worker_id, claimed_by,
+			   execution_worker_id, execution_supplier_id, execution_hw_class,
+			   execution_engine, execution_build_hash,
+			   runtime_cell_id, runtime_id, runtime_matrix_sha256, model_kind)
+			VALUES ($1,$2,'money/input/chunk-0',$3,$4,'failed',
+			        now(),$5,$5,$5,$6,$7,$8,'deadbeefdeadbeef',$9,$10,$11,'hf')`,
+			id, f.JobID, taskAttemptResultKey(f.JobID, id, 0), 5000+i,
+			w.workerID, w.supplierID, w.hwClass, w.engine,
+			cellID, runtimeID, generatedRuntimeMatrixSHA256,
+		); err != nil {
+			t.Fatalf("insert failed task on %s: %v", cellID, err)
+		}
+	}
+}
+
+// A cell that crashes on work it claimed is not cheap, and the completed-task
+// sample cannot see that on its own.
+func TestOutrightFailuresRaiseMeasuredCostAndBlockPromotion(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	const hw = "apple_silicon_ultra"
+	candleWorker := seedCostWorker(t, ctx, pool, hw, "candle", "candle_metal")
+	llamaWorker := seedCostWorker(t, ctx, pool, hw, "llama_cpp", "llama_cpp_metal")
+
+	seedCompletedCellTasks(t, ctx, store, pool, candleWorker,
+		candleEmbedCell, "candle_metal", minCellCostSamples,
+		100, 500, 0.000100, 0.000200, 0)
+	// Half the price on everything it finished, and it failed a quarter of what
+	// it claimed.
+	seedCompletedCellTasks(t, ctx, store, pool, llamaWorker,
+		llamaEmbedCell, "llama_cpp_metal", minCellCostSamples,
+		100, 500, 0.000050, 0.000200, 0)
+	seedFailedCellTasks(t, ctx, store, pool, llamaWorker,
+		llamaEmbedCell, "llama_cpp_metal", minCellCostSamples/2)
+
+	byHW, err := store.MeasuredCellCostsByHardware(ctx, "embed", "all-minilm-l6-v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	llama := byHW[hw][llamaEmbedCell]
+	if llama.TerminalFails != minCellCostSamples/2 {
+		t.Fatalf("terminal fails = %d, want %d", llama.TerminalFails, minCellCostSamples/2)
+	}
+	if llama.TerminalAttempts != minCellCostSamples+minCellCostSamples/2 {
+		t.Fatalf("terminal attempts = %d, want %d",
+			llama.TerminalAttempts, minCellCostSamples+minCellCostSamples/2)
+	}
+	withFailures, ok := llama.ExpectedVerifiedOutcomeUSDPerUnit()
+	if !ok {
+		t.Fatal("cell with a two-thirds success rate should still have a cost")
+	}
+	clean := llama
+	clean.TerminalAttempts, clean.TerminalFails = 0, 0
+	ignoringFailures, _ := clean.ExpectedVerifiedOutcomeUSDPerUnit()
+	if withFailures <= ignoringFailures {
+		t.Fatalf("failures did not raise the cost: %.12f vs %.12f",
+			withFailures, ignoringFailures)
+	}
+
+	evidence, err := store.EvaluateCellPromotion(ctx, CellPromotionScope{
+		JobType: "embed", ModelRef: "all-minilm-l6-v2", HWClass: hw,
+		LatencyClass: "standard_batch", RuntimeID: "llama_cpp_metal", CellID: llamaEmbedCell,
+		QualityTier: "OUTCOME_EQUIVALENT", Verification: "cosine_similarity",
+	}, candleEmbedCell, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Passed() {
+		t.Fatalf("gate promoted a cell that failed a third of its attempts: %+v", evidence)
+	}
+	if !containsSubstring(evidence.Refusals, "failed outright") {
+		t.Fatalf("refusals should name the outright failures: %v", evidence.Refusals)
 	}
 }
 
