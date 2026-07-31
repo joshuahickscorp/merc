@@ -34,18 +34,75 @@ func (s *Store) BuyerPrepaidBalanceMicros(ctx context.Context, buyerID uuid.UUID
 	return bal, err
 }
 
-func (s *Store) BeginPrepaidTopup(ctx context.Context, operationKey string, buyerID uuid.UUID, amountCents int64) error {
+// PrepaidPendingTopupCents reports money the buyer's card was already asked for
+// that the balance does not yet hold. A top-up that is refused because it
+// already crossed the Stripe boundary leaves the buyer with exactly one
+// question — did the deposit land? — and balance alone cannot answer it.
+func (s *Store) PrepaidPendingTopupCents(ctx context.Context, buyerID uuid.UUID) (int64, int64, error) {
+	var count, cents int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*), COALESCE(SUM(amount_cents),0) FROM prepaid_topup_operations
+		 WHERE buyer_id=$1 AND status='pending'`, buyerID).Scan(&count, &cents)
+	return count, cents, err
+}
+
+// errPrepaidTopupConflict is returned when an operation key is reused for a
+// materially different top-up. Answering such a request from the stored row
+// would charge the wrong amount or the wrong buyer.
+var errPrepaidTopupConflict = errors.New("top-up idempotency key already belongs to a different request")
+
+const (
+	prepaidTopupArmed    = "armed"     // this request owns the Stripe charge
+	prepaidTopupInFlight = "in_flight" // an earlier request already crossed the provider boundary
+	prepaidTopupCredited = "credited"  // the balance already holds this money
+)
+
+type prepaidTopupArm struct {
+	State         string
+	PaymentIntent string
+	ChargeID      string
+}
+
+// BeginPrepaidTopup is the durable request boundary for a card top-up: exactly
+// one caller is told to charge, and every retry of the same operation key is
+// answered from the stored row instead of creating a second payment intent.
+func (s *Store) BeginPrepaidTopup(ctx context.Context, operationKey string, buyerID uuid.UUID, amountCents int64) (prepaidTopupArm, error) {
 	operationKey = strings.TrimSpace(operationKey)
 	if operationKey == "" || buyerID == uuid.Nil || amountCents <= 0 {
-		return fmt.Errorf("invalid prepaid top-up identity")
+		return prepaidTopupArm{}, fmt.Errorf("invalid prepaid top-up identity")
 	}
-	_, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `
 		INSERT INTO prepaid_topup_operations
 		  (operation_key,buyer_id,amount_cents,currency,status)
 		VALUES ($1,$2,$3,$4,'pending')
 		ON CONFLICT (operation_key) DO NOTHING`,
 		operationKey, buyerID, amountCents, SettlementCurrencyCode())
-	return err
+	if err != nil {
+		return prepaidTopupArm{}, err
+	}
+	if tag.RowsAffected() == 1 {
+		return prepaidTopupArm{State: prepaidTopupArmed}, nil
+	}
+	var (
+		storedBuyer  uuid.UUID
+		storedCents  int64
+		status       string
+		intent, chID string
+	)
+	if err := s.pool.QueryRow(ctx, `
+		SELECT buyer_id, amount_cents, status,
+		       COALESCE(payment_intent,''), COALESCE(charge_id,'')
+		  FROM prepaid_topup_operations WHERE operation_key=$1`, operationKey,
+	).Scan(&storedBuyer, &storedCents, &status, &intent, &chID); err != nil {
+		return prepaidTopupArm{}, err
+	}
+	if storedBuyer != buyerID || storedCents != amountCents {
+		return prepaidTopupArm{}, errPrepaidTopupConflict
+	}
+	if status == "succeeded" {
+		return prepaidTopupArm{State: prepaidTopupCredited, PaymentIntent: intent, ChargeID: chID}, nil
+	}
+	return prepaidTopupArm{State: prepaidTopupInFlight, PaymentIntent: intent, ChargeID: chID}, nil
 }
 
 // CreditPrepaidTopup is the single-writer credit path: materialised balance +
@@ -137,78 +194,239 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 	return tx.Commit(ctx)
 }
 
-func (s *Store) ListRefundableTopups(ctx context.Context, buyerID uuid.UUID) ([]refundableTopup, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT payment_intent, amount_cents
-		  FROM prepaid_topup_operations
-		 WHERE buyer_id=$1 AND status='succeeded' AND payment_intent IS NOT NULL
-		 ORDER BY credited_at DESC, operation_key DESC`, buyerID)
+// prepaidRefundSlice is one payment intent's share of a refund. Refunds are
+// traced back to the intents that actually collected the cash so a refund can
+// never exceed what the buyer funded.
+type prepaidRefundSlice struct {
+	OperationKey  string
+	PaymentIntent string
+	Cents         int64
+	RefundID      string
+}
+
+type prepaidRefundPlan struct {
+	OperationKey string
+	Cents        int64
+	Slices       []prepaidRefundSlice
+	Replayed     bool
+}
+
+// prepaidRefundOperationKey is derived, not random, so an operator replaying the
+// same incident reference resumes the same refund instead of starting a second one.
+func prepaidRefundOperationKey(buyerID uuid.UUID, correlationRef string) string {
+	return "prepaid-refund-" + buyerID.String() + "-" + strings.TrimSpace(correlationRef)
+}
+
+// BeginPrepaidRefund debits the buyer's unreserved balance, writes the audited
+// operation rows and returns the per-intent slices the caller must hand to
+// Stripe. Everything durable happens here, before any provider call.
+func (s *Store) BeginPrepaidRefund(
+	ctx context.Context,
+	actor AdminActor,
+	buyerID uuid.UUID,
+	reason, correlationRef string,
+) (prepaidRefundPlan, error) {
+	intent, err := prepareAdminMutation(actor, adminMutationIntent{
+		Kind: adminActionPrepaidRefunded, TargetKind: adminTargetBuyer,
+		TargetID: buyerID, Reason: reason, CorrelationRef: correlationRef,
+	})
+	if err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	operationKey := prepaidRefundOperationKey(buyerID, intent.CorrelationRef)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	defer tx.Rollback(ctx)
+	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	replay, err := acquireAdminMutationReplay(ctx, tx, actor, intent)
+	if err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	if replay.Found {
+		// The balance was already debited by the original request. Hand back the
+		// same slices so an interrupted refund finishes instead of doubling.
+		slices, cents, err := prepaidRefundSlicesTx(ctx, tx, operationKey)
+		if err != nil {
+			return prepaidRefundPlan{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return prepaidRefundPlan{}, err
+		}
+		return prepaidRefundPlan{OperationKey: operationKey, Cents: cents, Slices: slices, Replayed: true}, nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
+		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	var balance int64
+	if err := tx.QueryRow(ctx, `
+		SELECT balance_micros FROM buyer_prepaid_balances
+		 WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&balance); err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	// Only the unreserved remainder is refundable. Live prepay jobs were admitted
+	// against the frozen part of this balance and settlement still has to debit it.
+	reserved, err := prepaidOpenReservationMicros(ctx, tx, buyerID)
+	if err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	available := balance - reserved
+	if available <= 0 {
+		return prepaidRefundPlan{}, errInsufficientPrepaid
+	}
+	// Stripe refunds are integer cents; leftover micro-USD below 1¢ stays as dust
+	// on the balance until another top-up or debit absorbs it.
+	cents := available / microUSDPerCent
+	if cents <= 0 {
+		return prepaidRefundPlan{}, fmt.Errorf(
+			"unreserved prepaid balance %d micro-USD is below one cent and cannot be refunded via card rails", available)
+	}
+	refundMicros := cents * microUSDPerCent
+	slices, err := planPrepaidRefundSlicesTx(ctx, tx, operationKey, buyerID, cents)
+	if err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE buyer_prepaid_balances
+		   SET balance_micros = balance_micros - $2, updated_at = now()
+		 WHERE buyer_id=$1 AND balance_micros >= $2`, buyerID, refundMicros)
+	if err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	if tag.RowsAffected() != 1 {
+		return prepaidRefundPlan{}, errInsufficientPrepaid
+	}
+	buyer := buyerID
+	if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
+		Kind: KindPrepaidRefund, BuyerID: &buyer, AmountMicros: -refundMicros,
+		PayoutStatus: PayoutReleased, PayoutRef: operationKey,
+	}); err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	for _, slice := range slices {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO prepaid_refund_operations
+			  (operation_key,refund_key,buyer_id,amount_cents,currency,status,payment_intent)
+			VALUES ($1,$2,$3,$4,$5,'pending',$6)`,
+			slice.OperationKey, operationKey, buyerID, slice.Cents,
+			SettlementCurrencyCode(), slice.PaymentIntent); err != nil {
+			return prepaidRefundPlan{}, err
+		}
+	}
+	if err := insertAdminMutationAction(ctx, tx, actor, intent, nil, nil, nil,
+		map[string]any{"prepaid_balance_micros": balance, "reserved_micros": reserved, "refundable_micros": available},
+		map[string]any{"prepaid_balance_micros": balance - refundMicros, "reserved_micros": reserved, "refunded_micros": refundMicros},
+	); err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	return prepaidRefundPlan{OperationKey: operationKey, Cents: cents, Slices: slices}, nil
+}
+
+// planPrepaidRefundSlicesTx allocates the requested cents across the payment
+// intents that funded the buyer, net of what earlier refunds already returned
+// against each one. Failing to cover the amount aborts the transaction rather
+// than refunding money no collection can back.
+func planPrepaidRefundSlicesTx(
+	ctx context.Context, tx pgx.Tx, operationKey string, buyerID uuid.UUID, cents int64,
+) ([]prepaidRefundSlice, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT t.payment_intent,
+		       t.amount_cents - COALESCE((
+		         SELECT SUM(r.amount_cents) FROM prepaid_refund_operations r
+		          WHERE r.payment_intent = t.payment_intent), 0) AS refundable
+		  FROM prepaid_topup_operations t
+		 WHERE t.buyer_id=$1 AND t.status='succeeded' AND t.payment_intent IS NOT NULL
+		 ORDER BY t.credited_at DESC, t.operation_key DESC`, buyerID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []refundableTopup
+	var (
+		slices    []prepaidRefundSlice
+		remaining = cents
+	)
 	for rows.Next() {
-		var t refundableTopup
-		if err := rows.Scan(&t.PaymentIntent, &t.AmountCents); err != nil {
+		var intentID string
+		var refundable int64
+		if err := rows.Scan(&intentID, &refundable); err != nil {
 			return nil, err
 		}
-		out = append(out, t)
+		if remaining <= 0 || refundable <= 0 {
+			continue
+		}
+		take := refundable
+		if take > remaining {
+			take = remaining
+		}
+		slices = append(slices, prepaidRefundSlice{
+			OperationKey: operationKey + "-" + intentID, PaymentIntent: intentID, Cents: take,
+		})
+		remaining -= take
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if remaining > 0 {
+		return nil, fmt.Errorf(
+			"refund would exceed funded value: %d of %d cents cannot be traced to an unrefunded top-up", remaining, cents)
+	}
+	return slices, nil
 }
 
-// DebitPrepaidRefund returns unspent liability to the buyer (card refund already
-// initiated by the caller). Records prepaid_refund ledger row and drops balance.
-func (s *Store) DebitPrepaidRefund(ctx context.Context, operationKey string, buyerID uuid.UUID, amountMicros int64, stripeRefundIDs string) error {
-	if amountMicros <= 0 || buyerID == uuid.Nil || strings.TrimSpace(operationKey) == "" {
-		return fmt.Errorf("invalid prepaid refund")
-	}
-	tx, err := s.pool.Begin(ctx)
+// prepaidRefundSlicesTx recovers the slices a refund already wrote. Membership
+// is an equality test on refund_key, never a prefix match on the composite
+// operation_key: the correlation reference inside that key is operator-typed and
+// unrestricted, so a reference carrying a LIKE wildcard ('INC-100%') would match
+// slices belonging to other refunds and replay them onto Stripe.
+func prepaidRefundSlicesTx(ctx context.Context, tx pgx.Tx, operationKey string) ([]prepaidRefundSlice, int64, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT operation_key, COALESCE(payment_intent,''), amount_cents, COALESCE(stripe_refund_id,'')
+		  FROM prepaid_refund_operations
+		 WHERE refund_key = $1
+		 ORDER BY operation_key`, operationKey)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
-		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
-		return err
+	defer rows.Close()
+	var (
+		slices []prepaidRefundSlice
+		total  int64
+	)
+	for rows.Next() {
+		var slice prepaidRefundSlice
+		if err := rows.Scan(&slice.OperationKey, &slice.PaymentIntent, &slice.Cents, &slice.RefundID); err != nil {
+			return nil, 0, err
+		}
+		slices = append(slices, slice)
+		total += slice.Cents
 	}
-	var bal int64
-	if err := tx.QueryRow(ctx, `
-		SELECT balance_micros FROM buyer_prepaid_balances
-		 WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&bal); err != nil {
-		return err
+	return slices, total, rows.Err()
+}
+
+// CompletePrepaidRefund records the provider's refund identifiers. It is the
+// only step allowed to run after the Stripe call, because it moves no money.
+func (s *Store) CompletePrepaidRefund(ctx context.Context, slices []prepaidRefundSlice) error {
+	for _, slice := range slices {
+		if strings.TrimSpace(slice.RefundID) == "" {
+			return fmt.Errorf("prepaid refund %s has no provider refund id", slice.OperationKey)
+		}
+		if _, err := s.pool.Exec(ctx, `
+			UPDATE prepaid_refund_operations
+			   SET status='succeeded', stripe_refund_id=$2
+			 WHERE operation_key=$1 AND status='pending'`, slice.OperationKey, slice.RefundID); err != nil {
+			return err
+		}
 	}
-	if bal < amountMicros {
-		return errInsufficientPrepaid
-	}
-	ct, err := tx.Exec(ctx, `
-		UPDATE buyer_prepaid_balances
-		   SET balance_micros = balance_micros - $2, updated_at = now()
-		 WHERE buyer_id=$1 AND balance_micros >= $2`, buyerID, amountMicros)
-	if err != nil {
-		return err
-	}
-	if ct.RowsAffected() != 1 {
-		return errInsufficientPrepaid
-	}
-	buyer := buyerID
-	if _, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
-		Kind: KindPrepaidRefund, BuyerID: &buyer, AmountMicros: -amountMicros,
-		PayoutStatus: PayoutReleased, PayoutRef: operationKey,
-	}); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO prepaid_refund_operations
-		  (operation_key,buyer_id,amount_cents,currency,status,stripe_refund_id)
-		VALUES ($1,$2,$3,$4,'succeeded',$5)
-		ON CONFLICT (operation_key) DO NOTHING`,
-		operationKey, buyerID, amountMicros/microUSDPerCent, SettlementCurrencyCode(), stripeRefundIDs); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (s *Store) PrepaidTopupPending(ctx context.Context, operationKey string) (buyerID uuid.UUID, amountCents int64, err error) {
@@ -219,11 +437,6 @@ func (s *Store) PrepaidTopupPending(ctx context.Context, operationKey string) (b
 		return uuid.Nil, 0, errNotFound
 	}
 	return buyerID, amountCents, err
-}
-
-type refundableTopup struct {
-	PaymentIntent string
-	AmountCents   int64
 }
 
 // SeedPrepaidBalance is a test/admin helper that credits balance without Stripe.
