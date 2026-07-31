@@ -153,10 +153,22 @@ type priceBoard struct {
 	Classes               map[string]priceBoardClass `json:"classes"`
 }
 
+// The board is loaded once per process and then reused, so /version can name a
+// single answer to "which prices are you serving from".
+//
+// A FAILURE is deliberately not cached. sync.Once cached both outcomes, which
+// made the price authority a function of whoever called first: main() resolves
+// at startup in production, but in any other process the first caller wins, and
+// under `go test` that is whichever test the -run filter happens to order first.
+// A test that sets MERC_ENV=production for its own reasons therefore poisoned
+// the board permanently and every later test that priced anything failed with a
+// production refusal it never asked for. Caching the failure also buys nothing
+// real: main() log.Fatalf's on a load error, so the process it matters in never
+// gets a second call, and every other caller would rather retry than be told
+// about a resolution that is no longer the one in effect.
 var (
-	priceBoardOnce   sync.Once
+	priceBoardMu     sync.Mutex
 	priceBoardCached *priceBoard
-	priceBoardErr    error
 	priceBoardSHA256 string
 )
 
@@ -166,7 +178,13 @@ var (
 var priceBoardSource string
 
 func loadPriceBoard() (*priceBoard, error) {
-	priceBoardOnce.Do(func() {
+	priceBoardMu.Lock()
+	defer priceBoardMu.Unlock()
+	if priceBoardCached != nil {
+		return priceBoardCached, nil
+	}
+	var priceBoardErr error
+	func() {
 		resolved, err := resolvePriceBoard(os.Getenv("MERC_ENV"))
 		if err != nil {
 			priceBoardErr = err
@@ -218,7 +236,7 @@ func loadPriceBoard() (*priceBoard, error) {
 		}
 		priceBoardSHA256 = digest
 		priceBoardCached = &b
-	})
+	}()
 	return priceBoardCached, priceBoardErr
 }
 
