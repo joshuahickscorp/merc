@@ -79,6 +79,24 @@ existing.
 | 19 | Execution fabric modes | `DONE, declared unwired` | `control/execution_mode.go`: POOL, REPLICA_SERVICE, LOCAL_CLUSTER, CLOUD_BACKSTOP, each placement carrying its reason and every refused mode carrying its own. Tightly coupled work is refused on a WAN fabric and on an unmeasured one; unknown parallelism fails closed to tight, so a new upstream mode cannot be silently placed on the public internet |
 | 21 | §20 must-not-do audit | `DONE` | `scripts/must-not-do-audit.py` → `evidence/state/must-not-do-audit.json`. **12 PASS, 1 FAIL, 1 not mechanically checkable.** The failure is prohibition 10: `control/payment.go` has one process-wide `platformTakeRate`, so one percentage applies to embeddings, generation, rendering and every future lane alike, and the published schedule carries a single supplier share of 0.97 |
 
+### Two holes found by reviewing the cost model against itself
+
+Both were in the first version of the scorer, and both would have promoted the
+wrong cell:
+
+1. **Price without latency.** The gate compared verified-outcome cost and stopped,
+   so a cell at half the price and four times slower per unit cleared it — for
+   realtime traffic, where latency is what the buyer is paying for. The ratio is
+   now always computed and always reported; it is a refusal only where latency is
+   the product, because batch work has a deadline that absorbs a slower cell and
+   refusing there would decline a real saving for nothing.
+2. **Blind to a crashing cell.** The sample counted completed tasks, so a cell
+   that failed a third of what it claimed looked exactly as clean as one that
+   failed none. Terminal outcomes are now read over every primary task that
+   reached `complete` or `failed` on the cell, the cost divides by the delivery
+   rate as well as the verification pass rate, and the gate refuses a challenger
+   with any outright failure.
+
 ### Steps that did not move, and why
 
 * **3, 4, 12, 16, 17, 18, 22** — not attempted this session. 12 needs the 128-caller
