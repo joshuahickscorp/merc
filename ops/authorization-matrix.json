@@ -159,6 +159,7 @@
         "GET /v1/worker/earnings",
         "GET /v1/worker/poll",
         "GET /v1/worker/verification",
+        "GET /v1/worker/viability",
         "POST /v1/worker/heartbeat",
         "POST /v1/worker/realtime/heartbeat",
         "POST /v1/worker/realtime/register",

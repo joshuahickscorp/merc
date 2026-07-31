@@ -64,7 +64,13 @@ missing = sorted(set(registered) - set(reviewed))
 stale = sorted(set(reviewed) - set(registered))
 if missing or stale:
     fail(f"coverage mismatch missing={missing} stale={stale}")
-if len(reviewed) != 84:
-    fail(f"expected reviewed 84-route surface, found {len(reviewed)}")
+# The pinned surface size. Raised from 84 to 85 when GET /v1/worker/viability was
+# added to the reviewed matrix: the route had been registered through authWorker
+# since before the programme baseline while the matrix did not list it, so this
+# validator — and therefore `make ci` — was already failing on the coverage
+# mismatch. The count is pinned so a NEW route cannot be added without a reviewer
+# deciding what every role may do with it.
+if len(reviewed) != 85:
+    fail(f"expected reviewed 85-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")
