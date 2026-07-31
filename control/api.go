@@ -116,8 +116,9 @@ func (s *Server) Routes() http.Handler {
 
 	mux.Handle("POST /v1/billing/setup", s.authBuyer(http.HandlerFunc(s.handleBillingSetup)))
 	mux.Handle("GET /v1/billing/status", s.authBuyer(http.HandlerFunc(s.handleBillingStatus)))
-	mux.HandleFunc("POST /v1/stripe/webhook", s.handleStripeWebhook)          // unauthed; verified by signature
-	mux.HandleFunc("POST /v1/stripe/connect-webhook", s.handleConnectWebhook) // Connect account.updated; verified by signature
+	mux.Handle("POST /v1/billing/topup", s.authBuyer(http.HandlerFunc(s.handleBillingTopup))) // the only way to fund an account; prepaid admission (prepaid.go) refuses jobs without it
+	mux.HandleFunc("POST /v1/stripe/webhook", s.handleStripeWebhook)                          // unauthed; verified by signature
+	mux.HandleFunc("POST /v1/stripe/connect-webhook", s.handleConnectWebhook)                 // Connect account.updated; verified by signature
 
 	mux.Handle("POST /v1/keys", s.authBuyer(http.HandlerFunc(s.handleCreateKey)))
 	mux.Handle("GET /v1/keys", s.authBuyer(http.HandlerFunc(s.handleListKeys)))
@@ -137,6 +138,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.Handle("GET /admin/workers", s.authAdmin(http.HandlerFunc(s.handleAdminWorkers)))
 	mux.Handle("POST /admin/realtime/contracts/{id}/refund", s.authAdmin(http.HandlerFunc(s.handleAdminRefundRealtimeContract)))
+	mux.Handle("POST /admin/buyers/{id}/prepaid-refund", s.authAdmin(http.HandlerFunc(s.handleAdminRefundPrepaid))) // cash off the platform over card rails is operator authority (prepaid.go)
 	mux.Handle("GET /admin/jobs", s.authAdmin(http.HandlerFunc(s.handleAdminJobs)))
 	mux.Handle("GET /admin/payouts", s.authAdmin(http.HandlerFunc(s.handleAdminPayouts)))
 	mux.Handle("GET /admin/fraud-flags", s.authAdmin(http.HandlerFunc(s.handleAdminFraudFlags)))

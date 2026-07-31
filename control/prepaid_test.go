@@ -60,8 +60,12 @@ func TestPrepaidTopupCreditsBalanceAndLedger(t *testing.T) {
 	store, pool, ctx := prepaidTestStore(t)
 	buyerID := insertTestBuyer(t, pool, ctx)
 	opKey := "topup-test-" + uuid.NewString()
-	if err := store.BeginPrepaidTopup(ctx, opKey, buyerID, 2500); err != nil {
+	arm, err := store.BeginPrepaidTopup(ctx, opKey, buyerID, 2500)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if arm.State != prepaidTopupArmed {
+		t.Fatalf("first top-up arm = %q, want %q", arm.State, prepaidTopupArmed)
 	}
 	charge := ChargeResult{
 		PaymentIntentID: "pi_test_" + uuid.NewString(),
@@ -84,6 +88,14 @@ func TestPrepaidTopupCreditsBalanceAndLedger(t *testing.T) {
 	if bal != 25_000_000 {
 		t.Fatalf("balance_micros=%d, want 25000000", bal)
 	}
+	// Re-arming a credited key must answer from the row, never invite a charge.
+	arm, err = store.BeginPrepaidTopup(ctx, opKey, buyerID, 2500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if arm.State != prepaidTopupCredited || arm.PaymentIntent != charge.PaymentIntentID {
+		t.Fatalf("re-arm = %+v, want credited with %s", arm, charge.PaymentIntentID)
+	}
 	var topupSum, count int64
 	if err := pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM((amount_usd*1000000)::bigint),0), COUNT(*)
@@ -99,9 +111,10 @@ func TestPrepaidTopupCreditsBalanceAndLedger(t *testing.T) {
 func TestPrepaidDebitAndRefundZeroSum(t *testing.T) {
 	store, pool, ctx := prepaidTestStore(t)
 	buyerID := insertTestBuyer(t, pool, ctx)
-	if err := store.SeedPrepaidBalance(ctx, buyerID, 50_000_000, "seed-pi-"+uuid.NewString()); err != nil {
-		t.Fatal(err)
-	}
+	actor := insertTestAdminActor(t, pool, ctx)
+	// Fund through the real collection path: a refund can only be traced back to
+	// a payment intent that actually took the money.
+	fundPrepaidViaTopup(t, ctx, store, buyerID, 5000)
 	task1, task2 := uuid.New(), uuid.New()
 	// Need tasks? prepaid_debit references tasks(task_id). Schema: task_id UUID REFERENCES tasks
 	// So we need a job+task or leave task_id null for seed debits via DebitPrepaidForTask.
@@ -137,9 +150,14 @@ func TestPrepaidDebitAndRefundZeroSum(t *testing.T) {
 	if bal != 25_000_000 {
 		t.Fatalf("after debits balance=%d want 25e6", bal)
 	}
-	// Refund remainder via store path (no Stripe).
-	if err := store.DebitPrepaidRefund(ctx, "prepaid-refund-"+uuid.NewString(), buyerID, 25_000_000, "re_test"); err != nil {
+	// Refund the remainder through the durable-first path (no Stripe call needed
+	// to observe the ledger effect; BeginPrepaidRefund commits the debit).
+	plan, err := store.BeginPrepaidRefund(ctx, actor, buyerID, "buyer closed account", "INC-zero-sum-"+uuid.NewString())
+	if err != nil {
 		t.Fatalf("refund: %v", err)
+	}
+	if plan.Cents != 2500 {
+		t.Fatalf("planned refund = %d cents, want 2500", plan.Cents)
 	}
 	bal, _ = store.BuyerPrepaidBalanceMicros(ctx, buyerID)
 	if bal != 0 {
