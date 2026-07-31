@@ -292,13 +292,17 @@ func (wk *Workers) Run(ctx context.Context) {
 		{budgetStopInterval, "budget-stop-sweep", wk.sweepBudgetStops},
 		{realtimeRecoveryInterval, "realtime-contract-recovery", wk.recoverRealtimeContracts},
 		{noPeerWatchdogInterval, "no-peer-watchdog", wk.reapNoPeerWedged},
-		{overheadSweepInterval, "execution-overhead", wk.sweepExecutionOverhead},
+		{overheadSweepInterval, overheadTickerName, wk.sweepExecutionOverhead},
+		// The in-flight sweep had no caller at all: expired inflight_executions
+		// rows accumulated forever, because nothing ran the DELETE that
+		// sweepExpiredInflight exists to run.
+		{inflightResultTTL, inflightTickerName, wk.sweepInflightExecutions},
 	}
 	var loops sync.WaitGroup
 	loops.Add(len(tickers))
 	for _, ticker := range tickers {
 		t := ticker
-		if t.name == overheadTickerName {
+		if t.name == overheadTickerName || t.name == inflightTickerName {
 			liveness.registerAdvisory(t.name, t.interval)
 		} else if t.name == verificationRecoveryTickerName {
 			liveness.registerWithProgressTimeout(t.name, t.interval, verificationRecoveryNoProgressTimeout)
