@@ -358,17 +358,37 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, currentControlBuildInfo())
 }
 
+// Readiness reasons an operator's probe branches on.
+//
+// The sentence next to them is for a human reading a log; a probe that had to
+// string-match "canary policy is incomplete" would break the first time somebody
+// improved the sentence, and a deployment that cannot tell "misconfigured" apart
+// from "database is down" pages the wrong person.
+const (
+	readyzReasonCanaryUnconfigured  = "canary_policy_unconfigured"
+	readyzReasonPaymentInvalid      = "payment_authority_invalid"
+	readyzReasonPaymentWindowClosed = "payment_authority_window_closed"
+	readyzReasonDatabaseUnreachable = "database_unreachable"
+	readyzReasonElectionStalled     = "worker_election_stalled"
+	readyzReasonStaleTickers        = "stale_background_tickers"
+)
+
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	// payment_mode / live_value_movement are always present once the authority
 	// parses so external canary observers can measure safety without inventing it.
 	if s.canary.Enabled && s.canary.configError != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "canary policy is incomplete"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status":      "not_ready",
+			"reason":      "canary policy is incomplete",
+			"reason_code": readyzReasonCanaryUnconfigured,
+		})
 		return
 	}
 	paymentAuthority, err := currentPaymentAuthority()
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"status": "not_ready", "reason": "payment authority is invalid",
+			"reason_code": readyzReasonPaymentInvalid,
 		})
 		return
 	}
@@ -379,8 +399,8 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		"payment_recovery_active": paymentAuthority.RecoveryActive,
 		"stripe_api_version":      stripeAPIVersion,
 	}
-	notReady := func(reason string, extra map[string]any) {
-		body := map[string]any{"status": "not_ready", "reason": reason}
+	notReady := func(code, reason string, extra map[string]any) {
+		body := map[string]any{"status": "not_ready", "reason": reason, "reason_code": code}
 		for k, v := range paymentFields {
 			body[k] = v
 		}
@@ -390,20 +410,20 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, body)
 	}
 	if !paymentAuthority.OperationallyReady() {
-		notReady("payment authority is outside its operational window", nil)
+		notReady(readyzReasonPaymentWindowClosed, "payment authority is outside its operational window", nil)
 		return
 	}
 	if err := s.store.Ping(r.Context()); err != nil {
-		notReady("database unreachable", nil)
+		notReady(readyzReasonDatabaseUnreachable, "database unreachable", nil)
 		return
 	}
 	now := time.Now()
 	if !workerElectionRecentlyObserved(now) {
-		notReady("background worker election is not progressing", nil)
+		notReady(readyzReasonElectionStalled, "background worker election is not progressing", nil)
 		return
 	}
 	if stale := liveness.stale(now, workersStarted()); len(stale) > 0 {
-		notReady("stale background tickers", map[string]any{"stale_tickers": stale})
+		notReady(readyzReasonStaleTickers, "stale background tickers", map[string]any{"stale_tickers": stale})
 		return
 	}
 	body := map[string]any{"status": "ready"}

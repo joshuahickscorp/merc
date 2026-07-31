@@ -42,6 +42,21 @@ x-control-env: &control-env
   MERC_CONTROL_PLANE_PER_TASK_USD: ${MERC_CONTROL_PLANE_PER_TASK_USD:?required}
   MERC_TARGET_MARGIN_BPS: ${MERC_TARGET_MARGIN_BPS:?required}
   MERC_CANARY_MODE: ${MERC_CANARY_MODE:-false}
+  # MERC_CANARY_MODE=false closes the private canary AND opens self-serve signup,
+  # so production demands the decision that says so. A valid value is the
+  # container path of a decision artifact — with this Compose file,
+  # /run/secrets/merc-canary-disable-decision.json, mounted from
+  # MERC_CANARY_DISABLE_DECISION_SOURCE — holding
+  # {"schema_version":1,"decision":{"decision_id":..., "candidate_commit":<the
+  # 40-hex commit this image was built from>, "decision":"DISABLE_CANARY_ADMISSION",
+  # "scope":"supervised_stripe_test_mode_private_canary","authority":[release_manager,
+  # security],"effective_at":"...Z","expires_at":"...Z"}}, plus the sha256 of those
+  # exact bytes in MERC_CANARY_DISABLE_DECISION_SHA256. Both stay empty here: a
+  # placeholder value would be a decision nobody took. Until they are set, the
+  # canary envelope stays enforced and /readyz answers 503 with reason_code
+  # canary_policy_unconfigured.
+  MERC_CANARY_DISABLE_DECISION_REF: ${MERC_CANARY_DISABLE_DECISION_CONTAINER_FILE:-}
+  MERC_CANARY_DISABLE_DECISION_SHA256: ${MERC_CANARY_DISABLE_DECISION_SHA256:-}
   MERC_CANARY_APPROVED_BUYER_EMAILS: ${MERC_CANARY_APPROVED_BUYER_EMAILS:-}
   MERC_CANARY_APPROVED_WORKER_IDS: ${MERC_CANARY_APPROVED_WORKER_IDS:-}
   MERC_CANARY_APPROVED_AGENT_VERSIONS: ${MERC_CANARY_APPROVED_AGENT_VERSIONS:-}
@@ -153,6 +168,9 @@ services:
       # LIVE Stripe API authority is also file-backed; only the fixed path is
       # visible through Docker inspection.
       - ${STRIPE_SECRET_KEY_SOURCE:-/dev/null}:/run/secrets/merc-stripe-secret-key:ro
+      # Same shape for the decision that ends the private canary: /dev/null until
+      # one is taken, so the mount exists but grants nothing.
+      - ${MERC_CANARY_DISABLE_DECISION_SOURCE:-/dev/null}:/run/secrets/merc-canary-disable-decision.json:ro
     healthcheck:
       test: [CMD, /merc-healthcheck]
       interval: 10s
