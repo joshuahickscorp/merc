@@ -2377,11 +2377,25 @@ struct WorkCtx {
 
 async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
     let pool = ModelPool::new();
+    // The advertised engine follows the embed runtime this worker was configured
+    // with, rather than being hardcoded to candle.
+    //
+    // It was "candle" unconditionally, so a worker configured for llama.cpp
+    // registered as a candle worker and was authorized for candle's cells — it
+    // would then have been dispatched candle work its driver cannot serve, and
+    // the llama.cpp cell it exists to prove stayed unadvertised. Caught by
+    // running two real agents and reading what the control plane stored.
+    //
+    // A non-candle embed runtime makes this a single-cell worker: it advertises
+    // that engine's cells only. That is correct for a dedicated second-runtime
+    // worker and it is the shape the directed proof needs.
+    let engine = runtime_driver::advertised_engine(&cfg.embed_runtime)
+        .map_err(|e| anyhow::anyhow!("embed runtime: {e}"))?;
     let mut cap = hardware::detect_and_benchmark(
         cfg.supplier_id,
         AGENT_VERSION,
         cfg.min_payout_usd_per_hr,
-        "candle",
+        engine,
         &pool,
     )
     .await;

@@ -49,6 +49,17 @@ fn lifecycle_is_routable(lifecycle: &str) -> bool {
     lifecycle == "CANARY" || lifecycle == "ACTIVE"
 }
 
+/// Whether an operator or a test may direct work to a cell in this state.
+/// VALIDATED and above, terminal states excluded — the same predicate the
+/// control plane applies, because a worker advertising a different set than the
+/// control plane will direct to is an admission failure dressed as a mismatch.
+fn lifecycle_is_directed_reachable(lifecycle: &str) -> bool {
+    matches!(
+        lifecycle,
+        "VALIDATED" | "REAL_RUNTIME_PROVEN" | "CANARY" | "ACTIVE"
+    )
+}
+
 /// Mirrors the control plane's ordering. Terminal exclusions rank below DRAFT:
 /// they are not partial progress toward routability.
 fn lifecycle_rank(lifecycle: &str) -> u8 {
@@ -150,7 +161,16 @@ fn projection() -> &'static Projection {
                 } else {
                     profile.lifecycle.as_str()
                 };
-                if !lifecycle_is_routable(effective) {
+                // Directed-reachable, not routable-only, mirroring the control
+                // plane's projectDirectedRuntimeCapabilities.
+                //
+                // A routable-only projection made a llama.cpp worker advertise
+                // nothing: its embed cell is VALIDATED, so the worker had zero
+                // capabilities and registration was refused. It could then never
+                // execute the chain that would prove the cell. Terminal states
+                // are still excluded, so the REJECTED_FOR_CONTRACT generation
+                // cell remains unadvertisable.
+                if !lifecycle_is_directed_reachable(effective) {
                     continue;
                 }
                 let model = authority
@@ -189,7 +209,7 @@ fn projection() -> &'static Projection {
         }
         assert!(
             !capabilities.is_empty(),
-            "no routable runtime profile projects any cell"
+            "no runtime profile projects any directed-reachable cell"
         );
         Projection {
             version: authority.matrix_version,
