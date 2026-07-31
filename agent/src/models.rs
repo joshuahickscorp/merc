@@ -132,6 +132,11 @@ pub const LLAMA_TOKENIZER: ModelSpec = ModelSpec {
 /// control/runtime-authority.json under the model's artifact list, the GGUF
 /// tagged `wire_kind: gguf`, and `model_pins_match_runtime_authority` checks
 /// every field of both against it.
+// The GGUF form of the embedding model. llama.cpp loads it through llama-server
+// rather than through this loader, so nothing in the agent reads the spec yet —
+// but the artifact is governed and digest-pinned here, which is where a future
+// in-process GGUF path will look for it.
+#[allow(dead_code)]
 const EMBED_GGUF: ModelSpec = ModelSpec {
     repo: "leliuga/all-MiniLM-L6-v2-GGUF",
     revision: "ddf2e25d5b8530422e7b14aa39f33a657ff9aec0",
@@ -148,6 +153,7 @@ pub fn embed_spec(_model_ref: &str) -> (&'static str, ModelSpec) {
 
 /// The embed artifact for a given wire kind. `hf` is candle's safetensors,
 /// `gguf` is llama.cpp's — the same weights, a format each engine can load.
+#[allow(dead_code)] // resolves EMBED_GGUF; see the note there
 pub fn embed_spec_for_kind(kind: &str) -> Result<ModelSpec, RunError> {
     match kind {
         "hf" => Ok(EMBED),

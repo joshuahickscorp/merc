@@ -53,7 +53,14 @@ func TestRejectedCellCannotBeEnrolledAgainst(t *testing.T) {
 	if err == nil {
 		t.Fatal("a worker enrolled against the REJECTED_FOR_CONTRACT generation cell")
 	}
-	if !strings.Contains(err.Error(), "not advertised") &&
+	// The refusal is now about ACTIVATION rather than about the advertisement.
+	// A llama.cpp host really can load a GGUF and generate; what it may not do is
+	// sell the byte_exact contract this cell declares, which measurement decided.
+	// Enrolment validates the declaration against capability and authorizes
+	// against policy, so this is refused at the second step, and saying so is more
+	// useful to a supplier than "not advertised".
+	if !strings.Contains(err.Error(), "is activated") &&
+		!strings.Contains(err.Error(), "not advertised") &&
 		!strings.Contains(err.Error(), "no reachable") {
 		t.Errorf("refusal said %q", err.Error())
 	}

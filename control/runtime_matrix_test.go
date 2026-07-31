@@ -366,7 +366,7 @@ func TestGeneratedRuntimeCapabilitiesBindCanonicalWireKind(t *testing.T) {
 		"all-minilm-l6-v2":         "hf",
 		"llama-3.2-1b-instruct-q4": "gguf",
 	}
-	for _, cap := range generatedAdvertisedRuntimeCapabilities {
+	for _, cap := range advertisedRuntimeCapabilities() {
 		if cap.ModelKind == "" {
 			t.Fatalf("advertised cell %q has no generated model kind", cap.ID)
 		}

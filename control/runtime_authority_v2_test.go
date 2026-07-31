@@ -55,15 +55,15 @@ func TestNonRoutableProfilesDoNotWidenTheSellableSurface(t *testing.T) {
 		}
 	}
 
-	for _, cap := range generatedAdvertisedRuntimeCapabilities {
+	for _, cap := range advertisedRuntimeCapabilities() {
 		if cap.Runtime != "candle_metal" {
 			t.Errorf("non-routable runtime %q reached the advertised projection: %+v",
 				cap.Runtime, cap)
 		}
 	}
-	if len(generatedAdvertisedRuntimeCapabilities) != 2 {
+	if len(advertisedRuntimeCapabilities()) != 2 {
 		t.Fatalf("advertised projection has %d cells, want the 2 candle cells",
-			len(generatedAdvertisedRuntimeCapabilities))
+			len(advertisedRuntimeCapabilities()))
 	}
 }
 
@@ -273,17 +273,25 @@ func TestRegisteredRuntimesCiteEvidenceForTheirLifecycle(t *testing.T) {
 // QUARANTINED, or mlx_metal from VALIDATED to CANARY, must not require a new
 // revision: the progression is the point of the state machine.
 func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
-	// Pinned under the artifact-resolving digest. Every profile took a new
-	// revision when the derivation widened: the previous digests were computed
-	// without resolved artifacts, so they are not comparable values, and editing
-	// them in place under the old revision would have silently redefined what
-	// r4/r2/r5/r2 meant to every receipt that named them. Those revisions are
-	// retained in runtime_profiles with their own digests and still resolve.
+	// Pinned under capability manifest v2.
+	//
+	// These values moved without any profile taking a new revision, which is the
+	// one case where editing the constants in place is correct rather than a
+	// violation: the DEFINITION of the digest changed, the profiles did not.
+	// Cell lifecycle, quality tier, benchmark authority and rejection reason used
+	// to be inside the digest and are now activation policy, so a promotion no
+	// longer forces a revision bump — and no longer forces every agent to be
+	// rebuilt before it can enrol.
+	//
+	// The upgrade is handled by capability_manifest_version on runtime_profiles:
+	// a row written under v1 is recognised and rewritten rather than reported as
+	// content drift, and its old digest is retained so anything that recorded it
+	// still resolves.
 	pinned := map[string]string{
-		"candle_metal":    "08dd1df094fd52a67bcbb842062c76467f1c2180bc4bec4f943857dcad4ba1f1",
-		"mlx_metal":       "67b688419eb3a1a58bc369a01e7c280fbefde32dfdc5ac1109a45508ce4bfd57",
-		"llama_cpp_metal": "1e8fc56d7a5b0be5e34e934df2146725b663359f3105608625c465262f0dae9b",
-		"vllm_cuda":       "4825a0c3b06e3a6c4bb19c61747ab5dc11ad402e306e926b579c9bb8c435f55b",
+		"candle_metal":    "6efbda3639b086a705b3ef6af85968f7ffdf703cdc3dbff867ae1452caf5c271",
+		"mlx_metal":       "caa99a2d13e1a742d757500c22aa073c3a3514f4f6e034aea7ec8d8c9b755086",
+		"llama_cpp_metal": "4f3da7514fca79fe5a1f25a57a5333df3eb0a091ff9179da70eeb0a3ab223efe",
+		"vllm_cuda":       "9f4a241f9c3a0bb017303cf50b036aaf31ace5934e9d6562051c887e1d42f5e3",
 	}
 	doc := mutableAuthority(t)
 	if len(doc.Runtimes) != len(pinned) {
@@ -296,7 +304,7 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 			t.Errorf("runtime %q has no pinned content digest", profile.RuntimeID)
 			continue
 		}
-		got, err := profile.ContentDigest(runtimeAuthorityModels)
+		got, err := profile.CapabilityDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatalf("digest %q: %v", profile.RuntimeID, err)
 		}
@@ -313,7 +321,7 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 // replacing it.
 func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 	base := mutableAuthority(t).Runtimes[0]
-	want, err := base.ContentDigest(runtimeAuthorityModels)
+	want, err := base.CapabilityDigest(runtimeAuthorityModels)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,10 +329,17 @@ func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 		func(p *authorityRuntimeProfile) { p.Lifecycle = runtimeLifecycleQuarantined },
 		func(p *authorityRuntimeProfile) { p.Lifecycle = runtimeLifecycleCanary },
 		func(p *authorityRuntimeProfile) { p.SupersededBy = "something_else" },
+		// Activation policy, not capability. The quality tier and the receipt
+		// that justified a promotion both move as evidence accumulates, and both
+		// used to sit inside the digest — so recording a new benchmark forced a
+		// revision bump and, because the agent binds the same document at compile
+		// time, a rebuild of every agent before any of them could enrol.
+		func(p *authorityRuntimeProfile) { p.QualityTier = "MODEL_EXACT" },
+		func(p *authorityRuntimeProfile) { p.BenchmarkAuthority = "elsewhere" },
 	} {
 		moved := base
 		mutate(&moved)
-		got, err := moved.ContentDigest(runtimeAuthorityModels)
+		got, err := moved.CapabilityDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -335,10 +350,8 @@ func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 
 	// Anything that changes what the profile MEANS must move the digest.
 	for name, mutate := range map[string]func(p *authorityRuntimeProfile){
-		"engine":              func(p *authorityRuntimeProfile) { p.Engine = "mlx" },
-		"revision":            func(p *authorityRuntimeProfile) { p.Revision = "r99" },
-		"quality tier":        func(p *authorityRuntimeProfile) { p.QualityTier = "MODEL_EXACT" },
-		"benchmark authority": func(p *authorityRuntimeProfile) { p.BenchmarkAuthority = "elsewhere" },
+		"engine":   func(p *authorityRuntimeProfile) { p.Engine = "mlx" },
+		"revision": func(p *authorityRuntimeProfile) { p.Revision = "r99" },
 		// A real other model, not a made-up id: the digest now resolves each
 		// cell's artifacts, so an undefined model is a hard error rather than a
 		// different digest, and the mutation would prove nothing.
@@ -351,7 +364,7 @@ func TestRuntimeProfileDigestExcludesLifecycleAndSupersession(t *testing.T) {
 		moved := base
 		moved.Cells = append([]authorityCell(nil), base.Cells...)
 		mutate(&moved)
-		got, err := moved.ContentDigest(runtimeAuthorityModels)
+		got, err := moved.CapabilityDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -677,29 +690,27 @@ func TestBothMetalProfilesAreMeasuredAndComparable(t *testing.T) {
 // indistinguishable in provenance).
 func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) {
 	base := mutableAuthority(t).Runtimes[0]
-	want, err := base.ContentDigest(runtimeAuthorityModels)
+	want, err := base.CapabilityDigest(runtimeAuthorityModels)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Semantic: must move the digest.
 	for name, mutate := range map[string]func(p *authorityRuntimeProfile){
-		"engine":              func(p *authorityRuntimeProfile) { p.Engine = "mlx" },
-		"engine revision":     func(p *authorityRuntimeProfile) { p.EngineRevision = "deadbeef" },
-		"tokenizer revision":  func(p *authorityRuntimeProfile) { p.TokenizerRevision = "other" },
-		"chat template":       func(p *authorityRuntimeProfile) { p.ChatTemplateID = "other" },
-		"source identity":     func(p *authorityRuntimeProfile) { p.SourceIdentity = "elsewhere" },
-		"adapter":             func(p *authorityRuntimeProfile) { p.Adapter = "merc-mlx" },
-		"revision":            func(p *authorityRuntimeProfile) { p.Revision = "r99" },
-		"device":              func(p *authorityRuntimeProfile) { p.Device = "cuda" },
-		"platform":            func(p *authorityRuntimeProfile) { p.Hardware.Platforms = []string{"x"} },
-		"device count":        func(p *authorityRuntimeProfile) { p.Hardware.DeviceCount.Maximum = 8 },
-		"parallelism":         func(p *authorityRuntimeProfile) { p.Parallelism.TensorParallel = true },
-		"capability":          func(p *authorityRuntimeProfile) { p.Capabilities.Speculation = true },
-		"quality tier":        func(p *authorityRuntimeProfile) { p.QualityTier = "MODEL_EXACT" },
-		"benchmark authority": func(p *authorityRuntimeProfile) { p.BenchmarkAuthority = "elsewhere" },
-		"cell model":          func(p *authorityRuntimeProfile) { p.Cells[0].Model = "llama-3.2-1b-instruct-q4" },
-		"cell memory":         func(p *authorityRuntimeProfile) { p.Cells[0].MinMemoryGB = 99 },
+		"engine":             func(p *authorityRuntimeProfile) { p.Engine = "mlx" },
+		"engine revision":    func(p *authorityRuntimeProfile) { p.EngineRevision = "deadbeef" },
+		"tokenizer revision": func(p *authorityRuntimeProfile) { p.TokenizerRevision = "other" },
+		"chat template":      func(p *authorityRuntimeProfile) { p.ChatTemplateID = "other" },
+		"source identity":    func(p *authorityRuntimeProfile) { p.SourceIdentity = "elsewhere" },
+		"adapter":            func(p *authorityRuntimeProfile) { p.Adapter = "merc-mlx" },
+		"revision":           func(p *authorityRuntimeProfile) { p.Revision = "r99" },
+		"device":             func(p *authorityRuntimeProfile) { p.Device = "cuda" },
+		"platform":           func(p *authorityRuntimeProfile) { p.Hardware.Platforms = []string{"x"} },
+		"device count":       func(p *authorityRuntimeProfile) { p.Hardware.DeviceCount.Maximum = 8 },
+		"parallelism":        func(p *authorityRuntimeProfile) { p.Parallelism.TensorParallel = true },
+		"capability":         func(p *authorityRuntimeProfile) { p.Capabilities.Speculation = true },
+		"cell model":         func(p *authorityRuntimeProfile) { p.Cells[0].Model = "llama-3.2-1b-instruct-q4" },
+		"cell memory":        func(p *authorityRuntimeProfile) { p.Cells[0].MinMemoryGB = 99 },
 		// Artifact format is what the runtime actually loads. candle's Cells[0]
 		// serves MiniLM as `hf`; flipping it to `gguf` resolves a different file
 		// entirely, and a digest that missed that would let a profile swap every
@@ -714,7 +725,7 @@ func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) 
 		moved := base
 		moved.Cells = append([]authorityCell(nil), base.Cells...)
 		mutate(&moved)
-		got, err := moved.ContentDigest(runtimeAuthorityModels)
+		got, err := moved.CapabilityDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -729,10 +740,16 @@ func TestContentDigestCoversEverySemanticFieldAndNoLifecycleField(t *testing.T) 
 		"lifecycle":     func(p *authorityRuntimeProfile) { p.Lifecycle = runtimeLifecycleCanary },
 		"quarantine":    func(p *authorityRuntimeProfile) { p.Lifecycle = runtimeLifecycleQuarantined },
 		"superseded_by": func(p *authorityRuntimeProfile) { p.SupersededBy = "something" },
+		// Activation policy: both describe how much is KNOWN about a profile, not
+		// what it is. Keeping them in the digest meant a new receipt was
+		// indistinguishable from a new runtime.
+		"quality tier":        func(p *authorityRuntimeProfile) { p.QualityTier = "MODEL_EXACT" },
+		"benchmark authority": func(p *authorityRuntimeProfile) { p.BenchmarkAuthority = "elsewhere" },
+		"cell lifecycle":      func(p *authorityRuntimeProfile) { p.Cells[0].Lifecycle = runtimeLifecycleValidated },
 	} {
 		moved := base
 		mutate(&moved)
-		got, err := moved.ContentDigest(runtimeAuthorityModels)
+		got, err := moved.CapabilityDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -833,7 +850,7 @@ func TestWireKindBelongsToTheRuntimeModelPair(t *testing.T) {
 // Registering the embed cell must not have widened what is sellable: the cell is
 // on a VALIDATED profile and cannot reach the advertised projection.
 func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
-	for _, cap := range generatedAdvertisedRuntimeCapabilities {
+	for _, cap := range advertisedRuntimeCapabilities() {
 		if cap.ID == "llama-cpp-metal-minilm-embed" {
 			t.Fatal("a cell on a VALIDATED profile reached the advertised projection")
 		}
@@ -841,8 +858,8 @@ func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
 			t.Errorf("non-routable runtime %q is advertised", cap.Runtime)
 		}
 	}
-	if len(generatedAdvertisedRuntimeCapabilities) != 2 {
+	if len(advertisedRuntimeCapabilities()) != 2 {
 		t.Fatalf("advertised projection has %d cells, want the 2 candle cells",
-			len(generatedAdvertisedRuntimeCapabilities))
+			len(advertisedRuntimeCapabilities()))
 	}
 }

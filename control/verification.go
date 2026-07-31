@@ -231,6 +231,17 @@ const (
 )
 
 func (v *Verifier) effectiveCheckProb(ctx context.Context, info *CommitTaskInfo) float64 {
+	// A governed class is not a coin flip.
+	//
+	// Expressed as a probability of 1.0 rather than as a branch around the
+	// sampling machinery, so the pinned sampling row still records what actually
+	// decided this task — probability 1, selected true — instead of recording a
+	// reputation-derived number that had no bearing on the outcome. The class
+	// itself is stored beside it, so a reader can tell "certain because governed"
+	// from "certain because the supplier is new".
+	if verificationClassAlwaysChecked(info.VerificationClass) {
+		return 1.0
+	}
 	rep, ok := v.committingReputation(ctx, info)
 	if !ok || rep <= verifyTrustFloor {
 		return 1.0

@@ -62,9 +62,22 @@ test:
 test-unit:
 	cd control && MERC_ALLOW_SKIPPING_DB_TESTS=1 go test ./...
 
+# Object storage and a local inference engine are passed THROUGH when the
+# environment provides them, so a developer machine that has `make dev-up` MinIO
+# and a llama-server actually runs the artifact, chain and failure-matrix tests
+# instead of skipping them. The CI lane has neither and skips them; every one of
+# those skips is named in scripts/allowed-test-skips.txt, which is what stops the
+# skipping from being invisible.
+CI_TEST_ENV = MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" \
+  MERC_TEST_S3_ENDPOINT="$(MERC_TEST_S3_ENDPOINT)" \
+  MERC_TEST_S3_BUCKET="$(MERC_TEST_S3_BUCKET)" \
+  MERC_TEST_S3_ACCESS_KEY="$(MERC_TEST_S3_ACCESS_KEY)" \
+  MERC_TEST_S3_SECRET_KEY="$(MERC_TEST_S3_SECRET_KEY)" \
+  MERC_LLAMA_EMBED_URL="$(MERC_LLAMA_EMBED_URL)"
+
 ci:
 	cd control && test -z "$$(gofmt -l .)" && go vet ./... && \
-	  MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" go test ./...
+	  $(CI_TEST_ENV) go test ./...
 	@bash scripts/assert-no-test-skips.sh
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
 	python3 -m json.tool proto/manifest.schema.json >/dev/null
@@ -233,6 +246,25 @@ private-canary:
 
 mutation-test:
 	bash scripts/mutation-test.sh
+
+# The local gate that makes pushing an unverified tree fail closed.
+#
+# Runs sequentially: worktree validation, targeted authority tests, the mutation
+# suite, a CONTENT proof that the mutation runner restored the tree, full CI, the
+# race suite, and a final check that HEAD did not move — then writes a receipt
+# bound to that exact commit. Never runs CI while mutation tooling is modifying
+# the same tree, because the steps are a program rather than a habit.
+#
+# Install the hook once so a push without a matching receipt is refused:
+#   git config core.hooksPath .githooks
+#
+# Remote CI remains authoritative. This exists because a knowingly red tree was
+# pushed once from a shell pipeline whose failure mode was "push anyway".
+checkpoint:
+	cd control && MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" go run . dev checkpoint
+
+checkpoint-verify:
+	cd control && go run . dev checkpoint-verify
 
 # Official-SDK conformance: drives merc's realtime surface with the real
 # `openai` Python and JavaScript clients, not merc's own. merc agreeing with

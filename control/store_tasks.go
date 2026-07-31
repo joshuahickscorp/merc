@@ -101,6 +101,10 @@ type taskRow struct {
 	ResultKey             string
 	ChunkIndex            int
 	ExpectedOutputRecords int64 // 0 = explicit legacy/opaque unknown, persisted NULL
+	// VerificationClass is the governed class this task is verified under. Empty
+	// is derived from the probe/redundancy flags and the job's class at insert,
+	// so a caller that does not care does not have to know.
+	VerificationClass string
 }
 
 func (s *Store) QueuedTaskCount(ctx context.Context) (int, error) {
@@ -271,12 +275,16 @@ func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID, claim
 }
 
 type CommitTaskInfo struct {
-	TaskID                   uuid.UUID
-	JobID                    uuid.UUID
-	WorkerID                 uuid.UUID
-	SupplierID               uuid.UUID
-	IsHoneypot               bool
-	IsRedundancy             bool
+	TaskID       uuid.UUID
+	JobID        uuid.UUID
+	WorkerID     uuid.UUID
+	SupplierID   uuid.UUID
+	IsHoneypot   bool
+	IsRedundancy bool
+	// VerificationClass decides whether this task's check is a coin flip. Read
+	// from the task row rather than recomputed, because the row is what the
+	// receipt and the verification work plan will be reconciled against.
+	VerificationClass        string
 	HWClass                  string
 	engine                   string
 	buildHash                string
@@ -366,6 +374,7 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 	info.TaskID = taskID
 	err = tx.QueryRow(ctx,
 		`SELECT t.job_id, t.is_honeypot, t.is_redundancy,
+		        COALESCE(t.verification_class,'SAMPLED'),
 		        COALESCE(t.input_ref,''),
 		        COALESCE(t.result_key,''),
 		        t.execution_worker_id,t.execution_supplier_id,t.execution_hw_class,
@@ -378,7 +387,7 @@ func (s *Store) completeTaskTx(ctx context.Context, taskID, workerID uuid.UUID, 
 	 FROM tasks t JOIN jobs j ON j.id = t.job_id
 	 WHERE t.id = $1 AND t.execution_worker_id=$2`,
 		taskID, workerID,
-	).Scan(&info.JobID, &info.IsHoneypot, &info.IsRedundancy, &info.InputRef,
+	).Scan(&info.JobID, &info.IsHoneypot, &info.IsRedundancy, &info.VerificationClass, &info.InputRef,
 		&info.ResultKey, &info.WorkerID, &info.SupplierID, &info.HWClass, &info.engine, &info.buildHash, &info.jobType, &jobMaxTokens,
 		&info.ModelRef, &info.MinMemoryGB, &info.ChunkIndex, &info.SplitSize,
 		&info.ExpectedOutputRecords, &info.Attempt, &info.ResultSHA256)
@@ -650,12 +659,12 @@ func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, pe
 	resultKey := taskAttemptResultKey(jobID, id, 0)
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO tasks
-		   (id, job_id, status, is_honeypot, is_redundancy, retry_count,
+		   (id, job_id, status, is_honeypot, is_redundancy, verification_class, retry_count,
 		    input_ref, input_depth_band, result_key, chunk_index, hedged_from,expected_output_records,
 		    verification_hw_class,verification_engine,verification_build_hash,
 		    claimed_by, claimed_at, visible_at,
 		    economic_buyer_charge_usd,economic_supplier_payout_usd)
-		 VALUES ($1,$2,'queued',false,true,0,$3,
+		 VALUES ($1,$2,'queued',false,true,'REDUNDANT',0,$3,
 		         (SELECT input_depth_band FROM tasks WHERE id=$6),$4,$5,$6,
 		         (SELECT expected_output_records FROM tasks WHERE id=$6),
 		         $7,$8,$9,$10,now(),now(),$11,$12)`,
@@ -776,6 +785,7 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 		        COALESCE(t.verification_outcome,''),
 		        COALESCE(t.runtime_cell_id,''), COALESCE(t.runtime_id,''),
 		        COALESCE(t.runtime_matrix_sha256,''), COALESCE(t.model_kind,''),
+		        COALESCE(t.verification_class,'SAMPLED'), vw.sampling_selected,
 		        COALESCE(t.expected_output_records,0),
 		        t.reported_tokens_used,
 		        t.economic_buyer_charge_usd::float8,
@@ -803,6 +813,8 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 			kind, verdict                string
 			cellID, runtimeID, matrixSHA string
 			modelKind                    string
+			verificationClass            string
+			verificationSelected         *bool
 			expectedRecords              int64
 			reportedTokens               *int64
 			frozenCharge                 *float64
@@ -810,11 +822,14 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 		)
 		if err := rows.Scan(&chunk, &status, &isHoneypot, &engine, &build, &kind, &verdict,
 			&cellID, &runtimeID, &matrixSHA, &modelKind,
+			&verificationClass, &verificationSelected,
 			&expectedRecords, &reportedTokens, &frozenCharge, &billedCharge); err != nil {
 			return nil, err
 		}
 		tr := taskReceiptRowWithRuntime(chunk, status, isHoneypot, engine, build,
 			kind, verdict, cellID, runtimeID, matrixSHA, modelKind)
+		tr.VerificationClass = verificationClass
+		tr.VerificationSelected = verificationSelected
 		// Surface observed-output evidence only when the frozen plan priced
 		// generative output and this task had a positive ceiling.
 		if plan != nil && plan.EstimatedOutputTokens > 0 &&
@@ -1066,11 +1081,11 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 	resultKey := taskAttemptResultKey(jobID, id, 0)
 	_, err = tx.Exec(ctx,
 		`INSERT INTO tasks
-		   (id, job_id, status, is_honeypot, is_redundancy, retry_count,
+		   (id, job_id, status, is_honeypot, is_redundancy, verification_class, retry_count,
 		    input_ref, input_depth_band, result_key, chunk_index, hedged_from,expected_output_records,
 		    claimed_by, claimed_at, visible_at,
 		    economic_buyer_charge_usd,economic_supplier_payout_usd)
-		 VALUES ($1,$2,'queued',false,false,0,$3,
+		 VALUES ($1,$2,'queued',false,false,'SAMPLED',0,$3,
 		         (SELECT input_depth_band FROM tasks WHERE id=$6),$4,$5,$6,
 		         (SELECT expected_output_records FROM tasks WHERE id=$6),
 		         $7, now(), now(),$8,$9)`,

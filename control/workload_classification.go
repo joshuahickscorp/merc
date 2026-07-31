@@ -215,9 +215,9 @@ func runtimeCapabilityForBinding(binding WorkloadBinding) (generatedRuntimeCapab
 func runtimeCapabilityForBindingDirected(
 	binding WorkloadBinding, directedCellID string,
 ) (generatedRuntimeCapability, error) {
-	pool := generatedAdvertisedRuntimeCapabilities
+	pool := advertisedRuntimeCapabilities()
 	if directedCellID != "" {
-		pool = generatedDirectedRuntimeCapabilities
+		pool = directedRuntimeCapabilities()
 	}
 	var matches []generatedRuntimeCapability
 	for _, candidate := range pool {

@@ -37,8 +37,16 @@ import (
 
 // twoAgentEnrolTimeout is generous because each agent cold-loads and benchmarks
 // BOTH retained models before it registers, and two agents on one host serialize
-// on the GPU. Measured at roughly 45s alone.
-const twoAgentEnrolTimeout = 300 * time.Second
+// on the GPU.
+//
+// 300s was measured against a WARM host — weights in the page cache, Metal
+// kernels already compiled, llama-server already serving. The first two-agent
+// test in a cold session pays all of that and was observed at 344s, so the old
+// value failed the suite on a machine state rather than on a defect. Raised
+// rather than "fixed" by warming the host in the harness: a startup cost that
+// only the first run pays is a real property of the product, and hiding it in a
+// fixture would mean nothing ever measured it.
+const twoAgentEnrolTimeout = 600 * time.Second
 
 func agentBinaryPath(t *testing.T) string {
 	t.Helper()
@@ -250,7 +258,7 @@ func TestTwoDistinctAgentsEnrolAutonomously(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s: enrolled against unregistered profile %q", name, got.profileID)
 		}
-		want, err := profile.ContentDigest(runtimeAuthorityModels)
+		want, err := profile.CapabilityDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}

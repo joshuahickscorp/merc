@@ -21,8 +21,11 @@ import (
 // admit a single-GPU one.
 
 // runtimeProfileByID finds a registered profile in the embedded authority.
+// The profile is returned with ACTIVATION POLICY applied, so every caller sees
+// the lifecycle the control plane is actually operating under rather than the
+// default the embedded document happened to ship with.
 func runtimeProfileByID(runtimeID string) (authorityRuntimeProfile, bool) {
-	for _, profile := range runtimeAuthority.Runtimes {
+	for _, profile := range currentActivation().profiles() {
 		if profile.RuntimeID == runtimeID {
 			return profile, true
 		}
@@ -36,7 +39,7 @@ func runtimeProfileByID(runtimeID string) (authorityRuntimeProfile, bool) {
 // disagree, which is worth failing on rather than picking arbitrarily.
 func routableProfileForEngine(engine string) (authorityRuntimeProfile, error) {
 	var found []authorityRuntimeProfile
-	for _, profile := range runtimeAuthority.RoutableRuntimes() {
+	for _, profile := range currentActivation().routableProfiles() {
 		if profile.Engine == engine {
 			found = append(found, profile)
 		}
@@ -72,7 +75,7 @@ func enrollableProfileForEngine(engine string) (authorityRuntimeProfile, error) 
 		return profile, nil
 	}
 	var found []authorityRuntimeProfile
-	for _, profile := range runtimeAuthority.Runtimes {
+	for _, profile := range currentActivation().profiles() {
 		if profile.Engine != engine {
 			continue
 		}
@@ -226,7 +229,7 @@ func governedProfileIdentity(engine string) (id, revision, digest string, err er
 	if err != nil {
 		return "", "", "", err
 	}
-	digest, err = profile.ContentDigest(runtimeAuthorityModels)
+	digest, err = profile.CapabilityDigest(runtimeAuthorityModels)
 	if err != nil {
 		return "", "", "", err
 	}

@@ -96,7 +96,7 @@ func TestDirectedRoutingRefusesACellThatDoesNotServeTheWorkload(t *testing.T) {
 // the property that makes REJECTED_FOR_CONTRACT a decision rather than a label:
 // the operator escape hatch does not reopen it.
 func TestDirectedRoutingCannotReachARejectedCell(t *testing.T) {
-	for _, capability := range generatedDirectedRuntimeCapabilities {
+	for _, capability := range directedRuntimeCapabilities() {
 		if capability.ID == llamaInferCell {
 			t.Fatal("the rejected byte_exact cell is reachable by directed routing")
 		}
@@ -120,17 +120,17 @@ func TestDirectedRoutingCannotReachARejectedCell(t *testing.T) {
 // widen what a buyer can be sold.
 func TestDirectedSetIsASupersetThatDoesNotWidenTheCatalogue(t *testing.T) {
 	directed := map[string]bool{}
-	for _, capability := range generatedDirectedRuntimeCapabilities {
+	for _, capability := range directedRuntimeCapabilities() {
 		directed[capability.ID] = true
 	}
-	for _, capability := range generatedAdvertisedRuntimeCapabilities {
+	for _, capability := range advertisedRuntimeCapabilities() {
 		if !directed[capability.ID] {
 			t.Errorf("advertised cell %q is not reachable by directed routing", capability.ID)
 		}
 	}
-	if len(generatedAdvertisedRuntimeCapabilities) != 2 {
+	if len(advertisedRuntimeCapabilities()) != 2 {
 		t.Fatalf("the advertised catalogue has %d cells, want the 2 candle cells",
-			len(generatedAdvertisedRuntimeCapabilities))
+			len(advertisedRuntimeCapabilities()))
 	}
 	// The llama.cpp embed cell is nameable and NOT sellable, which is exactly the
 	// state a cell has to be in to be driven through the chain that proves it.
@@ -138,7 +138,7 @@ func TestDirectedSetIsASupersetThatDoesNotWidenTheCatalogue(t *testing.T) {
 		t.Fatal("the llama.cpp embed cell is not reachable by directed routing, " +
 			"so it can never be driven through the chain that would prove it")
 	}
-	for _, capability := range generatedAdvertisedRuntimeCapabilities {
+	for _, capability := range advertisedRuntimeCapabilities() {
 		if capability.ID == llamaEmbedCell {
 			t.Fatal("the llama.cpp embed cell reached the advertised catalogue " +
 				"before its chain proof")

@@ -41,16 +41,23 @@ type PricingReconciliation struct {
 }
 
 type TaskReceipt struct {
-	ChunkIndex       int    `json:"chunk_index"`
-	Status           string `json:"status"`
-	IsHoneypot       bool   `json:"is_honeypot"`
-	RuntimeCellID    string `json:"runtime_cell_id,omitempty"`
-	RuntimeID        string `json:"runtime_id,omitempty"`
-	RuntimeMatrixSHA string `json:"runtime_matrix_sha256,omitempty"`
-	ModelKind        string `json:"model_kind,omitempty"`
-	WorkerClass      string `json:"worker_class"`      // engine|build_hash (classKey); "" if unknown
-	VerificationKind string `json:"verification_kind"` // latest comparison event kind; "" if none
-	Verdict          string `json:"verdict"`           // durable current task verdict; "" until verified
+	ChunkIndex int    `json:"chunk_index"`
+	Status     string `json:"status"`
+	IsHoneypot bool   `json:"is_honeypot"`
+	// VerificationClass is the governed class this task was verified under, and
+	// VerificationSelected whether the check actually ran. Together they let a
+	// buyer distinguish "not checked because sampling declined" from "not checked
+	// because nothing has been decided yet" — which the receipt could not say
+	// before, so an unsampled task and an unverified one read identically.
+	VerificationClass    string `json:"verification_class,omitempty"`
+	VerificationSelected *bool  `json:"verification_selected,omitempty"`
+	RuntimeCellID        string `json:"runtime_cell_id,omitempty"`
+	RuntimeID            string `json:"runtime_id,omitempty"`
+	RuntimeMatrixSHA     string `json:"runtime_matrix_sha256,omitempty"`
+	ModelKind            string `json:"model_kind,omitempty"`
+	WorkerClass          string `json:"worker_class"`      // engine|build_hash (classKey); "" if unknown
+	VerificationKind     string `json:"verification_kind"` // latest comparison event kind; "" if none
+	Verdict              string `json:"verdict"`           // durable current task verdict; "" until verified
 	// Generative batch settlement evidence. Present when the task had a
 	// generative output ceiling so the buyer can audit ceiling vs observed
 	// vs the rebate applied at ledger-write time. Omitted for embed/legacy.

@@ -202,6 +202,17 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 				primaryRecords, j.EconomicInputRecords)
 		}
 	}
+	// A task may not be labelled with a class its own flags contradict. The
+	// database enforces this too; here it gets a message that names the task.
+	for _, task := range tasks {
+		if task.VerificationClass == "" {
+			continue
+		}
+		if err := validateTaskVerificationClass(
+			task.VerificationClass, task.IsHoneypot, task.IsRedundancy); err != nil {
+			return fmt.Errorf("task %s: %w", task.ID, err)
+		}
+	}
 	if math.Abs(j.EstimatedUSD-j.EconomicPlan.InitialBuyerChargeUSD) > 0.000001 {
 		return fmt.Errorf("job estimate %.6f does not match frozen economic charge %.6f",
 			j.EstimatedUSD, j.EconomicPlan.InitialBuyerChargeUSD)
@@ -399,12 +410,19 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 			pgx.Identifier{"tasks"},
 			[]string{"id", "job_id", "status", "is_honeypot", "is_redundancy", "retry_count",
 				"input_ref", "input_depth_band", "result_key", "chunk_index", "expected_output_records", "visible_at",
-				"economic_buyer_charge_usd", "economic_supplier_payout_usd"},
+				"economic_buyer_charge_usd", "economic_supplier_payout_usd",
+				"verification_class", "verification_class_policy"},
 			pgx.CopyFromSlice(len(tasks), func(i int) ([]any, error) {
 				t := tasks[i]
+				class := t.VerificationClass
+				if class == "" {
+					class = deriveTaskVerificationClass(
+						j.ComputePlan.VerificationClass, t.IsHoneypot, t.IsRedundancy)
+				}
 				return []any{t.ID, t.JobID, "queued", t.IsHoneypot, t.IsRedundancy, int16(0),
 					t.InputRef, nullInputDepthBand(t.InputDepthBand), t.ResultKey, t.ChunkIndex, nullPosInt64(t.ExpectedOutputRecords), now,
-					j.EconomicPlan.BuyerChargePerTaskUSD, j.EconomicPlan.SupplierPayoutPerTaskUSD}, nil
+					j.EconomicPlan.BuyerChargePerTaskUSD, j.EconomicPlan.SupplierPayoutPerTaskUSD,
+					class, verificationClassPolicyRevision}, nil
 			}),
 		)
 		if err != nil {
