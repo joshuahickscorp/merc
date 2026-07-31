@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -49,17 +50,17 @@ func loadCanaryPolicyFromEnv() CanaryPolicy {
 		return CanaryPolicy{Enabled: true, configError: fmt.Errorf("MERC_CANARY_MODE: %w", err)}
 	}
 	if !enabled {
-		decision := strings.TrimSpace(os.Getenv(canaryDisableDecisionEnv))
-		if decision == "" {
-			// Fail closed: keep canary enforcement on until the disable decision
-			// is recorded. Self-serve signup stays gated by the same flag.
-			return CanaryPolicy{
-				Enabled: true,
-				configError: fmt.Errorf(
-					"MERC_CANARY_MODE=false requires %s (recorded decision that also opens self-serve signup)",
-					canaryDisableDecisionEnv,
-				),
-			}
+		// Fail closed: keep canary enforcement on until the disable decision
+		// resolves. Self-serve signup stays gated by the same flag, so an
+		// unreadable, stale or wrongly-bound decision leaves the door shut rather
+		// than ajar. canary_decision.go says what "resolves" means.
+		if err := resolveCanaryDisableDecision(
+			strings.TrimSpace(os.Getenv(canaryDisableDecisionEnv)),
+			isProductionEnv(os.Getenv("MERC_ENV")),
+			time.Now().UTC(),
+			currentControlBuildInfo,
+		); err != nil {
+			return CanaryPolicy{Enabled: true, configError: err}
 		}
 		return CanaryPolicy{}
 	}
