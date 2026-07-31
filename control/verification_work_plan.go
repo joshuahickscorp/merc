@@ -92,6 +92,8 @@ func (s *Store) PersistVerificationWorkPlan(ctx context.Context, lease Verificat
 	if err != nil {
 		return out, false, err
 	}
+	// The governed class comes from the work row, not the digested snapshot.
+	info.VerificationClass = work.VerificationClass
 	info.ResultKey = work.Artifact.Key
 	info.ResultSHA256 = work.Artifact.SHA256
 	if err := validateVerificationDecisionShape(info, decision, settlement); err != nil {

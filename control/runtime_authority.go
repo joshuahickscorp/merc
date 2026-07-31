@@ -230,7 +230,12 @@ func (c authorityCell) Routable(profile authorityRuntimeProfile) bool {
 // advertised catalogue stays routable-only, and a directed cell is reached only
 // when an operator or a test freezes it into a workload decision.
 func (c authorityCell) ReachableByDirectedRouting(profile authorityRuntimeProfile) bool {
-	state := c.EffectiveLifecycle(profile)
+	return directedReachableLifecycle(c.EffectiveLifecycle(profile))
+}
+
+// directedReachableLifecycle is the predicate itself, so activation policy can
+// apply it to a stored lifecycle without reconstructing a document cell.
+func directedReachableLifecycle(state string) bool {
 	validated, _ := cellLifecycleRank(runtimeLifecycleValidated)
 	rank, known := cellLifecycleRank(state)
 	if !known {
@@ -342,66 +347,15 @@ type authorityRuntimeProfile struct {
 // someone to edit the meaning without changing the string.
 var runtimeProfileRevisionPattern = regexp.MustCompile(`^r[1-9][0-9]*$`)
 
-// ContentDigest binds everything a profile MEANS: engine and its revision,
-// tokenizer revision, chat template, adapter, source identity, device,
-// hardware, device count, per-cell memory, parallelism, capabilities,
-// benchmark authority, quality tier, cells, and the exact artifact bytes each
-// cell resolves to. Lifecycle and SupersededBy are excluded because both are
-// expected to change without the profile becoming a different profile.
+// The profile content digest lives in capability_manifest.go as CapabilityDigest.
 //
-// The digest is computed over the decoded struct, not the file bytes, so
-// reformatting runtime-authority.json or reordering its keys cannot change it.
-// That is the opposite of generatedRuntimeMatrixSHA256, which digests the raw
-// bytes and therefore moves on whitespace: a document-level digest answers
-// "is this the same file", a profile digest answers "is this the same runtime".
+// It used to be computed here, over the decoded struct with Lifecycle and
+// SupersededBy blanked. That was correct for those two fields and wrong by
+// construction for everything added afterwards: the per-cell lifecycle landed
+// later and went straight into the digest, so promoting llama.cpp's embed cell
+// forced a revision bump and, because the agent binds the same document at
+// compile time, a rebuild of every agent in the fleet.
 //
-// Resolved artifacts are part of the answer. A cell names a model by id, and a
-// model id is not weights: swapping which GGUF backs the `gguf` wire kind would
-// otherwise change every byte a profile executes while it kept the same revision
-// and the same digest — the exact ambiguity this digest exists to refuse.
-//
-// Only the artifacts THIS profile's cells resolve are bound, so the coupling
-// does not spread. Adding a GGUF of MiniLM for llama.cpp moves llama_cpp_metal's
-// digest, because llama.cpp now loads bytes it could not load before, and leaves
-// candle_metal's alone, because candle still resolves the same three safetensors.
-func (p authorityRuntimeProfile) ContentDigest(models map[string]authorityModel) (string, error) {
-	content := struct {
-		authorityRuntimeProfile
-		ResolvedArtifacts []string `json:"resolved_artifacts"`
-	}{authorityRuntimeProfile: p}
-	content.Lifecycle = ""
-	content.SupersededBy = ""
-
-	seen := make(map[string]bool)
-	for _, cell := range p.Cells {
-		model, ok := models[cell.Model]
-		if !ok {
-			return "", fmt.Errorf("runtime profile %q cell %q names undefined model %q",
-				p.RuntimeID, cell.ID, cell.Model)
-		}
-		for _, artifact := range model.artifactsFor(wireKindFor(cell, model.WireKind)) {
-			repo, revision := artifact.Repo, artifact.Revision
-			if repo == "" {
-				repo, revision = model.HFRepo, model.HFRevision
-			}
-			// Digest last: the identity is the bytes, and repo/revision/path are
-			// the provenance that names them.
-			seen[fmt.Sprintf("%s@%s/%s:%s", repo, revision, artifact.Path, artifact.SHA256)] = true
-		}
-	}
-	for entry := range seen {
-		content.ResolvedArtifacts = append(content.ResolvedArtifacts, entry)
-	}
-	sort.Strings(content.ResolvedArtifacts)
-
-	blob, err := json.Marshal(content)
-	if err != nil {
-		return "", fmt.Errorf("marshal runtime profile %q: %w", p.RuntimeID, err)
-	}
-	sum := sha256.Sum256(blob)
-	return hex.EncodeToString(sum[:]), nil
-}
-
 // authorityModels indexes the document's model catalogue for digest resolution.
 func (d runtimeAuthorityDocument) authorityModels() map[string]authorityModel {
 	out := make(map[string]authorityModel, len(d.Models))
@@ -467,19 +421,35 @@ type generatedRuntimeCapability struct {
 }
 
 var (
-	runtimeAuthority                       = loadRuntimeAuthority()
-	generatedRuntimeMatrixVersion          = runtimeAuthority.MatrixVersion
-	generatedRuntimeMatrixSHA256           = runtimeAuthoritySHA256()
-	generatedAdvertisedRuntimeCapabilities = projectRuntimeCapabilities(runtimeAuthority)
-	// Cells an operator or a test may name explicitly. A superset of the
-	// advertised set, and NOT a catalogue: nothing here is quoted to a buyer or
-	// matched by ordinary admission. It exists so a governed job can be driven
-	// through a cell that is being proven, which is the only way a cell ever
-	// reaches REAL_RUNTIME_PROVEN.
-	generatedDirectedRuntimeCapabilities = projectDirectedRuntimeCapabilities(runtimeAuthority)
-	// The model catalogue every ContentDigest resolves its artifacts against.
+	runtimeAuthority              = loadRuntimeAuthority()
+	generatedRuntimeMatrixVersion = runtimeAuthority.MatrixVersion
+	// The CAPABILITY digest, not the file digest. Everything that consumes this
+	// — worker_authorized_capabilities.matrix_sha256, tasks.runtime_matrix_sha256,
+	// the agent's own dispatch check — is asking "are we describing the same
+	// runtimes", and only capability answers that. Promoting a cell leaves it
+	// unchanged, which is the whole point.
+	generatedRuntimeMatrixSHA256 = runtimeCapabilityMatrixDigest()
+	// The document's byte identity, kept for provenance in receipts and for the
+	// checkpoint gate. Never used as dispatch identity.
+	generatedRuntimeAuthorityFileSHA256 = runtimeAuthorityFileSHA256()
+	// The model catalogue every CapabilityDigest resolves its artifacts against.
 	runtimeAuthorityModels = runtimeAuthority.authorityModels()
+	// Every cell the document declares, lifecycle-blind. This is CAPABILITY: what
+	// the fleet is physically able to do. It is a compile-time constant on
+	// purpose, because capability is exactly the half that does not move without a
+	// new revision. It is never a catalogue and never an authorization — enrolment
+	// validates a worker's declaration against it and then authorizes only what
+	// activation policy allows.
+	generatedCapabilityRuntimeCells = projectCells(runtimeAuthority,
+		func(authorityRuntimeProfile, authorityCell) bool { return true })
 )
+
+// The advertised and directed projections used to be package variables computed
+// once from the document. They are now derived from the ACTIVATION POLICY the
+// process is operating under — see advertisedRuntimeCapabilities() and
+// directedRuntimeCapabilities() in activation_policy.go — because a promotion is
+// a policy write, and a projection frozen at process start would keep serving the
+// state the document happened to declare when the binary was built.
 
 func loadRuntimeAuthority() runtimeAuthorityDocument {
 	var authority runtimeAuthorityDocument
@@ -570,9 +540,6 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 		if !runtimeProfileRevisionPattern.MatchString(profile.Revision) {
 			return fmt.Errorf("runtime %q has revision %q, want r1, r2, …",
 				profile.RuntimeID, profile.Revision)
-		}
-		if _, err := profile.ContentDigest(modelsByID); err != nil {
-			return err
 		}
 		if profile.SupersededBy != "" {
 			if profile.SupersededBy == profile.RuntimeID {
@@ -680,6 +647,13 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 			seenRoutableCell[cell.ID] = profile.RuntimeID
 			servedModels[cell.Model] = true
 		}
+		// After the cell loop, not before it. The digest resolves every cell's
+		// artifacts and so fails on an unknown wire kind or a missing artifact
+		// too — with a message about hashing rather than about the cell that is
+		// actually wrong. Running it last leaves the specific refusals in front.
+		if _, err := profile.CapabilityDigest(modelsByID); err != nil {
+			return err
+		}
 	}
 
 	for _, model := range authority.Models {
@@ -766,22 +740,38 @@ func validateCellAuthority(profile authorityRuntimeProfile, cell authorityCell) 
 	return nil
 }
 
-func runtimeAuthoritySHA256() string {
+// runtimeAuthorityFileSHA256 digests the raw document bytes. It answers "is this
+// the same file", which is a provenance question, and it is NOT what agents and
+// the control plane agree on: it moves on whitespace and on any activation-policy
+// edit, so using it for dispatch identity made a lifecycle promotion a fleet-wide
+// binary deploy.
+func runtimeAuthorityFileSHA256() string {
 	sum := sha256.Sum256(runtimeAuthorityJSON)
 	return hex.EncodeToString(sum[:])
 }
 
-// projectDirectedRuntimeCapabilities lists every cell an operator or a test may
-// name. It reuses the same construction as the advertised projection so the two
-// cannot describe one cell differently; only the eligibility predicate differs.
-func projectDirectedRuntimeCapabilities(authority runtimeAuthorityDocument) []generatedRuntimeCapability {
-	return projectCells(authority, func(p authorityRuntimeProfile, c authorityCell) bool {
+// runtimeCapabilityMatrixDigest is the dispatch identity. Fails closed at process
+// start, alongside the rest of the document validation.
+func runtimeCapabilityMatrixDigest() string {
+	digest, err := capabilityMatrixDigest(runtimeAuthority)
+	if err != nil {
+		panic(fmt.Sprintf("embedded runtime authority capability digest: %v", err))
+	}
+	return digest
+}
+
+// documentRoutableCells and documentDirectedCells project straight from the
+// document, ignoring stored policy. They are what the process runs under before
+// any policy is loaded and what the document-level tests assert against; live
+// serving reads the activation snapshot instead.
+func documentDirectedCells() []generatedRuntimeCapability {
+	return projectCells(runtimeAuthority, func(p authorityRuntimeProfile, c authorityCell) bool {
 		return c.ReachableByDirectedRouting(p)
 	})
 }
 
-func projectRuntimeCapabilities(authority runtimeAuthorityDocument) []generatedRuntimeCapability {
-	return projectCells(authority, func(p authorityRuntimeProfile, c authorityCell) bool {
+func documentRoutableCells() []generatedRuntimeCapability {
+	return projectCells(runtimeAuthority, func(p authorityRuntimeProfile, c authorityCell) bool {
 		return c.Routable(p)
 	})
 }
@@ -829,18 +819,26 @@ func projectCells(
 	// Making it per cell is what stops llama.cpp's proven embedding cell from
 	// dragging its rejected generation cell into the advertised set with it.
 	var capabilities []generatedRuntimeCapability
-	seen := make(map[string]bool)
+	// Keyed by (runtime, cell), not by cell id alone.
+	//
+	// The document validator deliberately permits two NON-ROUTABLE profiles to
+	// describe the same cell id — that is how a challenger runtime is registered
+	// against an incumbent's cell at all — so a set keyed on the id alone panics
+	// at process start the first time a filter admits both. Routable collisions
+	// are still refused, by the validator, where the rule belongs.
+	seen := make(map[[2]string]bool)
 	for _, profile := range authority.Runtimes {
 		for _, cell := range profile.Cells {
 			if !include(profile, cell) {
 				continue
 			}
 			model, ok := models[cell.Model]
-			if seen[cell.ID] || !ok || cell.ID == "" || cell.Job != model.job ||
+			key := [2]string{profile.RuntimeID, cell.ID}
+			if seen[key] || !ok || cell.ID == "" || cell.Job != model.job ||
 				cell.Runner != cell.Job || cell.MinMemoryGB < model.min || cell.Verification == "" {
 				panic("embedded runtime authority contains an invalid cell")
 			}
-			seen[cell.ID] = true
+			seen[key] = true
 			capabilities = append(capabilities, generatedRuntimeCapability{
 				ID: cell.ID, Runtime: profile.RuntimeID, Engine: profile.Engine,
 				Device: profile.Device, HardwareClasses: profile.Hardware.Platforms,

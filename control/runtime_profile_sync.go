@@ -51,8 +51,11 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 	}
 
 	for _, profile := range runtimeAuthority.Runtimes {
-		digest, err := profile.ContentDigest(runtimeAuthorityModels)
+		digest, err := profile.CapabilityDigest(runtimeAuthorityModels)
 		if err != nil {
+			return err
+		}
+		if err := upgradeCapabilityManifest(ctx, tx, profile, digest); err != nil {
 			return err
 		}
 		if err := assertNoContentDrift(ctx, tx, profile, digest); err != nil {
@@ -112,8 +115,10 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 			INSERT INTO runtime_profiles
 			  (runtime_profile_id, revision, profile_digest, engine, adapter, lifecycle,
 			   routable, quality_tier, benchmark_authority, source_identity,
-			   superseded_by, device_min, device_max, is_current, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,now())
+			   superseded_by, device_min, device_max, is_current, updated_at,
+			   capability_manifest_version)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,now(),`+
+			fmt.Sprint(capabilityManifestVersion)+`)
 			ON CONFLICT (runtime_profile_id, revision) DO UPDATE SET
 			  lifecycle = EXCLUDED.lifecycle,
 			  routable = EXCLUDED.routable,
@@ -205,7 +210,76 @@ func syncRuntimeProfiles(ctx context.Context, conn *pgxpool.Conn) error {
 		   AND p.is_current`); err != nil {
 		return fmt.Errorf("backfill worker runtime profiles: %w", err)
 	}
+
+	// Seed activation policy for anything that has none, then project the policy
+	// in force back onto the registry's lifecycle and routability columns.
+	//
+	// Order matters and the direction is the point. The INSERT above wrote the
+	// document's lifecycle; this overwrites it with whatever policy actually says.
+	// A promotion an operator recorded must survive a redeploy — a sync that
+	// re-asserted the document on every migration would silently revert every
+	// decision the control plane had made, which is the failure this table exists
+	// to prevent.
+	if err := syncActivationPolicy(ctx, tx); err != nil {
+		return err
+	}
+	if err := projectActivationPolicyIntoRegistry(ctx, tx); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
+}
+
+// upgradeCapabilityManifest rewrites a digest that was computed under an older
+// DEFINITION of the digest, retaining the old value.
+//
+// This is not content drift and must not be reported as it. The profile did not
+// change; the derivation did — cell lifecycle, quality tier, benchmark authority
+// and rejection reason moved out of it and became activation policy, so that a
+// promotion stops forcing a revision bump and a rebuild of every agent. Refusing
+// here would make the split undeployable against any existing database.
+//
+// The old digest goes to runtime_profile_digest_history first, so a receipt or a
+// worker row that recorded it still resolves to the revision it named.
+func upgradeCapabilityManifest(
+	ctx context.Context, tx pgx.Tx, profile authorityRuntimeProfile, digest string,
+) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO runtime_profile_digest_history
+		    (runtime_profile_id, revision, profile_digest, manifest_version)
+		SELECT runtime_profile_id, revision, profile_digest, capability_manifest_version
+		  FROM runtime_profiles
+		 WHERE runtime_profile_id = $1 AND revision = $2
+		ON CONFLICT DO NOTHING`, profile.RuntimeID, profile.Revision); err != nil {
+		return fmt.Errorf("retain prior digest of %q %s: %w",
+			profile.RuntimeID, profile.Revision, err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE runtime_profiles
+		   SET profile_digest = $3, capability_manifest_version = $4, updated_at = now()
+		 WHERE runtime_profile_id = $1 AND revision = $2
+		   AND capability_manifest_version < $4`,
+		profile.RuntimeID, profile.Revision, digest, capabilityManifestVersion); err != nil {
+		return fmt.Errorf("upgrade capability manifest of %q %s: %w",
+			profile.RuntimeID, profile.Revision, err)
+	}
+	// Workers carry the digest they enrolled against. Under a definition change
+	// their copy is stale in the same way the registry's was, and leaving it
+	// stale would make every enrolled worker look like it bound a profile that
+	// does not exist. The identity they bound — (id, revision) — is unchanged.
+	_, err := tx.Exec(ctx, `
+		UPDATE workers w
+		   SET runtime_profile_digest = p.profile_digest
+		  FROM runtime_profiles p
+		 WHERE p.runtime_profile_id = w.runtime_profile_id
+		   AND p.revision = w.runtime_profile_revision
+		   AND p.runtime_profile_id = $1 AND p.revision = $2
+		   AND w.runtime_profile_digest IS DISTINCT FROM p.profile_digest`,
+		profile.RuntimeID, profile.Revision)
+	if err != nil {
+		return fmt.Errorf("restamp worker digests for %q %s: %w",
+			profile.RuntimeID, profile.Revision, err)
+	}
+	return nil
 }
 
 func assertNoContentDrift(

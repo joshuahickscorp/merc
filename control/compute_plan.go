@@ -62,9 +62,20 @@ type ComputePlan struct {
 	// the p50 authority, while this describes how the uncertainty bands were
 	// constructed. Version 4 writes it; its omission on older plans preserves
 	// their historical JSON and digest.
-	ETAConfidenceBandMethod string   `json:"eta_confidence_band_method,omitempty"`
-	BaseComputeUSD          float64  `json:"base_compute_usd"`
-	VerificationOverheadUSD float64  `json:"verification_overhead_usd"`
+	ETAConfidenceBandMethod string  `json:"eta_confidence_band_method,omitempty"`
+	BaseComputeUSD          float64 `json:"base_compute_usd"`
+	VerificationOverheadUSD float64 `json:"verification_overhead_usd"`
+	// VerificationClass is the governed class every primary task of this job is
+	// verified under, and VerificationClassPolicy names the rule set that
+	// assigned it. Empty means SAMPLED, which is what every plan meant before the
+	// classes existed — so omitting them leaves historical plans byte-identical
+	// and their digests unchanged, which is why this did not need a plan version.
+	//
+	// Bound into the plan because the class is priced: a REQUIRED job buys
+	// verification for every task, and a plan that did not record which class it
+	// was frozen under could not be settled against the work that was done.
+	VerificationClass       string   `json:"verification_class,omitempty"`
+	VerificationClassPolicy string   `json:"verification_class_policy,omitempty"`
 	Confidence              float64  `json:"confidence"`
 	ConfidenceReasons       []string `json:"confidence_reasons"`
 	Unknowns                []string `json:"unknowns,omitempty"`
@@ -381,6 +392,9 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 	if plan.InputRecords <= 0 || plan.InputBytes <= 0 {
 		return errors.New("compute plan requires positive input records and bytes")
 	}
+	if err := validateComputePlanVerificationClass(plan); err != nil {
+		return err
+	}
 	switch plan.Version {
 	case computePlanVersionV1:
 		if plan.InputDepthProfile != nil {
@@ -577,6 +591,34 @@ func ValidateComputePlanEconomicSnapshot(plan ComputePlan, decision WorkloadDeci
 	if math.Abs(expectedEconomic-economic.Input.BaseComputeUSD) > 0.000001 {
 		return fmt.Errorf("compute plan base plus verification $%.6f (settlement form $%.6f) does not match economic base $%.6f",
 			frozenCompute, expectedEconomic, economic.Input.BaseComputeUSD)
+	}
+	return nil
+}
+
+// validateComputePlanVerificationClass checks the governed class a plan carries.
+//
+// A plan recording "REQUIRED" with no policy revision says a decision was taken
+// and refuses to say under which rules, which is the half that matters when the
+// decision is re-read years later. An empty class is the historical default and
+// means SAMPLED, so old plans keep validating unchanged.
+func validateComputePlanVerificationClass(plan ComputePlan) error {
+	if plan.VerificationClass == "" {
+		if plan.VerificationClassPolicy != "" {
+			return errors.New("compute plan names a verification class policy with no class")
+		}
+		return nil
+	}
+	if !knownVerificationClass(plan.VerificationClass) {
+		return fmt.Errorf("compute plan names unknown verification class %q", plan.VerificationClass)
+	}
+	if plan.VerificationClass == VerificationClassHoneypot ||
+		plan.VerificationClass == VerificationClassRedundant {
+		return fmt.Errorf("compute plan names per-task verification class %q as a job-wide class",
+			plan.VerificationClass)
+	}
+	if plan.VerificationClassPolicy == "" {
+		return fmt.Errorf("compute plan declares verification class %q with no policy revision",
+			plan.VerificationClass)
 	}
 	return nil
 }

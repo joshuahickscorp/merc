@@ -11,3 +11,62 @@ TestBuyerObjectDeletionQueueAndSweep
 # neither. Delete this line only when the measurement is folded into a CI lane
 # that always has an engine.
 TestGatewayParityAgainstRealEngine
+#
+# Needs object storage. newArtifactHarness skips when MERC_TEST_S3_* is unset,
+# and every test that drives a real artifact through commit, verification and
+# settlement goes through it. They RUN on a developer machine with `make dev-up`
+# and on any lane that exports the four MERC_TEST_S3_ variables; the CI lane has
+# no object store, so they skip there.
+#
+# This list is long, and that is the honest cost of a gate that names every skip
+# rather than accepting a category. Folding MinIO into the CI lane would let
+# almost all of it be deleted, and until then every line here is a test that CI
+# is not running.
+TestArtifactFailureModes
+TestArtifactHarnessPresignsBothDirections
+TestArtifactHarnessRoundTripsThroughRealStorage
+TestBuyerCannotReachAnotherBuyersJobObjects
+TestChainArtifactsSurviveContentAddressedStorage
+TestJobObjectRetentionHoldsDisputedJobs
+TestJobObjectRetentionPurgesOnlyAgedTerminalJobs
+TestLlamaCppEmbeddingPassesIndependentVerification
+TestMissingCommittedArtifactCannotVerify
+TestRejectedVerificationLeavesNoSupplierCredit
+TestRemovePrefixRefusesEmptyPrefix
+TestRequiredClassIsPinnedSelectedThroughTheRealProcessor
+TestStaleAttemptOutputIsNotVerified
+TestStreamSplitAndUploadMeasuresExactFullInputDepth
+TestVerificationProcessorIsIdempotentPerAttempt
+TestFailureMatrixCancellationBeforeExecution
+TestFailureMatrixCancellationDuringExecution
+TestFailureMatrixDatabaseRestart
+TestFailureMatrixDuplicateCommitPaysOnce
+TestFailureMatrixExpiredLeaseIsRequeuedBounded
+TestFailureMatrixFinalizerAndSettlementRetry
+TestFailureMatrixInputDownloadFailure
+TestFailureMatrixOutputUploadInterrupted
+TestFailureMatrixReceiptGenerationFailsLoudly
+TestFailureMatrixResultDigestMismatch
+TestFailureMatrixVerifierRestartDecidesOnce
+#
+# Needs a real merc-agent binary AND a reachable llama-server. These launch agent
+# PROCESSES against the production Routes() and drive them through claim,
+# execution, verification and settlement; there is no version of them that is
+# meaningful without both. They run with `cargo build --release` in agent/ and
+# MERC_LLAMA_EMBED_URL exported.
+TestTwoDistinctAgentsEnrolAutonomously
+TestBothAgentsExecuteADirectedJobEndToEnd
+TestBothAgentsProduceVerifiableReceipts
+TestBothAgentsSettleThroughTheProductionPath
+TestDirectedJobsReachOnlyTheIntendedAgent
+TestFailureMatrixAgentDeathAfterClaim
+TestFailureMatrixAgentDeathBeforeClaim
+TestFailureMatrixRuntimeUnavailable
+#
+# Deliberate self-obsoleting subtests. They assert that the comparator's own
+# NaN/Inf checks are load-bearing on the BINARY path, and they skip when the
+# binary parser starts rejecting those values upstream — at which point the
+# comparator check really is redundant and the subtest says so rather than
+# passing for the wrong reason.
+TestBinaryArtifactValueChecksAreLoadBearing/NaN
+TestBinaryArtifactValueChecksAreLoadBearing/Inf

@@ -53,7 +53,11 @@ def auth_matrix_complete(doc: Any) -> bool:
     routes = 0
     for route_class in doc.get("route_classes", []):
         routes += len(route_class.get("routes", []))
-    return routes == 81 and doc.get("policy", {}).get("default") == "deny"
+    # 82 since GET /admin/plan-accuracy was registered. The count is a tripwire,
+    # not a fact about the world: it exists so that adding a route forces someone
+    # to look at the matrix. It went stale when that route landed, which silently
+    # cost this domain 11 readiness points and made `make ci` red.
+    return routes == 82 and doc.get("policy", {}).get("default") == "deny"
 
 
 def technical_break_glass(doc: Any) -> bool:

@@ -113,6 +113,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return err
 	}
 	release()
+	// Install the activation policy in force before anything is served. Until
+	// this runs the process operates on what the embedded document declares,
+	// which is the right fallback and the wrong answer once an operator has
+	// promoted or rolled back a cell.
+	if err := loadActivationAtStartup(ctx, s.pool); err != nil {
+		return fmt.Errorf("load runtime activation policy: %w", err)
+	}
 	if _, err := s.ReconcileLegacyVerifyingTasks(ctx); err != nil {
 		return fmt.Errorf("reconcile legacy verification: %w", err)
 	}

@@ -42,6 +42,11 @@ pub struct DriverMetrics {
 
 /// One runtime, as the agent drives it.
 #[async_trait]
+// validate, cancel and drain are the boundary's shape, not its current traffic.
+// They exist so a second runtime declares how it refuses a cell it cannot serve
+// and how it stops mid-flight; the agent's present loop reaches neither, and
+// deleting them would make the trait describe less than a driver has to answer.
+#[allow(dead_code)]
 pub trait RuntimeDriver: Send + Sync {
     /// The governed profile this driver implements.
     fn runtime_id(&self) -> &'static str;
@@ -93,6 +98,7 @@ pub struct DriverCounters {
     cancelled: AtomicBool,
 }
 
+#[allow(dead_code)] // cancel() is the counter half of RuntimeDriver::cancel
 impl DriverCounters {
     fn record<T>(&self, texts: usize, started: Instant, out: &Result<T, RunError>) {
         self.requests.fetch_add(1, Ordering::Relaxed);
@@ -266,6 +272,10 @@ async fn candle_embed(
 
 /// How the agent obtains a llama-server.
 #[derive(Debug, Clone)]
+// Spawn is the supervised-launch arm. The agent currently attaches to a server
+// an operator started, so nothing constructs it yet; it is kept because the
+// alternative is an enum that cannot express supervised launch at all.
+#[allow(dead_code)]
 pub enum LlamaServerSupervision {
     /// Attach to a server the operator runs. This is the shape a supplier
     /// actually deploys — llama-server owns the GPU, and having the agent fight
@@ -654,6 +664,22 @@ pub fn cosine(a: &[f32], b: &[f32]) -> Option<f32> {
     Some(dot / (na * nb))
 }
 
+/// The engine a worker advertises, derived from its configured embed runtime.
+///
+/// Hardcoding "candle" made a llama.cpp-configured worker register as a candle
+/// worker: it was authorized for candle's cells, would have been dispatched work
+/// its driver cannot serve, and never advertised the cell it exists to prove.
+pub fn advertised_engine(embed_runtime: &str) -> Result<&'static str, RunError> {
+    match embed_runtime.trim() {
+        "" | "candle_metal" | "candle" => Ok("candle"),
+        "llama_cpp_metal" | "llama_cpp" => Ok("llama_cpp"),
+        other => Err(RunError::Inference {
+            backend: "embed",
+            msg: format!("unknown embed_runtime {other:?}"),
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -928,21 +954,5 @@ mod tests {
         assert_eq!(llama.metrics().texts, texts.len() as u64);
         assert_eq!(candle.metrics().failures, 0);
         assert_eq!(llama.metrics().failures, 0);
-    }
-}
-
-/// The engine a worker advertises, derived from its configured embed runtime.
-///
-/// Hardcoding "candle" made a llama.cpp-configured worker register as a candle
-/// worker: it was authorized for candle's cells, would have been dispatched work
-/// its driver cannot serve, and never advertised the cell it exists to prove.
-pub fn advertised_engine(embed_runtime: &str) -> Result<&'static str, RunError> {
-    match embed_runtime.trim() {
-        "" | "candle_metal" | "candle" => Ok("candle"),
-        "llama_cpp_metal" | "llama_cpp" => Ok("llama_cpp"),
-        other => Err(RunError::Inference {
-            backend: "embed",
-            msg: format!("unknown embed_runtime {other:?}"),
-        }),
     }
 }

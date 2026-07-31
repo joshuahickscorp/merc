@@ -1237,6 +1237,7 @@ async fn run_bench_embed(
         "harness": format!("merc-agent {AGENT_VERSION} bench-embed"),
         "authority_matrix_version": runtime_authority::version(),
         "authority_matrix_sha256": runtime_authority::sha256(),
+        "authority_document_sha256": runtime_authority::file_sha256(),
         "merc_source_commit": source_commit,
         "model_id": model,
         "profiles": runtime_authority::profile_identities(&["candle_metal", "llama_cpp_metal"]),

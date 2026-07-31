@@ -429,6 +429,16 @@ type jobSubmit struct {
 	DeadlineSecs   int                `json:"deadline_secs,omitempty"`
 	IdempotencyKey string             `json:"-"`
 	RequestSHA256  string             `json:"-"`
+	// governedVerificationClass is a SERVER-SIDE argument. It is unexported and
+	// has no wire tag, so no buyer request can set it: submit decodes with
+	// DisallowUnknownFields, and a body carrying `verification_class` is refused
+	// before it reaches here.
+	//
+	// A buyer asking for REQUIRED would be buying guaranteed verification without
+	// paying for it, and a buyer asking for HONEYPOT would be asking to be graded
+	// against an answer it could then read back. Proof runs, canary cohorts and
+	// directed experiments set this from inside the control plane.
+	governedVerificationClass string
 }
 
 var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
@@ -1167,6 +1177,22 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 				"freezing compute plan: " + planErr.Error()}
 		}
 		etaSecs = computePlan.ETAP50Secs
+	}
+	// Stamp the governed verification class onto the frozen plan.
+	//
+	// After the plan is built and before it is digested, so the class is part of
+	// the immutable authority the tasks and the receipt are reconciled against.
+	// It costs no extra tasks — REQUIRED verifies the same executions rather than
+	// buying more of them — so it does not move the priced geometry, and
+	// ValidateComputePlanEconomicSnapshot below still has to agree.
+	if sub.governedVerificationClass != "" {
+		stamped, classErr := governComputePlanVerificationClass(
+			computePlan, sub.governedVerificationClass)
+		if classErr != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
+				"freezing verification class: " + classErr.Error()}
+		}
+		computePlan = stamped
 	}
 	if err := ValidateComputePlanEconomicSnapshot(computePlan, workloadDecision, economicPlan); err != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusConflict,

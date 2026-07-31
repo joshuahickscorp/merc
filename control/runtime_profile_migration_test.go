@@ -127,7 +127,7 @@ func TestFreshDatabaseStartsWithAGovernedRegistry(t *testing.T) {
 				id, lifecycle, routable, profile.Lifecycle,
 				runtimeLifecycleRoutable(profile.Lifecycle))
 		}
-		want, err := profile.ContentDigest(runtimeAuthorityModels)
+		want, err := profile.CapabilityDigest(runtimeAuthorityModels)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -317,7 +317,7 @@ func currentCandleDigest(t *testing.T) string {
 	if !ok {
 		t.Fatal("candle_metal is not registered")
 	}
-	d, err := p.ContentDigest(runtimeAuthorityModels)
+	d, err := p.CapabilityDigest(runtimeAuthorityModels)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -776,9 +776,9 @@ func TestRegistryAndDocumentAgreeOnEveryRoutableCell(t *testing.T) {
 			t.Errorf("routable cell %s is in the database but not the document", key)
 		}
 	}
-	if len(inDoc) != len(generatedAdvertisedRuntimeCapabilities) {
+	if len(inDoc) != len(advertisedRuntimeCapabilities()) {
 		t.Errorf("%d routable cells in the document, %d in the advertised projection",
-			len(inDoc), len(generatedAdvertisedRuntimeCapabilities))
+			len(inDoc), len(advertisedRuntimeCapabilities()))
 	}
 }
 
@@ -936,7 +936,7 @@ func TestContentDigestMovesWhenResolvedArtifactsMove(t *testing.T) {
 			profile = candidate
 		}
 	}
-	before, err := profile.ContentDigest(models)
+	before, err := profile.CapabilityDigest(models)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -952,7 +952,7 @@ func TestContentDigestMovesWhenResolvedArtifactsMove(t *testing.T) {
 		}
 		swapped[id] = model
 	}
-	after, err := profile.ContentDigest(swapped)
+	after, err := profile.CapabilityDigest(swapped)
 	if err != nil {
 		t.Fatal(err)
 	}

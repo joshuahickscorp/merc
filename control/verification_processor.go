@@ -266,6 +266,15 @@ func (p *VerificationProcessor) processLeasedOnce(ctx context.Context, leased Le
 	result := VerificationProcessResult{}
 	reachRecoveryBoundary(ctx, p.probe, BoundaryVerifyWorkClaimed)
 	info, commit, err := commitInfoFromVerificationWork(leased.Work)
+	if info != nil {
+		// From the work row, because the attempt snapshot does not carry it and
+		// cannot without invalidating every stored snapshot digest. Without this
+		// the processor would resolve a governed class back to reputation-weighted
+		// sampling and could pin a REQUIRED task as not selected — which the
+		// database then refuses, so the whole verification fails rather than
+		// quietly becoming probabilistic. Either way the class has to be here.
+		info.VerificationClass = leased.Work.VerificationClass
+	}
 	if err != nil {
 		return result, err
 	}

@@ -201,6 +201,9 @@ func main() {
 	}
 
 	if len(os.Args) > 1 && os.Args[1] != "serve" {
+		if dispatchDev(os.Args[1], os.Args[2:]) {
+			return
+		}
 		if dispatchRelease(os.Args[1], os.Args[2:]) {
 			return
 		}

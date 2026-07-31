@@ -180,7 +180,7 @@ func TestArtifactReplacementMovesTheDigestThatGatesTheCell(t *testing.T) {
 	models := doc.authorityModels()
 	profile := doc.Runtimes[runtimeIndex(t, doc, "llama_cpp_metal")]
 
-	before, err := profile.ContentDigest(models)
+	before, err := profile.CapabilityDigest(models)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestArtifactReplacementMovesTheDigestThatGatesTheCell(t *testing.T) {
 		}
 		swapped[id] = model
 	}
-	after, err := profile.ContentDigest(swapped)
+	after, err := profile.CapabilityDigest(swapped)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,11 +213,11 @@ func TestCellLifecyclesDidNotWidenTheAdvertisedSurface(t *testing.T) {
 		"candle-metal-minilm-embed": true,
 		"candle-metal-llama1-infer": true,
 	}
-	if len(generatedAdvertisedRuntimeCapabilities) != len(want) {
+	if len(advertisedRuntimeCapabilities()) != len(want) {
 		t.Fatalf("advertised %d cells, want %d",
-			len(generatedAdvertisedRuntimeCapabilities), len(want))
+			len(advertisedRuntimeCapabilities()), len(want))
 	}
-	for _, capability := range generatedAdvertisedRuntimeCapabilities {
+	for _, capability := range advertisedRuntimeCapabilities() {
 		if !want[capability.ID] {
 			t.Errorf("cell %q from runtime %q reached the advertised projection",
 				capability.ID, capability.Runtime)

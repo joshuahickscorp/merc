@@ -137,3 +137,8 @@ sdk/typescript/node_modules/
 .merc-*.env
 .merc-release/
 .cloudflare-zone-backups/
+
+# Checkpoint receipts are LOCAL gate artifacts bound to a commit hash, not repo
+# evidence. Committing one would create a commit that itself has no receipt, and
+# the pre-push hook would then refuse the very commit that carries the proof.
+evidence/checkpoint/

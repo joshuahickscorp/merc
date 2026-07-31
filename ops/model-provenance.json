@@ -12,14 +12,28 @@
       "requested_files": [
         "config.json",
         "tokenizer.json",
-        "model.safetensors"
+        "model.safetensors",
+        "all-MiniLM-L6-v2.F16.gguf"
       ],
       "declared_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
       "enforced_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
       "declared_artifacts": {
-        "config.json": {"sha256":"953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41","size_bytes":612},
-        "tokenizer.json": {"sha256":"be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037","size_bytes":466247},
-        "model.safetensors": {"sha256":"53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db","size_bytes":90868376}
+        "config.json": {
+          "sha256": "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41",
+          "size_bytes": 612
+        },
+        "tokenizer.json": {
+          "sha256": "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037",
+          "size_bytes": 466247
+        },
+        "model.safetensors": {
+          "sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db",
+          "size_bytes": 90868376
+        },
+        "all-MiniLM-L6-v2.F16.gguf@leliuga/all-MiniLM-L6-v2-GGUF#ddf2e25d5b8530422e7b14aa39f33a657ff9aec0": {
+          "sha256": "797b70c4edf85907fe0a49eb85811256f65fa0f7bf52166b147fd16be2be4662",
+          "size_bytes": 45949216
+        }
       },
       "artifact_verification_status": "IMPLEMENTED_IN_CLOSURE_WORKTREE_PENDING_FINAL_CANDIDATE_TEST_AND_BINDING",
       "upstream_license_declaration": "Apache-2.0",
@@ -45,8 +59,14 @@
       "declared_revision": "b69aef112e9f895e6f98d7ae0949f72ff09aa401",
       "enforced_revision": "b69aef112e9f895e6f98d7ae0949f72ff09aa401",
       "declared_artifacts": {
-        "Llama-3.2-1B-Instruct-Q4_K_M.gguf": {"sha256":"3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1","size_bytes":807694368},
-        "tokenizer.json@unsloth/Llama-3.2-1B-Instruct#5a8abab4a5d6f164389b1079fb721cfab8d7126c": {"sha256":"6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b","size_bytes":17209920}
+        "Llama-3.2-1B-Instruct-Q4_K_M.gguf": {
+          "sha256": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+          "size_bytes": 807694368
+        },
+        "tokenizer.json@unsloth/Llama-3.2-1B-Instruct#5a8abab4a5d6f164389b1079fb721cfab8d7126c": {
+          "sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+          "size_bytes": 17209920
+        }
       },
       "artifact_verification_status": "IMPLEMENTED_IN_CLOSURE_WORKTREE_PENDING_FINAL_CANDIDATE_TEST_AND_BINDING",
       "upstream_license_declaration": "Llama 3.2 Community License",

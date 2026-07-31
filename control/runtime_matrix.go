@@ -21,7 +21,7 @@ func advertisedRuntimeJobModel(jobType, modelRef string) bool {
 	if jobType == "" || modelRef == "" {
 		return false
 	}
-	for _, cap := range generatedAdvertisedRuntimeCapabilities {
+	for _, cap := range advertisedRuntimeCapabilities() {
 		if cap.Job == jobType && cap.Model == modelRef {
 			return true
 		}
@@ -33,7 +33,7 @@ func advertisedRuntimeModel(modelRef string) bool {
 	if modelRef == "" {
 		return false
 	}
-	for _, cap := range generatedAdvertisedRuntimeCapabilities {
+	for _, cap := range advertisedRuntimeCapabilities() {
 		if cap.Model == modelRef {
 			return true
 		}
@@ -53,7 +53,7 @@ func validateAdvertisedRuntimeJobModel(jobType, modelRef string) error {
 
 func generatedRuntimeModelRef(jobType, modelRef string) ModelRef {
 	ref := ModelRef{Ref: modelRef}
-	for _, cap := range generatedAdvertisedRuntimeCapabilities {
+	for _, cap := range advertisedRuntimeCapabilities() {
 		if cap.Job == jobType && cap.Model == modelRef {
 			ref.Kind = cap.ModelKind
 			return ref
@@ -80,31 +80,46 @@ func projectWorkerRuntimeCapabilities(cap WorkerCapability) ([]generatedRuntimeC
 	if err := validateWorkerCapabilityShape(cap); err != nil {
 		return nil, err
 	}
-	// The DIRECTED set, which is the advertised set plus cells reachable only by
-	// operator or test routing.
+	// Two lanes, because a worker declares CAPABILITY and the control plane
+	// decides ACTIVATION.
 	//
-	// A worker had to be able to advertise an advertised cell, which made the
-	// llama.cpp embed cell unreachable: it is VALIDATED, so no worker could offer
-	// it, so no worker could execute the chain that would prove it, so it could
-	// never leave VALIDATED. Enrolment widens to the directed set to break that
-	// circle; what stops it widening the PRODUCT is that ordinary dispatch is
-	// gated on the frozen runtime candidate, and directed candidates are only
+	// What the worker says it can serve is validated against the capability set —
+	// every cell the document declares for its engine and hardware, whatever the
+	// lifecycle. What it is AUTHORIZED to serve is the directed set under the
+	// activation policy in force. Validating the declaration against the directed
+	// set instead put lifecycle on the agent's build: an agent whose embedded
+	// document called a cell DRAFT could not declare it, so promoting that cell by
+	// policy still required a rebuild of the fleet — precisely the coupling the
+	// capability/activation split exists to remove.
+	//
+	// The directed set is the advertised set plus cells reachable only by operator
+	// or test routing. Widening enrolment to it is what breaks the bootstrap
+	// circle — a cell reaches REAL_RUNTIME_PROVEN by being driven through the
+	// chain, so a worker that cannot offer an unproven cell can never be the one
+	// driving it. What stops that widening the PRODUCT is that ordinary dispatch
+	// is gated on the frozen runtime candidate, and directed candidates are only
 	// frozen by an operator or a test.
-	lane := make([]generatedRuntimeCapability, 0, len(generatedDirectedRuntimeCapabilities))
-	for _, candidate := range generatedDirectedRuntimeCapabilities {
+	capable := make([]generatedRuntimeCapability, 0, len(generatedCapabilityRuntimeCells))
+	for _, candidate := range generatedCapabilityRuntimeCells {
 		if candidate.Engine == cap.Engine && generatedCapabilityHasHWClass(candidate, cap.HWClass) {
-			lane = append(lane, candidate)
+			capable = append(capable, candidate)
 		}
 	}
-	if len(lane) == 0 {
+	if len(capable) == 0 {
 		return nil, fmt.Errorf(
 			"runtime engine=%q hw_class=%q has no reachable production cell (matrix %s)",
 			cap.Engine, cap.HWClass, generatedRuntimeMatrixVersion,
 		)
 	}
+	lane := make([]generatedRuntimeCapability, 0, len(capable))
+	for _, candidate := range directedRuntimeCapabilities() {
+		if candidate.Engine == cap.Engine && generatedCapabilityHasHWClass(candidate, cap.HWClass) {
+			lane = append(lane, candidate)
+		}
+	}
 
 	jobs, models := make(map[string]bool), make(map[string]bool)
-	for _, candidate := range lane {
+	for _, candidate := range capable {
 		jobs[candidate.Job] = true
 		if candidate.Model != "" {
 			models[candidate.Model] = true
@@ -134,7 +149,13 @@ func projectWorkerRuntimeCapabilities(cap WorkerCapability) ([]generatedRuntimeC
 		}
 	}
 	if len(projected) == 0 {
-		return nil, fmt.Errorf("worker advertisement projects to zero production capability tuples")
+		// Capable and not activated. Said explicitly, because "projects to zero
+		// tuples" reads as a malformed advertisement and this is a governance
+		// decision about cells the worker really can serve.
+		return nil, fmt.Errorf(
+			"no cell this worker declares is activated for routing or directed use "+
+				"(engine=%q hw_class=%q jobs=%v models=%v)",
+			cap.Engine, cap.HWClass, cap.SupportedJobs, cap.SupportedModels)
 	}
 
 	if len(cap.Benchmarks) > len(projected) {
@@ -311,7 +332,7 @@ func validateAdvertisedRuntimeCatalogRows(rows []ModelRow) error {
 	// load, and the catalogue's own kind must be one of them, so the DB row and
 	// the runtimes cannot describe unrelated artifacts.
 	requiredWireKinds := map[string]map[string]bool{}
-	for _, cap := range generatedAdvertisedRuntimeCapabilities {
+	for _, cap := range advertisedRuntimeCapabilities() {
 		if cap.Model == "" {
 			continue
 		}
@@ -391,7 +412,7 @@ func (s *Store) ValidateAdvertisedRuntimeCatalog(ctx context.Context) error {
 // directed-only capability is real and claimable — but only by a job whose
 // frozen decision names it.
 func advertisedRuntimeCell(cellID string) bool {
-	for _, candidate := range generatedAdvertisedRuntimeCapabilities {
+	for _, candidate := range advertisedRuntimeCapabilities() {
 		if candidate.ID == cellID {
 			return true
 		}

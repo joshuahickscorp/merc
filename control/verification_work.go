@@ -66,14 +66,21 @@ type VerificationWork struct {
 	SamplingPolicy      string
 	SamplingProbability *float64
 	SamplingSelected    *bool
-	LeaseAttempts       int
-	NextAttemptAt       time.Time
-	LastError           string
-	TerminalOutcome     string
-	DecisionSHA256      string
-	TerminalAt          *time.Time
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	// VerificationClass is read from the COLUMN, not from the snapshot.
+	//
+	// The snapshot is digested, so adding a field to it would invalidate every
+	// stored row's snapshot_sha256. The class also is not part of what the worker
+	// reported — it is what the control plane decided this task is — so a column
+	// is where it belongs anyway.
+	VerificationClass string
+	LeaseAttempts     int
+	NextAttemptAt     time.Time
+	LastError         string
+	TerminalOutcome   string
+	DecisionSHA256    string
+	TerminalAt        *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type VerificationLease struct {
@@ -99,7 +106,8 @@ const verificationWorkColumns = `
  sampling_policy,sampling_probability,sampling_selected,
  status,artifact_key,artifact_sha256,artifact_bytes,
  lease_owner,lease_token,lease_expires_at,lease_attempts,next_attempt_at,COALESCE(last_error,''),
- COALESCE(terminal_outcome,''),COALESCE(decision_sha256,''),terminal_at,created_at,updated_at`
+ COALESCE(terminal_outcome,''),COALESCE(decision_sha256,''),terminal_at,created_at,updated_at,
+ COALESCE(verification_class,'SAMPLED')`
 
 func normalizeVerificationSHA(raw string, optional bool) (string, error) {
 	raw = strings.ToLower(strings.TrimSpace(raw))
@@ -180,8 +188,10 @@ func createVerificationWorkTx(ctx context.Context, tx pgx.Tx, snapshot Verificat
 	ct, err := tx.Exec(ctx, `
 		INSERT INTO verification_work
 		 (task_id,attempt,job_id,worker_id,supplier_id,snapshot_version,input_snapshot,snapshot_sha256,
-		  staged_result_key,reported_result_sha256,duration_ms,tokens_used,hardware_temp_c)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12,$13)
+		  staged_result_key,reported_result_sha256,duration_ms,tokens_used,hardware_temp_c,
+		  verification_class)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12,$13,
+		        COALESCE((SELECT verification_class FROM tasks WHERE id=$1),'SAMPLED'))
 		ON CONFLICT (task_id,attempt) DO NOTHING`,
 		snapshot.TaskID, snapshot.Attempt, snapshot.JobID, snapshot.WorkerID, snapshot.SupplierID,
 		snapshot.SnapshotVersion, canonical, digest, snapshot.StagedResultKey,
@@ -232,6 +242,7 @@ func scanVerificationWork(row verificationRowScanner) (VerificationWork, error) 
 		&out.Status, &artifactKey, &artifactSHA, &artifactBytes,
 		&leaseOwner, &leaseToken, &leaseExpires, &out.LeaseAttempts, &out.NextAttemptAt, &out.LastError,
 		&out.TerminalOutcome, &out.DecisionSHA256, &out.TerminalAt, &out.CreatedAt, &out.UpdatedAt,
+		&out.VerificationClass,
 	); err != nil {
 		return out, err
 	}
@@ -377,8 +388,10 @@ func (s *Store) CreateVerificationWork(ctx context.Context, snapshot Verificatio
 	err = s.pool.QueryRow(ctx, `
 		INSERT INTO verification_work
 		 (task_id,attempt,job_id,worker_id,supplier_id,snapshot_version,input_snapshot,snapshot_sha256,
-		  staged_result_key,reported_result_sha256,duration_ms,tokens_used,hardware_temp_c)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12,$13)
+		  staged_result_key,reported_result_sha256,duration_ms,tokens_used,hardware_temp_c,
+		  verification_class)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12,$13,
+		        COALESCE((SELECT verification_class FROM tasks WHERE id=$1),'SAMPLED'))
 		ON CONFLICT (task_id,attempt) DO NOTHING
 		RETURNING id`,
 		snapshot.TaskID, snapshot.Attempt, snapshot.JobID, snapshot.WorkerID, snapshot.SupplierID,

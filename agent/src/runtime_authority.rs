@@ -11,8 +11,16 @@ const AUTHORITY_JSON: &str = include_str!("../../control/runtime-authority.json"
 struct Authority {
     schema_version: u32,
     matrix_version: String,
+    #[serde(default)]
+    engines: Vec<Engine>,
     models: Vec<Model>,
     runtimes: Vec<RuntimeProfile>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Engine {
+    engine: String,
+    adapter: String,
 }
 
 /// Schema v2 replaced the single `runtime` object with a list of profiles, each
@@ -31,32 +39,85 @@ struct RuntimeProfile {
     #[serde(default)]
     engine_revision: String,
     #[serde(default)]
+    adapter: String,
+    #[serde(default)]
     tokenizer_revision: String,
+    #[serde(default)]
+    chat_template_id: String,
+    #[serde(default)]
+    source_identity: String,
     #[serde(default)]
     quality_tier: String,
     lifecycle: String,
     device: String,
     hardware: Hardware,
+    #[serde(default)]
+    parallelism: Parallelism,
+    #[serde(default)]
+    capabilities: Capabilities,
     cells: Vec<Cell>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Hardware {
     platforms: Vec<String>,
+    #[serde(default)]
+    device_count: DeviceCount,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct DeviceCount {
+    #[serde(default)]
+    minimum: i64,
+    #[serde(default)]
+    maximum: i64,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct Parallelism {
+    #[serde(default)]
+    continuous_batching: bool,
+    #[serde(default)]
+    tensor_parallel: bool,
+    #[serde(default)]
+    pipeline_parallel: bool,
+    #[serde(default)]
+    data_parallel: bool,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct Capabilities {
+    #[serde(default)]
+    streaming: bool,
+    #[serde(default)]
+    prefix_cache: bool,
+    #[serde(default)]
+    speculation: bool,
 }
 
 fn lifecycle_is_routable(lifecycle: &str) -> bool {
     lifecycle == "CANARY" || lifecycle == "ACTIVE"
 }
 
-/// Whether an operator or a test may direct work to a cell in this state.
-/// VALIDATED and above, terminal states excluded — the same predicate the
-/// control plane applies, because a worker advertising a different set than the
-/// control plane will direct to is an admission failure dressed as a mismatch.
-fn lifecycle_is_directed_reachable(lifecycle: &str) -> bool {
-    matches!(
+/// Whether this agent may DECLARE a cell at all.
+///
+/// The agent declares capability; the control plane decides activation. So the
+/// filter here is only the terminal states — QUARANTINED, RETIRED and
+/// REJECTED_FOR_CONTRACT are decisions that policy alone will not reverse, and a
+/// worker offering to sell a contract measurement has ruled out is a claim it
+/// cannot honour.
+///
+/// DRAFT and VALIDATED are deliberately included. The previous filter was
+/// "VALIDATED and above", which put lifecycle on the AGENT BUILD: an agent whose
+/// embedded document called a cell DRAFT could not declare it, so promoting that
+/// cell by policy still required rebuilding and redeploying the fleet — exactly
+/// the coupling the capability/activation split exists to remove. The control
+/// plane authorizes only what its activation policy allows, so declaring more
+/// here widens nothing.
+fn lifecycle_is_capability_offerable(lifecycle: &str) -> bool {
+    !matches!(
         lifecycle,
-        "VALIDATED" | "REAL_RUNTIME_PROVEN" | "CANARY" | "ACTIVE"
+        "QUARANTINED" | "RETIRED" | "REJECTED_FOR_CONTRACT"
     )
 }
 
@@ -80,6 +141,50 @@ struct Model {
     wire_kind: String,
     job_type: String,
     min_memory_gb: f64,
+    #[serde(default)]
+    hf_repo: String,
+    #[serde(default)]
+    hf_revision: String,
+    #[serde(default)]
+    artifacts: Vec<Artifact>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Artifact {
+    #[serde(default)]
+    repo: String,
+    #[serde(default)]
+    revision: String,
+    path: String,
+    sha256: String,
+    #[serde(default)]
+    bytes: i64,
+    #[serde(default)]
+    wire_kind: String,
+}
+
+impl Model {
+    fn artifact_wire_kind<'a>(&'a self, artifact: &'a Artifact) -> &'a str {
+        if artifact.wire_kind.is_empty() {
+            &self.wire_kind
+        } else {
+            &artifact.wire_kind
+        }
+    }
+
+    /// `repo@revision/path:sha256` — the identity is the bytes, the rest is the
+    /// provenance that names them. Mirrors resolvedArtifactRef in Go.
+    fn artifact_ref(&self, artifact: &Artifact) -> String {
+        let (repo, revision) = if artifact.repo.is_empty() {
+            (&self.hf_repo, &self.hf_revision)
+        } else {
+            (&artifact.repo, &artifact.revision)
+        };
+        format!(
+            "{}@{}/{}:{}",
+            repo, revision, artifact.path, artifact.sha256
+        )
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,6 +210,11 @@ struct Cell {
     lifecycle: String,
     min_memory_gb: f64,
     verification: String,
+    /// Measured parallelism limits. Zero means unstated, never unlimited.
+    #[serde(default)]
+    max_batch: i64,
+    #[serde(default)]
+    max_concurrency: i64,
 }
 
 #[derive(Debug)]
@@ -122,9 +232,193 @@ pub struct RuntimeCapability {
     pub verification: String,
 }
 
+/// The capability manifest digest, mirroring control/capability_manifest.go.
+///
+/// The agent used to hash the raw bytes of the embedded document, and the control
+/// plane did the same, so the two agreed only while the file was byte-identical.
+/// Promoting a cell's lifecycle rewrites those bytes, which meant every agent had
+/// to be rebuilt before it could enrol against a promoted matrix — a lifecycle
+/// change had become a coordinated binary deploy.
+///
+/// This digest covers CAPABILITY only: engines and adapters, models and their
+/// exact artifact bytes, and per profile the engine, adapter, tokenizer, chat
+/// template, source identity, device, hardware, parallelism, runtime features and
+/// cells. Lifecycle, quality tier, benchmark authority, evidence, rejection reason
+/// and superseded_by are activation policy, owned by the control plane at runtime,
+/// and are all absent here.
+///
+/// The canonical form is line-oriented rather than JSON precisely because the two
+/// implementations are in different languages: Go serialises `float64(2)` as `2`
+/// and Rust serialises `2.0f64` as `2.0`, so a JSON canonicalisation would produce
+/// two different digests for one document and the disagreement would surface as
+/// every agent being refused. Numbers are formatted explicitly on both sides.
+const CAPABILITY_MANIFEST_VERSION: u32 = 2;
+
+/// ASCII unit separator: cannot occur in an identifier, path, digest or platform
+/// name, so no value can forge a field boundary.
+const FIELD_SEP: char = '\u{1f}';
+
+fn cap_line(fields: &[&str]) -> String {
+    fields.join(&FIELD_SEP.to_string())
+}
+
+fn cap_float(v: f64) -> String {
+    format!("{v:.6}")
+}
+
+fn cap_bool(v: bool) -> &'static str {
+    if v {
+        "1"
+    } else {
+        "0"
+    }
+}
+
+fn cap_version_line() -> String {
+    cap_line(&[
+        "capability-manifest-version",
+        &CAPABILITY_MANIFEST_VERSION.to_string(),
+    ])
+}
+
+fn cap_digest_of(mut lines: Vec<String>) -> String {
+    lines.sort();
+    let mut buf = String::new();
+    for line in lines {
+        buf.push_str(&line);
+        buf.push('\n');
+    }
+    format!("{:x}", Sha256::digest(buf.as_bytes()))
+}
+
+fn profile_capability_lines(authority: &Authority, profile: &RuntimeProfile) -> Vec<String> {
+    let mut lines = vec![cap_line(&[
+        "profile",
+        &profile.runtime_id,
+        &profile.revision,
+        &profile.engine,
+        &profile.engine_revision,
+        &profile.adapter,
+        &profile.tokenizer_revision,
+        &profile.chat_template_id,
+        &profile.source_identity,
+        &profile.device,
+        &profile.hardware.device_count.minimum.to_string(),
+        &profile.hardware.device_count.maximum.to_string(),
+    ])];
+    for platform in &profile.hardware.platforms {
+        lines.push(cap_line(&[
+            "profile-platform",
+            &profile.runtime_id,
+            platform,
+        ]));
+    }
+    // Every flag, including the false ones: turning one off must move the digest.
+    for (name, on) in [
+        (
+            "capabilities.prefix_cache",
+            profile.capabilities.prefix_cache,
+        ),
+        ("capabilities.speculation", profile.capabilities.speculation),
+        ("capabilities.streaming", profile.capabilities.streaming),
+        (
+            "parallelism.continuous_batching",
+            profile.parallelism.continuous_batching,
+        ),
+        (
+            "parallelism.data_parallel",
+            profile.parallelism.data_parallel,
+        ),
+        (
+            "parallelism.pipeline_parallel",
+            profile.parallelism.pipeline_parallel,
+        ),
+        (
+            "parallelism.tensor_parallel",
+            profile.parallelism.tensor_parallel,
+        ),
+    ] {
+        lines.push(cap_line(&[
+            "profile-flag",
+            &profile.runtime_id,
+            name,
+            cap_bool(on),
+        ]));
+    }
+    for cell in &profile.cells {
+        let model = authority
+            .models
+            .iter()
+            .find(|model| model.id == cell.model)
+            .expect("runtime cell model must exist");
+        let kind = if cell.wire_kind.is_empty() {
+            model.wire_kind.as_str()
+        } else {
+            cell.wire_kind.as_str()
+        };
+        lines.push(cap_line(&[
+            "cell",
+            &profile.runtime_id,
+            &cell.id,
+            &cell.job,
+            &cell.model,
+            &cell.runner,
+            kind,
+            &cap_float(cell.min_memory_gb),
+            &cell.verification,
+            &cell.max_batch.to_string(),
+            &cell.max_concurrency.to_string(),
+        ]));
+        for artifact in &model.artifacts {
+            if model.artifact_wire_kind(artifact) != kind {
+                continue;
+            }
+            lines.push(cap_line(&[
+                "cell-artifact",
+                &profile.runtime_id,
+                &cell.id,
+                &model.artifact_ref(artifact),
+            ]));
+        }
+    }
+    lines
+}
+
+fn capability_matrix_digest(authority: &Authority) -> String {
+    let mut lines = vec![cap_version_line()];
+    for engine in &authority.engines {
+        lines.push(cap_line(&["engine", &engine.engine, &engine.adapter]));
+    }
+    for model in &authority.models {
+        lines.push(cap_line(&[
+            "model",
+            &model.id,
+            &model.wire_kind,
+            &model.job_type,
+            &cap_float(model.min_memory_gb),
+            &model.hf_repo,
+            &model.hf_revision,
+        ]));
+        for artifact in &model.artifacts {
+            lines.push(cap_line(&[
+                "model-artifact",
+                &model.id,
+                model.artifact_wire_kind(artifact),
+                &model.artifact_ref(artifact),
+                &artifact.bytes.to_string(),
+            ]));
+        }
+    }
+    for profile in &authority.runtimes {
+        lines.extend(profile_capability_lines(authority, profile));
+    }
+    cap_digest_of(lines)
+}
+
 struct Projection {
     version: String,
     sha256: String,
+    file_sha256: String,
     capabilities: Vec<RuntimeCapability>,
 }
 
@@ -161,16 +455,15 @@ fn projection() -> &'static Projection {
                 } else {
                     profile.lifecycle.as_str()
                 };
-                // Directed-reachable, not routable-only, mirroring the control
-                // plane's projectDirectedRuntimeCapabilities.
+                // Capability, not activation.
                 //
                 // A routable-only projection made a llama.cpp worker advertise
-                // nothing: its embed cell is VALIDATED, so the worker had zero
-                // capabilities and registration was refused. It could then never
+                // nothing: its embed cell was VALIDATED, so the worker had zero
+                // capabilities and registration was refused, so it could never
                 // execute the chain that would prove the cell. Terminal states
                 // are still excluded, so the REJECTED_FOR_CONTRACT generation
-                // cell remains unadvertisable.
-                if !lifecycle_is_directed_reachable(effective) {
+                // cell remains undeclarable.
+                if !lifecycle_is_capability_offerable(effective) {
                     continue;
                 }
                 let model = authority
@@ -209,11 +502,12 @@ fn projection() -> &'static Projection {
         }
         assert!(
             !capabilities.is_empty(),
-            "no runtime profile projects any directed-reachable cell"
+            "no runtime profile projects any declarable cell"
         );
         Projection {
+            sha256: capability_matrix_digest(&authority),
             version: authority.matrix_version,
-            sha256: format!("{:x}", Sha256::digest(AUTHORITY_JSON.as_bytes())),
+            file_sha256: format!("{:x}", Sha256::digest(AUTHORITY_JSON.as_bytes())),
             capabilities,
         }
     })
@@ -223,8 +517,16 @@ pub fn version() -> &'static str {
     &projection().version
 }
 
+/// The CAPABILITY matrix digest — what the control plane and this agent must
+/// agree on before a task may be executed. Stable across lifecycle promotions.
 pub fn sha256() -> &'static str {
     &projection().sha256
+}
+
+/// The embedded document's byte identity. Provenance for receipts only; never a
+/// dispatch check, because it moves on whitespace and on any policy edit.
+pub fn file_sha256() -> &'static str {
+    &projection().file_sha256
 }
 
 pub fn capabilities() -> &'static [RuntimeCapability] {
@@ -291,4 +593,33 @@ pub fn model_artifacts(model_id: &str) -> serde_json::Value {
             }));
     }
     serde_json::json!({ "quantization": model["quant"], "by_wire_kind": out })
+}
+
+#[cfg(test)]
+mod tests {
+    /// The capability matrix digest is the one value the agent and the control
+    /// plane MUST compute identically: the agent refuses any dispatched task whose
+    /// matrix digest is not its own, so a disagreement grounds the whole fleet.
+    ///
+    /// Pinning it on both sides is the cheapest way to make a divergence a test
+    /// failure rather than a production refusal. control/capability_manifest_test.go
+    /// pins the same constant. A capability change is expected to move it — and to
+    /// move it in both places, in one commit.
+    #[test]
+    fn capability_matrix_digest_matches_the_control_plane() {
+        assert_eq!(
+            super::sha256(),
+            "ea158343b64ea0967b832757c97777b8b2c6f00e8ee27549888e1f25c7bbb2a4",
+            "the agent's capability matrix digest no longer matches the pinned \
+             control-plane value; if this is a deliberate capability change, update \
+             the pin in BOTH control/capability_manifest_test.go and here"
+        );
+    }
+
+    /// The document digest and the capability digest are different questions, and
+    /// conflating them is what made a lifecycle promotion a fleet rebuild.
+    #[test]
+    fn capability_digest_is_not_the_document_digest() {
+        assert_ne!(super::sha256(), super::file_sha256());
+    }
 }

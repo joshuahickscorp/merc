@@ -4619,3 +4619,250 @@ DROP TRIGGER IF EXISTS runtime_profiles_no_delete ON runtime_profiles;
 CREATE TRIGGER runtime_profiles_no_delete
     BEFORE DELETE ON runtime_profiles
     FOR EACH ROW EXECUTE FUNCTION cx_refuse_runtime_profile_delete();
+
+-- ---------------------------------------------------------------------------
+-- Capability manifest version, and the digest history that survives a change to
+-- the digest's DEFINITION.
+--
+-- profile_digest used to cover the whole decoded profile with lifecycle blanked,
+-- which meant every field added afterwards became part of the identity by
+-- default. The per-cell lifecycle landed that way, so promoting llama.cpp's embed
+-- cell forced a revision bump — and because merc-agent embeds the same document
+-- at compile time, a rebuild of every agent in the fleet before any of them could
+-- enrol. A lifecycle promotion had become a coordinated binary deploy.
+--
+-- The digest now covers CAPABILITY only. That is a change to what the value
+-- means, not to what the profiles are, so it must not be reported as content
+-- drift: a row written under v1 is recognised by its version, rewritten, and its
+-- old digest retained here so anything that recorded it still resolves.
+ALTER TABLE runtime_profiles
+    ADD COLUMN IF NOT EXISTS capability_manifest_version INT NOT NULL DEFAULT 1;
+
+CREATE TABLE IF NOT EXISTS runtime_profile_digest_history (
+    runtime_profile_id TEXT NOT NULL,
+    revision           TEXT NOT NULL,
+    profile_digest     TEXT NOT NULL,
+    manifest_version   INT  NOT NULL,
+    recorded_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (runtime_profile_id, revision, profile_digest),
+    CONSTRAINT runtime_profile_digest_history_shape
+        CHECK (profile_digest ~ '^[0-9a-f]{64}$' AND manifest_version >= 1)
+);
+
+-- Seed the history from whatever the registry currently holds, before the sync
+-- rewrites it. Running before any digest upgrade is what makes the old value
+-- recoverable at all.
+INSERT INTO runtime_profile_digest_history
+    (runtime_profile_id, revision, profile_digest, manifest_version)
+SELECT runtime_profile_id, revision, profile_digest, capability_manifest_version
+  FROM runtime_profiles
+ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Mutable activation policy.
+--
+-- Capability says what a runtime IS; activation policy says what it is allowed to
+-- do today. Separating them is what lets a promotion be a policy write instead of
+-- a document edit that every agent has to be rebuilt against.
+--
+-- Append-only. A rollback is a NEW revision whose content copies an earlier one
+-- and whose rollback_target names it, because "undo" that erases the intervening
+-- decision leaves no record that it was ever made.
+CREATE TABLE IF NOT EXISTS runtime_activation_policies (
+    policy_revision     BIGINT NOT NULL,
+    runtime_profile_id  TEXT   NOT NULL,
+    profile_revision    TEXT   NOT NULL,
+    -- '' addresses the profile itself; a cell id addresses one cell of it.
+    cell_id             TEXT   NOT NULL DEFAULT '',
+    -- The capability identity this policy is ABOUT. Without it a policy row
+    -- written for one revision could silently continue governing a profile whose
+    -- capability changed underneath it.
+    capability_digest   TEXT   NOT NULL,
+    lifecycle           TEXT   NOT NULL,
+    routable            BOOLEAN NOT NULL,
+    directed_eligible   BOOLEAN NOT NULL,
+    -- Explicit cohort. NULL is "no canary cohort defined"; an empty array is "a
+    -- cohort with nobody in it", which is a different and deliberate statement.
+    canary_allowlist    JSONB,
+    canary_traffic_pct  NUMERIC(5,2) NOT NULL DEFAULT 0,
+    promotion_receipt   TEXT   NOT NULL DEFAULT '',
+    rollback_target     BIGINT,
+    effective_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Who wrote it: the embedded document at migration time, or an operator.
+    source              TEXT   NOT NULL,
+    note                TEXT   NOT NULL DEFAULT '',
+    recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (policy_revision, runtime_profile_id, profile_revision, cell_id),
+    CONSTRAINT runtime_activation_policies_revision CHECK (policy_revision >= 1),
+    CONSTRAINT runtime_activation_policies_digest_shape
+        CHECK (capability_digest ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT runtime_activation_policies_lifecycle_known CHECK (lifecycle IN (
+        'DRAFT','VALIDATED','REAL_RUNTIME_PROVEN','CANARY','ACTIVE',
+        'QUARANTINED','REJECTED_FOR_CONTRACT','RETIRED')),
+    -- Routability is derived from lifecycle, never independently asserted, in
+    -- policy exactly as it is in the registry.
+    CONSTRAINT runtime_activation_policies_routable_derived
+        CHECK (routable = (lifecycle IN ('CANARY','ACTIVE'))),
+    -- Directed eligibility is VALIDATED and above with terminal states excluded.
+    CONSTRAINT runtime_activation_policies_directed_derived
+        CHECK (directed_eligible = (lifecycle IN (
+            'VALIDATED','REAL_RUNTIME_PROVEN','CANARY','ACTIVE'))),
+    -- Nothing may become routable without naming the receipt that authorised it.
+    CONSTRAINT runtime_activation_policies_promotion_evidenced
+        CHECK (NOT routable OR btrim(promotion_receipt) <> ''),
+    CONSTRAINT runtime_activation_policies_traffic_range
+        CHECK (canary_traffic_pct >= 0 AND canary_traffic_pct <= 100),
+    CONSTRAINT runtime_activation_policies_source_known
+        CHECK (source IN ('document','operator','rollback'))
+);
+CREATE INDEX IF NOT EXISTS runtime_activation_policies_current_idx
+    ON runtime_activation_policies (runtime_profile_id, cell_id, policy_revision DESC);
+
+-- Policy is evidence. Rolling back writes forward; it never deletes.
+CREATE OR REPLACE FUNCTION cx_refuse_activation_policy_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION
+      'activation policy revision % for %/% is immutable; write a new revision instead',
+      OLD.policy_revision, OLD.runtime_profile_id, COALESCE(NULLIF(OLD.cell_id,''),'(profile)');
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS runtime_activation_policies_append_only ON runtime_activation_policies;
+CREATE TRIGGER runtime_activation_policies_append_only
+    BEFORE UPDATE OR DELETE ON runtime_activation_policies
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_activation_policy_rewrite();
+
+-- The worker/profile agreement trigger read an arbitrary revision.
+--
+-- `SELECT * INTO p FROM runtime_profiles WHERE runtime_profile_id = NEW.…` was
+-- written when one row existed per profile. With history retained there are
+-- several, PL/pgSQL's non-STRICT SELECT INTO takes the first one it finds, and
+-- the lifecycle and engine checks below were therefore made against whichever
+-- revision the planner happened to return — possibly one that was superseded
+-- years of revisions ago. Scoped to the revision the worker actually binds.
+CREATE OR REPLACE FUNCTION cx_validate_worker_runtime_profile() RETURNS trigger AS $$
+DECLARE
+    p RECORD;
+BEGIN
+    IF NEW.runtime_profile_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+    -- A NULL revision is left to workers_runtime_profile_identity, which refuses
+    -- partial identity with a message about what is actually wrong. Reporting it
+    -- here as an unregistered profile would be true and useless.
+    SELECT * INTO p FROM runtime_profiles
+     WHERE runtime_profile_id = NEW.runtime_profile_id
+       AND (NEW.runtime_profile_revision IS NULL
+            OR revision = NEW.runtime_profile_revision)
+     ORDER BY is_current DESC, revision DESC
+     LIMIT 1;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'worker % advertises unregistered runtime profile % %',
+            NEW.id, NEW.runtime_profile_id,
+            COALESCE(NEW.runtime_profile_revision, '(no revision)');
+    END IF;
+    IF p.lifecycle = 'RETIRED' THEN
+        RAISE EXCEPTION 'worker % advertises retired runtime profile %',
+            NEW.id, NEW.runtime_profile_id;
+    END IF;
+    IF NEW.engine IS NOT NULL AND NEW.engine <> '' AND NEW.engine <> p.engine THEN
+        RAISE EXCEPTION 'worker % declares engine % but profile % is engine %',
+            NEW.id, NEW.engine, NEW.runtime_profile_id, p.engine;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS workers_runtime_profile_valid ON workers;
+CREATE TRIGGER workers_runtime_profile_valid
+    BEFORE INSERT OR UPDATE OF runtime_profile_id, runtime_profile_revision, engine ON workers
+    FOR EACH ROW EXECUTE FUNCTION cx_validate_worker_runtime_profile();
+
+-- ---------------------------------------------------------------------------
+-- Governed verification classes.
+--
+-- Ordinary buyer traffic stays probabilistically sampled. What did not exist was
+-- a way to say "this execution WILL be verified" without touching the sampling
+-- secret — so a proof or canary run was graded by a coin flip, and a test that
+-- required a terminal outcome passed or failed on that same coin flip while
+-- asserting nothing about the code either way.
+--
+-- HONEYPOT and REDUNDANT are recorded rather than derived at read time, because
+-- the flags they come from are on the task and the class is what the receipt,
+-- the verification work row and the compute plan all have to agree on.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS verification_class TEXT NOT NULL DEFAULT 'SAMPLED';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS verification_class_policy TEXT NOT NULL DEFAULT '';
+
+-- Backfill from the flags that already decided it, before the CHECK lands.
+UPDATE tasks SET verification_class = 'HONEYPOT'
+ WHERE COALESCE(is_honeypot,false) AND verification_class <> 'HONEYPOT';
+UPDATE tasks SET verification_class = 'REDUNDANT'
+ WHERE NOT COALESCE(is_honeypot,false) AND COALESCE(is_redundancy,false)
+   AND verification_class <> 'REDUNDANT';
+
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_verification_class_known;
+ALTER TABLE tasks ADD CONSTRAINT tasks_verification_class_known CHECK (
+    verification_class IN ('SAMPLED','REQUIRED','HONEYPOT','REDUNDANT','REPLAY'));
+
+-- The class is DERIVED from the flags, not asserted alongside them.
+--
+-- The first cut was a CHECK requiring every writer to keep the two in step. The
+-- suite found that wrong immediately: several callers set is_honeypot after the
+-- row exists, so the constraint made a legitimate operation impossible rather
+-- than making the invariant automatic. A trigger normalises instead, and a probe
+-- is a probe from the moment it is marked as one, whichever statement marks it.
+CREATE OR REPLACE FUNCTION cx_derive_task_verification_class() RETURNS trigger AS $$
+BEGIN
+    IF COALESCE(NEW.is_honeypot, false) THEN
+        NEW.verification_class := 'HONEYPOT';
+    ELSIF COALESCE(NEW.is_redundancy, false) THEN
+        NEW.verification_class := 'REDUNDANT';
+    ELSIF COALESCE(NEW.verification_class, '') IN ('', 'HONEYPOT', 'REDUNDANT') THEN
+        -- A primary task may not carry a per-task probe class: it would be
+        -- graded against an answer that does not exist for it.
+        NEW.verification_class := 'SAMPLED';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS tasks_derive_verification_class ON tasks;
+CREATE TRIGGER tasks_derive_verification_class
+    BEFORE INSERT OR UPDATE OF is_honeypot, is_redundancy, verification_class ON tasks
+    FOR EACH ROW EXECUTE FUNCTION cx_derive_task_verification_class();
+
+-- Repair anything written before the trigger existed, then assert what the
+-- trigger guarantees. The CHECK is a test of the trigger, not a burden on the
+-- writer.
+UPDATE tasks SET verification_class = CASE
+        WHEN COALESCE(is_honeypot,false)   THEN 'HONEYPOT'
+        WHEN COALESCE(is_redundancy,false) THEN 'REDUNDANT'
+        WHEN COALESCE(verification_class,'') IN ('','HONEYPOT','REDUNDANT') THEN 'SAMPLED'
+        ELSE verification_class END
+ WHERE verification_class IS DISTINCT FROM CASE
+        WHEN COALESCE(is_honeypot,false)   THEN 'HONEYPOT'
+        WHEN COALESCE(is_redundancy,false) THEN 'REDUNDANT'
+        WHEN COALESCE(verification_class,'') IN ('','HONEYPOT','REDUNDANT') THEN 'SAMPLED'
+        ELSE verification_class END;
+
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_verification_class_agrees;
+ALTER TABLE tasks ADD CONSTRAINT tasks_verification_class_agrees CHECK (
+    verification_class = CASE
+        WHEN COALESCE(is_honeypot,false)   THEN 'HONEYPOT'
+        WHEN COALESCE(is_redundancy,false) THEN 'REDUNDANT'
+        ELSE verification_class
+    END
+    AND (verification_class NOT IN ('HONEYPOT','REDUNDANT')
+         OR COALESCE(is_honeypot,false) OR COALESCE(is_redundancy,false)));
+
+-- The class the verification decision was actually taken under, recorded beside
+-- the sampling probability and selection it explains.
+ALTER TABLE verification_work
+    ADD COLUMN IF NOT EXISTS verification_class TEXT NOT NULL DEFAULT 'SAMPLED';
+ALTER TABLE verification_work DROP CONSTRAINT IF EXISTS verification_work_class_known;
+ALTER TABLE verification_work ADD CONSTRAINT verification_work_class_known CHECK (
+    verification_class IN ('SAMPLED','REQUIRED','HONEYPOT','REDUNDANT','REPLAY'));
+
+-- A non-ordinary class is not a coin flip: once sampling has been pinned for one,
+-- it must be pinned SELECTED. The rule is in the database so that a caller which
+-- forgets cannot quietly make a governed proof probabilistic again.
+ALTER TABLE verification_work DROP CONSTRAINT IF EXISTS verification_work_governed_class_selected;
+ALTER TABLE verification_work ADD CONSTRAINT verification_work_governed_class_selected CHECK (
+    verification_class = 'SAMPLED' OR sampling_selected IS NOT FALSE);
