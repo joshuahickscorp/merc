@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "kind": "state_correction_receipt",
+  "supersedes": [
+    "docs/runtime/TRANCHE_STATUS.md#completion-checklist item 7",
+    "evidence/state/branch-state.json"
+  ],
+  "reconciled_at_commit": "e4fd899355431b6674ed429ca73523ff6a36969d",
+  "method": "mechanical production-caller census plus six adversarially-verified source reads; every entry below is reproducible with rg over non-test Go",
+  "corrections": [
+    {
+      "claim": "in-flight coalescing is proved under 128-way concurrency with one payable and independent discounted receipts",
+      "accurate_part": "POST /v1/chat/completions -> handleChatCompletions -> tryRealtimeCoalescedDelivery -> ClaimInflightExecution/AwaitInflightResult/ResolveInflightSuccess is a genuine production call graph, and the governed lease table inflight_executions exists",
+      "inaccurate_part": "the 128-way test drives Store.ClaimInflightExecution directly, executes no work and settles no money; the money test is pure arithmetic against no database. The two halves are never joined, so no run has ever produced one physical execution and one supplier payable for 128 buyer deliveries",
+      "corrected_classification": "PRODUCTION_WIRED, not ECONOMICALLY_PROVEN"
+    },
+    {
+      "claim": "coalescing leases are governed",
+      "finding": "RenewInflightLease has ZERO production callers. inflightLeaseTTL is 30 seconds, so any leader whose execution exceeds it can be taken over mid-flight in production.",
+      "severity": "defect"
+    },
+    {
+      "claim": "expired in-flight rows are reclaimed",
+      "finding": "sweepExpiredInflight has ZERO production callers and is not registered in the workers ticker table. Expired inflight_executions rows accumulate.",
+      "severity": "defect"
+    },
+    {
+      "claim": "coalesced deliveries are billed under their own class",
+      "finding": "ClassCoalescedDelivery is declared and registered as non-physical but is never written. Followers settle through SettleRealtimeExactReuse and are recorded as exact_reuse, so coalesced revenue cannot be counted separately.",
+      "severity": "reporting defect on a money row"
+    },
+    {
+      "claim": "an operator or a test can force a governed job onto a named runtime cell",
+      "finding": "buildWorkloadDecisionDirected has ZERO production callers. The mechanism is real and is reached only from tests; there is no operator entry point. Every llama.cpp chain proof therefore submits through a test-constructed job row rather than POST /v1/jobs.",
+      "corrected_classification": "directed routing: IMPLEMENTED_UNWIRED for operators, exercised by tests"
+    },
+    {
+      "claim": "MERC_SHAPE_AWARE_ROUTING=1 enables shape-aware claim ordering",
+      "finding": "the flag is inert. ClaimTaskSQL passes shapeNoPreference unconditionally and never calls preferenceForTier, which has zero production callers.",
+      "severity": "an advertised switch that changes nothing"
+    },
+    {
+      "claim": "value-ranked prefix cache eviction bounds worker_prefix_state",
+      "finding": "EvictPrefixCacheToBudget and DeepestWarmPrefix have ZERO production callers. The scheduler uses its own inline warm-depth SQL, so two independent definitions exist and only one is live. worker_prefix_state is bounded only by a retention sweep.",
+      "severity": "defect"
+    },
+    {
+      "claim": "token-budget batching exists",
+      "finding": "SelectBatch and TokenBudgetFor have ZERO production callers, and one latency class (INTERACTIVE) is defined rather than the four the directive names.",
+      "corrected_classification": "IMPLEMENTED_UNWIRED"
+    }
+  ],
+  "confirmed_accurate": [
+    "llama_cpp_metal r8 is REAL_RUNTIME_PROVEN and its embed cell is REAL_RUNTIME_PROVEN, routable=false",
+    "llama-cpp-metal-llama1-infer is REJECTED_FOR_CONTRACT",
+    "candle_metal r6 is ACTIVE with both cells routable",
+    "runtime_activation_policies exists, is append-only, requires a promotion receipt for routability, and is written by the production migration path",
+    "capability_manifest_version and runtime_profile_digest_history exist and are populated",
+    "a checkpoint receipt binds HEAD e4fd8993 with every step green and mutation survivors zero",
+    "RuntimeSelector does not exist in any form: no type, no tables, no callers"
+  ],
+  "grok_status": "DEFERRED_USAGE_LIMIT",
+  "adversarial_review_label": "NOT_GROK_INDEPENDENT"
+}

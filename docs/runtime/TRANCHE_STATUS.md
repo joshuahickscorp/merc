@@ -24,7 +24,7 @@ and every "not done" row says so plainly rather than being described as partial.
 | 4 | A second runtime is REAL_RUNTIME_PROVEN through the full Merc chain | **NOT done** — engine proven, routing mechanism built, chain not driven. See below |
 | 5 | RuntimeSelector produces shadow decisions and regret measurements | **NOT done** — not started |
 | 6 | Routing has not changed without promotion evidence | **done** — `llama_cpp_metal` is still `VALIDATED`; the advertised projection is still exactly the two candle cells, asserted by test |
-| 7 | In-flight coalescing works with one payable and independent discounted receipts | **done** — wired into the realtime lane, proved under 128-way concurrency |
+| 7 | In-flight coalescing works with one payable and independent discounted receipts | **PARTLY — corrected 2026-07-31.** The handler is genuinely wired (`POST /v1/chat/completions` reaches `ClaimInflightExecution`), but the 128-way test drives the store directly and settles nothing, and the money test is arithmetic against no database. No run has produced one physical execution and one payable for 128 deliveries. See `evidence/state/correction-2026-07-31-coalescing-and-directed-routing.json` |
 | 8 | Tokenization / tool-schema caches with real callers and measured savings | **NOT done** — not started |
 | 9 | Token-budget batching with measured policies per latency class | **NOT done** — not started |
 | 10 | No calibration or overhead authority can affect money | **done** — call-graph gate, mutation-verified |
@@ -49,6 +49,12 @@ Receipts declare which models they measured, so a MiniLM comparison can no longe
 be cited as evidence about Llama generation on the same engine.
 
 ## Directed routing
+
+> **Corrected 2026-07-31.** `buildWorkloadDecisionDirected` has zero production
+> callers. The mechanism is real and is reached only from tests; the operator
+> half described below does not exist as an entry point. Every llama.cpp chain
+> proof therefore submits through a test-constructed job row rather than through
+> `POST /v1/jobs`.
 
 An operator or a test can force a governed job onto a named cell. The name is a
 server-side argument, never read from the buyer wire, and is frozen into the
