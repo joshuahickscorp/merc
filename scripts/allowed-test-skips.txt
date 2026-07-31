@@ -70,3 +70,11 @@ TestFailureMatrixRuntimeUnavailable
 # passing for the wrong reason.
 TestBinaryArtifactValueChecksAreLoadBearing/NaN
 TestBinaryArtifactValueChecksAreLoadBearing/Inf
+#
+# Opt-in paired cohort: forty real executions through two enrolled agents on both
+# embed cells, which is what turns the selector's regret figure from arithmetic
+# into a measurement. Minutes of wall clock and both retained models cold-loaded
+# twice, so it runs behind MERC_PAIRED_COHORT=1 rather than in front of every
+# `go test`. Delete this line only when a lane exists that always has two agents
+# and the time to drive them.
+TestPairedCohortMeasuresCostAndRegret
