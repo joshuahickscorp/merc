@@ -142,3 +142,6 @@ sdk/typescript/node_modules/
 # evidence. Committing one would create a commit that itself has no receipt, and
 # the pre-push hook would then refuse the very commit that carries the proof.
 evidence/checkpoint/
+
+# The single `go test -json` record `make ci` hands to the skip gate.
+.ci-test.json

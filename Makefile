@@ -51,17 +51,6 @@ fmt:
 # point at another instance; the tests fail closed when it is unreachable.
 MERC_TEST_DATABASE_URL ?= postgres://cx:cx@localhost:5432/cx?sslmode=disable
 
-test:
-	cd control && MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" go test ./...
-	cd agent && cargo test
-	bash scripts/verify-python-sdk-package.sh
-
-# The fast loop: unit tests only, database suite explicitly opted out.  CI never
-# sets MERC_ALLOW_SKIPPING_DB_TESTS, so the money and scheduling tests cannot stop
-# running there without someone noticing.
-test-unit:
-	cd control && MERC_ALLOW_SKIPPING_DB_TESTS=1 go test ./...
-
 # Object storage and a local inference engine are passed THROUGH when the
 # environment provides them, so a developer machine that has `make dev-up` MinIO
 # and a llama-server actually runs the artifact, chain and failure-matrix tests
@@ -77,13 +66,35 @@ CI_TEST_ENV = MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" \
 
 # -timeout 45m, not the 10m default. The suite grew agent-PROCESS tests: two
 # merc-agent binaries cold-load and benchmark both retained models before they
-# register, and the whole suite runs about fourteen minutes on a host that has
-# object storage and a local engine. The default killed `make ci` mid-run with a
-# ten-minute panic, which read as a hung test rather than as a budget.
+# register, so it runs about fourteen minutes on a host that has object storage
+# and a local engine. The default killed `make ci` mid-run with a ten-minute
+# panic, which read as a hung test rather than as a budget.
+test:
+	cd control && $(CI_TEST_ENV) go test -timeout 45m ./...
+	cd agent && cargo test
+	bash scripts/verify-python-sdk-package.sh
+
+# The fast loop: unit tests only, database suite explicitly opted out.  CI never
+# sets MERC_ALLOW_SKIPPING_DB_TESTS, so the money and scheduling tests cannot stop
+# running there without someone noticing.
+test-unit:
+	cd control && MERC_ALLOW_SKIPPING_DB_TESTS=1 go test ./...
+
+# The suite is recorded ONCE, as JSON, and both the human summary and the
+# skip gate read that record.
+#
+# assert-no-test-skips.sh used to run the whole suite again: fourteen extra
+# minutes on a host with object storage and a local engine, and the second run
+# inherited the first one's rows in the shared database, so it failed on tests
+# that had just passed. Same 45m budget as `test` above, same reason.
+CI_TEST_JSON = $(CURDIR)/.ci-test.json
+
 ci:
-	cd control && test -z "$$(gofmt -l .)" && go vet ./... && \
-	  $(CI_TEST_ENV) go test -timeout 45m ./...
-	@bash scripts/assert-no-test-skips.sh
+	cd control && test -z "$$(gofmt -l .)" && go vet ./...
+	cd control && $(CI_TEST_ENV) go test -timeout 45m -json ./... > "$(CI_TEST_JSON)"; \
+	  status=$$?; python3 "$(CURDIR)/scripts/summarize-go-test-json.py" "$(CI_TEST_JSON)"; \
+	  exit $$status
+	@bash scripts/assert-no-test-skips.sh "$(CI_TEST_JSON)"
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
 	python3 -m json.tool proto/manifest.schema.json >/dev/null
 	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
