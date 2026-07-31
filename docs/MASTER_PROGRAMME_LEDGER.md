@@ -120,7 +120,12 @@ existing.
    finished. The existing skip guard closed the window up to the last poll but not
    the window between that poll and the signal landing. It now re-checks after the
    kill and skips with the same stated reason, which is already an allowed skip.
-4. **Three suite failures were harness artefacts, not defects.** Exporting
+4. **`make ci` was already failing on an unreviewed route.**
+   `GET /v1/worker/viability` had been registered through `authWorker` since
+   before the programme baseline, and `ops/authorization-matrix.json` did not list
+   it, so `scripts/validate-authorization-matrix.py` failed on a coverage
+   mismatch. Added as `worker_owned` with the pinned surface size moved 84 → 85.
+5. **Three suite failures were harness artefacts, not defects.** Exporting
    `STRIPE_SECRET_KEY` into `go test` trips a deliberate hardening panic;
    `payoutAgainst` compared a stub secret against the ambient real one (fixed in
    the test helper); and the shared `cx` database had 51 still-claimable tasks
