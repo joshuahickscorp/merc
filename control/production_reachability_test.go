@@ -143,8 +143,25 @@ var knownUnwired = map[string]string{
 	"preferenceForTier": "the shape preference MERC_SHAPE_AWARE_ROUTING advertises. " +
 		"ClaimTaskSQL passes shapeNoPreference unconditionally, so the flag is inert.",
 	"SelectBatch": "the token-budget batcher. Nothing batches by token budget in " +
-		"production, and one latency class is defined.",
-	"TokenBudgetFor": "the per-class token budget SelectBatch would consume.",
+		"production. The four traffic classes now exist and carry promoted budgets " +
+		"(traffic_class.go), so the missing half is a batcher that consumes them.",
+	"TokenBudgetFor": "the per-class token budget SelectBatch would consume. Superseded " +
+		"in scope by TokenBudgetForTrafficClass, which reads the promoted per-class " +
+		"table; both are unwired for the same reason.",
+	"TrafficClassForWorkload": "resolution of an admitted batch workload into one of the " +
+		"four governed traffic classes. The table is promoted and self-checked, but no " +
+		"production path asks for the class yet, so queue wait, preemptibility and " +
+		"strict admission order are declared and unenforced.",
+	"TrafficClassForRealtime": "the realtime lane's traffic class. handleChatCompletions " +
+		"does not consult it, so INTERACTIVE's 4,096-token budget and 2s queue wait " +
+		"bound nothing in production.",
+	"ChooseExecutionMode": "placement across POOL, REPLICA_SERVICE, LOCAL_CLUSTER and " +
+		"CLOUD_BACKSTOP, including the refusal of tightly coupled work on a WAN fabric. " +
+		"Admission freezes one runtime candidate and the scheduler fans tasks out, which " +
+		"IS pool mode — but it is pool mode by construction rather than by decision, so " +
+		"nothing consults this and no placement reason reaches a receipt.",
+	"CouplingForParallelism": "the frozen decision's parallelism read as a coupling class. " +
+		"Unused while ChooseExecutionMode is unwired.",
 	"buildWorkloadDecisionDirected": "directed routing. Real and reachable only from " +
 		"tests; there is no operator entry point, so every second-runtime chain " +
 		"proof submits a test-constructed job row rather than going through the API.",

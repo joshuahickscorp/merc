@@ -1,0 +1,678 @@
+{
+  "schema_version": 1,
+  "generated_from": "HEAD, the working tree, and (optionally) a live database",
+  "source": {
+    "commit": "583842217786b9c76c2a4b935782ba77cfdbe042",
+    "branch": "perf/execution-frontier",
+    "tree_clean": false,
+    "pushed": false
+  },
+  "authority_document": {
+    "matrix_version": "2026-07-30.8",
+    "profiles": [
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r6",
+        "engine": "candle",
+        "lifecycle": "ACTIVE",
+        "cells": [
+          {
+            "cell_id": "candle-metal-minilm-embed",
+            "workload": "embed",
+            "model": "all-minilm-l6-v2",
+            "wire_kind": "(inherits model)",
+            "verification": "cosine",
+            "declared_lifecycle": "ACTIVE",
+            "effective_lifecycle": "ACTIVE",
+            "routable": true,
+            "quality_tier": "OUTCOME_EQUIVALENT",
+            "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+            "rejection_reason": "",
+            "max_batch": 128,
+            "max_concurrency": 0
+          },
+          {
+            "cell_id": "candle-metal-llama1-infer",
+            "workload": "batch_infer",
+            "model": "llama-3.2-1b-instruct-q4",
+            "wire_kind": "(inherits model)",
+            "verification": "byte_exact",
+            "declared_lifecycle": "ACTIVE",
+            "effective_lifecycle": "ACTIVE",
+            "routable": true,
+            "quality_tier": "OUTCOME_EQUIVALENT",
+            "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json",
+            "rejection_reason": "",
+            "max_batch": 128,
+            "max_concurrency": 0
+          }
+        ]
+      },
+      {
+        "runtime_profile_id": "mlx_metal",
+        "revision": "r3",
+        "engine": "mlx",
+        "lifecycle": "VALIDATED",
+        "cells": [
+          {
+            "cell_id": "mlx-metal-llama1-infer",
+            "workload": "batch_infer",
+            "model": "llama-3.2-1b-instruct-q4",
+            "wire_kind": "(inherits model)",
+            "verification": "byte_exact",
+            "declared_lifecycle": "(inherits profile)",
+            "effective_lifecycle": "VALIDATED",
+            "routable": false,
+            "quality_tier": "",
+            "benchmark_authority": "",
+            "rejection_reason": "",
+            "max_batch": 0,
+            "max_concurrency": 0
+          }
+        ]
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r8",
+        "engine": "llama_cpp",
+        "lifecycle": "REAL_RUNTIME_PROVEN",
+        "cells": [
+          {
+            "cell_id": "llama-cpp-metal-llama1-infer",
+            "workload": "batch_infer",
+            "model": "llama-3.2-1b-instruct-q4",
+            "wire_kind": "(inherits model)",
+            "verification": "byte_exact",
+            "declared_lifecycle": "REJECTED_FOR_CONTRACT",
+            "effective_lifecycle": "REJECTED_FOR_CONTRACT",
+            "routable": false,
+            "quality_tier": "UNPROVEN",
+            "benchmark_authority": "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json",
+            "rejection_reason": "This cell sells byte_exact verification and llama.cpp on Metal cannot provide it: the determinism sweep found divergence from its own serial output in every batched configuration tested, and the only byte-identical setting runs at 1.02x serial while candle batches to 2.26x AND stays byte-identical. Not unfinished work - measured unsuitability for the contract this cell declares.",
+            "max_batch": 0,
+            "max_concurrency": 0
+          },
+          {
+            "cell_id": "llama-cpp-metal-minilm-embed",
+            "workload": "embed",
+            "model": "all-minilm-l6-v2",
+            "wire_kind": "gguf",
+            "verification": "cosine",
+            "declared_lifecycle": "REAL_RUNTIME_PROVEN",
+            "effective_lifecycle": "REAL_RUNTIME_PROVEN",
+            "routable": false,
+            "quality_tier": "OUTCOME_EQUIVALENT",
+            "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+            "rejection_reason": "",
+            "max_batch": 128,
+            "max_concurrency": 128
+          }
+        ]
+      },
+      {
+        "runtime_profile_id": "vllm_cuda",
+        "revision": "r3",
+        "engine": "vllm",
+        "lifecycle": "DRAFT",
+        "cells": [
+          {
+            "cell_id": "vllm-cuda-llama1-infer",
+            "workload": "batch_infer",
+            "model": "llama-3.2-1b-instruct-q4",
+            "wire_kind": "(inherits model)",
+            "verification": "byte_exact",
+            "declared_lifecycle": "(inherits profile)",
+            "effective_lifecycle": "DRAFT",
+            "routable": false,
+            "quality_tier": "",
+            "benchmark_authority": "",
+            "rejection_reason": "",
+            "max_batch": 0,
+            "max_concurrency": 0
+          }
+        ]
+      }
+    ],
+    "routable_cells": [
+      "candle_metal/candle-metal-minilm-embed",
+      "candle_metal/candle-metal-llama1-infer"
+    ],
+    "directed_only_cells": [
+      "mlx_metal/mlx-metal-llama1-infer",
+      "llama_cpp_metal/llama-cpp-metal-minilm-embed"
+    ],
+    "rejected_cells": [
+      "llama_cpp_metal/llama-cpp-metal-llama1-infer"
+    ]
+  },
+  "runtime_authority_computed": {
+    "matrix_version": "2026-07-30.8",
+    "capability_matrix_sha256": "ea158343b64ea0967b832757c97777b8b2c6f00e8ee27549888e1f25c7bbb2a4",
+    "authority_document_sha256": "92e6343c16346172ecc6ff32a841ba5607e2d36d8f8c9f452ea780fffff406a6",
+    "capability_manifest_version": 2,
+    "profiles": [
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r6",
+        "engine": "candle",
+        "adapter": "merc-candle",
+        "lifecycle": "ACTIVE",
+        "capability_digest": "6efbda3639b086a705b3ef6af85968f7ffdf703cdc3dbff867ae1452caf5c271",
+        "cells": [
+          {
+            "cell_id": "candle-metal-minilm-embed",
+            "capability_digest": "65162e5ca1fbc8392b82cac1e9290b2e054b83e33726d43ddeb905d95834894d",
+            "workload": "embed",
+            "model": "all-minilm-l6-v2",
+            "wire_kind": "hf",
+            "verification": "cosine",
+            "declared_lifecycle": "ACTIVE",
+            "effective_lifecycle": "ACTIVE",
+            "routable": true,
+            "directed_eligible": true,
+            "quality_tier": "OUTCOME_EQUIVALENT",
+            "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+            "min_memory_gb": 2,
+            "max_batch": 128,
+            "max_concurrency": 0
+          },
+          {
+            "cell_id": "candle-metal-llama1-infer",
+            "capability_digest": "712279c9b83858775d583a090da8f0608c5022f792bb21ad5d5b1f96d30d5150",
+            "workload": "batch_infer",
+            "model": "llama-3.2-1b-instruct-q4",
+            "wire_kind": "gguf",
+            "verification": "byte_exact",
+            "declared_lifecycle": "ACTIVE",
+            "effective_lifecycle": "ACTIVE",
+            "routable": true,
+            "directed_eligible": true,
+            "quality_tier": "OUTCOME_EQUIVALENT",
+            "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json",
+            "min_memory_gb": 4,
+            "max_batch": 128,
+            "max_concurrency": 0
+          }
+        ]
+      },
+      {
+        "runtime_profile_id": "mlx_metal",
+        "revision": "r3",
+        "engine": "mlx",
+        "adapter": "merc-mlx",
+        "lifecycle": "VALIDATED",
+        "capability_digest": "caa99a2d13e1a742d757500c22aa073c3a3514f4f6e034aea7ec8d8c9b755086",
+        "cells": [
+          {
+            "cell_id": "mlx-metal-llama1-infer",
+            "capability_digest": "653aeb6e1a2d18a29dbefff012b284e3c3a321b1a3d694fc6b2b0a51d926d23f",
+            "workload": "batch_infer",
+            "model": "llama-3.2-1b-instruct-q4",
+            "wire_kind": "gguf",
+            "verification": "byte_exact",
+            "declared_lifecycle": "(inherits profile)",
+            "effective_lifecycle": "VALIDATED",
+            "routable": false,
+            "directed_eligible": true,
+            "quality_tier": "UNPROVEN",
+            "benchmark_authority": "",
+            "min_memory_gb": 4,
+            "max_batch": 0,
+            "max_concurrency": 0
+          }
+        ]
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r8",
+        "engine": "llama_cpp",
+        "adapter": "merc-llama-cpp",
+        "lifecycle": "REAL_RUNTIME_PROVEN",
+        "capability_digest": "4f3da7514fca79fe5a1f25a57a5333df3eb0a091ff9179da70eeb0a3ab223efe",
+        "cells": [
+          {
+            "cell_id": "llama-cpp-metal-llama1-infer",
+            "capability_digest": "a4fb2a00da48d85abb3e4350b9618bfe21e23fdd793dbdd9126727e9f2e75841",
+            "workload": "batch_infer",
+            "model": "llama-3.2-1b-instruct-q4",
+            "wire_kind": "gguf",
+            "verification": "byte_exact",
+            "declared_lifecycle": "REJECTED_FOR_CONTRACT",
+            "effective_lifecycle": "REJECTED_FOR_CONTRACT",
+            "routable": false,
+            "directed_eligible": false,
+            "quality_tier": "UNPROVEN",
+            "benchmark_authority": "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json",
+            "rejection_reason": "This cell sells byte_exact verification and llama.cpp on Metal cannot provide it: the determinism sweep found divergence from its own serial output in every batched configuration tested, and the only byte-identical setting runs at 1.02x serial while candle batches to 2.26x AND stays byte-identical. Not unfinished work - measured unsuitability for the contract this cell declares.",
+            "min_memory_gb": 4,
+            "max_batch": 0,
+            "max_concurrency": 0
+          },
+          {
+            "cell_id": "llama-cpp-metal-minilm-embed",
+            "capability_digest": "c5a738ef601b37592c47995c3c20e682907b476f1c7ac6c317d6b44b8a22e00a",
+            "workload": "embed",
+            "model": "all-minilm-l6-v2",
+            "wire_kind": "gguf",
+            "verification": "cosine",
+            "declared_lifecycle": "REAL_RUNTIME_PROVEN",
+            "effective_lifecycle": "REAL_RUNTIME_PROVEN",
+            "routable": false,
+            "directed_eligible": true,
+            "quality_tier": "OUTCOME_EQUIVALENT",
+            "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+            "min_memory_gb": 2,
+            "max_batch": 128,
+            "max_concurrency": 128
+          }
+        ]
+      },
+      {
+        "runtime_profile_id": "vllm_cuda",
+        "revision": "r3",
+        "engine": "vllm",
+        "adapter": "merc-vllm",
+        "lifecycle": "DRAFT",
+        "capability_digest": "9f4a241f9c3a0bb017303cf50b036aaf31ace5934e9d6562051c887e1d42f5e3",
+        "cells": [
+          {
+            "cell_id": "vllm-cuda-llama1-infer",
+            "capability_digest": "c43526e3d8089ac7f2a9a1c7e6603a79599536baaa14c9db8b95bc37c0864c60",
+            "workload": "batch_infer",
+            "model": "llama-3.2-1b-instruct-q4",
+            "wire_kind": "gguf",
+            "verification": "byte_exact",
+            "declared_lifecycle": "(inherits profile)",
+            "effective_lifecycle": "DRAFT",
+            "routable": false,
+            "directed_eligible": false,
+            "quality_tier": "UNPROVEN",
+            "benchmark_authority": "",
+            "min_memory_gb": 4,
+            "max_batch": 0,
+            "max_concurrency": 0
+          }
+        ]
+      }
+    ],
+    "activation_policy_revision": 0,
+    "advertised_cells": [
+      "candle_metal/candle-metal-minilm-embed",
+      "candle_metal/candle-metal-llama1-infer"
+    ],
+    "directed_cells": [
+      "candle_metal/candle-metal-minilm-embed",
+      "candle_metal/candle-metal-llama1-infer",
+      "mlx_metal/mlx-metal-llama1-infer",
+      "llama_cpp_metal/llama-cpp-metal-minilm-embed"
+    ],
+    "capability_cells": [
+      "candle_metal/candle-metal-minilm-embed",
+      "candle_metal/candle-metal-llama1-infer",
+      "mlx_metal/mlx-metal-llama1-infer",
+      "llama_cpp_metal/llama-cpp-metal-llama1-infer",
+      "llama_cpp_metal/llama-cpp-metal-minilm-embed",
+      "vllm_cuda/vllm-cuda-llama1-infer"
+    ]
+  },
+  "activation_policy": {
+    "table_declared": true,
+    "append_only_trigger": true,
+    "promotion_receipt_required": true,
+    "capability_manifest_version_column": true,
+    "digest_history_table": true,
+    "production_writers": [
+      "control/runtime_profile_sync.go",
+      "control/store.go"
+    ]
+  },
+  "capability_wiring": {
+    "coalescing_production_callers": [
+      "control/realtime.go"
+    ],
+    "coalescing_resolver_callers": [
+      "control/realtime.go"
+    ],
+    "coalescing_lease_table": true,
+    "coalescing_status": "handler_wired",
+    "second_runtime_driver": true,
+    "directed_routing": true,
+    "selector_type_present": true,
+    "selector_tables": {
+      "runtime_selector_decisions": false,
+      "runtime_selector_outcomes": false,
+      "runtime_selector_promotions": false
+    },
+    "tokenization_cache_callers": [],
+    "tool_schema_cache_callers": [],
+    "exact_reuse_batch_enabled": false,
+    "batching_authority": "control/batch_policy.go:SelectBatch",
+    "batching_traffic_classes": [
+      "INTERACTIVE"
+    ],
+    "overhead_actuals_table": true,
+    "overhead_actuals_writers": [
+      "control/execution_overhead.go"
+    ],
+    "verification_class_writers": [
+      "control/api.go",
+      "control/store_jobs.go"
+    ],
+    "verification_classes_declared": {
+      "tasks_verification_class_known": true,
+      "tasks_derive_verification_class": true,
+      "verification_work_governed_class_selected": true
+    },
+    "artifact_test_harness": [
+      "control/artifact_harness_test.go"
+    ],
+    "checkpoint_cli": true,
+    "pre_push_hook_present": true
+  },
+  "checkpoint_authority": {
+    "present": true,
+    "binds_current_head": false,
+    "receipts_for": [
+      "7d6de054be54",
+      "e4fd89935543"
+    ],
+    "current_head": "583842217786"
+  },
+  "dead_or_unwired_symbols": {
+    "RenewInflightLease": [
+      "control/realtime.go:820"
+    ],
+    "sweepExpiredInflight": [
+      "control/inflight_coalescing.go:288"
+    ],
+    "InflightFollowers": [],
+    "ClassCoalescedDelivery": [],
+    "buildWorkloadDecisionDirected": [],
+    "EvictPrefixCacheToBudget": [],
+    "DeepestWarmPrefix": [],
+    "PrefixCacheValue": [
+      "control/prefix_routing.go:329"
+    ],
+    "preferenceForTier": [],
+    "SelectBatch": [],
+    "TokenBudgetFor": []
+  },
+  "unresolved_migrations": {
+    "workers_engine_valid_still_declared": true,
+    "workers_engine_valid_conditionally_dropped": true,
+    "runtime_profile_id_nullable_by_design": true
+  },
+  "second_runtime_evidence": {
+    "benchmark_receipt": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+    "autonomous_agent_chain_tests": [
+      "control/two_agent_enrollment_test.go",
+      "control/second_runtime_chain_test.go",
+      "control/second_runtime_verification_test.go",
+      "control/rejection_economics_test.go",
+      "control/receipt_tamper_test.go",
+      "control/failure_matrix_test.go",
+      "control/failure_matrix_agent_test.go"
+    ],
+    "chain_receipt_present": true,
+    "llama_cpp_cell_lifecycles": {
+      "llama-cpp-metal-llama1-infer": "REJECTED_FOR_CONTRACT",
+      "llama-cpp-metal-minilm-embed": "REAL_RUNTIME_PROVEN"
+    },
+    "failure_matrix_cases": 14,
+    "failure_matrix_agent_process_cases": 3
+  },
+  "grok_status": "DEFERRED_USAGE_LIMIT",
+  "adversarial_review_label": "NOT_GROK_INDEPENDENT",
+  "database_projection": {
+    "profiles": [
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r4",
+        "lifecycle": "ACTIVE",
+        "routable": false,
+        "is_current": false,
+        "digest": "71bbad206e231addf18255ebc185a157896852da325c0adc6d24d7f1aab0f161"
+      },
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r5",
+        "lifecycle": "ACTIVE",
+        "routable": false,
+        "is_current": false,
+        "digest": "9e65e807fdc0ec4633b3a9b5c3261696f3aecd0fe834f49f873cce536c4885f3"
+      },
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r6",
+        "lifecycle": "ACTIVE",
+        "routable": true,
+        "is_current": true,
+        "digest": "6efbda3639b086a705b3ef6af85968f7ffdf703cdc3dbff867ae1452caf5c271"
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r5",
+        "lifecycle": "VALIDATED",
+        "routable": false,
+        "is_current": false,
+        "digest": "539e6c5e239ca58903204bc8d883c7eaaed9be8abdf6b243ef0c29fed48b451f"
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r6",
+        "lifecycle": "VALIDATED",
+        "routable": false,
+        "is_current": false,
+        "digest": "b6455407d7a4cb9736552eb7879e4bd4f91e6eb56b6cfdd7c2441c34fb2fb260"
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r8",
+        "lifecycle": "REAL_RUNTIME_PROVEN",
+        "routable": false,
+        "is_current": true,
+        "digest": "4f3da7514fca79fe5a1f25a57a5333df3eb0a091ff9179da70eeb0a3ab223efe"
+      },
+      {
+        "runtime_profile_id": "mlx_metal",
+        "revision": "r2",
+        "lifecycle": "VALIDATED",
+        "routable": false,
+        "is_current": false,
+        "digest": "eae98b142b2cb598592f934672730f2399489166d726cada11608d5b6c9f2e7a"
+      },
+      {
+        "runtime_profile_id": "mlx_metal",
+        "revision": "r3",
+        "lifecycle": "VALIDATED",
+        "routable": false,
+        "is_current": true,
+        "digest": "caa99a2d13e1a742d757500c22aa073c3a3514f4f6e034aea7ec8d8c9b755086"
+      },
+      {
+        "runtime_profile_id": "vllm_cuda",
+        "revision": "r2",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "is_current": false,
+        "digest": "0878e0fd6adbd401175e069c22b90598b8d47fdb3a5bee206b66c9e2590eaee5"
+      },
+      {
+        "runtime_profile_id": "vllm_cuda",
+        "revision": "r3",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "is_current": true,
+        "digest": "9f4a241f9c3a0bb017303cf50b036aaf31ace5934e9d6562051c887e1d42f5e3"
+      }
+    ],
+    "cells": [
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r4",
+        "cell_id": "candle-metal-llama1-infer",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "quality_tier": "",
+        "benchmark_authority": ""
+      },
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r4",
+        "cell_id": "candle-metal-minilm-embed",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "quality_tier": "",
+        "benchmark_authority": ""
+      },
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r5",
+        "cell_id": "candle-metal-llama1-infer",
+        "lifecycle": "RETIRED",
+        "routable": false,
+        "quality_tier": "OUTCOME_EQUIVALENT",
+        "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json"
+      },
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r5",
+        "cell_id": "candle-metal-minilm-embed",
+        "lifecycle": "RETIRED",
+        "routable": false,
+        "quality_tier": "OUTCOME_EQUIVALENT",
+        "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json"
+      },
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r6",
+        "cell_id": "candle-metal-llama1-infer",
+        "lifecycle": "ACTIVE",
+        "routable": true,
+        "quality_tier": "OUTCOME_EQUIVALENT",
+        "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json"
+      },
+      {
+        "runtime_profile_id": "candle_metal",
+        "revision": "r6",
+        "cell_id": "candle-metal-minilm-embed",
+        "lifecycle": "ACTIVE",
+        "routable": true,
+        "quality_tier": "OUTCOME_EQUIVALENT",
+        "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json"
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r5",
+        "cell_id": "llama-cpp-metal-llama1-infer",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "quality_tier": "",
+        "benchmark_authority": ""
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r5",
+        "cell_id": "llama-cpp-metal-minilm-embed",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "quality_tier": "",
+        "benchmark_authority": ""
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r6",
+        "cell_id": "llama-cpp-metal-llama1-infer",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "quality_tier": "",
+        "benchmark_authority": ""
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r6",
+        "cell_id": "llama-cpp-metal-minilm-embed",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "quality_tier": "",
+        "benchmark_authority": ""
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r8",
+        "cell_id": "llama-cpp-metal-llama1-infer",
+        "lifecycle": "REJECTED_FOR_CONTRACT",
+        "routable": false,
+        "quality_tier": "UNPROVEN",
+        "benchmark_authority": "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json"
+      },
+      {
+        "runtime_profile_id": "llama_cpp_metal",
+        "revision": "r8",
+        "cell_id": "llama-cpp-metal-minilm-embed",
+        "lifecycle": "REAL_RUNTIME_PROVEN",
+        "routable": false,
+        "quality_tier": "OUTCOME_EQUIVALENT",
+        "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json"
+      },
+      {
+        "runtime_profile_id": "mlx_metal",
+        "revision": "r2",
+        "cell_id": "mlx-metal-llama1-infer",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "quality_tier": "",
+        "benchmark_authority": ""
+      },
+      {
+        "runtime_profile_id": "mlx_metal",
+        "revision": "r3",
+        "cell_id": "mlx-metal-llama1-infer",
+        "lifecycle": "VALIDATED",
+        "routable": false,
+        "quality_tier": "UNPROVEN",
+        "benchmark_authority": ""
+      },
+      {
+        "runtime_profile_id": "vllm_cuda",
+        "revision": "r2",
+        "cell_id": "vllm-cuda-llama1-infer",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "quality_tier": "",
+        "benchmark_authority": ""
+      },
+      {
+        "runtime_profile_id": "vllm_cuda",
+        "revision": "r3",
+        "cell_id": "vllm-cuda-llama1-infer",
+        "lifecycle": "DRAFT",
+        "routable": false,
+        "quality_tier": "UNPROVEN",
+        "benchmark_authority": ""
+      }
+    ],
+    "workers": {
+      "total": 333,
+      "bound_to_profile": 333,
+      "unbound": 0,
+      "with_digest": 333
+    },
+    "present_constraints": [
+      "workers_runtime_profile_fk",
+      "workers_runtime_profile_identity"
+    ],
+    "worker_columns": [
+      "engine:NO",
+      "runtime_profile_digest:YES",
+      "runtime_profile_id:YES",
+      "runtime_profile_revision:YES"
+    ],
+    "present_tables": [
+      "execution_overhead_actuals",
+      "inflight_executions",
+      "plan_actuals",
+      "runtime_profile_models"
+    ]
+  }
+}

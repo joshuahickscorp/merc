@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "programme": "merc.md §19 immediate execution order, steps 1-22",
+  "baseline_commit": "583842217786b9c76c2a4b935782ba77cfdbe042",
+  "note": "The commit the programme started from. Prohibition 1 - no global codebase refactor during this programme - is decided against this baseline and not against origin/main, which predates it by a long stretch of ordinary development."
+}

@@ -25,7 +25,14 @@ func stripeBalanceStub(t *testing.T, status int, body string) (*httptest.Server,
 }
 
 // payoutAgainst points a StripePayout at a stub by rewriting the request host.
-func payoutAgainst(srv *httptest.Server, secret string) StripePayout {
+//
+// The configured credential is pinned to the same stub secret. Production
+// requires the supplied secret to equal STRIPE_SECRET_KEY exactly, so on a
+// developer machine that has a real sandbox key exported these tests failed
+// with a credential mismatch that had nothing to do with what they assert.
+func payoutAgainst(t *testing.T, srv *httptest.Server, secret string) StripePayout {
+	t.Helper()
+	t.Setenv("STRIPE_SECRET_KEY", secret)
 	return StripePayout{
 		secret: secret,
 		http: &http.Client{
@@ -46,7 +53,7 @@ func (t rewriteHostTransport) RoundTrip(r *http.Request) (*http.Response, error)
 func TestSettlementPreflightAcceptsPlatformThatCanHoldUSD(t *testing.T) {
 	srv, version := stripeBalanceStub(t, http.StatusOK,
 		`{"available":[{"currency":"usd"},{"currency":"cad"}],"pending":[{"currency":"usd"}]}`)
-	if err := payoutAgainst(srv, "sk_test_x").verifySettlementCurrency(context.Background()); err != nil {
+	if err := payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()); err != nil {
 		t.Fatalf("USD bucket present but preflight rejected it: %v", err)
 	}
 	if *version != stripeAPIVersion {
@@ -59,7 +66,7 @@ func TestSettlementPreflightAcceptsPlatformThatCanHoldUSD(t *testing.T) {
 // balance_insufficient once money is meant to move.
 func TestSettlementPreflightRejectsCADOnlyPlatform(t *testing.T) {
 	srv, _ := stripeBalanceStub(t, http.StatusOK, `{"available":[{"currency":"cad"}],"pending":[]}`)
-	err := payoutAgainst(srv, "sk_test_x").verifySettlementCurrency(context.Background())
+	err := payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background())
 	if err == nil {
 		t.Fatal("CAD-only platform accepted; every payout would fail at transfer time")
 	}
@@ -80,7 +87,7 @@ func TestSettlementPreflightRejectsCADOnlyPlatform(t *testing.T) {
 // refuse to boot a correctly configured platform that simply has not been funded.
 func TestSettlementPreflightAcceptsZeroUSDBalance(t *testing.T) {
 	srv, _ := stripeBalanceStub(t, http.StatusOK, `{"available":[{"currency":"usd"}],"pending":[]}`)
-	if err := payoutAgainst(srv, "sk_test_x").verifySettlementCurrency(context.Background()); err != nil {
+	if err := payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()); err != nil {
 		t.Fatalf("zero USD balance rejected: %v", err)
 	}
 }
@@ -98,7 +105,7 @@ func TestSettlementPreflightFailsClosedOnAPIError(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, _ := stripeBalanceStub(t, tc.status, tc.body)
-			if err := payoutAgainst(srv, "sk_test_x").verifySettlementCurrency(context.Background()); err == nil {
+			if err := payoutAgainst(t, srv, "sk_test_x").verifySettlementCurrency(context.Background()); err == nil {
 				t.Fatal("preflight passed on an API failure; it must fail closed")
 			}
 		})

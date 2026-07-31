@@ -1396,11 +1396,23 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	// refuse a submit would be a router, and this one is not allowed to route.
 	if shadow, shadowErr := planShadowSelection(workloadDecision); shadowErr != nil {
 		log.Printf("shadow selection: job %s: %v", jobID, shadowErr)
-	} else if err := s.store.RecordShadowSelection(ctx, jobID.String(), shadow); err != nil {
-		log.Printf("shadow selection: job %s: %v", jobID, err)
-	} else if shadow.Diverged() {
-		log.Printf("shadow selection: job %s would have chosen %s, admission froze %s",
-			jobID, shadow.ShadowCellID, shadow.RoutedCellID)
+	} else {
+		// Only a decision with more than one surviving candidate can be re-ranked
+		// on cost, and only that decision pays for the measurement query.
+		if len(shadow.Considered) > 1 {
+			byHW, costErr := s.store.MeasuredCellCostsByHardware(ctx, shadow.JobType, shadow.ModelRef)
+			if costErr != nil {
+				log.Printf("shadow selection: job %s: measured cell cost: %v", jobID, costErr)
+			} else {
+				shadow = shadow.rankedByMeasuredCost(byHW)
+			}
+		}
+		if err := s.store.RecordShadowSelection(ctx, jobID.String(), shadow); err != nil {
+			log.Printf("shadow selection: job %s: %v", jobID, err)
+		} else if shadow.Diverged() {
+			log.Printf("shadow selection: job %s would have chosen %s on %s, admission froze %s",
+				jobID, shadow.ShadowCellID, shadow.SelectionBasis, shadow.RoutedCellID)
+		}
 	}
 
 	metrics.jobsSubmitted.Add(1)
