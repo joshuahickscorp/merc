@@ -112,7 +112,15 @@ existing.
    `control/exact_reuse_batch.go` and `control/realtime_placement.go`, plus four
    orphaned `merc-agent` processes from tests that had been killed. Stopped and
    the tree restored.
-3. **Three suite failures were harness artefacts, not defects.** Exporting
+3. **`TestFailureMatrixAgentDeathAfterClaim` was a timing flake on a fast host.**
+   It polls for `running`, kills the agent, then asserts the task returned to the
+   queue. The embed cell measures ~1,950 embeddings/sec here, so a three-record
+   task can be claimed, executed, uploaded and committed inside one 100ms poll
+   interval — and the assertion then fired against a task that legitimately
+   finished. The existing skip guard closed the window up to the last poll but not
+   the window between that poll and the signal landing. It now re-checks after the
+   kill and skips with the same stated reason, which is already an allowed skip.
+4. **Three suite failures were harness artefacts, not defects.** Exporting
    `STRIPE_SECRET_KEY` into `go test` trips a deliberate hardening panic;
    `payoutAgainst` compared a stub secret against the ambient real one (fixed in
    the test helper); and the shared `cx` database had 51 still-claimable tasks

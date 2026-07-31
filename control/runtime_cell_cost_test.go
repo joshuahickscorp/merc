@@ -404,6 +404,51 @@ func TestCellPromotionGateRefusesACheaperCellThatFailsVerification(t *testing.T)
 	}
 }
 
+// A cheaper cell that is slower per unit may be promoted for batch work, whose
+// deadline absorbs it, and never where latency is the product.
+func TestCellPromotionWeighsLatencyOnlyWhereItIsTheProduct(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	const hw = "apple_silicon_ultra"
+	candleWorker := seedCostWorker(t, ctx, pool, hw, "candle", "candle_metal")
+	llamaWorker := seedCostWorker(t, ctx, pool, hw, "llama_cpp", "llama_cpp_metal")
+
+	// The incumbent is fast and dear; the challenger is half the price and four
+	// times slower per unit.
+	seedCompletedCellTasks(t, ctx, store, pool, candleWorker,
+		candleEmbedCell, "candle_metal", minCellCostSamples,
+		100, 200, 0.000100, 0.000200, 0)
+	seedCompletedCellTasks(t, ctx, store, pool, llamaWorker,
+		llamaEmbedCell, "llama_cpp_metal", minCellCostSamples,
+		100, 800, 0.000050, 0.000200, 0)
+
+	scope := CellPromotionScope{
+		JobType: "embed", ModelRef: "all-minilm-l6-v2", HWClass: hw,
+		RuntimeID: "llama_cpp_metal", CellID: llamaEmbedCell,
+		QualityTier: "OUTCOME_EQUIVALENT", Verification: "cosine_similarity",
+	}
+
+	scope.LatencyClass = "standard_batch"
+	batch, err := store.EvaluateCellPromotion(ctx, scope, candleEmbedCell, time.Now())
+	if err != nil {
+		t.Fatalf("evaluate batch scope: %v", err)
+	}
+	if containsSubstring(batch.Refusals, "slower per unit") {
+		t.Fatalf("batch work refused a cheaper-but-slower cell: %v", batch.Refusals)
+	}
+	if batch.LatencyRatio < 3.9 || batch.LatencyRatio > 4.1 {
+		t.Fatalf("latency ratio = %v, want ~4 reported even when permitted", batch.LatencyRatio)
+	}
+
+	scope.LatencyClass = string(TrafficInteractive)
+	interactive, err := store.EvaluateCellPromotion(ctx, scope, candleEmbedCell, time.Now())
+	if err != nil {
+		t.Fatalf("evaluate interactive scope: %v", err)
+	}
+	if !containsSubstring(interactive.Refusals, "slower per unit") {
+		t.Fatalf("an interactive scope accepted a 4x slower cell: %v", interactive.Refusals)
+	}
+}
+
 func containsSubstring(haystack []string, needle string) bool {
 	for _, s := range haystack {
 		if strings.Contains(s, needle) {
