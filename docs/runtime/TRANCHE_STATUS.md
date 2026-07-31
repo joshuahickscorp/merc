@@ -82,6 +82,66 @@ fixture (the compose MinIO is available to `make dev-up` but no test uses it).
 That fixture is the next piece of work, and it unblocks the chain for both cells
 at once.
 
+## Autonomous two-agent product chain
+
+Two real `merc-agent` processes, two suppliers, two engines, against a control
+plane running the production `Routes()`. Every assertion reads what the control
+plane stored.
+
+| Stop condition | State |
+|---|---|
+| 1. Two enrolled agents claim autonomously | **done** |
+| 2. Both valid jobs verify and finalize | **done** — `task=complete`, `verification=pass` |
+| 3. Both buyer debits reconcile | **done** — ledger conserves |
+| 4. Both supplier payables correctly attributed | **done** — one row each, distinct suppliers |
+| 5. Both Merc contributions positive | **done** — 0.393166 USD each |
+| 6. v2 rejection creates no success payment | **NOT done** |
+| 7. Both final receipts verify | **partial** — authority names the executing cell; tamper matrix absent |
+| 8. llama.cpp embed REAL_RUNTIME_PROVEN | **NOT done** — gated on 6 |
+| 9. Candle remains ACTIVE | **done** |
+| 10. llama.cpp generation remains rejected | **done** |
+| 11. Full suite green | **done** |
+| 12. Branch pushed | **done** |
+
+Measured, identically on both cells:
+
+```
+candle    task=complete verification=pass  cell=candle-metal-minilm-embed    kind=hf
+llama_cpp task=complete verification=pass  cell=llama-cpp-metal-minilm-embed kind=gguf
+
+buyer_charge    -0.587166000
+platform_take   +0.393166000
+supplier_credit +0.194000000
+                ------------
+residual                   0
+
+cross-cell equivalence: mean=0.999999 min_row=0.999999 revision=embed-cosine-v2
+```
+
+Six server-side defects were found by running real agents, none of which code
+reading had surfaced: the advertised engine was hardcoded to candle; the agent's
+capability projection was routable-only; worker profile resolution was
+routable-only; `ValidateWorkerAgainstProfile` required a routable lifecycle;
+`validEngines` was a hand-written `{candle, vllm}` literal that refused
+`llama_cpp` at the door; and `agent.toml` requires `power_only` with no serde
+default.
+
+### Why condition 6 is not done
+
+A governed-reference grade needs a honeypot task, and a honeypot must be declared
+in the compute plan — `SubmitJobTx` refuses a task set whose class counts do not
+match, correctly, because a honeypot the plan never priced would be unpaid work.
+`validJobRowClasses` and the primary-derived input geometry are the groundwork
+and are committed; the test is not, because a single agent did not pick up the
+honeypot task within the window and the reason is not yet established.
+
+This also retired a claim: the settlement commit said the llama.cpp task was
+graded against candle's approved output. It was not — the seeding ran an `UPDATE`
+before `SubmitJobTx` inserted the row, so it matched nothing and the task stayed
+ordinary. Both artifacts genuinely agree, so a passing comparison and an unrun
+one were indistinguishable there. The claim is withdrawn in the tree and in the
+history.
+
 ## Caveats that are not caveats about this branch
 
 **The shared development database is polluted.** `postgres://cx@localhost/cx`,
