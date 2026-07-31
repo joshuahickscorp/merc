@@ -92,9 +92,19 @@ type canaryDisableDecisionEnvelope struct {
 // resolveCanaryDisableDecision reports whether the reference authorizes open
 // buyer admission on this candidate, right now.
 //
-// Re-read on every call rather than cached, like the live payment activation, so
-// that revoking a decision is deleting a file rather than restarting a fleet. The
-// callers are per-job, not per-token.
+// Not cached here, but "re-read on every call" is only half the deployment, and
+// the other half decides what an operator has to do to revoke a decision.
+//
+// Re-read per call: canaryArtifactLimit, canaryRetryLimit, canaryManualPayoutGate
+// and /readyz each call loadCanaryPolicyFromEnv, so deleting the artifact
+// re-imposes the canary artifact ceiling, the canary retry ceiling and the manual
+// payout gate within one sweep, and turns the readiness probe red.
+//
+// Captured once: buyer and worker admission read Server.canary, built in
+// NewServer. Deleting the artifact does NOT close admission on a running process
+// — the restart that does close it is the deployment's to perform, prompted by
+// the 503. An operator who deletes the file and watches only the signup page will
+// see it stay open.
 //
 // build is a function because resolving it is not free — it parses the embedded
 // VCS stamp and touches the price-board cache — and every caller outside
