@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source": {
-    "commit": "583842217786b9c76c2a4b935782ba77cfdbe042",
+    "commit": "759e8e08a1a74c86e200003a339b9775db80914d",
     "tree_clean": false
   },
   "database_probed": true,
@@ -10,7 +10,7 @@
       "prohibition": "1",
       "name": "no global codebase refactor",
       "status": "PASS",
-      "detail": "6 of 287 tracked Go files touched since the programme baseline 583842217786 (2%)"
+      "detail": "16 of 296 tracked Go files touched since the programme baseline 583842217786 (5%)"
     },
     {
       "prohibition": "2",
@@ -81,8 +81,8 @@
     {
       "prohibition": "13",
       "name": "no live Stripe credential",
-      "status": "PASS",
-      "detail": "no credential-shaped live key anywhere; the 7 file(s) naming the prefix are refusal fixtures, and live mode stays gated on MERC_ENV=production plus external activation authority"
+      "status": "FAIL",
+      "detail": "sk_live_ appears outside tests and docs: ['scripts/must-not-do-audit.py']"
     },
     {
       "prohibition": "14",
@@ -92,7 +92,8 @@
     }
   ],
   "failed": [
-    "10"
+    "10",
+    "13"
   ],
   "undecidable": [
     "14"
