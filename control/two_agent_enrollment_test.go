@@ -545,3 +545,227 @@ func waitForCommittedResult(
 	t.Fatalf("%s: agent did not commit within the window", name)
 	return nil, ""
 }
+
+// Verification, finalization and money on the artifacts two real agents produced.
+//
+// This continues the autonomous loop past commit: the production verification
+// processor grades each committed artifact against a governed reference, the
+// production finalizer completes the job, and the ledger is read for the money
+// each execution actually moved. Distinct suppliers throughout, so an attribution
+// bug cannot hide inside one balance.
+func TestBothAgentsSettleThroughTheProductionPath(t *testing.T) {
+	agentBinaryPath(t)
+	llamaURL := os.Getenv("MERC_LLAMA_EMBED_URL")
+	if llamaURL == "" {
+		t.Skip("MERC_LLAMA_EMBED_URL is not set; the llama.cpp agent has no engine to reach")
+	}
+	t.Setenv("MERC_VERIFICATION_SAMPLE_SECRET",
+		"two-agent-proof-verification-sampling-secret-0123456789")
+	artifacts := newArtifactHarness(t)
+
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	// A REAL verifier on the server. With a nil one the commit path still leases
+	// the verification work and then cannot act on it, so the row sits `leased`
+	// forever and an out-of-band processor gets an empty decision — which reads
+	// exactly like "there was nothing to verify" and made an earlier version of
+	// this test pass while proving nothing.
+	verifier := NewVerifier(store).WithStorage(artifacts.storage)
+	srv := httptest.NewServer(NewServer(store, artifacts.storage, verifier, nil).Routes())
+	t.Cleanup(srv.Close)
+
+	candle := launchAgent(t, ctx, store, pool, srv.URL, "candle", "candle_metal", llamaURL)
+	waitForEnrolment(t, ctx, pool, candle)
+	llama := launchAgent(t, ctx, store, pool, srv.URL, "llama_cpp", "llama_cpp_metal", llamaURL)
+	waitForEnrolment(t, ctx, pool, llama)
+
+	jobCtx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	t.Cleanup(cancel)
+
+	corpus := []byte(`{"id":"0","text":"Merc settles every task against a receipt."}` + "\n")
+	processor := NewVerificationProcessor(store, artifacts.storage, verifier)
+
+	type settled struct {
+		supplierID uuid.UUID
+		buyerID    uuid.UUID
+		jobID      uuid.UUID
+		taskID     uuid.UUID
+		body       []byte
+	}
+	results := map[string]settled{}
+
+	for _, tc := range []struct {
+		name, cell string
+		agent      *enrolledAgent
+	}{
+		{"candle", candleEmbedCell, candle},
+		{"llama_cpp", llamaEmbedCell, llama},
+	} {
+		f := seedMoneyPathFixture(t, jobCtx, store, pool, moneyPathSeedOpts{TaskCount: 1})
+		tasks := makeTasks(f, 1)
+		f.TaskIDs = []uuid.UUID{tasks[0].ID}
+		job := validJobRowDirected(t, f, tasks, tc.cell)
+
+		for _, key := range []string{job.InputRef, tasks[0].InputRef} {
+			if err := artifacts.storage.PutObject(
+				jobCtx, key, corpus, "application/x-ndjson"); err != nil {
+				t.Fatalf("%s: upload %s: %v", tc.name, key, err)
+			}
+		}
+		// The governed reference has to exist BEFORE the task is claimed: the
+		// verification plan is created from the commit snapshot, so a honeypot
+		// seeded afterwards arrives too late and the processor returns no
+		// decision at all. Candle is the ACTIVE authority, so its own committed
+		// output is the approved answer, and the challenger is graded against a
+		// reference it did not produce — the only shape in which one supplier's
+		// grade is not another supplier's opinion.
+		if tc.name == "llama_cpp" {
+			if err := store.InsertHoneypot(
+				jobCtx, "embed", tasks[0].InputRef, results["candle"].body, ""); err != nil {
+				t.Fatalf("%s: seed governed reference: %v", tc.name, err)
+			}
+			if _, err := pool.Exec(jobCtx,
+				`UPDATE tasks SET is_honeypot=true WHERE id=$1`, tasks[0].ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		if err := store.SubmitJobTx(jobCtx, job, tasks); err != nil {
+			t.Fatalf("%s: submit: %v", tc.name, err)
+		}
+
+		body, _ := waitForCommittedResult(t, jobCtx, pool, artifacts, tasks[0].ID, tc.name)
+
+		// "No money before verification" is NOT assertable from here: the server
+		// verifies on the commit path, so verification has already happened by the
+		// time this observes anything. That ordering is proved separately, in
+		// TestSecondRuntimeChainSettlesOncePerExecution, where commit and verify
+		// are distinct steps and the ledger is read between them.
+
+		// Diagnostic state BEFORE asking the processor to do anything, because a
+		// processor that returns an empty decision looks identical to one that had
+		// nothing to do, and "the test went green" must not be the only signal.
+		var taskStatus string
+		var workRows, workDone int
+		var workStatus, workOutcome *string
+		if err := pool.QueryRow(jobCtx, `
+			SELECT t.status,
+			       (SELECT COUNT(*) FROM verification_work w WHERE w.task_id=t.id),
+			       (SELECT COUNT(*) FROM verification_work w
+			         WHERE w.task_id=t.id AND w.terminal_at IS NOT NULL),
+			       (SELECT w.status FROM verification_work w WHERE w.task_id=t.id LIMIT 1),
+			       (SELECT w.terminal_outcome FROM verification_work w WHERE w.task_id=t.id LIMIT 1)
+			  FROM tasks t WHERE t.id=$1`, tasks[0].ID).
+			Scan(&taskStatus, &workRows, &workDone, &workStatus, &workOutcome); err != nil {
+			t.Fatalf("%s: read verification state: %v", tc.name, err)
+		}
+		t.Logf("%s pre-verify: task=%s work_rows=%d terminal=%d status=%v outcome=%v",
+			tc.name, taskStatus, workRows, workDone,
+			derefOr(workStatus), derefOr(workOutcome))
+
+		// The server verifies on the commit path, so give it its moment before
+		// reaching for the out-of-band processor. Racing it would take the lease
+		// away from production and prove the test can verify, not that Merc can.
+		outcome := waitForVerificationOutcome(t, jobCtx, pool, tasks[0].ID)
+		if outcome == "" {
+			result, err := processor.ProcessAttempt(jobCtx, tasks[0].ID, 0)
+			if err != nil {
+				t.Fatalf("%s: verification: %v", tc.name, err)
+			}
+			outcome = string(result.Outcome)
+		}
+		if outcome == "" {
+			t.Fatalf("%s: no verification decision was reached at all", tc.name)
+		}
+		if outcome == string(OutcomeFail) {
+			t.Fatalf("%s: autonomously produced output failed verification", tc.name)
+		}
+		t.Logf("%s verification outcome: %s", tc.name, outcome)
+
+		var afterStatus string
+		if err := pool.QueryRow(jobCtx,
+			`SELECT status FROM tasks WHERE id=$1`, tasks[0].ID).Scan(&afterStatus); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("%s post-verify: task=%s", tc.name, afterStatus)
+
+		// The AGENT's supplier, not the fixture's. The fixture seeds a supplier for
+		// its own worker rows; the task was claimed and executed by the enrolled
+		// agent, so the payable belongs to that agent's supplier and comparing
+		// against the fixture's would call a correct attribution wrong.
+		results[tc.name] = settled{
+			supplierID: tc.agent.supplierID, buyerID: f.BuyerID,
+			jobID: f.JobID, taskID: tasks[0].ID, body: body,
+		}
+	}
+
+	// Distinct suppliers and buyers, so attribution is checkable at all.
+	if results["candle"].supplierID == results["llama_cpp"].supplierID {
+		t.Fatal("both executions settled to one supplier; attribution cannot be verified")
+	}
+
+	// Money, read from the ledger the production path wrote.
+	for name, got := range results {
+		var supplierRows int64
+		var supplierUSD float64
+		if err := pool.QueryRow(jobCtx, `
+			SELECT COUNT(*), COALESCE(SUM(amount_usd),0)
+			  FROM ledger_entries
+			 WHERE task_id=$1 AND supplier_id IS NOT NULL`, got.taskID).
+			Scan(&supplierRows, &supplierUSD); err != nil {
+			t.Fatalf("%s: read supplier ledger: %v", name, err)
+		}
+		t.Logf("%s supplier ledger: %d rows, %.9f USD, supplier=%s",
+			name, supplierRows, supplierUSD, got.supplierID)
+
+		// Exactly one payable per execution: none would mean the supplier worked
+		// for free, and more than one would mean Merc paid twice for work done
+		// once.
+		if supplierRows != 1 {
+			t.Errorf("%s: %d supplier ledger rows for one execution, want 1",
+				name, supplierRows)
+		}
+		if supplierUSD <= 0 {
+			t.Errorf("%s: supplier payable is %.9f USD", name, supplierUSD)
+		}
+		// And a payable must be attributed to the supplier that ran it.
+		var wrongSupplier int
+		if err := pool.QueryRow(jobCtx, `
+			SELECT COUNT(*) FROM ledger_entries
+			 WHERE task_id=$1 AND supplier_id IS NOT NULL AND supplier_id <> $2`,
+			got.taskID, got.supplierID).Scan(&wrongSupplier); err != nil {
+			t.Fatal(err)
+		}
+		if wrongSupplier != 0 {
+			t.Errorf("%s: %d ledger rows attributed to the wrong supplier",
+				name, wrongSupplier)
+		}
+	}
+}
+
+func derefOr(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
+}
+
+// waitForVerificationOutcome polls until the production verification path records
+// a terminal outcome for this attempt, or gives up and returns "".
+func waitForVerificationOutcome(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, taskID uuid.UUID,
+) string {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		var outcome *string
+		if err := pool.QueryRow(ctx, `
+			SELECT terminal_outcome FROM verification_work
+			 WHERE task_id=$1 AND attempt=0`, taskID).Scan(&outcome); err == nil {
+			if outcome != nil && *outcome != "" {
+				return *outcome
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return ""
+}
