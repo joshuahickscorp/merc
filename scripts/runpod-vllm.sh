@@ -7,6 +7,16 @@
 # quietly eats the balance. So teardown is wired to EXIT before the pod is ever
 # created, and `--keep` is the only way to leave one running.
 #
+# `experiment` is the governed form and the one a paid lane should use. `up` bounds
+# nothing but its own runtime; `experiment` converts a dollar cap into a lifetime
+# through scripts/runpod-spend-guard.py, refuses to start while any other pod is
+# billing, sweeps every pod on exit however it exits, verifies the teardown, and
+# emits a spend receipt that is INADMISSIBLE if the teardown was unverified, the
+# lifetime bound did not hold, the image was a floating tag, or a pod was left
+# behind.
+#
+#   bash scripts/runpod-vllm.sh experiment    # GOVERNED: cost cap, enforced lifetime,
+#                                             # orphan sweep, verified teardown, receipt
 #   bash scripts/runpod-vllm.sh up            # provision, print endpoint, tear down on exit
 #   bash scripts/runpod-vllm.sh up --keep     # leave it running (prints the stop command)
 #   bash scripts/runpod-vllm.sh list          # what is running right now
@@ -112,6 +122,102 @@ down-all)
         | python3 -c "import json,sys;print(' '.join(p['id'] for p in ((json.load(sys.stdin).get('data') or {}).get('myself') or {}).get('pods') or []))")
   for id in $ids; do terminate "$id"; done
   list_pods; exit 0 ;;
+experiment)
+  # A governed paid experiment: cost cap, enforced lifetime, orphan sweep before
+  # AND after, verified teardown, spend receipt.
+  #
+  # `up` already refuses to leave a pod running and verifies its own teardown.
+  # What it does not have is a MONEY bound: nothing stops a run holding a pod for
+  # as long as its own logic takes. The cap is that bound, converted to a
+  # lifetime by scripts/runpod-spend-guard.py, and the conversion lives in Python
+  # because it decides how long real money burns and shell cannot be unit tested
+  # without spending it.
+  CAP_USD="${MERC_RUNPOD_CAP_USD:-2.00}"
+  COST_PER_HR="${MERC_RUNPOD_COST_PER_HR:?MERC_RUNPOD_COST_PER_HR is required: the cap cannot be converted to a lifetime without the advertised hourly rate for $GPU_TYPE}"
+  BUDGET_SECS=$(python3 "$ROOT/scripts/runpod-spend-guard.py" budget \
+                  --cost-per-hr "$COST_PER_HR" --cap-usd "$CAP_USD") \
+    || die "the cap was refused by the spend guard"
+  say "governed experiment"
+  say "  cap       \$$CAP_USD at \$$COST_PER_HR/hr"
+  say "  lifetime  ${BUDGET_SECS}s (the rest of the cap is teardown headroom)"
+
+  # Pre-flight sweep. A pod that is already running is already billing, and
+  # attributing its cost to this experiment's receipt would be a lie in either
+  # direction — so the run refuses rather than guessing.
+  PREEXISTING=$(gql '{"query":"query { myself { pods { id } } }"}' \
+    | python3 -c "
+import json,sys
+d=json.load(sys.stdin); m=(d.get('data') or {}).get('myself') or {}
+print(','.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
+  [ -z "$PREEXISTING" ] || die "pods are already running and billing: $PREEXISTING
+       Stop them first:  bash scripts/runpod-vllm.sh down-all"
+
+  # Armed before anything is created. `up --keep` deliberately leaves its pod
+  # behind, so this is the only thing between a crash in the middle of the
+  # experiment and a pod that bills until someone notices.
+  sweep_all() {
+    local ids
+    ids=$(gql '{"query":"query { myself { pods { id } } }"}' \
+      | python3 -c "
+import json,sys
+d=json.load(sys.stdin); m=(d.get('data') or {}).get('myself') or {}
+print(' '.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
+    for id in $ids; do terminate "$id"; done
+  }
+  trap 'say ""; say "sweeping every pod (experiment exit)"; sweep_all' EXIT INT TERM
+
+  STARTED_AT=$(date +%s)
+  MERC_RUNPOD_HOLD_SECS=0 bash "$0" up --keep || die "provisioning failed; the sweep will run"
+  # shellcheck disable=SC1091
+  . "$ROOT/.merc-runpod.env"
+  READY=true
+
+  # The bounded workload. Default is a single completion against the pinned model
+  # — enough to prove the engine serves — and MERC_RUNPOD_EXPERIMENT_CMD replaces
+  # it with whatever the lane under test needs.
+  CMD="${MERC_RUNPOD_EXPERIMENT_CMD:-}"
+  if [ -z "$CMD" ]; then
+    CMD="printf 'header = \"Authorization: Bearer %s\"\n' \"\$MERC_GPU_API_KEY\" | curl -sS --config - -H 'content-type: application/json' --max-time 60 -o /dev/null -w 'completion HTTP %{http_code}\n' \"\$MERC_GPU_ENDPOINT/chat/completions\" -d '{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"one word\"}],\"max_tokens\":4}'"
+  fi
+  say ""
+  say "running the experiment under a ${BUDGET_SECS}s lifetime bound"
+  bash -c "$CMD" &
+  CMD_PID=$!
+  ELAPSED=0
+  while kill -0 "$CMD_PID" 2>/dev/null; do
+    if [ "$ELAPSED" -ge "$BUDGET_SECS" ]; then
+      say "  lifetime bound reached; killing the experiment and tearing down"
+      kill -TERM "$CMD_PID" 2>/dev/null || true
+      break
+    fi
+    sleep 2
+    ELAPSED=$((ELAPSED + 2))
+  done
+  wait "$CMD_PID" 2>/dev/null || say "  experiment command exited non-zero"
+
+  say ""
+  say "tearing down"
+  terminate "$MERC_RUNPOD_POD_ID"
+  TEARDOWN_VERIFIED=true
+  [ "$(pod_exists "$MERC_RUNPOD_POD_ID")" = "no" ] || TEARDOWN_VERIFIED=false
+  STOPPED_AT=$(date +%s)
+
+  ORPHANS=$(gql '{"query":"query { myself { pods { id } } }"}' \
+    | python3 -c "
+import json,sys
+d=json.load(sys.stdin); m=(d.get('data') or {}).get('myself') or {}
+print(','.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
+
+  RECEIPT="evidence/runpod/spend-${MERC_RUNPOD_POD_ID}.json"
+  python3 "$ROOT/scripts/runpod-spend-guard.py" receipt \
+    --pod-id "$MERC_RUNPOD_POD_ID" --gpu "$GPU_TYPE" --image "$IMAGE" --model "$MODEL" \
+    --cost-per-hr "$COST_PER_HR" --cap-usd "$CAP_USD" \
+    --started-at "$STARTED_AT" --stopped-at "$STOPPED_AT" \
+    --teardown-verified "$TEARDOWN_VERIFIED" --ready "$READY" \
+    --orphans "$ORPHANS" --out "$RECEIPT"
+  GUARD=$?
+  say "  receipt   $RECEIPT"
+  exit "$GUARD" ;;
 up) ;;
 *) die "unknown command ${1:-}" ;;
 esac
