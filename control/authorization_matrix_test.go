@@ -70,7 +70,10 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// with the lane once CUDA hardware admission made it servable.
 	// 63 after the perf lane: GET /admin/plan-accuracy reports realized-versus-
 	// predicted planning error and is operator-only like every other admin read.
-	if checked != 63 {
-		t.Fatalf("checked %d protected routes, want 63", checked)
+	// 65 after the funding lane: POST /v1/billing/topup is the buyer's only way
+	// to put money in, and POST /admin/buyers/{id}/prepaid-refund is the operator
+	// authority that takes it back out over card rails.
+	if checked != 65 {
+		t.Fatalf("checked %d protected routes, want 65", checked)
 	}
 }

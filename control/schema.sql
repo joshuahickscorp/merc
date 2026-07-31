@@ -2835,6 +2835,33 @@ CREATE TABLE IF NOT EXISTS prepaid_refund_operations (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- A refund row must exist before Stripe is asked to move the cash.  The
+-- original 'succeeded'-only CHECK forced the provider call to come first, so a
+-- crash in between returned the buyer's money while leaving the same balance
+-- spendable.  'pending' is that pre-provider row; the inline CHECK was created
+-- with an auto-generated name, so drop by definition to stay idempotent.
+DO $$
+DECLARE r RECORD;
+BEGIN
+    FOR r IN
+        SELECT c.conname
+          FROM pg_constraint c
+          JOIN pg_class rel ON rel.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = rel.relnamespace
+         WHERE n.nspname = 'public'
+           AND rel.relname = 'prepaid_refund_operations'
+           AND c.contype = 'c'
+           AND pg_get_constraintdef(c.oid) ILIKE '%status%'
+    LOOP
+        EXECUTE format('ALTER TABLE prepaid_refund_operations DROP CONSTRAINT %I', r.conname);
+    END LOOP;
+END $$;
+ALTER TABLE prepaid_refund_operations
+    ADD CONSTRAINT prepaid_refund_status_supported
+    CHECK (status IN ('pending','succeeded'));
+CREATE INDEX IF NOT EXISTS prepaid_refund_payment_intent_idx
+    ON prepaid_refund_operations (payment_intent);
+
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_topup_ref_uniq
     ON ledger_entries (payout_ref) WHERE kind = 'prepaid_topup';
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_refund_ref_uniq

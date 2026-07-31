@@ -25,6 +25,7 @@ const (
 	adminActionControlChanged    = "operational_control_changed"
 	adminActionBuyerTombstoned   = "buyer_tombstoned"
 	adminActionRealtimeRefunded  = "realtime_refunded"
+	adminActionPrepaidRefunded   = "prepaid_refunded"
 
 	adminTargetWorker      = "worker"
 	adminTargetTask        = "task"
@@ -86,7 +87,7 @@ func (in adminMutationIntent) validate() error {
 		wantTarget = adminTargetLedgerEntry
 	case adminActionControlChanged:
 		wantTarget = adminTargetControl
-	case adminActionBuyerTombstoned:
+	case adminActionBuyerTombstoned, adminActionPrepaidRefunded:
 		wantTarget = adminTargetBuyer
 	case adminActionRealtimeRefunded:
 		wantTarget = adminTargetContract
