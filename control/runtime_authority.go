@@ -919,6 +919,50 @@ type benchmarkReceiptSummary struct {
 	// byte-deterministic, because the field is read to decide whether a profile
 	// may serve a byte_exact cell.
 	ByteDeterministic bool `json:"byte_deterministic"`
+	// MeasuredAt is when the run happened, so a number can go stale. A receipt
+	// with no date cannot be revalidated on a schedule, only believed forever.
+	MeasuredAt string `json:"measured_at,omitempty"`
+	// HWClass is the box the run happened on. Every rate here is a statement
+	// about THAT hardware; a supplier on a different class is an extrapolation,
+	// and the viability report has to be able to say so.
+	HWClass string `json:"hw_class,omitempty"`
+	// Throughput is keyed by runtime profile id because a comparison receipt
+	// measures two engines at once and they do not produce the same rate.
+	// Absent means this receipt carries no usable number, which is a different
+	// fact from "slow" and must not be resolved to one.
+	Throughput map[string]benchmarkThroughput `json:"throughput,omitempty"`
+}
+
+// benchmarkThroughput is one profile's measured rate inside one receipt.
+//
+// The best observation is recorded so it can be REFUSED rather than quietly
+// reached for. The number admission is allowed to use is
+// UnitsPerSecAtOperatingBatch, and the only reason the best one is here at all
+// is so a test can assert the two never meet and the supplier report can show
+// the gap it is not being paid on.
+type benchmarkThroughput struct {
+	// Unit is the billable unit the rate counts, not the engine's favourite
+	// metric. "tokens" and "embeddings" price differently, and a rate whose unit
+	// is unstated cannot be multiplied by a per-1k price without guessing.
+	Unit string `json:"unit"`
+	// Precision is the quantization the run used. The same weights at a
+	// different precision are a different product with a different rate.
+	Precision string `json:"precision"`
+	// OperatingBatch is the batch the quoted rate was taken at. Admission may
+	// only promise a rate the cell's own batch policy actually permits.
+	OperatingBatch              int     `json:"operating_batch"`
+	UnitsPerSecAtOperatingBatch float64 `json:"units_per_sec_at_operating_batch"`
+	// BestObservedUnitsPerSec is the best number anywhere in the sweep, and it is
+	// not always a peak: on a comparison receipt it is the best batch's MEDIAN of
+	// five repetitions, which is why the field is no longer called one. Calling a
+	// median a peak in the one file whose whole job is stating the basis is the
+	// same ungoverned number this binding replaced, wearing a label.
+	// BestObservedBatch is the batch it was seen at.
+	BestObservedUnitsPerSec float64 `json:"best_observed_units_per_sec"`
+	BestObservedBatch       int     `json:"best_observed_batch"`
+	// Basis states how the quoted number was taken out of the receipt, so the
+	// next reader can check it instead of trusting it.
+	Basis string `json:"basis"`
 }
 
 // isEvidenceFor reports whether this receipt names the given profile.

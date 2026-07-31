@@ -16,12 +16,18 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 	job := validJobRow(t, fixture, tasks)
 
 	candidate := job.WorkloadDecision.RuntimeCandidates[0]
+	// Every worker starts unaffordable, so the floor has to be stated relative to
+	// what this job actually offers. It used to be the literal 10, which only
+	// exceeded the offered rate while that rate came from a hardcoded throughput
+	// constant; the moment admission started deriving throughput from a benchmark
+	// the sentinel stopped separating anything.
+	unaffordableFloor := job.OfferedRateUsdHr * 2
 	for _, workerID := range []uuid.UUID{fixture.WorkerID, fixture.OtherWorkerID} {
 		if _, err := pool.Exec(ctx, `
 			UPDATE workers
-			   SET min_payout_usd_hr=10,engine=$2,last_seen_at=now(),throttled=false
+			   SET min_payout_usd_hr=$3,engine=$2,last_seen_at=now(),throttled=false
 			 WHERE id=$1`,
-			workerID, candidate.Engine); err != nil {
+			workerID, candidate.Engine, unaffordableFloor); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := pool.Exec(ctx, `
@@ -50,8 +56,8 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 			INSERT INTO workers (
 			  id,supplier_id,hw_class,memory_gb,effective_memory_gb,last_seen_at,
 			  throttled,min_payout_usd_hr,engine,build_hash
-			) VALUES ($1,$2,'apple_silicon_max',64,64,now(),false,10,$3,'deadbeefdeadbeef')`,
-			workerID, supplierID, candidate.Engine); err != nil {
+			) VALUES ($1,$2,'apple_silicon_max',64,64,now(),false,$4,$3,'deadbeefdeadbeef')`,
+			workerID, supplierID, candidate.Engine, unaffordableFloor); err != nil {
 			t.Fatal(err)
 		}
 		bindWorkerToGovernedProfile(t, pool, ctx, workerID)
