@@ -200,7 +200,15 @@ storage and a local engine. It died mid-run with a timeout panic naming
 than as a budget. `make ci` could not have passed on such a host since the
 agent-process tests landed.
 
-All six are fixed. The point is not the fixes; it is that "full suite green" at
+A seventh appeared behind it, and it is the worse of the two.
+`assert-no-test-skips.sh` runs the suite **again** with `-json`, also without a
+timeout, inside a `$(...)` under `set -euo pipefail`. When that timed out, the
+command substitution failed and the script exited **with no output whatsoever** —
+`make ci` printed nothing but `Error 1`. A gate that fails silently is
+indistinguishable from a gate that is broken. It now takes the same budget and
+says so when the suite it depends on did not pass.
+
+All seven are fixed. The point is not the fixes; it is that "full suite green" at
 the last checkpoint meant `go test ./...` with a hand-typed `-timeout`, and the
 gate is what makes the difference visible.
 
