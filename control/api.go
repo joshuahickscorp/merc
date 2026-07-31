@@ -1309,6 +1309,22 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 	cleanupStreamArtifacts = false
 
+	// The shadow runtime selection, after the job is committed and before
+	// anything else observes it.
+	//
+	// Outside the submit transaction on purpose: SubmitJobTx opens and commits
+	// its own, so nothing here can veto an admission that already succeeded. The
+	// error is logged and dropped for the same reason — a selector that could
+	// refuse a submit would be a router, and this one is not allowed to route.
+	if shadow, shadowErr := planShadowSelection(workloadDecision); shadowErr != nil {
+		log.Printf("shadow selection: job %s: %v", jobID, shadowErr)
+	} else if err := s.store.RecordShadowSelection(ctx, jobID.String(), shadow); err != nil {
+		log.Printf("shadow selection: job %s: %v", jobID, err)
+	} else if shadow.Diverged() {
+		log.Printf("shadow selection: job %s would have chosen %s, admission froze %s",
+			jobID, shadow.ShadowCellID, shadow.RoutedCellID)
+	}
+
 	metrics.jobsSubmitted.Add(1)
 
 	_ = s.store.InsertJobEvent(ctx, jobID, nil, "job_created",

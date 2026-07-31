@@ -4866,3 +4866,101 @@ ALTER TABLE verification_work ADD CONSTRAINT verification_work_class_known CHECK
 ALTER TABLE verification_work DROP CONSTRAINT IF EXISTS verification_work_governed_class_selected;
 ALTER TABLE verification_work ADD CONSTRAINT verification_work_governed_class_selected CHECK (
     verification_class = 'SAMPLED' OR sampling_selected IS NOT FALSE);
+
+-- ---------------------------------------------------------------------------
+-- Shadow runtime selection.
+--
+-- What the selector WOULD have chosen, recorded beside what admission actually
+-- froze. It changes nothing: the row is written after SubmitJobTx has committed
+-- its own transaction, and a failure to write it is logged and dropped.
+--
+-- The shape is narrower than a selector design would suggest, and deliberately.
+-- Two facts about this tree decide it:
+--
+--   * Ordinary admission REQUIRES exactly one eligible cell.
+--     runtimeCapabilityForBindingDirected filters advertisedRuntimeCapabilities()
+--     by job and model and refuses unless exactly one matches. A shadow decision
+--     over the ROUTABLE set would therefore always record one candidate and one
+--     choice, which is not a measurement of anything.
+--
+--   * The routed cell is always the frozen cell. The claim query requires
+--     frozen->>'cell_id' = wac.cell_id, so tasks.runtime_cell_id can only ever be
+--     what admission chose. A decision/outcome join at cell granularity is a
+--     tautology, and regret over ordinary traffic is identically zero.
+--
+-- So the comparison recorded here is over the DIRECTED set — the cells an
+-- operator or an experiment may name, which for embed includes llama.cpp's proven
+-- cell alongside candle's routable one. The interesting question is exactly
+-- "which cell would we have chosen if the proven one were routable", and that is
+-- the question a promotion has to answer.
+--
+-- No predicted latency, cost, memory, quality or failure probability. None has a
+-- per-cell source in this tree today, and a NOT NULL column with no source forces
+-- its writer to invent a number. Recording an honest empty set beats recording a
+-- fabricated one; the columns arrive with the measurements, in the change that
+-- takes them.
+CREATE TABLE IF NOT EXISTS runtime_shadow_selections (
+    job_id                UUID PRIMARY KEY,
+    decided_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- The authority the decision was taken under. Without these a stored decision
+    -- cannot be re-read against the rules that produced it.
+    runtime_matrix_sha256 TEXT NOT NULL,
+    policy_revision       BIGINT NOT NULL,
+    -- What was asked for.
+    job_type              TEXT NOT NULL,
+    model_ref             TEXT NOT NULL,
+    model_kind            TEXT NOT NULL,
+    workload_class        TEXT NOT NULL,
+    latency_class         TEXT NOT NULL,
+    -- What admission froze, and what the shadow would have chosen. Equal today
+    -- for every routable workload; the point is the row where they differ.
+    routed_cell_id        TEXT NOT NULL,
+    shadow_cell_id        TEXT NOT NULL,
+    -- Every cell considered, and every cell excluded WITH its exact reason. The
+    -- excluded set is the half that makes a selection auditable: "it chose X" is
+    -- not reviewable, "it excluded Y because Y sells byte_exact and its engine is
+    -- not byte-deterministic" is.
+    considered_cells      JSONB NOT NULL,
+    excluded_cells        JSONB NOT NULL,
+    selection_policy      TEXT NOT NULL,
+    CONSTRAINT runtime_shadow_selections_matrix_shape
+        CHECK (runtime_matrix_sha256 ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT runtime_shadow_selections_considered_shape
+        CHECK (jsonb_typeof(considered_cells) = 'array'),
+    CONSTRAINT runtime_shadow_selections_excluded_shape
+        CHECK (jsonb_typeof(excluded_cells) = 'array'),
+    CONSTRAINT runtime_shadow_selections_cells_named
+        CHECK (btrim(routed_cell_id) <> '' AND btrim(shadow_cell_id) <> ''),
+    CONSTRAINT runtime_shadow_selections_policy_named
+        CHECK (btrim(selection_policy) <> '')
+);
+-- Re-stated as ALTER because CREATE TABLE IF NOT EXISTS is a no-op on a database
+-- that already has the table, so an inline CHECK never reaches one.
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_matrix_shape;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_matrix_shape
+    CHECK (runtime_matrix_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_cells_named;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_cells_named
+    CHECK (btrim(routed_cell_id) <> '' AND btrim(shadow_cell_id) <> '');
+
+CREATE INDEX IF NOT EXISTS runtime_shadow_selections_divergence_idx
+    ON runtime_shadow_selections (job_type, model_ref, decided_at DESC)
+    WHERE shadow_cell_id <> routed_cell_id;
+
+-- A decision is a record of what was believed at a moment. Rewriting one makes
+-- every accuracy measurement taken from it meaningless.
+CREATE OR REPLACE FUNCTION cx_refuse_shadow_selection_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION
+      'shadow selection for job % is immutable; a decision is what was believed at a moment',
+      OLD.job_id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS runtime_shadow_selections_append_only ON runtime_shadow_selections;
+CREATE TRIGGER runtime_shadow_selections_append_only
+    BEFORE UPDATE OR DELETE ON runtime_shadow_selections
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_shadow_selection_rewrite();
