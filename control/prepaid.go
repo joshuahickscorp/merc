@@ -50,6 +50,13 @@ type topupRequest struct {
 	AmountUSD float64 `json:"amount_usd"`
 }
 
+// prepaidTopupBodyLimit bounds the buyer-facing top-up body. It is deliberately
+// not adminActionBodyLimit: that bound exists for operator mutation bodies with
+// a free-text reason, and borrowing it means retuning the operator surface
+// silently retunes what an unprivileged buyer may push at the money path. This
+// body carries one number.
+const prepaidTopupBodyLimit = 1 << 10
+
 // prepaidTopupOperationKey namespaces the caller's Idempotency-Key under their
 // buyer id. Operation keys are a global primary key, so two buyers that both
 // pick "1" would otherwise collide on one row: the second would be refused for
@@ -74,7 +81,7 @@ func (s *Server) handleBillingTopup(w http.ResponseWriter, r *http.Request) {
 	// Strict decode like every other money body here: a request carrying a
 	// "buyer_id" or a second "amount_usd" must be refused, not silently read as
 	// the fields we happen to recognise.
-	raw, err := readAndCloseBounded(r.Body, adminActionBodyLimit)
+	raw, err := readAndCloseBounded(r.Body, prepaidTopupBodyLimit)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid topup body: "+err.Error())
 		return
@@ -141,7 +148,7 @@ func (s *Server) handleBillingTopup(w http.ResponseWriter, r *http.Request) {
 		return
 	case prepaidTopupInFlight:
 		writeErr(w, http.StatusConflict,
-			"top-up "+opKey+" already crossed its durable Stripe boundary; check GET /v1/billing/status and retry with a fresh Idempotency-Key")
+			"top-up "+opKey+" already crossed its durable Stripe boundary; GET /v1/billing/status reports the credited balance and any top-up still pending, so retry with a fresh Idempotency-Key only once this one is no longer pending there")
 		return
 	}
 	charge, err := chargePaymentIntent(r.Context(), cust, pm, cents, SettlementCurrencyCode(), opKey)

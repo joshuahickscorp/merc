@@ -2862,6 +2862,19 @@ ALTER TABLE prepaid_refund_operations
 CREATE INDEX IF NOT EXISTS prepaid_refund_payment_intent_idx
     ON prepaid_refund_operations (payment_intent);
 
+-- refund_key names the refund a slice belongs to.  Membership used to be
+-- recovered with LIKE over the synthesised composite operation_key, and the
+-- correlation reference inside that key is operator-typed text that is only
+-- length-checked: a reference such as 'INC-100%' matched the slices of every
+-- other refund whose key shared the prefix, so replaying it handed another
+-- operation's payment intents to Stripe.  Legacy rows predate slicing and are
+-- their own single-slice group.
+ALTER TABLE prepaid_refund_operations ADD COLUMN IF NOT EXISTS refund_key TEXT;
+UPDATE prepaid_refund_operations SET refund_key = operation_key WHERE refund_key IS NULL;
+ALTER TABLE prepaid_refund_operations ALTER COLUMN refund_key SET NOT NULL;
+CREATE INDEX IF NOT EXISTS prepaid_refund_key_idx
+    ON prepaid_refund_operations (refund_key);
+
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_topup_ref_uniq
     ON ledger_entries (payout_ref) WHERE kind = 'prepaid_topup';
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_prepaid_refund_ref_uniq

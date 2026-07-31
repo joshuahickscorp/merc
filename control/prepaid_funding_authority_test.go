@@ -30,11 +30,23 @@ func insertTestAdminActor(t *testing.T, pool *pgxpool.Pool, ctx context.Context)
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, _ = pool.Exec(c, `DELETE FROM admin_actions WHERE actor_principal_id=$1`, actor.PrincipalID)
-		_, _ = pool.Exec(c, `DELETE FROM api_keys WHERE id=$1`, actor.PrincipalID)
+		// admin_actions is append-only: the admin_actions_append_only trigger
+		// rejects every DELETE, so the audit rows this actor writes survive the
+		// run by design and cannot be swept here. Correlation references are
+		// therefore minted per run (adminTestRef) — a fixed one would still be
+		// in the table next run and be refused as belonging to another
+		// privileged request. The principal itself is deletable, and leaving it
+		// behind is a leak worth failing on rather than swallowing.
+		if _, err := pool.Exec(c, `DELETE FROM api_keys WHERE id=$1`, actor.PrincipalID); err != nil {
+			t.Errorf("cleanup admin principal %s: %v", actor.PrincipalID, err)
+		}
 	})
 	return actor
 }
+
+// adminTestRef mints an incident reference that cannot outlive its run into the
+// next one. See insertTestAdminActor: the audit rows holding it are undeletable.
+func adminTestRef(prefix string) string { return prefix + "-" + uuid.NewString() }
 
 // fundPrepaidViaTopup credits the buyer the way production does: a collected
 // payment intent, so refunds have a real intent to trace back to.
@@ -340,7 +352,7 @@ func TestPrepaidRefundLeavesOpenJobReservationsFunded(t *testing.T) {
 	})
 
 	server := &Server{store: h.store}
-	result, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "buyer closed account", "INC-reserve-"+uuid.NewString())
+	result, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "buyer closed account", adminTestRef("INC-reserve"))
 	if err != nil {
 		t.Fatalf("refund: %v", err)
 	}
@@ -380,11 +392,11 @@ func TestPrepaidRefundCannotExceedFundedValue(t *testing.T) {
 	fundPrepaidViaTopup(t, h.ctx, h.store, buyerID, 2500)
 
 	server := &Server{store: h.store}
-	if _, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", "INC-a-"+uuid.NewString()); err != nil {
+	if _, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", adminTestRef("INC-a")); err != nil {
 		t.Fatalf("first refund: %v", err)
 	}
 	// Balance is zero, so a second refund has nothing to return.
-	_, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", "INC-b-"+uuid.NewString())
+	_, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", adminTestRef("INC-b"))
 	if !errors.Is(err, errInsufficientPrepaid) {
 		t.Fatalf("second refund err = %v, want errInsufficientPrepaid", err)
 	}
@@ -394,7 +406,7 @@ func TestPrepaidRefundCannotExceedFundedValue(t *testing.T) {
 	if err := h.store.SeedPrepaidBalance(h.ctx, buyerID, 25_000_000, "seed-"+uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
-	_, err = server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", "INC-c-"+uuid.NewString())
+	_, err = server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", adminTestRef("INC-c"))
 	if err == nil || !strings.Contains(err.Error(), "exceed funded value") {
 		t.Fatalf("refund of uncollected balance err = %v, want a funded-value refusal", err)
 	}
@@ -418,7 +430,7 @@ func TestPrepaidRefundIsDurableBeforeStripe(t *testing.T) {
 	fundPrepaidViaTopup(t, h.ctx, h.store, buyerID, 2500)
 
 	server := &Server{store: h.store}
-	correlation := "INC-durable-" + uuid.NewString()
+	correlation := adminTestRef("INC-durable")
 	h.refundErr.Store(true)
 	if _, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", correlation); err == nil {
 		t.Fatal("a failing Stripe refund reported success")
@@ -462,5 +474,124 @@ func TestPrepaidRefundIsDurableBeforeStripe(t *testing.T) {
 	}
 	if succeeded != 1 {
 		t.Fatalf("succeeded refund operations = %d, want 1", succeeded)
+	}
+}
+
+// TestPrepaidRefundReplayCannotAdoptAnotherRefundsSlices pins the money bug in
+// slice recovery. Correlation references are operator-typed and only
+// length-checked (admin_mutation_audit.go), so "INC-100%" is an accepted
+// reference; while membership was a LIKE over the composite operation key, that
+// wildcard matched the slices of unrelated refunds and the replay handed their
+// payment intents to Stripe — cash moved for a refund that never authorised it.
+func TestPrepaidRefundReplayCannotAdoptAnotherRefundsSlices(t *testing.T) {
+	h := newFundingHarness(t)
+	buyerID := insertTestBuyer(t, h.pool, h.ctx)
+	actor := insertTestAdminActor(t, h.pool, h.ctx)
+	server := &Server{store: h.store}
+
+	// Two ordinary incident references from one run. Only the wildcard in the
+	// first makes them overlap: 'INC-<run>-100%' matches 'INC-<run>-1005'.
+	run := adminTestRef("INC")
+	wildcardRef, siblingRef := run+"-100%", run+"-1005"
+
+	h.refundErr.Store(true)
+	siblingIntent := fundPrepaidViaTopup(t, h.ctx, h.store, buyerID, 2500)
+	if _, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", siblingRef); err == nil {
+		t.Fatal("sibling refund reported success while Stripe was down")
+	}
+	ownIntent := fundPrepaidViaTopup(t, h.ctx, h.store, buyerID, 2500)
+	if _, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", wildcardRef); err == nil {
+		t.Fatal("wildcard refund reported success while Stripe was down")
+	}
+
+	h.refundErr.Store(false)
+	result, err := server.refundPrepaidRemainder(h.ctx, actor, buyerID, "closed", wildcardRef)
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if got := result["refunded_cents"].(int64); got != 2500 {
+		t.Fatalf("replay refunded %d cents, want 2500 (only this refund's own slice)", got)
+	}
+	if got := h.refunds.Load(); got != 1 {
+		t.Fatalf("stripe refunds = %d, want 1: the replay moved cash for another refund", got)
+	}
+	var siblingStatus string
+	if err := h.pool.QueryRow(h.ctx, `
+		SELECT status FROM prepaid_refund_operations
+		 WHERE buyer_id=$1 AND payment_intent=$2`, buyerID, siblingIntent).Scan(&siblingStatus); err != nil {
+		t.Fatal(err)
+	}
+	if siblingStatus != "pending" {
+		t.Fatalf("sibling refund slice is %q, want pending: another refund completed it", siblingStatus)
+	}
+	var ownStatus string
+	if err := h.pool.QueryRow(h.ctx, `
+		SELECT status FROM prepaid_refund_operations
+		 WHERE buyer_id=$1 AND payment_intent=$2`, buyerID, ownIntent).Scan(&ownStatus); err != nil {
+		t.Fatal(err)
+	}
+	if ownStatus != "succeeded" {
+		t.Fatalf("replayed refund slice is %q, want succeeded", ownStatus)
+	}
+}
+
+// TestBillingStatusReportsFundedValue pins the other half of the 409 a
+// boundary-crossed top-up returns: it sends the buyer to GET /v1/billing/status,
+// which used to report only configured/connected/has_card and so could not tell
+// them whether their deposit had landed.
+func TestBillingStatusReportsFundedValue(t *testing.T) {
+	h := newFundingHarness(t)
+	buyerID, key := h.buyerWithCard(t)
+	if rec := h.topup(t, key, "status-deposit", `{"amount_usd":25}`); rec.Code != http.StatusOK {
+		t.Fatalf("top-up: status %d body %s", rec.Code, rec.Body.String())
+	}
+	// A second top-up armed but never credited is exactly the state the 409
+	// describes: the card was asked, the balance does not hold it yet.
+	if _, err := h.store.BeginPrepaidTopup(h.ctx, "topup-stuck-"+uuid.NewString(), buyerID, 4000); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/billing/status", nil)
+	req.RemoteAddr = "127.0.0.1:11111"
+	req.Header.Set("Authorization", "Bearer "+key)
+	rec := httptest.NewRecorder()
+	h.handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("billing status: %d %s", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec)
+	if got, _ := body["balance_micros"].(float64); got != 25_000_000 {
+		t.Fatalf("status balance_micros = %v, want 25000000 (%s)", body["balance_micros"], rec.Body.String())
+	}
+	if got, _ := body["pending_topup_cents"].(float64); got != 4000 {
+		t.Fatalf("status pending_topup_cents = %v, want 4000 (%s)", body["pending_topup_cents"], rec.Body.String())
+	}
+}
+
+// TestTopupBodyBoundIsBuyerSized keeps the buyer-facing money body off the
+// operator mutation bound: adminActionBodyLimit sizes bodies carrying a
+// free-text reason, and sharing it means retuning the operator surface retunes
+// what an unauthenticated-shaped buyer request may push here.
+func TestTopupBodyBoundIsBuyerSized(t *testing.T) {
+	if prepaidTopupBodyLimit >= adminActionBodyLimit {
+		t.Fatalf("prepaidTopupBodyLimit %d is not independent of adminActionBodyLimit %d",
+			prepaidTopupBodyLimit, adminActionBodyLimit)
+	}
+	h := newFundingHarness(t)
+	buyerID, key := h.buyerWithCard(t)
+
+	// Valid JSON with no unknown fields: only the bound can refuse it.
+	padded := `{"amount_usd":25}` + strings.Repeat(" ", adminActionBodyLimit-64)
+	rec := h.topup(t, key, "oversized", padded)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("%d-byte top-up body: status %d body %s, want 400",
+			len(padded), rec.Code, rec.Body.String())
+	}
+	if got := h.charges.Load(); got != 0 {
+		t.Fatalf("an oversized top-up reached Stripe %d times, want 0", got)
+	}
+	bal, _ := h.store.BuyerPrepaidBalanceMicros(h.ctx, buyerID)
+	if bal != 0 {
+		t.Fatalf("balance after a refused oversized body = %d, want 0", bal)
 	}
 }

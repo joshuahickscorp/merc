@@ -362,10 +362,28 @@ func (s *Server) handleBillingStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "reading billing status")
 		return
 	}
+	// Balance and pending top-ups are here because this is the endpoint the
+	// top-up path sends a buyer to when their request is refused for already
+	// having crossed the Stripe boundary. Answering only configured/connected/
+	// has_card left that buyer with no way to tell whether their deposit landed.
+	bal, err := s.store.BuyerPrepaidBalanceMicros(r.Context(), auth.BuyerID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "reading prepaid balance")
+		return
+	}
+	pendingCount, pendingCents, err := s.store.PrepaidPendingTopupCents(r.Context(), auth.BuyerID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "reading pending top-ups")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configured": stripeKey() != "",
-		"connected":  err == nil && cust != "",
-		"has_card":   pm != "",
+		"configured":          stripeKey() != "",
+		"connected":           cust != "",
+		"has_card":            pm != "",
+		"balance_micros":      bal,
+		"balance_usd":         microsToUSD(bal),
+		"pending_topup_count": pendingCount,
+		"pending_topup_cents": pendingCents,
 	})
 }
 

@@ -34,6 +34,18 @@ func (s *Store) BuyerPrepaidBalanceMicros(ctx context.Context, buyerID uuid.UUID
 	return bal, err
 }
 
+// PrepaidPendingTopupCents reports money the buyer's card was already asked for
+// that the balance does not yet hold. A top-up that is refused because it
+// already crossed the Stripe boundary leaves the buyer with exactly one
+// question — did the deposit land? — and balance alone cannot answer it.
+func (s *Store) PrepaidPendingTopupCents(ctx context.Context, buyerID uuid.UUID) (int64, int64, error) {
+	var count, cents int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*), COALESCE(SUM(amount_cents),0) FROM prepaid_topup_operations
+		 WHERE buyer_id=$1 AND status='pending'`, buyerID).Scan(&count, &cents)
+	return count, cents, err
+}
+
 // errPrepaidTopupConflict is returned when an operation key is reused for a
 // materially different top-up. Answering such a request from the stored row
 // would charge the wrong amount or the wrong buyer.
@@ -300,9 +312,10 @@ func (s *Store) BeginPrepaidRefund(
 	for _, slice := range slices {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO prepaid_refund_operations
-			  (operation_key,buyer_id,amount_cents,currency,status,payment_intent)
-			VALUES ($1,$2,$3,$4,'pending',$5)`,
-			slice.OperationKey, buyerID, slice.Cents, SettlementCurrencyCode(), slice.PaymentIntent); err != nil {
+			  (operation_key,refund_key,buyer_id,amount_cents,currency,status,payment_intent)
+			VALUES ($1,$2,$3,$4,$5,'pending',$6)`,
+			slice.OperationKey, operationKey, buyerID, slice.Cents,
+			SettlementCurrencyCode(), slice.PaymentIntent); err != nil {
 			return prepaidRefundPlan{}, err
 		}
 	}
@@ -369,11 +382,16 @@ func planPrepaidRefundSlicesTx(
 	return slices, nil
 }
 
+// prepaidRefundSlicesTx recovers the slices a refund already wrote. Membership
+// is an equality test on refund_key, never a prefix match on the composite
+// operation_key: the correlation reference inside that key is operator-typed and
+// unrestricted, so a reference carrying a LIKE wildcard ('INC-100%') would match
+// slices belonging to other refunds and replay them onto Stripe.
 func prepaidRefundSlicesTx(ctx context.Context, tx pgx.Tx, operationKey string) ([]prepaidRefundSlice, int64, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT operation_key, COALESCE(payment_intent,''), amount_cents, COALESCE(stripe_refund_id,'')
 		  FROM prepaid_refund_operations
-		 WHERE operation_key LIKE $1 || '-%'
+		 WHERE refund_key = $1
 		 ORDER BY operation_key`, operationKey)
 	if err != nil {
 		return nil, 0, err
