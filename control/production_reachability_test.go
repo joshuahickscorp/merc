@@ -56,6 +56,15 @@ var productionReachability = []reachabilityClaim{
 			"supplier execution per waiting buyer.",
 	},
 	{
+		From:   "Store.EvaluateCellPromotion",
+		Target: "TrafficClassForWorkload",
+		Consequence: "the promotion gate would compare verified-outcome cost and nothing " +
+			"else, so a cell at half the price and four times slower per unit would clear " +
+			"it — including for realtime traffic, where latency is the thing the buyer is " +
+			"paying for. The edge is what makes a slower challenger a refusal there and a " +
+			"permitted trade for batch work, whose deadline absorbs it.",
+	},
+	{
 		From:   "Workers.Run",
 		Target: "Store.sweepExpiredInflight",
 		Consequence: "expired inflight_executions rows are never deleted and the table grows " +
@@ -148,10 +157,6 @@ var knownUnwired = map[string]string{
 	"TokenBudgetFor": "the per-class token budget SelectBatch would consume. Superseded " +
 		"in scope by TokenBudgetForTrafficClass, which reads the promoted per-class " +
 		"table; both are unwired for the same reason.",
-	"TrafficClassForWorkload": "resolution of an admitted batch workload into one of the " +
-		"four governed traffic classes. The table is promoted and self-checked, but no " +
-		"production path asks for the class yet, so queue wait, preemptibility and " +
-		"strict admission order are declared and unenforced.",
 	"TrafficClassForRealtime": "the realtime lane's traffic class. handleChatCompletions " +
 		"does not consult it, so INTERACTIVE's 4,096-token budget and 2s queue wait " +
 		"bound nothing in production.",
