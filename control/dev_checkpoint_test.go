@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -150,5 +152,57 @@ func TestCheckpointReceiptRoundTrips(t *testing.T) {
 	if back.Head != receipt.Head || !back.MutationRestored ||
 		len(back.Steps) != 1 || back.CapabilityMatrixSHA256 != generatedRuntimeMatrixSHA256 {
 		t.Fatalf("receipt did not round-trip: %+v", back)
+	}
+}
+
+// The lock the checkpoint reads must be the lock the mutation script writes.
+//
+// This exists because the rule "never run CI while mutation tooling modifies the
+// same tree" was broken by hand: a checkpoint was killed mid-mutation, its
+// mutation-test.sh survived, and it kept rewriting source files through a later
+// checkpoint and into a `make ci` run that then failed on four tests exercising
+// mutated code. The script already publishes a lock; the gate now refuses to
+// start or to trust a restoration digest while it is held. If the two ever
+// derive different paths, the guard silently stops guarding.
+func TestCheckpointReadsTheMutationScriptsOwnLock(t *testing.T) {
+	root, err := git(".", "rev-parse", "--show-toplevel")
+	if err != nil {
+		t.Skipf("not inside a git repository: %v", err)
+	}
+	script, err := os.ReadFile(filepath.Join(root, "scripts", "mutation-test.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The script derives it as:
+	//   repo_lock_id="$(printf '%s' "$PWD" | shasum -a 256 | cut -c1-16)"
+	//   MUTATION_LOCK="${TMPDIR:-/tmp}/merc-mutation-${repo_lock_id}.lock"
+	for _, fragment := range []string{
+		`printf '%s' "$PWD" | shasum -a 256 | cut -c1-16`,
+		`merc-mutation-${repo_lock_id}.lock`,
+	} {
+		if !strings.Contains(string(script), fragment) {
+			t.Fatalf("mutation-test.sh no longer derives its lock as %q; "+
+				"mutationLockHeld reads a path nothing writes", fragment)
+		}
+	}
+
+	sum := sha256.Sum256([]byte(root))
+	want := filepath.Join(os.TempDir(),
+		"merc-mutation-"+hex.EncodeToString(sum[:])[:16]+".lock")
+	if err := os.MkdirAll(want, 0o755); err != nil {
+		t.Fatalf("could not create the lock the script would: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(want) })
+
+	got, held := mutationLockHeld(root)
+	if !held {
+		t.Fatalf("the checkpoint did not see a held lock at %s", want)
+	}
+	if got != want {
+		t.Fatalf("checkpoint watches %s, script writes %s", got, want)
+	}
+	_ = os.Remove(want)
+	if _, held := mutationLockHeld(root); held {
+		t.Fatal("the checkpoint reports a lock that is gone")
 	}
 }

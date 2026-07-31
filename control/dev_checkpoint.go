@@ -241,6 +241,21 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 			"working tree is not clean; a checkpoint binds a receipt to a commit, "+
 				"and uncommitted work is not in that commit:\n%s", status)
 	}
+	// Refuse to start while another mutation runner owns the tree.
+	//
+	// This is not hypothetical. A checkpoint was killed mid-mutation, its
+	// mutation-test.sh survived the kill, and it went on rewriting source files
+	// for the next hour — through a later checkpoint whose restoration digest
+	// happened to be taken in a clean moment, and into a `make ci` run that then
+	// failed on four tests that were testing mutated code. "Never run CI while
+	// mutation tooling modifies the same tree" has to be enforced rather than
+	// remembered, and the mutation script already publishes a lock for it.
+	if owner, held := mutationLockHeld(opts.root); held {
+		return DevCheckpointReceipt{}, fmt.Errorf(
+			"a mutation run owns this tree (%s); it is rewriting source files, so "+
+				"nothing measured here would describe the commit. Wait for it, or if it "+
+				"is dead, verify the tree against HEAD before removing the lock", owner)
+	}
 	before, err := worktreeContentDigest(opts.root)
 	if err != nil {
 		return DevCheckpointReceipt{}, err
@@ -334,6 +349,13 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 
 	// 4. Prove the mutation runner restored the tree. Content, not status: a
 	//    mutation the restore missed leaves HEAD exactly where it was.
+	// The lock first: a digest taken while a runner is still alive is a snapshot
+	// of a moving tree, and it can match by luck between two mutations.
+	if owner, held := mutationLockHeld(opts.root); held {
+		return receipt, fmt.Errorf(
+			"the mutation runner still holds %s after its suite returned; a content "+
+				"digest taken now would describe a tree that is still moving", owner)
+	}
 	after, err := worktreeContentDigest(opts.root)
 	if err != nil {
 		return receipt, err
@@ -427,4 +449,16 @@ func runDevCheckpointVerify(args []string) int {
 	}
 	fmt.Printf("checkpoint receipt verified for %s\n", head[:12])
 	return 0
+}
+
+// mutationLockHeld reports whether scripts/mutation-test.sh currently owns the
+// tree. It derives the same path the script does: a hash of the repository root,
+// under the temporary directory.
+func mutationLockHeld(root string) (string, bool) {
+	sum := sha256.Sum256([]byte(root))
+	lock := filepath.Join(os.TempDir(), "merc-mutation-"+hex.EncodeToString(sum[:])[:16]+".lock")
+	if _, err := os.Stat(lock); err == nil {
+		return lock, true
+	}
+	return "", false
 }
