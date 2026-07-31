@@ -930,3 +930,19 @@ mod tests {
         assert_eq!(llama.metrics().failures, 0);
     }
 }
+
+/// The engine a worker advertises, derived from its configured embed runtime.
+///
+/// Hardcoding "candle" made a llama.cpp-configured worker register as a candle
+/// worker: it was authorized for candle's cells, would have been dispatched work
+/// its driver cannot serve, and never advertised the cell it exists to prove.
+pub fn advertised_engine(embed_runtime: &str) -> Result<&'static str, RunError> {
+    match embed_runtime.trim() {
+        "" | "candle_metal" | "candle" => Ok("candle"),
+        "llama_cpp_metal" | "llama_cpp" => Ok("llama_cpp"),
+        other => Err(RunError::Inference {
+            backend: "embed",
+            msg: format!("unknown embed_runtime {other:?}"),
+        }),
+    }
+}
