@@ -376,7 +376,17 @@ const (
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	// payment_mode / live_value_movement are always present once the authority
 	// parses so external canary observers can measure safety without inventing it.
-	if s.canary.Enabled && s.canary.configError != nil {
+	//
+	// Read fresh rather than from s.canary, which is the copy buyer and worker
+	// admission was built with at boot. The money path (canaryArtifactLimit,
+	// canaryRetryLimit, canaryManualPayoutGate) re-reads the policy per call, so a
+	// disable decision that stops resolving on a running process — expiry passes,
+	// the mount blips, the file is replaced — halts held payouts and re-imposes the
+	// canary ceilings while the boot-time copy still says the canary is off.
+	// Answering from the boot copy would leave the probe green while money stopped
+	// moving, and the only remaining signal would be a sweep failing until the
+	// liveness staleness window expired.
+	if canary := loadCanaryPolicyFromEnv(); canary.Enabled && canary.configError != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"status":      "not_ready",
 			"reason":      "canary policy is incomplete",

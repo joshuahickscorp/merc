@@ -139,6 +139,10 @@ func TestClampMaxDurationSecsPlatformCeiling(t *testing.T) {
 }
 
 func TestCanaryDisableRequiresRecordedDecision(t *testing.T) {
+	// A bare reference only satisfies a development stack. Left to ambient
+	// MERC_ENV this test would pass for the wrong reason on a developer's shell
+	// and fail on a production-shaped one.
+	t.Setenv("MERC_ENV", "development")
 	t.Setenv("MERC_CANARY_MODE", "false")
 	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "")
 	p := loadCanaryPolicyFromEnv()

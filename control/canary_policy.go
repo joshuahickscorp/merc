@@ -41,8 +41,9 @@ const canaryDisableDecisionEnv = "MERC_CANARY_DISABLE_DECISION_REF"
 func loadCanaryPolicyFromEnv() CanaryPolicy {
 	raw := strings.TrimSpace(os.Getenv("MERC_CANARY_MODE"))
 	if raw == "" {
-		// Unset is off for local tooling. Production compose defaults the env to
-		// true; turning it off requires an explicit false plus a decision ref.
+		// Unset is off for local tooling. Production compose passes the env
+		// explicitly (defaulting to false), so production never lands here;
+		// reaching the disabled state there requires the decision artifact below.
 		return CanaryPolicy{}
 	}
 	enabled, err := strconv.ParseBool(raw)

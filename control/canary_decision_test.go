@@ -233,6 +233,130 @@ func TestProductionComposeCarriesTheCanaryDisableDecision(t *testing.T) {
 			t.Errorf("%s is not empty by default: %s", name, line)
 		}
 	}
+	// The env alone is a container path pointing at nothing. Without the bind
+	// mount that carries the host artifact to that path, every variable above can
+	// be set correctly and production still refuses with "cannot be read".
+	if !strings.Contains(string(compose),
+		"${MERC_CANARY_DISABLE_DECISION_SOURCE:-/dev/null}:/run/secrets/merc-canary-disable-decision.json:ro") {
+		t.Fatal("docker-compose.prod.yml does not mount the decision artifact the env names")
+	}
+	// The refusal is on the file mode, and the operator's editor writes 0644, so
+	// the required mode has to be stated where the mount is declared.
+	if !strings.Contains(string(compose), "0600") {
+		t.Error("docker-compose.prod.yml does not tell the operator the required file mode")
+	}
+}
+
+// A bind-mounted host file at Docker's default 0644 is the likeliest operator
+// mistake in this handoff, and it must be refused rather than read: anything that
+// can write a world-readable decision can open buyer admission.
+func TestCanaryDecisionRefusesLooselyPermissionedArtifact(t *testing.T) {
+	now := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
+	for name, mode := range map[string]os.FileMode{
+		"world_readable": 0o644,
+		"group_writable": 0o660,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeTestDecision(t, validTestDecision())
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatalf("chmod decision: %v", err)
+			}
+			if err := resolveCanaryDisableDecision(path, true, now, testCleanBuild); !errors.Is(err, errCanaryDecisionUnreadable) {
+				t.Fatalf("decision at mode %o was accepted: %v", mode, err)
+			}
+		})
+	}
+	t.Run("owner_and_group_read", func(t *testing.T) {
+		path := writeTestDecision(t, validTestDecision())
+		if err := os.Chmod(path, 0o640); err != nil {
+			t.Fatalf("chmod decision: %v", err)
+		}
+		if err := resolveCanaryDisableDecision(path, true, now, testCleanBuild); err != nil {
+			t.Fatalf("decision at mode 0640 was refused: %v", err)
+		}
+	})
+	t.Run("directory", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := resolveCanaryDisableDecision(dir, true, now, testCleanBuild); !errors.Is(err, errCanaryDecisionUnreadable) {
+			t.Fatalf("a directory was accepted as a decision: %v", err)
+		}
+	})
+}
+
+// The decision is re-read per call on the paths that touch payouts, so it can
+// stop resolving on a running process. Every one of those paths must come back
+// closed, mid-flight, without a restart: a held payout that auto-released
+// because the artifact went missing is money that left on no authority at all.
+func TestMoneyPathClosesWhenTheDisableDecisionStopsResolving(t *testing.T) {
+	t.Setenv("MERC_ENV", "development")
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv(canaryDisableDecisionEnv, "INC-canary-exit-1")
+
+	gate, err := canaryManualPayoutGate()
+	if err != nil || gate {
+		t.Fatalf("resolved decision: manual payout gate=%v err=%v, want off", gate, err)
+	}
+	if limit, err := canaryRetryLimit(); err != nil || limit != maxTaskRetries {
+		t.Fatalf("resolved decision: retry limit=%d err=%v, want the platform ceiling", limit, err)
+	}
+	if limit, err := canaryArtifactLimit(1 << 20); err != nil || limit != 1<<20 {
+		t.Fatalf("resolved decision: artifact limit=%d err=%v, want the computed value", limit, err)
+	}
+
+	// The artifact stops resolving under a process that is already serving.
+	os.Unsetenv(canaryDisableDecisionEnv)
+
+	gate, err = canaryManualPayoutGate()
+	if !gate || !errors.Is(err, errCanaryDecisionMissing) {
+		t.Fatalf("revoked decision: manual payout gate=%v err=%v, want the gate on and the refusal named", gate, err)
+	}
+	if _, err := canaryRetryLimit(); !errors.Is(err, errCanaryDecisionMissing) {
+		t.Fatalf("revoked decision: retry limit did not refuse: %v", err)
+	}
+	if _, err := canaryArtifactLimit(1 << 20); !errors.Is(err, errCanaryDecisionMissing) {
+		t.Fatalf("revoked decision: artifact limit did not refuse: %v", err)
+	}
+}
+
+// Halting payouts is defensible; halting them where nobody is looking is not.
+// s.canary is captured at boot, so a decision that stops resolving afterwards
+// leaves admission open and would leave the probe green: the readiness answer has
+// to come from the same read the money path makes.
+func TestReadyzGoesRedWhenTheDisableDecisionStopsResolving(t *testing.T) {
+	t.Setenv("MERC_ENV", "development")
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv(canaryDisableDecisionEnv, "INC-canary-exit-1")
+	// Reached only if the canary check passes, and it fails before the nil store
+	// is touched, so a regression reports a wrong reason_code instead of panicking.
+	t.Setenv("MERC_PAYMENT_MODE", "sealed")
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_readyz_probe")
+
+	server := NewServer(nil, nil, nil, nil)
+	if server.canary.Enabled {
+		t.Fatalf("decision did not resolve at boot: %v", server.canary.configError)
+	}
+	routes := server.Routes()
+	probe := func() map[string]any {
+		rec := httptest.NewRecorder()
+		routes.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("/readyz = %d, want 503", rec.Code)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode /readyz: %v", err)
+		}
+		return body
+	}
+	if code := probe()["reason_code"]; code != readyzReasonPaymentInvalid {
+		t.Fatalf("with the decision in force /readyz blamed %v, want %q", code, readyzReasonPaymentInvalid)
+	}
+
+	os.Unsetenv(canaryDisableDecisionEnv)
+	if code := probe()["reason_code"]; code != readyzReasonCanaryUnconfigured {
+		t.Fatalf("/readyz reason_code = %v after the decision stopped resolving, want %q",
+			code, readyzReasonCanaryUnconfigured)
+	}
 }
 
 // A deployment that cannot admit buyers must still be observable and contactable.

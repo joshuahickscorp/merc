@@ -51,7 +51,10 @@ x-control-env: &control-env
   # 40-hex commit this image was built from>, "decision":"DISABLE_CANARY_ADMISSION",
   # "scope":"supervised_stripe_test_mode_private_canary","authority":[release_manager,
   # security],"effective_at":"...Z","expires_at":"...Z"}}, plus the sha256 of those
-  # exact bytes in MERC_CANARY_DISABLE_DECISION_SHA256. Both stay empty here: a
+  # exact bytes in MERC_CANARY_DISABLE_DECISION_SHA256. chmod 0600 the host file
+  # first: the control plane refuses anything group-writable or readable by other
+  # users, and a file created by an editor at the usual 0644 is refused, which
+  # looks identical to "no decision was taken". Both stay empty here: a
   # placeholder value would be a decision nobody took. Until they are set, the
   # canary envelope stays enforced and /readyz answers 503 with reason_code
   # canary_policy_unconfigured.
