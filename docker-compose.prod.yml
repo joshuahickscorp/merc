@@ -17,6 +17,17 @@ x-control-env: &control-env
   MERC_CONNECT_CLIENT_ID: ${MERC_CONNECT_CLIENT_ID:-}
   MERC_CONNECT_RETURN_URL: ${MERC_CONNECT_RETURN_URL:-}
   MERC_CONNECT_REFRESH_URL: ${MERC_CONNECT_REFRESH_URL:-}
+  # The catalogue price authority, at the absolute path the image ships it to.
+  # Named explicitly rather than discovered: a deployment must not be able to
+  # start against a board nobody chose. An override is allowed, and in production
+  # it must declare MERC_PRICE_BOARD_SHA256 as well.
+  # Required in production by validateAdminAccessConfig; the control plane refuses
+  # to start without it. It was in neither this file nor .env.example, so the
+  # shipped compose could not boot even once the price board was fixed -- the
+  # image-boot gate found it on its first real run.
+  MERC_ADMIN_CIDRS: ${MERC_ADMIN_CIDRS:?required in production (comma-separated operator management CIDRs)}
+  MERC_PRICE_BOARD: ${MERC_PRICE_BOARD:-/etc/merc/pricing/board.json}
+  MERC_PRICE_BOARD_SHA256: ${MERC_PRICE_BOARD_SHA256:-}
   MERC_SETTLEMENT_CURRENCY: ${MERC_SETTLEMENT_CURRENCY:?required}
   MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE: ${MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE:?required for the USD reference board}
   MERC_PRICE_FX_REVISION: ${MERC_PRICE_FX_REVISION:?required for the USD reference board}
