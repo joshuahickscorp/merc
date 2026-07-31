@@ -363,9 +363,30 @@ def main():
             "directed_routing": bool(
                 grep_count(r"func buildWorkloadDecisionDirected", "control")),
             "selector_type_present": bool(grep_count(r"RuntimeSelector", "control")),
+            # Probed against what the selector was actually built as, not against
+            # three table names from a design that was never implemented. The
+            # decisions live in runtime_shadow_selections; the OUTCOME side is a
+            # read over `tasks` rather than a table, because every fact it needs is
+            # already persisted by the money path (control/runtime_cell_cost.go);
+            # and a promotion is an entry in runtime_activation_policies carrying
+            # the receipt the gate in control/runtime_cell_promotion.go derives.
+            # Reporting the old names as absent described a gap that does not exist
+            # while hiding the one that does — see selector_cost_basis below.
             "selector_tables": schema_has(
-                schema, "runtime_selector_decisions", "runtime_selector_outcomes",
-                "runtime_selector_promotions"),
+                schema, "runtime_shadow_selections", "runtime_activation_policies"),
+            "selector_cost_basis": {
+                "measured_cost_read": bool(
+                    grep_count(r"func \(s \*Store\) MeasuredCellCostsByHardware", "control")),
+                "regret_read": bool(
+                    grep_count(r"func \(s \*Store\) SelectorRegretForScope", "control")),
+                "promotion_gate": bool(
+                    grep_count(r"func \(s \*Store\) EvaluateCellPromotion", "control")),
+                "shadow_basis_recorded": "selection_basis" in schema,
+                # The gap that remains: no cohort has been driven through live
+                # agents, so the regret figure has no production cohort behind it.
+                "paired_cohort_receipt": bool(
+                    os.path.exists(os.path.join(ROOT, "evidence/perf/selector"))),
+            },
             "tokenization_cache_callers": grep_count(
                 r"TokenizationCache|tokenizationCache", "control"),
             "tool_schema_cache_callers": grep_count(

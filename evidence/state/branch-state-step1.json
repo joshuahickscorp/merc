@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_from": "HEAD, the working tree, and (optionally) a live database",
   "source": {
-    "commit": "583842217786b9c76c2a4b935782ba77cfdbe042",
+    "commit": "aa5ecf697fcea0f4f2398ef8664dffa3c2532f45",
     "branch": "perf/execution-frontier",
     "tree_clean": false,
     "pushed": false
@@ -339,16 +339,25 @@
     "directed_routing": true,
     "selector_type_present": true,
     "selector_tables": {
-      "runtime_selector_decisions": false,
-      "runtime_selector_outcomes": false,
-      "runtime_selector_promotions": false
+      "runtime_shadow_selections": true,
+      "runtime_activation_policies": true
+    },
+    "selector_cost_basis": {
+      "measured_cost_read": true,
+      "regret_read": true,
+      "promotion_gate": true,
+      "shadow_basis_recorded": true,
+      "paired_cohort_receipt": false
     },
     "tokenization_cache_callers": [],
     "tool_schema_cache_callers": [],
     "exact_reuse_batch_enabled": false,
     "batching_authority": "control/batch_policy.go:SelectBatch",
     "batching_traffic_classes": [
-      "INTERACTIVE"
+      "INTERACTIVE",
+      "BATCH_PRIORITY",
+      "BATCH_STANDARD",
+      "BACKGROUND"
     ],
     "overhead_actuals_table": true,
     "overhead_actuals_writers": [
@@ -376,7 +385,7 @@
       "7d6de054be54",
       "e4fd89935543"
     ],
-    "current_head": "583842217786"
+    "current_head": "aa5ecf697fce"
   },
   "dead_or_unwired_symbols": {
     "RenewInflightLease": [
@@ -395,7 +404,9 @@
     ],
     "preferenceForTier": [],
     "SelectBatch": [],
-    "TokenBudgetFor": []
+    "TokenBudgetFor": [
+      "control/traffic_class.go:163"
+    ]
   },
   "unresolved_migrations": {
     "workers_engine_valid_still_declared": true,
