@@ -305,3 +305,89 @@ func containsCell(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+// A directed job reaches the intended agent and no other.
+//
+// This is the routing half of the autonomous claim: two jobs, one frozen onto
+// each embed cell, offered to the real capabilities two real agents advertised.
+// The claim runs against those stored rows rather than against fixtures, so it
+// exercises the same predicate a live poll does.
+func TestDirectedJobsReachOnlyTheIntendedAgent(t *testing.T) {
+	agentBinaryPath(t)
+	llamaURL := os.Getenv("MERC_LLAMA_EMBED_URL")
+	if llamaURL == "" {
+		t.Skip("MERC_LLAMA_EMBED_URL is not set; the llama.cpp agent has no engine to reach")
+	}
+
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	srv := httptest.NewServer(NewServer(store, nil, nil, nil).Routes())
+	t.Cleanup(srv.Close)
+
+	candle := launchAgent(t, ctx, store, pool, srv.URL, "candle", "candle_metal", llamaURL)
+	waitForEnrolment(t, ctx, pool, candle)
+	llama := launchAgent(t, ctx, store, pool, srv.URL, "llama_cpp", "llama_cpp_metal", llamaURL)
+	waitForEnrolment(t, ctx, pool, llama)
+
+	// Stop the agents polling before the claim assertions: an agent that claims
+	// the task first would make "the wrong agent cannot claim" unfalsifiable.
+	for _, a := range []*enrolledAgent{candle, llama} {
+		if a.cmd.Process != nil {
+			_ = a.cmd.Process.Signal(os.Interrupt)
+		}
+	}
+	time.Sleep(2 * time.Second)
+
+	// A fresh deadline. The store context was budgeted for a test that does not
+	// spend two minutes waiting on model benchmarks, and it expires mid-fixture
+	// otherwise — reported as "create buyer: context deadline exceeded", which
+	// reads like a database fault and is not one.
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	t.Cleanup(cancel)
+
+	for _, tc := range []struct {
+		name, cell string
+		intended   *enrolledAgent
+		other      *enrolledAgent
+	}{
+		{"candle cell", candleEmbedCell, candle, llama},
+		{"llama.cpp cell", llamaEmbedCell, llama, candle},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
+			tasks := makeTasks(f, 1)
+			f.TaskIDs = []uuid.UUID{tasks[0].ID}
+			job := validJobRowDirected(t, f, tasks, tc.cell)
+			if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
+				t.Fatalf("submit directed job: %v", err)
+			}
+
+			// The agent that does NOT hold this cell must not claim it, whatever
+			// else it is capable of.
+			wrong, err := store.ClaimTasksTx(ctx, WorkerAuth{
+				WorkerID: tc.other.workerID, SupplierID: tc.other.supplierID,
+			})
+			if err != nil {
+				t.Fatalf("wrong-agent claim: %v", err)
+			}
+			if wrong != nil {
+				t.Fatalf("%s claimed a job directed to %s", tc.other.name, tc.cell)
+			}
+
+			// The agent that does must.
+			right, err := store.ClaimTasksTx(ctx, WorkerAuth{
+				WorkerID: tc.intended.workerID, SupplierID: tc.intended.supplierID,
+			})
+			if err != nil {
+				t.Fatalf("intended-agent claim: %v", err)
+			}
+			if right == nil {
+				t.Fatalf("%s did not receive the job directed to its own cell %s",
+					tc.intended.name, tc.cell)
+			}
+			if right.JobID != f.JobID {
+				t.Fatalf("claimed job %s, want %s", right.JobID, f.JobID)
+			}
+			t.Logf("%s claimed task %s on %s", tc.intended.name, right.TaskID, tc.cell)
+		})
+	}
+}

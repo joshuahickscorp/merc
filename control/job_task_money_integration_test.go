@@ -501,15 +501,23 @@ func seedMoneyPathJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f m
 }
 
 func validJobRow(t *testing.T, f moneyPathFixture, tasks []taskRow) *jobRow {
+	return validJobRowDirected(t, f, tasks, "")
+}
+
+// validJobRowDirected builds the same governed job frozen onto a named runtime
+// cell. An empty cell id is ordinary admission.
+func validJobRowDirected(
+	t *testing.T, f moneyPathFixture, tasks []taskRow, directedCellID string,
+) *jobRow {
 	t.Helper()
-	workload, err := buildWorkloadDecision(jobSubmit{
+	workload, err := buildWorkloadDecisionDirected(jobSubmit{
 		JobType: JobType{Type: "embed"},
 		Model:   ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
 		Tier:    "batch",
 		Constraints: JobConstraints{
 			MaxDurationSecs: 3600,
 		},
-	}, strings.Repeat("a", 64))
+	}, strings.Repeat("a", 64), directedCellID)
 	if err != nil {
 		t.Fatalf("build test workload decision: %v", err)
 	}
