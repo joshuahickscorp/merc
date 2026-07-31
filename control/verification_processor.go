@@ -299,6 +299,16 @@ func (p *VerificationProcessor) processLeasedOnce(ctx context.Context, leased Le
 	work := leased.Work
 	var commitBytes []byte
 	if work.SamplingProbability == nil || work.SamplingSelected == nil {
+		// A processor with no verifier cannot decide anything, and calling through
+		// it panics on a nil receiver inside an HTTP handler — where net/http
+		// recovers it, returns 500 and leaves the work leased. The commit then
+		// looks like a transient server error rather than a deployment that was
+		// never wired to verify. Refuse in the open instead.
+		if p.verifier == nil {
+			return result, errors.New(
+				"verification processor has no verifier; this deployment cannot decide " +
+					"a commit and must not leave the work leased pretending otherwise")
+		}
 		probability := p.verifier.effectiveCheckProb(ctx, info)
 		selected := p.verifier.checkSampled(info.TaskID, probability)
 		if _, err := p.store.PinVerificationSampling(ctx, leased.Lease, probability, selected); err != nil {
