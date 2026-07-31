@@ -398,8 +398,21 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 		return receipt, err
 	}
 	if final != before {
+		// Name the files. `make ci` is not read-only — rename-residue-audit.py and
+		// validate-repo-boundary.py regenerate their census receipts — so this
+		// fires whenever a commit lands with a stale census, and "the tree changed"
+		// alone sends the reader looking for a rogue test rather than at a receipt
+		// that needs committing.
+		changed, statusErr := git(opts.root, "status", "--porcelain")
+		if statusErr != nil {
+			changed = "(git status failed: " + statusErr.Error() + ")"
+		}
 		return receipt, fmt.Errorf(
-			"the working tree changed during the checkpoint (%s -> %s)", before[:12], final[:12])
+			"the working tree changed during the checkpoint (%s -> %s); the receipt "+
+				"would name a commit that is not what was tested:\n%s\n"+
+				"`make ci` regenerates census receipts, so a stale one shows up here — "+
+				"commit the regenerated file and run the checkpoint again",
+			before[:12], final[:12], changed)
 	}
 	receipt.Steps = append(receipt.Steps, devCheckpointStep{
 		Name: "source-verification", Command: "HEAD and worktree digest unchanged",
