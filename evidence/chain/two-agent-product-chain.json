@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "kind": "runtime_cell_lifecycle_promotion",
+  "merc_source_commit": "6b45bbca550cab486e92220da5d5ad83d945e83a",
+  "promoted": {
+    "runtime_profile_id": "llama_cpp_metal",
+    "revision": "r7 -> r8",
+    "profile_lifecycle": "VALIDATED -> REAL_RUNTIME_PROVEN",
+    "cell_id": "llama-cpp-metal-minilm-embed",
+    "cell_lifecycle": "VALIDATED -> REAL_RUNTIME_PROVEN",
+    "routable": false,
+    "note": "REAL_RUNTIME_PROVEN is reachable by directed operator/test routing only. Not CANARY, not ACTIVE. Ordinary buyer work still cannot reach this cell."
+  },
+  "unchanged": {
+    "candle_metal": "ACTIVE, both cells routable",
+    "llama-cpp-metal-llama1-infer": "REJECTED_FOR_CONTRACT, routable=false"
+  },
+  "evidence": {
+    "agent_build": "evidence/chain/agent-build-receipt.json",
+    "benchmark": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+    "comparator": "embed-cosine-v2",
+    "autonomous_chain": "control/two_agent_enrollment_test.go",
+    "rejection_economics": "control/rejection_economics_test.go",
+    "receipt_tamper": "control/receipt_tamper_test.go"
+  },
+  "measured": {
+    "cross_cell_min_row_cosine": 0.999999,
+    "cross_cell_mean_cosine": 0.999999,
+    "buyer_charge_usd": -0.587166,
+    "platform_take_usd": 0.393166,
+    "supplier_credit_usd": 0.194,
+    "ledger_residual_usd": 0.0,
+    "rejected_supplier_net_usd": 0.0,
+    "rejected_reputation": "0.95 -> 0.801"
+  },
+  "not_established": {
+    "failure_matrix": "agent death, runtime unavailability, upload interruption, verifier restart and settlement retry are not exercised",
+    "canary": "no CANARY or ACTIVE promotion follows from this receipt"
+  },
+  "grok_status": "DEFERRED_USAGE_LIMIT",
+  "review_label": "NOT_GROK_INDEPENDENT"
+}
