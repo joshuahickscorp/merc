@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -768,4 +769,192 @@ func waitForVerificationOutcome(
 		time.Sleep(500 * time.Millisecond)
 	}
 	return ""
+}
+
+// The buyer, platform and receipt side of the same two executions.
+//
+// Split from the settlement test so a money-shape failure and a receipt failure
+// are distinguishable at a glance rather than both reading as "the chain broke".
+func assertBuyerPlatformAndReceipt(
+	t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool,
+	name string, buyerID, jobID, taskID uuid.UUID, supplierUSD float64,
+) {
+	t.Helper()
+
+	// Every ledger row this execution produced, by kind, so the assertions below
+	// describe the actual shape rather than a guessed one.
+	rows, err := pool.Query(ctx, `
+		SELECT kind, COALESCE(amount_usd,0), supplier_id IS NOT NULL
+		  FROM ledger_entries WHERE task_id=$1 ORDER BY kind`, taskID)
+	if err != nil {
+		t.Fatalf("%s: read ledger: %v", name, err)
+	}
+	defer rows.Close()
+	byKind := map[string]float64{}
+	for rows.Next() {
+		var kind string
+		var amount float64
+		var isSupplier bool
+		if err := rows.Scan(&kind, &amount, &isSupplier); err != nil {
+			t.Fatal(err)
+		}
+		byKind[kind] += amount
+		t.Logf("%s ledger: kind=%s amount=%.9f supplier=%v", name, kind, amount, isSupplier)
+	}
+
+	// Conservation, against the shape the production path actually wrote:
+	//
+	//     buyer_charge (negative, the debit) + platform_take + supplier_credit = 0
+	//
+	// Asserted rather than inferred from the invoice, because the invoice is a
+	// projection and the ledger is the authority. A gap here is money appearing
+	// or vanishing between the three parties to one execution.
+	buyerCharge, platformTake := byKind["buyer_charge"], byKind["platform_take"]
+	supplierCredit := byKind["supplier_credit"]
+	if buyerCharge == 0 || platformTake == 0 || supplierCredit == 0 {
+		t.Fatalf("%s: incomplete ledger shape: charge=%.9f take=%.9f credit=%.9f",
+			name, buyerCharge, platformTake, supplierCredit)
+	}
+	// Tolerance, not equality. These are float64 dollars summed from three rows,
+	// so an exact == compares against accumulation noise: the first version of
+	// this check failed with a residual that PRINTS as 0.000000000 and is around
+	// 1e-17. The ledger's own precision is micro-USD, so anything below a
+	// nano-dollar cannot represent real money and is arithmetic.
+	const ledgerEpsilonUSD = 1e-9
+	if residual := buyerCharge + platformTake + supplierCredit; math.Abs(residual) > ledgerEpsilonUSD {
+		t.Errorf("%s: ledger does not conserve: %.9f + %.9f + %.9f = %.12f",
+			name, buyerCharge, platformTake, supplierCredit, residual)
+	}
+	if math.Abs(supplierCredit-supplierUSD) > ledgerEpsilonUSD {
+		t.Errorf("%s: supplier credit %.9f does not match the payable read for this task %.9f",
+			name, supplierCredit, supplierUSD)
+	}
+
+	// The buyer must be charged for the job exactly once. Charge rows are
+	// job-scoped rather than task-scoped, so this reads the invoice the buyer
+	// would actually be shown.
+	invoice, err := store.JobInvoice(ctx, jobID, buyerID)
+	if err != nil {
+		t.Fatalf("%s: job invoice: %v", name, err)
+	}
+	t.Logf("%s invoice: status=%s estimated=%.9f actual=%.9f currency=%s",
+		name, invoice.Status, invoice.EstimatedUSD, invoice.ActualUSD, invoice.Currency)
+
+	if invoice.Currency == "" {
+		t.Errorf("%s: invoice carries no explicit currency", name)
+	}
+	if invoice.ActualUSD <= 0 {
+		t.Errorf("%s: buyer was charged %.9f for a completed, verified job",
+			name, invoice.ActualUSD)
+	}
+	// Merc keeps something. A supplier payable equal to or above the buyer charge
+	// would mean the platform ran the job at cost or at a loss, which is a
+	// business decision nobody made here.
+	contribution := invoice.ActualUSD - supplierUSD
+	t.Logf("%s contribution: buyer %.9f - supplier %.9f = %.9f",
+		name, invoice.ActualUSD, supplierUSD, contribution)
+	if contribution <= 0 {
+		t.Errorf("%s: Merc contribution is %.9f; the platform did not keep a margin",
+			name, contribution)
+	}
+}
+
+// Receipts for the two autonomously-executed jobs, assembled and checked the way
+// a buyer's would be.
+func TestBothAgentsProduceVerifiableReceipts(t *testing.T) {
+	agentBinaryPath(t)
+	llamaURL := os.Getenv("MERC_LLAMA_EMBED_URL")
+	if llamaURL == "" {
+		t.Skip("MERC_LLAMA_EMBED_URL is not set; the llama.cpp agent has no engine to reach")
+	}
+	t.Setenv("MERC_VERIFICATION_SAMPLE_SECRET",
+		"two-agent-receipt-verification-sampling-secret-0123456")
+	artifacts := newArtifactHarness(t)
+
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	verifier := NewVerifier(store).WithStorage(artifacts.storage)
+	srv := httptest.NewServer(NewServer(store, artifacts.storage, verifier, nil).Routes())
+	t.Cleanup(srv.Close)
+
+	candle := launchAgent(t, ctx, store, pool, srv.URL, "candle", "candle_metal", llamaURL)
+	waitForEnrolment(t, ctx, pool, candle)
+	llama := launchAgent(t, ctx, store, pool, srv.URL, "llama_cpp", "llama_cpp_metal", llamaURL)
+	waitForEnrolment(t, ctx, pool, llama)
+
+	jobCtx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	t.Cleanup(cancel)
+
+	corpus := []byte(`{"id":"0","text":"A receipt names the runtime that produced it."}` + "\n")
+	var candleBody []byte
+
+	for _, tc := range []struct {
+		name, cell string
+		agent      *enrolledAgent
+	}{
+		{"candle", candleEmbedCell, candle},
+		{"llama_cpp", llamaEmbedCell, llama},
+	} {
+		f := seedMoneyPathFixture(t, jobCtx, store, pool, moneyPathSeedOpts{TaskCount: 1})
+		tasks := makeTasks(f, 1)
+		f.TaskIDs = []uuid.UUID{tasks[0].ID}
+		job := validJobRowDirected(t, f, tasks, tc.cell)
+		for _, key := range []string{job.InputRef, tasks[0].InputRef} {
+			if err := artifacts.storage.PutObject(
+				jobCtx, key, corpus, "application/x-ndjson"); err != nil {
+				t.Fatalf("%s: upload %s: %v", tc.name, key, err)
+			}
+		}
+		if tc.name == "llama_cpp" {
+			if err := store.InsertHoneypot(
+				jobCtx, "embed", tasks[0].InputRef, candleBody, ""); err != nil {
+				t.Fatalf("seed governed reference: %v", err)
+			}
+			if _, err := pool.Exec(jobCtx,
+				`UPDATE tasks SET is_honeypot=true WHERE id=$1`, tasks[0].ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := store.SubmitJobTx(jobCtx, job, tasks); err != nil {
+			t.Fatalf("%s: submit: %v", tc.name, err)
+		}
+
+		body, _ := waitForCommittedResult(t, jobCtx, pool, artifacts, tasks[0].ID, tc.name)
+		if tc.name == "candle" {
+			candleBody = body
+		}
+		if outcome := waitForVerificationOutcome(t, jobCtx, pool, tasks[0].ID); outcome != "pass" {
+			t.Fatalf("%s: verification outcome %q, want pass", tc.name, outcome)
+		}
+
+		var supplierUSD float64
+		if err := pool.QueryRow(jobCtx, `
+			SELECT COALESCE(SUM(amount_usd),0) FROM ledger_entries
+			 WHERE task_id=$1 AND supplier_id IS NOT NULL`, tasks[0].ID).
+			Scan(&supplierUSD); err != nil {
+			t.Fatal(err)
+		}
+		assertBuyerPlatformAndReceipt(
+			t, jobCtx, store, pool, tc.name, f.BuyerID, f.JobID, tasks[0].ID, supplierUSD)
+
+		// The receipt must name the runtime cell that actually executed, and the
+		// governed identity behind it. A receipt that could not distinguish the two
+		// cells would make the whole comparison unauditable.
+		workload, err := store.JobWorkloadDecision(jobCtx, f.JobID)
+		if err != nil || workload == nil {
+			t.Fatalf("%s: read frozen workload decision: %v", tc.name, err)
+		}
+		if workload.DirectedCellID != tc.cell {
+			t.Errorf("%s: receipt authority names directed cell %q, want %q",
+				tc.name, workload.DirectedCellID, tc.cell)
+		}
+		if len(workload.RuntimeCandidates) != 1 ||
+			workload.RuntimeCandidates[0].CellID != tc.cell {
+			t.Errorf("%s: frozen candidate is %+v, want cell %s",
+				tc.name, workload.RuntimeCandidates, tc.cell)
+		}
+		t.Logf("%s receipt authority: cell=%s runtime=%s kind=%s model_revision=%s",
+			tc.name, workload.RuntimeCandidates[0].CellID,
+			workload.RuntimeCandidates[0].RuntimeID,
+			workload.RuntimeCandidates[0].ModelKind, workload.ModelRevision)
+	}
 }
