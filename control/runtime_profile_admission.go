@@ -54,6 +54,48 @@ func routableProfileForEngine(engine string) (authorityRuntimeProfile, error) {
 	}
 }
 
+// enrollableProfileForEngine resolves the profile a worker of this engine binds
+// at enrolment.
+//
+// Routable first, then directed-reachable. A worker of an engine whose profile is
+// still being proven has to be able to enrol — that is how the profile gets
+// proven — and resolving only routable profiles meant a llama.cpp worker had
+// nothing to bind, so registration failed server-side and the agent retried
+// forever against a wall it could not describe.
+//
+// Directed-reachable is not routable: the worker binds a governed identity and
+// holds capabilities marked non-routable, so ordinary buyer work still cannot
+// reach it. Exactly one profile per engine either way; two would make the
+// binding ambiguous and is refused rather than resolved by preference.
+func enrollableProfileForEngine(engine string) (authorityRuntimeProfile, error) {
+	if profile, err := routableProfileForEngine(engine); err == nil {
+		return profile, nil
+	}
+	var found []authorityRuntimeProfile
+	for _, profile := range runtimeAuthority.Runtimes {
+		if profile.Engine != engine {
+			continue
+		}
+		for _, cell := range profile.Cells {
+			if cell.ReachableByDirectedRouting(profile) {
+				found = append(found, profile)
+				break
+			}
+		}
+	}
+	switch len(found) {
+	case 0:
+		return authorityRuntimeProfile{}, fmt.Errorf(
+			"engine %q has no routable or directed-reachable runtime profile (matrix %s)",
+			engine, generatedRuntimeMatrixVersion)
+	case 1:
+		return found[0], nil
+	default:
+		return authorityRuntimeProfile{}, fmt.Errorf(
+			"engine %q resolves to %d enrollable runtime profiles", engine, len(found))
+	}
+}
+
 // workerDeviceCount is the host's declared device count. An agent that predates
 // the topology fields is a single-device host, which is exactly what it was
 // before the fields existed — the same reading multi_gpu_admission already uses.
@@ -73,9 +115,24 @@ func workerDeviceCount(cap WorkerCapability) int {
 // so a worker claiming a retired or unknown profile gets told that rather than a
 // confusing memory error about cells it was never going to serve.
 func ValidateWorkerAgainstProfile(profile authorityRuntimeProfile, cap WorkerCapability) error {
-	if !runtimeLifecycleRoutable(profile.Lifecycle) {
+	// A profile must be reachable by SOME route, not necessarily routable.
+	//
+	// Requiring routability here meant a worker of an engine still being proven
+	// could not bind a profile at all — and a profile is proven by a worker
+	// executing the chain on it, so the requirement made the state permanent.
+	// Directed-reachable is the weaker, correct gate: the worker binds a governed
+	// identity, and its capabilities are recorded non-routable so ordinary buyer
+	// work still cannot reach it.
+	reachable := false
+	for _, cell := range profile.Cells {
+		if cell.ReachableByDirectedRouting(profile) {
+			reachable = true
+			break
+		}
+	}
+	if !reachable {
 		return fmt.Errorf(
-			"runtime profile %q is %s and may not receive work",
+			"runtime profile %q is %s and has no cell reachable by any route",
 			profile.RuntimeID, profile.Lifecycle)
 	}
 	if profile.SupersededBy != "" {
@@ -143,7 +200,7 @@ func ValidateWorkerAgainstProfile(profile authorityRuntimeProfile, cap WorkerCap
 // binary it is running, and the authority decides which profile that engine maps
 // to today.
 func ResolveWorkerRuntimeProfile(cap WorkerCapability) (authorityRuntimeProfile, error) {
-	profile, err := routableProfileForEngine(cap.Engine)
+	profile, err := enrollableProfileForEngine(cap.Engine)
 	if err != nil {
 		return authorityRuntimeProfile{}, err
 	}
