@@ -33,7 +33,24 @@ var validTiers = map[string]bool{"batch": true, "priority": true, "trusted": tru
 // digest-addressed vLLM server on CUDA hardware. The engine is server-authorised
 // at registration: a worker cannot self-declare an engine the matrix does not
 // carry for its hardware class.
-var validEngines = map[string]bool{"candle": true, "vllm": true}
+// validEngines is derived from the engine registry rather than hand-listed.
+//
+// It was {candle, vllm}, which silently excluded llama_cpp and mlx: a worker of
+// either was refused at /v1/worker/register with "invalid engine" long before any
+// governed profile check ran, so an engine could be fully registered in the
+// authority, have a profile, cells and a benchmark receipt, and still be
+// unenrollable because of a literal in a different file. The authority is the
+// authority; a second hand-maintained list of engines is exactly the drift the
+// registry exists to remove.
+var validEngines = derivedValidEngines()
+
+func derivedValidEngines() map[string]bool {
+	out := make(map[string]bool, len(runtimeAuthority.Engines))
+	for _, engine := range runtimeAuthority.Engines {
+		out[engine.Engine] = true
+	}
+	return out
+}
 
 // cudaHWClasses is the subset that may run the vllm engine. Keeping this
 // explicit stops an Apple worker from claiming vllm and a CUDA worker from

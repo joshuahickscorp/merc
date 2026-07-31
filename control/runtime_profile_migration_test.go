@@ -529,22 +529,37 @@ func TestWorkerProfileValidationRefusesEveryUnsatisfiedClaim(t *testing.T) {
 		t.Errorf("an embed-only worker was refused for a cell it never claimed: %v", err)
 	}
 
-	// A non-routable profile may not take work however well the worker fits it.
+	// A VALIDATED profile now ACCEPTS a worker, and that is the correction rather
+	// than a relaxation: a profile is proven by a worker executing the chain on
+	// it, so refusing every worker of an unproven engine made the state permanent.
+	// What stops this widening the product is that the resulting capabilities are
+	// recorded non-routable, so ordinary buyer work cannot reach them.
 	mlx, ok := runtimeProfileByID("mlx_metal")
 	if !ok {
 		t.Fatal("mlx_metal is not registered")
 	}
 	mlxWorker := good
 	mlxWorker.Engine = "mlx"
-	if err := ValidateWorkerAgainstProfile(mlx, mlxWorker); err == nil {
-		t.Fatal("a VALIDATED profile accepted a worker")
-	} else if !strings.Contains(err.Error(), "VALIDATED") {
-		t.Errorf("non-routable refusal said %q", err.Error())
+	if err := ValidateWorkerAgainstProfile(mlx, mlxWorker); err != nil {
+		t.Errorf("a directed-reachable profile refused a worker that fits it: %v", err)
+	}
+	if _, err := ResolveWorkerRuntimeProfile(mlxWorker); err != nil {
+		t.Errorf("an engine with a directed-reachable profile did not resolve: %v", err)
+	}
+	for _, cell := range mlx.Cells {
+		if cell.Routable(mlx) {
+			t.Errorf("mlx cell %q is routable; enrolment would widen the product", cell.ID)
+		}
 	}
 
-	// And an engine with no routable profile cannot be resolved at all.
-	if _, err := ResolveWorkerRuntimeProfile(mlxWorker); err == nil {
-		t.Fatal("an engine with no routable profile resolved")
+	// A profile with NO reachable cell is still refused. This is the invariant the
+	// routable check was standing in for, stated directly.
+	quarantined := mlx
+	quarantined.Lifecycle = runtimeLifecycleQuarantined
+	if err := ValidateWorkerAgainstProfile(quarantined, mlxWorker); err == nil {
+		t.Fatal("a QUARANTINED profile accepted a worker")
+	} else if !strings.Contains(err.Error(), "no cell reachable") {
+		t.Errorf("terminal refusal said %q", err.Error())
 	}
 }
 
