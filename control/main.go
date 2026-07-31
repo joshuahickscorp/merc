@@ -400,6 +400,14 @@ func main() {
 	}
 
 	server := NewServer(store, storage, NewVerifier(store).WithStorage(storage), payout)
+	// Say which refusal it was, once, where only the operator can read it.
+	// /readyz publishes the machine-readable reason code and nothing more: the
+	// refusal names the decision artifact's path and digest, and an unauthenticated
+	// probe is not the place to hand those out. Without this line the operator's
+	// only evidence would be a 503 with no cause.
+	if server.canary.Enabled && server.canary.configError != nil {
+		log.Printf("canary policy is incomplete, buyer admission stays closed: %v", server.canary.configError)
+	}
 
 	workersCtx, stopWorkers := context.WithCancel(ctx)
 	defer stopWorkers()
