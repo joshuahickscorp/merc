@@ -391,3 +391,157 @@ func TestDirectedJobsReachOnlyTheIntendedAgent(t *testing.T) {
 		})
 	}
 }
+
+// The complete autonomous worker loop, on both runtime cells.
+//
+// Nothing is injected into CompleteTaskTx. The agent polls, claims, downloads the
+// real input artifact through a presigned URL, executes through its production
+// RuntimeDriver, uploads the content-addressed result and commits with attempt
+// fencing — and the assertions read the committed artifact back out of storage
+// and grade it with the governed comparator.
+//
+// This is the difference between "the runner produces valid bytes" and "an
+// enrolled worker produced them for a job Merc dispatched to it".
+func TestBothAgentsExecuteADirectedJobEndToEnd(t *testing.T) {
+	agentBinaryPath(t)
+	llamaURL := os.Getenv("MERC_LLAMA_EMBED_URL")
+	if llamaURL == "" {
+		t.Skip("MERC_LLAMA_EMBED_URL is not set; the llama.cpp agent has no engine to reach")
+	}
+	artifacts := newArtifactHarness(t) // skips when object storage is unconfigured
+
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	// Real storage on the server: the poll handler presigns input and output, and
+	// a nil storage would fail the agent before it ever executed.
+	srv := httptest.NewServer(NewServer(store, artifacts.storage, nil, nil).Routes())
+	t.Cleanup(srv.Close)
+
+	candle := launchAgent(t, ctx, store, pool, srv.URL, "candle", "candle_metal", llamaURL)
+	waitForEnrolment(t, ctx, pool, candle)
+	llama := launchAgent(t, ctx, store, pool, srv.URL, "llama_cpp", "llama_cpp_metal", llamaURL)
+	waitForEnrolment(t, ctx, pool, llama)
+
+	jobCtx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	t.Cleanup(cancel)
+
+	// One immutable corpus, both cells. Identical input is what makes the two
+	// results comparable at all.
+	corpus := []byte(strings.Join([]string{
+		`{"id":"0","text":"The water cycle moves water through the atmosphere, land and oceans."}`,
+		`{"id":"1","text":"Merc settles every task against a receipt."}`,
+		`{"id":"2","text":"A quantized model is a different product, not a cheaper one."}`,
+	}, "\n") + "\n")
+
+	committed := map[string][]byte{}
+	for _, tc := range []struct {
+		name, cell string
+		agent      *enrolledAgent
+	}{
+		{"candle", candleEmbedCell, candle},
+		{"llama_cpp", llamaEmbedCell, llama},
+	} {
+		f := seedMoneyPathFixture(t, jobCtx, store, pool, moneyPathSeedOpts{TaskCount: 1})
+		tasks := makeTasks(f, 1)
+		f.TaskIDs = []uuid.UUID{tasks[0].ID}
+		job := validJobRowDirected(t, f, tasks, tc.cell)
+
+		// The input artifact the agent will actually download.
+		if err := artifacts.storage.PutObject(
+			jobCtx, job.InputRef, corpus, "application/x-ndjson"); err != nil {
+			t.Fatalf("%s: upload input: %v", tc.name, err)
+		}
+		if err := artifacts.storage.PutObject(
+			jobCtx, tasks[0].InputRef, corpus, "application/x-ndjson"); err != nil {
+			t.Fatalf("%s: upload task input: %v", tc.name, err)
+		}
+		t.Cleanup(func() {
+			c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_ = artifacts.storage.RemoveObjects(c, []string{job.InputRef, tasks[0].InputRef})
+		})
+
+		if err := store.SubmitJobTx(jobCtx, job, tasks); err != nil {
+			t.Fatalf("%s: submit: %v", tc.name, err)
+		}
+
+		// Wait for the agent to take it all the way to a commit, on its own.
+		body, resultKey := waitForCommittedResult(t, jobCtx, pool, artifacts, tasks[0].ID, tc.name)
+		committed[tc.name] = body
+		t.Logf("%s committed %d bytes at %s", tc.name, len(body), resultKey)
+
+		// The provenance the control plane recorded must name the cell the job was
+		// directed to, not merely the engine.
+		var cell, runtime, kind string
+		if err := pool.QueryRow(jobCtx, `
+			SELECT COALESCE(runtime_cell_id,''), COALESCE(runtime_id,''), COALESCE(model_kind,'')
+			  FROM tasks WHERE id=$1`, tasks[0].ID).Scan(&cell, &runtime, &kind); err != nil {
+			t.Fatal(err)
+		}
+		if cell != tc.cell {
+			t.Errorf("%s: task provenance names cell %q, want %q", tc.name, cell, tc.cell)
+		}
+		t.Logf("%s provenance: runtime=%s cell=%s kind=%s", tc.name, runtime, cell, kind)
+	}
+
+	// Both agents produced artifacts the production validator accepts, and they
+	// agree under the governed comparator — the same equivalence the cell sells.
+	for name, body := range committed {
+		info := &CommitTaskInfo{jobType: "embed", ModelRef: "all-minilm-l6-v2"}
+		if err := validateTaskResultArtifact(info, body); err != nil {
+			t.Fatalf("%s committed an artifact the control plane refuses: %v", name, err)
+		}
+	}
+	comparison := CompareEmbeddings(committed["candle"], committed["llama_cpp"])
+	if !comparison.Passed {
+		t.Fatalf("the two agents' committed output failed the governed comparator: %+v",
+			comparison)
+	}
+	t.Logf("cross-agent equivalence: mean=%.6f min_row=%.6f rows=%d revision=%s",
+		comparison.MeanCosine, comparison.MinRowCosine, comparison.ObservedRows,
+		comparison.Policy.Revision)
+	if string(committed["candle"]) == string(committed["llama_cpp"]) {
+		t.Fatal("both agents committed byte-identical artifacts; one engine's output " +
+			"was substituted for the other's")
+	}
+}
+
+// waitForCommittedResult polls until the task is past commit, then reads the
+// artifact the worker actually uploaded.
+func waitForCommittedResult(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, artifacts *artifactHarness,
+	taskID uuid.UUID, name string,
+) ([]byte, string) {
+	t.Helper()
+	deadline := time.Now().Add(240 * time.Second)
+	for time.Now().Before(deadline) {
+		var status, resultKey string
+		var failure *string
+		// result_key, not result_ref: the worker's committed artifact lands in
+		// result_key, and querying the wrong column made a task that HAD committed
+		// look like one that never did. The scan error was being swallowed by the
+		// retry loop, so the symptom was a timeout rather than a column error —
+		// which is why this now fails loudly on anything but no-rows.
+		err := pool.QueryRow(ctx, `
+			SELECT status, COALESCE(result_key,''),
+			       (SELECT failure_class FROM task_failures WHERE task_id=$1 ORDER BY created_at DESC LIMIT 1)
+			  FROM tasks WHERE id=$1`, taskID).Scan(&status, &resultKey, &failure)
+		if err != nil {
+			t.Fatalf("%s: read task state: %v", name, err)
+		}
+		if true {
+			if failure != nil {
+				t.Fatalf("%s: agent failed the task: %s", name, *failure)
+			}
+			if (status == "verifying" || status == "complete") && resultKey != "" {
+				body, err := artifacts.storage.GetObject(ctx, resultKey)
+				if err != nil {
+					t.Fatalf("%s: read committed artifact %s: %v", name, resultKey, err)
+				}
+				return body, resultKey
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("%s: agent did not commit within the window", name)
+	return nil, ""
+}
