@@ -73,7 +73,12 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// 65 after the funding lane: POST /v1/billing/topup is the buyer's only way
 	// to put money in, and POST /admin/buyers/{id}/prepaid-refund is the operator
 	// authority that takes it back out over card rails.
-	if checked != 65 {
-		t.Fatalf("checked %d protected routes, want 65", checked)
+	// 66 once GET /v1/worker/viability entered the reviewed matrix. The route has
+	// been registered through authWorker since before this session; the matrix
+	// simply did not list it, which is why the coverage validator in `make ci` was
+	// already failing. It is worker_owned like every other /v1/worker route: a
+	// worker asking why it is or is not being offered work, about itself.
+	if checked != 66 {
+		t.Fatalf("checked %d protected routes, want 66", checked)
 	}
 }
