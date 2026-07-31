@@ -5026,6 +5026,32 @@ ALTER TABLE runtime_shadow_selections
 -- A cost comparison names the hardware it was made on, and a decision that made
 -- no comparison names none. Without this a row could claim a measured basis while
 -- leaving the scope of the measurement unstated.
+-- The execution mode the workload was placed in, and the property that decided
+-- it.
+--
+-- Recorded beside the shadow selection because both are the same kind of fact: a
+-- decision Merc took at admission that nothing downstream can reconstruct. Batch
+-- work is pool mode by CONSTRUCTION today — admission freezes one cell and the
+-- scheduler fans tasks out — and the point of storing the decision is that
+-- "by construction" and "by decision" become indistinguishable the moment a
+-- second mode exists. The reason column is what makes a placement reviewable
+-- rather than merely recorded.
+ALTER TABLE runtime_shadow_selections
+    ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_shadow_selections
+    ADD COLUMN IF NOT EXISTS execution_mode_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_mode_known;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_mode_known
+    CHECK (execution_mode IN ('', 'POOL', 'REPLICA_SERVICE', 'LOCAL_CLUSTER', 'CLOUD_BACKSTOP'));
+-- A named mode states its reason. A mode with no reason is a label.
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_mode_reasoned;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_mode_reasoned
+    CHECK ((btrim(execution_mode) <> '') = (btrim(execution_mode_reason) <> ''));
+
 ALTER TABLE runtime_shadow_selections
     DROP CONSTRAINT IF EXISTS runtime_shadow_selections_cost_scope;
 ALTER TABLE runtime_shadow_selections

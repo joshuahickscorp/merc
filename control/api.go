@@ -1407,6 +1407,11 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 				shadow = shadow.rankedByMeasuredCost(byHW)
 			}
 		}
+		shadow = shadow.withExecutionMode(workloadDecision)
+		if shadow.ExecutionMode == "" {
+			log.Printf("shadow selection: job %s: no admissible execution mode for "+
+				"parallelism %+v", jobID, workloadDecision.Parallelism)
+		}
 		if err := s.store.RecordShadowSelection(ctx, jobID.String(), shadow); err != nil {
 			log.Printf("shadow selection: job %s: %v", jobID, err)
 		} else if shadow.Diverged() {
