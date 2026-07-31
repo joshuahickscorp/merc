@@ -259,6 +259,28 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 
 	// Sequential by construction. The mutation suite rewrites source files in
 	// place; a CI run overlapping it would compile a tree nobody chose.
+	// The mutation suite runs WITHOUT object storage or a local engine.
+	//
+	// Its targets are the money and reuse paths, which are database-backed. With
+	// MERC_TEST_S3_* and MERC_LLAMA_EMBED_URL in the environment each of the 33
+	// mutations re-runs the artifact, chain and two-agent tests as well — around
+	// fourteen minutes per mutation, seven hours for the suite — to re-prove
+	// object-storage round trips that no mutation touches. Stripping them is a
+	// scoping decision, not a weakening: what is being asked is whether the tests
+	// CATCH a money defect, and the tests that catch money defects are the ones
+	// that still run.
+	mutationEnv := os.Environ()
+	stripped := mutationEnv[:0]
+	for _, entry := range mutationEnv {
+		switch {
+		case strings.HasPrefix(entry, "MERC_TEST_S3_"),
+			strings.HasPrefix(entry, "MERC_LLAMA_EMBED_URL="):
+			continue
+		}
+		stripped = append(stripped, entry)
+	}
+	mutationEnv = stripped
+
 	run := func(name string, skip bool, skipReason string, dir string, argv ...string) error {
 		step := devCheckpointStep{Name: name, Command: strings.Join(argv, " ")}
 		if skip {
@@ -273,6 +295,9 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 		cmd.Dir = filepath.Join(opts.root, dir)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		cmd.Env = os.Environ()
+		if name == "mutation-suite" {
+			cmd.Env = mutationEnv
+		}
 		err := cmd.Run()
 		step.DurationMS = time.Since(started).Milliseconds()
 		if err != nil {

@@ -251,6 +251,29 @@ stale-attempt/tiebreak interactions beyond the existing
 `TestStaleAttemptOutputIsNotVerified`. Those need the agent's download path
 instrumented, not the control plane.
 
+## Against the directive's stop conditions
+
+| # | Condition | State |
+|---|---|---|
+| 1 | Agent capability identity decoupled from lifecycle policy | **done** |
+| 2 | Proof/canary verification deterministic and production-governed | **done** |
+| 3 | llama.cpp failure matrix complete | **substantially done** — 14 cases driven, 3 named as not driven |
+| 4 | RuntimeSelector runs in shadow mode | **not done** |
+| 5 | Prediction errors and regret populated from paired evidence | **not done** |
+| 6 | A narrow selector promotion receipt exists | **not done** |
+| 7 | llama.cpp embedding enters bounded CANARY or is honestly blocked | **honestly blocked** — blocked by 4-6, not by measurement |
+| 8 | 128 eligible requests produce one physical execution and one payable | **not done** — coalescing is concurrency-tested, not money-proved through a real runtime |
+| 9 | Coalesced buyer charges and Merc contribution reconcile | **not done** |
+| 10 | Tokenization and schema caches with real callers | **not done** |
+| 11 | Token-budget policies measured per traffic class | **not done** |
+| 12 | Full suite green and every pushed checkpoint receipt-bound | **done** — and `make ci` is green for the first time on this branch |
+
+Four of twelve, plus most of a fifth. The four that are done are the ones the
+directive listed as corrections to make **before** the selector work, and the
+capability/activation split is what the rest of the programme has to be built on:
+a selector promotion is an activation-policy write with a receipt and an instant
+rollback, and none of that was expressible before.
+
 ## Not done
 
 | Section | State |
