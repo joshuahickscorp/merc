@@ -77,6 +77,12 @@ type CellPromotionEvidence struct {
 	SavingFraction               float64 `json:"saving_fraction"`
 	RequiredMarginFraction       float64 `json:"required_margin_fraction"`
 
+	// LatencyRatio is the challenger's median milliseconds per unit over the
+	// incumbent's: above 1 it is slower. Always reported, even when the trade is
+	// permitted, because a promotion that saves money by being slower is a
+	// decision someone should see rather than infer.
+	LatencyRatio float64 `json:"latency_ratio_challenger_over_incumbent"`
+
 	// Regret is the recorded selector regret for this scope. A promotion argued
 	// without it would be arguing from a benchmark; with it, the argument is that
 	// production decisions have been measurably paying for the wrong cell.
@@ -197,6 +203,17 @@ func (s *Store) EvaluateCellPromotion(
 				scope.CellID, evidence.SavingFraction*100, promotionCostMarginFraction*100)
 		}
 	}
+	// Cost is not the only contract. A cheaper cell that is slower per unit is a
+	// legitimate trade for batch work, whose deadline absorbs it, and is not a
+	// trade at all where latency IS the product.
+	if in, out := evidence.ChallengerCost.MedianMsPerUnit, evidence.IncumbentCost.MedianMsPerUnit; in > 0 && out > 0 {
+		evidence.LatencyRatio = in / out
+		if evidence.LatencyRatio > 1 && scopeIsLatencySensitive(scope.LatencyClass) {
+			refuse("challenger %s is %.0f%% slower per unit (%.3f ms vs %.3f ms) and %s is a "+
+				"latency class where that is the product, not a trade",
+				scope.CellID, (evidence.LatencyRatio-1)*100, in, out, scope.LatencyClass)
+		}
+	}
 	if regret.ScoredDecisions == 0 {
 		refuse("no recorded selector decision for %s scored both cells; a promotion needs production decisions, not a benchmark",
 			costScope)
@@ -210,6 +227,21 @@ func (s *Store) EvaluateCellPromotion(
 	}
 	sort.Strings(evidence.Refusals)
 	return evidence, nil
+}
+
+// scopeIsLatencySensitive reports whether the scope's latency class is one where
+// a slower cell cannot be promoted however cheap it is.
+//
+// Accepts both spellings the tree uses. The batch classifier freezes
+// standard_batch, priority_queue and trusted_supply; the traffic-class table
+// speaks INTERACTIVE, BATCH_PRIORITY, BATCH_STANDARD and BACKGROUND. A promotion
+// scope may carry either, and resolving only one of them would silently treat a
+// realtime scope as ordinary batch work.
+func scopeIsLatencySensitive(latencyClass string) bool {
+	if latencyClass == string(TrafficInteractive) {
+		return true
+	}
+	return TrafficClassForWorkload(latencyClass, 0) == TrafficInteractive
 }
 
 // verifyPromotionScopeAgainstAuthority checks the scope against the runtime
