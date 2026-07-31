@@ -411,3 +411,86 @@ func TestRequestIdentityRefusesAnUnscopedTenant(t *testing.T) {
 		t.Errorf("refusal said %q", err.Error())
 	}
 }
+
+// A renewed lease survives its own TTL, and the leader keeps the right to publish.
+//
+// The failure this prevents is not a stall. inflightLeaseTTL is 30 seconds and a
+// realtime contract has two minutes, so a leader slower than the TTL was taken
+// over by the next arrival — and the callers already waiting behind it were NOT
+// re-collapsed onto the new leader. AwaitInflightResult returns no-result on
+// lease expiry and sends each of them off to execute alone, so one slow execution
+// fanned out into one supplier execution per waiting buyer, which is the opposite
+// of what coalescing is for.
+func TestARenewedLeaseSurvivesItsTTLAndKeepsThePublishRight(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	tenant := uuid.New()
+	identity := identityFor(t, tenant, "slow-leader")
+
+	role, err := store.ClaimInflightExecution(ctx, identity, tenant, "leader-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !role.Leader {
+		t.Fatal("the first caller did not lead")
+	}
+
+	// The lease as it would be after the leader has been working longer than the
+	// TTL. Set directly rather than slept, because the point is the renewal and
+	// not the clock.
+	expire := func() {
+		if _, err := pool.Exec(ctx, `
+			UPDATE inflight_executions SET lease_expires_at = now() - interval '1 second'
+			 WHERE request_identity=$1`, identity); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Without a renewal the next arrival takes the row over. This is the
+	// behaviour that was shipping.
+	expire()
+	stolen, err := store.ClaimInflightExecution(ctx, identity, tenant, "leader-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stolen.Leader {
+		t.Fatal("an expired lease was not taken over; this test no longer " +
+			"reproduces the condition the renewal exists for")
+	}
+	if err := store.ResolveInflightSuccess(
+		ctx, identity, "leader-1", "ref", strings.Repeat("a", 64), 1); err == nil {
+		t.Fatal("the original leader could still publish after being taken over")
+	}
+
+	// And with one. Same expiry, renewal in between, and the row stays this
+	// leader's: the next arrival joins as a follower instead of electing itself.
+	fresh := identityFor(t, tenant, "renewed-leader")
+	if role, err := store.ClaimInflightExecution(ctx, fresh, tenant, "leader-3"); err != nil {
+		t.Fatal(err)
+	} else if !role.Leader {
+		t.Fatal("the renewed-lease fixture did not lead")
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE inflight_executions SET lease_expires_at = now() - interval '1 second'
+		 WHERE request_identity=$1`, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RenewInflightLease(ctx, fresh, "leader-3"); err != nil {
+		t.Fatalf("renew: %v", err)
+	}
+	joined, err := store.ClaimInflightExecution(ctx, fresh, tenant, "leader-4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if joined.Leader {
+		t.Fatal("a renewed lease was still taken over; the renewal did not extend it")
+	}
+	if err := store.ResolveInflightSuccess(
+		ctx, fresh, "leader-3", "ref", strings.Repeat("b", 64), 1); err != nil {
+		t.Fatalf("the renewing leader lost its right to publish: %v", err)
+	}
+
+	// A renewal by someone who is not the leader must do nothing.
+	if err := store.RenewInflightLease(ctx, fresh, "not-the-leader"); err == nil {
+		t.Fatal("a non-leader renewed a lease it does not hold")
+	}
+}

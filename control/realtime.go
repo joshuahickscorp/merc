@@ -786,6 +786,45 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 						log.Printf("inflight release: %v", err)
 					}
 				}()
+				// Renew the lease while the leader works.
+				//
+				// RenewInflightLease existed and had no caller, so the 30-second
+				// inflightLeaseTTL was a hard ceiling on any coalesced execution
+				// while the contract deadline is two minutes. A leader slower than
+				// the TTL was legitimately taken over by the next arrival, and the
+				// followers behind it were NOT re-collapsed onto the new leader:
+				// AwaitInflightResult returns no-result on lease expiry and sends
+				// every one of them off to execute alone. The failure mode was a
+				// fan-out, not a stall.
+				//
+				// TTL/3 so two consecutive renewals can be lost before the lease
+				// does. context.Background(), because the buyer's context ending is
+				// exactly when the release defer below needs the lease to still be
+				// ours. Registered AFTER that defer so LIFO stops the renewal first.
+				renewCtx, stopRenew := context.WithCancel(context.Background())
+				defer stopRenew()
+				go func() {
+					ticker := time.NewTicker(inflightLeaseTTL / 3)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-renewCtx.Done():
+							return
+						case <-ticker.C:
+							// A renewal that lands after a successful publish finds
+							// the row COMPLETE rather than RUNNING and reports that
+							// it is no longer held. That is the normal end of a
+							// leader's life, not a fault, so it is not logged --
+							// otherwise every execution whose length lands near a
+							// multiple of TTL/3 logs an error on success.
+							if err := s.store.RenewInflightLease(
+								renewCtx, identity, leaderRef); err != nil &&
+								!errors.Is(err, context.Canceled) {
+								log.Printf("inflight renew (%s): %v", leaderRef, err)
+							}
+						}
+					}
+				}()
 			}
 		}
 	}

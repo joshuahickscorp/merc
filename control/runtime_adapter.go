@@ -61,9 +61,12 @@ type RuntimeEstimate struct {
 	Routable         bool    `json:"routable"`
 	// Comparable is true only when the profile's benchmark authority actually
 	// contains a throughput measurement. Having a receipt and having a comparable
-	// number are different facts: candle_metal's receipt names candle_metal and
-	// measures nothing, so comparing it against a measured challenger would not
-	// be a tournament, it would be a coin toss with a citation.
+	// number are different facts, and treating them as one would make a runtime
+	// tournament a coin toss with a citation.
+	//
+	// This used to say candle_metal's receipt "measures nothing". That went stale:
+	// evidence-manifest.json marks it throughput_measured, so
+	// profileThroughputIsMeasured returns true for it today.
 	Comparable bool     `json:"comparable"`
 	Evidence   []string `json:"evidence,omitempty"`
 }

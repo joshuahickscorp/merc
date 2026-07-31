@@ -254,8 +254,13 @@ func (s *Store) AwaitInflightResult(
 	}
 }
 
-// InflightFollowers reports how many callers waited on one identity. Read by the
-// overhead recorder, and by the tests that prove the saving is real.
+// InflightFollowers reports how many callers waited on one identity.
+//
+// NOT read by the overhead recorder, whatever this comment claimed for as long as
+// it existed: a caller census found its only callers are tests. COALESCING_AVOIDED
+// overhead is not recorded from it, so the saving coalescing produces is real and
+// unmeasured. Recording it needs a writer, not a corrected comment; the comment is
+// corrected here so the next reader does not go looking for one.
 func (s *Store) InflightFollowers(ctx context.Context, identity string) (int64, error) {
 	var followers int64
 	err := s.pool.QueryRow(ctx,
@@ -265,6 +270,23 @@ func (s *Store) InflightFollowers(ctx context.Context, identity string) (int64, 
 		return 0, nil
 	}
 	return followers, err
+}
+
+// inflightTickerName registers the sweep ADVISORY, for the reason the sweep's own
+// comment gives: a backlog costs a cache miss and a duplicated execution, never a
+// wrong answer or a wrong charge. A hard liveness failure on an analytics-grade
+// cleanup would page someone for a table that is merely growing.
+const inflightTickerName = "inflight-sweep"
+
+// sweepInflightExecutions is the ticker adapter.
+//
+// The ticker table takes func(context.Context) error and the sweep returns the
+// row count as well, so an adapter is unavoidable. The count is discarded rather
+// than logged: a DELETE that removes nothing is the steady state, and logging it
+// every interval would bury the case that matters.
+func (wk *Workers) sweepInflightExecutions(ctx context.Context) error {
+	_, err := wk.store.sweepExpiredInflight(ctx)
+	return err
 }
 
 // sweepExpiredInflight removes rows past their expiry.
