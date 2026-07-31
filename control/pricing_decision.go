@@ -10,6 +10,7 @@ import (
 	"math"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -288,15 +289,29 @@ func pricingBillableUnitsForComputePlan(compute ComputePlan) float64 {
 // supplierAdmissionCeilingUSDHr is a modeled ask ceiling used solely by the
 // scheduler's min-payout eligibility gate. It is not a promise of realized
 // hourly earnings: actual payment follows accepted task units.
-func supplierAdmissionCeilingUSDHr(a CataloguePriceAuthority, jobType, tier string) (float64, error) {
+//
+// The throughput comes from the governed runtime-cell performance binding, not
+// from a constant in this package. A hardcoded rate here decided whether a
+// default install could claim any work at all, and it was wrong by more than an
+// order of magnitude with nothing in the build able to notice.
+//
+// candidateCells is the frozen workload's runtime candidate set. An empty set
+// prices against every routable cell for the model, which is only correct for a
+// model-level display rate that is not attached to a particular job.
+func supplierAdmissionCeilingUSDHr(
+	a CataloguePriceAuthority, jobType, tier string, candidateCells []string,
+) (float64, error) {
 	if err := validateCataloguePriceAuthority(a); err != nil {
 		return 0, err
 	}
 	if a.JobType != jobType {
 		return 0, errors.New("catalogue job type does not match placement job type")
 	}
-	return throughputOf(jobType) * 3600 / 1000 *
-		a.ReferencePricePer1K * a.SupplierShare * tierMultiplier(tier), nil
+	unitsPerSec, _, err := admissionUnitsPerSec(jobType, a.ModelID, candidateCells, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	return expectedSupplierUSDHr(unitsPerSec, a.ReferencePricePer1K, a.SupplierShare, tier), nil
 }
 
 func modeledCost(amount float64, basis string) PricingCostComponent {
@@ -329,6 +344,43 @@ func newDistributedPricingDecision(
 	tier string,
 	originQuotePricingSHA string,
 ) (PricingDecision, error) {
+	unitsPerSec, _, err := admissionUnitsPerSec(
+		workload.RuntimeJobType, catalogue.ModelID,
+		admissionCellsForWorkload(workload), time.Now(),
+	)
+	if err != nil {
+		return PricingDecision{}, err
+	}
+	return distributedPricingDecisionAtRate(
+		workload, compute, placement, economic, catalogue, tier,
+		originQuotePricingSHA, unitsPerSec,
+	)
+}
+
+// distributedPricingDecisionAtRate takes the supplier unit rate rather than
+// resolving it, so rebuilding a stored decision does not depend on what the
+// runtime evidence says TODAY. The rate became time-dependent when it started
+// coming from a dated benchmark: a receipt crossing the revalidation window
+// would otherwise change the rebuilt number and make every already-accepted job
+// in the database fail its own snapshot check months after acceptance.
+//
+// The rate handed in here is NOT trusted on the strength of the ceiling equality
+// below. That equality only pins the rate to placement.OfferedRateUsdHr, and an
+// attacker who can rewrite a stored pricing decision can rewrite the stored
+// placement beside it; the two then agree at any rate at all. Every caller that
+// takes the rate from a stored record must first put it through
+// governedAdmissionUnitRates, which is what ValidateDistributedPricingDecisionSnapshot
+// does.
+func distributedPricingDecisionAtRate(
+	workload WorkloadDecision,
+	compute ComputePlan,
+	placement PlacementRequirement,
+	economic EconomicPlan,
+	catalogue CataloguePriceAuthority,
+	tier string,
+	originQuotePricingSHA string,
+	unitsPerSec float64,
+) (PricingDecision, error) {
 	if err := ValidateComputePlanEconomicSnapshot(compute, workload, economic); err != nil {
 		return PricingDecision{}, err
 	}
@@ -348,11 +400,23 @@ func newDistributedPricingDecision(
 	if originQuotePricingSHA != "" && !validSHA256(originQuotePricingSHA) {
 		return PricingDecision{}, errors.New("origin quote pricing digest is invalid")
 	}
-	derivedCeiling, err := supplierAdmissionCeilingUSDHr(catalogue, workload.RuntimeJobType, tier)
-	if err != nil {
-		return PricingDecision{}, err
+	if catalogue.JobType != workload.RuntimeJobType {
+		return PricingDecision{}, errors.New("catalogue job type does not match placement job type")
 	}
-	if math.Abs(float64(placement.OfferedRateUsdHr)-derivedCeiling) > 0.000001 {
+	derivedCeiling := expectedSupplierUSDHr(
+		unitsPerSec, catalogue.ReferencePricePer1K, catalogue.SupplierShare, tier)
+	// The tolerance is relative because the only difference being allowed for is
+	// the float32 round-trip the wire contract imposes, and that error scales
+	// with the value. A fixed absolute epsilon silently became a real constraint
+	// once throughput came from a measurement instead of a small hardcoded
+	// number: the same lossless round-trip that passed at $0.007/hr failed at
+	// $58/hr. 1e-6 relative is roughly eight float32 ulps and still far below any
+	// economically meaningful discrepancy.
+	tolerance := math.Abs(derivedCeiling) * 0.000001
+	if tolerance < 0.000001 {
+		tolerance = 0.000001
+	}
+	if math.Abs(float64(placement.OfferedRateUsdHr)-derivedCeiling) > tolerance {
 		return PricingDecision{}, errors.New("placement supplier admission ceiling was not derived from catalogue authority")
 	}
 	// The scheduler and wire contract use float32. Freeze that exact operational
@@ -387,7 +451,6 @@ func newDistributedPricingDecision(
 	verification := economic.SupplierPayoutPerTaskUSD *
 		float64(compute.RedundancyTasks+compute.HoneypotTasks)
 	billableUnits := pricingBillableUnitsForComputePlan(compute)
-	unitsPerSec := throughputOf(workload.RuntimeJobType)
 	expectedSeconds := 0.0
 	if compute.PrimaryTasks > 0 && unitsPerSec > 0 {
 		expectedSeconds = billableUnits / unitsPerSec *
@@ -435,7 +498,7 @@ func newDistributedPricingDecision(
 			"buyer price less modeled supplier, processor and control-plane costs"),
 		Confidence: compute.Confidence,
 		Assumptions: []string{
-			"supplier admission uses modeled static throughput and the USD reference schedule",
+			"supplier admission uses the governed runtime-cell benchmark binding, haircut to a conservative lower bound, and the USD reference schedule",
 			"actual supplier liability is frozen per accepted task, not by elapsed wall-clock hour",
 			"unknown cost components are not silently treated as modeled zero",
 		},
@@ -596,6 +659,18 @@ func validatePricingCostShape(p PricingDecision) error {
 	return nil
 }
 
+// ValidateDistributedPricingDecisionSnapshot rebuilds a stored decision from
+// authority. Like ValidateFrozenComputePlanSnapshot it re-derives its inputs
+// rather than reading them off the record being checked.
+//
+// The supplier unit rate is the one input that cannot simply be recomputed at
+// the current instant, so it is re-resolved as a SET: every rate the governed
+// runtime-cell authority can produce for this workload's frozen candidate cells.
+// Handing decision.ExpectedSupplierUnitsPerSec straight back into the rebuild
+// made this validator self-certifying - the rebuild derived the ceiling from the
+// record's own rate and compared it to the record's own placement, so a decision
+// whose rate and placement were altered together rebuilt to itself and passed at
+// any rate an attacker liked.
 func ValidateDistributedPricingDecisionSnapshot(
 	decision PricingDecision,
 	workload WorkloadDecision,
@@ -603,9 +678,24 @@ func ValidateDistributedPricingDecisionSnapshot(
 	placement PlacementRequirement,
 	economic EconomicPlan,
 ) error {
-	rebuilt, err := newDistributedPricingDecision(
+	governed, err := governedAdmissionUnitRates(
+		workload.RuntimeJobType, workload.Binding.Model.Ref,
+		admissionCellsForWorkload(workload), time.Now(),
+	)
+	if err != nil {
+		return err
+	}
+	if !rateIsGoverned(governed, decision.ExpectedSupplierUnitsPerSec) {
+		return fmt.Errorf(
+			"pricing decision claims %g supplier units/s, which no governed runtime-cell "+
+				"benchmark produces for job %q on model %q (admissible: %v)",
+			decision.ExpectedSupplierUnitsPerSec, workload.RuntimeJobType,
+			workload.Binding.Model.Ref, governed,
+		)
+	}
+	rebuilt, err := distributedPricingDecisionAtRate(
 		workload, compute, placement, economic, decision.Catalogue, decision.Tier,
-		decision.OriginQuotePricingDecisionSHA256,
+		decision.OriginQuotePricingDecisionSHA256, decision.ExpectedSupplierUnitsPerSec,
 	)
 	if err != nil {
 		return err
@@ -614,6 +704,24 @@ func ValidateDistributedPricingDecisionSnapshot(
 		return errors.New("pricing decision does not match its deterministic composite authority")
 	}
 	return nil
+}
+
+// rateIsGoverned admits a last-bit difference and nothing wider. The stored
+// rate and the rate recomputed from the manifest are the same product of the
+// same two numbers, so they agree to the last bits; a relative epsilon is used
+// rather than a fixed one because these rates run from 1 to several thousand
+// units/s and a fixed epsilon means something different at each end.
+func rateIsGoverned(governed []float64, rate float64) bool {
+	for _, want := range governed {
+		tolerance := math.Abs(want) * 0.000001
+		if tolerance < 0.000001 {
+			tolerance = 0.000001
+		}
+		if math.Abs(rate-want) <= tolerance {
+			return true
+		}
+	}
+	return false
 }
 
 func ValidateExactReusePricingDecisionSnapshot(

@@ -473,7 +473,9 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	if err != nil {
 		return Quote{}, fmt.Errorf("resolving catalogue price authority: %w", err)
 	}
-	offeredRate64, err := supplierAdmissionCeilingUSDHr(catalogue, jobType, tier)
+	offeredRate64, err := supplierAdmissionCeilingUSDHr(
+		catalogue, jobType, tier, admissionCellsForWorkload(workload),
+	)
 	if err != nil {
 		return Quote{}, fmt.Errorf("deriving supplier admission ceiling: %w", err)
 	}

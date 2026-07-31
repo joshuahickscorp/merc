@@ -46,6 +46,7 @@ func placementForPricingFixture(
 	binding := workload.Binding
 	ceiling, err := supplierAdmissionCeilingUSDHr(
 		authority, workload.RuntimeJobType, binding.Tier,
+		admissionCellsForWorkload(workload),
 	)
 	if err != nil {
 		t.Fatalf("derive placement ceiling fixture: %v", err)
