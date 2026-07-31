@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "matrix_version": "2026-07-30.7",
+  "matrix_version": "2026-07-30.8",
   "engines": [
     {
       "engine": "candle",
@@ -220,7 +220,7 @@
     },
     {
       "runtime_id": "llama_cpp_metal",
-      "revision": "r7",
+      "revision": "r8",
       "superseded_by": "",
       "engine": "llama_cpp",
       "engine_revision": "",
@@ -228,7 +228,7 @@
       "chat_template_id": "llama-3.2-instruct",
       "source_identity": "control/runtime-authority.json",
       "adapter": "merc-llama-cpp",
-      "lifecycle": "VALIDATED",
+      "lifecycle": "REAL_RUNTIME_PROVEN",
       "device": "metal",
       "hardware": {
         "platforms": [
@@ -260,7 +260,8 @@
         "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r3.json",
         "evidence/perf/runtime-benchmarks/candle-vs-llama-cpp-metal-r3.json",
         "evidence/perf/runtime-benchmarks/llama-cpp-metal-embed-cosine-gate.json",
-        "evidence/perf/runtime-benchmarks/llama-cpp-metal-determinism-sweep.json"
+        "evidence/perf/runtime-benchmarks/llama-cpp-metal-determinism-sweep.json",
+        "evidence/chain/two-agent-product-chain.json"
       ],
       "cells": [
         {
@@ -283,7 +284,7 @@
           "wire_kind": "gguf",
           "min_memory_gb": 2,
           "verification": "cosine",
-          "lifecycle": "VALIDATED",
+          "lifecycle": "REAL_RUNTIME_PROVEN",
           "quality_tier": "OUTCOME_EQUIVALENT",
           "benchmark_authority": "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
           "max_batch": 128,

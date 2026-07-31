@@ -95,9 +95,9 @@ plane stored.
 | 3. Both buyer debits reconcile | **done** — ledger conserves |
 | 4. Both supplier payables correctly attributed | **done** — one row each, distinct suppliers |
 | 5. Both Merc contributions positive | **done** — 0.393166 USD each |
-| 6. v2 rejection creates no success payment | **NOT done** |
-| 7. Both final receipts verify | **partial** — authority names the executing cell; tamper matrix absent |
-| 8. llama.cpp embed REAL_RUNTIME_PROVEN | **NOT done** — gated on 6 |
+| 6. v2 rejection creates no success payment | **done** — outcome `fail`, 0.000000000 USD net, reputation 0.95→0.801 |
+| 7. Both final receipts verify | **done** — authority names the executing cell; ten tamper mutations refused |
+| 8. llama.cpp embed REAL_RUNTIME_PROVEN | **done** — profile r7→r8, cell promoted, routable=false |
 | 9. Candle remains ACTIVE | **done** |
 | 10. llama.cpp generation remains rejected | **done** |
 | 11. Full suite green | **done** |
@@ -126,21 +126,54 @@ routable-only; `ValidateWorkerAgainstProfile` required a routable lifecycle;
 `llama_cpp` at the door; and `agent.toml` requires `power_only` with no serde
 default.
 
-### Why condition 6 is not done
+### Rejection economics
 
-A governed-reference grade needs a honeypot task, and a honeypot must be declared
-in the compute plan — `SubmitJobTx` refuses a task set whose class counts do not
-match, correctly, because a honeypot the plan never priced would be unpaid work.
-`validJobRowClasses` and the primary-derived input geometry are the groundwork
-and are committed; the test is not, because a single agent did not pick up the
-honeypot task within the window and the reason is not yet established.
+A honeypot submitted beside a primary, with a compute plan declaring both, graded
+against the approved answer for DIFFERENT text:
 
-This also retired a claim: the settlement commit said the llama.cpp task was
-graded against candle's approved output. It was not — the seeding ran an `UPDATE`
-before `SubmitJobTx` inserted the row, so it matched nothing and the task stayed
-ordinary. Both artifacts genuinely agree, so a passing comparison and an unrun
-one were indistinguishable there. The claim is withdrawn in the tree and in the
-history.
+```
+honeypot verification outcome: "fail"
+0 supplier rows netting 0.000000000 USD
+reputation 0.95 -> 0.801, honeypot_fail event recorded
+task requeued (status=retrying)
+```
+
+Two assumptions were corrected against what the policy actually does. Quarantine
+is NOT the consequence of a wrong answer — it is reserved for an answer-class
+mismatch, where the supplier's engine identity does not match what it claimed,
+which is a different accusation. And "pays nobody" means the credit does not
+STAND: the supplier is credited on commit and the grade arrives afterwards, so
+the assertion is on the NET across credit and clawback.
+
+A claim was also retired along the way. The settlement commit said the llama.cpp
+task was graded against candle's approved output; it was not. The seeding ran an
+`UPDATE` before `SubmitJobTx` inserted the row, so it matched nothing and the task
+stayed ordinary. Both artifacts genuinely agree, so a passing comparison and an
+unrun one were indistinguishable there — a check that could not fail. Withdrawn
+in the tree and in the history.
+
+### Promotion
+
+`llama_cpp_metal` r7 → r8, profile and embed cell VALIDATED →
+REAL_RUNTIME_PROVEN, receipt at `evidence/chain/two-agent-product-chain.json`.
+
+REAL_RUNTIME_PROVEN is reachable by directed operator or test routing only. The
+cell is **not** routable, Candle remains ACTIVE with both cells routable, and
+`llama-cpp-metal-llama1-infer` remains REJECTED_FOR_CONTRACT.
+
+The lifecycle guard that gated this used to hardcode "only candle_metal has a
+Merc-chain receipt". That was true when written and became false the moment
+llama.cpp completed the chain; naming a profile made the rule un-passable by
+design. It now requires an existing chain or canary receipt, so the next runtime
+can satisfy it and a profile claiming the state with nothing behind it still
+fails.
+
+### Not established
+
+The failure matrix — agent death before and after claim, runtime unavailability,
+input download failure, upload interruption, verifier restart, finalizer restart,
+settlement retry — is not exercised. No CANARY or ACTIVE promotion follows from
+this receipt.
 
 ## Caveats that are not caveats about this branch
 

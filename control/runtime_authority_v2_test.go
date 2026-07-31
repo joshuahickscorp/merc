@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -226,11 +227,34 @@ func TestRegisteredRuntimesCiteEvidenceForTheirLifecycle(t *testing.T) {
 			t.Errorf("%s is registered at %s with no evidence cited",
 				profile.RuntimeID, profile.Lifecycle)
 		}
+		// REAL_RUNTIME_PROVEN and above is a claim that this profile completed a
+		// Merc product chain, so it must cite a chain receipt that EXISTS.
+		//
+		// This used to hardcode "only candle_metal", which was true when written
+		// and became false the moment llama.cpp completed the chain. Naming a
+		// profile made the rule un-passable by design; requiring the artifact makes
+		// it a real gate that the next runtime can also satisfy — and still fails
+		// for a profile that claims the state with nothing behind it.
 		rank, _ := runtimeLifecycleRank(profile.Lifecycle)
 		provenRank, _ := runtimeLifecycleRank(runtimeLifecycleRealRuntimeProven)
-		if rank >= provenRank && profile.RuntimeID != "candle_metal" {
-			t.Errorf("%s claims %s; only candle_metal has a Merc-chain receipt today",
-				profile.RuntimeID, profile.Lifecycle)
+		if rank >= provenRank {
+			cited := false
+			for _, evidence := range profile.Evidence {
+				if !strings.HasPrefix(evidence, "evidence/") {
+					continue
+				}
+				if _, err := os.Stat(filepath.Join("..", evidence)); err != nil {
+					continue
+				}
+				if strings.Contains(evidence, "/chain/") ||
+					strings.Contains(evidence, "/canary/") {
+					cited = true
+				}
+			}
+			if !cited {
+				t.Errorf("%s claims %s but cites no existing Merc-chain or canary receipt: %v",
+					profile.RuntimeID, profile.Lifecycle, profile.Evidence)
+			}
 		}
 	}
 }
@@ -258,7 +282,7 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 	pinned := map[string]string{
 		"candle_metal":    "08dd1df094fd52a67bcbb842062c76467f1c2180bc4bec4f943857dcad4ba1f1",
 		"mlx_metal":       "67b688419eb3a1a58bc369a01e7c280fbefde32dfdc5ac1109a45508ce4bfd57",
-		"llama_cpp_metal": "f01370666e3b8d9f38e307a5094ecfc2e7425b1aaba26f17d1a1d062efe6d74d",
+		"llama_cpp_metal": "1e8fc56d7a5b0be5e34e934df2146725b663359f3105608625c465262f0dae9b",
 		"vllm_cuda":       "4825a0c3b06e3a6c4bb19c61747ab5dc11ad402e306e926b579c9bb8c435f55b",
 	}
 	doc := mutableAuthority(t)
