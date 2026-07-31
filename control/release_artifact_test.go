@@ -178,3 +178,61 @@ func TestVersionReportsThePriceBoardItLoaded(t *testing.T) {
 	}
 	t.Logf("price board: source=%s sha256=%s", info.PriceBoardSource, info.PriceBoardSHA256)
 }
+
+// A failed load must not become the answer for the rest of the process.
+//
+// The board used to be memoised with sync.Once, which cached the FAILURE as well
+// as the success. That made the price authority a function of call order: in
+// production main() resolves at startup, but in every other process the first
+// caller wins, and under `go test` that is whichever test the -run filter
+// happens to order first. payment_authority_test.go sets MERC_ENV=production for
+// its own reasons; with the checkpoint's authority-tests filter it ran first,
+// resolved a production refusal, and every later test that priced anything
+// failed with a refusal it never asked for. The full suite stayed green the
+// whole time, which is exactly the ordering-dependent failure a filtered gate
+// exists to find.
+//
+// Caching the failure also buys nothing real: main() log.Fatalf's on a load
+// error, so the one process where it matters never makes a second call.
+func TestAFailedPriceBoardLoadIsNotCachedForever(t *testing.T) {
+	// Whatever earlier tests in this process did, start from a known state.
+	priceBoardMu.Lock()
+	restore := priceBoardCached
+	priceBoardCached = nil
+	priceBoardMu.Unlock()
+	t.Cleanup(func() {
+		priceBoardMu.Lock()
+		priceBoardCached = restore
+		priceBoardMu.Unlock()
+	})
+
+	if _, err := os.Stat(releasePriceBoardPath); err == nil {
+		t.Skip("this host has a release board installed, so the production refusal " +
+			"cannot be provoked here")
+	}
+
+	// A caller that happens to run under production configuration is refused.
+	// t.Setenv restores at test cleanup rather than at scope exit, so the flip
+	// back has to be explicit -- otherwise the second load below inherits the
+	// production environment and this test proves nothing.
+	development := os.Getenv("MERC_ENV")
+	t.Setenv("MERC_ENV", "production")
+	if _, err := loadPriceBoard(); err == nil {
+		t.Fatal("a production load with no release artifact and no MERC_PRICE_BOARD " +
+			"succeeded; this test can no longer provoke the failure it guards")
+	}
+	t.Setenv("MERC_ENV", development)
+
+	// And the next caller, under its own configuration, gets a real board.
+	board, err := loadPriceBoard()
+	if err != nil {
+		t.Fatalf("a refusal that belonged to one caller became the answer for "+
+			"every later one: %v", err)
+	}
+	if board == nil || len(board.Classes) == 0 {
+		t.Fatal("loadPriceBoard returned no error and no board")
+	}
+	if priceBoardSHA256 == "" {
+		t.Error("the loaded board has no digest, so /version cannot name it")
+	}
+}
