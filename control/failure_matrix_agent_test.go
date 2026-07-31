@@ -164,6 +164,25 @@ func TestFailureMatrixAgentDeathAfterClaim(t *testing.T) {
 	}
 	killAgent(t, agent)
 
+	// Re-check AFTER the kill, not only before it.
+	//
+	// The skip above closes the window up to the last poll; it does not close the
+	// window between that poll and the signal actually landing. On this host the
+	// embed cell measures ~1,950 embeddings/sec, so a three-record task can be
+	// claimed, executed, uploaded and committed inside one 100ms poll interval —
+	// and the test then asserts "the task returned to the queue" against a task
+	// that legitimately finished. That is a flake, not a defect, and the case it
+	// exists for (death while HOLDING the claim) simply did not occur.
+	var afterKill string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM tasks WHERE id=$1`, taskID).Scan(&afterKill); err != nil {
+		t.Fatal(err)
+	}
+	if afterKill != "running" {
+		t.Skipf("the agent committed (%s) between the claim observation and the kill; "+
+			"this host is too fast for this case to be driven by timing", afterKill)
+	}
+
 	// The stale-task sweep is what production runs; call the same function.
 	if err := store.RequeueStaleTask(ctx, taskID, 0); err != nil {
 		t.Fatalf("requeue after agent death: %v", err)

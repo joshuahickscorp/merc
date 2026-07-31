@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "source": {
+    "commit": "583842217786b9c76c2a4b935782ba77cfdbe042",
+    "tree_clean": false
+  },
+  "database_probed": true,
+  "results": [
+    {
+      "prohibition": "1",
+      "name": "no global codebase refactor",
+      "status": "PASS",
+      "detail": "6 of 287 tracked Go files touched since the programme baseline 583842217786 (2%)"
+    },
+    {
+      "prohibition": "2",
+      "name": "vLLM is not forked",
+      "status": "PASS",
+      "detail": "no vLLM sources tracked; the engine is referenced as a pinned image"
+    },
+    {
+      "prohibition": "3",
+      "name": "not every registered runtime is routable",
+      "status": "PASS",
+      "detail": "2 of 16 cells routable; every routable one names a quality tier and a benchmark authority"
+    },
+    {
+      "prohibition": "4",
+      "name": "standalone benchmarks are not product proof",
+      "status": "PASS",
+      "detail": "public_capability_allowed is false; 0 candidate-bound lanes of 21"
+    },
+    {
+      "prohibition": "5",
+      "name": "buyer-supplied engine/runtime/format is not authority",
+      "status": "PASS",
+      "detail": "claim resolves engine, runtime and artifact format from the frozen cell"
+    },
+    {
+      "prohibition": "6",
+      "name": "physical inference is not mixed with reused delivery",
+      "status": "PASS",
+      "detail": "2 physical and 4 logical classes registered separately (logical: ['CoalescedDelivery', 'ExactCachedInput', 'ExactResultReuse', 'PrefixReusedInput'])"
+    },
+    {
+      "prohibition": "7",
+      "name": "tightly coupled inference is not spread over a WAN",
+      "status": "PASS",
+      "detail": "ChooseExecutionMode refuses tightly coupled work on WAN and on an unmeasured fabric"
+    },
+    {
+      "prohibition": "8",
+      "name": "supplier-reported usage is not payment authority",
+      "status": "PASS",
+      "detail": "no ledger insert in 1 writer file(s) reads reported_* usage"
+    },
+    {
+      "prohibition": "9",
+      "name": "cross-tenant cache existence is not exposed",
+      "status": "PASS",
+      "detail": "the tenant is part of the cache key, not a filter applied after the lookup"
+    },
+    {
+      "prohibition": "10",
+      "name": "pricing is not one fixed percentage",
+      "status": "FAIL",
+      "detail": "the platform take rate has no workload dimension \u2014 one percentage applies to embeddings, generation, rendering and every future lane alike, tunable only by MERC_PLATFORM_TAKE_PCT within 1-5%. a single process-wide take rate in control/payment.go:takeRateFromEnv; the published schedule carries 1 distinct supplier share(s) across 3 row(s) (min 0.97, max 0.97)"
+    },
+    {
+      "prohibition": "11",
+      "name": "price is not below sustainable cost",
+      "status": "PASS",
+      "detail": "2 file(s) can block a plan whose contribution is not sustainable"
+    },
+    {
+      "prohibition": "12",
+      "name": "VisionMCP is not in the tree",
+      "status": "PASS",
+      "detail": "boundary validator passes and no VisionMCP path is tracked"
+    },
+    {
+      "prohibition": "13",
+      "name": "no live Stripe credential",
+      "status": "PASS",
+      "detail": "no credential-shaped live key anywhere; the 7 file(s) naming the prefix are refusal fixtures, and live mode stays gated on MERC_ENV=production plus external activation authority"
+    },
+    {
+      "prohibition": "14",
+      "name": "10/10 is not claimed from routes or docs",
+      "status": "NOT_MECHANICALLY_CHECKABLE",
+      "detail": "a claim in prose cannot be decided by a script. ops/go-no-go.json is the machine-readable answer and currently reports readiness 83 against a threshold of 95 with Level B NO_GO."
+    }
+  ],
+  "failed": [
+    "10"
+  ],
+  "undecidable": [
+    "14"
+  ]
+}

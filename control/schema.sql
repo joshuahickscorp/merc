@@ -4554,6 +4554,24 @@ ALTER TABLE runtime_profile_models
 ALTER TABLE runtime_profile_models
     ADD COLUMN IF NOT EXISTS max_concurrency INT NOT NULL DEFAULT 0;
 
+-- A database written before cell lifecycle existed already has routable cells,
+-- and the ADD COLUMN above defaults them to DRAFT, which the derived constraint
+-- below then rejects — the migration aborted on exactly the databases that had
+-- been serving work. Those rows inherit the authority their profile was already
+-- routable under. Only routable rows are touched: a non-routable cell under a
+-- CANARY profile is a challenger and must keep its own state.
+UPDATE runtime_profile_models m
+   SET lifecycle = p.lifecycle,
+       quality_tier = CASE WHEN btrim(m.quality_tier) = ''
+                           THEN p.quality_tier ELSE m.quality_tier END,
+       benchmark_authority = CASE WHEN btrim(m.benchmark_authority) = ''
+                                  THEN p.benchmark_authority ELSE m.benchmark_authority END
+  FROM runtime_profiles p
+ WHERE p.runtime_profile_id = m.runtime_profile_id
+   AND p.revision = m.revision
+   AND m.routable
+   AND m.lifecycle NOT IN ('CANARY','ACTIVE');
+
 ALTER TABLE runtime_profile_models
     DROP CONSTRAINT IF EXISTS runtime_profile_models_lifecycle_known;
 ALTER TABLE runtime_profile_models
@@ -4986,6 +5004,33 @@ ALTER TABLE runtime_shadow_selections
 ALTER TABLE runtime_shadow_selections
     ADD CONSTRAINT runtime_shadow_selections_cells_named
     CHECK (btrim(routed_cell_id) <> '' AND btrim(shadow_cell_id) <> '');
+
+-- Which arm of the policy decided the row, and the ONE hardware class the cost
+-- comparison was made on.
+--
+-- The basis is stored rather than inferred because the two arms are not
+-- interchangeable evidence: a divergence chosen on the lifecycle ladder says the
+-- more proven cell was preferred, and a divergence chosen on measured cost says
+-- the cheaper verified unit was. A promotion may be argued from the second and
+-- never from the first, and a reader cannot tell them apart from the cell ids.
+-- Rows written before the scoring half existed keep '', which is neither arm.
+ALTER TABLE runtime_shadow_selections
+    ADD COLUMN IF NOT EXISTS selection_basis TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_shadow_selections
+    ADD COLUMN IF NOT EXISTS cost_hw_class TEXT NOT NULL DEFAULT '';
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_basis_known;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_basis_known
+    CHECK (selection_basis IN ('', 'LIFECYCLE_LADDER', 'MEASURED_VERIFIED_OUTCOME_COST'));
+-- A cost comparison names the hardware it was made on, and a decision that made
+-- no comparison names none. Without this a row could claim a measured basis while
+-- leaving the scope of the measurement unstated.
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_cost_scope;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_cost_scope
+    CHECK ((selection_basis = 'MEASURED_VERIFIED_OUTCOME_COST') = (btrim(cost_hw_class) <> ''));
 
 CREATE INDEX IF NOT EXISTS runtime_shadow_selections_divergence_idx
     ON runtime_shadow_selections (job_type, model_ref, decided_at DESC)

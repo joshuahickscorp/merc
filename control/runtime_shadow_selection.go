@@ -29,16 +29,39 @@ import (
 // cell alongside candle's routable one. That is the question a promotion actually
 // has to answer: would we have chosen the proven cell if it were allowed to run?
 //
-// What this deliberately does NOT do is predict latency, cost, memory, quality or
-// failure probability. No per-cell source for any of those exists in this tree
-// today, and a scorer that invents them produces a number whose only property is
-// that it looks like evidence. The eligibility half is real and computable now;
-// the scoring half arrives with the measurements, in the change that takes them.
+// The scoring half arrived. The earlier version of this comment said no per-cell
+// source for latency, cost, quality or failure existed in the tree, and that a
+// scorer inventing them produces a number whose only property is that it looks
+// like evidence. The first half was wrong: every committed task already records
+// its cell, its units, its duration, its frozen supplier liability, its retries
+// and its verification outcome. runtime_cell_cost.go reads exactly those, and a
+// decision with two or more MEASURED candidates on one hardware class is ranked
+// on the cost of a verified unit. The second half still holds and is why nothing
+// here predicts memory, and why storage, egress, energy, depreciation and refund
+// risk are reported as `unknown` rather than as zero.
 
 // shadowSelectionPolicy names the rule that picked the shadow cell. It is stored
 // with every row, so a decision taken under one rule is never re-read as though
 // it had been taken under another.
-const shadowSelectionPolicy = "eligibility-only-v1"
+//
+// v2 because the scoring half arrived. The paragraph above still describes the
+// eligibility half exactly; what changed is that runtime_cell_cost.go found the
+// per-cell measurement source in the money path, so a decision can now be ranked
+// on the measured cost of a VERIFIED unit instead of on the lifecycle ladder
+// alone. Which arm actually fired is recorded per row as the selection basis —
+// the policy says what rule was available, the basis says what it could prove.
+const shadowSelectionPolicy = "eligibility-and-measured-cost-v2"
+
+// Selection bases. A row records exactly one.
+const (
+	// selectionBasisLadder ranks on the governed lifecycle ladder and quality
+	// tier. Used when fewer than two candidates have a measured cost on any one
+	// hardware class — which is the honest answer, not a degraded one.
+	selectionBasisLadder = "LIFECYCLE_LADDER"
+	// selectionBasisMeasuredCost ranks on measured expected verified-outcome cost
+	// per unit, on one hardware class.
+	selectionBasisMeasuredCost = "MEASURED_VERIFIED_OUTCOME_COST"
+)
 
 // shadowCandidate is one cell the selector considered.
 type shadowCandidate struct {
@@ -52,6 +75,14 @@ type shadowCandidate struct {
 	// cell sells. A selection that ignored them would be choosing on speed.
 	QualityTier  string `json:"quality_tier"`
 	Verification string `json:"verification"`
+
+	// The measured half, present only when this cell cleared minCellCostSamples
+	// on the hardware class the decision was scored on. Absent fields mean "not
+	// measured", which is why they are omitempty rather than zero: a zero cost
+	// would read as free.
+	CostMeasured       bool    `json:"cost_measured"`
+	CostSamples        int     `json:"cost_samples,omitempty"`
+	VerifiedUSDPerUnit float64 `json:"verified_outcome_usd_per_unit,omitempty"`
 }
 
 // shadowExclusion is a cell that was rejected, and why in the cell's own terms.
@@ -80,6 +111,11 @@ type ShadowSelection struct {
 	Considered       []shadowCandidate `json:"considered_cells"`
 	Excluded         []shadowExclusion `json:"excluded_cells"`
 	SelectionPolicy  string            `json:"selection_policy"`
+	// SelectionBasis is which arm of the policy decided this row, and CostHWClass
+	// is the single hardware class the cost comparison was made on. Empty when the
+	// basis is the ladder, because there was no comparison.
+	SelectionBasis string `json:"selection_basis"`
+	CostHWClass    string `json:"cost_hw_class"`
 }
 
 // Diverged reports whether the shadow would have chosen differently. This is the
@@ -108,6 +144,7 @@ func planShadowSelection(decision WorkloadDecision) (ShadowSelection, error) {
 		LatencyClass:     decision.LatencyClass,
 		RoutedCellID:     routed.CellID,
 		SelectionPolicy:  shadowSelectionPolicy,
+		SelectionBasis:   selectionBasisLadder,
 		Considered:       []shadowCandidate{},
 		Excluded:         []shadowExclusion{},
 	}
@@ -172,7 +209,51 @@ func planShadowSelection(decision WorkloadDecision) (ShadowSelection, error) {
 	return out, nil
 }
 
-// chooseShadowCell applies the only ranking this tree can currently defend.
+// rankedByMeasuredCost re-decides the shadow cell on measured cost when — and
+// only when — two or more candidates have a measured cost on one hardware class.
+//
+// Separate from planShadowSelection, and applied after it, for two reasons. The
+// planner stays pure and database-free, so it remains testable without Postgres;
+// and the cost query only runs for a decision that actually had a choice to make,
+// which is what keeps it off the hot path of the single-candidate submits that
+// make up ordinary traffic.
+//
+// ponytail: the cost query aggregates `tasks` joined to `jobs` with no index on
+// (job_type, model_ref). At a few thousand tasks that is nothing; if the table
+// grows and this shows up in submit latency, the fix is a partial index on
+// completed primary tasks, not a cache.
+func (s ShadowSelection) rankedByMeasuredCost(
+	byHW map[string]map[string]MeasuredCellCost,
+) ShadowSelection {
+	cells := make([]string, 0, len(s.Considered))
+	for _, candidate := range s.Considered {
+		cells = append(cells, candidate.CellID)
+	}
+	hw := comparableHardwareFor(byHW, cells)
+	if hw == "" {
+		return s
+	}
+	costs := byHW[hw]
+	for i, candidate := range s.Considered {
+		cost, ok := measuredCost(costs, candidate.CellID)
+		if !ok {
+			continue
+		}
+		s.Considered[i].CostMeasured = true
+		s.Considered[i].CostSamples = costs[candidate.CellID].Samples
+		s.Considered[i].VerifiedUSDPerUnit = cost
+	}
+	ranked := rankCellsByMeasuredCost(costs, cells)
+	if len(ranked) < 2 {
+		return s
+	}
+	s.ShadowCellID = ranked[0]
+	s.SelectionBasis = selectionBasisMeasuredCost
+	s.CostHWClass = hw
+	return s
+}
+
+// chooseShadowCell applies the ranking available before any cell was measured.
 //
 // There is no cost model yet, so ranking by predicted cost would be ranking by a
 // number nothing measured. What IS governed is the lifecycle ladder and the
@@ -218,12 +299,14 @@ func (s *Store) RecordShadowSelection(ctx context.Context, jobID string, sel Sha
 		INSERT INTO runtime_shadow_selections
 		  (job_id, runtime_matrix_sha256, policy_revision, job_type, model_ref,
 		   model_kind, workload_class, latency_class, routed_cell_id, shadow_cell_id,
-		   considered_cells, excluded_cells, selection_policy)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		   considered_cells, excluded_cells, selection_policy, selection_basis,
+		   cost_hw_class)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (job_id) DO NOTHING`,
 		jobID, sel.RuntimeMatrixSHA, sel.PolicyRevision, sel.JobType, sel.ModelRef,
 		sel.ModelKind, sel.WorkloadClass, sel.LatencyClass, sel.RoutedCellID,
-		sel.ShadowCellID, string(considered), string(excluded), sel.SelectionPolicy)
+		sel.ShadowCellID, string(considered), string(excluded), sel.SelectionPolicy,
+		sel.SelectionBasis, sel.CostHWClass)
 	return err
 }
 
