@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 const html = readFileSync(new URL("../web/supplier.html", import.meta.url), "utf8");
 const script = html.match(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/i)[1];
 
-// Captured from GET /v1/worker/{earnings,connect/status,verification} with a
+// Captured from GET /v1/worker/{earnings,connect/status,viability,verification} with a
 // real worker token, against a supplier holding a sub-cent carry.
 const RESPONSES = {
   "/v1/worker/earnings": {
@@ -27,64 +27,90 @@ const RESPONSES = {
     configured: false, connected: false, payouts_enabled: false,
     credential_id: "eb5ab425-43ca-44f8-8ba2-868de2f6898f", credential_version: 1,
   },
+  "/v1/worker/viability": {
+    eligible: true, reasons: [], minimum_earnings_usd: 0.01,
+  },
   "/v1/worker/verification": {
     honeypots_passed: 0, honeypots_failed: 0, verification_label: "unverified",
   },
 };
 
-/** Enough DOM for the page: element text, class, hidden, and one submit. */
+const PUBLIC_CONFIG = {
+  settlement_currency: "USD",
+  contacts: { configured: false, missing: ["support", "security"] },
+};
+
+/** Enough DOM for the page: element text, attributes and event listeners. */
 function run(responses, token) {
   const els = new Map();
+  const listeners = new Map();
   const el = (id) => {
-    // #console carries the `hidden` attribute in the markup; the stub must
-    // start in the same state or "console stayed hidden" proves nothing.
+    // Console containers carry the `hidden` attribute in the markup; the stub
+    // must start in the same state or an "opened" assertion proves nothing.
     if (!els.has(id)) {
-      els.set(id, { id, textContent: "", className: "", value: "",
-                    hidden: /id="console"[^>]*\shidden/.test(html) && id === "console" });
+      els.set(id, {
+        id, textContent: "", className: "", value: "", dataset: {},
+        hidden: new RegExp(`id="${id}"[^>]*\\shidden`).test(html),
+        addEventListener: (event, listener) => listeners.set(`${id}:${event}`, listener),
+      });
     }
     return els.get(id);
   };
-  el("token").value = token;
-
-  let submit;
-  el("auth-form").addEventListener = (_ev, fn) => { submit = fn; };
+  el("worker-token").value = token;
 
   const requests = [];
   const ctx = {
-    document: { getElementById: el },
+    document: { getElementById: el, createElement: () => ({ append() {}, dataset: {} }) },
+    window: { addEventListener() {} },
+    location: { assign() {} },
     fetch: async (path, init) => {
       requests.push({ path, init });
-      const body = responses[path];
-      if (body === undefined) return { ok: false, status: 404, text: async () => "{}" };
-      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+      const response = responses[path];
+      if (response === undefined) return { ok: false, status: 404, text: async () => '{"error":"worker token not accepted"}' };
+      const status = response.__status || 200;
+      const body = response.__body || response;
+      return { ok: status < 400, status, text: async () => JSON.stringify(body) };
     },
     Number, JSON, Error, String, Object,
   };
 
   new Function(...Object.keys(ctx), script)(...Object.values(ctx));
-  return { el, requests, submit: () => submit({ preventDefault() {} }) };
+  return {
+    el,
+    requests,
+    trigger: (id, event) => {
+      const listener = listeners.get(`${id}:${event}`);
+      assert.ok(listener, `${id} ${event} listener is registered`);
+      return listener({ preventDefault() {} });
+    },
+  };
 }
 
-const t = run(RESPONSES, "dev-worker-token-0001");
-t.submit();
-await new Promise((r) => setImmediate(r));
-await new Promise((r) => setImmediate(r));
-await new Promise((r) => setImmediate(r));
+const flush = async () => {
+  for (let i = 0; i < 4; i++) await new Promise((resolve) => setImmediate(resolve));
+};
+
+const t = run({ "/v1/public/config": PUBLIC_CONFIG, ...RESPONSES }, "dev-worker-token-0001");
+t.trigger("worker-login", "submit");
+await flush();
 
 // The credential is a worker token, not a bearer token.
-for (const { init } of t.requests) {
+const workerRequests = t.requests.filter(({ path }) => path.startsWith("/v1/worker/"));
+for (const { init } of workerRequests) {
   const h = init.headers;
-  assert.equal(h["x-worker-token"], "dev-worker-token-0001", "worker token header");
+  assert.equal(h["X-Worker-Token"], "dev-worker-token-0001", "worker token header");
   assert.equal(h.authorization, undefined, "must not send Authorization: worker auth rejects it");
 }
-assert.equal(t.requests.length, 3, "earnings, rail and verification are all fetched");
+assert.equal(workerRequests.length, 4, "earnings, rail, viability and verification are all fetched");
+const publicRequest = t.requests.find(({ path }) => path === "/v1/public/config");
+assert.equal(publicRequest.init.headers["X-Worker-Token"], undefined, "public config has no worker credential");
 
 // Money is shown at ledger granularity, not rounded to cents: a supplier with
 // $0.003701 accruing must not be shown "$0.00".
-assert.equal(t.el("paid").textContent, "$0.010000");
-assert.equal(t.el("lifetime").textContent, "$0.013701");
-assert.equal(t.el("carried").textContent, "$0.003701");
-assert.match(t.el("carry-note").textContent, /under \$0\.01/);
+assert.equal(t.el("paid").textContent, "0.010000 USD");
+assert.equal(t.el("lifetime").textContent, "0.013701 USD");
+assert.equal(t.el("carried").textContent, "0.003701 USD");
+assert.match(t.el("carry-note").textContent, /below one minor unit \(0\.01 USD\)/);
 
 // An unconfigured deployment must not be described as having a connected account.
 assert.match(t.el("connect-status").textContent, /not configured/);
@@ -92,32 +118,30 @@ assert.doesNotMatch(t.el("connect-status").textContent, /connected account prese
 assert.match(t.el("verification-status").textContent, /^unverified/);
 
 // The raw panel is the supplier's reconciliation path; it must be the real bodies.
-assert.deepEqual(JSON.parse(t.el("raw").textContent).earnings, RESPONSES["/v1/worker/earnings"]);
-assert.equal(t.el("console").hidden, false);
-assert.equal(t.el("signin").hidden, true);
+const raw = JSON.parse(t.el("worker-raw").textContent);
+assert.deepEqual(raw.earnings, RESPONSES["/v1/worker/earnings"]);
+assert.deepEqual(raw.viability, RESPONSES["/v1/worker/viability"]);
+assert.equal(t.el("worker-console").hidden, false);
 
 // Each rail state says something different, and three of the four mean "not paid yet".
 const rail = (status) => {
-  const s = run({ ...RESPONSES, "/v1/worker/connect/status": status }, "tok");
-  s.submit();
+  const s = run({ "/v1/public/config": PUBLIC_CONFIG, ...RESPONSES, "/v1/worker/connect/status": status }, "tok");
+  s.trigger("worker-login", "submit");
   return s;
 };
 const enabled = rail({ configured: true, connected: true, payouts_enabled: true });
 const pending = rail({ configured: true, connected: true, payouts_enabled: false });
 const unlinked = rail({ configured: true, connected: false, payouts_enabled: false });
-await new Promise((r) => setImmediate(r));
-await new Promise((r) => setImmediate(r));
-await new Promise((r) => setImmediate(r));
-assert.match(enabled.el("connect-status").textContent, /able to receive payouts/);
-assert.match(pending.el("connect-status").textContent, /has not enabled payouts/);
-assert.match(unlinked.el("connect-status").textContent, /no payout account is connected/);
+await flush();
+assert.match(enabled.el("connect-status").textContent, /payouts enabled/);
+assert.match(pending.el("connect-status").textContent, /payouts remain disabled/);
+assert.match(unlinked.el("connect-status").textContent, /no payout account is connected/i);
 
 // A bad token must say so rather than opening an empty console.
-const denied = run({}, "wrong");
-denied.submit();
-await new Promise((r) => setImmediate(r));
-assert.equal(denied.el("console").hidden, true, "console must not open when the token is refused");
-assert.equal(denied.el("signin").hidden, false, "sign-in stays up when the token is refused");
-assert.match(denied.el("auth-status").textContent, /could not load earnings|not accepted/);
+const denied = run({ "/v1/public/config": PUBLIC_CONFIG }, "wrong");
+denied.trigger("worker-login", "submit");
+await flush();
+assert.equal(denied.el("worker-console").hidden, true, "console must not open when the token is refused");
+assert.match(denied.el("worker-status").textContent, /not accepted/);
 
 console.log("supplier console: worker-token header, sub-cent money, 4 rail states and refusal path verified");

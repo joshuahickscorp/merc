@@ -105,7 +105,7 @@ table{width:100%;border-collapse:collapse;font:12px/1.45 ui-monospace,monospace}
       <h2>Jobs</h2>
       <div class="actions"><button id="jobs-refresh" type="button">refresh jobs</button><label>Selected job ID <input id="job-id" autocomplete="off"></label></div>
       <div class="table-wrap"><table><thead><tr><th>created</th><th>type</th><th>state</th><th>tasks</th><th>actual</th><th></th></tr></thead><tbody id="jobs-body"></tbody></table></div>
-      <ul class="states"><li>queued</li><li>running</li><li>retrying</li><li>verifying</li><li>complete</li><li>cancelled</li><li>failed</li></ul>
+      <ul class="states"><li>queued</li><li>running</li><li>retrying</li><li>verifying</li><li data-api-state="complete">completed</li><li>cancelled</li><li>failed</li></ul>
       <div class="actions">
         <button data-job-path="" type="button">status</button><button data-job-path="/events" type="button">events</button><button data-job-path="/failures" type="button">failures</button>
         <button data-job-path="/results" type="button">results</button><button data-job-path="/invoice" type="button">invoice</button><button data-job-path="/receipt" type="button">receipt</button><button id="cancel" type="button">cancel queued</button>
