@@ -225,9 +225,49 @@ type ReuseHitSettlement struct {
 	BuyerDebitMicros        int64
 	SupplierLiabilityMicros int64 // always 0 on a pure reuse hit
 	PlatformMicros          int64
+	Currency                string
+	BuyerDebitNanos         int64
+	PlatformNanos           int64
+	MinimumChargeApplied    bool
 	PhysicalTokens          int64
 	DeliveredTokens         int64
 	Accounting              TokenAccounting
+}
+
+// SettleRealtimeReuseHitMoney is the realtime cache/coalescing authority. It
+// converts the embedded per-million profile rates once, selects the output/full
+// delivery ceiling exactly, applies the reuse share in nanos, and projects the
+// complete charge to the ledger once.
+func SettleRealtimeReuseHitMoney(
+	c Currency, deliveredTokens int64, inputPerMillion, outputPerMillion float64,
+) (ReuseHitSettlement, error) {
+	input, err := nanoRatePerMillionFromFloat(inputPerMillion)
+	if err != nil {
+		return ReuseHitSettlement{}, err
+	}
+	output, err := nanoRatePerMillionFromFloat(outputPerMillion)
+	if err != nil {
+		return ReuseHitSettlement{}, err
+	}
+	full := input
+	if output > full {
+		full = output
+	}
+	charge, minimumApplied, err := RealtimeReuseBuyerChargeNanos(c, deliveredTokens, full)
+	if err != nil {
+		return ReuseHitSettlement{}, err
+	}
+	micros, err := LedgerMicrosFromNanos(charge)
+	if err != nil {
+		return ReuseHitSettlement{}, err
+	}
+	acct := ExactReuseAccounting(deliveredTokens)
+	return ReuseHitSettlement{
+		BuyerDebitMicros: micros, PlatformMicros: micros, Currency: c.Code(),
+		BuyerDebitNanos: charge.Nanos, PlatformNanos: charge.Nanos,
+		MinimumChargeApplied: minimumApplied,
+		PhysicalTokens:       acct.PhysicalTokens(), DeliveredTokens: acct.DeliveredTokens(), Accounting: acct,
+	}, nil
 }
 
 // SettleReuseHitMoney prices a cache hit and checks micro-USD conservation.
@@ -265,6 +305,10 @@ func SettleReuseHitMoney(deliveredTokens int64, fullPricePer1K float64) ReuseHit
 // Conserved reports whether buyer = supplier + platform exactly.
 func (s ReuseHitSettlement) Conserved() bool {
 	return s.BuyerDebitMicros == s.SupplierLiabilityMicros+s.PlatformMicros
+}
+
+func (s ReuseHitSettlement) ConservedExact() bool {
+	return s.BuyerDebitNanos == s.PlatformNanos && s.SupplierLiabilityMicros == 0
 }
 
 // In-flight coalescing lives in inflight_coalescing.go.

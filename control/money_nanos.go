@@ -48,6 +48,11 @@ const NanosPerMajorUnit int64 = 1_000_000_000
 // NanosPerMicro is the ledger's presentation granularity, in nanos.
 const NanosPerMicro int64 = 1_000
 
+const (
+	realtimeReuseRetainedShareNanos = 400_000_000
+	realtimeReuseMinimumChargeNanos = NanosPerMicro
+)
+
 // NanosPerHour converts an hourly rate to a per-nanosecond one.
 const nanosecondsPerHour int64 = 3_600 * 1_000_000_000
 
@@ -201,6 +206,26 @@ func mulDiv(a, b, d int64, up bool) (int64, error) {
 		return 0, errors.New("exact money arithmetic divided by zero")
 	}
 	product := new(big.Int).Mul(big.NewInt(a), big.NewInt(b))
+	divisor := big.NewInt(d)
+	quotient, remainder := new(big.Int).QuoRem(product, divisor, new(big.Int))
+	if remainder.Sign() != 0 && up == (product.Sign() == divisor.Sign()) {
+		quotient.Add(quotient, big.NewInt(1))
+	}
+	if !quotient.IsInt64() {
+		return 0, errMoneyOverflow
+	}
+	return quotient.Int64(), nil
+}
+
+// mul3Div keeps all three multiplicands in one arbitrary-precision numerator.
+// It exists for reuse pricing, where rounding the full token price before
+// applying the retained share recreates the micro-before-share defect.
+func mul3Div(a, b, c, d int64, up bool) (int64, error) {
+	if d == 0 {
+		return 0, errors.New("exact money arithmetic divided by zero")
+	}
+	product := new(big.Int).Mul(big.NewInt(a), big.NewInt(b))
+	product.Mul(product, big.NewInt(c))
 	divisor := big.NewInt(d)
 	quotient, remainder := new(big.Int).QuoRem(product, divisor, new(big.Int))
 	if remainder.Sign() != 0 && up == (product.Sign() == divisor.Sign()) {
@@ -370,6 +395,29 @@ func SupplierRealtimeTokenEntitlementNanos(
 	inputRate, outputRate NanoMajorPerMillionTokens,
 ) (MoneyNanos, error) {
 	return realtimeTokenChargeNanos(c, promptTokens, completionTokens, inputRate, outputRate, true)
+}
+
+// RealtimeReuseBuyerChargeNanos prices a delivered cached/coalesced result in
+// one exact expression. The 40% retained share is applied before any rounding.
+// A positive delivery carries an explicit one-micro external-ledger minimum;
+// this is a fixed delivery charge, not physical compute or supplier liability.
+func RealtimeReuseBuyerChargeNanos(
+	c Currency, deliveredTokens int64, fullRate NanoMajorPerMillionTokens,
+) (MoneyNanos, bool, error) {
+	if deliveredTokens <= 0 || fullRate <= 0 {
+		return MoneyNanos{}, false, errors.New("realtime reuse requires positive delivered tokens and full rate")
+	}
+	const reusePriceDenominator = 1_000_000 * NanosPerMajorUnit
+	nanos, err := mul3Div(int64(fullRate), deliveredTokens, realtimeReuseRetainedShareNanos, reusePriceDenominator, false)
+	if err != nil {
+		return MoneyNanos{}, false, err
+	}
+	minimumApplied := nanos < realtimeReuseMinimumChargeNanos
+	if minimumApplied {
+		nanos = realtimeReuseMinimumChargeNanos
+	}
+	money, err := NewMoneyNanos(c, nanos)
+	return money, minimumApplied, err
 }
 
 // LedgerMicrosFromNanos projects one complete exact amount to the legacy ledger
