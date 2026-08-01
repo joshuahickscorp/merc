@@ -15,7 +15,7 @@ func dispatchProject(command string, args []string) bool {
 		return false
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|calibration-check}")
+		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|quote|calibration-check}")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -40,11 +40,42 @@ func dispatchProject(command string, args []string) bool {
 			os.Exit(1)
 		}
 		return true
+	case "quote":
+		os.Exit(runProjectQuote(args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown project subcommand %q\n", args[0])
 		os.Exit(2)
 	}
 	return true
+}
+
+func runProjectQuote(args []string) int {
+	fs := flag.NewFlagSet("project quote", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	root := fs.String("root", "", "project directory to compile and quote")
+	approved := fs.String("buyer-approved-ir-sha256", "", "exact unprobed IR digest approved by the buyer")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *root == "" || !validSHA256(*approved) {
+		fmt.Fprintln(os.Stderr, "project quote: --root and --buyer-approved-ir-sha256 are required")
+		return 2
+	}
+	ir, err := compileProject(projectCompileOptions{Root: *root, ProbeRequested: true, BuyerApprovedIRSHA256: *approved})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "project quote: %v\n", err)
+		return 1
+	}
+	quote, err := quoteCompiledProject(newClient(), *root, ir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "project quote: %v\n", err)
+		return 1
+	}
+	if err := writeProjectQuote(os.Stdout, quote); err != nil {
+		fmt.Fprintf(os.Stderr, "project quote: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func runProjectCompile(args []string) int {

@@ -98,6 +98,34 @@ cost and duration confidence as `1 - p90_error`. Passing this evidence permits a
 later compiler revision to use it for estimates only. The gate has no caller
 from pricing, reserves, settlement, or admission.
 
+## Production project quote
+
+`merc project quote --root PROJECT --buyer-approved-ir-sha256 SHA256` repeats
+the exact approval-bound probe and quotes every resolved finite step through the
+authenticated production `/v1/quote` caller. It does not maintain a project
+price table or locally derive supplier share, floors, payment allocation, or
+Merc contribution.
+
+For every step, the command:
+
+- requires one explicit, bounded, non-symlink `project://PATH` input;
+- derives job type, model kind and model ID from resolved server authority;
+- validates the returned composite `PricingDecision` by rebuilding it from its
+  workload, compute, placement, economic and catalogue authorities;
+- requires the project, quote, pricing decision and fixed-point decision to use
+  the same currency;
+- records the exact pricing-decision SHA-256 and converts the quote boundary to
+  nano-major-units once;
+- sums expected and maximum costs with overflow checks;
+- refuses the fixed-point project buyer ceiling;
+- computes p50 and p90 critical paths from declared DAG dependencies rather
+  than summing parallel branches.
+
+The aggregate remains `STEP_QUOTES_NOT_PROJECT_OUTCOME_CALIBRATED`. Step quotes
+are real pricing and time authorities, but their sum has not demonstrated the
+project-level median/p90 targets until an outcome cohort passes the calibration
+gate.
+
 ## Detectors
 
 The v1 static detector taxonomy covers realtime inference, batch inference and
