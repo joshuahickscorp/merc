@@ -3,12 +3,12 @@
   "kind": "rename_residue_audit",
   "counts": {
     "FROZEN": 327,
-    "BLOCKED": 310,
+    "BLOCKED": 312,
     "RESIDUE": 0
   },
   "blocked_by_prerequisite": {
     "metric name in the alert label set; must land with the receiver update": 148,
-    "model alias inside the sha256'd vLLM runtime profile; workers must re-attest in the same cutover": 28,
+    "model alias inside the sha256'd vLLM runtime profile; workers must re-attest in the same cutover": 30,
     "droplet .env, GitHub Actions secrets and systemd units supply these; CX_TOKEN_KEY must be copied byte-identically or every sealed secret in Postgres becomes undecryptable": 28,
     "object storage bucket name in a running deployment": 22,
     "published image tag": 14,
