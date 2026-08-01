@@ -54,6 +54,22 @@ type PricingCostComponent struct {
 	Basis  string  `json:"basis"`
 }
 
+// FixedPointPricingDecision is the currency-bound conservation half of a new
+// PricingDecision. Human-facing floats remain projections for compatibility;
+// admission, ceilings and economic identity use these integer nano-major-units.
+// Historical decisions omit this object and retain their frozen arithmetic.
+type FixedPointPricingDecision struct {
+	Currency                   string   `json:"currency"`
+	BuyerChargeNanos           int64    `json:"buyer_charge_nanos"`
+	AcceptedCeilingNanos       int64    `json:"accepted_ceiling_nanos"`
+	SupplierEntitlementsNanos  int64    `json:"supplier_entitlements_nanos"`
+	KnownVariableCostsNanos    int64    `json:"known_variable_costs_nanos"`
+	MercGrossSpreadNanos       int64    `json:"merc_gross_spread_nanos"`
+	KnownCostContributionNanos int64    `json:"known_cost_contribution_nanos"`
+	TrueNetContributionNanos   *int64   `json:"true_net_contribution_nanos,omitempty"`
+	UnknownCostCategories      []string `json:"unknown_cost_categories,omitempty"`
+}
+
 // PricingDecision is the composite economic authority accepted for a quote or
 // job. Every independently valid sibling decision is bound by digest here.
 // Legacy rows remain readable with no PricingDecision; they are not
@@ -91,19 +107,79 @@ type PricingDecision struct {
 	BuyerPrice        float64 `json:"buyer_price"`
 	MaximumBuyerPrice float64 `json:"maximum_buyer_price"`
 
-	PrimarySupplierCost  PricingCostComponent `json:"primary_supplier_cost"`
-	VerificationCost     PricingCostComponent `json:"verification_cost"`
-	PaymentCost          PricingCostComponent `json:"payment_cost"`
-	ControlPlaneCost     PricingCostComponent `json:"control_plane_cost"`
-	StorageCost          PricingCostComponent `json:"storage_cost"`
-	EgressCost           PricingCostComponent `json:"egress_cost"`
-	ProviderCost         PricingCostComponent `json:"provider_cost"`
-	RiskReserve          PricingCostComponent `json:"risk_reserve"`
-	PlatformContribution PricingCostComponent `json:"platform_contribution"`
+	PrimarySupplierCost  PricingCostComponent       `json:"primary_supplier_cost"`
+	VerificationCost     PricingCostComponent       `json:"verification_cost"`
+	PaymentCost          PricingCostComponent       `json:"payment_cost"`
+	ControlPlaneCost     PricingCostComponent       `json:"control_plane_cost"`
+	StorageCost          PricingCostComponent       `json:"storage_cost"`
+	EgressCost           PricingCostComponent       `json:"egress_cost"`
+	ProviderCost         PricingCostComponent       `json:"provider_cost"`
+	RiskReserve          PricingCostComponent       `json:"risk_reserve"`
+	PlatformContribution PricingCostComponent       `json:"platform_contribution"`
+	FixedPoint           *FixedPointPricingDecision `json:"fixed_point,omitempty"`
 
 	Confidence  float64  `json:"confidence"`
 	Assumptions []string `json:"assumptions"`
 	Unknowns    []string `json:"unknowns,omitempty"`
+}
+
+func fixedPointPricingFromScenario(
+	currency string,
+	buyerPrice, maximumBuyerPrice float64,
+	scenario EconomicScenario,
+	unknowns []string,
+) (*FixedPointPricingDecision, error) {
+	toNanos := func(value float64) int64 { return usdToMicros(value) * NanosPerMicro }
+	buyer := toNanos(buyerPrice)
+	ceiling := toNanos(maximumBuyerPrice)
+	supplier := toNanos(scenario.SupplierLiabilityUSD)
+	variable := toNanos(scenario.ProcessorFeeUSD) + toNanos(scenario.ControlPlaneCostUSD)
+	contribution := toNanos(scenario.ContributionMarginUSD)
+	if buyer <= 0 || ceiling < buyer || supplier <= 0 || contribution <= 0 {
+		return nil, errors.New("fixed-point pricing lacks positive buyer, supplier, ceiling, or contribution authority")
+	}
+	if buyer != supplier+variable+contribution {
+		return nil, fmt.Errorf(
+			"fixed-point pricing does not conserve: buyer %d != supplier %d + variable %d + contribution %d",
+			buyer, supplier, variable, contribution)
+	}
+	fixed := &FixedPointPricingDecision{
+		Currency: currency, BuyerChargeNanos: buyer, AcceptedCeilingNanos: ceiling,
+		SupplierEntitlementsNanos: supplier, KnownVariableCostsNanos: variable,
+		MercGrossSpreadNanos:       buyer - supplier,
+		KnownCostContributionNanos: contribution,
+		UnknownCostCategories:      append([]string(nil), unknowns...),
+	}
+	if len(unknowns) == 0 {
+		trueNet := contribution
+		fixed.TrueNetContributionNanos = &trueNet
+	}
+	return fixed, nil
+}
+
+func validateFixedPointPricing(p PricingDecision) error {
+	if p.FixedPoint == nil {
+		return nil
+	}
+	f := p.FixedPoint
+	if f.Currency != p.Currency || f.BuyerChargeNanos <= 0 ||
+		f.AcceptedCeilingNanos < f.BuyerChargeNanos ||
+		f.SupplierEntitlementsNanos <= 0 || f.KnownVariableCostsNanos < 0 ||
+		f.KnownCostContributionNanos <= 0 ||
+		f.MercGrossSpreadNanos != f.BuyerChargeNanos-f.SupplierEntitlementsNanos ||
+		f.BuyerChargeNanos != f.SupplierEntitlementsNanos+
+			f.KnownVariableCostsNanos+f.KnownCostContributionNanos {
+		return errors.New("fixed-point pricing violates currency, ceiling, or conservation authority")
+	}
+	if len(f.UnknownCostCategories) == 0 {
+		if f.TrueNetContributionNanos == nil ||
+			*f.TrueNetContributionNanos != f.KnownCostContributionNanos {
+			return errors.New("complete fixed-point pricing lacks true net contribution")
+		}
+	} else if f.TrueNetContributionNanos != nil {
+		return errors.New("fixed-point pricing claims true net contribution with unknown costs")
+	}
+	return nil
 }
 
 func canonicalDigest(label string, value any) (string, error) {
@@ -685,6 +761,15 @@ func distributedPricingDecisionAtRate(
 			"storage cost", "egress cost", "provider energy and depreciation", "risk reserve",
 		},
 	}
+	if economic.Schedule.ControlPlaneAllocationPolicy == controlPlaneAllocationChargeBatchV1 {
+		fixed, ferr := fixedPointPricingFromScenario(
+			out.Currency, out.BuyerPrice, out.MaximumBuyerPrice, scenario, out.Unknowns,
+		)
+		if ferr != nil {
+			return PricingDecision{}, ferr
+		}
+		out.FixedPoint = fixed
+	}
 	return out, validatePricingCostShape(out)
 }
 
@@ -826,6 +911,9 @@ func validatePricingCostShape(p PricingDecision) error {
 		!validSHA256(p.WorkloadDecisionSHA256) ||
 		!validSHA256(p.ComputePlanSHA256) {
 		return errors.New("pricing decision lacks core digest or currency authority")
+	}
+	if err := validateFixedPointPricing(p); err != nil {
+		return err
 	}
 	if !finiteNonNegative(p.BuyerPrice) || p.BuyerPrice <= 0 ||
 		!finiteNonNegative(p.MaximumBuyerPrice) ||

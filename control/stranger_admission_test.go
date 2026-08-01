@@ -249,6 +249,27 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 		t.Fatalf("job settled in pricing=%q economic=%q, not the configured %q",
 			pricing.Currency, economic.Schedule.Currency, settlement)
 	}
+	fixed := pricing.FixedPoint
+	if fixed == nil || fixed.Currency != settlement {
+		t.Fatalf("admitted decision lacks currency-bound fixed-point economics: %+v", fixed)
+	}
+	if fixed.SupplierEntitlementsNanos <
+		pricing.SupplierRequiredNanos*int64(economic.Input.InitialTaskCount) {
+		t.Fatalf("fixed supplier entitlement %d is below total floor %d",
+			fixed.SupplierEntitlementsNanos,
+			pricing.SupplierRequiredNanos*int64(economic.Input.InitialTaskCount))
+	}
+	if fixed.BuyerChargeNanos > fixed.AcceptedCeilingNanos {
+		t.Fatalf("fixed buyer charge %d exceeds ceiling %d",
+			fixed.BuyerChargeNanos, fixed.AcceptedCeilingNanos)
+	}
+	if fixed.BuyerChargeNanos != fixed.SupplierEntitlementsNanos+
+		fixed.KnownVariableCostsNanos+fixed.KnownCostContributionNanos {
+		t.Fatal("fixed pricing does not conserve buyer = supplier + variable + contribution")
+	}
+	if fixed.TrueNetContributionNanos != nil || len(fixed.UnknownCostCategories) == 0 {
+		t.Fatalf("decision claimed true net despite unknown named costs: %+v", fixed)
+	}
 	t.Logf("ADMITTED in %s: %.2f billable units at %.8f/1k (reference %.8f, FX %.4g); "+
 		"buyer gross %d nanos/task, supplier entitled %d nanos/task against a %d nano "+
 		"floor (headroom %d), buyer estimate %.9f",
