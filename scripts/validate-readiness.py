@@ -53,11 +53,11 @@ def auth_matrix_complete(doc: Any) -> bool:
     routes = 0
     for route_class in doc.get("route_classes", []):
         routes += len(route_class.get("routes", []))
-    # 85 after the currently registered public and operator routes. The count is a tripwire,
+    # 87 after the currently registered public and operator routes. The count is a tripwire,
     # not a fact about the world: it exists so that adding a route forces someone
     # to look at the matrix. It went stale when that route landed, which silently
     # cost this domain 11 readiness points and made `make ci` red.
-    return routes == 85 and doc.get("policy", {}).get("default") == "deny"
+    return routes == 87 and doc.get("policy", {}).get("default") == "deny"
 
 
 def technical_break_glass(doc: Any) -> bool:
