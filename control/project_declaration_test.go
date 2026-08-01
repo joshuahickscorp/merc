@@ -47,8 +47,46 @@ func TestProjectDeclarationSuppliesEvidenceBoundDAG(t *testing.T) {
 	if ir.Privacy.Egress != "DENY" || ir.Economics.Currency != "cad" || ir.Economics.MaximumBuyerPriceNanos != 50_000_000 {
 		t.Fatalf("buyer constraints were not frozen: %+v", ir)
 	}
-	if !strings.Contains(strings.Join(ir.RefusalReasons, "\n"), "not been resolved") {
+	if !strings.Contains(strings.Join(ir.RefusalReasons, "\n"), "resolved to 0 routable cells") {
 		t.Fatal("buyer-declared contract hashes became server authority")
+	}
+}
+
+func TestProjectDeclarationResolvesExactAdvertisedContract(t *testing.T) {
+	contracts, err := advertisedProjectRuntimeContracts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contract ProjectRuntimeContract
+	for _, candidate := range contracts {
+		if candidate.WorkloadKind == "embeddings" {
+			contract = candidate
+			break
+		}
+	}
+	if contract.RuntimeID == "" {
+		t.Fatal("no advertised embeddings contract")
+	}
+	root := t.TempDir()
+	declaration := projectDeclarationFixture()
+	declaration.Steps = []ProjectIRStep{{
+		ID: "embed", Kind: contract.WorkloadKind,
+		Inputs: []string{"project://input"}, Outputs: []string{"project://vectors"},
+		RuntimeContract: contract.RuntimeContractSHA256, ModelContract: contract.ModelContractSHA256,
+		ResourceEstimate: "BOUNDED_PROBE_REQUIRED", Parallelism: "INDEPENDENT",
+		CheckpointPolicy: "NOT_APPLICABLE", Verification: contract.Verification,
+	}}
+	writeDeclarationFixture(t, root, declaration)
+	writeProjectFixture(t, root, "pipeline.py", "embedding")
+	ir, err := compileProject(projectCompileOptions{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ir.Steps) != 1 || ir.Steps[0].RuntimeID != contract.RuntimeID || ir.Steps[0].ModelID != contract.ModelID {
+		t.Fatalf("exact advertised contract did not resolve: %+v", ir.Steps)
+	}
+	if strings.Contains(strings.Join(ir.RefusalReasons, "\n"), "runtime/model contract pair") {
+		t.Fatalf("resolved contract retained resolution refusal: %+v", ir.RefusalReasons)
 	}
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -14,7 +15,7 @@ func dispatchProject(command string, args []string) bool {
 		return false
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: merc project {compile|calibration-check}")
+		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|calibration-check}")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -22,6 +23,23 @@ func dispatchProject(command string, args []string) bool {
 		os.Exit(runProjectCompile(args[1:]))
 	case "calibration-check":
 		os.Exit(runProjectCalibrationCheck(args[1:]))
+	case "contracts":
+		if len(args) != 1 {
+			fmt.Fprintln(os.Stderr, "usage: merc project contracts")
+			os.Exit(2)
+		}
+		contracts, err := advertisedProjectRuntimeContracts()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "project contracts: %v\n", err)
+			os.Exit(1)
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(contracts); err != nil {
+			fmt.Fprintf(os.Stderr, "project contracts: %v\n", err)
+			os.Exit(1)
+		}
+		return true
 	default:
 		fmt.Fprintf(os.Stderr, "unknown project subcommand %q\n", args[0])
 		os.Exit(2)
