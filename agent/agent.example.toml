@@ -6,6 +6,9 @@ supplier_id = "00000000-0000-0000-0000-000000000000"
 
 paused = false
 # allowed_weekdays = [1, 2, 3, 4, 5] # 0=Sunday … 6=Saturday
+# allowed_workload_classes = ["embed", "batch_infer"]
+allow_model_downloads = true
+max_model_cache_gb = 4.0
 power_only = false          # true = refuse to run on battery
 # quiet_hours = [22, 6]     # local hours [start, end); wraps midnight; agent aborts in-flight work too
 min_payout_usd_per_hr = 0.0 # decline work paying less than this

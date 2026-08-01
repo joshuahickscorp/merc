@@ -2377,6 +2377,10 @@ struct WorkCtx {
 }
 
 async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
+    if std::env::var_os("MERC_MODEL_CACHE").is_none() {
+        std::env::set_var("MERC_MODEL_CACHE", cfg.data_dir.join("models"));
+    }
+    models::set_cache_policy(cfg.allow_model_downloads, cfg.max_model_cache_gb);
     let pool = ModelPool::new();
     // The advertised engine follows the embed runtime this worker was configured
     // with, rather than being hardcoded to candle.
@@ -2400,6 +2404,10 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
         &pool,
     )
     .await;
+    cap.supported_jobs
+        .retain(|workload| cfg.allows_workload(workload));
+    cap.benchmarks
+        .retain(|bench| cfg.allows_workload(&bench.job_type));
     let advertised_worker_id = cap.worker_id;
     let permits = cfg.concurrency(cap.memory_gb);
 
@@ -2485,6 +2493,7 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
                 heartbeat.tick().await;
                 let prefs_valid = match cfg.refresh_operator_prefs() {
                     Ok(()) => {
+                        models::set_cache_policy(cfg.allow_model_downloads, cfg.max_model_cache_gb);
                         status.set_applied_prefs(status::AppliedPrefs::from_config(
                             &cfg,
                             ctx.cap.memory_gb,
@@ -2597,6 +2606,7 @@ async fn poll_and_spawn(
 ) -> Result<()> {
     cfg.refresh_operator_prefs()
         .context("operator preferences invalid; refusing to claim")?;
+    models::set_cache_policy(cfg.allow_model_downloads, cfg.max_model_cache_gb);
     let (hour, weekday) = current_local_schedule_clock();
     if !cfg.is_eligible_to_run_at(hour, weekday, on_battery()) {
         tracing::debug!("not eligible to run (paused / schedule / battery); idling 60s");
@@ -2640,6 +2650,14 @@ async fn poll_and_spawn(
     };
     let claim_memory_headroom_gb = cfg.memory_headroom_gb;
     tracing::info!(task = %task.task_id, job = %task.job_id, "received task");
+    if !cfg.allows_workload(task.manifest.job_type.tag()) {
+        tracing::warn!(
+            task = %task.task_id,
+            workload = task.manifest.job_type.tag(),
+            "task declined: workload class disabled by supplier policy (not started)"
+        );
+        return Ok(());
+    }
     let received_at = std::time::Instant::now();
     let deadline = match TaskDeadline::from_dispatch(
         task.deadline,

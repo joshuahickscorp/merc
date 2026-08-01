@@ -1,17 +1,27 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use candle_core::Device;
 use hf_hub::api::sync::{Api, ApiBuilder};
-use hf_hub::{Repo, RepoType};
+use hf_hub::{Cache, Repo, RepoType};
 use sha2::{Digest, Sha256};
 
 use crate::executor::RunError;
 
 static DEVICE: OnceLock<Device> = OnceLock::new();
+static ALLOW_MODEL_DOWNLOADS: AtomicBool = AtomicBool::new(true);
+static MAX_MODEL_CACHE_BYTES: AtomicU64 = AtomicU64::new(4 * 1024 * 1024 * 1024);
+
+pub fn set_cache_policy(allow_downloads: bool, max_cache_gb: f32) {
+    ALLOW_MODEL_DOWNLOADS.store(allow_downloads, Ordering::Release);
+    let bytes =
+        ((max_cache_gb.max(0.0) as f64) * 1024.0 * 1024.0 * 1024.0).min(u64::MAX as f64) as u64;
+    MAX_MODEL_CACHE_BYTES.store(bytes, Ordering::Release);
+}
 
 pub fn device() -> &'static Device {
     DEVICE.get_or_init(|| {
@@ -169,26 +179,101 @@ pub fn llama_gguf_spec(_model_ref: &str) -> ModelSpec {
     INFER
 }
 
-fn api() -> Result<Api> {
-    let mut builder = ApiBuilder::new();
+fn model_cache() -> Cache {
     if let Ok(dir) = std::env::var("MERC_MODEL_CACHE") {
         if !dir.is_empty() {
-            builder = builder.with_cache_dir(PathBuf::from(dir));
+            return Cache::new(PathBuf::from(dir));
         }
     }
-    builder.build().context("building hf-hub API")
+    Cache::default()
+}
+
+fn api(cache: Cache) -> Result<Api> {
+    ApiBuilder::from_cache(cache)
+        .build()
+        .context("building hf-hub API")
 }
 
 pub fn fetch(spec: &ModelSpec) -> Result<Vec<PathBuf>, RunError> {
-    let api = api().map_err(|error| RunError::ModelFetch {
-        repo: spec.repo.to_string(),
-        msg: format!("{error:#}"),
-    })?;
-    let repo = api.repo(Repo::with_revision(
+    fetch_with_policy(
+        spec,
+        model_cache(),
+        ALLOW_MODEL_DOWNLOADS.load(Ordering::Acquire),
+        MAX_MODEL_CACHE_BYTES.load(Ordering::Acquire),
+    )
+}
+
+fn fetch_with_policy(
+    spec: &ModelSpec,
+    cache: Cache,
+    allow_downloads: bool,
+    max_cache_bytes: u64,
+) -> Result<Vec<PathBuf>, RunError> {
+    let repo_id = Repo::with_revision(
         spec.repo.to_string(),
         RepoType::Model,
         spec.revision.to_string(),
-    ));
+    );
+    let cached_repo = cache.repo(repo_id.clone());
+    let mut cached = Vec::with_capacity(spec.files.len());
+    let mut missing_bytes = 0_u64;
+    for file in spec.files {
+        if let Some(path) = cached_repo.get(file.name) {
+            verify_file(&path, file).map_err(|error| RunError::ModelFetch {
+                repo: spec.repo.to_string(),
+                msg: format!(
+                    "verifying cached {} at {}: {error:#}",
+                    file.name, spec.revision
+                ),
+            })?;
+            cached.push(Some(path));
+        } else {
+            cached.push(None);
+            missing_bytes = missing_bytes.saturating_add(file.bytes);
+        }
+    }
+    let cache_bytes = dir_size(cache.path());
+    if cache_bytes > max_cache_bytes {
+        return Err(RunError::ModelFetch {
+            repo: spec.repo.to_string(),
+            msg: format!(
+                "model cache ceiling: {} existing > {} bytes",
+                cache_bytes, max_cache_bytes
+            ),
+        });
+    }
+    if missing_bytes == 0 {
+        return Ok(cached.into_iter().flatten().collect());
+    }
+    if !allow_downloads {
+        return Err(RunError::ModelFetch {
+            repo: spec.repo.to_string(),
+            msg: format!(
+                "{} pinned byte(s) are not cached and model downloads are disabled by the supplier",
+                missing_bytes
+            ),
+        });
+    }
+    // hf-hub adds refs/pointers alongside the pinned blobs. Reserve one MiB per
+    // missing file so the configured ceiling includes metadata, not just model
+    // payload bytes.
+    let metadata_reserve = (spec.files.len() as u64).saturating_mul(1024 * 1024);
+    let required_bytes = missing_bytes.saturating_add(metadata_reserve);
+    if cache_bytes.saturating_add(required_bytes) > max_cache_bytes {
+        return Err(RunError::ModelFetch {
+            repo: spec.repo.to_string(),
+            msg: format!(
+                "model cache ceiling: {} existing + {} required > {} bytes",
+                cache_bytes, required_bytes, max_cache_bytes
+            ),
+        });
+    }
+
+    let api = api(cache).map_err(|error| RunError::ModelFetch {
+        repo: spec.repo.to_string(),
+        msg: format!("{error:#}"),
+    })?;
+    let repo = api.repo(repo_id);
     spec.files
         .iter()
         .map(|file| {
@@ -203,6 +288,20 @@ pub fn fetch(spec: &ModelSpec) -> Result<Vec<PathBuf>, RunError> {
             Ok(path)
         })
         .collect()
+}
+
+fn dir_size(path: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| match entry.metadata() {
+            Ok(metadata) if metadata.is_dir() => dir_size(&entry.path()),
+            Ok(metadata) => metadata.len(),
+            Err(_) => 0,
+        })
+        .fold(0_u64, u64::saturating_add)
 }
 
 fn verify_file(path: &Path, expected: &ModelFile) -> Result<()> {
@@ -241,6 +340,17 @@ fn verify_file(path: &Path, expected: &ModelFile) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const POLICY_FILE: ModelFile = ModelFile {
+        name: "weights.bin",
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        bytes: 64,
+    };
+    const POLICY_SPEC: ModelSpec = ModelSpec {
+        repo: "merc/policy-fixture",
+        revision: "0123456789abcdef0123456789abcdef01234567",
+        files: &[POLICY_FILE],
+    };
 
     fn assert_spec_matches_authority(spec: ModelSpec) {
         let authority: serde_json::Value =
@@ -281,6 +391,22 @@ mod tests {
         let wrong_size = ModelFile { bytes: 17, ..valid };
         assert!(verify_file(&path, &wrong_size).is_err());
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn disabled_downloads_and_cache_ceiling_fail_before_network() {
+        let path = std::env::temp_dir().join(format!("merc-model-policy-{}", uuid::Uuid::new_v4()));
+        let cache = Cache::new(path.clone());
+        let disabled = fetch_with_policy(&POLICY_SPEC, cache.clone(), false, u64::MAX)
+            .expect_err("missing model must not download");
+        assert!(disabled.to_string().contains("downloads are disabled"));
+
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(path.join("unrelated-cache-entry"), vec![0_u8; 32]).unwrap();
+        let capped = fetch_with_policy(&POLICY_SPEC, cache, true, 95)
+            .expect_err("32 existing + 64 required exceeds 95");
+        assert!(capped.to_string().contains("model cache ceiling"));
+        let _ = std::fs::remove_dir_all(path);
     }
 
     // The GGUF is pinned on the MiniLM model, not on a repo of its own, so it

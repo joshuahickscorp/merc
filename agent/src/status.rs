@@ -26,6 +26,9 @@ struct InflightTask {
 pub struct AppliedPrefs {
     pub paused: bool,
     pub allowed_weekdays: Option<Vec<u8>>,
+    pub allowed_workload_classes: Option<Vec<String>>,
+    pub allow_model_downloads: bool,
+    pub max_model_cache_gb: f32,
     pub power_only: bool,
     pub quiet_hours: Option<(u8, u8)>,
     pub min_payout_usd_per_hr: f32,
@@ -39,6 +42,9 @@ impl AppliedPrefs {
         Self {
             paused: cfg.paused,
             allowed_weekdays: cfg.allowed_weekdays.clone(),
+            allowed_workload_classes: cfg.allowed_workload_classes.clone(),
+            allow_model_downloads: cfg.allow_model_downloads,
+            max_model_cache_gb: cfg.max_model_cache_gb,
             power_only: cfg.power_only,
             quiet_hours: cfg.quiet_hours,
             min_payout_usd_per_hr: cfg.min_payout_usd_per_hr,
