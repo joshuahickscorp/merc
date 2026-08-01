@@ -147,12 +147,43 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		RequestID: "req-no-credit-" + suffix, BuyerID: poorBuyerID, Profile: profile,
 		InputCommitment: strings.Repeat("c", 64), RequestSHA256: strings.Repeat("d", 64),
 		MaximumPriceUSD: 0.001, EstimatedPriceUSD: 0.0005, DeadlineAt: time.Now().Add(time.Minute),
+		MaximumPromptTokens: 8330, MaximumCompletionTokens: 1,
+		EstimatedPromptTokens: 4163, EstimatedCompletionTokens: 1,
 	}); !errors.Is(err, errRealtimeInsufficientFunds) {
 		t.Fatalf("unfunded buyer authorization returned %v", err)
 	}
 	var poorContracts int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM execution_contracts WHERE buyer_id=$1`, poorBuyerID).Scan(&poorContracts); err != nil || poorContracts != 0 {
 		t.Fatalf("unfunded authorization created contracts=%d err=%v", poorContracts, err)
+	}
+
+	bounded, _, err := store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
+		RequestID: "req-over-bound-" + suffix, BuyerID: buyerID, Profile: profile,
+		InputCommitment: strings.Repeat("e", 64), RequestSHA256: strings.Repeat("f", 64),
+		MaximumPriceUSD: 0.001, EstimatedPriceUSD: 0.0005, DeadlineAt: time.Now().Add(time.Minute),
+		MaximumPromptTokens: 8330, MaximumCompletionTokens: 1,
+		EstimatedPromptTokens: 4163, EstimatedCompletionTokens: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinalizeRealtimeSuccess(ctx, bounded.ID, RealtimeExecutionEvidence{
+		ID: uuid.New(), HTTPStatus: http.StatusOK, StreamRootSHA256: strings.Repeat("1", 64),
+		OutputCommitment: strings.Repeat("2", 64), PromptTokens: 8331, CompletionTokens: 1,
+		TotalTokens: 8332,
+	}); err == nil || !strings.Contains(err.Error(), "exceeds frozen PricingDecision token bounds") {
+		t.Fatalf("over-bound verified usage was accepted: %v", err)
+	}
+	var boundedEffects int
+	if err := pool.QueryRow(ctx, `
+		SELECT (SELECT count(*) FROM realtime_executions WHERE contract_id=$1) +
+		       (SELECT count(*) FROM realtime_settlements WHERE contract_id=$1)`,
+		bounded.ID).Scan(&boundedEffects); err != nil || boundedEffects != 0 {
+		t.Fatalf("rejected over-bound usage created effects=%d err=%v", boundedEffects, err)
+	}
+	if finalized, err := store.FinalizeRealtimeFailure(ctx, bounded.ID, uuid.New(), 0, 1,
+		"bounds_test", "bounds test cleanup", false); err != nil || !finalized {
+		t.Fatalf("bounds-test cleanup failed: finalized=%v err=%v", finalized, err)
 	}
 
 	server := httptest.NewServer(NewServer(store, nil, nil, nil).Routes())
@@ -210,6 +241,37 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		receipt.PlacementPlan.AdmittedTensorParallel != 1 {
 		t.Fatalf("receipt omitted or changed frozen placement authority: %+v", receipt)
 	}
+	if receipt.PricingAuthorityStatus != "verified" || receipt.PricingDecision == nil ||
+		!validSHA256(receipt.PricingDecisionSHA256) || receipt.PricingDecision.Realtime == nil ||
+		receipt.PricingDecision.FixedPoint == nil ||
+		receipt.PricingDecision.FixedPoint.Currency != "usd" ||
+		receipt.PricingDecision.FixedPoint.TrueNetContributionNanos != nil {
+		t.Fatalf("receipt omitted exact realtime PricingDecision or mislabeled true net: %+v", receipt)
+	}
+	if receipt.SettlementCurrency != "usd" || receipt.BuyerChargeNanos <= 0 ||
+		receipt.SupplierPayableNanos <= 0 || receipt.KnownCostContributionNanos <= 0 ||
+		receipt.BuyerChargeNanos != receipt.SupplierPayableNanos+receipt.KnownCostContributionNanos {
+		t.Fatalf("receipt exact realtime settlement does not conserve: %+v", receipt)
+	}
+	pricingAuthority := receipt.PricingDecision.Realtime
+	expectedBuyer, err := BuyerRealtimeTokenChargeNanos(usd(t), receipt.PromptTokens, receipt.CompletionTokens,
+		NanoMajorPerMillionTokens(pricingAuthority.BuyerInputNanosPerMillion),
+		NanoMajorPerMillionTokens(pricingAuthority.BuyerOutputNanosPerMillion))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedSupplier, err := SupplierRealtimeTokenEntitlementNanos(usd(t), receipt.PromptTokens, receipt.CompletionTokens,
+		NanoMajorPerMillionTokens(pricingAuthority.SupplierInputNanosPerMillion),
+		NanoMajorPerMillionTokens(pricingAuthority.SupplierOutputNanosPerMillion))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.BuyerChargeNanos != expectedBuyer.Nanos ||
+		receipt.SupplierPayableNanos != expectedSupplier.Nanos ||
+		receipt.KnownCostContributionNanos != expectedBuyer.Nanos-expectedSupplier.Nanos {
+		t.Fatalf("settlement did not derive from frozen PricingDecision rates: receipt=%+v buyer=%d supplier=%d",
+			receipt, expectedBuyer.Nanos, expectedSupplier.Nanos)
+	}
 	var offerPlacementSHA256, contractPlacementSHA256 string
 	if err := pool.QueryRow(ctx, `
 		SELECT o.placement_plan_sha256,c.placement_plan_sha256
@@ -229,6 +291,23 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		   SET placement_plan=jsonb_set(placement_plan,'{gpu_count}','2'::jsonb)
 		 WHERE id=$1`, contractID); err == nil {
 		t.Fatal("database allowed frozen contract placement authority to mutate")
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE execution_contracts
+		   SET pricing_decision=jsonb_set(pricing_decision,'{fixed_point,buyer_charge_nanos}','999'::jsonb)
+		 WHERE id=$1`, contractID); err == nil {
+		t.Fatal("database allowed frozen realtime PricingDecision to mutate")
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE execution_contracts SET maximum_prompt_tokens=maximum_prompt_tokens+1 WHERE id=$1`,
+		contractID); err == nil {
+		t.Fatal("database allowed frozen realtime token bounds to mutate")
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE execution_contracts
+		   SET supplier_input_usd_per_million_tokens=supplier_input_usd_per_million_tokens+0.001
+		 WHERE id=$1`, contractID); err == nil {
+		t.Fatal("database allowed legacy supplier-rate projection to diverge from PricingDecision")
 	}
 	if receipt.TotalTokens != 9 || receipt.PromptTokens != 7 || receipt.CompletionTokens != 2 {
 		t.Fatalf("usage did not reconcile: %+v", receipt)
@@ -588,6 +667,8 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 			Profile: profile, InputCommitment: strings.Repeat("a", 64),
 			RequestSHA256: strings.Repeat("b", 64), MaximumPriceUSD: 0.001,
 			EstimatedPriceUSD: 0.0005, DeadlineAt: time.Now().Add(time.Minute),
+			MaximumPromptTokens: 8330, MaximumCompletionTokens: 1,
+			EstimatedPromptTokens: 4163, EstimatedCompletionTokens: 1,
 		})
 		return contract, err
 	}

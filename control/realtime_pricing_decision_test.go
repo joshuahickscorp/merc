@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -85,5 +86,54 @@ func TestRealtimePricingDecisionRefusesCurrencyMismatchAndZeroFloor(t *testing.T
 	in.Profile.BuyerInputUSDPerMillionTokens += 0.01
 	if _, err := newRealtimePricingDecision(in); err == nil || !strings.Contains(err.Error(), "embedded authority") {
 		t.Fatalf("divergent runtime pricing authority passed: %v", err)
+	}
+}
+
+func TestAttachRealtimeContractPricingRefusesDigestAndLegacyAuthorityDrift(t *testing.T) {
+	in := realtimePricingFixture(t)
+	decision, err := newRealtimePricingDecision(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := pricingDecisionDigest(decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, maximum, err := realtimePricingLegacyProjection(decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := RealtimeContract{
+		RuntimeProfileID: in.Profile.RuntimeProfileID, RuntimeProfileSHA256: in.Profile.ProfileSHA256,
+		InputCommitment: in.InputCommitment, RequestSHA256: in.RequestSHA256,
+		PlacementPlan: in.Placement, MaximumPriceUSD: maximum, EstimatedPriceUSD: expected,
+		SupplierInputUSDPerMillionTokens:  in.SupplierInputRate,
+		SupplierOutputUSDPerMillionTokens: in.SupplierOutputRate,
+		MaximumPromptTokens:               in.MaximumPromptTokens, MaximumCompletionTokens: in.MaximumCompletionTokens,
+		EstimatedPromptTokens: in.EstimatedPromptTokens, EstimatedCompletionTokens: in.EstimatedCompletionTokens,
+		BuyerDeclaredCeilingNanos: decision.Realtime.BuyerDeclaredCeilingNanos,
+		Currency:                  in.Currency.Code(), PricingDecisionSHA256: digest,
+	}
+	if err := attachRealtimeContractPricing(&contract, raw); err != nil || contract.Pricing == nil {
+		t.Fatalf("valid frozen realtime authority did not attach: pricing=%v err=%v", contract.Pricing, err)
+	}
+	contract.Pricing = nil
+	contract.PricingDecisionSHA256 = strings.Repeat("f", 64)
+	if err := attachRealtimeContractPricing(&contract, raw); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("wrong persisted PricingDecision digest passed: %v", err)
+	}
+	contract.PricingDecisionSHA256 = digest
+	contract.SupplierInputUSDPerMillionTokens += 0.001
+	if err := attachRealtimeContractPricing(&contract, raw); err == nil {
+		t.Fatal("divergent legacy supplier rate passed frozen PricingDecision validation")
+	}
+	contract.SupplierInputUSDPerMillionTokens = in.SupplierInputRate
+	contract.MaximumPromptTokens++
+	if err := attachRealtimeContractPricing(&contract, raw); err == nil {
+		t.Fatal("divergent legacy token bound passed frozen PricingDecision validation")
 	}
 }
