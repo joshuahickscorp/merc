@@ -58,6 +58,51 @@ type AdminJob struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type BuyerJobSummary struct {
+	ID           uuid.UUID `json:"id"`
+	Status       string    `json:"status"`
+	JobType      string    `json:"job_type"`
+	ModelRef     string    `json:"model_ref"`
+	Tier         string    `json:"tier"`
+	TaskCount    int       `json:"task_count"`
+	TasksDone    int       `json:"tasks_done"`
+	EstimatedUSD float64   `json:"estimated_usd"`
+	ActualUSD    float64   `json:"actual_usd"`
+	BudgetState  string    `json:"budget_state"`
+	ChargeStatus string    `json:"charge_status"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (s *Store) ListJobsForBuyer(ctx context.Context, buyerID uuid.UUID, limit int) ([]BuyerJobSummary, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id,status,job_type,COALESCE(model_ref,''),tier,
+		       COALESCE(task_count,0),COALESCE(tasks_done,0),
+		       COALESCE(estimated_usd,0)::float8,COALESCE(actual_usd,0)::float8,
+		       COALESCE(budget_state,''),COALESCE(charge_status,''),created_at
+		  FROM jobs
+		 WHERE buyer_id=$1
+		 ORDER BY created_at DESC,id DESC
+		 LIMIT $2`, buyerID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]BuyerJobSummary, 0)
+	for rows.Next() {
+		var job BuyerJobSummary
+		if err := rows.Scan(&job.ID, &job.Status, &job.JobType, &job.ModelRef, &job.Tier,
+			&job.TaskCount, &job.TasksDone, &job.EstimatedUSD, &job.ActualUSD,
+			&job.BudgetState, &job.ChargeStatus, &job.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, job)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListJobsAdmin(ctx context.Context) ([]AdminJob, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, buyer_id, status, job_type, COALESCE(model_ref,''), tier,

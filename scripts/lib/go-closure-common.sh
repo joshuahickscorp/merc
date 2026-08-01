@@ -130,7 +130,9 @@ gc_validate_host_config() {
   docker compose version >/dev/null 2>&1 || gc_die "Docker Compose v2 is required"
   gc_require_declared_inputs STAGING_TLS_HOSTNAME STAGING_DEPLOYMENT_ROOT \
     STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET MERC_CONNECT_WEBHOOK_SECRET \
-    MERC_CONNECT_CLIENT_ID ALERT_RECEIVER_WEBHOOK_URL ALERT_RECEIVER_NAME \
+    STRIPE_PUBLISHABLE_KEY MERC_CONNECT_CLIENT_ID \
+    MERC_SUPPORT_EMAIL MERC_SECURITY_EMAIL MERC_STATUS_URL MERC_TERMS_URL MERC_PRIVACY_URL \
+    ALERT_RECEIVER_WEBHOOK_URL ALERT_RECEIVER_NAME \
     STAGING_STORAGE_TLS_HOSTNAME STAGING_BIND_ADDRESS ACME_EMAIL \
     POSTGRES_PASSWORD MINIO_ROOT_USER MINIO_ROOT_PASSWORD \
     GF_SECURITY_ADMIN_PASSWORD MERC_TOKEN_KEY MERC_VERIFICATION_SAMPLE_SECRET \
@@ -154,11 +156,21 @@ gc_validate_host_config() {
     || gc_die "script root $GC_ROOT does not match STAGING_DEPLOYMENT_ROOT $STAGING_DEPLOYMENT_ROOT"
   [[ "$STRIPE_SECRET_KEY" == sk_test_* || "$STRIPE_SECRET_KEY" == rk_test_* ]] \
     || gc_die "STRIPE_SECRET_KEY must be sk_test_* or a sufficiently scoped rk_test_*"
+  [[ "$STRIPE_PUBLISHABLE_KEY" == pk_test_* ]] \
+    || gc_die "STRIPE_PUBLISHABLE_KEY must be a pk_test_* browser key"
   [[ "$STRIPE_WEBHOOK_SECRET" == whsec_* ]] || gc_die "STRIPE_WEBHOOK_SECRET must be whsec_*"
   [[ "$MERC_CONNECT_WEBHOOK_SECRET" == whsec_* ]] || gc_die "MERC_CONNECT_WEBHOOK_SECRET must be whsec_*"
   [[ "$MERC_CONNECT_CLIENT_ID" == ca_* ]] || gc_die "MERC_CONNECT_CLIENT_ID must be a test-mode ca_* identifier"
   [ "$STRIPE_WEBHOOK_SECRET" != "$MERC_CONNECT_WEBHOOK_SECRET" ] \
     || gc_die "Stripe billing and Connect webhook secrets must be distinct"
+  for name in MERC_SUPPORT_EMAIL MERC_SECURITY_EMAIL; do
+    [[ "${!name}" =~ ^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+$ ]] \
+      || gc_die "$name must be a staffed email address"
+  done
+  for name in MERC_STATUS_URL MERC_TERMS_URL MERC_PRIVACY_URL; do
+    [[ "${!name}" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] \
+      || gc_die "$name must be an absolute HTTPS URL"
+  done
   [[ "$ALERT_RECEIVER_WEBHOOK_URL" == https://* ]] \
     || gc_die "ALERT_RECEIVER_WEBHOOK_URL must use HTTPS"
   gc_validate_image_ref MERC_CANDIDATE_CONTROL_IMAGE

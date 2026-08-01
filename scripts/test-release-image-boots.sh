@@ -97,7 +97,12 @@ sleep 4
   -e MERC_MIN_CONTRIBUTION_PER_BATCH_USD=0.000001 \
   -e MERC_TARGET_MARGIN_BPS=2000 \
   -e MERC_ADMIN_CIDRS=127.0.0.1/32 \
-  -e MERC_PUBLIC_CONTROL_ORIGIN=http://127.0.0.1:18080 \
+  -e MERC_PUBLIC_CONTROL_ORIGIN=https://merc.test \
+  -e MERC_SUPPORT_EMAIL=support@merc.test \
+  -e MERC_SECURITY_EMAIL=security@merc.test \
+  -e MERC_STATUS_URL=https://status.merc.test \
+  -e MERC_TERMS_URL=https://merc.test/terms \
+  -e MERC_PRIVACY_URL=https://merc.test/privacy \
   -e S3_ENDPOINT="http://$S3:9000" \
   -e S3_BUCKET=cx-jobs \
   -e S3_ACCESS_KEY=bootminio \

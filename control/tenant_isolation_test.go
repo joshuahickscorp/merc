@@ -56,6 +56,16 @@ func TestBuyerCannotReachAnotherBuyersJobObjects(t *testing.T) {
 	if _, err := store.GetJob(ctx, jobID, intruder); err == nil {
 		t.Fatal("GetJob returned another buyer's job")
 	}
+	if jobs, err := store.ListJobsForBuyer(ctx, owner, 100); err != nil {
+		t.Fatalf("owner cannot list jobs: %v", err)
+	} else if len(jobs) != 1 || jobs[0].ID != jobID {
+		t.Fatalf("owner job list = %+v, want only %s", jobs, jobID)
+	}
+	if jobs, err := store.ListJobsForBuyer(ctx, intruder, 100); err != nil {
+		t.Fatalf("intruder job list failed: %v", err)
+	} else if len(jobs) != 0 {
+		t.Fatalf("intruder job list leaked owner jobs: %+v", jobs)
+	}
 	if err := store.CancelJob(ctx, jobID, intruder); err == nil {
 		t.Fatal("CancelJob accepted another buyer's job")
 	}

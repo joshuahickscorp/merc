@@ -18,11 +18,17 @@ x-control-environment: &control-environment
   MERC_PAYMENT_MODE: "test"
   MERC_PAYMENT_PROVIDER: "stripe"
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?test-mode key declared in ops/go-closure-inputs.json}
+  STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:?test-mode browser key declared in ops/go-closure-inputs.json}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?declared in ops/go-closure-inputs.json}
   MERC_CONNECT_WEBHOOK_SECRET: ${MERC_CONNECT_WEBHOOK_SECRET:?declared in ops/go-closure-inputs.json}
   MERC_CONNECT_CLIENT_ID: ${MERC_CONNECT_CLIENT_ID:?test-mode client ID declared in ops/go-closure-inputs.json}
-  MERC_CONNECT_RETURN_URL: https://${STAGING_TLS_HOSTNAME:?required}/admin?connect=return
-  MERC_CONNECT_REFRESH_URL: https://${STAGING_TLS_HOSTNAME:?required}/admin?connect=refresh
+  MERC_CONNECT_RETURN_URL: https://${STAGING_TLS_HOSTNAME:?required}/supplier?connect=return
+  MERC_CONNECT_REFRESH_URL: https://${STAGING_TLS_HOSTNAME:?required}/supplier?connect=refresh
+  MERC_SUPPORT_EMAIL: ${MERC_SUPPORT_EMAIL:?staffed support alias required}
+  MERC_SECURITY_EMAIL: ${MERC_SECURITY_EMAIL:?staffed security alias required}
+  MERC_STATUS_URL: ${MERC_STATUS_URL:?public status URL required}
+  MERC_TERMS_URL: ${MERC_TERMS_URL:?published terms URL required}
+  MERC_PRIVACY_URL: ${MERC_PRIVACY_URL:?published privacy URL required}
   MERC_SETTLEMENT_CURRENCY: "cad"
   MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE: ${MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE:?operator-approved CAD per USD catalogue rate required}
   MERC_PRICE_FX_REVISION: ${MERC_PRICE_FX_REVISION:?immutable FX source/revision required}

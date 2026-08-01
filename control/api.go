@@ -79,6 +79,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /assets/site/{path...}", s.handleSiteAsset) // whitelisted public static assets
 	mux.HandleFunc("GET /favicon.ico", s.handleFavicon)
 	mux.HandleFunc("GET /.well-known/security.txt", s.handleSecurityTxt)
+	mux.HandleFunc("GET /v1/public/config", s.handlePublicConfig)
 
 	mux.HandleFunc("POST /v1/signup", s.handleSignup)
 	mux.HandleFunc("POST /v1/login", s.handleLogin)
@@ -98,6 +99,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/worker/enrollment/exchange", s.handleExchangeWorkerEnrollmentCode)
 
 	mux.Handle("POST /v1/jobs", s.authBuyer(http.HandlerFunc(s.handleCreateJob)))
+	mux.Handle("GET /v1/jobs", s.authBuyer(http.HandlerFunc(s.handleListBuyerJobs)))
 	mux.Handle("GET /v1/jobs/{id}", s.authBuyer(http.HandlerFunc(s.handleGetJob)))
 	mux.Handle("GET /v1/jobs/{id}/results", s.authBuyer(http.HandlerFunc(s.handleJobResults)))
 	mux.Handle("GET /v1/jobs/{id}/invoice", s.authBuyer(http.HandlerFunc(s.handleJobInvoice)))
@@ -1540,6 +1542,16 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		SLAPremiumUSD:    j.SLAPremiumUSD,    // wave 2A: its premium (the miss remedy)
 		SLAMet:           j.SLAMet,           // wave 2A: outcome (absent until decided)
 	})
+}
+
+func (s *Server) handleListBuyerJobs(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxBuyer).(*AuthResult)
+	jobs, err := s.store.ListJobsForBuyer(r.Context(), auth.BuyerID, 100)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "listing jobs: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
 }
 
 func (s *Server) handleJobResults(w http.ResponseWriter, r *http.Request) {
@@ -3324,19 +3336,41 @@ func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSecurityTxt(w http.ResponseWriter, r *http.Request) {
 	path := os.Getenv("SECURITY_TXT_PATH")
-	if path == "" {
-		path = "web/.well-known/security.txt"
+	if path != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "security.txt not found")
+			return
+		}
+		writeSecurityTxt(w, b)
+		return
 	}
+	contacts := currentPublicContactConfig()
+	origin := strings.TrimRight(strings.TrimSpace(os.Getenv("MERC_PUBLIC_CONTROL_ORIGIN")), "/")
+	if contacts.SecurityEmail != "" && validPublicHTTPSURL(origin) {
+		body := fmt.Sprintf("Contact: mailto:%s\nPreferred-Languages: en\nCanonical: %s/.well-known/security.txt\nPolicy: https://github.com/joshuahickscorp/merc/blob/program/network-10of10/docs/SECURITY.md\n", contacts.SecurityEmail, origin)
+		writeSecurityTxt(w, []byte(body))
+		return
+	}
+	if env := strings.ToLower(strings.TrimSpace(os.Getenv("MERC_ENV"))); env == "production" || env == "prod" || env == "staging" {
+		writeErr(w, http.StatusServiceUnavailable, "staffed security contact is not configured")
+		return
+	}
+	path = "web/.well-known/security.txt"
 	b, err := os.ReadFile(path)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "security.txt not found")
 		return
 	}
+	writeSecurityTxt(w, b)
+}
+
+func writeSecurityTxt(w http.ResponseWriter, body []byte) {
 	h := w.Header()
 	h.Set("Content-Type", "text/plain; charset=utf-8")
 	h.Set("Cache-Control", "public, max-age=3600")
 	h.Set("X-Content-Type-Options", "nosniff")
-	_, _ = w.Write(b)
+	_, _ = w.Write(body)
 }
 
 func modelPrice(m ModelRow) (float64, error) {
