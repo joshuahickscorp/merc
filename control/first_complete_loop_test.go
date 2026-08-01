@@ -357,9 +357,23 @@ type firstLoopReceipt struct {
 	VerificationOutcome string  `json:"verification_outcome"`
 }
 
+func firstCompleteLoopReceiptPath() string {
+	// A repeatable test must not rewrite a tracked historical receipt with fresh
+	// random buyer, supplier, and job IDs. An operator who wants to preserve an
+	// output supplies an explicit path in the controlled evidence run; ordinary CI
+	// writes beside its other ignored artifacts so a passing test leaves its source
+	// tree exactly as it found it.
+	path := strings.TrimSpace(os.Getenv("MERC_FIRST_COMPLETE_LOOP_RECEIPT_PATH"))
+	if path == "" {
+		path = filepath.Join("..", ".artifacts", "canary", "first-complete-loop.json")
+	}
+	return path
+}
+
 func writeFirstLoopReceipt(t *testing.T, loop firstLoopReceipt) {
 	t.Helper()
-	dir := filepath.Join("..", "evidence", "canary")
+	path := firstCompleteLoopReceiptPath()
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("create receipt directory: %v", err)
 	}
@@ -381,11 +395,21 @@ func writeFirstLoopReceipt(t *testing.T, loop firstLoopReceipt) {
 	if err != nil {
 		t.Fatalf("render receipt: %v", err)
 	}
-	path := filepath.Join(dir, "first-complete-loop.json")
 	if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
 		t.Fatalf("write receipt: %v", err)
 	}
 	t.Logf("first-complete-loop receipt written to %s", path)
+}
+
+func TestFirstCompleteLoopReceiptPathDefaultsOutsideTrackedEvidence(t *testing.T) {
+	t.Setenv("MERC_FIRST_COMPLETE_LOOP_RECEIPT_PATH", "")
+	if got, want := firstCompleteLoopReceiptPath(), filepath.Join("..", ".artifacts", "canary", "first-complete-loop.json"); got != want {
+		t.Fatalf("default first-loop receipt path = %q, want %q", got, want)
+	}
+	t.Setenv("MERC_FIRST_COMPLETE_LOOP_RECEIPT_PATH", "evidence/canary/operator-run.json")
+	if got, want := firstCompleteLoopReceiptPath(), "evidence/canary/operator-run.json"; got != want {
+		t.Fatalf("explicit first-loop receipt path = %q, want %q", got, want)
+	}
 }
 
 type apiResponse struct {
