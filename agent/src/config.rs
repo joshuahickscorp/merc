@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::hardware::MemorySnapshot;
@@ -76,17 +76,32 @@ fn default_max_model_cache_gb() -> f32 {
     4.0
 }
 
+fn default_thermal_limit() -> ThermalPressure {
+    ThermalPressure::Serious
+}
+
 fn default_openai_model() -> String {
     "cx-chat-1b".to_string()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThermalPressure {
     Nominal,
     Fair,
     Serious,
     Critical,
+}
+
+impl ThermalPressure {
+    fn rank(self) -> u8 {
+        match self {
+            ThermalPressure::Nominal => 0,
+            ThermalPressure::Fair => 1,
+            ThermalPressure::Serious => 2,
+            ThermalPressure::Critical => 3,
+        }
+    }
 }
 
 impl ThermalPressure {
@@ -118,6 +133,10 @@ pub struct AgentConfig {
     pub max_model_cache_gb: f32,
     #[serde(default)]
     pub max_bandwidth_mbps: f32,
+    #[serde(default)]
+    pub max_cpu_pct: f32,
+    #[serde(default = "default_thermal_limit")]
+    pub thermal_limit: ThermalPressure,
     pub quiet_hours: Option<(u8, u8)>,
     pub power_only: bool,
     pub min_payout_usd_per_hr: f32,
@@ -171,6 +190,8 @@ pub struct OperatorPrefs {
     pub allow_model_downloads: Option<bool>,
     pub max_model_cache_gb: Option<f32>,
     pub max_bandwidth_mbps: Option<f32>,
+    pub max_cpu_pct: Option<f32>,
+    pub thermal_limit: Option<ThermalPressure>,
     pub power_only: Option<bool>,
     pub min_payout_usd_per_hr: Option<f32>,
     pub memory_headroom_gb: Option<f32>,
@@ -209,15 +230,14 @@ pub struct ThermalDecision {
 impl AgentConfig {
     pub fn evaluate_thermal_throttle(&self) -> ThermalDecision {
         match self.thermal_pressure {
-            Some(ThermalPressure::Serious) => ThermalDecision {
+            Some(reading) if reading.rank() >= self.thermal_limit.rank() => ThermalDecision {
                 throttled: true,
-                reason: Some("thermal pressure: serious (macOS is throttling this Mac)".into()),
-                reading: Some(ThermalPressure::Serious),
-            },
-            Some(ThermalPressure::Critical) => ThermalDecision {
-                throttled: true,
-                reason: Some("thermal pressure: critical".into()),
-                reading: Some(ThermalPressure::Critical),
+                reason: Some(format!(
+                    "thermal pressure: {} reached supplier limit {}",
+                    reading.as_str(),
+                    self.thermal_limit.as_str()
+                )),
+                reading: Some(reading),
             },
             other => ThermalDecision {
                 throttled: false,
@@ -392,6 +412,9 @@ impl AgentConfig {
         if !self.max_bandwidth_mbps.is_finite() || self.max_bandwidth_mbps < 0.0 {
             anyhow::bail!("max_bandwidth_mbps must be finite and non-negative");
         }
+        if !self.max_cpu_pct.is_finite() || self.max_cpu_pct < 0.0 || self.max_cpu_pct > 100.0 {
+            anyhow::bail!("max_cpu_pct must be between 0 and 100");
+        }
         Ok(())
     }
 
@@ -413,6 +436,12 @@ impl AgentConfig {
         }
         if let Some(v) = prefs.max_bandwidth_mbps {
             self.max_bandwidth_mbps = v;
+        }
+        if let Some(v) = prefs.max_cpu_pct {
+            self.max_cpu_pct = v;
+        }
+        if let Some(v) = prefs.thermal_limit {
+            self.thermal_limit = v;
         }
         if let Some(v) = prefs.power_only {
             self.power_only = v;
@@ -498,6 +527,8 @@ mod tests {
             allow_model_downloads: true,
             max_model_cache_gb: default_max_model_cache_gb(),
             max_bandwidth_mbps: 0.0,
+            max_cpu_pct: 0.0,
+            thermal_limit: default_thermal_limit(),
             quiet_hours,
             power_only,
             min_payout_usd_per_hr: 0.0,
@@ -642,6 +673,16 @@ mod tests {
     }
 
     #[test]
+    fn supplier_can_choose_a_more_conservative_thermal_limit() {
+        let mut c = cfg(None, false);
+        c.thermal_limit = ThermalPressure::Fair;
+        c.thermal_pressure = Some(ThermalPressure::Fair);
+        let decision = c.evaluate_thermal_throttle();
+        assert!(decision.throttled);
+        assert!(decision.reason.unwrap().contains("supplier limit fair"));
+    }
+
+    #[test]
     fn thermal_pressure_overlay_merges_via_apply_prefs() {
         let mut c = cfg(None, false);
         assert!(!c.evaluate_thermal_throttle().throttled);
@@ -759,6 +800,9 @@ mod tests {
         assert!(c.validate_operator_policy().is_err());
         c.min_payout_usd_per_hr = 0.0;
         c.max_memory_pct = 101.0;
+        assert!(c.validate_operator_policy().is_err());
+        c.max_memory_pct = 85.0;
+        c.max_cpu_pct = 100.1;
         assert!(c.validate_operator_policy().is_err());
     }
 
