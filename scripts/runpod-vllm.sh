@@ -252,8 +252,49 @@ print(' '.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
   }
   trap 'say ""; say "sweeping every pod (experiment exit)"; sweep_all' EXIT INT TERM
 
+  # `up --keep` records the identity before readiness so a failed startup gets
+  # a receipt with its own clock, cost bound, and teardown verification rather
+  # than disappearing behind the parent exit trap. This ignored file is mode
+  # 0600 and is removed before every governed experiment to rule out staleness.
+  PENDING_ENV="$ROOT/.merc-runpod-pending.env"
+  if [ -e "$PENDING_ENV" ]; then rm "$PENDING_ENV"; fi
+
+  emit_receipt() {
+    local pod_id="$1" ready="$2" teardown_verified="$3" stopped_at="$4" orphans="$5"
+    local receipt="evidence/runpod/spend-${pod_id}.json"
+    python3 "$ROOT/scripts/runpod-spend-guard.py" receipt \
+      --pod-id "$pod_id" --gpu "$GPU_TYPE" --image "$IMAGE" --model "$MODEL" \
+      --cost-per-hr "$COST_PER_HR" --cap-usd "$CAP_USD" \
+      --started-at "$STARTED_AT" --stopped-at "$stopped_at" \
+      --teardown-verified "$teardown_verified" --ready "$ready" \
+      --orphans "$orphans" --out "$receipt"
+    local guard=$?
+    say "  receipt   $receipt"
+    return "$guard"
+  }
+
   STARTED_AT=$(date +%s)
-  MERC_RUNPOD_HOLD_SECS=0 bash "$0" up --keep || die "provisioning failed; the sweep will run"
+  UP_STATUS=0
+  MERC_RUNPOD_HOLD_SECS=0 bash "$0" up --keep || UP_STATUS=$?
+  if [ "$UP_STATUS" -ne 0 ]; then
+    if [ ! -f "$PENDING_ENV" ]; then
+      die "provisioning failed before a pod identity was recorded; the exit sweep will run"
+    fi
+    # shellcheck disable=SC1090
+    . "$PENDING_ENV"
+    say "provisioning failed; verifying sweep before an inadmissible receipt"
+    sweep_all
+    TEARDOWN_VERIFIED=false
+    [ "$(pod_exists "$MERC_RUNPOD_POD_ID")" = "no" ] && TEARDOWN_VERIFIED=true
+    STOPPED_AT=$(date +%s)
+    ORPHANS=$(gql '{"query":"query { myself { pods { id } } }"}' \
+      | python3 -c "
+import json,sys
+d=json.load(sys.stdin); m=(d.get('data') or {}).get('myself') or {}
+print(','.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
+    emit_receipt "$MERC_RUNPOD_POD_ID" false "$TEARDOWN_VERIFIED" "$STOPPED_AT" "$ORPHANS" || true
+    exit 1
+  fi
   # shellcheck disable=SC1091
   . "$ROOT/.merc-runpod.env"
   READY=true
@@ -294,15 +335,8 @@ import json,sys
 d=json.load(sys.stdin); m=(d.get('data') or {}).get('myself') or {}
 print(','.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
 
-  RECEIPT="evidence/runpod/spend-${MERC_RUNPOD_POD_ID}.json"
-  python3 "$ROOT/scripts/runpod-spend-guard.py" receipt \
-    --pod-id "$MERC_RUNPOD_POD_ID" --gpu "$GPU_TYPE" --image "$IMAGE" --model "$MODEL" \
-    --cost-per-hr "$COST_PER_HR" --cap-usd "$CAP_USD" \
-    --started-at "$STARTED_AT" --stopped-at "$STOPPED_AT" \
-    --teardown-verified "$TEARDOWN_VERIFIED" --ready "$READY" \
-    --orphans "$ORPHANS" --out "$RECEIPT"
+  emit_receipt "$MERC_RUNPOD_POD_ID" "$READY" "$TEARDOWN_VERIFIED" "$STOPPED_AT" "$ORPHANS"
   GUARD=$?
-  say "  receipt   $RECEIPT"
   exit "$GUARD" ;;
 up) ;;
 *) die "unknown command ${1:-}" ;;
@@ -312,9 +346,10 @@ KEEP=0
 [ "${2:-}" = "--keep" ] && KEEP=1
 
 POD_ID=""
+UP_READY=0
 cleanup() {
   local code=$?
-  if [ -n "$POD_ID" ] && [ "$KEEP" -eq 0 ]; then
+  if [ -n "$POD_ID" ] && { [ "$KEEP" -eq 0 ] || [ "$UP_READY" -eq 0 ]; }; then
     say ""
     say "tearing down (exit $code)"
     terminate "$POD_ID"
@@ -358,6 +393,18 @@ if ! require_exact_rate "${MERC_RUNPOD_COST_PER_HR:-$ACTUAL_COST_PER_HR}" "$ACTU
 fi
 say "  rate   \$$ACTUAL_COST_PER_HR/hr (provider verified)"
 
+# Persist a private pending identity before the long image/model startup. The
+# parent experiment uses it only to mint an inadmissible receipt if readiness
+# fails; a ready endpoint is written to .merc-runpod.env only after HTTP 200.
+PENDING_ENV="$ROOT/.merc-runpod-pending.env"
+{
+  printf 'export MERC_GPU_ENDPOINT=%q\n' "https://${POD_ID}-8000.proxy.runpod.net/v1"
+  printf 'export MERC_GPU_API_KEY=%q\n' "$VLLM_KEY"
+  printf 'export MERC_RUNPOD_POD_ID=%q\n' "$POD_ID"
+  printf 'export MERC_RUNPOD_COST_PER_HR=%q\n' "$ACTUAL_COST_PER_HR"
+} > "$PENDING_ENV"
+chmod 600 "$PENDING_ENV"
+
 ENDPOINT="https://${POD_ID}-8000.proxy.runpod.net/v1"
 say ""
 say "waiting for vLLM to serve (image pull + model download, 5-10 minutes)"
@@ -371,7 +418,7 @@ for i in $(seq 1 90); do
          | curl -sS --config - -o /dev/null -w '%{http_code}' --max-time 10 \
              "$ENDPOINT/models" 2>/dev/null || printf '000')
   if [ "$code" = "200" ]; then READY=1; break; fi
-  [ $((i % 10)) -eq 0 ] && say "  still starting (${i}0s, last HTTP $code)"
+  [ $((i % 10)) -eq 0 ] && say "  still starting ($((i * 6))s, last HTTP $code)"
   sleep 6
 done
 [ "$READY" -eq 1 ] || die "vLLM never became ready; pod torn down by the exit trap"
@@ -384,13 +431,11 @@ say ""
 say "  export MERC_GPU_ENDPOINT=$ENDPOINT"
 say "  export MERC_GPU_API_KEY=<key>"
 
-# Written so the caller can source the endpoint without the key touching a log.
-{
-  printf 'export MERC_GPU_ENDPOINT=%q\n' "$ENDPOINT"
-  printf 'export MERC_GPU_API_KEY=%q\n' "$VLLM_KEY"
-  printf 'export MERC_RUNPOD_POD_ID=%q\n' "$POD_ID"
-} > "$ROOT/.merc-runpod.env"
-chmod 600 "$ROOT/.merc-runpod.env"
+# Promote the already-private pending record atomically only after the engine
+# has answered readiness. A consumer can never mistake a starting pod for one
+# it may send paid traffic to.
+mv "$PENDING_ENV" "$ROOT/.merc-runpod.env"
+UP_READY=1
 say "  wrote .merc-runpod.env (chmod 600)"
 
 if [ "$KEEP" -eq 1 ]; then

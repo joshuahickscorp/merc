@@ -131,6 +131,11 @@ cost model refuses to compare across hardware classes for good reason.
 It does not prove TP>1, does not prove a fleet, and does not close `P1-STRIPE-TEST`
 or any of the other seven external gates.
 
+If startup never reaches `/models` HTTP 200, the governed runner still sweeps
+the pod and writes a receipt. That receipt has `ready=false` and is deliberately
+inadmissible: it accounts for the bounded failed spend and teardown, but cannot
+be promoted into CUDA-runtime evidence.
+
 ## Do not
 
 * Do not run the driver outside `runpod-vllm.sh experiment`. The cap, the lifetime
