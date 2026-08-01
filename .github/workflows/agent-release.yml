@@ -3,6 +3,7 @@ name: agent release binaries
 # Builds signed prebuilt supplier-agent archives for install.sh:
 #   darwin/arm64 (Metal default features)
 #   linux/amd64  (--no-default-features; CPU Candle only)
+#   windows/amd64 (--no-default-features; CPU Candle only)
 #
 # This does NOT expand validHWClasses / validEngines. A Linux binary can be
 # installed and run, but control still rejects non-Apple hw_class and non-candle
@@ -45,7 +46,9 @@ jobs:
           cargo build --release
           test -x target/release/merc-agent
       - name: Package
-        run: bash scripts/package-agent-binary.sh darwin arm64 agent/target/release/merc-agent
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/agent-* ]]; then export MERC_AGENT_VERSION="${GITHUB_REF_NAME#agent-}"; fi
+          bash scripts/package-agent-binary.sh darwin arm64 agent/target/release/merc-agent
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-darwin-arm64-${{ env.CANDIDATE_SHA }}
@@ -68,7 +71,9 @@ jobs:
           cargo build --release --no-default-features
           test -x target/release/merc-agent
       - name: Package
-        run: bash scripts/package-agent-binary.sh linux amd64 agent/target/release/merc-agent
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/agent-* ]]; then export MERC_AGENT_VERSION="${GITHUB_REF_NAME#agent-}"; fi
+          bash scripts/package-agent-binary.sh linux amd64 agent/target/release/merc-agent
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-linux-amd64-${{ env.CANDIDATE_SHA }}
@@ -76,8 +81,39 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  build-windows-amd64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          workspaces: agent
+      - name: Build and package release agent (windows/amd64, CPU Candle)
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          Push-Location agent
+          cargo build --release --no-default-features
+          Pop-Location
+          if (-not (Test-Path agent/target/release/merc-agent.exe)) { throw "merc-agent.exe missing" }
+          $version = if ($env:GITHUB_REF -like "refs/tags/agent-*") { $env:GITHUB_REF_NAME.Substring(6) } else { "sha-$($env:GITHUB_SHA.Substring(0,12))" }
+          $name = "merc-agent_${version}_windows_amd64"
+          New-Item -ItemType Directory -Force ".artifacts/agent-release/$name" | Out-Null
+          Copy-Item agent/target/release/merc-agent.exe ".artifacts/agent-release/$name/merc-agent.exe"
+          @("merc-agent $version", "commit $env:GITHUB_SHA", "target windows/amd64", "Install with scripts/install.ps1.") |
+            Set-Content ".artifacts/agent-release/$name/README.txt" -Encoding utf8NoBOM
+          Compress-Archive -Path ".artifacts/agent-release/$name" -DestinationPath ".artifacts/agent-release/$name.zip"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-windows-amd64-${{ env.CANDIDATE_SHA }}
+          path: .artifacts/agent-release/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
   sign-and-publish:
-    needs: [build-darwin-arm64, build-linux-amd64]
+    needs: [build-darwin-arm64, build-linux-amd64, build-windows-amd64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -100,14 +136,17 @@ jobs:
           gh run download "$GITHUB_RUN_ID" \
             -n "agent-linux-amd64-${CANDIDATE_SHA}" \
             -D collected/linux
+          gh run download "$GITHUB_RUN_ID" \
+            -n "agent-windows-amd64-${CANDIDATE_SHA}" \
+            -D collected/windows
           : >"$OUT/SHA256SUMS"
           shopt -s nullglob
-          for f in collected/darwin/*.tar.gz collected/linux/*.tar.gz; do
+          for f in collected/darwin/*.tar.gz collected/linux/*.tar.gz collected/windows/*.zip; do
             base="$(basename "$f")"
             cp "$f" "$OUT/$base"
             (cd "$OUT" && sha256sum "$base" >>SHA256SUMS)
           done
-          test "$(ls -1 "$OUT"/*.tar.gz | wc -l | tr -d ' ')" -eq 2
+          test "$(find "$OUT" -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) | wc -l | tr -d ' ')" -eq 3
 
           VERSION="${{ github.event.inputs.version }}"
           if [ -z "$VERSION" ]; then
@@ -129,9 +168,9 @@ jobs:
               if len(parts) >= 2:
                   sums[parts[-1]] = parts[0]
           artifacts = []
-          for archive in sorted(out.glob("*.tar.gz")):
+          for archive in sorted([*out.glob("*.tar.gz"), *out.glob("*.zip")]):
               name = archive.name
-              bits = name.removesuffix(".tar.gz").split("_")
+              bits = name.removesuffix(".tar.gz").removesuffix(".zip").split("_")
               goos, goarch = ("unknown", "unknown")
               if len(bits) >= 4:
                   goos, goarch = bits[-2], bits[-1]
@@ -149,7 +188,7 @@ jobs:
               "commit": commit,
               "artifacts": artifacts,
               "notes": [
-                  "linux/amd64 is CPU Candle only (--no-default-features).",
+                  "linux/amd64 and windows/amd64 are CPU Candle only (--no-default-features).",
                   "control validHWClasses still accepts only Apple Silicon classes;",
                   "a Linux/NVIDIA host can install the agent but cannot register for batch work until that enum changes.",
               ],
@@ -159,7 +198,7 @@ jobs:
           PY
 
           cd "$OUT"
-          for archive in *.tar.gz; do
+          for archive in *.tar.gz *.zip; do
             go run github.com/sigstore/cosign/v2/cmd/cosign@v2.6.1 sign-blob --yes \
               --bundle "${archive}.cosign.bundle" \
               "$archive"
@@ -187,7 +226,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "merc-agent ${AGENT_VERSION}" \
             --notes "$(printf '%s\n' \
-              "Prebuilt merc-agent binaries for install.sh (darwin/arm64 Metal, linux/amd64 CPU Candle)." \
+              "Prebuilt merc-agent binaries for install.sh/install.ps1 (darwin/arm64 Metal, linux/amd64 and windows/amd64 CPU Candle)." \
               "" \
               "Checksums: SHA256SUMS (cosign keyless bundle alongside each file)." \
               "" \

@@ -2,6 +2,7 @@
 # Install the merc supplier agent from a signed prebuilt release.
 #
 # Supported fetch targets: darwin/arm64, linux/amd64.
+# Windows uses scripts/install.ps1 so Task Scheduler and ACLs are native.
 # Override:
 #   MERC_AGENT_VERSION   release tag without the "agent-" prefix (default: latest)
 #   MERC_AGENT_BASE_URL  base URL that hosts archives + SHA256SUMS
@@ -20,6 +21,8 @@ CONFIG="$HOMEDIR/agent.toml"
 PLIST="$HOME/Library/LaunchAgents/dev.merc.agent.plist"
 LEGACY_PLIST="$HOME/Library/LaunchAgents/dev.computeexchange.agent.plist"
 LABEL="dev.merc.agent"
+SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+SYSTEMD_UNIT="$SYSTEMD_USER_DIR/merc-agent.service"
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH_RAW="$(uname -m)"
 case "$ARCH_RAW" in
@@ -267,11 +270,51 @@ PLIST_EOF
   say "done."
 }
 
-install_linux_unit_hint() {
-  say "linux: no system service installed. Run in a terminal or your own unit, e.g.:"
-  say "  $BIN run --config $CONFIG"
+install_linux_service() {
+  mkdir -p "$SYSTEMD_USER_DIR"
+  cat >"$SYSTEMD_UNIT" <<UNIT_EOF
+[Unit]
+Description=Merc supplier agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${BIN} run --config ${CONFIG}
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=${HOMEDIR}
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=default.target
+UNIT_EOF
+  chmod 0644 "$SYSTEMD_UNIT"
+  say "installed systemd user service $SYSTEMD_UNIT"
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload || warn "systemctl --user daemon-reload failed; log in with a user systemd session before starting"
+    if [[ "$MODE" == "start" ]]; then
+      systemctl --user enable --now merc-agent.service \
+        && say "agent enabled and started (systemd --user)" \
+        || die "could not enable/start merc-agent.service"
+    else
+      say "to start now: systemctl --user enable --now merc-agent.service (or re-run with --start)"
+    fi
+  else
+    warn "systemctl is unavailable; run $BIN run --config $CONFIG under your service manager"
+  fi
   say "Note: control validHWClasses currently accepts only Apple Silicon classes,"
   say "so this host can install the agent but cannot register for batch work yet."
+  say "done."
 }
 
 if [[ "$MODE" == "check" ]]; then
@@ -292,6 +335,8 @@ if [[ "$MODE" == "check" ]]; then
     if [[ -f "$LEGACY_PLIST" ]]; then
       say "  would remove legacy LaunchAgent: $LEGACY_PLIST"
     fi
+  else
+    say "  would install systemd user service: $SYSTEMD_UNIT"
   fi
   say "Run without --check to perform the install; --uninstall to remove it."
   exit 0
@@ -307,5 +352,5 @@ write_config
 
 case "$OS" in
   darwin) install_darwin_launchagent ;;
-  linux)  install_linux_unit_hint ;;
+  linux)  install_linux_service ;;
 esac
