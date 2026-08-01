@@ -47,8 +47,13 @@ func TestCompileProjectProducesDeterministicGraphProposal(t *testing.T) {
 		first.Probe.ApprovedIRSHA256 != proposal.IRSHA256 {
 		t.Fatalf("bounded probe missing: %+v", first.Probe)
 	}
-	if len(first.Steps) < 3 || first.Steps[0].DependsOn != nil || len(first.Steps[1].DependsOn) != 1 {
-		t.Fatalf("project graph dependencies missing: %+v", first.Steps)
+	if len(first.Steps) < 3 {
+		t.Fatalf("project graph steps missing: %+v", first.Steps)
+	}
+	for _, step := range first.Steps {
+		if step.DependsOn != nil {
+			t.Fatalf("detector invented a dependency without dataflow evidence: %+v", first.Steps)
+		}
 	}
 	if len(first.Artifacts) != 3 || len(first.ProjectSHA256) != 64 || len(first.IRSHA256) != 64 {
 		t.Fatalf("artifact commitments missing: %+v", first)
