@@ -78,7 +78,10 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// simply did not list it, which is why the coverage validator in `make ci` was
 	// already failing. It is worker_owned like every other /v1/worker route: a
 	// worker asking why it is or is not being offered work, about itself.
-	if checked != 66 {
-		t.Fatalf("checked %d protected routes, want 66", checked)
+	// 67 after GET /v1/jobs was added to the review inventory. The route already
+	// uses authBuyer and its handler scopes every result to the authenticated
+	// buyer; this exhaustive check ensures its middleware cannot be bypassed.
+	if checked != 67 {
+		t.Fatalf("checked %d protected routes, want 67", checked)
 	}
 }

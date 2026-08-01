@@ -46,6 +46,7 @@
         "GET /pricing/board.json",
         "GET /readyz",
         "GET /supplier",
+        "GET /v1/public/config",
         "GET /version",
         "GET /{$}"
       ]
@@ -91,6 +92,7 @@
         "DELETE /v1/supplier/enrollment-codes/{id}",
         "DELETE /v1/supplier/worker-credentials/{id}",
         "GET /v1/billing/status",
+        "GET /v1/jobs",
         "GET /v1/jobs/{id}",
         "GET /v1/jobs/{id}/events",
         "GET /v1/jobs/{id}/failures",
