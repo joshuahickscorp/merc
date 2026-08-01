@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,22 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func TestQuoteWithoutHoneypotReportsVerificationUnavailableBeforePricing(t *testing.T) {
+	ctx, store, _ := openIsolatedTestStore(t)
+	server := &Server{store: store}
+	sub := jobSubmit{
+		JobType: JobType{Type: "embed"},
+		Model:   ModelRef{Ref: "all-minilm-l6-v2"},
+	}
+	_, _, total, err := server.quoteInitialEconomicTaskCounts(ctx, sub, 2)
+	if !errors.Is(err, errQuoteVerificationUnavailable) {
+		t.Fatalf("missing honeypot error = %v, want verification-unavailable authority", err)
+	}
+	if total != 2 {
+		t.Fatalf("blocked verification invented economic tasks: got %d want 2", total)
+	}
+}
 
 func TestServiceTierSemanticsDoNotPromiseCapacity(t *testing.T) {
 	for _, tier := range []string{"batch", "priority", "trusted"} {
