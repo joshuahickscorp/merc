@@ -101,6 +101,62 @@ type EconomicPlan struct {
 	MinimumMarginHeadroomUSD float64            `json:"minimum_margin_headroom_usd"`
 	Scenarios                []EconomicScenario `json:"scenarios"`
 	Assumptions              []string           `json:"assumptions"`
+
+	// The EXACT half, in integer nano-major-units, alongside the micro-USD fields
+	// above rather than replacing them.
+	//
+	// SupplierPayoutPerTaskUSD is rounded to micro-USD, and admission used to
+	// compare it — divided back out into an hourly rate — against a ceiling derived
+	// in continuous dollars. One lost micro became a 1.676% hourly shortfall and
+	// every small job was refused. These fields are the same entitlement computed
+	// without that rounding, so the comparison has two exact sides.
+	//
+	// Zero with an empty EconomicRoundingPolicy means a LEGACY plan, frozen before
+	// this authority existed. Such a plan keeps its own arithmetic and is never
+	// re-read under these rules.
+	SupplierPayoutPerTaskNanos int64  `json:"supplier_payout_per_task_nanos,omitempty"`
+	BuyerChargePerTaskNanos    int64  `json:"buyer_charge_per_task_nanos,omitempty"`
+	BaseComputePerTaskNanos    int64  `json:"base_compute_per_task_nanos,omitempty"`
+	EconomicRoundingPolicy     string `json:"economic_rounding_policy,omitempty"`
+}
+
+// exactPerTaskNanos derives the exact per-task amounts from the same inputs the
+// micro-USD fields come from.
+//
+// Every division rounds in the direction that cannot harm the party it is for: the
+// supplier's entitlement rounds UP, the buyer's charge rounds DOWN. The share is
+// carried as a nano-fraction so the multiplication stays integer — a float share
+// times a float amount is exactly the arithmetic this replaces.
+func exactPerTaskNanos(
+	c Currency, baseComputeUSD, share, buyerPerTaskUSD float64, tasks int,
+) (baseNanos, supplierNanos, buyerNanos int64, err error) {
+	if tasks <= 0 {
+		return 0, 0, 0, errors.New("exact per-task economics need at least one task")
+	}
+	total, err := MoneyNanosFromUSDFloat(c, baseComputeUSD)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	// Per task rounds DOWN so the per-task amounts can never sum above the total
+	// the buyer was quoted.
+	baseNanos, err = mulDiv(total.Nanos, 1, int64(tasks), false)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	shareNanos, err := MoneyNanosFromUSDFloat(c, share)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	// UP: a supplier's entitlement must never be shaved by a rounding step.
+	supplierNanos, err = mulDiv(baseNanos, shareNanos.Nanos, NanosPerMajorUnit, true)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	buyer, err := MoneyNanosFromUSDFloat(c, buyerPerTaskUSD)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return baseNanos, supplierNanos, buyer.Nanos, nil
 }
 
 const economicPlanVersion = 2
@@ -314,6 +370,7 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 		InitialBuyerChargeUSD:    roundEconomicUSD(buyerPerTask*float64(in.InitialTaskCount) + in.SLAPremiumUSD),
 		ReservedBuyerChargeUSD:   roundEconomicUSD(buyerPerTask*float64(in.InitialTaskCount+in.ExtraTaskReserve) + in.SLAPremiumUSD),
 		MinimumMarginHeadroomUSD: math.Inf(1),
+		EconomicRoundingPolicy:   economicRoundingPolicy,
 		Assumptions: []string{
 			"every major-unit amount is denominated in schedule.currency; legacy _usd field names do not override that authority",
 			"supplier payout is frozen from base compute, independent of buyer safety fee and refundable SLA premium",
@@ -361,6 +418,19 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 	addScenario("full_success_sla_miss", in.InitialTaskCount, true)
 	addScenario("max_extra_work_sla_miss", in.InitialTaskCount+in.ExtraTaskReserve, true)
 
+	// The exact half. A derivation failure leaves the nano fields zero and the
+	// policy set, which admission reads as "this plan cannot be compared exactly"
+	// rather than as "the entitlement is zero" — the distinction the whole layer
+	// exists for.
+	if base, supplier, buyer, err := exactPerTaskNanos(
+		MustParseCurrency(schedule.Currency), in.BaseComputeUSD, in.SupplierShare,
+		plan.BuyerChargePerTaskUSD, in.InitialTaskCount,
+	); err == nil {
+		plan.BaseComputePerTaskNanos = base
+		plan.SupplierPayoutPerTaskNanos = supplier
+		plan.BuyerChargePerTaskNanos = buyer
+	}
+
 	plan.Executable = plan.MinimumMarginHeadroomUSD >= -0.000001
 	if !plan.Executable {
 		plan.BlockReason = fmt.Sprintf(
@@ -373,6 +443,17 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 
 func ValidateEconomicPlanSnapshot(plan EconomicPlan) error {
 	rebuilt := BuildEconomicPlan(plan.Input, plan.Schedule)
+	// A plan frozen before the exact authority existed carries no nano fields and
+	// no policy. Rebuilding it produces both, and comparing the two would report
+	// every historical plan as tampered with. So the rebuild is brought back to the
+	// stored plan's OWN policy before the comparison — legacy rows keep legacy
+	// arithmetic, which is the migration rule, not a special case.
+	if plan.EconomicRoundingPolicy == "" {
+		rebuilt.EconomicRoundingPolicy = ""
+		rebuilt.BaseComputePerTaskNanos = 0
+		rebuilt.SupplierPayoutPerTaskNanos = 0
+		rebuilt.BuyerChargePerTaskNanos = 0
+	}
 	if !reflect.DeepEqual(plan, rebuilt) {
 		return errors.New("economic plan snapshot does not match its deterministic input and schedule")
 	}
