@@ -380,7 +380,7 @@ func performDevCheckpoint(opts devCheckpointOptions) (DevCheckpointReceipt, erro
 	// 6. Race suite where policy requires it: the concurrency the money path
 	//    actually has, not the whole suite.
 	if err := run("race-suite", opts.skipCI, "--skip-ci", "control",
-		"go", "test", "-count=1", "-race", "-run",
+		"bash", "../scripts/with-isolated-test-db.sh", "go", "test", "-count=1", "-race", "-run",
 		"Inflight|Coalesc|Claim|Lease|Concurren", "."); err != nil {
 		return receipt, err
 	}

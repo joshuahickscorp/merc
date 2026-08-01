@@ -57,7 +57,13 @@ run_mutation_tests() {
           go test -count=1 ./... >/dev/null 2>&1
     )
   else
-    (cd "$CONTROL" && go test -count=1 ./... >/dev/null 2>&1)
+    # Every injected defect gets a clean database. Several money-path tests
+    # correctly query platform-wide state; reusing one database across mutants
+    # lets fixture residue hide a new row behind a LIMIT and makes a mutation
+    # result describe the previous mutant's database rather than this source.
+    MERC_ISOLATED_TEST_DB_PREFIX=merc_mutation \
+      bash scripts/with-isolated-test-db.sh \
+      bash -c 'cd "$1" && go test -count=1 ./... >/dev/null 2>&1' _ "$CONTROL"
   fi
 }
 
