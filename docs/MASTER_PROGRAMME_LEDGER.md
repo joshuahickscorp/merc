@@ -211,6 +211,76 @@ Connect scenarios ought to exercise. It is **not** worth working around, and the
 shared test account's webhook configuration was left alone rather than recreated
 under a second agent that is live on the same account.
 
+## Step 22 — the loop reaches admission and stops there
+
+`control/first_complete_loop_test.go` drives the whole loop through the **public
+API**, which no existing chain proof does: every one of them submits a
+test-constructed job row through `store.SubmitJobTx` and so skips signup, the API
+key, admission, the quote, the compute plan and the pricing decision.
+
+It gets a stranger signed up, funded, holding an API key, and all the way to the
+pricing authority. Admission then refuses:
+
+```text
+modeled supplier gross 0.102978 USD/hr is below the admission ceiling
+0.104733 USD/hr, so a worker admitted at that ceiling could not earn it
+```
+
+### The diagnosis
+
+Two derivations of the same rate, in two different domains:
+
+| | derivation |
+| --- | --- |
+| **ceiling** | `unitsPerSec × 3600/1000 × referencePricePer1K × supplierShare × tier` — continuous dollars, straight from the catalogue |
+| **gross** | `(primarySupplier + verification) / fxRate / expectedSeconds × 3600` — the **frozen** per-task payout, which has already been through `roundEconomicUSD` and the minimum-billable floor, divided back out |
+
+The frozen payout is stored at micro-USD granularity. Rounding a small payout loses
+up to one micro per task, and on a three-record embed that is the 1.7%. So the
+ceiling is an ideal computed in continuous dollars and the gross is a realized
+amount computed from rounded micro-USD — and **admission refuses every job small
+enough for the rounding to matter.**
+
+This is the **fourth** instance of the failure class `SHIPPABILITY_STATUS.md`
+already records three of: the LoRA compute floor truncating to zero, the supplier
+share collapsing to 0.8% on a three-row job, and the supplier payout rounding to
+exactly zero between 5 and 99 units. Same cause every time — a fixed granularity
+dominating a small quote — arriving through arithmetic rather than through policy.
+
+### Why it was not fixed here
+
+Not by loosening the check: admitting work at a ceiling the modeled throughput
+cannot earn is the thing the check exists to prevent, and the check is behaving
+correctly. And not by widening the tolerance: re-expressing one micro-USD as an
+hourly rate over sub-second work gives **$1.44/hr** against a $0.10/hr ceiling, so
+any tolerance large enough to pass would swallow the entire comparison.
+
+The fix is structural — compare in the domain where the rounding lives, micro-USD
+per task, rather than in USD/hr — and it touches admission pricing for every job.
+That is not a change to make at the end of a session on a remaining context budget.
+
+What did land: the refusal used to be six conditions collapsed into one sentence
+with no numbers, so a 409 could not tell you whether the throughput was missing, the
+ceiling was zero, or the gross had fallen under it. It now reports every failing
+condition with its figures, and that is what made the diagnosis above possible at
+all.
+
+### The six deployment inputs the stranger path needs
+
+Driving it surfaced these, none of which was written down anywhere. A deployment
+missing any one of them returns 503 or 409 to a stranger:
+
+1. `MERC_SANDBOX_CREDIT_USD` — defaults to **zero**, so a stranger signs up unfunded.
+2. `MERC_ECON_SCHEDULE_VERSION`, `MERC_PROCESSOR_PERCENT_BPS`,
+   `MERC_PROCESSOR_FIXED_USD`, `MERC_CONTROL_PLANE_PER_TASK_USD`,
+   `MERC_TARGET_MARGIN_BPS` — all required, no defaults.
+3. `MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE` + `MERC_PRICE_FX_REVISION` — the
+   USD-reference-to-CAD operator input.
+4. A published catalogue price schedule — only `main()`'s boot publishes it.
+5. A seeded verification honeypot — Merc refuses work it cannot verify.
+6. `MERC_CANARY_MODE=false` with a decision reference — one decision gates both
+   signup and the payout ceiling.
+
 ## A hazard worth naming
 
 **Another Claude Code session was editing this same working tree during the second
