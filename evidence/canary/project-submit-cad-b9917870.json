@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "kind": "PROJECT_SUBMIT_SPLIT_IDENTITY_PROOF",
+  "status": "PASS",
+  "created_at": "2026-08-01T13:15:12Z",
+  "compiler": {
+    "commit": "b9917870bed49ef0bbc95123cdc63fc0bb8b0c04",
+    "version": "network-10of10",
+    "platform": "darwin/arm64",
+    "command": "merc project submit",
+    "production_caller": true
+  },
+  "server": {
+    "commit": "0a4b66cb7cc51223d488de156a3945d8d9877ae3",
+    "version": "network-10of10",
+    "image_id": "sha256:14a66f9d3660f3df65d3edc7c0b2ec63762ef1c0e6bfbd42105a03fbe9951d71",
+    "immutable_image": "merc-control:network-0a4b66cb7cc5",
+    "isolated_port": 18081,
+    "price_board_sha256": "0e4a70dc40f8f4df4148bd1a4bcd85eb77558056d9d3fc346fef39c0d1aec154"
+  },
+  "candidate_bound": false,
+  "candidate_bound_reason": "The b9917870 product caller submitted to the retained older 0a4b66cb CAD image. This proves live acceptance and retry behavior, not exact-current-image execution.",
+  "buyer_authority": {
+    "harness_provisioned_existing_buyer": true,
+    "temporary_non_admin_api_keys_created": 3,
+    "temporary_api_keys_deleted": true,
+    "secret_values_retained": false,
+    "preexisting_test_balance_micros": 9990,
+    "new_provider_charge": false
+  },
+  "project": {
+    "approved_unprobed_ir_sha256": "2b918c9e398d375a233ec814e42715ffdb528eed04665a2175c459bf15b83bcd",
+    "probed_ir_sha256": "848ebf44914f23e0269fe7759d59431df4ea214a2a3566a3a6d6806c58957edd",
+    "currency": "cad",
+    "expected_cost_nanos": 8000,
+    "maximum_cost_nanos": 12000,
+    "buyer_ceiling_nanos": 10000000,
+    "critical_path_p50_secs": 45,
+    "critical_path_p90_secs": 90,
+    "minimum_confidence": 0.5,
+    "calibration_state": "STEP_QUOTES_NOT_PROJECT_OUTCOME_CALIBRATED"
+  },
+  "authority": {
+    "quote_id": "q_85ac1eef-fd1d-465d-8b87-96bdd6eaee23",
+    "pricing_decision_sha256": "28f1ebeef572af24c775b820c5b97725604931aebcdcea5cbf61881e3e1c481e",
+    "authority_quote_sha256": "8357a888f3bb77404cbd814bc44b0eaf43f95297ff943a17d6fc3c92f43a1d47",
+    "fixed_point_currency": "cad",
+    "accepted_ceiling_nanos": 12000
+  },
+  "submission": {
+    "job_id": "7592d5d5-298a-55a3-b503-7747d6bc356a",
+    "first_status": "ACCEPTED",
+    "first_idempotent_replay": false,
+    "second_status": "ACCEPTED",
+    "second_idempotent_replay": true,
+    "same_job_id": true,
+    "job_row_count": 1,
+    "post_cancel_status": "cancelled",
+    "open_reserved_micros_after_cancel": 0
+  },
+  "artifacts": [
+    {
+      "path": "evidence/canary/artifacts/project-quote-b9917870.json",
+      "sha256": "2c525c4788c2a6f6b7f3af9dfa7e5ac7a9fce594b767cb3298b262fad10a0650"
+    },
+    {
+      "path": "evidence/canary/artifacts/project-submit-b9917870.json",
+      "sha256": "da25d9a60da2ce5973ef3d45a911ad671275b96e56e222de3ba0dd9468df2b6c"
+    },
+    {
+      "path": "evidence/canary/artifacts/project-submit-replay-b9917870.json",
+      "sha256": "41edb5c6b38c783ee11806c21f1446353abed403c744478c3a24987d2d4a1601"
+    }
+  ],
+  "assertions": {
+    "exact_ir_approval_rechecked": true,
+    "bounded_probe_repeated": true,
+    "full_quote_authority_revalidated": true,
+    "fixed_point_buyer_ceiling_held": true,
+    "firm_quote_bound": true,
+    "production_job_endpoint_called": true,
+    "deterministic_retry_replayed": true,
+    "duplicate_job_created": false,
+    "cleanup_verified": true,
+    "job_executed": false,
+    "clearing_receipt_observed": false,
+    "project_outcome_calibrated": false
+  },
+  "limitations": [
+    "The exact compiler called an older retained server image, so this is not candidate-bound.",
+    "The existing buyer and short-lived keys were harness-provisioned; this does not repeat stranger signup.",
+    "The accepted job was deliberately cancelled before claim, so this is admission and retry evidence, not runtime, verification, settlement, or receipt evidence.",
+    "Dependent project steps still refuse because artifact handoff is not implemented.",
+    "No new Stripe test-mode charge or refund was created."
+  ]
+}
