@@ -24,6 +24,8 @@ struct InflightTask {
 
 #[derive(Serialize, Clone)]
 pub struct AppliedPrefs {
+    pub paused: bool,
+    pub allowed_weekdays: Option<Vec<u8>>,
     pub power_only: bool,
     pub quiet_hours: Option<(u8, u8)>,
     pub min_payout_usd_per_hr: f32,
@@ -35,6 +37,8 @@ pub struct AppliedPrefs {
 impl AppliedPrefs {
     pub fn from_config(cfg: &AgentConfig, memory_gb: f32) -> Self {
         Self {
+            paused: cfg.paused,
+            allowed_weekdays: cfg.allowed_weekdays.clone(),
             power_only: cfg.power_only,
             quiet_hours: cfg.quiet_hours,
             min_payout_usd_per_hr: cfg.min_payout_usd_per_hr,

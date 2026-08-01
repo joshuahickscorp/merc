@@ -18,6 +18,7 @@ LEGACY_BIN="$PREFIX/cx-agent"
 HOMEDIR="$HOME/.merc"
 LEGACY_HOMEDIR="$HOME/.compute-exchange"
 CONFIG="$HOMEDIR/agent.toml"
+PREFS="$HOMEDIR/agent.prefs.toml"
 PLIST="$HOME/Library/LaunchAgents/dev.merc.agent.plist"
 LEGACY_PLIST="$HOME/Library/LaunchAgents/dev.computeexchange.agent.plist"
 LABEL="dev.merc.agent"
@@ -240,6 +241,21 @@ TOML
   [[ -n "${MERC_WORKER_TOKEN:-}" ]] || warn "set worker_token in $CONFIG (from 'make seed') before earning"
 }
 
+write_prefs() {
+  [[ -f "$PREFS" ]] && { say "keeping existing live preferences $PREFS"; return; }
+  umask 077
+  cat >"$PREFS" <<'TOML'
+paused = false
+allowed_weekdays = [0, 1, 2, 3, 4, 5, 6]
+power_only = true
+quiet_hours = [22, 6]
+min_payout_usd_per_hr = 0.05
+memory_headroom_gb = 8.0
+max_memory_pct = 85.0
+TOML
+  say "wrote live preferences $PREFS (reloaded before every claim)"
+}
+
 install_darwin_launchagent() {
   # Stop the pre-rebrand label so we do not leave two KeepAlive agents racing.
   if [[ -f "$LEGACY_PLIST" ]]; then
@@ -327,6 +343,7 @@ if [[ "$MODE" == "check" ]]; then
   fi
   say "  would install binary to: $BIN"
   say "  would write starter config: $CONFIG (if missing)"
+  say "  would write live preferences: $PREFS (if missing)"
   if [[ -d "$LEGACY_HOMEDIR" && ! -d "$HOMEDIR" ]]; then
     say "  would migrate legacy state: $LEGACY_HOMEDIR -> $HOMEDIR"
   fi
@@ -349,6 +366,7 @@ else
 fi
 
 write_config
+write_prefs
 
 case "$OS" in
   darwin) install_darwin_launchagent ;;

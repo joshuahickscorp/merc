@@ -25,11 +25,13 @@ require "$PS_INSTALL" '--certificate-identity-regexp' 'Windows installer does no
 require "$PS_INSTALL" '--certificate-oidc-issuer' 'Windows installer does not pin the OIDC issuer'
 require "$PS_INSTALL" 'Register-ScheduledTask' 'Windows installer does not install a persistent per-user agent'
 require "$PS_INSTALL" 'run --config' 'Windows scheduled task does not run from the protected config file'
+require "$PS_INSTALL" 'agent.prefs.toml' 'Windows installer does not create live operator preferences'
 
 require "$SH_INSTALL" 'merc-agent.service' 'Linux installer does not install a user service'
 require "$SH_INSTALL" 'ProtectSystem=strict' 'Linux service lacks filesystem isolation'
 require "$SH_INSTALL" 'NoNewPrivileges=true' 'Linux service can gain privileges'
 require "$SH_INSTALL" 'systemctl --user enable --now' 'Linux one-command start is missing'
+require "$SH_INSTALL" 'agent.prefs.toml' 'Unix installer does not create live operator preferences'
 
 bash -n "$SH_INSTALL" "$ROOT/scripts/uninstall.sh"
 MERC_PREFIX="$ROOT/.artifacts/install-contract-never-created" bash "$SH_INSTALL" --check >/dev/null
