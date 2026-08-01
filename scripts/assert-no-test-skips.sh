@@ -34,6 +34,8 @@ if [ -z "$LOG" ]; then
   LOG="$(mktemp)"
   trap 'rm -f "$LOG"' EXIT
   if ! (cd control && MERC_TEST_DATABASE_URL="${MERC_TEST_DATABASE_URL:-}" \
+          bash ../scripts/with-isolated-test-storage.sh \
+          bash ../scripts/with-isolated-test-db.sh \
           go test ./... -json -count=1 -timeout "$TEST_TIMEOUT" >"$LOG" 2>/dev/null); then
     echo "test skips: the suite did not pass, so its skip set is not meaningful" >&2
     echo "  (re-run \`make ci\` and fix the failures; this gate has nothing to add)" >&2
