@@ -624,14 +624,44 @@ func validatePricingCostShape(p PricingDecision) error {
 	}
 	switch p.ExecutionMode {
 	case computeExecutionDistributed:
-		if !validSHA256(p.PlacementRequirementSHA256) ||
-			!validSHA256(p.EconomicPlanSHA256) ||
-			!validSHA256(p.EconomicScheduleSHA256) ||
-			p.ExpectedSupplierUnitsPerSec <= 0 ||
-			p.ExpectedSupplierSeconds <= 0 ||
-			p.SupplierAdmissionCeilingUSDHr <= 0 ||
-			p.ExpectedSupplierGrossUSDHr+0.000001 < p.SupplierAdmissionCeilingUSDHr {
-			return errors.New("physical pricing decision lacks executable composite authority")
+		// Named, not collapsed. Six conditions behind one sentence meant a submit
+		// could 409 with "lacks executable composite authority" and no way to tell
+		// whether the throughput was missing, the ceiling was zero or the modeled
+		// gross had fallen under it — three different faults with three different
+		// owners. The reasons are gathered rather than short-circuited so one
+		// refusal reports every failing condition.
+		var missing []string
+		if !validSHA256(p.PlacementRequirementSHA256) {
+			missing = append(missing, "placement requirement digest is not a sha256")
+		}
+		if !validSHA256(p.EconomicPlanSHA256) {
+			missing = append(missing, "economic plan digest is not a sha256")
+		}
+		if !validSHA256(p.EconomicScheduleSHA256) {
+			missing = append(missing, "economic schedule digest is not a sha256")
+		}
+		if p.ExpectedSupplierUnitsPerSec <= 0 {
+			missing = append(missing, fmt.Sprintf(
+				"modeled supplier throughput is %.6f units/sec, so no rate can be derived",
+				p.ExpectedSupplierUnitsPerSec))
+		}
+		if p.ExpectedSupplierSeconds <= 0 {
+			missing = append(missing, fmt.Sprintf(
+				"modeled supplier time is %.6f seconds", p.ExpectedSupplierSeconds))
+		}
+		if p.SupplierAdmissionCeilingUSDHr <= 0 {
+			missing = append(missing, fmt.Sprintf(
+				"supplier admission ceiling is %.6f USD/hr", p.SupplierAdmissionCeilingUSDHr))
+		}
+		if p.ExpectedSupplierGrossUSDHr+0.000001 < p.SupplierAdmissionCeilingUSDHr {
+			missing = append(missing, fmt.Sprintf(
+				"modeled supplier gross %.6f USD/hr is below the admission ceiling %.6f "+
+					"USD/hr, so a worker admitted at that ceiling could not earn it",
+				p.ExpectedSupplierGrossUSDHr, p.SupplierAdmissionCeilingUSDHr))
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("physical pricing decision lacks executable composite authority: %s",
+				strings.Join(missing, "; "))
 		}
 		conserved := roundEconomicUSD(
 			p.PrimarySupplierCost.Amount + p.VerificationCost.Amount +
