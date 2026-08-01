@@ -79,6 +79,11 @@ def build_receipt(args) -> dict:
             "teardown was not verified, so the pod may still be billing; a receipt "
             "cannot report a final cost for a pod that might still be running"
         )
+    if not args.ready:
+        refusals.append(
+            "vLLM never reached a verified ready state, so this is a failed "
+            "startup receipt rather than usable CUDA-runtime evidence"
+        )
     if seconds > allowed:
         refusals.append(
             f"pod lived {seconds}s against a budget of {allowed}s: the lifetime bound "
@@ -168,6 +173,11 @@ def self_test() -> int:
         teardown_verified = False
 
     assert not build_receipt(NoTeardown())["admissible"]
+
+    class NotReady(A):
+        ready = False
+
+    assert not build_receipt(NotReady())["admissible"]
 
     class Overran(A):
         stopped_at = 99999
