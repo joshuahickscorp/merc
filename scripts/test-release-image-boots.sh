@@ -19,6 +19,15 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
+if ! git diff --quiet || ! git diff --cached --quiet ||
+   [ -n "$(git ls-files --others --exclude-standard)" ]; then
+  echo "release image boot: FAIL -- exact artifact requires a clean HEAD" >&2
+  exit 1
+fi
+HEAD_SHA="$(git rev-parse HEAD)" || exit 1
+BUILD_VERSION="git-${HEAD_SHA:0:12}"
+BUILD_DATE="$(git show -s --format=%cI HEAD)" || exit 1
+
 RUNTIME=""
 for candidate in docker podman; do
   if command -v "$candidate" >/dev/null 2>&1 && "$candidate" info >/dev/null 2>&1; then
@@ -46,8 +55,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "release image boot: building $TAG from the tree"
-if ! "$RUNTIME" build -f Dockerfile.control -t "$TAG" . >/tmp/merc-image-build.log 2>&1; then
+echo "release image boot: building $TAG from exact HEAD ${HEAD_SHA:0:12}"
+if ! "$RUNTIME" build -f Dockerfile.control -t "$TAG" \
+  --build-arg "MERC_BUILD_VERSION=$BUILD_VERSION" \
+  --build-arg "MERC_BUILD_COMMIT=$HEAD_SHA" \
+  --build-arg "MERC_BUILD_DATE=$BUILD_DATE" \
+  . >/tmp/merc-image-build.log 2>&1; then
   echo "release image boot: FAIL -- build" >&2
   tail -30 /tmp/merc-image-build.log >&2
   exit 1
@@ -149,10 +162,18 @@ check /.well-known/security.txt "security contact"
 version="$(probe /version || echo '{}')"
 source="$(printf '%s' "$version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("price_board_source",""))' 2>/dev/null)"
 digest="$(printf '%s' "$version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("price_board_sha256",""))' 2>/dev/null)"
+runtime_commit="$(printf '%s' "$version" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' 2>/dev/null)"
+image_commit="$("$RUNTIME" image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$TAG" 2>/dev/null)"
 case "$source" in
   release|env) echo "  ok    price board loaded from $source (${digest:0:12})" ;;
   *) echo "  FAIL  price board source is '$source', want release or env" >&2; status=1 ;;
 esac
+if [ "$runtime_commit" = "$HEAD_SHA" ] && [ "$image_commit" = "$HEAD_SHA" ]; then
+  echo "  ok    runtime and image label identify exact HEAD ${HEAD_SHA:0:12}"
+else
+  echo "  FAIL  artifact identity runtime=${runtime_commit:-missing} label=${image_commit:-missing} want=$HEAD_SHA" >&2
+  status=1
+fi
 
 if [ "$status" != "0" ]; then
   echo "release image boot: FAIL" >&2
