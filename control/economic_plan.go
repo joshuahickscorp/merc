@@ -624,12 +624,39 @@ func ValidateEconomicPlanSnapshot(plan EconomicPlan) error {
 		rebuilt.BuyerChargePerTaskNanos = 0
 	}
 	if !reflect.DeepEqual(plan, rebuilt) {
-		return errors.New("economic plan snapshot does not match its deterministic input and schedule")
+		return fmt.Errorf("economic plan snapshot field %s does not match its deterministic input and schedule",
+			firstEconomicPlanMismatchField(plan, rebuilt))
 	}
 	if !plan.Executable {
 		return fmt.Errorf("economic plan is not executable: %s", plan.BlockReason)
 	}
 	return nil
+}
+
+func firstEconomicPlanMismatchField(stored, rebuilt EconomicPlan) string {
+	return firstEconomicValueMismatch(reflect.ValueOf(stored), reflect.ValueOf(rebuilt), "")
+}
+
+func firstEconomicValueMismatch(a, b reflect.Value, path string) string {
+	if reflect.DeepEqual(a.Interface(), b.Interface()) {
+		return "unknown"
+	}
+	if a.Kind() == reflect.Struct && b.Kind() == reflect.Struct && a.Type() == b.Type() {
+		for i := 0; i < a.NumField(); i++ {
+			if reflect.DeepEqual(a.Field(i).Interface(), b.Field(i).Interface()) {
+				continue
+			}
+			name := a.Type().Field(i).Name
+			if path != "" {
+				name = path + "." + name
+			}
+			return firstEconomicValueMismatch(a.Field(i), b.Field(i), name)
+		}
+	}
+	if path == "" {
+		return "unknown"
+	}
+	return path
 }
 
 func EconomicPlansEqual(a, b EconomicPlan) bool { return reflect.DeepEqual(a, b) }

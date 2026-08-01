@@ -200,6 +200,8 @@ func TestValidateEconomicPlanSnapshotRejectsScalarAndScenarioTampering(t *testin
 	scalar.SupplierPayoutPerTaskUSD += .01
 	if err := ValidateEconomicPlanSnapshot(scalar); err == nil {
 		t.Fatal("edited frozen supplier payout was accepted")
+	} else if !strings.Contains(err.Error(), "SupplierPayoutPerTaskUSD") {
+		t.Fatalf("scalar mismatch did not identify its field: %v", err)
 	}
 
 	scenario := plan

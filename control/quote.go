@@ -454,16 +454,19 @@ func (s *Server) quoteInitialEconomicTaskCounts(ctx context.Context, sub jobSubm
 	if honeypots > 0 {
 		available, availableErr := s.store.AvailableSeedHoneypots(ctx, sub.JobType.Type, sub.Model.Ref, sub.JobType.MaxTokens, honeypots)
 		if availableErr != nil {
-			return redundancy, 0, primaryTasks + redundancy, availableErr
+			return redundancy, 0, primaryTasks + redundancy,
+				fmt.Errorf("%w: reading seeded honeypots: %v", errQuoteVerificationUnavailable, availableErr)
 		}
 		honeypots = len(available)
 		if honeypots == 0 {
 			return redundancy, 0, primaryTasks + redundancy,
-				errors.New("verification requires a seeded honeypot but none is available")
+				fmt.Errorf("%w: verification requires a seeded honeypot but none is available", errQuoteVerificationUnavailable)
 		}
 	}
 	return redundancy, honeypots, primaryTasks + redundancy + honeypots, nil
 }
+
+var errQuoteVerificationUnavailable = errors.New("quote verification authority is unavailable")
 
 func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, sub jobSubmit, inputBytes []byte, workload WorkloadDecision, schedule EconomicSchedule) (Quote, error) {
 	jobType := sub.JobType.Type
@@ -520,6 +523,9 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 
 	redundancyTasks, honeypotTasks, initialEconomicTasks, economicCountErr :=
 		s.quoteInitialEconomicTaskCounts(ctx, sub, tasks)
+	if economicCountErr != nil {
+		return Quote{}, economicCountErr
+	}
 	baseComputeUSD := expected
 	if tasks > 0 && initialEconomicTasks > 0 {
 		baseComputeUSD = roundEconomicUSD(expected * float64(initialEconomicTasks) / float64(tasks))
@@ -589,9 +595,6 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		BaseComputeNanos: baseComputeNanos,
 	}
 	baseEconomicPlan := BuildEconomicPlan(basePlanInput, schedule)
-	if economicCountErr != nil {
-		baseEconomicPlan = blockedEconomicPlan(basePlanInput, schedule, "counting initial verification work: "+economicCountErr.Error())
-	}
 	if baseEconomicPlan.Executable && initialEconomicTasks >= tasks {
 		verifOverhead = roundEconomicUSD(
 			baseEconomicPlan.BuyerChargePerTaskUSD * float64(initialEconomicTasks-tasks),
@@ -625,9 +628,6 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	planInput := basePlanInput
 	planInput.SLAPremiumUSD = slaPremium
 	economicPlan := BuildEconomicPlan(planInput, schedule)
-	if economicCountErr != nil {
-		economicPlan = blockedEconomicPlan(planInput, schedule, "counting initial verification work: "+economicCountErr.Error())
-	}
 	if economicPlan.Executable {
 		expected = baseEconomicPlan.InitialBuyerChargeUSD
 		costMax = baseEconomicPlan.ReservedBuyerChargeUSD
@@ -879,7 +879,11 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 	}
 	q, err := s.buildQuoteWithSchedule(r.Context(), auth.BuyerID, sub, inputBytes, workload, schedule)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, errQuoteVerificationUnavailable) {
+			status = http.StatusServiceUnavailable
+		}
+		writeErr(w, status, err.Error())
 		return
 	}
 	if !q.Economics.Executable {
