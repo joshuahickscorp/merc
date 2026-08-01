@@ -355,15 +355,17 @@ func cmdFailures(args []string) {
 }
 
 type invoiceResp struct {
-	JobID           string   `json:"job_id"`
-	Status          string   `json:"status"`
-	JobType         string   `json:"job_type"`
-	EstimatedUSD    float64  `json:"estimated_usd"`
-	ActualUSD       float64  `json:"actual_usd"`
-	ChargedUSD      float64  `json:"charged_usd"`
-	SupplierPaidUSD float64  `json:"supplier_credit_usd"`
-	PlatformTakeUSD float64  `json:"platform_take_usd"`
-	QuotedUSD       *float64 `json:"quoted_usd,omitempty"`
+	JobID                  string                    `json:"job_id"`
+	Status                 string                    `json:"status"`
+	JobType                string                    `json:"job_type"`
+	EstimatedUSD           float64                   `json:"estimated_usd"`
+	ActualUSD              float64                   `json:"actual_usd"`
+	ChargedUSD             float64                   `json:"charged_usd"`
+	SupplierPaidUSD        float64                   `json:"supplier_credit_usd"`
+	PlatformTakeUSD        float64                   `json:"platform_take_usd"`
+	PlatformGrossSpreadUSD float64                   `json:"platform_gross_spread_usd"`
+	Contribution           *EconomicContributionView `json:"contribution,omitempty"`
+	QuotedUSD              *float64                  `json:"quoted_usd,omitempty"`
 }
 
 func cmdInvoice(args []string) {
@@ -399,7 +401,15 @@ func printInvoice(inv invoiceResp) {
 		p("  Quoted   : $%.4f (delta $%+.4f vs charged)", *inv.QuotedUSD, inv.ChargedUSD-*inv.QuotedUSD)
 	}
 	p("  Supplier : $%.4f credit", inv.SupplierPaidUSD)
-	p("  Platform : $%.4f take", inv.PlatformTakeUSD)
+	p("  Platform : $%.4f gross spread (before Merc costs)", inv.PlatformGrossSpreadUSD)
+	if inv.Contribution != nil {
+		net := inv.Contribution.MercNetContribution
+		if net.AmountUSD != nil {
+			p("  Merc net : $%.4f contribution", *net.AmountUSD)
+		} else {
+			p("  Merc net : unavailable (%s)", net.Status)
+		}
+	}
 }
 
 func fetchResults(c *client, id string) {

@@ -26,18 +26,23 @@ type ReceiptAuthority struct {
 }
 
 type PricingReconciliation struct {
-	Currency                    string   `json:"currency"`
-	AcceptedBuyerPrice          float64  `json:"accepted_buyer_price"`
-	MaximumBuyerPrice           float64  `json:"maximum_buyer_price"`
-	SettledBuyerPrice           float64  `json:"settled_buyer_price"`
-	ModeledSupplierCost         float64  `json:"modeled_supplier_cost"`
-	SettledSupplierCost         float64  `json:"settled_supplier_cost"`
-	ModeledPlatformContribution float64  `json:"modeled_platform_contribution"`
-	SettledPlatformTake         float64  `json:"settled_platform_take"`
-	ModeledPaymentCost          float64  `json:"modeled_payment_cost"`
-	SettledPaymentCost          *float64 `json:"settled_payment_cost,omitempty"`
-	CatalogueScheduleSHA256     string   `json:"catalogue_schedule_sha256"`
-	FXRevision                  string   `json:"fx_revision"`
+	Currency                    string  `json:"currency"`
+	AcceptedBuyerPrice          float64 `json:"accepted_buyer_price"`
+	MaximumBuyerPrice           float64 `json:"maximum_buyer_price"`
+	SettledBuyerPrice           float64 `json:"settled_buyer_price"`
+	ModeledSupplierCost         float64 `json:"modeled_supplier_cost"`
+	SettledSupplierCost         float64 `json:"settled_supplier_cost"`
+	ModeledPlatformContribution float64 `json:"modeled_platform_contribution"`
+	SettledPlatformTake         float64 `json:"settled_platform_take"`
+	// SettledPlatformTake is retained for compatibility; it is a gross ledger
+	// spread. The contribution object refuses to call it net while any cost is
+	// unknown.
+	SettledPlatformGrossSpread float64                   `json:"settled_platform_gross_spread"`
+	SettledContribution        *EconomicContributionView `json:"settled_contribution,omitempty"`
+	ModeledPaymentCost         float64                   `json:"modeled_payment_cost"`
+	SettledPaymentCost         *float64                  `json:"settled_payment_cost,omitempty"`
+	CatalogueScheduleSHA256    string                    `json:"catalogue_schedule_sha256"`
+	FXRevision                 string                    `json:"fx_revision"`
 }
 
 type TaskReceipt struct {
@@ -132,6 +137,8 @@ func assembleClearingReceipt(
 			reconciliation.SettledBuyerPrice = inv.ActualUSD
 			reconciliation.SettledSupplierCost = inv.SupplierPaidUSD
 			reconciliation.SettledPlatformTake = inv.PlatformTakeUSD
+			reconciliation.SettledPlatformGrossSpread = inv.PlatformGrossSpreadUSD
+			reconciliation.SettledContribution = inv.Contribution
 			reconciliation.SettledPaymentCost = inv.ProcessorFeeAllocatedUSD
 		}
 		out.Reconciliation = reconciliation

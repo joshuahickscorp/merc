@@ -23,10 +23,24 @@ type EconomicSchedule struct {
 	// event, not once per task, so it amortises across everything in the batch.
 	// Sourced from chargeMinUSD() (control/collect.go) so the pricing model and
 	// the collector cannot drift apart.
-	MinChargeBatchUSD      float64 `json:"min_charge_batch_usd"`
-	ControlPlanePerTaskUSD float64 `json:"control_plane_per_task_usd"`
+	MinChargeBatchUSD float64 `json:"min_charge_batch_usd"`
+	// Historical schedules charged this once for every physical task. It remains
+	// in the snapshot so old receipts rebuild byte-for-byte, but new schedules
+	// use ControlPlanePerBatchUSD: account/invoice overhead is incurred once per
+	// economic collection batch and allocated pro rata, just like the processor's
+	// fixed fee. Treating it as a task cost produced the commercially meaningless
+	// 11,564-micro buyer / 2-micro supplier split on a two-task embedding job.
+	ControlPlanePerTaskUSD       float64 `json:"control_plane_per_task_usd,omitempty"`
+	ControlPlanePerBatchUSD      float64 `json:"control_plane_per_batch_usd,omitempty"`
+	ControlPlaneAllocationPolicy string  `json:"control_plane_allocation_policy,omitempty"`
+	// MinimumContributionUSD prevents a percentage target from rounding to zero
+	// on a micro-job. It is the minimum absolute Merc contribution for the full
+	// initial economic batch; other scenarios receive the same per-task share.
+	MinimumContributionUSD float64 `json:"minimum_contribution_usd,omitempty"`
 	TargetMarginRate       float64 `json:"target_margin_rate"`
 }
+
+const controlPlaneAllocationChargeBatchV1 = "charge_batch_pro_rata_v1"
 
 // processorFloorTerms splits the processor's cost into the percentage rate and
 // the per-task fixed component that the price floor has to cover.
@@ -59,6 +73,34 @@ func (s EconomicSchedule) processorFeeFor(netUSD float64) float64 {
 		fixedShare = netUSD / s.MinChargeBatchUSD
 	}
 	return ceilEconomicUSD(netUSD*s.ProcessorPercent + s.ProcessorFixedUSD*fixedShare)
+}
+
+// controlPlaneFloorTerms and controlPlaneCostFor are the inverse and forward
+// views of one allocation policy. New schedules allocate declared fixed
+// account/invoice overhead across the same minimum-size economic batch the
+// collector actually forms. An empty policy is a historical per-task schedule.
+func (s EconomicSchedule) controlPlaneFloorTerms() (rate, perTaskFixed float64) {
+	if s.ControlPlaneAllocationPolicy != controlPlaneAllocationChargeBatchV1 {
+		return 0, s.ControlPlanePerTaskUSD
+	}
+	if s.MinChargeBatchUSD <= 0 {
+		return 0, s.ControlPlanePerBatchUSD
+	}
+	return s.ControlPlanePerBatchUSD / s.MinChargeBatchUSD, 0
+}
+
+func (s EconomicSchedule) controlPlaneCostFor(netUSD float64, tasks int) float64 {
+	if netUSD <= 0 || tasks <= 0 {
+		return 0
+	}
+	if s.ControlPlaneAllocationPolicy != controlPlaneAllocationChargeBatchV1 {
+		return roundEconomicUSD(s.ControlPlanePerTaskUSD * float64(tasks))
+	}
+	fixedShare := 1.0
+	if s.MinChargeBatchUSD > 0 && netUSD < s.MinChargeBatchUSD {
+		fixedShare = netUSD / s.MinChargeBatchUSD
+	}
+	return ceilEconomicUSD(s.ControlPlanePerBatchUSD * fixedShare)
 }
 
 type EconomicPlanInput struct {
@@ -196,7 +238,8 @@ const (
 	economicScheduleVersionEnv = "MERC_ECON_SCHEDULE_VERSION"
 	processorPercentBPSEnv     = "MERC_PROCESSOR_PERCENT_BPS"
 	processorFixedUSDEnv       = "MERC_PROCESSOR_FIXED_USD"
-	controlPerTaskUSDEnv       = "MERC_CONTROL_PLANE_PER_TASK_USD"
+	controlPerBatchUSDEnv      = "MERC_CONTROL_PLANE_PER_BATCH_USD"
+	minimumContributionUSDEnv  = "MERC_MIN_CONTRIBUTION_PER_BATCH_USD"
 	targetMarginBPSEnv         = "MERC_TARGET_MARGIN_BPS"
 )
 
@@ -224,7 +267,11 @@ func LoadEconomicScheduleFromEnv() (EconomicSchedule, error) {
 	if err != nil {
 		return EconomicSchedule{}, err
 	}
-	controlPerTask, err := parseRequired(controlPerTaskUSDEnv)
+	controlPerBatch, err := parseRequired(controlPerBatchUSDEnv)
+	if err != nil {
+		return EconomicSchedule{}, err
+	}
+	minimumContribution, err := parseRequired(minimumContributionUSDEnv)
 	if err != nil {
 		return EconomicSchedule{}, err
 	}
@@ -240,9 +287,11 @@ func LoadEconomicScheduleFromEnv() (EconomicSchedule, error) {
 		// Read from the collector rather than its own env var: the batch floor
 		// and the price floor describe the same event, and two settings that
 		// must agree will eventually disagree.
-		MinChargeBatchUSD:      chargeMinUSD(),
-		ControlPlanePerTaskUSD: controlPerTask,
-		TargetMarginRate:       marginBPS / 10_000,
+		MinChargeBatchUSD:            chargeMinUSD(),
+		ControlPlanePerBatchUSD:      controlPerBatch,
+		ControlPlaneAllocationPolicy: controlPlaneAllocationChargeBatchV1,
+		MinimumContributionUSD:       minimumContribution,
+		TargetMarginRate:             marginBPS / 10_000,
 	}
 	if reason := validateEconomicSchedule(schedule); reason != "" {
 		return EconomicSchedule{}, fmt.Errorf("invalid economic schedule: %s", reason)
@@ -282,13 +331,33 @@ func validateEconomicSchedule(s EconomicSchedule) string {
 	if !finiteNonNegative(s.ControlPlanePerTaskUSD) {
 		return "control_plane_per_task_usd must be finite and non-negative"
 	}
+	if !finiteNonNegative(s.ControlPlanePerBatchUSD) {
+		return "control_plane_per_batch_usd must be finite and non-negative"
+	}
+	switch s.ControlPlaneAllocationPolicy {
+	case "":
+		if s.ControlPlanePerBatchUSD != 0 {
+			return "legacy control-plane allocation cannot carry a batch cost"
+		}
+	case controlPlaneAllocationChargeBatchV1:
+		if s.ControlPlanePerTaskUSD != 0 || s.MinChargeBatchUSD <= 0 {
+			return "batch control-plane allocation needs a positive charge batch and no per-task cost"
+		}
+	default:
+		return "control-plane allocation policy is unsupported"
+	}
 	if !finiteNonNegative(s.TargetMarginRate) || s.TargetMarginRate >= 1 {
 		return "target_margin_rate must be finite and in [0,1)"
+	}
+	if !finiteNonNegative(s.MinimumContributionUSD) {
+		return "minimum_contribution_usd must be finite and non-negative"
 	}
 	if !finiteNonNegative(s.MinChargeBatchUSD) {
 		return "min_charge_batch_usd must be finite and non-negative"
 	}
-	if rate, _ := s.processorFloorTerms(); rate+s.TargetMarginRate >= 1 {
+	processorRate, _ := s.processorFloorTerms()
+	controlRate, _ := s.controlPlaneFloorTerms()
+	if processorRate+controlRate+s.TargetMarginRate >= 1 {
 		return "effective processor rate plus target_margin_rate must be below 1"
 	}
 	return ""
@@ -324,6 +393,8 @@ func minBillableBaseComputeMicros(share float64, tasks int) int64 {
 	}
 	for total := int64(1); total < 10_000_000; total++ {
 		computePerTask := microsToUSD(total) / float64(tasks)
+		// This search retains the historical minimum-base boundary; settlement
+		// itself rounds the supplier projection upward below.
 		supplier := roundEconomicUSD(computePerTask * share)
 		if usdToMicros(supplier) >= minBillableSupplierMicros {
 			return total
@@ -399,16 +470,84 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 			computePerTask = exactPerTask
 		}
 	}
+	// Crossing from exact nanos into the six-decimal ledger projection rounds in
+	// the supplier's direction. roundEconomicUSD shaved the CAD fixture's exact
+	// 1,393-nano entitlement to 1,000 nanos at settlement even though admission
+	// correctly proved the larger floor.
 	supplierPerTask := roundEconomicUSD(computePerTask * in.SupplierShare)
+	if schedule.ControlPlaneAllocationPolicy == controlPlaneAllocationChargeBatchV1 {
+		supplierPerTask = ceilEconomicUSD(computePerTask * in.SupplierShare)
+	}
 	if usdToMicros(supplierPerTask) < minBillableSupplierMicros {
 		// Defensive: the search above is the authority; this branch only fires
 		// if share arithmetic and roundEconomicUSD disagree on the boundary.
 		supplierPerTask = microsToUSD(minBillableSupplierMicros)
 	}
 	processorRate, processorPerTaskFixed := schedule.processorFloorTerms()
-	denominator := 1 - processorRate - schedule.TargetMarginRate
-	minimumBuyerPerTask := (supplierPerTask + processorPerTaskFixed + schedule.ControlPlanePerTaskUSD) / denominator
+	controlRate, controlPerTaskFixed := schedule.controlPlaneFloorTerms()
+	denominator := 1 - processorRate - controlRate - schedule.TargetMarginRate
+	minimumContributionPerTask := schedule.MinimumContributionUSD /
+		float64(in.InitialTaskCount)
+	minimumBuyerPerTask := (supplierPerTask + processorPerTaskFixed +
+		controlPerTaskFixed + minimumContributionPerTask) / denominator
 	buyerPerTask := ceilEconomicUSD(math.Max(computePerTask, minimumBuyerPerTask))
+	// Percentage algebra is continuous; the durable ledger is micro-major-unit.
+	// On a tiny job, processor allocation, control allocation and minimum
+	// contribution can each round to one micro. Solve against the actual scenario
+	// arithmetic so those discrete boundaries cannot turn a positive configured
+	// contribution into break-even or a loss.
+	scenarioAt := func(name string, price float64, tasks int, slaMiss bool) EconomicScenario {
+		gross := price*float64(tasks) + in.SLAPremiumUSD
+		if in.FirmQuoteMaxUSD > 0 {
+			gross = minEconomic(gross, in.FirmQuoteMaxUSD)
+		}
+		gross = roundEconomicUSD(gross)
+		refund := 0.0
+		if slaMiss {
+			refund = roundEconomicUSD(minEconomic(in.SLAPremiumUSD, gross))
+		}
+		net := roundEconomicUSD(gross - refund)
+		supplier := roundEconomicUSD(supplierPerTask * float64(tasks))
+		processor := schedule.processorFeeFor(net)
+		controlCost := schedule.controlPlaneCostFor(net, tasks)
+		margin := roundEconomicUSD(net - supplier - processor - controlCost)
+		required := roundEconomicUSD(math.Max(
+			net*schedule.TargetMarginRate,
+			schedule.MinimumContributionUSD*float64(tasks)/float64(in.InitialTaskCount),
+		))
+		return EconomicScenario{
+			Name: name, AcceptedTasks: tasks, GrossChargeUSD: gross, RefundUSD: refund,
+			NetBilledUSD: net, SupplierLiabilityUSD: supplier, ProcessorFeeUSD: processor,
+			ControlPlaneCostUSD: controlCost, ContributionMarginUSD: margin,
+			RequiredMarginUSD: required,
+			MarginHeadroomUSD: roundEconomicUSD(margin - required),
+		}
+	}
+	scenarioShapes := []struct {
+		name    string
+		tasks   int
+		slaMiss bool
+	}{
+		{"one_task_partial", 1, true},
+		{"full_success_sla_met", in.InitialTaskCount, false},
+		{"full_success_sla_miss", in.InitialTaskCount, true},
+		{"max_extra_work_sla_miss", in.InitialTaskCount + in.ExtraTaskReserve, true},
+	}
+	if schedule.ControlPlaneAllocationPolicy == controlPlaneAllocationChargeBatchV1 {
+		for attempt := 0; attempt < 32; attempt++ {
+			worst := 0.0
+			for _, shape := range scenarioShapes {
+				headroom := scenarioAt(shape.name, buyerPerTask, shape.tasks, shape.slaMiss).MarginHeadroomUSD
+				if headroom < worst {
+					worst = headroom
+				}
+			}
+			if worst >= 0 {
+				break
+			}
+			buyerPerTask = ceilEconomicUSD(buyerPerTask + math.Max(0.000001, -worst))
+		}
+	}
 	safetyFee := roundEconomicUSD(math.Max(0, buyerPerTask-computePerTask))
 
 	plan := EconomicPlan{
@@ -435,31 +574,10 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 	}
 
 	addScenario := func(name string, tasks int, slaMiss bool) {
-		gross := buyerPerTask*float64(tasks) + in.SLAPremiumUSD
-		if in.FirmQuoteMaxUSD > 0 {
-			gross = minEconomic(gross, in.FirmQuoteMaxUSD)
-		}
-		gross = roundEconomicUSD(gross)
-		refund := 0.0
-		if slaMiss {
-			refund = roundEconomicUSD(minEconomic(in.SLAPremiumUSD, gross))
-		}
-		net := roundEconomicUSD(gross - refund)
-		supplier := roundEconomicUSD(supplierPerTask * float64(tasks))
-		processor := schedule.processorFeeFor(net)
-		controlCost := roundEconomicUSD(schedule.ControlPlanePerTaskUSD * float64(tasks))
-		margin := roundEconomicUSD(net - supplier - processor - controlCost)
-		required := roundEconomicUSD(net * schedule.TargetMarginRate)
-		headroom := roundEconomicUSD(margin - required)
-		s := EconomicScenario{
-			Name: name, AcceptedTasks: tasks, GrossChargeUSD: gross, RefundUSD: refund,
-			NetBilledUSD: net, SupplierLiabilityUSD: supplier, ProcessorFeeUSD: processor,
-			ControlPlaneCostUSD: controlCost, ContributionMarginUSD: margin,
-			RequiredMarginUSD: required, MarginHeadroomUSD: headroom,
-		}
+		s := scenarioAt(name, buyerPerTask, tasks, slaMiss)
 		plan.Scenarios = append(plan.Scenarios, s)
-		if headroom < plan.MinimumMarginHeadroomUSD {
-			plan.MinimumMarginHeadroomUSD = headroom
+		if s.MarginHeadroomUSD < plan.MinimumMarginHeadroomUSD {
+			plan.MinimumMarginHeadroomUSD = s.MarginHeadroomUSD
 			plan.MinimumScenario = name
 		}
 	}

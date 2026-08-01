@@ -19,7 +19,8 @@ func economicScheduleForTest(t *testing.T) EconomicSchedule {
 	t.Setenv("MERC_ECON_SCHEDULE_VERSION", "2026-07-19")
 	t.Setenv("MERC_PROCESSOR_PERCENT_BPS", "290")
 	t.Setenv("MERC_PROCESSOR_FIXED_USD", "0.30")
-	t.Setenv("MERC_CONTROL_PLANE_PER_TASK_USD", "0.0001")
+	t.Setenv("MERC_CONTROL_PLANE_PER_BATCH_USD", "0.0001")
+	t.Setenv("MERC_MIN_CONTRIBUTION_PER_BATCH_USD", "0.000001")
 	t.Setenv("MERC_TARGET_MARGIN_BPS", "1000")
 	schedule, err := LoadEconomicScheduleFromEnv()
 	if err != nil {
@@ -81,24 +82,23 @@ func TestBuyerChargeCoversSupplierAndControlPlaneAtEverySize(t *testing.T) {
 		if !plan.Executable {
 			continue
 		}
-		floor := plan.SupplierPayoutPerTaskUSD + schedule.ControlPlanePerTaskUSD
+		control := schedule.controlPlaneCostFor(plan.InitialBuyerChargeUSD, 1)
+		floor := plan.SupplierPayoutPerTaskUSD + control
 		if plan.BuyerChargePerTaskUSD < floor {
 			t.Fatalf("units=%d: buyer charged $%.9f per task against a floor of $%.9f "+
-				"(supplier $%.9f + control plane $%.9f) -- merc loses money on every task "+
-				"and loses more the more it sells",
+				"(supplier $%.9f + allocated batch control $%.9f)",
 				units, plan.BuyerChargePerTaskUSD, floor,
-				plan.SupplierPayoutPerTaskUSD, schedule.ControlPlanePerTaskUSD)
+				plan.SupplierPayoutPerTaskUSD, control)
 		}
 	}
 }
 
-// The supplier's share of what the buyer pays collapses at small sizes because
-// the control-plane cost per task is FIXED. Measured against a real worker: a
-// 3-row job gave merc 99.2% and a 400-row job gave 51%.
-//
-// This asserts the collapse exists and is bounded, so that a minimum billable
-// job size -- when someone adds one -- has a number to be checked against.
-func TestSupplierShareCollapsesAtSmallJobSizes(t *testing.T) {
+// A fixed account/invoice overhead is allocated across the economic charge
+// batch, not loaded into every physical task. The historical per-task model
+// drove the supplier below 1% on tiny jobs; micro-USD presentation rounding can
+// still make the displayed percentage coarse, but it may not recreate that
+// commercially meaningless split.
+func TestBatchAllocatedControlCostDoesNotCreateNearZeroSupplierShare(t *testing.T) {
 	schedule := economicScheduleForTest(t)
 	const pricePer1K = 0.000018
 
@@ -120,13 +120,12 @@ func TestSupplierShareCollapsesAtSmallJobSizes(t *testing.T) {
 	if !okSmall || !okLarge {
 		t.Skip("both sizes must price for the comparison to mean anything")
 	}
-	if small >= large {
-		t.Fatalf("supplier share does not collapse at small sizes (small %.4f, large %.4f); "+
-			"if this changed, the fixed per-task control-plane cost was removed or "+
-			"amortised and this test should be rewritten rather than deleted", small, large)
+	if small < 0.25 {
+		t.Fatalf("batch allocation still leaves a commercially meaningless tiny-job "+
+			"supplier share: small %.4f, large %.4f", small, large)
 	}
-	t.Logf("supplier share: 10 units %.4f%%, 1e6 units %.4f%% -- the gap is the fixed "+
-		"per-task control-plane cost", small*100, large*100)
+	t.Logf("supplier share after batch allocation: 10 units %.4f%%, 1e6 units %.4f%%",
+		small*100, large*100)
 }
 
 // Whenever the buyer is charged for work a supplier performed, supplier
@@ -153,12 +152,13 @@ func TestSupplierLiabilityStrictlyPositiveWhenBuyerCharged(t *testing.T) {
 			t.Fatalf("units=%d: buyer charged $%.9f but supplier liability is $0",
 				units, plan.BuyerChargePerTaskUSD)
 		}
-		// Micro-USD conservation on the per-task floor: buyer covers supplier +
-		// control plane (processor is modelled at scenario level).
-		if plan.BuyerChargePerTaskUSD+1e-12 < plan.SupplierPayoutPerTaskUSD+schedule.ControlPlanePerTaskUSD {
-			t.Fatalf("units=%d: buyer $%.9f does not cover supplier $%.9f + control $%.9f",
-				units, plan.BuyerChargePerTaskUSD, plan.SupplierPayoutPerTaskUSD,
-				schedule.ControlPlanePerTaskUSD)
+		// The complete scenario, not each physical task, owns the allocated fixed
+		// control cost. Loading it into this task is the defect this policy removes.
+		full := plan.Scenarios[1]
+		if full.NetBilledUSD+0.000001 < full.SupplierLiabilityUSD+full.ControlPlaneCostUSD {
+			t.Fatalf("units=%d: buyer $%.9f does not cover supplier $%.9f + allocated control $%.9f",
+				units, full.NetBilledUSD, full.SupplierLiabilityUSD,
+				full.ControlPlaneCostUSD)
 		}
 	}
 

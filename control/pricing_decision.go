@@ -629,6 +629,19 @@ func distributedPricingDecisionAtRate(
 		expectedGrossUSDHr = settlementSupplier /
 			catalogue.ReferenceToSettlementRate / expectedSeconds * 3600
 	}
+	controlBasis := "economic schedule per-task control-plane cost"
+	contributionBasis := "buyer price less modeled supplier, processor and control-plane costs"
+	pricingAssumptions := []string{
+		"supplier admission uses the governed runtime-cell benchmark binding, haircut to a conservative lower bound, and the USD reference schedule",
+		"actual supplier liability is frozen per accepted task, not by elapsed wall-clock hour",
+		"unknown cost components are not silently treated as modeled zero",
+	}
+	if economic.Schedule.ControlPlaneAllocationPolicy == controlPlaneAllocationChargeBatchV1 {
+		controlBasis = "declared account/invoice overhead allocated across the economic charge batch"
+		contributionBasis = "known-cost contribution: buyer price less modeled supplier, processor and allocated control-plane costs; not true net while named costs remain unknown"
+		pricingAssumptions = append(pricingAssumptions,
+			"fixed account/invoice overhead is allocated over the collector's minimum economic charge batch")
+	}
 	out := PricingDecision{
 		Version: pricingDecisionVersion, PolicyRevision: pricingDecisionPolicyRevision,
 		ExecutionMode: computeExecutionDistributed,
@@ -655,7 +668,7 @@ func distributedPricingDecisionAtRate(
 		PaymentCost: modeledCost(scenario.ProcessorFeeUSD,
 			"economic schedule processor percentage and allocated fixed fee"),
 		ControlPlaneCost: modeledCost(scenario.ControlPlaneCostUSD,
-			"economic schedule per-task control-plane cost"),
+			controlBasis),
 		StorageCost: unknownCost(
 			"no independently metered object-storage cost is attributed at acceptance"),
 		EgressCost: unknownCost(
@@ -665,13 +678,9 @@ func distributedPricingDecisionAtRate(
 		RiskReserve: unknownCost(
 			"no independently calibrated loss reserve is available"),
 		PlatformContribution: modeledCost(scenario.ContributionMarginUSD,
-			"buyer price less modeled supplier, processor and control-plane costs"),
-		Confidence: compute.Confidence,
-		Assumptions: []string{
-			"supplier admission uses the governed runtime-cell benchmark binding, haircut to a conservative lower bound, and the USD reference schedule",
-			"actual supplier liability is frozen per accepted task, not by elapsed wall-clock hour",
-			"unknown cost components are not silently treated as modeled zero",
-		},
+			contributionBasis),
+		Confidence:  compute.Confidence,
+		Assumptions: pricingAssumptions,
 		Unknowns: []string{
 			"storage cost", "egress cost", "provider energy and depreciation", "risk reserve",
 		},
