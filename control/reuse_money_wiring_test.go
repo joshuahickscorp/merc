@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -177,14 +178,17 @@ func TestRealtimeExactReuseSettlementNoSupplier(t *testing.T) {
 		t.Fatalf("money invariant: %+v", money)
 	}
 
-	contract, settlement, err := store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
+	authorization := RealtimeContractAuthorization{
 		RequestID: "req_" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
 		InputCommitment:   "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 		RequestSHA256:     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 		MaximumPriceUSD:   microsToUSD(money.BuyerDebitMicros),
 		EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
 		ReuseClass:        ClassExactResultReuse,
-	}, hit, money, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+		IdempotencyKey:    "reuse-idempotency-" + uuid.NewString(),
+	}
+	resultCommitment := "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	contract, settlement, err := store.SettleRealtimeExactReuse(ctx, authorization, hit, money, resultCommitment)
 	if err != nil {
 		t.Fatalf("settle: %v", err)
 	}
@@ -197,6 +201,26 @@ func TestRealtimeExactReuseSettlementNoSupplier(t *testing.T) {
 	if contract.WorkerID != uuid.Nil || contract.SupplierID != uuid.Nil {
 		t.Fatalf("reuse contract scheduled a worker/supplier: worker=%s supplier=%s",
 			contract.WorkerID, contract.SupplierID)
+	}
+	replayedContract, replayedSettlement, err := store.SettleRealtimeExactReuse(ctx, authorization, hit, money, resultCommitment)
+	if err != nil || replayedContract.ID != contract.ID || replayedSettlement.ID != settlement.ID {
+		t.Fatalf("reuse idempotency did not replay original authority: contract=%s/%s settlement=%s/%s err=%v",
+			contract.ID, replayedContract.ID, settlement.ID, replayedSettlement.ID, err)
+	}
+	conflict := authorization
+	conflict.RequestSHA256 = strings.Repeat("9", 64)
+	if _, _, err := store.SettleRealtimeExactReuse(ctx, conflict, hit, money, resultCommitment); !errors.Is(err, errRealtimeIdempotencyConflict) {
+		t.Fatalf("conflicting reuse idempotency returned %v", err)
+	}
+	var contractRows, settlementRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM execution_contracts WHERE buyer_id=$1 AND idempotency_key=$2`, buyerID, authorization.IdempotencyKey).Scan(&contractRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM realtime_settlements WHERE contract_id=$1`, contract.ID).Scan(&settlementRows); err != nil {
+		t.Fatal(err)
+	}
+	if contractRows != 1 || settlementRows != 1 {
+		t.Fatalf("reuse idempotency duplicated effects: contracts=%d settlements=%d", contractRows, settlementRows)
 	}
 	receipt, err := store.RealtimeReceipt(ctx, buyerID, contract.ID)
 	if err != nil {

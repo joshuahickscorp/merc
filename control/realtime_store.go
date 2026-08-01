@@ -740,6 +740,38 @@ func (s *Store) SettleRealtimeExactReuse(
 		return RealtimeContract{}, RealtimeSettlement{}, err
 	}
 	defer tx.Rollback(ctx)
+	if auth.IdempotencyKey != "" {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, auth.BuyerID.String()+":"+auth.IdempotencyKey); err != nil {
+			return RealtimeContract{}, RealtimeSettlement{}, err
+		}
+		existing, err := scanRealtimeContract(tx.QueryRow(ctx, `SELECT `+realtimeContractColumns+`
+			FROM execution_contracts WHERE buyer_id=$1 AND idempotency_key=$2`, auth.BuyerID, auth.IdempotencyKey))
+		if err == nil {
+			if existing.RequestSHA256 != auth.RequestSHA256 || existing.Pricing == nil ||
+				existing.Pricing.ExecutionMode != pricingExecutionRealtimeReuse ||
+				existing.ReuseClass != auth.ReuseClass || existing.ReuseResultCommitment != outputCommitment ||
+				existing.ReuseDeliveredTokens != money.DeliveredTokens {
+				return RealtimeContract{}, RealtimeSettlement{}, errRealtimeIdempotencyConflict
+			}
+			var settlement RealtimeSettlement
+			err = tx.QueryRow(ctx, `
+				SELECT id,buyer_charge_usd::float8,supplier_gross_usd::float8,
+				       platform_margin_usd::float8,COALESCE(currency,''),
+				       COALESCE(buyer_charge_nanos,0),COALESCE(supplier_gross_nanos,0),
+				       COALESCE(known_cost_contribution_nanos,0)
+				  FROM realtime_settlements WHERE contract_id=$1`, existing.ID).Scan(
+				&settlement.ID, &settlement.BuyerChargeUSD, &settlement.SupplierPayableUSD,
+				&settlement.PlatformMarginUSD, &settlement.Currency, &settlement.BuyerChargeNanos,
+				&settlement.SupplierPayableNanos, &settlement.KnownCostContributionNanos)
+			if err != nil {
+				return RealtimeContract{}, RealtimeSettlement{}, err
+			}
+			return existing, settlement, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return RealtimeContract{}, RealtimeSettlement{}, err
+		}
+	}
 
 	// Same fund gate as live authorization, against the reuse charge (not the
 	// full-rate maximum) so a cache hit cannot fail for want of capacity money
