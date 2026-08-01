@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "kind": "cad_stranger_final_image",
+  "status": "PASS",
+  "run_id": "20260801T111141Z-35692",
+  "completed_at": "2026-08-01T11:12:38Z",
+  "candidate": {
+    "commit": "0a4b66cb7cc51223d488de156a3945d8d9877ae3",
+    "image_id": "sha256:14a66f9d3660f3df65d3edc7c0b2ec63762ef1c0e6bfbd42105a03fbe9951d71",
+    "version": "network-10of10",
+    "price_board_sha256": "0e4a70dc40f8f4df4148bd1a4bcd85eb77558056d9d3fc346fef39c0d1aec154",
+    "price_board_source": "release"
+  },
+  "environment": {
+    "shape": "isolated local final image",
+    "database": "isolated PostgreSQL 16",
+    "storage": "isolated MinIO with separate control and agent endpoints",
+    "agent": "native macOS arm64 merc-agent 0.1.0 under required seatbelt sandbox",
+    "payment_provider": "stripe",
+    "provider_mode": "test",
+    "settlement_currency": "cad",
+    "live_value_movement": false,
+    "secret_values_recorded": false
+  },
+  "path": {
+    "signup": true,
+    "funding": {
+      "provider_object_created": true,
+      "amount_minor_units": 100,
+      "currency": "cad"
+    },
+    "api_key": true,
+    "quote": true,
+    "firm_quote_bound": true,
+    "submit": true,
+    "agent_claim": true,
+    "verification": true,
+    "receipt": true,
+    "supplier_payable": true,
+    "buyer_dispute": true,
+    "provider_refund": {
+      "refund_count": 1,
+      "refunded_minor_units": 99
+    }
+  },
+  "economics": {
+    "currency": "cad",
+    "buyer_charge_nanos": 10000,
+    "supplier_entitlements_nanos": 4000,
+    "known_variable_costs_nanos": 2000,
+    "known_cost_contribution_nanos": 4000,
+    "minor_unit_carry_micros": 9990,
+    "supplier_lifetime_earnings_major_units": 0.000004,
+    "supplier_payout_state": "held",
+    "unknown_cost_categories": [
+      "storage cost",
+      "egress cost",
+      "provider energy and depreciation",
+      "risk reserve"
+    ]
+  },
+  "corroboration": {
+    "receipt_status": "complete",
+    "receipt_authority_status": "verified",
+    "receipt_currency": "cad",
+    "fixed_point_currency": "cad",
+    "task_count": 2,
+    "checks": {
+      "receipt": true,
+      "earnings": true,
+      "dispute": true,
+      "refund": true
+    }
+  },
+  "subject_fingerprints": {
+    "buyer_uuid_prefix": "32420edb",
+    "supplier_uuid_prefix": "9fd1c24a",
+    "worker_uuid_prefix": "71fdd5d6",
+    "job_uuid_prefix": "dd0ce129"
+  },
+  "cleanup": {
+    "whole_minor_units_refunded": true,
+    "unrefundable_sub_minor_balance_carried": true,
+    "live_resources_created": false
+  },
+  "limitations": [
+    "The exact candidate ran locally rather than behind public TLS.",
+    "Stripe provider objects were real test-mode objects; the setup event was delivered locally with the configured endpoint secret because the configured temporary public tunnel had expired.",
+    "True Merc net contribution remains unavailable while storage, egress, provider energy/depreciation and risk reserve costs are unattributed.",
+    "The sub-cent buyer remainder is carried because Stripe CAD refunds settle in whole cents."
+  ]
+}

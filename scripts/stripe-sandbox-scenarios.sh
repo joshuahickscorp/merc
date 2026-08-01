@@ -265,7 +265,7 @@ dispute_id="$(jq -er '.data.object.id | select(startswith("dp_") or startswith("
 
 resolved="$(api POST "disputes/$dispute_id" \
   --data-urlencode 'evidence[uncategorized_text]=losing_evidence' \
-  --data-urlencode 'evidence[submit]=true')"
+  --data-urlencode 'submit=true')"
 jq -e '.livemode == false and (.status == "lost" or .status == "under_review")' <<< "$resolved" >/dev/null
 closed_event="$(event_for_object charge.dispute.closed "$dispute_id")"
 closed_event_id="$(jq -r .id <<< "$closed_event")"
@@ -308,7 +308,7 @@ restore_payout_fixture() {
 trap restore_payout_fixture EXIT INT TERM
 
 manual="$(api POST "accounts/$CONNECTED_ACCOUNT" --data-urlencode 'settings[payouts][schedule][interval]=manual')"
-jq -e '.livemode == false and .settings.payouts.schedule.interval == "manual"' <<< "$manual" >/dev/null
+jq -e '(.livemode // false) == false and .settings.payouts.schedule.interval == "manual"' <<< "$manual" >/dev/null
 
 success_bank_json="$(api POST "accounts/$CONNECTED_ACCOUNT/external_accounts" \
   --data-urlencode 'external_account[object]=bank_account' \
