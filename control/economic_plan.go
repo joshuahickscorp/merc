@@ -68,6 +68,22 @@ type EconomicPlanInput struct {
 	SupplierShare    float64 `json:"supplier_share"`
 	SLAPremiumUSD    float64 `json:"sla_premium_usd"`
 	FirmQuoteMaxUSD  float64 `json:"firm_quote_max_usd,omitempty"`
+
+	// BaseComputeNanos is the SAME base compute, exact, in nano-major-units of the
+	// schedule currency, as the catalogue derived it before anything rounded it.
+	//
+	// BaseComputeUSD is quantised to micro-USD. On a three-record embed the exact
+	// figure is 1,436 nanos and the micro-USD projection of it is 1,000 — a 30.4%
+	// haircut, taken before the supplier's share was applied. The supplier was then
+	// entitled to 970 nanos against a 1,393-nano floor derived from the unrounded
+	// catalogue, and admission refused every job small enough for that to happen.
+	//
+	// Additive and optional. Zero means a plan whose base compute reached it only
+	// as a float — every plan frozen before this field existed, and any caller that
+	// still has no exact catalogue figure to offer. Those keep deriving their nanos
+	// from the float, which is the migration rule: a historical plan is never
+	// re-read under later arithmetic.
+	BaseComputeNanos int64 `json:"base_compute_nanos,omitempty"`
 }
 
 type EconomicScenario struct {
@@ -129,13 +145,21 @@ type EconomicPlan struct {
 // times a float amount is exactly the arithmetic this replaces.
 func exactPerTaskNanos(
 	c Currency, baseComputeUSD, share, buyerPerTaskUSD float64, tasks int,
+	baseComputeNanos int64,
 ) (baseNanos, supplierNanos, buyerNanos int64, err error) {
 	if tasks <= 0 {
 		return 0, 0, 0, errors.New("exact per-task economics need at least one task")
 	}
-	total, err := MoneyNanosFromUSDFloat(c, baseComputeUSD)
-	if err != nil {
-		return 0, 0, 0, err
+	// The exact figure when the caller has one, the float seam only when it does
+	// not. A caller that reached the catalogue holds a number that was never
+	// rounded; converting its micro-USD projection back into nanos here would
+	// re-import the loss the exact field exists to avoid.
+	total := MoneyNanos{Currency: c, Nanos: baseComputeNanos}
+	if baseComputeNanos <= 0 {
+		total, err = MoneyNanosFromUSDFloat(c, baseComputeUSD)
+		if err != nil {
+			return 0, 0, 0, err
+		}
 	}
 	// Per task rounds DOWN so the per-task amounts can never sum above the total
 	// the buyer was quoted.
@@ -333,8 +357,19 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 	// floor. Same failure class as minLoRAQuoteMicros — derived by search so a
 	// share change cannot reintroduce a $0 supplier liability for real work.
 	baseComputeUSD := in.BaseComputeUSD
-	if minTotal := minBillableBaseComputeMicros(in.SupplierShare, in.InitialTaskCount); usdToMicros(baseComputeUSD) < minTotal {
+	baseComputeNanos := in.BaseComputeNanos
+	if baseComputeNanos < 0 {
+		return blockedEconomicPlan(in, schedule, "base_compute_nanos cannot be negative")
+	}
+	minTotal := minBillableBaseComputeMicros(in.SupplierShare, in.InitialTaskCount)
+	if usdToMicros(baseComputeUSD) < minTotal {
 		baseComputeUSD = microsToUSD(minTotal)
+	}
+	// The floor lifts BOTH projections or neither. Lifting only the micro-USD one
+	// would leave the exact figure below the smallest amount the ledger can pay,
+	// which is the state the floor exists to prevent.
+	if baseComputeNanos > 0 && baseComputeNanos < minTotal*NanosPerMicro {
+		baseComputeNanos = minTotal * NanosPerMicro
 	}
 	// Rebuild input so ValidateEconomicPlanSnapshot still round-trips: the
 	// floored base is what the plan actually prices, so it is what we freeze.
@@ -345,9 +380,25 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 		SupplierShare:    in.SupplierShare,
 		SLAPremiumUSD:    in.SLAPremiumUSD,
 		FirmQuoteMaxUSD:  in.FirmQuoteMaxUSD,
+		BaseComputeNanos: baseComputeNanos,
 	}
 
 	computePerTask := baseComputeUSD / float64(in.InitialTaskCount)
+	// Price the buyer off the EXACT base when there is one.
+	//
+	// BaseComputeUSD is the micro-USD projection and can sit almost a whole micro
+	// BELOW the exact figure, while the supplier's entitlement is the exact share
+	// of the exact figure. Taking the buyer charge from the smaller of the two is
+	// how a supplier ends up owed more than the buyer was ever charged — a
+	// conservation break rather than a rounding one. Taking it from the larger
+	// makes buyer >= base >= supplier hold by construction at every job size.
+	if baseComputeNanos > 0 {
+		exactPerTask := float64(baseComputeNanos) /
+			float64(NanosPerMajorUnit) / float64(in.InitialTaskCount)
+		if exactPerTask > computePerTask {
+			computePerTask = exactPerTask
+		}
+	}
 	supplierPerTask := roundEconomicUSD(computePerTask * in.SupplierShare)
 	if usdToMicros(supplierPerTask) < minBillableSupplierMicros {
 		// Defensive: the search above is the authority; this branch only fires
@@ -424,7 +475,7 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 	// exists for.
 	if base, supplier, buyer, err := exactPerTaskNanos(
 		MustParseCurrency(schedule.Currency), in.BaseComputeUSD, in.SupplierShare,
-		plan.BuyerChargePerTaskUSD, in.InitialTaskCount,
+		plan.BuyerChargePerTaskUSD, in.InitialTaskCount, in.BaseComputeNanos,
 	); err == nil {
 		plan.BaseComputePerTaskNanos = base
 		plan.SupplierPayoutPerTaskNanos = supplier

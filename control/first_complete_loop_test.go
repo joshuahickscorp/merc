@@ -47,58 +47,29 @@ import (
 // That distinction is the whole of scripts/go-closure-canary-rehearsal.sh and it is
 // not smuggled in here.
 func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
-	// Opt-in, and NOT because the harness is unfinished.
-	//
-	// Every stage up to admission passes: a stranger signs up, is funded, receives
-	// an API key, and reaches the pricing authority. Admission then refuses with
+	// No longer gated on the pricing-authority defect. It used to refuse here with
 	//
 	//	physical pricing decision lacks executable composite authority: modeled
 	//	supplier gross 0.102978 USD/hr is below the admission ceiling 0.104733
 	//	USD/hr, so a worker admitted at that ceiling could not earn it
 	//
-	// which is a product defect rather than a gap in this test: two derivations of
-	// the same supplier rate from the same catalogue authority disagree by 1.7%, and
-	// the composite check correctly fail-closes rather than admitting work at a
-	// ceiling the modeled throughput cannot earn. Until they are reconciled the
-	// public submit path is blocked on the fleet's own hardware.
+	// and under that, once the arithmetic was exact enough to see them, two further
+	// defects: a sub-second task duration truncated to a whole integer second, and a
+	// supplier floor derived from the USD reference price while the entitlement was
+	// denominated in the settlement currency. All three are fixed; the floor and the
+	// entitlement are now one expression evaluated once, and the admission half of
+	// this loop is asserted without any hardware at all by
+	// TestAStrangerCanBeAdmittedForASubMicroJob.
 	//
-	// Gated rather than deleted, and gated rather than left failing: a red suite
-	// teaches people to ignore red, and deleting it would lose the six deployment
-	// inputs the stranger path turned out to need. MERC_FIRST_LOOP=1 runs it.
-	if os.Getenv("MERC_FIRST_LOOP") != "1" {
-		t.Skip("MERC_FIRST_LOOP is not 1; the first-complete-loop driver is blocked on " +
-			"the supplier-rate derivation disagreement recorded above")
-	}
+	// What remains gating this test is only hardware: a built agent binary and a
+	// real engine. Both skips are honest and both are named.
 	agentBinaryPath(t)
+	// candle is the embed runtime below, and it needs no HTTP engine — the agent
+	// loads the model in-process. The llama.cpp URL is passed through to the agent
+	// config for the cells that do need it and is not a precondition for this run.
 	llamaURL := os.Getenv("MERC_LLAMA_EMBED_URL")
-	if llamaURL == "" {
-		t.Skip("MERC_LLAMA_EMBED_URL is not set; the agent has no engine to reach")
-	}
-	t.Setenv("MERC_VERIFICATION_SAMPLE_SECRET",
-		"first-complete-loop-verification-sampling-secret-0123456789")
-	// A stranger can only sign up where signup is open. The canary switch and the
-	// decision reference are one decision, which is why both are set together.
-	t.Setenv("MERC_CANARY_MODE", "false")
-	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "TEST-first-complete-loop")
-	// The sandbox grant is what funds the stranger. Default is zero, and a buyer
-	// with no money cannot complete the loop — so the deployment states it.
-	t.Setenv("MERC_SANDBOX_CREDIT_USD", "5.00")
-	// The economic schedule is a DEPLOYMENT input with no defaults: processor fee,
-	// fixed processor cost, control-plane cost per task and the target margin are
-	// each required, and admission returns 503 without them rather than pricing
-	// work against numbers nobody chose. These are the conservative Stripe-shaped
-	// figures the schedule tests use.
-	t.Setenv("MERC_ECON_SCHEDULE_VERSION", "first-complete-loop-v1")
-	t.Setenv("MERC_PROCESSOR_PERCENT_BPS", "350")
-	t.Setenv("MERC_PROCESSOR_FIXED_USD", "0.35")
-	t.Setenv("MERC_CONTROL_PLANE_PER_TASK_USD", "0.005")
-	t.Setenv("MERC_TARGET_MARGIN_BPS", "300")
 
-	// The USD reference board against CAD settlement needs the operator-declared
-	// rate and an immutable revision. Neither the application nor a test may invent
-	// one, so it is declared and the revision says what it is.
-	t.Setenv("MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE", "1.37")
-	t.Setenv("MERC_PRICE_FX_REVISION", "first-complete-loop-operator-declared")
+	strangerDeploymentInputs(t)
 
 	artifacts := newArtifactHarness(t)
 	ctx, store, pool := openIsolatedTestStore(t)
@@ -117,6 +88,31 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 	verifier := NewVerifier(store).WithStorage(artifacts.storage)
 	srv := httptest.NewServer(NewServer(store, artifacts.storage, verifier, nil).Routes())
 	t.Cleanup(srv.Close)
+
+	// The background sweeps, because a deployment runs them and this test claims to
+	// prove a deployment.
+	//
+	// Without them the loop reaches `status=verifying` and stops there forever, and
+	// it took driving the whole thing to see why: finalization is attempted inline
+	// on the LAST task commit, but two tasks committing at once contend for the
+	// verification process capacity, so one returns 202 Pending. The other then
+	// finalizes, finds not-all-tasks-done, and returns — and nothing inline is ever
+	// scheduled to come back for the pending one. `verification-recovery` (2s) and
+	// `job-finalize` (20s) are what close it, and only main() was starting them.
+	//
+	// stubPayout is what main() itself defaults to when no provider is configured,
+	// so this is the production wiring rather than a test-only substitute.
+	workersCtx, stopWorkers := context.WithCancel(context.Background())
+	t.Cleanup(stopWorkers)
+	workersDone := make(chan struct{})
+	go func() {
+		defer close(workersDone)
+		NewWorkers(store, artifacts.storage, stubPayout{}).Run(workersCtx)
+	}()
+	t.Cleanup(func() {
+		stopWorkers()
+		<-workersDone
+	})
 
 	// The verification floor. Merc refuses a job it cannot verify — "no usable
 	// honeypot is seeded for this workload" — which is the right answer and was hit
@@ -213,20 +209,45 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 	}
 
 	var buyerMicros, supplierMicros, platformMicros int64
-	var supplierRows int
+	var supplierRows, creditedTasks, executedTasks int
 	if err := pool.QueryRow(loopCtx, `
 		SELECT COALESCE((-sum(amount_usd) FILTER (WHERE kind='buyer_charge')*1000000)::bigint,0),
 		       COALESCE((sum(amount_usd) FILTER (WHERE kind='supplier_credit')*1000000)::bigint,0),
 		       COALESCE((sum(amount_usd) FILTER (WHERE kind='platform_take')*1000000)::bigint,0),
-		       count(*) FILTER (WHERE kind='supplier_credit')
+		       count(*) FILTER (WHERE kind='supplier_credit'),
+		       count(DISTINCT task_id) FILTER (WHERE kind='supplier_credit')
 		  FROM ledger_entries
 		 WHERE task_id IN (SELECT id FROM tasks WHERE job_id=$1)`, jobID).
-		Scan(&buyerMicros, &supplierMicros, &platformMicros, &supplierRows); err != nil {
+		Scan(&buyerMicros, &supplierMicros, &platformMicros,
+			&supplierRows, &creditedTasks); err != nil {
 		t.Fatalf("read ledger: %v", err)
 	}
-	if supplierRows != 1 {
-		t.Fatalf("%d supplier credits for one execution; the supplier is owed exactly once",
-			supplierRows)
+	if err := pool.QueryRow(loopCtx, `
+		SELECT count(*) FROM tasks WHERE job_id=$1 AND status='complete'`, jobID).
+		Scan(&executedTasks); err != nil {
+		t.Fatalf("read executed task count: %v", err)
+	}
+	// ONCE PER EXECUTED TASK, which is not the same as once per job.
+	//
+	// This asserted `== 1` and failed on a correctly-settled loop: Merc buys
+	// verification by executing extra tasks, so a three-record embed with one
+	// honeypot is TWO executions, and the supplier who performed both is owed for
+	// both — economic.SupplierPayoutPerTaskUSD x (primary + redundancy + honeypot)
+	// is exactly what the pricing decision quotes the buyer for.
+	//
+	// The invariant that actually matters is that no task is paid twice, so that is
+	// what is checked: one credit row per credited task, and a credited task for
+	// every task that completed.
+	if executedTasks == 0 {
+		t.Fatal("no task reached complete, so nothing was executed to pay for")
+	}
+	if supplierRows != creditedTasks {
+		t.Fatalf("%d supplier credit rows across %d distinct tasks; a task was paid twice",
+			supplierRows, creditedTasks)
+	}
+	if creditedTasks != executedTasks {
+		t.Fatalf("%d tasks completed but %d were credited; the supplier performed work "+
+			"nobody owes them for", executedTasks, creditedTasks)
 	}
 	if supplierMicros <= 0 {
 		t.Fatal("the supplier executed the work and is owed nothing")
@@ -240,18 +261,34 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 			buyerMicros, supplierMicros, platformMicros)
 	}
 
-	// The supplier who is owed is the one who actually ran it.
-	var paidSupplier uuid.UUID
-	if err := pool.QueryRow(loopCtx, `
-		SELECT supplier_id FROM ledger_entries
+	// Every supplier who is owed is one who actually ran something. A single-row
+	// scan here would have passed while a second, wrong supplier was also being
+	// paid, so the set is compared rather than the first row.
+	paidSuppliers := map[uuid.UUID]bool{}
+	rows, err := pool.Query(loopCtx, `
+		SELECT DISTINCT supplier_id FROM ledger_entries
 		 WHERE kind='supplier_credit'
-		   AND task_id IN (SELECT id FROM tasks WHERE job_id=$1)`, jobID).
-		Scan(&paidSupplier); err != nil {
+		   AND task_id IN (SELECT id FROM tasks WHERE job_id=$1)`, jobID)
+	if err != nil {
 		t.Fatalf("read supplier attribution: %v", err)
 	}
-	if paidSupplier != agent.supplierID {
-		t.Fatalf("paid supplier %s, but %s executed the work", paidSupplier, agent.supplierID)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			t.Fatalf("scan supplier attribution: %v", err)
+		}
+		paidSuppliers[id] = true
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read supplier attribution: %v", err)
+	}
+	if len(paidSuppliers) != 1 || !paidSuppliers[agent.supplierID] {
+		t.Fatalf("credited suppliers %v, but %s is the one that executed the work",
+			paidSuppliers, agent.supplierID)
+	}
+	paidSupplier := agent.supplierID
 
 	// The decision Merc took is recorded, including where it placed the work.
 	var routedCell, basis, mode, modeReason string

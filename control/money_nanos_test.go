@@ -39,7 +39,8 @@ func TestTheAdmissionDefectDisappearsUnderExactComparison(t *testing.T) {
 	// 3 units at 1,194.46 units/sec — the candle batch-32 figure from the retained
 	// bench receipt — is ~2.5ms of work.
 	const throughput = NanoUnitsPerSecond(1_194_460_000_000)
-	required, err := RequiredTaskNanosFromThroughput(c, floor, 3, throughput)
+	required, err := RequiredTaskNanosFromThroughput(
+		c, floor, NanoWorkUnitsFromFloat(3), throughput)
 	if err != nil {
 		t.Fatalf("derive the exact task floor: %v", err)
 	}
@@ -101,7 +102,7 @@ func TestRoundingDirectionFavoursNeitherSideByAccident(t *testing.T) {
 	// The buyer side of the same fraction rounds the other way: a price of one nano
 	// per 1,000 units over one unit is a thousandth of a nano, and the buyer is not
 	// charged for it.
-	charge, err := TaskChargeNanosFromCataloguePrice(c, NanoUSDPerThousandUnits(1), 1)
+	charge, err := CatalogueGrossNanos(c, NanoUSDPerThousandUnits(1), NanoWorkUnitsFromFloat(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func TestRoundingDirectionFavoursNeitherSideByAccident(t *testing.T) {
 	}
 
 	// Exactly-divisible cases must not drift in either direction.
-	exact, err := TaskChargeNanosFromCataloguePrice(c, NanoUSDPerThousandUnits(2_000), 500)
+	exact, err := CatalogueGrossNanos(c, NanoUSDPerThousandUnits(2_000), NanoWorkUnitsFromFloat(500))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,10 +298,10 @@ func TestExactMoneyRefusesToOverflowInsteadOfWrapping(t *testing.T) {
 // Degenerate inputs are refused rather than producing a plausible number.
 func TestExactDerivationsRefuseDegenerateInputs(t *testing.T) {
 	c := usd(t)
-	if _, err := RequiredTaskNanosFromThroughput(c, 1_000, 10, 0); err == nil {
+	if _, err := RequiredTaskNanosFromThroughput(c, 1_000, NanoWorkUnitsFromFloat(10), 0); err == nil {
 		t.Fatal("derived a floor from zero throughput")
 	}
-	if _, err := RequiredTaskNanosFromThroughput(c, 1_000, 10, -5); err == nil {
+	if _, err := RequiredTaskNanosFromThroughput(c, 1_000, NanoWorkUnitsFromFloat(10), -5); err == nil {
 		t.Fatal("derived a floor from negative throughput")
 	}
 	if _, err := RequiredTaskNanosFromHourlyFloor(c, -1, 1_000); err == nil {
@@ -309,7 +310,7 @@ func TestExactDerivationsRefuseDegenerateInputs(t *testing.T) {
 	if _, err := RequiredTaskNanosFromHourlyFloor(c, 1_000, -1); err == nil {
 		t.Fatal("derived a floor from a negative duration")
 	}
-	if _, err := TaskChargeNanosFromCataloguePrice(c, -1, 10); err == nil {
+	if _, err := CatalogueGrossNanos(c, -1, NanoWorkUnitsFromFloat(10)); err == nil {
 		t.Fatal("charged a negative catalogue price")
 	}
 	// Zero work is not an error — it is zero money.
@@ -334,7 +335,7 @@ func TestExactDerivationsRefuseDegenerateInputs(t *testing.T) {
 func TestBothTaskFloorDerivationsAgree(t *testing.T) {
 	c := usd(t)
 	const floor = NanoUSDPerHour(500_000_000) // $0.50/hr
-	const units = WorkUnits(1_000)
+	const units = NanoWorkUnits(1_000 * NanosPerMajorUnit)
 	const throughput = NanoUnitsPerSecond(250 * NanosPerMajorUnit) // 250 units/sec
 
 	viaThroughput, err := RequiredTaskNanosFromThroughput(c, floor, units, throughput)
