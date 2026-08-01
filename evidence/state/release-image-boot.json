@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "release_image_boot",
+  "source": {
+    "commit": "bab3b244f93de2b3302cc5d4aaddd5272ec68d21",
+    "tree_clean": false
+  },
+  "harness": "scripts/test-release-image-boots.sh",
+  "result": "PASS",
+  "probes_ok": [
+    "/healthz",
+    "/version",
+    "/prices",
+    "/pricing/board.json",
+    "/.well-known/security.txt",
+    "price board loaded from release (0e4a70dc40f8)"
+  ],
+  "note": "The FINAL image built from the tree and served every probe with no host files mounted. This is the check that exists because the production image once could not start at all: the catalogue price authority is read from a file the Dockerfile never copied, and the live host was up only because it had been assembled by hand.",
+  "limitations": [
+    "Built from the working tree, not from a fresh clone of a pushed commit.",
+    "Boots and serves; it does not exercise the database, object storage or any money path inside the container."
+  ]
+}
