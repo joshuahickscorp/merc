@@ -69,6 +69,30 @@ func TestReleaseImageShipsEveryFileTheRouterServes(t *testing.T) {
 	}
 }
 
+// The release binary is both the control server and the operator CLI. Stamping
+// only the server variables makes /version truthful while `merc version` says
+// dev/unknown, so an operator cannot bind a command to the artifact they are
+// administering. Require both identities to come from the same build arguments.
+func TestReleaseImageStampsServerAndCLIIdentity(t *testing.T) {
+	dockerfile, err := os.ReadFile("../Dockerfile.control")
+	if err != nil {
+		t.Fatal(err)
+	}
+	image := string(dockerfile)
+	for _, binding := range []string{
+		"main.controlVersion=${MERC_BUILD_VERSION}",
+		"main.controlCommit=${MERC_BUILD_COMMIT}",
+		"main.controlBuildDate=${MERC_BUILD_DATE}",
+		"main.cliVersion=${MERC_BUILD_VERSION}",
+		"main.cliCommit=${MERC_BUILD_COMMIT}",
+		"main.cliBuildDate=${MERC_BUILD_DATE}",
+	} {
+		if !strings.Contains(image, binding) {
+			t.Errorf("release binary is missing build identity binding %q", binding)
+		}
+	}
+}
+
 // Production configuration must NAME the price board rather than discover it.
 func TestProductionComposeNamesThePriceBoard(t *testing.T) {
 	compose, err := os.ReadFile("../docker-compose.prod.yml")
