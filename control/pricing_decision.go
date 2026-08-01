@@ -81,6 +81,13 @@ type PricingDecision struct {
 	SupplierAdmissionCeilingUSDHr float64 `json:"supplier_admission_ceiling_usd_hr"`
 	ExpectedSupplierGrossUSDHr    float64 `json:"expected_supplier_gross_usd_hr"`
 
+	// The exact entitlement and the exact floor it must clear, per task, in
+	// nano-major-units. SupplierEntitlementPolicy names the arithmetic; empty means
+	// a legacy plan that is still decided by the hourly comparison above.
+	SupplierGrossNanos        int64  `json:"supplier_gross_nanos,omitempty"`
+	SupplierRequiredNanos     int64  `json:"supplier_required_nanos,omitempty"`
+	SupplierEntitlementPolicy string `json:"supplier_entitlement_policy,omitempty"`
+
 	BuyerPrice        float64 `json:"buyer_price"`
 	MaximumBuyerPrice float64 `json:"maximum_buyer_price"`
 
@@ -456,6 +463,53 @@ func distributedPricingDecisionAtRate(
 		expectedSeconds = billableUnits / unitsPerSec *
 			float64(compute.TotalInitialTasks) / float64(compute.PrimaryTasks)
 	}
+	// The exact entitlement and the exact floor, per task.
+	//
+	// The floor is derived ONCE, forward, from the accepted hourly ceiling and the
+	// modeled duration — never backward from a rounded payout. The entitlement is
+	// the plan's own frozen nano figure. Both are integers; neither is rounded on
+	// the way into the comparison.
+	var supplierGrossNanos, supplierRequiredNanos int64
+	var supplierEntitlementPolicy string
+	if economic.EconomicRoundingPolicy == economicRoundingPolicy &&
+		economic.SupplierPayoutPerTaskNanos > 0 && unitsPerSec > 0 &&
+		compute.PrimaryTasks > 0 {
+		// ONE canonical derivation, and this is the line that matters.
+		//
+		// The floor is derived from the SAME governed throughput the admission
+		// ceiling was derived from, applied to the units in this task. Deriving it
+		// instead from the compute plan's modeled duration made the two sides answer
+		// to different authorities: the first exact comparison reported a 2.1x gap
+		// (970 nanos entitled against 2035 required) that was not rounding at all —
+		// it was the plan's modeled 70ms of work against a ceiling computed from a
+		// throughput that says the same units take 2.5ms.
+		//
+		// With one authority the identity holds by construction:
+		//
+		//	ceiling   = unitsPerSec x 3600/1000 x price x share
+		//	seconds   = units / unitsPerSec
+		//	required  = ceiling x seconds / 3600
+		//	          = units/1000 x price x share
+		//	          = the buyer's base compute for those units, times the share
+		//
+		// which is the supplier's entitlement. Any residual difference is one nano
+		// of rounding-up in the supplier's favour, never a systematic shortfall.
+		settlementCurrency := MustParseCurrency(catalogue.SettlementCurrency)
+		ceilingNanos, cerr := MoneyNanosFromUSDFloat(settlementCurrency, ceiling)
+		unitsPerTask := billableUnits / float64(compute.PrimaryTasks)
+		if cerr == nil && unitsPerTask >= 0 {
+			if required, rerr := RequiredTaskNanosFromThroughput(
+				settlementCurrency, NanoUSDPerHour(ceilingNanos.Nanos),
+				WorkUnits(math.Ceil(unitsPerTask)),
+				NanoUnitsPerSecond(unitsPerSec*float64(NanosPerMajorUnit)),
+			); rerr == nil {
+				supplierGrossNanos = economic.SupplierPayoutPerTaskNanos
+				supplierRequiredNanos = required.Nanos
+				supplierEntitlementPolicy = economicRoundingPolicy
+			}
+		}
+	}
+
 	expectedGrossUSDHr := 0.0
 	if expectedSeconds > 0 {
 		settlementSupplier := primarySupplier + verification
@@ -476,6 +530,9 @@ func distributedPricingDecisionAtRate(
 		ExpectedSupplierSeconds:          expectedSeconds,
 		SupplierAdmissionCeilingUSDHr:    ceiling,
 		ExpectedSupplierGrossUSDHr:       expectedGrossUSDHr,
+		SupplierGrossNanos:               supplierGrossNanos,
+		SupplierRequiredNanos:            supplierRequiredNanos,
+		SupplierEntitlementPolicy:        supplierEntitlementPolicy,
 		BuyerPrice:                       economic.InitialBuyerChargeUSD,
 		MaximumBuyerPrice:                economic.ReservedBuyerChargeUSD,
 		PrimarySupplierCost: modeledCost(primarySupplier,
@@ -653,10 +710,35 @@ func validatePricingCostShape(p PricingDecision) error {
 			missing = append(missing, fmt.Sprintf(
 				"supplier admission ceiling is %.6f USD/hr", p.SupplierAdmissionCeilingUSDHr))
 		}
-		if p.ExpectedSupplierGrossUSDHr+0.000001 < p.SupplierAdmissionCeilingUSDHr {
+		// The entitlement check, in EXACT per-task nanos.
+		//
+		// This used to compare an hourly gross reconstructed from a rounded per-task
+		// payout against a ceiling derived in continuous dollars, and refused every
+		// job small enough for one lost micro-USD to matter — measured at 0.102978
+		// against 0.104733, a 1.676% gap that was entirely the rounding step.
+		//
+		// Both sides are now computed without rounding and compared per task, which
+		// is the domain the entitlement actually lives in. Comparing the two ROUNDED
+		// numbers would also have passed, and would have left the supplier short of
+		// the continuous floor by the same fraction — so it is not done that way.
+		//
+		// A plan with no exact fields is legacy and keeps the old comparison, because
+		// re-deciding a historical plan under new arithmetic is the one thing the
+		// rounding-policy revision exists to prevent.
+		switch {
+		case p.SupplierEntitlementPolicy == economicRoundingPolicy:
+			if p.SupplierGrossNanos < p.SupplierRequiredNanos {
+				missing = append(missing, fmt.Sprintf(
+					"exact supplier entitlement %d nanos per task is below the exact floor "+
+						"%d nanos the accepted rate requires, a shortfall of %d nanos",
+					p.SupplierGrossNanos, p.SupplierRequiredNanos,
+					p.SupplierRequiredNanos-p.SupplierGrossNanos))
+			}
+		case p.ExpectedSupplierGrossUSDHr+0.000001 < p.SupplierAdmissionCeilingUSDHr:
 			missing = append(missing, fmt.Sprintf(
 				"modeled supplier gross %.6f USD/hr is below the admission ceiling %.6f "+
-					"USD/hr, so a worker admitted at that ceiling could not earn it",
+					"USD/hr, so a worker admitted at that ceiling could not earn it "+
+					"(legacy plan: no exact entitlement was frozen)",
 				p.ExpectedSupplierGrossUSDHr, p.SupplierAdmissionCeilingUSDHr))
 		}
 		if len(missing) > 0 {
