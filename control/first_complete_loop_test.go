@@ -78,7 +78,7 @@ func TestFirstCompleteLoopThroughThePublicAPI(t *testing.T) {
 	// model with no complete append-only price authority — correctly, since pricing
 	// work against an unpublished price is how a buyer gets charged a number nobody
 	// approved — and httptest does not run main()'s boot sequence.
-	schedule, err := BuildCataloguePriceSchedule(supplierShareRate)
+	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
 		t.Fatalf("build catalogue price schedule: %v", err)
 	}

@@ -340,7 +340,7 @@ func main() {
 		log.Fatalf("migrate failed: %v", err)
 	}
 
-	priceSchedule, rerr := BuildCataloguePriceSchedule(supplierShareRate)
+	priceSchedule, rerr := BuildCataloguePriceSchedule()
 	if rerr != nil {
 		log.Fatalf("catalogue price authority unavailable: %v", rerr)
 	}
@@ -354,7 +354,7 @@ func main() {
 	// clears their own electricity at the price we advertise. It existed but was
 	// only ever called from a test, so an underwater supply side was discoverable
 	// only by a supplier reading their power bill. Say it out loud at boot.
-	for _, v := range SupplierViabilityReport(supplierShareRate) {
+	for _, v := range SupplierViabilityReport() {
 		if v.Viable {
 			continue
 		}

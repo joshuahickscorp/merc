@@ -29,6 +29,24 @@ func boardReferencePrice(t *testing.T, modelID, jobType string) float64 {
 	return priced.PricePer1K
 }
 
+func boardCatalogueAuthority(t *testing.T) func(string) (CataloguePriceAuthority, error) {
+	t.Helper()
+	return func(modelID string) (CataloguePriceAuthority, error) {
+		for _, benchmark := range repricingBenchmarks {
+			if benchmark.ModelID != modelID {
+				continue
+			}
+			return CataloguePriceAuthority{
+				ModelID:             modelID,
+				JobType:             benchmark.JobType,
+				ReferencePricePer1K: boardReferencePrice(t, modelID, benchmark.JobType),
+				SupplierShare:       supplierShareForTest(t, benchmark.JobType, modelID),
+			}, nil
+		}
+		return CataloguePriceAuthority{}, fmt.Errorf("no board authority for %s", modelID)
+	}
+}
+
 func cellByID(t *testing.T, id string) (authorityRuntimeProfile, authorityCell) {
 	t.Helper()
 	for _, profile := range runtimeAuthority.Runtimes {
@@ -59,7 +77,7 @@ func TestMeasuredCellClearsTheDefaultInstallPayoutFloor(t *testing.T) {
 	}
 	offered := expectedSupplierUSDHr(
 		unitsPerSec, boardReferencePrice(t, "all-minilm-l6-v2", "embed"),
-		supplierShareRate, "batch")
+		supplierShareForTest(t, "embed", "all-minilm-l6-v2"), "batch")
 	if offered <= defaultInstallMinPayoutUSDHr {
 		t.Fatalf("a measured cell offers $%.5f/hr, at or below the $%.5f/hr floor a "+
 			"default install writes: %.1f %s/s from %s",
@@ -111,7 +129,7 @@ func TestCellWithoutAUsableBenchmarkIsNotOfferedAsMeasured(t *testing.T) {
 	offered := expectedSupplierUSDHr(
 		got.ConservativeUnitsPerSec,
 		boardReferencePrice(t, "llama-3.2-1b-instruct-q4", "batch_infer"),
-		supplierShareRate, "batch")
+		supplierShareForTest(t, "batch_infer", "llama-3.2-1b-instruct-q4"), "batch")
 	if offered >= defaultInstallMinPayoutUSDHr {
 		t.Errorf("the unproven fallback offers $%.5f/hr, enough to clear the $%.5f/hr "+
 			"default floor; an unmeasured cell must not be admissible",
@@ -189,19 +207,11 @@ func TestNoAdmissibleRateReachesTheBestObservation(t *testing.T) {
 // A supplier that claims nothing must be able to read why. Every branch that
 // can exclude a cell has to name itself.
 func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
-	price := func(modelID string) (float64, error) {
-		switch modelID {
-		case "all-minilm-l6-v2":
-			return boardReferencePrice(t, modelID, "embed"), nil
-		case "llama-3.2-1b-instruct-q4":
-			return boardReferencePrice(t, modelID, "batch_infer"), nil
-		}
-		return 0, fmt.Errorf("no board class for %s", modelID)
-	}
+	authority := boardCatalogueAuthority(t)
 
 	rows := SupplierAdmissionViability(
-		"apple_silicon_pro", defaultInstallMinPayoutUSDHr, supplierShareRate,
-		"batch", benchmarkNow, price)
+		"apple_silicon_pro", defaultInstallMinPayoutUSDHr,
+		"batch", benchmarkNow, authority)
 	if len(rows) == 0 {
 		t.Fatal("the report is empty; a supplier learns nothing from it")
 	}
@@ -240,7 +250,7 @@ func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 
 	// A shortfall must quote both numbers, not just say no.
 	shortfall := SupplierAdmissionViability(
-		"apple_silicon_pro", 1000, supplierShareRate, "batch", benchmarkNow, price)
+		"apple_silicon_pro", 1000, "batch", benchmarkNow, authority)
 	for _, row := range shortfall {
 		if row.Eligible {
 			t.Fatalf("cell %s cleared a $1000/hr floor", row.Performance.CellID)
@@ -254,7 +264,7 @@ func TestViabilityReportNamesTheReasonForIneligibility(t *testing.T) {
 	// Hardware the runtime does not serve is a different refusal, and must not
 	// be reported as an economics problem.
 	wrongHardware := SupplierAdmissionViability(
-		"nvidia_80gb", 0, supplierShareRate, "batch", benchmarkNow, price)
+		"nvidia_80gb", 0, "batch", benchmarkNow, authority)
 	for _, row := range wrongHardware {
 		if row.Eligible || !strings.Contains(row.Reason, "hardware class") {
 			t.Errorf("cell %s on hardware it does not serve: eligible=%v reason=%q",
@@ -405,7 +415,7 @@ func TestUnprovenRoutableCellRefusesAdmissionRatherThanCollapsingIt(t *testing.T
 	// The premise, stated rather than assumed: had the fallback been allowed to
 	// participate, this is the hourly rate the market would have been offered.
 	collapsed := expectedSupplierUSDHr(unprovenFallbackUnitsPerSec,
-		boardReferencePrice(t, "all-minilm-l6-v2", "embed"), supplierShareRate, "batch")
+		boardReferencePrice(t, "all-minilm-l6-v2", "embed"), supplierShareForTest(t, "embed", "all-minilm-l6-v2"), "batch")
 	if collapsed >= defaultInstallMinPayoutUSDHr {
 		t.Fatalf("the fallback offers $%.5f/hr, which clears the $%.5f/hr default floor; "+
 			"this test no longer describes a collapse",
@@ -527,10 +537,12 @@ func TestDirectedWorkloadIsPricedFromTheCellItWasDirectedTo(t *testing.T) {
 // document happens to contain -- an assertion that skips when the document is
 // healthy is not a guard.
 func TestViabilityReportNeverDisagreesWithAdmission(t *testing.T) {
-	price := func(string) (float64, error) { return 0.0002, nil }
+	authority := func(string) (CataloguePriceAuthority, error) {
+		return CataloguePriceAuthority{ReferencePricePer1K: 0.0002, SupplierShare: 0.8}, nil
+	}
 	at := time.Now()
 	rows := SupplierAdmissionViability(
-		"apple-silicon-m-series", 0.01, 0.8, "batch", at, price)
+		"apple-silicon-m-series", 0.01, "batch", at, authority)
 	if len(rows) == 0 {
 		t.Fatal("no routable cells at all; this report guards nothing")
 	}

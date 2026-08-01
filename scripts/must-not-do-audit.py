@@ -208,36 +208,42 @@ def check_no_cross_tenant_cache_disclosure():
 def check_pricing_is_not_one_fixed_percentage(url):
     """10. Not one fixed percentage for every workload.
 
-    Decided from the code, because that is where the rate is fixed. Model PRICES
-    differ, so the absolute contribution differs per model — but the prohibition is
-    about the percentage, and a single process-wide take rate is a single
-    percentage however many prices it is multiplied by.
+    Decided from the price-publication code and, when supplied, the durable
+    catalogue. Model PRICES differ, so the absolute contribution differs per
+    model — but the prohibition is about the percentage, and a single
+    process-wide take rate is a single percentage however many prices it is
+    multiplied by.
     """
     payment = read("control/payment.go")
-    if "platformTakeRate" not in payment:
-        return UNDECIDABLE, "no platform take rate found in control/payment.go"
-    scoped = re.search(
-        r"platformTakeRate(?:For|By)(Workload|JobType|Cell|Model)\w*\s*\(", payment
-    )
-    detail = "a single process-wide take rate in control/payment.go:takeRateFromEnv"
+    policy_path = "control/pricing_policy.go"
+    if policy_path not in tracked_files():
+        return FAIL, "no workload-bound supplier-share policy is tracked"
+    policy = read(policy_path)
+    if "MERC_PLATFORM_TAKE_PCT" in payment or "platformTakeRate" in payment:
+        return FAIL, "control/payment.go still contains a process-wide platform take rate"
+    if not re.search(r"func\s+supplierShareForWorkload\s*\(", policy):
+        return FAIL, "pricing policy has no workload-scoped supplier-share resolver"
+    if "physicalSupplierSharePolicies" not in policy:
+        return FAIL, "pricing policy has no reviewed physical-workload policy table"
+    detail = "publication resolves a closed physical-workload supplier-share policy; payment.go has no global take-rate setting"
     if url:
         try:
-            rows = psql(url, "SELECT COUNT(DISTINCT supplier_share), COUNT(*),"
-                             " MIN(supplier_share), MAX(supplier_share)"
-                             " FROM catalogue_price_schedules")
+            rows = psql(url, "SELECT COUNT(DISTINCT h.supplier_share), COUNT(*),"
+                             " MIN(h.supplier_share), MAX(h.supplier_share)"
+                             " FROM catalogue_price_schedules s"
+                             " JOIN model_price_history h ON h.schedule_sha256=s.sha256"
+                             " WHERE s.version=2")
             distinct, total = int(rows[0][0]), int(rows[0][1])
-            if total:
-                detail += (f"; the published schedule carries {distinct} distinct supplier "
-                           f"share(s) across {total} row(s) (min {rows[0][2]}, max {rows[0][3]})")
+            if total == 0:
+                return FAIL, detail + "; no v2 per-workload catalogue schedule is published"
+            if distinct < 2:
+                return FAIL, (detail + f"; v2 catalogue has only {distinct} distinct supplier "
+                             f"share across {total} row(s)")
+            detail += (f"; the v2 catalogue carries {distinct} distinct supplier "
+                       f"shares across {total} row(s) (min {rows[0][2]}, max {rows[0][3]})")
         except RuntimeError as error:
-            detail += f"; database probe failed: {error}"
-    if scoped:
-        return PASS, f"the take rate is scoped by {scoped.group(1).lower()}: {detail}"
-    return FAIL, (
-        "the platform take rate has no workload dimension — one percentage applies to "
-        "embeddings, generation, rendering and every future lane alike, tunable only by "
-        f"MERC_PLATFORM_TAKE_PCT within 1-5%. {detail}"
-    )
+            return UNDECIDABLE, detail + f"; database probe failed: {error}"
+    return PASS, detail
 
 
 def check_no_underwater_pricing():

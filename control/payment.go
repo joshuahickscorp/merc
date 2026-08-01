@@ -80,28 +80,6 @@ func payoutReleaseAt(now time.Time, requestedSecs uint32) time.Time {
 	return now.Add(hold)
 }
 
-var (
-	platformTakeRate  = takeRateFromEnv()
-	supplierShareRate = 1.0 - platformTakeRate
-)
-
-func takeRateFromEnv() float64 {
-	const def, lo, hi = 3.0, 1.0, 5.0
-	pct := def
-	if s := strings.TrimSpace(os.Getenv("MERC_PLATFORM_TAKE_PCT")); s != "" {
-		if v, err := strconv.ParseFloat(s, 64); err == nil {
-			pct = v
-		}
-	}
-	if pct < lo {
-		pct = lo
-	}
-	if pct > hi {
-		pct = hi
-	}
-	return pct / 100.0
-}
-
 type LedgerEntry struct {
 	Kind       string
 	SupplierID *uuid.UUID

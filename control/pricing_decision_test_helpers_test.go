@@ -5,6 +5,15 @@ import (
 	"testing"
 )
 
+func supplierShareForTest(t *testing.T, jobType, modelID string) float64 {
+	t.Helper()
+	share, err := supplierShareForWorkload(jobType, modelID)
+	if err != nil {
+		t.Fatalf("supplier share policy for %s/%s: %v", jobType, modelID, err)
+	}
+	return share
+}
+
 func catalogueAuthorityFixture(t *testing.T, workload WorkloadDecision, currency string, supplierShare float64) CataloguePriceAuthority {
 	t.Helper()
 	rate := 1.0
@@ -15,21 +24,22 @@ func catalogueAuthorityFixture(t *testing.T, workload WorkloadDecision, currency
 	}
 	referencePrice := 0.01
 	authority := CataloguePriceAuthority{
-		Version:                   cataloguePriceScheduleVersion,
-		ModelID:                   workload.Binding.Model.Ref,
-		JobType:                   workload.RuntimeJobType,
-		PriceSource:               "market_board",
-		ScheduleSHA256:            strings.Repeat("c", 64),
-		ScheduleVersion:           cataloguePriceScheduleVersion,
-		ReferenceCurrency:         catalogueReferenceCurrency,
-		ReferencePricePer1K:       referencePrice,
-		SettlementCurrency:        currency,
-		SettlementPricePer1K:      ceilPricePer1K(referencePrice * rate),
-		ReferenceToSettlementRate: rate,
-		FXRevision:                fxRevision,
-		BoardSHA256:               strings.Repeat("d", 64),
-		PriceFormula:              "test market-board authority",
-		SupplierShare:             supplierShare,
+		Version:                     cataloguePriceScheduleVersion,
+		ModelID:                     workload.Binding.Model.Ref,
+		JobType:                     workload.RuntimeJobType,
+		PriceSource:                 "market_board",
+		ScheduleSHA256:              strings.Repeat("c", 64),
+		ScheduleVersion:             cataloguePriceScheduleVersion,
+		ReferenceCurrency:           catalogueReferenceCurrency,
+		ReferencePricePer1K:         referencePrice,
+		SettlementCurrency:          currency,
+		SettlementPricePer1K:        ceilPricePer1K(referencePrice * rate),
+		ReferenceToSettlementRate:   rate,
+		FXRevision:                  fxRevision,
+		BoardSHA256:                 strings.Repeat("d", 64),
+		PriceFormula:                "test market-board authority",
+		SupplierShare:               supplierShare,
+		SupplierSharePolicyRevision: supplierSharePolicyRevision,
 	}
 	if err := validateCataloguePriceAuthority(authority); err != nil {
 		t.Fatalf("catalogue authority fixture: %v", err)
