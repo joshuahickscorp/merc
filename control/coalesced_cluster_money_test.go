@@ -33,8 +33,10 @@ import (
 //   - 128 followers produce 128 DISTINCT delivery authorities and 128 receipts;
 //   - not one of them writes a supplier credit;
 //   - every one of them charges the buyer less than a fresh execution;
-//   - Merc's contribution is positive on every one, because storage, lookup and
-//     delivery are real costs and a follower must not be free;
+//   - every follower has positive known/gross contribution, because storage,
+//     lookup and delivery are real costs and a follower must not be free. This
+//     is deliberately not called true net: processor, storage, egress, risk and
+//     control-plane actuals remain separate, named cost authorities;
 //   - the ledger conserves per follower — buyer debit equals platform take when
 //     no supplier is owed;
 //   - two tenants asking for the identical thing never share an authority.
@@ -439,13 +441,15 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 	if platformRows != coalescedFollowers {
 		t.Fatalf("%d platform takes for %d followers", platformRows, coalescedFollowers)
 	}
-	// With no supplier owed, every micro the buyer paid is Merc's contribution.
+	// With no supplier owed, every micro the buyer paid is the platform ledger
+	// take and the reuse decision's known contribution. It is not true net until
+	// the separately measured delivery costs have been allocated.
 	if buyerMicros != platformMicros {
 		t.Fatalf("cluster ledger not conserved: buyer %d micros, platform %d micros",
 			buyerMicros, platformMicros)
 	}
 	if platformMicros <= 0 {
-		t.Fatalf("Merc contribution across the cluster is %d micros", platformMicros)
+		t.Fatalf("known coalesced contribution across the cluster is %d micros", platformMicros)
 	}
 
 	// Every follower can fetch its own receipt, and only its own.
