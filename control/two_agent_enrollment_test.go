@@ -931,6 +931,16 @@ func TestBothAgentsProduceVerifiableReceipts(t *testing.T) {
 			t.Logf("%s: verification outcome %q (empty means not sampled)", tc.name, outcome)
 		}
 
+		// Wait for the JOB to settle, not merely for the task to be verified.
+		//
+		// Verification is one step; the buyer charge is written when the job
+		// finalises, and that runs on the sweep. Asserting the invoice straight
+		// after the verification outcome reads whatever state the sweep happens to
+		// have reached — observed under load as `status=verifying actual=0.000000`
+		// beside a supplier credit of 0.194, reported as "the platform did not keep
+		// a margin" when the platform simply had not charged yet.
+		waitForJobSettled(t, jobCtx, pool, f.JobID, tc.name)
+
 		var supplierUSD float64
 		if err := pool.QueryRow(jobCtx, `
 			SELECT COALESCE(SUM(amount_usd),0) FROM ledger_entries
@@ -962,4 +972,38 @@ func TestBothAgentsProduceVerifiableReceipts(t *testing.T) {
 			workload.RuntimeCandidates[0].RuntimeID,
 			workload.RuntimeCandidates[0].ModelKind, workload.ModelRevision)
 	}
+}
+
+// waitForJobSettled blocks until the job is terminal AND its buyer charge has been
+// written, or reports what it was still waiting for.
+//
+// The distinction between "verified" and "settled" is what this exists for. A task
+// reaches a verification outcome on the commit path; the buyer charge is written
+// when the JOB finalises, on the sweep. Reading the invoice in between sees a
+// supplier credit with no buyer charge beside it and reports a negative Merc
+// contribution — which is not a money defect, it is a read taken one step early.
+func waitForJobSettled(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, name string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(120 * time.Second)
+	var status string
+	var actual float64
+	for time.Now().Before(deadline) {
+		if err := pool.QueryRow(ctx, `
+			SELECT status, COALESCE(actual_usd,0) FROM jobs WHERE id=$1`, jobID).
+			Scan(&status, &actual); err != nil {
+			t.Fatalf("%s: read job settlement state: %v", name, err)
+		}
+		if status == "complete" && actual > 0 {
+			return
+		}
+		if status == "failed" || status == "cancelled" {
+			t.Fatalf("%s: job reached %s instead of settling", name, status)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("%s: job did not settle inside the deadline (status=%s actual=%.9f); the "+
+		"assertions below read a charge that has not been written yet",
+		name, status, actual)
 }
