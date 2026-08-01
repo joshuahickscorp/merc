@@ -70,6 +70,9 @@ func validateProjectDeclaration(declaration *ProjectDeclaration) error {
 		if !validSHA256(step.RuntimeContract) || !validSHA256(step.ModelContract) {
 			return fmt.Errorf("step %s runtime/model contracts must be SHA-256 identities", step.ID)
 		}
+		if step.RuntimeID != "" || step.ModelID != "" {
+			return fmt.Errorf("step %s may not supply resolved runtime/model ids", step.ID)
+		}
 		if step.ResourceEstimate != "BOUNDED_PROBE_REQUIRED" {
 			return fmt.Errorf("step %s resource_estimate must be BOUNDED_PROBE_REQUIRED", step.ID)
 		}
@@ -175,10 +178,5 @@ func applyProjectDeclaration(ir *ProjectWorkloadIR, declaration ProjectDeclarati
 	ir.Deadline = declaration.Deadline
 	ir.Result = declaration.Result
 	ir.Economics = declaration.Economics
-	ir.Unknowns = []string{
-		"declared runtime/model contract resolution against server authority",
-		"bounded resource probe", "outcome-linked cost and duration calibration",
-	}
-	ir.RefusalReasons = append(ir.RefusalReasons,
-		"declared runtime/model contracts have not been resolved against server authority")
+	ir.Unknowns = []string{"bounded resource probe", "outcome-linked cost and duration calibration"}
 }

@@ -55,6 +55,8 @@ type ProjectIRStep struct {
 	Outputs          []string `json:"outputs"`
 	RuntimeContract  string   `json:"runtime_contract"`
 	ModelContract    string   `json:"model_contract,omitempty"`
+	RuntimeID        string   `json:"runtime_id,omitempty"`
+	ModelID          string   `json:"model_id,omitempty"`
 	ResourceEstimate string   `json:"resource_estimate"`
 	Parallelism      string   `json:"parallelism"`
 	CheckpointPolicy string   `json:"checkpoint_policy"`
@@ -308,6 +310,7 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) (ProjectWor
 	}
 	if declared {
 		applyProjectDeclaration(&ir, declaration)
+		resolveDeclaredProjectContracts(&ir)
 	} else {
 		for i, detection := range ir.Detections {
 			stepID := fmt.Sprintf("step-%02d-%s", i+1, detection.Kind)

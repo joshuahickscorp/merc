@@ -118,6 +118,17 @@ model contracts by SHA-256, require a bounded resource probe, declare
 verification policy. A declared kind with no independent static detector signal
 is retained in the graph but produces a refusal.
 
+`merc project contracts` prints the exact contract pairs the running binary can
+resolve from its embedded activation authority. Each row includes workload kind,
+runtime/profile/cell identity, model identity, lifecycle, verification contract,
+and the two SHA-256 values used in `merc.project.json`. Compilation resolves a
+step only when exactly one currently routable cell matches both digests and the
+workload kind, and when the declared verification contract equals that cell's
+contract. A well-formed but unknown hash remains refused. The current catalog
+contains only the genuinely advertised batch-inference and embeddings cells;
+rendering, LoRA, and service declarations cannot resolve until governed cells
+for them exist.
+
 Economics contains an ISO currency and a positive
 `maximum_buyer_price_nanos`. Fixed-point nanos avoid a float or integer-unit
 rounding change before a price exists. The buyer must leave `supplier_floor` and
