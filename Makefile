@@ -110,6 +110,7 @@ ci:
 	python3 scripts/rename-residue-audit.py
 	bash scripts/test-agent-install-signature.sh
 	bash scripts/test-agent-uninstall-legacy.sh
+	bash scripts/test-agent-cross-platform-installers.sh
 	python3 scripts/validate-repo-boundary.py
 	python3 scripts/test-bench-accounting.py
 	bash scripts/test-readiness-gaming.sh

@@ -98,6 +98,10 @@ pub struct AgentConfig {
     pub control_url: String,
     pub worker_token: String,
     pub supplier_id: Uuid,
+    #[serde(default)]
+    pub paused: bool,
+    #[serde(default)]
+    pub allowed_weekdays: Option<Vec<u8>>,
     pub quiet_hours: Option<(u8, u8)>,
     pub power_only: bool,
     pub min_payout_usd_per_hr: f32,
@@ -145,6 +149,8 @@ pub struct AgentConfig {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct OperatorPrefs {
+    pub paused: Option<bool>,
+    pub allowed_weekdays: Option<Vec<u8>>,
     pub power_only: Option<bool>,
     pub min_payout_usd_per_hr: Option<f32>,
     pub memory_headroom_gb: Option<f32>,
@@ -291,6 +297,7 @@ impl AgentConfig {
             cfg.apply_prefs(&OperatorPrefs::load(&pp)?);
         }
         cfg.prefs_path = Self::resolve_prefs_path(path);
+        cfg.validate_operator_policy()?;
 
         Ok(cfg)
     }
@@ -318,7 +325,49 @@ impl AgentConfig {
         });
     }
 
+    /// Reload the local UI's policy before a claim. A malformed preferences
+    /// file is an error so the caller idles instead of silently running with an
+    /// older, more permissive policy.
+    pub fn refresh_operator_prefs(&mut self) -> Result<()> {
+        if let Some(path) = self.prefs_path.clone() {
+            self.apply_prefs(&OperatorPrefs::load(&path)?);
+        }
+        self.validate_operator_policy()
+    }
+
+    fn validate_operator_policy(&self) -> Result<()> {
+        if let Some(days) = &self.allowed_weekdays {
+            if days.iter().any(|day| *day > 6) {
+                anyhow::bail!("allowed_weekdays values must be 0..6 (Sunday..Saturday)");
+            }
+        }
+        if let Some((start, end)) = self.quiet_hours {
+            if start > 23 || end > 23 {
+                anyhow::bail!("quiet_hours values must be 0..23");
+            }
+        }
+        if !self.min_payout_usd_per_hr.is_finite() || self.min_payout_usd_per_hr < 0.0 {
+            anyhow::bail!("min_payout_usd_per_hr must be finite and non-negative");
+        }
+        if !self.memory_headroom_gb.is_finite() || self.memory_headroom_gb < 0.0 {
+            anyhow::bail!("memory_headroom_gb must be finite and non-negative");
+        }
+        if !self.max_memory_pct.is_finite()
+            || self.max_memory_pct < 0.0
+            || self.max_memory_pct > 100.0
+        {
+            anyhow::bail!("max_memory_pct must be between 0 and 100");
+        }
+        Ok(())
+    }
+
     pub fn apply_prefs(&mut self, prefs: &OperatorPrefs) {
+        if let Some(v) = prefs.paused {
+            self.paused = v;
+        }
+        if let Some(v) = &prefs.allowed_weekdays {
+            self.allowed_weekdays = Some(v.clone());
+        }
         if let Some(v) = prefs.power_only {
             self.power_only = v;
         }
@@ -342,7 +391,22 @@ impl AgentConfig {
         }
     }
 
-    pub fn is_eligible_to_run(&self, now_hour: u8, on_battery: bool) -> bool {
+    pub fn is_eligible_to_run_at(
+        &self,
+        now_hour: u8,
+        weekday_sunday_zero: u8,
+        on_battery: bool,
+    ) -> bool {
+        if self.paused {
+            return false;
+        }
+        if self
+            .allowed_weekdays
+            .as_ref()
+            .is_some_and(|days| !days.contains(&weekday_sunday_zero))
+        {
+            return false;
+        }
         if self.power_only && on_battery {
             return false;
         }
@@ -376,6 +440,8 @@ mod tests {
             control_url: "http://localhost".into(),
             worker_token: "t".into(),
             supplier_id: Uuid::nil(),
+            paused: false,
+            allowed_weekdays: None,
             quiet_hours,
             power_only,
             min_payout_usd_per_hr: 0.0,
@@ -483,9 +549,9 @@ mod tests {
 
     #[test]
     fn battery_blocks_only_when_power_only() {
-        assert!(!cfg(None, true).is_eligible_to_run(12, true));
-        assert!(cfg(None, true).is_eligible_to_run(12, false));
-        assert!(cfg(None, false).is_eligible_to_run(12, true));
+        assert!(!cfg(None, true).is_eligible_to_run_at(12, 0, true));
+        assert!(cfg(None, true).is_eligible_to_run_at(12, 0, false));
+        assert!(cfg(None, false).is_eligible_to_run_at(12, 0, true));
     }
 
     #[test]
@@ -535,10 +601,10 @@ mod tests {
     #[test]
     fn quiet_hours_same_day_window() {
         let c = cfg(Some((9, 17)), false);
-        assert!(!c.is_eligible_to_run(9, false));
-        assert!(!c.is_eligible_to_run(16, false));
-        assert!(c.is_eligible_to_run(17, false));
-        assert!(c.is_eligible_to_run(8, false));
+        assert!(!c.is_eligible_to_run_at(9, 0, false));
+        assert!(!c.is_eligible_to_run_at(16, 0, false));
+        assert!(c.is_eligible_to_run_at(17, 0, false));
+        assert!(c.is_eligible_to_run_at(8, 0, false));
     }
 
     #[test]
@@ -599,11 +665,60 @@ mod tests {
     #[test]
     fn quiet_hours_wraps_midnight() {
         let c = cfg(Some((22, 6)), false);
-        assert!(!c.is_eligible_to_run(23, false));
-        assert!(!c.is_eligible_to_run(0, false));
-        assert!(!c.is_eligible_to_run(5, false));
-        assert!(c.is_eligible_to_run(6, false));
-        assert!(c.is_eligible_to_run(12, false));
+        assert!(!c.is_eligible_to_run_at(23, 0, false));
+        assert!(!c.is_eligible_to_run_at(0, 0, false));
+        assert!(!c.is_eligible_to_run_at(5, 0, false));
+        assert!(c.is_eligible_to_run_at(6, 0, false));
+        assert!(c.is_eligible_to_run_at(12, 0, false));
+    }
+
+    #[test]
+    fn pause_and_weekday_schedule_are_enforced() {
+        let mut c = cfg(None, false);
+        c.allowed_weekdays = Some(vec![1, 2, 3, 4, 5]);
+        assert!(c.is_eligible_to_run_at(12, 1, false));
+        assert!(!c.is_eligible_to_run_at(12, 0, false));
+        c.paused = true;
+        assert!(!c.is_eligible_to_run_at(12, 1, false));
+    }
+
+    #[test]
+    fn invalid_operator_policy_is_refused() {
+        let mut c = cfg(None, false);
+        c.allowed_weekdays = Some(vec![7]);
+        assert!(c.validate_operator_policy().is_err());
+        c.allowed_weekdays = None;
+        c.min_payout_usd_per_hr = f32::NAN;
+        assert!(c.validate_operator_policy().is_err());
+        c.min_payout_usd_per_hr = 0.0;
+        c.max_memory_pct = 101.0;
+        assert!(c.validate_operator_policy().is_err());
+    }
+
+    #[test]
+    fn preferences_reload_changes_claim_policy_without_restart() {
+        let dir = std::env::temp_dir().join(format!("merc-prefs-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agent.prefs.toml");
+        std::fs::write(
+            &path,
+            "paused = false\nallowed_weekdays = [1]\nmin_payout_usd_per_hr = 1.25\n",
+        )
+        .unwrap();
+        let mut c = cfg(None, false);
+        c.prefs_path = Some(path.clone());
+        c.refresh_operator_prefs().unwrap();
+        assert!(c.is_eligible_to_run_at(12, 1, false));
+        assert!(!c.is_eligible_to_run_at(12, 2, false));
+        assert_eq!(c.min_payout_usd_per_hr, 1.25);
+
+        std::fs::write(&path, "paused = true\n").unwrap();
+        c.refresh_operator_prefs().unwrap();
+        assert!(!c.is_eligible_to_run_at(12, 1, false));
+
+        std::fs::write(&path, "max_memory_pct = 101\n").unwrap();
+        assert!(c.refresh_operator_prefs().is_err());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -630,13 +745,16 @@ mod tests {
     #[test]
     fn operator_prefs_actually_control_eligibility() {
         let mut c = cfg(None, false);
-        assert!(c.is_eligible_to_run(2, false), "base: eligible at 02:00");
+        assert!(
+            c.is_eligible_to_run_at(2, 0, false),
+            "base: eligible at 02:00"
+        );
         c.apply_prefs(&OperatorPrefs {
             quiet_hours: Some((22, 6)),
             ..Default::default()
         });
         assert!(
-            !c.is_eligible_to_run(2, false),
+            !c.is_eligible_to_run_at(2, 0, false),
             "after prefs: quiet hours refuse 02:00"
         );
         c.apply_prefs(&OperatorPrefs {
@@ -644,7 +762,7 @@ mod tests {
             ..Default::default()
         });
         assert!(
-            !c.is_eligible_to_run(12, true),
+            !c.is_eligible_to_run_at(12, 0, true),
             "after prefs: power-only refuses on battery"
         );
     }

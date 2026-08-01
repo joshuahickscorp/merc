@@ -101,6 +101,8 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --all-targets -- -D warnings
           cargo test
+          cd ..
+          bash scripts/test-agent-cross-platform-installers.sh
       - name: release build and sandbox
         run: |
           cd agent
@@ -120,6 +122,30 @@ jobs:
           path: ${{ runner.temp }}/agent-evidence
           if-no-files-found: error
           retention-days: 30
+
+  agent-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-19
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          workspaces: agent
+      - name: Candidate source identity
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - name: Compile and test CPU-only Windows agent
+        shell: pwsh
+        run: |
+          Push-Location agent
+          cargo check --no-default-features
+          cargo test --no-default-features
+          Pop-Location
+          & ./scripts/install.ps1 -Check
 
   interfaces:
     runs-on: ubuntu-latest

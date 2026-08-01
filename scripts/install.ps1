@@ -16,6 +16,7 @@ $BinDir = Join-Path $Root "bin"
 $Bin = Join-Path $BinDir "merc-agent.exe"
 $State = Join-Path $env:APPDATA "Merc"
 $Config = Join-Path $State "agent.toml"
+$Prefs = Join-Path $State "agent.prefs.toml"
 $TaskName = "Merc Agent"
 $Identity = if ($env:MERC_AGENT_IDENTITY_REGEXP) { $env:MERC_AGENT_IDENTITY_REGEXP } else { "^https://github\.com/$([regex]::Escape($Repo))/\.github/workflows/agent-release\.yml@refs/(tags/agent-v.*|heads/main)$" }
 $Issuer = if ($env:MERC_AGENT_OIDC_ISSUER) { $env:MERC_AGENT_OIDC_ISSUER } else { "https://token.actions.githubusercontent.com" }
@@ -100,6 +101,18 @@ max_memory_pct = 85.0
 data_dir = "$($State.Replace('\','/'))/data"
 "@
         [IO.File]::WriteAllText($Config, $configText, (New-Object Text.UTF8Encoding($false)))
+    }
+    if (-not (Test-Path -LiteralPath $Prefs)) {
+        $prefsText = @"
+paused = false
+allowed_weekdays = [0, 1, 2, 3, 4, 5, 6]
+power_only = true
+quiet_hours = [22, 6]
+min_payout_usd_per_hr = 0.05
+memory_headroom_gb = 8.0
+max_memory_pct = 85.0
+"@
+        [IO.File]::WriteAllText($Prefs, $prefsText, (New-Object Text.UTF8Encoding($false)))
     }
 
     $action = New-ScheduledTaskAction -Execute $Bin -Argument "run --config `"$Config`""

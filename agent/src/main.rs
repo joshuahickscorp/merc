@@ -384,12 +384,15 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-fn current_hour_local() -> u8 {
+fn current_local_schedule_clock() -> (u8, u8) {
     unsafe {
         let now = libc::time(std::ptr::null_mut());
         let mut tm: libc::tm = std::mem::zeroed();
+        #[cfg(unix)]
         libc::localtime_r(&now, &mut tm);
-        tm.tm_hour.clamp(0, 23) as u8
+        #[cfg(windows)]
+        libc::localtime_s(&mut tm, &now);
+        (tm.tm_hour.clamp(0, 23) as u8, tm.tm_wday.clamp(0, 6) as u8)
     }
 }
 
@@ -2369,9 +2372,6 @@ struct WorkCtx {
     runners: Arc<Vec<Box<dyn JobRunner>>>,
     pool: ModelPool,
     s3: reqwest::Client,
-    min_payout_usd_per_hr: f32,
-    memory_headroom_gb: f32,
-    max_memory_pct: f32,
     checkpoint_secs: u64,
     status: Arc<StatusWriter>,
 }
@@ -2467,9 +2467,6 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
         runners: Arc::new(default_runners(inference, embed_driver)),
         pool,
         s3,
-        min_payout_usd_per_hr: cfg.min_payout_usd_per_hr,
-        memory_headroom_gb: cfg.memory_headroom_gb,
-        max_memory_pct: cfg.max_memory_pct,
         checkpoint_secs: cfg.checkpoint_secs,
         status: status.clone(),
     };
@@ -2486,6 +2483,19 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
             heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 heartbeat.tick().await;
+                let prefs_valid = match cfg.refresh_operator_prefs() {
+                    Ok(()) => {
+                        status.set_applied_prefs(status::AppliedPrefs::from_config(
+                            &cfg,
+                            ctx.cap.memory_gb,
+                        ));
+                        true
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, "operator preferences invalid; claims remain fail-closed");
+                        false
+                    }
+                };
                 let ts = now_unix();
                 let cpu = cpu_pct(&mut sys);
                 let throttle = cfg.evaluate_memory_throttle(&throttle_snapshot(), None);
@@ -2527,7 +2537,9 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
                 if let Err(e) = ctx.client.heartbeat(&hb).await {
                     tracing::warn!(error = %e, "heartbeat failed");
                 }
-                let eligible = cfg.is_eligible_to_run(current_hour_local(), on_battery());
+                let (hour, weekday) = current_local_schedule_clock();
+                let eligible =
+                    prefs_valid && cfg.is_eligible_to_run_at(hour, weekday, on_battery());
                 let earnings = ctx.client.earnings().await.ok();
                 let connect = ctx.client.connect_status().await.ok();
                 let verification = ctx.client.verification().await.ok();
@@ -2583,8 +2595,11 @@ async fn poll_and_spawn(
     permit: tokio::sync::OwnedSemaphorePermit,
     inflight: &mut tokio::task::JoinSet<()>,
 ) -> Result<()> {
-    if !cfg.is_eligible_to_run(current_hour_local(), on_battery()) {
-        tracing::debug!("not eligible to run (quiet hours / battery); idling 60s");
+    cfg.refresh_operator_prefs()
+        .context("operator preferences invalid; refusing to claim")?;
+    let (hour, weekday) = current_local_schedule_clock();
+    if !cfg.is_eligible_to_run_at(hour, weekday, on_battery()) {
+        tracing::debug!("not eligible to run (paused / schedule / battery); idling 60s");
         drop(permit); // release the slot while we idle
         tokio::time::sleep(Duration::from_secs(60)).await;
         return Ok(());
@@ -2623,6 +2638,7 @@ async fn poll_and_spawn(
         Ok(None) => return Ok(()), // long-poll returned no work; `permit` drops
         Err(e) => return Err(e.into()),
     };
+    let claim_memory_headroom_gb = cfg.memory_headroom_gb;
     tracing::info!(task = %task.task_id, job = %task.job_id, "received task");
     let received_at = std::time::Instant::now();
     let deadline = match TaskDeadline::from_dispatch(
@@ -2632,7 +2648,7 @@ async fn poll_and_spawn(
         Ok(deadline) => deadline,
         Err(error) => {
             let error = RunError::from(error);
-            report_task_error(ctx, &task, received_at, &error).await;
+            report_task_error(ctx, &task, received_at, &error, claim_memory_headroom_gb).await;
             return Ok(());
         }
     };
@@ -2652,7 +2668,7 @@ async fn poll_and_spawn(
         return Ok(()); // never started -> control plane reassigns it
     }
 
-    let floor = ctx.min_payout_usd_per_hr;
+    let floor = cfg.min_payout_usd_per_hr;
     if floor > 0.0 && task.offered_rate_usd_hr > 0.0 && task.offered_rate_usd_hr < floor {
         tracing::warn!(
             task = %task.task_id,
@@ -2673,7 +2689,7 @@ async fn poll_and_spawn(
         Ok(result) => result,
         Err(error) => {
             let error = RunError::from(error);
-            report_task_error(ctx, &task, received_at, &error).await;
+            report_task_error(ctx, &task, received_at, &error, claim_memory_headroom_gb).await;
             return Ok(());
         }
     };
@@ -2684,7 +2700,7 @@ async fn poll_and_spawn(
             // is lost. Do not abandon that queued/running claim to the
             // watchdog: use the same owner+attempt failure path as every other
             // execution error, then return the polling slot immediately.
-            report_task_error(ctx, &task, received_at, &error).await;
+            report_task_error(ctx, &task, received_at, &error, claim_memory_headroom_gb).await;
             return Ok(());
         }
     }
@@ -2699,8 +2715,10 @@ async fn poll_and_spawn(
     // Snapshot supplier prefs for the in-flight guard. New claims already check
     // eligibility; this re-evaluates while the task runs and aborts via the same
     // deadline cancellation path the wall-clock watchdog uses.
-    let eligibility_cfg = cfg.clone();
+    let mut eligibility_cfg = cfg.clone();
     let eligibility_interval = eligibility_watch_interval(cfg.checkpoint_secs);
+    let memory_headroom_gb = cfg.memory_headroom_gb;
+    let max_memory_pct = cfg.max_memory_pct;
 
     let ctx = ctx.clone();
     inflight.spawn(async move {
@@ -2712,12 +2730,14 @@ async fn poll_and_spawn(
         let eligibility_guard = tokio::spawn(async move {
             guard_deadline
                 .cancel_when_ineligible(eligibility_interval, move || {
-                    let lost =
-                        !eligibility_cfg.is_eligible_to_run(current_hour_local(), on_battery());
+                    let prefs_valid = eligibility_cfg.refresh_operator_prefs().is_ok();
+                    let (hour, weekday) = current_local_schedule_clock();
+                    let lost = !prefs_valid
+                        || !eligibility_cfg.is_eligible_to_run_at(hour, weekday, on_battery());
                     if lost {
                         tracing::info!(
                             task = %task_id,
-                            "supplier eligibility lost (quiet hours / battery); cancelling in-flight task"
+                            "supplier eligibility lost (pause / schedule / battery / invalid prefs); cancelling in-flight task"
                         );
                     }
                     lost
@@ -2733,8 +2753,8 @@ async fn poll_and_spawn(
             &ctx.pool,
             &ctx.s3,
             ctx.checkpoint_secs,
-            ctx.memory_headroom_gb,
-            ctx.max_memory_pct,
+            memory_headroom_gb,
+            max_memory_pct,
         )
         .await
         {
@@ -2754,16 +2774,23 @@ async fn poll_and_spawn(
                             // durable commit, releases an exact running
                             // owner+attempt when commit never applied, and
                             // fences a superseded execution.
-                            report_task_error(&ctx, &task, started, &error).await;
+                            report_task_error(&ctx, &task, started, &error, memory_headroom_gb).await;
                         }
                     },
                     Err(error) => {
-                        report_task_error(&ctx, &task, started, &RunError::from(error)).await;
+                        report_task_error(
+                            &ctx,
+                            &task,
+                            started,
+                            &RunError::from(error),
+                            memory_headroom_gb,
+                        )
+                        .await;
                     }
                 }
             }
             Err(e) => {
-                report_task_error(&ctx, &task, started, &e).await;
+                report_task_error(&ctx, &task, started, &e, memory_headroom_gb).await;
             }
         }
         eligibility_guard.abort();
@@ -2786,6 +2813,7 @@ async fn report_task_error(
     task: &TaskDispatch,
     started: std::time::Instant,
     error: &RunError,
+    memory_headroom_gb: f32,
 ) {
     tracing::error!(task = %task.task_id, error = %error, "task execution failed; reporting typed failure");
     let snap = hardware::read_memory_snapshot();
@@ -2795,7 +2823,7 @@ async fn report_task_error(
         &task.manifest.model.model_ref,
         started.elapsed().as_millis() as u64,
         &snap,
-        ctx.memory_headroom_gb,
+        memory_headroom_gb,
     );
     if let Err(failure_error) = ctx
         .client
