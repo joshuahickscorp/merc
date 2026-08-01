@@ -299,6 +299,9 @@ def main():
     api_source = read("control/api.go")
     store_jobs_source = read("control/store_jobs.go")
     project_submit_tests = read("control/project_submit_test.go")
+    pricing_source = read("control/pricing.go")
+    pricing_tests = read("control/pricing_test.go")
+    pricing_governance_tests = read("control/pricing_governance_test.go")
 
     # The definition site is not a caller. Excluding it is the difference between
     # "wired" and "declared", which is the exact thing prose gets wrong.
@@ -389,6 +392,30 @@ def main():
                     "job pricing decision does not exactly match its bound quote" in store_jobs_source,
                 "cad_project_public_admission_test":
                     "TestProjectCompilerCADAdmissionThroughPublicAPI" in project_submit_tests,
+            },
+            # The catalogue has exactly one buyer-price derivation: the governed
+            # market board schedule. Supplier economics remains an explicitly
+            # non-authoritative cost-floor comparison for the market-gap report;
+            # this structural evidence is deliberately not a true-net or market
+            # clearing claim.
+            "catalogue_pricing_authority": {
+                "schedule_builder_present": "func BuildCataloguePriceSchedule" in pricing_source,
+                "published_results_are_schedule_only": bool(re.search(
+                    r"func PublishedCatalogueResults\(\).*?BuildCataloguePriceSchedule\(\)",
+                    pricing_source, re.DOTALL)),
+                "market_board_price_deriver_present": "func repriceFromMarketBoard" in pricing_source,
+                "alternate_cost_plus_catalogue_deriver_absent":
+                    "repriceFromSupplierEconomics" not in pricing_source,
+                "diagnostic_cost_floor_callers": production_callers(
+                    "diagnosticCostFloorFromSupplierEconomics"),
+                "regression_tests": [
+                    name for name in (
+                        "TestPublishedCatalogueResultsOmitsUnmeasuredModels",
+                        "TestDiagnosticCostFloorMathIsCorrect",
+                        "TestShippedBoardPublishesAViablePrice",
+                    ) if name in pricing_tests or name in pricing_governance_tests
+                ],
+                "scope": "source-and-test authority boundary only; not a live market, true-net, or Stripe receipt",
             },
             # The compiler is a product command and the CAD admission test
             # reaches real authenticated handlers. It remains deliberately
