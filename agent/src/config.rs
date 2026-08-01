@@ -116,6 +116,8 @@ pub struct AgentConfig {
     pub allow_model_downloads: bool,
     #[serde(default = "default_max_model_cache_gb")]
     pub max_model_cache_gb: f32,
+    #[serde(default)]
+    pub max_bandwidth_mbps: f32,
     pub quiet_hours: Option<(u8, u8)>,
     pub power_only: bool,
     pub min_payout_usd_per_hr: f32,
@@ -168,6 +170,7 @@ pub struct OperatorPrefs {
     pub allowed_workload_classes: Option<Vec<String>>,
     pub allow_model_downloads: Option<bool>,
     pub max_model_cache_gb: Option<f32>,
+    pub max_bandwidth_mbps: Option<f32>,
     pub power_only: Option<bool>,
     pub min_payout_usd_per_hr: Option<f32>,
     pub memory_headroom_gb: Option<f32>,
@@ -386,6 +389,9 @@ impl AgentConfig {
         if !self.max_model_cache_gb.is_finite() || self.max_model_cache_gb < 0.0 {
             anyhow::bail!("max_model_cache_gb must be finite and non-negative");
         }
+        if !self.max_bandwidth_mbps.is_finite() || self.max_bandwidth_mbps < 0.0 {
+            anyhow::bail!("max_bandwidth_mbps must be finite and non-negative");
+        }
         Ok(())
     }
 
@@ -404,6 +410,9 @@ impl AgentConfig {
         }
         if let Some(v) = prefs.max_model_cache_gb {
             self.max_model_cache_gb = v;
+        }
+        if let Some(v) = prefs.max_bandwidth_mbps {
+            self.max_bandwidth_mbps = v;
         }
         if let Some(v) = prefs.power_only {
             self.power_only = v;
@@ -488,6 +497,7 @@ mod tests {
             allowed_workload_classes: None,
             allow_model_downloads: true,
             max_model_cache_gb: default_max_model_cache_gb(),
+            max_bandwidth_mbps: 0.0,
             quiet_hours,
             power_only,
             min_payout_usd_per_hr: 0.0,

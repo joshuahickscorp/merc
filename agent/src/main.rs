@@ -16,7 +16,8 @@ mod types;
 mod vllm;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -35,6 +36,40 @@ use types::{Heartbeat, TaskCommit, TaskDispatch, WorkerCapability};
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const MODEL_IDLE_EVICT_AFTER: Duration = Duration::from_secs(15 * 60);
+const TRANSFER_CHUNK_BYTES: usize = 64 * 1024;
+static TRANSFER_BITS_PER_SECOND: AtomicU64 = AtomicU64::new(0);
+static TRANSFER_NEXT_SLOT: OnceLock<tokio::sync::Mutex<tokio::time::Instant>> = OnceLock::new();
+
+fn set_transfer_limit(max_bandwidth_mbps: f32) {
+    let bits_per_second =
+        ((max_bandwidth_mbps.max(0.0) as f64) * 1_000_000.0).min(u64::MAX as f64) as u64;
+    TRANSFER_BITS_PER_SECOND.store(bits_per_second, Ordering::Release);
+}
+
+fn transfer_budget(bytes: usize, bits_per_second: u64) -> Duration {
+    if bytes == 0 || bits_per_second == 0 {
+        return Duration::ZERO;
+    }
+    Duration::from_secs_f64((bytes as f64 * 8.0) / bits_per_second as f64)
+}
+
+async fn pace_transfer(bytes: usize) {
+    let bits_per_second = TRANSFER_BITS_PER_SECOND.load(Ordering::Acquire);
+    let budget = transfer_budget(bytes, bits_per_second);
+    if budget.is_zero() {
+        return;
+    }
+    let limiter =
+        TRANSFER_NEXT_SLOT.get_or_init(|| tokio::sync::Mutex::new(tokio::time::Instant::now()));
+    let release_at = {
+        let mut next = limiter.lock().await;
+        let now = tokio::time::Instant::now();
+        let base = (*next).max(now);
+        *next = base + budget;
+        *next
+    };
+    tokio::time::sleep_until(release_at).await;
+}
 
 const MERC_SANDBOXED_ENV: &str = "MERC_SANDBOXED";
 
@@ -2206,7 +2241,7 @@ async fn s3_get_once(client: &reqwest::Client, url: &str, already_read: &[u8]) -
             format!("bytes={}-", already_read.len()),
         );
     }
-    let resp = req.send().await.context("GET presigned input")?;
+    let mut resp = req.send().await.context("GET presigned input")?;
     let status = resp.status();
     if !already_read.is_empty() && status == reqwest::StatusCode::PARTIAL_CONTENT {
     } else if !status.is_success() {
@@ -2229,14 +2264,26 @@ async fn s3_get_once(client: &reqwest::Client, url: &str, already_read: &[u8]) -
         }
     }
     let mut out = already_read.to_vec();
-    match resp.bytes().await {
-        Ok(bytes) => out.extend_from_slice(&bytes),
-        Err(e) => {
-            return Err(PartialBodyError {
-                bytes_read: out,
-                source: e,
+    loop {
+        match resp.chunk().await {
+            Ok(Some(bytes)) => {
+                pace_transfer(bytes.len()).await;
+                out.extend_from_slice(&bytes);
+                if out.len() as u64 > MAX_INPUT_DOWNLOAD_BYTES {
+                    anyhow::bail!(
+                        "input body was {} bytes, exceeding the {MAX_INPUT_DOWNLOAD_BYTES}-byte task download cap",
+                        out.len()
+                    );
+                }
             }
-            .into())
+            Ok(None) => break,
+            Err(e) => {
+                return Err(PartialBodyError {
+                    bytes_read: out,
+                    source: e,
+                }
+                .into())
+            }
         }
     }
     if out.len() as u64 > MAX_INPUT_DOWNLOAD_BYTES {
@@ -2248,7 +2295,7 @@ async fn s3_get_once(client: &reqwest::Client, url: &str, already_read: &[u8]) -
     Ok(out)
 }
 
-async fn s3_get_full(resp: reqwest::Response) -> Result<Vec<u8>> {
+async fn s3_get_full(mut resp: reqwest::Response) -> Result<Vec<u8>> {
     if let Some(len) = resp.content_length() {
         if len > MAX_INPUT_DOWNLOAD_BYTES {
             anyhow::bail!(
@@ -2256,14 +2303,18 @@ async fn s3_get_full(resp: reqwest::Response) -> Result<Vec<u8>> {
             );
         }
     }
-    let bytes = resp.bytes().await.context("reading input body")?;
-    if bytes.len() as u64 > MAX_INPUT_DOWNLOAD_BYTES {
-        anyhow::bail!(
-            "input body was {} bytes, exceeding the {MAX_INPUT_DOWNLOAD_BYTES}-byte task download cap",
-            bytes.len()
-        );
+    let mut out = Vec::new();
+    while let Some(bytes) = resp.chunk().await.context("reading input body")? {
+        pace_transfer(bytes.len()).await;
+        out.extend_from_slice(&bytes);
+        if out.len() as u64 > MAX_INPUT_DOWNLOAD_BYTES {
+            anyhow::bail!(
+                "input body was {} bytes, exceeding the {MAX_INPUT_DOWNLOAD_BYTES}-byte task download cap",
+                out.len()
+            );
+        }
     }
-    Ok(bytes.to_vec())
+    Ok(out)
 }
 
 async fn s3_put_bytes(
@@ -2299,10 +2350,24 @@ async fn s3_put_bytes_once(
     body: &[u8],
     content_type: &str,
 ) -> Result<()> {
+    use futures_util::stream;
+
+    let content_length = body.len();
+    let owned = body.to_vec();
+    let stream = stream::unfold((owned, 0_usize), |(body, offset)| async move {
+        if offset >= body.len() {
+            return None;
+        }
+        let end = (offset + TRANSFER_CHUNK_BYTES).min(body.len());
+        pace_transfer(end - offset).await;
+        let chunk = body[offset..end].to_vec();
+        Some((Ok::<Vec<u8>, std::io::Error>(chunk), (body, end)))
+    });
     let resp = client
         .put(url)
         .header(reqwest::header::CONTENT_TYPE, content_type)
-        .body(body.to_vec())
+        .header(reqwest::header::CONTENT_LENGTH, content_length)
+        .body(reqwest::Body::wrap_stream(stream))
         .send()
         .await
         .context("PUT presigned output")?;
@@ -2381,6 +2446,7 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
         std::env::set_var("MERC_MODEL_CACHE", cfg.data_dir.join("models"));
     }
     models::set_cache_policy(cfg.allow_model_downloads, cfg.max_model_cache_gb);
+    set_transfer_limit(cfg.max_bandwidth_mbps);
     let pool = ModelPool::new();
     // The advertised engine follows the embed runtime this worker was configured
     // with, rather than being hardcoded to candle.
@@ -2494,6 +2560,7 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
                 let prefs_valid = match cfg.refresh_operator_prefs() {
                     Ok(()) => {
                         models::set_cache_policy(cfg.allow_model_downloads, cfg.max_model_cache_gb);
+                        set_transfer_limit(cfg.max_bandwidth_mbps);
                         status.set_applied_prefs(status::AppliedPrefs::from_config(
                             &cfg,
                             ctx.cap.memory_gb,
@@ -2607,6 +2674,7 @@ async fn poll_and_spawn(
     cfg.refresh_operator_prefs()
         .context("operator preferences invalid; refusing to claim")?;
     models::set_cache_policy(cfg.allow_model_downloads, cfg.max_model_cache_gb);
+    set_transfer_limit(cfg.max_bandwidth_mbps);
     let (hour, weekday) = current_local_schedule_clock();
     if !cfg.is_eligible_to_run_at(hour, weekday, on_battery()) {
         tracing::debug!("not eligible to run (paused / schedule / battery); idling 60s");
@@ -2955,6 +3023,16 @@ mod tests {
         assert_eq!(eligibility_watch_interval(7), Duration::from_secs(7));
         assert_eq!(eligibility_watch_interval(0), Duration::from_secs(30));
         assert_eq!(eligibility_watch_interval(30), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn transfer_budget_uses_decimal_megabits_and_zero_is_unlimited() {
+        assert_eq!(
+            transfer_budget(1_000_000, 8_000_000),
+            Duration::from_secs(1)
+        );
+        assert_eq!(transfer_budget(64 * 1024, 0), Duration::ZERO);
+        assert_eq!(transfer_budget(0, 1), Duration::ZERO);
     }
 
     /// Mid-run power_only / quiet-hours loss must abort via the deadline
@@ -3589,11 +3667,8 @@ mod tests {
             .downcast_ref::<PartialBodyError>()
             .expect("truncated body must be a PartialBodyError, not some other failure");
         assert_eq!(
-            partial.bytes_read.len(),
-            0,
-            "this pass's bookkeeping is the documented minimal version: a whole-body \
-             resp.bytes() failure carries forward only what the caller already had \
-             (zero on a first attempt), not true streamed byte-accounting"
+            partial.bytes_read, b"hello ",
+            "streamed transfer accounting must preserve the exact prefix received before a drop"
         );
 
         let (base2, headers2) = spawn_raw_mock_server(

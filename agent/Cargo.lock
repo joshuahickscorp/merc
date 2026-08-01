@@ -1751,6 +1751,7 @@ dependencies = [
  "candle-transformers",
  "clap",
  "flate2",
+ "futures-util",
  "hf-hub",
  "libc",
  "objc2-core-foundation",
