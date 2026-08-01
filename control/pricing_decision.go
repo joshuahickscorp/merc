@@ -265,6 +265,39 @@ func estimateJobSettlementWithAuthority(
 	if a.JobType != jobType {
 		return 0, fmt.Errorf("catalogue job type %s does not match %s", a.JobType, jobType)
 	}
+	units := settlementBillableUnitsForGeometry(a, jobType, inputBytesLen, nLines, maxTokens)
+	gross, err := CatalogueGrossNanos(
+		MustParseCurrency(a.SettlementCurrency),
+		catalogueSettlementPriceNanosPer1K(a, tier),
+		NanoWorkUnitsFromFloat(units),
+	)
+	if err != nil {
+		return 0, err
+	}
+	// The micro-USD PROJECTION of the exact figure, not a second derivation of it.
+	//
+	// This function used to compute the same product in float64 and round it, which
+	// made it an independent authority for the quantity CatalogueGrossNanos now
+	// owns — and the two disagreed by 30% on a job small enough for one micro to
+	// matter. It is kept because the ledger, the wire contract and every frozen
+	// plan present money in micro-USD; it is no longer where the number comes from.
+	rounded := roundUSD(gross.USDFloat())
+	if rounded == 0 && units > 0 {
+		return microsToUSD(1), nil
+	}
+	return rounded, nil
+}
+
+// settlementBillableUnitsForGeometry is the complete billable unit count for one
+// job: input-side settlement units plus, for generative work, the output tokens
+// the buyer bought the right to.
+//
+// Split out because the exact money path and the micro projection must count the
+// same units. They did not have to before, and a units formula that lives inside
+// one of two pricing functions is a second authority waiting to drift.
+func settlementBillableUnitsForGeometry(
+	a CataloguePriceAuthority, jobType string, inputBytesLen, nLines int, maxTokens uint32,
+) float64 {
 	units := settlementInputUnitsForGeometry(nLines, int64(inputBytesLen))
 	if generativeJobType(jobType) && nLines > 0 {
 		outTokensPerRecord := maxTokens
@@ -273,11 +306,116 @@ func estimateJobSettlementWithAuthority(
 		}
 		units += float64(nLines) * float64(outTokensPerRecord)
 	}
-	rounded := roundUSD(units / 1000 * a.SettlementPricePer1K * tierMultiplier(tier))
-	if rounded == 0 && units > 0 {
-		return microsToUSD(1), nil
+	return units
+}
+
+// exactBaseComputeNanos is the economic plan's base compute, exact, derived from
+// the catalogue for the same geometry the compute plan will freeze.
+//
+// Per PRIMARY task first, then multiplied back up by the number of tasks the
+// economic plan counts. That order matters: the pricing decision derives the
+// supplier's floor from the units in ONE task, so deriving the plan's base from a
+// whole-job total and dividing it again introduces a second rounding between two
+// numbers that have to be equal. Multiplying a per-task figure by a task count is
+// exact.
+//
+// Returns 0 when the geometry cannot produce an exact figure, which BuildEconomicPlan
+// reads as "no exact base was offered" and falls back to the float seam.
+func exactBaseComputeNanos(
+	a CataloguePriceAuthority,
+	jobType, tier string,
+	inputBytesLen, nLines int,
+	maxTokens uint32,
+	primaryTasks, initialEconomicTasks int,
+) int64 {
+	if primaryTasks <= 0 || initialEconomicTasks <= 0 {
+		return 0
 	}
-	return rounded, nil
+	units := settlementBillableUnitsForGeometry(a, jobType, inputBytesLen, nLines, maxTokens)
+	if units <= 0 {
+		return 0
+	}
+	gross, _, err := exactTaskEconomics(a, tier, units/float64(primaryTasks))
+	if err != nil || gross.Nanos <= 0 {
+		return 0
+	}
+	total, err := mulDiv(gross.Nanos, int64(initialEconomicTasks), 1, false)
+	if err != nil {
+		return 0
+	}
+	return total
+}
+
+// catalogueSettlementPriceNanosPer1K is the tier-adjusted catalogue price, exact.
+//
+// The settlement price, deliberately — not the USD reference price. Deriving the
+// supplier floor from ReferencePricePer1K while the entitlement was denominated in
+// the settlement currency put an entire FX rate between two numbers that were
+// then compared as though they were the same currency. The comparison was off by
+// 1.37x on this deployment and nothing in the type system could object, because
+// both sides were float64 named USD.
+func catalogueSettlementPriceNanosPer1K(
+	a CataloguePriceAuthority, tier string,
+) NanoUSDPerThousandUnits {
+	return nanosPer1KFromFloat(a.SettlementPricePer1K * tierMultiplier(tier))
+}
+
+// exactTaskEconomics is THE derivation. Every per-task money figure in the
+// distributed path comes from here and nowhere else.
+//
+//	catalogue settlement unit price
+//	  x exact fractional units in the task
+//	  -> exact buyer gross      (rounds DOWN, the buyer's direction)
+//	  x explicit supplier share
+//	  -> exact supplier entitlement AND the floor it must clear (rounds UP)
+//
+// The floor and the entitlement are the same expression evaluated once. That is
+// why admission can compare them as an identity: they are not two estimates of one
+// quantity that have to be reconciled within a tolerance, they ARE one quantity.
+//
+// The throughput and the modeled duration are deliberately absent. They cancel:
+//
+//	ceiling  = unitsPerSec x 3600/1000 x price x share
+//	seconds  = units / unitsPerSec
+//	required = ceiling x seconds / 3600 = units/1000 x price x share
+//
+// Carrying them through the arithmetic anyway is what produced the 29,093-nano
+// floor — an integer division truncated the sub-second duration to a whole second
+// — and it also made a money figure depend on a dated benchmark that can be
+// revalidated out from under an already-accepted receipt.
+func exactTaskEconomics(
+	a CataloguePriceAuthority, tier string, unitsPerTask float64,
+) (gross, entitlement MoneyNanos, err error) {
+	currency, err := ParseCurrency(a.SettlementCurrency)
+	if err != nil {
+		return MoneyNanos{}, MoneyNanos{}, err
+	}
+	// Refuse rather than return zero. A zero floor is not a cheap job, it is a
+	// floor that admits anything — and the caller reads an error as "this plan
+	// cannot be compared exactly" while it would read a zero as an answer.
+	// NanoWorkUnitsFromFloat also returns 0 for a non-finite or overflowing unit
+	// count, so this is the same guard for both.
+	units := NanoWorkUnitsFromFloat(unitsPerTask)
+	if units <= 0 {
+		return MoneyNanos{}, MoneyNanos{}, fmt.Errorf(
+			"cannot derive exact task economics from %v billable units", unitsPerTask)
+	}
+	gross, err = CatalogueGrossNanos(
+		currency, catalogueSettlementPriceNanosPer1K(a, tier), units,
+	)
+	if err != nil {
+		return MoneyNanos{}, MoneyNanos{}, err
+	}
+	if gross.Nanos <= 0 {
+		return MoneyNanos{}, MoneyNanos{}, fmt.Errorf(
+			"catalogue prices %v units at zero, so no supplier floor can be derived",
+			unitsPerTask)
+	}
+	entitlement, err = SupplierEntitlementNanos(gross, a.SupplierShare)
+	if err != nil {
+		return MoneyNanos{}, MoneyNanos{}, err
+	}
+	return gross, entitlement, nil
 }
 
 // pricingBillableUnitsForComputePlan keeps historical pricing decisions
@@ -463,50 +601,25 @@ func distributedPricingDecisionAtRate(
 		expectedSeconds = billableUnits / unitsPerSec *
 			float64(compute.TotalInitialTasks) / float64(compute.PrimaryTasks)
 	}
-	// The exact entitlement and the exact floor, per task.
+	// The exact entitlement and the exact floor, per task — one derivation, run
+	// once, in the settlement currency, from the catalogue price and the exact
+	// fractional units of this task. See exactTaskEconomics for why the throughput
+	// and the modeled duration are not in this arithmetic.
 	//
-	// The floor is derived ONCE, forward, from the accepted hourly ceiling and the
-	// modeled duration — never backward from a rounded payout. The entitlement is
-	// the plan's own frozen nano figure. Both are integers; neither is rounded on
-	// the way into the comparison.
+	// The entitlement is the plan's own frozen nano figure. When the plan froze its
+	// base compute from the same catalogue authority (which every plan built after
+	// this change does), the two sides are the same expression and the comparison
+	// below is an identity. When the min-billable floor lifted the plan's base, the
+	// entitlement is strictly larger, which admission accepts.
 	var supplierGrossNanos, supplierRequiredNanos int64
 	var supplierEntitlementPolicy string
 	if economic.EconomicRoundingPolicy == economicRoundingPolicy &&
-		economic.SupplierPayoutPerTaskNanos > 0 && unitsPerSec > 0 &&
-		compute.PrimaryTasks > 0 {
-		// ONE canonical derivation, and this is the line that matters.
-		//
-		// The floor is derived from the SAME governed throughput the admission
-		// ceiling was derived from, applied to the units in this task. Deriving it
-		// instead from the compute plan's modeled duration made the two sides answer
-		// to different authorities: the first exact comparison reported a 2.1x gap
-		// (970 nanos entitled against 2035 required) that was not rounding at all —
-		// it was the plan's modeled 70ms of work against a ceiling computed from a
-		// throughput that says the same units take 2.5ms.
-		//
-		// With one authority the identity holds by construction:
-		//
-		//	ceiling   = unitsPerSec x 3600/1000 x price x share
-		//	seconds   = units / unitsPerSec
-		//	required  = ceiling x seconds / 3600
-		//	          = units/1000 x price x share
-		//	          = the buyer's base compute for those units, times the share
-		//
-		// which is the supplier's entitlement. Any residual difference is one nano
-		// of rounding-up in the supplier's favour, never a systematic shortfall.
-		settlementCurrency := MustParseCurrency(catalogue.SettlementCurrency)
-		ceilingNanos, cerr := MoneyNanosFromUSDFloat(settlementCurrency, ceiling)
+		economic.SupplierPayoutPerTaskNanos > 0 && compute.PrimaryTasks > 0 {
 		unitsPerTask := billableUnits / float64(compute.PrimaryTasks)
-		if cerr == nil && unitsPerTask >= 0 {
-			if required, rerr := RequiredTaskNanosFromThroughput(
-				settlementCurrency, NanoUSDPerHour(ceilingNanos.Nanos),
-				WorkUnits(math.Ceil(unitsPerTask)),
-				NanoUnitsPerSecond(unitsPerSec*float64(NanosPerMajorUnit)),
-			); rerr == nil {
-				supplierGrossNanos = economic.SupplierPayoutPerTaskNanos
-				supplierRequiredNanos = required.Nanos
-				supplierEntitlementPolicy = economicRoundingPolicy
-			}
+		if _, required, rerr := exactTaskEconomics(catalogue, tier, unitsPerTask); rerr == nil {
+			supplierGrossNanos = economic.SupplierPayoutPerTaskNanos
+			supplierRequiredNanos = required.Nanos
+			supplierEntitlementPolicy = economicRoundingPolicy
 		}
 	}
 
@@ -642,6 +755,56 @@ func newExactReusePricingDecision(
 	return out, validatePricingCostShape(out)
 }
 
+// admissionEntitlementRefusal is the entitlement check, in EXACT per-task nanos.
+//
+// Named and separate because it is the single condition four successive money
+// defects all landed on, and a negative control has to be able to address it
+// directly rather than through a submit that needs a database, a catalogue and a
+// seeded honeypot to reach it.
+//
+// It used to compare an hourly gross RECONSTRUCTED from a rounded per-task payout
+// against a ceiling derived in continuous dollars, and refused every job small
+// enough for one lost micro-USD to matter — 0.102978 against 0.104733, a 1.676%
+// gap that was entirely the rounding step.
+//
+// Both sides are now the same expression over the same units in the same currency
+// (see exactTaskEconomics), so this is an identity rather than a tolerance.
+// Comparing the two ROUNDED numbers would also have passed, and would have left
+// the supplier short of the continuous floor by that same fraction — which is why
+// the obvious fix was the wrong one.
+//
+// A plan with no exact fields is legacy and keeps the old comparison. Re-deciding
+// a historical plan under new arithmetic is the one thing the rounding-policy
+// revision exists to prevent.
+func admissionEntitlementRefusal(p PricingDecision) error {
+	switch {
+	case p.SupplierEntitlementPolicy == economicRoundingPolicy:
+		// A floor of zero is not a permissive floor, it is an absent one, and every
+		// entitlement clears it. Claiming the exact policy while carrying no floor
+		// would turn this check off entirely while still reporting that it ran.
+		if p.SupplierRequiredNanos <= 0 {
+			return fmt.Errorf(
+				"pricing decision claims the exact entitlement policy %q but carries a "+
+					"supplier floor of %d nanos, which admits any entitlement at all",
+				economicRoundingPolicy, p.SupplierRequiredNanos)
+		}
+		if p.SupplierGrossNanos < p.SupplierRequiredNanos {
+			return fmt.Errorf(
+				"exact supplier entitlement %d nanos per task is below the exact floor "+
+					"%d nanos the accepted rate requires, a shortfall of %d nanos",
+				p.SupplierGrossNanos, p.SupplierRequiredNanos,
+				p.SupplierRequiredNanos-p.SupplierGrossNanos)
+		}
+	case p.ExpectedSupplierGrossUSDHr+0.000001 < p.SupplierAdmissionCeilingUSDHr:
+		return fmt.Errorf(
+			"modeled supplier gross %.6f USD/hr is below the admission ceiling %.6f "+
+				"USD/hr, so a worker admitted at that ceiling could not earn it "+
+				"(legacy plan: no exact entitlement was frozen)",
+			p.ExpectedSupplierGrossUSDHr, p.SupplierAdmissionCeilingUSDHr)
+	}
+	return nil
+}
+
 func validatePricingCostShape(p PricingDecision) error {
 	if p.Version != pricingDecisionVersion || p.PolicyRevision != pricingDecisionPolicyRevision {
 		return errors.New("unsupported pricing decision")
@@ -710,36 +873,8 @@ func validatePricingCostShape(p PricingDecision) error {
 			missing = append(missing, fmt.Sprintf(
 				"supplier admission ceiling is %.6f USD/hr", p.SupplierAdmissionCeilingUSDHr))
 		}
-		// The entitlement check, in EXACT per-task nanos.
-		//
-		// This used to compare an hourly gross reconstructed from a rounded per-task
-		// payout against a ceiling derived in continuous dollars, and refused every
-		// job small enough for one lost micro-USD to matter — measured at 0.102978
-		// against 0.104733, a 1.676% gap that was entirely the rounding step.
-		//
-		// Both sides are now computed without rounding and compared per task, which
-		// is the domain the entitlement actually lives in. Comparing the two ROUNDED
-		// numbers would also have passed, and would have left the supplier short of
-		// the continuous floor by the same fraction — so it is not done that way.
-		//
-		// A plan with no exact fields is legacy and keeps the old comparison, because
-		// re-deciding a historical plan under new arithmetic is the one thing the
-		// rounding-policy revision exists to prevent.
-		switch {
-		case p.SupplierEntitlementPolicy == economicRoundingPolicy:
-			if p.SupplierGrossNanos < p.SupplierRequiredNanos {
-				missing = append(missing, fmt.Sprintf(
-					"exact supplier entitlement %d nanos per task is below the exact floor "+
-						"%d nanos the accepted rate requires, a shortfall of %d nanos",
-					p.SupplierGrossNanos, p.SupplierRequiredNanos,
-					p.SupplierRequiredNanos-p.SupplierGrossNanos))
-			}
-		case p.ExpectedSupplierGrossUSDHr+0.000001 < p.SupplierAdmissionCeilingUSDHr:
-			missing = append(missing, fmt.Sprintf(
-				"modeled supplier gross %.6f USD/hr is below the admission ceiling %.6f "+
-					"USD/hr, so a worker admitted at that ceiling could not earn it "+
-					"(legacy plan: no exact entitlement was frozen)",
-				p.ExpectedSupplierGrossUSDHr, p.SupplierAdmissionCeilingUSDHr))
+		if err := admissionEntitlementRefusal(p); err != nil {
+			missing = append(missing, err.Error())
 		}
 		if len(missing) > 0 {
 			return fmt.Errorf("physical pricing decision lacks executable composite authority: %s",

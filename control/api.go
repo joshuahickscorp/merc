@@ -1133,6 +1133,14 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		ExtraTaskReserve: economicExtraTaskReserve(nPrimary),
 		SupplierShare:    supplierShareRate,
 		SLAPremiumUSD:    slaPremiumUSD,
+		// Same exact catalogue derivation the quote made, over the same geometry.
+		// If it differs the plans differ, and a bound submit is refused rather than
+		// settled against economics the buyer never saw.
+		BaseComputeNanos: exactBaseComputeNanos(
+			cataloguePrice, sub.JobType.Type, sub.Tier,
+			exactInputBytes, totalRecords, sub.JobType.MaxTokens,
+			nPrimary, len(tasks),
+		),
 	}
 	if qBind != nil {
 		quoteComparableInput.SLAPremiumUSD = qBind.EconomicPlan.Input.SLAPremiumUSD

@@ -1,0 +1,33 @@
+{
+  "candidate_bound": false,
+  "harness": "control/first_complete_loop_test.go",
+  "kind": "first_complete_loop",
+  "limitations": [
+    "Runs against the working tree, not an immutable image at an exact commit, so it cannot mint CANARY_PROVEN however complete the loop is.",
+    "One buyer, one supplier, one job, one hardware class. Not a fleet claim.",
+    "The buyer is funded by the sandbox credit grant, so the Stripe rails are not exercised: no payment intent, no capture, no payout."
+  ],
+  "loop": {
+    "job_id": "a5621f33-dde5-54bf-928c-31d1d3fda63f",
+    "buyer_email": "stranger-898d15ed-1a12-4054-b319-a41d5ac19415@example.test",
+    "currency": "usd",
+    "accepted_ceiling_usd": 1,
+    "quoted_estimate_usd": 0.011564,
+    "buyer_charged_usd": 0.011564,
+    "buyer_debit_micros": 11564,
+    "supplier_credit_micros": 2,
+    "merc_contribution_micros": 11562,
+    "paid_supplier_id": "ecaa823f-c155-4b5e-954e-7528f5301e30",
+    "runtime_cell_id": "candle-metal-minilm-embed",
+    "runtime_id": "candle_metal",
+    "engine": "candle",
+    "hw_class": "apple_silicon_ultra",
+    "execution_mode": "POOL",
+    "execution_mode_reason": "POOL: independent chunks with no inter-worker communication, so heterogeneous public-internet machines can contribute; refused LOCAL_CLUSTER: the workload is independent task fan-out, so gang scheduling would add synchronisation cost and buy nothing; refused REPLICA_SERVICE: a finite project does not need a warm replica held between requests; refused CLOUD_BACKSTOP: the community fleet can serve this and the deadline is not at risk",
+    "selection_basis": "LIFECYCLE_LADDER",
+    "routed_cell_id": "candle-metal-minilm-embed",
+    "verification_outcome": "pass"
+  },
+  "runtime_matrix_sha256": "ea158343b64ea0967b832757c97777b8b2c6f00e8ee27549888e1f25c7bbb2a4",
+  "schema_version": 1
+}

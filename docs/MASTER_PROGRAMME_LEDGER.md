@@ -389,3 +389,151 @@ shared tree.
    the test helper); and the shared `cx` database had 51 still-claimable tasks
    from earlier runs, so the currency-fence test claimed a leftover job rather
    than proving the fence broken. Tests now run against a dedicated database.
+## The pricing authority, resolved: one derivation, three defects under it
+
+The programme ledger's last entry reported layer 3 as a pricing disagreement —
+`970` nanos quoted against `29,093` required, a 30x gap between the compute plan
+and the catalogue — and stopped there rather than guessing at a fourth change.
+
+It was not one disagreement. It was three defects stacked, and only the smallest
+of them was about pricing policy at all. Each number below is measured from the
+public API path on the three-record embed fixture.
+
+### D1 — a sub-second task rounded up to a whole second
+
+`RequiredTaskNanosFromThroughput` computed the task duration in two steps:
+
+```go
+secondsNanos, _ := mulDiv(int64(units), NanosPerMajorUnit, int64(throughput), true)
+durationNanos, _ := mulDiv(secondsNanos, NanosPerMajorUnit, 1, true)
+```
+
+The first step divides, and `mulDiv` returns an **int64**. So the intermediate is
+an integer count of seconds, and 59 units at 1,666 units/sec — 35 milliseconds —
+rounds up to `1`. The second step then scales that 1 to a full second.
+
+Every task shorter than a second produced the same floor: the entire hourly
+ceiling over 3,600, independent of how little work the task held. That is the
+29,093. The true figure is 1,031. **The 30x gap was an integer division**, and it
+had nothing to do with the catalogue.
+
+Fixed by forming the whole product in one `mulDiv`, whose intermediate is
+`big.Int`, so `units x 1e9 x 1e9 / throughput` never passes through an int64.
+
+### D2 — the floor and the entitlement in different currencies
+
+The floor was derived from `catalogue.ReferencePricePer1K` — USD, the market board
+— and then labelled with the settlement currency and compared against an
+entitlement denominated in CAD. Both sides were `float64` named USD, so nothing in
+the type system could object.
+
+Under USD settlement the FX rate is 1.0 and the defect is invisible. Under the
+CAD settlement this programme mandates it is a flat 1.37x error in the supplier's
+disfavour. The floor now comes from `SettlementPricePer1K`, and the stranger
+admission proof runs in **both** currencies for exactly this reason — the mandated
+money mode has to be exercised, not assumed.
+
+### D3 — the buyer's gross quantised before the supplier's share
+
+`WorkUnits` was an integer, so 58.25 settlement units had to be ceiled to 59
+before a floor could be derived, and `BaseComputeUSD` was a micro-USD float, so a
+gross of 1,436 nanos froze as 1,000. The supplier's 97% was then taken of the
+smaller number: 970 nanos against a 1,393 nano floor.
+
+`NanoWorkUnits` carries units at 1e9 so a fraction of a unit stays exact, and
+`EconomicPlanInput.BaseComputeNanos` carries the unrounded catalogue gross beside
+the micro-USD projection rather than instead of it.
+
+### What replaced all three
+
+One derivation, in `exactTaskEconomics`:
+
+```text
+catalogue settlement unit price
+  x exact fractional units in the task
+  -> exact buyer gross          (rounds DOWN, the buyer's direction)
+  x explicit supplier share
+  -> exact supplier entitlement AND the floor it must clear (rounds UP)
+```
+
+The throughput and the modeled duration are **gone from the money path**. They
+cancel:
+
+```text
+ceiling  = unitsPerSec x 3600/1000 x price x share
+seconds  = units / unitsPerSec
+required = ceiling x seconds / 3600 = units/1000 x price x share
+```
+
+Carrying them through the arithmetic anyway is what let D1 exist, and it also made
+a frozen money figure depend on a dated benchmark that can be revalidated out from
+under an already-accepted receipt.
+
+Because the floor and the entitlement are now the same expression evaluated once,
+admission is an **identity**, not a tolerance. The measured headroom is exactly
+zero in both currencies — not "within epsilon", zero.
+
+## The loop closed
+
+`TestFirstCompleteLoopThroughThePublicAPI` is no longer gated, and it runs green
+end to end on a host with a built agent and object storage:
+
+```text
+LOOP CLOSED: buyer 11564 micros = supplier 2 + Merc 11562,
+  on candle_metal/candle-metal-minilm-embed (apple_silicon_ultra),
+  mode POOL, basis LIFECYCLE_LADDER, verification pass
+```
+
+A stranger signed up, was funded, received an API key, submitted a three-record
+project, Merc admitted and priced it, a real `merc-agent` process claimed it,
+executed it on Candle/Metal, the result verified against a seeded honeypot, the
+buyer was charged inside the ceiling they accepted, the supplier was credited once
+per executed task, and money conserved exactly. The receipt is
+`evidence/canary/first-complete-loop.json`.
+
+Two things had to be fixed before it would close, and neither was the pricing
+authority.
+
+### The job settled nowhere, because nothing was running the sweeps
+
+The loop reached `status=verifying` and stayed there until the deadline. The cause
+is not a race and not a defect in production: finalization is attempted **inline on
+the last task commit**, and two tasks committing at once contend for the
+verification process capacity, so one returns `202 Pending`. The other then calls
+`finalizeJobIfDone`, finds not-all-tasks-done, and returns. Nothing inline ever
+comes back for the pending one.
+
+What comes back for it is `Workers.Run` — `verification-recovery` on a 2s tick and
+`job-finalize` on a 20s tick. `main()` starts those under leader election; a
+`httptest` server does not. So the driver was proving a deployment while running
+half of one. It now starts the same workers with the same `stubPayout{}` default
+`main()` uses.
+
+### "The supplier is owed exactly once" was the wrong invariant
+
+The assertion failed on a correctly-settled loop. Merc buys verification by
+**executing extra tasks**, so a three-record embed with one honeypot is two
+executions, and the supplier who performed both is owed for both — which is
+exactly what the pricing decision quoted the buyer for
+(`SupplierPayoutPerTaskUSD x (primary + redundancy + honeypot)`).
+
+The invariant that matters is that no task is paid twice. That is what is asserted
+now: one credit row per credited task, one credited task per completed task, and
+exactly one supplier in the credited set — compared as a set, because a
+single-row scan would have passed while a second, wrong supplier was also paid.
+
+### One honest number to sit with
+
+The supplier earned **2 micros of a 11,564 micro charge**. That is not a defect
+and not a rounding failure — it is the shape of a three-record job under this
+schedule. `MERC_CONTROL_PLANE_PER_TASK_USD` is $0.005 and there are two tasks, so
+$0.010 of the charge is control-plane cost Merc actually incurs, and the target
+margin is taken on top. The physical compute genuinely is worth about a
+micro-USD.
+
+It is still worth naming, because a 99.98% platform share is not a defensible
+market position, and nothing in `§18 Competitive proof` can be claimed from a job
+whose price is entirely fixed cost. Small jobs need either amortised control-plane
+cost (batching, coalescing) or a minimum job size the buyer sees before they
+submit. That is Phase 5 and Phase 7 work, and it now has a measured number
+attached to it rather than an intuition.

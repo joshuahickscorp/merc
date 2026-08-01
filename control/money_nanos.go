@@ -75,8 +75,14 @@ type (
 	NanoUSDPerHour int64
 	// NanoUSDPerThousandUnits is a catalogue price expressed per 1,000 units.
 	NanoUSDPerThousandUnits int64
-	// WorkUnits is billable units — rows embedded, tokens generated.
-	WorkUnits int64
+	// NanoWorkUnits is billable units times 1e9, so a fraction of a unit stays
+	// exact. It replaced an integer WorkUnits, which is not a widening for its own
+	// sake: units are NOT whole. The input-side settlement formula is
+	// max(records, bytes/4), and a 233-byte three-record corpus is 58.25 units, so
+	// an integer type forced a ceil() somewhere — and every ceil() charged the
+	// buyer's supplier floor for a fraction of a unit nobody bought. 1.3% on that
+	// corpus, and 100% of the price on any job below a single unit.
+	NanoWorkUnits int64
 	// DurationNanos is elapsed or predicted time in nanoseconds.
 	DurationNanos int64
 	// UnitsPerSecond is governed throughput, in units per second, times 1e9 so it
@@ -238,7 +244,7 @@ func RequiredTaskNanosFromHourlyFloor(
 // both — and a deployment must pick ONE as authority rather than treating the
 // pair as independent, which is how the two figures drifted apart before.
 func RequiredTaskNanosFromThroughput(
-	c Currency, floor NanoUSDPerHour, units WorkUnits, throughput NanoUnitsPerSecond,
+	c Currency, floor NanoUSDPerHour, units NanoWorkUnits, throughput NanoUnitsPerSecond,
 ) (MoneyNanos, error) {
 	if throughput <= 0 {
 		return MoneyNanos{}, errors.New(
@@ -247,37 +253,123 @@ func RequiredTaskNanosFromThroughput(
 	if units < 0 {
 		return MoneyNanos{}, errors.New("work units cannot be negative")
 	}
-	// seconds = units / (throughput/1e9) = units * 1e9 / throughput, in nanoseconds
-	// that is units * 1e9 * 1e9 / throughput — done in two checked steps so the
-	// intermediate stays in big.Int rather than in an int64 that would overflow.
-	secondsNanos, err := mulDiv(int64(units), NanosPerMajorUnit, int64(throughput), true)
-	if err != nil {
-		return MoneyNanos{}, err
-	}
-	durationNanos, err := mulDiv(secondsNanos, NanosPerMajorUnit, 1, true)
+	// ONE division, at the end.
+	//
+	// This was two steps — divide by throughput, then scale to nanoseconds — and
+	// the intermediate was an int64 count of SECONDS. Every task shorter than a
+	// second truncated to one second, and the floor it produced was the whole
+	// hourly ceiling over 3,600 no matter how little work the task held. On the
+	// three-record embed fixture that is 29,093 nanos against a true 1,031, and it
+	// is the bulk of the "30x gap between quote and catalogue" the programme
+	// ledger recorded as a pricing disagreement. It was an integer division.
+	//
+	// units(nano) * 1e9 * 1e9 / (throughput(nano)) is the duration in nanoseconds.
+	// The 1e18 numerator is formed inside mulDiv, in big.Int, so nothing overflows
+	// on the way; the surviving int64 is the duration itself.
+	durationNanos, err := mulDiv(
+		int64(units), NanosPerMajorUnit, int64(throughput), true,
+	)
 	if err != nil {
 		return MoneyNanos{}, err
 	}
 	return RequiredTaskNanosFromHourlyFloor(c, floor, DurationNanos(durationNanos))
 }
 
-// TaskChargeNanosFromCataloguePrice is the buyer side: a catalogue price per
-// 1,000 units times the units delivered, rounded DOWN.
+// NanoWorkUnitsFromFloat converts a fractional unit count at the boundary.
 //
-// Down, because the buyer's direction is the opposite of the supplier's. Rounding
-// a charge up by a fraction of a nano is charging for work not delivered, and the
-// accepted ceiling is a promise about the maximum.
-func TaskChargeNanosFromCataloguePrice(
-	c Currency, price NanoUSDPerThousandUnits, units WorkUnits,
-) (MoneyNanos, error) {
-	if price < 0 || units < 0 {
-		return MoneyNanos{}, errors.New("a catalogue charge needs a non-negative price and units")
+// Named for what it is, like MoneyNanosFromUSDFloat: the unit formula still
+// produces a float64, and this is where that float stops being one. Rounds half
+// away from zero so a value sitting exactly between two nano-units does not drift
+// toward zero.
+func NanoWorkUnitsFromFloat(units float64) NanoWorkUnits {
+	if math.IsNaN(units) || math.IsInf(units, 0) || units <= 0 {
+		return 0
 	}
-	nanos, err := mulDiv(int64(price), int64(units), 1_000, false)
+	scaled := units * float64(NanosPerMajorUnit)
+	if scaled > math.MaxInt64 {
+		// Zero, not a clamp. Clamping would hand the money path a plausible-looking
+		// unit count that is not the one the buyer submitted; zero is refused by
+		// exactTaskEconomics and falls back to the legacy float derivation, which is
+		// the fail-closed direction.
+		return 0
+	}
+	return NanoWorkUnits(math.Round(scaled))
+}
+
+// nanosPer1KFromFloat converts a catalogue price per 1,000 units into nanos.
+//
+// Catalogue prices are published at eight decimal places (ceilPricePer1K), and
+// eight decimals is exactly representable in nanos, so this conversion is lossless
+// for every price the schedule can hold.
+func nanosPer1KFromFloat(pricePer1K float64) NanoUSDPerThousandUnits {
+	if math.IsNaN(pricePer1K) || math.IsInf(pricePer1K, 0) || pricePer1K <= 0 {
+		return 0
+	}
+	return NanoUSDPerThousandUnits(math.Round(pricePer1K * float64(NanosPerMajorUnit)))
+}
+
+// CatalogueGrossNanos is the buyer side of the ONE derivation: a catalogue price
+// per 1,000 units times the exact fractional units delivered.
+//
+//	gross = price x units / 1000
+//
+// Rounds DOWN, because the buyer's direction is down: rounding a charge up by a
+// fraction of a nano is charging for work not delivered, and the accepted ceiling
+// is a promise about the maximum.
+//
+// This replaces the micro-USD float that used to freeze the same quantity. On the
+// three-record fixture the exact gross is 1,436 nanos and roundUSD made it 1,000 —
+// a 30.4% haircut, taken before the supplier's share was applied to it.
+func CatalogueGrossNanos(
+	c Currency, price NanoUSDPerThousandUnits, units NanoWorkUnits,
+) (MoneyNanos, error) {
+	if price < 0 {
+		return MoneyNanos{}, errors.New("a catalogue price cannot be negative")
+	}
+	if units < 0 {
+		return MoneyNanos{}, errors.New("work units cannot be negative")
+	}
+	// price is nanos per 1,000 units; units carries a 1e9 scale factor. So the
+	// divisor is 1,000 x 1e9 and the product is formed in big.Int.
+	nanos, err := mulDiv(int64(price), int64(units), 1_000*NanosPerMajorUnit, false)
 	if err != nil {
 		return MoneyNanos{}, err
 	}
 	return NewMoneyNanos(c, nanos)
+}
+
+// SupplierEntitlementNanos is the supplier side of the same derivation: an
+// explicit share of the exact buyer gross.
+//
+// Rounds UP, opposite to the buyer, for the reason every direction in this file is
+// chosen: a positive-but-tiny entitlement must never be shaved by a rounding step.
+//
+// The share is converted to a nano-fraction first so the multiplication never
+// passes through float64 — a float share times a float amount is precisely the
+// arithmetic this file exists to remove.
+//
+// Because the floor a job must clear and the entitlement it grants are BOTH this
+// function applied to the same gross, admission compares a quantity against
+// itself. That is the point: it is an identity, not a tolerance, and it holds at
+// every job size rather than only above the size where rounding stops mattering.
+func SupplierEntitlementNanos(gross MoneyNanos, share float64) (MoneyNanos, error) {
+	if math.IsNaN(share) || math.IsInf(share, 0) || share <= 0 || share > 1 {
+		return MoneyNanos{}, fmt.Errorf("supplier share %v is not inside (0,1]", share)
+	}
+	if gross.Nanos < 0 {
+		return MoneyNanos{}, errors.New("a buyer gross cannot be negative")
+	}
+	shareNanos := int64(math.Round(share * float64(NanosPerMajorUnit)))
+	nanos, err := mulDiv(gross.Nanos, shareNanos, NanosPerMajorUnit, true)
+	if err != nil {
+		return MoneyNanos{}, err
+	}
+	if nanos > gross.Nanos {
+		// Only reachable when share rounds to exactly 1e9 and the round-up adds a
+		// nano. The supplier is never entitled to more than the buyer was charged.
+		nanos = gross.Nanos
+	}
+	return NewMoneyNanos(gross.Currency, nanos)
 }
 
 // RemainderCarry is the accrual ledger's fractional memory.

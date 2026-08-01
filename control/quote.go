@@ -525,6 +525,17 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		baseComputeUSD = roundEconomicUSD(expected * float64(initialEconomicTasks) / float64(tasks))
 		verifOverhead = roundEconomicUSD(math.Max(0, baseComputeUSD-expected))
 	}
+	// The same base compute, exact, straight from the catalogue.
+	//
+	// Everything above this line has already been through roundEconomicUSD at least
+	// once; on a job whose whole value is under two micro-USD that costs 30% before
+	// the supplier's share is taken. This is the unrounded figure the pricing
+	// decision derives the supplier's floor from, so the plan and the floor are the
+	// same expression rather than two roundings of it.
+	baseComputeNanos := exactBaseComputeNanos(
+		catalogue, sub.JobType.Type, tier, len(inputBytes), scan.Records,
+		sub.JobType.MaxTokens, tasks, initialEconomicTasks,
+	)
 
 	costMin := roundUSD(expected * 0.85)
 	costMax := roundUSD((expected + verifOverhead) * 1.5)
@@ -575,6 +586,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		InitialTaskCount: initialEconomicTasks,
 		ExtraTaskReserve: economicExtraTaskReserve(tasks),
 		SupplierShare:    supplierShareRate,
+		BaseComputeNanos: baseComputeNanos,
 	}
 	baseEconomicPlan := BuildEconomicPlan(basePlanInput, schedule)
 	if economicCountErr != nil {

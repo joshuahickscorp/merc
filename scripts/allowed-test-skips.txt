@@ -79,11 +79,14 @@ TestBinaryArtifactValueChecksAreLoadBearing/Inf
 # and the time to drive them.
 TestPairedCohortMeasuresCostAndRegret
 #
-# The first-complete-loop driver. Every stage through signup, funding, API key and
-# submission works; admission then refuses because the modeled supplier gross
-# (0.102978 USD/hr) falls 1.7% under the admission ceiling (0.104733 USD/hr) that
-# the same catalogue authority derived. That is a product defect, and this line is
-# where it is visible rather than hidden in a red suite. Delete this line when the
-# two derivations are reconciled - the driver is complete and will run.
+# The first-complete-loop driver. The pricing-authority defect this line used to
+# record - modeled supplier gross 0.102978 USD/hr against a 0.104733 USD/hr
+# ceiling from the same catalogue - is FIXED, along with the two defects underneath
+# it, and the driver now runs green end to end on a host with an agent binary and
+# object storage. What remains is hardware: it builds and launches a real
+# merc-agent process and drives a real runtime, which the CI lane has neither the
+# binary nor the time for. The admission half of this loop is asserted with no
+# hardware at all by TestAStrangerCanBeAdmittedForASubMicroJob, which CI does run.
+# Delete this line when a lane exists that always has a built agent.
 TestFirstCompleteLoopThroughThePublicAPI
 
