@@ -124,6 +124,28 @@ The gate also caught its own caller: the cohort's scope claimed verification
 contract `cosine_similarity` where the cell sells `cosine`, and the authority check
 refused the promotion for it.
 
+### And then the batch-32 rerun contradicted the benchmark
+
+With batches of 32 the cells finally separated — and not in the direction the
+retained benchmark implies:
+
+| cell | measured through the chain | supplier USD/unit |
+| --- | --- | --- |
+| `candle-metal-minilm-embed` | 0.2188 ms/unit | 0.006062500 |
+| `llama-cpp-metal-minilm-embed` | 0.2812 ms/unit | 0.006062500 |
+
+`evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json` puts
+llama.cpp at 2,179 texts/sec against candle's 326 at batch 8 — about 6.7× faster.
+Through the full Merc chain at batch 32 it is **28.6% slower per unit**, and the
+gate refused the promotion for exactly that reason.
+
+The two numbers are not the same quantity: one is raw engine throughput on a warm
+in-process harness, the other is what an enrolled agent reports for a task that
+also downloads its input, executes, hashes and uploads its result. That is the
+whole of §20's fourth prohibition — *do not treat standalone benchmarks as product
+proof* — stated in numbers rather than as advice, and it is the chain measurement a
+promotion has to be argued from.
+
 ### Two holes found by reviewing the cost model against itself
 
 Both were in the first version of the scorer, and both would have promoted the
@@ -144,10 +166,11 @@ wrong cell:
 
 ### Steps that did not move, and why
 
-* **3, 4, 12, 16, 17, 18, 22** — not attempted this session. 12 needs the 128-caller
-  chain driven through the ledger and 128 receipts; the arithmetic and the leader
-  election are already tested, the end-to-end settlement is not. 16, 17, 18 and 22
-  are each multi-day builds.
+* **16, 17, 18, 22** — not attempted. Each is a multi-day build: a rendering IR with
+  asset digests and frame decomposition, a packaged agent installer with limits and
+  schedule, a project compiler with detectors and a sandboxed probe, and the full
+  loop that depends on all three. *(Steps 3, 4 and 12 were in this list and have
+  since moved — see the second pass above.)*
 * **5, 6** — already `PRODUCTION_WIRED` at entry. The provider half of 6 is
   `P1-STRIPE-TEST`, and the Stripe **test** credential in `.env` is live and
   working (`GET /v1/balance` → `livemode:false`, CAD bucket). The matrix is still

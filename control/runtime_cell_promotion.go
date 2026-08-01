@@ -265,11 +265,18 @@ func (s *Store) EvaluateCellPromotion(
 			}
 			evidence.ThroughputGainFraction = gain
 			if gain < promotionThroughputMarginFraction {
-				refuse("challenger %s costs the same per unit (%.2f%% apart) and is only "+
-					"%.2f%% faster, below the %.0f%% throughput margin; a same-price "+
-					"promotion has to buy capacity because it cannot buy a saving",
-					scope.CellID, evidence.SavingFraction*100, gain*100,
-					promotionThroughputMarginFraction*100)
+				// Phrased by direction. "only -28.57% faster" is a double negative a
+				// reader has to decode, and the two cases are different findings: a
+				// slower challenger is a reason to stop looking, a marginally faster
+				// one is a reason to gather more samples.
+				speed := fmt.Sprintf("only %.2f%% faster, below the %.0f%% throughput margin",
+					gain*100, promotionThroughputMarginFraction*100)
+				if gain < 0 {
+					speed = fmt.Sprintf("%.2f%% SLOWER per unit", -gain*100)
+				}
+				refuse("challenger %s costs the same per unit (%.2f%% apart) and is %s; a "+
+					"same-price promotion has to buy capacity because it cannot buy a saving",
+					scope.CellID, evidence.SavingFraction*100, speed)
 			}
 		default:
 			evidence.Basis = promotionBasisCost
