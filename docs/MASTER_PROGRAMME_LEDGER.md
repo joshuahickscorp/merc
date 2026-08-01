@@ -186,6 +186,20 @@ wrong cell:
   staging host, an offsite provider, a real paging receiver, two external Metal
   devices, a non-author reviewer, or eight named governance approvals.
 
+## A hazard worth naming
+
+**Another Claude Code session was editing this same working tree during the second
+pass.** `scripts/merc-credentials.sh` gained a `--runpod` flag at 19:54 and
+`evidence/canary/private-canary.json` was rewritten at 19:57, neither by this
+session. Those changes are deliberately left uncommitted and untouched here, and
+no commit in this session's range contains either file.
+
+It also explains an earlier puzzle: a background test suite that appeared to
+restart itself twice. Two agents in one tree race on the same test databases, the
+same `go build` cache and the same tracked evidence files, and the failure mode is
+quiet — a suite that reports someone else's half-applied edit. Worktrees, not one
+shared tree.
+
 ## Findings the entry pass turned up
 
 1. **`control/schema.sql` could not migrate a database that had ever served
