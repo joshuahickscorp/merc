@@ -72,6 +72,21 @@ if ! "$RUNTIME" run --rm --entrypoint /merc "$TAG" --help >/dev/null 2>&1; then
   : # the binary may not support --help; the boot below is the real check
 fi
 
+# The one binary also provides the operator CLI. Its identity uses separate Go
+# variables from the HTTP server, so /version alone cannot prove it was stamped.
+cli_version_json="$($RUNTIME run --rm --entrypoint /merc "$TAG" version --json 2>/dev/null || echo '{}')"
+cli_version="$(printf '%s' "$cli_version_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' 2>/dev/null)"
+cli_commit="$(printf '%s' "$cli_version_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' 2>/dev/null)"
+cli_build_date="$(printf '%s' "$cli_version_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("build_date",""))' 2>/dev/null)"
+if [ "$cli_version" != "$BUILD_VERSION" ] || [ "$cli_commit" != "$HEAD_SHA" ] ||
+   [ "$cli_build_date" != "$BUILD_DATE" ]; then
+  echo "release image boot: FAIL -- CLI artifact identity does not match exact HEAD" >&2
+  echo "  expected version=$BUILD_VERSION commit=${HEAD_SHA:0:12} build_date=$BUILD_DATE" >&2
+  echo "  observed version=${cli_version:-missing} commit=${cli_commit:0:12} build_date=${cli_build_date:-missing}" >&2
+  exit 1
+fi
+echo "  ok    operator CLI identifies exact HEAD ${HEAD_SHA:0:12}"
+
 "$RUNTIME" network create "$NET" >/dev/null 2>&1 || true
 "$RUNTIME" run -d --name "$DB" --network "$NET" \
   -e POSTGRES_PASSWORD=boot -e POSTGRES_USER=merc -e POSTGRES_DB=merc \

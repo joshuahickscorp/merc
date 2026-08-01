@@ -8,7 +8,7 @@ RUN go mod download
 COPY control/ ./
 COPY ops/healthcheck.c /tmp/healthcheck.c
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
-    -ldflags="-s -w -X main.controlVersion=${MERC_BUILD_VERSION} -X main.controlCommit=${MERC_BUILD_COMMIT} -X main.controlBuildDate=${MERC_BUILD_DATE}" \
+    -ldflags="-s -w -X main.controlVersion=${MERC_BUILD_VERSION} -X main.controlCommit=${MERC_BUILD_COMMIT} -X main.controlBuildDate=${MERC_BUILD_DATE} -X main.cliVersion=${MERC_BUILD_VERSION} -X main.cliCommit=${MERC_BUILD_COMMIT} -X main.cliBuildDate=${MERC_BUILD_DATE}" \
     -o /merc . && \
     cc -static -Os -s -Wall -Wextra -Werror -o /merc-healthcheck /tmp/healthcheck.c
 
