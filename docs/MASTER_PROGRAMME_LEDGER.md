@@ -281,6 +281,43 @@ missing any one of them returns 503 or 409 to a stranger:
 6. `MERC_CANARY_MODE=false` with a decision reference — one decision gates both
    signup and the payout ceiling.
 
+## The exact economic authority
+
+`control/money_nanos.go` lands the unit the fourth defect made unavoidable:
+integer nano-major-units bound to a currency, overflow-safe `big.Int`
+intermediates, no `float64` in the arithmetic. Eleven tests, all green, including
+the real 0.102978/0.104733 case reproduced as arithmetic.
+
+Rounding directions are opposite **by design**: a supplier floor rounds UP (a
+positive-but-tiny entitlement must never become zero), a buyer charge rounds DOWN
+(rounding up charges for work not delivered). Rates, durations, units and per-task
+amounts are separate types, because the defect compared a USD/hour against a
+USD/task and `float64` permitted it. `RemainderCarry` extends the sub-cent fix one
+layer down — 10,000 accruals of 17 nanos post 170 micros and lose nothing, where
+micro-only arithmetic rounded every one to zero.
+
+There is **no function** that reconstructs an hourly rate from a rounded task
+payout. That is the bug; it is not offered.
+
+### Why admission is not switched over in the same change
+
+The check needs the frozen supplier entitlement to be **exact**, and today
+`BuildEconomicPlan` freezes it through `roundEconomicUSD` at micro-USD. Comparing
+an exactly-derived floor against a micro-quantised frozen amount still fails by up
+to one micro — the same defect wearing a different hat. Comparing both *rounded*
+would pass and leave the supplier ~1.7% short, which is the fix the directive
+correctly forbids.
+
+So the next change is the additive one: nano fields on the frozen plan, computed
+exactly, dual-written beside the existing micro projections, with legacy rows
+keeping their own policy revision. Then admission compares
+`supplier_gross_nanos >= supplier_required_nanos` per task and the reverse-hourly
+path is deleted once no caller needs it.
+
+That is money-path surgery across `BuildEconomicPlan` and its test suite, and it
+was not started on a thin context budget. The authority it depends on is in place
+and proven.
+
 ## A hazard worth naming
 
 **Another Claude Code session was editing this same working tree during the second
