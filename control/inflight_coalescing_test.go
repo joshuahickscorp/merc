@@ -149,8 +149,28 @@ func TestFollowerCancellationDoesNotCancelTheLeader(t *testing.T) {
 
 	// The leader still holds the identity and can still publish.
 	if err := store.ResolveInflightSuccess(ctx, identity, "leader",
-		"ref/leader", strings.Repeat("a", 64), 12); err != nil {
+		"ref/leader", strings.Repeat("a", 64), 12, uuid.New()); err != nil {
 		t.Fatalf("leader could not publish after a follower cancelled: %v", err)
+	}
+}
+
+// A COMPLETE hand-off without the physical contract it claims to represent is
+// unsafe: a follower could otherwise settle a zero-physical receipt with no
+// durable source execution to inspect. Refuse it before changing the lease row.
+func TestInflightSuccessRequiresPhysicalLeaderContract(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	tenant := uuid.New()
+	identity := identityFor(t, tenant, "missing physical leader")
+	if role, err := store.ClaimInflightExecution(ctx, identity, tenant, "leader"); err != nil || !role.Leader {
+		t.Fatalf("leader claim: %+v %v", role, err)
+	}
+	if err := store.ResolveInflightSuccess(ctx, identity, "leader",
+		"ref/leader", strings.Repeat("a", 64), 12, uuid.Nil); err == nil {
+		t.Fatal("published an inflight result without a physical leader contract")
+	}
+	var state string
+	if err := pool.QueryRow(ctx, `SELECT state FROM inflight_executions WHERE request_identity=$1`, identity).Scan(&state); err != nil || state != "RUNNING" {
+		t.Fatalf("missing physical source changed the hand-off to state=%q err=%v", state, err)
 	}
 }
 
@@ -252,7 +272,7 @@ func TestPublishIsFencedOnLeadership(t *testing.T) {
 	// The deposed leader finishing late must not publish: two executions both
 	// claiming to be the answer would hand followers whichever landed last.
 	err := store.ResolveInflightSuccess(ctx, identity, "leader-1",
-		"ref/stale", strings.Repeat("b", 64), 9)
+		"ref/stale", strings.Repeat("b", 64), 9, uuid.New())
 	if err == nil {
 		t.Fatal("a deposed leader published its result")
 	}
@@ -262,7 +282,7 @@ func TestPublishIsFencedOnLeadership(t *testing.T) {
 
 	// The current leader can.
 	if err := store.ResolveInflightSuccess(ctx, identity, "leader-2",
-		"ref/live", strings.Repeat("c", 64), 11); err != nil {
+		"ref/live", strings.Repeat("c", 64), 11, uuid.New()); err != nil {
 		t.Fatalf("current leader could not publish: %v", err)
 	}
 	result, ok, err := store.AwaitInflightResult(ctx, identity, tenant)
@@ -457,7 +477,7 @@ func TestARenewedLeaseSurvivesItsTTLAndKeepsThePublishRight(t *testing.T) {
 			"reproduces the condition the renewal exists for")
 	}
 	if err := store.ResolveInflightSuccess(
-		ctx, identity, "leader-1", "ref", strings.Repeat("a", 64), 1); err == nil {
+		ctx, identity, "leader-1", "ref", strings.Repeat("a", 64), 1, uuid.New()); err == nil {
 		t.Fatal("the original leader could still publish after being taken over")
 	}
 
@@ -485,7 +505,7 @@ func TestARenewedLeaseSurvivesItsTTLAndKeepsThePublishRight(t *testing.T) {
 		t.Fatal("a renewed lease was still taken over; the renewal did not extend it")
 	}
 	if err := store.ResolveInflightSuccess(
-		ctx, fresh, "leader-3", "ref", strings.Repeat("b", 64), 1); err != nil {
+		ctx, fresh, "leader-3", "ref", strings.Repeat("b", 64), 1, uuid.New()); err != nil {
 		t.Fatalf("the renewing leader lost its right to publish: %v", err)
 	}
 
