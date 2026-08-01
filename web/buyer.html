@@ -5,205 +5,201 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>merc buyer workspace</title>
 <style>
-:root{color-scheme:dark;--bg:#070707;--panel:#111;--line:#3f3f3f;--text:#f2f2ef;--muted:#ababab;--good:#74c69d;--bad:#f08c7d}
+:root{color-scheme:dark;--bg:#070707;--panel:#111;--line:#3f3f3f;--text:#f2f2ef;--muted:#ababab;--good:#74c69d;--bad:#f08c7d;--warn:#e9c46a}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,sans-serif}
 a{color:var(--good)}button,input,select,textarea{font:inherit;color:inherit;background:#171717;border:1px solid var(--line);padding:10px}
-button{cursor:pointer}button:hover{border-color:var(--good)}:where(a,button,input,select,textarea):focus-visible{outline:2px solid var(--good);outline-offset:3px}
-header,main{width:min(1120px,calc(100% - 32px));margin:auto}header{display:flex;align-items:center;gap:18px;padding:22px 0;border-bottom:1px solid var(--line)}
-header strong{letter-spacing:.04em}header nav{margin-left:auto;display:flex;gap:14px}.muted{color:var(--muted)}
+button{cursor:pointer}button:hover{border-color:var(--good)}button.danger{border-color:var(--bad)}:where(a,button,input,select,textarea):focus-visible{outline:2px solid var(--good);outline-offset:3px}
+header,main{width:min(1180px,calc(100% - 32px));margin:auto}header{display:flex;align-items:center;gap:18px;padding:22px 0;border-bottom:1px solid var(--line)}
+header strong{letter-spacing:.04em}header nav{margin-left:auto;display:flex;gap:14px}.muted{color:var(--muted)}.warn{color:var(--warn)}
 .notice{padding:14px 0;color:var(--muted)}.notice b{color:var(--text)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:14px 0 40px}
 .card{border:1px solid var(--line);background:var(--panel);padding:18px;min-width:0}.wide{grid-column:1/-1}h1,h2{margin:0 0 14px}h1{font-size:20px}h2{font-size:15px;color:var(--good)}
-form{display:grid;gap:12px}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}label{display:grid;gap:6px;color:var(--muted);font-size:13px}
-textarea{min-height:130px;resize:vertical}button.primary{background:var(--good);color:#07130d;border-color:var(--good);font-weight:700}.actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+form,.stack{display:grid;gap:12px}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}label{display:grid;gap:6px;color:var(--muted);font-size:13px}
+textarea{min-height:110px;resize:vertical}button.primary{background:var(--good);color:#07130d;border-color:var(--good);font-weight:700}.actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
 .states{display:flex;flex-wrap:wrap;gap:7px;list-style:none;margin:0;padding:0}.states li{border:1px solid var(--line);padding:5px 8px;color:var(--muted);font:12px ui-monospace,monospace}
 pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;color:#d6d6d2;font:12px/1.5 ui-monospace,monospace}
-#session[hidden],#workspace[hidden]{display:none}.status{min-height:24px;color:var(--muted)}.status.error{color:var(--bad)}.status.good{color:var(--good)}
-@media(max-width:760px){.grid,.fields{grid-template-columns:1fr}.wide{grid-column:auto}header{align-items:flex-start;flex-wrap:wrap}header nav{margin-left:0;width:100%}}
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+#session[hidden],#workspace[hidden],#card-panel[hidden]{display:none}.status{min-height:24px;color:var(--muted)}.status.error{color:var(--bad)}.status.good{color:var(--good)}
+table{width:100%;border-collapse:collapse;font:12px/1.45 ui-monospace,monospace}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--good)}
+.secret{border:1px solid var(--warn);padding:12px}.contact-list{display:grid;gap:7px}.contact-list a{overflow-wrap:anywhere}code{font-family:ui-monospace,monospace}
+#card-element{border:1px solid var(--line);background:#fff;padding:12px}
+@media(max-width:760px){.grid,.fields{grid-template-columns:1fr}.wide{grid-column:auto}header{align-items:flex-start;flex-wrap:wrap}header nav{margin-left:0;width:100%}.table-wrap{overflow:auto}}
 </style>
+<script src="https://js.stripe.com/v3/"></script>
 </head>
 <body>
 <header>
-  <strong>merc / buyer</strong>
-  <span class="muted">approved private test canary</span>
-  <nav aria-label="product links"><a href="/">product</a><a href="/healthz">status</a></nav>
+  <strong>merc / buyer</strong><span class="muted">Stripe test-mode workspace</span>
+  <nav aria-label="product links"><a href="/">product</a><a href="/prices">prices</a><a href="/supplier">supplier</a><a id="status-link" href="/healthz">status</a></nav>
 </header>
 <main>
-  <p class="notice"><b>No real payments.</b> This workspace accepts only the advertised <code>embed</code> and <code>batch_infer</code> contract for approved canary accounts.</p>
+  <p class="notice"><b>No live payments.</b> The server controls admission, currency, ceilings, pricing and settlement. Secrets shown once are kept in page memory only.</p>
+
   <section id="session" class="grid">
+    <div class="card">
+      <h1>Create account</h1>
+      <form id="signup-form">
+        <label>Email <input id="signup-email" type="email" autocomplete="email" required></label>
+        <label>Password <input id="signup-password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required></label>
+        <button class="primary" type="submit">create approved canary account</button>
+      </form>
+      <p id="signup-status" class="status" aria-live="polite"></p>
+      <div id="signup-secret" class="secret" hidden>
+        <strong>Copy this sandbox API key now. It is not shown again.</strong>
+        <pre id="signup-secret-value"></pre>
+      </div>
+    </div>
     <div class="card">
       <h1>Sign in</h1>
       <form id="login-form">
-        <label>Email <input id="email" name="email" type="email" autocomplete="email" required></label>
-        <label>Password <input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <label>Email <input id="email" type="email" autocomplete="email" required></label>
+        <label>Password <input id="password" type="password" autocomplete="current-password" required></label>
         <button class="primary" type="submit">sign in</button>
       </form>
       <p id="login-status" class="status" aria-live="polite"></p>
-    </div>
-    <div class="card">
-      <h2>Canary limits</h2>
-      <p class="muted">Approved accounts only. Capacity and latency are limited. Payment-provider integration remains test-mode only and is not represented as live-money readiness.</p>
-      <p><a href="https://github.com/joshuahickscorp/merc/tree/release/rc1-go-closure/docs">API and canary documentation</a></p>
+      <p class="muted">Private canary admission is enforced by the server. Creating an account cannot bypass the approved-account gate.</p>
     </div>
   </section>
 
   <section id="workspace" class="grid" hidden>
     <div class="card wide">
-      <div class="actions"><strong id="identity">authenticated buyer</strong><span id="budget" class="muted"></span><button id="logout" type="button">log out</button></div>
+      <div class="actions"><strong id="identity">authenticated buyer</strong><span id="balance" class="muted"></span><span id="currency" class="muted"></span><button id="logout" type="button">log out</button></div>
     </div>
+
     <div class="card">
-      <h2>1 / quote and input</h2>
+      <h2>Funding and balance</h2>
+      <div class="stack">
+        <div id="card-panel" hidden><div id="card-element"></div><button id="save-card" type="button">save Stripe test card</button></div>
+        <div class="actions"><button id="prepare-card" type="button">prepare card form</button><button id="billing-refresh" type="button">refresh balance</button></div>
+        <label>Top up, major currency units <input id="topup-amount" type="number" min="1" step="0.01" value="1.00"></label>
+        <button id="topup" class="primary" type="button">top up in test mode</button>
+        <p id="billing-status" class="status" aria-live="polite"></p><pre id="billing-output">Billing status not loaded.</pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>API keys</h2>
+      <div class="stack">
+        <div class="actions"><input id="key-name" value="buyer workspace" aria-label="key name"><button id="key-create" type="button">create test key</button><button id="keys-refresh" type="button">refresh</button></div>
+        <div id="new-key" class="secret" hidden><strong>Copy once:</strong><pre id="new-key-value"></pre></div>
+        <div class="table-wrap"><table><thead><tr><th>name</th><th>masked</th><th>created</th><th></th></tr></thead><tbody id="keys-body"></tbody></table></div>
+        <p id="keys-status" class="status" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Quote and submit</h2>
       <form id="job-form">
         <div class="fields">
-          <label>Workload
-            <select id="workload"><option value="embed">embed</option><option value="batch_infer">batch_infer</option></select>
-          </label>
-          <label>Budget cap USD <input id="max-usd" type="number" min="0" step="0.000001" value="0.10"></label>
+          <label>Workload <select id="workload"><option value="embed">embed</option><option value="batch_infer">batch_infer</option></select></label>
+          <label>Hard budget cap <input id="max-usd" type="number" min="0" step="0.000001" value="0.10"></label>
         </div>
         <label>JSONL input file <input id="input-file" type="file" accept=".jsonl,.txt,application/json,text/plain"></label>
-        <label>JSONL input
-          <textarea id="input" required>{"text":"private canary embedding"}</textarea>
-        </label>
-        <label>Completion webhook HTTPS URL, optional <input id="webhook" type="url" inputmode="url" placeholder="https://buyer.example/merc-complete"></label>
-        <div class="actions"><button id="quote" type="button">request quote</button><button class="primary" type="submit">submit job</button></div>
+        <label>JSONL input <textarea id="input" required>{"text":"private canary embedding"}</textarea></label>
+        <label>Completion webhook HTTPS URL, optional <input id="webhook" type="url" placeholder="https://buyer.example/merc-complete"></label>
+        <div class="actions"><button id="quote" type="button">request quote</button><button class="primary" type="submit">submit firm quote</button></div>
       </form>
       <p id="job-status" class="status" aria-live="polite"></p>
     </div>
-    <div class="card">
-      <h2>2 / quote receipt</h2>
-      <pre id="quote-output">Request a quote before submission.</pre>
-    </div>
+    <div class="card"><h2>Quote receipt</h2><pre id="quote-output">Request a quote before submission.</pre></div>
+
     <div class="card wide">
-      <h2>3 / job lifecycle</h2>
-      <ul class="states" aria-label="possible job states">
-        <li>queued</li><li>running</li><li>retrying</li><li>verifying</li><li>completed</li><li>cancelled</li><li>failed</li>
-      </ul>
+      <h2>Jobs</h2>
+      <div class="actions"><button id="jobs-refresh" type="button">refresh jobs</button><label>Selected job ID <input id="job-id" autocomplete="off"></label></div>
+      <div class="table-wrap"><table><thead><tr><th>created</th><th>type</th><th>state</th><th>tasks</th><th>actual</th><th></th></tr></thead><tbody id="jobs-body"></tbody></table></div>
+      <ul class="states"><li>queued</li><li>running</li><li>retrying</li><li>verifying</li><li>complete</li><li>cancelled</li><li>failed</li></ul>
       <div class="actions">
-        <label>Job ID <input id="job-id" inputmode="text" autocomplete="off"></label>
-        <button id="refresh" type="button">refresh</button><button id="events" type="button">events</button>
-        <button id="results" type="button">results</button><button id="cancel" type="button">cancel queued job</button>
+        <button data-job-path="" type="button">status</button><button data-job-path="/events" type="button">events</button><button data-job-path="/failures" type="button">failures</button>
+        <button data-job-path="/results" type="button">results</button><button data-job-path="/invoice" type="button">invoice</button><button data-job-path="/receipt" type="button">receipt</button><button id="cancel" type="button">cancel queued</button>
       </div>
-      <p id="poll-status" class="status" aria-live="polite"></p>
-      <pre id="job-output">No job selected.</pre>
+      <div class="fields"><label>Dispute or refund-request reason <input id="dispute-reason" maxlength="2000" placeholder="Describe the terminal-job issue"></label><button id="dispute" type="button">open dispute / refund request</button></div>
+      <p id="poll-status" class="status" aria-live="polite"></p><pre id="job-output">No job selected.</pre>
     </div>
+
     <div class="card">
-      <h2>Webhook and results</h2>
-      <p class="muted">A webhook signing secret is revealed once on registration or submission. Keep it outside browser storage. Results remain buyer-authenticated and artifact URLs are short-lived.</p>
+      <h2>Realtime request</h2>
+      <form id="realtime-form">
+        <label>Prompt <textarea id="realtime-prompt">Reply with only: realtime ready</textarea></label>
+        <label>Hard max tokens <input id="realtime-max-tokens" type="number" min="1" max="256" value="32"></label>
+        <button class="primary" type="submit">send chat completion</button>
+      </form>
+      <div class="actions"><label>Request ID <input id="realtime-id"></label><button id="realtime-receipt" type="button">load receipt</button></div>
+      <p id="realtime-status" class="status"></p><pre id="realtime-output">No realtime request.</pre>
     </div>
+
     <div class="card">
-      <h2>Support and privacy</h2>
-      <p class="muted">Use the approved canary support channel for failures, billing-model questions, data export, deletion, restriction, or an artifact-reference concern. Include a job ID, never a credential or private input.</p>
+      <h2>Support, security and policies</h2>
+      <div id="contacts" class="contact-list muted">Runtime contacts are not configured.</div>
+      <p class="muted">Include a job or request ID, never a credential, payment method, presigned URL or private input. Refunds that move provider cash remain an audited operator action after a buyer dispute/request.</p>
     </div>
   </section>
 </main>
 <script>
-let token = '';
-let quoteReceipt = null;
-let pollTimer = null;
-const byId = id => document.getElementById(id);
+let token='', quoteReceipt=null, publicConfig=null, stripe=null, cardElement=null;
+const byId=id=>document.getElementById(id);
+const status=(id,message,kind='')=>{const n=byId(id);n.className='status '+kind;n.textContent=message};
+const money=value=>{const code=(publicConfig?.settlement_currency||'').toUpperCase();return Number.isFinite(Number(value))?`${Number(value).toFixed(6)} ${code}`:'—'};
 
-async function api(path, options = {}) {
-  const headers = {...(options.headers || {})};
-  if (token) headers.Authorization = 'Bearer ' + token;
-  if (options.body) headers['Content-Type'] = 'application/json';
-  const response = await fetch(path, {...options, headers, cache:'no-store'});
-  const text = await response.text();
-  let value;
-  try { value = text ? JSON.parse(text) : null; } catch { value = text; }
-  if (!response.ok) throw new Error(typeof value === 'string' ? value : JSON.stringify(value));
-  return value;
+async function api(path,options={}){
+  const headers={accept:'application/json',...(options.headers||{})};
+  if(token)headers.Authorization='Bearer '+token;
+  if(options.body)headers['Content-Type']='application/json';
+  const response=await fetch(path,{...options,headers,cache:'no-store'});const text=await response.text();let value;
+  try{value=text?JSON.parse(text):null}catch{value=text}if(!response.ok)throw new Error(typeof value==='string'?value:(value?.error||JSON.stringify(value)));return value;
 }
 
-function submission() {
-  const workload = byId('workload').value;
-  return {
-    job_type: workload === 'embed' ? {type:'embed',batch_size:8} : {type:'batch_infer',max_tokens:32,temperature:0},
-    model: {ref: workload === 'embed' ? 'all-minilm-l6-v2' : 'llama-3.2-1b-instruct-q4'},
-    params: {split_size:1}, constraints:{min_memory_gb:0,hw_classes:null,data_residency:null},
-    verification:{redundancy_frac:0,honeypot_frac:0,payout_hold_secs:0}, tier:'batch',
-    input: byId('input').value, webhook_url:byId('webhook').value.trim(),
-    max_usd:Number(byId('max-usd').value)
-  };
+async function loadPublicConfig(){
+  publicConfig=await api('/v1/public/config');byId('currency').textContent='settlement: '+String(publicConfig.settlement_currency||'unconfigured').toUpperCase();
+  const c=publicConfig.contacts||{},root=byId('contacts');root.textContent='';
+  if(c.configured){
+    for(const [label,href,text] of [['support','mailto:'+c.support_email,c.support_email],['security','mailto:'+c.security_email,c.security_email],['status',c.status_url,c.status_url],['terms',c.terms_url,c.terms_url],['privacy',c.privacy_url,c.privacy_url]]){const a=document.createElement('a');a.href=href;a.textContent=label+': '+text;root.append(a)}
+    byId('status-link').href=c.status_url;
+  }else{root.textContent='Contacts are not staffed in this runtime. Missing: '+(c.missing||[]).join(', ');root.className='contact-list warn'}
 }
 
-function showStatus(id, message, kind = '') {
-  const node = byId(id); node.className = 'status ' + kind; node.textContent = message;
+async function enterWorkspace(session){
+  token=session.token;const me=await api('/v1/me');byId('identity').textContent=me.email;byId('session').hidden=true;byId('workspace').hidden=false;
+  await Promise.allSettled([refreshBilling(),refreshKeys(),refreshJobs()]);
 }
 
-byId('login-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  showStatus('login-status','signing in...');
-  try {
-    const session = await api('/v1/login',{method:'POST',body:JSON.stringify({email:byId('email').value,password:byId('password').value})});
-    token = session.token;
-    byId('password').value = '';
-    const me = await api('/v1/me');
-    byId('identity').textContent = me.email;
-    byId('budget').textContent = 'sandbox credit remaining: $' + Number(me.free_credit_remaining_usd).toFixed(6);
-    byId('session').hidden = true; byId('workspace').hidden = false;
-    showStatus('login-status','');
-  } catch (error) { showStatus('login-status',error.message,'error'); }
-});
+byId('signup-form').addEventListener('submit',async event=>{event.preventDefault();status('signup-status','creating account…');
+  try{const out=await api('/v1/signup',{method:'POST',body:JSON.stringify({email:byId('signup-email').value,password:byId('signup-password').value})});byId('signup-password').value='';if(out.sandbox_key){byId('signup-secret-value').textContent=out.sandbox_key;byId('signup-secret').hidden=false}await enterWorkspace(out);status('signup-status','account created','good')}catch(error){status('signup-status',error.message,'error')}});
+byId('login-form').addEventListener('submit',async event=>{event.preventDefault();status('login-status','signing in…');
+  try{const out=await api('/v1/login',{method:'POST',body:JSON.stringify({email:byId('email').value,password:byId('password').value})});byId('password').value='';await enterWorkspace(out);status('login-status','')}catch(error){status('login-status',error.message,'error')}});
+byId('logout').addEventListener('click',async()=>{try{await api('/v1/logout',{method:'POST'})}catch{}token='';quoteReceipt=null;byId('workspace').hidden=true;byId('session').hidden=false});
 
-byId('logout').addEventListener('click', async () => {
-  try { await api('/v1/logout',{method:'POST'}); } catch {}
-  token = ''; quoteReceipt = null; clearInterval(pollTimer); byId('workspace').hidden = true; byId('session').hidden = false;
-});
+async function refreshBilling(){const out=await api('/v1/billing/status');byId('billing-output').textContent=JSON.stringify(out,null,2);byId('balance').textContent='balance: '+money(Number(out.balance_micros)/1e6);status('billing-status',out.pending_topup_count?`${out.pending_topup_count} top-up(s) pending`:'balance reconciled',out.pending_topup_count?'':'good');return out}
+byId('billing-refresh').addEventListener('click',()=>refreshBilling().catch(error=>status('billing-status',error.message,'error')));
+byId('prepare-card').addEventListener('click',async()=>{try{
+  if(!publicConfig?.stripe_payment_form_enabled||!window.Stripe)throw new Error('Stripe test publishable key is not configured for this runtime');
+  if(!stripe){stripe=Stripe(publicConfig.stripe_publishable_key);cardElement=stripe.elements().create('card',{hidePostalCode:false});cardElement.mount('#card-element')}
+  byId('card-panel').hidden=false;status('billing-status','test card form ready')
+}catch(error){status('billing-status',error.message,'error')}});
+byId('save-card').addEventListener('click',async()=>{status('billing-status','saving test card…');try{const setup=await api('/v1/billing/setup',{method:'POST',body:'{}'});const result=await stripe.confirmCardSetup(setup.client_secret,{payment_method:{card:cardElement}});if(result.error)throw result.error;await refreshBilling();status('billing-status','test card saved','good')}catch(error){status('billing-status',error.message,'error')}});
+byId('topup').addEventListener('click',async()=>{status('billing-status','submitting capped test top-up…');try{const out=await api('/v1/billing/topup',{method:'POST',headers:{'Idempotency-Key':'buyer-web-'+crypto.randomUUID()},body:JSON.stringify({amount_usd:Number(byId('topup-amount').value)})});byId('billing-output').textContent=JSON.stringify(out,null,2);await refreshBilling();status('billing-status','top-up credited','good')}catch(error){status('billing-status',error.message,'error')}});
 
-byId('input-file').addEventListener('change', async event => {
-  const file = event.target.files[0];
-  if (file) byId('input').value = await file.text();
-});
+async function refreshKeys(){const out=await api('/v1/keys'),body=byId('keys-body'),keys=out.keys||[];body.textContent='';for(const key of keys){const row=document.createElement('tr');for(const value of [key.name||'',key.masked||'',key.created_at||'']){const td=document.createElement('td');td.textContent=value;row.append(td)}const action=document.createElement('td'),button=document.createElement('button');button.textContent=key.revoked?'revoked':'revoke';button.disabled=Boolean(key.revoked);button.dataset.keyId=key.id;button.className='danger';action.append(button);row.append(action);body.append(row)}status('keys-status',`${keys.filter(key=>!key.revoked).length} active key(s); ${keys.filter(key=>key.revoked).length} revoked`,'good')}
+byId('keys-refresh').addEventListener('click',()=>refreshKeys().catch(error=>status('keys-status',error.message,'error')));
+byId('key-create').addEventListener('click',async()=>{try{const out=await api('/v1/keys',{method:'POST',body:JSON.stringify({name:byId('key-name').value,test:true})});byId('new-key-value').textContent=out.key;byId('new-key').hidden=false;await refreshKeys()}catch(error){status('keys-status',error.message,'error')}});
+byId('keys-body').addEventListener('click',async event=>{const id=event.target.dataset.keyId;if(!id)return;try{await api('/v1/keys/'+encodeURIComponent(id),{method:'DELETE'});await refreshKeys()}catch(error){status('keys-status',error.message,'error')}});
 
-byId('workload').addEventListener('change', () => {
-  byId('input').value = byId('workload').value === 'embed' ? '{"text":"private canary embedding"}' : '{"prompt":"Summarize this private canary input."}';
-  quoteReceipt = null;
-});
+function submission(){const workload=byId('workload').value;return{job_type:workload==='embed'?{type:'embed',batch_size:8}:{type:'batch_infer',max_tokens:32,temperature:0},model:{ref:workload==='embed'?'all-minilm-l6-v2':'llama-3.2-1b-instruct-q4'},params:{split_size:1},constraints:{min_memory_gb:0,hw_classes:null,data_residency:null},verification:{redundancy_frac:0,honeypot_frac:0,payout_hold_secs:0},tier:'batch',input:byId('input').value,webhook_url:byId('webhook').value.trim(),max_usd:Number(byId('max-usd').value)}}
+byId('input-file').addEventListener('change',async event=>{const file=event.target.files[0];if(file)byId('input').value=await file.text()});
+byId('workload').addEventListener('change',()=>{byId('input').value=byId('workload').value==='embed'?'{"text":"private canary embedding"}':'{"prompt":"Summarize this private canary input."}';quoteReceipt=null});
+byId('quote').addEventListener('click',async()=>{status('job-status','quoting…');try{quoteReceipt=await api('/v1/quote',{method:'POST',body:JSON.stringify(submission())});byId('quote-output').textContent=JSON.stringify(quoteReceipt,null,2);status('job-status','firm quote ready','good')}catch(error){status('job-status',error.message,'error')}});
+byId('job-form').addEventListener('submit',async event=>{event.preventDefault();status('job-status','submitting…');try{if(!quoteReceipt?.quote_id)throw new Error('request a quote first');const request=submission();request.quote_id=quoteReceipt.quote_id;request.firm_quote=true;const out=await api('/v1/jobs',{method:'POST',headers:{'Idempotency-Key':'buyer-web-'+crypto.randomUUID()},body:JSON.stringify(request)});byId('job-id').value=out.job_id;byId('job-output').textContent=JSON.stringify(out,null,2);status('job-status','job accepted','good');await refreshJobs()}catch(error){status('job-status',error.message,'error')}});
 
-byId('quote').addEventListener('click', async () => {
-  showStatus('job-status','quoting...');
-  try {
-    quoteReceipt = await api('/v1/quote',{method:'POST',body:JSON.stringify(submission())});
-    byId('quote-output').textContent = JSON.stringify(quoteReceipt,null,2);
-    showStatus('job-status','quote ready','good');
-  } catch (error) { showStatus('job-status',error.message,'error'); }
-});
+async function refreshJobs(){const out=await api('/v1/jobs'),body=byId('jobs-body');body.textContent='';for(const job of out.jobs||[]){const row=document.createElement('tr');for(const value of [new Date(job.created_at).toLocaleString(),job.job_type,job.status,`${job.tasks_done}/${job.task_count}`,money(job.actual_usd)]){const td=document.createElement('td');td.textContent=value;row.append(td)}const action=document.createElement('td'),button=document.createElement('button');button.textContent='select';button.dataset.jobId=job.id;action.append(button);row.append(action);body.append(row)}return out}
+byId('jobs-refresh').addEventListener('click',()=>refreshJobs().catch(error=>status('poll-status',error.message,'error')));
+byId('jobs-body').addEventListener('click',event=>{if(event.target.dataset.jobId){byId('job-id').value=event.target.dataset.jobId;loadJob('').catch(error=>status('poll-status',error.message,'error'))}});
+async function loadJob(path){const id=byId('job-id').value.trim();if(!id)throw new Error('select or enter a job ID');const out=await api('/v1/jobs/'+encodeURIComponent(id)+path);byId('job-output').textContent=JSON.stringify(out,null,2);status('poll-status',path?path.slice(1)+' loaded':'job state: '+(out.status||'unknown'),out.status==='complete'?'good':'');return out}
+document.querySelectorAll('[data-job-path]').forEach(button=>button.addEventListener('click',()=>loadJob(button.dataset.jobPath).catch(error=>status('poll-status',error.message,'error'))));
+byId('cancel').addEventListener('click',async()=>{try{const id=byId('job-id').value.trim();const out=await api('/v1/jobs/'+encodeURIComponent(id),{method:'DELETE'});byId('job-output').textContent=JSON.stringify(out,null,2);await refreshJobs()}catch(error){status('poll-status',error.message,'error')}});
+byId('dispute').addEventListener('click',async()=>{try{const id=byId('job-id').value.trim(),reason=byId('dispute-reason').value.trim();const out=await api('/v1/jobs/'+encodeURIComponent(id)+'/dispute',{method:'POST',body:JSON.stringify({reason})});byId('job-output').textContent=JSON.stringify(out,null,2);status('poll-status','dispute/refund request opened','good')}catch(error){status('poll-status',error.message,'error')}});
 
-byId('job-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  showStatus('job-status','submitting...');
-  try {
-    const request = submission();
-    if (quoteReceipt && quoteReceipt.quote_id) { request.quote_id = quoteReceipt.quote_id; request.firm_quote = true; }
-    const response = await api('/v1/jobs',{method:'POST',headers:{'Idempotency-Key':'buyer-web-' + crypto.randomUUID()},body:JSON.stringify(request)});
-    byId('job-id').value = response.job_id;
-    byId('job-output').textContent = JSON.stringify(response,null,2);
-    showStatus('job-status','job accepted; any webhook secret above is shown once','good');
-    beginPolling();
-  } catch (error) { showStatus('job-status',error.message,'error'); }
-});
+byId('realtime-form').addEventListener('submit',async event=>{event.preventDefault();status('realtime-status','authorizing realtime request…');try{const out=await api('/v1/chat/completions',{method:'POST',headers:{'Idempotency-Key':'buyer-rt-'+crypto.randomUUID()},body:JSON.stringify({model:'llama-3.2-1b-instruct-q4',messages:[{role:'user',content:byId('realtime-prompt').value}],max_tokens:Number(byId('realtime-max-tokens').value),temperature:0})});byId('realtime-output').textContent=JSON.stringify(out,null,2);if(out.request_id||out.id)byId('realtime-id').value=out.request_id||out.id;status('realtime-status','realtime response complete','good')}catch(error){status('realtime-status',error.message,'error')}});
+byId('realtime-receipt').addEventListener('click',async()=>{try{const id=byId('realtime-id').value.trim();const out=await api('/v1/realtime/requests/'+encodeURIComponent(id)+'/receipt');byId('realtime-output').textContent=JSON.stringify(out,null,2);status('realtime-status','receipt loaded','good')}catch(error){status('realtime-status',error.message,'error')}});
 
-async function loadJob(path = '') {
-  const id = byId('job-id').value.trim();
-  if (!id) throw new Error('enter a job ID');
-  const value = await api('/v1/jobs/' + encodeURIComponent(id) + path);
-  byId('job-output').textContent = JSON.stringify(value,null,2);
-  if (!path) {
-    const state = value.status || 'unknown';
-    showStatus('poll-status','job state: ' + state,state === 'complete' ? 'good' : state === 'failed' ? 'error' : '');
-    if (['complete','cancelled','failed'].includes(state)) clearInterval(pollTimer);
-  }
-}
-
-function beginPolling() { clearInterval(pollTimer); loadJob().catch(error => showStatus('poll-status',error.message,'error')); pollTimer = setInterval(() => loadJob().catch(error => showStatus('poll-status',error.message,'error')),5000); }
-byId('refresh').addEventListener('click',beginPolling);
-byId('events').addEventListener('click',() => loadJob('/events').catch(error => showStatus('poll-status',error.message,'error')));
-byId('results').addEventListener('click',() => loadJob('/results').catch(error => showStatus('poll-status',error.message,'error')));
-byId('cancel').addEventListener('click',async () => {
-  try { const id = byId('job-id').value.trim(); const value = await api('/v1/jobs/' + encodeURIComponent(id),{method:'DELETE'}); byId('job-output').textContent = JSON.stringify(value,null,2); showStatus('poll-status','job cancelled','good'); clearInterval(pollTimer); }
-  catch (error) { showStatus('poll-status',error.message,'error'); }
-});
-window.addEventListener('pagehide',() => { token=''; quoteReceipt=null; clearInterval(pollTimer); });
+loadPublicConfig().catch(error=>{byId('contacts').textContent='Public configuration unavailable: '+error.message;byId('contacts').className='contact-list warn'});
+window.addEventListener('pagehide',()=>{token='';quoteReceipt=null});
 </script>
 </body>
 </html>

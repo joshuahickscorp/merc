@@ -435,6 +435,60 @@
       "used_by": "alert evidence",
       "verification": "make release-doctor CHECK=alert",
       "unblocks": ["real_alert_receiver"]
+    },
+    {
+      "name": "STRIPE_PUBLISHABLE_KEY",
+      "accepted_form": "pk_test_ browser key from the authorized Stripe sandbox",
+      "minimum_scope": "confirm SetupIntents in the buyer browser without exposing a secret key",
+      "secret": false,
+      "used_by": "buyer test-card setup surface",
+      "verification": "GET /v1/public/config plus the CAD stranger loop",
+      "unblocks": ["buyer_funding_surface", "stripe_matrix"]
+    },
+    {
+      "name": "MERC_SUPPORT_EMAIL",
+      "accepted_form": "staffed project-controlled support email alias",
+      "minimum_scope": "buyer and supplier test-canary support intake",
+      "secret": false,
+      "used_by": "buyer/supplier surfaces and activation checks",
+      "verification": "GET /v1/public/config and delivered support test",
+      "unblocks": ["support_surface", "support_tabletop"]
+    },
+    {
+      "name": "MERC_SECURITY_EMAIL",
+      "accepted_form": "staffed project-controlled private security-reporting email alias",
+      "minimum_scope": "security and privacy reports for the test canary",
+      "secret": false,
+      "used_by": "buyer/supplier surfaces, security.txt and activation checks",
+      "verification": "GET /v1/public/config and delivered security test",
+      "unblocks": ["security_surface", "security_tabletop"]
+    },
+    {
+      "name": "MERC_STATUS_URL",
+      "accepted_form": "absolute HTTPS URL for the externally visible status page",
+      "minimum_scope": "test-canary service state and incident updates",
+      "secret": false,
+      "used_by": "buyer/supplier navigation and incident communications",
+      "verification": "GET /v1/public/config and external HTTP probe",
+      "unblocks": ["status_surface", "incident_response"]
+    },
+    {
+      "name": "MERC_TERMS_URL",
+      "accepted_form": "absolute HTTPS URL for approved test-canary terms",
+      "minimum_scope": "the governed test-canary participant contract",
+      "secret": false,
+      "used_by": "buyer/supplier policy links",
+      "verification": "GET /v1/public/config and external HTTP probe",
+      "unblocks": ["terms_surface"]
+    },
+    {
+      "name": "MERC_PRIVACY_URL",
+      "accepted_form": "absolute HTTPS URL for the approved privacy notice",
+      "minimum_scope": "test-canary data handling and participant rights",
+      "secret": false,
+      "used_by": "buyer/supplier policy links",
+      "verification": "GET /v1/public/config and external HTTP probe",
+      "unblocks": ["privacy_surface"]
     }
   ]
 }
