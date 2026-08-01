@@ -23,6 +23,15 @@ starts no container, opens no network connection, and reads at most 1 MiB from
 the already bounded static-inspection sample. JSONL/NDJSON observation is capped
 at 256 records per artifact.
 
+After approval, each step receives a structured resource observation scoped to
+its declared `project://PATH` inputs (`project://input` deliberately selects all
+non-declaration artifacts). The observation records exact artifact bytes,
+sampled bytes, bounded sample records, a text-token estimate from sampled bytes,
+and the probe kind. Complete samples become
+`SHAPE_MEASURED_CALIBRATION_REQUIRED`; an absent, unreferenced, or truncated
+sample becomes `PROBE_INCOMPLETE_REFUSE`. These are workload-shape facts, not a
+GPU-memory, duration, or cost claim.
+
 ## Canonical identity
 
 `project_sha256` commits to every included relative path, byte length, and full
@@ -148,7 +157,7 @@ Example skeleton:
     "outputs": ["project://records"],
     "runtime_contract": "<sha256>",
     "model_contract": "<sha256>",
-    "resource_estimate": "BOUNDED_PROBE_REQUIRED",
+    "resource_estimate": {"state": "BOUNDED_PROBE_REQUIRED"},
     "parallelism": "SINGLE_DEVICE",
     "checkpoint_policy": "NOT_APPLICABLE",
     "verification": "schema-v1"

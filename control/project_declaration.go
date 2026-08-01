@@ -73,7 +73,7 @@ func validateProjectDeclaration(declaration *ProjectDeclaration) error {
 		if step.RuntimeID != "" || step.ModelID != "" {
 			return fmt.Errorf("step %s may not supply resolved runtime/model ids", step.ID)
 		}
-		if step.ResourceEstimate != "BOUNDED_PROBE_REQUIRED" {
+		if step.ResourceEstimate != (ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}) {
 			return fmt.Errorf("step %s resource_estimate must be BOUNDED_PROBE_REQUIRED", step.ID)
 		}
 		switch step.Parallelism {

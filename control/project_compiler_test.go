@@ -58,6 +58,12 @@ func TestCompileProjectProducesDeterministicGraphProposal(t *testing.T) {
 	if len(first.Artifacts) != 3 || len(first.ProjectSHA256) != 64 || len(first.IRSHA256) != 64 {
 		t.Fatalf("artifact commitments missing: %+v", first)
 	}
+	for _, step := range first.Steps {
+		if step.ResourceEstimate.State != "SHAPE_MEASURED_CALIBRATION_REQUIRED" ||
+			step.ResourceEstimate.ArtifactBytes == 0 || step.ResourceEstimate.SampledBytes == 0 {
+			t.Fatalf("bounded probe did not produce step-scoped shape evidence: %+v", step)
+		}
+	}
 }
 
 func TestCompileProjectRequiresProbeAuthorization(t *testing.T) {
