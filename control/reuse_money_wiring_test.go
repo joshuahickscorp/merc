@@ -166,15 +166,14 @@ func TestRealtimeExactReuseSettlementNoSupplier(t *testing.T) {
 		t.Fatalf("lookup: %v %v", ok, err)
 	}
 
-	profile := VLLMRuntimeProfile{
-		RuntimeProfileID: "test-profile", ProfileSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		ModelAlias: "test-model", ModelRevision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		BuyerInputUSDPerMillionTokens: 0.12, BuyerOutputUSDPerMillionTokens: 0.45,
-		GenerationPolicy: GenerationPolicy{Version: "v1", Temperature: 0, TopP: 1, MaximumOutputTokens: 64},
+	profile := sortedVLLMProfiles()[0]
+	currency, err := SettlementCurrency()
+	if err != nil {
+		t.Fatal(err)
 	}
-	full := fullPricePer1KFromRealtime(profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
-	money := SettleReuseHitMoney(tokens, full)
-	if !money.Conserved() || money.SupplierLiabilityMicros != 0 {
+	money, err := SettleRealtimeReuseHitMoney(currency, tokens,
+		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
 		t.Fatalf("money invariant: %+v", money)
 	}
 
@@ -184,6 +183,7 @@ func TestRealtimeExactReuseSettlementNoSupplier(t *testing.T) {
 		RequestSHA256:     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 		MaximumPriceUSD:   microsToUSD(money.BuyerDebitMicros),
 		EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
+		ReuseClass:        ClassExactResultReuse,
 	}, hit, money, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
 	if err != nil {
 		t.Fatalf("settle: %v", err)
@@ -197,6 +197,25 @@ func TestRealtimeExactReuseSettlementNoSupplier(t *testing.T) {
 	if contract.WorkerID != uuid.Nil || contract.SupplierID != uuid.Nil {
 		t.Fatalf("reuse contract scheduled a worker/supplier: worker=%s supplier=%s",
 			contract.WorkerID, contract.SupplierID)
+	}
+	receipt, err := store.RealtimeReceipt(ctx, buyerID, contract.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.PricingAuthorityStatus != "verified" || receipt.PricingDecision == nil ||
+		receipt.PricingDecision.ExecutionMode != pricingExecutionRealtimeReuse ||
+		receipt.PricingDecision.RealtimeReuse == nil ||
+		receipt.PricingDecision.RealtimeReuse.ReuseClass != ClassExactResultReuse ||
+		receipt.SettlementCurrency != currency.Code() || receipt.SupplierPayableNanos != 0 ||
+		receipt.BuyerChargeNanos != money.BuyerDebitNanos ||
+		receipt.KnownCostContributionNanos != money.BuyerDebitNanos {
+		t.Fatalf("reuse receipt omitted exact zero-physical pricing authority: %+v", receipt)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE execution_contracts SET reuse_delivered_tokens=reuse_delivered_tokens+1 WHERE id=$1`, contract.ID); err == nil {
+		t.Fatal("database allowed frozen reuse delivered-token authority to mutate")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE execution_contracts SET pricing_decision=jsonb_set(pricing_decision,'{realtime_reuse,reuse_class}','\"physical\"'::jsonb) WHERE id=$1`, contract.ID); err == nil {
+		t.Fatal("database allowed frozen reuse PricingDecision to mutate")
 	}
 
 	// Ledger: buyer_charge and platform_take only.

@@ -51,17 +51,7 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		}
 	}
 
-	profile := VLLMRuntimeProfile{
-		RuntimeProfileID:               "test-profile",
-		ProfileSHA256:                  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		ModelAlias:                     "test-model",
-		ModelRevision:                  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"[:40],
-		BuyerInputUSDPerMillionTokens:  0.12,
-		BuyerOutputUSDPerMillionTokens: 0.45,
-		GenerationPolicy: GenerationPolicy{
-			Version: "v1", Temperature: 0, TopP: 1, MaximumOutputTokens: 64,
-		},
-	}
+	profile := sortedVLLMProfiles()[0]
 	fullPer1K := fullPricePer1KFromRealtime(
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
 
@@ -77,8 +67,13 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		ClassUncachedInput: 100, ClassGeneratedOutput: deliveredTokens,
 	}, fullPer1K)
 
-	money := SettleReuseHitMoney(deliveredTokens, fullPer1K)
-	if !money.Conserved() || money.SupplierLiabilityMicros != 0 {
+	currency, err := SettlementCurrency()
+	if err != nil {
+		t.Fatal(err)
+	}
+	money, err := SettleRealtimeReuseHitMoney(currency, deliveredTokens,
+		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
 		t.Fatalf("follower money invariant broken before any write: %+v", money)
 	}
 
@@ -97,9 +92,16 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 				RequestSHA256:     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 				MaximumPriceUSD:   microsToUSD(money.BuyerDebitMicros),
 				EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
+				ReuseClass:        ClassCoalescedDelivery,
 			}, hit, money, leaderResultSHA)
 		if err != nil {
 			t.Fatalf("follower %d: settle: %v", i, err)
+		}
+		if contract.Pricing == nil || contract.Pricing.RealtimeReuse == nil ||
+			contract.Pricing.RealtimeReuse.ReuseClass != ClassCoalescedDelivery ||
+			settlement.SupplierPayableNanos != 0 ||
+			settlement.BuyerChargeNanos != settlement.KnownCostContributionNanos {
+			t.Fatalf("follower %d lost coalesced exact authority: contract=%+v settlement=%+v", i, contract, settlement)
 		}
 
 		if authorities[contract.ID] {

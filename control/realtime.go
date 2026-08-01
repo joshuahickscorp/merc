@@ -1137,9 +1137,10 @@ func (s *Server) tryRealtimeExactReuse(
 	contract, _, err := s.store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
 		RequestID: requestID, BuyerID: buyerID, Profile: prepared.Profile,
 		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
-		MaximumPriceUSD:   microsToUSD(money.BuyerDebitMicros),
-		EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
-		DeadlineAt:        time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+		MaximumPriceUSD:         microsToUSD(money.BuyerDebitMicros),
+		EstimatedPriceUSD:       microsToUSD(money.BuyerDebitMicros),
+		BuyerDeclaredCeilingUSD: prepared.MaxPriceCeiling, ReuseClass: ClassExactResultReuse,
+		DeadlineAt: time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
 	}, hit, money, hex.EncodeToString(sum[:]))
 	if err != nil {
 		return RealtimeContract{}, nil, false, err
@@ -1265,9 +1266,10 @@ func (s *Server) tryRealtimeCoalescedDelivery(
 	contract, _, err = s.store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
 		RequestID: requestID, BuyerID: buyerID, Profile: prepared.Profile,
 		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
-		MaximumPriceUSD:   microsToUSD(money.BuyerDebitMicros),
-		EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
-		DeadlineAt:        time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+		MaximumPriceUSD:         microsToUSD(money.BuyerDebitMicros),
+		EstimatedPriceUSD:       microsToUSD(money.BuyerDebitMicros),
+		BuyerDeclaredCeilingUSD: prepared.MaxPriceCeiling, ReuseClass: ClassCoalescedDelivery,
+		DeadlineAt: time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
 	}, hit, money, result.ResultSHA256)
 	if err != nil {
 		return "", "", RealtimeContract{}, nil, false, err

@@ -210,7 +210,7 @@ func ValidateRealtimePricingDecisionSnapshot(decision PricingDecision, in Realti
 }
 
 func realtimePricingLegacyProjection(decision PricingDecision) (expected, maximum float64, err error) {
-	if decision.ExecutionMode != pricingExecutionRealtime || decision.FixedPoint == nil {
+	if (decision.ExecutionMode != pricingExecutionRealtime && decision.ExecutionMode != pricingExecutionRealtimeReuse) || decision.FixedPoint == nil {
 		return 0, 0, errors.New("legacy projection requires realtime fixed-point pricing")
 	}
 	currency, err := ParseCurrency(decision.Currency)
