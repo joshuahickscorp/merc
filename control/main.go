@@ -210,6 +210,9 @@ func main() {
 		if dispatchBuyer(os.Args[1], os.Args[2:]) {
 			return
 		}
+		if dispatchProject(os.Args[1], os.Args[2:]) {
+			return
+		}
 	}
 
 	dsn := os.Getenv("DATABASE_URL")
