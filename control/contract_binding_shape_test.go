@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -18,6 +19,7 @@ import (
 // to the only case entitled to them. These assertions are what stops a future
 // migration from quietly dropping it.
 func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, _ := openAdminMutationTestStore(t)
 
 	buyerID := uuid.New()
@@ -29,16 +31,31 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 
 	// Insert with explicit control over the four bindings and the supplier rates.
 	insert := func(worker, supplier any, upstream, sealed any, supRate float64) error {
+		modelAlias := "m"
+		runtimeProfileID := "rp"
+		runtimeProfileSHA256 := strings.Repeat("a", 64)
 		var placementJSON any
 		var placementSHA any
+		var currency = "usd"
+		var maximumPromptTokens any
+		var maximumCompletionTokens any
+		var estimatedPromptTokens any
+		var estimatedCompletionTokens any
+		var pricingJSON any
+		var pricingSHA any
 		if worker != nil {
-			plan := RealtimePlacementPlan{
-				Version:          realtimePlacementPlanVersion,
-				RuntimeProfileID: "rp", RuntimeProfileSHA256: strings.Repeat("a", 64),
-				HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
-				ConfiguredTensorParallel: 1, AdmittedTensorParallel: 1,
-				AdmissionBasis: realtimePlacementTopologyOnly,
-				Rationale:      "test single-GPU placement",
+			profiles := sortedVLLMProfiles()
+			if len(profiles) == 0 {
+				return errors.New("no realtime profile")
+			}
+			profile := profiles[0]
+			plan, err := newRealtimePlacementPlan(profile, RealtimeOfferRegistration{
+				RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
+				HWClass: "nvidia_80gb", GPUCount: 1, MemoryGBPerGPU: 80,
+				SupplierInputUSDPerMillionTokens: supRate, SupplierOutputUSDPerMillionTokens: supRate,
+			})
+			if err != nil {
+				return err
 			}
 			raw, err := json.Marshal(plan)
 			if err != nil {
@@ -49,6 +66,30 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 				return err
 			}
 			placementJSON, placementSHA = raw, digest
+			modelAlias = profile.ModelAlias
+			runtimeProfileID = profile.RuntimeProfileID
+			runtimeProfileSHA256 = profile.ProfileSHA256
+			maximumPromptTokens, maximumCompletionTokens = int64(10_000), int64(1_000)
+			estimatedPromptTokens, estimatedCompletionTokens = int64(5_000), int64(500)
+			decision, err := newRealtimePricingDecision(RealtimePricingInputs{
+				Profile: profile, Placement: plan,
+				InputCommitment: strings.Repeat("b", 64), RequestSHA256: strings.Repeat("c", 64),
+				MaximumPromptTokens: 10_000, MaximumCompletionTokens: 1_000,
+				EstimatedPromptTokens: 5_000, EstimatedCompletionTokens: 500,
+				SupplierInputRate: supRate, SupplierOutputRate: supRate,
+				Currency: usd(t),
+			})
+			if err != nil {
+				return err
+			}
+			pricingJSON, err = json.Marshal(decision)
+			if err != nil {
+				return err
+			}
+			pricingSHA, err = pricingDecisionDigest(decision)
+			if err != nil {
+				return err
+			}
 		}
 		_, err := store.pool.Exec(ctx, `
 			INSERT INTO execution_contracts
@@ -59,14 +100,18 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 			  buyer_output_usd_per_million_tokens,supplier_input_usd_per_million_tokens,
 			  supplier_output_usd_per_million_tokens,deadline_at,verification_tier,
 			  state,worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
-			  finalized_at)
-			VALUES ($1,$2,$3,'CHAT_COMPLETION','/v1/chat/completions','m','rp',
-			        repeat('a',64),$4,$5,repeat('b',64),repeat('c',64),
-			        1.0,1.0,1.0,1.0,$6,$6,now()+interval '1 hour','V0',
-			        'VERIFIED',$7,$8,$9,$10,now())`,
+			  currency,maximum_prompt_tokens,maximum_completion_tokens,
+			  estimated_prompt_tokens,estimated_completion_tokens,
+			  pricing_decision,pricing_decision_sha256,finalized_at)
+			VALUES ($1,$2,$3,'CHAT_COMPLETION','/v1/chat/completions',$4,$5,
+			        $6,$7,$8,repeat('b',64),repeat('c',64),
+			        1.0,1.0,1.0,1.0,$9,$9,now()+interval '1 hour','V0',
+			        'VERIFIED',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,now())`,
 			uuid.New(), "req-"+uuid.NewString(), buyerID,
-			placementJSON, placementSHA, supRate,
-			worker, supplier, upstream, sealed)
+			modelAlias, runtimeProfileID, runtimeProfileSHA256, placementJSON, placementSHA,
+			supRate, worker, supplier, upstream, sealed, currency,
+			maximumPromptTokens, maximumCompletionTokens, estimatedPromptTokens,
+			estimatedCompletionTokens, pricingJSON, pricingSHA)
 		return err
 	}
 
@@ -101,7 +146,7 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 		t.Fatalf("seed supplier: %v", err)
 	}
 	if _, err := store.pool.Exec(ctx,
-		`INSERT INTO workers (id,supplier_id,hw_class) VALUES ($1,$2,'nvidia_24gb')
+		`INSERT INTO workers (id,supplier_id,hw_class) VALUES ($1,$2,'nvidia_80gb')
 		 ON CONFLICT DO NOTHING`, workerID, supplierID); err != nil {
 		t.Fatalf("seed worker: %v", err)
 	}
@@ -116,7 +161,7 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 		workerID, supplierID); err == nil {
 		t.Fatal("database accepted an ACTIVE realtime offer without placement authority")
 	}
-	if err := insert(workerID, supplierID, "https://upstream.invalid", "enc:x", 1.0); err != nil {
+	if err := insert(workerID, supplierID, "https://upstream.invalid", "enc:x", 0.08); err != nil {
 		t.Fatalf("a fully bound contract was rejected: %v", err)
 	}
 }

@@ -3262,6 +3262,91 @@ ALTER TABLE execution_contracts
 ALTER TABLE execution_contracts
     ADD COLUMN IF NOT EXISTS placement_plan_sha256 TEXT;
 
+-- Physical realtime contracts now freeze the same composite PricingDecision
+-- used for reserve and settlement. Historical and exact-reuse rows remain NULL
+-- rather than being reconstructed from today's mutable offer/profile state.
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS maximum_prompt_tokens BIGINT;
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS maximum_completion_tokens BIGINT;
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS estimated_prompt_tokens BIGINT;
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS estimated_completion_tokens BIGINT;
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS buyer_declared_ceiling_nanos BIGINT;
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS pricing_decision JSONB;
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS pricing_decision_sha256 TEXT;
+
+ALTER TABLE execution_contracts DROP CONSTRAINT IF EXISTS execution_contracts_pricing_pair;
+ALTER TABLE execution_contracts ADD CONSTRAINT execution_contracts_pricing_pair CHECK (
+  (pricing_decision IS NULL) = (pricing_decision_sha256 IS NULL)
+);
+ALTER TABLE execution_contracts DROP CONSTRAINT IF EXISTS execution_contracts_pricing_sha_shape;
+ALTER TABLE execution_contracts ADD CONSTRAINT execution_contracts_pricing_sha_shape CHECK (
+  pricing_decision_sha256 IS NULL OR pricing_decision_sha256 ~ '^[0-9a-f]{64}$'
+);
+
+CREATE OR REPLACE FUNCTION enforce_execution_contract_pricing_authority()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP='UPDATE' AND (
+       NEW.model_alias IS DISTINCT FROM OLD.model_alias OR
+       NEW.runtime_profile_id IS DISTINCT FROM OLD.runtime_profile_id OR
+       NEW.runtime_profile_sha256 IS DISTINCT FROM OLD.runtime_profile_sha256 OR
+       NEW.input_commitment IS DISTINCT FROM OLD.input_commitment OR
+       NEW.request_sha256 IS DISTINCT FROM OLD.request_sha256 OR
+       NEW.maximum_price_usd IS DISTINCT FROM OLD.maximum_price_usd OR
+       NEW.estimated_price_usd IS DISTINCT FROM OLD.estimated_price_usd OR
+       NEW.buyer_input_usd_per_million_tokens IS DISTINCT FROM OLD.buyer_input_usd_per_million_tokens OR
+       NEW.buyer_output_usd_per_million_tokens IS DISTINCT FROM OLD.buyer_output_usd_per_million_tokens OR
+       NEW.supplier_input_usd_per_million_tokens IS DISTINCT FROM OLD.supplier_input_usd_per_million_tokens OR
+       NEW.supplier_output_usd_per_million_tokens IS DISTINCT FROM OLD.supplier_output_usd_per_million_tokens OR
+       NEW.currency IS DISTINCT FROM OLD.currency OR
+       NEW.maximum_prompt_tokens IS DISTINCT FROM OLD.maximum_prompt_tokens OR
+       NEW.maximum_completion_tokens IS DISTINCT FROM OLD.maximum_completion_tokens OR
+       NEW.estimated_prompt_tokens IS DISTINCT FROM OLD.estimated_prompt_tokens OR
+       NEW.estimated_completion_tokens IS DISTINCT FROM OLD.estimated_completion_tokens OR
+       NEW.buyer_declared_ceiling_nanos IS DISTINCT FROM OLD.buyer_declared_ceiling_nanos OR
+       NEW.pricing_decision IS DISTINCT FROM OLD.pricing_decision OR
+       NEW.pricing_decision_sha256 IS DISTINCT FROM OLD.pricing_decision_sha256
+     ) THEN
+    RAISE EXCEPTION 'execution contract pricing authority is immutable';
+  END IF;
+  IF TG_OP='INSERT' AND NEW.worker_id IS NOT NULL AND
+     (NEW.pricing_decision IS NULL OR NEW.pricing_decision_sha256 IS NULL) THEN
+    RAISE EXCEPTION 'new physical realtime contract requires PricingDecision authority';
+  END IF;
+  IF TG_OP='INSERT' AND NEW.worker_id IS NOT NULL AND
+     (NEW.maximum_prompt_tokens IS NULL OR NEW.maximum_prompt_tokens <= 0 OR
+      NEW.maximum_completion_tokens IS NULL OR NEW.maximum_completion_tokens <= 0 OR
+      NEW.estimated_prompt_tokens IS NULL OR NEW.estimated_prompt_tokens <= 0 OR
+      NEW.estimated_completion_tokens IS NULL OR NEW.estimated_completion_tokens <= 0 OR
+      NEW.estimated_prompt_tokens > NEW.maximum_prompt_tokens OR
+      NEW.estimated_completion_tokens > NEW.maximum_completion_tokens) THEN
+    RAISE EXCEPTION 'new physical realtime contract requires positive ordered token bounds';
+  END IF;
+  IF NEW.pricing_decision IS NOT NULL THEN
+    IF (NEW.pricing_decision->>'execution_mode') IS DISTINCT FROM 'realtime_physical' OR
+       (NEW.pricing_decision->>'currency') IS DISTINCT FROM NEW.currency OR
+       (NEW.pricing_decision #>> '{realtime,runtime_profile_id}') IS DISTINCT FROM NEW.runtime_profile_id OR
+       (NEW.pricing_decision #>> '{realtime,runtime_profile_sha256}') IS DISTINCT FROM NEW.runtime_profile_sha256 OR
+       (NEW.pricing_decision #>> '{realtime,placement_plan_sha256}') IS DISTINCT FROM NEW.placement_plan_sha256 OR
+       (NEW.pricing_decision #>> '{realtime,input_commitment}') IS DISTINCT FROM NEW.input_commitment OR
+       (NEW.pricing_decision #>> '{realtime,request_sha256}') IS DISTINCT FROM NEW.request_sha256 OR
+       ((NEW.pricing_decision #>> '{realtime,maximum_prompt_tokens}')::bigint) IS DISTINCT FROM NEW.maximum_prompt_tokens OR
+       ((NEW.pricing_decision #>> '{realtime,maximum_completion_tokens}')::bigint) IS DISTINCT FROM NEW.maximum_completion_tokens OR
+       ((NEW.pricing_decision #>> '{realtime,estimated_prompt_tokens}')::bigint) IS DISTINCT FROM NEW.estimated_prompt_tokens OR
+       ((NEW.pricing_decision #>> '{realtime,estimated_completion_tokens}')::bigint) IS DISTINCT FROM NEW.estimated_completion_tokens OR
+       COALESCE((NEW.pricing_decision #>> '{realtime,buyer_declared_ceiling_nanos}')::bigint,0) IS DISTINCT FROM
+         COALESCE(NEW.buyer_declared_ceiling_nanos,0) OR
+       (NEW.pricing_decision #>> '{fixed_point,currency}') IS DISTINCT FROM NEW.currency THEN
+      RAISE EXCEPTION 'execution contract PricingDecision disagrees with frozen contract authority';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS execution_contract_pricing_authority ON execution_contracts;
+CREATE TRIGGER execution_contract_pricing_authority
+BEFORE INSERT OR UPDATE ON execution_contracts
+FOR EACH ROW EXECUTE FUNCTION enforce_execution_contract_pricing_authority();
+
 -- Old offers cannot continue advertising ACTIVE capacity without registering
 -- again through the topology-aware path. Contracts are historical evidence and
 -- remain untouched.
@@ -3406,6 +3491,20 @@ CREATE TABLE IF NOT EXISTS realtime_settlements (
                            CHECK (initial_transfer_state='VERIFICATION_HOLD'),
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (buyer_charge_usd = supplier_gross_usd + platform_margin_usd + verification_cost_usd)
+);
+
+ALTER TABLE realtime_settlements ADD COLUMN IF NOT EXISTS currency TEXT;
+ALTER TABLE realtime_settlements ADD COLUMN IF NOT EXISTS buyer_charge_nanos BIGINT;
+ALTER TABLE realtime_settlements ADD COLUMN IF NOT EXISTS supplier_gross_nanos BIGINT;
+ALTER TABLE realtime_settlements ADD COLUMN IF NOT EXISTS known_cost_contribution_nanos BIGINT;
+ALTER TABLE realtime_settlements DROP CONSTRAINT IF EXISTS realtime_settlements_exact_pair;
+ALTER TABLE realtime_settlements ADD CONSTRAINT realtime_settlements_exact_pair CHECK (
+  (currency IS NULL AND buyer_charge_nanos IS NULL AND supplier_gross_nanos IS NULL
+   AND known_cost_contribution_nanos IS NULL)
+  OR
+  (currency IN ('cad','jpy','usd') AND buyer_charge_nanos > 0 AND supplier_gross_nanos > 0
+   AND known_cost_contribution_nanos > 0
+   AND buyer_charge_nanos = supplier_gross_nanos + known_cost_contribution_nanos)
 );
 
 CREATE TABLE IF NOT EXISTS realtime_refunds (

@@ -208,3 +208,30 @@ func ValidateRealtimePricingDecisionSnapshot(decision PricingDecision, in Realti
 	}
 	return nil
 }
+
+func realtimePricingLegacyProjection(decision PricingDecision) (expected, maximum float64, err error) {
+	if decision.ExecutionMode != pricingExecutionRealtime || decision.FixedPoint == nil {
+		return 0, 0, errors.New("legacy projection requires realtime fixed-point pricing")
+	}
+	currency, err := ParseCurrency(decision.Currency)
+	if err != nil {
+		return 0, 0, err
+	}
+	expectedNanos, err := NewMoneyNanos(currency, decision.FixedPoint.BuyerChargeNanos)
+	if err != nil {
+		return 0, 0, err
+	}
+	maximumNanos, err := NewMoneyNanos(currency, decision.FixedPoint.AcceptedCeilingNanos)
+	if err != nil {
+		return 0, 0, err
+	}
+	expectedMicros, err := LedgerMicrosFromNanos(expectedNanos)
+	if err != nil {
+		return 0, 0, err
+	}
+	maximumMicros, err := LedgerMicrosFromNanos(maximumNanos)
+	if err != nil {
+		return 0, 0, err
+	}
+	return microsToUSD(expectedMicros), microsToUSD(maximumMicros), nil
+}

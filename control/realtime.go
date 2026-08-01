@@ -241,14 +241,18 @@ func (s *Server) handleRealtimeWorkerHeartbeat(w http.ResponseWriter, r *http.Re
 }
 
 type preparedRealtimeRequest struct {
-	Body              []byte
-	Profile           VLLMRuntimeProfile
-	Stream            bool
-	InputCommitment   string
-	RequestSHA256     string
-	MaximumPriceUSD   float64
-	EstimatedPriceUSD float64
-	MaxPriceCeiling   float64
+	Body                      []byte
+	Profile                   VLLMRuntimeProfile
+	Stream                    bool
+	InputCommitment           string
+	RequestSHA256             string
+	MaximumPriceUSD           float64
+	EstimatedPriceUSD         float64
+	MaxPriceCeiling           float64
+	MaximumPromptTokens       int64
+	MaximumCompletionTokens   int64
+	EstimatedPromptTokens     int64
+	EstimatedCompletionTokens int64
 }
 
 func jsonInt(value any) (int64, bool) {
@@ -424,7 +428,9 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 		InputCommitment: hex.EncodeToString(inputDigest[:]),
 		RequestSHA256:   hex.EncodeToString(requestDigest[:]),
 		MaximumPriceUSD: maximumPrice, EstimatedPriceUSD: estimatedPrice,
-		MaxPriceCeiling: requestCeiling,
+		MaxPriceCeiling: requestCeiling, MaximumPromptTokens: maxInputTokens,
+		MaximumCompletionTokens: maxOutput, EstimatedPromptTokens: estimatedInputTokens,
+		EstimatedCompletionTokens: (maxOutput + 1) / 2,
 	}, nil
 }
 
@@ -867,7 +873,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		RequestID: requestID, BuyerID: auth.BuyerID, Profile: prepared.Profile,
 		InputCommitment: prepared.InputCommitment, RequestSHA256: prepared.RequestSHA256,
 		MaximumPriceUSD: prepared.MaximumPriceUSD, EstimatedPriceUSD: prepared.EstimatedPriceUSD,
-		DeadlineAt: time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+		MaximumPromptTokens:       prepared.MaximumPromptTokens,
+		MaximumCompletionTokens:   prepared.MaximumCompletionTokens,
+		EstimatedPromptTokens:     prepared.EstimatedPromptTokens,
+		EstimatedCompletionTokens: prepared.EstimatedCompletionTokens,
+		BuyerDeclaredCeilingUSD:   prepared.MaxPriceCeiling,
+		DeadlineAt:                time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
 	})
 	pathTiming.mark("authorize_contract", stage)
 	if errors.Is(err, errRealtimeIdempotencyConflict) {
