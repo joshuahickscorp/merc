@@ -104,10 +104,15 @@ for required in \
   'verify_cash_outcome "$cash_probe_closed_payload" applied 30' \
   'verify_cash_outcome "$cash_probe_opened_payload" stale_ignored 30' \
   'verify_cash_outcome "$cash_probe_closed_payload" duplicate' \
+  "--data-urlencode 'submit=true'" \
+  '(.livemode // false) == false and .settings.payouts.schedule.interval == "manual"' \
   'application_outcomes_verified:true'; do
-  rg -Fq "$required" "$ROOT/scripts/stripe-sandbox-scenarios.sh" \
+  rg -Fq -- "$required" "$ROOT/scripts/stripe-sandbox-scenarios.sh" \
     || die "scenario driver does not prove webhook outcome: $required"
 done
+if rg -Fq "evidence[submit]" "$ROOT/scripts/stripe-sandbox-scenarios.sh"; then
+  die "scenario driver nests Stripe dispute submit under evidence"
+fi
 rg -q '\[ "\$live_alias_present" = false \]' "$ROOT/scripts/release-doctor.sh" \
   || die "release doctor can report Stripe ready while a live alias is present"
 rg -q 'merc_stripe_distinct_endpoint_ids' "$ROOT/scripts/release-doctor.sh" \

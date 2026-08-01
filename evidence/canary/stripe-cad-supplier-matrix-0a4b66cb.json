@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "kind": "stripe_cad_supplier_matrix",
+  "status": "PASS",
+  "provider_mode": "test",
+  "candidate_head": "0a4b66cb7cc51223d488de156a3945d8d9877ae3",
+  "candidate_image": {
+    "tag": "merc-control:network-0a4b66cb7cc5",
+    "id": "sha256:14a66f9d3660f3df65d3edc7c0b2ec63762ef1c0e6bfbd42105a03fbe9951d71"
+  },
+  "run_id": "cad-provider-20260801T114255Z-45725",
+  "cap_minor": 2800,
+  "real_spend_minor": 0,
+  "settlement_currency": "cad",
+  "connected_account": {
+    "id": "acct_1TzaxWCZ2vK1WR8K",
+    "country": "CA",
+    "default_currency": "cad",
+    "payouts_enabled": true,
+    "requirements_due": 0,
+    "synthetic_test_data_only": true
+  },
+  "webhooks": {
+    "billing_endpoint": "we_1TzbJcChhClsh0YxvnQFVVtp",
+    "connect_endpoint": "we_1TzbJdChhClsh0YxaTDox9iQ",
+    "api_version": "2025-06-30.basil",
+    "endpoint_secrets_verified": true,
+    "staging_urls_exact": true,
+    "distinct_endpoint_ids": true,
+    "delivery": true,
+    "application_outcomes_verified": true,
+    "replay_idempotent": true,
+    "out_of_order_safe": true,
+    "fresh_event_drained": true,
+    "preexisting_endpoints_isolated": 2
+  },
+  "payment_objects": {
+    "payment_intent": "pi_3TzbJfChhClsh0Yx1SnilrMn",
+    "charge": "ch_3TzbJfChhClsh0Yx1UuvfPmn",
+    "refund": "re_3TzbJfChhClsh0Yx1zlXjKtg",
+    "charged_minor": 1200,
+    "refunded_minor": 1200,
+    "transfer": "tr_1TzbJjChhClsh0Yxy6uZ3ekN",
+    "transfer_reversal": "trr_1TzbKOChhClsh0YxdTId8JrA",
+    "transfer_minor": 100,
+    "reversed_minor": 100,
+    "disputed_payment_intent": "pi_3TzbJoChhClsh0Yx03RriLYE",
+    "disputed_charge": "ch_3TzbJoChhClsh0Yx0KBvJp6b"
+  },
+  "dispute": {
+    "opened": true,
+    "resolved": true,
+    "provider_object_class": "du"
+  },
+  "payout": {
+    "hold": true,
+    "release": true,
+    "failure": true,
+    "reversal": true,
+    "provider_object_classes": [
+      "po"
+    ]
+  },
+  "reconciliation": {
+    "clean": true,
+    "provider_events_drained": true
+  },
+  "teardown": {
+    "buyer_charge_fully_refunded": true,
+    "supplier_transfer_fully_reversed": true,
+    "disposable_customer_deleted": true,
+    "temporary_webhook_endpoints_remaining": 0,
+    "preexisting_webhook_endpoints_restored": 2,
+    "payout_schedule_restored": "daily",
+    "temporary_bank_accounts_remaining": 0,
+    "original_app_restored": true,
+    "backup_container_remaining": false
+  },
+  "adapter_corrections_proven": {
+    "stripe_dispute_submit_is_top_level": true,
+    "account_livemode_omission_tolerated": true,
+    "offline_contract_test": "PASS"
+  },
+  "secret_values_recorded": false,
+  "live_mode": "PROHIBITED"
+}
