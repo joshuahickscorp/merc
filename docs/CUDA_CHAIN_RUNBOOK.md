@@ -79,8 +79,10 @@ COLD. An offer that stops heartbeating drains.
    hung run and the balance:
 
    ```bash
+   # First query the current secure-cloud rate; the script refuses unless this
+   # value matches RunPod exactly before and immediately after creation.
    MERC_RUNPOD_GPU="NVIDIA RTX A5000" MERC_RUNPOD_CLOUD=SECURE \
-   MERC_RUNPOD_COST_PER_HR=0.16 MERC_RUNPOD_CAP_USD=2.00 \
+   MERC_RUNPOD_COST_PER_HR=<current-provider-rate> MERC_RUNPOD_CAP_USD=2.00 \
    MERC_VLLM_IMAGE="vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0" \
    MERC_VLLM_MODEL="unsloth/Llama-3.2-1B-Instruct" \
    MERC_RUNPOD_EXPERIMENT_CMD="bash scripts/cuda-chain-drive.sh" \

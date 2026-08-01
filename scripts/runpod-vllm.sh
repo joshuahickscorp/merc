@@ -74,6 +74,62 @@ gql() {
         -X POST https://api.runpod.io/graphql -d "$1"
 }
 
+# A dollar cap is only real if the hourly rate used to convert it came from the
+# provider immediately before provisioning.  Do not accept a remembered price
+# or a hand-typed approximation: either exactly match the currently advertised
+# secure-cloud rate or refuse before creating anything billable.
+advertised_secure_hourly_rate() {
+  local payload
+  payload=$(python3 - "$GPU_TYPE" <<'PY'
+import json,sys
+gpu = sys.argv[1]
+print(json.dumps({
+  "query": "query($id: String!) { gpuTypes(input: { id: $id }) { lowestPrice(input: { gpuCount: 1, secureCloud: true }) { stockStatus uninterruptablePrice } } }",
+  "variables": {"id": gpu},
+}))
+PY
+) || return 1
+  gql "$payload" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+types=(d.get("data") or {}).get("gpuTypes") or []
+price=(types[0].get("lowestPrice") or {}).get("uninterruptablePrice") if types else None
+if price is None:
+    raise SystemExit("RunPod did not advertise a secure-cloud hourly price for this GPU")
+print(price)
+'
+}
+
+require_exact_rate() {
+  local configured="$1" observed="$2"
+  python3 - "$configured" "$observed" <<'PY'
+from decimal import Decimal, InvalidOperation
+import sys
+try:
+    configured, observed = map(Decimal, sys.argv[1:])
+except InvalidOperation as exc:
+    raise SystemExit(f"invalid hourly rate: {exc}")
+if configured <= 0 or observed <= 0:
+    raise SystemExit("hourly rates must be positive")
+if configured != observed:
+    raise SystemExit(f"configured ${configured}/hr does not exactly match RunPod's advertised ${observed}/hr")
+PY
+}
+
+pod_hourly_rate() {
+  gql '{"query":"query { myself { pods { id costPerHr } } }"}' \
+    | python3 -c '
+import json,sys
+pod_id=sys.argv[1]
+d=json.load(sys.stdin); pods=((d.get("data") or {}).get("myself") or {}).get("pods") or []
+for pod in pods:
+    if pod.get("id") == pod_id and pod.get("costPerHr") is not None:
+        print(pod["costPerHr"]); break
+else:
+    raise SystemExit("RunPod did not report a costPerHr for the created pod")
+' "$1"
+}
+
 # REST, not GraphQL, for anything that creates or destroys. podFindAndDeployOnDemand
 # returns a pod id even when no machine was allocated -- two A100s billed for
 # 25 minutes each without ever starting because of that silent success. The REST
@@ -158,11 +214,17 @@ experiment)
   # without spending it.
   CAP_USD="${MERC_RUNPOD_CAP_USD:-2.00}"
   COST_PER_HR="${MERC_RUNPOD_COST_PER_HR:?MERC_RUNPOD_COST_PER_HR is required: the cap cannot be converted to a lifetime without the advertised hourly rate for $GPU_TYPE}"
+  [ "$CLOUD" = "SECURE" ] || die "governed experiments require MERC_RUNPOD_CLOUD=SECURE so the advertised rate is unambiguous"
+  ADVERTISED_COST_PER_HR=$(advertised_secure_hourly_rate) \
+    || die "could not obtain RunPod's advertised secure-cloud hourly price before provisioning"
+  require_exact_rate "$COST_PER_HR" "$ADVERTISED_COST_PER_HR" \
+    || die "refusing a cap whose hourly rate does not match RunPod"
   BUDGET_SECS=$(python3 "$ROOT/scripts/runpod-spend-guard.py" budget \
                   --cost-per-hr "$COST_PER_HR" --cap-usd "$CAP_USD") \
     || die "the cap was refused by the spend guard"
   say "governed experiment"
   say "  cap       \$$CAP_USD at \$$COST_PER_HR/hr"
+  say "  provider  observed secure-cloud rate \$$ADVERTISED_COST_PER_HR/hr"
   say "  lifetime  ${BUDGET_SECS}s (the rest of the cap is teardown headroom)"
 
   # Pre-flight sweep. A pod that is already running is already billing, and
@@ -285,6 +347,16 @@ print(d.get('id') or '')
 [ -n "$POD_ID" ] || die "pod was not created. RunPod reported no capacity for $GPU_TYPE on $CLOUD.
        Nothing is billing. Try another GPU (MERC_RUNPOD_GPU=) or cloud (MERC_RUNPOD_CLOUD=)."
 say "  pod    $POD_ID"
+
+# REST creation can select a differently priced machine than the pre-flight
+# lowest-price query.  Fail closed and let the armed trap terminate it rather
+# than continue a run whose cap conversion is false.
+ACTUAL_COST_PER_HR=$(pod_hourly_rate "$POD_ID") || { KEEP=0; die "RunPod did not report the created pod's hourly rate"; }
+if ! require_exact_rate "${MERC_RUNPOD_COST_PER_HR:-$ACTUAL_COST_PER_HR}" "$ACTUAL_COST_PER_HR"; then
+  KEEP=0
+  die "created pod rate differs from the governed experiment rate"
+fi
+say "  rate   \$$ACTUAL_COST_PER_HR/hr (provider verified)"
 
 ENDPOINT="https://${POD_ID}-8000.proxy.runpod.net/v1"
 say ""
