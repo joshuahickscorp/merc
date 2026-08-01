@@ -60,7 +60,7 @@ var sustainedWattsByHWClass = map[string]float64{
 const defaultElectricityUSDPerKWh = 0.15
 
 // targetSupplierUSDHr is the cost-plus supplier revenue target used only for
-// the diagnostic floor (repriceFromSupplierEconomics). Catalogue prices come
+// the diagnostic floor (diagnosticCostFloorFromSupplierEconomics). Catalogue prices come
 // from pricing/board.json (market board × positioning_multiplier).
 const targetSupplierUSDHr = 2.0
 
@@ -106,10 +106,11 @@ type CataloguePriceSchedule struct {
 	SHA256                      string          `json:"sha256"`
 }
 
-// repriceFromSupplierEconomics is the cost-plus diagnostic: target supplier
-// $/hr on the slowest measured laptop class. Kept for unit tests and for the
-// market-gap report; it no longer drives the live catalogue.
-func repriceFromSupplierEconomics(b measuredThroughput, supplierShare, electricityUSDPerKWh float64) RepriceResult {
+// diagnosticCostFloorFromSupplierEconomics calculates a cost-plus comparison:
+// target supplier $/hr on the slowest measured laptop class. It is kept only
+// for unit tests and the market-gap report. It cannot publish or derive a live
+// catalogue price; BuildCataloguePriceSchedule is the sole price authority.
+func diagnosticCostFloorFromSupplierEconomics(b measuredThroughput, supplierShare, electricityUSDPerKWh float64) RepriceResult {
 	watts := sustainedWattsByHWClass[b.HWClass]
 	if watts <= 0 {
 		watts = 30.0 // conservative apple_silicon_pro-equivalent default, never zero
@@ -493,10 +494,11 @@ func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
 	return schedule, nil
 }
 
-// RepriceCatalogueFromSupplierEconomics keeps the historical diagnostic API
-// for reports and unit tests. Startup uses the error-returning schedule builder
-// and therefore cannot silently retain a stale partial catalogue.
-func RepriceCatalogueFromSupplierEconomics() []RepriceResult {
+// PublishedCatalogueResults returns the all-or-nothing result set from the
+// market-board schedule. It does not calculate prices from supplier costs.
+// Startup uses the error-returning schedule builder and therefore cannot
+// silently retain a stale partial catalogue.
+func PublishedCatalogueResults() []RepriceResult {
 	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
 		log.Printf("catalogue price schedule rejected: %v", err)
@@ -522,7 +524,7 @@ func CompareCostFloorToMarketBoard(supplierShare float64) []CostFloorVsMarket {
 	}
 	var out []CostFloorVsMarket
 	for _, b := range repricingBenchmarks {
-		cost := repriceFromSupplierEconomics(b, supplierShare, defaultElectricityUSDPerKWh)
+		cost := diagnosticCostFloorFromSupplierEconomics(b, supplierShare, defaultElectricityUSDPerKWh)
 		mkt, ok := repriceFromMarketBoard(b.ModelID, b.JobType, board)
 		if !ok || mkt.PricePer1K <= 0 {
 			continue

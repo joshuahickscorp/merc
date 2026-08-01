@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-func TestRepriceFromSupplierEconomicsMathIsCorrect(t *testing.T) {
+func TestDiagnosticCostFloorMathIsCorrect(t *testing.T) {
 	b := measuredThroughput{
 		ModelID: "test-model", JobType: "embed", UnitsPerSec: 1000.0, HWClass: "apple_silicon_pro",
 		SourceCitation: "test",
 	}
-	got := repriceFromSupplierEconomics(b, 0.97, 0.10)
+	got := diagnosticCostFloorFromSupplierEconomics(b, 0.97, 0.10)
 	wantPrice := (targetSupplierUSDHr + 0.003) / (3600000.0 / 1000.0 * 0.97)
 	if diff := got.PricePer1K - wantPrice; diff > 1e-9 || diff < -1e-9 {
 		t.Fatalf("price_per_1k = %.10f, want %.10f", got.PricePer1K, wantPrice)
@@ -27,19 +27,19 @@ func TestRepriceFromSupplierEconomicsMathIsCorrect(t *testing.T) {
 	}
 }
 
-func TestRepriceFromSupplierEconomicsHigherThroughputMeansLowerPrice(t *testing.T) {
+func TestDiagnosticCostFloorHigherThroughputMeansLowerFloor(t *testing.T) {
 	slow := measuredThroughput{ModelID: "slow", JobType: "batch_infer", UnitsPerSec: 100, HWClass: "apple_silicon_pro"}
 	fast := measuredThroughput{ModelID: "fast", JobType: "batch_infer", UnitsPerSec: 1000, HWClass: "apple_silicon_pro"}
-	slowPrice := repriceFromSupplierEconomics(slow, 0.97, 0.15).PricePer1K
-	fastPrice := repriceFromSupplierEconomics(fast, 0.97, 0.15).PricePer1K
+	slowPrice := diagnosticCostFloorFromSupplierEconomics(slow, 0.97, 0.15).PricePer1K
+	fastPrice := diagnosticCostFloorFromSupplierEconomics(fast, 0.97, 0.15).PricePer1K
 	if fastPrice >= slowPrice {
-		t.Fatalf("10x throughput should reprice to a materially lower price_per_1k: slow=%.8f fast=%.8f", slowPrice, fastPrice)
+		t.Fatalf("10x throughput should set a materially lower diagnostic cost floor: slow=%.8f fast=%.8f", slowPrice, fastPrice)
 	}
 }
 
-func TestRepriceFromSupplierEconomicsUnknownHWClassFallsBackConservatively(t *testing.T) {
+func TestDiagnosticCostFloorUnknownHWClassFallsBackConservatively(t *testing.T) {
 	b := measuredThroughput{ModelID: "m", JobType: "embed", UnitsPerSec: 500, HWClass: "some_future_chip"}
-	got := repriceFromSupplierEconomics(b, 0.97, 0.15)
+	got := diagnosticCostFloorFromSupplierEconomics(b, 0.97, 0.15)
 	if got.PricePer1K <= 0 {
 		t.Fatalf("unknown hw_class should still yield a positive price, got %v", got.PricePer1K)
 	}
@@ -48,8 +48,8 @@ func TestRepriceFromSupplierEconomicsUnknownHWClassFallsBackConservatively(t *te
 	}
 }
 
-func TestRepriceCatalogueFromSupplierEconomicsOmitsUnmeasuredModels(t *testing.T) {
-	results := RepriceCatalogueFromSupplierEconomics()
+func TestPublishedCatalogueResultsOmitsUnmeasuredModels(t *testing.T) {
+	results := PublishedCatalogueResults()
 	if len(results) == 0 {
 		t.Fatal("expected at least the two board-mapped measured models")
 	}
@@ -57,17 +57,17 @@ func TestRepriceCatalogueFromSupplierEconomicsOmitsUnmeasuredModels(t *testing.T
 	for _, r := range results {
 		seen[r.ModelID] = true
 		if r.PricePer1K <= 0 {
-			t.Fatalf("repriced model %s has non-positive price %v", r.ModelID, r.PricePer1K)
+			t.Fatalf("published model %s has non-positive price %v", r.ModelID, r.PricePer1K)
 		}
 		if !strings.Contains(r.Formula, "confidence_weighted_median(board[") {
-			t.Fatalf("catalogue reprice must cite market board, formula: %s", r.Formula)
+			t.Fatalf("published catalogue price must cite market board, formula: %s", r.Formula)
 		}
 	}
 	if !seen["all-minilm-l6-v2"] || !seen["llama-3.2-1b-instruct-q4"] {
 		t.Fatalf("expected the two board-mapped models in the result, got %v", seen)
 	}
 	if seen["unsupported-model"] {
-		t.Fatal("unmeasured model must never be repriced")
+		t.Fatal("unmeasured model must never be published")
 	}
 }
 

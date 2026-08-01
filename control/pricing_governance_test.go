@@ -106,7 +106,7 @@ func TestNegativeContributionCannotBePublishedOrEnvironmentSubsidized(t *testing
 // The shipped board must actually clear the gate: if it does not, the catalogue
 // silently stops repricing and nobody notices.
 func TestShippedBoardPublishesAViablePrice(t *testing.T) {
-	results := RepriceCatalogueFromSupplierEconomics()
+	results := PublishedCatalogueResults()
 	if len(results) == 0 {
 		t.Fatal("the shipped price board publishes no prices at all")
 	}
