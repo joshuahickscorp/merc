@@ -68,6 +68,14 @@ fn default_llama_embed_url() -> String {
     "http://127.0.0.1:8188".to_string()
 }
 
+fn default_allow_model_downloads() -> bool {
+    true
+}
+
+fn default_max_model_cache_gb() -> f32 {
+    4.0
+}
+
 fn default_openai_model() -> String {
     "cx-chat-1b".to_string()
 }
@@ -102,6 +110,12 @@ pub struct AgentConfig {
     pub paused: bool,
     #[serde(default)]
     pub allowed_weekdays: Option<Vec<u8>>,
+    #[serde(default)]
+    pub allowed_workload_classes: Option<Vec<String>>,
+    #[serde(default = "default_allow_model_downloads")]
+    pub allow_model_downloads: bool,
+    #[serde(default = "default_max_model_cache_gb")]
+    pub max_model_cache_gb: f32,
     pub quiet_hours: Option<(u8, u8)>,
     pub power_only: bool,
     pub min_payout_usd_per_hr: f32,
@@ -151,6 +165,9 @@ pub struct AgentConfig {
 pub struct OperatorPrefs {
     pub paused: Option<bool>,
     pub allowed_weekdays: Option<Vec<u8>>,
+    pub allowed_workload_classes: Option<Vec<String>>,
+    pub allow_model_downloads: Option<bool>,
+    pub max_model_cache_gb: Option<f32>,
     pub power_only: Option<bool>,
     pub min_payout_usd_per_hr: Option<f32>,
     pub memory_headroom_gb: Option<f32>,
@@ -341,6 +358,14 @@ impl AgentConfig {
                 anyhow::bail!("allowed_weekdays values must be 0..6 (Sunday..Saturday)");
             }
         }
+        if let Some(workloads) = &self.allowed_workload_classes {
+            if workloads
+                .iter()
+                .any(|workload| !matches!(workload.as_str(), "embed" | "batch_infer"))
+            {
+                anyhow::bail!("allowed_workload_classes contains an unknown workload");
+            }
+        }
         if let Some((start, end)) = self.quiet_hours {
             if start > 23 || end > 23 {
                 anyhow::bail!("quiet_hours values must be 0..23");
@@ -358,6 +383,9 @@ impl AgentConfig {
         {
             anyhow::bail!("max_memory_pct must be between 0 and 100");
         }
+        if !self.max_model_cache_gb.is_finite() || self.max_model_cache_gb < 0.0 {
+            anyhow::bail!("max_model_cache_gb must be finite and non-negative");
+        }
         Ok(())
     }
 
@@ -367,6 +395,15 @@ impl AgentConfig {
         }
         if let Some(v) = &prefs.allowed_weekdays {
             self.allowed_weekdays = Some(v.clone());
+        }
+        if let Some(v) = &prefs.allowed_workload_classes {
+            self.allowed_workload_classes = Some(v.clone());
+        }
+        if let Some(v) = prefs.allow_model_downloads {
+            self.allow_model_downloads = v;
+        }
+        if let Some(v) = prefs.max_model_cache_gb {
+            self.max_model_cache_gb = v;
         }
         if let Some(v) = prefs.power_only {
             self.power_only = v;
@@ -429,6 +466,12 @@ impl AgentConfig {
             None => ((memory_gb / 8.0) as usize).clamp(2, 4),
         }
     }
+
+    pub fn allows_workload(&self, workload: &str) -> bool {
+        self.allowed_workload_classes
+            .as_ref()
+            .is_none_or(|allowed| allowed.iter().any(|item| item == workload))
+    }
 }
 
 #[cfg(test)]
@@ -442,6 +485,9 @@ mod tests {
             supplier_id: Uuid::nil(),
             paused: false,
             allowed_weekdays: None,
+            allowed_workload_classes: None,
+            allow_model_downloads: true,
+            max_model_cache_gb: default_max_model_cache_gb(),
             quiet_hours,
             power_only,
             min_payout_usd_per_hr: 0.0,
@@ -680,6 +726,17 @@ mod tests {
         assert!(!c.is_eligible_to_run_at(12, 0, false));
         c.paused = true;
         assert!(!c.is_eligible_to_run_at(12, 1, false));
+    }
+
+    #[test]
+    fn workload_allowlist_is_exact() {
+        let mut c = cfg(None, false);
+        assert!(c.allows_workload("embed"));
+        c.allowed_workload_classes = Some(vec!["embed".into()]);
+        assert!(c.allows_workload("embed"));
+        assert!(!c.allows_workload("batch_infer"));
+        c.allowed_workload_classes = Some(vec!["unknown".into()]);
+        assert!(c.validate_operator_policy().is_err());
     }
 
     #[test]
