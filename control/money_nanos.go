@@ -75,6 +75,10 @@ type (
 	NanoUSDPerHour int64
 	// NanoUSDPerThousandUnits is a catalogue price expressed per 1,000 units.
 	NanoUSDPerThousandUnits int64
+	// NanoMajorPerMillionTokens is a currency-bound realtime rate expressed as
+	// nano-major-units per 1,000,000 tokens. The currency travels on the result;
+	// a rate is never compared or added directly to another currency's rate.
+	NanoMajorPerMillionTokens int64
 	// NanoWorkUnits is billable units times 1e9, so a fraction of a unit stays
 	// exact. It replaced an integer WorkUnits, which is not a widening for its own
 	// sake: units are NOT whole. The input-side settlement formula is
@@ -306,6 +310,85 @@ func nanosPer1KFromFloat(pricePer1K float64) NanoUSDPerThousandUnits {
 		return 0
 	}
 	return NanoUSDPerThousandUnits(math.Round(pricePer1K * float64(NanosPerMajorUnit)))
+}
+
+// nanoRatePerMillionFromFloat is the legacy realtime-profile/offer boundary.
+// Once converted, token counts are multiplied before division in big.Int and no
+// economic comparison returns to float64.
+func nanoRatePerMillionFromFloat(rate float64) (NanoMajorPerMillionTokens, error) {
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 {
+		return 0, errors.New("a realtime token rate must be finite and non-negative")
+	}
+	if rate*float64(NanosPerMajorUnit) > math.MaxInt64 {
+		return 0, errMoneyOverflow
+	}
+	return NanoMajorPerMillionTokens(math.Round(rate * float64(NanosPerMajorUnit))), nil
+}
+
+func realtimeTokenChargeNanos(
+	c Currency,
+	promptTokens, completionTokens int64,
+	inputRate, outputRate NanoMajorPerMillionTokens,
+	roundSupplierUp bool,
+) (MoneyNanos, error) {
+	if promptTokens < 0 || completionTokens < 0 || inputRate < 0 || outputRate < 0 {
+		return MoneyNanos{}, errors.New("realtime tokens and rates must be non-negative")
+	}
+	input, err := mulDiv(int64(inputRate), promptTokens, 1_000_000, roundSupplierUp)
+	if err != nil {
+		return MoneyNanos{}, err
+	}
+	output, err := mulDiv(int64(outputRate), completionTokens, 1_000_000, roundSupplierUp)
+	if err != nil {
+		return MoneyNanos{}, err
+	}
+	inputMoney, err := NewMoneyNanos(c, input)
+	if err != nil {
+		return MoneyNanos{}, err
+	}
+	outputMoney, err := NewMoneyNanos(c, output)
+	if err != nil {
+		return MoneyNanos{}, err
+	}
+	return inputMoney.Add(outputMoney)
+}
+
+// BuyerRealtimeTokenChargeNanos rounds each exact token-class product down.
+// This is the buyer direction: a fraction of a nano is never charged as work.
+func BuyerRealtimeTokenChargeNanos(
+	c Currency, promptTokens, completionTokens int64,
+	inputRate, outputRate NanoMajorPerMillionTokens,
+) (MoneyNanos, error) {
+	return realtimeTokenChargeNanos(c, promptTokens, completionTokens, inputRate, outputRate, false)
+}
+
+// SupplierRealtimeTokenEntitlementNanos rounds each exact token-class product
+// up. This is the supplier direction: a positive entitlement is never shaved to
+// zero before input and output are combined.
+func SupplierRealtimeTokenEntitlementNanos(
+	c Currency, promptTokens, completionTokens int64,
+	inputRate, outputRate NanoMajorPerMillionTokens,
+) (MoneyNanos, error) {
+	return realtimeTokenChargeNanos(c, promptTokens, completionTokens, inputRate, outputRate, true)
+}
+
+// LedgerMicrosFromNanos projects one complete exact amount to the legacy ledger
+// once, rounding half away from zero. It never rounds input and output classes
+// separately. A positive sub-micro amount retains the historical one-micro
+// minimum at this external precision boundary.
+func LedgerMicrosFromNanos(amount MoneyNanos) (int64, error) {
+	if amount.Currency.Code() == "" || amount.Nanos < 0 {
+		return 0, errors.New("ledger projection requires non-negative currency-bound nanos")
+	}
+	whole := amount.Nanos / NanosPerMicro
+	remainder := amount.Nanos % NanosPerMicro
+	if remainder*2 >= NanosPerMicro {
+		whole++
+	}
+	if whole == 0 && amount.Nanos > 0 {
+		whole = 1
+	}
+	return whole, nil
 }
 
 // CatalogueGrossNanos is the buyer side of the ONE derivation: a catalogue price

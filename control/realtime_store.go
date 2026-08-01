@@ -85,6 +85,9 @@ func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, regi
 	if !ok || registration.RuntimeProfileSHA256 != profile.ProfileSHA256 {
 		return errors.New("runtime profile does not match control-plane authority")
 	}
+	if err := validateRealtimeOfferRates(profile, registration); err != nil {
+		return err
+	}
 	plan, err := newRealtimePlacementPlan(profile, registration)
 	if err != nil {
 		return fmt.Errorf("build realtime placement plan: %w", err)
@@ -491,13 +494,49 @@ type RealtimeOperationalSnapshot struct {
 	InternalRefundsUSD        float64
 }
 
-func tokenCharge(prompt, completion int64, inputRate, outputRate float64) float64 {
-	amount := float64(prompt)/1_000_000*inputRate + float64(completion)/1_000_000*outputRate
-	amount = math.Round(amount*1_000_000) / 1_000_000
-	if amount == 0 && prompt+completion > 0 && (inputRate > 0 || outputRate > 0) {
-		amount = 0.000001
+func tokenChargeExact(prompt, completion int64, inputRate, outputRate float64, supplier bool) (MoneyNanos, error) {
+	currency, err := SettlementCurrency()
+	if err != nil {
+		return MoneyNanos{}, err
 	}
-	return amount
+	input, err := nanoRatePerMillionFromFloat(inputRate)
+	if err != nil {
+		return MoneyNanos{}, err
+	}
+	output, err := nanoRatePerMillionFromFloat(outputRate)
+	if err != nil {
+		return MoneyNanos{}, err
+	}
+	if supplier {
+		return SupplierRealtimeTokenEntitlementNanos(currency, prompt, completion, input, output)
+	}
+	return BuyerRealtimeTokenChargeNanos(currency, prompt, completion, input, output)
+}
+
+// tokenCharge is a compatibility projection for stored decimal columns and API
+// fields. Authority is derived in nano-major-units above, then projected once.
+func tokenCharge(prompt, completion int64, inputRate, outputRate float64) (float64, error) {
+	exact, err := tokenChargeExact(prompt, completion, inputRate, outputRate, false)
+	if err != nil {
+		return 0, err
+	}
+	micros, err := LedgerMicrosFromNanos(exact)
+	if err != nil {
+		return 0, err
+	}
+	return microsToUSD(micros), nil
+}
+
+func supplierTokenCharge(prompt, completion int64, inputRate, outputRate float64) (float64, error) {
+	exact, err := tokenChargeExact(prompt, completion, inputRate, outputRate, true)
+	if err != nil {
+		return 0, err
+	}
+	micros, err := LedgerMicrosFromNanos(exact)
+	if err != nil {
+		return 0, err
+	}
+	return microsToUSD(micros), nil
 }
 
 func releaseRealtimeCapacity(ctx context.Context, tx pgx.Tx, workerID uuid.UUID, profileID string) error {
@@ -704,11 +743,17 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 		evidence.TotalTokens != evidence.PromptTokens+evidence.CompletionTokens {
 		return RealtimeSettlement{}, errors.New("incomplete V0 execution evidence")
 	}
-	buyerCharge := tokenCharge(evidence.PromptTokens, evidence.CompletionTokens, buyerInput, buyerOutput)
+	buyerCharge, err := tokenCharge(evidence.PromptTokens, evidence.CompletionTokens, buyerInput, buyerOutput)
+	if err != nil {
+		return RealtimeSettlement{}, fmt.Errorf("derive buyer token charge: %w", err)
+	}
 	if buyerCharge > maximum {
 		return RealtimeSettlement{}, fmt.Errorf("verified usage cost %.6f exceeds contract maximum %.6f", buyerCharge, maximum)
 	}
-	supplierPayable := tokenCharge(evidence.PromptTokens, evidence.CompletionTokens, supplierInput, supplierOutput)
+	supplierPayable, err := supplierTokenCharge(evidence.PromptTokens, evidence.CompletionTokens, supplierInput, supplierOutput)
+	if err != nil {
+		return RealtimeSettlement{}, fmt.Errorf("derive supplier token entitlement: %w", err)
+	}
 	if supplierPayable > buyerCharge {
 		return RealtimeSettlement{}, errors.New("supplier payable exceeds buyer charge")
 	}

@@ -404,3 +404,69 @@ func TestRoundingPolicyIsNamed(t *testing.T) {
 			"one and a rename silently reinterprets them", economicRoundingPolicy)
 	}
 }
+
+func TestRealtimeTokenMoneyMultipliesBeforeDivisionInCurrencyBoundNanos(t *testing.T) {
+	c := cad(t)
+	input, err := nanoRatePerMillionFromFloat(0.50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := nanoRatePerMillionFromFloat(1.25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	charge, err := BuyerRealtimeTokenChargeNanos(c, 3, 5, input, output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if charge.Currency.Code() != "cad" || charge.Nanos != 7_750 {
+		t.Fatalf("realtime charge = %s, want 7750 nano-cad", charge)
+	}
+}
+
+func TestRealtimeBuyerAndSupplierRoundingDirectionsAreOpposite(t *testing.T) {
+	c := cad(t)
+	oneNanoPerMillion, err := nanoRatePerMillionFromFloat(0.000000001)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buyer, err := BuyerRealtimeTokenChargeNanos(c, 1, 0, oneNanoPerMillion, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	supplier, err := SupplierRealtimeTokenEntitlementNanos(c, 1, 0, oneNanoPerMillion, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buyer.Nanos != 0 || supplier.Nanos != 1 {
+		t.Fatalf("buyer/supplier directions = %d/%d nanos, want 0/1", buyer.Nanos, supplier.Nanos)
+	}
+}
+
+func TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined(t *testing.T) {
+	c := cad(t)
+	amount, err := NewMoneyNanos(c, 800)
+	if err != nil {
+		t.Fatal(err)
+	}
+	micros, err := LedgerMicrosFromNanos(amount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if micros != 1 {
+		t.Fatalf("800 combined nanos projected to %d micros, want 1", micros)
+	}
+	zero, err := LedgerMicrosFromNanos(nanos(t, c, 0))
+	if err != nil || zero != 0 {
+		t.Fatalf("zero projected to (%d,%v), want 0", zero, err)
+	}
+}
+
+func TestRealtimeTokenMoneyRejectsInvalidShape(t *testing.T) {
+	if _, err := nanoRatePerMillionFromFloat(math.NaN()); err == nil {
+		t.Fatal("NaN realtime rate passed")
+	}
+	if _, err := BuyerRealtimeTokenChargeNanos(cad(t), -1, 0, 1, 1); err == nil {
+		t.Fatal("negative token count passed")
+	}
+}

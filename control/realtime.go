@@ -134,15 +134,42 @@ func validateRealtimeOfferRegistration(reg *RealtimeOfferRegistration, remoteAdd
 		reg.AvailableSequences < 0 || reg.AvailableSequences > reg.MaxActiveSequences {
 		return VLLMRuntimeProfile{}, errors.New("invalid active sequence capacity")
 	}
-	if reg.SupplierInputUSDPerMillionTokens < 0 || reg.SupplierOutputUSDPerMillionTokens < 0 ||
-		reg.SupplierInputUSDPerMillionTokens > profile.BuyerInputUSDPerMillionTokens ||
-		reg.SupplierOutputUSDPerMillionTokens > profile.BuyerOutputUSDPerMillionTokens {
-		return VLLMRuntimeProfile{}, errors.New("supplier token rates must be non-negative and no greater than the buyer rates")
+	if err := validateRealtimeOfferRates(profile, *reg); err != nil {
+		return VLLMRuntimeProfile{}, err
 	}
 	if _, err := newRealtimePlacementPlan(profile, *reg); err != nil {
 		return VLLMRuntimeProfile{}, fmt.Errorf("placement refused: %w", err)
 	}
 	return profile, nil
+}
+
+func validateRealtimeOfferRates(profile VLLMRuntimeProfile, reg RealtimeOfferRegistration) error {
+	buyerInput, err := nanoRatePerMillionFromFloat(profile.BuyerInputUSDPerMillionTokens)
+	if err != nil || buyerInput <= 0 {
+		return errors.New("buyer input token rate lacks exact positive authority")
+	}
+	buyerOutput, err := nanoRatePerMillionFromFloat(profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil || buyerOutput <= 0 {
+		return errors.New("buyer output token rate lacks exact positive authority")
+	}
+	supplierInput, err := nanoRatePerMillionFromFloat(reg.SupplierInputUSDPerMillionTokens)
+	if err != nil || supplierInput <= 0 {
+		return errors.New("supplier input token rate must be finite and positive")
+	}
+	supplierOutput, err := nanoRatePerMillionFromFloat(reg.SupplierOutputUSDPerMillionTokens)
+	if err != nil || supplierOutput <= 0 {
+		return errors.New("supplier output token rate must be finite and positive")
+	}
+	// With buyer products rounded down and supplier products rounded up, a rate
+	// delta of one divisor can still collapse to zero on a single token when the
+	// supplier product has a fractional nano. Two divisors guarantee at least one
+	// exact nano of gross spread for every positive count in either class.
+	const minimumRealtimeRateSpreadNanos = 2 * 1_000_000
+	if int64(buyerInput-supplierInput) < minimumRealtimeRateSpreadNanos ||
+		int64(buyerOutput-supplierOutput) < minimumRealtimeRateSpreadNanos {
+		return errors.New("supplier token rates do not leave one exact nano of gross Merc contribution for every positive token class")
+	}
+	return nil
 }
 
 func (s *Server) handleRealtimeWorkerRegister(w http.ResponseWriter, r *http.Request) {
@@ -376,10 +403,16 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 	if contextBudget := int64(profile.MaxModelLength) - maxOutput; estimatedInputTokens > contextBudget {
 		return preparedRealtimeRequest{}, errors.New("request exceeds the runtime profile context bound")
 	}
-	maximumPrice := tokenCharge(maxInputTokens, maxOutput,
+	maximumPrice, err := tokenCharge(maxInputTokens, maxOutput,
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
-	estimatedPrice := tokenCharge(estimatedInputTokens, (maxOutput+1)/2,
+	if err != nil {
+		return preparedRealtimeRequest{}, fmt.Errorf("derive maximum realtime price: %w", err)
+	}
+	estimatedPrice, err := tokenCharge(estimatedInputTokens, (maxOutput+1)/2,
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil {
+		return preparedRealtimeRequest{}, fmt.Errorf("derive estimated realtime price: %w", err)
+	}
 	if estimatedPrice > maximumPrice {
 		estimatedPrice = maximumPrice
 	}

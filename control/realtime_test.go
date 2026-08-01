@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -156,5 +157,36 @@ func TestProxySSERejectsWorkerDeathInsideEvent(t *testing.T) {
 	}
 	if _, err := tracker.evidence(uuid.New(), 200, time.Second); err == nil {
 		t.Fatal("partial stream produced valid execution evidence")
+	}
+}
+
+func TestRealtimeOfferRequiresPositiveGrossContributionInEveryTokenClass(t *testing.T) {
+	profile := VLLMRuntimeProfile{
+		BuyerInputUSDPerMillionTokens: 0.10, BuyerOutputUSDPerMillionTokens: 0.40,
+	}
+	valid := RealtimeOfferRegistration{
+		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
+	}
+	if err := validateRealtimeOfferRates(profile, valid); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*RealtimeOfferRegistration){
+		"zero floor":       func(r *RealtimeOfferRegistration) { r.SupplierInputUSDPerMillionTokens = 0 },
+		"equal input rate": func(r *RealtimeOfferRegistration) { r.SupplierInputUSDPerMillionTokens = 0.10 },
+		"equal output rate": func(r *RealtimeOfferRegistration) {
+			r.SupplierOutputUSDPerMillionTokens = 0.40
+		},
+		"sub-nano spread": func(r *RealtimeOfferRegistration) {
+			r.SupplierInputUSDPerMillionTokens = 0.099
+		},
+		"non-finite": func(r *RealtimeOfferRegistration) { r.SupplierOutputUSDPerMillionTokens = math.Inf(1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := valid
+			mutate(&candidate)
+			if err := validateRealtimeOfferRates(profile, candidate); err == nil {
+				t.Fatal("economically invalid offer passed")
+			}
+		})
 	}
 }
