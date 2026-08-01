@@ -89,7 +89,8 @@ type PricingDecision struct {
 	OriginQuotePricingDecisionSHA256 string `json:"origin_quote_pricing_decision_sha256,omitempty"`
 	OriginPricingDecisionSHA256      string `json:"origin_pricing_decision_sha256,omitempty"`
 
-	Catalogue CataloguePriceAuthority `json:"catalogue"`
+	Catalogue CataloguePriceAuthority   `json:"catalogue"`
+	Realtime  *RealtimePricingAuthority `json:"realtime,omitempty"`
 
 	BillableUnits                 float64 `json:"billable_units"`
 	ExpectedSupplierUnitsPerSec   float64 `json:"expected_supplier_units_per_sec"`
@@ -907,11 +908,6 @@ func validatePricingCostShape(p PricingDecision) error {
 	if err != nil || currency.Code() != p.Currency {
 		return errors.New("pricing decision currency is unsupported")
 	}
-	if p.Currency != p.Catalogue.SettlementCurrency ||
-		!validSHA256(p.WorkloadDecisionSHA256) ||
-		!validSHA256(p.ComputePlanSHA256) {
-		return errors.New("pricing decision lacks core digest or currency authority")
-	}
 	if err := validateFixedPointPricing(p); err != nil {
 		return err
 	}
@@ -941,6 +937,10 @@ func validatePricingCostShape(p PricingDecision) error {
 	}
 	switch p.ExecutionMode {
 	case computeExecutionDistributed:
+		if p.Realtime != nil || p.Currency != p.Catalogue.SettlementCurrency ||
+			!validSHA256(p.WorkloadDecisionSHA256) || !validSHA256(p.ComputePlanSHA256) {
+			return errors.New("physical batch pricing decision lacks core digest or currency authority")
+		}
 		// Named, not collapsed. Six conditions behind one sentence meant a submit
 		// could 409 with "lacks executable composite authority" and no way to tell
 		// whether the throughput was missing, the ceiling was zero or the modeled
@@ -986,6 +986,10 @@ func validatePricingCostShape(p PricingDecision) error {
 			return errors.New("physical pricing decision does not conserve modeled buyer price")
 		}
 	case computeExecutionExactReuse:
+		if p.Realtime != nil || p.Currency != p.Catalogue.SettlementCurrency ||
+			!validSHA256(p.WorkloadDecisionSHA256) || !validSHA256(p.ComputePlanSHA256) {
+			return errors.New("exact-reuse pricing decision lacks core digest or currency authority")
+		}
 		if p.PlacementRequirementSHA256 != "" ||
 			p.EconomicPlanSHA256 != "" ||
 			p.EconomicScheduleSHA256 != "" ||
@@ -996,6 +1000,24 @@ func validatePricingCostShape(p PricingDecision) error {
 			p.PrimarySupplierCost.Status != pricingCostNotApplicable ||
 			p.VerificationCost.Status != pricingCostNotApplicable {
 			return errors.New("exact-reuse pricing falsely attributes physical execution")
+		}
+	case pricingExecutionRealtime:
+		if p.Realtime == nil {
+			return errors.New("realtime pricing decision lacks realtime authority")
+		}
+		if p.Catalogue != (CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
+			p.ComputePlanSHA256 != "" || p.PlacementRequirementSHA256 != "" ||
+			p.EconomicPlanSHA256 != "" || p.EconomicScheduleSHA256 != "" ||
+			p.SupplierGrossNanos != 0 || p.SupplierRequiredNanos != 0 ||
+			p.SupplierEntitlementPolicy != "" {
+			return errors.New("realtime pricing decision carries unrelated batch authority")
+		}
+		if err := validateRealtimePricingAuthority(*p.Realtime, p.Currency); err != nil {
+			return err
+		}
+		conserved := p.PrimarySupplierCost.Amount + p.PlatformContribution.Amount
+		if math.Abs(conserved-p.BuyerPrice) > 0.000000002 {
+			return errors.New("realtime pricing decision does not conserve modeled buyer price")
 		}
 	default:
 		return fmt.Errorf("unknown pricing execution mode %q", p.ExecutionMode)
