@@ -1118,18 +1118,19 @@ func (s *Server) tryRealtimeExactReuse(
 	if err != nil {
 		return RealtimeContract{}, nil, false, err
 	}
-	fullPer1K := fullPricePer1KFromRealtime(
-		prepared.Profile.BuyerInputUSDPerMillionTokens,
-		prepared.Profile.BuyerOutputUSDPerMillionTokens,
-	)
 	// Delivered tokens for a pure result hit are the cached completion size.
 	// Physical is zero — PriceAccounting charges the reuse class only.
 	delivered := hit.OutputTokens
 	if delivered <= 0 {
 		delivered = 1
 	}
-	money := SettleReuseHitMoney(delivered, fullPer1K)
-	if !money.Conserved() || money.SupplierLiabilityMicros != 0 {
+	currency, err := SettlementCurrency()
+	if err != nil {
+		return RealtimeContract{}, nil, false, err
+	}
+	money, err := SettleRealtimeReuseHitMoney(currency, delivered,
+		prepared.Profile.BuyerInputUSDPerMillionTokens, prepared.Profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
 		return RealtimeContract{}, nil, false, fmt.Errorf("reuse money invariant broken: %+v", money)
 	}
 	sum := sha256.Sum256(body)
@@ -1241,10 +1242,6 @@ func (s *Server) tryRealtimeCoalescedDelivery(
 		return "", "", RealtimeContract{}, nil, false, nil
 	}
 
-	fullPer1K := fullPricePer1KFromRealtime(
-		prepared.Profile.BuyerInputUSDPerMillionTokens,
-		prepared.Profile.BuyerOutputUSDPerMillionTokens,
-	)
 	delivered := result.Tokens
 	if delivered <= 0 {
 		delivered = 1
@@ -1254,8 +1251,13 @@ func (s *Server) tryRealtimeCoalescedDelivery(
 	// execution. Same money shape as a cache hit; the classes differ because the
 	// stories differ, and the invariant checked here is the one that matters:
 	// this must not mint a second supplier liability.
-	money := SettleReuseHitMoney(delivered, fullPer1K)
-	if !money.Conserved() || money.SupplierLiabilityMicros != 0 {
+	currency, err := SettlementCurrency()
+	if err != nil {
+		return "", "", RealtimeContract{}, nil, false, err
+	}
+	money, err := SettleRealtimeReuseHitMoney(currency, delivered,
+		prepared.Profile.BuyerInputUSDPerMillionTokens, prepared.Profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
 		return "", "", RealtimeContract{}, nil, false,
 			fmt.Errorf("coalesced money invariant broken: %+v", money)
 	}

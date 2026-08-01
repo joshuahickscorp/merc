@@ -462,6 +462,43 @@ func TestRealtimeLedgerProjectionOccursAfterTokenClassesAreCombined(t *testing.T
 	}
 }
 
+func TestRealtimeReuseAppliesShareBeforeSingleLedgerProjection(t *testing.T) {
+	currency := cad(t)
+	charge, minimumApplied, err := RealtimeReuseBuyerChargeNanos(currency, 7, 450_000_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 450,000,000 nanos/million * 7 tokens * 40% = 1,260 nanos.
+	// Quantising the 3,150-nano full price to 3 micros before applying the
+	// share would incorrectly produce 1,200 nanos.
+	if minimumApplied || charge.Nanos != 1_260 {
+		t.Fatalf("reuse charge=%d minimum=%v, want 1260/false", charge.Nanos, minimumApplied)
+	}
+	money, err := SettleRealtimeReuseHitMoney(currency, 7, 0.12, 0.45)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if money.Currency != "cad" || money.BuyerDebitNanos != 1_260 ||
+		money.PlatformNanos != 1_260 || money.BuyerDebitMicros != 1 ||
+		!money.Conserved() || !money.ConservedExact() {
+		t.Fatalf("reuse settlement lost exact/ledger authority: %+v", money)
+	}
+}
+
+func TestRealtimeReuseNamesMinimumExternalLedgerCharge(t *testing.T) {
+	money, err := SettleRealtimeReuseHitMoney(cad(t), 1, 0.12, 0.45)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !money.MinimumChargeApplied || money.BuyerDebitNanos != NanosPerMicro ||
+		money.BuyerDebitMicros != 1 || money.PlatformNanos != NanosPerMicro {
+		t.Fatalf("minimum reuse delivery charge is not explicit: %+v", money)
+	}
+	if _, _, err := RealtimeReuseBuyerChargeNanos(cad(t), 0, 450_000_000); err == nil {
+		t.Fatal("zero-token reuse delivery received a minimum charge")
+	}
+}
+
 func TestRealtimeTokenMoneyRejectsInvalidShape(t *testing.T) {
 	if _, err := nanoRatePerMillionFromFloat(math.NaN()); err == nil {
 		t.Fatal("NaN realtime rate passed")
