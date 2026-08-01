@@ -3,7 +3,7 @@
   "runtime_profile_id": "vllm-llama-3.2-1b-instruct-bf16-tp1",
   "engine": "vllm",
   "engine_version": "0.23.0",
-  "container_image": "docker.io/vllm/vllm-openai:v0.23.0",
+  "container_image": "vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0",
   "container_platform": "linux/amd64",
   "container_digest": "sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0",
   "model_alias": "cx-chat-1b",
@@ -16,6 +16,7 @@
   "pipeline_parallel_size": 1,
   "max_model_length": 32768,
   "gpu_memory_utilization": 0.9,
+  "max_active_sequences": 128,
   "prefix_caching": true,
   "chunked_prefill": true,
   "generation_policy": {

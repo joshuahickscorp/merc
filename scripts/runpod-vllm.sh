@@ -34,11 +34,35 @@ GPU_TYPE="${MERC_RUNPOD_GPU:-NVIDIA RTX A5000}"
 # SECURE, not ALL. COMMUNITY had no capacity for any probed GPU class, and
 # ALL resolves to community first, so ALL silently found nothing.
 CLOUD="${MERC_RUNPOD_CLOUD:-SECURE}"
-# Pinned, not :latest. A floating tag means the runtime that served a receipt
-# cannot be identified later, which is the whole point of a pinned profile.
-IMAGE="${MERC_VLLM_IMAGE:-vllm/vllm-openai:v0.26.0-cu129-ubuntu2404}"
-MODEL="${MERC_VLLM_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}"
-VLLM_KEY="${MERC_VLLM_API_KEY:-merc-canary-$RANDOM$RANDOM}"
+# The default is the only locally admitted vLLM profile.  Read every serving
+# parameter from that one authority so the pod cannot silently use a model,
+# alias, revision, context window, or sequence limit different from the offer
+# it will register.  Overrides remain available for a separately governed
+# profile, but every image still has to be an immutable manifest digest.
+PROFILE_PATH="${MERC_VLLM_PROFILE_PATH:-$ROOT/control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json}"
+[ -f "$PROFILE_PATH" ] || die "vLLM profile is missing: $PROFILE_PATH"
+profile_value() { jq -er "$1" "$PROFILE_PATH"; }
+IMAGE="${MERC_VLLM_IMAGE:-$(profile_value '.container_image')}"
+MODEL="${MERC_VLLM_MODEL:-$(profile_value '.model_repository')}"
+VLLM_SERVED_MODEL="${MERC_VLLM_SERVED_MODEL:-$(profile_value '.model_alias')}"
+VLLM_MODEL_REVISION="${MERC_VLLM_MODEL_REVISION:-$(profile_value '.model_revision')}"
+VLLM_TOKENIZER_REVISION="${MERC_VLLM_TOKENIZER_REVISION:-$(profile_value '.tokenizer_revision')}"
+VLLM_MAX_MODEL_LEN="${MERC_VLLM_MAX_MODEL_LEN:-$(profile_value '.max_model_length')}"
+VLLM_GPU_MEMORY_UTILIZATION="${MERC_VLLM_GPU_MEMORY_UTILIZATION:-$(profile_value '.gpu_memory_utilization')}"
+VLLM_MAX_NUM_SEQS="${MERC_VLLM_MAX_NUM_SEQS:-$(profile_value '.max_active_sequences')}"
+[[ "$IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || die "MERC_VLLM_IMAGE must be an immutable OCI digest"
+[[ "$VLLM_MODEL_REVISION" =~ ^[0-9a-f]{40}$ ]] || die "MERC_VLLM_MODEL_REVISION must be an exact 40-character revision"
+[[ "$VLLM_TOKENIZER_REVISION" =~ ^[0-9a-f]{40}$ ]] || die "MERC_VLLM_TOKENIZER_REVISION must be an exact 40-character revision"
+[[ "$VLLM_SERVED_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "MERC_VLLM_SERVED_MODEL contains unsupported characters"
+[[ "$VLLM_MAX_MODEL_LEN" =~ ^[1-9][0-9]*$ && "$VLLM_MAX_NUM_SEQS" =~ ^[1-9][0-9]*$ ]] || die "vLLM limits must be positive integers"
+VLLM_KEY="${MERC_VLLM_API_KEY:-cx_vllm_$(openssl rand -hex 24)}"
+[[ "$VLLM_KEY" =~ ^cx_vllm_[A-Za-z0-9_-]{16,248}$ ]] || die "MERC_VLLM_API_KEY must be a cx_vllm_ credential suitable for realtime offer registration"
+export MERC_VLLM_SERVED_MODEL="$VLLM_SERVED_MODEL"
+export MERC_VLLM_MODEL_REVISION="$VLLM_MODEL_REVISION"
+export MERC_VLLM_TOKENIZER_REVISION="$VLLM_TOKENIZER_REVISION"
+export MERC_VLLM_MAX_MODEL_LEN="$VLLM_MAX_MODEL_LEN"
+export MERC_VLLM_GPU_MEMORY_UTILIZATION="$VLLM_GPU_MEMORY_UTILIZATION"
+export MERC_VLLM_MAX_NUM_SEQS="$VLLM_MAX_NUM_SEQS"
 POD_NAME="merc-canary-vllm"
 
 say() { printf '%s\n' "$*"; }

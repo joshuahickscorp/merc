@@ -1,0 +1,128 @@
+{
+  "schema_version": 2,
+  "kind": "cad_stranger_final_image",
+  "status": "PARTIAL",
+  "completed_at": "2026-08-01T16:02:17Z",
+  "candidate": {
+    "commit": "84aab61b254dce8b9a7445062c5f90e0429b2062",
+    "image_digest": "sha256:b76f64b4b2bc26f65e09d7da7d0279a4acfffbdfab14ef37400e369bd7fecad7",
+    "version": "network-10of10",
+    "price_board_sha256": "0e4a70dc40f8f4df4148bd1a4bcd85eb77558056d9d3fc346fef39c0d1aec154",
+    "release_artifact_boot": "PASS"
+  },
+  "environment": {
+    "shape": "isolated PostgreSQL 16, MinIO and exact immutable control image",
+    "native_agent": "macOS arm64 merc-agent 0.1.0 with required seatbelt sandbox",
+    "payment_provider": "Stripe",
+    "provider_mode": "test",
+    "settlement_currency": "cad",
+    "live_value_movement": false,
+    "secret_values_recorded": false
+  },
+  "webhook_authority": {
+    "transport": "temporary public TLS tunnel to the isolated candidate",
+    "billing_endpoint": {
+      "id_sha256_prefix": "6ea71fbfff548de1",
+      "secret_sha256_prefix": "b72c4620c4463819",
+      "api_version": "2025-06-30.basil",
+      "livemode": false,
+      "enabled": true
+    },
+    "connect_endpoint": {
+      "id_sha256_prefix": "a4a140d1a9d05160",
+      "secret_sha256_prefix": "08a89f082cb4db31",
+      "api_version": "2025-06-30.basil",
+      "livemode": false,
+      "enabled": true
+    },
+    "automatic_setup_webhook": "PASS",
+    "completed_topup_payment_intent_redelivery": "PASS",
+    "automatic_refund_webhook": "PASS"
+  },
+  "buyer_path": {
+    "public_tls_signup": true,
+    "test_card_setup": true,
+    "automatic_card_state_update": true,
+    "topup": {
+      "amount_minor_units": 100,
+      "currency": "cad",
+      "provider_payment_intent_sha256_prefix": "f2d2f0f73c2e255c",
+      "provider_charge_sha256_prefix": "f5760f151c36557f"
+    },
+    "fresh_api_key": true,
+    "firm_quote": true,
+    "submission": true,
+    "verification": true,
+    "receipt_authority": "verified"
+  },
+  "supplier_path": {
+    "self_service_connect_account": true,
+    "hosted_onboarding_link": true,
+    "worker_token": true,
+    "native_agent_registered": true,
+    "native_agent_claimed_and_committed": true,
+    "hosted_kyc_completed": false,
+    "payouts_enabled": false,
+    "blocker": "Stripe test-mode hosted onboarding presented hCaptcha; browser policy requires explicit user approval before solving it."
+  },
+  "execution_and_economics": {
+    "job_status": "complete",
+    "task_states": {
+      "complete": 3,
+      "active_claims_after_teardown": 0
+    },
+    "result_urls": 2,
+    "honeypots_passed": 1,
+    "currency": "cad",
+    "fixed_point": {
+      "buyer_charge_nanos": 12000,
+      "supplier_entitlements_nanos": 3000,
+      "known_variable_costs_nanos": 3000,
+      "merc_gross_spread_nanos": 9000,
+      "known_cost_contribution_nanos": 6000
+    },
+    "true_net_contribution": "unknown_not_zero",
+    "unknown_cost_categories": [
+      "storage cost",
+      "egress cost",
+      "provider energy and depreciation",
+      "risk reserve"
+    ],
+    "supplier_payable_major_units": 0.000003,
+    "supplier_payout_state": "held"
+  },
+  "cash_and_dispute": {
+    "buyer_dispute": "open",
+    "provider_refund": {
+      "count": 1,
+      "refunded_minor_units": 99,
+      "refund_sha256_prefix": "39d66900e296d2e9",
+      "automatic_charge_refunded_event_rows": 1,
+      "cash_state": {
+        "refunded_cents": 99,
+        "currency": "cad"
+      }
+    },
+    "unrefundable_sub_minor_balance_micros": 9988,
+    "rounding_policy": "whole-cent Stripe refund with explicit carried micro balance"
+  },
+  "subject_fingerprints": {
+    "buyer_sha256_prefix": "c39a84986b91da12",
+    "supplier_sha256_prefix": "c7185cd954b69e18",
+    "worker_sha256_prefix": "3671fc962b4d6247",
+    "job_sha256_prefix": "eb95539610801365",
+    "quote_sha256_prefix": "05f132c7a68941db",
+    "dispute_sha256_prefix": "2309fa9fa15aafbb"
+  },
+  "teardown": {
+    "native_agent_stopped": true,
+    "live_agent_processes": 0,
+    "orphan_task_claims": 0,
+    "temporary_provider_objects_are_test_mode_only": true
+  },
+  "limitations": [
+    "The temporary tunnel is not a persistent named TLS staging hostname, so it cannot establish LIVE_PUBLIC_AUTHORITY.",
+    "Supplier Connect hosted onboarding remains incomplete at Stripe's hCaptcha and no supplier cash payout was initiated.",
+    "True Merc net contribution is intentionally unavailable while named cost categories are unattributed; the receipt reports known-cost contribution separately."
+  ]
+}

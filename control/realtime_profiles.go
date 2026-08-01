@@ -40,6 +40,7 @@ type VLLMRuntimeProfile struct {
 	PipelineParallelSize           int              `json:"pipeline_parallel_size"`
 	MaxModelLength                 int              `json:"max_model_length"`
 	GPUMemoryUtilization           float64          `json:"gpu_memory_utilization"`
+	MaxActiveSequences             int              `json:"max_active_sequences"`
 	PrefixCaching                  bool             `json:"prefix_caching"`
 	ChunkedPrefill                 bool             `json:"chunked_prefill"`
 	GenerationPolicy               GenerationPolicy `json:"generation_policy"`
@@ -101,6 +102,9 @@ func validateVLLMRuntimeProfile(p VLLMRuntimeProfile) error {
 	}
 	if p.GPUMemoryUtilization <= 0 || p.GPUMemoryUtilization > 1 {
 		return fmt.Errorf("gpu_memory_utilization must be in (0,1]")
+	}
+	if p.MaxActiveSequences < 1 || p.MaxActiveSequences > 100000 {
+		return fmt.Errorf("max_active_sequences must be between 1 and 100000")
 	}
 	if strings.TrimSpace(p.GenerationPolicy.Version) == "" || p.GenerationPolicy.MaximumOutputTokens < 1 {
 		return fmt.Errorf("generation policy must be versioned and bounded")

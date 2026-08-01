@@ -25,8 +25,7 @@ call back into. Merc reaches RunPod's proxy URL; RunPod never reaches Merc.
 the offer is refused if the pod serves anything else:
 
 ```text
-image      docker.io/vllm/vllm-openai:v0.23.0
-digest     sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0
+image      vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0
 model      unsloth/Llama-3.2-1B-Instruct
 revision   5a8abab4a5d6f164389b1079fb721cfab8d7126c
 alias      cx-chat-1b
@@ -34,8 +33,9 @@ dtype      bfloat16, tensor_parallel_size 1, max_model_len 32768
 profile id vllm-llama-3.2-1b-instruct-bf16-tp1
 ```
 
-Note this is **v0.23.0**, not the v0.26.0 the provisioner defaults to. The first
-paid run used the default and Qwen, which is why it proved the harness and not the
+This digest corresponds to **v0.23.0**. The provisioner defaults to this admitted
+profile; an override must also be an immutable OCI digest. The first paid run used
+a mutable v0.26.0 tag and Qwen, which is why it proved the harness and not the
 lane.
 
 ## The registration contract
@@ -81,7 +81,7 @@ COLD. An offer that stops heartbeating drains.
    ```bash
    MERC_RUNPOD_GPU="NVIDIA RTX A5000" MERC_RUNPOD_CLOUD=SECURE \
    MERC_RUNPOD_COST_PER_HR=0.16 MERC_RUNPOD_CAP_USD=2.00 \
-   MERC_VLLM_IMAGE="vllm/vllm-openai:v0.23.0" \
+   MERC_VLLM_IMAGE="vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0" \
    MERC_VLLM_MODEL="unsloth/Llama-3.2-1B-Instruct" \
    MERC_RUNPOD_EXPERIMENT_CMD="bash scripts/cuda-chain-drive.sh" \
    bash scripts/runpod-vllm.sh experiment

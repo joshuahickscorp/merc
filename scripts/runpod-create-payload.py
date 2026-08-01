@@ -36,21 +36,59 @@ becomes the tokenizer repo.
 
 import json
 import os
+import re
 import sys
 
-VLLM_ARGS = [
+REVISION = re.compile(r"^[0-9a-f]{40}$")
+
+
+def runtime_settings() -> dict:
+    """Read the values exported from the governed runtime profile.
+
+    The provisioner must not have a second set of model-serving defaults: an
+    offer for ``cx-chat-1b`` that launches an engine serving ``merc-vllm`` or a
+    mutable model revision is not a valid candidate, even if /models answers.
+    """
+    settings = {
+        "served_model": os.environ.get("MERC_VLLM_SERVED_MODEL", "cx-chat-1b"),
+        "model_revision": os.environ.get("MERC_VLLM_MODEL_REVISION", "5a8abab4a5d6f164389b1079fb721cfab8d7126c"),
+        "tokenizer_revision": os.environ.get("MERC_VLLM_TOKENIZER_REVISION", "5a8abab4a5d6f164389b1079fb721cfab8d7126c"),
+        "max_model_len": os.environ.get("MERC_VLLM_MAX_MODEL_LEN", "32768"),
+        "gpu_memory_utilization": os.environ.get("MERC_VLLM_GPU_MEMORY_UTILIZATION", "0.9"),
+        "max_num_seqs": os.environ.get("MERC_VLLM_MAX_NUM_SEQS", "128"),
+    }
+    if not REVISION.fullmatch(settings["model_revision"]):
+        raise ValueError("MERC_VLLM_MODEL_REVISION must be an exact 40-character revision")
+    if not REVISION.fullmatch(settings["tokenizer_revision"]):
+        raise ValueError("MERC_VLLM_TOKENIZER_REVISION must be an exact 40-character revision")
+    if not re.fullmatch(r"[A-Za-z0-9._:-]+", settings["served_model"]):
+        raise ValueError("MERC_VLLM_SERVED_MODEL has unsupported characters")
+    for key in ("max_model_len", "max_num_seqs"):
+        if not settings[key].isdigit() or int(settings[key]) < 1:
+            raise ValueError(f"{key} must be a positive integer")
+    try:
+        utilization = float(settings["gpu_memory_utilization"])
+    except ValueError as exc:
+        raise ValueError("gpu_memory_utilization must be numeric") from exc
+    if not 0 < utilization <= 1:
+        raise ValueError("gpu_memory_utilization must be in (0,1]")
+    return settings
+
+
+def vllm_args(settings: dict) -> list[str]:
+    return [
     "--host", "0.0.0.0",
     "--port", "8000",
-    "--max-model-len", "8192",
-    "--served-model-name", "merc-vllm",
-    "--gpu-memory-utilization", "0.95",
+    "--max-model-len", settings["max_model_len"],
+    "--served-model-name", settings["served_model"],
+    "--gpu-memory-utilization", settings["gpu_memory_utilization"],
     "--enable-prefix-caching",
     "--enable-chunked-prefill",
-    "--max-num-seqs", "256",
-]
+    "--max-num-seqs", settings["max_num_seqs"],
+    ]
 
 
-def gguf_start_command(repo: str, filename: str, tokenizer: str, key: str) -> str:
+def gguf_start_command(repo: str, filename: str, tokenizer: str, key: str, settings: dict) -> str:
     """Download the pinned GGUF, then exec vLLM against the local file.
 
     `exec` matters: without it vLLM runs as a child of bash and container stop
@@ -65,7 +103,7 @@ def gguf_start_command(repo: str, filename: str, tokenizer: str, key: str) -> st
         f"--model /model/{filename}",
         f"--tokenizer {tokenizer}",
         f"--api-key {key}",
-        *VLLM_ARGS,
+        *vllm_args(settings),
     ])
     return f"set -euo pipefail; {fetch}; {serve}"
 
@@ -103,22 +141,28 @@ def main() -> int:
         #   max-num-seqs            stock caps concurrency well below what the
         #                           card can hold
         #   gpu-memory-utilization  more KV cache means a deeper batch
-        **_start(model, key),
+        **_start(model, key, runtime_settings()),
         "env": {"HF_HUB_ENABLE_HF_TRANSFER": "1"},
     }))
     return 0
 
 
-def _start(model: str, key: str) -> dict:
+def _start(model: str, key: str, settings: dict) -> dict:
     repo = os.environ.get("MERC_VLLM_GGUF_REPO", "")
     filename = os.environ.get("MERC_VLLM_GGUF_FILE", "")
     if repo and filename:
         return {
             "dockerEntrypoint": ["/bin/bash", "-lc"],
-            "dockerStartCmd": [gguf_start_command(repo, filename, model, key)],
+            "dockerStartCmd": [gguf_start_command(repo, filename, model, key, settings)],
         }
     return {
-        "dockerStartCmd": ["--model", model, "--api-key", key, *VLLM_ARGS],
+        "dockerStartCmd": [
+            "--model", model,
+            "--revision", settings["model_revision"],
+            "--tokenizer-revision", settings["tokenizer_revision"],
+            "--api-key", key,
+            *vllm_args(settings),
+        ],
     }
 
 
