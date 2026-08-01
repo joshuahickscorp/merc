@@ -16,6 +16,7 @@ HOMEDIR="$HOME/.merc"
 LEGACY_HOMEDIR="$HOME/.compute-exchange"
 PLIST="$HOME/Library/LaunchAgents/dev.merc.agent.plist"
 LEGACY_PLIST="$HOME/Library/LaunchAgents/dev.computeexchange.agent.plist"
+SYSTEMD_UNIT="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/merc-agent.service"
 
 say(){ printf '\033[36m[uninstall]\033[0m %s\n' "$*"; }
 
@@ -32,6 +33,7 @@ if [ "$CHECK" = "1" ]; then
   say "  LaunchAgent (legacy): $LEGACY_PLIST"
   say "  binary:      $BIN"
   say "  binary (legacy): $LEGACY_BIN"
+  say "  systemd user service: $SYSTEMD_UNIT"
   say "  data/config: $HOMEDIR   $( [ "$PURGE" = 1 ] && echo '(--purge)' || echo '(kept; pass --purge to remove)')"
   say "  data/config (legacy): $LEGACY_HOMEDIR   $( [ "$PURGE" = 1 ] && echo '(--purge)' || echo '(kept; pass --purge to remove)')"
   say "  (downloaded model weights in the HF cache are never touched)"
@@ -57,6 +59,16 @@ remove_binary() {
 
 remove_launchagent "$PLIST"
 remove_launchagent "$LEGACY_PLIST"
+if [ -f "$SYSTEMD_UNIT" ]; then
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user disable --now merc-agent.service >/dev/null 2>&1 || true
+  fi
+  rm -f "$SYSTEMD_UNIT"
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+  fi
+  say "removed systemd user service $SYSTEMD_UNIT"
+fi
 remove_binary "$BIN"
 remove_binary "$LEGACY_BIN"
 
