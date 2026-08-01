@@ -70,7 +70,7 @@ CI_TEST_ENV = MERC_TEST_DATABASE_URL="$(MERC_TEST_DATABASE_URL)" \
 # and a local engine. The default killed `make ci` mid-run with a ten-minute
 # panic, which read as a hung test rather than as a budget.
 test:
-	cd control && $(CI_TEST_ENV) bash ../scripts/with-isolated-test-db.sh go test -timeout 45m ./...
+	cd control && $(CI_TEST_ENV) bash ../scripts/with-isolated-test-storage.sh bash ../scripts/with-isolated-test-db.sh go test -timeout 45m ./...
 	cd agent && cargo test
 	bash scripts/verify-python-sdk-package.sh
 
@@ -91,7 +91,7 @@ CI_TEST_JSON = $(CURDIR)/.ci-test.json
 
 ci:
 	cd control && test -z "$$(gofmt -l .)" && go vet ./...
-	cd control && $(CI_TEST_ENV) bash ../scripts/with-isolated-test-db.sh go test -timeout 45m -json ./... > "$(CI_TEST_JSON)"; \
+	cd control && $(CI_TEST_ENV) bash ../scripts/with-isolated-test-storage.sh bash ../scripts/with-isolated-test-db.sh go test -timeout 45m -json ./... > "$(CI_TEST_JSON)"; \
 	  status=$$?; python3 "$(CURDIR)/scripts/summarize-go-test-json.py" "$(CI_TEST_JSON)"; \
 	  exit $$status
 	@bash scripts/assert-no-test-skips.sh "$(CI_TEST_JSON)"
