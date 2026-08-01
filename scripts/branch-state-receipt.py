@@ -299,6 +299,8 @@ def main():
     api_source = read("control/api.go")
     store_jobs_source = read("control/store_jobs.go")
     project_submit_tests = read("control/project_submit_test.go")
+    project_declaration_source = read("control/project_declaration.go")
+    project_declaration_tests = read("control/project_declaration_test.go")
     pricing_source = read("control/pricing.go")
     pricing_tests = read("control/pricing_test.go")
     pricing_governance_tests = read("control/pricing_governance_test.go")
@@ -431,6 +433,12 @@ def main():
                 "dependent_step_submit_refused":
                     "currently supports only independent finite steps"
                     in read("control/project_submit.go"),
+                "dependency_artifact_dataflow_required":
+                    "validateProjectArtifactDataflow(declaration.Steps)"
+                    in project_declaration_source,
+                "dependency_artifact_dataflow_test":
+                    "TestProjectDeclarationRequiresArtifactBoundDependencies"
+                    in project_declaration_tests,
             },
             "second_runtime_driver": bool(
                 os.path.exists(os.path.join(ROOT, "agent/src/runtime_driver.rs"))),

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -104,6 +105,9 @@ func validateProjectDeclaration(declaration *ProjectDeclaration) error {
 	if err := validateProjectDAG(declaration.Steps); err != nil {
 		return err
 	}
+	if err := validateProjectArtifactDataflow(declaration.Steps); err != nil {
+		return err
+	}
 	switch declaration.Privacy.Egress {
 	case "DENY", "ALLOWLIST", "BUYER_APPROVED":
 	default:
@@ -169,6 +173,71 @@ func validateProjectDAG(steps []ProjectIRStep) error {
 		}
 	}
 	return nil
+}
+
+// validateProjectArtifactDataflow turns the declared graph into a graph of
+// actual, project-scoped artifacts. A dependency with no consumed output is a
+// cosmetic ordering edge, and an input produced by an undeclared step can race
+// its producer. Neither is a schedulable project graph.
+//
+// This validates the IR only; it does not claim that dependency execution is
+// supported yet. The project submitter still refuses dependent steps until it
+// can persist output artifacts and wake downstream work atomically.
+func validateProjectArtifactDataflow(steps []ProjectIRStep) error {
+	producer := make(map[string]string)
+	for _, step := range steps {
+		for _, output := range step.Outputs {
+			if !validProjectArtifactRef(output) || output == "project://input" ||
+				output == "project://"+projectDeclarationName {
+				return fmt.Errorf("step %s has invalid output artifact %q", step.ID, output)
+			}
+			if prior, exists := producer[output]; exists {
+				return fmt.Errorf("output artifact %q is produced by both %s and %s", output, prior, step.ID)
+			}
+			producer[output] = step.ID
+		}
+	}
+
+	for _, step := range steps {
+		dependencies := make(map[string]bool, len(step.DependsOn))
+		for _, dependency := range step.DependsOn {
+			dependencies[dependency] = true
+		}
+		consumed := make(map[string]bool, len(step.DependsOn))
+		for _, input := range step.Inputs {
+			if !validProjectArtifactRef(input) {
+				return fmt.Errorf("step %s has invalid input artifact %q", step.ID, input)
+			}
+			if producedBy, exists := producer[input]; exists {
+				if producedBy == step.ID {
+					return fmt.Errorf("step %s reads its own output artifact %q", step.ID, input)
+				}
+				if !dependencies[producedBy] {
+					return fmt.Errorf("step %s consumes %q from %s without declaring that dependency", step.ID, input, producedBy)
+				}
+				consumed[producedBy] = true
+			}
+		}
+		for _, dependency := range step.DependsOn {
+			if !consumed[dependency] {
+				return fmt.Errorf("step %s depends on %s but consumes none of its output artifacts", step.ID, dependency)
+			}
+		}
+	}
+	return nil
+}
+
+func validProjectArtifactRef(ref string) bool {
+	if !strings.HasPrefix(ref, "project://") {
+		return false
+	}
+	rel := strings.TrimPrefix(ref, "project://")
+	if rel == "input" {
+		return true
+	}
+	clean := filepath.Clean(rel)
+	return clean != "." && !filepath.IsAbs(clean) && clean != ".." &&
+		!strings.HasPrefix(clean, ".."+string(filepath.Separator)) && clean == rel
 }
 
 func applyProjectDeclaration(ir *ProjectWorkloadIR, declaration ProjectDeclaration) {

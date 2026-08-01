@@ -111,6 +111,60 @@ func TestProjectDeclarationRefusesCycleAndMoneyAuthority(t *testing.T) {
 	})
 }
 
+func TestProjectDeclarationRequiresArtifactBoundDependencies(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*ProjectDeclaration)
+		want   string
+	}{
+		{
+			name: "dependency does not produce an input",
+			mutate: func(d *ProjectDeclaration) {
+				d.Steps[0].Inputs = []string{"project://unrelated-scene"}
+			},
+			want: "consumes none of its output artifacts",
+		},
+		{
+			name: "producer omitted from dependencies",
+			mutate: func(d *ProjectDeclaration) {
+				d.Steps[0].DependsOn = nil
+			},
+			want: "without declaring that dependency",
+		},
+		{
+			name: "duplicate artifact producer",
+			mutate: func(d *ProjectDeclaration) {
+				d.Steps[0].Outputs = []string{"project://scene"}
+			},
+			want: "produced by both",
+		},
+		{
+			name: "non project input",
+			mutate: func(d *ProjectDeclaration) {
+				d.Steps[0].Inputs = []string{"https://example.invalid/scene"}
+			},
+			want: "invalid input artifact",
+		},
+		{
+			name: "authority file output",
+			mutate: func(d *ProjectDeclaration) {
+				d.Steps[0].Outputs = []string{"project://merc.project.json"}
+			},
+			want: "invalid output artifact",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			declaration := projectDeclarationFixture()
+			tc.mutate(&declaration)
+			err := validateProjectDeclaration(&declaration)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("validateProjectDeclaration() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestProjectDeclarationRequiresFixedPointCeiling(t *testing.T) {
 	root := t.TempDir()
 	declaration := projectDeclarationFixture()
