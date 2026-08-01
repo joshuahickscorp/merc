@@ -341,8 +341,8 @@ func (s *Store) RecordShadowSelection(ctx context.Context, jobID string, sel Sha
 		  (job_id, runtime_matrix_sha256, policy_revision, job_type, model_ref,
 		   model_kind, workload_class, latency_class, routed_cell_id, shadow_cell_id,
 		   considered_cells, excluded_cells, selection_policy, selection_basis,
-		   cost_hw_class)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		   cost_hw_class, execution_mode, execution_mode_reason)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		ON CONFLICT (job_id) DO NOTHING`,
 		jobID, sel.RuntimeMatrixSHA, sel.PolicyRevision, sel.JobType, sel.ModelRef,
 		sel.ModelKind, sel.WorkloadClass, sel.LatencyClass, sel.RoutedCellID,
