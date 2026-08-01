@@ -8,8 +8,8 @@
     "The buyer is funded by the sandbox credit grant, so the Stripe rails are not exercised: no payment intent, no capture, no payout."
   ],
   "loop": {
-    "job_id": "a5621f33-dde5-54bf-928c-31d1d3fda63f",
-    "buyer_email": "stranger-898d15ed-1a12-4054-b319-a41d5ac19415@example.test",
+    "job_id": "6f6e3071-01d9-59e8-948d-424556062abe",
+    "buyer_email": "stranger-0c740c6e-78ad-4cb3-8b74-73f6d38c0cb3@example.test",
     "currency": "usd",
     "accepted_ceiling_usd": 1,
     "quoted_estimate_usd": 0.011564,
@@ -17,7 +17,7 @@
     "buyer_debit_micros": 11564,
     "supplier_credit_micros": 2,
     "merc_contribution_micros": 11562,
-    "paid_supplier_id": "ecaa823f-c155-4b5e-954e-7528f5301e30",
+    "paid_supplier_id": "b0236f79-993e-40f9-9e90-1f20c3051278",
     "runtime_cell_id": "candle-metal-minilm-embed",
     "runtime_id": "candle_metal",
     "engine": "candle",
