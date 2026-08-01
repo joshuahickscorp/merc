@@ -70,6 +70,25 @@ economics state at `UNCALIBRATED_REFUSE`. Detector confidence is not cost or
 duration confidence, and neither can affect pricing, reserve, settlement, or
 admission.
 
+## Calibration gate
+
+`merc project calibration-check --cohort COHORT.json` evaluates outcome-linked
+evidence for one exact `ir_sha256`. It exits nonzero and emits every refusal when
+the cohort does not clear the gate. A promotable cohort requires:
+
+- at least 100 `PRIMARY_EXECUTION` observations;
+- one explicit supported currency and a source-receipt SHA-256;
+- `TRUE_NET_COMPLETE` cost observations, not supplier gross, platform ledger
+  rows, or known-cost contribution presented as net cost;
+- median absolute cost error no greater than 10%;
+- p90 absolute cost and duration error no greater than 20%;
+- at least 95% of actual complete cost within the frozen buyer ceiling.
+
+The result binds the cohort bytes to `calibration_cohort_sha256` and reports
+cost and duration confidence as `1 - p90_error`. Passing this evidence permits a
+later compiler revision to use it for estimates only. The gate has no caller
+from pricing, reserves, settlement, or admission.
+
 ## Detectors
 
 The v1 static detector taxonomy covers realtime inference, batch inference and
