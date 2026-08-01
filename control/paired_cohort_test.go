@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -29,6 +30,12 @@ import (
 // What it does NOT prove: that the CHALLENGER is safe to route. That is the
 // promotion gate's decision, and this test asserts the gate reaches a decision
 // with reasons — not that the decision is yes.
+// cohortRecordsPerTask is the batch size each cohort task embeds. Batch 32 is on
+// the measured curve in evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json,
+// where the two engines are 2.7x apart — far enough that a real difference cannot
+// be mistaken for timer noise.
+const cohortRecordsPerTask = 32
+
 func TestPairedCohortMeasuresCostAndRegret(t *testing.T) {
 	if os.Getenv("MERC_PAIRED_COHORT") != "1" {
 		t.Skip("MERC_PAIRED_COHORT is not 1; the paired cohort is an opt-in " +
@@ -61,10 +68,21 @@ func TestPairedCohortMeasuresCostAndRegret(t *testing.T) {
 	cohortCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	t.Cleanup(cancel)
 
-	// One immutable record. Identical input on both cells is what makes the two
-	// costs comparable at all, and one record per task keeps units-per-task at 1 so
-	// per-unit cost is per-task cost with no averaging in between.
-	corpus := []byte(`{"id":"0","text":"Merc settles every task against a receipt."}` + "\n")
+	// A BATCH of records, not one.
+	//
+	// The first run of this cohort used a single record and measured 3.0000 ms per
+	// unit on both cells — identical to four decimals, which is not two engines
+	// agreeing, it is a task too small to separate them. The retained bench receipt
+	// puts llama.cpp at 2,179 texts/sec against candle's 326 at batch 8, and that
+	// difference only appears above batch 1. Identical input on both cells is what
+	// makes the costs comparable; a batch is what makes them different.
+	var corpusLines []byte
+	for i := 0; i < cohortRecordsPerTask; i++ {
+		corpusLines = append(corpusLines, []byte(fmt.Sprintf(
+			`{"id":"%d","text":"Merc settles every task against a receipt, record %d."}`+"\n",
+			i, i))...)
+	}
+	corpus := corpusLines
 
 	type cohortCell struct {
 		name, cell, runtimeID string
@@ -85,7 +103,13 @@ func TestPairedCohortMeasuresCostAndRegret(t *testing.T) {
 			tasks := makeTasks(f, 1)
 			// Units, so the cost query has a denominator. Without this the task
 			// persists NULL and is excluded from every measurement.
-			tasks[0].ExpectedOutputRecords = 1
+			//
+			// The fixture's job row declares EconomicInputRecords from its PRIMARY
+			// task count rather than from the corpus, so the job says one record while
+			// the task expects cohortRecordsPerTask. No constraint fires — the
+			// cross-check only applies to the streamed-submit path — and the number
+			// under test is the task's, which is what the cost query divides by.
+			tasks[0].ExpectedOutputRecords = cohortRecordsPerTask
 			f.TaskIDs = []uuid.UUID{tasks[0].ID}
 			job := validJobRowDirected(t, f, tasks, c.cell)
 			for _, key := range []string{job.InputRef, tasks[0].InputRef} {
@@ -181,7 +205,7 @@ func TestPairedCohortMeasuresCostAndRegret(t *testing.T) {
 		JobType: "embed", ModelRef: "all-minilm-l6-v2", HWClass: hw,
 		LatencyClass: "standard_batch", RuntimeID: "llama_cpp_metal",
 		CellID: llamaEmbedCell, QualityTier: "OUTCOME_EQUIVALENT",
-		Verification: "cosine_similarity",
+		Verification: "cosine",
 	}, candleEmbedCell, time.Now())
 	if err != nil {
 		t.Fatalf("evaluate promotion: %v", err)
