@@ -109,6 +109,7 @@ allowed_weekdays = [0, 1, 2, 3, 4, 5, 6]
 allowed_workload_classes = ["embed", "batch_infer"]
 allow_model_downloads = true
 max_model_cache_gb = 4.0
+max_bandwidth_mbps = 25.0
 power_only = true
 quiet_hours = [22, 6]
 min_payout_usd_per_hr = 0.05
