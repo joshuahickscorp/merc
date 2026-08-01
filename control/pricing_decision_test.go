@@ -29,6 +29,47 @@ func distributedPricingFixture(t *testing.T) (
 	return workload, compute, placement, economic, pricing
 }
 
+func TestFixedPointPricingConservesAndRefusesFalseTrueNet(t *testing.T) {
+	scenario := EconomicScenario{
+		NetBilledUSD: 0.000010, SupplierLiabilityUSD: 0.000004,
+		ProcessorFeeUSD: 0.000001, ControlPlaneCostUSD: 0.000001,
+		ContributionMarginUSD: 0.000004,
+	}
+	fixed, err := fixedPointPricingFromScenario(
+		"cad", 0.000010, 0.000020, scenario,
+		[]string{"storage cost", "risk reserve"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fixed.BuyerChargeNanos != 10_000 || fixed.SupplierEntitlementsNanos != 4_000 ||
+		fixed.KnownVariableCostsNanos != 2_000 ||
+		fixed.KnownCostContributionNanos != 4_000 {
+		t.Fatalf("fixed-point amounts drifted: %+v", fixed)
+	}
+	decision := PricingDecision{Currency: "cad", FixedPoint: fixed}
+	if err := validateFixedPointPricing(decision); err != nil {
+		t.Fatalf("valid fixed-point decision refused: %v", err)
+	}
+	if fixed.TrueNetContributionNanos != nil {
+		t.Fatal("unknown costs became true net contribution")
+	}
+
+	mutant := *fixed
+	mutant.BuyerChargeNanos++
+	decision.FixedPoint = &mutant
+	if err := validateFixedPointPricing(decision); err == nil {
+		t.Fatal("non-conserving fixed-point buyer charge was accepted")
+	}
+	mutant = *fixed
+	trueNet := mutant.KnownCostContributionNanos
+	mutant.TrueNetContributionNanos = &trueNet
+	decision.FixedPoint = &mutant
+	if err := validateFixedPointPricing(decision); err == nil {
+		t.Fatal("true net contribution was accepted while costs remain unknown")
+	}
+}
+
 func TestPricingDecisionRejectsArbitraryPositiveSupplierAdmissionRate(t *testing.T) {
 	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
 	mutantPlacement := placement
