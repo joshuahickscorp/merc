@@ -126,6 +126,36 @@ are real pricing and time authorities, but their sum has not demonstrated the
 project-level median/p90 targets until an outcome cohort passes the calibration
 gate.
 
+The quote artifact is version 2 and embeds each complete server quote plus its
+canonical SHA-256. This is intentional: a later submit must be able to rebuild
+the composite pricing authority, not trust copied display totals or a bare quote
+ID.
+
+## Reviewed project submit
+
+`merc project submit --root PROJECT --buyer-approved-ir-sha256 SHA256 --quote
+PROJECT_QUOTE.json` accepts a quote only after rescanning and repeating the
+bounded probe over the exact approved project. Before the first mutation it revalidates every embedded
+workload, compute, placement, economic, catalogue and fixed-point pricing
+snapshot; its quote and pricing digests; currency; runtime/model identity;
+expiry; exact input bytes; step and aggregate nano-unit costs; buyer ceiling;
+and critical-path/confidence fields.
+
+Accepted jobs bind `firm_quote=true`, the reviewed quote ID, and the exact step
+maximum converted across the legacy float wire only after an exact nano-unit
+round trip check. Each POST carries a deterministic IR-and-quote-bound
+idempotency key, and the output records both normal acceptance and replay.
+
+This revision executes only finite independent steps and labels that mode
+`INDEPENDENT_FINITE_STEPS`. Any declared dependency fails before POST because
+Merc does not yet have a truthful project artifact-handoff scheduler. A network
+failure can still occur between independent POSTs; in that case the command
+emits the already accepted job IDs with `PARTIAL` (or `INDETERMINATE` when the
+first response is unknown), records the attempted idempotency key, exits
+nonzero, and a retry of the same reviewed artifact safely replays those
+submissions. `ACCEPTED` is not
+completion, outcome verification, settlement, or project calibration.
+
 ## Detectors
 
 The v1 static detector taxonomy covers realtime inference, batch inference and

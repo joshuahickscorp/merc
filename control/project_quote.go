@@ -25,6 +25,8 @@ type ProjectStepQuote struct {
 	Confidence              float64  `json:"confidence"`
 	ConfidenceReasons       []string `json:"confidence_reasons"`
 	ETAConfidenceBandMethod string   `json:"eta_confidence_band_method"`
+	AuthorityQuoteSHA256    string   `json:"authority_quote_sha256"`
+	Authority               Quote    `json:"authority"`
 }
 
 type ProjectQuote struct {
@@ -56,7 +58,7 @@ func quoteCompiledProject(c *client, root string, ir ProjectWorkloadIR) (Project
 		return ProjectQuote{}, errors.New("project buyer ceiling must be positive")
 	}
 	out := ProjectQuote{
-		Version: 1, IRSHA256: ir.IRSHA256, Currency: currency.Code(),
+		Version: 2, IRSHA256: ir.IRSHA256, Currency: currency.Code(),
 		BuyerCeilingNanos: ir.Economics.MaximumBuyerPriceNanos,
 		MinimumConfidence: 1, CalibrationState: "STEP_QUOTES_NOT_PROJECT_OUTCOME_CALIBRATED",
 	}
@@ -108,6 +110,10 @@ func quoteCompiledProject(c *client, root string, ir ProjectWorkloadIR) (Project
 		if err != nil {
 			return ProjectQuote{}, fmt.Errorf("step %s pricing digest: %w", step.ID, err)
 		}
+		authoritySHA, err := canonicalDigest("project step authority quote", quote)
+		if err != nil {
+			return ProjectQuote{}, fmt.Errorf("step %s authority digest: %w", step.ID, err)
+		}
 		expected, err := MoneyNanosFromUSDFloat(currency, quote.Cost.ExpectedUSD)
 		if err != nil {
 			return ProjectQuote{}, err
@@ -135,6 +141,7 @@ func quoteCompiledProject(c *client, root string, ir ProjectWorkloadIR) (Project
 			P50Secs: quote.Time.P50Secs, P90Secs: quote.Time.P90Secs,
 			Confidence: quote.Confidence.Score, ConfidenceReasons: quote.Confidence.Reasons,
 			ETAConfidenceBandMethod: quote.Time.ConfidenceBandMethod,
+			AuthorityQuoteSHA256:    authoritySHA, Authority: quote,
 		})
 	}
 	if out.MaximumCostNanos > out.BuyerCeilingNanos {
