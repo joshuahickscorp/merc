@@ -90,7 +90,7 @@ MUTATIONS=(
 "realtime_store.go|physical contract persistence drops PricingDecision authority|s#pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON, pricingSHA256)#pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON[:0], pricingSHA256)#"
 "realtime_store.go|reuse contract persistence drops PricingDecision authority|s#money.DeliveredTokens, pricingJSON, pricingSHA256)#money.DeliveredTokens, pricingJSON[:0], pricingSHA256)#"
 "realtime_store.go|persisted realtime PricingDecision digest mismatch is ignored|s#digest != contract.PricingDecisionSHA256#digest != digest#"
-"realtime_store.go|legacy supplier projection may diverge from PricingDecision|s#SupplierInputRate:         contract.SupplierInputUSDPerMillionTokens,#SupplierInputRate:         float64(pricing.Realtime.SupplierInputNanosPerMillion) / float64(NanosPerMajorUnit),#"
+"realtime_store.go|legacy supplier projection may diverge from PricingDecision|s#SupplierInputRate:[[:space:]]*contract.SupplierInputUSDPerMillionTokens,#SupplierInputRate: float64(pricing.Realtime.SupplierInputNanosPerMillion) / float64(NanosPerMajorUnit),#"
 "realtime_store.go|persisted reuse delivered tokens may diverge from PricingDecision|s#DeliveredTokens: contract.ReuseDeliveredTokens,#DeliveredTokens: pricing.RealtimeReuse.DeliveredTokens,#"
 "realtime_store.go|reuse settlement invents a supplier nano liability|s#\$7,\$8,0,\$8)#\$7,\$8,1,\$8)#"
 "realtime_store.go|reuse idempotency accepts a different request digest|s#existing.RequestSHA256 != auth.RequestSHA256#false#"
