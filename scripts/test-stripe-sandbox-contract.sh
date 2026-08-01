@@ -17,6 +17,14 @@ command -v rg >/dev/null 2>&1 || die "ripgrep (rg) is required by this contract 
   || die "unexpected Stripe API version"
 [ "$MERC_STRIPE_CANDIDATE_CURRENCY" = "cad" ] \
   || die "candidate settlement currency is not cad"
+
+# The lightweight credential checker is part of the same operator path. It
+# must consume this contract rather than silently retaining an older currency.
+rg -q 'scripts/lib/stripe-sandbox-contract\.sh' scripts/merc-credentials.sh \
+  || die "credential checker does not consume the Stripe sandbox authority"
+if rg -q 'settles in USD|NO usd bucket|usd is enabled' scripts/merc-credentials.sh; then
+  die "credential checker contains a divergent hard-coded USD authority"
+fi
 [ "$MERC_STRIPE_CANDIDATE_CONNECTED_COUNTRY" = "CA" ] \
   || die "candidate connected-account country is not CA"
 [ "$MERC_STRIPE_CANDIDATE_PAYOUT_ROUTING" = "11000-000" ] \

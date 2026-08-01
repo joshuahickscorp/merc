@@ -23,6 +23,13 @@ ENV_FILE="$ROOT/.merc-credentials.env"
 CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
 
+# One currency authority for every Stripe sandbox operator path. The checker
+# used to hard-code USD after staging, the matrix and production had moved to
+# CAD, falsely reporting a working authorized account as payout-blocked.
+# shellcheck disable=SC1091
+. "$ROOT/scripts/lib/stripe-sandbox-contract.sh"
+SETTLEMENT_CURRENCY="$(printf '%s' "${MERC_SETTLEMENT_CURRENCY:-$MERC_STRIPE_CANDIDATE_CURRENCY}" | tr '[:upper:]' '[:lower:]')"
+
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  \033[32mOK\033[0m    %s\n' "$*"; }
 bad()  { printf '  \033[31mFAIL\033[0m  %s\n' "$*"; }
@@ -110,7 +117,7 @@ check_stripe() {
     401) bad "Stripe: key rejected (HTTP 401)"; return 1 ;;
     *) bad "Stripe: unexpected HTTP $code"; return 1 ;;
   esac
-  # merc settles in USD. A test account with no USD bucket fails at the first
+  # The selected settlement bucket must exist. A test account without it fails at the first
   # payout with balance_insufficient, and that is worth knowing now rather than
   # in the middle of a canary.
   local body currencies
@@ -123,9 +130,9 @@ d=json.load(sys.stdin)
 print(",".join(sorted({b["currency"] for b in d.get("available",[])+d.get("pending",[])})))' 2>/dev/null || printf '')
   ok "Stripe: test key accepted; settlement currencies: ${currencies:-none reported}"
   case ",$currencies," in
-    *,usd,*) ok "Stripe: usd is enabled"; return 0 ;;
-    *) bad "Stripe: NO usd bucket. merc settles in USD, so payouts will fail with
-        balance_insufficient. Enable USD on the test account before the payout lane
+    *,$SETTLEMENT_CURRENCY,*) ok "Stripe: $SETTLEMENT_CURRENCY is enabled"; return 0 ;;
+    *) bad "Stripe: NO $SETTLEMENT_CURRENCY bucket. merc settles in $SETTLEMENT_CURRENCY, so payouts will fail with
+        balance_insufficient. Enable $SETTLEMENT_CURRENCY on the test account before the payout lane
         can pass."
        # Returns FAILURE. Previously this printed the warning and then returned
        # 0, so the caller set stripe_ok=1 and the summary announced the payout
