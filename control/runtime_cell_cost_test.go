@@ -514,6 +514,85 @@ func TestOutrightFailuresRaiseMeasuredCostAndBlockPromotion(t *testing.T) {
 	}
 }
 
+// Two cells serving one model cost the same per unit BY CONSTRUCTION, because the
+// supplier payout is priced per model. A promotion between them is therefore a
+// capacity argument, and the gate has to say so rather than reporting a saving of
+// zero as a failed cost argument.
+func TestSamePricePromotionIsArguedOnThroughputNotOnSaving(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	const hw = "apple_silicon_ultra"
+	candleWorker := seedCostWorker(t, ctx, pool, hw, "candle", "candle_metal")
+	llamaWorker := seedCostWorker(t, ctx, pool, hw, "llama_cpp", "llama_cpp_metal")
+
+	// Identical money, different speed: exactly what the first real cohort measured.
+	seedCompletedCellTasks(t, ctx, store, pool, candleWorker,
+		candleEmbedCell, "candle_metal", minCellCostSamples,
+		100, 1000, 0.000100, 0.000200, 0)
+	seedCompletedCellTasks(t, ctx, store, pool, llamaWorker,
+		llamaEmbedCell, "llama_cpp_metal", minCellCostSamples,
+		100, 250, 0.000100, 0.000200, 0)
+
+	scope := CellPromotionScope{
+		JobType: "embed", ModelRef: "all-minilm-l6-v2", HWClass: hw,
+		LatencyClass: "standard_batch", RuntimeID: "llama_cpp_metal",
+		CellID: llamaEmbedCell, QualityTier: "OUTCOME_EQUIVALENT", Verification: "cosine",
+	}
+	evidence, err := store.EvaluateCellPromotion(ctx, scope, candleEmbedCell, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Basis != promotionBasisThroughput {
+		t.Fatalf("basis = %q, want %q for two cells at one price",
+			evidence.Basis, promotionBasisThroughput)
+	}
+	if containsSubstring(evidence.Refusals, "below the required 10% margin") {
+		t.Fatalf("a same-price promotion was refused as a failed COST argument: %v",
+			evidence.Refusals)
+	}
+	// Four times faster clears the 25% throughput margin.
+	if evidence.ThroughputGainFraction < 0.7 {
+		t.Fatalf("throughput gain = %.3f, want ~0.75", evidence.ThroughputGainFraction)
+	}
+	if containsSubstring(evidence.Refusals, "throughput margin") {
+		t.Fatalf("a 4x faster cell was refused on the throughput margin: %v", evidence.Refusals)
+	}
+
+}
+
+// Same price AND same speed buys nothing, and the gate says so on the throughput
+// margin rather than on a saving it was never going to find.
+func TestSamePriceSameSpeedPromotionIsRefused(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	const hw = "apple_silicon_ultra"
+	candleWorker := seedCostWorker(t, ctx, pool, hw, "candle", "candle_metal")
+	llamaWorker := seedCostWorker(t, ctx, pool, hw, "llama_cpp", "llama_cpp_metal")
+	for _, seed := range []struct {
+		w               costWorker
+		cell, runtimeID string
+	}{
+		{candleWorker, candleEmbedCell, "candle_metal"},
+		{llamaWorker, llamaEmbedCell, "llama_cpp_metal"},
+	} {
+		seedCompletedCellTasks(t, ctx, store, pool, seed.w,
+			seed.cell, seed.runtimeID, minCellCostSamples,
+			100, 1000, 0.000100, 0.000200, 0)
+	}
+	flat, err := store.EvaluateCellPromotion(ctx, CellPromotionScope{
+		JobType: "embed", ModelRef: "all-minilm-l6-v2", HWClass: hw,
+		LatencyClass: "standard_batch", RuntimeID: "llama_cpp_metal",
+		CellID: llamaEmbedCell, QualityTier: "OUTCOME_EQUIVALENT", Verification: "cosine",
+	}, candleEmbedCell, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flat.Passed() {
+		t.Fatalf("promoted a cell that is neither cheaper nor faster: %+v", flat)
+	}
+	if !containsSubstring(flat.Refusals, "throughput margin") {
+		t.Fatalf("refusals should name the throughput margin: %v", flat.Refusals)
+	}
+}
+
 // A cheaper cell that is slower per unit may be promoted for batch work, whose
 // deadline absorbs it, and never where latency is the product.
 func TestCellPromotionWeighsLatencyOnlyWhereItIsTheProduct(t *testing.T) {

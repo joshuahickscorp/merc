@@ -44,7 +44,43 @@ const promotionCostMarginFraction = 0.10
 
 // promotionGateVersion is bound into every receipt. A receipt produced under one
 // gate must never be read as though it had cleared a later, stricter one.
-const promotionGateVersion = "cell-promotion-gate-v1"
+const promotionGateVersion = "cell-promotion-gate-v2"
+
+// promotionThroughputMarginFraction is how much FASTER a challenger must be to be
+// promoted when the two cells cost the same per unit.
+//
+// This arm exists because the first real cohort found that they always do. The
+// supplier payout is priced per MODEL — catalogue price times units times the
+// supplier share — so two cells serving one model at one price have identical
+// verified-outcome cost per unit by construction, and the regret between them is
+// structurally zero however fast either one is. Forty real executions measured
+// exactly that: 0.194 USD/unit on both cells, mean regret 0.000.
+//
+// So a promotion between same-price cells cannot be a COST argument, and calling
+// it one would be inventing a saving. It is a CAPACITY argument: the faster cell
+// delivers more verified units per host-hour, which pays the supplier more per
+// hour at the same buyer price and gives Merc more throughput per machine. The
+// receipt names which argument was made, because they are not interchangeable.
+//
+// Twenty-five percent, not ten: the price arm's margin protects against noise in
+// a dollar figure, and this one has to protect against noise in a duration
+// measured on a shared host with thermal state and queue depth in it.
+const promotionThroughputMarginFraction = 0.25
+
+// Promotion bases. Every receipt records exactly one.
+const (
+	// promotionBasisCost is a cheaper verified unit.
+	promotionBasisCost = "CHEAPER_VERIFIED_UNIT"
+	// promotionBasisThroughput is the same verified unit produced faster at the
+	// same price. A capacity gain, not a saving.
+	promotionBasisThroughput = "MORE_THROUGHPUT_AT_EQUAL_PRICE"
+)
+
+// pricesTieWithin is the fraction inside which two per-unit costs are the same
+// number for this purpose. Not exact equality: the two costs are computed from
+// summed NUMERIC(12,6) payouts divided by summed unit counts, so a rounding
+// difference of a few micro-USD in a large sample is a tie and not a saving.
+const pricesTieWithin = 0.005
 
 // CellPromotionScope is the exact scope a promotion is valid for.
 //
@@ -76,6 +112,13 @@ type CellPromotionEvidence struct {
 	IncumbentVerifiedUSDPerUnit  float64 `json:"incumbent_verified_usd_per_unit"`
 	SavingFraction               float64 `json:"saving_fraction"`
 	RequiredMarginFraction       float64 `json:"required_margin_fraction"`
+
+	// Basis names which argument this promotion makes: a cheaper verified unit, or
+	// the same unit produced faster at the same price. They are not
+	// interchangeable, and a receipt that did not say which would let a capacity
+	// gain be read as a saving.
+	Basis                  string  `json:"basis"`
+	ThroughputGainFraction float64 `json:"throughput_gain_fraction"`
 
 	// LatencyRatio is the challenger's median milliseconds per unit over the
 	// incumbent's: above 1 it is slower. Always reported, even when the trade is
@@ -151,10 +194,12 @@ func (s *Store) EvaluateCellPromotion(
 	}
 	activation := currentActivation()
 	evidence := CellPromotionEvidence{
-		GateVersion:            promotionGateVersion,
-		EvaluatedAt:            now.UTC(),
-		Scope:                  scope,
-		IncumbentCell:          incumbentCell,
+		GateVersion:   promotionGateVersion,
+		EvaluatedAt:   now.UTC(),
+		Scope:         scope,
+		IncumbentCell: incumbentCell,
+		// Overwritten once the arithmetic says which argument is available.
+		Basis:                  promotionBasisCost,
 		RequiredMarginFraction: promotionCostMarginFraction,
 		RuntimeMatrixSHA256:    generatedRuntimeMatrixSHA256,
 		PolicyRevision:         activation.PolicyRevision,
@@ -204,9 +249,34 @@ func (s *Store) EvaluateCellPromotion(
 	}
 	if challengerOK && incumbentOK {
 		evidence.SavingFraction = (incumbentCost - challengerCost) / incumbentCost
-		if evidence.SavingFraction < promotionCostMarginFraction {
-			refuse("challenger %s saves %.2f%%, below the required %.0f%% margin",
-				scope.CellID, evidence.SavingFraction*100, promotionCostMarginFraction*100)
+		// Which argument is even available decides which margin applies. A tie on
+		// price is the normal case for two cells serving one model, so treating it
+		// as a failed cost argument would refuse every same-price promotion on the
+		// grounds that it saved nothing — when what it offers is capacity.
+		tied := evidence.SavingFraction > -pricesTieWithin &&
+			evidence.SavingFraction < pricesTieWithin
+		switch {
+		case tied:
+			evidence.Basis = promotionBasisThroughput
+			evidence.RequiredMarginFraction = promotionThroughputMarginFraction
+			gain := 0.0
+			if in, out := evidence.ChallengerCost.MedianMsPerUnit, evidence.IncumbentCost.MedianMsPerUnit; in > 0 && out > 0 {
+				gain = (out - in) / out
+			}
+			evidence.ThroughputGainFraction = gain
+			if gain < promotionThroughputMarginFraction {
+				refuse("challenger %s costs the same per unit (%.2f%% apart) and is only "+
+					"%.2f%% faster, below the %.0f%% throughput margin; a same-price "+
+					"promotion has to buy capacity because it cannot buy a saving",
+					scope.CellID, evidence.SavingFraction*100, gain*100,
+					promotionThroughputMarginFraction*100)
+			}
+		default:
+			evidence.Basis = promotionBasisCost
+			if evidence.SavingFraction < promotionCostMarginFraction {
+				refuse("challenger %s saves %.2f%%, below the required %.0f%% margin",
+					scope.CellID, evidence.SavingFraction*100, promotionCostMarginFraction*100)
+			}
 		}
 	}
 	// Cost is not the only contract. A cheaper cell that is slower per unit is a
