@@ -248,30 +248,10 @@ func loadPriceBoard() (*priceBoard, error) {
 	return priceBoardCached, priceBoardErr
 }
 
-// minBoardPriceUSDPer1K returns the lowest positive observed usd_per_1k in class.
-func minBoardPriceUSDPer1K(class priceBoardClass) (min float64, provider, model, source string, ok bool) {
-	min = math.Inf(1)
-	for _, obs := range class.Observations {
-		p := obs.USDPer1K
-		if p <= 0 && obs.USDPer1M > 0 {
-			p = obs.USDPer1M / 1000.0
-		}
-		if p <= 0 || math.IsNaN(p) || math.IsInf(p, 0) {
-			continue
-		}
-		if p < min {
-			min = p
-			provider = obs.Provider
-			model = obs.Model
-			source = obs.SourceURL
-			ok = true
-		}
-	}
-	return min, provider, model, source, ok
-}
-
-// repriceFromMarketBoard prices one catalogue model as
-// min(board observations for its class) × positioning_multiplier.
+// repriceFromMarketBoard prices one catalogue model from the sole governed
+// selector: confidence-weighted median evidence times the positioning
+// multiplier. Do not reintroduce an alternate min/mean derivation here: a
+// price board is authority only when every published row follows one policy.
 func repriceFromMarketBoard(modelID, jobType string, board *priceBoard) (RepriceResult, bool) {
 	for className, class := range board.Classes {
 		match := false
