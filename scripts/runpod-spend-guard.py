@@ -87,10 +87,10 @@ def build_receipt(args) -> dict:
         )
     if spent > args.cap_usd:
         refusals.append(f"spend ${spent:.2f} exceeded the cap ${args.cap_usd:.2f}")
-    if "@" not in args.image and ":latest" in args.image:
+    if "@sha256:" not in args.image:
         refusals.append(
-            "image is a floating tag, so the runtime this receipt describes cannot "
-            "be identified again"
+            "image is not an immutable OCI digest, so the runtime this receipt "
+            "describes cannot be identified again"
         )
     if args.orphans:
         refusals.append(
@@ -154,7 +154,7 @@ def self_test() -> int:
 
     class A:
         pod_id, gpu, model = "pod", "NVIDIA A100", "Qwen/Qwen2.5-1.5B-Instruct"
-        image = "vllm/vllm-openai:v0.26.0"
+        image = "vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0"
         cost_per_hr, cap_usd = 1.19, 2.00
         started_at, stopped_at = 0, 600
         teardown_verified, ready, orphans = True, True, []
@@ -177,7 +177,7 @@ def self_test() -> int:
     assert any("lifetime bound did not hold" in r for r in over["refusals"]), over
 
     class Floating(A):
-        image = "vllm/vllm-openai:latest"
+        image = "vllm/vllm-openai:v0.26.0"
 
     assert not build_receipt(Floating())["admissible"]
 
