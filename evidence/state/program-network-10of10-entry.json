@@ -2,9 +2,9 @@
   "schema_version": 1,
   "generated_from": "HEAD, the working tree, and (optionally) a live database",
   "source": {
-    "commit": "cb4cfe2f4de478b43b54c8b0670ff1d6c59471ab",
+    "commit": "ca1b63a06c4f781bcb71434dab2359992c17c5b5",
     "branch": "program/network-10of10",
-    "tree_clean": false,
+    "tree_clean": true,
     "pushed": false
   },
   "authority_document": {
@@ -521,10 +521,10 @@
       }
     ],
     "workers": {
-      "total": 56,
-      "bound_to_profile": 56,
-      "unbound": 0,
-      "with_digest": 56
+      "total": 117,
+      "bound_to_profile": 116,
+      "unbound": 1,
+      "with_digest": 116
     },
     "present_constraints": [
       "workers_runtime_profile_fk",
