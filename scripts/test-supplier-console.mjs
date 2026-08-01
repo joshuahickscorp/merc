@@ -144,4 +144,30 @@ await flush();
 assert.equal(denied.el("worker-console").hidden, true, "console must not open when the token is refused");
 assert.match(denied.el("worker-status").textContent, /not accepted/);
 
-console.log("supplier console: worker-token header, sub-cent money, 4 rail states and refusal path verified");
+// Supplier ownership is a separate buyer-authenticated surface. It must never
+// reuse a device token or accidentally attach worker scope to owner operations.
+const owner = run({
+  "/v1/public/config": PUBLIC_CONFIG,
+  "/v1/login": { token: "owner-session-token" },
+  "/v1/me": { email: "supplier-owner@example.test" },
+  "/v1/supplier/status": { connect_status: "pending", payouts_enabled: false },
+  "/v1/supplier/worker-credentials": { credentials: [] },
+  "/v1/supplier/credential-audit": { events: [] },
+}, "unrelated-worker-token");
+owner.el("owner-email").value = "supplier-owner@example.test";
+owner.el("owner-password").value = "not-a-real-password";
+owner.trigger("owner-login", "submit");
+await flush();
+assert.equal(owner.el("owner-console").hidden, false, "owner console opens after authenticated owner login");
+assert.equal(owner.el("owner-identity").textContent, "supplier-owner@example.test");
+assert.match(owner.el("owner-status").textContent, /owner controls ready/);
+assert.match(owner.el("connect-owner-status").textContent, /Stripe Connect: pending/);
+const ownerRequests = owner.requests.filter(({ path }) =>
+  path === "/v1/me" || path.startsWith("/v1/supplier/"));
+assert.equal(ownerRequests.length, 4, "owner loads identity, payout status, credentials and audit");
+for (const { init } of ownerRequests) {
+  assert.equal(init.headers.Authorization, "Bearer owner-session-token", "owner bearer scope");
+  assert.equal(init.headers["X-Worker-Token"], undefined, "owner calls never carry device scope");
+}
+
+console.log("supplier console: owner and worker scopes, sub-cent money, 4 rail states and refusal path verified");
