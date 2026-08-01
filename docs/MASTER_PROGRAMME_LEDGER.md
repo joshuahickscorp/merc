@@ -186,6 +186,31 @@ wrong cell:
   staging host, an offsite provider, a real paging receiver, two external Metal
   devices, a non-author reviewer, or eight named governance approvals.
 
+## Third pass — the credential arrived
+
+| # | Step | Status | What happened |
+| -: | ---- | ------ | ------------- |
+| 15 | Governed vLLM CUDA cell | harness `ECONOMICALLY_PROVEN`, Merc chain still `ABSENT` | A live RunPod key was supplied. **First governed paid experiment ran end to end**: RTX A5000 on SECURE, pinned `vllm/vllm-openai:v0.26.0-cu129`, vLLM served, teardown **verified**, zero orphan pods, receipt **admissible** — 105s against an 18,000s budget from a $1.00 cap at $0.16/hr, **$0.01 spent**. `evidence/runpod/spend-rr7b6uwmivaolh.json`. The chain did not run: no quote, selector decision, verification, charge, payable or receipt went through the pod, and `vllm_cuda` r3 stays `DRAFT` |
+| 6 | Stripe provider matrix | still `OPEN`, and now for two *named* reasons | A public HTTPS control plane was stood up and reached from the internet at `status: ready, payment_mode: test, live_value_movement: false` — the exact `/readyz` gate the staging plan names — through a `cloudflared` quick tunnel, then torn down. So webhook delivery is reachable in principle. What blocks the matrix is below |
+
+### What the Stripe matrix actually needs now
+
+1. **Both webhook endpoints must be recreated.** `we_1Txf…jyO3LpJ` and
+   `we_1Txf…fW72ynZ` carry `api_version: null`, and the contract fails closed on a
+   null or mismatched endpoint version because **Stripe cannot update that field in
+   place**. They also still point at `exams-payday-sol-outline.trycloudflare.com`,
+   a tunnel from the concurrent session that no longer resolves.
+2. **`MERC_CONNECT_CLIENT_ID` (`ca_…`) is a dashboard value**, not an API one, so it
+   cannot be fetched autonomously.
+
+A finding on the second: the parent readiness gate requires that client id, and
+`scripts/stripe-sandbox-scenarios.sh` — the thing that actually produces provider
+evidence — **never reads it**. The gate is stricter than what the scenarios consume.
+That is worth fixing at the gate, deliberately, by someone who decides what the
+Connect scenarios ought to exercise. It is **not** worth working around, and the
+shared test account's webhook configuration was left alone rather than recreated
+under a second agent that is live on the same account.
+
 ## A hazard worth naming
 
 **Another Claude Code session was editing this same working tree during the second
