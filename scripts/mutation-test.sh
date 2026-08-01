@@ -93,6 +93,8 @@ MUTATIONS=(
 "realtime_store.go|legacy supplier projection may diverge from PricingDecision|s#SupplierInputRate:         contract.SupplierInputUSDPerMillionTokens,#SupplierInputRate:         float64(pricing.Realtime.SupplierInputNanosPerMillion) / float64(NanosPerMajorUnit),#"
 "realtime_store.go|persisted reuse delivered tokens may diverge from PricingDecision|s#DeliveredTokens: contract.ReuseDeliveredTokens,#DeliveredTokens: pricing.RealtimeReuse.DeliveredTokens,#"
 "realtime_store.go|reuse settlement invents a supplier nano liability|s#\$7,\$8,0,\$8)#\$7,\$8,1,\$8)#"
+"realtime_store.go|reuse idempotency accepts a different request digest|s#existing.RequestSHA256 != auth.RequestSHA256#false#"
+"realtime_store.go|reuse idempotency replay is bypassed|/func (s \*Store) SettleRealtimeExactReuse/,/Same fund gate/ s#if auth.IdempotencyKey != \"\" {#if false {#"
 "realtime_store.go|verified usage may exceed frozen PricingDecision bounds|s#if evidence.PromptTokens > contract.MaximumPromptTokens ||#if false \&\&#"
 "realtime_store.go|settlement substitutes buyer authority for supplier floor|s#authority.SupplierInputNanosPerMillion),#authority.BuyerInputNanosPerMillion),#"
 "supplier_accrual.go|accrual adds instead of carrying the remainder|s|carryOut = effective % microUSDPerCent|carryOut = 0|"
