@@ -42,6 +42,41 @@ func fixtureSettlementPricePer1K() float64 {
 	return ceilPricePer1K(fixtureReferencePricePer1K * fixtureFXRate)
 }
 
+// This is the authority join, not another parallel pricing calculation. The
+// decision must use the settlement-currency catalogue price and the exact
+// fractional units once, then freeze the buyer gross and supplier floor produced
+// by that same calculation. It distinguishes both an integer-unit rewrite and a
+// floor silently derived from the USD reference side of a CAD decision.
+func TestExactTaskEconomicsUsesOneSettlementCurrencyAuthority(t *testing.T) {
+	authority := CataloguePriceAuthority{
+		SettlementCurrency:        "cad",
+		ReferencePricePer1K:       fixtureReferencePricePer1K,
+		SettlementPricePer1K:      fixtureSettlementPricePer1K(),
+		ReferenceToSettlementRate: fixtureFXRate,
+		SupplierShare:             fixtureSupplierShare,
+	}
+	gross, floor, err := exactTaskEconomics(authority, "batch", fixtureUnitsPerTask)
+	if err != nil {
+		t.Fatalf("derive exact task economics: %v", err)
+	}
+	if gross.Currency.Code() != "cad" || floor.Currency.Code() != "cad" {
+		t.Fatalf("decision crossed currency authority: gross=%s floor=%s",
+			gross.Currency.Code(), floor.Currency.Code())
+	}
+	if gross.Nanos != fixtureExactGrossNanos || floor.Nanos != fixtureExactFloorNanos {
+		t.Fatalf("one-authority decision produced gross=%d floor=%d nanos, want %d and %d",
+			gross.Nanos, floor.Nanos, fixtureExactGrossNanos, fixtureExactFloorNanos)
+	}
+	wantFloor, err := SupplierEntitlementNanos(gross, authority.SupplierShare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if floor != wantFloor {
+		t.Fatalf("supplier floor %+v is not the entitlement %+v from the same gross",
+			floor, wantFloor)
+	}
+}
+
 // TestSubSecondTaskFloorIsNotRoundedUpToAWholeSecond is the layer-3 defect.
 //
 // RequiredTaskNanosFromThroughput divided units by throughput BEFORE scaling to
