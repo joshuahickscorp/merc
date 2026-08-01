@@ -1921,7 +1921,7 @@ func TestStaleReaperPendingVerificationDoesNotStarveLaterJobs(t *testing.T) {
 
 func TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation(t *testing.T) {
 	t.Run("terminal parent cannot select or requeue running residual", func(t *testing.T) {
-		ctx, store, pool := openMoneyPathStore(t)
+		ctx, store, pool := openIsolatedMoneyPathStore(t)
 		f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
 			TaskCount: 1, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
 		})
@@ -1962,7 +1962,7 @@ func TestStaleRecoveryFencesTerminalParentAtSelectionAndMutation(t *testing.T) {
 	})
 
 	t.Run("active parent still selects and requeues", func(t *testing.T) {
-		ctx, store, pool := openMoneyPathStore(t)
+		ctx, store, pool := openIsolatedMoneyPathStore(t)
 		f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
 			TaskCount: 1, TaskStatus: "running", ClaimWorker: true, SeedJob: true, SeedPlanRows: true,
 		})
