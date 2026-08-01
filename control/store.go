@@ -915,9 +915,10 @@ func consumeEconomicReserveTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) (
 		   AND (j.max_usd IS NULL
 		        OR p.buyer_charge_per_task_usd * (p.initial_task_count+r.consumed_tasks+1)
 		             + p.sla_premium_usd <= j.max_usd)
-		   AND (p.firm_quote_max_usd IS NULL
+		   AND (NOT j.firm_quote
+		        OR j.firm_quote_max_usd IS NULL
 		        OR p.buyer_charge_per_task_usd * (p.initial_task_count+r.consumed_tasks+1)
-		             + p.sla_premium_usd <= p.firm_quote_max_usd)
+		             + p.sla_premium_usd <= j.firm_quote_max_usd)
 		RETURNING p.buyer_charge_per_task_usd::float8,p.supplier_payout_per_task_usd::float8`, jobID).
 		Scan(&buyerCharge, &supplierPayout)
 	if errors.Is(err, pgx.ErrNoRows) {

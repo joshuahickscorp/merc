@@ -829,6 +829,39 @@ func TestQuoteJobSchedulerReceiptPreserveExactPricingAuthority(t *testing.T) {
 		t.Fatalf("bound quote raw ETA=%d want %d", bound.ETARawSecs, job.ETARawSecs)
 	}
 
+	// The former submit path rebuilt a valid-looking PricingDecision with this
+	// origin link, which meant quote and accepted job had two identities for the
+	// same physical work. The lineage was auditable but it was still a second
+	// authority. A bound job now accepts the quoted decision byte-for-byte.
+	derived, err := distributedPricingDecisionAtRate(
+		job.WorkloadDecision, job.ComputePlan, job.PlacementRequirement,
+		job.EconomicPlan, job.PricingDecision.Catalogue, job.Tier,
+		quotePricingSHA, job.PricingDecision.ExpectedSupplierUnitsPerSec,
+	)
+	if err != nil {
+		t.Fatalf("construct former derived pricing shape: %v", err)
+	}
+	derivedSHA, err := pricingDecisionDigest(derived)
+	if err != nil || derivedSHA == quotePricingSHA {
+		t.Fatalf("derived quote authority was not distinguishable: sha=%s err=%v", derivedSHA, err)
+	}
+	derivedJob := *job
+	derivedJob.ID = uuid.New()
+	derivedJob.QuoteID = quoteID
+	derivedJob.PricingDecision = derived
+	derivedTasks := append([]taskRow(nil), tasks...)
+	for i := range derivedTasks {
+		derivedTasks[i].ID = uuid.New()
+		derivedTasks[i].JobID = derivedJob.ID
+	}
+	if err := store.SubmitJobTx(ctx, &derivedJob, derivedTasks); err == nil ||
+		!strings.Contains(err.Error(), "exactly match its bound quote") {
+		t.Fatalf("derived pricing authority passed a quote-bound submit: %v", err)
+	}
+	if countJobRows(t, ctx, pool, derivedJob.ID) != 0 {
+		t.Fatal("rejected derived authority left a job row")
+	}
+
 	job.QuoteID = quoteID
 	if err := store.SubmitJobTx(ctx, job, tasks); err != nil {
 		t.Fatalf("submit quote-bound job: %v", err)
@@ -2922,7 +2955,7 @@ func TestDynamicTaskInsertsFenceTerminalParentsWithoutReserveMutation(t *testing
 
 func TestDynamicTaskInsertEconomicGatesAreAtomic(t *testing.T) {
 	for _, kind := range []dynamicObligationKind{dynamicHedge, dynamicTiebreak} {
-		for _, gate := range []string{"reserve_exhausted", "job_max", "already_charged"} {
+		for _, gate := range []string{"reserve_exhausted", "job_max", "firm_quote", "already_charged"} {
 			t.Run(string(kind)+"/"+gate, func(t *testing.T) {
 				ctx, store, pool := openMoneyPathStore(t)
 				f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{
@@ -2940,6 +2973,17 @@ func TestDynamicTaskInsertEconomicGatesAreAtomic(t *testing.T) {
 				case "job_max":
 					if _, err := pool.Exec(ctx,
 						`UPDATE jobs SET max_usd=$2 WHERE id=$1`,
+						f.JobID, f.Plan.InitialBuyerChargeUSD); err != nil {
+						t.Fatal(err)
+					}
+				case "firm_quote":
+					// The quote PricingDecision owns the reviewed economic plan. A
+					// firm acceptance must still fence extra work, but its cap lives
+					// on jobs rather than forcing a second plan/decision with a
+					// FirmQuoteMaxUSD input. The pre-change SQL read only the plan
+					// column and would have admitted this extra task.
+					if _, err := pool.Exec(ctx,
+						`UPDATE jobs SET firm_quote=true,firm_quote_max_usd=$2 WHERE id=$1`,
 						f.JobID, f.Plan.InitialBuyerChargeUSD); err != nil {
 						t.Fatal(err)
 					}

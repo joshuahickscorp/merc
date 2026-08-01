@@ -267,7 +267,16 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 			j.SLAPremiumUSD, j.EconomicPlan.Input.SLAPremiumUSD)
 	}
 	if j.FirmQuote {
-		if j.FirmQuoteMaxUSD <= 0 || math.Abs(j.FirmQuoteMaxUSD-j.EconomicPlan.Input.FirmQuoteMaxUSD) > 0.000001 {
+		if j.FirmQuoteMaxUSD <= 0 {
+			return errors.New("firm quote requires a positive job-level buyer ceiling")
+		}
+		// Pre-PricingDecision direct rows retained the cap inside EconomicPlan.
+		// New quote-bound submissions deliberately keep that plan identical to the
+		// reviewed quote and carry the acceptance cap only on the job. Preserve the
+		// old direct-row invariant where there is no quote to bind it instead of
+		// forcing a second plan/decision for new work.
+		if j.QuoteID == uuid.Nil &&
+			math.Abs(j.FirmQuoteMaxUSD-j.EconomicPlan.Input.FirmQuoteMaxUSD) > 0.000001 {
 			return fmt.Errorf("firm quote max %.6f does not match frozen economic cap %.6f",
 				j.FirmQuoteMaxUSD, j.EconomicPlan.Input.FirmQuoteMaxUSD)
 		}
@@ -356,16 +365,16 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		if err := json.Unmarshal(quotePricingJSON, &quotePricing); err != nil {
 			return fmt.Errorf("decode bound quote pricing authority: %w", err)
 		}
-		exactQuotePricing := pricingSHA256 == quotePricingSHA256
-		derivedQuotePricing :=
-			j.PricingDecision.OriginQuotePricingDecisionSHA256 == quotePricingSHA256
-		if quotePricingSHA256 == "" ||
-			(!exactQuotePricing && !derivedQuotePricing) ||
+		if quotePricingSHA256 == "" || pricingSHA256 != quotePricingSHA256 ||
 			quotePricing.ComputePlanSHA256 != j.PricingDecision.ComputePlanSHA256 ||
 			quotePricing.PlacementRequirementSHA256 != placementSHA256 ||
 			quotePricing.WorkloadDecisionSHA256 != j.PricingDecision.WorkloadDecisionSHA256 ||
 			!reflect.DeepEqual(quotePricing.Catalogue, j.PricingDecision.Catalogue) {
-			return errors.New("job pricing decision does not derive from its bound quote")
+			return errors.New("job pricing decision does not exactly match its bound quote")
+		}
+		if j.FirmQuote && math.Abs(j.FirmQuoteMaxUSD-quotePricing.MaximumBuyerPrice) > 0.000001 {
+			return fmt.Errorf("firm quote max %.6f does not match bound PricingDecision ceiling %.6f",
+				j.FirmQuoteMaxUSD, quotePricing.MaximumBuyerPrice)
 		}
 	}
 
