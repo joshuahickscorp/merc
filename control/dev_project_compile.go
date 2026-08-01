@@ -4,8 +4,61 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"time"
 )
+
+func runProjectSubmit(args []string) int {
+	fs := flag.NewFlagSet("project submit", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	root := fs.String("root", "", "project directory to compile and submit")
+	approved := fs.String("buyer-approved-ir-sha256", "", "exact unprobed IR digest approved by the buyer")
+	quotePath := fs.String("quote", "", "reviewed project quote artifact")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *root == "" || *quotePath == "" || !validSHA256(*approved) {
+		fmt.Fprintln(os.Stderr, "project submit: --root, --quote and --buyer-approved-ir-sha256 are required")
+		return 2
+	}
+	info, err := os.Lstat(*quotePath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > projectQuoteArtifactMaxBytes {
+		fmt.Fprintf(os.Stderr, "project submit: quote must be a regular non-symlink file no larger than %d bytes\n", projectQuoteArtifactMaxBytes)
+		return 1
+	}
+	raw, err := os.ReadFile(*quotePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "project submit: %v\n", err)
+		return 1
+	}
+	var quote ProjectQuote
+	if err := decodeStrictJSONObject(raw, &quote); err != nil {
+		fmt.Fprintf(os.Stderr, "project submit: invalid quote artifact: %v\n", err)
+		return 1
+	}
+	ir, err := compileProject(projectCompileOptions{Root: *root, ProbeRequested: true, BuyerApprovedIRSHA256: *approved})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "project submit: %v\n", err)
+		return 1
+	}
+	result, err := submitCompiledProject(newClient(), *root, ir, quote, time.Now())
+	if writeErr := writeProjectSubmission(os.Stdout, result); writeErr != nil {
+		fmt.Fprintf(os.Stderr, "project submit: %v\n", writeErr)
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "project submit: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func writeProjectSubmission(w io.Writer, submission ProjectSubmission) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(submission)
+}
 
 // dispatchProject exposes the compiler as a product command. It intentionally
 // needs no database or server: static inspection happens on the buyer's machine,
@@ -15,7 +68,7 @@ func dispatchProject(command string, args []string) bool {
 		return false
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|quote|calibration-check}")
+		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|quote|submit|calibration-check}")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -42,6 +95,8 @@ func dispatchProject(command string, args []string) bool {
 		return true
 	case "quote":
 		os.Exit(runProjectQuote(args[1:]))
+	case "submit":
+		os.Exit(runProjectSubmit(args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown project subcommand %q\n", args[0])
 		os.Exit(2)

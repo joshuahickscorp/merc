@@ -58,6 +58,7 @@ type cliJobSubmit struct {
 	WebhookURL   string             `json:"webhook_url,omitempty"`
 	MaxUSD       float64            `json:"max_usd,omitempty"`
 	QuoteID      string             `json:"quote_id,omitempty"`
+	FirmQuote    bool               `json:"firm_quote,omitempty"`
 }
 
 type client struct {
