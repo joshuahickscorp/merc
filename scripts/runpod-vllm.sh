@@ -426,7 +426,7 @@ done
 say ""
 say "READY"
 say "  endpoint  $ENDPOINT"
-say "  api key   (in \$MERC_VLLM_API_KEY, not printed)"
+say "  api key   (in \$MERC_GPU_API_KEY, not printed)"
 say ""
 say "  export MERC_GPU_ENDPOINT=$ENDPOINT"
 say "  export MERC_GPU_API_KEY=<key>"
