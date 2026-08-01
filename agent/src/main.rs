@@ -38,6 +38,7 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MODEL_IDLE_EVICT_AFTER: Duration = Duration::from_secs(15 * 60);
 const TRANSFER_CHUNK_BYTES: usize = 64 * 1024;
 static TRANSFER_BITS_PER_SECOND: AtomicU64 = AtomicU64::new(0);
+static LAST_HOST_CPU_MILLIPCT: AtomicU64 = AtomicU64::new(0);
 static TRANSFER_NEXT_SLOT: OnceLock<tokio::sync::Mutex<tokio::time::Instant>> = OnceLock::new();
 
 fn set_transfer_limit(max_bandwidth_mbps: f32) {
@@ -2574,6 +2575,7 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
                 };
                 let ts = now_unix();
                 let cpu = cpu_pct(&mut sys);
+                LAST_HOST_CPU_MILLIPCT.store((cpu.max(0.0) * 1000.0) as u64, Ordering::Release);
                 let throttle = cfg.evaluate_memory_throttle(&throttle_snapshot(), None);
                 cfg.refresh_thermal_pressure();
                 let evicted = ctx.pool.evict_idle(MODEL_IDLE_EVICT_AFTER).await;
@@ -2680,6 +2682,18 @@ async fn poll_and_spawn(
         tracing::debug!("not eligible to run (paused / schedule / battery); idling 60s");
         drop(permit); // release the slot while we idle
         tokio::time::sleep(Duration::from_secs(60)).await;
+        return Ok(());
+    }
+
+    let host_cpu_pct = LAST_HOST_CPU_MILLIPCT.load(Ordering::Acquire) as f32 / 1000.0;
+    if cfg.max_cpu_pct > 0.0 && host_cpu_pct >= cfg.max_cpu_pct {
+        tracing::info!(
+            host_cpu_pct,
+            max_cpu_pct = cfg.max_cpu_pct,
+            "host CPU claim ceiling reached; pausing new claims"
+        );
+        drop(permit);
+        tokio::time::sleep(Duration::from_secs(5)).await;
         return Ok(());
     }
 

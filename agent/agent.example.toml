@@ -10,6 +10,8 @@ paused = false
 allow_model_downloads = true
 max_model_cache_gb = 4.0
 max_bandwidth_mbps = 0.0 # aggregate task-transfer ceiling; 0 = unlimited
+max_cpu_pct = 0.0        # refuse new claims above host CPU%; 0 = unlimited
+thermal_limit = "serious" # nominal, fair, serious, critical
 power_only = false          # true = refuse to run on battery
 # quiet_hours = [22, 6]     # local hours [start, end); wraps midnight; agent aborts in-flight work too
 min_payout_usd_per_hr = 0.0 # decline work paying less than this
