@@ -10,8 +10,8 @@ func projectDeclarationFixture() ProjectDeclaration {
 	return ProjectDeclaration{
 		Version: 1,
 		Steps: []ProjectIRStep{
-			{ID: "render", Kind: "media_rendering", DependsOn: []string{"extract"}, Inputs: []string{"project://scene"}, Outputs: []string{"project://frames"}, RuntimeContract: strings.Repeat("a", 64), ModelContract: strings.Repeat("b", 64), ResourceEstimate: "BOUNDED_PROBE_REQUIRED", Parallelism: "INDEPENDENT", CheckpointPolicy: "REQUIRED", Verification: "frame_hash_and_quality"},
-			{ID: "extract", Kind: "structured_extraction", Inputs: []string{"project://input"}, Outputs: []string{"project://scene"}, RuntimeContract: strings.Repeat("c", 64), ModelContract: strings.Repeat("d", 64), ResourceEstimate: "BOUNDED_PROBE_REQUIRED", Parallelism: "SINGLE_DEVICE", CheckpointPolicy: "NOT_APPLICABLE", Verification: "schema"},
+			{ID: "render", Kind: "media_rendering", DependsOn: []string{"extract"}, Inputs: []string{"project://scene"}, Outputs: []string{"project://frames"}, RuntimeContract: strings.Repeat("a", 64), ModelContract: strings.Repeat("b", 64), ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}, Parallelism: "INDEPENDENT", CheckpointPolicy: "REQUIRED", Verification: "frame_hash_and_quality"},
+			{ID: "extract", Kind: "structured_extraction", Inputs: []string{"project://input"}, Outputs: []string{"project://scene"}, RuntimeContract: strings.Repeat("c", 64), ModelContract: strings.Repeat("d", 64), ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}, Parallelism: "SINGLE_DEVICE", CheckpointPolicy: "NOT_APPLICABLE", Verification: "schema"},
 		},
 		Privacy:   ProjectIRPrivacy{Egress: "DENY", DataLocation: "CA"},
 		Quality:   ProjectIRQuality{Requirement: "buyer-fixture-v1", Verification: "independent"},
@@ -73,7 +73,7 @@ func TestProjectDeclarationResolvesExactAdvertisedContract(t *testing.T) {
 		ID: "embed", Kind: contract.WorkloadKind,
 		Inputs: []string{"project://input"}, Outputs: []string{"project://vectors"},
 		RuntimeContract: contract.RuntimeContractSHA256, ModelContract: contract.ModelContractSHA256,
-		ResourceEstimate: "BOUNDED_PROBE_REQUIRED", Parallelism: "INDEPENDENT",
+		ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}, Parallelism: "INDEPENDENT",
 		CheckpointPolicy: "NOT_APPLICABLE", Verification: contract.Verification,
 	}}
 	writeDeclarationFixture(t, root, declaration)
@@ -118,5 +118,51 @@ func TestProjectDeclarationRequiresFixedPointCeiling(t *testing.T) {
 	writeDeclarationFixture(t, root, declaration)
 	if _, err := compileProject(projectCompileOptions{Root: root}); err == nil || !strings.Contains(err.Error(), "maximum_buyer_price_nanos") {
 		t.Fatalf("zero buyer ceiling compiled: %v", err)
+	}
+}
+
+func TestDeclaredStepProbeIsScopedToItsInputArtifact(t *testing.T) {
+	contracts, err := advertisedProjectRuntimeContracts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contract ProjectRuntimeContract
+	for _, candidate := range contracts {
+		if candidate.WorkloadKind == "embeddings" {
+			contract = candidate
+			break
+		}
+	}
+	if contract.RuntimeID == "" {
+		t.Fatal("no embeddings contract")
+	}
+	root := t.TempDir()
+	declaration := projectDeclarationFixture()
+	declaration.Steps = []ProjectIRStep{{
+		ID: "embed", Kind: "embeddings", Inputs: []string{"project://samples/input.jsonl"},
+		Outputs: []string{"project://vectors"}, RuntimeContract: contract.RuntimeContractSHA256,
+		ModelContract:    contract.ModelContractSHA256,
+		ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"},
+		Parallelism:      "INDEPENDENT", CheckpointPolicy: "NOT_APPLICABLE", Verification: contract.Verification,
+	}}
+	writeDeclarationFixture(t, root, declaration)
+	writeProjectFixture(t, root, "pipeline.py", "embedding")
+	input := "{\"text\":\"alpha\"}\n{\"text\":\"beta\"}\n"
+	writeProjectFixture(t, root, "samples/input.jsonl", input)
+	proposal, err := compileProject(projectCompileOptions{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	probed, err := compileProject(projectCompileOptions{
+		Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resource := probed.Steps[0].ResourceEstimate
+	if resource.State != "SHAPE_MEASURED_CALIBRATION_REQUIRED" ||
+		resource.ArtifactBytes != int64(len(input)) || resource.SampleRecords != 2 ||
+		resource.ProbeKind != "NON_EXECUTING_FILE_SHAPE_V1" {
+		t.Fatalf("step probe escaped or missed its input artifact: %+v", resource)
 	}
 }

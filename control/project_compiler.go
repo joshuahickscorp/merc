@@ -48,19 +48,19 @@ type ProjectWorkloadIR struct {
 }
 
 type ProjectIRStep struct {
-	ID               string   `json:"id"`
-	Kind             string   `json:"kind"`
-	DependsOn        []string `json:"depends_on"`
-	Inputs           []string `json:"inputs"`
-	Outputs          []string `json:"outputs"`
-	RuntimeContract  string   `json:"runtime_contract"`
-	ModelContract    string   `json:"model_contract,omitempty"`
-	RuntimeID        string   `json:"runtime_id,omitempty"`
-	ModelID          string   `json:"model_id,omitempty"`
-	ResourceEstimate string   `json:"resource_estimate"`
-	Parallelism      string   `json:"parallelism"`
-	CheckpointPolicy string   `json:"checkpoint_policy"`
-	Verification     string   `json:"verification"`
+	ID               string                    `json:"id"`
+	Kind             string                    `json:"kind"`
+	DependsOn        []string                  `json:"depends_on"`
+	Inputs           []string                  `json:"inputs"`
+	Outputs          []string                  `json:"outputs"`
+	RuntimeContract  string                    `json:"runtime_contract"`
+	ModelContract    string                    `json:"model_contract,omitempty"`
+	RuntimeID        string                    `json:"runtime_id,omitempty"`
+	ModelID          string                    `json:"model_id,omitempty"`
+	ResourceEstimate ProjectIRResourceEstimate `json:"resource_estimate"`
+	Parallelism      string                    `json:"parallelism"`
+	CheckpointPolicy string                    `json:"checkpoint_policy"`
+	Verification     string                    `json:"verification"`
 }
 
 type ProjectIRArtifact struct {
@@ -68,6 +68,15 @@ type ProjectIRArtifact struct {
 	Bytes     int64  `json:"bytes"`
 	SHA256    string `json:"sha256"`
 	MediaType string `json:"media_type"`
+}
+
+type ProjectIRResourceEstimate struct {
+	State                     string `json:"state"`
+	ArtifactBytes             int64  `json:"artifact_bytes,omitempty"`
+	SampledBytes              int64  `json:"sampled_bytes,omitempty"`
+	SampleRecords             int64  `json:"sample_records,omitempty"`
+	EstimatedTokensFromSample int64  `json:"estimated_tokens_from_sample,omitempty"`
+	ProbeKind                 string `json:"probe_kind,omitempty"`
 }
 
 type ProjectIRPrivacy struct {
@@ -318,13 +327,13 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) (ProjectWor
 				ID: stepID, Kind: detection.Kind, DependsOn: nil,
 				Inputs: []string{"project://input"}, Outputs: []string{"project://" + stepID},
 				RuntimeContract: "UNRESOLVED_REFUSE", ModelContract: "UNRESOLVED_REFUSE",
-				ResourceEstimate: "UNCALIBRATED_REFUSE", Parallelism: "UNRESOLVED_REFUSE",
+				ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}, Parallelism: "UNRESOLVED_REFUSE",
 				CheckpointPolicy: "REQUIRED_UNRESOLVED", Verification: "REQUIRED_UNRESOLVED",
 			})
 		}
 	}
 	if opts.ProbeRequested {
-		runBoundedProjectProbe(files, &ir.Probe)
+		runBoundedProjectProbe(files, &ir)
 	}
 	if len(ir.Detections) == 0 {
 		ir.RefusalReasons = append(ir.RefusalReasons, "no supported workload detector reached confidence floor")
@@ -412,12 +421,19 @@ func unsafeProjectSignals(files []projectFile) []string {
 	return normalizeUniqueStrings(reasons, strings.TrimSpace)
 }
 
-func runBoundedProjectProbe(files []projectFile, probe *ProjectIRProbe) {
+func runBoundedProjectProbe(files []projectFile, ir *ProjectWorkloadIR) {
+	probe := &ir.Probe
 	probe.Executed = true
 	probe.Kind = "NON_EXECUTING_FILE_SHAPE_V1"
 	var remaining int64 = projectProbeMaxBytes
+	type sample struct {
+		bytes, records, tokens int64
+		complete               bool
+	}
+	samples := make(map[string]sample, len(files))
 	for _, file := range files {
 		if remaining <= 0 {
+			samples[file.rel] = sample{}
 			break
 		}
 		read := int64(len(file.content))
@@ -427,17 +443,64 @@ func runBoundedProjectProbe(files []projectFile, probe *ProjectIRProbe) {
 		probe.BytesRead += read
 		remaining -= read
 		lower := strings.ToLower(file.rel)
+		item := sample{bytes: read, complete: read == file.size}
 		if strings.HasSuffix(lower, ".jsonl") || strings.HasSuffix(lower, ".ndjson") {
 			scanner := bufio.NewScanner(strings.NewReader(string(file.content[:read])))
 			records := 0
 			for scanner.Scan() && records < 256 {
 				records++
 			}
+			item.records = int64(records)
 			probe.Observations = append(probe.Observations, fmt.Sprintf("%s:sample_records=%d", file.rel, records))
 		}
+		if projectTextArtifact(lower) {
+			item.tokens = int64(estimateTokens(file.content[:read]))
+		}
+		samples[file.rel] = item
+	}
+	for i := range ir.Steps {
+		resource := ProjectIRResourceEstimate{State: "SHAPE_MEASURED_CALIBRATION_REQUIRED", ProbeKind: probe.Kind}
+		selected := false
+		complete := true
+		for _, file := range files {
+			if file.rel == projectDeclarationName || !projectStepReadsFile(ir.Steps[i], file.rel) {
+				continue
+			}
+			selected = true
+			resource.ArtifactBytes += file.size
+			item, ok := samples[file.rel]
+			if !ok || !item.complete {
+				complete = false
+			}
+			resource.SampledBytes += item.bytes
+			resource.SampleRecords += item.records
+			resource.EstimatedTokensFromSample += item.tokens
+		}
+		if !selected || !complete {
+			resource.State = "PROBE_INCOMPLETE_REFUSE"
+		}
+		ir.Steps[i].ResourceEstimate = resource
 	}
 	probe.Observations = append(probe.Observations, fmt.Sprintf("inventory_files=%d", len(files)))
 	sort.Strings(probe.Observations)
+}
+
+func projectStepReadsFile(step ProjectIRStep, rel string) bool {
+	for _, input := range step.Inputs {
+		if input == "project://input" || input == "project://"+rel {
+			return true
+		}
+	}
+	return false
+}
+
+func projectTextArtifact(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".txt", ".md", ".json", ".jsonl", ".ndjson", ".yaml", ".yml", ".py", ".js", ".ts", ".go", ".rs":
+		return true
+	default:
+		return false
+	}
 }
 
 func projectMediaType(path string) string {
