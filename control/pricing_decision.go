@@ -89,8 +89,9 @@ type PricingDecision struct {
 	OriginQuotePricingDecisionSHA256 string `json:"origin_quote_pricing_decision_sha256,omitempty"`
 	OriginPricingDecisionSHA256      string `json:"origin_pricing_decision_sha256,omitempty"`
 
-	Catalogue CataloguePriceAuthority   `json:"catalogue"`
-	Realtime  *RealtimePricingAuthority `json:"realtime,omitempty"`
+	Catalogue     CataloguePriceAuthority        `json:"catalogue"`
+	Realtime      *RealtimePricingAuthority      `json:"realtime,omitempty"`
+	RealtimeReuse *RealtimeReusePricingAuthority `json:"realtime_reuse,omitempty"`
 
 	BillableUnits                 float64 `json:"billable_units"`
 	ExpectedSupplierUnitsPerSec   float64 `json:"expected_supplier_units_per_sec"`
@@ -165,7 +166,10 @@ func validateFixedPointPricing(p PricingDecision) error {
 	f := p.FixedPoint
 	if f.Currency != p.Currency || f.BuyerChargeNanos <= 0 ||
 		f.AcceptedCeilingNanos < f.BuyerChargeNanos ||
-		f.SupplierEntitlementsNanos <= 0 || f.KnownVariableCostsNanos < 0 ||
+		f.SupplierEntitlementsNanos < 0 ||
+		(p.ExecutionMode != pricingExecutionRealtimeReuse && f.SupplierEntitlementsNanos == 0) ||
+		(p.ExecutionMode == pricingExecutionRealtimeReuse && f.SupplierEntitlementsNanos != 0) ||
+		f.KnownVariableCostsNanos < 0 ||
 		f.KnownCostContributionNanos <= 0 ||
 		f.MercGrossSpreadNanos != f.BuyerChargeNanos-f.SupplierEntitlementsNanos ||
 		f.BuyerChargeNanos != f.SupplierEntitlementsNanos+
@@ -937,7 +941,7 @@ func validatePricingCostShape(p PricingDecision) error {
 	}
 	switch p.ExecutionMode {
 	case computeExecutionDistributed:
-		if p.Realtime != nil || p.Currency != p.Catalogue.SettlementCurrency ||
+		if p.Realtime != nil || p.RealtimeReuse != nil || p.Currency != p.Catalogue.SettlementCurrency ||
 			!validSHA256(p.WorkloadDecisionSHA256) || !validSHA256(p.ComputePlanSHA256) {
 			return errors.New("physical batch pricing decision lacks core digest or currency authority")
 		}
@@ -986,7 +990,7 @@ func validatePricingCostShape(p PricingDecision) error {
 			return errors.New("physical pricing decision does not conserve modeled buyer price")
 		}
 	case computeExecutionExactReuse:
-		if p.Realtime != nil || p.Currency != p.Catalogue.SettlementCurrency ||
+		if p.Realtime != nil || p.RealtimeReuse != nil || p.Currency != p.Catalogue.SettlementCurrency ||
 			!validSHA256(p.WorkloadDecisionSHA256) || !validSHA256(p.ComputePlanSHA256) {
 			return errors.New("exact-reuse pricing decision lacks core digest or currency authority")
 		}
@@ -1002,7 +1006,7 @@ func validatePricingCostShape(p PricingDecision) error {
 			return errors.New("exact-reuse pricing falsely attributes physical execution")
 		}
 	case pricingExecutionRealtime:
-		if p.Realtime == nil {
+		if p.Realtime == nil || p.RealtimeReuse != nil {
 			return errors.New("realtime pricing decision lacks realtime authority")
 		}
 		if p.Catalogue != (CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
@@ -1018,6 +1022,24 @@ func validatePricingCostShape(p PricingDecision) error {
 		conserved := p.PrimarySupplierCost.Amount + p.PlatformContribution.Amount
 		if math.Abs(conserved-p.BuyerPrice) > 0.000000002 {
 			return errors.New("realtime pricing decision does not conserve modeled buyer price")
+		}
+	case pricingExecutionRealtimeReuse:
+		if p.Realtime != nil || p.RealtimeReuse == nil {
+			return errors.New("realtime reuse pricing decision lacks reuse authority")
+		}
+		if p.Catalogue != (CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
+			p.ComputePlanSHA256 != "" || p.PlacementRequirementSHA256 != "" ||
+			p.EconomicPlanSHA256 != "" || p.EconomicScheduleSHA256 != "" ||
+			p.SupplierGrossNanos != 0 || p.SupplierRequiredNanos != 0 ||
+			p.SupplierEntitlementPolicy != "" || p.PrimarySupplierCost.Status != pricingCostNotApplicable ||
+			p.VerificationCost.Status != pricingCostNotApplicable {
+			return errors.New("realtime reuse pricing falsely attributes physical execution")
+		}
+		if err := validateRealtimeReusePricingAuthority(*p.RealtimeReuse, p.Currency); err != nil {
+			return err
+		}
+		if math.Abs(p.PlatformContribution.Amount-p.BuyerPrice) > 0.000000002 {
+			return errors.New("realtime reuse pricing does not conserve gross buyer price")
 		}
 	default:
 		return fmt.Errorf("unknown pricing execution mode %q", p.ExecutionMode)
