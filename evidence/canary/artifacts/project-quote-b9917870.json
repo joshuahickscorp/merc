@@ -1,0 +1,458 @@
+{
+  "version": 2,
+  "ir_sha256": "848ebf44914f23e0269fe7759d59431df4ea214a2a3566a3a6d6806c58957edd",
+  "currency": "cad",
+  "expected_cost_nanos": 8000,
+  "maximum_cost_nanos": 12000,
+  "buyer_ceiling_nanos": 10000000,
+  "critical_path_p50_secs": 45,
+  "critical_path_p90_secs": 90,
+  "minimum_confidence": 0.5,
+  "calibration_state": "STEP_QUOTES_NOT_PROJECT_OUTCOME_CALIBRATED",
+  "steps": [
+    {
+      "step_id": "embed",
+      "quote_id": "q_85ac1eef-fd1d-465d-8b87-96bdd6eaee23",
+      "pricing_decision_sha256": "28f1ebeef572af24c775b820c5b97725604931aebcdcea5cbf61881e3e1c481e",
+      "expected_cost_nanos": 8000,
+      "maximum_cost_nanos": 12000,
+      "p50_secs": 45,
+      "p90_secs": 90,
+      "confidence": 0.5,
+      "confidence_reasons": [
+        "no workers currently pass the memory/model filter for this job",
+        "model memory floor is 2 GB; supply count is filtered against effective memory",
+        "no eligible worker currently has this model warm; a cold model load is possible",
+        "token count is a byte heuristic, not an exact tokenizer count"
+      ],
+      "eta_confidence_band_method": "synthetic_multiples",
+      "authority_quote_sha256": "8357a888f3bb77404cbd814bc44b0eaf43f95297ff943a17d6fc3c92f43a1d47",
+      "authority": {
+        "quote_id": "q_85ac1eef-fd1d-465d-8b87-96bdd6eaee23",
+        "job_type": "embed",
+        "model": "all-minilm-l6-v2",
+        "tier": "batch",
+        "currency": "cad",
+        "tier_semantics": "standard queue service with a bounded batch opportunity under priority contention; no device reservation, wider-fanout guarantee, or SLA",
+        "workload_decision": {
+          "version": 1,
+          "binding_sha256": "4afe658587d2355c6dbcc85cc07a6e6103af7b34748765850dceac35edc0f7cb",
+          "binding": {
+            "version": 1,
+            "job_type": {
+              "type": "embed"
+            },
+            "model": {
+              "kind": "hf",
+              "ref": "all-minilm-l6-v2"
+            },
+            "constraints": {
+              "min_memory_gb": 0,
+              "hw_classes": null,
+              "max_duration_secs": 14400,
+              "data_residency": null
+            },
+            "verification": {
+              "redundancy_frac": 0,
+              "honeypot_frac": 0,
+              "payout_hold_secs": 0
+            },
+            "tier": "batch",
+            "min_reputation": 0,
+            "deadline_secs": 0,
+            "input_sha256": "0784a04f7e86074cce4fe4c33fca3820adad8bab83d786d81a8eff0da07a1358"
+          },
+          "workload_class": "embeddings",
+          "runtime_job_type": "embed",
+          "model_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+          "runtime_candidates": [
+            {
+              "cell_id": "candle-metal-minilm-embed",
+              "runtime_id": "candle_metal",
+              "engine": "candle",
+              "model_kind": "hf",
+              "device": "metal",
+              "hardware_classes": [
+                "apple_silicon_base",
+                "apple_silicon_pro",
+                "apple_silicon_max",
+                "apple_silicon_ultra"
+              ]
+            }
+          ],
+          "minimum_memory_gb": 2,
+          "deterministic": true,
+          "exact_result_cache_eligible": false,
+          "prefix_reuse_eligible": false,
+          "inflight_coalescing_eligible": false,
+          "verification_strategy": "cosine+platform_honeypot_floor",
+          "latency_class": "standard_batch",
+          "privacy_class": "unrestricted_residency",
+          "parallelism": {
+            "mode": "independent_task_fanout",
+            "tensor_parallel_degree": 1
+          },
+          "confidence": 0.9,
+          "evidence": [
+            "runtime cell resolved from the embedded, digest-addressed authority matrix",
+            "model revision and runtime job type are server-derived",
+            "request parameters, placement constraints, verification policy and input commitment are digest-bound"
+          ],
+          "unknowns": [
+            "data rights are not expressible on the current batch API",
+            "power and provider-cost estimates are not part of workload classification v1"
+          ]
+        },
+        "placement_requirement": {
+          "version": 1,
+          "job_type": "embed",
+          "model_ref": "all-minilm-l6-v2",
+          "model_kind": "hf",
+          "runtime_cell_id": "candle-metal-minilm-embed",
+          "runtime_id": "candle_metal",
+          "engine": "candle",
+          "runtime_matrix_sha256": "ea158343b64ea0967b832757c97777b8b2c6f00e8ee27549888e1f25c7bbb2a4",
+          "min_memory_gb": 2,
+          "min_reputation": 0,
+          "trusted_only": false,
+          "offered_rate_usd_hr": 0.104733296
+        },
+        "compute_plan": {
+          "version": 4,
+          "execution_mode": "distributed",
+          "workload_binding_sha256": "4afe658587d2355c6dbcc85cc07a6e6103af7b34748765850dceac35edc0f7cb",
+          "workload_decision_sha256": "45a9111c68c7843ac9928555ed6501f736956a5de70552bbe860ae4df393559b",
+          "input_records": 2,
+          "input_bytes": 65,
+          "estimated_input_tokens": 11,
+          "settlement_input_units": 16.25,
+          "estimated_output_tokens": 0,
+          "input_depth_profile": {
+            "version": 1,
+            "body_bytes": 41,
+            "body_runes": 41,
+            "body_ascii_bytes": 41,
+            "estimated_tokens": 11,
+            "short_records": 2,
+            "medium_records": 0,
+            "long_records": 0,
+            "p90_depth_band": "short"
+          },
+          "split_size": 4096,
+          "primary_tasks": 1,
+          "redundancy_tasks": 0,
+          "honeypot_tasks": 1,
+          "total_initial_tasks": 2,
+          "minimum_memory_gb": 2,
+          "eta_p50_secs": 45,
+          "eta_p90_secs": 90,
+          "eta_worst_case_secs": 180,
+          "eta_source": "static",
+          "eta_confidence_band_method": "synthetic_multiples",
+          "base_compute_usd": 0.000001,
+          "verification_overhead_usd": 0.000001,
+          "confidence": 0.5,
+          "confidence_reasons": [
+            "no workers currently pass the memory/model filter for this job",
+            "model memory floor is 2 GB; supply count is filtered against effective memory",
+            "no eligible worker currently has this model warm; a cold model load is possible",
+            "token count is a byte heuristic, not an exact tokenizer count"
+          ],
+          "unknowns": [
+            "token counts use a documented body-depth estimator rather than the model tokenizer",
+            "ETA is a frozen estimate; queue contention after acceptance can change wall-clock completion",
+            "power draw and provider-specific energy cost are not yet modeled"
+          ]
+        },
+        "pricing_decision": {
+          "version": 1,
+          "policy_revision": "pricing-decision-v1",
+          "execution_mode": "distributed",
+          "currency": "cad",
+          "tier": "batch",
+          "workload_decision_sha256": "45a9111c68c7843ac9928555ed6501f736956a5de70552bbe860ae4df393559b",
+          "compute_plan_sha256": "ad0bd7bc282f935aa7ad0987eda0f0f13d812fe98deeae40c4177847eaa2ac9a",
+          "placement_requirement_sha256": "a752c74c11e9e45849e0b5e920ca0412b94bdc56838c8f096b018ecaa3c01cf2",
+          "economic_plan_sha256": "2cb32a86dd2e37472d3c9ad43bdfe3661f0b55f598b236fedee160fe0ee3213e",
+          "economic_schedule_sha256": "b47051e4011ad35d2a3a2a910dd0b56dd4161660f61c424e1511979090916e41",
+          "catalogue": {
+            "version": 1,
+            "model_id": "all-minilm-l6-v2",
+            "job_type": "embed",
+            "price_source": "market_board",
+            "schedule_sha256": "832e96a7a71dd1a2576caf5914f4fc625bb46c1db1f2d522e4cf4cafa516a614",
+            "schedule_version": 1,
+            "reference_currency": "usd",
+            "reference_price_per_1k": 0.000018,
+            "settlement_currency": "cad",
+            "settlement_price_per_1k": 0.00002466,
+            "reference_to_settlement_rate": 1.37,
+            "fx_revision": "bank-of-canada-manual-2026-08-01",
+            "board_sha256": "0e4a70dc40f8f4df4148bd1a4bcd85eb77558056d9d3fc346fef39c0d1aec154",
+            "price_formula": "price_per_1k = confidence_weighted_median(board[embed_small])×positioning_multiplier = 0.00002000×0.9000 = 0.00001800  [median_obs=voyage/voyage-4-lite source=https://docs.voyageai.com/docs/pricing fetched_at=2026-07-26] board_sha256=0e4a70dc40f8f4df4148bd1a4bcd85eb77558056d9d3fc346fef39c0d1aec154 reference_price_per_1k=0.00001800 reference_currency=usd reference_to_settlement_rate=1.37 fx_revision=bank-of-canada-manual-2026-08-01 settlement_price_per_1k=0.00002466 settlement_currency=cad",
+            "supplier_share": 0.97
+          },
+          "billable_units": 16.25,
+          "expected_supplier_units_per_sec": 1666.2417998029816,
+          "expected_supplier_seconds": 0.01950497220982143,
+          "supplier_admission_ceiling_usd_hr": 0.10473329573869705,
+          "expected_supplier_gross_usd_hr": 0.2694428064813356,
+          "supplier_gross_nanos": 970,
+          "supplier_required_nanos": 388,
+          "supplier_entitlement_policy": "economic-nanos-v1",
+          "buyer_price": 0.000008,
+          "maximum_buyer_price": 0.000012,
+          "primary_supplier_cost": {
+            "status": "modeled",
+            "amount": 0.000001,
+            "basis": "frozen supplier payout per task × primary task count"
+          },
+          "verification_cost": {
+            "status": "modeled",
+            "amount": 0.000001,
+            "basis": "frozen supplier payout per task × redundancy and honeypot task count"
+          },
+          "payment_cost": {
+            "status": "modeled",
+            "amount": 0.000001,
+            "basis": "economic schedule processor percentage and allocated fixed fee"
+          },
+          "control_plane_cost": {
+            "status": "modeled",
+            "amount": 0.000001,
+            "basis": "declared account/invoice overhead allocated across the economic charge batch"
+          },
+          "storage_cost": {
+            "status": "unknown",
+            "amount": 0,
+            "basis": "no independently metered object-storage cost is attributed at acceptance"
+          },
+          "egress_cost": {
+            "status": "unknown",
+            "amount": 0,
+            "basis": "result egress destination and billable bytes are unknown at acceptance"
+          },
+          "provider_cost": {
+            "status": "unknown",
+            "amount": 0,
+            "basis": "worker/provider energy and depreciation are not independently metered"
+          },
+          "risk_reserve": {
+            "status": "unknown",
+            "amount": 0,
+            "basis": "no independently calibrated loss reserve is available"
+          },
+          "platform_contribution": {
+            "status": "modeled",
+            "amount": 0.000004,
+            "basis": "known-cost contribution: buyer price less modeled supplier, processor and allocated control-plane costs; not true net while named costs remain unknown"
+          },
+          "fixed_point": {
+            "currency": "cad",
+            "buyer_charge_nanos": 8000,
+            "accepted_ceiling_nanos": 12000,
+            "supplier_entitlements_nanos": 2000,
+            "known_variable_costs_nanos": 2000,
+            "merc_gross_spread_nanos": 6000,
+            "known_cost_contribution_nanos": 4000,
+            "unknown_cost_categories": [
+              "storage cost",
+              "egress cost",
+              "provider energy and depreciation",
+              "risk reserve"
+            ]
+          },
+          "confidence": 0.5,
+          "assumptions": [
+            "supplier admission uses the governed runtime-cell benchmark binding, haircut to a conservative lower bound, and the USD reference schedule",
+            "actual supplier liability is frozen per accepted task, not by elapsed wall-clock hour",
+            "unknown cost components are not silently treated as modeled zero",
+            "fixed account/invoice overhead is allocated over the collector's minimum economic charge batch"
+          ],
+          "unknowns": [
+            "storage cost",
+            "egress cost",
+            "provider energy and depreciation",
+            "risk reserve"
+          ]
+        },
+        "input": {
+          "records": 2,
+          "bytes": 63,
+          "estimated_tokens": 11,
+          "malformed_records": 0,
+          "blank_records": 1,
+          "skipped_records": 1,
+          "first_bad_line": 0,
+          "max_line_bytes": 34,
+          "sampled_records": 2,
+          "detected_fields": [
+            "text"
+          ],
+          "recommended_field": "text",
+          "field_stats": [
+            {
+              "field": "text",
+              "avg_string_len": 20.5,
+              "occurrences": 2
+            }
+          ],
+          "input_depth": {
+            "version": 1,
+            "body_bytes": 41,
+            "body_runes": 41,
+            "body_ascii_bytes": 41,
+            "estimated_tokens": 11,
+            "short_records": 2,
+            "medium_records": 0,
+            "long_records": 0,
+            "p90_depth_band": "short"
+          }
+        },
+        "execution": {
+          "recommended_split_size": 4096,
+          "estimated_tasks": 1,
+          "eligible_workers_now": 0,
+          "warm_eligible_workers": 0,
+          "model_min_memory_gb": 2,
+          "oom_risk": "high",
+          "cold_start_risk": "medium",
+          "sla_eligible": false,
+          "pool_reputation": 0
+        },
+        "cost": {
+          "min_usd": 0.000004,
+          "expected_usd": 0.000008,
+          "max_usd": 0.000012,
+          "verification_overhead_usd": 0.000004,
+          "platform_take_usd": 0.000006
+        },
+        "time": {
+          "p50_secs": 45,
+          "p90_secs": 90,
+          "worst_case_secs": 180,
+          "confidence_band_method": "synthetic_multiples"
+        },
+        "confidence": {
+          "score": 0.5,
+          "reasons": [
+            "no workers currently pass the memory/model filter for this job",
+            "model memory floor is 2 GB; supply count is filtered against effective memory",
+            "no eligible worker currently has this model warm; a cold model load is possible",
+            "token count is a byte heuristic, not an exact tokenizer count"
+          ]
+        },
+        "budget": {
+          "suggested_max_usd": 0.000012,
+          "cancel_before_exceeding": true
+        },
+        "warnings": [
+          "no eligible workers online right now; the job may queue until supply appears",
+          "supply below the SLA threshold (0 eligible, need 5): ETA is advisory only, no project-SLA guarantee"
+        ],
+        "expires_at": "2026-08-01T13:28:22.679973594Z",
+        "input_sha256": "0784a04f7e86074cce4fe4c33fca3820adad8bab83d786d81a8eff0da07a1358",
+        "economics": {
+          "version": 2,
+          "schedule": {
+            "version": "network-cad-2026-08-01",
+            "currency": "cad",
+            "processor_percent": 0.029,
+            "processor_fixed_usd": 0.3,
+            "min_charge_batch_usd": 5,
+            "control_plane_per_batch_usd": 0.0001,
+            "control_plane_allocation_policy": "charge_batch_pro_rata_v1",
+            "minimum_contribution_usd": 0.000001,
+            "target_margin_rate": 0.2
+          },
+          "input": {
+            "base_compute_usd": 0.000002,
+            "initial_task_count": 2,
+            "extra_task_reserve": 1,
+            "supplier_share": 0.97,
+            "sla_premium_usd": 0,
+            "base_compute_nanos": 2000
+          },
+          "executable": true,
+          "base_compute_per_task_usd": 0.000001,
+          "buyer_charge_per_task_usd": 0.000004,
+          "supplier_payout_per_task_usd": 0.000001,
+          "supplier_settlement_policy": "floor_cent_carry_v1",
+          "buyer_safety_fee_per_task_usd": 0.000003,
+          "initial_buyer_charge_usd": 0.000008,
+          "reserved_buyer_charge_usd": 0.000012,
+          "minimum_scenario": "one_task_partial",
+          "minimum_margin_headroom_usd": 0,
+          "scenarios": [
+            {
+              "name": "one_task_partial",
+              "accepted_tasks": 1,
+              "gross_charge_usd": 0.000004,
+              "refund_usd": 0,
+              "net_billed_usd": 0.000004,
+              "supplier_liability_usd": 0.000001,
+              "processor_fee_usd": 0.000001,
+              "control_plane_cost_usd": 0.000001,
+              "contribution_margin_usd": 0.000001,
+              "required_margin_usd": 0.000001,
+              "margin_headroom_usd": 0
+            },
+            {
+              "name": "full_success_sla_met",
+              "accepted_tasks": 2,
+              "gross_charge_usd": 0.000008,
+              "refund_usd": 0,
+              "net_billed_usd": 0.000008,
+              "supplier_liability_usd": 0.000002,
+              "processor_fee_usd": 0.000001,
+              "control_plane_cost_usd": 0.000001,
+              "contribution_margin_usd": 0.000004,
+              "required_margin_usd": 0.000002,
+              "margin_headroom_usd": 0.000002
+            },
+            {
+              "name": "full_success_sla_miss",
+              "accepted_tasks": 2,
+              "gross_charge_usd": 0.000008,
+              "refund_usd": 0,
+              "net_billed_usd": 0.000008,
+              "supplier_liability_usd": 0.000002,
+              "processor_fee_usd": 0.000001,
+              "control_plane_cost_usd": 0.000001,
+              "contribution_margin_usd": 0.000004,
+              "required_margin_usd": 0.000002,
+              "margin_headroom_usd": 0.000002
+            },
+            {
+              "name": "max_extra_work_sla_miss",
+              "accepted_tasks": 3,
+              "gross_charge_usd": 0.000012,
+              "refund_usd": 0,
+              "net_billed_usd": 0.000012,
+              "supplier_liability_usd": 0.000003,
+              "processor_fee_usd": 0.000002,
+              "control_plane_cost_usd": 0.000001,
+              "contribution_margin_usd": 0.000006,
+              "required_margin_usd": 0.000002,
+              "margin_headroom_usd": 0.000004
+            }
+          ],
+          "assumptions": [
+            "every major-unit amount is denominated in schedule.currency; legacy _usd field names do not override that authority",
+            "supplier payout is frozen from base compute, independent of buyer safety fee and refundable SLA premium",
+            "supplier liability is reserved at six decimals; provider cash floors to whole cents and every sub-cent remainder stays durably owed",
+            "the processor fixed fee is amortised over a minimum-size charge batch, matching how chargeOrDeferJob and FormChargeBatch actually settle",
+            "extra accepted work is billable only while atomically consuming the frozen reserve",
+            "SLA premium is excluded from supplier liability and may be fully refunded",
+            "actual processor fees and contribution margin are reconciled from Stripe and ledger facts",
+            "base compute is floored to the minimum billable size so a supplier who performed work is never reserved $0 while the buyer is charged"
+          ],
+          "supplier_payout_per_task_nanos": 970,
+          "buyer_charge_per_task_nanos": 4000,
+          "base_compute_per_task_nanos": 1000,
+          "economic_rounding_policy": "economic-nanos-v1"
+        }
+      }
+    }
+  ]
+}

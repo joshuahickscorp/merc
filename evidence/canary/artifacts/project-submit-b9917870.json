@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "ir_sha256": "848ebf44914f23e0269fe7759d59431df4ea214a2a3566a3a6d6806c58957edd",
+  "currency": "cad",
+  "buyer_ceiling_nanos": 10000000,
+  "status": "ACCEPTED",
+  "execution_mode": "INDEPENDENT_FINITE_STEPS",
+  "steps": [
+    {
+      "step_id": "embed",
+      "job_id": "7592d5d5-298a-55a3-b503-7747d6bc356a",
+      "quote_id": "q_85ac1eef-fd1d-465d-8b87-96bdd6eaee23",
+      "pricing_decision_sha256": "28f1ebeef572af24c775b820c5b97725604931aebcdcea5cbf61881e3e1c481e",
+      "authority_quote_sha256": "8357a888f3bb77404cbd814bc44b0eaf43f95297ff943a17d6fc3c92f43a1d47",
+      "idempotency_key": "project:848ebf44914f23e0269fe775:85ac1eef-fd1d-465d-8b87-96bdd6eaee23",
+      "idempotent_replay": false
+    }
+  ]
+}
