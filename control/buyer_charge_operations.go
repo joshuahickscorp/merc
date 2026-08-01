@@ -190,7 +190,14 @@ func (s *Store) ReconcileBuyerChargeOperation(ctx context.Context, operationKey 
 	if err := s.pool.QueryRow(ctx, `
 		SELECT source_kind,job_id,charge_batch_id
 		  FROM buyer_charge_operations WHERE operation_key=$1`, operationKey,
-	).Scan(&sourceKind, &jobID, &batchID); err != nil {
+	).Scan(&sourceKind, &jobID, &batchID); errors.Is(err, pgx.ErrNoRows) {
+		// A successful PaymentIntent can belong to the prepaid funding lane,
+		// which has its own durable operation table rather than a job/batch
+		// charge row.  The synchronous top-up response usually wins the
+		// credit race, so this also needs to accept the later provider webhook
+		// as the same completed operation instead of returning 500 forever.
+		return s.reconcilePrepaidTopup(ctx, operationKey, charge)
+	} else if err != nil {
 		return err
 	}
 	if sourceKind == "job" && jobID != nil {
