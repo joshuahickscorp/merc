@@ -169,10 +169,11 @@ would refuse the very commit carrying the proof.
 `make ci` was already red at `579edc0e`, in five places, none of them noticed
 because nothing ran the whole target:
 
-- **the route-count tripwire was stale.** `validate-authorization-matrix.py`
-  asserts exactly 81 reviewed routes; 82 have been registered since
+- **the route-count tripwire was stale.** An earlier `validate-authorization-matrix.py`
+  revision asserted exactly 81 reviewed routes while 82 had been registered since
   `GET /admin/plan-accuracy` landed in `b0004f00`. The route WAS added to the
-  matrix — only the constant was missed. Because `validate-readiness.py` scores
+  matrix — only the constant was missed. The current reviewed inventory is 87 and
+  its validator and receipt scorer share that same tripwire. Because `validate-readiness.py` scores
   `auth_matrix_complete` for 3 points under source-and-CI and 8 under security,
   the stale constant silently cost **11 readiness points**, and the declared score
   of 83 had been reading as a receipt-derived 72 ever since.
