@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source": {
-    "commit": "a47f79a8df4471be9ea79e514d64d21d236cd1b6",
+    "commit": "361cf5f92dafad4f9d0bc1077f569824a40d5085",
     "tree_clean": false
   },
   "database_probed": true,
@@ -10,7 +10,7 @@
       "prohibition": "1",
       "name": "no global codebase refactor",
       "status": "PASS",
-      "detail": "16 of 296 tracked Go files touched since the programme baseline 583842217786 (5%)"
+      "detail": "19 of 299 tracked Go files touched since the programme baseline 583842217786 (6%)"
     },
     {
       "prohibition": "2",

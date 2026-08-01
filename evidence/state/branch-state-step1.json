@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_from": "HEAD, the working tree, and (optionally) a live database",
   "source": {
-    "commit": "759e8e08a1a74c86e200003a339b9775db80914d",
+    "commit": "361cf5f92dafad4f9d0bc1077f569824a40d5085",
     "branch": "perf/execution-frontier",
     "tree_clean": false,
     "pushed": false
@@ -347,7 +347,7 @@
       "regret_read": true,
       "promotion_gate": true,
       "shadow_basis_recorded": true,
-      "paired_cohort_receipt": false
+      "paired_cohort_receipt": true
     },
     "tokenization_cache_callers": [],
     "tool_schema_cache_callers": [],
@@ -385,7 +385,7 @@
       "7d6de054be54",
       "e4fd89935543"
     ],
-    "current_head": "759e8e08a1a7"
+    "current_head": "361cf5f92daf"
   },
   "dead_or_unwired_symbols": {
     "RenewInflightLease": [

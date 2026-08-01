@@ -85,10 +85,44 @@ existing.
 | -: | ---- | ------ | ------------ |
 | 3 | Boot the production image | `DONE`, verified this session | `scripts/test-release-image-boots.sh` built the final image from the tree and served every probe with **no host files**: `/healthz`, `/version`, `/prices`, `/pricing/board.json`, `/.well-known/security.txt`, and the price board loaded from the release at digest `0e4a70dc40f8`. Receipt: `evidence/state/release-image-boot.json` |
 | 4 | Canary packaging and readiness | `DONE`, already tested at entry | `/readyz` returns 503 with `reason_code: canary_policy_unconfigured` — a direct configuration error, not an unexplained buyer-facing 403 — and it reads BOTH the boot copy and a live re-read, so a decision that stops resolving on a running process cannot leave the probe green while payouts halt. `TestReadyzGoesRedWhenTheDisableDecisionStopsResolving` and `TestReadyzNamesCanaryMisconfigurationAndProbesStayReachable` |
-| 10 | Paired cohorts and regret | see the cohort receipt | `control/paired_cohort_test.go` drives 40 real executions through two enrolled agents across both embed cells, records the shadow decisions the way `createJob` does, then reads measured cost, regret and the promotion gate off the result and writes `evidence/perf/selector/paired-cohort-embed.json`. Opt-in behind `MERC_PAIRED_COHORT=1` and registered in `allowed-test-skips.txt` |
+| 10 | Paired cohorts and regret | `DONE`, and it found something | `control/paired_cohort_test.go` drives 40 real executions through two enrolled agents across both embed cells, records the shadow decisions the way `createJob` does, then reads measured cost, regret and the promotion gate off the result and writes `evidence/perf/selector/paired-cohort-embed.json`. Opt-in behind `MERC_PAIRED_COHORT=1` and registered in `allowed-test-skips.txt` |
 | 12 | 128-request coalescing | `ECONOMICALLY_PROVEN` for the follower half | `control/coalesced_cluster_money_test.go`: 128 distinct delivery authorities, 128 receipts, **zero** supplier credits, every follower charged strictly less than a fresh execution, buyer debit equal to platform take across the cluster, and a second tenant unable to read any of it. The leader's single payable is explicitly not claimed — no test drives the realtime finalise path |
 | 15 | Governed vLLM CUDA cell | harness ready, credential still dead | `scripts/runpod-spend-guard.py` converts a dollar cap into a pod lifetime with a self-test, holds back 20% for teardown delay, rounds spend up, and marks a receipt **inadmissible** on unverified teardown, an overrun lifetime, a floating image tag or a leftover pod. `runpod-vllm.sh experiment` wires that around the existing provisioner and refuses to start while anything else is billing. The self-test runs in `make ci` |
 | 19 | Execution fabric modes | `PRODUCTION_WIRED` | `createJob` now asks `ChooseExecutionMode` and stores the mode plus the full explanation, refusals included, beside the shadow selection. Batch work reaches POOL by construction, which is the reason to record it: once a second mode is reachable, "by construction" and "by decision" are indistinguishable afterwards. A tightly coupled degree-4 workload records **no** mode rather than being defaulted onto the public internet, and the database refuses a mode with no reason |
+
+### What the first real cohort found
+
+Forty real executions through two enrolled agents measured **0.194 USD per unit on
+both embed cells** and a mean regret of **exactly 0.000**. That is not two engines
+happening to tie. It is structural, and it is the most important finding of the
+session:
+
+> The supplier payout is priced per **model** — catalogue price × units × supplier
+> share — so any two cells serving one model at one price have identical
+> verified-outcome cost per unit however fast either one is, and the regret between
+> them is zero by construction.
+
+A cost-only gate would have reported that as a failed cost argument — *"saves
+0.00%, below the required 10% margin"* — which is true and useless, because no
+same-price promotion can ever clear a cost margin. The gate now names which
+argument it is making:
+
+| Basis | Margin | What it claims |
+| --- | --- | --- |
+| `CHEAPER_VERIFIED_UNIT` | 10% | a real saving |
+| `MORE_THROUGHPUT_AT_EQUAL_PRICE` | 25% | the same unit produced faster — a capacity gain, **not** a saving |
+
+The wider margin on the second is because it protects against noise in a duration
+measured on a shared host rather than noise in a dollar figure.
+
+The same run measured 3.0000 ms per unit on both cells, identical to four decimals
+— a task too small to separate two engines rather than two engines agreeing. The
+retained bench receipt puts llama.cpp at 2,179 texts/sec against candle's 326 at
+batch 8, so the cohort now embeds batches of 32.
+
+The gate also caught its own caller: the cohort's scope claimed verification
+contract `cosine_similarity` where the cell sells `cosine`, and the authority check
+refused the promotion for it.
 
 ### Two holes found by reviewing the cost model against itself
 
