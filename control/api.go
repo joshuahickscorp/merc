@@ -1154,7 +1154,17 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 	executionInput := quoteComparableInput
 	executionInput.SLAPremiumUSD = slaPremiumUSD
-	executionInput.FirmQuoteMaxUSD = firmQuoteMaxUSD
+	// A firm quote is an acceptance term on the job, not a second economic
+	// plan. The reviewed quote's PricingDecision already carries the buyer
+	// ceiling it offered. Rebuilding the plan with FirmQuoteMaxUSD here created
+	// a second, merely-derived PricingDecision for the same accepted work and
+	// made quote and settlement digests diverge. Reservation and collection read
+	// the immutable job-level firm_quote_max_usd instead (see
+	// consumeEconomicReserveTx and firmChargeAmountSQL).
+	//
+	// Keep FirmQuoteMaxUSD at zero for the plan so a quote-bound firm submission
+	// persists the exact reviewed EconomicPlan and PricingDecision.
+	executionInput.FirmQuoteMaxUSD = 0
 	economicPlan := BuildEconomicPlan(executionInput, economicSchedule)
 	if !economicPlan.Executable {
 		return JobSubmitResponse{}, &httpError{http.StatusConflict, "job is not economically executable: " + economicPlan.BlockReason}
@@ -1272,43 +1282,24 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		return JobSubmitResponse{}, &httpError{http.StatusConflict,
 			"compute and economic authority disagree: " + err.Error()}
 	}
-	// A bound quote's supplier unit rate is pinned exactly like its catalogue
-	// price: the quote already froze a placement offered rate, and re-resolving
-	// the rate live here compared today's evidence against that frozen number.
-	// A receipt crossing its 180-day revalidation window between quote and
-	// submit therefore turned an accepted quote into a 409 the buyer could do
-	// nothing about - the quote had not changed, and neither had anything the
-	// buyer controls.
-	buildPricingDecision := func(originQuotePricingSHA string) (PricingDecision, error) {
-		if qBind != nil {
-			return distributedPricingDecisionAtRate(
-				workloadDecision, computePlan, placement, economicPlan,
-				cataloguePrice, sub.Tier, originQuotePricingSHA,
-				qBind.Pricing.ExpectedSupplierUnitsPerSec,
-			)
-		}
-		return newDistributedPricingDecision(
-			workloadDecision, computePlan, placement, economicPlan,
-			cataloguePrice, sub.Tier, originQuotePricingSHA,
-		)
-	}
-	pricingDecision, pricingErr := buildPricingDecision("")
-	if pricingErr != nil {
-		return JobSubmitResponse{}, &httpError{http.StatusConflict,
-			"composite pricing authority disagrees: " + pricingErr.Error()}
-	}
+	// A bound quote is the sole pricing authority for the job. The checks above
+	// have already proved its exact workload, compute geometry, placement,
+	// schedule, and currency still match the accepted stream; GetBindableQuote
+	// has independently validated the frozen decision. Do not derive a sibling
+	// PricingDecision at submit time, even to attach an origin digest: quote,
+	// reserve, settlement and receipt must identify the same immutable object.
+	var pricingDecision PricingDecision
 	if qBind != nil {
-		candidateSHA, digestErr := pricingDecisionDigest(pricingDecision)
-		if digestErr != nil {
-			return JobSubmitResponse{}, &httpError{http.StatusInternalServerError,
-				"hashing composite pricing authority: " + digestErr.Error()}
-		}
-		if candidateSHA != qBind.PricingDecisionSHA256 {
-			pricingDecision, pricingErr = buildPricingDecision(qBind.PricingDecisionSHA256)
-			if pricingErr != nil {
-				return JobSubmitResponse{}, &httpError{http.StatusConflict,
-					"binding accepted quote pricing authority: " + pricingErr.Error()}
-			}
+		pricingDecision = qBind.Pricing
+	} else {
+		var pricingErr error
+		pricingDecision, pricingErr = newDistributedPricingDecision(
+			workloadDecision, computePlan, placement, economicPlan,
+			cataloguePrice, sub.Tier, "",
+		)
+		if pricingErr != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusConflict,
+				"composite pricing authority disagrees: " + pricingErr.Error()}
 		}
 	}
 
