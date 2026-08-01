@@ -62,11 +62,12 @@ type InflightRole struct {
 
 // InflightResult is what a follower waited for.
 type InflightResult struct {
-	State        string
-	ResultRef    string
-	ResultSHA256 string
-	Tokens       int64
-	Failure      string
+	State            string
+	ResultRef        string
+	ResultSHA256     string
+	LeaderContractID uuid.UUID
+	Tokens           int64
+	Failure          string
 }
 
 // ClaimInflightExecution makes this caller the leader for an identity, or tells
@@ -96,6 +97,7 @@ func (s *Store) ClaimInflightExecution(
 		        now() + make_interval(secs => $5))
 		ON CONFLICT (request_identity) DO UPDATE
 		   SET leader_ref       = EXCLUDED.leader_ref,
+		       leader_contract_id = NULL,
 		       state            = 'RUNNING',
 		       lease_expires_at = EXCLUDED.lease_expires_at,
 		       elections        = inflight_executions.elections + 1,
@@ -173,14 +175,18 @@ func (s *Store) RenewInflightLease(ctx context.Context, identity, leaderRef stri
 // followers would get whichever landed last.
 func (s *Store) ResolveInflightSuccess(
 	ctx context.Context, identity, leaderRef, resultRef, resultSHA256 string, tokens int64,
+	leaderContractID uuid.UUID,
 ) error {
+	if leaderContractID == uuid.Nil {
+		return errors.New("inflight success requires the finalized physical leader contract")
+	}
 	ct, err := s.pool.Exec(ctx, `
 		UPDATE inflight_executions
 		   SET state = 'COMPLETE', result_ref = $3, result_sha256 = $4,
-		       result_tokens = $5, resolved_at = now(),
-		       expires_at = now() + make_interval(secs => $6)
+		       leader_contract_id = $5, result_tokens = $6, resolved_at = now(),
+		       expires_at = now() + make_interval(secs => $7)
 		 WHERE request_identity = $1 AND leader_ref = $2 AND state = 'RUNNING'`,
-		identity, leaderRef, resultRef, resultSHA256, tokens, inflightResultTTL.Seconds())
+		identity, leaderRef, resultRef, resultSHA256, leaderContractID, tokens, inflightResultTTL.Seconds())
 	if err != nil {
 		return err
 	}
@@ -219,14 +225,15 @@ func (s *Store) AwaitInflightResult(
 	for {
 		var out InflightResult
 		var leaseExpired bool
+		var leaderContractID *uuid.UUID
 		err := s.pool.QueryRow(ctx, `
 			SELECT state, COALESCE(result_ref,''), COALESCE(result_sha256,''),
-			       COALESCE(result_tokens,0), COALESCE(failure,''),
+			       leader_contract_id, COALESCE(result_tokens,0), COALESCE(failure,''),
 			       lease_expires_at <= now()
 			  FROM inflight_executions
 			 WHERE request_identity = $1 AND tenant_scope = $2`,
 			identity, tenant).
-			Scan(&out.State, &out.ResultRef, &out.ResultSHA256, &out.Tokens,
+			Scan(&out.State, &out.ResultRef, &out.ResultSHA256, &leaderContractID, &out.Tokens,
 				&out.Failure, &leaseExpired)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return InflightResult{}, false, nil // expired out from under us
@@ -236,6 +243,10 @@ func (s *Store) AwaitInflightResult(
 		}
 		switch out.State {
 		case "COMPLETE":
+			if leaderContractID == nil || *leaderContractID == uuid.Nil {
+				return InflightResult{}, false, errors.New("completed inflight result lacks a physical leader contract")
+			}
+			out.LeaderContractID = *leaderContractID
 			return out, true, nil
 		case "FAILED":
 			return out, false, nil
@@ -256,11 +267,10 @@ func (s *Store) AwaitInflightResult(
 
 // InflightFollowers reports how many callers waited on one identity.
 //
-// NOT read by the overhead recorder, whatever this comment claimed for as long as
-// it existed: a caller census found its only callers are tests. COALESCING_AVOIDED
-// overhead is not recorded from it, so the saving coalescing produces is real and
-// unmeasured. Recording it needs a writer, not a corrected comment; the comment is
-// corrected here so the next reader does not go looking for one.
+// This short-lived aggregate is not money evidence: it includes callers that
+// may later give up and execute independently. Successful follower settlement
+// writes realtime_coalesced_deliveries instead, atomically with its receipt and
+// source physical leader. This remains useful for lease diagnostics and tests.
 func (s *Store) InflightFollowers(ctx context.Context, identity string) (int64, error) {
 	var followers int64
 	err := s.pool.QueryRow(ctx,

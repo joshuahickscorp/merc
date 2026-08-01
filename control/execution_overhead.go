@@ -33,11 +33,6 @@ const (
 	overheadClassCancelled    = "CANCELLED_COMPUTE"
 	overheadClassRetry        = "RETRY_COMPUTE"
 	overheadClassCacheAvoided = "CACHE_AVOIDED"
-	// COALESCING_AVOIDED was deliberately absent until coalescing had a
-	// production caller: a class nothing can produce reports a permanent zero
-	// that reads as "we measured this and there was none". It is added in the
-	// same change that wires it, which is the condition the previous note set.
-	overheadClassCoalescingAvoided = "COALESCING_AVOIDED"
 )
 
 // overheadSweepBatch bounds one pass. The sweep is a background observer; it

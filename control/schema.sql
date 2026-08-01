@@ -3160,6 +3160,11 @@ CREATE TABLE IF NOT EXISTS inflight_executions (
     -- lane coalesces contracts, the batch lane coalesces jobs, and pinning this
     -- to one table would make the other lane invent a row to satisfy it.
     leader_ref        TEXT NOT NULL CHECK (btrim(leader_ref) <> ''),
+    -- Filled only when a successful realtime leader publishes a hand-off. It
+    -- is deliberately not a foreign key here: inflight_executions is also the
+    -- bounded lease/re-election mechanism, while the follower's money path
+    -- validates the physical contract and writes the durable relationship.
+    leader_contract_id UUID,
     state             TEXT NOT NULL CHECK (state IN ('RUNNING','COMPLETE','FAILED')),
     -- The lease is what makes a crashed leader recoverable. A follower that
     -- observes an expired lease may take over; one that observes a live lease
@@ -3201,6 +3206,12 @@ CREATE INDEX IF NOT EXISTS inflight_executions_expiry_idx
 -- predicate so a lookup cannot be written that crosses it by omission.
 CREATE INDEX IF NOT EXISTS inflight_executions_tenant_idx
     ON inflight_executions (tenant_scope, request_identity);
+
+-- Additive migration for deployments that created the coalescing hand-off
+-- before leader/follower receipt provenance existed. Old COMPLETE hand-offs
+-- are allowed to age out; the production follower path refuses an unbound
+-- hand-off rather than settling it without a physical source contract.
+ALTER TABLE inflight_executions ADD COLUMN IF NOT EXISTS leader_contract_id UUID;
 
 -- Realtime inference is a separate contract lifecycle from retained batch
 -- jobs. The control plane remains authoritative: worker offers only advertise
@@ -3576,6 +3587,25 @@ ALTER TABLE realtime_settlements ADD CONSTRAINT realtime_settlements_exact_pair 
    AND known_cost_contribution_nanos > 0
    AND buyer_charge_nanos = supplier_gross_nanos + known_cost_contribution_nanos)
 );
+
+-- Each successful in-flight follower is linked to the one already-finalized
+-- physical leader before its own zero-physical settlement commits. The amount
+-- is the leader's supplier entitlement as the counterfactual cost of running
+-- this identical request again on that same selected supply; it is explicitly
+-- not a provider cash cost, an allocated fixed cost, or true Merc net.
+CREATE TABLE IF NOT EXISTS realtime_coalesced_deliveries (
+    follower_contract_id UUID PRIMARY KEY REFERENCES execution_contracts(id) ON DELETE RESTRICT,
+    leader_contract_id   UUID NOT NULL REFERENCES execution_contracts(id) ON DELETE RESTRICT,
+    buyer_id             UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    currency             TEXT NOT NULL CHECK (currency IN ('cad','jpy','usd')),
+    avoided_physical_executions SMALLINT NOT NULL DEFAULT 1 CHECK (avoided_physical_executions = 1),
+    counterfactual_supplier_entitlement_nanos BIGINT NOT NULL
+        CHECK (counterfactual_supplier_entitlement_nanos > 0),
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (follower_contract_id <> leader_contract_id)
+);
+CREATE INDEX IF NOT EXISTS realtime_coalesced_deliveries_leader_idx
+    ON realtime_coalesced_deliveries (leader_contract_id,created_at DESC);
 
 CREATE TABLE IF NOT EXISTS realtime_refunds (
     id                       UUID PRIMARY KEY,
@@ -4268,6 +4298,10 @@ ALTER TABLE plan_actuals ADD COLUMN IF NOT EXISTS workload_class TEXT NOT NULL D
 --   CANCELLED_COMPUTE     task rows that ended cancelled
 --   RETRY_COMPUTE         EXTRA ATTEMPTS beyond the first, not extra rows
 --   CACHE_AVOIDED         exact-reuse delivery: physical compute not spent
+--   COALESCING_AVOIDED    historical/reserved compatibility value; realtime
+--                          coalescing has no job/task source and records its
+--                          durable receipt provenance in
+--                          realtime_coalesced_deliveries instead
 --
 -- The first four PARTITION the non-primary task rows of a job, so their task
 -- counts sum without double counting. RETRY_COMPUTE does not partition with
@@ -4501,11 +4535,11 @@ ALTER TABLE execution_overhead_actuals
 CREATE INDEX IF NOT EXISTS execution_overhead_recorder_idx
     ON execution_overhead_actuals (recorder_version, overhead_class, created_at DESC);
 
--- COALESCING_AVOIDED joins the class set now that coalescing has a production
--- caller. Both CHECKs are re-stated here as well as in the CREATE TABLE, because
--- CREATE TABLE IF NOT EXISTS is a no-op on a database that already has the table
--- and its old constraint — an inline edit alone would work on a fresh apply and
--- silently do nothing on every existing deployment.
+-- COALESCING_AVOIDED is retained for historical compatibility in this job/task
+-- table. Realtime coalescing has no job source row, so forcing it here would
+-- manufacture a task observation. Its active receipt-backed authority is
+-- realtime_coalesced_deliveries. Both CHECKs are re-stated because CREATE TABLE
+-- IF NOT EXISTS is a no-op on an existing deployment.
 ALTER TABLE execution_overhead_actuals
     DROP CONSTRAINT IF EXISTS execution_overhead_class_known;
 ALTER TABLE execution_overhead_actuals
@@ -4513,10 +4547,10 @@ ALTER TABLE execution_overhead_actuals
         'VERIFICATION_COMPUTE','HEDGE_COMPUTE','FAILED_COMPUTE',
         'CANCELLED_COMPUTE','RETRY_COMPUTE','CACHE_AVOIDED',
         'COALESCING_AVOIDED'));
--- Avoided cost is an estimate of work that did not happen, and there are now two
--- ways for work not to happen: a cache hit, and a follower riding an execution
--- already in flight. Neither may attach an avoided estimate to a class that
--- describes work that DID happen.
+-- Avoided cost is an estimate of work that did not happen. CACHE_AVOIDED is the
+-- active job/table writer; the retained COALESCING_AVOIDED value is not evidence
+-- of a realtime saving and must not be read as one. Neither value may attach an
+-- avoided estimate to a class that describes work that did happen.
 ALTER TABLE execution_overhead_actuals
     DROP CONSTRAINT IF EXISTS execution_overhead_avoided_only_on_cache;
 ALTER TABLE execution_overhead_actuals

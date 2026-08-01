@@ -98,6 +98,10 @@ type RealtimeContractAuthorization struct {
 	EstimatedCompletionTokens int64
 	BuyerDeclaredCeilingUSD   float64
 	ReuseClass                string
+	// CoalescedLeaderContractID is required only for an in-flight follower. It
+	// makes the physical source of a zero-physical settlement durable and lets
+	// the receipt distinguish an avoided entitlement from true net contribution.
+	CoalescedLeaderContractID uuid.UUID
 }
 
 func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, registration RealtimeOfferRegistration) error {
@@ -711,6 +715,12 @@ func (s *Store) SettleRealtimeExactReuse(
 	if money.Currency != currency.Code() || auth.ReuseClass == "" {
 		return RealtimeContract{}, RealtimeSettlement{}, errors.New("exact reuse lacks currency-bound reuse-class authority")
 	}
+	if auth.ReuseClass == ClassCoalescedDelivery && auth.CoalescedLeaderContractID == uuid.Nil {
+		return RealtimeContract{}, RealtimeSettlement{}, errors.New("coalesced delivery lacks its physical leader contract")
+	}
+	if auth.ReuseClass != ClassCoalescedDelivery && auth.CoalescedLeaderContractID != uuid.Nil {
+		return RealtimeContract{}, RealtimeSettlement{}, errors.New("non-coalesced reuse may not name a physical leader contract")
+	}
 	pricing, err := newRealtimeReusePricingDecision(RealtimeReusePricingInputs{
 		Profile: auth.Profile, InputCommitment: auth.InputCommitment, RequestSHA256: auth.RequestSHA256,
 		ResultCommitment: outputCommitment, ReuseClass: auth.ReuseClass, DeliveredTokens: money.DeliveredTokens,
@@ -766,6 +776,15 @@ func (s *Store) SettleRealtimeExactReuse(
 			if err != nil {
 				return RealtimeContract{}, RealtimeSettlement{}, err
 			}
+			if auth.ReuseClass == ClassCoalescedDelivery {
+				var recordedLeader uuid.UUID
+				if err := tx.QueryRow(ctx, `
+					SELECT leader_contract_id FROM realtime_coalesced_deliveries
+					 WHERE follower_contract_id=$1`, existing.ID).Scan(&recordedLeader); err != nil ||
+					recordedLeader != auth.CoalescedLeaderContractID {
+					return RealtimeContract{}, RealtimeSettlement{}, errRealtimeIdempotencyConflict
+				}
+			}
 			return existing, settlement, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -801,6 +820,27 @@ func (s *Store) SettleRealtimeExactReuse(
 		providerFunded := stripeKey() != "" && hasPaymentMethod
 		if !providerFunded && freeCredit-spent-batchReserved-realtimeReserved < buyerCharge {
 			return RealtimeContract{}, RealtimeSettlement{}, errRealtimeInsufficientFunds
+		}
+	}
+
+	var counterfactualSupplierEntitlementNanos int64
+	if auth.ReuseClass == ClassCoalescedDelivery {
+		err := tx.QueryRow(ctx, `
+			SELECT s.supplier_gross_nanos
+			  FROM execution_contracts c
+			  JOIN realtime_settlements s ON s.contract_id=c.id
+			  JOIN realtime_executions e ON e.contract_id=c.id
+			 WHERE c.id=$1 AND c.buyer_id=$2 AND c.state='VERIFIED'
+			   AND c.worker_id IS NOT NULL AND c.supplier_id IS NOT NULL
+			   AND c.reuse_class IS NULL AND c.currency=$3 AND s.currency=$3
+			   AND s.supplier_gross_nanos > 0 AND e.output_commitment=$4`,
+			auth.CoalescedLeaderContractID, auth.BuyerID, currency.Code(), outputCommitment).
+			Scan(&counterfactualSupplierEntitlementNanos)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RealtimeContract{}, RealtimeSettlement{}, errors.New("coalesced delivery leader is not a matching finalized physical settlement")
+		}
+		if err != nil {
+			return RealtimeContract{}, RealtimeSettlement{}, err
 		}
 	}
 
@@ -883,6 +923,17 @@ func (s *Store) SettleRealtimeExactReuse(
 		settlementID, contractID, executionID, "rcp_"+executionID.String(),
 		buyerCharge, platformMargin, currency.Code(), money.BuyerDebitNanos); err != nil {
 		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+	if auth.ReuseClass == ClassCoalescedDelivery {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO realtime_coalesced_deliveries
+			 (follower_contract_id,leader_contract_id,buyer_id,currency,
+			  counterfactual_supplier_entitlement_nanos)
+			VALUES ($1,$2,$3,$4,$5)`,
+			contractID, auth.CoalescedLeaderContractID, auth.BuyerID, currency.Code(),
+			counterfactualSupplierEntitlementNanos); err != nil {
+			return RealtimeContract{}, RealtimeSettlement{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
@@ -1414,58 +1465,114 @@ func (s *Store) RealtimeOperationalSnapshot(ctx context.Context) (RealtimeOperat
 }
 
 type RealtimeReceipt struct {
-	ReceiptID                  string                 `json:"receipt_id"`
-	SettlementID               string                 `json:"settlement_id,omitempty"`
-	RefundID                   string                 `json:"refund_id,omitempty"`
-	ContractID                 string                 `json:"contract_id"`
-	RequestID                  string                 `json:"request_id"`
-	State                      string                 `json:"state"`
-	Model                      string                 `json:"model"`
-	RuntimeProfileID           string                 `json:"runtime_profile_id"`
-	RuntimeProfileSHA256       string                 `json:"runtime_profile_sha256"`
-	PlacementPlan              *RealtimePlacementPlan `json:"placement_plan,omitempty"`
-	PlacementPlanSHA256        string                 `json:"placement_plan_sha256,omitempty"`
-	PricingDecision            *PricingDecision       `json:"pricing_decision,omitempty"`
-	PricingDecisionSHA256      string                 `json:"pricing_decision_sha256,omitempty"`
-	PricingAuthorityStatus     string                 `json:"pricing_authority_status"`
-	InputCommitment            string                 `json:"input_commitment"`
-	StreamRootSHA256           string                 `json:"stream_root_sha256,omitempty"`
-	OutputCommitment           string                 `json:"output_commitment,omitempty"`
-	PromptTokens               int64                  `json:"prompt_tokens,omitempty"`
-	CompletionTokens           int64                  `json:"completion_tokens,omitempty"`
-	TotalTokens                int64                  `json:"total_tokens,omitempty"`
-	TimeToFirstEventMS         int64                  `json:"time_to_first_event_ms,omitempty"`
-	DurationMS                 int64                  `json:"duration_ms,omitempty"`
-	Verification               string                 `json:"verification"`
-	AuthorizationState         string                 `json:"authorization_state"`
-	AuthorizedUSD              float64                `json:"authorized_usd"`
-	CapturedUSD                float64                `json:"captured_usd"`
-	ReleasedUSD                float64                `json:"released_usd"`
-	VoidedUSD                  float64                `json:"voided_usd"`
-	BuyerChargeUSD             float64                `json:"buyer_charge_usd"`
-	SupplierPayableUSD         float64                `json:"supplier_payable_usd"`
-	PlatformMarginUSD          float64                `json:"platform_margin_usd"`
-	RefundUSD                  float64                `json:"refund_usd"`
-	SupplierClawbackUSD        float64                `json:"supplier_clawback_usd"`
-	PlatformRefundUSD          float64                `json:"platform_refund_usd"`
-	NetBuyerChargeUSD          float64                `json:"net_buyer_charge_usd"`
-	NetSupplierPayableUSD      float64                `json:"net_supplier_payable_usd"`
-	NetPlatformMarginUSD       float64                `json:"net_platform_margin_usd"`
-	SettlementCurrency         string                 `json:"settlement_currency,omitempty"`
-	BuyerChargeNanos           int64                  `json:"buyer_charge_nanos,omitempty"`
-	SupplierPayableNanos       int64                  `json:"supplier_payable_nanos,omitempty"`
-	KnownCostContributionNanos int64                  `json:"known_cost_contribution_nanos,omitempty"`
-	SupplierPayoutState        string                 `json:"supplier_payout_state"`
-	SupplierLedgerState        string                 `json:"supplier_ledger_state,omitempty"`
-	RefundMode                 string                 `json:"refund_mode,omitempty"`
-	RefundReasonCode           string                 `json:"refund_reason_code,omitempty"`
-	RefundReason               string                 `json:"refund_reason,omitempty"`
-	RefundCorrelationRef       string                 `json:"refund_correlation_ref,omitempty"`
-	InternalCreditState        string                 `json:"internal_credit_state,omitempty"`
-	ExternalCashState          string                 `json:"external_cash_state,omitempty"`
-	FailureCode                string                 `json:"failure_code,omitempty"`
-	CreatedAt                  time.Time              `json:"created_at"`
-	FinalizedAt                *time.Time             `json:"finalized_at,omitempty"`
+	ReceiptID                  string                     `json:"receipt_id"`
+	SettlementID               string                     `json:"settlement_id,omitempty"`
+	RefundID                   string                     `json:"refund_id,omitempty"`
+	ContractID                 string                     `json:"contract_id"`
+	RequestID                  string                     `json:"request_id"`
+	State                      string                     `json:"state"`
+	Model                      string                     `json:"model"`
+	RuntimeProfileID           string                     `json:"runtime_profile_id"`
+	RuntimeProfileSHA256       string                     `json:"runtime_profile_sha256"`
+	PlacementPlan              *RealtimePlacementPlan     `json:"placement_plan,omitempty"`
+	PlacementPlanSHA256        string                     `json:"placement_plan_sha256,omitempty"`
+	PricingDecision            *PricingDecision           `json:"pricing_decision,omitempty"`
+	PricingDecisionSHA256      string                     `json:"pricing_decision_sha256,omitempty"`
+	PricingAuthorityStatus     string                     `json:"pricing_authority_status"`
+	Coalescing                 *RealtimeCoalescingReceipt `json:"coalescing,omitempty"`
+	InputCommitment            string                     `json:"input_commitment"`
+	StreamRootSHA256           string                     `json:"stream_root_sha256,omitempty"`
+	OutputCommitment           string                     `json:"output_commitment,omitempty"`
+	PromptTokens               int64                      `json:"prompt_tokens,omitempty"`
+	CompletionTokens           int64                      `json:"completion_tokens,omitempty"`
+	TotalTokens                int64                      `json:"total_tokens,omitempty"`
+	TimeToFirstEventMS         int64                      `json:"time_to_first_event_ms,omitempty"`
+	DurationMS                 int64                      `json:"duration_ms,omitempty"`
+	Verification               string                     `json:"verification"`
+	AuthorizationState         string                     `json:"authorization_state"`
+	AuthorizedUSD              float64                    `json:"authorized_usd"`
+	CapturedUSD                float64                    `json:"captured_usd"`
+	ReleasedUSD                float64                    `json:"released_usd"`
+	VoidedUSD                  float64                    `json:"voided_usd"`
+	BuyerChargeUSD             float64                    `json:"buyer_charge_usd"`
+	SupplierPayableUSD         float64                    `json:"supplier_payable_usd"`
+	PlatformMarginUSD          float64                    `json:"platform_margin_usd"`
+	RefundUSD                  float64                    `json:"refund_usd"`
+	SupplierClawbackUSD        float64                    `json:"supplier_clawback_usd"`
+	PlatformRefundUSD          float64                    `json:"platform_refund_usd"`
+	NetBuyerChargeUSD          float64                    `json:"net_buyer_charge_usd"`
+	NetSupplierPayableUSD      float64                    `json:"net_supplier_payable_usd"`
+	NetPlatformMarginUSD       float64                    `json:"net_platform_margin_usd"`
+	SettlementCurrency         string                     `json:"settlement_currency,omitempty"`
+	BuyerChargeNanos           int64                      `json:"buyer_charge_nanos,omitempty"`
+	SupplierPayableNanos       int64                      `json:"supplier_payable_nanos,omitempty"`
+	KnownCostContributionNanos int64                      `json:"known_cost_contribution_nanos,omitempty"`
+	SupplierPayoutState        string                     `json:"supplier_payout_state"`
+	SupplierLedgerState        string                     `json:"supplier_ledger_state,omitempty"`
+	RefundMode                 string                     `json:"refund_mode,omitempty"`
+	RefundReasonCode           string                     `json:"refund_reason_code,omitempty"`
+	RefundReason               string                     `json:"refund_reason,omitempty"`
+	RefundCorrelationRef       string                     `json:"refund_correlation_ref,omitempty"`
+	InternalCreditState        string                     `json:"internal_credit_state,omitempty"`
+	ExternalCashState          string                     `json:"external_cash_state,omitempty"`
+	FailureCode                string                     `json:"failure_code,omitempty"`
+	CreatedAt                  time.Time                  `json:"created_at"`
+	FinalizedAt                *time.Time                 `json:"finalized_at,omitempty"`
+}
+
+// RealtimeCoalescingReceipt makes the physical source of an in-flight follower
+// inspectable by its buyer. Counterfactual values answer only "what would this
+// same selected supplier entitlement have been if this follower ran again?";
+// they never report provider cash, allocated costs, or true net contribution.
+type RealtimeCoalescingReceipt struct {
+	Role                                    string `json:"role"`
+	LeaderContractID                        string `json:"leader_contract_id"`
+	CoalescedFollowerDeliveries             int64  `json:"coalesced_follower_deliveries"`
+	CounterfactualPhysicalExecutionsAvoided int64  `json:"counterfactual_physical_executions_avoided"`
+	CounterfactualSupplierEntitlementNanos  int64  `json:"counterfactual_supplier_entitlement_nanos"`
+	Currency                                string `json:"currency"`
+}
+
+func (s *Store) realtimeCoalescingReceipt(
+	ctx context.Context, buyerID, contractID uuid.UUID,
+) (*RealtimeCoalescingReceipt, error) {
+	var follower RealtimeCoalescingReceipt
+	err := s.pool.QueryRow(ctx, `
+		SELECT leader_contract_id::text, counterfactual_supplier_entitlement_nanos,
+		       currency
+		  FROM realtime_coalesced_deliveries
+		 WHERE follower_contract_id=$1 AND buyer_id=$2`, contractID, buyerID).
+		Scan(&follower.LeaderContractID, &follower.CounterfactualSupplierEntitlementNanos,
+			&follower.Currency)
+	if err == nil {
+		follower.Role = "FOLLOWER"
+		follower.CoalescedFollowerDeliveries = 1
+		follower.CounterfactualPhysicalExecutionsAvoided = 1
+		return &follower, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	var leader RealtimeCoalescingReceipt
+	err = s.pool.QueryRow(ctx, `
+		SELECT count(*)::bigint,
+		       COALESCE(sum(counterfactual_supplier_entitlement_nanos),0)::bigint,
+		       COALESCE(min(currency),'')
+		  FROM realtime_coalesced_deliveries
+		 WHERE leader_contract_id=$1 AND buyer_id=$2`, contractID, buyerID).
+		Scan(&leader.CoalescedFollowerDeliveries,
+			&leader.CounterfactualSupplierEntitlementNanos, &leader.Currency)
+	if err != nil {
+		return nil, err
+	}
+	if leader.CoalescedFollowerDeliveries == 0 {
+		return nil, nil
+	}
+	leader.Role = "LEADER"
+	leader.LeaderContractID = contractID.String()
+	leader.CounterfactualPhysicalExecutionsAvoided = leader.CoalescedFollowerDeliveries
+	return &leader, nil
 }
 
 func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UUID) (RealtimeReceipt, error) {
@@ -1564,6 +1671,11 @@ func (s *Store) RealtimeReceipt(ctx context.Context, buyerID, contractID uuid.UU
 		receipt.PricingDecisionSHA256 = contract.PricingDecisionSHA256
 		receipt.PricingAuthorityStatus = "verified"
 	}
+	coalescing, err := s.realtimeCoalescingReceipt(ctx, buyerID, contractID)
+	if err != nil {
+		return RealtimeReceipt{}, err
+	}
+	receipt.Coalescing = coalescing
 	receipt.FinalizedAt = finalized
 	if receipt.ReceiptID == "" && executionID != nil {
 		receipt.ReceiptID = "rcp_" + executionID.String()

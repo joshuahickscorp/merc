@@ -255,6 +255,9 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 	}
 
 	var leaderReceipts, followerReceipts int
+	var leaderContractID uuid.UUID
+	var leaderSupplierEntitlementNanos int64
+	var followerReceiptAuthorities []RealtimeReceipt
 	for contractID := range contractIDs {
 		receipt, err := store.RealtimeReceipt(ctx, buyerID, contractID)
 		if err != nil {
@@ -270,6 +273,8 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 			if receipt.SupplierPayableNanos <= 0 || receipt.KnownCostContributionNanos <= 0 {
 				t.Fatalf("physical receipt lacks payable or positive contribution: %+v", receipt)
 			}
+			leaderContractID = contractID
+			leaderSupplierEntitlementNanos = receipt.SupplierPayableNanos
 			continue
 		}
 		if receipt.PricingDecision.RealtimeReuse == nil ||
@@ -278,9 +283,45 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 			t.Fatalf("follower receipt lost zero-physical coalesced authority: %+v", receipt)
 		}
 		followerReceipts++
+		followerReceiptAuthorities = append(followerReceiptAuthorities, receipt)
 	}
 	if leaderReceipts != 1 || followerReceipts != coalescedFollowers-1 {
 		t.Fatalf("receipt modes leader=%d followers=%d", leaderReceipts, followerReceipts)
+	}
+	if leaderContractID == uuid.Nil || leaderSupplierEntitlementNanos <= 0 {
+		t.Fatalf("missing physical leader receipt identity=%s supplier=%d", leaderContractID, leaderSupplierEntitlementNanos)
+	}
+	for _, receipt := range followerReceiptAuthorities {
+		if receipt.Coalescing == nil || receipt.Coalescing.Role != "FOLLOWER" ||
+			receipt.Coalescing.LeaderContractID != leaderContractID.String() ||
+			receipt.Coalescing.CoalescedFollowerDeliveries != 1 ||
+			receipt.Coalescing.CounterfactualPhysicalExecutionsAvoided != 1 ||
+			receipt.Coalescing.CounterfactualSupplierEntitlementNanos != leaderSupplierEntitlementNanos ||
+			receipt.Coalescing.Currency != "cad" {
+			t.Fatalf("follower receipt lost physical source provenance: %+v", receipt.Coalescing)
+		}
+	}
+	leaderReceipt, err := store.RealtimeReceipt(ctx, buyerID, leaderContractID)
+	if err != nil || leaderReceipt.Coalescing == nil || leaderReceipt.Coalescing.Role != "LEADER" ||
+		leaderReceipt.Coalescing.CoalescedFollowerDeliveries != coalescedFollowers-1 ||
+		leaderReceipt.Coalescing.CounterfactualPhysicalExecutionsAvoided != coalescedFollowers-1 ||
+		leaderReceipt.Coalescing.CounterfactualSupplierEntitlementNanos != int64(coalescedFollowers-1)*leaderSupplierEntitlementNanos ||
+		leaderReceipt.Coalescing.Currency != "cad" {
+		t.Fatalf("leader receipt lost coalescing aggregate: receipt=%+v err=%v", leaderReceipt.Coalescing, err)
+	}
+	var provenanceRows, provenanceLeaders int
+	var provenanceEntitlementNanos int64
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*), count(DISTINCT leader_contract_id),
+		       COALESCE(sum(counterfactual_supplier_entitlement_nanos),0)::bigint
+		  FROM realtime_coalesced_deliveries
+		 WHERE follower_contract_id = ANY($1)`, authorityIDs(contractIDs)).
+		Scan(&provenanceRows, &provenanceLeaders, &provenanceEntitlementNanos); err != nil {
+		t.Fatalf("read coalescing provenance: %v", err)
+	}
+	if provenanceRows != coalescedFollowers-1 || provenanceLeaders != 1 ||
+		provenanceEntitlementNanos != int64(coalescedFollowers-1)*leaderSupplierEntitlementNanos {
+		t.Fatalf("coalescing provenance rows=%d leaders=%d entitlement=%d", provenanceRows, provenanceLeaders, provenanceEntitlementNanos)
 	}
 
 	var executions, workerBackedExecutions, logicalDeliveries, settlements, supplierRows, buyerRows, platformRows int
@@ -317,6 +358,8 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 }
 
 func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	t.Setenv("MERC_TOKEN_KEY", "coalesced-realtime-test-key-with-at-least-32-bytes")
 	ctx, store, pool := openPayoutTestStore(t)
 
 	buyerID := uuid.New()
@@ -330,14 +373,78 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 	}
 
 	profile := sortedVLLMProfiles()[0]
-	fullPer1K := fullPricePer1KFromRealtime(
-		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
+	supplierID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
+		supplierID, "cluster-leader-"+uuid.NewString()+"@example.test"); err != nil {
+		t.Fatalf("seed physical leader supplier: %v", err)
+	}
+	workerID := uuid.New()
+	if _, err := store.CreateWorkerToken(ctx, workerID, supplierID); err != nil {
+		t.Fatalf("seed physical leader worker: %v", err)
+	}
+	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
+		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
+		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
+		UpstreamBaseURL: "http://coalesced-leader.invalid/v1", UpstreamToken: "coalesced-leader-token",
+		Warmth: "HOT", MaxActiveSequences: 1, AvailableSequences: 1,
+		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
+	}); err != nil {
+		t.Fatalf("register physical leader offer: %v", err)
+	}
 
-	// The one physical execution: one result artifact, one token count. Every
-	// follower is delivered THIS, which is what makes them followers.
-	const deliveredTokens int64 = 64
+	// This is a store-level proof, but its source execution is no longer an
+	// invented reference: create and settle the one physical leader that every
+	// follower is allowed to cite. The handler-level test above proves the same
+	// relationship through HTTP; this one pins its durable write boundary.
+	const promptTokens, deliveredTokens int64 = 12, 64
 	leaderResultRef := "cas/sha256/" + uuid.NewString()
 	leaderResultSHA := "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	currency := MustParseCurrency("cad")
+	buyerInput, err := nanoRatePerMillionFromFloat(profile.BuyerInputUSDPerMillionTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buyerOutput, err := nanoRatePerMillionFromFloat(profile.BuyerOutputUSDPerMillionTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaderExpected, err := BuyerRealtimeTokenChargeNanos(currency, promptTokens, deliveredTokens, buyerInput, buyerOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaderMaximum, err := BuyerRealtimeTokenChargeNanos(currency, 100, deliveredTokens, buyerInput, buyerOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaderExpectedMicros, err := LedgerMicrosFromNanos(leaderExpected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaderMaximumMicros, err := LedgerMicrosFromNanos(leaderMaximum)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leader, _, err := store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
+		RequestID: "req-coalesced-leader-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
+		InputCommitment: strings.Repeat("c", 64), RequestSHA256: strings.Repeat("d", 64),
+		MaximumPriceUSD: microsToUSD(leaderMaximumMicros), EstimatedPriceUSD: microsToUSD(leaderExpectedMicros),
+		DeadlineAt:          time.Now().Add(time.Minute),
+		MaximumPromptTokens: 100, MaximumCompletionTokens: deliveredTokens,
+		EstimatedPromptTokens: promptTokens, EstimatedCompletionTokens: deliveredTokens,
+	})
+	if err != nil {
+		t.Fatalf("authorize physical leader: %v", err)
+	}
+	leaderSettlement, err := store.FinalizeRealtimeSuccess(ctx, leader.ID, RealtimeExecutionEvidence{
+		ID: uuid.New(), HTTPStatus: http.StatusOK, StreamRootSHA256: strings.Repeat("a", 64),
+		OutputCommitment: leaderResultSHA, PromptTokens: promptTokens, CompletionTokens: deliveredTokens,
+		TotalTokens: promptTokens + deliveredTokens,
+	})
+	if err != nil || leaderSettlement.SupplierPayableNanos <= 0 {
+		t.Fatalf("finalize physical leader settlement=%+v err=%v", leaderSettlement, err)
+	}
+	fullPer1K := fullPricePer1KFromRealtime(
+		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
 
 	// What a fresh execution would have cost the buyer, for the comparison the
 	// whole mechanism exists to make.
@@ -345,7 +452,7 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		ClassUncachedInput: 100, ClassGeneratedOutput: deliveredTokens,
 	}, fullPer1K)
 
-	currency, err := SettlementCurrency()
+	currency, err = SettlementCurrency()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,6 +460,42 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		profile.BuyerInputUSDPerMillionTokens, profile.BuyerOutputUSDPerMillionTokens)
 	if err != nil || !money.Conserved() || !money.ConservedExact() || money.SupplierLiabilityMicros != 0 {
 		t.Fatalf("follower money invariant broken before any write: %+v", money)
+	}
+	// The source relationship is an authority, not a display field. A follower
+	// may settle only against this buyer's finalized physical execution and the
+	// exact delivered output it actually committed. These negatives must fail
+	// before a follower contract, ledger entry, or provenance row is written.
+	rejectCoalescedSource := func(label string, buyer, source uuid.UUID, commitment string) {
+		t.Helper()
+		_, _, err := store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
+			RequestID: "req-coalesced-rejected-" + label + "-" + uuid.NewString(),
+			BuyerID:   buyer, Profile: profile,
+			InputCommitment: strings.Repeat("c", 64), RequestSHA256: strings.Repeat("d", 64),
+			MaximumPriceUSD: microsToUSD(money.BuyerDebitMicros), EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
+			ReuseClass: ClassCoalescedDelivery, CoalescedLeaderContractID: source,
+		}, ExactCacheHit{ResultRef: leaderResultRef, OutputTokens: deliveredTokens}, money, commitment)
+		if err == nil {
+			t.Fatalf("%s coalesced source was accepted", label)
+		}
+	}
+	rejectCoalescedSource("missing", buyerID, uuid.Nil, leaderResultSHA)
+	rejectCoalescedSource("cross-buyer", otherBuyerID, leader.ID, leaderResultSHA)
+	rejectCoalescedSource("wrong-output", buyerID, leader.ID, strings.Repeat("f", 64))
+	reuseBackedSource, _, err := store.SettleRealtimeExactReuse(ctx, RealtimeContractAuthorization{
+		RequestID: "req-coalesced-reuse-source-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
+		InputCommitment: strings.Repeat("c", 64), RequestSHA256: strings.Repeat("d", 64),
+		MaximumPriceUSD: microsToUSD(money.BuyerDebitMicros), EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
+		ReuseClass: ClassExactResultReuse,
+	}, ExactCacheHit{ResultRef: leaderResultRef, OutputTokens: deliveredTokens}, money, leaderResultSHA)
+	if err != nil {
+		t.Fatalf("create reuse-backed negative source: %v", err)
+	}
+	rejectCoalescedSource("reuse-backed", buyerID, reuseBackedSource.ID, leaderResultSHA)
+	var rejectedContracts int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM execution_contracts WHERE request_id LIKE 'req-coalesced-rejected-%'`).
+		Scan(&rejectedContracts); err != nil || rejectedContracts != 0 {
+		t.Fatalf("rejected sources wrote contracts=%d err=%v", rejectedContracts, err)
 	}
 
 	authorities := map[uuid.UUID]bool{}
@@ -366,11 +509,12 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		contract, settlement, err := store.SettleRealtimeExactReuse(ctx,
 			RealtimeContractAuthorization{
 				RequestID: requestID, BuyerID: buyerID, Profile: profile,
-				InputCommitment:   "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-				RequestSHA256:     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-				MaximumPriceUSD:   microsToUSD(money.BuyerDebitMicros),
-				EstimatedPriceUSD: microsToUSD(money.BuyerDebitMicros),
-				ReuseClass:        ClassCoalescedDelivery,
+				InputCommitment:           "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+				RequestSHA256:             "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				MaximumPriceUSD:           microsToUSD(money.BuyerDebitMicros),
+				EstimatedPriceUSD:         microsToUSD(money.BuyerDebitMicros),
+				ReuseClass:                ClassCoalescedDelivery,
+				CoalescedLeaderContractID: leader.ID,
 			}, hit, money, leaderResultSHA)
 		if err != nil {
 			t.Fatalf("follower %d: settle: %v", i, err)
@@ -414,7 +558,8 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 			len(authorities), coalescedFollowers)
 	}
 
-	// The ledger, read once across the whole cluster.
+	// The ledger, read once across the physical leader and every follower.
+	clusterAuthorities := append(authorityIDs(authorities), leader.ID)
 	var supplierRows, buyerRows, platformRows int
 	var buyerMicros, platformMicros, supplierMicros int64
 	if err := pool.QueryRow(ctx, `
@@ -425,28 +570,30 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		       COALESCE((sum(amount_usd) FILTER (WHERE kind='platform_take')*1000000)::bigint,0),
 		       COALESCE((sum(amount_usd) FILTER (WHERE kind='supplier_credit')*1000000)::bigint,0)
 		  FROM ledger_entries
-		 WHERE execution_contract_id = ANY($1)`, authorityIDs(authorities)).
+		 WHERE execution_contract_id = ANY($1)`, clusterAuthorities).
 		Scan(&supplierRows, &buyerRows, &platformRows,
 			&buyerMicros, &platformMicros, &supplierMicros); err != nil {
 		t.Fatalf("read cluster ledger: %v", err)
 	}
-	if supplierRows != 0 || supplierMicros != 0 {
+	leaderSupplierMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: currency, Nanos: leaderSettlement.SupplierPayableNanos})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if supplierRows != 1 || supplierMicros != leaderSupplierMicros {
 		t.Fatalf("%d supplier credits worth %d micros across %d followers; the supplier "+
-			"is paid once by the leader for the one execution",
+			"must be paid once by the leader for the one execution",
 			supplierRows, supplierMicros, coalescedFollowers)
 	}
-	if buyerRows != coalescedFollowers {
-		t.Fatalf("%d buyer charges for %d followers", buyerRows, coalescedFollowers)
+	if buyerRows != coalescedFollowers+1 {
+		t.Fatalf("%d buyer charges for one leader and %d followers", buyerRows, coalescedFollowers)
 	}
-	if platformRows != coalescedFollowers {
-		t.Fatalf("%d platform takes for %d followers", platformRows, coalescedFollowers)
+	if platformRows != coalescedFollowers+1 {
+		t.Fatalf("%d platform takes for one leader and %d followers", platformRows, coalescedFollowers)
 	}
-	// With no supplier owed, every micro the buyer paid is the platform ledger
-	// take and the reuse decision's known contribution. It is not true net until
-	// the separately measured delivery costs have been allocated.
-	if buyerMicros != platformMicros {
-		t.Fatalf("cluster ledger not conserved: buyer %d micros, platform %d micros",
-			buyerMicros, platformMicros)
+	// Across the physical leader plus its followers, the ledger still conserves.
+	if buyerMicros != supplierMicros+platformMicros {
+		t.Fatalf("cluster ledger not conserved: buyer %d supplier %d platform %d micros",
+			buyerMicros, supplierMicros, platformMicros)
 	}
 	if platformMicros <= 0 {
 		t.Fatalf("known coalesced contribution across the cluster is %d micros", platformMicros)
@@ -462,6 +609,11 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 		if receipt.ContractID != id.String() {
 			t.Fatalf("receipt for %s reported contract %s", id, receipt.ContractID)
 		}
+		if receipt.Coalescing == nil || receipt.Coalescing.Role != "FOLLOWER" ||
+			receipt.Coalescing.LeaderContractID != leader.ID.String() ||
+			receipt.Coalescing.CounterfactualSupplierEntitlementNanos != leaderSettlement.SupplierPayableNanos {
+			t.Fatalf("follower receipt lost physical leader provenance: %+v", receipt.Coalescing)
+		}
 		fetched++
 		// The other tenant must not be able to read it. This is the cross-tenant
 		// disclosure the reuse key's tenant scope exists to prevent, checked at the
@@ -473,10 +625,21 @@ func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t
 	if fetched != coalescedFollowers {
 		t.Fatalf("fetched %d receipts for %d followers", fetched, coalescedFollowers)
 	}
+	leaderReceipt, err := store.RealtimeReceipt(ctx, buyerID, leader.ID)
+	if err != nil {
+		t.Fatalf("leader receipt: %v", err)
+	}
+	if leaderReceipt.Coalescing == nil || leaderReceipt.Coalescing.Role != "LEADER" ||
+		leaderReceipt.Coalescing.LeaderContractID != leader.ID.String() ||
+		leaderReceipt.Coalescing.CoalescedFollowerDeliveries != coalescedFollowers ||
+		leaderReceipt.Coalescing.CounterfactualPhysicalExecutionsAvoided != coalescedFollowers ||
+		leaderReceipt.Coalescing.CounterfactualSupplierEntitlementNanos != int64(coalescedFollowers)*leaderSettlement.SupplierPayableNanos {
+		t.Fatalf("leader receipt lost coalescing provenance: %+v", leaderReceipt.Coalescing)
+	}
 
 	t.Logf("128 followers: %d authorities, %d receipts, %d supplier credits, "+
-		"buyer %d micros == platform %d micros, fresh execution would have cost %.9f",
-		len(authorities), fetched, supplierRows, buyerMicros, platformMicros, fresh)
+		"buyer %d micros == supplier %d + platform %d, fresh execution would have cost %.9f",
+		len(authorities), fetched, supplierRows, buyerMicros, supplierMicros, platformMicros, fresh)
 }
 
 func authorityIDs(set map[uuid.UUID]bool) []uuid.UUID {

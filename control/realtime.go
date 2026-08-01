@@ -1085,7 +1085,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// cache write, and so a slow object store is bounded.
 	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	stage = time.Now()
-	s.maybeStoreRealtimeExactResult(cacheCtx, auth.BuyerID, prepared, coalesceLeaderRef,
+	s.maybeStoreRealtimeExactResult(cacheCtx, auth.BuyerID, prepared, coalesceLeaderRef, contract.ID,
 		body, completion.Usage.CompletionTokens)
 	pathTiming.mark("exact_cache_store", stage)
 	cacheCancel()
@@ -1157,7 +1157,7 @@ func (s *Server) tryRealtimeExactReuse(
 // it releases them explicitly rather than letting them time out on the lease.
 func (s *Server) maybeStoreRealtimeExactResult(
 	ctx context.Context, buyerID uuid.UUID, prepared preparedRealtimeRequest,
-	leaderRef string, body []byte, completionTokens int64,
+	leaderRef string, leaderContractID uuid.UUID, body []byte, completionTokens int64,
 ) {
 	payload, err := decodeRealtimePayload(prepared.Body)
 	if err != nil {
@@ -1186,7 +1186,7 @@ func (s *Server) maybeStoreRealtimeExactResult(
 	}
 	sum := sha256.Sum256(body)
 	if err := s.store.ResolveInflightSuccess(
-		ctx, identity, leaderRef, ref, hex.EncodeToString(sum[:]), completionTokens,
+		ctx, identity, leaderRef, ref, hex.EncodeToString(sum[:]), completionTokens, leaderContractID,
 	); err != nil {
 		log.Printf("inflight result publish: %v", err)
 	}
@@ -1269,7 +1269,8 @@ func (s *Server) tryRealtimeCoalescedDelivery(
 		MaximumPriceUSD:         microsToUSD(money.BuyerDebitMicros),
 		EstimatedPriceUSD:       microsToUSD(money.BuyerDebitMicros),
 		BuyerDeclaredCeilingUSD: prepared.MaxPriceCeiling, ReuseClass: ClassCoalescedDelivery,
-		DeadlineAt: time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+		CoalescedLeaderContractID: result.LeaderContractID,
+		DeadlineAt:                time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
 	}, hit, money, result.ResultSHA256)
 	if err != nil {
 		return "", "", RealtimeContract{}, nil, false, err
