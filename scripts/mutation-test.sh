@@ -63,6 +63,15 @@ run_mutation_tests() {
 
 # file|description|sed-expression
 MUTATIONS=(
+"money_nanos.go|pricing divides before scaling to nanos|s#int64(units), NanosPerMajorUnit, int64(throughput), true,#int64(units)/int64(throughput), NanosPerMajorUnit, 1, true,#"
+"money_nanos.go|pricing compares amounts with mismatched currencies|s#if m.Currency.Code() != other.Currency.Code() {#if false {#"
+"pricing_decision.go|pricing ceilings fractional work units to integers|s#units := NanoWorkUnitsFromFloat(unitsPerTask)#units := NanoWorkUnitsFromFloat(math.Ceil(unitsPerTask))#"
+"money_nanos.go|pricing quantises buyer gross to micros before supplier share|s#mulDiv(gross.Nanos, shareNanos, NanosPerMajorUnit, true)#mulDiv(gross.Nanos/NanosPerMicro*NanosPerMicro, shareNanos, NanosPerMajorUnit, true)#"
+"pricing_decision.go|supplier floor uses reference price while entitlement uses settlement authority|s#return nanosPer1KFromFloat(a.SettlementPricePer1K \* tierMultiplier(tier))#return nanosPer1KFromFloat(a.ReferencePricePer1K * tierMultiplier(tier))#"
+"pricing_decision.go|catalogue and compute plan use divergent billable units|s#input = compute.SettlementInputUnits#input = float64(compute.EstimatedInputTokens)#"
+"pricing_decision.go|exact supplier floor is silently zeroed|s#supplierRequiredNanos = required.Nanos#supplierRequiredNanos = required.Nanos - required.Nanos#"
+"money_nanos.go|buyer gross rounds upward beyond its ceiling|s#int64(price), int64(units), 1_000\*NanosPerMajorUnit, false)#int64(price), int64(units), 1_000*NanosPerMajorUnit, true)#"
+"money_nanos.go|supplier entitlement rounds downward below its floor|s#mulDiv(gross.Nanos, shareNanos, NanosPerMajorUnit, true)#mulDiv(gross.Nanos, shareNanos, NanosPerMajorUnit, false)#"
 "supplier_accrual.go|accrual adds instead of carrying the remainder|s|carryOut = effective % microUSDPerCent|carryOut = 0|"
 "supplier_accrual.go|accrual rounds up instead of flooring cents|s|cashCents = effective / microUSDPerCent|cashCents = (effective + microUSDPerCent - 1) / microUSDPerCent|"
 "supplier_accrual.go|supplier accrual lock removed|s| FOR UPDATE||"
