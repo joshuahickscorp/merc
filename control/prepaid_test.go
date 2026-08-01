@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"sync"
 	"testing"
@@ -105,6 +108,49 @@ func TestPrepaidTopupCreditsBalanceAndLedger(t *testing.T) {
 	}
 	if count != 1 || topupSum != 25_000_000 {
 		t.Fatalf("topup ledger count=%d sum=%d", count, topupSum)
+	}
+}
+
+func TestReconcileBuyerChargeOperationAcceptsCompletedPrepaidWebhook(t *testing.T) {
+	store, _, ctx := prepaidTestStore(t)
+	buyerID := insertTestBuyer(t, store.pool, ctx)
+	opKey := "topup-webhook-" + uuid.NewString()
+	charge := ChargeResult{
+		PaymentIntentID: "pi_test_" + uuid.NewString(),
+		ChargeID:        "ch_test_" + uuid.NewString(),
+		RequestedCents:  2500,
+		ReceivedCents:   2500,
+		Currency:        SettlementCurrencyCode(),
+	}
+	if _, err := store.BeginPrepaidTopup(ctx, opKey, buyerID, charge.RequestedCents); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreditPrepaidTopup(ctx, opKey, buyerID, charge); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stripe legitimately delivers payment_intent.succeeded after the direct
+	// top-up response has committed.  The actual webhook handler must replay it
+	// as success and never double-credit the balance or leave Stripe retrying a
+	// 500.
+	payload := []byte(fmt.Sprintf(`{"type":"payment_intent.succeeded","api_version":"%s","livemode":false,"data":{"object":{"id":"%s","latest_charge":{"id":"%s"},"status":"succeeded","amount":%d,"amount_received":%d,"currency":"%s","metadata":{"cx_operation_key":"%s"}}}}`,
+		stripeAPIVersion, charge.PaymentIntentID, charge.ChargeID,
+		charge.RequestedCents, charge.ReceivedCents, charge.Currency, opKey))
+	req := signedStripeCashRequest(t, payload, "whsec_completed_prepaid")
+	rec := httptest.NewRecorder()
+	handleStripeWebhookWithAllHandlersAtMode(
+		rec, req, "whsec_completed_prepaid", nil, nil,
+		store.ReconcileBuyerChargeOperation, false,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("completed prepaid webhook status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	bal, err := store.BuyerPrepaidBalanceMicros(ctx, buyerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := charge.ReceivedCents * microUSDPerCent; bal != want {
+		t.Fatalf("balance after webhook replay=%d, want %d", bal, want)
 	}
 }
 
