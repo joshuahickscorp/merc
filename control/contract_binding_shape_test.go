@@ -37,6 +37,7 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 		var placementJSON any
 		var placementSHA any
 		var currency = "usd"
+		maximumPrice, estimatedPrice := 1.0, 1.0
 		var maximumPromptTokens any
 		var maximumCompletionTokens any
 		var estimatedPromptTokens any
@@ -90,6 +91,10 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 			if err != nil {
 				return err
 			}
+			estimatedPrice, maximumPrice, err = realtimePricingLegacyProjection(decision)
+			if err != nil {
+				return err
+			}
 		}
 		_, err := store.pool.Exec(ctx, `
 			INSERT INTO execution_contracts
@@ -105,11 +110,11 @@ func TestExecutionContractBindingShapeIsEnforced(t *testing.T) {
 			  pricing_decision,pricing_decision_sha256,finalized_at)
 			VALUES ($1,$2,$3,'CHAT_COMPLETION','/v1/chat/completions',$4,$5,
 			        $6,$7,$8,repeat('b',64),repeat('c',64),
-			        1.0,1.0,1.0,1.0,$9,$9,now()+interval '1 hour','V0',
-			        'VERIFIED',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,now())`,
+			        $9,$10,1.0,1.0,$11,$11,now()+interval '1 hour','V0',
+			        'VERIFIED',$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,now())`,
 			uuid.New(), "req-"+uuid.NewString(), buyerID,
 			modelAlias, runtimeProfileID, runtimeProfileSHA256, placementJSON, placementSHA,
-			supRate, worker, supplier, upstream, sealed, currency,
+			maximumPrice, estimatedPrice, supRate, worker, supplier, upstream, sealed, currency,
 			maximumPromptTokens, maximumCompletionTokens, estimatedPromptTokens,
 			estimatedCompletionTokens, pricingJSON, pricingSHA)
 		return err

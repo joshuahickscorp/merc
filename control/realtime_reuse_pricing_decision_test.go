@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -13,6 +14,40 @@ func realtimeReusePricingFixture(t *testing.T) RealtimeReusePricingInputs {
 		InputCommitment: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64),
 		ResultCommitment: strings.Repeat("c", 64), ReuseClass: ClassExactResultReuse,
 		DeliveredTokens: 7, BuyerDeclaredCeiling: 0.001, Currency: cad(t)}
+}
+
+func TestAttachRealtimeReusePricingRefusesPersistedAuthorityDrift(t *testing.T) {
+	in := realtimeReusePricingFixture(t)
+	p, err := newRealtimeReusePricingDecision(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := pricingDecisionDigest(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, maximum, err := realtimePricingLegacyProjection(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := RealtimeContract{RuntimeProfileID: in.Profile.RuntimeProfileID,
+		RuntimeProfileSHA256: in.Profile.ProfileSHA256, InputCommitment: in.InputCommitment,
+		RequestSHA256: in.RequestSHA256, MaximumPriceUSD: maximum, EstimatedPriceUSD: expected,
+		Currency: in.Currency.Code(), ReuseClass: in.ReuseClass, ReuseResultCommitment: in.ResultCommitment,
+		ReuseDeliveredTokens: in.DeliveredTokens, BuyerDeclaredCeilingNanos: p.RealtimeReuse.BuyerDeclaredCeilingNanos,
+		PricingDecisionSHA256: digest}
+	if err := attachRealtimeContractPricing(&contract, raw); err != nil || contract.Pricing == nil {
+		t.Fatalf("valid reuse pricing did not attach: %+v err=%v", contract, err)
+	}
+	contract.Pricing = nil
+	contract.ReuseDeliveredTokens++
+	if err := attachRealtimeContractPricing(&contract, raw); err == nil {
+		t.Fatal("persisted delivered-token drift passed reuse PricingDecision validation")
+	}
 }
 
 func TestRealtimeReusePricingDecisionBindsZeroPhysicalExactAuthority(t *testing.T) {

@@ -74,6 +74,9 @@ type RealtimeContract struct {
 	EstimatedPromptTokens             int64
 	EstimatedCompletionTokens         int64
 	BuyerDeclaredCeilingNanos         int64
+	ReuseClass                        string
+	ReuseResultCommitment             string
+	ReuseDeliveredTokens              int64
 	Pricing                           *PricingDecision
 	PricingDecisionSHA256             string
 	Currency                          string
@@ -94,6 +97,7 @@ type RealtimeContractAuthorization struct {
 	EstimatedPromptTokens     int64
 	EstimatedCompletionTokens int64
 	BuyerDeclaredCeilingUSD   float64
+	ReuseClass                string
 }
 
 func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, registration RealtimeOfferRegistration) error {
@@ -204,7 +208,9 @@ func scanRealtimeContract(row pgx.Row) (RealtimeContract, error) {
 		&upstream, &sealed, &contract.Currency,
 		&contract.MaximumPromptTokens, &contract.MaximumCompletionTokens,
 		&contract.EstimatedPromptTokens, &contract.EstimatedCompletionTokens,
-		&contract.BuyerDeclaredCeilingNanos, &pricingJSON, &contract.PricingDecisionSHA256)
+		&contract.BuyerDeclaredCeilingNanos, &contract.ReuseClass,
+		&contract.ReuseResultCommitment, &contract.ReuseDeliveredTokens,
+		&pricingJSON, &contract.PricingDecisionSHA256)
 	if err != nil {
 		return RealtimeContract{}, err
 	}
@@ -249,7 +255,8 @@ const realtimeContractColumns = `
 	 deadline_at,state,worker_id,supplier_id,upstream_base_url,upstream_token_sealed,currency,
 	 COALESCE(maximum_prompt_tokens,0),COALESCE(maximum_completion_tokens,0),
 	 COALESCE(estimated_prompt_tokens,0),COALESCE(estimated_completion_tokens,0),
-	 COALESCE(buyer_declared_ceiling_nanos,0),pricing_decision,
+	 COALESCE(buyer_declared_ceiling_nanos,0),COALESCE(reuse_class,''),
+	 COALESCE(reuse_result_commitment,''),COALESCE(reuse_delivered_tokens,0),pricing_decision,
 	 COALESCE(pricing_decision_sha256,'')`
 
 func attachRealtimeContractPricing(contract *RealtimeContract, raw []byte) error {
@@ -264,9 +271,6 @@ func attachRealtimeContractPricing(contract *RealtimeContract, raw []byte) error
 	if err != nil || digest != contract.PricingDecisionSHA256 {
 		return errors.New("realtime PricingDecision digest mismatch")
 	}
-	if pricing.Realtime == nil {
-		return errors.New("realtime contract PricingDecision lacks realtime authority")
-	}
 	profile, ok := vllmProfileByID(contract.RuntimeProfileID)
 	if !ok || profile.ProfileSHA256 != contract.RuntimeProfileSHA256 {
 		return errors.New("realtime contract profile authority disappeared")
@@ -276,18 +280,29 @@ func attachRealtimeContractPricing(contract *RealtimeContract, raw []byte) error
 		return err
 	}
 	declaredCeiling := float64(contract.BuyerDeclaredCeilingNanos) / float64(NanosPerMajorUnit)
-	if err := ValidateRealtimePricingDecisionSnapshot(pricing, RealtimePricingInputs{
-		Profile: profile, Placement: contract.PlacementPlan,
-		InputCommitment: contract.InputCommitment, RequestSHA256: contract.RequestSHA256,
-		MaximumPromptTokens:       contract.MaximumPromptTokens,
-		MaximumCompletionTokens:   contract.MaximumCompletionTokens,
-		EstimatedPromptTokens:     contract.EstimatedPromptTokens,
-		EstimatedCompletionTokens: contract.EstimatedCompletionTokens,
-		SupplierInputRate:         contract.SupplierInputUSDPerMillionTokens,
-		SupplierOutputRate:        contract.SupplierOutputUSDPerMillionTokens,
-		BuyerDeclaredCeiling:      declaredCeiling, Currency: currency,
-	}); err != nil {
-		return err
+	switch pricing.ExecutionMode {
+	case pricingExecutionRealtime:
+		if err := ValidateRealtimePricingDecisionSnapshot(pricing, RealtimePricingInputs{
+			Profile: profile, Placement: contract.PlacementPlan,
+			InputCommitment: contract.InputCommitment, RequestSHA256: contract.RequestSHA256,
+			MaximumPromptTokens: contract.MaximumPromptTokens, MaximumCompletionTokens: contract.MaximumCompletionTokens,
+			EstimatedPromptTokens: contract.EstimatedPromptTokens, EstimatedCompletionTokens: contract.EstimatedCompletionTokens,
+			SupplierInputRate:    contract.SupplierInputUSDPerMillionTokens,
+			SupplierOutputRate:   contract.SupplierOutputUSDPerMillionTokens,
+			BuyerDeclaredCeiling: declaredCeiling, Currency: currency,
+		}); err != nil {
+			return err
+		}
+	case pricingExecutionRealtimeReuse:
+		if err := ValidateRealtimeReusePricingDecisionSnapshot(pricing, RealtimeReusePricingInputs{
+			Profile: profile, InputCommitment: contract.InputCommitment, RequestSHA256: contract.RequestSHA256,
+			ResultCommitment: contract.ReuseResultCommitment, ReuseClass: contract.ReuseClass,
+			DeliveredTokens: contract.ReuseDeliveredTokens, BuyerDeclaredCeiling: declaredCeiling, Currency: currency,
+		}); err != nil {
+			return err
+		}
+	default:
+		return errors.New("realtime contract PricingDecision has unsupported execution mode")
 	}
 	expected, maximum, err := realtimePricingLegacyProjection(pricing)
 	if err != nil || expected != contract.EstimatedPriceUSD || maximum != contract.MaximumPriceUSD {
@@ -330,7 +345,9 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			&upstream, &sealed, &contract.Currency,
 			&contract.MaximumPromptTokens, &contract.MaximumCompletionTokens,
 			&contract.EstimatedPromptTokens, &contract.EstimatedCompletionTokens,
-			&contract.BuyerDeclaredCeilingNanos, &pricingJSON, &contract.PricingDecisionSHA256)
+			&contract.BuyerDeclaredCeilingNanos, &contract.ReuseClass,
+			&contract.ReuseResultCommitment, &contract.ReuseDeliveredTokens,
+			&pricingJSON, &contract.PricingDecisionSHA256)
 		if err == nil {
 			if contract.RequestSHA256 != auth.RequestSHA256 {
 				return RealtimeContract{}, false, errRealtimeIdempotencyConflict
@@ -676,7 +693,7 @@ func (s *Store) SettleRealtimeExactReuse(
 	money ReuseHitSettlement,
 	outputCommitment string,
 ) (RealtimeContract, RealtimeSettlement, error) {
-	if !money.Conserved() {
+	if !money.Conserved() || !money.ConservedExact() {
 		return RealtimeContract{}, RealtimeSettlement{}, fmt.Errorf(
 			"reuse settlement not conserved: buyer=%d supplier=%d platform=%d",
 			money.BuyerDebitMicros, money.SupplierLiabilityMicros, money.PlatformMicros)
@@ -686,6 +703,34 @@ func (s *Store) SettleRealtimeExactReuse(
 	}
 	if money.BuyerDebitMicros <= 0 {
 		return RealtimeContract{}, RealtimeSettlement{}, errors.New("exact reuse must bill the buyer a positive reuse charge")
+	}
+	currency, err := SettlementCurrency()
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+	if money.Currency != currency.Code() || auth.ReuseClass == "" {
+		return RealtimeContract{}, RealtimeSettlement{}, errors.New("exact reuse lacks currency-bound reuse-class authority")
+	}
+	pricing, err := newRealtimeReusePricingDecision(RealtimeReusePricingInputs{
+		Profile: auth.Profile, InputCommitment: auth.InputCommitment, RequestSHA256: auth.RequestSHA256,
+		ResultCommitment: outputCommitment, ReuseClass: auth.ReuseClass, DeliveredTokens: money.DeliveredTokens,
+		BuyerDeclaredCeiling: auth.BuyerDeclaredCeilingUSD, Currency: currency,
+	})
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+	pricingMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: currency, Nanos: pricing.FixedPoint.BuyerChargeNanos})
+	if err != nil || pricing.FixedPoint.BuyerChargeNanos != money.BuyerDebitNanos ||
+		pricingMicros != money.BuyerDebitMicros || pricing.FixedPoint.SupplierEntitlementsNanos != 0 {
+		return RealtimeContract{}, RealtimeSettlement{}, errors.New("exact reuse settlement disagrees with PricingDecision")
+	}
+	pricingJSON, err := json.Marshal(pricing)
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
+	pricingSHA256, err := pricingDecisionDigest(pricing)
+	if err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
 	}
 	buyerCharge := microsToUSD(money.BuyerDebitMicros)
 	platformMargin := microsToUSD(money.PlatformMicros)
@@ -738,14 +783,18 @@ func (s *Store) SettleRealtimeExactReuse(
 		  buyer_output_usd_per_million_tokens,supplier_input_usd_per_million_tokens,
 		  supplier_output_usd_per_million_tokens,deadline_at,verification_tier,
 		  idempotency_key,state,worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
-		  finalized_at,currency)
+		  finalized_at,currency,buyer_declared_ceiling_nanos,reuse_class,
+		  reuse_result_commitment,reuse_delivered_tokens,pricing_decision,pricing_decision_sha256)
 		VALUES ($1,$2,$3,'CHAT_COMPLETION','/v1/chat/completions',$4,$5,$6,$7,$8,
-		        $9,$9,$10,$11,0,0,$12,'V0',$13,'VERIFIED',NULL,NULL,NULL,NULL,now(),$14)`,
+		        $9,$9,$10,$11,0,0,$12,'V0',$13,'VERIFIED',NULL,NULL,NULL,NULL,now(),$14,
+		        $15,$16,$17,$18,$19,$20)`,
 		contractID, auth.RequestID, auth.BuyerID, auth.Profile.ModelAlias,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
 		auth.InputCommitment, auth.RequestSHA256, buyerCharge,
 		auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens,
-		auth.DeadlineAt, realtimeNullIfEmpty(auth.IdempotencyKey), SettlementCurrencyCode())
+		auth.DeadlineAt, realtimeNullIfEmpty(auth.IdempotencyKey), currency.Code(),
+		pricing.RealtimeReuse.BuyerDeclaredCeilingNanos, auth.ReuseClass, outputCommitment,
+		money.DeliveredTokens, pricingJSON, pricingSHA256)
 	if err != nil {
 		return RealtimeContract{}, RealtimeSettlement{}, err
 	}
@@ -796,10 +845,11 @@ func (s *Store) SettleRealtimeExactReuse(
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO realtime_settlements
 		 (id,contract_id,authoritative_execution_id,receipt_id,buyer_charge_usd,
-		  supplier_gross_usd,platform_margin_usd,verification_cost_usd)
-		VALUES ($1,$2,$3,$4,$5,0,$6,0)`,
+		  supplier_gross_usd,platform_margin_usd,verification_cost_usd,
+		  currency,buyer_charge_nanos,supplier_gross_nanos,known_cost_contribution_nanos)
+		VALUES ($1,$2,$3,$4,$5,0,$6,0,$7,$8,0,$8)`,
 		settlementID, contractID, executionID, "rcp_"+executionID.String(),
-		buyerCharge, platformMargin); err != nil {
+		buyerCharge, platformMargin, currency.Code(), money.BuyerDebitNanos); err != nil {
 		return RealtimeContract{}, RealtimeSettlement{}, err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -815,14 +865,20 @@ func (s *Store) SettleRealtimeExactReuse(
 		ID: contractID, RequestID: auth.RequestID, BuyerID: auth.BuyerID,
 		ModelAlias: auth.Profile.ModelAlias, RuntimeProfileID: auth.Profile.RuntimeProfileID,
 		RuntimeProfileSHA256: auth.Profile.ProfileSHA256,
-		MaximumPriceUSD:      buyerCharge, EstimatedPriceUSD: buyerCharge,
+		InputCommitment:      auth.InputCommitment, RequestSHA256: auth.RequestSHA256,
+		MaximumPriceUSD: buyerCharge, EstimatedPriceUSD: buyerCharge,
 		BuyerInputUSDPerMillionTokens:  auth.Profile.BuyerInputUSDPerMillionTokens,
 		BuyerOutputUSDPerMillionTokens: auth.Profile.BuyerOutputUSDPerMillionTokens,
-		DeadlineAt:                     auth.DeadlineAt, State: "VERIFIED",
+		DeadlineAt:                     auth.DeadlineAt, State: "VERIFIED", Currency: currency.Code(),
+		BuyerDeclaredCeilingNanos: pricing.RealtimeReuse.BuyerDeclaredCeilingNanos,
+		ReuseClass:                auth.ReuseClass, ReuseResultCommitment: outputCommitment,
+		ReuseDeliveredTokens: money.DeliveredTokens, Pricing: &pricing, PricingDecisionSHA256: pricingSHA256,
 	}
 	return contract, RealtimeSettlement{
 		ID: settlementID, BuyerChargeUSD: buyerCharge,
-		SupplierPayableUSD: 0, PlatformMarginUSD: platformMargin,
+		SupplierPayableUSD: 0, PlatformMarginUSD: platformMargin, Currency: currency.Code(),
+		BuyerChargeNanos: money.BuyerDebitNanos, SupplierPayableNanos: 0,
+		KnownCostContributionNanos: money.BuyerDebitNanos,
 	}, nil
 }
 

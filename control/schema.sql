@@ -3262,14 +3262,17 @@ ALTER TABLE execution_contracts
 ALTER TABLE execution_contracts
     ADD COLUMN IF NOT EXISTS placement_plan_sha256 TEXT;
 
--- Physical realtime contracts now freeze the same composite PricingDecision
--- used for reserve and settlement. Historical and exact-reuse rows remain NULL
--- rather than being reconstructed from today's mutable offer/profile state.
+-- New physical and reuse realtime contracts freeze the same composite
+-- PricingDecision used for reserve and settlement. Historical rows remain NULL
+-- rather than being reconstructed from today's mutable authority.
 ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS maximum_prompt_tokens BIGINT;
 ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS maximum_completion_tokens BIGINT;
 ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS estimated_prompt_tokens BIGINT;
 ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS estimated_completion_tokens BIGINT;
 ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS buyer_declared_ceiling_nanos BIGINT;
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS reuse_class TEXT;
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS reuse_result_commitment TEXT;
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS reuse_delivered_tokens BIGINT;
 ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS pricing_decision JSONB;
 ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS pricing_decision_sha256 TEXT;
 
@@ -3280,6 +3283,13 @@ ALTER TABLE execution_contracts ADD CONSTRAINT execution_contracts_pricing_pair 
 ALTER TABLE execution_contracts DROP CONSTRAINT IF EXISTS execution_contracts_pricing_sha_shape;
 ALTER TABLE execution_contracts ADD CONSTRAINT execution_contracts_pricing_sha_shape CHECK (
   pricing_decision_sha256 IS NULL OR pricing_decision_sha256 ~ '^[0-9a-f]{64}$'
+);
+ALTER TABLE execution_contracts DROP CONSTRAINT IF EXISTS execution_contracts_reuse_authority_shape;
+ALTER TABLE execution_contracts ADD CONSTRAINT execution_contracts_reuse_authority_shape CHECK (
+  (reuse_class IS NULL AND reuse_result_commitment IS NULL AND reuse_delivered_tokens IS NULL)
+  OR
+  (reuse_class IN ('exact_result_reuse','coalesced_delivery') AND
+   reuse_result_commitment ~ '^[0-9a-f]{64}$' AND reuse_delivered_tokens > 0 AND worker_id IS NULL)
 );
 
 CREATE OR REPLACE FUNCTION enforce_execution_contract_pricing_authority()
@@ -3303,6 +3313,9 @@ BEGIN
        NEW.estimated_prompt_tokens IS DISTINCT FROM OLD.estimated_prompt_tokens OR
        NEW.estimated_completion_tokens IS DISTINCT FROM OLD.estimated_completion_tokens OR
        NEW.buyer_declared_ceiling_nanos IS DISTINCT FROM OLD.buyer_declared_ceiling_nanos OR
+       NEW.reuse_class IS DISTINCT FROM OLD.reuse_class OR
+       NEW.reuse_result_commitment IS DISTINCT FROM OLD.reuse_result_commitment OR
+       NEW.reuse_delivered_tokens IS DISTINCT FROM OLD.reuse_delivered_tokens OR
        NEW.pricing_decision IS DISTINCT FROM OLD.pricing_decision OR
        NEW.pricing_decision_sha256 IS DISTINCT FROM OLD.pricing_decision_sha256
      ) THEN
@@ -3311,6 +3324,10 @@ BEGIN
   IF TG_OP='INSERT' AND NEW.worker_id IS NOT NULL AND
      (NEW.pricing_decision IS NULL OR NEW.pricing_decision_sha256 IS NULL) THEN
     RAISE EXCEPTION 'new physical realtime contract requires PricingDecision authority';
+  END IF;
+  IF TG_OP='INSERT' AND NEW.reuse_class IS NOT NULL AND
+     (NEW.pricing_decision IS NULL OR NEW.pricing_decision_sha256 IS NULL) THEN
+    RAISE EXCEPTION 'new realtime reuse contract requires PricingDecision authority';
   END IF;
   IF TG_OP='INSERT' AND NEW.worker_id IS NOT NULL AND
      (NEW.maximum_prompt_tokens IS NULL OR NEW.maximum_prompt_tokens <= 0 OR
@@ -3322,7 +3339,18 @@ BEGIN
     RAISE EXCEPTION 'new physical realtime contract requires positive ordered token bounds';
   END IF;
   IF NEW.pricing_decision IS NOT NULL THEN
-    IF (NEW.pricing_decision->>'execution_mode') IS DISTINCT FROM 'realtime_physical' OR
+    IF (NEW.pricing_decision->>'currency') IS DISTINCT FROM NEW.currency OR
+       (NEW.pricing_decision #>> '{fixed_point,currency}') IS DISTINCT FROM NEW.currency OR
+       NEW.estimated_price_usd IS DISTINCT FROM GREATEST(
+         round((NEW.pricing_decision #>> '{fixed_point,buyer_charge_nanos}')::numeric / 1000) / 1000000,
+         0.000001::numeric) OR
+       NEW.maximum_price_usd IS DISTINCT FROM GREATEST(
+         round((NEW.pricing_decision #>> '{fixed_point,accepted_ceiling_nanos}')::numeric / 1000) / 1000000,
+         0.000001::numeric) THEN
+      RAISE EXCEPTION 'execution contract PricingDecision disagrees with frozen currency authority';
+    END IF;
+    IF (NEW.pricing_decision->>'execution_mode') = 'realtime_physical' AND (
+       NEW.worker_id IS NULL OR NEW.reuse_class IS NOT NULL OR
        (NEW.pricing_decision->>'currency') IS DISTINCT FROM NEW.currency OR
        (NEW.pricing_decision #>> '{realtime,runtime_profile_id}') IS DISTINCT FROM NEW.runtime_profile_id OR
        (NEW.pricing_decision #>> '{realtime,runtime_profile_sha256}') IS DISTINCT FROM NEW.runtime_profile_sha256 OR
@@ -3335,8 +3363,25 @@ BEGIN
        ((NEW.pricing_decision #>> '{realtime,estimated_completion_tokens}')::bigint) IS DISTINCT FROM NEW.estimated_completion_tokens OR
        COALESCE((NEW.pricing_decision #>> '{realtime,buyer_declared_ceiling_nanos}')::bigint,0) IS DISTINCT FROM
          COALESCE(NEW.buyer_declared_ceiling_nanos,0) OR
-       (NEW.pricing_decision #>> '{fixed_point,currency}') IS DISTINCT FROM NEW.currency THEN
+       (NEW.pricing_decision #>> '{fixed_point,currency}') IS DISTINCT FROM NEW.currency) THEN
       RAISE EXCEPTION 'execution contract PricingDecision disagrees with frozen contract authority';
+    END IF;
+    IF (NEW.pricing_decision->>'execution_mode') = 'realtime_exact_reuse' AND (
+       NEW.worker_id IS NOT NULL OR NEW.reuse_class IS NULL OR
+       (NEW.pricing_decision #>> '{realtime_reuse,runtime_profile_id}') IS DISTINCT FROM NEW.runtime_profile_id OR
+       (NEW.pricing_decision #>> '{realtime_reuse,runtime_profile_sha256}') IS DISTINCT FROM NEW.runtime_profile_sha256 OR
+       (NEW.pricing_decision #>> '{realtime_reuse,input_commitment}') IS DISTINCT FROM NEW.input_commitment OR
+       (NEW.pricing_decision #>> '{realtime_reuse,request_sha256}') IS DISTINCT FROM NEW.request_sha256 OR
+       (NEW.pricing_decision #>> '{realtime_reuse,result_commitment}') IS DISTINCT FROM NEW.reuse_result_commitment OR
+       (NEW.pricing_decision #>> '{realtime_reuse,reuse_class}') IS DISTINCT FROM NEW.reuse_class OR
+       ((NEW.pricing_decision #>> '{realtime_reuse,delivered_tokens}')::bigint) IS DISTINCT FROM NEW.reuse_delivered_tokens OR
+       COALESCE((NEW.pricing_decision #>> '{realtime_reuse,buyer_declared_ceiling_nanos}')::bigint,0) IS DISTINCT FROM
+         COALESCE(NEW.buyer_declared_ceiling_nanos,0)) THEN
+      RAISE EXCEPTION 'execution contract reuse PricingDecision disagrees with frozen reuse authority';
+    END IF;
+    IF (NEW.pricing_decision->>'execution_mode') IS NULL OR
+       (NEW.pricing_decision->>'execution_mode') NOT IN ('realtime_physical','realtime_exact_reuse') THEN
+      RAISE EXCEPTION 'execution contract PricingDecision has unsupported mode';
     END IF;
   END IF;
   RETURN NEW;
@@ -3502,7 +3547,7 @@ ALTER TABLE realtime_settlements ADD CONSTRAINT realtime_settlements_exact_pair 
   (currency IS NULL AND buyer_charge_nanos IS NULL AND supplier_gross_nanos IS NULL
    AND known_cost_contribution_nanos IS NULL)
   OR
-  (currency IN ('cad','jpy','usd') AND buyer_charge_nanos > 0 AND supplier_gross_nanos > 0
+  (currency IN ('cad','jpy','usd') AND buyer_charge_nanos > 0 AND supplier_gross_nanos >= 0
    AND known_cost_contribution_nanos > 0
    AND buyer_charge_nanos = supplier_gross_nanos + known_cost_contribution_nanos)
 );
