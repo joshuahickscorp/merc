@@ -318,6 +318,32 @@ That is money-path surgery across `BuildEconomicPlan` and its test suite, and it
 was not started on a thin context budget. The authority it depends on is in place
 and proven.
 
+## Three layers, each revealed by fixing the one above it
+
+The exact authority did not "fix admission". It removed the fog, and under the fog
+were two more defects. Each number below is measured, from the public API path.
+
+| layer | reported | what it actually was |
+| --- | --- | --- |
+| 1 | `0.102978` vs `0.104733` USD/hr, a **1.676%** gap | one lost micro-USD, amplified by dividing a rounded payout by a sub-second duration |
+| 2 | `970` vs `2,035` nanos/task, a **2.1×** gap | the floor derived from the compute plan's modeled duration, the ceiling from the catalogue's governed throughput — **two authorities for one quantity** |
+| 3 | `970` vs `29,093` nanos/task, a **30×** gap | the compute plan quotes three records at `$0.000001` while the catalogue prices the same three units at `$0.0000291` before the share |
+
+Layers 1 and 2 are fixed. Layer 3 is not, and it is not a precision defect at all:
+
+> The buyer is quoted roughly **thirty times below** the catalogue price the
+> supplier was admitted against, so no share of that quote can meet the supplier's
+> rate. Quote and settlement do not reconcile.
+
+That is a pricing-authority disagreement — `merc.md` §8's "quote and settlement
+reconcile" — and it was invisible while everything was rounded to micro-USD,
+because at that granularity all three of these amounts collapse to roughly the
+same tiny number. Admission was refusing for the wrong stated reason the whole
+time.
+
+Three layers deep in money code is where to stop and report the figure rather than
+guess at a fourth change.
+
 ## A hazard worth naming
 
 **Another Claude Code session was editing this same working tree during the second
