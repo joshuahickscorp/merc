@@ -23,7 +23,7 @@ func TestRuntimeCatalogPriceIsStableAcrossMigration(t *testing.T) {
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatalf("first migration: %v", err)
 	}
-	schedule, err := BuildCataloguePriceSchedule(0.97)
+	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
 		t.Fatalf("build catalogue schedule: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestRuntimeCatalogPriceIsStableAcrossMigration(t *testing.T) {
 		if authority.ScheduleSHA256 != schedule.SHA256 ||
 			authority.BoardSHA256 != schedule.BoardSHA256 ||
 			authority.FXRevision != schedule.FXRevision ||
-			authority.SupplierShare != schedule.SupplierShare ||
+			authority.SupplierShare != result.SupplierShare ||
 			authority.ReferencePricePer1K != result.ReferencePricePer1K ||
 			authority.SettlementPricePer1K != result.PricePer1K {
 			t.Fatalf("%s composite authority differs from append-only schedule: %+v",
@@ -180,7 +180,7 @@ func TestApplyRepricingRollsBackEveryModelWhenOneTargetUpdateFails(t *testing.T)
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	schedule, err := BuildCataloguePriceSchedule(0.97)
+	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,21 +29,22 @@ const (
 // models.price_per_1k cell while omitting the market board, FX and supplier
 // share that made that price authoritative.
 type CataloguePriceAuthority struct {
-	Version                   int     `json:"version"`
-	ModelID                   string  `json:"model_id"`
-	JobType                   string  `json:"job_type"`
-	PriceSource               string  `json:"price_source"`
-	ScheduleSHA256            string  `json:"schedule_sha256"`
-	ScheduleVersion           int     `json:"schedule_version"`
-	ReferenceCurrency         string  `json:"reference_currency"`
-	ReferencePricePer1K       float64 `json:"reference_price_per_1k"`
-	SettlementCurrency        string  `json:"settlement_currency"`
-	SettlementPricePer1K      float64 `json:"settlement_price_per_1k"`
-	ReferenceToSettlementRate float64 `json:"reference_to_settlement_rate"`
-	FXRevision                string  `json:"fx_revision"`
-	BoardSHA256               string  `json:"board_sha256"`
-	PriceFormula              string  `json:"price_formula"`
-	SupplierShare             float64 `json:"supplier_share"`
+	Version                     int     `json:"version"`
+	ModelID                     string  `json:"model_id"`
+	JobType                     string  `json:"job_type"`
+	PriceSource                 string  `json:"price_source"`
+	ScheduleSHA256              string  `json:"schedule_sha256"`
+	ScheduleVersion             int     `json:"schedule_version"`
+	ReferenceCurrency           string  `json:"reference_currency"`
+	ReferencePricePer1K         float64 `json:"reference_price_per_1k"`
+	SettlementCurrency          string  `json:"settlement_currency"`
+	SettlementPricePer1K        float64 `json:"settlement_price_per_1k"`
+	ReferenceToSettlementRate   float64 `json:"reference_to_settlement_rate"`
+	FXRevision                  string  `json:"fx_revision"`
+	BoardSHA256                 string  `json:"board_sha256"`
+	PriceFormula                string  `json:"price_formula"`
+	SupplierShare               float64 `json:"supplier_share"`
+	SupplierSharePolicyRevision string  `json:"supplier_share_policy_revision,omitempty"`
 }
 
 // PricingCostComponent never uses an unexplained zero. A component is either
@@ -276,7 +277,8 @@ func (s *Store) LoadCataloguePriceAuthority(ctx context.Context, modelID string)
 		       s.reference_currency,h.reference_price_per_1k::float8,
 		       s.settlement_currency,h.price_per_1k::float8,
 		       s.reference_to_settlement_rate,s.fx_revision,s.board_sha256,
-		       h.price_formula,s.supplier_share
+		       h.price_formula,COALESCE(s.schedule_json->>'supplier_share_policy_revision',''),
+		       CASE WHEN s.version=1 THEN s.supplier_share ELSE h.supplier_share END
 		  FROM models m
 		  JOIN catalogue_price_schedules s ON s.sha256=m.price_schedule_sha256
 		  JOIN model_price_history h
@@ -294,7 +296,7 @@ func (s *Store) LoadCataloguePriceAuthority(ctx context.Context, modelID string)
 		&a.ReferenceCurrency, &a.ReferencePricePer1K,
 		&a.SettlementCurrency, &a.SettlementPricePer1K,
 		&a.ReferenceToSettlementRate, &a.FXRevision, &a.BoardSHA256,
-		&a.PriceFormula, &a.SupplierShare,
+		&a.PriceFormula, &a.SupplierSharePolicyRevision, &a.SupplierShare,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return CataloguePriceAuthority{}, fmt.Errorf(
@@ -306,6 +308,13 @@ func (s *Store) LoadCataloguePriceAuthority(ctx context.Context, modelID string)
 	}
 	if err := validateCataloguePriceAuthority(a); err != nil {
 		return CataloguePriceAuthority{}, fmt.Errorf("model %s catalogue authority: %w", modelID, err)
+	}
+	if a.SupplierSharePolicyRevision != supplierSharePolicyRevision {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"model %s catalogue authority has no current supplier-share policy revision", modelID)
+	}
+	if err := validateSupplierSharePolicy(a.JobType, a.ModelID, a.SupplierShare); err != nil {
+		return CataloguePriceAuthority{}, fmt.Errorf("model %s catalogue authority supplier share: %w", modelID, err)
 	}
 	if err := RequireSettlementCurrency(a.SettlementCurrency); err != nil {
 		return CataloguePriceAuthority{}, fmt.Errorf(

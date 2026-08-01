@@ -283,7 +283,14 @@ type QuoteCost struct {
 	ExpectedUSD             float64 `json:"expected_usd"`
 	MaxUSD                  float64 `json:"max_usd"`
 	VerificationOverheadUSD float64 `json:"verification_overhead_usd"`
-	PlatformTakeUSD         float64 `json:"platform_take_usd"`
+	// PlatformTakeUSD is retained for existing clients. It is the gross ledger
+	// spread (buyer charge less supplier entitlement), never Merc's profit.
+	PlatformTakeUSD          float64 `json:"platform_take_usd"`
+	PlatformGrossSpreadUSD   float64 `json:"platform_gross_spread_usd"`
+	KnownCostContributionUSD float64 `json:"known_cost_contribution_usd"`
+	// TrueNetContributionUSD is absent while any named cost category is
+	// unknown. A quote must not promote a modeled contribution into profit.
+	TrueNetContributionUSD *float64 `json:"true_net_contribution_usd,omitempty"`
 }
 
 type QuoteTime struct {
@@ -519,8 +526,6 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	if wantVerificationFloor && tasks > 0 && fracCount(tasks, sub.Verification.HoneypotFrac) == 0 {
 		verifOverhead = roundUSD(math.Max(verifOverhead, expected/float64(tasks)))
 	}
-	platformTake := roundUSD((expected + verifOverhead) * platformTakeRate)
-
 	redundancyTasks, honeypotTasks, initialEconomicTasks, economicCountErr :=
 		s.quoteInitialEconomicTaskCounts(ctx, sub, tasks)
 	if economicCountErr != nil {
@@ -591,7 +596,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		BaseComputeUSD:   baseComputeUSD,
 		InitialTaskCount: initialEconomicTasks,
 		ExtraTaskReserve: economicExtraTaskReserve(tasks),
-		SupplierShare:    supplierShareRate,
+		SupplierShare:    catalogue.SupplierShare,
 		BaseComputeNanos: baseComputeNanos,
 	}
 	baseEconomicPlan := BuildEconomicPlan(basePlanInput, schedule)
@@ -632,10 +637,6 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		expected = baseEconomicPlan.InitialBuyerChargeUSD
 		costMax = baseEconomicPlan.ReservedBuyerChargeUSD
 		costMin = baseEconomicPlan.BuyerChargePerTaskUSD
-		platformTake = roundEconomicUSD(
-			baseEconomicPlan.InitialBuyerChargeUSD -
-				baseEconomicPlan.SupplierPayoutPerTaskUSD*float64(initialEconomicTasks),
-		)
 	} else {
 		warnings = append(warnings, "economics blocked: "+economicPlan.BlockReason)
 	}
@@ -683,6 +684,15 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	if err != nil {
 		return Quote{}, fmt.Errorf("building composite pricing decision: %w", err)
 	}
+	platformGrossSpread := roundEconomicUSD(
+		pricing.BuyerPrice - pricing.PrimarySupplierCost.Amount - pricing.VerificationCost.Amount,
+	)
+	knownContribution := pricing.PlatformContribution.Amount
+	var trueNetContribution *float64
+	if fixed := pricing.FixedPoint; fixed != nil && fixed.TrueNetContributionNanos != nil {
+		amount := float64(*fixed.TrueNetContributionNanos) / float64(NanosPerMajorUnit)
+		trueNetContribution = &amount
+	}
 
 	return Quote{
 		QuoteID:       "q_" + bareID.String(),
@@ -715,7 +725,11 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		},
 		Cost: QuoteCost{
 			MinUSD: costMin, ExpectedUSD: expected, MaxUSD: costMax,
-			VerificationOverheadUSD: verifOverhead, PlatformTakeUSD: platformTake,
+			VerificationOverheadUSD:  verifOverhead,
+			PlatformTakeUSD:          platformGrossSpread,
+			PlatformGrossSpreadUSD:   platformGrossSpread,
+			KnownCostContributionUSD: knownContribution,
+			TrueNetContributionUSD:   trueNetContribution,
 		},
 		Time:       eta,
 		Confidence: conf,

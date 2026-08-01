@@ -9,7 +9,7 @@ import "testing"
 // that the resulting viability -- or lack of it -- is an asserted, visible fact
 // rather than something a supplier discovers from their electricity bill.
 func TestSupplierViabilityAtMarketIsReportedHonestly(t *testing.T) {
-	rows := SupplierViabilityReport(0.97)
+	rows := SupplierViabilityReport()
 	if len(rows) == 0 {
 		t.Fatal("no measured model could be evaluated against the board")
 	}

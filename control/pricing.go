@@ -69,10 +69,14 @@ type RepriceResult struct {
 	JobType             string  `json:"job_type"`
 	ReferencePricePer1K float64 `json:"reference_price_per_1k"`
 	PricePer1K          float64 `json:"price_per_1k"`
-	Formula             string  `json:"formula"` // human-readable, cites every real input (proof artifact)
+	// SupplierShare is the physical workload's published market term. It is
+	// stored on the result, rather than once on the schedule, so a schedule can
+	// not silently apply the same take rate to every lane.
+	SupplierShare float64 `json:"supplier_share,omitempty"`
+	Formula       string  `json:"formula"` // human-readable, cites every real input (proof artifact)
 }
 
-const cataloguePriceScheduleVersion = 1
+const cataloguePriceScheduleVersion = 2
 
 const (
 	catalogueReferenceCurrency = "usd"
@@ -81,21 +85,25 @@ const (
 )
 
 // CataloguePriceSchedule is the all-or-nothing authority applied to models.
-// It binds the exact board bytes, selector policy, supplier share and complete
-// model result set. A model row may point only at a durable schedule record.
+// It binds the exact board bytes, selector policy, per-workload supplier shares
+// and complete model result set. A model row may point only at a durable
+// schedule record.
 type CataloguePriceSchedule struct {
-	Version               int             `json:"version"`
-	ReferenceCurrency     string          `json:"reference_currency"`
-	SettlementCurrency    string          `json:"settlement_currency"`
-	ReferenceToSettlement float64         `json:"reference_to_settlement_rate"`
-	FXRevision            string          `json:"fx_revision"`
-	BoardSHA256           string          `json:"board_sha256"`
-	BoardSchemaVersion    int             `json:"board_schema_version"`
-	BoardFetchedAt        string          `json:"board_fetched_at"`
-	PositioningMultiplier float64         `json:"positioning_multiplier"`
-	SupplierShare         float64         `json:"supplier_share"`
-	Results               []RepriceResult `json:"results"`
-	SHA256                string          `json:"sha256"`
+	Version               int     `json:"version"`
+	ReferenceCurrency     string  `json:"reference_currency"`
+	SettlementCurrency    string  `json:"settlement_currency"`
+	ReferenceToSettlement float64 `json:"reference_to_settlement_rate"`
+	FXRevision            string  `json:"fx_revision"`
+	BoardSHA256           string  `json:"board_sha256"`
+	BoardSchemaVersion    int     `json:"board_schema_version"`
+	BoardFetchedAt        string  `json:"board_fetched_at"`
+	PositioningMultiplier float64 `json:"positioning_multiplier"`
+	// SupplierShare is only populated on v1 schedules. New schedules carry a
+	// per-result share under SupplierSharePolicyRevision.
+	SupplierShare               float64         `json:"supplier_share,omitempty"`
+	SupplierSharePolicyRevision string          `json:"supplier_share_policy_revision,omitempty"`
+	Results                     []RepriceResult `json:"results"`
+	SHA256                      string          `json:"sha256"`
 }
 
 // repriceFromSupplierEconomics is the cost-plus diagnostic: target supplier
@@ -352,7 +360,7 @@ func cataloguePriceScheduleDigest(schedule CataloguePriceSchedule) (string, erro
 }
 
 func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
-	if schedule.Version != cataloguePriceScheduleVersion {
+	if schedule.Version != 1 && schedule.Version != cataloguePriceScheduleVersion {
 		return fmt.Errorf("unsupported catalogue price schedule version %d", schedule.Version)
 	}
 	if schedule.ReferenceCurrency != catalogueReferenceCurrency ||
@@ -363,9 +371,19 @@ func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
 		schedule.BoardSchemaVersion != 1 ||
 		strings.TrimSpace(schedule.BoardFetchedAt) == "" ||
 		!finiteNonNegative(schedule.PositioningMultiplier) || schedule.PositioningMultiplier <= 0 ||
-		!finiteNonNegative(schedule.SupplierShare) || schedule.SupplierShare <= 0 || schedule.SupplierShare > 1 ||
 		len(schedule.Results) != len(repricingBenchmarks) {
 		return fmt.Errorf("catalogue price schedule metadata is incomplete or invalid")
+	}
+	switch schedule.Version {
+	case 1:
+		if !finiteNonNegative(schedule.SupplierShare) || schedule.SupplierShare <= 0 || schedule.SupplierShare > 1 ||
+			schedule.SupplierSharePolicyRevision != "" {
+			return fmt.Errorf("legacy catalogue price schedule has invalid supplier share authority")
+		}
+	case cataloguePriceScheduleVersion:
+		if schedule.SupplierShare != 0 || schedule.SupplierSharePolicyRevision != supplierSharePolicyRevision {
+			return fmt.Errorf("catalogue price schedule must bind %s per-workload supplier shares", supplierSharePolicyRevision)
+		}
 	}
 	settlement, err := ParseCurrency(schedule.SettlementCurrency)
 	if err != nil || settlement.Code() != schedule.SettlementCurrency {
@@ -392,6 +410,16 @@ func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
 			!strings.Contains(result.Formula, "fx_revision="+schedule.FXRevision) {
 			return fmt.Errorf("invalid catalogue price result for model %q", result.ModelID)
 		}
+		if schedule.Version == 1 {
+			if result.SupplierShare != 0 {
+				return fmt.Errorf("legacy catalogue price result for model %q carries a per-workload share", result.ModelID)
+			}
+		} else if err := validateSupplierSharePolicy(result.JobType, result.ModelID, result.SupplierShare); err != nil {
+			return fmt.Errorf("invalid catalogue supplier share for model %q: %w", result.ModelID, err)
+		} else if !strings.Contains(result.Formula, "supplier_share_policy="+supplierSharePolicyRevision) ||
+			!strings.Contains(result.Formula, fmt.Sprintf("supplier_share=%.8f", result.SupplierShare)) {
+			return fmt.Errorf("catalogue price result for model %q lacks supplier-share provenance", result.ModelID)
+		}
 		wantPrice := ceilPricePer1K(result.ReferencePricePer1K * schedule.ReferenceToSettlement)
 		if math.Abs(result.PricePer1K-wantPrice) > 0.0000000001 {
 			return fmt.Errorf("catalogue price result for model %q is inconsistent with FX authority", result.ModelID)
@@ -411,8 +439,9 @@ func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
 // BuildCataloguePriceSchedule derives one complete, canonical schedule from the
 // exact governed board bytes. Any unpriced or underwater measured model blocks
 // the entire schedule; boot never applies a profitable subset and leaves the
-// rest on stale terms.
-func BuildCataloguePriceSchedule(supplierShare float64) (CataloguePriceSchedule, error) {
+// rest on stale terms. Each result receives its own reviewed physical-workload
+// share; there is intentionally no process-wide take-rate input.
+func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
 	loaded, err := loadPriceBoard()
 	if err != nil {
 		return CataloguePriceSchedule{}, err
@@ -442,31 +471,37 @@ func BuildCataloguePriceSchedule(supplierShare float64) (CataloguePriceSchedule,
 			)
 		}
 		referencePrice := r.PricePer1K
+		supplierShare, serr := supplierShareForWorkload(b.JobType, b.ModelID)
+		if serr != nil {
+			return CataloguePriceSchedule{}, serr
+		}
 		if gerr := governPublishedPrice(b, referencePrice, supplierShare); gerr != nil {
 			return CataloguePriceSchedule{}, gerr
 		}
 		r.ReferencePricePer1K = referencePrice
 		r.PricePer1K = ceilPricePer1K(referencePrice * fxRate)
+		r.SupplierShare = supplierShare
 		r.Formula += fmt.Sprintf(
-			" board_sha256=%s reference_price_per_1k=%.8f reference_currency=%s reference_to_settlement_rate=%.12g fx_revision=%s settlement_price_per_1k=%.8f settlement_currency=%s",
+			" board_sha256=%s reference_price_per_1k=%.8f reference_currency=%s reference_to_settlement_rate=%.12g fx_revision=%s settlement_price_per_1k=%.8f settlement_currency=%s supplier_share_policy=%s supplier_share=%.8f",
 			priceBoardSHA256, r.ReferencePricePer1K, catalogueReferenceCurrency,
 			fxRate, fxRevision, r.PricePer1K, settlementCurrency,
+			supplierSharePolicyRevision, supplierShare,
 		)
 		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ModelID < out[j].ModelID })
 	schedule := CataloguePriceSchedule{
-		Version:               cataloguePriceScheduleVersion,
-		ReferenceCurrency:     catalogueReferenceCurrency,
-		SettlementCurrency:    settlementCurrency,
-		ReferenceToSettlement: fxRate,
-		FXRevision:            fxRevision,
-		BoardSHA256:           priceBoardSHA256,
-		BoardSchemaVersion:    board.SchemaVersion,
-		BoardFetchedAt:        board.FetchedAt,
-		PositioningMultiplier: board.PositioningMultiplier,
-		SupplierShare:         supplierShare,
-		Results:               out,
+		Version:                     cataloguePriceScheduleVersion,
+		ReferenceCurrency:           catalogueReferenceCurrency,
+		SettlementCurrency:          settlementCurrency,
+		ReferenceToSettlement:       fxRate,
+		FXRevision:                  fxRevision,
+		BoardSHA256:                 priceBoardSHA256,
+		BoardSchemaVersion:          board.SchemaVersion,
+		BoardFetchedAt:              board.FetchedAt,
+		PositioningMultiplier:       board.PositioningMultiplier,
+		SupplierSharePolicyRevision: supplierSharePolicyRevision,
+		Results:                     out,
 	}
 	schedule.SHA256, err = cataloguePriceScheduleDigest(schedule)
 	if err != nil {
@@ -481,8 +516,8 @@ func BuildCataloguePriceSchedule(supplierShare float64) (CataloguePriceSchedule,
 // RepriceCatalogueFromSupplierEconomics keeps the historical diagnostic API
 // for reports and unit tests. Startup uses the error-returning schedule builder
 // and therefore cannot silently retain a stale partial catalogue.
-func RepriceCatalogueFromSupplierEconomics(supplierShare float64) []RepriceResult {
-	schedule, err := BuildCataloguePriceSchedule(supplierShare)
+func RepriceCatalogueFromSupplierEconomics() []RepriceResult {
+	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
 		log.Printf("catalogue price schedule rejected: %v", err)
 		return nil
@@ -542,6 +577,7 @@ func CompareCostFloorToMarketBoard(supplierShare float64) []CostFloorVsMarket {
 type SupplierViabilityAtMarket struct {
 	ModelID              string  `json:"model_id"`
 	JobType              string  `json:"job_type"`
+	SupplierShare        float64 `json:"supplier_share"`
 	HWClass              string  `json:"hw_class"`
 	MeasuredUnitsPerSec  float64 `json:"measured_units_per_sec"`
 	CataloguePricePer1K  float64 `json:"catalogue_price_per_1k"`
@@ -553,8 +589,9 @@ type SupplierViabilityAtMarket struct {
 }
 
 // SupplierViabilityReport evaluates every measured model against the catalogue
-// price the buyer is actually charged.
-func SupplierViabilityReport(supplierShare float64) []SupplierViabilityAtMarket {
+// price the buyer is actually charged, under the same physical-workload share
+// policy that publication binds into the catalogue.
+func SupplierViabilityReport() []SupplierViabilityAtMarket {
 	board, err := loadPriceBoard()
 	if err != nil {
 		return nil
@@ -563,6 +600,10 @@ func SupplierViabilityReport(supplierShare float64) []SupplierViabilityAtMarket 
 	for _, b := range repricingBenchmarks {
 		mkt, ok := repriceFromMarketBoard(b.ModelID, b.JobType, board)
 		if !ok || mkt.PricePer1K <= 0 {
+			continue
+		}
+		supplierShare, err := supplierShareForWorkload(b.JobType, b.ModelID)
+		if err != nil {
 			continue
 		}
 		watts := sustainedWattsByHWClass[b.HWClass]
@@ -577,7 +618,7 @@ func SupplierViabilityReport(supplierShare float64) []SupplierViabilityAtMarket 
 			breakEven = elec / perUnitHr / 3600.0
 		}
 		out = append(out, SupplierViabilityAtMarket{
-			ModelID: b.ModelID, JobType: b.JobType, HWClass: b.HWClass,
+			ModelID: b.ModelID, JobType: b.JobType, SupplierShare: supplierShare, HWClass: b.HWClass,
 			MeasuredUnitsPerSec:  b.UnitsPerSec,
 			CataloguePricePer1K:  mkt.PricePer1K,
 			SupplierGrossUSDHr:   roundUSD(gross),
@@ -679,7 +720,7 @@ func (s *Store) ApplyRepricing(ctx context.Context, schedule CataloguePriceSched
 		schedule.SHA256, schedule.Version, schedule.ReferenceCurrency, schedule.SettlementCurrency,
 		schedule.ReferenceToSettlement, schedule.FXRevision,
 		schedule.BoardSHA256, schedule.BoardSchemaVersion, schedule.BoardFetchedAt,
-		schedule.PositioningMultiplier, schedule.SupplierShare, scheduleJSON,
+		schedule.PositioningMultiplier, nullIfZero(schedule.SupplierShare), scheduleJSON,
 	); err != nil {
 		return 0, fmt.Errorf("record catalogue price schedule: %w", err)
 	}
@@ -722,23 +763,25 @@ func (s *Store) ApplyRepricing(ctx context.Context, schedule CataloguePriceSched
 		//
 		// An existing row describing the same transition is therefore not an
 		// error; one describing a different outcome for the same schedule still is.
-		var recordedPrice, recordedReference float64
+		var recordedPrice, recordedReference, recordedSupplierShare float64
 		var recordedCurrency, recordedFormula string
 		switch err := tx.QueryRow(ctx, `
-			SELECT price_per_1k,reference_price_per_1k,price_currency,price_formula
+			SELECT price_per_1k,reference_price_per_1k,price_currency,price_formula,
+			       COALESCE(supplier_share,0)
 			  FROM model_price_history WHERE schedule_sha256=$1 AND model_id=$2`,
 			schedule.SHA256, result.ModelID,
-		).Scan(&recordedPrice, &recordedReference, &recordedCurrency, &recordedFormula); {
+		).Scan(&recordedPrice, &recordedReference, &recordedCurrency, &recordedFormula, &recordedSupplierShare); {
 		case errors.Is(err, pgx.ErrNoRows):
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO model_price_history (
 				  schedule_sha256,model_id,prior_price_per_1k,prior_price_source,
 				  reference_price_per_1k,reference_currency,price_per_1k,
-				  price_currency,price_formula
-				) VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8,$9)`,
+				  price_currency,price_formula,supplier_share
+				) VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8,$9,$10)`,
 				schedule.SHA256, result.ModelID, priorPrice, priorSource,
 				result.ReferencePricePer1K, schedule.ReferenceCurrency,
 				result.PricePer1K, schedule.SettlementCurrency, result.Formula,
+				nullIfZero(result.SupplierShare),
 			); err != nil {
 				return 0, fmt.Errorf("record price history for %s: %w", result.ModelID, err)
 			}
@@ -748,7 +791,8 @@ func (s *Store) ApplyRepricing(ctx context.Context, schedule CataloguePriceSched
 			if math.Abs(recordedPrice-result.PricePer1K) > 0.0000000001 ||
 				math.Abs(recordedReference-result.ReferencePricePer1K) > 0.0000000001 ||
 				recordedCurrency != schedule.SettlementCurrency ||
-				recordedFormula != result.Formula {
+				recordedFormula != result.Formula ||
+				math.Abs(recordedSupplierShare-result.SupplierShare) > 0.0000000001 {
 				return 0, fmt.Errorf(
 					"model %s already has a different recorded outcome for schedule %s",
 					result.ModelID, schedule.SHA256)
@@ -777,4 +821,14 @@ func (s *Store) ApplyRepricing(ctx context.Context, schedule CataloguePriceSched
 		return 0, err
 	}
 	return updated, nil
+}
+
+// nullIfZero keeps v1 append-only schedule rows readable while ensuring a v2
+// schedule never records a made-up process-wide supplier share in the legacy
+// column. The v2 authority lives on each model_price_history result.
+func nullIfZero(value float64) any {
+	if value == 0 {
+		return nil
+	}
+	return value
 }

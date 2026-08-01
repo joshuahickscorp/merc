@@ -112,7 +112,7 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 	}
 	originEconomic := BuildEconomicPlan(EconomicPlanInput{
 		BaseComputeUSD: originPlan.BaseComputeUSD, InitialTaskCount: 1,
-		ExtraTaskReserve: 1, SupplierShare: supplierShareRate,
+		ExtraTaskReserve: 1, SupplierShare: supplierShareForTest(t, decision.RuntimeJobType, decision.Binding.Model.Ref),
 	}, testEconomicSchedule())
 	authority := catalogueAuthorityFixture(
 		t, decision, originEconomic.Schedule.Currency, originEconomic.Input.SupplierShare,

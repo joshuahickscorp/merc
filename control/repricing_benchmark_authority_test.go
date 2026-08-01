@@ -124,7 +124,7 @@ func TestSupplierViabilityOnlyReportsMeasuredHardware(t *testing.T) {
 	for _, b := range repricingBenchmarks {
 		measuredClasses[b.HWClass] = true
 	}
-	for _, row := range SupplierViabilityReport(0.97) {
+	for _, row := range SupplierViabilityReport() {
 		if !measuredClasses[row.HWClass] {
 			t.Fatalf("viability reported for %s, which no repricing benchmark measured",
 				row.HWClass)

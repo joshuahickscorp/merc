@@ -19,7 +19,7 @@ func TestRepricingSurvivesModelPriceStateBeingReset(t *testing.T) {
 	pinBoardClockForPublication(t)
 	ctx, store, _ := openAdminMutationTestStore(t)
 
-	schedule, err := BuildCataloguePriceSchedule(0.97)
+	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
 		t.Fatalf("build schedule: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestRecordedPriceHistoryCannotBeRewritten(t *testing.T) {
 	pinBoardClockForPublication(t)
 	ctx, store, _ := openAdminMutationTestStore(t)
 
-	schedule, err := BuildCataloguePriceSchedule(0.97)
+	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
 		t.Fatalf("build schedule: %v", err)
 	}

@@ -405,15 +405,16 @@ const utilizationBasisWhileExecuting = "rate while executing; queue idle time is
 // SupplierAdmissionViability evaluates a supplier's payout floor against what
 // each routable cell it can actually execute is expected to earn.
 //
-// referencePricePer1K is injected rather than read here so the report quotes the
-// same catalogue authority admission used. A report computed off a second price
-// source would eventually disagree with the gate it is explaining.
+// catalogueAuthority is injected rather than rebuilding a rate here so the
+// report quotes the same append-only price and workload-specific supplier share
+// admission used. A report computed from a second price or a process-wide share
+// would eventually disagree with the gate it is explaining.
 func SupplierAdmissionViability(
 	hwClass string,
-	minPayoutUSDHr, supplierShare float64,
+	minPayoutUSDHr float64,
 	tier string,
 	at time.Time,
-	referencePricePer1K func(modelID string) (float64, error),
+	catalogueAuthority func(modelID string) (CataloguePriceAuthority, error),
 ) []SupplierCellViability {
 	var out []SupplierCellViability
 	for _, profile := range runtimeAuthority.Runtimes {
@@ -424,20 +425,27 @@ func SupplierAdmissionViability(
 			row := SupplierCellViability{
 				Performance:         resolveCellPerformance(profile, cell, at),
 				SupplierHWClass:     hwClass,
-				SupplierShare:       supplierShare,
 				Tier:                tier,
 				ExpectedUtilization: 1,
 				UtilizationBasis:    utilizationBasisWhileExecuting,
 				MinimumPayoutUSDHr:  minPayoutUSDHr,
 			}
-			price, err := referencePricePer1K(cell.Model)
+			authority, err := catalogueAuthority(cell.Model)
 			if err != nil {
 				row.Reason = fmt.Sprintf("model %q has no catalogue price authority: %v",
 					cell.Model, err)
 				out = append(out, row)
 				continue
 			}
+			price := authority.ReferencePricePer1K
+			supplierShare := authority.SupplierShare
+			if !finiteNonNegative(price) || price <= 0 || !finiteNonNegative(supplierShare) || supplierShare <= 0 || supplierShare > 1 {
+				row.Reason = fmt.Sprintf("model %q has incomplete catalogue money authority", cell.Model)
+				out = append(out, row)
+				continue
+			}
 			row.BuyerPricePer1KUnits = price
+			row.SupplierShare = supplierShare
 			// What admission would actually do with this exact cell, asked the
 			// same way a directed job asks it.
 			_, _, admissionRefusal := admissionUnitsPerSec(cell.Job, cell.Model,

@@ -93,7 +93,7 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 	artifacts := newArtifactHarness(t)
 	ctx, store, pool := openIsolatedTestStore(t)
 
-	schedule, err := BuildCataloguePriceSchedule(supplierShareRate)
+	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
 		t.Fatalf("build catalogue price schedule: %v", err)
 	}
@@ -237,7 +237,7 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 	// change makes the fixture large enough for the loss not to matter, this fails
 	// and says so rather than passing on a job that never exercised the defect.
 	quantised := economic.BaseComputePerTaskNanos / NanosPerMicro * NanosPerMicro
-	quantisedEntitlement := int64(math.Ceil(float64(quantised) * supplierShareRate))
+	quantisedEntitlement := int64(math.Ceil(float64(quantised) * pricing.Catalogue.SupplierShare))
 	if quantisedEntitlement >= pricing.SupplierRequiredNanos {
 		t.Fatalf("a micro-quantised base of %d nanos still entitles the supplier to %d "+
 			"against a %d nano floor, so this fixture no longer distinguishes the exact "+

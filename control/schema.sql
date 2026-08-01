@@ -1962,7 +1962,7 @@ ALTER TABLE models ADD COLUMN IF NOT EXISTS price_schedule_version INT;
 -- transaction, so readers can never observe a half-old/half-new catalogue.
 CREATE TABLE IF NOT EXISTS catalogue_price_schedules (
     sha256                 TEXT PRIMARY KEY CHECK (sha256 ~ '^[0-9a-f]{64}$'),
-    version                INT NOT NULL CHECK (version = 1),
+    version                INT NOT NULL CHECK (version IN (1,2)),
     reference_currency     TEXT NOT NULL CHECK (reference_currency = 'usd'),
     settlement_currency    TEXT NOT NULL CHECK (settlement_currency IN ('usd','cad','jpy')),
     reference_to_settlement_rate DOUBLE PRECISION NOT NULL CHECK (reference_to_settlement_rate > 0),
@@ -1971,7 +1971,9 @@ CREATE TABLE IF NOT EXISTS catalogue_price_schedules (
     board_schema_version   INT NOT NULL CHECK (board_schema_version = 1),
     board_fetched_at       TEXT NOT NULL CHECK (btrim(board_fetched_at) <> ''),
     positioning_multiplier DOUBLE PRECISION NOT NULL CHECK (positioning_multiplier > 0),
-    supplier_share         DOUBLE PRECISION NOT NULL CHECK (supplier_share > 0 AND supplier_share <= 1),
+    -- v1 stored one global supplier share. v2 leaves this legacy column NULL
+    -- and binds each physical workload share in model_price_history instead.
+    supplier_share         DOUBLE PRECISION CHECK (supplier_share > 0 AND supplier_share <= 1),
     schedule_json          JSONB NOT NULL,
     applied_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (schedule_json->>'sha256' = sha256),
@@ -1984,6 +1986,11 @@ CREATE TABLE IF NOT EXISTS catalogue_price_schedules (
 ALTER TABLE catalogue_price_schedules ADD COLUMN IF NOT EXISTS settlement_currency TEXT;
 ALTER TABLE catalogue_price_schedules ADD COLUMN IF NOT EXISTS reference_to_settlement_rate DOUBLE PRECISION;
 ALTER TABLE catalogue_price_schedules ADD COLUMN IF NOT EXISTS fx_revision TEXT;
+ALTER TABLE catalogue_price_schedules ALTER COLUMN supplier_share DROP NOT NULL;
+ALTER TABLE catalogue_price_schedules DROP CONSTRAINT IF EXISTS catalogue_price_schedules_version_check;
+ALTER TABLE catalogue_price_schedules DROP CONSTRAINT IF EXISTS catalogue_price_schedules_version_supported;
+ALTER TABLE catalogue_price_schedules ADD CONSTRAINT catalogue_price_schedules_version_supported
+    CHECK (version IN (1,2)) NOT VALID;
 ALTER TABLE catalogue_price_schedules DROP CONSTRAINT IF EXISTS catalogue_price_schedules_fx_authority_complete;
 ALTER TABLE catalogue_price_schedules ADD CONSTRAINT catalogue_price_schedules_fx_authority_complete CHECK (
     settlement_currency IN ('usd','cad','jpy')
@@ -1991,6 +1998,17 @@ ALTER TABLE catalogue_price_schedules ADD CONSTRAINT catalogue_price_schedules_f
     AND COALESCE(btrim(fx_revision),'') <> ''
     AND schedule_json->>'settlement_currency' = settlement_currency
     AND schedule_json->>'fx_revision' = fx_revision
+) NOT VALID;
+ALTER TABLE catalogue_price_schedules DROP CONSTRAINT IF EXISTS catalogue_price_schedules_supplier_share_authority;
+ALTER TABLE catalogue_price_schedules ADD CONSTRAINT catalogue_price_schedules_supplier_share_authority CHECK (
+    (version = 1
+        AND supplier_share > 0 AND supplier_share <= 1
+        AND schedule_json ? 'supplier_share'
+        AND COALESCE(schedule_json->>'supplier_share_policy_revision','') = '')
+    OR
+    (version = 2
+        AND supplier_share IS NULL
+        AND schedule_json->>'supplier_share_policy_revision' = 'physical-workload-share-v1')
 ) NOT VALID;
 
 CREATE TABLE IF NOT EXISTS model_price_history (
@@ -2003,11 +2021,18 @@ CREATE TABLE IF NOT EXISTS model_price_history (
     price_per_1k          NUMERIC(12,8) NOT NULL CHECK (price_per_1k > 0),
     price_currency        TEXT NOT NULL CHECK (price_currency IN ('usd','cad','jpy')),
     price_formula         TEXT NOT NULL CHECK (btrim(price_formula) <> ''),
+    -- v2 is the per-physical-workload supplier market term. v1 rows retain
+    -- NULL and are read through their schedule's legacy share.
+    supplier_share        DOUBLE PRECISION CHECK (supplier_share > 0 AND supplier_share <= 1),
     applied_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (schedule_sha256,model_id)
 );
 ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS reference_price_per_1k NUMERIC(12,8);
 ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS price_currency TEXT;
+ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS supplier_share DOUBLE PRECISION;
+ALTER TABLE model_price_history DROP CONSTRAINT IF EXISTS model_price_history_supplier_share_valid;
+ALTER TABLE model_price_history ADD CONSTRAINT model_price_history_supplier_share_valid
+    CHECK (supplier_share IS NULL OR (supplier_share > 0 AND supplier_share <= 1)) NOT VALID;
 ALTER TABLE model_price_history DROP CONSTRAINT IF EXISTS model_price_history_currency_authority_complete;
 ALTER TABLE model_price_history ADD CONSTRAINT model_price_history_currency_authority_complete CHECK (
     reference_price_per_1k > 0
@@ -2042,7 +2067,7 @@ ALTER TABLE models ADD CONSTRAINT models_market_price_authority_complete CHECK (
         AND price_reference_per_1k > 0
         AND price_currency IN ('usd','cad','jpy')
         AND price_schedule_sha256 IS NOT NULL
-        AND price_schedule_version = 1
+        AND price_schedule_version IN (1,2)
     )
 ) NOT VALID;
 ALTER TABLE models DROP CONSTRAINT IF EXISTS models_price_schedule_fkey;

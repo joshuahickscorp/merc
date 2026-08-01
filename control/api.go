@@ -1133,7 +1133,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		BaseComputeUSD:   baseComputeUSD,
 		InitialTaskCount: len(tasks),
 		ExtraTaskReserve: economicExtraTaskReserve(nPrimary),
-		SupplierShare:    supplierShareRate,
+		SupplierShare:    cataloguePrice.SupplierShare,
 		SLAPremiumUSD:    slaPremiumUSD,
 		// Same exact catalogue derivation the quote made, over the same geometry.
 		// If it differs the plans differ, and a bound submit is refused rather than
@@ -2616,15 +2616,10 @@ func (s *Server) handleWorkerViability(w http.ResponseWriter, r *http.Request) {
 	// The report quotes the same catalogue authority admission uses, so it can
 	// never explain the gate with a price the gate did not apply.
 	rows := SupplierAdmissionViability(
-		hwClass, minPayout, supplierShareRate, "batch", time.Now(),
-		func(modelID string) (float64, error) {
-			authority, err := s.store.LoadCataloguePriceAuthority(r.Context(), modelID)
-			if err != nil {
-				return 0, err
-			}
-			return authority.ReferencePricePer1K, nil
-		},
-	)
+		hwClass, minPayout, "batch", time.Now(),
+		func(modelID string) (CataloguePriceAuthority, error) {
+			return s.store.LoadCataloguePriceAuthority(r.Context(), modelID)
+		})
 	writeJSON(w, http.StatusOK, rows)
 }
 

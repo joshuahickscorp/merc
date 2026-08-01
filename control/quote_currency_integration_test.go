@@ -145,7 +145,7 @@ func TestInsertQuoteRejectsCurrencyMismatchBeforeDatabaseWrite(t *testing.T) {
 func placementRequirementFixture(t *testing.T, workload WorkloadDecision) PlacementRequirement {
 	t.Helper()
 	authority := catalogueAuthorityFixture(
-		t, workload, SettlementCurrencyCode(), supplierShareRate,
+		t, workload, SettlementCurrencyCode(), supplierShareForTest(t, workload.RuntimeJobType, workload.Binding.Model.Ref),
 	)
 	return placementForPricingFixture(t, workload, authority)
 }

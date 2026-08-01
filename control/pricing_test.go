@@ -49,7 +49,7 @@ func TestRepriceFromSupplierEconomicsUnknownHWClassFallsBackConservatively(t *te
 }
 
 func TestRepriceCatalogueFromSupplierEconomicsOmitsUnmeasuredModels(t *testing.T) {
-	results := RepriceCatalogueFromSupplierEconomics(0.97)
+	results := RepriceCatalogueFromSupplierEconomics()
 	if len(results) == 0 {
 		t.Fatal("expected at least the two board-mapped measured models")
 	}
@@ -93,7 +93,7 @@ func TestMarketBoardIsWeightedMedianTimesMultiplier(t *testing.T) {
 
 func TestCatalogueScheduleDigestBindsBoardPolicyAndEveryResult(t *testing.T) {
 	pinBoardClockForPublication(t)
-	schedule, err := BuildCataloguePriceSchedule(0.97)
+	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,8 @@ func TestCatalogueScheduleDigestBindsBoardPolicyAndEveryResult(t *testing.T) {
 		{"board digest", func(s *CataloguePriceSchedule) { s.BoardSHA256 = strings.Repeat("f", 64) }},
 		{"board fetch", func(s *CataloguePriceSchedule) { s.BoardFetchedAt += "-changed" }},
 		{"positioning", func(s *CataloguePriceSchedule) { s.PositioningMultiplier += 0.01 }},
-		{"supplier share", func(s *CataloguePriceSchedule) { s.SupplierShare -= 0.01 }},
+		{"supplier share policy", func(s *CataloguePriceSchedule) { s.SupplierSharePolicyRevision += "-changed" }},
+		{"workload supplier share", func(s *CataloguePriceSchedule) { s.Results[0].SupplierShare -= 0.01 }},
 		{"model price", func(s *CataloguePriceSchedule) { s.Results[0].PricePer1K *= 2 }},
 		{"formula", func(s *CataloguePriceSchedule) { s.Results[0].Formula += " changed" }},
 		{"missing model", func(s *CataloguePriceSchedule) { s.Results = s.Results[:1] }},
@@ -129,12 +130,39 @@ func TestCatalogueScheduleDigestBindsBoardPolicyAndEveryResult(t *testing.T) {
 	}
 }
 
+func TestPublishedCatalogueCarriesDistinctPhysicalWorkloadShares(t *testing.T) {
+	pinBoardClockForPublication(t)
+	schedule, err := BuildCataloguePriceSchedule()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if schedule.SupplierShare != 0 || schedule.SupplierSharePolicyRevision != supplierSharePolicyRevision {
+		t.Fatalf("schedule still carries a global supplier share: %+v", schedule)
+	}
+	seen := map[float64]bool{}
+	for _, result := range schedule.Results {
+		want := supplierShareForTest(t, result.JobType, result.ModelID)
+		if result.SupplierShare != want {
+			t.Fatalf("%s/%s supplier share=%v want workload policy %v",
+				result.JobType, result.ModelID, result.SupplierShare, want)
+		}
+		if !strings.Contains(result.Formula, "supplier_share_policy="+supplierSharePolicyRevision) {
+			t.Fatalf("%s formula lacks policy provenance: %s", result.ModelID, result.Formula)
+		}
+		seen[result.SupplierShare] = true
+	}
+	if len(seen) < 2 {
+		t.Fatalf("all %d physical catalogue rows share one supplier percentage: %v",
+			len(schedule.Results), seen)
+	}
+}
+
 func TestCatalogueScheduleRequiresExplicitCrossCurrencyFX(t *testing.T) {
 	pinBoardClockForPublication(t)
 	installSettlementCurrencyForTest(t, "cad")
 	t.Setenv(priceFXRateEnv, "")
 	t.Setenv(priceFXRevisionEnv, "")
-	if _, err := BuildCataloguePriceSchedule(0.97); err == nil ||
+	if _, err := BuildCataloguePriceSchedule(); err == nil ||
 		!strings.Contains(err.Error(), priceFXRateEnv) ||
 		!strings.Contains(err.Error(), priceFXRevisionEnv) {
 		t.Fatalf("cross-currency schedule without FX authority error=%v", err)
@@ -142,7 +170,7 @@ func TestCatalogueScheduleRequiresExplicitCrossCurrencyFX(t *testing.T) {
 
 	t.Setenv(priceFXRateEnv, "1.375")
 	t.Setenv(priceFXRevisionEnv, "operator-approved-2026-07-28T1400Z")
-	schedule, err := BuildCataloguePriceSchedule(0.97)
+	schedule, err := BuildCataloguePriceSchedule()
 	if err != nil {
 		t.Fatal(err)
 	}
