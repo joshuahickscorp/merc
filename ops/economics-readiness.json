@@ -14,7 +14,9 @@
     "platform_take_rate": null,
     "processor_percent": null,
     "processor_fixed_usd": null,
-    "control_plane_per_task_usd": null,
+    "control_plane_per_batch_usd": null,
+    "control_plane_allocation_policy": "charge_batch_pro_rata_v1",
+    "minimum_contribution_per_batch_usd": null,
     "target_margin_rate": null,
     "supplier_settlement_policy":"floor whole cents and carry sub-cent liability",
     "approval_status":"UNSET_NOT_APPROVED"

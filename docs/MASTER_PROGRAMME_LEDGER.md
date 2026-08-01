@@ -272,7 +272,8 @@ missing any one of them returns 503 or 409 to a stranger:
 
 1. `MERC_SANDBOX_CREDIT_USD` — defaults to **zero**, so a stranger signs up unfunded.
 2. `MERC_ECON_SCHEDULE_VERSION`, `MERC_PROCESSOR_PERCENT_BPS`,
-   `MERC_PROCESSOR_FIXED_USD`, `MERC_CONTROL_PLANE_PER_TASK_USD`,
+   `MERC_PROCESSOR_FIXED_USD`, `MERC_CONTROL_PLANE_PER_BATCH_USD`,
+   `MERC_MIN_CONTRIBUTION_PER_BATCH_USD`,
    `MERC_TARGET_MARGIN_BPS` — all required, no defaults.
 3. `MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE` + `MERC_PRICE_FX_REVISION` — the
    USD-reference-to-CAD operator input.
@@ -524,16 +525,12 @@ single-row scan would have passed while a second, wrong supplier was also paid.
 
 ### One honest number to sit with
 
-The supplier earned **2 micros of a 11,564 micro charge**. That is not a defect
-and not a rounding failure — it is the shape of a three-record job under this
-schedule. `MERC_CONTROL_PLANE_PER_TASK_USD` is $0.005 and there are two tasks, so
-$0.010 of the charge is control-plane cost Merc actually incurs, and the target
-margin is taken on top. The physical compute genuinely is worth about a
-micro-USD.
-
-It is still worth naming, because a 99.98% platform share is not a defensible
-market position, and nothing in `§18 Competitive proof` can be claimed from a job
-whose price is entirely fixed cost. Small jobs need either amortised control-plane
-cost (batching, coalescing) or a minimum job size the buyer sees before they
-submit. That is Phase 5 and Phase 7 work, and it now has a measured number
+The retained receipt paid the supplier **2 micros of an 11,564 micro charge**.
+That is the measured defect baseline, not an acceptable current policy. The
+replacement schedule allocates declared account/invoice overhead across the
+collector's economic charge batch, rounds the supplier's ledger projection up
+from its exact nano-unit entitlement, and requires positive absolute
+contribution. Receipts now distinguish the gross platform ledger row from true
+net contribution; the latter remains unavailable while any named cost category
+is unknown rather than being presented as profit.
 attached to it rather than an intuition.

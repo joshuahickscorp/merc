@@ -213,7 +213,7 @@ func TestValidateEconomicPlanSnapshotRejectsScalarAndScenarioTampering(t *testin
 func TestLoadEconomicScheduleFromEnvFailsClosedAndParsesBasisPoints(t *testing.T) {
 	for _, name := range []string{
 		economicScheduleVersionEnv, processorPercentBPSEnv, processorFixedUSDEnv,
-		controlPerTaskUSDEnv, targetMarginBPSEnv,
+		controlPerBatchUSDEnv, minimumContributionUSDEnv, targetMarginBPSEnv,
 	} {
 		t.Setenv(name, "")
 	}
@@ -223,14 +223,18 @@ func TestLoadEconomicScheduleFromEnvFailsClosedAndParsesBasisPoints(t *testing.T
 	t.Setenv(economicScheduleVersionEnv, "operator-reviewed-2026-07")
 	t.Setenv(processorPercentBPSEnv, "350")
 	t.Setenv(processorFixedUSDEnv, "0.35")
-	t.Setenv(controlPerTaskUSDEnv, "0.005")
+	t.Setenv(controlPerBatchUSDEnv, "0.005")
+	t.Setenv(minimumContributionUSDEnv, "0.000001")
 	t.Setenv(targetMarginBPSEnv, "300")
 	s, err := LoadEconomicScheduleFromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s.Currency != SettlementCurrencyCode() ||
-		s.ProcessorPercent != .035 || s.TargetMarginRate != .03 || s.ProcessorFixedUSD != .35 {
+		s.ProcessorPercent != .035 || s.TargetMarginRate != .03 || s.ProcessorFixedUSD != .35 ||
+		s.ControlPlanePerBatchUSD != .005 ||
+		s.MinimumContributionUSD != .000001 ||
+		s.ControlPlaneAllocationPolicy != controlPlaneAllocationChargeBatchV1 {
 		t.Fatalf("wrong schedule: %+v", s)
 	}
 	t.Setenv(processorPercentBPSEnv, "not-a-number")

@@ -154,20 +154,21 @@ Metal), claimed a real buyer job, and the whole chain completed:
 
 ### The historical small-job supplier hole is fixed
 
-The 3-row job gave merc **99.2%** of the buyer charge. Measured rather than
-assumed: `MERC_CONTROL_PLANE_PER_TASK_USD` is a fixed 100 micro-USD per task
-against a 125 micro-USD per-task charge, so fixed cost eats 80% before anything
-is split and the supplier's share rounds to 1 micro-USD. A 400-row job on the
-same worker splits **49/51**.
+The retained 3-row receipt gave merc **99.2%** of the buyer charge. That remains
+historical evidence of the former per-task fixed-cost defect, not the current
+policy. New schedules declare `MERC_CONTROL_PLANE_PER_BATCH_USD`; the same
+economic batch that amortises the processor fixed fee allocates this overhead
+pro rata. `MERC_MIN_CONTRIBUTION_PER_BATCH_USD` prevents a percentage target
+from rounding to zero on a micro-job.
 
 This is the same failure class as the LoRA compute floor truncating to zero: a
 fixed cost dominating a small quote leaves a party with approximately nothing,
 through arithmetic rather than policy. A supplier serving only minimum-size jobs
-would have worked for almost nothing. `BuildEconomicPlan` now derives and
-freezes a minimum billable base-compute floor so every executable physical-work
-plan that charges the buyer reserves at least one micro-USD of supplier
-liability. `estimateJobSettlement` also floors positive sub-micro work before the plan
-is built. The figures above remain historical measurements, not a claim about
+would have worked for almost nothing. `BuildEconomicPlan` now both derives the
+minimum billable supplier floor and solves the discrete micro-ledger scenarios
+against the configured absolute contribution. Supplier settlement projection
+rounds upward and may never fall below the exact nano-unit floor. The figures
+above remain historical measurements, not a claim about
 current quotes.
 
 ### Two bugs this run surfaced

@@ -33,7 +33,11 @@ func strangerDeploymentInputs(t *testing.T) {
 	t.Setenv("MERC_ECON_SCHEDULE_VERSION", "first-complete-loop-v1")
 	t.Setenv("MERC_PROCESSOR_PERCENT_BPS", "350")
 	t.Setenv("MERC_PROCESSOR_FIXED_USD", "0.35")
-	t.Setenv("MERC_CONTROL_PLANE_PER_TASK_USD", "0.005")
+	// Fixed account/invoice overhead is allocated across the $5 economic charge
+	// batch. Charging this once per physical task was the source of the historical
+	// 11,564-micro buyer / 2-micro supplier receipt.
+	t.Setenv("MERC_CONTROL_PLANE_PER_BATCH_USD", "0.005")
+	t.Setenv("MERC_MIN_CONTRIBUTION_PER_BATCH_USD", "0.000001")
 	t.Setenv("MERC_TARGET_MARGIN_BPS", "300")
 	// 4. The USD-reference-to-CAD-settlement rate, operator declared, with an
 	//    immutable revision. Neither the application nor a test may invent one.
@@ -186,6 +190,11 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 		t.Fatalf("admitted with the supplier entitled to %d nanos against a %d nano floor",
 			pricing.SupplierGrossNanos, pricing.SupplierRequiredNanos)
 	}
+	settlementProjectionNanos := usdToMicros(economic.SupplierPayoutPerTaskUSD) * NanosPerMicro
+	if settlementProjectionNanos < pricing.SupplierRequiredNanos {
+		t.Fatalf("ledger settlement projection is %d nanos against the admitted supplier floor %d",
+			settlementProjectionNanos, pricing.SupplierRequiredNanos)
+	}
 	// Conservation, exactly: the supplier can never be owed more per task than the
 	// buyer was charged for it.
 	if economic.BuyerChargePerTaskNanos > 0 &&
@@ -202,6 +211,25 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 		t.Fatalf("exact base compute %d nanos per task is a whole number of micro-USD, "+
 			"so this fixture no longer exercises the sub-micro rounding class",
 			economic.BaseComputePerTaskNanos)
+	}
+	full, err := fullSuccessEconomicScenario(economic)
+	if err != nil {
+		t.Fatalf("full-success economics: %v", err)
+	}
+	if full.ContributionMarginUSD <= 0 {
+		t.Fatalf("tiny job is admitted at non-positive modeled contribution: %+v", full)
+	}
+	if full.NetBilledUSD <= 0 || full.SupplierLiabilityUSD/full.NetBilledUSD < 0.25 {
+		t.Fatalf("tiny-job supplier share is still commercially meaningless: supplier %.9f / buyer %.9f",
+			full.SupplierLiabilityUSD, full.NetBilledUSD)
+	}
+	if full.ControlPlaneCostUSD >= 0.005*float64(full.AcceptedTasks) {
+		t.Fatalf("control overhead was still charged once per physical task: %+v", full)
+	}
+	if got, want := usdToMicros(full.NetBilledUSD),
+		usdToMicros(full.SupplierLiabilityUSD)+usdToMicros(full.ProcessorFeeUSD)+
+			usdToMicros(full.ControlPlaneCostUSD)+usdToMicros(full.ContributionMarginUSD); got != want {
+		t.Fatalf("commercial split does not conserve: buyer=%d parts=%d micro-units", got, want)
 	}
 	// And the quantisation the old path applied would still REFUSE this job. That
 	// is the exact property worth asserting: not that some fraction is lost, but

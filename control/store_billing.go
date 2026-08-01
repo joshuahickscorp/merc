@@ -147,6 +147,12 @@ type InvoiceView struct {
 	ChargedUSD      float64 `json:"charged_usd"`
 	SupplierPaidUSD float64 `json:"supplier_credit_usd"`
 	PlatformTakeUSD float64 `json:"platform_take_usd"`
+	// PlatformGrossSpreadUSD is the honest name for the legacy platform_take
+	// ledger row: buyer charge less supplier entitlement, before Merc's costs.
+	// It is not profit. Contribution separates every cost status and only emits a
+	// true net amount when none is unknown.
+	PlatformGrossSpreadUSD float64                   `json:"platform_gross_spread_usd"`
+	Contribution           *EconomicContributionView `json:"contribution,omitempty"`
 	// BuyerRefundUSD is the positive sum of buyer_refund ledger rows for this
 	// job (task-scoped plus dispute-keyed SLA premium refunds). Zero when none.
 	BuyerRefundUSD float64 `json:"buyer_refund_usd,omitempty"`
@@ -182,6 +188,110 @@ type InvoiceView struct {
 	ObservedOutputTokens *int64   `json:"observed_output_tokens,omitempty"`
 	FrozenBuyerChargeUSD *float64 `json:"frozen_buyer_charge_usd,omitempty"`
 	OutputTokenRebateUSD *float64 `json:"output_token_rebate_usd,omitempty"`
+}
+
+type ContributionComponentView struct {
+	Status    string   `json:"status"`
+	AmountUSD *float64 `json:"amount_usd,omitempty"`
+	Basis     string   `json:"basis"`
+}
+
+type EconomicContributionView struct {
+	Currency                     string                    `json:"currency"`
+	SupplierExecutionEntitlement ContributionComponentView `json:"supplier_execution_entitlement"`
+	VerificationEntitlement      ContributionComponentView `json:"verification_supplier_entitlement"`
+	CloudProviderCost            ContributionComponentView `json:"cloud_provider_cost"`
+	StorageEgressCost            ContributionComponentView `json:"storage_egress_cost"`
+	PaymentProcessingAllocation  ContributionComponentView `json:"payment_processing_allocation"`
+	FraudRefundReserve           ContributionComponentView `json:"fraud_refund_reserve"`
+	AllocatedControlPlaneCost    ContributionComponentView `json:"allocated_control_plane_cost"`
+	MercGrossSpread              ContributionComponentView `json:"merc_gross_spread"`
+	MercNetContribution          ContributionComponentView `json:"merc_net_contribution"`
+	Subsidy                      ContributionComponentView `json:"subsidy"`
+}
+
+func contributionAmount(status string, amount float64, basis string) ContributionComponentView {
+	value := roundEconomicUSD(amount)
+	return ContributionComponentView{Status: status, AmountUSD: &value, Basis: basis}
+}
+
+func contributionUnknown(basis string) ContributionComponentView {
+	return ContributionComponentView{Status: pricingCostUnknown, Basis: basis}
+}
+
+func pricingContributionComponent(c PricingCostComponent) ContributionComponentView {
+	if c.Status == pricingCostUnknown {
+		return contributionUnknown(c.Basis)
+	}
+	return contributionAmount(c.Status, c.Amount, c.Basis)
+}
+
+func buildEconomicContributionView(
+	pricing *PricingDecision,
+	currency string,
+	grossSpread float64,
+	processorFee *float64,
+	subsidyUSD float64,
+) *EconomicContributionView {
+	if pricing == nil {
+		return nil
+	}
+	out := &EconomicContributionView{
+		Currency:                     currency,
+		SupplierExecutionEntitlement: pricingContributionComponent(pricing.PrimarySupplierCost),
+		VerificationEntitlement:      pricingContributionComponent(pricing.VerificationCost),
+		CloudProviderCost:            pricingContributionComponent(pricing.ProviderCost),
+		FraudRefundReserve:           pricingContributionComponent(pricing.RiskReserve),
+		AllocatedControlPlaneCost:    pricingContributionComponent(pricing.ControlPlaneCost),
+		MercGrossSpread: contributionAmount("settled", grossSpread,
+			"buyer settlement less supplier settlement; gross spread, not profit"),
+		Subsidy: contributionAmount("settled", subsidyUSD,
+			"authorized platform-subsidy funding attributed to this job"),
+	}
+	// Storage and egress stay separate in PricingDecision because they have
+	// different evidence, but the commercial receipt reports their sum as the
+	// externally requested category only when both are known.
+	if pricing.StorageCost.Status == pricingCostUnknown ||
+		pricing.EgressCost.Status == pricingCostUnknown {
+		out.StorageEgressCost = contributionUnknown(
+			"storage or egress cost is not yet independently attributed")
+	} else {
+		out.StorageEgressCost = contributionAmount("modeled",
+			pricing.StorageCost.Amount+pricing.EgressCost.Amount,
+			"frozen storage plus egress allocation")
+	}
+	if processorFee != nil {
+		out.PaymentProcessingAllocation = contributionAmount("settled", *processorFee,
+			"immutable processor fee allocated from the collected charge")
+	} else {
+		out.PaymentProcessingAllocation = contributionUnknown(
+			"processor cash fee has not yet been reconciled and allocated")
+	}
+
+	known := processorFee != nil
+	knownCost := subsidyUSD
+	if processorFee != nil {
+		knownCost += *processorFee
+	}
+	for _, component := range []PricingCostComponent{
+		pricing.ControlPlaneCost, pricing.StorageCost, pricing.EgressCost,
+		pricing.ProviderCost, pricing.RiskReserve,
+	} {
+		if component.Status == pricingCostUnknown {
+			known = false
+			continue
+		}
+		knownCost += component.Amount
+	}
+	if known {
+		out.MercNetContribution = contributionAmount("settled",
+			grossSpread-knownCost,
+			"gross spread less processor, control, storage, egress, provider, risk and subsidy costs")
+	} else {
+		out.MercNetContribution = contributionUnknown(
+			"true net contribution is unavailable until every cost category is attributed")
+	}
+	return out
 }
 
 func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*InvoiceView, error) {
@@ -341,6 +451,23 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 		netUSD := microsToUSD(netMicros)
 		iv.PlatformNetAfterProcessorUSD = &netUSD
 	}
+	iv.PlatformGrossSpreadUSD = iv.PlatformTakeUSD
+	pricing, err := s.JobPricingDecision(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	var subsidyUSD float64
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(f.amount_cents),0)::float8 / 100
+		  FROM supplier_payout_funding f
+		 WHERE f.liability_job_id=$1 AND f.source_kind='platform_subsidy'`, jobID).
+		Scan(&subsidyUSD); err != nil {
+		return nil, err
+	}
+	iv.Contribution = buildEconomicContributionView(
+		pricing, iv.Currency, iv.PlatformGrossSpreadUSD,
+		iv.ProcessorFeeAllocatedUSD, subsidyUSD,
+	)
 	if quoted, ok, qerr := s.QuotedUSDForJob(ctx, jobID); qerr != nil {
 		return nil, qerr
 	} else if ok {

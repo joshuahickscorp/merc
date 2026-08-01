@@ -39,7 +39,8 @@ separate `refusing to start`:
 | `MERC_ECON_SCHEDULE_VERSION` | `2026-07-19` |
 | `MERC_PROCESSOR_PERCENT_BPS` | `290` |
 | `MERC_PROCESSOR_FIXED_USD` | `0.30` |
-| `MERC_CONTROL_PLANE_PER_TASK_USD` | `0.0001` |
+| `MERC_CONTROL_PLANE_PER_BATCH_USD` | `0.0001` — declared account/invoice overhead allocated across the collector's economic charge batch. |
+| `MERC_MIN_CONTRIBUTION_PER_BATCH_USD` | `0.000001` — positive absolute contribution floor for micro-jobs. |
 | `MERC_TARGET_MARGIN_BPS` | `1000` |
 | `MERC_PAYMENT_MODE` | `sealed` until the candidate-bound LIVE activation package exists. |
 | `MERC_PAYMENT_PROVIDER` | `none` in SEALED; `stripe` in LIVE. |

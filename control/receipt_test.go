@@ -17,7 +17,8 @@ func TestAssembleClearingReceipt(t *testing.T) {
 	inv := &InvoiceView{
 		JobID: jobID, Status: "complete",
 		EstimatedUSD: 9.0, ActualUSD: 8.0, ChargedUSD: 8.0,
-		SupplierPaidUSD: 7.76, PlatformTakeUSD: 0.24, QuotedUSD: &quoted,
+		SupplierPaidUSD: 7.76, PlatformTakeUSD: 0.24,
+		PlatformGrossSpreadUSD: 0.24, QuotedUSD: &quoted,
 		ProcessorFeeAllocatedUSD:     &processorFee,
 		ProcessorFeeAllocationMethod: &allocationMethod,
 		PlatformNetAfterProcessorUSD: &platformNet,
@@ -116,6 +117,7 @@ func TestClearingReceiptExposesExactCompositePricingAndReconciliation(t *testing
 			pricing.PrimarySupplierCost.Amount + pricing.VerificationCost.Amount,
 		),
 		PlatformTakeUSD:          pricing.PlatformContribution.Amount,
+		PlatformGrossSpreadUSD:   pricing.PlatformContribution.Amount,
 		ProcessorFeeAllocatedUSD: &processor,
 	}
 	receipt := assembleClearingReceipt(
@@ -139,5 +141,35 @@ func TestClearingReceiptExposesExactCompositePricingAndReconciliation(t *testing
 		receipt.Reconciliation.AcceptedBuyerPrice != pricing.BuyerPrice ||
 		receipt.Reconciliation.SettledSupplierCost != invoice.SupplierPaidUSD {
 		t.Fatalf("receipt lost pricing reconciliation: %+v", receipt.Reconciliation)
+	}
+}
+
+func TestContributionViewNeverCallsGrossSpreadTrueNetWhileCostsAreUnknown(t *testing.T) {
+	_, _, _, _, pricing := distributedPricingFixture(t)
+	processor := 0.000002
+	view := buildEconomicContributionView(&pricing, pricing.Currency, 0.011562, &processor, 0)
+	if view.MercGrossSpread.AmountUSD == nil || *view.MercGrossSpread.AmountUSD != 0.011562 {
+		t.Fatalf("gross spread missing: %+v", view.MercGrossSpread)
+	}
+	if view.MercNetContribution.Status != pricingCostUnknown ||
+		view.MercNetContribution.AmountUSD != nil {
+		t.Fatalf("unknown costs were presented as true net contribution: %+v",
+			view.MercNetContribution)
+	}
+
+	known := pricing
+	known.StorageCost = modeledCost(0.000001, "metered storage allocation")
+	known.EgressCost = modeledCost(0.000001, "metered egress allocation")
+	known.ProviderCost = notApplicableCost("supplier entitlement covers external provider")
+	known.RiskReserve = modeledCost(0.000001, "calibrated refund reserve")
+	view = buildEconomicContributionView(&known, known.Currency, 0.011562, &processor, 0)
+	if view.MercNetContribution.Status != "settled" ||
+		view.MercNetContribution.AmountUSD == nil {
+		t.Fatalf("fully attributed costs did not produce net contribution: %+v",
+			view.MercNetContribution)
+	}
+	want := roundEconomicUSD(0.011562 - processor - known.ControlPlaneCost.Amount - 0.000003)
+	if *view.MercNetContribution.AmountUSD != want {
+		t.Fatalf("net contribution=%v want=%v", *view.MercNetContribution.AmountUSD, want)
 	}
 }
