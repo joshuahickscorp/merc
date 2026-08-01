@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "kind": "runpod_spend_receipt",
+  "pod_id": "rr7b6uwmivaolh",
+  "gpu": "NVIDIA RTX A5000",
+  "image": "vllm/vllm-openai:v0.26.0-cu129-ubuntu2404",
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "cost_per_hr_usd": 0.16,
+  "cap_usd": 1.0,
+  "lifetime_budget_secs": 18000,
+  "lifetime_actual_secs": 105,
+  "spend_usd": 0.01,
+  "cap_headroom_usd": 0.99,
+  "started_at_unix": 1785543484,
+  "stopped_at_unix": 1785543589,
+  "teardown_verified": true,
+  "orphan_pods": [],
+  "ready": true,
+  "admissible": true,
+  "refusals": [],
+  "limitations": [
+    "Spend is derived from RunPod's advertised cost per hour and the pod's observed lifetime, not from an invoice. It is what Merc believes it spent; the provider's own billing is the authority.",
+    "Storage and network egress are not included."
+  ]
+}
