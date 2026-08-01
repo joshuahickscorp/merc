@@ -89,11 +89,11 @@ type ProjectIRResult struct {
 }
 
 type ProjectIREconomics struct {
-	Currency              string `json:"currency"`
-	MaximumBuyerPrice     string `json:"maximum_buyer_price"`
-	SupplierFloor         string `json:"supplier_floor"`
-	MercContribution      string `json:"merc_contribution"`
-	PricingDecisionSHA256 string `json:"pricing_decision_sha256,omitempty"`
+	Currency               string `json:"currency"`
+	MaximumBuyerPriceNanos int64  `json:"maximum_buyer_price_nanos,omitempty"`
+	SupplierFloor          string `json:"supplier_floor"`
+	MercContribution       string `json:"merc_contribution"`
+	PricingDecisionSHA256  string `json:"pricing_decision_sha256,omitempty"`
 }
 
 type ProjectIREstimate struct {
@@ -158,7 +158,10 @@ func compileProject(opts projectCompileOptions) (ProjectWorkloadIR, error) {
 		return ProjectWorkloadIR{}, err
 	}
 	if opts.ProbeRequested {
-		proposal := buildProjectIR(files, projectCompileOptions{Root: opts.Root})
+		proposal, buildErr := buildProjectIR(files, projectCompileOptions{Root: opts.Root})
+		if buildErr != nil {
+			return ProjectWorkloadIR{}, buildErr
+		}
 		proposalDigest, digestErr := projectIRDigest(proposal)
 		if digestErr != nil {
 			return ProjectWorkloadIR{}, digestErr
@@ -169,7 +172,10 @@ func compileProject(opts projectCompileOptions) (ProjectWorkloadIR, error) {
 				opts.BuyerApprovedIRSHA256, proposalDigest)
 		}
 	}
-	ir := buildProjectIR(files, opts)
+	ir, err := buildProjectIR(files, opts)
+	if err != nil {
+		return ProjectWorkloadIR{}, err
+	}
 	digest, err := projectIRDigest(ir)
 	if err != nil {
 		return ProjectWorkloadIR{}, err
@@ -267,7 +273,7 @@ func inspectProject(root string) ([]projectFile, error) {
 	return files, nil
 }
 
-func buildProjectIR(files []projectFile, opts projectCompileOptions) ProjectWorkloadIR {
+func buildProjectIR(files []projectFile, opts projectCompileOptions) (ProjectWorkloadIR, error) {
 	ir := ProjectWorkloadIR{
 		Version: projectIRVersion, Status: "PROPOSED_NOT_ADMISSIBLE",
 		Privacy: ProjectIRPrivacy{Egress: "UNSPECIFIED_REFUSE", DataLocation: "UNSPECIFIED_REFUSE"},
@@ -276,15 +282,15 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) ProjectWork
 			Contract: "UNRESOLVED_REFUSE", Retention: "UNRESOLVED_REFUSE", Delivery: "UNRESOLVED_REFUSE",
 		},
 		Economics: ProjectIREconomics{
-			Currency: "UNRESOLVED_REFUSE", MaximumBuyerPrice: "UNRESOLVED_REFUSE",
-			SupplierFloor: "UNRESOLVED_REFUSE", MercContribution: "UNRESOLVED_REFUSE",
+			Currency: "UNRESOLVED_REFUSE", SupplierFloor: "UNRESOLVED_REFUSE",
+			MercContribution: "UNRESOLVED_REFUSE",
 		},
 		Estimate: ProjectIREstimate{State: "UNCALIBRATED_REFUSE", CalibrationBasis: "no outcome-linked calibration cohort"},
 		Probe: ProjectIRProbe{
 			Requested: opts.ProbeRequested, BuyerAuthorized: opts.ProbeRequested,
 			ApprovedIRSHA256: opts.BuyerApprovedIRSHA256,
 		},
-		Unknowns: []string{"buyer deadline", "data residency and egress permission", "quality threshold", "runtime/model revisions", "outcome-linked cost and duration calibration"},
+		Unknowns: []string{"buyer deadline", "data residency and egress permission", "quality threshold", "runtime/model revisions", "step dependencies and artifact dataflow", "outcome-linked cost and duration calibration"},
 	}
 	projectHash := sha256.New()
 	for _, file := range files {
@@ -296,19 +302,23 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) ProjectWork
 	for _, reason := range unsafeProjectSignals(files) {
 		ir.RefusalReasons = append(ir.RefusalReasons, reason)
 	}
-	for i, detection := range ir.Detections {
-		stepID := fmt.Sprintf("step-%02d-%s", i+1, detection.Kind)
-		depends := []string(nil)
-		if i > 0 {
-			depends = []string{ir.Steps[i-1].ID}
+	declaration, declared, err := projectDeclarationFromFiles(files)
+	if err != nil {
+		return ProjectWorkloadIR{}, err
+	}
+	if declared {
+		applyProjectDeclaration(&ir, declaration)
+	} else {
+		for i, detection := range ir.Detections {
+			stepID := fmt.Sprintf("step-%02d-%s", i+1, detection.Kind)
+			ir.Steps = append(ir.Steps, ProjectIRStep{
+				ID: stepID, Kind: detection.Kind, DependsOn: nil,
+				Inputs: []string{"project://input"}, Outputs: []string{"project://" + stepID},
+				RuntimeContract: "UNRESOLVED_REFUSE", ModelContract: "UNRESOLVED_REFUSE",
+				ResourceEstimate: "UNCALIBRATED_REFUSE", Parallelism: "UNRESOLVED_REFUSE",
+				CheckpointPolicy: "REQUIRED_UNRESOLVED", Verification: "REQUIRED_UNRESOLVED",
+			})
 		}
-		ir.Steps = append(ir.Steps, ProjectIRStep{
-			ID: stepID, Kind: detection.Kind, DependsOn: depends,
-			Inputs: []string{"project://input"}, Outputs: []string{"project://" + stepID},
-			RuntimeContract: "UNRESOLVED_REFUSE", ModelContract: "UNRESOLVED_REFUSE",
-			ResourceEstimate: "UNCALIBRATED_REFUSE", Parallelism: "UNRESOLVED_REFUSE",
-			CheckpointPolicy: "REQUIRED_UNRESOLVED", Verification: "REQUIRED_UNRESOLVED",
-		})
 	}
 	if opts.ProbeRequested {
 		runBoundedProjectProbe(files, &ir.Probe)
@@ -321,9 +331,21 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) ProjectWork
 			ir.RefusalReasons = append(ir.RefusalReasons, "low-confidence detector: "+d.Kind)
 		}
 	}
+	if declared {
+		detected := make(map[string]bool, len(ir.Detections))
+		for _, detection := range ir.Detections {
+			detected[detection.Kind] = true
+		}
+		for _, step := range ir.Steps {
+			if !detected[step.Kind] {
+				ir.RefusalReasons = append(ir.RefusalReasons,
+					"declared step has no independent detector evidence: "+step.ID)
+			}
+		}
+	}
 	ir.RefusalReasons = append(ir.RefusalReasons, "cost and duration estimates are not calibrated against outcome-linked observations")
 	sort.Strings(ir.RefusalReasons)
-	return ir
+	return ir, nil
 }
 
 func detectProjectWorkloads(files []projectFile) []ProjectIRDetection {

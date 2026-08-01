@@ -97,3 +97,59 @@ LoRA, model evaluation, bounded containers, and service deployment. Evidence is
 the set of project-relative files carrying each signal. Two independent files
 raise a detector from 0.55 to 0.72; this is only a proposal confidence and does
 not assert that the inferred graph is runnable.
+
+Detector ordering never creates graph edges. Without an explicit, validated
+dataflow declaration, detected steps are independent and the IR records step
+dependencies as unresolved. A sorted filename or detector name is not evidence
+that one workload consumes another's result.
+
+## Explicit project declaration
+
+A project may include a root `merc.project.json`. This is the buyer's proposed
+dataflow and constraints, not server authority. It contains version 1, 1–256
+steps, privacy, quality, optional RFC3339 deadline, result policy, and economics.
+Steps name explicit inputs, outputs and dependencies; the compiler rejects
+missing dependencies, self-dependencies and cycles, then sorts the DAG by step
+ID for canonical identity.
+
+Each declared step must use a supported detector kind, bind proposed runtime and
+model contracts by SHA-256, require a bounded resource probe, declare
+`INDEPENDENT`, `TIGHT`, or `SINGLE_DEVICE` parallelism, and name checkpoint and
+verification policy. A declared kind with no independent static detector signal
+is retained in the graph but produces a refusal.
+
+Economics contains an ISO currency and a positive
+`maximum_buyer_price_nanos`. Fixed-point nanos avoid a float or integer-unit
+rounding change before a price exists. The buyer must leave `supplier_floor` and
+`merc_contribution` as `UNRESOLVED_REFUSE` and may not provide a
+`pricing_decision_sha256`; only server pricing authority may resolve those.
+
+Example skeleton:
+
+```json
+{
+  "version": 1,
+  "steps": [{
+    "id": "extract",
+    "kind": "structured_extraction",
+    "depends_on": [],
+    "inputs": ["project://input"],
+    "outputs": ["project://records"],
+    "runtime_contract": "<sha256>",
+    "model_contract": "<sha256>",
+    "resource_estimate": "BOUNDED_PROBE_REQUIRED",
+    "parallelism": "SINGLE_DEVICE",
+    "checkpoint_policy": "NOT_APPLICABLE",
+    "verification": "schema-v1"
+  }],
+  "privacy": {"egress": "DENY", "data_location": "CA"},
+  "quality": {"requirement": "buyer-fixture-v1", "verification": "independent"},
+  "result": {"contract": "artifact-set-v1", "retention": "30d", "delivery": "object-store"},
+  "economics": {
+    "currency": "cad",
+    "maximum_buyer_price_nanos": 50000000,
+    "supplier_floor": "UNRESOLVED_REFUSE",
+    "merc_contribution": "UNRESOLVED_REFUSE"
+  }
+}
+```
