@@ -296,6 +296,9 @@ def main():
     matrix_version, profiles = authority_state()
     schema = read("control/schema.sql")
     authority = dev_authority()
+    api_source = read("control/api.go")
+    store_jobs_source = read("control/store_jobs.go")
+    project_submit_tests = read("control/project_submit_test.go")
 
     # The definition site is not a caller. Excluding it is the difference between
     # "wired" and "declared", which is the exact thing prose gets wrong.
@@ -356,8 +359,52 @@ def main():
             "coalescing_production_callers": coalescing_callers,
             "coalescing_resolver_callers": coalescing_resolvers,
             "coalescing_lease_table": "inflight_executions" in schema,
+            # Successful followers are not inferred from the short-lived lease
+            # counter. Their physical-leader relationship and avoided supplier
+            # entitlement are written atomically with the logical settlement.
+            # This says only that the production writer/table exists in source;
+            # it is not a claim of a real vLLM execution or true net cost.
+            "coalescing_receipt_provenance": {
+                "delivery_table_declared": "realtime_coalesced_deliveries" in schema,
+                "production_references": production_callers(
+                    "realtime_coalesced_deliveries"),
+                "leader_contract_required": bool(re.search(
+                    r"leader_contract_id\s+UUID\s+NOT\s+NULL\s+REFERENCES\s+execution_contracts",
+                    schema)),
+                "counterfactual_entitlement_recorded":
+                    "counterfactual_supplier_entitlement_nanos" in schema,
+                "handler_money_receipt_test":
+                    "TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement"
+                    in read("control/coalesced_cluster_money_test.go"),
+            },
             "coalescing_status": (
                 "handler_wired" if coalescing_callers else "primitive_only"),
+            # Quote-bound batch work uses one immutable PricingDecision. This
+            # intentionally reports source and integration-test presence, not a
+            # checkpoint or a Stripe/CAD external receipt.
+            "quote_bound_pricing_identity": {
+                "server_reuses_reviewed_decision": "pricingDecision = qBind.Pricing" in api_source,
+                "store_requires_exact_digest": "pricingSHA256 != quotePricingSHA256" in store_jobs_source,
+                "derived_origin_link_not_accepted_for_bound_jobs":
+                    "job pricing decision does not exactly match its bound quote" in store_jobs_source,
+                "cad_project_public_admission_test":
+                    "TestProjectCompilerCADAdmissionThroughPublicAPI" in project_submit_tests,
+            },
+            # The compiler is a product command and the CAD admission test
+            # reaches real authenticated handlers. It remains deliberately
+            # below a project execution/settlement claim because submit
+            # currently refuses dependent steps and the test has no agent.
+            "project_compiler": {
+                "production_command": bool(grep_count(r"func dispatchProject", "control")),
+                "buyer_approved_probe_required":
+                    "project quote requires an exact buyer-approved bounded probe"
+                    in read("control/project_quote.go"),
+                "public_cad_admission_test":
+                    "TestProjectCompilerCADAdmissionThroughPublicAPI" in project_submit_tests,
+                "dependent_step_submit_refused":
+                    "currently supports only independent finite steps"
+                    in read("control/project_submit.go"),
+            },
             "second_runtime_driver": bool(
                 os.path.exists(os.path.join(ROOT, "agent/src/runtime_driver.rs"))),
             "directed_routing": bool(
