@@ -196,6 +196,13 @@ var productionReachability = []reachabilityClaim{
 			"the currency-bound PricingDecision that every later meter must reproduce.",
 	},
 	{
+		From:   "Server.handleProjectCompile",
+		Target: "compileProject",
+		Consequence: "an authenticated project upload could return a decorative response while the " +
+			"real static detector, bounded probe, digest binding, and unsafe-input refusal remained " +
+			"test-only; no quote or execution authority is implied by this proposal route.",
+	},
+	{
 		From:   "Server.handleCreateServiceLease",
 		Target: "Store.RecordServiceLeaseAdmissionEvent",
 		Consequence: "successful and capacity-refused buyer service requests would leave no retained " +

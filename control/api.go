@@ -100,6 +100,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.Handle("POST /v1/jobs", s.authBuyer(http.HandlerFunc(s.handleCreateJob)))
 	mux.Handle("POST /v1/projects", s.authBuyer(http.HandlerFunc(s.handleCreateProjectOrder)))
+	mux.Handle("POST /v1/projects/compile", s.authBuyer(http.HandlerFunc(s.handleProjectCompile)))
 	mux.Handle("GET /v1/projects/{id}", s.authBuyer(http.HandlerFunc(s.handleGetProjectOrder)))
 	mux.Handle("GET /v1/jobs", s.authBuyer(http.HandlerFunc(s.handleListBuyerJobs)))
 	mux.Handle("GET /v1/jobs/{id}", s.authBuyer(http.HandlerFunc(s.handleGetJob)))
@@ -239,6 +240,9 @@ func requestBodyLimit(r *http.Request) int64 {
 	}
 	if r.Method == http.MethodPost && r.URL.Path == "/v1/files" {
 		return maxRequestBodyBytes
+	}
+	if r.Method == http.MethodPost && r.URL.Path == "/v1/projects/compile" {
+		return maxProjectCompileUploadBytes
 	}
 	return maxJSONRequestBodyBytes
 }
