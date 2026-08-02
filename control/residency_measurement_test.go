@@ -279,8 +279,12 @@ func seedResidencyTestWorker(t *testing.T, ctx context.Context, store *Store, po
 		t.Fatal(err)
 	}
 	// Heartbeat and claimable predicates need last_seen_at fresh and a live row.
+	// Pin min_payout high so this fixture cannot appear as a "cheaper asking
+	// worker" to scheduler claim tests that share the package DB — a fresh
+	// embed-capable worker with the default 0 floor was the order-dependent
+	// polluter of TestClaimTasksTxDefersToACheaperAskingWorker.
 	if _, err := pool.Exec(ctx, `UPDATE workers SET last_seen_at=now(), memory_gb=16,
-		effective_memory_gb=16, hw_class='cpu', thermal_ok=true WHERE id=$1`, workerID); err != nil {
+		effective_memory_gb=16, hw_class='cpu', thermal_ok=true, min_payout_usd_hr=1e9 WHERE id=$1`, workerID); err != nil {
 		t.Fatal(err)
 	}
 	bindWorkerToGovernedProfile(t, pool, ctx, workerID)
@@ -307,6 +311,16 @@ func seedResidencyTestWorker(t *testing.T, ctx context.Context, store *Store, po
 		workerID); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(c, `DELETE FROM worker_model_state WHERE worker_id=$1`, workerID)
+		_, _ = pool.Exec(c, `DELETE FROM worker_tps_cache WHERE worker_id=$1`, workerID)
+		_, _ = pool.Exec(c, `DELETE FROM worker_authorized_capabilities WHERE worker_id=$1`, workerID)
+		_, _ = pool.Exec(c, `DELETE FROM worker_tokens WHERE worker_id=$1`, workerID)
+		_, _ = pool.Exec(c, `DELETE FROM workers WHERE id=$1`, workerID)
+		_, _ = pool.Exec(c, `DELETE FROM suppliers WHERE id=$1`, supplierID)
+	})
 	return workerID
 }
 
