@@ -666,19 +666,58 @@ func recordStripeFee(ctx context.Context, store *Store, buyerID uuid.UUID, pi st
 	if err != nil {
 		return err
 	}
-	lc, _ := out["latest_charge"].(map[string]any)
-	bt, _ := lc["balance_transaction"].(map[string]any)
-	feeCents, ok := bt["fee"].(float64) // JSON number; Stripe fees are integer cents
-	if !ok {
-		return fmt.Errorf("payment intent %s: latest_charge.balance_transaction.fee absent (not settled yet?)  -  fee not recorded, never estimated", pi)
+	feeMinorUnits, currency, err := stripePaymentIntentFeeCash(out)
+	if err != nil {
+		return fmt.Errorf("payment intent %s: %w", pi, err)
 	}
-	if err := store.InsertStripeFee(ctx, buyerID, pi, feeCents/100); err != nil {
+	if err := store.InsertStripeFee(ctx, buyerID, pi, feeMinorUnits, currency); err != nil {
 		return err
 	}
 	if _, err := store.AllocateBatchStripeFee(ctx, pi); err != nil {
 		return fmt.Errorf("stripe fee recorded for %s but batch allocation is pending: %w", pi, err)
 	}
 	return nil
+}
+
+// stripePaymentIntentFeeCash extracts a settled processor fee as an exact ISO
+// minor-unit value.  Stripe returns two currencies here: the PaymentIntent's
+// presentment currency and its balance transaction currency.  Recording a fee
+// when either is absent or they disagree would make a CAD/JPY receipt appear
+// balanced while pricing the processor cost in a different money unit.
+func stripePaymentIntentFeeCash(out map[string]any) (int64, string, error) {
+	piCurrencyRaw, _ := out["currency"].(string)
+	piCurrency, err := ParseCurrency(piCurrencyRaw)
+	if err != nil {
+		return 0, "", fmt.Errorf("payment intent currency refused: %w", err)
+	}
+	settlement, err := SettlementCurrency()
+	if err != nil || !piCurrency.Equal(settlement) {
+		if err == nil {
+			err = errCurrencyMismatch
+		}
+		return 0, "", fmt.Errorf("payment intent currency refused: %w", err)
+	}
+	lc, ok := out["latest_charge"].(map[string]any)
+	if !ok {
+		return 0, "", errors.New("latest_charge.balance_transaction is absent (not settled yet?)  -  fee not recorded, never estimated")
+	}
+	bt, ok := lc["balance_transaction"].(map[string]any)
+	if !ok {
+		return 0, "", errors.New("latest_charge.balance_transaction is absent (not settled yet?)  -  fee not recorded, never estimated")
+	}
+	btCurrencyRaw, _ := bt["currency"].(string)
+	btCurrency, err := ParseCurrency(btCurrencyRaw)
+	if err != nil || !btCurrency.Equal(piCurrency) {
+		if err == nil {
+			err = errCurrencyMismatch
+		}
+		return 0, "", fmt.Errorf("balance transaction currency %q does not match payment intent currency %q: %w", btCurrencyRaw, piCurrencyRaw, err)
+	}
+	feeMinorUnits, err := stripeIntegerField(bt, "fee")
+	if err != nil {
+		return 0, "", fmt.Errorf("latest_charge.balance_transaction fee: %w", err)
+	}
+	return feeMinorUnits, piCurrency.Code(), nil
 }
 
 func stripeGet(ctx context.Context, path string) (map[string]any, error) {

@@ -578,10 +578,27 @@ func (s *Store) SetJobCharged(ctx context.Context, jobID uuid.UUID, charge Charg
 	return tx.Commit(ctx)
 }
 
-func (s *Store) InsertStripeFee(ctx context.Context, buyerID uuid.UUID, pi string, feeUSD float64) error {
+// InsertStripeFee records an observed Stripe balance-transaction fee.  The
+// amount is an exact ISO minor-unit value, never a float divided by 100; that
+// distinction is essential for zero-decimal settlement currencies.
+func (s *Store) InsertStripeFee(ctx context.Context, buyerID uuid.UUID, pi string, feeMinorUnits int64, currency string) error {
+	if feeMinorUnits < 0 {
+		return fmt.Errorf("stripe fee cannot be negative")
+	}
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return err
+	}
+	if currency != settlement.Code() {
+		return fmt.Errorf("stripe fee currency %q: %w", currency, errCurrencyMismatch)
+	}
+	feeMicros, err := settlement.MinorToMicros(feeMinorUnits)
+	if err != nil {
+		return err
+	}
 	buyer := buyerID
-	_, err := insertLedgerEntryIfAbsentByRefTx(ctx, s.pool, ledgerInsert{
-		Kind: KindStripeFee, BuyerID: &buyer, AmountMicros: -usdToMicros(feeUSD),
+	_, err = insertLedgerEntryIfAbsentByRefTx(ctx, s.pool, ledgerInsert{
+		Kind: KindStripeFee, BuyerID: &buyer, AmountMicros: -feeMicros,
 		PayoutStatus: PayoutReleased, PayoutRef: pi,
 	})
 	return err

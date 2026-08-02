@@ -96,6 +96,32 @@ func TestChargePaymentIntentRequiresExactTerminalCashFact(t *testing.T) {
 	})
 }
 
+func TestStripePaymentIntentFeeCashBindsCurrencyAndExactMinorUnits(t *testing.T) {
+	installSettlementCurrencyForTest(t, "jpy")
+	good := map[string]any{
+		"currency": "jpy",
+		"latest_charge": map[string]any{"balance_transaction": map[string]any{
+			"currency": "jpy", "fee": float64(37),
+		}},
+	}
+	minor, currency, err := stripePaymentIntentFeeCash(good)
+	if err != nil || minor != 37 || currency != "jpy" {
+		t.Fatalf("fee cash = %d %q %v, want 37 jpy nil", minor, currency, err)
+	}
+	for name, out := range map[string]map[string]any{
+		"presentment mismatch":      {"currency": "cad", "latest_charge": good["latest_charge"]},
+		"balance currency mismatch": {"currency": "jpy", "latest_charge": map[string]any{"balance_transaction": map[string]any{"currency": "cad", "fee": float64(37)}}},
+		"fractional minor units":    {"currency": "jpy", "latest_charge": map[string]any{"balance_transaction": map[string]any{"currency": "jpy", "fee": 37.5}}},
+		"missing fee":               {"currency": "jpy", "latest_charge": map[string]any{"balance_transaction": map[string]any{"currency": "jpy"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := stripePaymentIntentFeeCash(out); err == nil {
+				t.Fatalf("accepted invalid Stripe fee evidence: %#v", out)
+			}
+		})
+	}
+}
+
 func TestChargePaymentIntentResponseLossKeepsIdempotencyKey(t *testing.T) {
 	var (
 		mu   sync.Mutex

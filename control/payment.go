@@ -440,11 +440,16 @@ func newManualExportPayout(path string) *ManualExportPayout { return &ManualExpo
 
 func (p *ManualExportPayout) Send(_ context.Context, supplierID uuid.UUID, cents int64, currency, payoutKey string) (PayoutResult, error) {
 	if cents <= 0 {
-		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("non-positive payout amount %d cents", cents))
+		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("non-positive payout amount %d minor units", cents))
 	}
 	if err := RequireSettlementCurrency(currency); err != nil {
 		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("payout currency refused before export: %w", err))
 	}
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return PayoutResult{}, payoutDefinitelyNotSent(err)
+	}
+	amount := formatMinorAmount(cents, settlement)
 	if strings.TrimSpace(payoutKey) == "" {
 		return PayoutResult{}, payoutDefinitelyNotSent(errors.New("manual export payout key is required"))
 	}
@@ -454,8 +459,7 @@ func (p *ManualExportPayout) Send(_ context.Context, supplierID uuid.UUID, cents
 		for _, line := range strings.Split(strings.TrimSpace(string(existing)), "\n") {
 			fields := strings.Split(line, ",")
 			if len(fields) > 0 && fields[len(fields)-1] == payoutKey {
-				expectedAmount := fmt.Sprintf("%.6f", float64(cents)/100)
-				if len(fields) != 4 || fields[0] != supplierID.String() || fields[1] != expectedAmount {
+				if len(fields) != 5 || fields[0] != supplierID.String() || fields[1] != amount || fields[2] != settlement.Code() {
 					return PayoutResult{}, fmt.Errorf(
 						"payout export key %s is already bound to a different instruction", payoutKey)
 				}
@@ -475,7 +479,7 @@ func (p *ManualExportPayout) Send(_ context.Context, supplierID uuid.UUID, cents
 	if err != nil {
 		return PayoutResult{}, payoutDefinitelyNotSent(fmt.Errorf("opening payout export %q: %w", p.path, err))
 	}
-	if _, err := fmt.Fprintf(f, "%s,%.6f,%s,%s\n", supplierID, float64(cents)/100,
+	if _, err := fmt.Fprintf(f, "%s,%s,%s,%s,%s\n", supplierID, amount, settlement.Code(),
 		time.Now().UTC().Format(time.RFC3339), payoutKey); err != nil {
 		_ = f.Close()
 		return PayoutResult{}, fmt.Errorf("writing payout export: %w", err)
