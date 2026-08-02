@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +21,8 @@ import (
 // that the trainer interprets differently. A future execution cell may support
 // a richer, versioned schema only by adding a new explicit probe version.
 const loraDatasetSchemaV1 = "MERC_LORA_DATASET_SCHEMA_V1"
+
+var loraJSONNumberPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
 
 type loraDatasetSchema struct {
 	Version  string            `json:"version"`
@@ -192,9 +195,9 @@ func validateLoRAJSONL(content []byte, schema loraDatasetSchema, role string) (l
 				return loraDatasetProbeResult{}, fmt.Errorf("%s line %d field %q: %w", role, lineNumber, field, err)
 			}
 		}
-		canonical, err := json.Marshal(record)
+		canonical, err := canonicalLoRAJSON(line)
 		if err != nil {
-			return loraDatasetProbeResult{}, fmt.Errorf("%s line %d cannot be canonically represented", role, lineNumber)
+			return loraDatasetProbeResult{}, fmt.Errorf("%s line %d cannot be canonically represented: %w", role, lineNumber, err)
 		}
 		digest := sha256.Sum256(canonical)
 		canonicalID := hex.EncodeToString(digest[:])
@@ -216,6 +219,147 @@ func validateLoRAJSONL(content []byte, schema loraDatasetSchema, role string) (l
 		return loraDatasetProbeResult{}, fmt.Errorf("%s contains no JSONL records", role)
 	}
 	return result, nil
+}
+
+// canonicalLoRAJSON produces the closed probe's semantic record identity. JSON
+// object-member order is not semantic, and neither is the spelling of a finite
+// decimal number: 1, 1.0, and 1e0 must not let a record appear once in training
+// and once in held-out evaluation. json.Marshal on map[string]json.RawMessage
+// sorted object keys but preserved number spellings, which left that bypass.
+//
+// This is deliberately local to the bounded LoRA schema probe. It is not a
+// general JSON Canonicalization Scheme implementation or a training parser.
+func canonicalLoRAJSON(raw []byte) ([]byte, error) {
+	if err := rejectDuplicateJSONKeys(raw); err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err := appendCanonicalLoRAJSON(&out, value); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func appendCanonicalLoRAJSON(out *bytes.Buffer, value any) error {
+	switch value := value.(type) {
+	case nil:
+		out.WriteString("null")
+	case bool:
+		if value {
+			out.WriteString("true")
+		} else {
+			out.WriteString("false")
+		}
+	case string:
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		out.Write(encoded)
+	case json.Number:
+		number, err := canonicalLoRANumber(value.String())
+		if err != nil {
+			return err
+		}
+		out.WriteString(number)
+	case []any:
+		out.WriteByte('[')
+		for i, member := range value {
+			if i != 0 {
+				out.WriteByte(',')
+			}
+			if err := appendCanonicalLoRAJSON(out, member); err != nil {
+				return err
+			}
+		}
+		out.WriteByte(']')
+	case map[string]any:
+		keys := make([]string, 0, len(value))
+		for key := range value {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		out.WriteByte('{')
+		for i, key := range keys {
+			if i != 0 {
+				out.WriteByte(',')
+			}
+			encoded, err := json.Marshal(key)
+			if err != nil {
+				return err
+			}
+			out.Write(encoded)
+			out.WriteByte(':')
+			if err := appendCanonicalLoRAJSON(out, value[key]); err != nil {
+				return err
+			}
+		}
+		out.WriteByte('}')
+	default:
+		return fmt.Errorf("unsupported JSON value %T", value)
+	}
+	return nil
+}
+
+func canonicalLoRANumber(raw string) (string, error) {
+	if !loraJSONNumberPattern.MatchString(raw) {
+		return "", errors.New("not a JSON number")
+	}
+	// Keep the existing finite-number admission boundary. The following textual
+	// normalization is exact even above float64's integer precision; ParseFloat
+	// is only the bounded finite-range gate for a probe that does not accept
+	// unbounded scientific exponents.
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return "", errors.New("number is not finite")
+	}
+	negative := strings.HasPrefix(raw, "-")
+	if negative {
+		raw = raw[1:]
+	}
+	exponent := 0
+	if index := strings.IndexAny(raw, "eE"); index >= 0 {
+		exponent, err = strconv.Atoi(raw[index+1:])
+		if err != nil {
+			return "", errors.New("number exponent is invalid")
+		}
+		raw = raw[:index]
+	}
+	fractionalDigits := 0
+	if index := strings.IndexByte(raw, '.'); index >= 0 {
+		fractionalDigits = len(raw) - index - 1
+		raw = raw[:index] + raw[index+1:]
+	}
+	scale := exponent - fractionalDigits
+	raw = strings.TrimLeft(raw, "0")
+	if raw == "" {
+		return "0", nil // JSON -0 is numerically zero, not a distinct record.
+	}
+	for strings.HasSuffix(raw, "0") {
+		raw = raw[:len(raw)-1]
+		scale++
+	}
+	var normalized string
+	if scale >= 0 {
+		normalized = raw + strings.Repeat("0", scale)
+	} else if point := len(raw) + scale; point > 0 {
+		normalized = raw[:point] + "." + raw[point:]
+	} else {
+		normalized = "0." + strings.Repeat("0", -point) + raw
+	}
+	if negative {
+		return "-" + normalized, nil
+	}
+	return normalized, nil
 }
 
 func validateLoRAJSONValue(raw json.RawMessage, kind string) error {
