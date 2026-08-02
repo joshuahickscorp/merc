@@ -68,7 +68,7 @@ func dispatchProject(command string, args []string) bool {
 		return false
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|quote|submit|calibration-check}")
+		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|quote|submit|materialize|calibration-check}")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -97,6 +97,8 @@ func dispatchProject(command string, args []string) bool {
 		os.Exit(runProjectQuote(args[1:]))
 	case "submit":
 		os.Exit(runProjectSubmit(args[1:]))
+	case "materialize":
+		os.Exit(runProjectMaterialize(args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown project subcommand %q\n", args[0])
 		os.Exit(2)
