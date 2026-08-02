@@ -223,10 +223,7 @@ mod tests {
             "distinct texts must not share a cache identity"
         );
         cache.insert(key_one.clone(), stored);
-        assert!(
-            cache.get(&key_one).is_some(),
-            "stored text must hit"
-        );
+        assert!(cache.get(&key_one).is_some(), "stored text must hit");
         assert!(
             cache.get(&key_two).is_none(),
             "a text that was never stored must miss — silent wrong tokenization is forbidden"
