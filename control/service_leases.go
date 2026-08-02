@@ -738,17 +738,23 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		TrueNetContributionStatus: "UNKNOWN_PROCESSOR_FEE_UNALLOCATED", DataPlaneAuthorityStatus: "NOT_PROVEN_BY_CONTROL_PLANE",
 		ResidencyAuthorityStatus: "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY",
 		MeteringSemantics:        "cumulative replica-nanoseconds; each receipt is re-derived from lease start"}
-	if lease.State == "COMPLETED" && lease.ReservedBuyerMicros > 0 {
+	if (lease.State == "COMPLETED" || lease.State == "CANCELLED") && lease.ReservedBuyerMicros > 0 {
 		settlement, serr := s.serviceLeaseTerminalSettlement(ctx, lease)
 		if serr != nil {
 			return ServiceLeaseReceipt{}, serr
 		}
 		if settlement == nil {
-			// A row can exist from before terminal ledger settlement was added.
+			// A row can exist from before terminal ledger settlement was added, or
+			// can have been cancelled before its first billable meter interval.
 			// Do not retroactively debit it: no stored cash fact proves that was
 			// still the buyer's balance. The receipt says exactly what is missing.
-			receipt.BuyerFundingState = "PREPAID_TERMINAL_SETTLEMENT_MISSING_LEGACY"
-			receipt.SupplierSettlementState = "ACCRUED_PREPAID_RESERVED_UNSETTLED"
+			if lease.State == "CANCELLED" {
+				receipt.BuyerFundingState = "PREPAID_RESERVATION_RELEASED_NO_METERED_USAGE"
+				receipt.SupplierSettlementState = "NO_SUPPLIER_CREDIT_CANCELLED_NO_METERED_USAGE"
+			} else {
+				receipt.BuyerFundingState = "PREPAID_TERMINAL_SETTLEMENT_MISSING_LEGACY"
+				receipt.SupplierSettlementState = "ACCRUED_PREPAID_RESERVED_UNSETTLED"
+			}
 		} else {
 			receipt.Settlement = settlement
 			receipt.BuyerFundingState = "PREPAID_FINAL_DEBIT_RECORDED"
@@ -911,6 +917,106 @@ func (s *Store) ListWorkerServiceLeaseAssignments(ctx context.Context, auth Work
 		assignments = append(assignments, assignment)
 	}
 	return assignments, rows.Err()
+}
+
+// CancelServiceLease ends a buyer-owned reservation without billing an interval
+// that the worker never authenticated. Before expiry it meters only through the
+// latest authenticated heartbeat; once the frozen expiry has passed it follows
+// the ordinary expiry rule and settles the full accepted term. The unused
+// prepaid maximum is released simply by removing this terminal lease from the
+// reservation query; it is never materialised as a synthetic refund.
+func (s *Store) CancelServiceLease(ctx context.Context, buyerID, leaseID uuid.UUID) (ServiceLease, bool, error) {
+	if buyerID == uuid.Nil || leaseID == uuid.Nil {
+		return ServiceLease{}, false, errors.New("service lease cancellation requires buyer and lease identity")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return ServiceLease{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	lease, err := scanServiceLease(tx.QueryRow(ctx, `SELECT `+serviceLeaseColumns+`
+		FROM service_leases WHERE id=$1 AND buyer_id=$2 FOR UPDATE`, leaseID, buyerID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ServiceLease{}, false, errNotFound
+	}
+	if err != nil {
+		return ServiceLease{}, false, err
+	}
+	if lease.State == "COMPLETED" || lease.State == "CANCELLED" {
+		if err := tx.Commit(ctx); err != nil {
+			return ServiceLease{}, false, err
+		}
+		return lease, false, nil
+	}
+
+	now := time.Now().UTC()
+	cutoff := lease.LastMeteredAt
+	if !now.Before(lease.ExpiresAt) {
+		// The buyer's cancel raced with a term that already ended. Preserve the
+		// existing expiry semantics instead of granting an unearned post-term
+		// refund.
+		cutoff = lease.ExpiresAt
+	} else if lease.State == "ACTIVE" || lease.State == "UPGRADING" {
+		// A worker heartbeat authenticates the state only at its own timestamp;
+		// never bill the quiet tail merely because the buyer chose to stop.
+		cutoff = lease.LastWorkerHeartbeatAt
+		if cutoff.After(now) {
+			cutoff = now
+		}
+		if cutoff.Before(lease.LastMeteredAt) {
+			cutoff = lease.LastMeteredAt
+		}
+	}
+	if err := meterServiceLeaseTx(ctx, tx, &lease, cutoff); err != nil {
+		return ServiceLease{}, false, err
+	}
+	if lease.BuyerChargeNanos > 0 {
+		if err := settleFinalServiceLeaseTx(ctx, tx, &lease); err != nil {
+			return ServiceLease{}, false, err
+		}
+	}
+	usedMicros := int64(0)
+	if lease.BuyerChargeNanos > 0 {
+		currency, err := ParseCurrency(lease.Pricing.Currency)
+		if err != nil {
+			return ServiceLease{}, false, err
+		}
+		usedMicros, err = LedgerMicrosFromNanos(MoneyNanos{Currency: currency, Nanos: lease.BuyerChargeNanos})
+		if err != nil {
+			return ServiceLease{}, false, err
+		}
+	}
+	if usedMicros < 0 || usedMicros > lease.ReservedBuyerMicros {
+		return ServiceLease{}, false, errors.New("service lease cancellation violates frozen prepaid reservation")
+	}
+	if _, err := tx.Exec(ctx, `UPDATE service_leases SET state='CANCELLED',active_replicas=0,
+		finalized_at=$2,last_metered_at=$3,cumulative_replica_nanoseconds=$4,
+		buyer_charge_nanos=$5,supplier_payable_nanos=$6,known_variable_cost_nanos=$7,
+		known_contribution_nanos=$8 WHERE id=$1`, lease.ID, now, lease.LastMeteredAt,
+		lease.CumulativeReplicaNanos, lease.BuyerChargeNanos, lease.SupplierPayableNanos,
+		lease.KnownVariableCostNanos, lease.KnownContributionNanos); err != nil {
+		return ServiceLease{}, false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE service_lease_worker_offers
+		SET available_warm_replicas=LEAST(maximum_warm_replicas,available_warm_replicas+$4),updated_at=now()
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, lease.WorkerID,
+		lease.RuntimeProfileID, lease.Region, lease.MaximumReplicas); err != nil {
+		return ServiceLease{}, false, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail)
+		VALUES ($1,'CANCELLED',jsonb_build_object('metered_through',$2::timestamptz,
+		'cumulative_replica_nanoseconds',$3::bigint,'buyer_charge_nanos',$4::bigint,
+		'supplier_payable_nanos',$5::bigint,'unused_reserved_micros',$6::bigint))`,
+		lease.ID, lease.LastMeteredAt, lease.CumulativeReplicaNanos, lease.BuyerChargeNanos,
+		lease.SupplierPayableNanos, lease.ReservedBuyerMicros-usedMicros); err != nil {
+		return ServiceLease{}, false, err
+	}
+	lease.State, lease.ActiveReplicas = "CANCELLED", 0
+	lease.FinalizedAt = &now
+	if err := tx.Commit(ctx); err != nil {
+		return ServiceLease{}, false, err
+	}
+	return lease, true, nil
 }
 
 // RecoverServiceLeases turns a missing worker heartbeat into a fail-closed

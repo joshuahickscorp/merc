@@ -57,6 +57,34 @@ func (s *Server) handleCreateServiceLease(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusCreated, lease)
 }
 
+// handleCancelServiceLease ends a buyer's reservation at the last authenticated
+// service observation (or the frozen expiry if it has already arrived). It does
+// not invent capacity usage between a lost worker heartbeat and a cancellation.
+func (s *Server) handleCancelServiceLease(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxBuyer).(*AuthResult)
+	leaseID, ok := pathUUID(w, r)
+	if !ok {
+		return
+	}
+	if _, _, err := s.store.CancelServiceLease(r.Context(), auth.BuyerID, leaseID); errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "service lease not found")
+		return
+	} else if err != nil {
+		writeErr(w, http.StatusConflict, "service lease cancellation refused: "+err.Error())
+		return
+	}
+	receipt, err := s.store.GetServiceLeaseReceipt(r.Context(), auth.BuyerID, leaseID)
+	if errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "service lease not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "service lease cancellation receipt unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, receipt)
+}
+
 func (s *Server) handleServiceLeaseHeartbeat(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
 	leaseID, ok := pathUUID(w, r)

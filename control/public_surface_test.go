@@ -27,7 +27,7 @@ func TestBuyerSurfaceCallsEveryRequiredBuyerCapability(t *testing.T) {
 		"/v1/keys", "/v1/quote", "/v1/jobs", "/events", "/failures",
 		"/results", "/invoice", "/receipt", "/dispute",
 		"/v1/chat/completions", "/v1/images/generations", "/v1/realtime/requests/", "/v1/projects/",
-		"/v1/service-leases", "/receipt", "majorToNanos",
+		"/v1/service-leases", "/receipt", "/cancel", "cancel and settle observed usage", "majorToNanos",
 	} {
 		if !strings.Contains(page, required) {
 			t.Errorf("buyer surface does not call %s", required)
