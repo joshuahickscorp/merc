@@ -34,11 +34,16 @@ func (s *Store) BuyerPrepaidBalanceMicros(ctx context.Context, buyerID uuid.UUID
 	return bal, err
 }
 
-// PrepaidPendingTopupCents reports money the buyer's card was already asked for
+// PrepaidPendingTopupMinorUnits reports money the buyer's card was already asked for
 // that the balance does not yet hold. A top-up that is refused because it
 // already crossed the Stripe boundary leaves the buyer with exactly one
 // question — did the deposit land? — and balance alone cannot answer it.
-func (s *Store) PrepaidPendingTopupCents(ctx context.Context, buyerID uuid.UUID) (int64, int64, error) {
+//
+// The durable schema predates multi-currency settlement and names the column
+// amount_cents. Its values are ISO minor units for the row currency; this
+// public boundary must not turn that legacy storage name into a false promise
+// that every currency has cents.
+func (s *Store) PrepaidPendingTopupMinorUnits(ctx context.Context, buyerID uuid.UUID) (int64, int64, error) {
 	var count, cents int64
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*), COALESCE(SUM(amount_cents),0) FROM prepaid_topup_operations

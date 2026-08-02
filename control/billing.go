@@ -371,19 +371,19 @@ func (s *Server) handleBillingStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "reading prepaid balance")
 		return
 	}
-	pendingCount, pendingCents, err := s.store.PrepaidPendingTopupCents(r.Context(), auth.BuyerID)
+	pendingCount, pendingMinorUnits, err := s.store.PrepaidPendingTopupMinorUnits(r.Context(), auth.BuyerID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "reading pending top-ups")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configured":          stripeKey() != "",
-		"connected":           cust != "",
-		"has_card":            pm != "",
-		"balance_micros":      bal,
-		"balance_usd":         microsToUSD(bal),
-		"pending_topup_count": pendingCount,
-		"pending_topup_cents": pendingCents,
+		"configured":                stripeKey() != "",
+		"connected":                 cust != "",
+		"has_card":                  pm != "",
+		"currency":                  SettlementCurrencyCode(),
+		"balance_micros":            bal,
+		"pending_topup_count":       pendingCount,
+		"pending_topup_minor_units": pendingMinorUnits,
 	})
 }
 
