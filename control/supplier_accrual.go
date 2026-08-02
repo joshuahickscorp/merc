@@ -16,15 +16,23 @@ import (
 //
 // The residue is now accrued against the supplier account. `carried` means
 // "absorbed into the accrual", and the next entry that pushes the accrual over
-// a cent pays out everything accumulated.
+// one settlement minor unit pays out everything accumulated.
 
-const supplierSettlementPolicyAccountAccrualV2 = "account_accrual_v2"
+const (
+	// V2 is retained for append-only historical settlements written while every
+	// provider payout was assumed to be cents. V3 makes the currency-dependent
+	// minor-unit factor part of the durable policy meaning.
+	supplierSettlementPolicyAccountAccrualV2 = "account_accrual_v2"
+	supplierSettlementPolicyAccountAccrualV3 = "account_accrual_minor_unit_v3"
+)
 
 // supplierAccrual is the account-level carry for one supplier.
 type supplierAccrual struct {
 	AccruedMicros    int64
 	LifetimeAbsorbed int64
+	// LifetimePaidCent is a legacy field/column name. It holds ISO minor units.
 	LifetimePaidCent int64
+	Currency         string
 }
 
 // lockSupplierAccrual reads the supplier's accrual FOR UPDATE, creating the row
@@ -34,24 +42,25 @@ type supplierAccrual struct {
 func lockSupplierAccrual(ctx context.Context, tx pgx.Tx, supplierID uuid.UUID) (supplierAccrual, error) {
 	var a supplierAccrual
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO supplier_payout_accruals (supplier_id) VALUES ($1)
-		ON CONFLICT (supplier_id) DO NOTHING`, supplierID); err != nil {
+		INSERT INTO supplier_payout_accruals (supplier_id,currency) VALUES ($1,$2)
+		ON CONFLICT (supplier_id) DO NOTHING`, supplierID, SettlementCurrencyCode()); err != nil {
 		return a, fmt.Errorf("creating supplier accrual %s: %w", supplierID, err)
 	}
 	if err := tx.QueryRow(ctx, `
-		SELECT accrued_microusd, lifetime_absorbed_microusd, lifetime_paid_cents
+		SELECT accrued_microusd, lifetime_absorbed_microusd, lifetime_paid_cents,currency
 		  FROM supplier_payout_accruals WHERE supplier_id=$1
 		 FOR UPDATE`, supplierID,
-	).Scan(&a.AccruedMicros, &a.LifetimeAbsorbed, &a.LifetimePaidCent); err != nil {
+	).Scan(&a.AccruedMicros, &a.LifetimeAbsorbed, &a.LifetimePaidCent, &a.Currency); err != nil {
 		return a, fmt.Errorf("locking supplier accrual %s: %w", supplierID, err)
 	}
 	return a, nil
 }
 
 // accrueSupplierLiability folds one entry's liability into the supplier's
-// accrual and reports how many whole cents are now payable.
+// accrual and reports how many whole settlement minor units are now payable.
 //
-// carryIn + liability == cashCents*10000 + carryOut, always. The database
+// carryIn + liability == cashMinorUnits*currencyMicrosPerMinor + carryOut,
+// always. The database
 // enforces that same equation on supplier_accrual_events, so a lost or invented
 // micro-USD cannot be written even if this function is wrong.
 func accrueSupplierLiability(
@@ -63,9 +72,16 @@ func accrueSupplierLiability(
 	if liabilityMicros < 0 {
 		return 0, 0, fmt.Errorf("supplier liability must be non-negative, got %d microusd", liabilityMicros)
 	}
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return 0, 0, err
+	}
 	accrual, err := lockSupplierAccrual(ctx, tx, supplierID)
 	if err != nil {
 		return 0, 0, err
+	}
+	if accrual.Currency != settlement.Code() {
+		return 0, 0, fmt.Errorf("supplier accrual currency %q: %w", accrual.Currency, errCurrencyMismatch)
 	}
 
 	// Replaying the same entry must be a no-op, not a second absorption.
@@ -87,15 +103,19 @@ func accrueSupplierLiability(
 		return 0, 0, err
 	}
 
+	factor, err := settlement.MicrosPerMinorUnit()
+	if err != nil {
+		return 0, 0, err
+	}
 	effective := accrual.AccruedMicros + liabilityMicros
-	cashCents = effective / microUSDPerCent
-	carryOut = effective % microUSDPerCent
+	cashCents = effective / factor
+	carryOut = effective % factor
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO supplier_minor_unit_settlements
 		  (ledger_entry_id,policy,carry_in_microusd,liability_microusd,cash_cents,remainder_microusd,currency)
 		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		entryID, supplierSettlementPolicyAccountAccrualV2,
+		entryID, supplierSettlementPolicyAccountAccrualV3,
 		accrual.AccruedMicros, liabilityMicros, cashCents, carryOut, SettlementCurrencyCode(),
 	); err != nil {
 		return 0, 0, fmt.Errorf("recording accrual settlement for %s: %w", entryID, err)
@@ -119,9 +139,9 @@ func accrueSupplierLiability(
 func (s *Store) SupplierAccrual(ctx context.Context, supplierID uuid.UUID) (supplierAccrual, error) {
 	var a supplierAccrual
 	err := s.pool.QueryRow(ctx, `
-		SELECT accrued_microusd, lifetime_absorbed_microusd, lifetime_paid_cents
+		SELECT accrued_microusd, lifetime_absorbed_microusd, lifetime_paid_cents,currency
 		  FROM supplier_payout_accruals WHERE supplier_id=$1`, supplierID,
-	).Scan(&a.AccruedMicros, &a.LifetimeAbsorbed, &a.LifetimePaidCent)
+	).Scan(&a.AccruedMicros, &a.LifetimeAbsorbed, &a.LifetimePaidCent, &a.Currency)
 	if err == pgx.ErrNoRows {
 		return supplierAccrual{}, nil
 	}

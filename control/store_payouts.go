@@ -21,6 +21,7 @@ import (
 type AdminPayout struct {
 	SupplierID               uuid.UUID `json:"supplier_id"`
 	PayoutStatus             string    `json:"payout_status"`
+	Currency                 string    `json:"currency"`
 	Count                    int       `json:"count"`
 	AmountUSD                float64   `json:"amount_usd"`
 	CashSentUSD              float64   `json:"cash_sent_usd"`
@@ -32,9 +33,9 @@ type AdminPayout struct {
 func (s *Store) ListPayoutsAdmin(ctx context.Context) ([]AdminPayout, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT COALESCE(le.supplier_id,'00000000-0000-0000-0000-000000000000'::uuid),
-		        le.payout_status, COUNT(*), COALESCE(SUM(le.amount_usd),0),
-		        COALESCE(SUM(op.sent_cents) FILTER (WHERE op.cash_moved),0)::float8 / 100.0,
-		        COALESCE(SUM(mu.remainder_microusd),0)::float8 / 1000000.0,
+		        le.payout_status,COALESCE(op.currency,le.currency),COUNT(*),COALESCE(SUM(le.amount_usd),0),
+		        COALESCE(SUM(op.sent_cents) FILTER (WHERE op.cash_moved),0)::bigint,
+		        COALESCE(SUM(mu.remainder_microusd),0)::bigint,
 		        COUNT(*) FILTER (WHERE COALESCE(op.outcome_unknown,false)),
 		        COUNT(*) FILTER (
 		          WHERE le.payout_status='released' AND NOT COALESCE(op.cash_moved,false))
@@ -42,8 +43,8 @@ func (s *Store) ListPayoutsAdmin(ctx context.Context) ([]AdminPayout, error) {
 		 LEFT JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
 		 LEFT JOIN supplier_minor_unit_settlements mu ON mu.ledger_entry_id=le.id
 		 WHERE le.kind = 'supplier_credit'
-		 GROUP BY le.supplier_id, le.payout_status
-		 ORDER BY le.supplier_id, le.payout_status`)
+		 GROUP BY le.supplier_id,le.payout_status,COALESCE(op.currency,le.currency)
+		 ORDER BY le.supplier_id,le.payout_status,COALESCE(op.currency,le.currency)`)
 	if err != nil {
 		return nil, err
 	}
@@ -51,11 +52,22 @@ func (s *Store) ListPayoutsAdmin(ctx context.Context) ([]AdminPayout, error) {
 	var out []AdminPayout
 	for rows.Next() {
 		var a AdminPayout
-		if err := rows.Scan(&a.SupplierID, &a.PayoutStatus, &a.Count, &a.AmountUSD,
-			&a.CashSentUSD, &a.CarriedRemainderUSD, &a.OutcomeUnknownCount,
+		var cashMinorUnits, carriedMicros int64
+		if err := rows.Scan(&a.SupplierID, &a.PayoutStatus, &a.Currency, &a.Count, &a.AmountUSD,
+			&cashMinorUnits, &carriedMicros, &a.OutcomeUnknownCount,
 			&a.ReleasedWithoutCashCount); err != nil {
 			return nil, err
 		}
+		currency, err := ParseCurrency(a.Currency)
+		if err != nil {
+			return nil, fmt.Errorf("admin payout row has invalid currency %q: %w", a.Currency, err)
+		}
+		cashMicros, err := currency.MinorToMicros(cashMinorUnits)
+		if err != nil {
+			return nil, err
+		}
+		a.CashSentUSD = microsToUSD(cashMicros)
+		a.CarriedRemainderUSD = microsToUSD(carriedMicros)
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -683,10 +695,10 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 		}
 	}
 	out.LiabilityMicros = liabilityMicros
-	out.SettlementPolicy = supplierSettlementPolicyAccountAccrualV2
+	out.SettlementPolicy = supplierSettlementPolicyAccountAccrualV3
 	out.Currency = SettlementCurrencyCode()
 	// Account-level accrual: this entry's liability joins the supplier's carry,
-	// and we pay whatever whole cents the combined total supports. Flooring the
+	// and we pay whatever whole minor units the combined total supports. Flooring the
 	// entry on its own is what made every sub-cent credit unpayable forever.
 	out.RequestedCents, out.RemainderMicros, err = accrueSupplierLiability(
 		ctx, tx, out.SupplierID, entryID, liabilityMicros)
@@ -710,7 +722,15 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 		}
 		return out, false, nil
 	}
-	out.AmountUSD = float64(out.RequestedCents) / 100
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return out, false, err
+	}
+	cashMicros, err := settlement.MinorToMicros(out.RequestedCents)
+	if err != nil {
+		return out, false, err
+	}
+	out.AmountUSD = microsToUSD(cashMicros)
 	fundingID, funded, err := reservePayoutFunding(
 		ctx, tx, entryID, taskID, out.RequestedCents, out.Currency)
 	if err != nil {
@@ -839,7 +859,7 @@ func (s *Store) ClaimOutcomeUnknownPayouts(
 	now := time.Now()
 	rows, err := tx.Query(ctx, `
 		SELECT op.ledger_entry_id,op.supplier_id,
-		       op.requested_cents::float8 / 100.0,
+		       op.requested_cents,
 		       settlement.liability_microusd,op.requested_cents,
 		       settlement.remainder_microusd,settlement.policy,op.currency
 		  FROM supplier_payout_operations op
@@ -860,12 +880,24 @@ func (s *Store) ClaimOutcomeUnknownPayouts(
 	var out []DueHeldEntry
 	for rows.Next() {
 		var e DueHeldEntry
-		if err := rows.Scan(&e.ID, &e.SupplierID, &e.AmountUSD,
+		var requestedMinorUnits int64
+		if err := rows.Scan(&e.ID, &e.SupplierID, &requestedMinorUnits,
 			&e.LiabilityMicros, &e.RequestedCents, &e.RemainderMicros,
 			&e.SettlementPolicy, &e.Currency); err != nil {
 			rows.Close()
 			return nil, err
 		}
+		currency, err := ParseCurrency(e.Currency)
+		if err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("outcome-unknown payout has invalid currency %q: %w", e.Currency, err)
+		}
+		cashMicros, err := currency.MinorToMicros(requestedMinorUnits)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		e.AmountUSD = microsToUSD(cashMicros)
 		out = append(out, e)
 	}
 	rows.Close()
@@ -1013,9 +1045,21 @@ func (s *Store) FinalizePayout(ctx context.Context, entryID uuid.UUID, result Pa
 			"payout %s operation/funding mismatch: operation=%d %s funding=%d %s",
 			entryID, requested, currency, fundingAmount, fundingCurrency)
 	}
-	if settlementPolicy != supplierSettlementPolicyAccountAccrualV2 ||
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return "", err
+	}
+	if err := RequireSettlementCurrency(currency); err != nil {
+		return "", fmt.Errorf("payout %s settlement currency: %w", entryID, err)
+	}
+	factor, err := settlement.MicrosPerMinorUnit()
+	if err != nil {
+		return "", err
+	}
+	if (settlementPolicy != supplierSettlementPolicyAccountAccrualV2 &&
+		settlementPolicy != supplierSettlementPolicyAccountAccrualV3) ||
 		requested != settlementCash ||
-		carryInMicros+liabilityMicros != settlementCash*microUSDPerCent+remainderMicros {
+		carryInMicros+liabilityMicros != settlementCash*factor+remainderMicros {
 		return "", fmt.Errorf(
 			"payout %s minor-unit reconciliation mismatch: policy=%s liability=%d requested=%d settlement=%d remainder=%d",
 			entryID, settlementPolicy, liabilityMicros, requested, settlementCash, remainderMicros)

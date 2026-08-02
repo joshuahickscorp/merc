@@ -13,7 +13,17 @@ import (
 
 const reconcileInterval = 15 * time.Minute
 
-const reconcileEpsilonUSD = 0.01
+func reconcileEpsilonMajor() float64 {
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return 0
+	}
+	micros, err := settlement.MinorToMicros(1)
+	if err != nil {
+		return 0
+	}
+	return microsToUSD(micros)
+}
 
 func (wk *Workers) reconcileLedger(ctx context.Context) error {
 	if stripeKey() == "" {
@@ -66,15 +76,15 @@ func (wk *Workers) reconcileLedger(ctx context.Context) error {
 			continue
 		}
 		if acct == "" {
-			log.Printf("workers: reconcile DRIFT: supplier %s shows $%.2f cash sent ($%.6f liability, $%.6f carried) but has no connected Stripe account",
-				supplierID, e.cashSentUSD, e.liabilityUSD, e.carriedUSD)
+			log.Printf("workers: reconcile DRIFT: supplier %s shows %s %.6f cash sent (%.6f liability, %.6f carried) but has no connected Stripe account",
+				supplierID, SettlementCurrencyCode(), e.cashSentUSD, e.liabilityUSD, e.carriedUSD)
 			drifted++
 			metrics.reconcileDrift.Add(1)
 			continue
 		}
 		if e.releasedWithoutCash > 0 {
-			log.Printf("workers: reconcile DRIFT: supplier %s (%s) has %d released liability row(s) without a cash-moved payout operation (rollup liability $%.6f)",
-				supplierID, acct, e.releasedWithoutCash, e.liabilityUSD)
+			log.Printf("workers: reconcile DRIFT: supplier %s (%s) has %d released liability row(s) without a cash-moved payout operation (rollup liability %s %.6f)",
+				supplierID, acct, e.releasedWithoutCash, SettlementCurrencyCode(), e.liabilityUSD)
 			drifted++
 			metrics.reconcileDrift.Add(1)
 		}
@@ -93,9 +103,10 @@ func (wk *Workers) reconcileLedger(ctx context.Context) error {
 			continue
 		}
 		checked++
-		if delta := e.cashSentUSD - transferred; math.Abs(delta) >= reconcileEpsilonUSD {
-			log.Printf("workers: reconcile DRIFT: supplier %s (%s): ledger cash sent $%.2f vs stripe transferred $%.2f (delta $%.2f; liability $%.6f, carried $%.6f)",
-				supplierID, acct, e.cashSentUSD, transferred, delta, e.liabilityUSD, e.carriedUSD)
+		if delta := e.cashSentUSD - transferred; math.Abs(delta) >= reconcileEpsilonMajor() {
+			log.Printf("workers: reconcile DRIFT: supplier %s (%s): ledger cash sent %s %.6f vs stripe transferred %s %.6f (delta %s %.6f; liability %.6f, carried %.6f)",
+				supplierID, acct, SettlementCurrencyCode(), e.cashSentUSD, SettlementCurrencyCode(), transferred,
+				SettlementCurrencyCode(), delta, e.liabilityUSD, e.carriedUSD)
 			drifted++
 			metrics.reconcileDrift.Add(1)
 		}
@@ -105,7 +116,11 @@ func (wk *Workers) reconcileLedger(ctx context.Context) error {
 }
 
 func stripeTransferredUSD(ctx context.Context, acct string) (float64, error) {
-	var totalCents int64
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return 0, err
+	}
+	var totalMinorUnits int64
 	startingAfter := ""
 	for page := 0; page < reconcileMaxPages; page++ {
 		path := fmt.Sprintf("transfers?destination=%s&limit=100", acct)
@@ -126,11 +141,18 @@ func stripeTransferredUSD(ctx context.Context, acct string) (float64, error) {
 			if !ok {
 				return 0, fmt.Errorf("stripe transfers: malformed entry")
 			}
-			amt, ok := t["amount"].(float64) // encoding/json numbers decode as float64
-			if !ok {
-				return 0, fmt.Errorf("stripe transfers: entry missing numeric amount")
+			currency, _ := t["currency"].(string)
+			if err := RequireSettlementCurrency(currency); err != nil {
+				return 0, fmt.Errorf("stripe transfers: entry currency refused: %w", err)
 			}
-			totalCents += int64(math.Round(amt))
+			amt, err := stripeIntegerField(t, "amount")
+			if err != nil {
+				return 0, fmt.Errorf("stripe transfers: %w", err)
+			}
+			if amt > math.MaxInt64-totalMinorUnits {
+				return 0, fmt.Errorf("stripe transfers: amount total overflows settlement range")
+			}
+			totalMinorUnits += amt
 			if id, ok := t["id"].(string); ok {
 				lastID = id
 			}
@@ -141,7 +163,11 @@ func stripeTransferredUSD(ctx context.Context, acct string) (float64, error) {
 		}
 		startingAfter = lastID // cursor onto the next page
 	}
-	return float64(totalCents) / 100.0, nil
+	totalMicros, err := settlement.MinorToMicros(totalMinorUnits)
+	if err != nil {
+		return 0, err
+	}
+	return microsToUSD(totalMicros), nil
 }
 
 const reconcileMaxPages = 100

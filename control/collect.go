@@ -908,8 +908,13 @@ func (wk *Workers) chargeBatch(ctx context.Context, b ChargeBatch) {
 		log.Printf("workers: charge-collect: batch %s charged (pi %s) but confirmation write failed: %v (reconfirmed next tick)", b.ID, charge.PaymentIntentID, merr)
 		return
 	}
-	log.Printf("workers: charge-collect: batch %s charged ($%.2f received, buyer %s, pi %s)",
-		b.ID, float64(charge.ReceivedCents)/100, b.BuyerID, charge.PaymentIntentID)
+	settlement, serr := SettlementCurrency()
+	if serr != nil {
+		log.Printf("workers: charge-collect: batch %s charged but settlement display failed: %v", b.ID, serr)
+	} else {
+		log.Printf("workers: charge-collect: batch %s charged (%s %s received, buyer %s, pi %s)",
+			b.ID, settlement.Code(), formatMinorAmount(charge.ReceivedCents, settlement), b.BuyerID, charge.PaymentIntentID)
+	}
 	if ferr := recordStripeFee(ctx, wk.store, b.BuyerID, charge.PaymentIntentID); ferr != nil {
 		log.Printf("workers: charge-collect: stripe fee for batch %s (pi %s) not recorded yet: %v (backfilled next tick)", b.ID, charge.PaymentIntentID, ferr)
 	}
@@ -957,8 +962,13 @@ func (wk *Workers) retryFailedSingle(ctx context.Context, jobID uuid.UUID) {
 		log.Printf("workers: charge-collect: marking job %s charged (pi %s): %v", jobID, charge.PaymentIntentID, serr)
 		return
 	}
-	log.Printf("workers: charge-collect: job %s charged on retry ($%.2f received, pi %s)",
-		jobID, float64(charge.ReceivedCents)/100, charge.PaymentIntentID)
+	settlement, serr := SettlementCurrency()
+	if serr != nil {
+		log.Printf("workers: charge-collect: job %s charged but settlement display failed: %v", jobID, serr)
+	} else {
+		log.Printf("workers: charge-collect: job %s charged on retry (%s %s received, pi %s)",
+			jobID, settlement.Code(), formatMinorAmount(charge.ReceivedCents, settlement), charge.PaymentIntentID)
+	}
 	if ferr := recordStripeFee(ctx, wk.store, buyerID, charge.PaymentIntentID); ferr != nil {
 		log.Printf("workers: charge-collect: stripe fee for job %s (pi %s) not recorded yet: %v (backfilled next tick)", jobID, charge.PaymentIntentID, ferr)
 	}

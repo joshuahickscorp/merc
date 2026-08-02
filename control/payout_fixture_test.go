@@ -20,6 +20,7 @@ type payoutFixture struct {
 	paymentIntent, chargeID      string
 	creditUSD                    float64
 	creditCents, collectionCents int64
+	currency                     string
 }
 
 type payoutFixtureOpts struct {
@@ -30,6 +31,7 @@ type payoutFixtureOpts struct {
 	noBuyerCash      bool   // skip charged collection (subsidy-only path)
 	verificationFail bool   // default pass
 	releaseFuture    bool   // default release is in the past so credit is due
+	currency         string // default configured settlement currency
 	// supplierID reuses an existing supplier so several credits accrue against
 	// one account; zero mints a fresh supplier.
 	supplierID uuid.UUID
@@ -62,6 +64,12 @@ func seedPayoutFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, op
 	}
 	if opts.payoutStatus == "" {
 		opts.payoutStatus = PayoutHeld
+	}
+	if opts.currency == "" {
+		opts.currency = SettlementCurrencyCode()
+	}
+	if err := RequireSettlementCurrency(opts.currency); err != nil {
+		t.Fatalf("fixture currency %q: %v", opts.currency, err)
 	}
 
 	creditMicros := usdToMicros(opts.creditUSD)
@@ -102,7 +110,7 @@ func seedPayoutFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, op
 		chargeStatus = "charged"
 		chargeReq = opts.collectionCents
 		chargeRecv = opts.collectionCents
-		chargeCur = "usd"
+		chargeCur = opts.currency
 		stripePI = f.paymentIntent
 	}
 
@@ -115,17 +123,17 @@ func seedPayoutFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, op
 		{`INSERT INTO suppliers (id,email,reputation,status) VALUES ($1,$2,0.5,'active')
 		  ON CONFLICT (id) DO NOTHING`,
 			[]any{f.supplierID, f.supplierID.String() + "@payout.invalid"}},
-		{`INSERT INTO jobs (id,buyer_id,status,job_type,input_ref,charge_status,
+		{`INSERT INTO jobs (id,buyer_id,status,job_type,input_ref,charge_status,currency,
 		                   stripe_pi,charge_requested_cents,charge_received_cents,charge_currency,terminal_at)
-		  VALUES ($1,$2,$3,'embed','payout/input',$4,$5,$6,$7,$8,now())`,
-			[]any{f.jobID, f.buyerID, opts.jobStatus, chargeStatus, stripePI, chargeReq, chargeRecv, chargeCur}},
+		  VALUES ($1,$2,$3,'embed','payout/input',$4,$5,$6,$7,$8,$9,now())`,
+			[]any{f.jobID, f.buyerID, opts.jobStatus, chargeStatus, opts.currency, stripePI, chargeReq, chargeRecv, chargeCur}},
 		{`INSERT INTO tasks (id,job_id,status,verification_outcome,completed_at)
 		  VALUES ($1,$2,'complete',$3,now())`,
 			[]any{f.taskID, f.jobID, verdict}},
 		{fmt.Sprintf(`INSERT INTO ledger_entries
-		    (id,kind,supplier_id,task_id,amount_usd,payout_status,release_at)
-		  VALUES ($1,'supplier_credit',$2,$3,($4::numeric / 1000000),$5,%s)`, releaseExpr),
-			[]any{f.entryID, f.supplierID, f.taskID, creditMicros, opts.payoutStatus}},
+		    (id,kind,supplier_id,task_id,amount_usd,currency,payout_status,release_at)
+		  VALUES ($1,'supplier_credit',$2,$3,($4::numeric / 1000000),$5,$6,%s)`, releaseExpr),
+			[]any{f.entryID, f.supplierID, f.taskID, creditMicros, opts.currency, opts.payoutStatus}},
 	}
 	for _, statement := range statements {
 		if _, err := pool.Exec(ctx, statement.query, statement.args...); err != nil {
@@ -137,11 +145,12 @@ func seedPayoutFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, op
 			INSERT INTO buyer_cash_collections
 			  (payment_intent,charge_id,buyer_id,source_kind,job_id,
 			   requested_cents,received_cents,currency)
-			VALUES ($1,$2,$3,'job',$4,$5,$5,'usd')`,
-			f.paymentIntent, f.chargeID, f.buyerID, f.jobID, opts.collectionCents); err != nil {
+			VALUES ($1,$2,$3,'job',$4,$5,$5,$6)`,
+			f.paymentIntent, f.chargeID, f.buyerID, f.jobID, opts.collectionCents, opts.currency); err != nil {
 			t.Fatalf("seed buyer cash collection: %v", err)
 		}
 	}
+	f.currency = opts.currency
 	return f
 }
 
@@ -170,9 +179,9 @@ func seedSiblingCredit(
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO ledger_entries
-		  (id,kind,supplier_id,task_id,amount_usd,payout_status,release_at)
-		VALUES ($1,'supplier_credit',$2,$3,($4::numeric / 1000000),'held',now()-interval '1 minute')`,
-		entryID, f.supplierID, taskID, micros); err != nil {
+		  (id,kind,supplier_id,task_id,amount_usd,currency,payout_status,release_at)
+		VALUES ($1,'supplier_credit',$2,$3,($4::numeric / 1000000),$5,'held',now()-interval '1 minute')`,
+		entryID, f.supplierID, taskID, micros, f.currency); err != nil {
 		t.Fatalf("seed sibling credit: %v", err)
 	}
 	return entryID, taskID, cashCents

@@ -221,6 +221,9 @@ type TaskLease struct {
 }
 
 type Earnings struct {
+	// Currency governs every major-unit field below. The historical USD field
+	// names describe the ledger's scale, not a USD-only settlement authority.
+	Currency      string   `json:"currency"`
 	BalanceUSD    float64  `json:"balance_usd"`
 	LifetimeUSD   float64  `json:"lifetime_usd"`
 	CarriedUSD    float64  `json:"carried_usd"` // exact sub-cent remainder still owed, never reported as cash

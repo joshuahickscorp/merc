@@ -72,6 +72,60 @@ func TestSubCentCreditsAccrueAndEventuallyPay(t *testing.T) {
 	}
 }
 
+func TestSupplierAccrualUsesConfiguredZeroDecimalMinorUnit(t *testing.T) {
+	installSettlementCurrencyForTest(t, "jpy")
+	ctx, store, pool := openPayoutTestStore(t)
+	t.Setenv("MERC_CANARY_MODE", "false")
+	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "TEST-jpy-accrual")
+
+	// 1.25 JPY must pay one whole JPY and carry the remaining 0.25 JPY. The
+	// former cent divisor paid 125 "cents" (125 JPY) instead.
+	f := seedPayoutFixture(t, ctx, pool, payoutFixtureOpts{
+		creditUSD: 1.25, collectionCents: 1, currency: "jpy",
+	})
+	claimed, ok, err := store.ClaimPayout(ctx, f.entryID)
+	if err != nil || !ok {
+		t.Fatalf("ClaimPayout: claimed=%+v ok=%v err=%v", claimed, ok, err)
+	}
+	if claimed.RequestedCents != 1 || claimed.RemainderMicros != 250_000 || claimed.AmountUSD != 1 {
+		t.Fatalf("JPY minor-unit split=%+v, want 1 JPY + 250000 micros", claimed)
+	}
+	if claimed.Currency != "jpy" || claimed.SettlementPolicy != supplierSettlementPolicyAccountAccrualV3 {
+		t.Fatalf("JPY claim omitted currency-aware authority: %+v", claimed)
+	}
+	accrual, err := store.SupplierAccrual(ctx, f.supplierID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accrual.Currency != "jpy" || accrual.LifetimePaidCent != 1 ||
+		accrual.AccruedMicros != 250_000 || accrual.LifetimeAbsorbed != 1_250_000 {
+		t.Fatalf("JPY accrual lost its minor-unit identity: %+v", accrual)
+	}
+	if accrual.LifetimePaidCent*1_000_000+accrual.AccruedMicros != accrual.LifetimeAbsorbed {
+		t.Fatalf("JPY accrual did not conserve: %+v", accrual)
+	}
+	earnings, err := store.WorkerEarnings(ctx, f.supplierID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if earnings.Currency != "jpy" || earnings.BalanceUSD != 0 || earnings.CarriedUSD != 0.25 {
+		t.Fatalf("JPY earnings view invented cash before payout finalization: %+v", earnings)
+	}
+	if _, err := store.FinalizePayout(ctx, f.entryID, PayoutResult{
+		Ref: "tr_jpy_minor_unit", SentCents: 1, Currency: "jpy", CashMoved: true,
+	}); err != nil {
+		t.Fatalf("FinalizePayout JPY: %v", err)
+	}
+	earnings, err = store.WorkerEarnings(ctx, f.supplierID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if earnings.Currency != "jpy" || earnings.BalanceUSD != 1 ||
+		earnings.LastPayoutUSD == nil || *earnings.LastPayoutUSD != 1 || earnings.CarriedUSD != 0.25 {
+		t.Fatalf("JPY earnings view did not preserve paid/carry split: %+v", earnings)
+	}
+}
+
 // Money conservation across a long run of awkward amounts: whatever is absorbed
 // is either paid in whole cents or still carried, never lost and never invented.
 func TestAccrualConservesEveryMicroUSD(t *testing.T) {

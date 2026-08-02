@@ -367,7 +367,7 @@ func blockedEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule, reason
 	return EconomicPlan{
 		Version: economicPlanVersion, Schedule: schedule, Input: in,
 		Executable: false, BlockReason: reason, MinimumMarginHeadroomUSD: -1,
-		SupplierSettlementPolicy: supplierSettlementPolicyFloorCentCarryV1,
+		SupplierSettlementPolicy: supplierSettlementPolicyFloorMinorUnitCarryV2,
 		Assumptions: []string{
 			"every major-unit amount is denominated in schedule.currency; legacy _usd field names do not override that authority",
 			"quote-derived settlement is revenue, never independent execution cost",
@@ -555,7 +555,7 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 		BaseComputePerTaskUSD:    computePerTask,
 		BuyerChargePerTaskUSD:    buyerPerTask,
 		SupplierPayoutPerTaskUSD: supplierPerTask,
-		SupplierSettlementPolicy: supplierSettlementPolicyFloorCentCarryV1,
+		SupplierSettlementPolicy: supplierSettlementPolicyFloorMinorUnitCarryV2,
 		BuyerSafetyFeePerTaskUSD: safetyFee,
 		InitialBuyerChargeUSD:    roundEconomicUSD(buyerPerTask*float64(in.InitialTaskCount) + in.SLAPremiumUSD),
 		ReservedBuyerChargeUSD:   roundEconomicUSD(buyerPerTask*float64(in.InitialTaskCount+in.ExtraTaskReserve) + in.SLAPremiumUSD),
@@ -564,7 +564,7 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 		Assumptions: []string{
 			"every major-unit amount is denominated in schedule.currency; legacy _usd field names do not override that authority",
 			"supplier payout is frozen from base compute, independent of buyer safety fee and refundable SLA premium",
-			"supplier liability is reserved at six decimals; provider cash floors to whole cents and every sub-cent remainder stays durably owed",
+			"supplier liability is reserved at six decimals; provider cash floors to whole settlement minor units and every sub-minor remainder stays durably owed",
 			"the processor fixed fee is amortised over a minimum-size charge batch, matching how chargeOrDeferJob and FormChargeBatch actually settle",
 			"extra accepted work is billable only while atomically consuming the frozen reserve",
 			"SLA premium is excluded from supplier liability and may be fully refunded",
