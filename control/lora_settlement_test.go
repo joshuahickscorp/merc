@@ -88,12 +88,21 @@ func TestLoRAEvaluationRejectsUnsoundComparisons(t *testing.T) {
 		{"no held-out set named", func(e *loraEvaluation) {
 			e.HeldOutSetSHA256, e.ReservedSetSHA256 = "", ""
 		}, errLoRAEvaluationShape},
+		{"short held-out identity cannot panic comparison", func(e *loraEvaluation) {
+			e.HeldOutSetSHA256 = "bad"
+		}, errLoRAEvaluationShape},
 		{"zero baseline", func(e *loraEvaluation) { e.BaselineScore = 0 }, errLoRAEvaluationShape},
 		{"negative baseline", func(e *loraEvaluation) { e.BaselineScore = -1 }, errLoRAEvaluationShape},
 		{"NaN candidate", func(e *loraEvaluation) { e.CandidateScore = math.NaN() }, errLoRAEvaluationShape},
 		{"infinite candidate", func(e *loraEvaluation) { e.CandidateScore = math.Inf(1) }, errLoRAEvaluationShape},
 		{"negative required improvement", func(e *loraEvaluation) {
 			e.RequiredImprovement = -0.5
+		}, errLoRAEvaluationShape},
+		{"NaN required improvement", func(e *loraEvaluation) {
+			e.RequiredImprovement = math.NaN()
+		}, errLoRAEvaluationShape},
+		{"infinite required improvement", func(e *loraEvaluation) {
+			e.RequiredImprovement = math.Inf(1)
 		}, errLoRAEvaluationShape},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

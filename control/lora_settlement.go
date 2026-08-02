@@ -213,8 +213,12 @@ func validateLoRAEvaluation(eval loraEvaluation) error {
 	if err := validateLoRAIndependence(eval); err != nil {
 		return err
 	}
-	if eval.HeldOutSetSHA256 == "" || eval.ReservedSetSHA256 == "" {
-		return fmt.Errorf("%w: the held-out set must be identified", errLoRAEvaluationShape)
+	if !validSHA256(eval.HeldOutSetSHA256) || !validSHA256(eval.ReservedSetSHA256) {
+		// The short display commitments below are safe only after this exact
+		// shape gate. An evaluator controls these values, so accepting a merely
+		// non-empty string would let a malformed cross-set comparison panic the
+		// settlement path instead of producing a deterministic refusal.
+		return fmt.Errorf("%w: held-out and reserved sets must be SHA-256 identities", errLoRAEvaluationShape)
 	}
 	if eval.HeldOutSetSHA256 != eval.ReservedSetSHA256 {
 		return fmt.Errorf("%w: scored on %s, the job reserved %s",
@@ -228,8 +232,8 @@ func validateLoRAEvaluation(eval loraEvaluation) error {
 			"score improvement measures memorisation rather than generalisation",
 			errLoRAEvaluationShape)
 	}
-	if eval.RequiredImprovement < 0 {
-		return fmt.Errorf("%w: required improvement cannot be negative", errLoRAEvaluationShape)
+	if !moneyUSDInDomain(eval.RequiredImprovement) || eval.RequiredImprovement < 0 {
+		return fmt.Errorf("%w: required improvement must be finite and non-negative", errLoRAEvaluationShape)
 	}
 	if eval.BaselineScore <= 0 {
 		// A zero or negative baseline makes "5% better" undefined, and dividing
