@@ -24,6 +24,22 @@ $Issuer = if ($env:MERC_AGENT_OIDC_ISSUER) { $env:MERC_AGENT_OIDC_ISSUER } else 
 function Say([string]$Message) { Write-Host "[install] $Message" -ForegroundColor Cyan }
 function Fail([string]$Message) { throw "[install] $Message" }
 
+# A worker token can claim paid work. APPDATA and LOCALAPPDATA normally inherit
+# a private user ACL, but that is a machine convention rather than a guarantee:
+# redirected profiles and permissive corporate parent directories can widen it.
+# Make the installed binary and both state roots explicitly user-only before a
+# scheduled task ever starts the agent. A failed ACL update aborts the install;
+# starting an earning agent with a world-readable token is not an acceptable
+# fallback.
+function Protect-PrivatePath([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { Fail "cannot protect missing path $Path" }
+    $Identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $Item = Get-Item -LiteralPath $Path
+    $Grant = if ($Item.PSIsContainer) { "${Identity}:(OI)(CI)F" } else { "${Identity}:F" }
+    & icacls.exe $Path /inheritance:r /grant:r $Grant | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail "could not set private ACL on $Path" }
+}
+
 if ($Uninstall) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $Bin -Force -ErrorAction SilentlyContinue
@@ -120,6 +136,13 @@ max_memory_pct = 85.0
 "@
         [IO.File]::WriteAllText($Prefs, $prefsText, (New-Object Text.UTF8Encoding($false)))
     }
+
+    Protect-PrivatePath $Root
+    Protect-PrivatePath $BinDir
+    Protect-PrivatePath $Bin
+    Protect-PrivatePath $State
+    Protect-PrivatePath $Config
+    Protect-PrivatePath $Prefs
 
     $action = New-ScheduledTaskAction -Execute $Bin -Argument "run --config `"$Config`""
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME

@@ -26,6 +26,10 @@ require "$PS_INSTALL" '--certificate-oidc-issuer' 'Windows installer does not pi
 require "$PS_INSTALL" 'Register-ScheduledTask' 'Windows installer does not install a persistent per-user agent'
 require "$PS_INSTALL" 'run --config' 'Windows scheduled task does not run from the protected config file'
 require "$PS_INSTALL" 'agent.prefs.toml' 'Windows installer does not create live operator preferences'
+require "$PS_INSTALL" 'Protect-PrivatePath' 'Windows installer does not define a private ACL boundary for worker state'
+require "$PS_INSTALL" 'icacls.exe' 'Windows installer does not enforce worker-state ACLs'
+require "$PS_INSTALL" 'Protect-PrivatePath $Config' 'Windows installer does not protect the worker-token configuration'
+require "$PS_INSTALL" 'Protect-PrivatePath $Bin' 'Windows installer does not protect the scheduled executable'
 
 require "$SH_INSTALL" 'merc-agent.service' 'Linux installer does not install a user service'
 require "$SH_INSTALL" 'vllm --config' 'Linux installer does not launch the pinned CUDA/vLLM adapter'
