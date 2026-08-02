@@ -385,7 +385,7 @@ ALTER TABLE admin_actions DROP CONSTRAINT IF EXISTS admin_actions_privileged_mut
 ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_privileged_mutation_shape CHECK (
     kind NOT IN ('worker_suspended','worker_reinstated','task_requeued',
                  'reputation_adjusted','payout_released','operational_control_changed',
-                 'buyer_tombstoned','realtime_refunded')
+                 'buyer_tombstoned','realtime_refunded','dispute_resolved')
  OR COALESCE((
     actor_mode IN ('operator_key', 'break_glass_api_key')
     AND actor_principal_id IS NOT NULL AND actor_session_id IS NULL
@@ -425,6 +425,9 @@ ALTER TABLE admin_actions ADD CONSTRAINT admin_actions_privileged_mutation_shape
           WHEN 'realtime_refunded' THEN
             target_kind = 'execution_contract'
               AND supplier_id IS NOT NULL AND task_id IS NULL AND ledger_entry_id IS NULL
+          WHEN 'dispute_resolved' THEN
+            target_kind = 'dispute'
+              AND task_id IS NULL AND ledger_entry_id IS NULL
           ELSE false
         END
  ), false)
@@ -448,7 +451,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS admin_actions_privileged_correlation_uniq
     ON admin_actions (kind, correlation_ref)
     WHERE kind IN ('worker_suspended','worker_reinstated','task_requeued',
                    'reputation_adjusted','payout_released','operational_control_changed',
-                   'buyer_tombstoned','realtime_refunded');
+                   'buyer_tombstoned','realtime_refunded','dispute_resolved');
 CREATE OR REPLACE FUNCTION reject_admin_action_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -1338,6 +1341,15 @@ ALTER TABLE disputes ADD CONSTRAINT disputes_reason_shape
 ALTER TABLE disputes DROP CONSTRAINT IF EXISTS disputes_status_shape;
 ALTER TABLE disputes ADD CONSTRAINT disputes_status_shape CHECK (
     status IN ('open','no_peer','reverifying','unresolvable','upheld','rejected')
+);
+-- no_peer livelock bound: each failed peer search increments no_peer_attempts
+-- and stamps first_no_peer_at once. After the sweep bound, status becomes
+-- unresolvable (operator queue) instead of re-sweeping forever.
+ALTER TABLE disputes ADD COLUMN IF NOT EXISTS no_peer_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE disputes ADD COLUMN IF NOT EXISTS first_no_peer_at TIMESTAMPTZ;
+ALTER TABLE disputes DROP CONSTRAINT IF EXISTS disputes_no_peer_attempts_shape;
+ALTER TABLE disputes ADD CONSTRAINT disputes_no_peer_attempts_shape CHECK (
+    no_peer_attempts >= 0
 );
 ALTER TABLE disputes DROP CONSTRAINT IF EXISTS disputes_resolution_shape;
 ALTER TABLE disputes ADD CONSTRAINT disputes_resolution_shape CHECK (

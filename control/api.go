@@ -187,6 +187,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /admin/tasks/{id}/requeue", s.authAdmin(http.HandlerFunc(s.handleAdminRequeueTask)))
 	mux.Handle("POST /admin/suppliers/{id}/reputation", s.authAdmin(http.HandlerFunc(s.handleAdminAdjustReputation)))
 	mux.Handle("POST /admin/payouts/{id}/release", s.authAdmin(http.HandlerFunc(s.handleAdminReleasePayout)))
+	mux.Handle("POST /admin/disputes/{id}/resolve", s.authAdmin(http.HandlerFunc(s.handleAdminResolveDispute)))
 	mux.Handle("POST /admin/subsidy-funds", s.authAdmin(http.HandlerFunc(s.handleAdminCreateSubsidyFund)))
 	mux.Handle("POST /admin/payouts/{id}/subsidize", s.authAdmin(http.HandlerFunc(s.handleAdminSubsidizePayout)))
 	mux.Handle("GET /admin/actions", s.authAdmin(http.HandlerFunc(s.handleAdminActions))) // audit log for the above
@@ -3390,6 +3391,64 @@ func (s *Server) handleAdminReleasePayout(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "release_scheduled"})
+}
+
+type adminDisputeResolveBody struct {
+	// Resolution is the human decision: "upheld" (buyer wins, claw supplier)
+	// or "rejected" (supplier wins, held credits become claimable again).
+	Resolution string `json:"resolution"`
+	Reason     string `json:"reason"`
+	RequestID  string `json:"request_id"`
+}
+
+func (s *Server) handleAdminResolveDispute(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r)
+	if !ok {
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, adminActionBodyLimit+1))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(raw) > adminActionBodyLimit {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("request body exceeds %d bytes", adminActionBodyLimit))
+		return
+	}
+	var body adminDisputeResolveBody
+	if err := decodeStrictJSONObject(raw, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request json: "+err.Error())
+		return
+	}
+	actor, ok := adminActorFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "authenticated admin identity is required")
+		return
+	}
+	err = s.store.ResolveDisputeTx(r.Context(), actor, id, body.Resolution, body.Reason, body.RequestID)
+	if errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "dispute not found")
+		return
+	}
+	if errors.Is(err, errDisputeResolutionInvalid) {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if errors.Is(err, errDisputeNotOperatorQueue) || errors.Is(err, errDisputeAlreadyResolved) {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	if writeAdminMutationInputOrAuthError(w, err) {
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":     "resolved",
+		"resolution": strings.TrimSpace(body.Resolution),
+	})
 }
 
 type payoutSubsidyBody struct {

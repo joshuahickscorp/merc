@@ -621,6 +621,9 @@ func (wk *Workers) resolveDisputes(ctx context.Context) error {
 				return terr
 			}
 			if !ok {
+				// No re-verify target at all: automatic path cannot decide.
+				// Park on the operator queue (unresolvable) rather than
+				// inventing an award for either party.
 				if serr := wk.store.SetDisputeStatus(ctx, d.ID, "unresolvable"); serr != nil {
 					return serr
 				}
@@ -628,8 +631,11 @@ func (wk *Workers) resolveDisputes(ctx context.Context) error {
 			}
 			peer, perr := wk.store.SelectRedundancyPeerExcluding(ctx, target.JobType, target.ModelRef, target.MinMemGB, target.AnchorWorker, nil, nil)
 			if perr != nil {
-				if serr := wk.store.SetDisputeStatus(ctx, d.ID, "no_peer"); serr != nil {
-					return serr
+				// Bound the no_peer livelock: each failed peer search is
+				// counted; after the attempt/age bound the dispute leaves
+				// the sweep and enters the operator queue.
+				if _, nerr := wk.store.NoteDisputeNoPeer(ctx, d.ID); nerr != nil {
+					return nerr
 				}
 				continue
 			}

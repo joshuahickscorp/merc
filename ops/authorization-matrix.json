@@ -231,6 +231,7 @@
         "POST /admin/buyers/{id}/prepaid-refund",
         "POST /admin/controls/{name}",
         "POST /admin/payouts/{id}/release",
+        "POST /admin/disputes/{id}/resolve",
         "POST /admin/payouts/{id}/subsidize",
         "POST /admin/realtime/contracts/{id}/refund",
         "POST /admin/subsidy-funds",
