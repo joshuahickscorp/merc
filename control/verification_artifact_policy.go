@@ -43,6 +43,8 @@ func verificationArtifactMaxBytesForRecords(jobType string, expectedRecords int6
 		estimate = maxMediaResultBytes
 	case "media_rendering":
 		estimate = maxRenderingResultBytes
+	case "video_generation":
+		estimate = maxVideoResultBytes
 	default:
 		return verificationArtifactPolicyFloor
 	}

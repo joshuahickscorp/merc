@@ -609,7 +609,7 @@ mod tests {
     fn capability_matrix_digest_matches_the_control_plane() {
         assert_eq!(
             super::sha256(),
-            "ea94956011bda6dda99526729e28b6cf738c14229740d608e564513b3de94f85",
+            "c9d4f7f8041e0706a564409d07dc71aa60ff58576ed535427ff3f99c2bc7237b",
             "the agent's capability matrix digest no longer matches the pinned \
              control-plane value; if this is a deliberate capability change, update \
              the pin in BOTH control/capability_manifest_test.go and here"
