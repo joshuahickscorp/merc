@@ -48,17 +48,19 @@ type verificationPolicy struct {
 }
 
 type cliJobSubmit struct {
-	JobType      jobType            `json:"job_type"`
-	Model        modelRef           `json:"model"`
-	Params       json.RawMessage    `json:"params,omitempty"`
-	Constraints  jobConstraints     `json:"constraints"`
-	Verification verificationPolicy `json:"verification"`
-	Tier         string             `json:"tier"`
-	Input        json.RawMessage    `json:"input"`
-	WebhookURL   string             `json:"webhook_url,omitempty"`
-	MaxUSD       float64            `json:"max_usd,omitempty"`
-	QuoteID      string             `json:"quote_id,omitempty"`
-	FirmQuote    bool               `json:"firm_quote,omitempty"`
+	JobType       jobType            `json:"job_type"`
+	Model         modelRef           `json:"model"`
+	Params        json.RawMessage    `json:"params,omitempty"`
+	Constraints   jobConstraints     `json:"constraints"`
+	Verification  verificationPolicy `json:"verification"`
+	Tier          string             `json:"tier"`
+	Input         json.RawMessage    `json:"input"`
+	WebhookURL    string             `json:"webhook_url,omitempty"`
+	MaxUSD        float64            `json:"max_usd,omitempty"`
+	QuoteID       string             `json:"quote_id,omitempty"`
+	FirmQuote     bool               `json:"firm_quote,omitempty"`
+	ProjectID     string             `json:"project_id,omitempty"`
+	ProjectStepID string             `json:"project_step_id,omitempty"`
 }
 
 type client struct {

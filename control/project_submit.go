@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const projectQuoteArtifactMaxBytes = 32 << 20
@@ -36,6 +38,7 @@ type ProjectStepSubmission struct {
 type ProjectSubmission struct {
 	Version           int                     `json:"version"`
 	IRSHA256          string                  `json:"ir_sha256"`
+	ProjectID         string                  `json:"project_id"`
 	Currency          string                  `json:"currency"`
 	BuyerCeilingNanos int64                   `json:"buyer_ceiling_nanos"`
 	Status            string                  `json:"status"`
@@ -175,16 +178,30 @@ func validateProjectQuoteForSubmit(root string, ir ProjectWorkloadIR, artifact P
 
 func submitCompiledProject(c *client, root string, ir ProjectWorkloadIR, artifact ProjectQuote, now time.Time) (ProjectSubmission, error) {
 	prepared, err := validateProjectQuoteForSubmit(root, ir, artifact, now)
-	result := ProjectSubmission{Version: 1, IRSHA256: ir.IRSHA256, Currency: artifact.Currency,
+	result := ProjectSubmission{Version: 2, IRSHA256: ir.IRSHA256, Currency: artifact.Currency,
 		BuyerCeilingNanos: artifact.BuyerCeilingNanos, Status: "REFUSED", ExecutionMode: "INDEPENDENT_FINITE_STEPS"}
 	if err != nil {
 		return result, err
 	}
+	order, err := createProjectOrder(c, projectOrderCreateRequest{
+		IRSHA256: ir.IRSHA256, Currency: artifact.Currency, BuyerCeilingNanos: artifact.BuyerCeilingNanos,
+	})
+	if err != nil {
+		return result, fmt.Errorf("create project order: %w", err)
+	}
+	if _, err := uuid.Parse(order.ID); err != nil || order.IRSHA256 != ir.IRSHA256 ||
+		order.Currency != artifact.Currency || order.BuyerCeilingNanos != artifact.BuyerCeilingNanos ||
+		order.Status != "OPEN" || order.RemainingNanos != order.BuyerCeilingNanos {
+		return result, errors.New("project order response does not bind the approved project ceiling")
+	}
+	result.ProjectID = order.ID
 	result.Status = "SUBMITTING"
 	for _, item := range prepared {
 		idempotencyKey := "project:" + ir.IRSHA256[:24] + ":" + strings.TrimPrefix(item.quoted.QuoteID, "q_")
 		result.AttemptedStepID = item.step.ID
 		result.AttemptedKey = idempotencyKey
+		item.request.ProjectID = order.ID
+		item.request.ProjectStepID = item.step.ID
 		response, replayed, err := projectSubmitRequest(c, mustJSON(item.request), idempotencyKey)
 		if err != nil {
 			result.Status = "INDETERMINATE"
@@ -210,6 +227,43 @@ func submitCompiledProject(c *client, root string, ir ProjectWorkloadIR, artifac
 	result.AttemptedStepID = ""
 	result.AttemptedKey = ""
 	return result, nil
+}
+
+func createProjectOrder(c *client, in projectOrderCreateRequest) (ProjectOrder, error) {
+	if c == nil || c.hc == nil {
+		return ProjectOrder{}, errors.New("project API client is not configured")
+	}
+	body := mustJSON(in)
+	requestKey := "project-order:" + in.IRSHA256[:24]
+	req, err := http.NewRequest(http.MethodPost, c.base+"/v1/projects", bytes.NewReader(body))
+	if err != nil {
+		return ProjectOrder{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", requestKey)
+	if c.key != "" {
+		req.Header.Set("Authorization", "Bearer "+c.key)
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return ProjectOrder{}, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxJSONRequestBodyBytes+1))
+	if err != nil {
+		return ProjectOrder{}, err
+	}
+	if len(raw) > maxJSONRequestBodyBytes {
+		return ProjectOrder{}, errors.New("project order response exceeds bounded size")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ProjectOrder{}, fmt.Errorf("project endpoint returned %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	}
+	var out ProjectOrder
+	if err := decodeStrictJSONObject(raw, &out); err != nil {
+		return ProjectOrder{}, fmt.Errorf("decode project order: %w", err)
+	}
+	return out, nil
 }
 
 func projectSubmitRequest(c *client, body []byte, idempotencyKey string) (JobSubmitResponse, bool, error) {

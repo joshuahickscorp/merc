@@ -81,7 +81,9 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// 67 after GET /v1/jobs was added to the review inventory. The route already
 	// uses authBuyer and its handler scopes every result to the authenticated
 	// buyer; this exhaustive check ensures its middleware cannot be bypassed.
-	if checked != 67 {
-		t.Fatalf("checked %d protected routes, want 67", checked)
+	// 69 after the project-order reservation API: both create and buyer-scoped
+	// read carry the same buyer credential boundary as the firm jobs they govern.
+	if checked != 69 {
+		t.Fatalf("checked %d protected routes, want 69", checked)
 	}
 }
