@@ -903,7 +903,21 @@ func lockEconomicReserveTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) erro
 	return err
 }
 
-func consumeEconomicReserveTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) (buyerCharge, supplierPayout float64, err error) {
+// frozenTaskEconomics is the per-task freeze returned by consumeEconomicReserveTx.
+// Nanos are non-nil only for exact-policy plans; legacy rows keep floats alone.
+type frozenTaskEconomics struct {
+	BuyerChargeUSD      float64
+	SupplierPayoutUSD   float64
+	BuyerChargeNanos    *int64
+	SupplierPayoutNanos *int64
+}
+
+func consumeEconomicReserveTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) (frozen frozenTaskEconomics, err error) {
+	// Denormalized columns must equal the digest-bound plan_json before any
+	// money is returned from them. Fail closed on mismatch.
+	if _, _, aerr := assertDenormalizedEconomicPlanMoney(ctx, tx, jobID); aerr != nil {
+		return frozenTaskEconomics{}, aerr
+	}
 	err = tx.QueryRow(ctx, `
 		UPDATE job_economic_reserves r
 		   SET consumed_tasks=consumed_tasks+1,updated_at=now()
@@ -919,12 +933,14 @@ func consumeEconomicReserveTx(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) (
 		        OR j.firm_quote_max_usd IS NULL
 		        OR p.buyer_charge_per_task_usd * (p.initial_task_count+r.consumed_tasks+1)
 		             + p.sla_premium_usd <= j.firm_quote_max_usd)
-		RETURNING p.buyer_charge_per_task_usd::float8,p.supplier_payout_per_task_usd::float8`, jobID).
-		Scan(&buyerCharge, &supplierPayout)
+		RETURNING p.buyer_charge_per_task_usd::float8,p.supplier_payout_per_task_usd::float8,
+		          p.buyer_charge_per_task_nanos,p.supplier_payout_per_task_nanos`, jobID).
+		Scan(&frozen.BuyerChargeUSD, &frozen.SupplierPayoutUSD,
+			&frozen.BuyerChargeNanos, &frozen.SupplierPayoutNanos)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, 0, ErrEconomicReserveExhausted
+		return frozenTaskEconomics{}, ErrEconomicReserveExhausted
 	}
-	return buyerCharge, supplierPayout, err
+	return frozen, err
 }
 
 type FraudFlag struct {

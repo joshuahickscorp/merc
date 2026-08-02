@@ -414,8 +414,18 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	if err != nil {
 		t.Fatalf("plan recovered settlement: %v", err)
 	}
-	if !settled.Applied || settled.CeilingTokens != 100 || settled.ObservedTokens != 5 ||
-		settled.BilledCharge >= f.Plan.BuyerChargePerTaskUSD {
+	// Ceiling/observed must still surface so the buyer can audit the observation.
+	// The token-proportional rebate may be clamped by the contribution floor
+	// (processor fixed fee + control on this conservative schedule leave little
+	// headroom); when clamped, Applied stays true and FloorClamped records why
+	// the full unused-output rebate was not granted.
+	if settled.CeilingTokens != 100 || settled.ObservedTokens != 5 {
+		t.Fatalf("recovered settlement lost observation evidence: %+v", settled)
+	}
+	if !settled.Applied && !settled.FloorClamped {
+		t.Fatalf("recovered settlement neither rebated nor floor-clamped: %+v", settled)
+	}
+	if !settled.FloorClamped && settled.BilledCharge >= f.Plan.BuyerChargePerTaskUSD {
 		t.Fatalf("recovered settlement did not apply bounded rebate: %+v", settled)
 	}
 	// Before verification writes the ledger, both presentation fallbacks must
@@ -432,32 +442,51 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	if preLedgerEntries != 0 {
 		t.Fatalf("fixture already has %d ledger entries before fallback checks", preLedgerEntries)
 	}
-	wantRebate := roundUSD(f.Plan.BuyerChargePerTaskUSD - settled.BilledCharge)
+	wantRebate := settled.RebateUSD
 	preLedgerReceipts, err := store.JobTaskReceipts(ctx, f.JobID)
 	if err != nil {
 		t.Fatalf("pre-ledger task receipts: %v", err)
 	}
 	if len(preLedgerReceipts) != 1 ||
 		preLedgerReceipts[0].BilledBuyerChargeUSD == nil ||
-		*preLedgerReceipts[0].BilledBuyerChargeUSD != settled.BilledCharge ||
-		preLedgerReceipts[0].OutputTokenRebateUSD == nil ||
-		*preLedgerReceipts[0].OutputTokenRebateUSD != wantRebate {
-		t.Fatalf("pre-ledger receipt fallback diverged from settlement: got=%+v want billed/rebate=%.6f/%.6f",
-			preLedgerReceipts, settled.BilledCharge, wantRebate)
+		*preLedgerReceipts[0].BilledBuyerChargeUSD != settled.BilledCharge {
+		t.Fatalf("pre-ledger receipt billed diverged from settlement: got=%+v want billed=%.6f",
+			preLedgerReceipts, settled.BilledCharge)
+	}
+	if wantRebate > 0 {
+		if preLedgerReceipts[0].OutputTokenRebateUSD == nil ||
+			*preLedgerReceipts[0].OutputTokenRebateUSD != wantRebate {
+			t.Fatalf("pre-ledger receipt rebate diverged: got=%v want %.6f",
+				preLedgerReceipts[0].OutputTokenRebateUSD, wantRebate)
+		}
 	}
 	preLedgerInvoice := InvoiceView{JobID: f.JobID}
 	if err := store.attachObservedOutputInvoiceEvidence(ctx, &preLedgerInvoice); err != nil {
 		t.Fatalf("pre-ledger invoice evidence: %v", err)
 	}
-	if preLedgerInvoice.OutputTokenRebateUSD == nil ||
-		*preLedgerInvoice.OutputTokenRebateUSD != wantRebate {
-		t.Fatalf("pre-ledger invoice fallback rebate=%v, want %.6f",
-			preLedgerInvoice.OutputTokenRebateUSD, wantRebate)
+	if wantRebate > 0 {
+		if preLedgerInvoice.OutputTokenRebateUSD == nil ||
+			*preLedgerInvoice.OutputTokenRebateUSD != wantRebate {
+			t.Fatalf("pre-ledger invoice fallback rebate=%v, want %.6f",
+				preLedgerInvoice.OutputTokenRebateUSD, wantRebate)
+		}
 	}
-	entries := splitFrozenCharge(
-		f.BuyerID, f.SupplierID, tasks[0].ID, "usd",
-		settled.BilledCharge, settled.SupplierPayout, 0, time.Now().UTC(),
-	)
+	var entries []LedgerEntry
+	if settled.HasNanos {
+		var serr error
+		entries, serr = splitFrozenChargeNanos(
+			f.BuyerID, f.SupplierID, tasks[0].ID, "usd",
+			settled.BilledChargeNanos, settled.SupplierPayoutNanos, 0, time.Now().UTC(),
+		)
+		if serr != nil {
+			t.Fatalf("split frozen charge nanos: %v", serr)
+		}
+	} else {
+		entries = splitFrozenCharge(
+			f.BuyerID, f.SupplierID, tasks[0].ID, "usd",
+			settled.BilledCharge, settled.SupplierPayout, 0, time.Now().UTC(),
+		)
+	}
 	if err := store.FinalizeTaskVerification(ctx, recovered, OutcomePass, entries); err != nil {
 		t.Fatalf("apply rejected planner's recovered settlement: %v", err)
 	}

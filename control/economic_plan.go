@@ -178,13 +178,51 @@ type EconomicPlan struct {
 	EconomicRoundingPolicy     string `json:"economic_rounding_policy,omitempty"`
 }
 
+// ceilUSDToNanos ceils a major-unit float into integer nano-major-units.
+//
+// The buyer's charge rounds UP because the contribution floor must hold: a
+// fraction of a nano shaved off the charge can leave supplier + processor +
+// control + required contribution uncovered. Distortion is bounded by one nano
+// per task (not one micro), which is the whole point of moving the ceil out of
+// the six-decimal ledger domain.
+func ceilUSDToNanos(usd float64) (int64, error) {
+	if !finiteNonNegative(usd) || usd <= 0 {
+		return 0, fmt.Errorf("cannot ceil non-positive amount %v to nanos", usd)
+	}
+	scaled := usd * float64(NanosPerMajorUnit)
+	if scaled > math.MaxInt64 {
+		return 0, errMoneyOverflow
+	}
+	// Same epsilon style as ceilEconomicUSD: resist float noise just below an
+	// integer boundary without ever rounding down a true fractional part.
+	return int64(math.Ceil(scaled - 1e-6)), nil
+}
+
+// projectNanosToUSD projects exact nanos to the six-decimal ledger float once.
+// Half-away-from-zero at the micro boundary, with a one-micro floor for any
+// positive amount — matching LedgerMicrosFromNanos.
+func projectNanosToUSD(nanos int64) float64 {
+	if nanos <= 0 {
+		return 0
+	}
+	whole := nanos / NanosPerMicro
+	remainder := nanos % NanosPerMicro
+	if remainder*2 >= NanosPerMicro {
+		whole++
+	}
+	if whole == 0 {
+		whole = 1
+	}
+	return microsToUSD(whole)
+}
+
 // exactPerTaskNanos derives the exact per-task amounts from the same inputs the
 // micro-USD fields come from.
 //
-// Every division rounds in the direction that cannot harm the party it is for: the
-// supplier's entitlement rounds UP, the buyer's charge rounds DOWN. The share is
-// carried as a nano-fraction so the multiplication stays integer — a float share
-// times a float amount is exactly the arithmetic this replaces.
+// Supplier entitlement rounds UP (never shave a positive entitlement). Buyer
+// charge rounds UP into nanos so the contribution floor still holds; the ceil
+// granularity is one nano per task, not one micro. The share is carried as a
+// nano-fraction so the multiplication stays integer.
 func exactPerTaskNanos(
 	c Currency, baseComputeUSD, share, buyerPerTaskUSD float64, tasks int,
 	baseComputeNanos int64,
@@ -218,11 +256,17 @@ func exactPerTaskNanos(
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	buyer, err := MoneyNanosFromUSDFloat(c, buyerPerTaskUSD)
+	// Buyer: ceil into nanos (not micros). See ceilUSDToNanos.
+	buyerNanos, err = ceilUSDToNanos(buyerPerTaskUSD)
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	return baseNanos, supplierNanos, buyer.Nanos, nil
+	if supplierNanos > buyerNanos {
+		// Conservation: supplier cannot be owed more than the buyer is charged.
+		// Lift the buyer to the supplier entitlement (still one-nano granularity).
+		buyerNanos = supplierNanos
+	}
+	return baseNanos, supplierNanos, buyerNanos, nil
 }
 
 const economicPlanVersion = 2
@@ -560,7 +604,11 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 		InitialBuyerChargeUSD:    roundEconomicUSD(buyerPerTask*float64(in.InitialTaskCount) + in.SLAPremiumUSD),
 		ReservedBuyerChargeUSD:   roundEconomicUSD(buyerPerTask*float64(in.InitialTaskCount+in.ExtraTaskReserve) + in.SLAPremiumUSD),
 		MinimumMarginHeadroomUSD: math.Inf(1),
-		EconomicRoundingPolicy:   economicRoundingPolicy,
+		// EconomicRoundingPolicy is stamped ONLY when exactPerTaskNanos actually
+		// populates the nano fields below. An empty policy with zero nanos is the
+		// documented legacy shape; stamping the policy on a failed derivation made
+		// "cannot price exactly" indistinguishable from legacy.
+		EconomicRoundingPolicy: "",
 		Assumptions: []string{
 			"every major-unit amount is denominated in schedule.currency; legacy _usd field names do not override that authority",
 			"supplier payout is frozen from base compute, independent of buyer safety fee and refundable SLA premium",
@@ -570,6 +618,7 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 			"SLA premium is excluded from supplier liability and may be fully refunded",
 			"actual processor fees and contribution margin are reconciled from Stripe and ledger facts",
 			"base compute is floored to the minimum billable size so a supplier who performed work is never reserved $0 while the buyer is charged",
+			"observed-output token rebate is bounded by the accepted contribution floor; the settled charge always covers supplier payout, processor fee, control-plane cost and required contribution under the frozen schedule",
 		},
 	}
 
@@ -587,17 +636,52 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 	addScenario("full_success_sla_miss", in.InitialTaskCount, true)
 	addScenario("max_extra_work_sla_miss", in.InitialTaskCount+in.ExtraTaskReserve, true)
 
-	// The exact half. A derivation failure leaves the nano fields zero and the
-	// policy set, which admission reads as "this plan cannot be compared exactly"
-	// rather than as "the entitlement is zero" — the distinction the whole layer
-	// exists for.
+	// The exact half is the settlement authority. Only stamp the policy when
+	// derivation actually populated positive nano fields. On success, the float
+	// money fields are rewritten as the six-decimal projection of those nanos so
+	// denormalized columns and plan_json agree and the float path stops being a
+	// second, independent derivation.
 	if base, supplier, buyer, err := exactPerTaskNanos(
 		MustParseCurrency(schedule.Currency), in.BaseComputeUSD, in.SupplierShare,
-		plan.BuyerChargePerTaskUSD, in.InitialTaskCount, in.BaseComputeNanos,
-	); err == nil {
+		buyerPerTask, in.InitialTaskCount, in.BaseComputeNanos,
+	); err == nil && supplier > 0 && buyer > 0 {
 		plan.BaseComputePerTaskNanos = base
 		plan.SupplierPayoutPerTaskNanos = supplier
 		plan.BuyerChargePerTaskNanos = buyer
+		plan.EconomicRoundingPolicy = economicRoundingPolicy
+
+		// Float fields become projections of the nano authority. Prefer the
+		// higher of the floor-proven micro-ceil buyer and the nano projection so
+		// the contribution floor solved above still holds in the six-decimal
+		// domain used by scenarios and dashboards.
+		projectedSupplier := projectNanosToUSD(supplier)
+		projectedBuyer := projectNanosToUSD(buyer)
+		if projectedBuyer < buyerPerTask {
+			projectedBuyer = buyerPerTask
+			// Keep buyer nanos at least the micro-aligned floor-proven charge.
+			if aligned, aerr := ceilUSDToNanos(buyerPerTask); aerr == nil && aligned > plan.BuyerChargePerTaskNanos {
+				plan.BuyerChargePerTaskNanos = aligned
+			}
+		}
+		// scenarioAt closes over supplierPerTask; rebind before rebuild.
+		supplierPerTask = projectedSupplier
+		buyerPerTask = projectedBuyer
+		plan.SupplierPayoutPerTaskUSD = projectedSupplier
+		plan.BuyerChargePerTaskUSD = projectedBuyer
+		plan.BaseComputePerTaskUSD = float64(base) / float64(NanosPerMajorUnit)
+		plan.BuyerSafetyFeePerTaskUSD = roundEconomicUSD(math.Max(0, projectedBuyer-plan.BaseComputePerTaskUSD))
+		plan.InitialBuyerChargeUSD = roundEconomicUSD(projectedBuyer*float64(in.InitialTaskCount) + in.SLAPremiumUSD)
+		plan.ReservedBuyerChargeUSD = roundEconomicUSD(projectedBuyer*float64(in.InitialTaskCount+in.ExtraTaskReserve) + in.SLAPremiumUSD)
+
+		// Rebuild scenarios against the projected floats so supplier liability
+		// and margin headroom match the authority settlement will use.
+		plan.Scenarios = nil
+		plan.MinimumMarginHeadroomUSD = math.Inf(1)
+		plan.MinimumScenario = ""
+		addScenario("one_task_partial", 1, true)
+		addScenario("full_success_sla_met", in.InitialTaskCount, false)
+		addScenario("full_success_sla_miss", in.InitialTaskCount, true)
+		addScenario("max_extra_work_sla_miss", in.InitialTaskCount+in.ExtraTaskReserve, true)
 	}
 
 	plan.Executable = plan.MinimumMarginHeadroomUSD >= -0.000001

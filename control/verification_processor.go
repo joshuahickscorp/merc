@@ -578,6 +578,15 @@ func (p *VerificationProcessor) taskPayoutEntriesAt(ctx context.Context, info *C
 	}
 	var policy VerificationPolicy
 	_ = json.Unmarshal(j.VerificationPolicy, &policy)
+	if settled.HasNanos {
+		entries, serr := splitFrozenChargeNanos(j.BuyerID, info.SupplierID, info.TaskID,
+			j.Currency, settled.BilledChargeNanos, settled.SupplierPayoutNanos,
+			policy.PayoutHoldSecs, at)
+		if serr != nil {
+			return nil, serr
+		}
+		return entries, nil
+	}
 	return splitFrozenCharge(j.BuyerID, info.SupplierID, info.TaskID,
 		j.Currency, settled.BilledCharge, settled.SupplierPayout, policy.PayoutHoldSecs, at), nil
 }
