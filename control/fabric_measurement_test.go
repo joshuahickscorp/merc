@@ -44,6 +44,35 @@ func fabricReceipt() FabricLinkMeasurementReceipt {
 	}
 }
 
+func fabricCollectiveReceipt() FabricCollectiveMeasurementReceipt {
+	return FabricCollectiveMeasurementReceipt{
+		SchemaVersion:                     1,
+		ReceiptID:                         uuid.New(),
+		Kind:                              "MERC_FABRIC_SYNTHETIC_XOR_ALL_REDUCE_RECEIPT",
+		Status:                            "MEASURED_NOT_ADMISSIBLE",
+		MeasuredAtUnixMS:                  time.Now().UnixMilli(),
+		DeclaredSite:                      "supplier-lab-rack-a",
+		PeerEndpointCommitment:            strings.Repeat("a", 64),
+		Transport:                         "MERC_FABRIC_MTLS_SYNTHETIC_COLLECTIVE_V1",
+		PeerAuthentication:                "MUTUAL_TLS_WORKER_CERTIFICATE_BOUND",
+		PayloadIsRandom:                   true,
+		Collective:                        "XOR_ALL_REDUCE_TWO_RANKS_V1",
+		P50RoundTripMicros:                1600,
+		P95RoundTripMicros:                3200,
+		P50EffectiveCollectiveGoodputMbps: 40.96,
+		LocalClusterAdmissible:            false,
+		NonAdmissionReasons: []string{
+			"synthetic random bytes are not a customer workload data plane",
+			"no gang scheduler, workload admission, result verification, or settlement path consumes this probe",
+		},
+		Rounds: []FabricCollectiveMeasurementRound{
+			{Round: 1, Ranks: 2, PayloadBytesPerRank: 4096, TransportBytes: 12288, RoundTripMicros: 3200, EffectiveCollectiveGoodputMbps: 20.48, LocalPayloadSHA256: strings.Repeat("b", 64), PeerPayloadSHA256: strings.Repeat("c", 64), ReducedPayloadSHA256: strings.Repeat("d", 64), TranscriptSHA256: strings.Repeat("e", 64)},
+			{Round: 2, Ranks: 2, PayloadBytesPerRank: 4096, TransportBytes: 12288, RoundTripMicros: 1600, EffectiveCollectiveGoodputMbps: 40.96, LocalPayloadSHA256: strings.Repeat("f", 64), PeerPayloadSHA256: strings.Repeat("0", 64), ReducedPayloadSHA256: strings.Repeat("1", 64), TranscriptSHA256: strings.Repeat("2", 64)},
+			{Round: 3, Ranks: 2, PayloadBytesPerRank: 4096, TransportBytes: 12288, RoundTripMicros: 800, EffectiveCollectiveGoodputMbps: 81.92, LocalPayloadSHA256: strings.Repeat("3", 64), PeerPayloadSHA256: strings.Repeat("4", 64), ReducedPayloadSHA256: strings.Repeat("5", 64), TranscriptSHA256: strings.Repeat("6", 64)},
+		},
+	}
+}
+
 func newFabricMeasurementWorker(t *testing.T, ctx context.Context, store *Store) (WorkerAuth, string) {
 	t.Helper()
 	supplierID, workerID := uuid.New(), uuid.New()
@@ -61,6 +90,15 @@ func newFabricMeasurementWorker(t *testing.T, ctx context.Context, store *Store)
 func requestFabricReceipt(t *testing.T, handler http.Handler, token string, raw []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/worker/fabric/receipts", bytes.NewReader(raw))
+	req.Header.Set("X-Worker-Token", token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func requestFabricCollectiveReceipt(t *testing.T, handler http.Handler, token string, raw []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/v1/worker/fabric/collective-receipts", bytes.NewReader(raw))
 	req.Header.Set("X-Worker-Token", token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -319,6 +357,105 @@ func TestFabricSessionRequiresEveryRoundFromTheReservedPeerAndStaysNonAdmissible
 	}
 	if classification != "SELF_REPORTED_UNQUALIFIED" {
 		t.Fatalf("partial observation classification=%q", classification)
+	}
+}
+
+func TestFabricCollectiveReceiptRequiresPeerObservationAndStaysEvidenceOnly(t *testing.T) {
+	ctx, store, pool := openPayoutTestStore(t)
+	initiator, initiatorToken := newFabricMeasurementWorker(t, ctx, store)
+	peer, peerToken := newFabricPeerWorker(t, ctx, store, initiator.SupplierID)
+	initiatorCertificate := registerFabricIdentity(t, ctx, store, initiator)
+	peerCertificate := registerFabricIdentity(t, ctx, store, peer)
+	handler := NewServer(store, nil, nil, nil).Routes()
+
+	created := requestFabricJSON(t, handler, initiatorToken, "/v1/worker/fabric/sessions", FabricSessionCreateRequest{
+		PeerWorkerID: peer.WorkerID, DeclaredSite: "supplier-lab-rack-a",
+	})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("fabric collective session status=%d body=%s", created.Code, created.Body.String())
+	}
+	var session FabricSessionCreateResponse
+	if err := json.NewDecoder(created.Body).Decode(&session); err != nil {
+		t.Fatal(err)
+	}
+	receipt := fabricCollectiveReceipt()
+	receipt.FabricSessionID = &session.FabricSessionID
+	receipt.ExpectedPeerWorkerID = &peer.WorkerID
+	receipt.LocalCertificateSHA256 = initiatorCertificate
+	receipt.PeerCertificateSHA256 = peerCertificate
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requestFabricCollectiveReceipt(t, handler, initiatorToken, raw).Code; got != http.StatusBadRequest {
+		t.Fatalf("unobserved fabric collective receipt status=%d, want 400", got)
+	}
+	partialHashObservation := requestFabricJSON(t, handler, peerToken, "/v1/worker/fabric/observations", FabricProbeObservation{
+		SchemaVersion: 1, FabricSessionID: session.FabricSessionID,
+		TranscriptSHA256: receipt.Rounds[0].TranscriptSHA256, PayloadBytesEachDirection: receipt.Rounds[0].PayloadBytesPerRank,
+		ObservedAtUnixMS: time.Now().UnixMilli(), ObservedPeerCertificateSHA256: initiatorCertificate,
+		CollectiveLocalPayloadSHA256: receipt.Rounds[0].LocalPayloadSHA256,
+	})
+	if partialHashObservation.Code != http.StatusBadRequest {
+		t.Fatalf("partial fabric collective hash observation status=%d, want 400", partialHashObservation.Code)
+	}
+	for _, round := range receipt.Rounds {
+		observed := requestFabricJSON(t, handler, peerToken, "/v1/worker/fabric/observations", FabricProbeObservation{
+			SchemaVersion: 1, FabricSessionID: session.FabricSessionID,
+			TranscriptSHA256: round.TranscriptSHA256, PayloadBytesEachDirection: round.PayloadBytesPerRank,
+			ObservedAtUnixMS: time.Now().UnixMilli(), ObservedPeerCertificateSHA256: initiatorCertificate,
+			CollectiveLocalPayloadSHA256: round.LocalPayloadSHA256, CollectivePeerPayloadSHA256: round.PeerPayloadSHA256,
+			CollectiveReducedPayloadSHA256: round.ReducedPayloadSHA256,
+		})
+		if observed.Code != http.StatusNoContent {
+			t.Fatalf("fabric collective observation status=%d body=%s", observed.Code, observed.Body.String())
+		}
+	}
+	if got := requestFabricCollectiveReceipt(t, handler, initiatorToken, raw).Code; got != http.StatusNoContent {
+		t.Fatalf("fabric collective receipt status=%d", got)
+	}
+	if got := requestFabricCollectiveReceipt(t, handler, initiatorToken, raw).Code; got != http.StatusNoContent {
+		t.Fatalf("fabric collective receipt retry status=%d", got)
+	}
+
+	var evidenceStatus string
+	var p50Latency, p95Latency int64
+	var p50Goodput float64
+	if err := pool.QueryRow(ctx, `SELECT evidence_status,p50_round_trip_micros,p95_round_trip_micros,
+		p50_effective_collective_goodput_mbps FROM fabric_collective_measurements WHERE receipt_id=$1`, receipt.ReceiptID).
+		Scan(&evidenceStatus, &p50Latency, &p95Latency, &p50Goodput); err != nil {
+		t.Fatal(err)
+	}
+	if evidenceStatus != "MUTUAL_MTLS_WORKER_BOUND_NOT_ADMISSIBLE" ||
+		p50Latency != 1600 || p95Latency != 3200 || math.Abs(p50Goodput-40.96) > 0.000001 {
+		t.Fatalf("collective evidence was not retained as derived non-admissible data: status=%s p50=%d p95=%d goodput=%f",
+			evidenceStatus, p50Latency, p95Latency, p50Goodput)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE fabric_collective_measurements SET p50_round_trip_micros=1 WHERE receipt_id=$1`, receipt.ReceiptID); err == nil {
+		t.Fatal("database allowed immutable fabric collective evidence to be rewritten")
+	}
+	// The peer's recorded payload digests bind the raw receipt to the actual
+	// collective exchange; a client cannot retain the transcript and rewrite a
+	// contribution or reduction hash after the fact.
+	tampered := receipt
+	tampered.ReceiptID = uuid.New()
+	tampered.Rounds = append([]FabricCollectiveMeasurementRound(nil), receipt.Rounds...)
+	tampered.Rounds[0].ReducedPayloadSHA256 = strings.Repeat("7", 64)
+	tamperedRaw, err := json.Marshal(tampered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requestFabricCollectiveReceipt(t, handler, initiatorToken, tamperedRaw).Code; got != http.StatusBadRequest {
+		t.Fatalf("tampered collective payload digest status=%d, want 400", got)
+	}
+	// An otherwise valid mutation must not adopt the original immutable receipt id.
+	receipt.NonAdmissionReasons[0] = "mutated but still non-empty"
+	mutated, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requestFabricCollectiveReceipt(t, handler, initiatorToken, mutated).Code; got != http.StatusConflict {
+		t.Fatalf("mutated collective receipt retry status=%d, want 409", got)
 	}
 }
 

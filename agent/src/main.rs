@@ -868,6 +868,10 @@ async fn main() -> Result<()> {
                 .context(
                     "waiting for every reserved peer observation before emitting collective evidence",
                 )?;
+            control
+                .submit_fabric_collective_receipt(&receipt)
+                .await
+                .context("persisting non-admissible fabric collective receipt")?;
             let rendered = serde_json::to_vec_pretty(&receipt)
                 .context("encoding fabric collective receipt")?;
             if let Some(path) = out {
@@ -876,7 +880,7 @@ async fn main() -> Result<()> {
             } else {
                 println!("{}", String::from_utf8_lossy(&rendered));
             }
-            tracing::warn!(receipt_id = %receipt.receipt_id, "synthetic collective receipt is deliberately not admitted by control for placement, pricing, or settlement");
+            tracing::warn!(receipt_id = %receipt.receipt_id, "synthetic collective receipt is retained as evidence only and is not admitted for placement, pricing, or settlement");
             Ok(())
         }
         Command::FabricTopology {
