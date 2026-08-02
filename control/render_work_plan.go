@@ -30,6 +30,23 @@ type ProjectRenderWorkUnit struct {
 	SampleEnd   int    `json:"sample_end_exclusive"`
 }
 
+// ProjectRenderWorkUnitReceipt is the buyer-scoped, receipt-shaped projection
+// of one deterministic render unit. It is deliberately not a task lease: the
+// status and refusal make clear that no worker, asset transfer, output,
+// verification, or settlement authority is implied by expanding the IR.
+type ProjectRenderWorkUnitReceipt struct {
+	Version          string                `json:"version"`
+	CompileReceiptID string                `json:"compile_receipt_id"`
+	ProjectSHA256    string                `json:"project_sha256"`
+	IRSHA256         string                `json:"ir_sha256"`
+	StepID           string                `json:"step_id"`
+	Status           string                `json:"status"`
+	WorkUnit         ProjectRenderWorkUnit `json:"work_unit"`
+	ExecutionRefusal string                `json:"execution_refusal"`
+}
+
+const renderWorkUnitReceiptVersion = "MERC_RENDER_WORK_UNIT_RECEIPT_V1"
+
 // deriveProjectRenderWorkPlans creates only a bounded decomposition receipt.
 // It intentionally does not choose a node, transfer assets, run an engine, or
 // clear money: treating a static plan as any of those would turn an IR helper

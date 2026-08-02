@@ -231,6 +231,14 @@ var productionReachability = []reachabilityClaim{
 			"to an unscoped database read.",
 	},
 	{
+		From:   "Server.handleProjectCompileRenderUnit",
+		Target: "projectRenderWorkUnitAt",
+		Consequence: "the render decomposition route would return a shaped response without " +
+			"expanding the same deterministic frame/camera/tile/sample ordinal, so a buyer " +
+			"could not bind one requested unit to the durable compile receipt before any " +
+			"future runtime admission; the route must remain decomposition-only.",
+	},
+	{
 		From:   "Server.handleCreateServiceLease",
 		Target: "Store.RecordServiceLeaseAdmissionEvent",
 		Consequence: "successful and capacity-refused buyer service requests would leave no retained " +

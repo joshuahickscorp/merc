@@ -65,6 +65,15 @@ project/artifact and IR digests. Probe receipts require a prior proposal
 receipt from the same buyer; neither state creates a quote, reserves capacity,
 or executes work. Calibration and execution remain explicitly refused.
 
+Render decomposition is now a buyer-scoped production read rather than a
+test-only helper: `GET /v1/projects/compile/{id}/render/{step}/units/{ordinal}`
+expands one bounded frame/camera/tile/sample ordinal from that immutable receipt.
+The response is `DECOMPOSITION_ONLY_NOT_EXECUTABLE` and carries the unresolved
+asset-locality, runtime, worker, assembly, verification, and settlement refusal;
+it does not create a task, reserve capacity, or move money. A real render runtime
+and deterministic assembly/settlement path are still required before this lane
+can claim execution capability.
+
 ## 2. Work elimination — LARGELY DONE
 
 | item | state |

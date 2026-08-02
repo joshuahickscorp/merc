@@ -102,7 +102,9 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// surface. It returns proposal evidence only; it cannot quote or execute.
 	// 91 after the buyer-scoped durable project compile receipt read entered the
 	// same ownership boundary; it returns the stored IR evidence only.
-	if checked != 91 {
-		t.Fatalf("checked %d protected routes, want 91", checked)
+	// 92 after the buyer-scoped deterministic render-unit read entered the same
+	// boundary; it expands IR only and remains explicitly non-executable.
+	if checked != 92 {
+		t.Fatalf("checked %d protected routes, want 92", checked)
 	}
 }

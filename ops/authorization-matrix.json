@@ -105,6 +105,7 @@
         "GET /v1/price-estimate",
         "GET /v1/projects/{id}",
         "GET /v1/projects/compile/{id}",
+        "GET /v1/projects/compile/{id}/render/{step}/units/{ordinal}",
         "GET /v1/realtime/requests/{id}/receipt",
         "GET /v1/service-leases/{id}",
         "GET /v1/service-leases/{id}/receipt",
