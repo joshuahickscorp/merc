@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -95,8 +96,20 @@ func validateProjectDeclaration(declaration *ProjectDeclaration) error {
 			if err := validateProjectRendering(step); err != nil {
 				return fmt.Errorf("step %s rendering: %w", step.ID, err)
 			}
+			if step.LoRA != nil {
+				return fmt.Errorf("step %s supplies LoRA authority for media rendering", step.ID)
+			}
+		} else if step.Kind == "lora_training" {
+			if err := validateProjectLoRA(step); err != nil {
+				return fmt.Errorf("step %s LoRA: %w", step.ID, err)
+			}
+			if step.Rendering != nil {
+				return fmt.Errorf("step %s supplies rendering authority for LoRA training", step.ID)
+			}
 		} else if step.Rendering != nil {
 			return fmt.Errorf("step %s supplies rendering authority for non-rendering kind %q", step.ID, step.Kind)
+		} else if step.LoRA != nil {
+			return fmt.Errorf("step %s supplies LoRA authority for non-LoRA kind %q", step.ID, step.Kind)
 		}
 		if len(step.Inputs) == 0 || len(step.Outputs) == 0 {
 			return fmt.Errorf("step %s requires input and output artifacts", step.ID)
@@ -275,6 +288,89 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func validateProjectLoRA(step *ProjectIRStep) error {
+	contract := step.LoRA
+	if contract == nil {
+		return errors.New("lora_training requires an outcome contract")
+	}
+	for _, binding := range []struct {
+		role string
+		pin  *ProjectIRArtifactPin
+	}{
+		{"training_set", &contract.TrainingSet},
+		{"held_out_set", &contract.HeldOutSet},
+		{"dataset_schema", &contract.DatasetSchema},
+	} {
+		role, pin := binding.role, binding.pin
+		pin.Artifact = strings.TrimSpace(pin.Artifact)
+		pin.SHA256 = strings.ToLower(strings.TrimSpace(pin.SHA256))
+		if err := validateProjectRenderPin(role, *pin); err != nil {
+			return err
+		}
+	}
+	if contract.TrainingSet.Artifact == contract.HeldOutSet.Artifact ||
+		contract.TrainingSet.Artifact == contract.DatasetSchema.Artifact ||
+		contract.HeldOutSet.Artifact == contract.DatasetSchema.Artifact {
+		return errors.New("training, held-out, and schema artifacts must be distinct")
+	}
+	if !containsString(step.Inputs, contract.TrainingSet.Artifact) ||
+		!containsString(step.Inputs, contract.DatasetSchema.Artifact) {
+		return errors.New("training set and dataset schema must be declared training inputs")
+	}
+	if containsString(step.Inputs, contract.HeldOutSet.Artifact) {
+		return errors.New("held-out set must not be delivered to the training worker")
+	}
+	contract.DatasetRights = strings.TrimSpace(contract.DatasetRights)
+	if contract.DatasetRights == "" {
+		return errors.New("dataset_rights is required")
+	}
+	contract.BaselineModelSHA256 = strings.ToLower(strings.TrimSpace(contract.BaselineModelSHA256))
+	if !validSHA256(contract.BaselineModelSHA256) {
+		return errors.New("baseline_model_sha256 must be a SHA-256 identity")
+	}
+	if contract.Rank < 1 || contract.Rank > 1024 || contract.Alpha < 1 || contract.Alpha > 4096 ||
+		contract.Epochs < 1 || contract.Epochs > 1000 {
+		return errors.New("rank, alpha, or epochs are outside governed LoRA bounds")
+	}
+	if contract.Seed == nil {
+		return errors.New("seed is required for reproducible training")
+	}
+	contract.TargetModules = normalizeUniqueStrings(contract.TargetModules, strings.TrimSpace)
+	if len(contract.TargetModules) == 0 {
+		return errors.New("target_modules is required")
+	}
+	for _, module := range contract.TargetModules {
+		if !projectRenderCameraPattern.MatchString(module) {
+			return fmt.Errorf("target module %q is not a stable identifier", module)
+		}
+	}
+	contract.EvaluationMetric = strings.TrimSpace(contract.EvaluationMetric)
+	if contract.EvaluationMetric == "" {
+		return errors.New("evaluation_metric is required")
+	}
+	if contract.MetricDirection != "HIGHER_IS_BETTER" && contract.MetricDirection != "LOWER_IS_BETTER" {
+		return errors.New("metric_direction must be HIGHER_IS_BETTER or LOWER_IS_BETTER")
+	}
+	if math.IsNaN(contract.RequiredImprovement) || math.IsInf(contract.RequiredImprovement, 0) ||
+		contract.RequiredImprovement < 0 || contract.RequiredImprovement > 10 {
+		return errors.New("required_improvement must be finite and in [0,10]")
+	}
+	if contract.EvaluatorSeparation != "DIFFERENT_SUPPLIER_ACCOUNT" {
+		return errors.New("evaluator_separation must be DIFFERENT_SUPPLIER_ACCOUNT")
+	}
+	if !validProjectArtifactRef(contract.AdapterOutput) || !containsString(step.Outputs, contract.AdapterOutput) {
+		return errors.New("adapter_output must be one of this step's project outputs")
+	}
+	if contract.Deployment != "GOVERNED_ONLY" || contract.Revocation != "IMMEDIATE_ON_AUTHORIZATION_LOSS" {
+		return errors.New("adapter deployment/revocation must remain GOVERNED_ONLY and IMMEDIATE_ON_AUTHORIZATION_LOSS")
+	}
+	return nil
+}
+
+func projectLoRAPins(contract ProjectIRLoRA) []ProjectIRArtifactPin {
+	return []ProjectIRArtifactPin{contract.TrainingSet, contract.HeldOutSet, contract.DatasetSchema}
 }
 
 func validateProjectDAG(steps []ProjectIRStep) error {
