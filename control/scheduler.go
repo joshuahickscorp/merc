@@ -380,6 +380,8 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	          w.effective_memory_gb, w.memory_gb,
 		          w.min_payout_usd_hr, w.throttled,
 		          COALESCE(w.priority_claim_streak,0) AS priority_claim_streak,
+		          COALESCE(w.sandboxed,false) AS sandboxed,
+		          COALESCE(w.unsandboxed_opt_in,false) AS unsandboxed_opt_in,
 		          s.id AS supplier_id_s, s.status AS supplier_status,
 	          s.reputation, s.data_country
 	     FROM workers w
@@ -435,6 +437,9 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	         AND w2.last_seen_at > now() - interval '60 seconds'
 	         AND s2.status = 'active'
 	         AND NOT COALESCE(w2.throttled, false)
+	         -- A worker that opted out of the seatbelt cannot take buyer work;
+	         -- do not count it as a cheaper class that "could take" this task.
+	         AND NOT COALESCE(w2.unsandboxed_opt_in, false)
 	         AND (`+hwClassCostRankSQL("w2.hw_class")+`) < $3
 	         AND COALESCE(j.min_memory_gb,0) <= COALESCE(w2.effective_memory_gb, w2.memory_gb, 0)
 	         AND (j.hw_classes IS NULL OR w2.hw_class = ANY(j.hw_classes))
@@ -445,6 +450,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	           OR (COALESCE(s2.reputation,0) >= 0.80 AND COALESCE(s2.completed_tasks,0) >= 500)
 	         )
 	         AND COALESCE(j.offered_rate_usd_hr,1e9) >= COALESCE(w2.min_payout_usd_hr,0)
+`+supplierNotLinkedToBuyerSQL("s2")+`
 	         AND EXISTS (
 	           SELECT 1 FROM worker_authorized_capabilities wac2
 	            WHERE wac2.worker_id = w2.id
@@ -508,6 +514,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	         AND w3.last_seen_at > now() - interval '60 seconds'
 	         AND s3.status = 'active'
 	         AND NOT COALESCE(w3.throttled, false)
+	         AND NOT COALESCE(w3.unsandboxed_opt_in, false)
 	         AND COALESCE(w3.min_payout_usd_hr, 0) < $5
 	         AND COALESCE(j.offered_rate_usd_hr, 1e9) >= COALESCE(w3.min_payout_usd_hr, 0)
 	         AND COALESCE(j.min_memory_gb,0) <= COALESCE(w3.effective_memory_gb, w3.memory_gb, 0)
@@ -518,6 +525,7 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	           j.tier <> 'trusted'
 	           OR (COALESCE(s3.reputation,0) >= 0.80 AND COALESCE(s3.completed_tasks,0) >= 500)
 	         )
+`+supplierNotLinkedToBuyerSQL("s3")+`
 	         AND EXISTS (
 	           SELECT 1 FROM worker_authorized_capabilities wac3
 	            WHERE wac3.worker_id = w3.id
@@ -725,6 +733,11 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	     AND COALESCE(j.min_reputation,0) <= me.reputation
 	     AND (j.tier <> 'trusted' OR $2 >= 2)
 	     AND (COALESCE(j.offered_rate_usd_hr,1e9) >= COALESCE(me.min_payout_usd_hr,0))
+	     -- Containment: a worker that deliberately opted out of the seatbelt
+	     -- (MERC_ALLOW_UNSANDBOXED) must not receive buyer payload. Greppable
+	     -- via workers.unsandboxed_opt_in and the capability record.
+	     AND NOT COALESCE(me.unsandboxed_opt_in, false)
+`+claimIndependenceSQL+`
 	     -- Budget Governor (Plane C §12 / Plane D §14 D8): when the job has a hard
 	     -- spend cap, NEVER dispatch a new task whose projected charge would breach
 	     -- it. Projected = already-charged on this job's tasks (buyer_charge debits,
@@ -958,6 +971,16 @@ func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, error) {
 	claimStart := time.Now()
 	defer func() { claimDuration.observe(time.Since(claimStart)) }()
+
+	// Record independence exclusions for any ready buyer work this supplier is
+	// linked out of, so a receipt can show the filter fired rather than
+	// "no work available". Deduped per (job, supplier, day) to keep the
+	// heartbeat/poll path from flooding the table.
+	if err := s.recordLinkedClaimExclusions(ctx, w); err != nil {
+		// Non-fatal: exclusion recording must not block claim. Log via return
+		// only when the claim itself fails for another reason.
+		_ = err
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

@@ -764,13 +764,15 @@ func (s *Store) EnrollWorkerTx(ctx context.Context, in EnrollmentExchangeInput) 
 		return EnrollmentExchangeResult{}, errors.New("worker token entropy failure")
 	}
 	credentialID := uuid.New()
+	tokenExpires := time.Now().UTC().Add(workerTokenTTL)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO worker_tokens
 		  (token_hash,worker_id,supplier_id,revoked,credential_id,device_key_algorithm,
-		   device_public_key,device_fingerprint,credential_version,rotated_from_credential_id,label)
-		VALUES ($1,$2,$3,false,$4,$5,$6,$7,$8,$9,NULLIF($10,''))`,
+		   device_public_key,device_fingerprint,credential_version,rotated_from_credential_id,label,
+		   expires_at,last_renewed_at)
+		VALUES ($1,$2,$3,false,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,now())`,
 		hashKey(rawToken), workerID, code.supplierID, credentialID, workerEnrollmentKeyAlgorithm,
-		requestedKey, code.fingerprint, version, code.rotateFrom, code.label); err != nil {
+		requestedKey, code.fingerprint, version, code.rotateFrom, code.label, tokenExpires); err != nil {
 		return EnrollmentExchangeResult{}, err
 	}
 	if _, err := tx.Exec(ctx,
