@@ -16,10 +16,11 @@ use anyhow::{bail, Context, Result};
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{timeout, Duration};
+use uuid::Uuid;
 
 const MAGIC: &[u8; 9] = b"MERC-FAB1";
 const NONCE_BYTES: usize = 32;
@@ -54,13 +55,14 @@ pub struct FabricProbeRound {
 #[derive(Debug, Serialize)]
 pub struct FabricProbeReceipt {
     pub schema_version: u32,
+    pub receipt_id: Uuid,
     pub kind: &'static str,
     pub status: &'static str,
     pub measured_at_unix_ms: u128,
     // This is a supplier/operator declaration. The receipt never infers
     // physical location from an address and does not disclose the endpoint.
     pub declared_site: String,
-    pub peer_endpoint_sha256: String,
+    pub peer_endpoint_commitment: String,
     pub transport: &'static str,
     pub peer_authentication: &'static str,
     pub payload_is_random: bool,
@@ -160,6 +162,7 @@ pub async fn probe(options: ProbeOptions) -> Result<FabricProbeReceipt> {
 
     Ok(FabricProbeReceipt {
         schema_version: 1,
+        receipt_id: Uuid::new_v4(),
         kind: "MERC_FABRIC_TCP_ECHO_RECEIPT",
         status: "MEASURED_NOT_ADMISSIBLE",
         measured_at_unix_ms: SystemTime::now()
@@ -167,7 +170,7 @@ pub async fn probe(options: ProbeOptions) -> Result<FabricProbeReceipt> {
             .unwrap_or_default()
             .as_millis(),
         declared_site: options.site,
-        peer_endpoint_sha256: sha256_hex(options.endpoint.to_string().as_bytes()),
+        peer_endpoint_commitment: endpoint_commitment(&options.shared_secret, options.endpoint)?,
         transport: "MERC_FABRIC_TCP_ECHO_V1",
         peer_authentication: "HMAC_SHA256_OWNER_SHARED_PROBE_TOKEN",
         payload_is_random: true,
@@ -251,7 +254,11 @@ async fn probe_once(
     .context("fabric peer I/O timed out")??;
     let elapsed = start.elapsed();
     let elapsed_micros = elapsed.as_micros().max(1).min(u64::MAX as u128) as u64;
-    let goodput_mbps = (payload_bytes as f64 * 2.0 * 8.0) / elapsed.as_secs_f64() / 1_000_000.0;
+    // Report only the microsecond precision carried in the receipt. The
+    // control plane independently recomputes this exact expression from the
+    // retained bytes and elapsed micros; publishing nanosecond-derived display
+    // rates would make otherwise identical evidence disagree after transport.
+    let goodput_mbps = payload_bytes as f64 * 2.0 * 8.0 / elapsed_micros as f64;
     Ok(RoundMeasurement {
         elapsed_micros,
         goodput_mbps,
@@ -357,11 +364,20 @@ fn percentile_index(length: usize, percentile: usize) -> usize {
     ((length * percentile).div_ceil(100)).saturating_sub(1)
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
+// A plain digest of `10.0.0.12:9444` is enumerable. This keyed commitment lets
+// the control plane correlate repeats with the same owner-shared probe secret
+// without receiving the direct endpoint or publishing a guessable fingerprint.
+fn endpoint_commitment(secret: &[u8], endpoint: SocketAddr) -> Result<String> {
+    let mut mac =
+        HmacSha256::new_from_slice(secret).context("building fabric endpoint commitment")?;
+    mac.update(b"merc-fabric-endpoint-v1\x00");
+    mac.update(endpoint.to_string().as_bytes());
+    Ok(mac
+        .finalize()
+        .into_bytes()
         .iter()
         .map(|byte| format!("{byte:02x}"))
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]
