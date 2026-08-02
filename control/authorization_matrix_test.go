@@ -113,7 +113,13 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// 98 after the worker-authenticated LoRA evaluation report and buyer-scoped
 	// receipt read entered the outcome-evidence surface; neither route can train,
 	// deploy, charge, pay, or settle.
-	if checked != 98 {
-		t.Fatalf("checked %d protected routes, want 98", checked)
+	// 99 after the operator dispute-resolution route entered the admin surface.
+	// An unresolvable dispute previously had no exit at all — no route, buyer or
+	// admin, called SetDisputeStatus — so a supplier's payout stayed blocked
+	// until someone ran SQL against production. The route resolves a terminal
+	// dispute and records who did it and on what basis; it cannot open one, and
+	// it cannot move money except by unblocking a payout the ledger already owed.
+	if checked != 99 {
+		t.Fatalf("checked %d protected routes, want 99", checked)
 	}
 }
