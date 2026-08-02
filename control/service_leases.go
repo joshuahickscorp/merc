@@ -822,6 +822,15 @@ func meterServiceLeaseTx(ctx context.Context, tx pgx.Tx, lease *ServiceLease, at
 		return errors.New("service lease replica-time overflow")
 	}
 	lease.CumulativeReplicaNanos += add
+	// A zero-replica window (FAILOVER_REQUIRED, drained) with no prior accrual
+	// must advance the watermark without inventing money. ServiceLeaseMoney
+	// requires a positive aggregate duration; calling it with zero fails closed
+	// and would block FailoverServiceLease / termination for a lease that died
+	// before its first billable interval.
+	if lease.CumulativeReplicaNanos <= 0 {
+		lease.LastMeteredAt = at
+		return nil
+	}
 	money, err := ServiceLeaseMoneyForReplicaDuration(MustParseCurrency(lease.Pricing.Currency), *lease.Pricing.ServiceLease, lease.CumulativeReplicaNanos)
 	if err != nil {
 		return err
@@ -1369,6 +1378,10 @@ func (s *Store) markServiceLeaseWorkerLost(ctx context.Context, leaseID uuid.UUI
 // buyer-selected supplier switch. The replacement must fit frozen region,
 // capacity, and supplier/residency ceilings. Its work still settles at the
 // original PricingDecision rates. This has no customer data-plane authority.
+//
+// Returns (false, nil) when the lease is not in FAILOVER_REQUIRED, has expired,
+// or no replacement clears the frozen ceilings. Callers that must not leave
+// money parked use FailoverPendingServiceLeases, which terminates on that miss.
 func (s *Store) FailoverServiceLease(ctx context.Context, leaseID uuid.UUID) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -1421,7 +1434,148 @@ func (s *Store) FailoverServiceLease(ctx context.Context, leaseID uuid.UUID) (bo
 		return false, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail)
-		VALUES ($1,'FAILOVER_COMPLETED',jsonb_build_object('replacement_worker_id',$2::text))`, lease.ID, workerID.String()); err != nil {
+		VALUES ($1,'FAILOVER_COMPLETED',jsonb_build_object('replacement_worker_id',$2::text,'path','replacement_found'))`, lease.ID, workerID.String()); err != nil {
+		return false, err
+	}
+	return true, tx.Commit(ctx)
+}
+
+// FailoverPendingServiceLeases is the production recovery step after
+// RecoverServiceLeases. For each FAILOVER_REQUIRED lease still inside its term
+// it tries FailoverServiceLease; when no replacement clears the frozen ceilings
+// it terminates the lease and releases the prepaid reservation so capacity that
+// will never arrive cannot hold buyer funds until expires_at.
+//
+// Returns (failedOver, terminated, err). Each path records a service_lease_events
+// row (FAILOVER_COMPLETED or FAILOVER_TERMINATED) so a receipt shows which ran.
+func (s *Store) FailoverPendingServiceLeases(ctx context.Context, limit int) (int, int, error) {
+	if limit < 1 {
+		return 0, 0, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id FROM service_leases
+		WHERE state='FAILOVER_REQUIRED' AND expires_at>now()
+		ORDER BY last_worker_heartbeat_at ASC LIMIT $1`, limit)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return 0, 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	failedOver, terminated := 0, 0
+	for _, id := range ids {
+		moved, err := s.FailoverServiceLease(ctx, id)
+		if err != nil {
+			return failedOver, terminated, err
+		}
+		if moved {
+			failedOver++
+			continue
+		}
+		// No replacement under frozen ceilings (or a concurrent finalize/cancel
+		// already cleared the row). Terminate releases the reservation rather
+		// than spinning until expires_at.
+		ok, err := s.TerminateServiceLeaseNoReplacement(ctx, id)
+		if err != nil {
+			return failedOver, terminated, err
+		}
+		if ok {
+			terminated++
+		}
+	}
+	return failedOver, terminated, nil
+}
+
+// TerminateServiceLeaseNoReplacement ends a FAILOVER_REQUIRED lease when no
+// replacement clears the frozen ceilings. Billing stays at the last metered
+// point (WORKER_LOSS already cut accrual at the final authenticated heartbeat);
+// unused prepaid reservation is released by leaving the open-reservation set.
+func (s *Store) TerminateServiceLeaseNoReplacement(ctx context.Context, leaseID uuid.UUID) (bool, error) {
+	if leaseID == uuid.Nil {
+		return false, errors.New("service lease termination requires lease identity")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	lease, err := scanServiceLease(tx.QueryRow(ctx, `SELECT `+serviceLeaseColumns+` FROM service_leases WHERE id=$1 FOR UPDATE`, leaseID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, errNotFound
+	}
+	if err != nil {
+		return false, err
+	}
+	if lease.State != "FAILOVER_REQUIRED" {
+		// Concurrent failover, cancel, or expiry already moved it.
+		return false, nil
+	}
+	if !time.Now().Before(lease.ExpiresAt) {
+		// Past term: ordinary expiry finalization owns the terminal receipt.
+		return false, nil
+	}
+	// FAILOVER_REQUIRED already metered through the last heartbeat with
+	// active_replicas=0. Re-metering at LastMeteredAt is a no-op for accrual and
+	// keeps the settlement path identical to buyer cancel.
+	if err := meterServiceLeaseTx(ctx, tx, &lease, lease.LastMeteredAt); err != nil {
+		return false, err
+	}
+	if lease.BuyerChargeNanos > 0 {
+		if err := settleFinalServiceLeaseTx(ctx, tx, &lease); err != nil {
+			return false, err
+		}
+	}
+	usedMicros := int64(0)
+	if lease.BuyerChargeNanos > 0 {
+		currency, err := ParseCurrency(lease.Pricing.Currency)
+		if err != nil {
+			return false, err
+		}
+		usedMicros, err = LedgerMicrosFromNanos(MoneyNanos{Currency: currency, Nanos: lease.BuyerChargeNanos})
+		if err != nil {
+			return false, err
+		}
+	}
+	if usedMicros < 0 || usedMicros > lease.ReservedBuyerMicros {
+		return false, errors.New("service lease failover termination violates frozen prepaid reservation")
+	}
+	now := time.Now().UTC()
+	if _, err := tx.Exec(ctx, `UPDATE service_leases SET state='CANCELLED',active_replicas=0,
+		finalized_at=$2,last_metered_at=$3,cumulative_replica_nanoseconds=$4,
+		buyer_charge_nanos=$5,supplier_payable_nanos=$6,known_variable_cost_nanos=$7,
+		known_contribution_nanos=$8 WHERE id=$1`, lease.ID, now, lease.LastMeteredAt,
+		lease.CumulativeReplicaNanos, lease.BuyerChargeNanos, lease.SupplierPayableNanos,
+		lease.KnownVariableCostNanos, lease.KnownContributionNanos); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE service_lease_worker_offers
+		SET available_warm_replicas=LEAST(maximum_warm_replicas,available_warm_replicas+$4),updated_at=now()
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, lease.WorkerID,
+		lease.RuntimeProfileID, lease.Region, lease.MaximumReplicas); err != nil {
+		return false, err
+	}
+	if err := recordServiceLeaseOfferSampleTx(ctx, tx, lease.WorkerID, lease.RuntimeProfileID, lease.Region); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail)
+		VALUES ($1,'FAILOVER_TERMINATED',jsonb_build_object(
+			'path','no_replacement_under_frozen_ceiling',
+			'reason','no_replacement_under_frozen_ceiling',
+			'metered_through',$2::timestamptz,
+			'cumulative_replica_nanoseconds',$3::bigint,
+			'buyer_charge_nanos',$4::bigint,
+			'supplier_payable_nanos',$5::bigint,
+			'unused_reserved_micros',$6::bigint))`,
+		lease.ID, lease.LastMeteredAt, lease.CumulativeReplicaNanos, lease.BuyerChargeNanos,
+		lease.SupplierPayableNanos, lease.ReservedBuyerMicros-usedMicros); err != nil {
 		return false, err
 	}
 	return true, tx.Commit(ctx)
