@@ -217,6 +217,20 @@ var productionReachability = []reachabilityClaim{
 			"test-only; no quote or execution authority is implied by this proposal route.",
 	},
 	{
+		From:   "Server.handleProjectCompile",
+		Target: "Store.RecordProjectCompileReceipt",
+		Consequence: "the compiler would return a digest-shaped response but lose the durable " +
+			"buyer-scoped proposal/probe evidence that later project quotes need to bind without " +
+			"re-inspecting a changed source tree.",
+	},
+	{
+		From:   "Server.handleProjectCompileReceipt",
+		Target: "Store.GetProjectCompileReceipt",
+		Consequence: "a compile receipt would be written but no production caller could retrieve " +
+			"the immutable IR and verify its buyer scope; support and quote tooling would fall back " +
+			"to an unscoped database read.",
+	},
+	{
 		From:   "Server.handleCreateServiceLease",
 		Target: "Store.RecordServiceLeaseAdmissionEvent",
 		Consequence: "successful and capacity-refused buyer service requests would leave no retained " +

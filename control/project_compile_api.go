@@ -23,6 +23,7 @@ const (
 )
 
 func (s *Server) handleProjectCompile(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxBuyer).(*AuthResult)
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxProjectCompileUploadBytes+1))
 	if err != nil || len(raw) > maxProjectCompileUploadBytes {
 		writeErr(w, http.StatusRequestEntityTooLarge, "project archive exceeds the 64 MiB compile limit")
@@ -47,15 +48,39 @@ func (s *Server) handleProjectCompile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "project compile refused: "+err.Error())
 		return
 	}
+	receipt, err := s.store.RecordProjectCompileReceipt(r.Context(), auth.BuyerID, ir, probeRequested)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "project compile receipt could not be retained")
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Merc-Project-SHA256", ir.ProjectSHA256)
 	w.Header().Set("X-Merc-Project-IR-SHA256", ir.IRSHA256)
+	w.Header().Set("X-Merc-Project-Compile-Receipt", receipt.ID)
 	if probeRequested {
 		w.Header().Set("X-Merc-Bounded-Probe", "executed")
 	} else {
 		w.Header().Set("X-Merc-Bounded-Probe", "not_requested")
 	}
 	writeJSON(w, http.StatusOK, ir)
+}
+
+func (s *Server) handleProjectCompileReceipt(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxBuyer).(*AuthResult)
+	id, ok := pathUUID(w, r)
+	if !ok {
+		return
+	}
+	receipt, err := s.store.GetProjectCompileReceipt(r.Context(), auth.BuyerID, id)
+	if errors.Is(err, errProjectCompileReceiptNotFound) {
+		writeErr(w, http.StatusNotFound, "project compile receipt not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "project compile receipt unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, receipt)
 }
 
 func parseProjectProbeHeader(raw string) (bool, error) {
