@@ -44,15 +44,15 @@ const (
 	// A supplier's compute floor as a share of the quoted maximum. The rest is
 	// contingent. Set here rather than per-request so a buyer cannot quote a
 	// floor so thin that the supplier is effectively working on spec.
-	loraComputeFloorShare = 0.60
+	loraComputeFloorShareNanos int64 = 600_000_000
 
 	// merc's take, applied to the floor only.
-	loraPlatformShareOfFloor = 0.20
+	loraPlatformShareOfFloorNanos int64 = 200_000_000
 
 	// The supplier's share of the bonus when the run succeeds. The remainder is
 	// merc's, and it is the only place merc's revenue depends on the outcome --
 	// deliberately small, because merc decides who evaluates.
-	loraSupplierShareOfBonus = 0.85
+	loraSupplierShareOfBonusNanos int64 = 850_000_000
 )
 
 var (
@@ -65,18 +65,24 @@ var (
 )
 
 // minLoRAQuoteMicros is the smallest quote whose floor still leaves the
-// supplier AND merc at least one micro-USD after integer truncation.
+// supplier AND merc at least one ledger micro after integer truncation.
 //
 // Derived, not hardcoded: the shares above are the only inputs, so changing one
 // cannot silently reintroduce the hole this guards. Below this, floor * share
 // truncates to zero and the supplier is owed nothing for compute it really
 // performed -- the exact outcome the floor exists to prevent, arriving through
 // arithmetic rather than policy. Found by probing the settlement at sub-cent
-// quotes: at 1 micro-USD the floor was 0 and every party settled at zero.
+// quotes: at 1 ledger micro the floor was 0 and every party settled at zero.
 var minLoRAQuoteMicros = func() int64 {
 	for total := int64(1); total < 1_000_000; total++ {
-		floor := int64(float64(total) * loraComputeFloorShare)
-		platform := int64(float64(floor) * loraPlatformShareOfFloor)
+		floor, err := mulDiv(total, loraComputeFloorShareNanos, NanosPerMajorUnit, false)
+		if err != nil {
+			panic(err)
+		}
+		platform, err := mulDiv(floor, loraPlatformShareOfFloorNanos, NanosPerMajorUnit, false)
+		if err != nil {
+			panic(err)
+		}
 		if floor-platform >= 1 && platform >= 1 && total-floor >= 1 {
 			return total
 		}
@@ -115,11 +121,63 @@ type loraEvaluation struct {
 	RequiredImprovement float64
 }
 
-// loraSettlement is the money decision. Every field is micro-USD so the
-// arithmetic matches the ledger's and nothing is lost to float rounding.
+// loraExactSettlement is the pre-ledger authority. Shares are applied in one
+// integer expression; micro projection happens once at the external ledger
+// boundary. This prevents a small quote from being rounded before the floor or
+// outcome share is computed.
+type loraExactSettlement struct {
+	BuyerDebitNanos      int64
+	SupplierPayableNanos int64
+	PlatformNanos        int64
+	FloorNanos           int64
+	BonusNanos           int64
+}
+
+func settleLoRAExact(totalNanos int64, succeeded bool) (loraExactSettlement, error) {
+	if totalNanos <= 0 {
+		return loraExactSettlement{}, errLoRAQuoteTooSmall
+	}
+	floor, err := mulDiv(totalNanos, loraComputeFloorShareNanos, NanosPerMajorUnit, false)
+	if err != nil {
+		return loraExactSettlement{}, err
+	}
+	bonus := totalNanos - floor
+	platformFloor, err := mulDiv(floor, loraPlatformShareOfFloorNanos, NanosPerMajorUnit, false)
+	if err != nil {
+		return loraExactSettlement{}, err
+	}
+	out := loraExactSettlement{FloorNanos: floor, BonusNanos: bonus}
+	if succeeded {
+		supplierBonus, e := mulDiv(bonus, loraSupplierShareOfBonusNanos, NanosPerMajorUnit, false)
+		if e != nil {
+			return loraExactSettlement{}, e
+		}
+		out.BuyerDebitNanos = totalNanos
+		out.SupplierPayableNanos = floor - platformFloor + supplierBonus
+		out.PlatformNanos = platformFloor + bonus - supplierBonus
+	} else {
+		out.BuyerDebitNanos = floor
+		out.SupplierPayableNanos = floor - platformFloor
+		out.PlatformNanos = platformFloor
+	}
+	if out.BuyerDebitNanos != out.SupplierPayableNanos+out.PlatformNanos || out.SupplierPayableNanos <= 0 || out.PlatformNanos <= 0 {
+		return loraExactSettlement{}, errLoRANegativeMargin
+	}
+	return out, nil
+}
+
+// loraSettlement is the outcome decision. Nanos are the economic authority;
+// micros are the one external-ledger projection. Currency is carried with both
+// so this result can never be mistaken for a USD amount in a CAD deployment.
 type loraSettlement struct {
+	Currency              string
 	Succeeded             bool
 	Reason                string
+	BuyerDebitNanos       int64
+	SupplierPayableNanos  int64
+	PlatformNanos         int64
+	FloorNanos            int64
+	BonusNanos            int64
 	BuyerDebitMicros      int64
 	SupplierPayableMicros int64
 	PlatformMicros        int64
@@ -185,42 +243,54 @@ func validateLoRAEvaluation(eval loraEvaluation) error {
 	return nil
 }
 
-// settleLoRARun computes the money. quotedMaxUSD is the ceiling the buyer
-// agreed; it is never exceeded in either outcome.
-func settleLoRARun(eval loraEvaluation, quotedMaxUSD float64) (loraSettlement, error) {
+// settleLoRARun computes a currency-bound outcome settlement. quotedMaximum is
+// the buyer's exact ceiling; it is never exceeded in either outcome.
+func settleLoRARun(eval loraEvaluation, quotedMaximum MoneyNanos) (loraSettlement, error) {
 	if err := validateLoRAEvaluation(eval); err != nil {
 		return loraSettlement{}, err
 	}
-	if !moneyUSDInDomain(quotedMaxUSD) || quotedMaxUSD <= 0 {
-		return loraSettlement{}, fmt.Errorf("%w: quoted maximum must be a positive amount, got %v",
-			errLoRAEvaluationShape, quotedMaxUSD)
+	if !quotedMaximum.Currency.Valid() || quotedMaximum.Nanos <= 0 {
+		return loraSettlement{}, fmt.Errorf("%w: quoted maximum must be a positive currency-bound amount, got %s",
+			errLoRAEvaluationShape, quotedMaximum)
 	}
 
-	totalMicros := usdToMicros(quotedMaxUSD)
+	totalMicros, err := LedgerMicrosFromNanos(quotedMaximum)
+	if err != nil {
+		return loraSettlement{}, err
+	}
 	if totalMicros < minLoRAQuoteMicros {
 		// Refused rather than settled at zero. A run this cheap cannot pay the
 		// supplier for the hardware it burns, and settling it anyway would mean
 		// merc accepted work it knew it could not pay for.
 		return loraSettlement{}, fmt.Errorf(
-			"%w: %d micro-USD quoted, the minimum that still pays the supplier and merc "+
-				"at least one micro-USD each is %d",
+			"%w: %d ledger micros quoted, the minimum that still pays the supplier and merc "+
+				"at least one ledger micro each is %d",
 			errLoRAQuoteTooSmall, totalMicros, minLoRAQuoteMicros)
 	}
-	floor := int64(float64(totalMicros) * loraComputeFloorShare)
-	// The bonus is the remainder rather than a second percentage, so floor and
-	// bonus always sum to exactly the quoted maximum and no micro-USD is created
-	// or lost by rounding two shares independently.
-	bonus := totalMicros - floor
-
 	improvement := (eval.CandidateScore - eval.BaselineScore) / eval.BaselineScore
 	succeeded := improvement >= eval.RequiredImprovement
-
-	platformFromFloor := int64(float64(floor) * loraPlatformShareOfFloor)
+	exact, err := settleLoRAExact(quotedMaximum.Nanos, succeeded)
+	if err != nil {
+		return loraSettlement{}, err
+	}
+	// The external ledger is micro-major-units. Project the complete buyer
+	// amount once, then allocate its integer remainder to Merc; this preserves
+	// buyer = supplier + platform without turning a supplier share into a second
+	// independently rounded price authority.
+	buyerMicros := totalMicros
+	supplierMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: quotedMaximum.Currency, Nanos: exact.SupplierPayableNanos})
+	if err != nil || supplierMicros <= 0 || supplierMicros >= buyerMicros {
+		return loraSettlement{}, errLoRAQuoteTooSmall
+	}
 	settlement := loraSettlement{
-		Succeeded:           succeeded,
-		FloorMicros:         floor,
-		BonusMicros:         bonus,
-		ImprovementFraction: improvement,
+		Currency:             quotedMaximum.Currency.Code(),
+		Succeeded:            succeeded,
+		BuyerDebitNanos:      exact.BuyerDebitNanos,
+		SupplierPayableNanos: exact.SupplierPayableNanos,
+		PlatformNanos:        exact.PlatformNanos,
+		FloorNanos:           exact.FloorNanos,
+		BonusNanos:           exact.BonusNanos,
+		ImprovementFraction:  improvement,
 	}
 
 	if !succeeded {
@@ -231,22 +301,33 @@ func settleLoRARun(eval loraEvaluation, quotedMaxUSD float64) (loraSettlement, e
 			"adapter improved the held-out score by %.2f%%, below the agreed %.2f%%; "+
 				"compute floor settled, outcome bonus not charged",
 			improvement*100, eval.RequiredImprovement*100)
-		settlement.BuyerDebitMicros = floor
-		settlement.SupplierPayableMicros = floor - platformFromFloor
-		settlement.PlatformMicros = platformFromFloor
+		floorMicros, e := LedgerMicrosFromNanos(MoneyNanos{Currency: quotedMaximum.Currency, Nanos: exact.BuyerDebitNanos})
+		if e != nil || floorMicros <= 0 || supplierMicros >= floorMicros {
+			return loraSettlement{}, errLoRAQuoteTooSmall
+		}
+		settlement.BuyerDebitMicros = floorMicros
+		settlement.FloorMicros = floorMicros
+		settlement.BonusMicros = totalMicros - floorMicros
+		settlement.SupplierPayableMicros = supplierMicros
+		settlement.PlatformMicros = floorMicros - supplierMicros
 	} else {
-		supplierBonus := int64(float64(bonus) * loraSupplierShareOfBonus)
 		settlement.Reason = fmt.Sprintf(
 			"adapter improved the held-out score by %.2f%%, meeting the agreed %.2f%%",
 			improvement*100, eval.RequiredImprovement*100)
-		settlement.BuyerDebitMicros = floor + bonus
-		settlement.SupplierPayableMicros = (floor - platformFromFloor) + supplierBonus
-		settlement.PlatformMicros = platformFromFloor + (bonus - supplierBonus)
+		settlement.BuyerDebitMicros = buyerMicros
+		floorMicros, e := LedgerMicrosFromNanos(MoneyNanos{Currency: quotedMaximum.Currency, Nanos: exact.FloorNanos})
+		if e != nil || floorMicros <= 0 || floorMicros >= buyerMicros {
+			return loraSettlement{}, errLoRAQuoteTooSmall
+		}
+		settlement.FloorMicros = floorMicros
+		settlement.BonusMicros = buyerMicros - floorMicros
+		settlement.SupplierPayableMicros = supplierMicros
+		settlement.PlatformMicros = buyerMicros - supplierMicros
 	}
 
 	// Conservation, checked rather than assumed: what the buyer is debited is
 	// exactly what the supplier is owed plus what merc keeps. A rounding split
-	// that loses a micro-USD here is money that exists on one side of the ledger
+	// that loses a ledger micro here is money that exists on one side of the ledger
 	// and not the other.
 	if settlement.BuyerDebitMicros != settlement.SupplierPayableMicros+settlement.PlatformMicros {
 		return loraSettlement{}, fmt.Errorf(
@@ -255,16 +336,16 @@ func settleLoRARun(eval loraEvaluation, quotedMaxUSD float64) (loraSettlement, e
 	}
 	if settlement.SupplierPayableMicros < 0 {
 		return loraSettlement{}, fmt.Errorf(
-			"LoRA settlement would owe the supplier a negative amount (%d micro-USD)",
+			"LoRA settlement would owe the supplier a negative amount (%d ledger micros)",
 			settlement.SupplierPayableMicros)
 	}
 	if settlement.PlatformMicros < 0 {
-		return loraSettlement{}, fmt.Errorf("%w: %d micro-USD",
+		return loraSettlement{}, fmt.Errorf("%w: %d ledger micros",
 			errLoRANegativeMargin, settlement.PlatformMicros)
 	}
 	if settlement.BuyerDebitMicros > totalMicros {
 		return loraSettlement{}, fmt.Errorf(
-			"LoRA settlement would charge %d micro-USD against a quoted maximum of %d",
+			"LoRA settlement would charge %d ledger micros against a quoted maximum of %d",
 			settlement.BuyerDebitMicros, totalMicros)
 	}
 	return settlement, nil
