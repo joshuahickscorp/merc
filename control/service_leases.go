@@ -57,8 +57,12 @@ type ServiceLeaseHeartbeat struct {
 	LatencyMeasurementCount int    `json:"latency_measurement_count"`
 	LatencyWindowSeconds    int64  `json:"latency_window_seconds"`
 	LatencyMeasurementKind  string `json:"latency_measurement_kind"`
-	Status                  string `json:"status"`
-	UpgradeGeneration       string `json:"upgrade_generation,omitempty"`
+	// A READY heartbeat binds its aggregate latency to the exact bounded
+	// request/response probe that produced it. This is worker-attested evidence,
+	// not a buyer-request receipt or an independent availability proof.
+	DataPlaneProbeReceiptSHA256 string `json:"data_plane_probe_receipt_sha256,omitempty"`
+	Status                      string `json:"status"`
+	UpgradeGeneration           string `json:"upgrade_generation,omitempty"`
 }
 
 // ServiceLeaseAssignment is the minimum lease authority a worker needs to
@@ -80,11 +84,12 @@ type ServiceLeaseAssignment struct {
 // bounded data-plane completions. It is not an independent availability or
 // customer-path measurement and therefore remains explicit on the receipt.
 type ServiceLeaseSLOEvidence struct {
-	P95LatencyMillis        int64     `json:"p95_latency_milliseconds"`
-	LatencyMeasurementCount int       `json:"latency_measurement_count"`
-	LatencyWindowSeconds    int64     `json:"latency_window_seconds"`
-	LatencyMeasurementKind  string    `json:"latency_measurement_kind"`
-	MeasuredAt              time.Time `json:"measured_at"`
+	P95LatencyMillis            int64     `json:"p95_latency_milliseconds"`
+	LatencyMeasurementCount     int       `json:"latency_measurement_count"`
+	LatencyWindowSeconds        int64     `json:"latency_window_seconds"`
+	LatencyMeasurementKind      string    `json:"latency_measurement_kind"`
+	DataPlaneProbeReceiptSHA256 string    `json:"data_plane_probe_receipt_sha256"`
+	MeasuredAt                  time.Time `json:"measured_at"`
 }
 
 type ServiceLease struct {
@@ -818,6 +823,12 @@ func (s *Store) HeartbeatServiceLease(ctx context.Context, auth WorkerAuth, leas
 		heartbeat.LatencyMeasurementCount < 5 || heartbeat.LatencyWindowSeconds < 1 || heartbeat.LatencyWindowSeconds > 300) {
 		return errors.New("ready service lease heartbeat requires a recent five-sample data-plane latency measurement")
 	}
+	if heartbeat.Status == "READY" && !validSHA256(heartbeat.DataPlaneProbeReceiptSHA256) {
+		return errors.New("ready service lease heartbeat requires the bounded data-plane probe receipt digest")
+	}
+	if heartbeat.Status != "READY" && heartbeat.DataPlaneProbeReceiptSHA256 != "" {
+		return errors.New("only a ready service lease heartbeat may carry a data-plane probe receipt digest")
+	}
 	nextState, nextReplicas := lease.State, heartbeat.WarmReplicas
 	switch heartbeat.Status {
 	case "READY":
@@ -826,9 +837,11 @@ func (s *Store) HeartbeatServiceLease(ctx context.Context, auth WorkerAuth, leas
 			 'p95_latency_milliseconds',$2::bigint,
 			 'latency_measurement_count',$3::int,
 			 'latency_window_seconds',$4::bigint,
-			 'latency_measurement_kind',$5::text))`,
+			 'latency_measurement_kind',$5::text,
+			 'data_plane_probe_receipt_sha256',$6::text))`,
 			lease.ID, heartbeat.P95LatencyMillis, heartbeat.LatencyMeasurementCount,
-			heartbeat.LatencyWindowSeconds, heartbeat.LatencyMeasurementKind); err != nil {
+			heartbeat.LatencyWindowSeconds, heartbeat.LatencyMeasurementKind,
+			heartbeat.DataPlaneProbeReceiptSHA256); err != nil {
 			return err
 		}
 		if lease.State == "UPGRADING" {
@@ -885,7 +898,7 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		supplierSettlementState = "ACCRUED_PREPAID_RESERVED_UNSETTLED"
 	}
 	receipt := ServiceLeaseReceipt{Lease: lease, BuyerFundingState: buyerFundingState, SupplierSettlementState: supplierSettlementState,
-		TrueNetContributionStatus: "UNKNOWN_PROCESSOR_FEE_UNALLOCATED", DataPlaneAuthorityStatus: "NOT_PROVEN_BY_CONTROL_PLANE",
+		TrueNetContributionStatus: "UNKNOWN_PROCESSOR_FEE_UNALLOCATED", DataPlaneAuthorityStatus: "WORKER_ATTESTED_PROBE_NOT_BUYER_REQUEST",
 		ResidencyAuthorityStatus: "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY",
 		MeteringSemantics:        "cumulative replica-nanoseconds; each receipt is re-derived from lease start"}
 	var activationRaw []byte
@@ -937,12 +950,13 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		(detail->>'p95_latency_milliseconds')::bigint,
 		(detail->>'latency_measurement_count')::int,
 		(detail->>'latency_window_seconds')::bigint,
-		detail->>'latency_measurement_kind',created_at
+		detail->>'latency_measurement_kind',
+		COALESCE(detail->>'data_plane_probe_receipt_sha256',''),created_at
 		FROM service_lease_events
 		WHERE lease_id=$1 AND kind='SLO_MEASURED'
 		ORDER BY created_at DESC,id DESC LIMIT 1`, lease.ID).
 		Scan(&evidence.P95LatencyMillis, &evidence.LatencyMeasurementCount, &evidence.LatencyWindowSeconds,
-			&evidence.LatencyMeasurementKind, &evidence.MeasuredAt)
+			&evidence.LatencyMeasurementKind, &evidence.DataPlaneProbeReceiptSHA256, &evidence.MeasuredAt)
 	if err == nil {
 		receipt.LatestSLOEvidence = &evidence
 	} else if !errors.Is(err, pgx.ErrNoRows) {

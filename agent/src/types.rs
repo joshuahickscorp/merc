@@ -249,6 +249,8 @@ pub struct ServiceLeaseHeartbeat {
     pub latency_measurement_count: u32,
     pub latency_window_seconds: i64,
     pub latency_measurement_kind: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub data_plane_probe_receipt_sha256: String,
     pub status: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub upgrade_generation: String,
