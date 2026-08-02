@@ -162,6 +162,17 @@ type authorityCell struct {
 	// promise", never as "no ceiling".
 	MaxBatch       int `json:"max_batch,omitempty"`
 	MaxConcurrency int `json:"max_concurrency,omitempty"`
+
+	// CloudBacked marks a cell whose physical execution is billed to Merc by a
+	// cloud provider (RunPod today). Community and owned supply leave this
+	// false: Merc pays the supplier entitlement and does not carry a separate
+	// provider cost. The field is excluded from the capability digest — it is
+	// economic classification, not dispatch capability — so promoting or
+	// reclassifying a cell does not force an agent rebuild.
+	//
+	// No marker existed before true-net attribution; CUDA/vLLM cells are the
+	// first declared cloud-backed cells in runtime-authority.json.
+	CloudBacked bool `json:"cloud_backed,omitempty"`
 }
 
 // Cell lifecycle. The profile states plus one that only makes sense per cell.

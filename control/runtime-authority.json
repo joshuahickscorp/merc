@@ -421,7 +421,8 @@
           "model": "llama-3.2-1b-instruct-q4",
           "runner": "batch_infer",
           "min_memory_gb": 4,
-          "verification": "byte_exact"
+          "verification": "byte_exact",
+          "cloud_backed": true
         }
       ]
     }

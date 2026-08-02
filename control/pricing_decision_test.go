@@ -132,7 +132,12 @@ func TestPricingDecisionDigestBindsEveryEconomicAuthorityFamily(t *testing.T) {
 		{"buyer price", func(p *PricingDecision) { p.BuyerPrice += 0.01 }},
 		{"supplier cost", func(p *PricingDecision) { p.PrimarySupplierCost.Amount += 0.01 }},
 		{"payment cost", func(p *PricingDecision) { p.PaymentCost.Amount += 0.01 }},
-		{"unknown cost status", func(p *PricingDecision) { p.StorageCost.Status = pricingCostModeled }},
+		{"storage cost status", func(p *PricingDecision) {
+			// Storage is now modeled under the cost schedule; flip to unknown so
+			// the digest must move.
+			p.StorageCost.Status = pricingCostUnknown
+			p.StorageCost.Amount = 0
+		}},
 		{"confidence", func(p *PricingDecision) { p.Confidence -= 0.1 }},
 	}
 	for _, tc := range tests {
@@ -151,6 +156,12 @@ func TestPricingDecisionDigestBindsEveryEconomicAuthorityFamily(t *testing.T) {
 }
 
 func TestDistributedPricingDecisionUsesExplicitUnknownCostStates(t *testing.T) {
+	// After cost-schedule attribution, storage/egress/risk are modeled (or
+	// not_applicable) and provider is not_applicable for community supply.
+	// Unknown remains the only honest status for a cloud cell with no rate;
+	// that path is covered by true_net_contribution_test.go. This test now
+	// asserts every component has a non-empty basis and never carries a
+	// modeled amount under an unknown/not_applicable status.
 	_, _, _, _, pricing := distributedPricingFixture(t)
 	for name, component := range map[string]PricingCostComponent{
 		"storage":  pricing.StorageCost,
@@ -158,10 +169,25 @@ func TestDistributedPricingDecisionUsesExplicitUnknownCostStates(t *testing.T) {
 		"provider": pricing.ProviderCost,
 		"risk":     pricing.RiskReserve,
 	} {
-		if component.Status != pricingCostUnknown || component.Amount != 0 ||
-			component.Basis == "" {
-			t.Fatalf("%s cost silently became modeled zero: %+v", name, component)
+		if component.Basis == "" {
+			t.Fatalf("%s cost lacks a basis: %+v", name, component)
 		}
+		if component.Status != pricingCostModeled &&
+			component.Status != pricingCostNotApplicable &&
+			component.Status != pricingCostUnknown {
+			t.Fatalf("%s cost has invalid status: %+v", name, component)
+		}
+		if component.Status != pricingCostModeled && component.Amount != 0 {
+			t.Fatalf("%s cost carries amount under non-modeled status: %+v", name, component)
+		}
+	}
+	if pricing.CostScheduleSHA256 == "" {
+		t.Fatal("distributed pricing decision lacks cost schedule digest")
+	}
+	if pricing.ProviderCost.Status != pricingCostNotApplicable &&
+		pricing.ProviderCost.Status != pricingCostUnknown &&
+		pricing.ProviderCost.Status != pricingCostModeled {
+		t.Fatalf("provider cost status unexpected: %+v", pricing.ProviderCost)
 	}
 	if pricing.ExpectedSupplierGrossUSDHr+0.000001 <
 		pricing.SupplierAdmissionCeilingUSDHr {

@@ -275,8 +275,19 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 		fixed.KnownVariableCostsNanos+fixed.KnownCostContributionNanos {
 		t.Fatal("fixed pricing does not conserve buyer = supplier + variable + contribution")
 	}
-	if fixed.TrueNetContributionNanos != nil || len(fixed.UnknownCostCategories) == 0 {
-		t.Fatalf("decision claimed true net despite unknown named costs: %+v", fixed)
+	// With the cost schedule bound, storage/egress/risk are modeled and provider
+	// is not_applicable on community supply, so true net is reachable. Historical
+	// decisions without a cost schedule digest still report true net unavailable
+	// (see TestHistoricalDecisionWithUnknownsKeepsTrueNetUnavailable).
+	if pricing.CostScheduleSHA256 == "" {
+		t.Fatal("admitted decision lacks cost schedule digest")
+	}
+	if len(fixed.UnknownCostCategories) != 0 {
+		t.Fatalf("community admission left unknown cost categories: %v", fixed.UnknownCostCategories)
+	}
+	if fixed.TrueNetContributionNanos == nil ||
+		*fixed.TrueNetContributionNanos != fixed.KnownCostContributionNanos {
+		t.Fatalf("admitted decision lacks true net contribution: %+v", fixed)
 	}
 	t.Logf("ADMITTED in %s: %.2f billable units at %.8f/1k (reference %.8f, FX %.4g); "+
 		"buyer gross %d nanos/task, supplier entitled %d nanos/task against a %d nano "+
