@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -202,12 +203,27 @@ type EconomicContributionView struct {
 	VerificationEntitlement      ContributionComponentView `json:"verification_supplier_entitlement"`
 	CloudProviderCost            ContributionComponentView `json:"cloud_provider_cost"`
 	StorageEgressCost            ContributionComponentView `json:"storage_egress_cost"`
-	PaymentProcessingAllocation  ContributionComponentView `json:"payment_processing_allocation"`
-	FraudRefundReserve           ContributionComponentView `json:"fraud_refund_reserve"`
-	AllocatedControlPlaneCost    ContributionComponentView `json:"allocated_control_plane_cost"`
-	MercGrossSpread              ContributionComponentView `json:"merc_gross_spread"`
-	MercNetContribution          ContributionComponentView `json:"merc_net_contribution"`
-	Subsidy                      ContributionComponentView `json:"subsidy"`
+	// StorageCost and EgressCost are reported separately so a receipt can state
+	// which of the two was modeled, not applicable, or unknown.
+	StorageCost                 ContributionComponentView `json:"storage_cost"`
+	EgressCost                  ContributionComponentView `json:"egress_cost"`
+	PaymentProcessingAllocation ContributionComponentView `json:"payment_processing_allocation"`
+	FraudRefundReserve          ContributionComponentView `json:"fraud_refund_reserve"`
+	AllocatedControlPlaneCost   ContributionComponentView `json:"allocated_control_plane_cost"`
+	MercGrossSpread             ContributionComponentView `json:"merc_gross_spread"`
+	MercNetContribution         ContributionComponentView `json:"merc_net_contribution"`
+	// TrueNetContributionNanos is set only when every named cost is modeled or
+	// not_applicable (no unknowns). It is the integer authority; the USD view
+	// above is the display projection.
+	TrueNetContributionNanos *int64 `json:"true_net_contribution_nanos,omitempty"`
+	// CostComponentStatuses lists every component's status for per-request,
+	// per-account, per-workload and per-invoice queries.
+	CostComponentStatuses map[string]string `json:"cost_component_statuses,omitempty"`
+	// CostScheduleRevision / CostScheduleSHA256 identify the policy rates that
+	// produced modeled storage/egress/risk. Empty on historical decisions.
+	CostScheduleRevision string                    `json:"cost_schedule_revision,omitempty"`
+	CostScheduleSHA256   string                    `json:"cost_schedule_sha256,omitempty"`
+	Subsidy              ContributionComponentView `json:"subsidy"`
 }
 
 func contributionAmount(status string, amount float64, basis string) ContributionComponentView {
@@ -241,37 +257,76 @@ func buildEconomicContributionView(
 		SupplierExecutionEntitlement: pricingContributionComponent(pricing.PrimarySupplierCost),
 		VerificationEntitlement:      pricingContributionComponent(pricing.VerificationCost),
 		CloudProviderCost:            pricingContributionComponent(pricing.ProviderCost),
+		StorageCost:                  pricingContributionComponent(pricing.StorageCost),
+		EgressCost:                   pricingContributionComponent(pricing.EgressCost),
 		FraudRefundReserve:           pricingContributionComponent(pricing.RiskReserve),
 		AllocatedControlPlaneCost:    pricingContributionComponent(pricing.ControlPlaneCost),
+		CostScheduleRevision:         pricing.CostScheduleRevision,
+		CostScheduleSHA256:           pricing.CostScheduleSHA256,
 		MercGrossSpread: contributionAmount("settled", grossSpread,
 			"buyer settlement less supplier settlement; gross spread, not profit"),
 		Subsidy: contributionAmount("settled", subsidyUSD,
 			"authorized platform-subsidy funding attributed to this job"),
+		CostComponentStatuses: map[string]string{
+			"primary_supplier":      pricing.PrimarySupplierCost.Status,
+			"verification":          pricing.VerificationCost.Status,
+			"payment":               pricing.PaymentCost.Status,
+			"control_plane":         pricing.ControlPlaneCost.Status,
+			"storage":               pricing.StorageCost.Status,
+			"egress":                pricing.EgressCost.Status,
+			"provider":              pricing.ProviderCost.Status,
+			"risk_reserve":          pricing.RiskReserve.Status,
+			"platform_contribution": pricing.PlatformContribution.Status,
+		},
 	}
 	// Storage and egress stay separate in PricingDecision because they have
-	// different evidence, but the commercial receipt reports their sum as the
-	// externally requested category only when both are known.
+	// different evidence, but the commercial receipt also reports their sum as
+	// the externally requested category when neither is unknown.
 	if pricing.StorageCost.Status == pricingCostUnknown ||
 		pricing.EgressCost.Status == pricingCostUnknown {
 		out.StorageEgressCost = contributionUnknown(
 			"storage or egress cost is not yet independently attributed")
 	} else {
-		out.StorageEgressCost = contributionAmount("modeled",
+		status := "modeled"
+		if pricing.StorageCost.Status == pricingCostNotApplicable &&
+			pricing.EgressCost.Status == pricingCostNotApplicable {
+			status = pricingCostNotApplicable
+		}
+		out.StorageEgressCost = contributionAmount(status,
 			pricing.StorageCost.Amount+pricing.EgressCost.Amount,
 			"frozen storage plus egress allocation")
 	}
 	if processorFee != nil {
 		out.PaymentProcessingAllocation = contributionAmount("settled", *processorFee,
 			"immutable processor fee allocated from the collected charge")
+	} else if pricing.PaymentCost.Status == pricingCostModeled {
+		// Acceptance modeled the processor fee from the economic schedule; cash
+		// reconciliation may still be pending. Prefer the modeled amount so a
+		// complete cost schedule can report true net before Stripe settles.
+		out.PaymentProcessingAllocation = pricingContributionComponent(pricing.PaymentCost)
 	} else {
 		out.PaymentProcessingAllocation = contributionUnknown(
 			"processor cash fee has not yet been reconciled and allocated")
 	}
 
-	known := processorFee != nil
+	// Prefer the frozen fixed-point true net when the decision carries it. That
+	// is the integer authority; do not re-derive a historical decision under a
+	// later schedule.
+	if pricing.FixedPoint != nil && pricing.FixedPoint.TrueNetContributionNanos != nil {
+		trueNet := *pricing.FixedPoint.TrueNetContributionNanos
+		out.TrueNetContributionNanos = &trueNet
+		out.MercNetContribution = contributionAmount("settled",
+			microsToUSD(trueNet/NanosPerMicro)-subsidyUSD,
+			"true net contribution from frozen fixed-point authority after every named cost")
+		return out
+	}
+
+	known := processorFee != nil || pricing.PaymentCost.Status == pricingCostModeled
 	knownCost := subsidyUSD
 	if processorFee != nil {
 		knownCost += *processorFee
+	} else if pricing.PaymentCost.Status == pricingCostModeled {
+		knownCost += pricing.PaymentCost.Amount
 	}
 	for _, component := range []PricingCostComponent{
 		pricing.ControlPlaneCost, pricing.StorageCost, pricing.EgressCost,
@@ -281,7 +336,9 @@ func buildEconomicContributionView(
 			known = false
 			continue
 		}
-		knownCost += component.Amount
+		if component.Status == pricingCostModeled {
+			knownCost += component.Amount
+		}
 	}
 	if known {
 		out.MercNetContribution = contributionAmount("settled",
@@ -292,6 +349,105 @@ func buildEconomicContributionView(
 			"true net contribution is unavailable until every cost category is attributed")
 	}
 	return out
+}
+
+// AccountTrueNetContribution sums true-net nanos across an account's jobs that
+// carry a populated TrueNetContributionNanos. Jobs with unknown categories are
+// counted in UnknownJobs rather than silently zeroed.
+type AccountTrueNetContribution struct {
+	AccountID                uuid.UUID `json:"account_id"`
+	Currency                 string    `json:"currency"`
+	TrueNetContributionNanos int64     `json:"true_net_contribution_nanos"`
+	JobsWithTrueNet          int       `json:"jobs_with_true_net"`
+	JobsWithUnknownCosts     int       `json:"jobs_with_unknown_costs"`
+	JobsWithoutDecision      int       `json:"jobs_without_pricing_decision"`
+}
+
+// WorkloadClassTrueNetContribution is the same rollup keyed by workload class.
+type WorkloadClassTrueNetContribution struct {
+	WorkloadClass            string `json:"workload_class"`
+	Currency                 string `json:"currency"`
+	TrueNetContributionNanos int64  `json:"true_net_contribution_nanos"`
+	JobsWithTrueNet          int    `json:"jobs_with_true_net"`
+	JobsWithUnknownCosts     int    `json:"jobs_with_unknown_costs"`
+}
+
+// TrueNetContributionForAccount rolls frozen true-net figures for a buyer.
+// Historical decisions without true net are counted, not re-derived.
+func (s *Store) TrueNetContributionForAccount(
+	ctx context.Context, accountID uuid.UUID,
+) (AccountTrueNetContribution, error) {
+	out := AccountTrueNetContribution{AccountID: accountID, Currency: SettlementCurrencyCode()}
+	rows, err := s.pool.Query(ctx, `
+		SELECT pricing_decision
+		  FROM jobs
+		 WHERE buyer_id = $1 AND pricing_decision IS NOT NULL`, accountID)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var blob []byte
+		if err := rows.Scan(&blob); err != nil {
+			return out, err
+		}
+		var p PricingDecision
+		if err := json.Unmarshal(blob, &p); err != nil {
+			return out, err
+		}
+		if p.FixedPoint == nil {
+			out.JobsWithoutDecision++
+			continue
+		}
+		if p.FixedPoint.TrueNetContributionNanos != nil {
+			out.TrueNetContributionNanos += *p.FixedPoint.TrueNetContributionNanos
+			out.JobsWithTrueNet++
+			if p.Currency != "" {
+				out.Currency = p.Currency
+			}
+		} else {
+			out.JobsWithUnknownCosts++
+		}
+	}
+	return out, rows.Err()
+}
+
+// TrueNetContributionForWorkloadClass rolls frozen true-net by workload class.
+func (s *Store) TrueNetContributionForWorkloadClass(
+	ctx context.Context, workloadClass string,
+) (WorkloadClassTrueNetContribution, error) {
+	out := WorkloadClassTrueNetContribution{
+		WorkloadClass: workloadClass, Currency: SettlementCurrencyCode(),
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT pricing_decision
+		  FROM jobs
+		 WHERE COALESCE(workload_decision->>'workload_class','') = $1
+		   AND pricing_decision IS NOT NULL`, workloadClass)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var blob []byte
+		if err := rows.Scan(&blob); err != nil {
+			return out, err
+		}
+		var p PricingDecision
+		if err := json.Unmarshal(blob, &p); err != nil {
+			return out, err
+		}
+		if p.FixedPoint != nil && p.FixedPoint.TrueNetContributionNanos != nil {
+			out.TrueNetContributionNanos += *p.FixedPoint.TrueNetContributionNanos
+			out.JobsWithTrueNet++
+			if p.Currency != "" {
+				out.Currency = p.Currency
+			}
+		} else {
+			out.JobsWithUnknownCosts++
+		}
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*InvoiceView, error) {
