@@ -456,14 +456,23 @@ func (s *Store) JobInvoice(ctx context.Context, jobID, buyerID uuid.UUID) (*Invo
 	if err != nil {
 		return nil, err
 	}
-	var subsidyUSD float64
+	var subsidyMinorUnits int64
 	if err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(f.amount_cents),0)::float8 / 100
+		SELECT COALESCE(SUM(f.amount_cents),0)::bigint
 		  FROM supplier_payout_funding f
 		 WHERE f.liability_job_id=$1 AND f.source_kind='platform_subsidy'`, jobID).
-		Scan(&subsidyUSD); err != nil {
+		Scan(&subsidyMinorUnits); err != nil {
 		return nil, err
 	}
+	invoiceCurrency, err := ParseCurrency(iv.Currency)
+	if err != nil {
+		return nil, fmt.Errorf("invoice %s has invalid settlement currency %q: %w", jobID, iv.Currency, err)
+	}
+	subsidyMicros, err := invoiceCurrency.MinorToMicros(subsidyMinorUnits)
+	if err != nil {
+		return nil, err
+	}
+	subsidyUSD := microsToUSD(subsidyMicros)
 	iv.Contribution = buildEconomicContributionView(
 		pricing, iv.Currency, iv.PlatformGrossSpreadUSD,
 		iv.ProcessorFeeAllocatedUSD, subsidyUSD,

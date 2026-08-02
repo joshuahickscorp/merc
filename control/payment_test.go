@@ -78,10 +78,10 @@ func TestManualExportPayout(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 exported rows, got %d: %q", len(lines), string(b))
 	}
-	if !strings.HasPrefix(lines[0], s1.String()+",1.250000,") {
-		t.Fatalf("row 0 = %q, want %s,1.250000,<ts>", lines[0], s1)
+	if !strings.HasPrefix(lines[0], s1.String()+",1.25,usd,") {
+		t.Fatalf("row 0 = %q, want %s,1.25,usd,<ts>", lines[0], s1)
 	}
-	if !strings.HasPrefix(lines[1], s2.String()+",2.500000,") {
+	if !strings.HasPrefix(lines[1], s2.String()+",2.50,usd,") {
 		t.Fatalf("row 1 = %q", lines[1])
 	}
 	if _, err := p.Send(context.Background(), s1, 125, "usd", key1); err != nil {
@@ -99,6 +99,27 @@ func TestManualExportPayout(t *testing.T) {
 	}
 	if b2, _ := os.ReadFile(path); len(strings.Split(strings.TrimSpace(string(b2)), "\n")) != 2 {
 		t.Fatal("rejected payout must not append a row")
+	}
+}
+
+func TestManualExportPayoutWritesCurrencyBoundMinorUnits(t *testing.T) {
+	installSettlementCurrencyForTest(t, "jpy")
+	path := filepath.Join(t.TempDir(), "payouts.csv")
+	p := newManualExportPayout(path)
+	key := uuid.NewString()
+	if _, err := p.Send(context.Background(), uuid.New(), 125, "jpy", key); err != nil {
+		t.Fatalf("Send JPY: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := strings.Split(strings.TrimSpace(string(b)), ",")
+	if len(fields) != 5 || fields[1] != "125" || fields[2] != "jpy" || fields[4] != key {
+		t.Fatalf("JPY manual export misrepresented minor units: %q", b)
+	}
+	if _, err := p.Send(context.Background(), uuid.New(), 125, "jpy", key); err == nil {
+		t.Fatal("manual export accepted an idempotency key rebound to another supplier")
 	}
 }
 
