@@ -30,6 +30,10 @@ type moneyPathFixture struct {
 	JobID           uuid.UUID
 	TaskIDs         []uuid.UUID
 	Plan            EconomicPlan
+	// ctx/pool let validJobRow seed append-only catalogue rows so store-backed
+	// pricing validation can resolve the fixture schedule digest.
+	ctx  context.Context
+	pool *pgxpool.Pool
 }
 
 type moneyPathSeedOpts struct {
@@ -114,8 +118,8 @@ func TestSubmitExactReuseBatchJobFreezesWorkloadDecision(t *testing.T) {
 		BaseComputeUSD: originPlan.BaseComputeUSD, InitialTaskCount: 1,
 		ExtraTaskReserve: 1, SupplierShare: supplierShareForTest(t, decision.RuntimeJobType, decision.Binding.Model.Ref),
 	}, testEconomicSchedule())
-	authority := catalogueAuthorityFixture(
-		t, decision, originEconomic.Schedule.Currency, originEconomic.Input.SupplierShare,
+	authority := catalogueAuthorityFixtureInStore(
+		t, ctx, pool, decision, originEconomic.Schedule.Currency, originEconomic.Input.SupplierShare,
 	)
 	originPlacement := placementForPricingFixture(t, decision, authority)
 	originPricing, err := newDistributedPricingDecision(
@@ -362,6 +366,8 @@ func seedMoneyPathFixture(t *testing.T, ctx context.Context, store *Store, pool 
 		OtherWorkerID:   uuid.New(),
 		JobID:           uuid.New(),
 		Plan:            buildTestEconomicPlan(t, opts.TaskCount, opts.SLAPremium),
+		ctx:             ctx,
+		pool:            pool,
 	}
 	for i := 0; i < opts.TaskCount; i++ {
 		f.TaskIDs = append(f.TaskIDs, uuid.New())
@@ -576,6 +582,9 @@ func validJobRowClasses(
 	authority := catalogueAuthorityFixture(
 		t, workload, economicPlan.Schedule.Currency, economicPlan.Input.SupplierShare,
 	)
+	if f.pool != nil && f.ctx != nil {
+		seedCataloguePriceAuthority(t, f.ctx, f.pool, authority)
+	}
 	placement := placementForPricingFixture(t, workload, authority)
 	pricing, err := newDistributedPricingDecision(
 		workload, computePlan, placement, economicPlan, authority,

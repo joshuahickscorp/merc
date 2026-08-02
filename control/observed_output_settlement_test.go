@@ -342,8 +342,8 @@ func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing
 	if err != nil {
 		t.Fatalf("build compute plan: %v", err)
 	}
-	authority := catalogueAuthorityFixture(
-		t, workload, f.Plan.Schedule.Currency, f.Plan.Input.SupplierShare,
+	authority := catalogueAuthorityFixtureInStore(
+		t, ctx, pool, workload, f.Plan.Schedule.Currency, f.Plan.Input.SupplierShare,
 	)
 	placement := placementForPricingFixture(t, workload, authority)
 	pricing, err := newDistributedPricingDecision(

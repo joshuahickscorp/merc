@@ -26,7 +26,9 @@ func TestQuoteCurrencyIsVisibleImmutableAndBoundAtSubmission(t *testing.T) {
 	if err := ValidateComputePlanEconomicSnapshot(compute, workload, economic); err != nil {
 		t.Fatalf("CAD economic fixture: %v", err)
 	}
-	authority := catalogueAuthorityFixture(t, workload, "cad", economic.Input.SupplierShare)
+	authority := catalogueAuthorityFixtureInStore(
+		t, ctx, pool, workload, "cad", economic.Input.SupplierShare,
+	)
 	placement := placementForPricingFixture(t, workload, authority)
 	pricing, err := newDistributedPricingDecision(
 		workload, compute, placement, economic, authority, workload.Binding.Tier, "",
