@@ -16,13 +16,14 @@ import (
 )
 
 const (
-	projectIRVersion        = 1
-	projectMaxFiles         = 10_000
-	projectMaxInspectBytes  = 16 << 20
-	projectMaxFileBytes     = 256 << 10
-	projectProbeMaxBytes    = 1 << 20
-	projectMaxArtifactBytes = 4 << 30
-	projectMaxTotalBytes    = 64 << 30
+	projectIRVersion          = 1
+	projectMaxFiles           = 10_000
+	projectMaxInspectBytes    = 16 << 20
+	projectMaxFileBytes       = 256 << 10
+	projectProbeMaxBytes      = 1 << 20
+	projectMaxArtifactBytes   = 4 << 30
+	projectMaxTotalBytes      = 64 << 30
+	projectRenderMaxWorkUnits = 2_000_000
 )
 
 // ProjectWorkloadIR is a proposal, not an executable JobManifest. It preserves
@@ -97,6 +98,8 @@ type ProjectIRRendering struct {
 	FrameStart      int64                  `json:"frame_start"`
 	FrameEnd        int64                  `json:"frame_end"`
 	Cameras         []string               `json:"cameras"`
+	Width           int                    `json:"width"`
+	Height          int                    `json:"height"`
 	TileWidth       int                    `json:"tile_width,omitempty"`
 	TileHeight      int                    `json:"tile_height,omitempty"`
 	Samples         int                    `json:"samples"`
@@ -105,6 +108,23 @@ type ProjectIRRendering struct {
 	Seed     *int64 `json:"seed"`
 	Mode     string `json:"mode"`
 	Assembly string `json:"assembly"`
+	// WorkPlan is compiler-derived from the fixed render declaration. It is not
+	// buyer authority and does not select suppliers or authorize a render.
+	WorkPlan *ProjectIRRenderWorkPlan `json:"work_plan,omitempty"`
+}
+
+// ProjectIRRenderWorkPlan fixes the decomposition boundary before topology
+// planning. Unit IDs are defined by the stated lexical ordering; actual work
+// assignment, assembly, verification, and settlement remain separate gates.
+type ProjectIRRenderWorkPlan struct {
+	Version          string `json:"version"`
+	FrameCount       int64  `json:"frame_count"`
+	CameraCount      int64  `json:"camera_count"`
+	TileColumns      int64  `json:"tile_columns"`
+	TileRows         int64  `json:"tile_rows"`
+	SamplePartitions int64  `json:"sample_partitions"`
+	UnitCount        int64  `json:"unit_count"`
+	Ordering         string `json:"ordering"`
 }
 
 // ProjectIRLoRA binds the inputs an outcome-aware training contract needs
@@ -391,6 +411,7 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) (ProjectWor
 			return ProjectWorkloadIR{}, err
 		}
 		resolveDeclaredProjectContracts(&ir)
+		deriveProjectRenderWorkPlans(&ir)
 	} else {
 		for i, detection := range ir.Detections {
 			stepID := fmt.Sprintf("step-%02d-%s", i+1, detection.Kind)

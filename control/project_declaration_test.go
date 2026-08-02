@@ -19,7 +19,7 @@ func projectDeclarationFixture() ProjectDeclaration {
 				Engine:          ProjectIRArtifactPin{Artifact: "project://engine.bin", SHA256: strings.Repeat("a", 64)},
 				Plugins:         []ProjectIRArtifactPin{{Artifact: "project://plugins/denoise.bin", SHA256: strings.Repeat("b", 64)}},
 				Fonts:           []ProjectIRArtifactPin{{Artifact: "project://fonts/inter.ttf", SHA256: strings.Repeat("c", 64)}},
-				ColorManagement: "ACEScg-v1.3", FrameStart: 1, FrameEnd: 24, Cameras: []string{"hero"},
+				ColorManagement: "ACEScg-v1.3", FrameStart: 1, FrameEnd: 24, Cameras: []string{"hero"}, Width: 1920, Height: 1080,
 				TileWidth: 256, TileHeight: 256, Samples: 64, Seed: &seed, Mode: "FINAL",
 				Assembly: "FRAME_CAMERA_TILE_LEXICOGRAPHIC_V1",
 			}},
@@ -79,6 +79,10 @@ func TestProjectDeclarationSuppliesEvidenceBoundDAG(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(ir.RefusalReasons, "\n"), "resolved to 0 routable cells") {
 		t.Fatal("buyer-declared contract hashes became server authority")
+	}
+	if render := ir.Steps[1].Rendering; render == nil || render.WorkPlan == nil ||
+		render.WorkPlan.UnitCount != 960 || render.WorkPlan.TileColumns != 8 || render.WorkPlan.TileRows != 5 {
+		t.Fatalf("compiler did not derive the bounded deterministic render plan: %+v", render)
 	}
 }
 
@@ -191,6 +195,20 @@ func TestProjectDeclarationRequiresArtifactBoundDependencies(t *testing.T) {
 			},
 			want: "invalid output artifact",
 		},
+		{
+			name: "buyer may not supply a derived render plan",
+			mutate: func(d *ProjectDeclaration) {
+				d.Steps[0].Rendering.WorkPlan = &ProjectIRRenderWorkPlan{Version: renderWorkPlanVersion}
+			},
+			want: "work_plan is compiler-derived",
+		},
+		{
+			name: "render resolution is required",
+			mutate: func(d *ProjectDeclaration) {
+				d.Steps[0].Rendering.Width = 0
+			},
+			want: "width must be an even pixel value",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -211,6 +229,15 @@ func TestProjectDeclarationRequiresFixedPointCeiling(t *testing.T) {
 	writeDeclarationFixture(t, root, declaration)
 	if _, err := compileProject(projectCompileOptions{Root: root}); err == nil || !strings.Contains(err.Error(), "maximum_buyer_price_nanos") {
 		t.Fatalf("zero buyer ceiling compiled: %v", err)
+	}
+}
+
+func TestRenderWorkPlanRefusesCombinatorialDecomposition(t *testing.T) {
+	render := *projectDeclarationFixture().Steps[0].Rendering
+	render.Width, render.Height = 32768, 32768
+	render.TileWidth, render.TileHeight = 16, 16
+	if _, err := deriveProjectRenderWorkPlan(render); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("unbounded render decomposition was accepted: %v", err)
 	}
 }
 
