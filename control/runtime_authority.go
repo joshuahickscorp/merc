@@ -540,6 +540,10 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 
 	seenRuntime := make(map[string]bool, len(authority.Runtimes))
 	seenRoutableCell := make(map[string]string)
+	// referencedModels is lifecycle-blind: a model may exist solely for a
+	// DRAFT/VALIDATED cell that is not yet buyer-routable (exercise lanes).
+	// servedModels remains the routable set used only for diagnostics.
+	referencedModels := make(map[string]bool, len(authority.Models))
 	servedModels := make(map[string]bool, len(authority.Models))
 
 	for _, profile := range authority.Runtimes {
@@ -650,6 +654,7 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 			if err := validateCellAuthority(profile, cell); err != nil {
 				return err
 			}
+			referencedModels[cell.Model] = true
 			if !cell.Routable(profile) {
 				continue
 			}
@@ -670,10 +675,14 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 	}
 
 	for _, model := range authority.Models {
-		if !servedModels[model.ID] {
+		if !referencedModels[model.ID] {
 			return fmt.Errorf(
-				"model %q is admitted but no routable runtime profile serves it", model.ID)
+				"model %q is admitted but no runtime cell references it", model.ID)
 		}
+		// A model with only non-routable cells is allowed: ordinary buyer
+		// advertisement is gated by advertisedRuntimeCapabilities, not here.
+		// Models that lose every cell remain refused above.
+		_ = servedModels[model.ID]
 	}
 	for _, profile := range authority.Runtimes {
 		if profile.SupersededBy != "" && !seenRuntime[profile.SupersededBy] {
@@ -722,7 +731,17 @@ func validateCellAuthority(profile authorityRuntimeProfile, cell authorityCell) 
 	// MiniLM embedding measurement is not evidence about Llama generation, and
 	// the whole reason cells have their own authority is to stop one standing in
 	// for the other.
-	if authority := cell.benchmarkAuthorityFor(profile); authority != "" {
+	//
+	// DRAFT cells may declare capability without a per-cell receipt. Inheriting
+	// the profile's receipt here would force every pre-measurement cell to match
+	// the profile's incumbent model (e.g. a video synthesizer cell would be
+	// refused because candle_metal's profile receipt measures Llama). Only a
+	// cell-owned receipt, or a cell advanced enough to need evidence, is checked.
+	authority := cell.BenchmarkAuthority
+	if authority == "" && rank >= provenRank {
+		authority = profile.BenchmarkAuthority
+	}
+	if authority != "" {
 		receipt, known := benchmarkAuthorityManifest[authority]
 		if !known {
 			return fmt.Errorf("%s names benchmark authority %q, which is not a known receipt",

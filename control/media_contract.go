@@ -26,7 +26,10 @@ var mediaInputFormats = map[string]bool{
 func isMediaTranscodeJob(sub jobSubmit) bool { return sub.JobType.Type == "media_transcode" }
 
 func isBinaryMediaJob(sub jobSubmit) bool {
-	return isMediaTranscodeJob(sub) || isMediaRenderingJob(sub)
+	// video_generation uses a closed JSON prompt document (like rendering) but
+	// shares the binary-media settlement path for multi-unit segment tasks,
+	// honeypot refusal and redundancy floors.
+	return isMediaTranscodeJob(sub) || isMediaRenderingJob(sub) || isVideoGenerationJob(sub)
 }
 
 func normalizeMediaJobType(j *JobType) error {

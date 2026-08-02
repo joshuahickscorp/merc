@@ -66,6 +66,18 @@ pub enum JobType {
         #[serde(rename = "render_height")]
         height: u32,
     },
+    /// Governed prompt-to-video lane. Verification is byte-exact under one
+    /// pinned engine build. The only in-tree runtime is the Merc-owned
+    /// deterministic synthesizer (`merc-video-synth-v1`), which is not
+    /// buyer-routable. There is no pinnable open-licensed diffusion weight set.
+    VideoGeneration {
+        #[serde(rename = "render_width")]
+        width: u32,
+        #[serde(rename = "render_height")]
+        height: u32,
+        fps: u32,
+        duration_secs: u32,
+    },
 }
 
 impl JobType {
@@ -75,6 +87,7 @@ impl JobType {
             JobType::BatchInfer { .. } => "batch_infer",
             JobType::MediaTranscode { .. } => "media_transcode",
             JobType::MediaRendering { .. } => "media_rendering",
+            JobType::VideoGeneration { .. } => "video_generation",
         }
     }
 }

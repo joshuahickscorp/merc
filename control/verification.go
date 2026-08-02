@@ -549,6 +549,11 @@ func resultsAgree(jobType string, a, b []byte) bool {
 		return bytes.Equal(a, b)
 	case "media_rendering":
 		return bytes.Equal(a, b)
+	case "video_generation":
+		// Bound to one pinned engine build on one hardware class. There is no
+		// perceptual threshold; cross-supplier disagreement is refused at the
+		// redundancy product, not papered over here.
+		return bytes.Equal(a, b)
 	default:
 		return false
 	}

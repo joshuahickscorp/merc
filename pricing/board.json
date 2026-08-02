@@ -153,6 +153,43 @@
           "notes": "Private deterministic renderer term bound to the receipt path; not a public image-generation claim."
         }
       ]
+    },
+    "video_generation_exercise": {
+      "description": "Merc-owned deterministic video synthesizer for lane exercise only. Not a diffusion market observation and not public activation authority.",
+      "job_type": "video_generation",
+      "model_ids": ["merc-video-synth-v1"],
+      "observations": [
+        {
+          "provider": "merc-private-exercise-control",
+          "model": "merc-video-synth-v1",
+          "usd_per_1m": 10.0,
+          "usd_per_1k": 0.01,
+          "tier": "fixed-term",
+          "source_url": "https://merc-private-exercise-control.invalid/VIDEO_GENERATION_CONTRACT.md#control",
+          "fetched_at": "2026-08-02",
+          "notes": "Exercise synthesizer term; not an open video weight set and not buyer-routable."
+        },
+        {
+          "provider": "merc-private-exercise-worker",
+          "model": "merc-video-synth-v1",
+          "usd_per_1m": 10.0,
+          "usd_per_1k": 0.01,
+          "tier": "fixed-term",
+          "source_url": "https://merc-private-exercise-worker.invalid/VIDEO_GENERATION_CONTRACT.md#worker",
+          "fetched_at": "2026-08-02",
+          "notes": "Exercise synthesizer term; separate worker-side observation, not public market evidence."
+        },
+        {
+          "provider": "merc-private-exercise-receipt",
+          "model": "merc-video-synth-v1",
+          "usd_per_1m": 10.0,
+          "usd_per_1k": 0.01,
+          "tier": "fixed-term",
+          "source_url": "https://merc-private-exercise-receipt.invalid/VIDEO_GENERATION_CONTRACT.md#receipt",
+          "fetched_at": "2026-08-02",
+          "notes": "Exercise synthesizer term bound to the receipt path; not a public prompt-to-video claim."
+        }
+      ]
     }
   }
 }
