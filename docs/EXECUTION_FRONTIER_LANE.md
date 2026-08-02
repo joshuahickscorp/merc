@@ -57,6 +57,14 @@ Truth boundary (`control/plan_actuals.go`, `control/plan_calibration.go`):
 Next: enough finalized jobs to fill a trusted bucket, then argue the first
 estimator change from the measured band through the promotion gate.
 
+The project compiler now has a durable buyer-scoped evidence boundary in
+addition to the upload response: `POST /v1/projects/compile` writes an
+append-only proposal or bounded-probe receipt, and
+`GET /v1/projects/compile/{id}` returns the same IR after revalidating the
+project/artifact and IR digests. Probe receipts require a prior proposal
+receipt from the same buyer; neither state creates a quote, reserves capacity,
+or executes work. Calibration and execution remain explicitly refused.
+
 ## 2. Work elimination — LARGELY DONE
 
 | item | state |

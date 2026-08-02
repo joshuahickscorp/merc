@@ -5898,6 +5898,37 @@ ALTER TABLE fabric_topology_evaluations
 -- IR identity and the fixed-point CAD ceiling it must enforce. A later
 -- materialized dependency therefore cannot escape the original budget merely
 -- because the buyer restarted its CLI.
+-- A compile receipt is a separate, non-monetary evidence object. It retains the
+-- detector/probe graph the buyer just received, scoped to that buyer, so a
+-- later quote can cite a durable IR identity without turning the proposal into
+-- execution or pricing authority.
+CREATE TABLE IF NOT EXISTS project_compile_receipts (
+    id                  UUID PRIMARY KEY,
+    buyer_id            UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    project_sha256      TEXT NOT NULL CHECK (project_sha256 ~ '^[0-9a-f]{64}$'),
+    ir_sha256           TEXT NOT NULL CHECK (ir_sha256 ~ '^[0-9a-f]{64}$'),
+    status              TEXT NOT NULL CHECK (status IN ('PROPOSED_NOT_ADMISSIBLE','PROBED_NOT_ADMISSIBLE')),
+    probe_requested     BOOLEAN NOT NULL,
+    approved_ir_sha256  TEXT CHECK (approved_ir_sha256 IS NULL OR approved_ir_sha256 ~ '^[0-9a-f]{64}$'),
+    ir                  JSONB NOT NULL CHECK (jsonb_typeof(ir) = 'object'),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (buyer_id, project_sha256, ir_sha256),
+    CHECK ((probe_requested = false AND status = 'PROPOSED_NOT_ADMISSIBLE' AND approved_ir_sha256 IS NULL)
+        OR (probe_requested = true AND status = 'PROBED_NOT_ADMISSIBLE' AND approved_ir_sha256 IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS project_compile_receipts_buyer_created_idx
+    ON project_compile_receipts (buyer_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION cx_refuse_project_compile_receipt_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'project compile receipt % is immutable; compile a new evidence object', OLD.id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS project_compile_receipts_append_only ON project_compile_receipts;
+CREATE TRIGGER project_compile_receipts_append_only
+    BEFORE UPDATE OR DELETE ON project_compile_receipts
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_project_compile_receipt_rewrite();
+
 CREATE TABLE IF NOT EXISTS project_orders (
     id UUID PRIMARY KEY,
     buyer_id UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,

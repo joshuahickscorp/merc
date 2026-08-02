@@ -100,7 +100,9 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// realtime billing authority.
 	// 90 after the authenticated project compiler/probe route entered the buyer
 	// surface. It returns proposal evidence only; it cannot quote or execute.
-	if checked != 90 {
-		t.Fatalf("checked %d protected routes, want 90", checked)
+	// 91 after the buyer-scoped durable project compile receipt read entered the
+	// same ownership boundary; it returns the stored IR evidence only.
+	if checked != 91 {
+		t.Fatalf("checked %d protected routes, want 91", checked)
 	}
 }

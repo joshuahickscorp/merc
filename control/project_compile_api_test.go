@@ -63,6 +63,23 @@ func TestProjectCompileProductionRouteBindsProposalAndProbe(t *testing.T) {
 	if proposalRec.Code != http.StatusOK || proposalRec.Header().Get("X-Merc-Bounded-Probe") != "not_requested" {
 		t.Fatalf("proposal status=%d headers=%v body=%s", proposalRec.Code, proposalRec.Header(), proposalRec.Body.String())
 	}
+	receiptID, err := uuid.Parse(proposalRec.Header().Get("X-Merc-Project-Compile-Receipt"))
+	if err != nil {
+		t.Fatalf("proposal omitted durable compile receipt id: %q", proposalRec.Header().Get("X-Merc-Project-Compile-Receipt"))
+	}
+	getReceipt := httptest.NewRequest(http.MethodGet, "/v1/projects/compile/"+receiptID.String(), nil)
+	getReceipt.Header.Set("Authorization", "Bearer "+buyerKey)
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, getReceipt)
+	var storedReceipt ProjectCompileReceipt
+	if getRec.Code != http.StatusOK || json.Unmarshal(getRec.Body.Bytes(), &storedReceipt) != nil ||
+		storedReceipt.ID != receiptID.String() || storedReceipt.Status != "PROPOSED_NOT_ADMISSIBLE" ||
+		storedReceipt.IR.IRSHA256 == "" || storedReceipt.IR.ProjectSHA256 == "" {
+		t.Fatalf("durable compile receipt read failed: status=%d body=%s receipt=%+v", getRec.Code, getRec.Body.String(), storedReceipt)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE project_compile_receipts SET status='PROBED_NOT_ADMISSIBLE' WHERE id=$1`, receiptID); err == nil {
+		t.Fatal("database allowed an immutable project compile receipt to mutate")
+	}
 	var proposal ProjectWorkloadIR
 	if err := json.Unmarshal(proposalRec.Body.Bytes(), &proposal); err != nil {
 		t.Fatal(err)
