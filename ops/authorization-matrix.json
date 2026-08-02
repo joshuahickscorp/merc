@@ -120,6 +120,7 @@
         "POST /v1/logout",
         "POST /v1/quote",
         "POST /v1/projects",
+        "POST /v1/projects/compile",
         "POST /v1/service-leases",
         "POST /v1/service-leases/{id}/cancel",
         "POST /v1/service-leases/{id}/chat/completions",

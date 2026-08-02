@@ -5,6 +5,13 @@ not a quote, order, job, or permission to execute. Version 1 deliberately refuse
 to manufacture runtime, resource, economics, privacy, or quality authority when
 the project does not contain it.
 
+The authenticated production route `POST /v1/projects/compile` accepts the same
+proposal as a bounded tar (or gzip-tar) upload. It returns only the digest-bound
+IR. `X-Merc-Bounded-Probe: true` requests the non-executing bounded probe and
+must carry the exact prior `X-Merc-Approved-IR-SHA256`; changed archives,
+traversal, links, sensitive paths, and oversized entries fail closed. The route
+creates no quote, capacity reservation, pricing decision, or execution authority.
+
 ## Safe workflow
 
 1. Run `merc project compile --root PROJECT`.

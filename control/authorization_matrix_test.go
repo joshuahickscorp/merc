@@ -98,7 +98,9 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// 89 after the reserved service-lease buyer data plane entered the same
 	// ownership boundary; it is delivery under an existing lease, not a second
 	// realtime billing authority.
-	if checked != 89 {
-		t.Fatalf("checked %d protected routes, want 89", checked)
+	// 90 after the authenticated project compiler/probe route entered the buyer
+	// surface. It returns proposal evidence only; it cannot quote or execute.
+	if checked != 90 {
+		t.Fatalf("checked %d protected routes, want 90", checked)
 	}
 }
