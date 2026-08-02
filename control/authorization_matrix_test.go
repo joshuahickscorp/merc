@@ -95,7 +95,10 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// 88 after the service-lease, fabric, and market-liquidity routes entered the
 	// reviewed matrix. The matrix includes public routes too; this assertion
 	// covers the protected subset exercised by the credential-bound middleware.
-	if checked != 88 {
-		t.Fatalf("checked %d protected routes, want 88", checked)
+	// 89 after the reserved service-lease buyer data plane entered the same
+	// ownership boundary; it is delivery under an existing lease, not a second
+	// realtime billing authority.
+	if checked != 89 {
+		t.Fatalf("checked %d protected routes, want 89", checked)
 	}
 }

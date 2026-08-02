@@ -66,10 +66,11 @@ if missing or stale:
     fail(f"coverage mismatch missing={missing} stale={stale}")
 # The pinned surface size. Raised from 91 to 107 after the service-lease, fabric,
 # and market-liquidity routes entered the reviewed matrix, then to 108 for the
-# authenticated RuntimeSelector rollback caller.
+# authenticated RuntimeSelector rollback caller, and 109 for the buyer data
+# plane bound to a reserved service lease.
 # The count is pinned so a NEW route cannot be added without a reviewer deciding
 # what every role may do with it.
-if len(reviewed) != 108:
-    fail(f"expected reviewed 108-route surface, found {len(reviewed)}")
+if len(reviewed) != 109:
+    fail(f"expected reviewed 109-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")

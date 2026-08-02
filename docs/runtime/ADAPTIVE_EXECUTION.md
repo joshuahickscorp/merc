@@ -172,7 +172,7 @@ because nothing ran the whole target:
 - **the route-count tripwire was stale.** An earlier `validate-authorization-matrix.py`
   revision asserted exactly 81 reviewed routes while 82 had been registered since
   `GET /admin/plan-accuracy` landed in `b0004f00`. The route WAS added to the
-  matrix — only the constant was missed. The current reviewed inventory is 108 and
+  matrix — only the constant was missed. The current reviewed inventory is 109 and
   its validator and receipt scorer share that same tripwire. Because `validate-readiness.py` scores
   `auth_matrix_complete` for 3 points under source-and-CI and 8 under security,
   the stale constant silently cost **11 readiness points**, and the declared score
