@@ -247,7 +247,9 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		receipt.PlacementPlan.RuntimeProfileID != profile.RuntimeProfileID ||
 		receipt.PlacementPlan.RuntimeProfileSHA256 != profile.ProfileSHA256 ||
 		receipt.PlacementPlan.HWClass != "nvidia_24gb" ||
-		receipt.PlacementPlan.AdmittedTensorParallel != 1 {
+		receipt.PlacementPlan.AdmittedTensorParallel != 1 ||
+		receipt.PlacementPlan.ExecutionMode != string(ModeReplicaService) ||
+		!strings.Contains(receipt.PlacementPlan.ExecutionModeReason, "complete per-worker replicas") {
 		t.Fatalf("receipt omitted or changed frozen placement authority: %+v", receipt)
 	}
 	if receipt.PricingAuthorityStatus != "verified" || receipt.PricingDecision == nil ||

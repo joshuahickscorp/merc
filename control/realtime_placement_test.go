@@ -25,7 +25,9 @@ func TestRealtimeSingleGPUPlacementFreezesDeclaredTopology(t *testing.T) {
 	}
 	if plan.AdmissionBasis != realtimePlacementTopologyOnly ||
 		plan.AdmittedTensorParallel != 1 || plan.HWClass != "nvidia_24gb" ||
-		plan.GPUCount != 1 || plan.MemoryGBPerGPU != 24 {
+		plan.GPUCount != 1 || plan.MemoryGBPerGPU != 24 ||
+		plan.ExecutionMode != string(ModeReplicaService) ||
+		!strings.Contains(plan.ExecutionModeReason, "complete per-worker replicas") {
 		t.Fatalf("unexpected single-GPU plan: %+v", plan)
 	}
 	blob, digest, err := encodeRealtimePlacementPlan(plan)
@@ -126,6 +128,18 @@ func TestFrozenRealtimePlacementValidatorRefusesDegreeMutation(t *testing.T) {
 	plan.AdmittedTensorParallel = 4
 	if err := ValidateFrozenRealtimePlacementPlan(plan); err == nil {
 		t.Fatal("frozen placement validator accepted a degree different from the reproducible minimum")
+	}
+}
+
+func TestFrozenRealtimePlacementValidatorRefusesExecutionModeMutation(t *testing.T) {
+	plan, err := newRealtimePlacementPlan(placementTestProfile(), placementTestRegistration())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.ExecutionMode = string(ModePool)
+	if err := ValidateFrozenRealtimePlacementPlan(plan); err == nil ||
+		!strings.Contains(err.Error(), "execution mode") {
+		t.Fatalf("mutated replica placement mode was accepted: %v", err)
 	}
 }
 

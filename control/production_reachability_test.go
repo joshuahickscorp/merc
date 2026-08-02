@@ -106,6 +106,13 @@ var productionReachability = []reachabilityClaim{
 			"misstate capacity fill as a completion-only rate.",
 	},
 	{
+		From:   "Store.UpsertRealtimeOffer",
+		Target: "ChooseExecutionMode",
+		Consequence: "a realtime offer would still bind a host topology but no longer " +
+			"freeze whether buyer traffic reaches an independent warm replica, allowing a " +
+			"receipt to imply service mode from a mutable routing implementation.",
+	},
+	{
 		From:   "Server.handleAdminRealtimeMarketLiquidity",
 		Target: "Store.RealtimeMarketLiquidity",
 		Consequence: "operators lose the bounded, receipt-shaped observation of live " +

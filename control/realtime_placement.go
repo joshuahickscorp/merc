@@ -38,6 +38,29 @@ type RealtimePlacementPlan struct {
 	PerRankMemoryGB          float64 `json:"per_rank_memory_gb,omitempty"`
 	AdmissionBasis           string  `json:"admission_basis"`
 	Rationale                string  `json:"rationale"`
+	// ExecutionMode is the market shape of this realtime placement. Tensor
+	// parallel ranks inside one host remain one complete replica as far as a
+	// buyer request is concerned; it is never evidence of a LOCAL_CLUSTER.
+	ExecutionMode       string `json:"execution_mode"`
+	ExecutionModeReason string `json:"execution_mode_reason"`
+}
+
+// realtimeReplicaExecutionDecision freezes the same placement decision for
+// every realtime offer. Each worker advertises one complete model replica and
+// a request is routed to one of those replicas; requests do not communicate
+// with one another, even when a single replica uses tensor parallelism inside
+// its own host. This is a real REPLICA_SERVICE mode, not a service lease: it
+// grants neither reserved warm capacity nor a residency charge.
+func realtimeReplicaExecutionDecision() (PlacementDecision, error) {
+	return ChooseExecutionMode(PlacementRequest{
+		WorkloadClass:              "realtime_inference",
+		Coupling:                   CouplingIndependent,
+		Degree:                     1,
+		Fabric:                     FabricWAN,
+		LongRunningService:         true,
+		CommunityCapacityAvailable: true,
+		CloudBackstopPermitted:     false,
+	})
 }
 
 func realtimePlacementPlanDigest(plan RealtimePlacementPlan) (string, error) {
@@ -94,6 +117,12 @@ func newRealtimePlacementPlan(profile VLLMRuntimeProfile, reg RealtimeOfferRegis
 		ConfiguredTensorParallel: profile.TensorParallelSize,
 		AdmittedTensorParallel:   profile.TensorParallelSize,
 	}
+	mode, err := realtimeReplicaExecutionDecision()
+	if err != nil {
+		return RealtimePlacementPlan{}, fmt.Errorf("realtime replica execution mode: %w", err)
+	}
+	plan.ExecutionMode = string(mode.Mode)
+	plan.ExecutionModeReason = mode.Explain()
 
 	if profile.hasPlacementRequirements() {
 		selected, err := planTensorParallel(topology, modelPlacement{
@@ -168,8 +197,16 @@ func ValidateFrozenRealtimePlacementPlan(plan RealtimePlacementPlan) error {
 	if plan.ConfiguredTensorParallel < 1 ||
 		plan.AdmittedTensorParallel != plan.ConfiguredTensorParallel ||
 		plan.AdmittedTensorParallel > plan.GPUCount ||
-		plan.Rationale == "" {
+		plan.Rationale == "" || plan.ExecutionMode == "" || plan.ExecutionModeReason == "" {
 		return errors.New("realtime placement plan has invalid tensor-parallel authority")
+	}
+	expectedMode, err := realtimeReplicaExecutionDecision()
+	if err != nil {
+		return err
+	}
+	if plan.ExecutionMode != string(expectedMode.Mode) ||
+		plan.ExecutionModeReason != expectedMode.Explain() {
+		return errors.New("realtime placement plan has a non-reproducible execution mode")
 	}
 	switch plan.AdmissionBasis {
 	case realtimePlacementTopologyOnly:
