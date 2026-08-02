@@ -66,6 +66,7 @@ form,.stack{display:grid;gap:12px}label{display:grid;gap:6px;color:var(--muted);
     <div class="card"><h2>Payout rail</h2><p id="connect-status" class="muted">Not loaded.</p></div>
     <div class="card"><h2>Eligibility and offers</h2><p class="muted">Every routable cell is evaluated against this device's hardware and minimum earnings floor.</p><pre id="viability-output">Not loaded.</pre></div>
     <div class="card"><h2>Verification and reputation</h2><p id="verification-status" class="muted">Not loaded.</p><pre id="verification-output">Not loaded.</pre></div>
+    <div class="card"><h2>Reserved service assignments</h2><p class="muted">The native agent, not this browser, registers measured warm-service offers and reports bounded data-plane heartbeats. These are read-only assignments for this device; no buyer, prompt, payment, or runtime-control authority is exposed here.</p><p id="service-assignments-status" class="status"></p><pre id="service-assignments-output">No service assignment loaded.</pre></div>
     <div class="card"><h2>Jobs and utilization</h2><p class="muted">Claim/start/commit/fail activity remains in the native agent. This console shows the resulting earnings, verification and admission facts without granting buyer or operator scope.</p></div>
     <div class="card wide"><h2>Raw device responses</h2><pre id="worker-raw">—</pre></div>
   </section>
@@ -97,12 +98,13 @@ byId('worker-login').addEventListener('submit',async event=>{event.preventDefaul
 byId('worker-refresh').addEventListener('click',()=>refreshWorker().catch(error=>status('worker-status',error.message,'error')));
 byId('worker-close').addEventListener('click',()=>{workerToken='';byId('worker-token').value='';byId('worker-console').hidden=true});
 async function refreshWorker(){
-  const [earnings,rail,viability,verification]=await Promise.all([request('/v1/worker/earnings',{},'worker'),request('/v1/worker/connect/status',{},'worker'),request('/v1/worker/viability',{},'worker'),request('/v1/worker/verification',{},'worker')]);
+  const [earnings,rail,viability,verification,serviceAssignments]=await Promise.all([request('/v1/worker/earnings',{},'worker'),request('/v1/worker/connect/status',{},'worker'),request('/v1/worker/viability',{},'worker'),request('/v1/worker/verification',{},'worker'),request('/v1/worker/service-leases/active',{},'worker')]);
   byId('paid').textContent=money(earnings.balance_usd);byId('lifetime').textContent=money(earnings.lifetime_usd);byId('carried').textContent=money(earnings.carried_usd);
   const exponent=String(publicConfig?.settlement_currency||'').toLowerCase()==='cad'?2:2,minor=Math.pow(10,-exponent);byId('carry-note').textContent=Number(earnings.carried_usd)>0?`Amounts below one minor unit (${minor} ${(publicConfig?.settlement_currency||'').toUpperCase()}) accrue and remain ledger liabilities.`:'No sub-minor carry is currently outstanding.';
   byId('connect-status').textContent=!rail.configured?'Merc has not configured the payout provider.':!rail.connected?'No payout account is connected.':!rail.payouts_enabled?'Stripe account connected; payouts remain disabled.':'Stripe account connected and payouts enabled.';byId('connect-status').className=rail.payouts_enabled?'status good':'warn';
   byId('viability-output').textContent=JSON.stringify(viability,null,2);byId('verification-output').textContent=JSON.stringify(verification,null,2);byId('verification-status').textContent=`${verification.verification_label||'unknown'} · ${verification.honeypots_passed||0} passed · ${verification.honeypots_failed||0} failed`;
-  byId('worker-raw').textContent=JSON.stringify({earnings,payout_rail:rail,viability,verification},null,2);
+  byId('service-assignments-output').textContent=JSON.stringify(serviceAssignments,null,2);status('service-assignments-status',serviceAssignments.length?`${serviceAssignments.length} active assignment(s); agent remains the service runtime authority`:'no active service assignments');
+  byId('worker-raw').textContent=JSON.stringify({earnings,payout_rail:rail,viability,verification,service_assignments:serviceAssignments},null,2);
 }
 loadPublic().catch(error=>{byId('contacts').textContent='Public configuration unavailable: '+error.message;byId('contacts').className='contact-list warn'});
 window.addEventListener('pagehide',()=>{ownerToken='';workerToken=''});
