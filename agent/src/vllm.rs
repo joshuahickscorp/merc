@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use base64::Engine;
 use rand::RngCore;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::process::{Child, Command};
 
@@ -21,6 +21,7 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 const SERVICE_LEASE_MINIMUM_SAMPLES: usize = 5;
 const SERVICE_LEASE_MAXIMUM_SAMPLES: usize = 20;
 const SERVICE_LEASE_MEASUREMENT_KIND: &str = "DATA_PLANE_COMPLETIONS_V1";
+const PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,6 +73,26 @@ pub struct ServiceLeaseConfig {
     pub probe_timeout_millis: u64,
     #[serde(default = "default_service_probe_max_tokens")]
     pub probe_max_tokens: u32,
+}
+
+// VllmPreflightReceipt is deliberately non-secret and non-mutating. It proves
+// only that this local host and immutable config are ready to attempt a pinned
+// launch; it does not pull an image, contact a provider, advertise capacity, or
+// assert a completed Merc execution.
+#[derive(Debug, Clone, Serialize)]
+pub struct VllmPreflightReceipt {
+    pub schema_version: u32,
+    pub kind: &'static str,
+    pub status: &'static str,
+    pub runtime_profile_id: String,
+    pub runtime_profile_sha256: String,
+    pub container_reference: String,
+    pub container_runtime: String,
+    pub hw_class: String,
+    pub configured_gpu_count: u32,
+    pub detected_gpu_count: u32,
+    pub configured_memory_gb_per_gpu: f64,
+    pub detected_memory_gb_per_gpu: Vec<f64>,
 }
 
 fn default_container_runtime() -> String {
@@ -313,6 +334,126 @@ fn validate_config(config: &VllmAgentConfig, profile: &RuntimeProfile) -> Result
         }
     }
     Ok(())
+}
+
+fn validate_vllm_start_readiness(config: &VllmAgentConfig) -> Result<()> {
+    // These are the only placeholders the signed installer writes. Keeping the
+    // check in the agent as well means manually starting the service cannot
+    // bypass the installer's fail-closed activation gate.
+    if config.worker_token.contains("PASTE_WORKER_TOKEN") {
+        bail!("worker_token is still the installer placeholder")
+    }
+    if config
+        .public_base_url
+        .contains("REQUIRE_CONFIGURED_TLS_PUBLIC_ENDPOINT")
+    {
+        bail!("public_base_url is still the installer placeholder")
+    }
+    if config.hw_class == "REQUIRE_NVIDIA_DETECTION" {
+        bail!("hw_class is still the installer placeholder")
+    }
+    Ok(())
+}
+
+async fn command_output_with_timeout(
+    mut command: Command,
+    description: &str,
+) -> Result<std::process::Output> {
+    tokio::time::timeout(PREFLIGHT_TIMEOUT, command.output())
+        .await
+        .with_context(|| {
+            format!(
+                "{description} timed out after {} seconds",
+                PREFLIGHT_TIMEOUT.as_secs()
+            )
+        })?
+        .with_context(|| format!("running {description}"))
+}
+
+async fn verify_local_vllm_environment(config: &VllmAgentConfig) -> Result<Vec<f64>> {
+    let runtime = command_output_with_timeout(
+        {
+            let mut command = Command::new(&config.container_runtime);
+            command.arg("--version");
+            command
+        },
+        "container runtime --version",
+    )
+    .await?;
+    if !runtime.status.success() {
+        bail!("container runtime --version exited {}", runtime.status)
+    }
+
+    let nvidia = command_output_with_timeout(
+        {
+            let mut command = Command::new("nvidia-smi");
+            command.args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"]);
+            command
+        },
+        "nvidia-smi GPU memory query",
+    )
+    .await?;
+    if !nvidia.status.success() {
+        bail!("nvidia-smi GPU memory query exited {}", nvidia.status)
+    }
+    let memory_gb = std::str::from_utf8(&nvidia.stdout)
+        .context("decoding nvidia-smi GPU memory output")?
+        .lines()
+        .filter_map(|line| line.trim().parse::<f64>().ok())
+        .map(|mib| mib / 1024.0)
+        .collect::<Vec<_>>();
+    if memory_gb.len() < config.gpu_count as usize {
+        bail!(
+            "configured {} GPU(s), but nvidia-smi exposed only {}",
+            config.gpu_count,
+            memory_gb.len()
+        )
+    }
+    for (index, detected) in memory_gb.iter().take(config.gpu_count as usize).enumerate() {
+        // GPU tools report vendor MiB totals while the config is expressed in
+        // operator-facing GiB. A quarter-GiB tolerance absorbs that unit/firmware
+        // boundary without allowing a profile to claim a materially larger card.
+        if config.memory_gb_per_gpu > *detected + 0.25 {
+            bail!(
+                "configured GPU {} memory {:.3} GiB exceeds detected {:.3} GiB",
+                index,
+                config.memory_gb_per_gpu,
+                detected
+            )
+        }
+    }
+    Ok(memory_gb)
+}
+
+pub async fn preflight(config_path: PathBuf) -> Result<VllmPreflightReceipt> {
+    if !cfg!(target_os = "linux") {
+        bail!("the production vLLM adapter requires a Linux CUDA host")
+    }
+    if std::env::consts::ARCH != "x86_64" {
+        bail!("this runtime profile pins a linux/amd64 vLLM container manifest")
+    }
+    let text = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("reading vLLM agent config {}", config_path.display()))?;
+    let config: VllmAgentConfig = toml::from_str(&text)
+        .with_context(|| format!("decoding vLLM agent config {}", config_path.display()))?;
+    let (profile, profile_sha256) = load_profile(&config.runtime_profile_path)?;
+    validate_config(&config, &profile)?;
+    validate_vllm_start_readiness(&config)?;
+    let memory_gb = verify_local_vllm_environment(&config).await?;
+    Ok(VllmPreflightReceipt {
+        schema_version: 1,
+        kind: "MERC_VLLM_PREFLIGHT_V1",
+        status: "LOCAL_LAUNCH_READY_NOT_ADVERTISED",
+        runtime_profile_id: profile.runtime_profile_id.clone(),
+        runtime_profile_sha256: profile_sha256,
+        container_reference: profile.container_reference(),
+        container_runtime: config.container_runtime,
+        hw_class: config.hw_class,
+        configured_gpu_count: config.gpu_count,
+        detected_gpu_count: memory_gb.len() as u32,
+        configured_memory_gb_per_gpu: config.memory_gb_per_gpu,
+        detected_memory_gb_per_gpu: memory_gb,
+    })
 }
 
 fn generate_upstream_token() -> String {
@@ -712,6 +853,10 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
         .with_context(|| format!("decoding vLLM agent config {}", config_path.display()))?;
     let (profile, profile_sha256) = load_profile(&config.runtime_profile_path)?;
     validate_config(&config, &profile)?;
+    validate_vllm_start_readiness(&config)?;
+    // Fail before pull/start if this host cannot meet the declared physical
+    // topology. A signed profile and a valid TOML file are not CUDA capacity.
+    verify_local_vllm_environment(&config).await?;
     std::fs::create_dir_all(&config.model_cache_dir)
         .with_context(|| format!("creating model cache {}", config.model_cache_dir.display()))?;
 
@@ -895,6 +1040,20 @@ mod tests {
             supplier_output_usd_per_million_tokens: 0.30,
             service_lease: None,
         }
+    }
+
+    #[test]
+    fn installed_placeholders_cannot_bypass_vllm_start_preflight() {
+        let mut configured = config();
+        assert!(validate_vllm_start_readiness(&configured).is_ok());
+        configured.worker_token = "PASTE_WORKER_TOKEN_FROM_make_seed".into();
+        assert!(validate_vllm_start_readiness(&configured).is_err());
+        configured.worker_token = "cxw_test".into();
+        configured.public_base_url = "https://REQUIRE_CONFIGURED_TLS_PUBLIC_ENDPOINT/v1".into();
+        assert!(validate_vllm_start_readiness(&configured).is_err());
+        configured.public_base_url = "https://worker.example/v1".into();
+        configured.hw_class = "REQUIRE_NVIDIA_DETECTION".into();
+        assert!(validate_vllm_start_readiness(&configured).is_err());
     }
 
     #[test]

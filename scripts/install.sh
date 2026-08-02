@@ -313,6 +313,7 @@ TOML
   say "wrote pinned CUDA/vLLM configuration $VLLM_CONFIG"
   [[ -n "${MERC_WORKER_TOKEN:-}" ]] || warn "set worker_token in $VLLM_CONFIG before earning"
   [[ -n "${MERC_VLLM_PUBLIC_BASE_URL:-}" ]] || warn "set public_base_url in $VLLM_CONFIG to the externally reachable TLS endpoint before activation"
+  say "after configuration, verify without pulling or advertising: $BIN vllm-check --config $VLLM_CONFIG"
 }
 
 write_config() {

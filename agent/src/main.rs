@@ -279,6 +279,12 @@ enum Command {
         #[arg(long, default_value = "vllm.toml")]
         config: PathBuf,
     },
+    /// Check a pinned CUDA/vLLM configuration and local GPU/container runtime
+    /// without pulling an image, starting a process, or advertising capacity.
+    VllmCheck {
+        #[arg(long, default_value = "vllm.toml")]
+        config: PathBuf,
+    },
     /// Serve bounded mTLS echo probes for a candidate Merc Fabric link.
     /// This proves only link measurements; it does not expose a workload data plane.
     FabricServe {
@@ -642,6 +648,16 @@ async fn main() -> Result<()> {
         Command::Vllm { config } => {
             init_tracing();
             vllm::run(config).await
+        }
+        Command::VllmCheck { config } => {
+            init_tracing();
+            let receipt = vllm::preflight(config).await?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&receipt)
+                    .context("rendering vLLM preflight receipt")?
+            );
+            Ok(())
         }
         Command::FabricServe {
             bind,
