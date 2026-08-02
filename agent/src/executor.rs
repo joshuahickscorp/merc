@@ -354,7 +354,7 @@ impl Embedder {
         let mut encs = Vec::with_capacity(texts.len());
         for text in texts {
             let key = TokenizationCache::key(&self.tokenizer_revision, text);
-            if let Some(cached) = self.token_cache.get(key) {
+            if let Some(cached) = self.token_cache.get(&key) {
                 encs.push(cached);
                 continue;
             }
@@ -540,7 +540,7 @@ pub struct LlamaBackend {
 
 impl LlamaBackend {
     pub fn load(model_ref: &str) -> Result<Self, RunError> {
-        let spec = models::llama_gguf_spec(model_ref);
+        let spec = models::llama_gguf_spec(model_ref)?;
         let paths = models::fetch(&spec)?;
         let gguf_p = &paths[0];
 

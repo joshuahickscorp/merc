@@ -101,7 +101,9 @@ impl ModelPool {
     }
 
     pub async fn llama(&self, model_ref: &str) -> Result<Arc<Mutex<LlamaBackend>>, RunError> {
-        let key = canonical_llama_id(model_ref);
+        // Resolve first so an unrecognised ref fails closed before any slot is
+        // created or weights are loaded under a neighbour's identity.
+        let key = canonical_llama_id(model_ref)?;
         let cell = self.slot(&self.llama, &key).await;
         let model_ref = model_ref.to_string();
         let measure_key = key.clone();
@@ -195,6 +197,64 @@ fn join_err(backend: &'static str) -> impl Fn(tokio::task::JoinError) -> RunErro
     }
 }
 
-fn canonical_llama_id(_model_ref: &str) -> String {
-    models::INFER_LLAMA_ID.to_string()
+/// Pool key for a generative model. Derived from the resolved governed id so
+/// two distinct routable models never share a slot. Unresolvable refs error
+/// rather than alias onto a resident model.
+fn canonical_llama_id(model_ref: &str) -> Result<String, RunError> {
+    Ok(models::llama_spec(model_ref)?.0.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::INFER_LLAMA_ID;
+
+    #[test]
+    fn canonical_llama_id_keys_by_resolved_model_not_constant_alias() {
+        let known = canonical_llama_id(INFER_LLAMA_ID).expect("governed model must resolve");
+        assert_eq!(known, INFER_LLAMA_ID);
+
+        // A second distinct ref must not collapse onto the same pool key. With
+        // only one generative model governed today that means fail closed.
+        let foreign_a = canonical_llama_id("foreign-model-a");
+        let foreign_b = canonical_llama_id("foreign-model-b");
+        match (&foreign_a, &foreign_b) {
+            (Ok(a), Ok(b)) => {
+                assert_ne!(
+                    a, b,
+                    "distinct resolvable model refs must not share a pool key"
+                );
+                assert_ne!(a, &known);
+                assert_ne!(b, &known);
+            }
+            (Err(e), Err(_)) => {
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("unresolvable generative model ref"),
+                    "expected fail-closed greppable error, got {msg}"
+                );
+            }
+            _ => panic!("inconsistent resolution for foreign model refs"),
+        }
+    }
+
+    #[tokio::test]
+    async fn model_pool_llama_unresolvable_errors_rather_than_aliasing() {
+        let pool = ModelPool::new();
+        let result = pool.llama("not-a-governed-generative-model").await;
+        let err = match result {
+            Ok(_) => panic!("unresolvable ref must fail closed, not alias onto a resident model"),
+            Err(e) => e,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unresolvable generative model ref"),
+            "expected greppable fail-closed error, got {msg}"
+        );
+        // No slot must have been warmed under the governed id.
+        assert!(
+            pool.loaded_model_ids().await.is_empty(),
+            "aliasing would leave the governed model resident"
+        );
+    }
 }
