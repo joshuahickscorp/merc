@@ -96,7 +96,10 @@ fn media_segment_assignment(manifest: &JobManifest) -> Result<MediaSegmentAssign
     })
 }
 
-fn media_segment_extent(source_duration_secs: f64, assignment: MediaSegmentAssignment) -> Result<MediaSegmentExtent, RunError> {
+fn media_segment_extent(
+    source_duration_secs: f64,
+    assignment: MediaSegmentAssignment,
+) -> Result<MediaSegmentExtent, RunError> {
     if !source_duration_secs.is_finite() || source_duration_secs <= 0.0 {
         return Err(RunError::BadInput {
             job: "media_transcode",
@@ -168,9 +171,7 @@ fn validate_media_segment_extents_sum(
     if (sum - source_duration_secs).abs() > EPS {
         return Err(RunError::BadInput {
             job: "media_transcode",
-            msg: format!(
-                "segment extents sum to {sum:.9}s; source is {source_duration_secs:.9}s"
-            ),
+            msg: format!("segment extents sum to {sum:.9}s; source is {source_duration_secs:.9}s"),
         });
     }
     Ok(())
@@ -450,16 +451,19 @@ impl MediaTranscodeRunner {
             duration_arg = format!("{:.9}", extent.end_secs - extent.start_secs);
             command.args(["-ss", &start_arg, "-t", &duration_arg]);
         }
-        command.args(["-f", spec.input_demuxer, "-i"]).arg(&source).args([
-            "-map_metadata",
-            "-1",
-            "-map_chapters",
-            "-1",
-            "-map",
-            "0:v:0",
-            "-an",
-            "-vf",
-        ]);
+        command
+            .args(["-f", spec.input_demuxer, "-i"])
+            .arg(&source)
+            .args([
+                "-map_metadata",
+                "-1",
+                "-map_chapters",
+                "-1",
+                "-map",
+                "0:v:0",
+                "-an",
+                "-vf",
+            ]);
         command.arg(&scale);
         command.args(["-r", &fps, "-c:v", "libx264", "-preset", "medium", "-b:v"]);
         command.arg(&bitrate);
@@ -485,7 +489,9 @@ impl MediaTranscodeRunner {
                 "keyint=250:min-keyint=1:scenecut=0:bframes=0:open-gop=0",
             ]);
         }
-        command.args(["-movflags", "+faststart", "-f", "mp4"]).arg(&output);
+        command
+            .args(["-movflags", "+faststart", "-f", "mp4"])
+            .arg(&output);
         let run = bounded_media_command(command, MEDIA_PROCESS_TIMEOUT, "ffmpeg transcode").await?;
         if !run.status.success() {
             return Err(RunError::Inference {
@@ -497,13 +503,7 @@ impl MediaTranscodeRunner {
                 ),
             });
         }
-        verify_media_output(
-            &self.ffprobe,
-            &output,
-            spec,
-            expected_output_source_secs,
-        )
-        .await?;
+        verify_media_output(&self.ffprobe, &output, spec, expected_output_source_secs).await?;
         let metadata = tokio::fs::metadata(&output).await.map_err(media_err)?;
         if metadata.len() == 0 || metadata.len() > MAX_MEDIA_OUTPUT_BYTES {
             return Err(RunError::Inference {
