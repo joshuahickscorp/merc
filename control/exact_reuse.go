@@ -42,10 +42,23 @@ var requestIdentityPattern = regexp.MustCompile(`^req_[0-9a-f]{64}$`)
 // Scoping it costs a cache miss the first time each tenant asks. That is the
 // right trade, and it is why the tranche says not to start with global
 // cross-tenant sharing.
+//
+// ProfileSHA256 binds the durable key to the same runtime profile digest the
+// in-memory identity cache already uses. A profile change that keeps model
+// revision fixed (engine, container, dtype, max length) must miss rather than
+// serve an old completion under a receipt naming the new profile.
+//
+// The domain separator is versioned (merc-request-identity-vN). Bumping it
+// invalidates every prior row on purpose: an entry whose key was under-specified
+// must never be served under the new definition.
 type RequestIdentity struct {
 	TenantScope   string
 	ModelID       string
 	ModelRevision string
+	// ProfileSHA256 is the runtime profile content digest. Empty is allowed for
+	// callers that do not yet bind a profile (batch path, unit fixtures); it is
+	// still hashed so "no profile" and "a profile" cannot collide.
+	ProfileSHA256 string
 	Adapter       string
 	Input         string
 	Tools         string
@@ -58,9 +71,18 @@ type RequestIdentity struct {
 	Policy      string
 }
 
+// requestIdentityDomain is the domain separator hashed into every durable key.
+// Bump when the field set or its meaning changes so old rows miss cleanly.
+const requestIdentityDomain = "merc-request-identity-v3"
+
 // errNonDeterministic marks a request that cannot be cached because two runs
 // need not agree.
 var errNonDeterministic = errors.New("request sampling is not deterministic; exact reuse is not eligible")
+
+// errNotExactCacheable marks a request that is outside the closed set of fields
+// exact reuse knows how to key. Callers treat it like errNonDeterministic: the
+// request runs live and is not stored.
+var errNotExactCacheable = errors.New("request carries fields outside the exact-reuse identity; not cacheable")
 
 // Deterministic reports whether this request would produce the same output
 // every time. Temperature and top-p are the gate: anything that samples cannot
@@ -91,7 +113,8 @@ func (r RequestIdentity) Compute() (string, error) {
 	fields := map[string]any{
 		"tenant": r.TenantScope,
 		"model":  r.ModelID, "revision": r.ModelRevision, "adapter": r.Adapter,
-		"input": r.Input, "tools": r.Tools, "schema": r.Schema,
+		"profile_sha256": r.ProfileSHA256,
+		"input":          r.Input, "tools": r.Tools, "schema": r.Schema,
 		"temperature": r.Temperature, "top_p": r.TopP, "seed": r.Seed,
 		"max_tokens": r.MaxTokens, "policy": r.Policy,
 	}
@@ -102,10 +125,50 @@ func (r RequestIdentity) Compute() (string, error) {
 	sort.Strings(keys)
 
 	h := sha256.New()
-	// v2: the identity became tenant-scoped. Bumping the domain separator makes
-	// every v1 key miss rather than resolve under the new meaning. A miss costs
-	// work; a stale hit under a changed identity definition would be wrong.
-	h.Write([]byte("merc-request-identity-v2\x00"))
+	// Domain separator is versioned: every prior version's rows miss rather than
+	// resolve under a changed field set. A miss costs work; a stale hit under a
+	// changed identity definition would be wrong.
+	h.Write([]byte(requestIdentityDomain + "\x00"))
+	for _, k := range keys {
+		blob, err := json.Marshal(fields[k])
+		if err != nil {
+			return "", err
+		}
+		h.Write([]byte(k))
+		h.Write([]byte{0})
+		h.Write(blob)
+		h.Write([]byte{0})
+	}
+	return "req_" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// computeRequestIdentityWithDomain is test-only: hash the same field set under
+// an older domain separator so versioning tests can prove old rows never hit.
+func (r RequestIdentity) computeRequestIdentityWithDomain(domain string) (string, error) {
+	if !r.Deterministic() {
+		return "", errNonDeterministic
+	}
+	if strings.TrimSpace(r.ModelID) == "" || strings.TrimSpace(r.Input) == "" {
+		return "", fmt.Errorf("request identity requires at least a model and an input")
+	}
+	if strings.TrimSpace(r.TenantScope) == "" {
+		return "", fmt.Errorf("request identity requires a tenant scope")
+	}
+	fields := map[string]any{
+		"tenant": r.TenantScope,
+		"model":  r.ModelID, "revision": r.ModelRevision, "adapter": r.Adapter,
+		"profile_sha256": r.ProfileSHA256,
+		"input":          r.Input, "tools": r.Tools, "schema": r.Schema,
+		"temperature": r.Temperature, "top_p": r.TopP, "seed": r.Seed,
+		"max_tokens": r.MaxTokens, "policy": r.Policy,
+	}
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	h.Write([]byte(domain + "\x00"))
 	for _, k := range keys {
 		blob, err := json.Marshal(fields[k])
 		if err != nil {
@@ -168,7 +231,14 @@ func (s *Store) LookupExactResult(ctx context.Context, identity string) (ExactCa
 var tenantScopedRefPattern = regexp.MustCompile(`^jobs/`)
 
 // RecordExactResult stores a completed deterministic result for reuse.
+// result_bytes is recorded as 0 when the caller does not know the object size;
+// StoreExactResultBytes always passes the real length so size-based eviction
+// can bound the table without listing the object store.
 func (s *Store) RecordExactResult(ctx context.Context, identity, resultRef string, outputTokens int64) error {
+	return s.recordExactResult(ctx, identity, resultRef, outputTokens, 0)
+}
+
+func (s *Store) recordExactResult(ctx context.Context, identity, resultRef string, outputTokens, resultBytes int64) error {
 	if !ValidRequestIdentity(identity) {
 		return fmt.Errorf("refusing to cache under a malformed request identity")
 	}
@@ -181,10 +251,13 @@ func (s *Store) RecordExactResult(ctx context.Context, identity, resultRef strin
 				"request identity alone and is shared across buyers, so it may only hold "+
 				"content-addressed artifacts", resultRef)
 	}
+	if resultBytes < 0 {
+		resultBytes = 0
+	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO exact_result_cache (request_identity, result_ref, output_tokens)
-		VALUES ($1,$2,$3)
-		ON CONFLICT (request_identity) DO NOTHING`, identity, resultRef, outputTokens)
+		INSERT INTO exact_result_cache (request_identity, result_ref, output_tokens, result_bytes)
+		VALUES ($1,$2,$3,$4)
+		ON CONFLICT (request_identity) DO NOTHING`, identity, resultRef, outputTokens, resultBytes)
 	return err
 }
 

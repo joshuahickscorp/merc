@@ -292,6 +292,10 @@ func (wk *Workers) Run(ctx context.Context) {
 		{chargeCollectInterval, "charge-collect", wk.collectCharges},
 		{telemetryRetentionInterval, "telemetry-retention", wk.sweepTelemetryRetention},
 		{jobObjectRetentionSweep, "object-retention", wk.sweepJobObjectRetention},
+		// Exact-result rows and their content-addressed objects had no bound:
+		// every distinct deterministic request became a permanent cache entry.
+		// Age + size sweep, same pattern as job object retention.
+		{exactResultRetentionSweep, exactResultRetentionTickerName, wk.sweepExactResultCache},
 		{prefixStateSweepInterval, "prefix-state-retention", wk.sweepStalePrefixState},
 		{budgetStopInterval, "budget-stop-sweep", wk.sweepBudgetStops},
 		{realtimeRecoveryInterval, "realtime-contract-recovery", wk.recoverRealtimeContracts},
