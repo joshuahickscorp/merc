@@ -1338,12 +1338,21 @@ func (wk *Workers) recoverServiceLeases(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Failover or terminate every FAILOVER_REQUIRED lease. Without this step a
+	// lost worker parks the buyer's prepaid ceiling until expires_at (up to 7
+	// days) while the data plane returns 503 — FailoverServiceLease is complete
+	// but was only reachable from tests.
+	failedOver, terminated, err := wk.store.FailoverPendingServiceLeases(ctx, sweepBatch)
+	if err != nil {
+		return err
+	}
 	completed, err := wk.store.FinalizeExpiredServiceLeases(ctx, sweepBatch)
 	if err != nil {
 		return err
 	}
-	if lost > 0 || completed > 0 {
-		log.Printf("workers: service-lease-recovery lost=%d completed=%d", lost, completed)
+	if lost > 0 || failedOver > 0 || terminated > 0 || completed > 0 {
+		log.Printf("workers: service-lease-recovery lost=%d failed_over=%d terminated_no_replacement=%d completed=%d",
+			lost, failedOver, terminated, completed)
 	}
 	return nil
 }

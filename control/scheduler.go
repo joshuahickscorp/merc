@@ -330,15 +330,32 @@ type ClaimedTask struct {
 	OfferedRateUsdHr float32
 	ChunkIndex       int
 	IsHoneypot       bool
+	// ShapeOrderingApplied is true when MERC_SHAPE_AWARE_ROUTING was on at claim
+	// time and a non-empty preference ranked this job's tier. It is a placement
+	// decision fact a receipt can show; it is not evidence of a measured routing
+	// advantage.
+	ShapeOrderingApplied bool
+	// ShapePreference is "low_latency", "throughput", or empty when shape
+	// ordering did not apply.
+	ShapePreference string
 }
 
-// ClaimTaskSQL builds the claim query. pref selects the measured hardware-shape
-// preference; shapeNoPreference reproduces the previous ordering exactly.
+// ClaimTaskSQL builds the production claim query. Shape preference is derived
+// per job tier through preferenceForTier when MERC_SHAPE_AWARE_ROUTING is on;
+// with the flag off the shape term is a no-op constant and ordering matches the
+// pre-shape path.
 func ClaimTaskSQL(claimedByPredicate string) string {
-	return ClaimTaskSQLForShape(claimedByPredicate, shapeNoPreference)
+	return claimTaskSQL(claimedByPredicate, shapeOrderSQL("me.hw_class", "ej.tier"))
 }
 
+// ClaimTaskSQLForShape builds claim SQL with a fixed shape preference. Tests use
+// it to assert ordering composition; production uses ClaimTaskSQL so the env
+// flag and per-tier mapping stay live.
 func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) string {
+	return claimTaskSQL(claimedByPredicate, shapeRankSQL("me.hw_class", pref))
+}
+
+func claimTaskSQL(claimedByPredicate, shapeOrderExpr string) string {
 	return fmt.Sprintf(`WITH me AS (
 	   -- The ONE claiming worker + its supplier, resolved ONCE (w.id = $1). Every
 	   -- per-JOB hard filter below (memory, hw_classes, exact runtime capability,
@@ -888,7 +905,7 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 		            -- cheapest-sufficient-class rule. Constant 0 when
 		            -- MERC_SHAPE_AWARE_ROUTING is off, so the ordering is then
 		            -- byte-for-byte what it was before.
-		            `+shapeRankSQL("me.hw_class", pref)+` ASC,
+		            `+shapeOrderExpr+` ASC,
 		            worker_tps DESC,
 		            warm_prefix_depth DESC, warm_for_task DESC,
 	            job_dispatched_count ASC, t.created_at ASC
@@ -1055,6 +1072,11 @@ func (s *Store) ClaimTasksTx(ctx context.Context, w WorkerAuth) (*ClaimedTask, e
 	if !claimed {
 		return nil, nil // no work available -> 204
 	}
+	// Placement decision fact: whether shape ordering participated. Wiring is
+	// not a measured routing advantage; the paired experiment is separate work.
+	pref := preferenceForTier(c.Tier)
+	c.ShapePreference = shapePreferenceName(pref)
+	c.ShapeOrderingApplied = pref != shapeNoPreference
 	return &c, nil
 }
 

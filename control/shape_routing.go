@@ -93,6 +93,43 @@ func preferenceForTier(tier string) shapePreference {
 	}
 }
 
+// shapePreferenceName is the durable label a claim receipt can show. Empty when
+// shape ordering did not apply (flag off).
+func shapePreferenceName(pref shapePreference) string {
+	switch pref {
+	case shapePreferLowLatency:
+		return "low_latency"
+	case shapePreferThroughput:
+		return "throughput"
+	default:
+		return ""
+	}
+}
+
+// shapeOrderSQL is the claim ORDER BY term for hardware-shape fitness. It is
+// always derived through preferenceForTier so MERC_SHAPE_AWARE_ROUTING is a
+// live production path, not an inert helper.
+//
+// The term is per-job: batch work ranks throughput-strong classes first, every
+// other tier ranks low-latency classes first. The claiming worker's hw_class is
+// scored against the job's preferred shape so a worker prefers the work it is
+// measured good at. When the flag is off both arms collapse to the no-op
+// constant and the sort is unchanged.
+//
+// This is an ordering input only — never a WHERE filter — and must sit below
+// cheaper_class_online / cheaper_ask_online so shape never promotes a more
+// expensive cost class.
+func shapeOrderSQL(hwCol, tierCol string) string {
+	batch := shapeRankSQL(hwCol, preferenceForTier("batch"))
+	// priority stands for every non-batch tier; preferenceForTier maps them
+	// identically when the flag is on.
+	latency := shapeRankSQL(hwCol, preferenceForTier("priority"))
+	if batch == latency {
+		return batch
+	}
+	return `(CASE WHEN ` + tierCol + ` = 'batch' THEN (` + batch + `) ELSE (` + latency + `) END)`
+}
+
 // shapeRankSQL orders hardware classes by fitness for a preference, cheapest
 // rank first so it composes with the existing ASC ordering.
 //
