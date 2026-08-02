@@ -343,6 +343,14 @@ fn validate_config(config: &VllmAgentConfig, profile: &RuntimeProfile) -> Result
         {
             bail!("service lease config has invalid capacity, fixed-point floor, or bounded probe settings")
         }
+        // This adapter starts exactly one pinned vLLM process. Its sequence
+        // concurrency is request capacity inside that one process, not proof
+        // of independently warm replicas. Do not sell a second replica until
+        // a bounded multi-process supervisor starts, probes, drains, and
+        // tears down each advertised process separately.
+        if service.maximum_warm_replicas != 1 || service.available_warm_replicas != 1 {
+            bail!("the current vLLM adapter can advertise exactly one measured warm replica")
+        }
     }
     Ok(())
 }
@@ -1510,8 +1518,8 @@ mod tests {
         let mut configured = config();
         configured.service_lease = Some(ServiceLeaseConfig {
             region: "ca-central-1".into(),
-            maximum_warm_replicas: 2,
-            available_warm_replicas: 2,
+            maximum_warm_replicas: 1,
+            available_warm_replicas: 1,
             supplier_nanos_per_replica_hour: 2_000_000_000,
             residency_nanos_per_replica_hour: 200_000_000,
             supports_rolling_upgrade: true,
@@ -1520,6 +1528,27 @@ mod tests {
             probe_max_tokens: 1,
         });
         assert!(validate_config(&configured, &profile).is_ok());
+        configured
+            .service_lease
+            .as_mut()
+            .unwrap()
+            .maximum_warm_replicas = 2;
+        configured
+            .service_lease
+            .as_mut()
+            .unwrap()
+            .available_warm_replicas = 2;
+        assert!(validate_config(&configured, &profile).is_err());
+        configured
+            .service_lease
+            .as_mut()
+            .unwrap()
+            .maximum_warm_replicas = 1;
+        configured
+            .service_lease
+            .as_mut()
+            .unwrap()
+            .available_warm_replicas = 1;
         configured.service_lease.as_mut().unwrap().probe_max_tokens = 5;
         assert!(validate_config(&configured, &profile).is_err());
     }
