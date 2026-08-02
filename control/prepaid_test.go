@@ -75,7 +75,7 @@ func TestPrepaidTopupCreditsBalanceAndLedger(t *testing.T) {
 		ChargeID:        "ch_test_" + uuid.NewString(),
 		RequestedCents:  2500,
 		ReceivedCents:   2500,
-		Currency:        "usd",
+		Currency:        SettlementCurrencyCode(),
 	}
 	if err := store.CreditPrepaidTopup(ctx, opKey, buyerID, charge); err != nil {
 		t.Fatalf("credit: %v", err)
@@ -149,7 +149,15 @@ func TestReconcileBuyerChargeOperationAcceptsCompletedPrepaidWebhook(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := charge.ReceivedCents * microUSDPerCent; bal != want {
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := settlement.MinorToMicros(charge.ReceivedCents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bal != want {
 		t.Fatalf("balance after webhook replay=%d, want %d", bal, want)
 	}
 }
@@ -332,13 +340,19 @@ func TestDeferredChargeFlagRollback(t *testing.T) {
 	}
 }
 
-func TestTopupMinUSDConfigurable(t *testing.T) {
-	t.Setenv("MERC_TOPUP_MIN_USD", "10")
-	if got := topupMinUSD(); got != 10 {
-		t.Fatalf("topupMinUSD=%v want 10", got)
-	}
+func TestTopupMinUsesExactSettlementMinorUnits(t *testing.T) {
+	cad := MustParseCurrency("cad")
 	t.Setenv("MERC_TOPUP_MIN_USD", "")
-	if got := topupMinUSD(); got != defaultTopupMinUSD {
-		t.Fatalf("default topup min=%v want %v", got, defaultTopupMinUSD)
+	t.Setenv("MERC_TOPUP_MIN_MINOR", "1001")
+	if got, err := topupMinMinor(cad); err != nil || got != 1001 {
+		t.Fatalf("topupMinMinor(cad)=%d, %v; want 1001, nil", got, err)
+	}
+	t.Setenv("MERC_TOPUP_MIN_MINOR", "")
+	if got, err := topupMinMinor(cad); err != nil || got != 2500 {
+		t.Fatalf("default CAD topup min=%d, %v; want 2500, nil", got, err)
+	}
+	t.Setenv("MERC_TOPUP_MIN_USD", "10")
+	if _, err := topupMinMinor(cad); err == nil {
+		t.Fatal("legacy USD top-up floor was accepted under CAD")
 	}
 }

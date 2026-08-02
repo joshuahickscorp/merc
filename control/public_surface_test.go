@@ -38,6 +38,14 @@ func TestBuyerSurfaceCallsEveryRequiredBuyerCapability(t *testing.T) {
 			t.Errorf("buyer surface contains forbidden browser authority %q", forbidden)
 		}
 	}
+	for _, required := range []string{"amount_major:amountMajor,currency"} {
+		if !strings.Contains(page, required) {
+			t.Errorf("buyer top-up surface does not bind %q", required)
+		}
+	}
+	if strings.Contains(page, "amount_usd") {
+		t.Error("buyer top-up surface still exposes a USD-labeled payment amount")
+	}
 }
 
 func TestSupplierSurfaceSeparatesOwnerAndWorkerAuthority(t *testing.T) {
