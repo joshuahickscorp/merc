@@ -64,16 +64,26 @@ func normalizeMediaJobType(j *JobType) error {
 // descriptor; it must never be mistaken for text tokenisation or used as a
 // second price authority. Settlement units remain the explicitly documented
 // media byte geometry in settlementInputUnitsForGeometry.
-func mediaInputScan(input []byte) (QuoteInputScan, error) {
+//
+// segmentCount is the number of ordered work units (default 1). Each segment
+// is one InputRecords unit so N segments price as N units of work rather than
+// collapsing to a single binary blob under max(records, bytes/4).
+func mediaInputScan(input []byte, segmentCount int) (QuoteInputScan, error) {
 	if len(input) == 0 {
 		return QuoteInputScan{}, errors.New("media_transcode input is empty")
 	}
 	if len(input) > maxMediaControlBytes {
 		return QuoteInputScan{}, fmt.Errorf("media_transcode input exceeds %d bytes", maxMediaControlBytes)
 	}
+	if segmentCount <= 0 {
+		segmentCount = 1
+	}
+	if segmentCount > maxMediaSegments {
+		return QuoteInputScan{}, fmt.Errorf("media_transcode segment_count %d exceeds bound %d", segmentCount, maxMediaSegments)
+	}
 	var descriptor bytes.Buffer
 	descriptor.WriteString("media-transcode:")
-	descriptor.WriteString(fmt.Sprintf("%d", len(input)))
+	descriptor.WriteString(fmt.Sprintf("%d:%d", segmentCount, len(input)))
 	acc := newInputDepthAccumulator()
 	acc.addBody(descriptor.String())
 	depth, err := acc.profile()
@@ -81,7 +91,7 @@ func mediaInputScan(input []byte) (QuoteInputScan, error) {
 		return QuoteInputScan{}, err
 	}
 	return QuoteInputScan{
-		Records: 1, Bytes: len(input), EstimatedTokens: depth.EstimatedTokens,
+		Records: segmentCount, Bytes: len(input), EstimatedTokens: depth.EstimatedTokens,
 		MaxLineBytes: len(input), SampledRecords: 0, InputDepth: depth,
 	}, nil
 }

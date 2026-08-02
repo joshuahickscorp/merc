@@ -1495,6 +1495,31 @@ func (s *Store) SetJobActualUSD(ctx context.Context, jobID uuid.UUID) error {
 	return err
 }
 
+// JobPrimaryChunkCount returns how many primary ordinals a job was planned
+// with. Media segment dispatch uses this as unit_count so every worker sees
+// the same N without a separate plan table.
+func (s *Store) JobPrimaryChunkCount(ctx context.Context, jobID uuid.UUID) (int, error) {
+	plan, err := s.JobComputePlan(ctx, jobID)
+	if err != nil {
+		return 0, err
+	}
+	if plan == nil {
+		return 0, errNotFound
+	}
+	if plan.PrimaryTasks > 0 {
+		return plan.PrimaryTasks, nil
+	}
+	if plan.InputRecords > 0 {
+		return plan.InputRecords, nil
+	}
+	var n int
+	err = s.pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT COALESCE(chunk_index,0))
+		  FROM tasks
+		 WHERE job_id=$1 AND is_honeypot=false AND is_redundancy=false`, jobID).Scan(&n)
+	return n, err
+}
+
 func (s *Store) JobResultKeys(ctx context.Context, jobID uuid.UUID) ([]string, error) {
 	info, err := s.JobMergeInputs(ctx, jobID)
 	if err != nil {

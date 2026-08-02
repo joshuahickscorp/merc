@@ -133,9 +133,13 @@ func validateMediaTranscodeResult(body []byte, records resultRecordContract) err
 		return invalidResultArtifact("media_transcode", resultValidationCount,
 			fmt.Sprintf("output is %d bytes; allowed range is 1..%d", len(body), maxMediaResultBytes))
 	}
+	// One task always yields one container artifact (one segment ordinal).
+	// Multi-segment jobs create N tasks each with ExpectedOutputRecords=1;
+	// job-level N is enforced by ordinal coverage at merge, not by packing N
+	// containers into a single result body.
 	if records.Exact > 0 && records.Exact != 1 {
 		return invalidResultArtifact("media_transcode", resultValidationCount,
-			fmt.Sprintf("media output must contain exactly one artifact, attempt expects %d", records.Exact))
+			fmt.Sprintf("media segment task must produce exactly one artifact, attempt expects %d", records.Exact))
 	}
 	// The fixed runner always emits an MP4 container. Checking the ISO-BMFF
 	// ftyp box here keeps a worker from committing arbitrary bytes under a
