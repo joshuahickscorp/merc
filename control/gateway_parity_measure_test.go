@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -184,15 +185,25 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Keep the measurement short enough for a laptop engine while still
-	// covering the required concurrency set 1 / 8 / 32.
-	requestsPerLevel := "4"
+	// Default to minCellCostSamples (20): p95/p99 under nearest-rank need that
+	// floor, and the promotion gate elsewhere refuses fewer. Operators can
+	// override with MERC_GATEWAY_PARITY_REQUESTS for a short smoke, but the
+	// harness will refuse gate_passed below the floor.
+	requestsPerLevel := strconv.Itoa(minCellCostSamples)
 	if v := os.Getenv("MERC_GATEWAY_PARITY_REQUESTS"); v != "" {
 		requestsPerLevel = v
 	}
 	maxTokens := "32"
 	if v := os.Getenv("MERC_GATEWAY_PARITY_MAX_TOKENS"); v != "" {
 		maxTokens = v
+	}
+	// Llama-3.2-1B-Instruct Q4_K_M — same digest as
+	// evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json and
+	// ops/model-provenance.json. Required so same-weights is proved, not
+	// inferred from /models or a one-token smoke.
+	artifactSHA := "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
+	if v := os.Getenv("MERC_GATEWAY_PARITY_MODEL_ARTIFACT_SHA256"); v != "" {
+		artifactSHA = v
 	}
 
 	cmd := exec.CommandContext(ctx, "python3", filepath.Join("..", "scripts", "gateway-parity.py"),
@@ -204,6 +215,10 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 		"--requests-per-level", requestsPerLevel,
 		"--merc-label", "merc control plane (httptest) -> same local engine",
 		"--direct-label", "direct local llama-server Metal / cx-chat-1b GGUF-Q4",
+		"--model-artifact-sha256", artifactSHA,
+		"--precision", "GGUF-Q4_K_M",
+		"--engine", "llama_cpp",
+		"--hw-class", "apple_silicon_ultra",
 		"--out", outPath,
 	)
 	cmd.Env = append(os.Environ(),
@@ -221,19 +236,45 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	var receipt struct {
-		Comparable bool `json:"comparable"`
-		GatePassed bool `json:"gate_passed"`
-		Summary    struct {
+		Comparable       bool     `json:"comparable"`
+		GatePassed       bool     `json:"gate_passed"`
+		MeasuredAt       string   `json:"measured_at"`
+		MercSourceCommit string   `json:"merc_source_commit"`
+		GateVersion      string   `json:"gate_version"`
+		Refusals         []string `json:"refusals"`
+		Summary          struct {
 			TTFTP50 *float64 `json:"ttft_overhead_p50_ms"`
 			TTFTP95 *float64 `json:"ttft_overhead_p95_ms"`
 			TTFTP99 *float64 `json:"ttft_overhead_p99_ms"`
 		} `json:"summary_concurrency_1"`
+		Scope struct {
+			MercModelArtifactSHA256   string `json:"merc_model_artifact_sha256"`
+			DirectModelArtifactSHA256 string `json:"direct_model_artifact_sha256"`
+		} `json:"scope"`
 	}
 	if err := json.Unmarshal(raw, &receipt); err != nil {
 		t.Fatal(err)
 	}
 	if !receipt.Comparable || !receipt.GatePassed {
 		t.Fatalf("gateway parity receipt is not comparable/gate-passed: %s", raw)
+	}
+	if receipt.MeasuredAt == "" {
+		t.Fatal("receipt missing measured_at")
+	}
+	if receipt.MercSourceCommit == "" {
+		t.Fatal("receipt missing merc_source_commit")
+	}
+	if receipt.GateVersion == "" {
+		t.Fatal("receipt missing gate_version")
+	}
+	if len(receipt.Refusals) != 0 {
+		t.Fatalf("receipt refusals non-empty: %v", receipt.Refusals)
+	}
+	if receipt.Scope.MercModelArtifactSHA256 != artifactSHA ||
+		receipt.Scope.DirectModelArtifactSHA256 != artifactSHA {
+		t.Fatalf("scope artifact digests not pinned: merc=%q direct=%q want %q",
+			receipt.Scope.MercModelArtifactSHA256,
+			receipt.Scope.DirectModelArtifactSHA256, artifactSHA)
 	}
 	t.Logf("concurrency=1 TTFT overhead p50=%v p95=%v p99=%v ms (merc − direct)",
 		derefFloat(receipt.Summary.TTFTP50),
