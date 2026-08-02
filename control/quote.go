@@ -489,17 +489,26 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	tier := sub.Tier
 	var scan QuoteInputScan
 	var scanErr error
+	mediaSegments := 1
 	if isBinaryMediaJob(sub) {
 		if isMediaRenderingJob(sub) {
 			scan, scanErr = renderingInputScan(inputBytes)
 		} else {
-			scan, scanErr = mediaInputScan(inputBytes)
+			mediaSegments, scanErr = mediaSegmentCountFromParams(sub.Params)
+			if scanErr == nil {
+				scan, scanErr = mediaInputScan(inputBytes, mediaSegments)
+			}
 		}
 	} else {
 		scan = scanJSONL(inputBytes)
 	}
 	if scanErr != nil {
 		return Quote{}, fmt.Errorf("scanning input: %w", scanErr)
+	}
+	if isMediaTranscodeJob(sub) {
+		if err := refuseSegmentedMediaCrossSupplierRedundancy(mediaSegments, sub.Verification.RedundancyFrac); err != nil {
+			return Quote{}, err
+		}
 	}
 	catalogue, err := s.store.LoadCataloguePriceAuthority(ctx, sub.Model.Ref)
 	if err != nil {
@@ -524,9 +533,9 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	}
 	split := adaptiveSplitSize(jobType, sub.Params, avgLineBytes)
 	if isBinaryMediaJob(sub) {
-		// One binary object is one physical media task. Splitting bytes would
-		// create invalid containers and would make quote geometry diverge from
-		// submit, so the fixed contract has no adaptive JSONL split.
+		// Media decomposes by segment_count into N records; each task still
+		// owns exactly one segment (split_size=1). Byte-slicing a container
+		// would create invalid inputs, so the adaptive JSONL splitter is off.
 		split = 1
 	} else if jobType == "embed" && sub.JobType.BatchSize > 0 && !hasExplicitSplitSize(sub.Params) {
 		split = sub.JobType.BatchSize

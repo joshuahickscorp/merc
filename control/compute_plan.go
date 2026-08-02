@@ -128,10 +128,10 @@ func settlementInputUnitsForGeometry(records int, inputBytes int64) float64 {
 }
 
 // settlementInputUnitsForJobType is the workload-specific extension of the
-// historical byte geometry. Text and media-transcode jobs are still priced from
-// their bounded input geometry. A deterministic renderer, however, is measured
-// and executed in output pixels; charging only the JSON scene bytes would make
-// the frozen money authority unrelated to the physical work being sold.
+// historical byte geometry. A deterministic renderer is measured in output
+// pixels. Media-transcode multiplies the historical single-object geometry by
+// the segment count so N ordered units price as N units of work rather than
+// collapsing under max(records, bytes/4).
 func settlementInputUnitsForJobType(jobType JobType, records int, inputBytes int64) float64 {
 	if jobType.Type == "media_rendering" {
 		if records <= 0 || jobType.RenderWidth == 0 || jobType.RenderHeight == 0 {
@@ -140,7 +140,22 @@ func settlementInputUnitsForJobType(jobType JobType, records int, inputBytes int
 		pixels := uint64(jobType.RenderWidth) * uint64(jobType.RenderHeight)
 		return float64(records) * float64(pixels)
 	}
+	if jobType.Type == "media_transcode" {
+		return settlementInputUnitsForMediaSegments(records, inputBytes)
+	}
 	return settlementInputUnitsForGeometry(records, inputBytes)
+}
+
+// settlementInputUnitsForMediaSegments freezes the single-segment pin
+// (max(1, bytes/4)) and scales it by the number of ordered segment units.
+// Without this, max(records, bytes/4) would price a large object with N
+// segments the same as one segment whenever bytes/4 dominates records.
+func settlementInputUnitsForMediaSegments(records int, inputBytes int64) float64 {
+	if records <= 0 || inputBytes <= 0 {
+		return 0
+	}
+	perSegment := settlementInputUnitsForGeometry(1, inputBytes)
+	return perSegment * float64(records)
 }
 
 func estimatedOutputTokensForComputePlan(decision WorkloadDecision, records int) int64 {

@@ -70,14 +70,28 @@ func validateProjectRenderAssemblyManifest(
 	if err != nil {
 		return ProjectRenderAssemblySummary{}, err
 	}
-	if len(manifest.Units) == 0 {
-		return ProjectRenderAssemblySummary{}, errors.New("render assembly manifest has no units")
+	return validateOrdinalAssemblyCoverage(plan.UnitCount, manifest)
+}
+
+// validateOrdinalAssemblyCoverage is the shared settlement gate for any
+// ordinal-addressed multi-unit job (render tiles, media segments). A job may
+// settle only when every ordinal in [0, unitCount) has exactly one SUCCEEDED
+// observation with a valid SHA-256, attempts are contiguous, and the set has
+// no gaps or duplicates.
+func validateOrdinalAssemblyCoverage(
+	unitCount int64, manifest ProjectRenderAssemblyManifest,
+) (ProjectRenderAssemblySummary, error) {
+	if unitCount <= 0 {
+		return ProjectRenderAssemblySummary{}, errors.New("assembly coverage requires a positive unit count")
 	}
-	summary := ProjectRenderAssemblySummary{UnitCount: plan.UnitCount}
+	if len(manifest.Units) == 0 {
+		return ProjectRenderAssemblySummary{}, errors.New("assembly manifest has no units")
+	}
+	summary := ProjectRenderAssemblySummary{UnitCount: unitCount}
 	index := 0
-	for ordinal := int64(0); ordinal < plan.UnitCount; ordinal++ {
+	for ordinal := int64(0); ordinal < unitCount; ordinal++ {
 		if index >= len(manifest.Units) || manifest.Units[index].Ordinal != ordinal {
-			return ProjectRenderAssemblySummary{}, fmt.Errorf("render assembly is missing ordinal %d", ordinal)
+			return ProjectRenderAssemblySummary{}, fmt.Errorf("assembly is missing ordinal %d", ordinal)
 		}
 		attempt := 0
 		succeeded := false
@@ -85,39 +99,39 @@ func validateProjectRenderAssemblyManifest(
 		for index < len(manifest.Units) && manifest.Units[index].Ordinal == ordinal {
 			unit := manifest.Units[index]
 			if unit.Attempt != attempt || attempt >= maxRenderAssemblyAttempts {
-				return ProjectRenderAssemblySummary{}, fmt.Errorf("render ordinal %d attempts are not contiguous and bounded", ordinal)
+				return ProjectRenderAssemblySummary{}, fmt.Errorf("ordinal %d attempts are not contiguous and bounded", ordinal)
 			}
 			switch unit.Status {
 			case "FAILED":
 				if succeeded || strings.TrimSpace(unit.FailureCode) == "" || len(unit.FailureCode) > 128 || unit.OutputSHA256 != "" {
-					return ProjectRenderAssemblySummary{}, fmt.Errorf("render ordinal %d has an invalid failed attempt", ordinal)
+					return ProjectRenderAssemblySummary{}, fmt.Errorf("ordinal %d has an invalid failed attempt", ordinal)
 				}
 				failedForOrdinal = true
 				summary.FailedAttempts++
 			case "SUCCEEDED":
 				if succeeded || !validSHA256(unit.OutputSHA256) || unit.FailureCode != "" {
-					return ProjectRenderAssemblySummary{}, fmt.Errorf("render ordinal %d has an invalid successful attempt", ordinal)
+					return ProjectRenderAssemblySummary{}, fmt.Errorf("ordinal %d has an invalid successful attempt", ordinal)
 				}
 				succeeded = true
 				summary.SucceededUnits++
 			default:
-				return ProjectRenderAssemblySummary{}, fmt.Errorf("render ordinal %d has unsupported status %q", ordinal, unit.Status)
+				return ProjectRenderAssemblySummary{}, fmt.Errorf("ordinal %d has unsupported status %q", ordinal, unit.Status)
 			}
 			attempt++
 			index++
 		}
 		if !succeeded {
-			return ProjectRenderAssemblySummary{}, fmt.Errorf("render ordinal %d has no successful replacement result", ordinal)
+			return ProjectRenderAssemblySummary{}, fmt.Errorf("ordinal %d has no successful replacement result", ordinal)
 		}
 		if failedForOrdinal {
 			summary.ReplacedOrdinals++
 		}
 	}
 	if index != len(manifest.Units) {
-		return ProjectRenderAssemblySummary{}, errors.New("render assembly manifest contains an out-of-range or duplicate ordinal")
+		return ProjectRenderAssemblySummary{}, errors.New("assembly manifest contains an out-of-range or duplicate ordinal")
 	}
-	if summary.SucceededUnits != plan.UnitCount {
-		return ProjectRenderAssemblySummary{}, errors.New("render assembly manifest does not cover every planned unit")
+	if summary.SucceededUnits != unitCount {
+		return ProjectRenderAssemblySummary{}, errors.New("assembly manifest does not cover every planned unit")
 	}
 	return summary, nil
 }

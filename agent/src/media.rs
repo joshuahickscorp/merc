@@ -43,6 +43,139 @@ struct MediaTranscodeSpec {
     video_bitrate_kbps: u32,
 }
 
+/// One ordered time unit of a multi-segment media job. Ordinal is the
+/// control-plane ChunkIndex; unit_count is the job-wide plan size.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MediaSegmentAssignment {
+    ordinal: u32,
+    unit_count: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MediaSegmentExtent {
+    start_secs: f64,
+    end_secs: f64,
+}
+
+fn media_segment_assignment(manifest: &JobManifest) -> Result<MediaSegmentAssignment, RunError> {
+    let Some(segment) = manifest.params.get("media_segment") else {
+        return Ok(MediaSegmentAssignment {
+            ordinal: 0,
+            unit_count: 1,
+        });
+    };
+    let ordinal = segment
+        .get("ordinal")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| RunError::BadInput {
+            job: "media_transcode",
+            msg: "media_segment.ordinal must be a non-negative integer".to_string(),
+        })?;
+    let unit_count = segment
+        .get("unit_count")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| RunError::BadInput {
+            job: "media_transcode",
+            msg: "media_segment.unit_count must be a positive integer".to_string(),
+        })?;
+    if unit_count == 0 || unit_count > 64 {
+        return Err(RunError::BadInput {
+            job: "media_transcode",
+            msg: format!("media_segment.unit_count {unit_count} is outside [1,64]"),
+        });
+    }
+    if ordinal >= unit_count {
+        return Err(RunError::BadInput {
+            job: "media_transcode",
+            msg: format!("media_segment.ordinal {ordinal} is outside [0,{unit_count})"),
+        });
+    }
+    Ok(MediaSegmentAssignment {
+        ordinal: ordinal as u32,
+        unit_count: unit_count as u32,
+    })
+}
+
+fn media_segment_extent(source_duration_secs: f64, assignment: MediaSegmentAssignment) -> Result<MediaSegmentExtent, RunError> {
+    if !source_duration_secs.is_finite() || source_duration_secs <= 0.0 {
+        return Err(RunError::BadInput {
+            job: "media_transcode",
+            msg: "cannot derive segment extents from a non-positive source duration".to_string(),
+        });
+    }
+    let n = f64::from(assignment.unit_count);
+    let start = source_duration_secs * f64::from(assignment.ordinal) / n;
+    let end = if assignment.ordinal + 1 == assignment.unit_count {
+        source_duration_secs
+    } else {
+        source_duration_secs * f64::from(assignment.ordinal + 1) / n
+    };
+    if end <= start {
+        return Err(RunError::BadInput {
+            job: "media_transcode",
+            msg: format!(
+                "media segment ordinal {} has non-positive extent [{start},{end})",
+                assignment.ordinal
+            ),
+        });
+    }
+    Ok(MediaSegmentExtent {
+        start_secs: start,
+        end_secs: end,
+    })
+}
+
+/// Inter-unit invariant: planned extents must be contiguous and sum to the
+/// source. The per-artifact duration check only sees one segment.
+fn validate_media_segment_extents_sum(
+    source_duration_secs: f64,
+    extents: &[MediaSegmentExtent],
+) -> Result<(), RunError> {
+    const EPS: f64 = 1e-6;
+    if !source_duration_secs.is_finite() || source_duration_secs <= 0.0 {
+        return Err(RunError::BadInput {
+            job: "media_transcode",
+            msg: "segment extent sum requires a positive source duration".to_string(),
+        });
+    }
+    if extents.is_empty() {
+        return Err(RunError::BadInput {
+            job: "media_transcode",
+            msg: "segment extent list is empty".to_string(),
+        });
+    }
+    let mut sum = 0.0;
+    let mut expected_start = 0.0;
+    for (i, extent) in extents.iter().enumerate() {
+        if (extent.start_secs - expected_start).abs() > EPS {
+            return Err(RunError::BadInput {
+                job: "media_transcode",
+                msg: format!(
+                    "segment {i} starts at {:.9}; expected contiguous start {expected_start:.9}",
+                    extent.start_secs
+                ),
+            });
+        }
+        if extent.end_secs <= extent.start_secs {
+            return Err(RunError::BadInput {
+                job: "media_transcode",
+                msg: format!("segment {i} has a non-positive extent"),
+            });
+        }
+        sum += extent.end_secs - extent.start_secs;
+        expected_start = extent.end_secs;
+    }
+    if (sum - source_duration_secs).abs() > EPS {
+        return Err(RunError::BadInput {
+            job: "media_transcode",
+            msg: format!(
+                "segment extents sum to {sum:.9}s; source is {source_duration_secs:.9}s"
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn media_transcode_spec(manifest: &JobManifest) -> Result<MediaTranscodeSpec, RunError> {
     if manifest.model.kind != ModelKind::Builtin
         || manifest.model.model_ref != MEDIA_TRANSCODE_MODEL_REF
@@ -230,6 +363,23 @@ impl MediaTranscodeRunner {
     }
 
     async fn transcode(&self, spec: MediaTranscodeSpec, input: &[u8]) -> Result<Vec<u8>, RunError> {
+        self.transcode_segment(
+            spec,
+            input,
+            MediaSegmentAssignment {
+                ordinal: 0,
+                unit_count: 1,
+            },
+        )
+        .await
+    }
+
+    async fn transcode_segment(
+        &self,
+        spec: MediaTranscodeSpec,
+        input: &[u8],
+        assignment: MediaSegmentAssignment,
+    ) -> Result<Vec<u8>, RunError> {
         if input.is_empty() || input.len() > MAX_MEDIA_INPUT_BYTES {
             return Err(RunError::BadInput {
                 job: "media_transcode",
@@ -246,6 +396,14 @@ impl MediaTranscodeRunner {
         let output = scratch.path().join("output.mp4");
         tokio::fs::write(&source, input).await.map_err(media_err)?;
         let input_evidence = verify_media_input(&self.ffprobe, &source, spec).await?;
+        let extent = media_segment_extent(input_evidence.duration_secs, assignment)?;
+        // Single-segment jobs keep today's full-source duration bound. Multi-
+        // segment jobs bound the output to this ordinal's planned extent.
+        let expected_output_source_secs = if assignment.unit_count == 1 {
+            input_evidence.duration_secs
+        } else {
+            extent.end_secs - extent.start_secs
+        };
 
         // Every variable below is a validated numeric value or a path generated
         // inside this scratch directory. There is no shell and no buyer supplied
@@ -280,41 +438,54 @@ impl MediaTranscodeRunner {
                 "file,pipe",
                 "-fflags",
                 "+bitexact",
-                "-f",
-                spec.input_demuxer,
-                "-i",
-            ])
-            .arg(&source)
-            .args([
-                "-map_metadata",
-                "-1",
-                "-map_chapters",
-                "-1",
-                "-map",
-                "0:v:0",
-                "-an",
-                "-vf",
-            ])
-            .arg(&scale)
-            .args(["-r", &fps, "-c:v", "libx264", "-preset", "medium", "-b:v"])
-            .arg(&bitrate)
-            .args([
-                "-maxrate",
-                &bitrate,
-                "-bufsize",
-                &buffer,
-                "-pix_fmt",
-                "yuv420p",
-                "-threads",
-                "1",
-                "-flags:v",
-                "+bitexact",
-                "-movflags",
-                "+faststart",
-                "-f",
-                "mp4",
-            ])
-            .arg(&output);
+            ]);
+        // Multi-segment: pin the time window before decode and force a
+        // keyframe at the cut so the segment is independently decodable and
+        // byte-reproducible under one pinned engine build. Single-segment
+        // keeps the historical argument template byte-for-byte.
+        let start_arg;
+        let duration_arg;
+        if assignment.unit_count > 1 {
+            start_arg = format!("{:.9}", extent.start_secs);
+            duration_arg = format!("{:.9}", extent.end_secs - extent.start_secs);
+            command.args(["-ss", &start_arg, "-t", &duration_arg]);
+        }
+        command.args(["-f", spec.input_demuxer, "-i"]).arg(&source).args([
+            "-map_metadata",
+            "-1",
+            "-map_chapters",
+            "-1",
+            "-map",
+            "0:v:0",
+            "-an",
+            "-vf",
+        ]);
+        command.arg(&scale);
+        command.args(["-r", &fps, "-c:v", "libx264", "-preset", "medium", "-b:v"]);
+        command.arg(&bitrate);
+        command.args([
+            "-maxrate",
+            &bitrate,
+            "-bufsize",
+            &buffer,
+            "-pix_fmt",
+            "yuv420p",
+            "-threads",
+            "1",
+            "-flags:v",
+            "+bitexact",
+        ]);
+        if assignment.unit_count > 1 {
+            // Closed GOP starting at a forced IDR: independent decode at the
+            // cut without relying on supplier-local scenecut heuristics.
+            command.args([
+                "-force_key_frames",
+                "expr:eq(n,0)",
+                "-x264-params",
+                "keyint=250:min-keyint=1:scenecut=0:bframes=0:open-gop=0",
+            ]);
+        }
+        command.args(["-movflags", "+faststart", "-f", "mp4"]).arg(&output);
         let run = bounded_media_command(command, MEDIA_PROCESS_TIMEOUT, "ffmpeg transcode").await?;
         if !run.status.success() {
             return Err(RunError::Inference {
@@ -326,7 +497,13 @@ impl MediaTranscodeRunner {
                 ),
             });
         }
-        verify_media_output(&self.ffprobe, &output, spec, input_evidence.duration_secs).await?;
+        verify_media_output(
+            &self.ffprobe,
+            &output,
+            spec,
+            expected_output_source_secs,
+        )
+        .await?;
         let metadata = tokio::fs::metadata(&output).await.map_err(media_err)?;
         if metadata.len() == 0 || metadata.len() > MAX_MEDIA_OUTPUT_BYTES {
             return Err(RunError::Inference {
@@ -403,7 +580,8 @@ impl JobRunner for MediaTranscodeRunner {
     ) -> Result<JobOutput, RunError> {
         let started = std::time::Instant::now();
         let spec = media_transcode_spec(manifest)?;
-        let result = self.transcode(spec, input).await?;
+        let assignment = media_segment_assignment(manifest)?;
+        let result = self.transcode_segment(spec, input, assignment).await?;
         Ok(JobOutput {
             result,
             binary: true,
@@ -1027,5 +1205,200 @@ mod tests {
         assert!(output.result.len() > 100);
         assert_eq!(output.tokens_used, 0);
         assert!(runner.can_run(&manifest(), &media_capability()).await);
+    }
+
+    #[test]
+    fn media_segment_extents_must_sum_to_source() {
+        let source = 2.0;
+        let units = [
+            media_segment_extent(
+                source,
+                MediaSegmentAssignment {
+                    ordinal: 0,
+                    unit_count: 2,
+                },
+            )
+            .expect("seg0"),
+            media_segment_extent(
+                source,
+                MediaSegmentAssignment {
+                    ordinal: 1,
+                    unit_count: 2,
+                },
+            )
+            .expect("seg1"),
+        ];
+        validate_media_segment_extents_sum(source, &units).expect("full coverage");
+        let short = [MediaSegmentExtent {
+            start_secs: 0.0,
+            end_secs: 1.0,
+        }];
+        assert!(validate_media_segment_extents_sum(source, &short).is_err());
+    }
+
+    #[tokio::test]
+    async fn media_segments_reassemble_deterministically_under_pinned_engine() {
+        let runner = MediaTranscodeRunner::from_environment();
+        if Command::new(&runner.ffmpeg)
+            .arg("-version")
+            .output()
+            .await
+            .is_err()
+            || Command::new(&runner.ffprobe)
+                .arg("-version")
+                .output()
+                .await
+                .is_err()
+        {
+            eprintln!("skipping segmented media determinism: ffmpeg/ffprobe missing");
+            return;
+        }
+        let scratch = MediaScratch::new().expect("scratch");
+        let source = scratch.path().join("source.mp4");
+        let generated = Command::new(&runner.ffmpeg)
+            .kill_on_drop(true)
+            .args([
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=160x90:r=24",
+                "-t",
+                "1.0",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:v",
+                "libx264",
+                "-f",
+                "mp4",
+            ])
+            .arg(&source)
+            .output()
+            .await
+            .expect("generate source");
+        assert!(generated.status.success());
+        let input = tokio::fs::read(&source).await.expect("source bytes");
+        let spec = media_transcode_spec(&manifest()).expect("spec");
+
+        // Single-shot baseline (unit_count=1): pin today's path.
+        let single_a = runner
+            .transcode_segment(
+                spec,
+                &input,
+                MediaSegmentAssignment {
+                    ordinal: 0,
+                    unit_count: 1,
+                },
+            )
+            .await
+            .expect("single-shot a");
+        let single_b = runner
+            .transcode_segment(
+                spec,
+                &input,
+                MediaSegmentAssignment {
+                    ordinal: 0,
+                    unit_count: 1,
+                },
+            )
+            .await
+            .expect("single-shot b");
+        assert_eq!(
+            single_a, single_b,
+            "single-segment path must remain byte-reproducible under one engine build"
+        );
+
+        // N segments claimed independently (two full runs), then reassembled.
+        let mut run1 = Vec::new();
+        let mut run2 = Vec::new();
+        for ordinal in 0..2u32 {
+            let assignment = MediaSegmentAssignment {
+                ordinal,
+                unit_count: 2,
+            };
+            run1.push(
+                runner
+                    .transcode_segment(spec, &input, assignment)
+                    .await
+                    .expect("segment run1"),
+            );
+            run2.push(
+                runner
+                    .transcode_segment(spec, &input, assignment)
+                    .await
+                    .expect("segment run2"),
+            );
+        }
+        assert_eq!(run1[0], run2[0], "segment 0 must be byte-reproducible");
+        assert_eq!(run1[1], run2[1], "segment 1 must be byte-reproducible");
+
+        let merged1 = concat_segment_mp4s(&runner.ffmpeg, scratch.path(), &run1)
+            .await
+            .expect("merge run1");
+        let merged2 = concat_segment_mp4s(&runner.ffmpeg, scratch.path(), &run2)
+            .await
+            .expect("merge run2");
+        assert_eq!(
+            merged1, merged2,
+            "N-segment reassembly must be byte-identical across independent claims under one pinned engine"
+        );
+
+        // Continuous single-shot is NOT claimed equal to segmented reassembly:
+        // libx264 ABR state does not match independent segment encodes. Keep
+        // verification byte-exact; refuse pretending otherwise.
+        if single_a == merged1 {
+            // Extremely unlikely with ABR; if it ever holds, still fine.
+        } else {
+            // Expected: different container/bitstream vs continuous encode.
+            assert_ne!(single_a.len(), 0);
+            assert_ne!(merged1.len(), 0);
+        }
+    }
+
+    async fn concat_segment_mp4s(
+        ffmpeg: &Path,
+        dir: &Path,
+        segments: &[Vec<u8>],
+    ) -> Result<Vec<u8>, String> {
+        let list = dir.join("concat.txt");
+        let mut list_body = String::new();
+        for (i, seg) in segments.iter().enumerate() {
+            let path = dir.join(format!("merge-seg-{i}.mp4"));
+            tokio::fs::write(&path, seg)
+                .await
+                .map_err(|e| e.to_string())?;
+            list_body.push_str(&format!("file '{}'\n", path.display()));
+        }
+        tokio::fs::write(&list, list_body)
+            .await
+            .map_err(|e| e.to_string())?;
+        let out = dir.join("merged.mp4");
+        let run = Command::new(ffmpeg)
+            .kill_on_drop(true)
+            .env_clear()
+            .args([
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+            ])
+            .arg(&list)
+            .args(["-c", "copy", "-movflags", "+faststart", "-f", "mp4"])
+            .arg(&out)
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+        if !run.status.success() {
+            return Err(bounded_process_error(&run.stderr));
+        }
+        tokio::fs::read(out).await.map_err(|e| e.to_string())
     }
 }
