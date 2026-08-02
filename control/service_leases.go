@@ -626,12 +626,6 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	// the selected rank and candidate depth cannot describe a market that changed
 	// underneath the reservation. The canonical PricingDecision still decides
 	// whether an ask clears the buyer ceiling and preserves positive contribution.
-	//
-	// Region remains a hard filter (WHERE region=$3). Ranking is total measured
-	// cost — supplier ask plus residency nanos per replica hour — so residency
-	// is honoured in the order book, not only as admission. A cheap supplier
-	// with expensive residency must not clear above a slightly higher supplier
-	// ask whose residency is lower when the sum says so.
 	rows, err := tx.Query(ctx, `
 		SELECT worker_id,supplier_id,supplier_nanos_per_replica_hour,
 		       residency_nanos_per_replica_hour,available_warm_replicas
@@ -640,8 +634,7 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		   AND p95_latency_milliseconds>0 AND latency_measurement_count>=5
 		   AND latency_window_seconds BETWEEN 1 AND 300 AND latency_measurement_kind='DATA_PLANE_COMPLETIONS_V1'
 		   AND p95_latency_milliseconds <= $5 AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $4
-		 ORDER BY (supplier_nanos_per_replica_hour + residency_nanos_per_replica_hour) ASC,
-		          supplier_nanos_per_replica_hour ASC,worker_id ASC
+		 ORDER BY supplier_nanos_per_replica_hour ASC,residency_nanos_per_replica_hour ASC,worker_id ASC
 		 FOR UPDATE`, profile.RuntimeProfileID, profile.ProfileSHA256, request.Region, request.MaximumReplicas, request.MaximumP95LatencyMilliseconds)
 	if err != nil {
 		return ServiceLease{}, err
@@ -751,8 +744,8 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		AcceptedCeilingNanos:       pricing.FixedPoint.AcceptedCeilingNanos,
 		PricingDecisionSHA256:      pricingSHA,
 		PositiveContributionNanos:  pricing.FixedPoint.KnownCostContributionNanos,
-		OrderBookPolicy:            "lowest_total_supplier_plus_residency_ask_v1",
-		SelectionReason:            "lowest total measured cost (supplier + residency nanos per replica hour) cleared the buyer ceiling with positive fixed-point contribution",
+		OrderBookPolicy:            "lowest_supplier_then_residency_ask_v1",
+		SelectionReason:            "measured READY offer cleared the buyer ceiling with positive fixed-point contribution",
 	}
 	activationDetail, err := serviceLeaseActivationEventDetail(pricing, pricingSHA, lease.ReservedBuyerMicros, market)
 	if err != nil {
