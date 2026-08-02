@@ -1698,7 +1698,11 @@ func mergeJobResultsWithProbe(
 	}()
 
 	contentType := "application/x-ndjson"
-	var outputRecords int64
+	var outputRecords, outputTokens int64
+	// A batch exact-reuse cache hit bills the stored output meter as completion
+	// tokens. Only batch_infer artifacts can carry that meter; record counts are
+	// deliberately kept separate because they are not a billable token unit.
+	exactReuseTokenMetered := info.JobType == "batch_infer" && len(info.Results) > 0
 	if len(info.Results) > 0 {
 		firstMark := verificationMemoryMark(ctx)
 		first, ferr := readMergeResult(ctx, storage, info.Results[0])
@@ -1709,7 +1713,7 @@ func mergeJobResultsWithProbe(
 			contentType = "application/octet-stream"
 			outputRecords, err = mergeEmbedBinaryToFile(ctx, storage, tmp, info.Results, first, firstMark)
 		} else {
-			outputRecords, err = mergeJSONResultsToFile(ctx, storage, tmp, info.JobType, info.Results, first, firstMark)
+			outputRecords, outputTokens, exactReuseTokenMetered, err = mergeJSONResultsToFile(ctx, storage, tmp, info.JobType, info.Results, first, firstMark)
 		}
 		if err != nil {
 			return 0, err
@@ -1739,9 +1743,11 @@ func mergeJobResultsWithProbe(
 	// Best-effort: cache the merged output under a content-addressed key so a
 	// later identical deterministic submission hits exact reuse. Never write a
 	// jobs/ path into the shared cache.
-	if body, gerr := storage.GetObject(ctx, info.OutputRef); gerr == nil {
-		if id, ierr := store.batchIdentityForJob(ctx, jobID); ierr == nil && id != "" {
-			store.maybeCacheCompletedBatchJob(ctx, storage, id, body, outputRecords)
+	if exactReuseTokenMetered {
+		if body, gerr := storage.GetObject(ctx, info.OutputRef); gerr == nil {
+			if id, ierr := store.batchIdentityForJob(ctx, jobID); ierr == nil && id != "" {
+				store.maybeCacheCompletedBatchJob(ctx, storage, id, body, outputTokens)
+			}
 		}
 	}
 	reachRecoveryBoundary(ctx, probe, BoundaryMergeAfterPublish)
@@ -1806,32 +1812,79 @@ func readMergeResult(ctx context.Context, storage *Storage, pr PrimaryResult) ([
 	return obj, nil
 }
 
-func mergeJSONResultsToFile(ctx context.Context, storage *Storage, out io.Writer, jobType string, results []PrimaryResult, first []byte, firstMark int64) (int64, error) {
-	var total int64
+func mergeJSONResultsToFile(ctx context.Context, storage *Storage, out io.Writer, jobType string, results []PrimaryResult, first []byte, firstMark int64) (records, completionTokens int64, completionTokenMetered bool, err error) {
+	completionTokenMetered = jobType == "batch_infer" && len(results) > 0
 	for i, pr := range results {
 		mark := verificationMemoryMark(ctx)
 		obj := first
 		if i == 0 {
 			mark = firstMark
 		} else {
-			var err error
 			obj, err = readMergeResult(ctx, storage, pr)
 			if err != nil {
-				return 0, err
+				return 0, 0, false, err
 			}
 		}
-		if uint64(total) > uint64(^uint(0)>>1) {
-			return 0, fmt.Errorf("merge: record index %d cannot be represented on this platform", total)
+		if uint64(records) > uint64(^uint(0)>>1) {
+			return 0, 0, false, fmt.Errorf("merge: record index %d cannot be represented on this platform", records)
 		}
-		n, err := mergeResultObjectTo(out, jobType, obj, int(total))
+		n, err := mergeResultObjectTo(out, jobType, obj, int(records))
 		if err != nil {
-			return 0, fmt.Errorf("merge: chunk %d (%s): %w", pr.ChunkIndex, pr.ResultRef, err)
+			return 0, 0, false, fmt.Errorf("merge: chunk %d (%s): %w", pr.ChunkIndex, pr.ResultRef, err)
 		}
-		total += int64(n)
+		records += int64(n)
+		if completionTokenMetered {
+			tokens, metered, meterErr := batchInferCompletionTokens(obj, n)
+			if meterErr != nil {
+				return 0, 0, false, fmt.Errorf("merge: chunk %d (%s) completion-token meter: %w", pr.ChunkIndex, pr.ResultRef, meterErr)
+			}
+			if !metered {
+				completionTokenMetered = false
+				completionTokens = 0
+			} else if tokens > math.MaxInt64-completionTokens {
+				return 0, 0, false, fmt.Errorf("merge: completion-token meter overflows signed 64-bit total")
+			} else {
+				completionTokens += tokens
+			}
+		}
 		obj = nil
 		releaseVerificationMemoryToMark(ctx, mark)
 	}
-	return total, nil
+	return records, completionTokens, completionTokenMetered, nil
+}
+
+// batchInferCompletionTokens returns a cache-billable meter only when every
+// emitted completion explicitly carries a JSON integer token count. Legacy or
+// incomplete artifacts may still be deliverable, but they cannot populate a
+// cache whose reuse hit will be settled in tokens.
+func batchInferCompletionTokens(obj []byte, expectedCompletions int) (int64, bool, error) {
+	var result struct {
+		Completions []json.RawMessage `json:"completions"`
+	}
+	if err := json.Unmarshal(obj, &result); err != nil || len(result.Completions) == 0 {
+		return 0, false, nil
+	}
+	if len(result.Completions) != expectedCompletions {
+		return 0, false, fmt.Errorf("completion count %d does not match merged records %d", len(result.Completions), expectedCompletions)
+	}
+	var total int64
+	for i, raw := range result.Completions {
+		var completion struct {
+			Tokens *uint64 `json:"tokens"`
+		}
+		if err := json.Unmarshal(raw, &completion); err != nil || completion.Tokens == nil {
+			return 0, false, nil
+		}
+		if *completion.Tokens > math.MaxInt64 {
+			return 0, false, fmt.Errorf("completion %d token count exceeds signed 64-bit range", i)
+		}
+		tokens := int64(*completion.Tokens)
+		if tokens > math.MaxInt64-total {
+			return 0, false, fmt.Errorf("completion-token meter overflows signed 64-bit total")
+		}
+		total += tokens
+	}
+	return total, true, nil
 }
 
 func mergeEmbedBinaryToFile(ctx context.Context, storage *Storage, out io.WriteSeeker, results []PrimaryResult, first []byte, firstMark int64) (int64, error) {
