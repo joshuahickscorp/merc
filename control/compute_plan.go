@@ -147,6 +147,9 @@ func settlementInputUnitsForJobType(jobType JobType, records int, inputBytes int
 		pixels := uint64(jobType.RenderWidth) * uint64(jobType.RenderHeight)
 		return float64(records) * float64(pixels)
 	}
+	if jobType.Type == "video_generation" {
+		return settlementInputUnitsForVideoGeneration(jobType, records)
+	}
 	if jobType.Type == "media_transcode" {
 		return settlementInputUnitsForMediaSegments(records, inputBytes)
 	}
