@@ -576,7 +576,21 @@ impl MediaScratch {
         for _ in 0..8 {
             let path = std::env::temp_dir().join(format!("merc-media-{}", Uuid::new_v4()));
             match std::fs::create_dir(&path) {
-                Ok(()) => return Ok(Self { path }),
+                Ok(()) => {
+                    // Buyer media is written below this path before FFmpeg has
+                    // had a chance to validate it. A process-wide umask is not
+                    // a confidentiality boundary, so make the directory
+                    // private explicitly rather than hoping every launcher's
+                    // umask happened to be restrictive.
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let mut permissions = std::fs::metadata(&path)?.permissions();
+                        permissions.set_mode(0o700);
+                        std::fs::set_permissions(&path, permissions)?;
+                    }
+                    return Ok(Self { path });
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => return Err(error),
             }
@@ -710,6 +724,24 @@ mod tests {
             .expect_err("stuck child must time out");
         assert!(matches!(err, RunError::Inference { .. }));
         assert!(err.to_string().contains("wall-clock limit"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn media_scratch_directory_is_not_group_or_world_accessible() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = MediaScratch::new().expect("scratch directory");
+        let mode = std::fs::metadata(scratch.path())
+            .expect("scratch metadata")
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "scratch mode {:o} exposes buyer media",
+            mode
+        );
     }
 
     #[tokio::test]
