@@ -309,6 +309,17 @@ pub struct TaskCommit {
     pub inference_backend: String,
 }
 
+/// Per-model residency measurement carried on the worker heartbeat. These are
+/// the numbers the agent recorded when it loaded the weights (`rss_delta_bytes`
+/// and `load_ms`); the control plane range-checks them before they can affect
+/// warm-capacity economics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResidentModel {
+    pub model_id: String,
+    pub rss_delta_bytes: i64,
+    pub load_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Heartbeat {
     pub worker_id: Uuid,
@@ -329,6 +340,15 @@ pub struct Heartbeat {
     pub throttled: bool,
     #[serde(default)]
     pub loaded_models: Vec<String>,
+    /// Measured residency for each currently warm model. Supersedes bare
+    /// `loaded_models` for economic decisions once the control plane has it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resident_models: Vec<ResidentModel>,
+    /// Models dropped since the previous heartbeat. Control deletes the
+    /// corresponding `worker_model_state` row immediately so a supplier is not
+    /// treated as warm (and later, paid for residency) after a silent eviction.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evicted_models: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
