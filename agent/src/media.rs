@@ -129,7 +129,10 @@ fn media_segment_extent(
 }
 
 /// Inter-unit invariant: planned extents must be contiguous and sum to the
-/// source. The per-artifact duration check only sees one segment.
+/// source. The per-artifact duration check only sees one segment; this is the
+/// multi-unit check exercised by unit tests (a single worker never holds every
+/// ordinal at once).
+#[cfg(test)]
 fn validate_media_segment_extents_sum(
     source_duration_secs: f64,
     extents: &[MediaSegmentExtent],
