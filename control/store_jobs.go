@@ -460,17 +460,23 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 			return fmt.Errorf("insert job webhook: %w", err)
 		}
 	}
+	exactNanos := j.EconomicPlan.EconomicRoundingPolicy == economicRoundingPolicy &&
+		j.EconomicPlan.BuyerChargePerTaskNanos > 0 &&
+		j.EconomicPlan.SupplierPayoutPerTaskNanos > 0
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO job_economic_plans (
 		  job_id,plan_version,schedule_version,currency,plan_json,initial_task_count,
 		  buyer_charge_per_task_usd,supplier_payout_per_task_usd,
-		  initial_buyer_charge_usd,reserved_buyer_charge_usd,sla_premium_usd,firm_quote_max_usd
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		  initial_buyer_charge_usd,reserved_buyer_charge_usd,sla_premium_usd,firm_quote_max_usd,
+		  buyer_charge_per_task_nanos,supplier_payout_per_task_nanos
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
 		j.ID, j.EconomicPlan.Version, j.EconomicPlan.Schedule.Version, jobCurrency, planJSON,
 		j.EconomicPlan.Input.InitialTaskCount, j.EconomicPlan.BuyerChargePerTaskUSD,
 		j.EconomicPlan.SupplierPayoutPerTaskUSD, j.EconomicPlan.InitialBuyerChargeUSD,
 		j.EconomicPlan.ReservedBuyerChargeUSD, j.EconomicPlan.Input.SLAPremiumUSD,
-		nullPosFloat(j.EconomicPlan.Input.FirmQuoteMaxUSD)); err != nil {
+		nullPosFloat(j.EconomicPlan.Input.FirmQuoteMaxUSD),
+		nullEconomicNanos(j.EconomicPlan.BuyerChargePerTaskNanos, exactNanos),
+		nullEconomicNanos(j.EconomicPlan.SupplierPayoutPerTaskNanos, exactNanos)); err != nil {
 		return fmt.Errorf("insert economic plan: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -486,6 +492,7 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 			[]string{"id", "job_id", "status", "is_honeypot", "is_redundancy", "retry_count",
 				"input_ref", "input_depth_band", "result_key", "chunk_index", "expected_output_records", "visible_at",
 				"economic_buyer_charge_usd", "economic_supplier_payout_usd",
+				"economic_buyer_charge_nanos", "economic_supplier_payout_nanos",
 				"verification_class", "verification_class_policy"},
 			pgx.CopyFromSlice(len(tasks), func(i int) ([]any, error) {
 				t := tasks[i]
@@ -497,6 +504,8 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 				return []any{t.ID, t.JobID, "queued", t.IsHoneypot, t.IsRedundancy, int16(0),
 					t.InputRef, nullInputDepthBand(t.InputDepthBand), t.ResultKey, t.ChunkIndex, nullPosInt64(t.ExpectedOutputRecords), now,
 					j.EconomicPlan.BuyerChargePerTaskUSD, j.EconomicPlan.SupplierPayoutPerTaskUSD,
+					nullEconomicNanos(j.EconomicPlan.BuyerChargePerTaskNanos, exactNanos),
+					nullEconomicNanos(j.EconomicPlan.SupplierPayoutPerTaskNanos, exactNanos),
 					class, verificationClassPolicyRevision}, nil
 			}),
 		)

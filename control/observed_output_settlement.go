@@ -14,21 +14,37 @@ import (
 // but never to zero when frozen economics were positive.
 const minBillableSettlementUSD = 1.0 / float64(microUSDPerUSD)
 
+// minBillableSettlementNanos is the same floor in integer nano-major-units.
+const minBillableSettlementNanos int64 = NanosPerMicro
+
 // observedOutputSettlement is the ledger-time adjustment of frozen per-task
 // economics by the unused generative output share. Frozen task columns are
 // never written; only the amounts passed to splitFrozenCharge change.
 type observedOutputSettlement struct {
 	BilledCharge   float64
 	SupplierPayout float64
+	// Nano authority for exact-policy freezes. Zero means the float pair is
+	// the (legacy) authority and splitFrozenCharge is used as before.
+	BilledChargeNanos   int64
+	SupplierPayoutNanos int64
+	HasNanos            bool
 	// Applied is true when the observed-output formula adjusted the freeze.
 	// False means settle exactly at the frozen pair (non-generative, missing
 	// plan/observation, or zero ceiling).
 	Applied bool
+	// FloorClamped is true when the token-proportional rebate was reduced so
+	// the settled charge still covers supplier + processor + control +
+	// required contribution under the frozen schedule.
+	FloorClamped bool
 	// Evidence for buyer receipts. Zero when Applied is false.
 	CeilingTokens  int64
 	ObservedTokens int64
 	UnusedShare    float64
 	RebateUSD      float64
+	// UnclampedRebateUSD is the token-proportional rebate before the
+	// contribution-floor clamp; set when FloorClamped is true so the receipt
+	// can show why the full rebate was not applied.
+	UnclampedRebateUSD float64
 }
 
 // effectiveObservedOutputMaxTokens returns the frozen per-record ceiling used
@@ -68,6 +84,7 @@ func settlementInputUnitsForComputePlan(plan ComputePlan) float64 {
 //	billedCharge    = round(frozenCharge * (1 - unusedShare))
 //	billedCharge    = max(billedCharge, minBillable)   // still never above freeze
 //	supplierPayout' = round(frozenPayout * billedCharge / frozenCharge)
+//	// then clamp so contribution floor still holds under the frozen schedule
 //
 // Missing plan inputs, non-generative work (estimatedOut == 0), a zero
 // ceiling, or a missing reported-token observation settle at the freeze.
@@ -80,11 +97,48 @@ func settleObservedOutputTokens(
 	reportedTokens int64,
 	hasReported bool,
 ) observedOutputSettlement {
+	return settleObservedOutputTokensWithSchedule(
+		frozenCharge, frozenPayout,
+		0, 0, false,
+		estimatedIn, estimatedOut,
+		expectedOutputRecords, maxTokens,
+		reportedTokens, hasReported,
+		EconomicSchedule{}, 1,
+	)
+}
+
+// settleObservedOutputTokensWithSchedule is the full settlement path: optional
+// nano freeze, optional schedule for the contribution-floor clamp.
+// initialTaskCount is the plan's InitialTaskCount used to prorate
+// MinimumContributionUSD; pass 1 when unknown (conservative: full minimum).
+func settleObservedOutputTokensWithSchedule(
+	frozenCharge, frozenPayout float64,
+	frozenChargeNanos, frozenPayoutNanos int64,
+	hasNanos bool,
+	estimatedIn float64, estimatedOut int64,
+	expectedOutputRecords int64,
+	maxTokens uint32,
+	reportedTokens int64,
+	hasReported bool,
+	schedule EconomicSchedule,
+	initialTaskCount int,
+) observedOutputSettlement {
 	out := observedOutputSettlement{
 		BilledCharge:   frozenCharge,
 		SupplierPayout: frozenPayout,
+		HasNanos:       hasNanos,
 	}
-	if !moneyUSDInDomain(frozenCharge) || !moneyUSDInDomain(frozenPayout) ||
+	if hasNanos {
+		out.BilledChargeNanos = frozenChargeNanos
+		out.SupplierPayoutNanos = frozenPayoutNanos
+		out.BilledCharge = projectNanosToUSD(frozenChargeNanos)
+		out.SupplierPayout = projectNanosToUSD(frozenPayoutNanos)
+	}
+	if hasNanos {
+		if frozenChargeNanos <= 0 || frozenPayoutNanos < 0 || frozenPayoutNanos > frozenChargeNanos {
+			return out
+		}
+	} else if !moneyUSDInDomain(frozenCharge) || !moneyUSDInDomain(frozenPayout) ||
 		frozenCharge <= 0 || frozenPayout < 0 || frozenPayout > frozenCharge {
 		return out
 	}
@@ -136,38 +190,111 @@ func settleObservedOutputTokens(
 		return out
 	}
 
-	billed := roundUSD(frozenCharge * (1.0 - unusedShare))
-	if billed < minBillableSettlementUSD {
-		billed = minBillableSettlementUSD
-	}
-	// Invariant 2: never increase relative to the freeze.
-	if billed > frozenCharge {
-		billed = frozenCharge
-	}
-	// Scaling from freeze must keep supplier within [0, billed] and
-	// [0, frozenPayout].
-	payout := roundUSD(frozenPayout * billed / frozenCharge)
-	if payout < 0 {
-		payout = 0
-	}
-	if payout > frozenPayout {
-		payout = frozenPayout
-	}
-	if payout > billed {
-		payout = billed
+	var (
+		billed, payout           float64
+		billedNanos, payoutNanos int64
+		unclampedRebate          float64
+	)
+	if hasNanos {
+		// Token-proportional rebate in integer nanos.
+		// billed = round(frozen * (1 - unusedShare)); use half-away via float then ceil-safe cast.
+		raw := float64(frozenChargeNanos) * (1.0 - unusedShare)
+		billedNanos = int64(math.Round(raw))
+		if billedNanos < minBillableSettlementNanos {
+			billedNanos = minBillableSettlementNanos
+		}
+		if billedNanos > frozenChargeNanos {
+			billedNanos = frozenChargeNanos
+		}
+		// Scale supplier proportionally in nanos.
+		if frozenChargeNanos > 0 {
+			payoutNanos = int64(math.Round(float64(frozenPayoutNanos) * float64(billedNanos) / float64(frozenChargeNanos)))
+		}
+		if payoutNanos < 0 {
+			payoutNanos = 0
+		}
+		if payoutNanos > frozenPayoutNanos {
+			payoutNanos = frozenPayoutNanos
+		}
+		if payoutNanos > billedNanos {
+			payoutNanos = billedNanos
+		}
+		unclampedRebate = projectNanosToUSD(frozenChargeNanos - billedNanos)
+
+		// Contribution-floor clamp in nano space using projected USD for fee models
+		// that still live in the float schedule.
+		if schedule.Version != "" {
+			clamped, clampedPayout, didClamp := clampSettlementToContributionFloorNanos(
+				billedNanos, payoutNanos, frozenChargeNanos, frozenPayoutNanos,
+				schedule, initialTaskCount,
+			)
+			if didClamp {
+				out.FloorClamped = true
+				out.UnclampedRebateUSD = unclampedRebate
+				billedNanos, payoutNanos = clamped, clampedPayout
+			}
+		}
+		billed = projectNanosToUSD(billedNanos)
+		payout = projectNanosToUSD(payoutNanos)
+	} else {
+		billed = roundUSD(frozenCharge * (1.0 - unusedShare))
+		if billed < minBillableSettlementUSD {
+			billed = minBillableSettlementUSD
+		}
+		// Invariant 2: never increase relative to the freeze.
+		if billed > frozenCharge {
+			billed = frozenCharge
+		}
+		// Scaling from freeze must keep supplier within [0, billed] and
+		// [0, frozenPayout].
+		payout = roundUSD(frozenPayout * billed / frozenCharge)
+		if payout < 0 {
+			payout = 0
+		}
+		if payout > frozenPayout {
+			payout = frozenPayout
+		}
+		if payout > billed {
+			payout = billed
+		}
+		unclampedRebate = roundUSD(frozenCharge - billed)
+
+		if schedule.Version != "" {
+			clamped, clampedPayout, didClamp := clampSettlementToContributionFloorUSD(
+				billed, payout, frozenCharge, frozenPayout,
+				schedule, initialTaskCount,
+			)
+			if didClamp {
+				out.FloorClamped = true
+				out.UnclampedRebateUSD = unclampedRebate
+				billed, payout = clamped, clampedPayout
+			}
+		}
 	}
 
-	rebate := roundUSD(frozenCharge - billed)
-	if rebate < 0 {
-		rebate = 0
+	if hasNanos {
+		if r := frozenChargeNanos - billedNanos; r > 0 {
+			out.RebateUSD = projectNanosToUSD(r)
+		} else {
+			out.RebateUSD = 0
+		}
+		out.Applied = billedNanos < frozenChargeNanos || payoutNanos < frozenPayoutNanos || out.FloorClamped
+	} else {
+		rebate := roundUSD(frozenCharge - billed)
+		if rebate < 0 {
+			rebate = 0
+		}
+		out.RebateUSD = rebate
+		out.Applied = billed < frozenCharge || payout < frozenPayout || out.FloorClamped
 	}
 	out.BilledCharge = billed
 	out.SupplierPayout = payout
-	out.Applied = billed < frozenCharge || payout < frozenPayout
+	out.BilledChargeNanos = billedNanos
+	out.SupplierPayoutNanos = payoutNanos
+	out.HasNanos = hasNanos
 	out.CeilingTokens = ceiling
 	out.ObservedTokens = observed
 	out.UnusedShare = unusedShare
-	out.RebateUSD = rebate
 	// Always surface ceiling/observed once we had a generative ceiling, even
 	// when the floor pinned the charge (buyer can still audit the observation).
 	if out.CeilingTokens == 0 {
@@ -175,6 +302,152 @@ func settleObservedOutputTokens(
 		out.ObservedTokens = observed
 	}
 	return out
+}
+
+// clampSettlementToContributionFloorUSD finds the largest rebate (smallest
+// billed charge) such that:
+//
+//	billed - supplier - processor - control >= required contribution
+//
+// under the frozen schedule. Returns the clamped pair and whether clamping
+// raised the charge above the token-proportional amount.
+func clampSettlementToContributionFloorUSD(
+	billed, payout, frozenCharge, frozenPayout float64,
+	schedule EconomicSchedule,
+	initialTaskCount int,
+) (float64, float64, bool) {
+	if initialTaskCount <= 0 {
+		initialTaskCount = 1
+	}
+	covers := func(charge, supplier float64) bool {
+		if charge <= 0 {
+			return false
+		}
+		processor := schedule.processorFeeFor(charge)
+		control := schedule.controlPlaneCostFor(charge, 1)
+		required := roundEconomicUSD(math.Max(
+			charge*schedule.TargetMarginRate,
+			schedule.MinimumContributionUSD/float64(initialTaskCount),
+		))
+		margin := roundEconomicUSD(charge - supplier - processor - control)
+		return margin+1e-12 >= required
+	}
+	// Token-proportional amount already covers the floor → no clamp.
+	if covers(billed, payout) {
+		return billed, payout, false
+	}
+	// Freeze itself must cover (plan proved it); if not, settle at freeze.
+	freezePayout := frozenPayout
+	if freezePayout > frozenCharge {
+		freezePayout = frozenCharge
+	}
+	if !covers(frozenCharge, freezePayout) {
+		return frozenCharge, freezePayout, true
+	}
+	// Binary search the minimum charge in [billed, frozenCharge] that covers.
+	// Micro-USD granularity.
+	lo := usdToMicros(billed)
+	hi := usdToMicros(frozenCharge)
+	best := hi
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		charge := microsToUSD(mid)
+		supplier := roundUSD(frozenPayout * charge / frozenCharge)
+		if supplier > charge {
+			supplier = charge
+		}
+		if supplier > frozenPayout {
+			supplier = frozenPayout
+		}
+		if covers(charge, supplier) {
+			best = mid
+			hi = mid - 1
+		} else {
+			lo = mid + 1
+		}
+	}
+	charge := microsToUSD(best)
+	supplier := roundUSD(frozenPayout * charge / frozenCharge)
+	if supplier > charge {
+		supplier = charge
+	}
+	if supplier > frozenPayout {
+		supplier = frozenPayout
+	}
+	return charge, supplier, true
+}
+
+// clampSettlementToContributionFloorNanos is the nano-authority form of the
+// contribution-floor clamp. Fee models still evaluate in float via projection
+// of the candidate charge; the search itself is over integer nanos.
+func clampSettlementToContributionFloorNanos(
+	billed, payout, frozenCharge, frozenPayout int64,
+	schedule EconomicSchedule,
+	initialTaskCount int,
+) (int64, int64, bool) {
+	if initialTaskCount <= 0 {
+		initialTaskCount = 1
+	}
+	covers := func(chargeNanos, supplierNanos int64) bool {
+		if chargeNanos <= 0 {
+			return false
+		}
+		charge := projectNanosToUSD(chargeNanos)
+		supplier := projectNanosToUSD(supplierNanos)
+		if supplier > charge {
+			supplier = charge
+		}
+		processor := schedule.processorFeeFor(charge)
+		control := schedule.controlPlaneCostFor(charge, 1)
+		required := roundEconomicUSD(math.Max(
+			charge*schedule.TargetMarginRate,
+			schedule.MinimumContributionUSD/float64(initialTaskCount),
+		))
+		margin := roundEconomicUSD(charge - supplier - processor - control)
+		return margin+1e-12 >= required
+	}
+	if covers(billed, payout) {
+		return billed, payout, false
+	}
+	freezePayout := frozenPayout
+	if freezePayout > frozenCharge {
+		freezePayout = frozenCharge
+	}
+	if !covers(frozenCharge, freezePayout) {
+		return frozenCharge, freezePayout, true
+	}
+	lo, hi := billed, frozenCharge
+	best := hi
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		supplier := int64(0)
+		if frozenCharge > 0 {
+			supplier = int64(math.Round(float64(frozenPayout) * float64(mid) / float64(frozenCharge)))
+		}
+		if supplier > mid {
+			supplier = mid
+		}
+		if supplier > frozenPayout {
+			supplier = frozenPayout
+		}
+		if covers(mid, supplier) {
+			best = mid
+			hi = mid - 1
+		} else {
+			lo = mid + 1
+		}
+	}
+	supplier := int64(0)
+	if frozenCharge > 0 {
+		supplier = int64(math.Round(float64(frozenPayout) * float64(best) / float64(frozenCharge)))
+	}
+	if supplier > best {
+		supplier = best
+	}
+	if supplier > frozenPayout {
+		supplier = frozenPayout
+	}
+	return best, supplier, true
 }
 
 // loadObservedOutputSettlement is the ONE place settlement reads its inputs.
@@ -196,6 +469,7 @@ func loadObservedOutputSettlement(
 ) (observedOutputSettlement, error) {
 	var (
 		frozenCharge, frozenPayout float64
+		buyerNanos, supplierNanos  *int64
 		expectedRecords            int64
 		reportedTokens             *int64
 		workloadJSON               []byte
@@ -203,18 +477,21 @@ func loadObservedOutputSettlement(
 		computePlanJSON            []byte
 		computePlanSHA256          string
 		economicPlanJSON           []byte
+		jobID                      uuid.UUID
 	)
 	if err := q.QueryRow(ctx, `
 		SELECT t.economic_buyer_charge_usd::float8, t.economic_supplier_payout_usd::float8,
+		       t.economic_buyer_charge_nanos, t.economic_supplier_payout_nanos,
 		       COALESCE(t.expected_output_records,0), t.reported_tokens_used,
-		       j.workload_decision, COALESCE(j.workload_decision_sha256,''),
+		       j.id, j.workload_decision, COALESCE(j.workload_decision_sha256,''),
 		       j.compute_plan, COALESCE(j.compute_plan_sha256,''),
 		       ep.plan_json
 		  FROM tasks t JOIN jobs j ON j.id = t.job_id
 		  LEFT JOIN job_economic_plans ep ON ep.job_id = j.id
 		 WHERE t.id = $1`, taskID).
-		Scan(&frozenCharge, &frozenPayout, &expectedRecords, &reportedTokens,
-			&workloadJSON, &workloadSHA256, &computePlanJSON, &computePlanSHA256,
+		Scan(&frozenCharge, &frozenPayout, &buyerNanos, &supplierNanos,
+			&expectedRecords, &reportedTokens,
+			&jobID, &workloadJSON, &workloadSHA256, &computePlanJSON, &computePlanSHA256,
 			&economicPlanJSON); err != nil {
 		return observedOutputSettlement{}, err
 	}
@@ -222,7 +499,45 @@ func loadObservedOutputSettlement(
 		frozenCharge <= 0 || frozenPayout < 0 || frozenPayout > frozenCharge {
 		return observedOutputSettlement{}, fmt.Errorf("task %s has invalid frozen economics", taskID)
 	}
-	out := observedOutputSettlement{BilledCharge: frozenCharge, SupplierPayout: frozenPayout}
+
+	hasNanos := buyerNanos != nil && supplierNanos != nil
+	var (
+		frozenChargeNanos, frozenPayoutNanos int64
+		schedule                             EconomicSchedule
+		initialTaskCount                     int
+		economic                             EconomicPlan
+	)
+	if hasNanos {
+		frozenChargeNanos = *buyerNanos
+		frozenPayoutNanos = *supplierNanos
+		if frozenChargeNanos <= 0 || frozenPayoutNanos < 0 || frozenPayoutNanos > frozenChargeNanos {
+			return observedOutputSettlement{}, fmt.Errorf("task %s has invalid frozen nano economics", taskID)
+		}
+	}
+
+	// When a plan row exists, assert denormalized money equals plan_json before
+	// any billing, and assert task nanos match the plan freeze when non-NULL.
+	if len(economicPlanJSON) > 0 {
+		plan, _, aerr := assertDenormalizedEconomicPlanMoney(ctx, q, jobID)
+		if aerr != nil {
+			return observedOutputSettlement{}, aerr
+		}
+		economic = plan
+		if err := assertTaskEconomicNanosMatchPlan(buyerNanos, supplierNanos, plan, taskID); err != nil {
+			return observedOutputSettlement{}, err
+		}
+		schedule = plan.Schedule
+		initialTaskCount = plan.Input.InitialTaskCount
+	}
+
+	out := observedOutputSettlement{
+		BilledCharge: frozenCharge, SupplierPayout: frozenPayout,
+		HasNanos: hasNanos,
+	}
+	if hasNanos {
+		out.BilledChargeNanos = frozenChargeNanos
+		out.SupplierPayoutNanos = frozenPayoutNanos
+	}
 	if len(computePlanJSON) == 0 {
 		return out, nil // legacy job without a frozen plan settles at the freeze
 	}
@@ -270,11 +585,6 @@ func loadObservedOutputSettlement(
 			return observedOutputSettlement{}, fmt.Errorf(
 				"task %s has no frozen economic authority", taskID)
 		}
-		var economic EconomicPlan
-		if err := json.Unmarshal(economicPlanJSON, &economic); err != nil {
-			return observedOutputSettlement{}, fmt.Errorf(
-				"decode economic plan for settlement: %w", err)
-		}
 		if err := ValidateComputePlanEconomicSnapshot(plan, workload, economic); err != nil {
 			return observedOutputSettlement{}, fmt.Errorf(
 				"compute/economic authority mismatch for settlement: %w", err)
@@ -285,10 +595,12 @@ func loadObservedOutputSettlement(
 	if hasReported {
 		reported = *reportedTokens
 	}
-	return settleObservedOutputTokens(
+	return settleObservedOutputTokensWithSchedule(
 		frozenCharge, frozenPayout,
+		frozenChargeNanos, frozenPayoutNanos, hasNanos,
 		settlementInputUnitsForComputePlan(plan), plan.EstimatedOutputTokens,
 		expectedRecords, effectiveObservedOutputMaxTokens(workload, plan),
 		reported, hasReported,
+		schedule, initialTaskCount,
 	), nil
 }

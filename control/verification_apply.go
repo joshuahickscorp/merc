@@ -1039,7 +1039,7 @@ func insertPlannedTiebreakTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInf
 	if consumed >= reserved {
 		return false, ErrEconomicReserveExhausted
 	}
-	buyerCharge, supplierPayout, err := consumeEconomicReserveTx(ctx, tx, effect.JobID)
+	frozen, err := consumeEconomicReserveTx(ctx, tx, effect.JobID)
 	if err != nil {
 		return false, err
 	}
@@ -1053,14 +1053,16 @@ func insertPlannedTiebreakTx(ctx context.Context, tx pgx.Tx, info *CommitTaskInf
 		   input_depth_band,chunk_index,hedged_from,expected_output_records,
 		   verification_hw_class,verification_engine,verification_build_hash,
 		   claimed_by,claimed_at,visible_at,
-		   economic_buyer_charge_usd,economic_supplier_payout_usd)
+		   economic_buyer_charge_usd,economic_supplier_payout_usd,
+		   economic_buyer_charge_nanos,economic_supplier_payout_nanos)
 		VALUES ($1,$2,'queued',false,true,0,$3,$4,
 		        (SELECT input_depth_band FROM tasks WHERE id=$6),$5,$6,
 		        (SELECT expected_output_records FROM tasks WHERE id=$6),
-		        $7,$8,$9,NULL,NULL,now(),$10,$11)`,
+		        $7,$8,$9,NULL,NULL,now(),$10,$11,$12,$13)`,
 		effect.TaskID, effect.JobID, effect.InputRef, resultKey, effect.ChunkIndex,
 		effect.PrimaryTaskID, info.HWClass, info.engine, info.buildHash,
-		buyerCharge, supplierPayout); err != nil {
+		frozen.BuyerChargeUSD, frozen.SupplierPayoutUSD,
+		frozen.BuyerChargeNanos, frozen.SupplierPayoutNanos); err != nil {
 		return false, err
 	}
 	eligible, err := tiebreakPeerClaimEligibleTx(ctx, tx, effect.TaskID, effect.JobID, effect.PeerWorkerID)
