@@ -117,6 +117,7 @@ ci:
 	bash scripts/test-agent-cross-platform-installers.sh
 	python3 scripts/validate-repo-boundary.py
 	python3 scripts/test-bench-accounting.py
+	python3 scripts/test-gateway-parity-receipt.py
 	bash scripts/test-readiness-gaming.sh
 	bash scripts/test-agent-review-gaming.sh
 	bash scripts/test-technical-exercises-fail-closed.sh
