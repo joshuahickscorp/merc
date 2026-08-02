@@ -2488,6 +2488,23 @@ func (s *Server) handleWorkerFabricTopologyEvaluate(w http.ResponseWriter, r *ht
 		writeErr(w, http.StatusBadRequest, "fabric topology evaluation rejected: "+err.Error())
 		return
 	}
+	// Bind the measured evaluation to the same fail-closed topology authority
+	// used by shadow placement. This is an evidence projection only: no buyer
+	// workload is routed from this worker-scoped endpoint.
+	plan, err := PlanTopologyFromFabricEvaluation(evaluation, TopologyRequest{
+		WorkloadClass: "fabric_topology_evaluation",
+		Parallelism: WorkloadParallelism{
+			Mode:                 "tensor_parallel",
+			TensorParallelDegree: len(evaluation.WorkerIDs),
+		},
+		CommunityCapacityAvailable: true,
+		CandidateDeviceCount:       len(evaluation.WorkerIDs),
+	}, time.Now().UTC())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "fabric topology plan unavailable")
+		return
+	}
+	evaluation.TopologyPlan = &plan
 	writeJSON(w, http.StatusOK, evaluation)
 }
 
