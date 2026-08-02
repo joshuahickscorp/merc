@@ -146,15 +146,40 @@ maximum converted across the legacy float wire only after an exact nano-unit
 round trip check. Each POST carries a deterministic IR-and-quote-bound
 idempotency key, and the output records both normal acceptance and replay.
 
-This revision executes only finite independent steps and labels that mode
-`INDEPENDENT_FINITE_STEPS`. Any declared dependency fails before POST because
-Merc does not yet have a truthful project artifact-handoff scheduler. A network
+`merc project submit` remains the reviewed all-at-once path for finite
+independent steps and labels that mode `INDEPENDENT_FINITE_STEPS`. A network
 failure can still occur between independent POSTs; in that case the command
 emits the already accepted job IDs with `PARTIAL` (or `INDETERMINATE` when the
 first response is unknown), records the attempted idempotency key, exits
 nonzero, and a retry of the same reviewed artifact safely replays those
-submissions. `ACCEPTED` is not
-completion, outcome verification, settlement, or project calibration.
+submissions.
+
+Declared dataflow uses a separate, receipt-bound progression rather than
+pretending that future output is available at initial quote time:
+
+1. `merc project quote-roots` quotes only dependency-free inputs already in the
+   reviewed project directory.
+2. `merc project submit-roots` creates one server-side project order and submits
+   those roots as `INITIAL_MATERIALIZED_ROOTS`.
+3. After a root has a completed, verified job receipt, `merc project
+   materialize` writes the exact result as its declared project artifact and
+   emits a hash- and receipt-bound materialization record.
+4. `merc project quote-step` rechecks both the local artifact bytes and the
+   server-side accepted root slot, then quotes one ready downstream step against
+   the project order's remaining exact-nano ceiling.
+5. `merc project submit-step` repeats those checks immediately before posting
+   the firm job, labels the submission `DEPENDENT_MATERIALIZED_STEP`, and uses a
+   project-, step-, and quote-bound idempotency key.
+
+The materialization record is insufficient by itself: the next step also
+requires the upstream job's completed verified receipt and its frozen
+PricingDecision digest to appear in the buyer-scoped server order. Conversely,
+the order is insufficient by itself: changing the local materialized bytes
+after receipt refuses before the next quote or submit. This supports finite
+declared artifact dataflow only; it does not yet make a rendering, image/video,
+LoRA, service, or tightly coupled declaration executable when no governed
+runtime cell exists. `ACCEPTED` is not completion, outcome verification,
+settlement, or project calibration.
 
 ## Detectors
 
