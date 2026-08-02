@@ -193,15 +193,6 @@ pub struct WorkerCapability {
     pub os_version: String,
     #[serde(default)]
     pub min_payout_usd_hr: f32,
-    /// True when this process is running under the macOS seatbelt profile.
-    /// The control plane uses this to refuse private work to uncontained workers.
-    #[serde(default)]
-    pub sandboxed: bool,
-    /// True when the operator set MERC_ALLOW_UNSANDBOXED=1. Distinct from
-    /// sandboxed=false (which also covers non-macOS and missing profiles): this
-    /// flag is the deliberate opt-in the control plane greps for.
-    #[serde(default)]
-    pub unsandboxed_opt_in: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

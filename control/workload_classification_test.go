@@ -453,9 +453,7 @@ func TestQuoteSupplyRequirementsMatchClaimTimeHardFilters(t *testing.T) {
 }
 
 func TestClaimUsesFrozenRuntimeCandidate(t *testing.T) {
-	// Isolated: a shared queue hands unrelated jobs to both workers and masks
-	// the frozen-candidate filter under test.
-	ctx, store, pool := openIsolatedTestStore(t)
+	ctx, store, pool := openMoneyPathStore(t)
 	fixture := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
 
 	// Only the primary worker is registered for the cell/runtime frozen by the
@@ -481,10 +479,8 @@ func TestClaimUsesFrozenRuntimeCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wrong-cell claim: %v", err)
 	}
-	// Shared DBs may have other claimable jobs; only THIS fixture job must be
-	// refused to the wrong-cell worker.
-	if wrong != nil && wrong.JobID == fixture.JobID {
-		t.Fatalf("worker outside frozen runtime candidate claimed fixture task %s", wrong.TaskID)
+	if wrong != nil {
+		t.Fatalf("worker outside frozen runtime candidate claimed task %s", wrong.TaskID)
 	}
 
 	right, err := store.ClaimTasksTx(ctx, WorkerAuth{

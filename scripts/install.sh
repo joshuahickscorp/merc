@@ -176,9 +176,6 @@ fetch_prebuilt() {
   [[ -x "$extracted" ]] || die "archive did not contain an executable merc-agent"
   mkdir -p "$PREFIX"
   install -m 0755 "$extracted" "$BIN"
-  if [[ "$OS" == "darwin" ]]; then
-    install_darwin_seatbelt_profile "$work"
-  fi
   if [[ "$OS" == "linux" ]]; then
     install_linux_vllm_profile "$work"
   fi
@@ -202,9 +199,6 @@ build_from_source() {
   [[ -x "$src" ]] || die "built binary not found at $src"
   mkdir -p "$PREFIX"
   install -m 0755 "$src" "$BIN"
-  if [[ "$OS" == "darwin" ]]; then
-    install_darwin_seatbelt_profile "$ROOT"
-  fi
   if [[ "$OS" == "linux" ]]; then
     install_linux_vllm_profile "$ROOT"
   fi
@@ -224,20 +218,6 @@ migrate_legacy_state() {
     say "migrating agent state $LEGACY_HOMEDIR -> $HOMEDIR"
     mv "$LEGACY_HOMEDIR" "$HOMEDIR" || die "could not migrate $LEGACY_HOMEDIR to $HOMEDIR"
   fi
-}
-
-install_darwin_seatbelt_profile() {
-  local source_root="$1" profile dest
-  [[ "$OS" == "darwin" ]] || return 0
-  # merc-agent resolves the seatbelt profile as a sibling of the executable
-  # (then MERC_SANDBOX_PROFILE). Install it next to $BIN so a stock macOS
-  # install is contained without any LaunchAgent env. Source builds read the
-  # checkout profile; prebuilt archives stage merc-agent.sb next to the binary.
-  profile="$(find "$source_root" -type f \( -name merc-agent.sb -o -path "*/macapp/ComputeExchangeAgent/merc-agent.sb" \) | head -n 1)"
-  [[ -n "$profile" && -f "$profile" ]] || die "seatbelt profile merc-agent.sb not found under $source_root (containment cannot be installed)"
-  dest="$PREFIX/merc-agent.sb"
-  install -m 0644 "$profile" "$dest"
-  say "installed seatbelt profile $dest (sibling of $BIN)"
 }
 
 install_linux_vllm_profile() {

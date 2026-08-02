@@ -99,10 +99,6 @@ struct StatusDoc<'a> {
     honeypots_passed: Option<i64>,
     honeypots_failed: Option<i64>,
     verification_label: Option<&'a str>,
-    /// True when this process is under the macOS seatbelt profile.
-    sandboxed: bool,
-    /// True when the operator set MERC_ALLOW_UNSANDBOXED=1.
-    unsandboxed_opt_in: bool,
 }
 
 struct Inner {
@@ -138,8 +134,6 @@ struct Inner {
     honeypots_passed: Option<i64>,
     honeypots_failed: Option<i64>,
     verification_label: Option<String>,
-    sandboxed: bool,
-    unsandboxed_opt_in: bool,
 }
 
 pub struct StatusWriter {
@@ -193,21 +187,8 @@ impl StatusWriter {
                 honeypots_passed: None,
                 honeypots_failed: None,
                 verification_label: None,
-                sandboxed: false,
-                unsandboxed_opt_in: false,
             }),
         }
-    }
-
-    /// Record containment state in status.json so a local operator (and any
-    /// status scrapers) can see an unsandboxed opt-in without grepping logs.
-    pub fn set_containment(&self, sandboxed: bool, unsandboxed_opt_in: bool) {
-        {
-            let mut i = self.inner.lock().unwrap();
-            i.sandboxed = sandboxed;
-            i.unsandboxed_opt_in = unsandboxed_opt_in;
-        }
-        self.write();
     }
 
     pub fn set_applied_prefs(&self, prefs: AppliedPrefs) {
@@ -391,8 +372,6 @@ impl StatusWriter {
                 honeypots_passed: i.honeypots_passed,
                 honeypots_failed: i.honeypots_failed,
                 verification_label: i.verification_label.as_deref(),
-                sandboxed: i.sandboxed,
-                unsandboxed_opt_in: i.unsandboxed_opt_in,
             };
             serde_json::to_vec_pretty(&doc)
         };

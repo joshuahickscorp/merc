@@ -834,8 +834,6 @@ mod tests {
             agent_version: String::new(),
             os_version: String::new(),
             min_payout_usd_hr: 0.0,
-            sandboxed: false,
-            unsandboxed_opt_in: false,
         }
     }
 

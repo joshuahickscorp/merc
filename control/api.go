@@ -366,11 +366,6 @@ func (s *Server) authWorker(next http.Handler) http.Handler {
 		}
 		auth, err := s.store.LookupWorkerToken(r.Context(), tok)
 		if err != nil {
-			if errors.Is(err, errWorkerTokenExpired) {
-				// Greppable: WORKER_TOKEN_EXPIRED
-				writeErr(w, http.StatusUnauthorized, errWorkerTokenExpired.Error())
-				return
-			}
 			writeErr(w, http.StatusUnauthorized, "invalid worker token")
 			return
 		}
@@ -2816,21 +2811,7 @@ func (s *Server) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Token renewal on the existing heartbeat path. A live worker keeps a
-	// rolling TTL; an offline worker past the window must re-enroll.
-	expiresAt, rerr := s.store.RenewWorkerToken(r.Context(), auth.CredentialID)
-	if rerr != nil {
-		if errors.Is(rerr, errWorkerTokenExpired) {
-			writeErr(w, http.StatusUnauthorized, errWorkerTokenExpired.Error())
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, "worker token renewal failed: "+rerr.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"token_expires_at": expiresAt.UTC().Format(time.RFC3339),
-		"token_ttl_secs":   int(workerTokenTTL.Seconds()),
-	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // residencyRangeError reports whether err is a residency measurement that
