@@ -52,7 +52,7 @@ func TestBuildEconomicPlanReservesFullLiabilityUnderFloorCentCarryPolicy(t *test
 		t.Fatal(plan.BlockReason)
 	}
 	if plan.Version != economicPlanVersion ||
-		plan.SupplierSettlementPolicy != supplierSettlementPolicyFloorCentCarryV1 {
+		plan.SupplierSettlementPolicy != supplierSettlementPolicyFloorMinorUnitCarryV2 {
 		t.Fatalf("plan does not freeze the minor-unit policy: %+v", plan)
 	}
 	liabilityMicros := int64(math.Round(plan.SupplierPayoutPerTaskUSD * 1_000_000))
