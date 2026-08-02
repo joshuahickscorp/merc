@@ -176,6 +176,13 @@ var productionReachability = []reachabilityClaim{
 			"the currency-bound PricingDecision that every later meter must reproduce.",
 	},
 	{
+		From:   "Server.handleCancelServiceLease",
+		Target: "Store.CancelServiceLease",
+		Consequence: "a buyer could receive a cancellation response while its warm capacity remained " +
+			"reserved, or while the control plane billed the unobserved tail after the worker's final " +
+			"authenticated heartbeat. The edge ends the reservation and returns the immutable terminal receipt.",
+	},
+	{
 		From:   "Server.handleServiceLeaseHeartbeat",
 		Target: "Store.HeartbeatServiceLease",
 		Consequence: "worker health would be accepted at HTTP level but cumulative replica-time, " +

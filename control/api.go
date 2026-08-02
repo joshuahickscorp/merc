@@ -114,6 +114,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/images/generations", s.authBuyer(http.HandlerFunc(s.handleImageGenerations)))
 	mux.Handle("GET /v1/realtime/requests/{id}/receipt", s.authBuyer(http.HandlerFunc(s.handleRealtimeReceipt)))
 	mux.Handle("POST /v1/service-leases", s.authBuyer(http.HandlerFunc(s.handleCreateServiceLease)))
+	mux.Handle("POST /v1/service-leases/{id}/cancel", s.authBuyer(http.HandlerFunc(s.handleCancelServiceLease)))
 	mux.Handle("GET /v1/service-leases/{id}", s.authBuyer(http.HandlerFunc(s.handleServiceLeaseReceipt)))
 	mux.Handle("GET /v1/service-leases/{id}/receipt", s.authBuyer(http.HandlerFunc(s.handleServiceLeaseReceipt)))
 	mux.Handle("GET /v1/models", s.authBuyer(http.HandlerFunc(s.handleModels)))

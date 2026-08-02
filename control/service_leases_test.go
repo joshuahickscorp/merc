@@ -6,8 +6,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -400,5 +402,110 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	handler.ServeHTTP(foreignRec, foreign)
 	if foreignRec.Code != http.StatusNotFound {
 		t.Fatalf("foreign buyer receipt status=%d", foreignRec.Code)
+	}
+}
+
+func TestBuyerCancelsServiceLeaseAtLastAuthenticatedMeterAndReleasesUnusedReserve(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	ctx, store, pool := openPayoutTestStore(t)
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@lease-cancel.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-cancel-"+buyerID.String()); err != nil {
+		t.Fatal(err)
+	}
+	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "lease-cancel", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := sortedVLLMProfiles()[0]
+	worker, workerToken := newFabricMeasurementWorker(t, ctx, store)
+	if err := store.UpsertServiceLeaseOffer(ctx, worker, serviceLeaseOffer(profile)); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
+		RuntimeProfileID: profile.RuntimeProfileID, Region: "ca-central-1",
+		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 90, MaximumP95LatencyMilliseconds: 500,
+		BuyerDeclaredCeilingNanos: 135_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Model a verified worker observation that is older than the buyer's stop
+	// request. Cancellation must meter through this point, not through now.
+	observedAt := time.Now().UTC().Add(-2 * time.Second)
+	if _, err := pool.Exec(ctx, `UPDATE service_leases
+		SET started_at=$2::timestamptz-interval '2 seconds',last_metered_at=$2::timestamptz-interval '2 seconds',
+		    last_worker_heartbeat_at=$2,expires_at=$2::timestamptz+interval '88 seconds' WHERE id=$1`, lease.ID, observedAt); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer(store, nil, nil, nil).Routes()
+	cancel := func(token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/service-leases/"+lease.ID.String()+"/cancel", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	rec := cancel(buyerKey)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var receipt ServiceLeaseReceipt
+	if err := json.Unmarshal(rec.Body.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Lease.State != "CANCELLED" || receipt.Lease.FinalizedAt == nil || receipt.Settlement == nil ||
+		receipt.Settlement.BuyerChargeMicros <= 0 ||
+		receipt.Settlement.BuyerChargeMicros != receipt.Settlement.PrepaidDebitMicros ||
+		receipt.Settlement.BuyerChargeMicros != receipt.Settlement.SupplierCreditMicros+receipt.Settlement.PlatformGrossMicros ||
+		receipt.BuyerFundingState != "PREPAID_FINAL_DEBIT_RECORDED" ||
+		receipt.SupplierSettlementState != "SUPPLIER_CREDIT_HELD_PREPAID_COLLECTION_ALLOCATION_REQUIRED" {
+		t.Fatalf("cancel receipt lost terminal money or authority: %+v", receipt)
+	}
+	if receipt.Lease.LastMeteredAt.After(observedAt.Add(250 * time.Millisecond)) {
+		t.Fatalf("buyer cancellation billed beyond authenticated worker observation: metered=%s observed=%s", receipt.Lease.LastMeteredAt, observedAt)
+	}
+	available, err := store.BuyerPrepaidAvailableMicros(ctx, buyerID)
+	if err != nil || available != 1_000_000-receipt.Settlement.BuyerChargeMicros {
+		t.Fatalf("cancelled prepaid balance=%d err=%v, want %d", available, err, 1_000_000-receipt.Settlement.BuyerChargeMicros)
+	}
+	var offerAvailable int
+	if err := pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, worker.WorkerID, profile.RuntimeProfileID, "ca-central-1").Scan(&offerAvailable); err != nil || offerAvailable != 3 {
+		t.Fatalf("cancel did not release warm capacity: available=%d err=%v", offerAvailable, err)
+	}
+	assignmentsReq := httptest.NewRequest(http.MethodGet, "/v1/worker/service-leases/active", nil)
+	assignmentsReq.Header.Set("X-Worker-Token", workerToken)
+	assignmentsRec := httptest.NewRecorder()
+	handler.ServeHTTP(assignmentsRec, assignmentsReq)
+	if assignmentsRec.Code != http.StatusOK || strings.TrimSpace(assignmentsRec.Body.String()) != "[]" {
+		t.Fatalf("cancelled lease remained an agent assignment: status=%d body=%s", assignmentsRec.Code, assignmentsRec.Body.String())
+	}
+	var terminalRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE payout_ref=ANY($1)`, []string{
+		serviceLeaseLedgerRef(lease.ID, KindBuyerCharge), prepaidServiceLeaseDebitRef(lease.ID),
+		serviceLeaseLedgerRef(lease.ID, KindPlatformTake), serviceLeaseSupplierCreditLedgerRef(lease.ID, worker.SupplierID),
+	}).Scan(&terminalRows); err != nil || terminalRows != 4 {
+		t.Fatalf("cancel terminal ledger rows=%d err=%v, want 4", terminalRows, err)
+	}
+	// Cancellation is idempotent: a retry exposes the same immutable receipt and
+	// cannot create another debit, supplier credit, or capacity release.
+	if retry := cancel(buyerKey); retry.Code != http.StatusOK {
+		t.Fatalf("cancel retry status=%d body=%s", retry.Code, retry.Body.String())
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE payout_ref=ANY($1)`, []string{
+		serviceLeaseLedgerRef(lease.ID, KindBuyerCharge), prepaidServiceLeaseDebitRef(lease.ID),
+		serviceLeaseLedgerRef(lease.ID, KindPlatformTake), serviceLeaseSupplierCreditLedgerRef(lease.ID, worker.SupplierID),
+	}).Scan(&terminalRows); err != nil || terminalRows != 4 {
+		t.Fatalf("cancel retry duplicated terminal ledger: rows=%d err=%v", terminalRows, err)
+	}
+	workerHeartbeat := httptest.NewRequest(http.MethodPost, "/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", bytes.NewReader([]byte(`{"warm_replicas":1,"p95_latency_milliseconds":200,"latency_measurement_count":5,"latency_window_seconds":15,"latency_measurement_kind":"DATA_PLANE_COMPLETIONS_V1","status":"READY"}`)))
+	workerHeartbeat.Header.Set("X-Worker-Token", workerToken)
+	workerHeartbeatRec := httptest.NewRecorder()
+	handler.ServeHTTP(workerHeartbeatRec, workerHeartbeat)
+	if workerHeartbeatRec.Code != http.StatusConflict {
+		t.Fatalf("cancelled lease accepted a later worker heartbeat: status=%d", workerHeartbeatRec.Code)
 	}
 }
