@@ -29,6 +29,7 @@ Required env:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -441,6 +442,18 @@ def normalize_artifact_sha256(value: str | None, side: str) -> tuple[str, list[s
     return digest, reasons
 
 
+def hash_file_sha256(path: str) -> str:
+    """SHA-256 hex digest of a model artifact file on disk (streamed)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        while True:
+            chunk = fh.read(1024 * 1024)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def assert_comparable(
     model: str,
     max_tokens: int,
@@ -774,6 +787,8 @@ def build_receipt(
     merc_source_commit: str,
     features_disabled: list[str],
     allow_incomparable: bool,
+    arms_interleaved: bool,
+    artifact_digests_remeasured: bool,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     report: dict[str, Any] = {
@@ -790,6 +805,9 @@ def build_receipt(
         "budget": budget,
         "scope": scope,
         "features_disabled": list(features_disabled),
+        # Explicit booleans the CI gate checks as facts (not limitations prose).
+        "arms_interleaved": bool(arms_interleaved),
+        "artifact_digests_remeasured": bool(artifact_digests_remeasured),
         "config": config,
         "probes": probes,
         "levels": levels,
@@ -807,8 +825,14 @@ def build_receipt(
             "latency. Throughput delta is merc − direct (negative means the "
             "gateway reduced aggregate tokens/s). Arms are interleaved per "
             f"batch so thermal drift is shared. n>={MIN_CELL_COST_SAMPLES} "
-            "(minCellCostSamples)."
+            "(minCellCostSamples). artifact_digests_remeasured is true only "
+            "when digests were hashed from on-disk model artifacts at "
+            "measurement time."
         ),
+        # Clean live receipts leave limitations empty. Caveats belong in
+        # refusals / measurement_errors so the CI gate never sees empty
+        # refusals alongside a non-empty limitations list.
+        "limitations": [],
     }
     if extra:
         report.update(extra)
@@ -966,12 +990,29 @@ def main() -> int:
                     help="exact direct-path description for the receipt "
                          "(engine/hardware/model/precision)")
     ap.add_argument("--merc-model-artifact-sha256", default="",
-                    help="sha256 of the model weights behind the merc arm")
+                    help="sha256 of the model weights behind the merc arm "
+                         "(operator-supplied; does not set "
+                         "artifact_digests_remeasured)")
     ap.add_argument("--direct-model-artifact-sha256", default="",
-                    help="sha256 of the model weights behind the direct arm")
+                    help="sha256 of the model weights behind the direct arm "
+                         "(operator-supplied; does not set "
+                         "artifact_digests_remeasured)")
     ap.add_argument("--model-artifact-sha256", default="",
                     help="shared sha256 applied to both arms when per-arm "
-                         "flags are not set")
+                         "flags are not set (operator-supplied; does not set "
+                         "artifact_digests_remeasured)")
+    ap.add_argument("--model-artifact-path", default="",
+                    help="path to the model weights file; hashed at "
+                         "measurement time and applied to both arms "
+                         "(sets artifact_digests_remeasured=true)")
+    ap.add_argument("--merc-model-artifact-path", default="",
+                    help="path to merc-arm model weights; hashed at "
+                         "measurement time (sets artifact_digests_remeasured "
+                         "when both arms are path-hashed)")
+    ap.add_argument("--direct-model-artifact-path", default="",
+                    help="path to direct-arm model weights; hashed at "
+                         "measurement time (sets artifact_digests_remeasured "
+                         "when both arms are path-hashed)")
     ap.add_argument("--precision", default="",
                     help="precision label for the scope block (e.g. GGUF-Q4_K_M)")
     ap.add_argument("--engine", default="llama_cpp",
@@ -1030,6 +1071,46 @@ def main() -> int:
         or os.environ.get("MERC_GATEWAY_PARITY_DIRECT_MODEL_ARTIFACT_SHA256", "")
         or shared_digest
     )
+
+    # Path-based digests are re-hashed at measurement time. Hex flags alone
+    # are operator-supplied (or provenance-bound) and do not satisfy the
+    # receipt gate's artifact_digests_remeasured requirement.
+    shared_path = (
+        args.model_artifact_path
+        or os.environ.get("MERC_GATEWAY_PARITY_MODEL_ARTIFACT_PATH", "")
+    )
+    merc_path = (
+        args.merc_model_artifact_path
+        or os.environ.get("MERC_GATEWAY_PARITY_MERC_MODEL_ARTIFACT_PATH", "")
+        or shared_path
+    )
+    direct_path = (
+        args.direct_model_artifact_path
+        or os.environ.get("MERC_GATEWAY_PARITY_DIRECT_MODEL_ARTIFACT_PATH", "")
+        or shared_path
+    )
+    merc_remeasured = False
+    direct_remeasured = False
+    if merc_path:
+        try:
+            merc_digest = hash_file_sha256(merc_path)
+            merc_remeasured = True
+            print(f"remeasured merc model artifact sha256 from {merc_path}")
+        except OSError as exc:
+            print(f"cannot hash merc model artifact {merc_path}: {exc}",
+                  file=sys.stderr)
+            return 2
+    if direct_path:
+        try:
+            direct_digest = hash_file_sha256(direct_path)
+            direct_remeasured = True
+            print(f"remeasured direct model artifact sha256 from {direct_path}")
+        except OSError as exc:
+            print(f"cannot hash direct model artifact {direct_path}: {exc}",
+                  file=sys.stderr)
+            return 2
+    artifact_digests_remeasured = merc_remeasured and direct_remeasured
+
     precision = args.precision or os.environ.get("MERC_GATEWAY_PARITY_PRECISION", "")
     engine = args.engine or os.environ.get("MERC_GATEWAY_PARITY_ENGINE", "llama_cpp")
     engine_build = args.engine_build or os.environ.get(
@@ -1121,6 +1202,8 @@ def main() -> int:
             merc_source_commit=merc_source_commit,
             features_disabled=FEATURES_DISABLED,
             allow_incomparable=args.allow_incomparable,
+            arms_interleaved=True,
+            artifact_digests_remeasured=artifact_digests_remeasured,
             extra={
                 "comparability_warning": (
                     "Refusing to report a comparison where the two sides are not "
@@ -1199,10 +1282,21 @@ def main() -> int:
             f"minCellCostSamples={MIN_CELL_COST_SAMPLES}; p95/p99 under "
             "nearest-rank are not receipt-grade at this n"
         )
+    if not artifact_digests_remeasured:
+        measurement_errors.append(
+            "artifact_digests_remeasured=false: digests were not re-hashed "
+            "from on-disk model artifacts at measurement time "
+            "(pass --model-artifact-path or per-arm path flags)"
+        )
 
     refusals: list[str] = []
     if comparable and not incomparable:
         refusals = evaluate_budget(summary, deltas, budget)
+        # Structural receipt-grade failures must not hide behind an empty
+        # refusals list when the budget numbers alone would pass.
+        for err in measurement_errors:
+            if err not in refusals:
+                refusals.append(err)
     else:
         # Incomparable runs have not met a budget; surface the reasons as
         # refusals so the CI receipt gate fails closed rather than reading an
@@ -1216,6 +1310,8 @@ def main() -> int:
         and not measurement_errors
         and not incomparable
         and not refusals
+        and artifact_digests_remeasured
+        and args.requests_per_level >= MIN_CELL_COST_SAMPLES
     )
 
     report = build_receipt(
@@ -1235,6 +1331,8 @@ def main() -> int:
         merc_source_commit=merc_source_commit,
         features_disabled=FEATURES_DISABLED,
         allow_incomparable=args.allow_incomparable,
+        arms_interleaved=True,
+        artifact_digests_remeasured=artifact_digests_remeasured,
     )
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
