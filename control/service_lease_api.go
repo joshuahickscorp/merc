@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
+	"log"
 	"net/http"
+
+	"github.com/google/uuid"
 )
 
 func (s *Server) handleServiceLeaseOffer(w http.ResponseWriter, r *http.Request) {
@@ -43,18 +47,31 @@ func (s *Server) handleCreateServiceLease(w http.ResponseWriter, r *http.Request
 	}
 	lease, err := s.store.CreateServiceLease(r.Context(), auth.BuyerID, request)
 	if errors.Is(err, errRealtimeNoSupply) {
+		s.recordServiceLeaseAdmissionEvent(r.Context(), auth.BuyerID, request, serviceLeaseAdmissionNoCapacity, lease.ID)
 		writeErr(w, http.StatusServiceUnavailable, "no compatible warm service capacity is currently available")
 		return
 	}
 	if errors.Is(err, errRealtimeInsufficientFunds) {
+		s.recordServiceLeaseAdmissionEvent(r.Context(), auth.BuyerID, request, serviceLeaseAdmissionInsufficient, lease.ID)
 		writeErr(w, http.StatusPaymentRequired, "insufficient prepaid balance for maximum service reservation")
 		return
 	}
 	if err != nil {
+		s.recordServiceLeaseAdmissionEvent(r.Context(), auth.BuyerID, request, serviceLeaseAdmissionRequestRejected, lease.ID)
 		writeErr(w, http.StatusBadRequest, "service lease rejected: "+err.Error())
 		return
 	}
+	s.recordServiceLeaseAdmissionEvent(r.Context(), auth.BuyerID, request, serviceLeaseAdmissionAdmitted, lease.ID)
 	writeJSON(w, http.StatusCreated, lease)
+}
+
+// recordServiceLeaseAdmissionEvent is deliberately observational: loss of a
+// telemetry row cannot change capacity, pricing, prepaid reservation, or the
+// buyer's HTTP result. The recorded values exclude prompts and buyer ceilings.
+func (s *Server) recordServiceLeaseAdmissionEvent(ctx context.Context, buyerID uuid.UUID, request ServiceLeaseRequest, decision string, leaseID uuid.UUID) {
+	if err := s.store.RecordServiceLeaseAdmissionEvent(ctx, buyerID, request, decision, leaseID); err != nil {
+		log.Printf("service lease liquidity telemetry: decision=%s profile=%s region=%s: %v", decision, request.RuntimeProfileID, request.Region, err)
+	}
 }
 
 // handleCancelServiceLease ends a buyer's reservation at the last authenticated

@@ -1147,6 +1147,15 @@ func (wk *Workers) sweepTelemetryRetention(ctx context.Context) error {
 		log.Printf("workers: telemetry-retention: pruned offer_samples=%d admission_events=%d older than %s",
 			ros, rae, realtimeLiquidityRetention)
 	}
+	sos, sae, err := wk.store.DeleteOldServiceLeaseLiquidityTelemetry(ctx,
+		time.Now().Add(-realtimeLiquidityRetention))
+	if err != nil {
+		return err
+	}
+	if sos > 0 || sae > 0 {
+		log.Printf("workers: telemetry-retention: pruned service_offer_samples=%d service_admission_events=%d older than %s",
+			sos, sae, realtimeLiquidityRetention)
+	}
 	fabric, err := wk.store.DeleteOldFabricLinkMeasurements(ctx, time.Now().Add(-fabricMeasurementRetention))
 	if err != nil {
 		return err

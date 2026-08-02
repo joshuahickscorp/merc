@@ -120,11 +120,24 @@ var productionReachability = []reachabilityClaim{
 			"churn; no deployment decision may replace it with a dashboard guess.",
 	},
 	{
+		From:   "Server.handleAdminServiceLeaseMarketLiquidity",
+		Target: "Store.ServiceLeaseMarketLiquidity",
+		Consequence: "the warm-service offer and admission evidence would be retained but no operator " +
+			"could retrieve its bounded fill, utilization, churn, and fixed-point price-depth receipt; " +
+			"a dashboard could then substitute a guess for the observed lane.",
+	},
+	{
 		From:   "Workers.Run",
 		Target: "Store.DeleteOldRealtimeLiquidityTelemetry",
 		Consequence: "offer and admission telemetry grows without its 30-day retention " +
 			"bound, turning a measured liquidity view into indefinite operational data " +
 			"retention.",
+	},
+	{
+		From:   "Workers.Run",
+		Target: "Store.DeleteOldServiceLeaseLiquidityTelemetry",
+		Consequence: "service-lane operational samples would outlive the 30-day evidence window and become " +
+			"indefinite supplier capacity and buyer-demand retention.",
 	},
 	{
 		From:   "Server.handleWorkerFabricReceipt",
@@ -174,6 +187,18 @@ var productionReachability = []reachabilityClaim{
 		Consequence: "a buyer-facing service-lease route could validate JSON and return a shape " +
 			"without reserving supplier warm capacity, checking prepaid maximum exposure, or freezing " +
 			"the currency-bound PricingDecision that every later meter must reproduce.",
+	},
+	{
+		From:   "Server.handleCreateServiceLease",
+		Target: "Store.RecordServiceLeaseAdmissionEvent",
+		Consequence: "successful and capacity-refused buyer service requests would leave no retained " +
+			"demand evidence, making any service fill-rate report a completion-only claim.",
+	},
+	{
+		From:   "Store.UpsertServiceLeaseOffer",
+		Target: "recordServiceLeaseOfferSampleTx",
+		Consequence: "supplier agent offer refreshes would change current warm capacity without recording " +
+			"the prompt-free sample required to measure utilization and availability churn over time.",
 	},
 	{
 		From:   "Server.handleCancelServiceLease",

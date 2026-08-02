@@ -3643,6 +3643,30 @@ CREATE INDEX IF NOT EXISTS service_lease_offer_route_idx
     ON service_lease_worker_offers (runtime_profile_id,region,supplier_nanos_per_replica_hour,last_seen_at DESC)
     WHERE status='READY' AND available_warm_replicas > 0;
 
+-- A mutable service offer says what can be reserved now. These prompt-free,
+-- bounded samples retain the separate operational question of how much warm
+-- capacity was offered and occupied over time. The rates remain fixed-point
+-- nanos per replica-hour; this table is never pricing or settlement authority.
+CREATE TABLE IF NOT EXISTS service_lease_offer_samples (
+    id                              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    worker_id                       UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    supplier_id                     UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    runtime_profile_id              TEXT NOT NULL,
+    runtime_profile_sha256          TEXT NOT NULL CHECK (runtime_profile_sha256 ~ '^[0-9a-f]{64}$'),
+    region                          TEXT NOT NULL CHECK (region ~ '^[a-z0-9-]{2,64}$'),
+    worker_declared_hw_class        TEXT NOT NULL CHECK (btrim(worker_declared_hw_class) <> ''),
+    status                          TEXT NOT NULL CHECK (status IN ('READY','DRAINING','FAILED')),
+    maximum_warm_replicas           INT NOT NULL CHECK (maximum_warm_replicas > 0),
+    available_warm_replicas         INT NOT NULL CHECK (available_warm_replicas BETWEEN 0 AND maximum_warm_replicas),
+    supplier_nanos_per_replica_hour BIGINT NOT NULL CHECK (supplier_nanos_per_replica_hour > 0),
+    residency_nanos_per_replica_hour BIGINT NOT NULL CHECK (residency_nanos_per_replica_hour > 0),
+    observed_at                     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS service_lease_offer_samples_liquidity_idx
+    ON service_lease_offer_samples (runtime_profile_id,region,worker_declared_hw_class,observed_at DESC);
+CREATE INDEX IF NOT EXISTS service_lease_offer_samples_worker_idx
+    ON service_lease_offer_samples (worker_id,runtime_profile_id,region,observed_at DESC);
+
 CREATE TABLE IF NOT EXISTS service_leases (
     id                               UUID PRIMARY KEY,
     buyer_id                         UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
@@ -3688,6 +3712,27 @@ ALTER TABLE service_leases
 CREATE INDEX IF NOT EXISTS service_leases_buyer_created_idx ON service_leases (buyer_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS service_leases_recovery_idx ON service_leases (state,last_worker_heartbeat_at)
     WHERE state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED');
+
+-- Service admission outcomes contain no prompt, buyer ceiling, or pricing
+-- decision. The admitted row must name the exact lease that accepted capacity;
+-- capacity refusals remain visible without pretending they are a completed
+-- purchase. Region is supplier-declared operational metadata, not residency.
+CREATE TABLE IF NOT EXISTS service_lease_admission_events (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    buyer_id           UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    runtime_profile_id TEXT NOT NULL,
+    region             TEXT NOT NULL CHECK (region ~ '^[a-z0-9-]{2,64}$'),
+    worker_declared_hw_class TEXT NOT NULL DEFAULT 'UNMATCHED' CHECK (btrim(worker_declared_hw_class) <> ''),
+    decision           TEXT NOT NULL CHECK (decision IN ('ADMITTED','NO_CAPACITY','INSUFFICIENT_FUNDS','REQUEST_REJECTED')),
+    lease_id           UUID REFERENCES service_leases(id) ON DELETE RESTRICT,
+    observed_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((decision='ADMITTED' AND lease_id IS NOT NULL) OR
+           (decision<>'ADMITTED' AND lease_id IS NULL))
+);
+ALTER TABLE service_lease_admission_events
+    ADD COLUMN IF NOT EXISTS worker_declared_hw_class TEXT NOT NULL DEFAULT 'UNMATCHED';
+CREATE INDEX IF NOT EXISTS service_lease_admission_events_liquidity_idx
+    ON service_lease_admission_events (runtime_profile_id,region,worker_declared_hw_class,decision,observed_at DESC);
 
 CREATE TABLE IF NOT EXISTS service_lease_meterings (
     lease_id                         UUID NOT NULL REFERENCES service_leases(id) ON DELETE RESTRICT,

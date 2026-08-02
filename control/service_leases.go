@@ -397,7 +397,37 @@ func (s *Store) UpsertServiceLeaseOffer(ctx context.Context, auth WorkerAuth, re
 		reg.LatencyMeasurementCount, reg.LatencyWindowSeconds, reg.LatencyMeasurementKind, reg.Status); err != nil {
 		return err
 	}
+	if err := recordServiceLeaseOfferSampleTx(ctx, tx, auth.WorkerID, reg.RuntimeProfileID, reg.Region); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
+}
+
+// recordServiceLeaseOfferSampleTx snapshots the mutable offer after a real
+// control-plane change. It is observational only, but sharing this helper with
+// reservation/finalization paths prevents a utilization report from seeing
+// offer refreshes while missing the capacity mutations that matter most.
+func recordServiceLeaseOfferSampleTx(ctx context.Context, tx pgx.Tx, workerID uuid.UUID, runtimeProfileID, region string) error {
+	var (
+		supplierID, workerHW, profileSHA, status string
+		maximum, available                       int
+		supplierRate, residencyRate              int64
+	)
+	if err := tx.QueryRow(ctx, `SELECT o.supplier_id,COALESCE(NULLIF(btrim(w.hw_class),''),'UNDECLARED'),
+		o.runtime_profile_sha256,o.status,o.maximum_warm_replicas,o.available_warm_replicas,
+		o.supplier_nanos_per_replica_hour,o.residency_nanos_per_replica_hour
+		FROM service_lease_worker_offers o JOIN workers w ON w.id=o.worker_id
+		WHERE o.worker_id=$1 AND o.runtime_profile_id=$2 AND o.region=$3`, workerID, runtimeProfileID, region).Scan(
+		&supplierID, &workerHW, &profileSHA, &status, &maximum, &available, &supplierRate, &residencyRate); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO service_lease_offer_samples
+		(worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,worker_declared_hw_class,
+		 status,maximum_warm_replicas,available_warm_replicas,supplier_nanos_per_replica_hour,
+		 residency_nanos_per_replica_hour)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, workerID, supplierID, runtimeProfileID,
+		profileSHA, region, workerHW, status, maximum, available, supplierRate, residencyRate)
+	return err
 }
 
 // activeServiceLeaseReservationTx returns capacity still promised on this
@@ -527,6 +557,9 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		SET available_warm_replicas=available_warm_replicas-$4,updated_at=now()
 		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3 AND available_warm_replicas >= $4`,
 		workerID, profile.RuntimeProfileID, request.Region, request.MaximumReplicas); err != nil {
+		return ServiceLease{}, err
+	}
+	if err := recordServiceLeaseOfferSampleTx(ctx, tx, workerID, profile.RuntimeProfileID, request.Region); err != nil {
 		return ServiceLease{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail)
