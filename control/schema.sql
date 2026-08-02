@@ -5432,12 +5432,12 @@ CREATE TRIGGER runtime_shadow_selections_append_only
     BEFORE UPDATE OR DELETE ON runtime_shadow_selections
     FOR EACH ROW EXECUTE FUNCTION cx_refuse_shadow_selection_rewrite();
 
--- Candidate local-fabric link observations. These rows are intentionally
--- self-reported, owner-scoped, and unusable by the scheduler: an authenticated
--- TCP echo only proves that a holder of a shared probe token answered. It does
--- not prove which enrolled worker answered, a governed site/residency boundary,
--- an mTLS workload plane, a collective benchmark, or economics. Those gates
--- must be bound separately before LOCAL_CLUSTER can ever be selected.
+-- Candidate local-fabric link observations. Legacy TCP/HMAC rows are
+-- self-reported; mTLS rows can bind both endpoints to enrolled workers. Neither
+-- form is usable by the scheduler: a direct echo does not prove a governed
+-- site/residency boundary, a workload data plane, a collective benchmark, or
+-- topology economics. Those gates must be bound separately before
+-- LOCAL_CLUSTER can ever be selected.
 CREATE TABLE IF NOT EXISTS fabric_link_measurements (
     receipt_id UUID PRIMARY KEY,
     reporting_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
@@ -5551,6 +5551,39 @@ ALTER TABLE fabric_link_measurements
     CHECK (transport IN ('MERC_FABRIC_TCP_ECHO_V1','MERC_FABRIC_MTLS_ECHO_V1')),
     ADD CONSTRAINT fabric_link_measurements_peer_authentication_check
     CHECK (peer_authentication IN ('HMAC_SHA256_OWNER_SHARED_PROBE_TOKEN','MUTUAL_TLS_WORKER_CERTIFICATE_BOUND'));
+
+-- A topology evaluation freezes the control-derived view of a small candidate
+-- mesh at one instant. It is evidence for the next collective gate, never a
+-- scheduler grant: connectivity does not prove a governed site, data plane,
+-- collective, or positive-contribution economics.
+CREATE TABLE IF NOT EXISTS fabric_topology_evaluations (
+    id UUID PRIMARY KEY,
+    requesting_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    requesting_supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    declared_site TEXT NOT NULL CHECK (btrim(declared_site) <> '' AND length(declared_site) <= 128),
+    worker_ids UUID[] NOT NULL CHECK (cardinality(worker_ids) BETWEEN 2 AND 8),
+    status TEXT NOT NULL CHECK (status IN ('LINK_MESH_MEASURED_COLLECTIVE_REQUIRED','LINK_MESH_REFUSED')),
+    required_directed_links INTEGER NOT NULL CHECK (required_directed_links BETWEEN 2 AND 56),
+    verified_directed_links INTEGER NOT NULL CHECK (verified_directed_links BETWEEN 0 AND required_directed_links),
+    evidence_fresh_until TIMESTAMPTZ NOT NULL,
+    links JSONB NOT NULL CHECK (jsonb_typeof(links) = 'array'),
+    local_cluster_admissible BOOLEAN NOT NULL DEFAULT false CHECK (local_cluster_admissible = false),
+    non_admission_reasons JSONB NOT NULL CHECK (jsonb_typeof(non_admission_reasons) = 'array'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fabric_topology_evaluations_retention_idx
+    ON fabric_topology_evaluations (created_at);
+CREATE INDEX IF NOT EXISTS fabric_topology_evaluations_supplier_site_idx
+    ON fabric_topology_evaluations (requesting_supplier_id, declared_site, created_at DESC);
+CREATE OR REPLACE FUNCTION cx_refuse_fabric_topology_evaluation_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'fabric topology evaluation % is immutable; derive a new evidence receipt', OLD.id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS fabric_topology_evaluations_append_only ON fabric_topology_evaluations;
+CREATE TRIGGER fabric_topology_evaluations_append_only
+    BEFORE UPDATE OR DELETE ON fabric_topology_evaluations
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_fabric_topology_evaluation_rewrite();
 
 -- A project order is the server-side ceiling authority for a multi-step
 -- workload. The buyer keeps the full IR locally because it may contain source

@@ -25,6 +25,14 @@ trap 'rm -rf "$WORK"' EXIT
 STAGE="$WORK/$NAME"
 mkdir -p "$STAGE"
 install -m 0755 "$BIN_SRC" "$STAGE/merc-agent"
+if [[ "$OS" == "linux" ]]; then
+  # The CUDA supplier process is `merc-agent vllm`, not the Apple-oriented
+  # generic runner. Ship the exact profile it loads so a prebuilt install never
+  # points at a developer checkout or an unpinned profile URL.
+  VLLM_PROFILE="$ROOT/control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json"
+  [[ -f "$VLLM_PROFILE" ]] || { echo "missing pinned vLLM runtime profile: $VLLM_PROFILE" >&2; exit 1; }
+  install -m 0644 "$VLLM_PROFILE" "$STAGE/vllm-runtime-profile.json"
+fi
 cat >"$STAGE/README.txt" <<EOF
 merc-agent ${VERSION}
 commit ${COMMIT}
@@ -32,9 +40,10 @@ target ${OS}/${ARCH}
 
 Install with scripts/install.sh (preferred) or copy merc-agent onto PATH.
 
-Linux/amd64 builds are CPU Candle only. control still rejects non-Apple
-hw_class values for worker registration; installing this binary does not
-unlock Linux/NVIDIA batch supply.
+macOS/arm64 runs the Metal supplier path. Linux/amd64 packages the pinned
+vLLM adapter and its exact runtime profile; activation requires a supported
+NVIDIA GPU, Docker-compatible container runtime, an enrolled worker token,
+and a TLS public endpoint. Installation alone never advertises supply.
 EOF
 
 tar -C "$WORK" -czf "$OUT/${NAME}.tar.gz" "$NAME"
