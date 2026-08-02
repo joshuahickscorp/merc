@@ -652,8 +652,16 @@ func TestBillingStatusReportsFundedValue(t *testing.T) {
 	if got, _ := body["balance_micros"].(float64); got != 25_000_000 {
 		t.Fatalf("status balance_micros = %v, want 25000000 (%s)", body["balance_micros"], rec.Body.String())
 	}
-	if got, _ := body["pending_topup_cents"].(float64); got != 4000 {
-		t.Fatalf("status pending_topup_cents = %v, want 4000 (%s)", body["pending_topup_cents"], rec.Body.String())
+	if got, _ := body["pending_topup_minor_units"].(float64); got != 4000 {
+		t.Fatalf("status pending_topup_minor_units = %v, want 4000 (%s)", body["pending_topup_minor_units"], rec.Body.String())
+	}
+	if got, _ := body["currency"].(string); got != SettlementCurrencyCode() {
+		t.Fatalf("status currency = %q, want %q (%s)", got, SettlementCurrencyCode(), rec.Body.String())
+	}
+	for _, legacy := range []string{"balance_usd", "pending_topup_cents"} {
+		if _, exists := body[legacy]; exists {
+			t.Fatalf("billing status exposed stale currency field %q: %s", legacy, rec.Body.String())
+		}
 	}
 }
 
