@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"sort"
@@ -496,6 +497,60 @@ func (s *Server) handleAdminSelectorPromotion(w http.ResponseWriter, r *http.Req
 		"promotion_receipt_ref": receiptRef,
 		"evidence_recorded":     recorded,
 		"activation_applied":    false,
+	})
+}
+
+// selectorRollbackRequest is deliberately smaller than ActivationPolicyEntry.
+// An operator may name only the immutable target revision and an audit note;
+// the store reconstructs the complete policy from that revision and writes the
+// rollback forward. Accepting lifecycle or receipt fields here would create a
+// second activation authority beside the append-only policy table.
+type selectorRollbackRequest struct {
+	TargetPolicyRevision int64  `json:"target_policy_revision"`
+	Note                 string `json:"note"`
+}
+
+// handleAdminSelectorRollback is the production caller for the existing
+// append-only rollback authority. It never deletes or edits a promotion: the
+// store writes a new revision naming the target, so an operator can audit both
+// the promotion and the reversal after the fact.
+func (s *Server) handleAdminSelectorRollback(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeErr(w, http.StatusInternalServerError, "selector rollback unavailable")
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 8<<10+1))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "reading selector rollback request: "+err.Error())
+		return
+	}
+	if len(raw) > 8<<10 {
+		writeErr(w, http.StatusRequestEntityTooLarge, "selector rollback request exceeds 8192 bytes")
+		return
+	}
+	var request selectorRollbackRequest
+	if err := decodeStrictJSONObject(raw, &request); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid selector rollback json: "+err.Error())
+		return
+	}
+	request.Note = strings.TrimSpace(request.Note)
+	if request.TargetPolicyRevision <= 0 {
+		writeErr(w, http.StatusBadRequest, "target_policy_revision must be positive")
+		return
+	}
+	if request.Note == "" || len(request.Note) > 512 || strings.ContainsAny(request.Note, "\r\n\t") {
+		writeErr(w, http.StatusBadRequest, "note must be a non-empty single-line value no longer than 512 bytes")
+		return
+	}
+	revision, err := s.store.RollbackActivationPolicy(r.Context(), request.TargetPolicyRevision, request.Note)
+	if err != nil {
+		writeErr(w, http.StatusConflict, "selector rollback refused: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"activation_applied":       true,
+		"policy_revision":          revision,
+		"rollback_target_revision": request.TargetPolicyRevision,
 	})
 }
 
