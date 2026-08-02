@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -32,22 +31,48 @@ func prepaidBalanceRequired() bool {
 	return !deferredChargeEnabled()
 }
 
-const defaultTopupMinUSD = 25.0
+const defaultTopupMinMajor = "25"
 
-func topupMinUSD() float64 {
-	s := strings.TrimSpace(os.Getenv("MERC_TOPUP_MIN_USD"))
-	if s == "" {
-		return defaultTopupMinUSD
+// topupMinMinor is deliberately configured in integer Stripe minor units. A
+// deployment that says "USD" while settling CAD is not merely mislabeled: it
+// changes the commercial meaning of buyer money. Refuse the retired
+// MERC_TOPUP_MIN_USD setting instead of reinterpreting it under another
+// currency or quietly falling back to a floor the operator did not choose.
+func topupMinMinor(currency Currency) (int64, error) {
+	if strings.TrimSpace(os.Getenv("MERC_TOPUP_MIN_USD")) != "" {
+		return 0, errors.New("MERC_TOPUP_MIN_USD is obsolete; set MERC_TOPUP_MIN_MINOR in integer settlement minor units")
 	}
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil || v <= 0 {
-		return defaultTopupMinUSD
+	raw := strings.TrimSpace(os.Getenv("MERC_TOPUP_MIN_MINOR"))
+	if raw == "" {
+		return currency.ParseMajorToMinorExact(defaultTopupMinMajor)
 	}
-	return v
+	for _, digit := range raw {
+		if digit < '0' || digit > '9' {
+			return 0, fmt.Errorf("MERC_TOPUP_MIN_MINOR must be a positive integer, got %q", raw)
+		}
+	}
+	minor, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || minor <= 0 {
+		return 0, fmt.Errorf("MERC_TOPUP_MIN_MINOR must be a positive integer, got %q", raw)
+	}
+	return minor, nil
+}
+
+func formatMinorAmount(minor int64, currency Currency) string {
+	factor, err := currency.MinorUnitsPerMajor()
+	if err != nil || factor <= 0 {
+		return strconv.FormatInt(minor, 10)
+	}
+	whole, fraction := minor/factor, minor%factor
+	if currency.Exponent() == 0 {
+		return strconv.FormatInt(whole, 10)
+	}
+	return fmt.Sprintf("%d.%0*d", whole, currency.Exponent(), fraction)
 }
 
 type topupRequest struct {
-	AmountUSD float64 `json:"amount_usd"`
+	AmountMajor string `json:"amount_major"`
+	Currency    string `json:"currency"`
 }
 
 // prepaidTopupBodyLimit bounds the buyer-facing top-up body. It is deliberately
@@ -79,7 +104,7 @@ func (s *Server) handleBillingTopup(w http.ResponseWriter, r *http.Request) {
 	}
 	auth := r.Context().Value(ctxBuyer).(*AuthResult)
 	// Strict decode like every other money body here: a request carrying a
-	// "buyer_id" or a second "amount_usd" must be refused, not silently read as
+	// "buyer_id" or a second "amount_major" must be refused, not silently read as
 	// the fields we happen to recognise.
 	raw, err := readAndCloseBounded(r.Body, prepaidTopupBodyLimit)
 	if err != nil {
@@ -91,15 +116,32 @@ func (s *Server) handleBillingTopup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid topup json: "+err.Error())
 		return
 	}
-	minUSD := topupMinUSD()
-	if math.IsNaN(req.AmountUSD) || math.IsInf(req.AmountUSD, 0) || req.AmountUSD < minUSD {
-		writeErr(w, http.StatusBadRequest,
-			fmt.Sprintf("amount_usd must be at least $%.2f (set MERC_TOPUP_MIN_USD to change the floor)", minUSD))
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "settlement currency is not configured")
 		return
 	}
-	cents := int64(math.Round(req.AmountUSD * 100))
-	if cents <= 0 {
-		writeErr(w, http.StatusBadRequest, "amount_usd rounds to a non-positive cent amount")
+	requestedCurrency, err := ParseCurrency(req.Currency)
+	if err != nil || !requestedCurrency.Equal(settlement) {
+		writeErr(w, http.StatusBadRequest,
+			fmt.Sprintf("currency must be the configured settlement currency %s", settlement.Code()))
+		return
+	}
+	minorUnits, err := settlement.ParseMajorToMinorExact(req.AmountMajor)
+	if err != nil || minorUnits <= 0 {
+		writeErr(w, http.StatusBadRequest, "amount_major must be a positive exact decimal in "+settlement.Code())
+		return
+	}
+	minimumMinor, err := topupMinMinor(settlement)
+	if err != nil {
+		log.Printf("billing: invalid top-up floor configuration: %v", err)
+		writeErr(w, http.StatusServiceUnavailable, "top-up floor configuration is invalid")
+		return
+	}
+	if minorUnits < minimumMinor {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf(
+			"amount_major must be at least %s %s (set MERC_TOPUP_MIN_MINOR in integer minor units to change the floor)",
+			formatMinorAmount(minimumMinor, settlement), settlement.Code()))
 		return
 	}
 	opKey, ok := prepaidTopupOperationKey(auth.BuyerID, r.Header.Get("Idempotency-Key"))
@@ -123,7 +165,7 @@ func (s *Server) handleBillingTopup(w http.ResponseWriter, r *http.Request) {
 	// Arm the durable operation row before any Stripe I/O, the same boundary
 	// chargeBuyer crosses in billing.go: whoever wins this insert owns the
 	// charge, and every other request for that key is answered from the row.
-	arm, err := s.store.BeginPrepaidTopup(r.Context(), opKey, auth.BuyerID, cents)
+	arm, err := s.store.BeginPrepaidTopup(r.Context(), opKey, auth.BuyerID, minorUnits)
 	if errors.Is(err, errPrepaidTopupConflict) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
@@ -136,14 +178,13 @@ func (s *Server) handleBillingTopup(w http.ResponseWriter, r *http.Request) {
 	case prepaidTopupCredited:
 		bal, _ := s.store.BuyerPrepaidBalanceMicros(r.Context(), auth.BuyerID)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"operation_key":  opKey,
-			"payment_intent": arm.PaymentIntent,
-			"charge_id":      arm.ChargeID,
-			"amount_cents":   cents,
-			"currency":       SettlementCurrencyCode(),
-			"balance_micros": bal,
-			"balance_usd":    microsToUSD(bal),
-			"replayed":       true,
+			"operation_key":      opKey,
+			"payment_intent":     arm.PaymentIntent,
+			"charge_id":          arm.ChargeID,
+			"amount_minor_units": minorUnits,
+			"currency":           settlement.Code(),
+			"balance_micros":     bal,
+			"replayed":           true,
 		})
 		return
 	case prepaidTopupInFlight:
@@ -151,7 +192,7 @@ func (s *Server) handleBillingTopup(w http.ResponseWriter, r *http.Request) {
 			"top-up "+opKey+" already crossed its durable Stripe boundary; GET /v1/billing/status reports the credited balance and any top-up still pending, so retry with a fresh Idempotency-Key only once this one is no longer pending there")
 		return
 	}
-	charge, err := chargePaymentIntent(r.Context(), cust, pm, cents, SettlementCurrencyCode(), opKey)
+	charge, err := chargePaymentIntent(r.Context(), cust, pm, minorUnits, settlement.Code(), opKey)
 	if err != nil {
 		log.Printf("billing: top-up charge failed buyer=%s op=%s: %v", auth.BuyerID, opKey, err)
 		writeErr(w, http.StatusPaymentRequired, "top-up charge failed: "+err.Error())
@@ -166,13 +207,12 @@ func (s *Server) handleBillingTopup(w http.ResponseWriter, r *http.Request) {
 	}
 	bal, _ := s.store.BuyerPrepaidBalanceMicros(r.Context(), auth.BuyerID)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"operation_key":  opKey,
-		"payment_intent": charge.PaymentIntentID,
-		"charge_id":      charge.ChargeID,
-		"amount_cents":   charge.ReceivedCents,
-		"currency":       charge.Currency,
-		"balance_micros": bal,
-		"balance_usd":    microsToUSD(bal),
+		"operation_key":      opKey,
+		"payment_intent":     charge.PaymentIntentID,
+		"charge_id":          charge.ChargeID,
+		"amount_minor_units": charge.ReceivedCents,
+		"currency":           charge.Currency,
+		"balance_micros":     bal,
 	})
 }
 
@@ -267,26 +307,33 @@ func (s *Server) refundPrepaidRemainder(
 	if err := s.store.CompletePrepaidRefund(ctx, plan.Slices); err != nil {
 		return nil, err
 	}
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return nil, err
+	}
+	refundedMicros, err := settlement.MinorToMicros(plan.Cents)
+	if err != nil {
+		return nil, err
+	}
 	newBal, _ := s.store.BuyerPrepaidBalanceMicros(ctx, buyerID)
 	return map[string]any{
-		"operation_key":   plan.OperationKey,
-		"buyer_id":        buyerID,
-		"refunded_cents":  plan.Cents,
-		"refunded_micros": plan.Cents * microUSDPerCent,
-		"stripe_refunds":  refundIDs,
-		"balance_micros":  newBal,
-		"balance_usd":     microsToUSD(newBal),
-		"replayed":        plan.Replayed,
+		"operation_key":        plan.OperationKey,
+		"buyer_id":             buyerID,
+		"refunded_minor_units": plan.Cents,
+		"refunded_micros":      refundedMicros,
+		"stripe_refunds":       refundIDs,
+		"balance_micros":       newBal,
+		"replayed":             plan.Replayed,
 	}, nil
 }
 
-func stripeCreateRefund(ctx context.Context, paymentIntent string, cents int64, idemKey string) (string, error) {
-	if cents <= 0 || strings.TrimSpace(paymentIntent) == "" {
+func stripeCreateRefund(ctx context.Context, paymentIntent string, minorUnits int64, idemKey string) (string, error) {
+	if minorUnits <= 0 || strings.TrimSpace(paymentIntent) == "" {
 		return "", fmt.Errorf("invalid refund request")
 	}
 	form := url.Values{
 		"payment_intent": {paymentIntent},
-		"amount":         {strconv.FormatInt(cents, 10)},
+		"amount":         {strconv.FormatInt(minorUnits, 10)},
 	}
 	out, err := stripeForm(ctx, "refunds", form, idemKey)
 	if err != nil {

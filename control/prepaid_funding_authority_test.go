@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func fundPrepaidViaTopup(t *testing.T, ctx context.Context, store *Store, buyerI
 	intentID := "pi_seed_" + uuid.NewString()
 	if err := store.CreditPrepaidTopup(ctx, opKey, buyerID, ChargeResult{
 		PaymentIntentID: intentID, ChargeID: "ch_seed_" + uuid.NewString(),
-		RequestedCents: cents, ReceivedCents: cents, Currency: "usd",
+		RequestedCents: cents, ReceivedCents: cents, Currency: SettlementCurrencyCode(),
 	}); err != nil {
 		t.Fatalf("credit top-up: %v", err)
 	}
@@ -74,6 +75,25 @@ type fundingHarness struct {
 	charges   *atomic.Int64
 	refunds   *atomic.Int64
 	refundErr *atomic.Bool
+	charge    *paymentIntentCapture
+}
+
+type paymentIntentCapture struct {
+	mu       sync.Mutex
+	amount   string
+	currency string
+}
+
+func (c *paymentIntentCapture) set(amount, currency string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.amount, c.currency = amount, currency
+}
+
+func (c *paymentIntentCapture) last() (amount, currency string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.amount, c.currency
 }
 
 // newFundingHarness wires the real route table to a fake Stripe so the tests
@@ -83,6 +103,7 @@ func newFundingHarness(t *testing.T) *fundingHarness {
 	store, pool, ctx := prepaidTestStore(t)
 	var charges, refunds atomic.Int64
 	var refundErr atomic.Bool
+	charge := &paymentIntentCapture{}
 	withStripeTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -90,9 +111,11 @@ func newFundingHarness(t *testing.T) *fundingHarness {
 			_ = r.ParseForm()
 			charges.Add(1)
 			amount := r.Form.Get("amount")
+			currency := r.Form.Get("currency")
+			charge.set(amount, currency)
 			fmt.Fprintf(w, `{"id":"pi_live_%d","latest_charge":{"id":"ch_live_%d"},`+
-				`"status":"succeeded","currency":"usd","amount":%s,"amount_received":%s}`,
-				charges.Load(), charges.Load(), amount, amount)
+				`"status":"succeeded","currency":%q,"amount":%s,"amount_received":%s}`,
+				charges.Load(), charges.Load(), currency, amount, amount)
 		case strings.HasSuffix(r.URL.Path, "/refunds"):
 			if refundErr.Load() {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -108,7 +131,7 @@ func newFundingHarness(t *testing.T) *fundingHarness {
 	return &fundingHarness{
 		store: store, pool: pool, ctx: ctx,
 		handler: NewServer(store, nil, nil, nil).Routes(),
-		charges: &charges, refunds: &refunds, refundErr: &refundErr,
+		charges: &charges, refunds: &refunds, refundErr: &refundErr, charge: charge,
 	}
 }
 
@@ -146,6 +169,10 @@ func (h *fundingHarness) topup(t *testing.T, key, idem, body string) *httptest.R
 	return rec
 }
 
+func topupBody(amount string) string {
+	return fmt.Sprintf(`{"amount_major":%q,"currency":%q}`, amount, SettlementCurrencyCode())
+}
+
 func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var out map[string]any
@@ -162,7 +189,7 @@ func TestBuyerFundsOwnAccountThroughRegisteredRoute(t *testing.T) {
 	h := newFundingHarness(t)
 	buyerID, key := h.buyerWithCard(t)
 
-	rec := h.topup(t, key, "first-deposit", `{"amount_usd":25}`)
+	rec := h.topup(t, key, "first-deposit", topupBody("25"))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("top-up status %d body %s, want 200", rec.Code, rec.Body.String())
 	}
@@ -171,10 +198,72 @@ func TestBuyerFundsOwnAccountThroughRegisteredRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	if bal != 25_000_000 {
-		t.Fatalf("balance after $25 top-up = %d micro-USD, want 25000000", bal)
+		t.Fatalf("balance after 25 %s top-up = %d micros, want 25000000", SettlementCurrencyCode(), bal)
 	}
 	if got := h.charges.Load(); got != 1 {
 		t.Fatalf("stripe charges = %d, want 1", got)
+	}
+}
+
+func TestTopupBindsExactCADMinorUnitsAtStripeBoundary(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	h := newFundingHarness(t)
+	buyerID, key := h.buyerWithCard(t)
+
+	rec := h.topup(t, key, "cad-exact", `{"amount_major":"25.01","currency":"cad"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("CAD top-up status %d body %s, want 200", rec.Code, rec.Body.String())
+	}
+	if amount, currency := h.charge.last(); amount != "2501" || currency != "cad" {
+		t.Fatalf("Stripe payment intent form amount=%q currency=%q; want 2501/cad", amount, currency)
+	}
+	bal, err := h.store.BuyerPrepaidBalanceMicros(h.ctx, buyerID)
+	if err != nil || bal != 25_010_000 {
+		t.Fatalf("CAD balance=%d err=%v; want 25010000", bal, err)
+	}
+
+	wrong := h.topup(t, key, "cad-wrong-currency", `{"amount_major":"25.01","currency":"usd"}`)
+	if wrong.Code != http.StatusBadRequest || h.charges.Load() != 1 {
+		t.Fatalf("USD-labelled request under CAD: status=%d charges=%d body=%s; want 400 and no second Stripe call",
+			wrong.Code, h.charges.Load(), wrong.Body.String())
+	}
+}
+
+func TestTopupUsesSettlementMinorUnitExponentWithoutRounding(t *testing.T) {
+	installSettlementCurrencyForTest(t, "jpy")
+	h := newFundingHarness(t)
+	buyerID, key := h.buyerWithCard(t)
+
+	rec := h.topup(t, key, "jpy-exact", `{"amount_major":"25","currency":"jpy"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("JPY top-up status %d body %s, want 200", rec.Code, rec.Body.String())
+	}
+	if amount, currency := h.charge.last(); amount != "25" || currency != "jpy" {
+		t.Fatalf("Stripe payment intent form amount=%q currency=%q; want 25/jpy", amount, currency)
+	}
+	bal, err := h.store.BuyerPrepaidBalanceMicros(h.ctx, buyerID)
+	if err != nil || bal != 25_000_000 {
+		t.Fatalf("JPY balance=%d err=%v; want 25000000", bal, err)
+	}
+}
+
+func TestTopupRefusesFloatLikeOrOverPreciseAmountBeforeStripe(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	h := newFundingHarness(t)
+	_, key := h.buyerWithCard(t)
+	for _, body := range []string{
+		`{"amount_major":25.01,"currency":"cad"}`,
+		`{"amount_major":"2.501e1","currency":"cad"}`,
+		`{"amount_major":"25.001","currency":"cad"}`,
+		`{"amount_major":"25.","currency":"cad"}`,
+	} {
+		rec := h.topup(t, key, "invalid-"+uuid.NewString(), body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("top-up body %s: status %d body %s, want 400", body, rec.Code, rec.Body.String())
+		}
+	}
+	if got := h.charges.Load(); got != 0 {
+		t.Fatalf("invalid exact-money inputs reached Stripe %d times, want 0", got)
 	}
 }
 
@@ -185,7 +274,7 @@ func TestTopupRefusesFabricatedIdempotency(t *testing.T) {
 	h := newFundingHarness(t)
 	_, key := h.buyerWithCard(t)
 
-	rec := h.topup(t, key, "", `{"amount_usd":25}`)
+	rec := h.topup(t, key, "", topupBody("25"))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("top-up without Idempotency-Key: status %d body %s, want 400",
 			rec.Code, rec.Body.String())
@@ -200,7 +289,7 @@ func TestTopupRetryDoesNotDuplicateValue(t *testing.T) {
 	buyerID, key := h.buyerWithCard(t)
 
 	for attempt := 0; attempt < 3; attempt++ {
-		rec := h.topup(t, key, "deposit-42", `{"amount_usd":25}`)
+		rec := h.topup(t, key, "deposit-42", topupBody("25"))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("attempt %d: status %d body %s, want 200", attempt, rec.Code, rec.Body.String())
 		}
@@ -218,10 +307,10 @@ func TestTopupRefusesConflictingIdempotencyKey(t *testing.T) {
 	h := newFundingHarness(t)
 	buyerID, key := h.buyerWithCard(t)
 
-	if rec := h.topup(t, key, "deposit-42", `{"amount_usd":25}`); rec.Code != http.StatusOK {
+	if rec := h.topup(t, key, "deposit-42", topupBody("25")); rec.Code != http.StatusOK {
 		t.Fatalf("first top-up: status %d body %s", rec.Code, rec.Body.String())
 	}
-	rec := h.topup(t, key, "deposit-42", `{"amount_usd":250}`)
+	rec := h.topup(t, key, "deposit-42", topupBody("250"))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("reused key with a different amount: status %d body %s, want 409",
 			rec.Code, rec.Body.String())
@@ -245,7 +334,7 @@ func TestTopupCreditsOnlyTheAuthenticatedBuyer(t *testing.T) {
 	secondID, secondKey := h.buyerWithCard(t)
 
 	for _, credential := range []string{firstKey, secondKey} {
-		if rec := h.topup(t, credential, "shared-key", `{"amount_usd":25}`); rec.Code != http.StatusOK {
+		if rec := h.topup(t, credential, "shared-key", topupBody("25")); rec.Code != http.StatusOK {
 			t.Fatalf("top-up: status %d body %s, want 200", rec.Code, rec.Body.String())
 		}
 	}
@@ -258,7 +347,7 @@ func TestTopupCreditsOnlyTheAuthenticatedBuyer(t *testing.T) {
 
 	// No buyer-supplied field can redirect the credit: the second buyer's own
 	// balance moves, never the first's.
-	rec := h.topup(t, secondKey, "targeted", `{"amount_usd":25,"buyer_id":"`+firstID.String()+`"}`)
+	rec := h.topup(t, secondKey, "targeted", strings.TrimSuffix(topupBody("25"), "}")+`,"buyer_id":"`+firstID.String()+`"}`)
 	if rec.Code == http.StatusOK {
 		t.Fatalf("top-up accepted an unknown buyer_id field: %s", rec.Body.String())
 	}
@@ -459,8 +548,8 @@ func TestPrepaidRefundIsDurableBeforeStripe(t *testing.T) {
 	if replayed, _ := result["replayed"].(bool); !replayed {
 		t.Fatalf("replay was treated as a new refund: %v", result)
 	}
-	if got := result["refunded_cents"].(int64); got != 2500 {
-		t.Fatalf("replay refunded %d cents, want 2500", got)
+	if got := result["refunded_minor_units"].(int64); got != 2500 {
+		t.Fatalf("replay refunded %d minor units, want 2500", got)
 	}
 	bal, _ = h.store.BuyerPrepaidBalanceMicros(h.ctx, buyerID)
 	if bal != 0 {
@@ -509,8 +598,8 @@ func TestPrepaidRefundReplayCannotAdoptAnotherRefundsSlices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	if got := result["refunded_cents"].(int64); got != 2500 {
-		t.Fatalf("replay refunded %d cents, want 2500 (only this refund's own slice)", got)
+	if got := result["refunded_minor_units"].(int64); got != 2500 {
+		t.Fatalf("replay refunded %d minor units, want 2500 (only this refund's own slice)", got)
 	}
 	if got := h.refunds.Load(); got != 1 {
 		t.Fatalf("stripe refunds = %d, want 1: the replay moved cash for another refund", got)
@@ -542,7 +631,7 @@ func TestPrepaidRefundReplayCannotAdoptAnotherRefundsSlices(t *testing.T) {
 func TestBillingStatusReportsFundedValue(t *testing.T) {
 	h := newFundingHarness(t)
 	buyerID, key := h.buyerWithCard(t)
-	if rec := h.topup(t, key, "status-deposit", `{"amount_usd":25}`); rec.Code != http.StatusOK {
+	if rec := h.topup(t, key, "status-deposit", topupBody("25")); rec.Code != http.StatusOK {
 		t.Fatalf("top-up: status %d body %s", rec.Code, rec.Body.String())
 	}
 	// A second top-up armed but never credited is exactly the state the 409
@@ -581,7 +670,7 @@ func TestTopupBodyBoundIsBuyerSized(t *testing.T) {
 	buyerID, key := h.buyerWithCard(t)
 
 	// Valid JSON with no unknown fields: only the bound can refuse it.
-	padded := `{"amount_usd":25}` + strings.Repeat(" ", adminActionBodyLimit-64)
+	padded := topupBody("25") + strings.Repeat(" ", adminActionBodyLimit-64)
 	rec := h.topup(t, key, "oversized", padded)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("%d-byte top-up body: status %d body %s, want 400",

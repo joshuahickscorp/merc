@@ -243,6 +243,39 @@ func TestCurrencyExponentRecordedNotAssumedTwoDecimals(t *testing.T) {
 	}
 }
 
+func TestParseMajorToMinorExactRejectsRoundingAndCurrencyAmbiguity(t *testing.T) {
+	for _, tc := range []struct {
+		currency string
+		raw      string
+		want     int64
+		ok       bool
+	}{
+		{currency: "cad", raw: "25", want: 2500, ok: true},
+		{currency: "cad", raw: "25.01", want: 2501, ok: true},
+		{currency: "cad", raw: "0.1", want: 10, ok: true},
+		{currency: "jpy", raw: "25", want: 25, ok: true},
+		{currency: "cad", raw: "25.001"},
+		{currency: "jpy", raw: "25.0"},
+		{currency: "cad", raw: "2.5e1"},
+		{currency: "cad", raw: "-25"},
+		{currency: "cad", raw: "25."},
+		{currency: "cad", raw: "999999999999999999999999"},
+	} {
+		t.Run(tc.currency+"/"+tc.raw, func(t *testing.T) {
+			got, err := MustParseCurrency(tc.currency).ParseMajorToMinorExact(tc.raw)
+			if tc.ok {
+				if err != nil || got != tc.want {
+					t.Fatalf("ParseMajorToMinorExact(%q) = %d, %v; want %d, nil", tc.raw, got, err, tc.want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ParseMajorToMinorExact(%q) = %d, nil; want refusal", tc.raw, got)
+			}
+		})
+	}
+}
+
 func TestParseCurrencyRejectsEmptyAndUnknown(t *testing.T) {
 	if _, err := ParseCurrency(""); err == nil {
 		t.Fatal("empty currency accepted")

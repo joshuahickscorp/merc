@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -147,6 +148,23 @@ func (c Currency) MicrosPerMinorUnit() (int64, error) {
 	return f, nil
 }
 
+// MinorToMicros converts signed ISO minor units into the ledger's fixed
+// micro-major-unit scale. It is the only conversion a Stripe amount may use
+// when entering the ledger; multiplying by a cent constant silently corrupts
+// zero-decimal settlement currencies.
+func (c Currency) MinorToMicros(minor int64) (int64, error) {
+	factor, err := c.MicrosPerMinorUnit()
+	if err != nil {
+		return 0, err
+	}
+	maxInt64 := int64(^uint64(0) >> 1)
+	minInt64 := -maxInt64 - 1
+	if (minor > 0 && minor > maxInt64/factor) || (minor < 0 && minor < minInt64/factor) {
+		return 0, fmt.Errorf("minor amount %d is outside the ledger range for %s", minor, c.code)
+	}
+	return minor * factor, nil
+}
+
 // MajorToMinor converts a major-unit float (e.g. 12.34 CAD) into ISO minor
 // units using this currency's exponent — never a hardcoded *100.
 func (c Currency) MajorToMinor(major float64) (int64, error) {
@@ -162,6 +180,58 @@ func (c Currency) MajorToMinor(major float64) (int64, error) {
 		return int64(scaled + 0.5), nil
 	}
 	return int64(scaled - 0.5), nil
+}
+
+// ParseMajorToMinorExact converts a human-entered decimal major-unit amount
+// into integer ISO minor units without passing through a binary float. It is
+// deliberately strict: callers at a cash boundary must send a decimal string,
+// not a JavaScript number, scientific notation, a negative amount, or an
+// amount whose precision cannot exist in the settlement currency.
+func (c Currency) ParseMajorToMinorExact(raw string) (int64, error) {
+	if !c.Valid() {
+		return 0, errors.New("invalid currency")
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, errors.New("amount is required")
+	}
+	wholeRaw, fractionRaw, hasFraction := strings.Cut(raw, ".")
+	if wholeRaw == "" || (hasFraction && fractionRaw == "") || strings.Contains(fractionRaw, ".") {
+		return 0, fmt.Errorf("amount %q is not a decimal major-unit amount", raw)
+	}
+	for _, part := range []string{wholeRaw, fractionRaw} {
+		for _, digit := range part {
+			if digit < '0' || digit > '9' {
+				return 0, fmt.Errorf("amount %q is not a decimal major-unit amount", raw)
+			}
+		}
+	}
+	if len(fractionRaw) > c.exponent {
+		return 0, fmt.Errorf("amount %q has more than %d decimal places for %s", raw, c.exponent, c.code)
+	}
+	whole, err := strconv.ParseInt(wholeRaw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("amount %q is outside the supported range", raw)
+	}
+	factor, err := c.MinorUnitsPerMajor()
+	if err != nil {
+		return 0, err
+	}
+	for len(fractionRaw) < c.exponent {
+		fractionRaw += "0"
+	}
+	var fraction int64
+	if fractionRaw != "" {
+		fraction, err = strconv.ParseInt(fractionRaw, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("amount %q is outside the supported range", raw)
+		}
+	}
+	maxInt64 := int64(^uint64(0) >> 1)
+	if whole > (maxInt64-fraction)/factor {
+		return 0, fmt.Errorf("amount %q is outside the supported range", raw)
+	}
+	return whole*factor + fraction, nil
 }
 
 // ---------------------------------------------------------------------------

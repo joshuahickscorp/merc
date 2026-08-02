@@ -114,7 +114,14 @@ func (s *Store) CreditPrepaidTopup(ctx context.Context, operationKey string, buy
 		charge.ReceivedCents <= 0 || charge.ReceivedCents != charge.RequestedCents || RequireSettlementCurrency(charge.Currency) != nil {
 		return fmt.Errorf("invalid prepaid top-up credit")
 	}
-	micros := charge.ReceivedCents * microUSDPerCent
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return err
+	}
+	micros, err := settlement.MinorToMicros(charge.ReceivedCents)
+	if err != nil {
+		return err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -280,14 +287,26 @@ func (s *Store) BeginPrepaidRefund(
 	if available <= 0 {
 		return prepaidRefundPlan{}, errInsufficientPrepaid
 	}
-	// Stripe refunds are integer cents; leftover micro-USD below 1¢ stays as dust
-	// on the balance until another top-up or debit absorbs it.
-	cents := available / microUSDPerCent
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	microsPerMinor, err := settlement.MicrosPerMinorUnit()
+	if err != nil {
+		return prepaidRefundPlan{}, err
+	}
+	// Stripe refunds are integer settlement minor units; fractional minor dust
+	// stays on the balance until another top-up or debit absorbs it.
+	cents := available / microsPerMinor
 	if cents <= 0 {
 		return prepaidRefundPlan{}, fmt.Errorf(
-			"unreserved prepaid balance %d micro-USD is below one cent and cannot be refunded via card rails", available)
+			"unreserved prepaid balance %d micros is below one %s minor unit and cannot be refunded via card rails",
+			available, settlement.Code())
 	}
-	refundMicros := cents * microUSDPerCent
+	refundMicros, err := settlement.MinorToMicros(cents)
+	if err != nil {
+		return prepaidRefundPlan{}, err
+	}
 	slices, err := planPrepaidRefundSlicesTx(ctx, tx, operationKey, buyerID, cents)
 	if err != nil {
 		return prepaidRefundPlan{}, err

@@ -69,7 +69,7 @@ table{width:100%;border-collapse:collapse;font:12px/1.45 ui-monospace,monospace}
       <div class="stack">
         <div id="card-panel" hidden><div id="card-element"></div><button id="save-card" type="button">save Stripe test card</button></div>
         <div class="actions"><button id="prepare-card" type="button">prepare card form</button><button id="billing-refresh" type="button">refresh balance</button></div>
-        <label>Top up, major currency units <input id="topup-amount" type="number" min="1" step="0.01" value="1.00"></label>
+        <label>Top up, exact settlement-currency major units <input id="topup-amount" type="number" min="25" step="0.01" value="25.00" inputmode="decimal"></label>
         <button id="topup" class="primary" type="button">top up in test mode</button>
         <p id="billing-status" class="status" aria-live="polite"></p><pre id="billing-output">Billing status not loaded.</pre>
       </div>
@@ -191,6 +191,8 @@ async function api(path,options={}){
 
 async function loadPublicConfig(){
   publicConfig=await api('/v1/public/config');byId('currency').textContent='settlement: '+String(publicConfig.settlement_currency||'unconfigured').toUpperCase();
+  const exponent={usd:2,cad:2,jpy:0}[String(publicConfig.settlement_currency||'').toLowerCase()];
+  if(exponent!==undefined){const topup=byId('topup-amount'),minimum=exponent===0?'25':'25.'+'0'.repeat(exponent);topup.step=exponent===0?'1':'0.'+'0'.repeat(exponent-1)+'1';topup.min=minimum;topup.value=minimum}
   const c=publicConfig.contacts||{},root=byId('contacts');root.textContent='';
   if(c.configured){
     for(const [label,href,text] of [['support','mailto:'+c.support_email,c.support_email],['security','mailto:'+c.security_email,c.security_email],['status',c.status_url,c.status_url],['terms',c.terms_url,c.terms_url],['privacy',c.privacy_url,c.privacy_url]]){const a=document.createElement('a');a.href=href;a.textContent=label+': '+text;root.append(a)}
@@ -217,7 +219,7 @@ byId('prepare-card').addEventListener('click',async()=>{try{
   byId('card-panel').hidden=false;status('billing-status','test card form ready')
 }catch(error){status('billing-status',error.message,'error')}});
 byId('save-card').addEventListener('click',async()=>{status('billing-status','saving test card…');try{const setup=await api('/v1/billing/setup',{method:'POST',body:'{}'});const result=await stripe.confirmCardSetup(setup.client_secret,{payment_method:{card:cardElement}});if(result.error)throw result.error;await refreshBilling();status('billing-status','test card saved','good')}catch(error){status('billing-status',error.message,'error')}});
-byId('topup').addEventListener('click',async()=>{status('billing-status','submitting capped test top-up…');try{const out=await api('/v1/billing/topup',{method:'POST',headers:{'Idempotency-Key':'buyer-web-'+crypto.randomUUID()},body:JSON.stringify({amount_usd:Number(byId('topup-amount').value)})});byId('billing-output').textContent=JSON.stringify(out,null,2);await refreshBilling();status('billing-status','top-up credited','good')}catch(error){status('billing-status',error.message,'error')}});
+byId('topup').addEventListener('click',async()=>{status('billing-status','submitting capped test top-up…');try{const currency=String(publicConfig?.settlement_currency||'').toLowerCase(),amountMajor=byId('topup-amount').value.trim();if(!currency)throw new Error('settlement currency is not configured');const out=await api('/v1/billing/topup',{method:'POST',headers:{'Idempotency-Key':'buyer-web-'+crypto.randomUUID()},body:JSON.stringify({amount_major:amountMajor,currency})});byId('billing-output').textContent=JSON.stringify(out,null,2);await refreshBilling();status('billing-status','top-up credited','good')}catch(error){status('billing-status',error.message,'error')}});
 
 async function refreshKeys(){const out=await api('/v1/keys'),body=byId('keys-body'),keys=out.keys||[];body.textContent='';for(const key of keys){const row=document.createElement('tr');for(const value of [key.name||'',key.masked||'',key.created_at||'']){const td=document.createElement('td');td.textContent=value;row.append(td)}const action=document.createElement('td'),button=document.createElement('button');button.textContent=key.revoked?'revoked':'revoke';button.disabled=Boolean(key.revoked);button.dataset.keyId=key.id;button.className='danger';action.append(button);row.append(action);body.append(row)}status('keys-status',`${keys.filter(key=>!key.revoked).length} active key(s); ${keys.filter(key=>key.revoked).length} revoked`,'good')}
 byId('keys-refresh').addEventListener('click',()=>refreshKeys().catch(error=>status('keys-status',error.message,'error')));
