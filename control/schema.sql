@@ -3666,6 +3666,18 @@ CREATE INDEX IF NOT EXISTS service_lease_offer_samples_liquidity_idx
     ON service_lease_offer_samples (runtime_profile_id,region,worker_declared_hw_class,observed_at DESC);
 CREATE INDEX IF NOT EXISTS service_lease_offer_samples_worker_idx
     ON service_lease_offer_samples (worker_id,runtime_profile_id,region,observed_at DESC);
+-- Samples are evidence, not a mutable projection. Retention is the only
+-- permitted delete; a rewrite would let a later offer refresh change the
+-- historical utilization/fill story that a liquidity receipt reports.
+CREATE OR REPLACE FUNCTION cx_refuse_service_lease_offer_sample_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'service lease offer sample % is immutable; record a new observation', OLD.id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS service_lease_offer_samples_append_only ON service_lease_offer_samples;
+CREATE TRIGGER service_lease_offer_samples_append_only
+    BEFORE UPDATE ON service_lease_offer_samples
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_service_lease_offer_sample_rewrite();
 
 CREATE TABLE IF NOT EXISTS service_leases (
     id                               UUID PRIMARY KEY,
