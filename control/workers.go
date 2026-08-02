@@ -295,6 +295,7 @@ func (wk *Workers) Run(ctx context.Context) {
 		{prefixStateSweepInterval, "prefix-state-retention", wk.sweepStalePrefixState},
 		{budgetStopInterval, "budget-stop-sweep", wk.sweepBudgetStops},
 		{realtimeRecoveryInterval, "realtime-contract-recovery", wk.recoverRealtimeContracts},
+		{realtimeRecoveryInterval, "realtime-settlement-intents", wk.settleRealtimeSettlementIntents},
 		{serviceLeaseRecoveryInterval, "service-lease-recovery", wk.recoverServiceLeases},
 		{noPeerWatchdogInterval, "no-peer-watchdog", wk.reapNoPeerWedged},
 		{overheadSweepInterval, overheadTickerName, wk.sweepExecutionOverhead},
@@ -1299,6 +1300,25 @@ func (wk *Workers) recoverRealtimeContracts(ctx context.Context) error {
 		metrics.realtimeRecovered.Add(int64(recovered))
 		metrics.realtimeFailed.Add(int64(recovered))
 		log.Printf("workers: recovered %d stale realtime execution contract(s)", recovered)
+	}
+	return nil
+}
+
+// settleRealtimeSettlementIntents retries pending stream settlements after a
+// delivered SSE response could not be finalized on the request path. Escalated
+// intents are logged as alerts rather than silently dropped.
+func (wk *Workers) settleRealtimeSettlementIntents(ctx context.Context) error {
+	settled, escalated, err := wk.store.SettlePendingRealtimeIntents(ctx, sweepBatch)
+	if err != nil {
+		return err
+	}
+	if settled > 0 {
+		metrics.realtimeVerified.Add(int64(settled))
+		log.Printf("workers: settled %d pending realtime settlement intent(s)", settled)
+	}
+	if escalated > 0 {
+		metrics.realtimeFinalizationErrors.Add(int64(escalated))
+		log.Printf("workers: ALERT escalated %d realtime settlement intent(s) after bounded retries", escalated)
 	}
 	return nil
 }

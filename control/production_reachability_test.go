@@ -338,6 +338,19 @@ var productionReachability = []reachabilityClaim{
 			"payment intent, currency, and minor-unit allocation before any provider operation.",
 	},
 	{
+		From:   "Store.ClaimPayout",
+		Target: "reserveBuyerTopupPayoutFunding",
+		Consequence: "realtime execution-contract supplier credits and fully-prepaid job credits would " +
+			"remain awaiting_funding forever even though the buyer already settled top-up cash that should " +
+			"back those liabilities.",
+	},
+	{
+		From:   "Workers.Run",
+		Target: "Store.SettlePendingRealtimeIntents",
+		Consequence: "a fully delivered SSE stream whose request-path finalize failed would never settle, " +
+			"leaving the buyer with free compute and the supplier unpaid.",
+	},
+	{
 		From:   "Workers.Run",
 		Target: "Store.DeleteOldFabricLinkMeasurements",
 		Consequence: "self-reported candidate-link observations would be retained indefinitely even " +

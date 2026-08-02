@@ -613,6 +613,100 @@ func (s *Store) DebitPrepaidForTask(ctx context.Context, buyerID, taskID uuid.UU
 	return tx.Commit(ctx)
 }
 
+func prepaidExecutionContractDebitRef(contractID uuid.UUID) string {
+	return "prepaid-execution-contract-" + contractID.String()
+}
+
+// maybeDebitPrepaidForRealtimeTx consumes prepaid for a settled realtime buyer
+// charge when free credit alone does not cover it. Free-credit sandbox charges
+// (grant fully covers the charge) stay ledger-only; prepaid top-ups are reduced
+// exactly like the task/service prepaid debit path, keyed by execution contract.
+func maybeDebitPrepaidForRealtimeTx(ctx context.Context, tx pgx.Tx, buyerID, contractID uuid.UUID, chargeMicros int64) error {
+	if buyerID == uuid.Nil || contractID == uuid.Nil || chargeMicros <= 0 {
+		return fmt.Errorf("realtime prepaid debit requires buyer, contract, and positive micros")
+	}
+	var freeCredit, spent float64
+	if err := tx.QueryRow(ctx, `
+		SELECT b.free_credit_usd::float8,
+		       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
+		                 WHERE le.buyer_id=b.id
+		                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8
+		  FROM buyers b WHERE b.id=$1 FOR UPDATE`, buyerID).
+		Scan(&freeCredit, &spent); err != nil {
+		return err
+	}
+	chargeUSD := microsToUSD(chargeMicros)
+	// spent already includes this contract's buyer_charge (written earlier in the
+	// same transaction). freeRemainingBefore is the grant available before it.
+	freeRemainingBefore := freeCredit - (spent - chargeUSD)
+	if freeRemainingBefore+1e-12 >= chargeUSD {
+		return nil
+	}
+	return debitPrepaidForExecutionContractTx(ctx, tx, buyerID, contractID, chargeMicros)
+}
+
+// debitPrepaidForExecutionContractTx is the realtime counterpart of task and
+// service-lease prepaid settlement. It is keyed by an immutable payout
+// reference because realtime charges have no task_id.
+func debitPrepaidForExecutionContractTx(ctx context.Context, tx pgx.Tx, buyerID, contractID uuid.UUID, amountMicros int64) error {
+	if buyerID == uuid.Nil || contractID == uuid.Nil || amountMicros <= 0 {
+		return fmt.Errorf("prepaid execution debit requires buyer, contract, and positive ledger micros")
+	}
+	ref := prepaidExecutionContractDebitRef(contractID)
+	var existingAmount int64
+	var existingBuyer *uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT (amount_usd*1000000)::bigint,buyer_id
+		FROM ledger_entries WHERE kind=$1 AND payout_ref=$2`, KindPrepaidDebit, ref).
+		Scan(&existingAmount, &existingBuyer)
+	if err == nil {
+		if existingAmount != -amountMicros || !sameOptionalUUID(existingBuyer, &buyerID) {
+			return fmt.Errorf("conflicting prepaid execution debit for contract %s", contractID)
+		}
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
+		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
+		return err
+	}
+	var balance int64
+	if err := tx.QueryRow(ctx, `SELECT balance_micros FROM buyer_prepaid_balances
+		WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&balance); err != nil {
+		return err
+	}
+	if balance < amountMicros {
+		return errInsufficientPrepaid
+	}
+	ct, err := tx.Exec(ctx, `UPDATE buyer_prepaid_balances
+		SET balance_micros=balance_micros-$2,updated_at=now()
+		WHERE buyer_id=$1 AND balance_micros >= $2`, buyerID, amountMicros)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() != 1 {
+		return errInsufficientPrepaid
+	}
+	buyer := buyerID
+	// Do not set ExecutionContractID: ledger_entries allows only one row per
+	// (execution_contract_id, kind), and buyer_charge already owns that slot.
+	// Idempotency is the immutable payout_ref, same as service-lease debits.
+	ct, err = insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
+		Kind: KindPrepaidDebit, BuyerID: &buyer,
+		AmountMicros: -amountMicros, PayoutStatus: PayoutReleased, PayoutRef: ref,
+	})
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		_, err = tx.Exec(ctx, `UPDATE buyer_prepaid_balances
+			SET balance_micros=balance_micros+$2,updated_at=now() WHERE buyer_id=$1`, buyerID, amountMicros)
+	}
+	return err
+}
+
 // creditPrepaidBalanceTx restores prepaid liability after a dispute (or other
 // internal) refund. It does not write a prepaid_topup cash row — the cash
 // already sat on the platform as prepaid liability that was spent and is now

@@ -143,33 +143,10 @@ func (s *Store) SubmitExactReuseBatchJob(
 		return fmt.Errorf("unquoted exact reuse cannot carry origin pricing authority")
 	}
 
-	// Fund gate (same shape as realtime): free credit or a payment method.
-	{
-		var freeCredit, spent, batchReserved, realtimeReserved float64
-		var hasPaymentMethod bool
-		err := tx.QueryRow(ctx, `
-			SELECT b.free_credit_usd::float8,
-			       EXISTS(SELECT 1 FROM billing_customers bc
-			               WHERE bc.buyer_id=b.id AND COALESCE(bc.default_payment_method,'')<>''),
-			       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
-			                 WHERE le.buyer_id=b.id
-			                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8,
-			       COALESCE((SELECT sum(j.estimated_usd) FROM jobs j
-			                 WHERE j.buyer_id=b.id AND j.status IN ('queued','running','verifying')),0)::float8,
-			       COALESCE((SELECT sum(c.maximum_price_usd) FROM execution_contracts c
-			                 WHERE c.buyer_id=b.id AND c.state='EXECUTING'),0)::float8
-			  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID).
-			Scan(&freeCredit, &hasPaymentMethod, &spent, &batchReserved, &realtimeReserved)
-		if errorsIsNotFound(err) {
-			return errNotFound
-		}
-		if err != nil {
-			return err
-		}
-		providerFunded := stripeKey() != "" && hasPaymentMethod
-		if !providerFunded && freeCredit-spent-batchReserved-realtimeReserved < buyerCharge {
-			return errRealtimeInsufficientFunds
-		}
+	// Fund gate (same shape as realtime): free credit + prepaid balance only.
+	// A saved card is a top-up rail, not admission funding.
+	if err := evaluateRealtimeBuyerFunding(ctx, tx, buyerID, buyerCharge); err != nil {
+		return err
 	}
 
 	// Copy the cached result to the job's output key so the buyer downloads
