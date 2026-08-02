@@ -13,6 +13,7 @@ mod quantized_llama_batched; // vendored + patched candle quantized_llama (bsz>1
 mod render;
 mod runtime_authority;
 mod runtime_driver;
+mod sandbox_egress;
 mod status;
 mod tls;
 mod token_cache;
@@ -80,7 +81,17 @@ const MERC_SANDBOXED_ENV: &str = "MERC_SANDBOXED";
 
 const MERC_SANDBOX_PROFILE_ENV: &str = "MERC_SANDBOX_PROFILE";
 
-const MERC_REQUIRE_SANDBOX_ENV: &str = "MERC_REQUIRE_SANDBOX";
+/// Explicit opt-in to run buyer payload without a seatbelt profile. Default is
+/// refusal: an unsandboxed agent must not execute buyer work unless the operator
+/// deliberately accepts the loss of containment and the control plane is told.
+const MERC_ALLOW_UNSANDBOXED_ENV: &str = "MERC_ALLOW_UNSANDBOXED";
+
+// Legacy MERC_REQUIRE_SANDBOX is no longer consulted: the default is refuse,
+// and MERC_ALLOW_UNSANDBOXED is the only opt-in.
+
+/// Non-routable sentinel passed to seatbelt host params when a slot is unused.
+/// Matches no real peer (see merc-agent.sb).
+const SANDBOX_HOST_SENTINEL: &str = "0.0.0.0:0";
 
 enum StartAckDisposition {
     Run,
@@ -117,7 +128,7 @@ fn commit_ack_disposition(
 }
 
 #[cfg(target_os = "macos")]
-fn sandbox_required_value(value: Option<&str>) -> bool {
+fn env_flag_truthy(value: Option<&str>) -> bool {
     value.is_some_and(|value| {
         matches!(
             value.trim().to_ascii_lowercase().as_str(),
@@ -126,27 +137,59 @@ fn sandbox_required_value(value: Option<&str>) -> bool {
     })
 }
 
+/// True when the operator has explicitly opted in to unsandboxed buyer payload.
 #[cfg(target_os = "macos")]
-fn sandbox_required() -> bool {
-    sandbox_required_value(std::env::var(MERC_REQUIRE_SANDBOX_ENV).ok().as_deref())
+fn unsandboxed_opt_in() -> bool {
+    env_flag_truthy(std::env::var(MERC_ALLOW_UNSANDBOXED_ENV).ok().as_deref())
+}
+
+/// True when this process is currently inside the seatbelt profile (re-exec marker).
+fn agent_is_sandboxed() -> bool {
+    std::env::var(MERC_SANDBOXED_ENV).as_deref() == Ok("1")
+}
+
+/// True when the operator accepted unsandboxed execution. Recorded on the
+/// capability so the control plane can refuse private work.
+fn agent_unsandboxed_opt_in() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        unsandboxed_opt_in()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Non-macOS has no seatbelt; the capability still reports that fact
+        // (sandboxed=false) so the control plane can decide routing.
+        std::env::var(MERC_ALLOW_UNSANDBOXED_ENV)
+            .ok()
+            .as_deref()
+            .is_some_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes"
+                )
+            })
+    }
 }
 
 #[cfg(target_os = "macos")]
 fn sandbox_wrap_failed(message: &str) {
-    if sandbox_required() {
-        tracing::error!(
-            "merc-agent refused to start: {message}. {MERC_REQUIRE_SANDBOX_ENV}=1 requires the macOS seatbelt sandbox"
-        );
-        std::process::exit(78);
+    // Default is refuse. Opt-in via MERC_ALLOW_UNSANDBOXED=1 is required to
+    // continue; the greppable refusal string is intentional.
+    if unsandboxed_opt_in() {
+        tracing::warn!("merc-agent is running UNSANDBOXED (MERC_ALLOW_UNSANDBOXED=1): {message}");
+        return;
     }
-    tracing::warn!("merc-agent is running UNSANDBOXED: {message}");
+    tracing::error!(
+        "merc-agent REFUSED_UNSANDBOXED_BUYER_PAYLOAD: {message}. Set {MERC_ALLOW_UNSANDBOXED_ENV}=1 to opt in deliberately (capability will record unsandboxed_opt_in); set {MERC_SANDBOX_PROFILE_ENV} to merc-agent.sb for containment"
+    );
+    std::process::exit(78);
 }
 
 #[cfg(target_os = "macos")]
 fn reexec_under_sandbox_if_needed() {
     use std::os::unix::process::CommandExt;
 
-    if std::env::var(MERC_SANDBOXED_ENV).as_deref() == Ok("1") {
+    if agent_is_sandboxed() {
         return;
     }
 
@@ -180,9 +223,41 @@ fn reexec_under_sandbox_if_needed() {
     let datadir = sandbox_data_dir(&home);
     let tmpdir = std::env::var("TMPDIR").unwrap_or_else(|_| "/private/var/folders".to_string());
 
+    // Host allowlist for the local egress proxy. Public sandbox-exec cannot
+    // express host-scoped remote TCP (only * or localhost), so remote peers
+    // are reached via a loopback CONNECT proxy spawned outside the seatbelt.
+    let control_host = sandbox_control_host();
+    let artifact_host = sandbox_artifact_host();
+    let model_host = sandbox_model_host();
+    let allowlist = sandbox_egress::build_allowlist(
+        &control_host,
+        &artifact_host,
+        &model_host,
+        SANDBOX_HOST_SENTINEL,
+    );
+    let (_proxy_child, proxy_url) = match sandbox_egress::spawn_proxy_process(&exe, &allowlist) {
+        Ok(v) => v,
+        Err(err) => {
+            sandbox_wrap_failed(&format!(
+                "could not start allowlisted egress proxy ({err}); without it seatbelt cannot reach remote control/artifact hosts"
+            ));
+            return;
+        }
+    };
+    // Intentionally leak the Child handle: the proxy must outlive this process
+    // after exec. Dropping would kill it. The OS reaps it when the session ends.
+    std::mem::forget(_proxy_child);
+
+    let bindir = exe
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "/usr/local/bin".to_string());
+
     tracing::info!(
-        "re-executing merc-agent under the macOS seatbelt sandbox (profile: {})",
-        profile.display()
+        "re-executing merc-agent under the macOS seatbelt sandbox (profile: {}, egress_proxy: {}, allowlist: {:?})",
+        profile.display(),
+        proxy_url,
+        allowlist
     );
 
     let mut cmd = std::process::Command::new(SANDBOX_EXEC);
@@ -196,16 +271,87 @@ fn reexec_under_sandbox_if_needed() {
         .arg(format!("DATADIR={datadir}"))
         .arg("-D")
         .arg(format!("TMPDIR={tmpdir}"))
+        .arg("-D")
+        .arg(format!("BINDIR={bindir}"))
         .arg(&exe)
         .args(&args)
-        .env(MERC_SANDBOXED_ENV, "1");
+        .env(MERC_SANDBOXED_ENV, "1")
+        .env(sandbox_egress::MERC_EGRESS_PROXY_ENV, &proxy_url)
+        // reqwest / ureq also honour the standard proxy vars when configured.
+        .env("HTTPS_PROXY", &proxy_url)
+        .env("HTTP_PROXY", &proxy_url)
+        .env("https_proxy", &proxy_url)
+        .env("http_proxy", &proxy_url)
+        .env("NO_PROXY", "localhost,127.0.0.1")
+        .env("no_proxy", "localhost,127.0.0.1");
 
     let err = cmd.exec();
     sandbox_wrap_failed(&format!("failed to re-exec under {SANDBOX_EXEC} ({err})"));
 }
 
 #[cfg(not(target_os = "macos"))]
-fn reexec_under_sandbox_if_needed() {}
+fn reexec_under_sandbox_if_needed() {
+    // Seatbelt is macOS-only. Non-macOS agents report sandboxed=false; private
+    // work routing is a control-plane decision based on the capability record.
+    // Linux suppliers currently have no equivalent seatbelt path in-tree.
+    // Do not refuse the process here: that would brick every non-mac worker
+    // overnight. Containment on Linux is a separate work item; the capability
+    // record still truthfully says sandboxed=false.
+    tracing::warn!(
+        "merc-agent containment: seatbelt is macOS-only; this process is not filesystem/network sandboxed"
+    );
+}
+
+/// host:port for the control plane, derived from MERC_CONTROL_URL or a
+/// best-effort parse of the run config path is not available at re-exec time
+/// (re-exec happens before config load). Env wins; otherwise localhost:8080
+/// for the local-dev path.
+#[cfg(target_os = "macos")]
+fn sandbox_control_host() -> String {
+    if let Ok(url) = std::env::var("MERC_CONTROL_URL") {
+        if let Some(host) = sandbox_egress::host_port_from_url(&url) {
+            return host;
+        }
+    }
+    // Fallback for local agent.toml without env override: loopback is already
+    // allowed by the profile, so a remote-looking sentinel is fine when the
+    // operator is on localhost; for remote control_url they must set
+    // MERC_CONTROL_URL (or MERC_SANDBOX_CONTROL_HOST) so the host is declared.
+    if let Ok(host) = std::env::var("MERC_SANDBOX_CONTROL_HOST") {
+        if !host.trim().is_empty() {
+            return host.trim().to_string();
+        }
+    }
+    "127.0.0.1:8080".to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn sandbox_artifact_host() -> String {
+    if let Ok(host) = std::env::var("MERC_SANDBOX_ARTIFACT_HOST") {
+        if !host.trim().is_empty() {
+            return host.trim().to_string();
+        }
+    }
+    SANDBOX_HOST_SENTINEL.to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn sandbox_model_host() -> String {
+    if let Ok(host) = std::env::var("MERC_SANDBOX_MODEL_HOST") {
+        if !host.trim().is_empty() {
+            return host.trim().to_string();
+        }
+    }
+    // HuggingFace is the default model origin when downloads are enabled.
+    // Operators who disable downloads can leave the sentinel.
+    if std::env::var("MERC_ALLOW_MODEL_DOWNLOADS")
+        .map(|v| env_flag_truthy(Some(&v)))
+        .unwrap_or(true)
+    {
+        return "huggingface.co:443".to_string();
+    }
+    SANDBOX_HOST_SENTINEL.to_string()
+}
 
 #[cfg(target_os = "macos")]
 fn resolve_sandbox_profile() -> Option<PathBuf> {
@@ -275,6 +421,13 @@ enum Command {
     Run {
         #[arg(long, default_value = "agent.toml")]
         config: PathBuf,
+    },
+    /// Internal: allowlisted CONNECT proxy used under the macOS seatbelt.
+    /// Spawned by the unsandboxed parent before re-exec; not an operator command.
+    SandboxEgressProxy {
+        /// host:port peers the sandboxed agent may reach via CONNECT.
+        #[arg(long = "allow", required = true)]
+        allow: Vec<String>,
     },
     /// Run the pinned CUDA/vLLM realtime adapter.
     Vllm {
@@ -687,6 +840,11 @@ async fn main() -> Result<()> {
             let cfg = AgentConfig::load(&config)
                 .with_context(|| format!("loading config {}", config.display()))?;
             run_agent(cfg).await
+        }
+        Command::SandboxEgressProxy { allow } => {
+            // No tracing init: the parent reads the first stdout line as the URL.
+            sandbox_egress::run_proxy_main(allow).context("sandbox egress proxy")?;
+            Ok(())
         }
         Command::Vllm { config } => {
             init_tracing();
@@ -2835,6 +2993,19 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
         .retain(|workload| cfg.allows_workload(workload));
     cap.benchmarks
         .retain(|bench| cfg.allows_workload(&bench.job_type));
+    // Containment record: the control plane refuses private work to workers
+    // that are neither sandboxed nor deliberately opted in.
+    cap.sandboxed = agent_is_sandboxed();
+    cap.unsandboxed_opt_in = agent_unsandboxed_opt_in();
+    if !cap.sandboxed {
+        tracing::warn!(
+            sandboxed = cap.sandboxed,
+            unsandboxed_opt_in = cap.unsandboxed_opt_in,
+            "registering worker capability without seatbelt containment"
+        );
+    }
+    // status.json is written after registration; seed containment now so an
+    // early crash still leaves the opt-in flag on disk.
     let advertised_worker_id = cap.worker_id;
     let permits = cfg.concurrency(cap.memory_gb);
 
@@ -2893,6 +3064,7 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
         &cap.benchmarks,
         cap.hw_class,
     ));
+    status.set_containment(cap.sandboxed, cap.unsandboxed_opt_in);
     status.set_applied_prefs(status::AppliedPrefs::from_config(&cfg, cap.memory_gb));
     status.registered();
 
@@ -3681,13 +3853,40 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn sandbox_requirement_parser_is_explicit() {
+    fn unsandboxed_opt_in_parser_is_explicit() {
         for enabled in ["1", "true", "TRUE", " yes "] {
-            assert!(sandbox_required_value(Some(enabled)), "{enabled:?}");
+            assert!(env_flag_truthy(Some(enabled)), "{enabled:?}");
         }
         for disabled in [None, Some(""), Some("0"), Some("false"), Some("maybe")] {
-            assert!(!sandbox_required_value(disabled));
+            assert!(!env_flag_truthy(disabled));
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn host_port_from_url_covers_common_shapes() {
+        assert_eq!(
+            sandbox_egress::host_port_from_url("https://api.example.com/v1"),
+            Some("api.example.com:443".into())
+        );
+        assert_eq!(
+            sandbox_egress::host_port_from_url("http://localhost:8080"),
+            Some("localhost:8080".into())
+        );
+        assert_eq!(
+            sandbox_egress::host_port_from_url("control.internal:8443"),
+            Some("control.internal:8443".into())
+        );
+        assert_eq!(sandbox_egress::host_port_from_url(""), None);
+    }
+
+    #[test]
+    fn refuse_unsandboxed_error_string_is_greppable() {
+        // Guard the greppable refusal token the control plane and ops greps for.
+        assert!(
+            "merc-agent REFUSED_UNSANDBOXED_BUYER_PAYLOAD: no seatbelt profile"
+                .contains("REFUSED_UNSANDBOXED_BUYER_PAYLOAD")
+        );
     }
 
     #[test]

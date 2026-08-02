@@ -213,6 +213,10 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 			j.ComputePlan.PrimaryTasks, j.ComputePlan.RedundancyTasks, j.ComputePlan.HoneypotTasks,
 		)
 	}
+	// Independence is enforced at claim (linked suppliers filtered) and at
+	// verification settlement (same-supplier / no-independent-supplier fails
+	// closed). Submit does not require an independent supplier to already be
+	// online — the queue may wait.
 	if j.SplitSize != j.ComputePlan.SplitSize {
 		return fmt.Errorf("job split_size=%d does not match compute plan %d", j.SplitSize, j.ComputePlan.SplitSize)
 	}
