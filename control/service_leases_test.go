@@ -156,7 +156,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, workerToken := newFabricMeasurementWorker(t, ctx, store)
+	primaryWorker, workerToken := newFabricMeasurementWorker(t, ctx, store)
 	profile := sortedVLLMProfiles()[0]
 	handler := NewServer(store, nil, nil, nil).Routes()
 
@@ -337,6 +337,51 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	completedReceipt, err := store.GetServiceLeaseReceipt(ctx, buyerID, lease.ID)
 	if err != nil || completedReceipt.Lease.State != "COMPLETED" || completedReceipt.Lease.FinalizedAt == nil {
 		t.Fatalf("completed lease receipt=%+v err=%v", completedReceipt, err)
+	}
+	if completedReceipt.Settlement == nil ||
+		completedReceipt.BuyerFundingState != "PREPAID_FINAL_DEBIT_RECORDED" ||
+		completedReceipt.SupplierSettlementState != "SUPPLIER_CREDIT_HELD_PREPAID_COLLECTION_ALLOCATION_REQUIRED" ||
+		completedReceipt.Settlement.Currency != "cad" ||
+		completedReceipt.Settlement.BuyerChargeMicros != completedReceipt.Settlement.PrepaidDebitMicros ||
+		completedReceipt.Settlement.BuyerChargeMicros != completedReceipt.Settlement.SupplierCreditMicros+completedReceipt.Settlement.PlatformGrossMicros ||
+		completedReceipt.Settlement.SupplierPayoutStatus != PayoutHeld ||
+		completedReceipt.Settlement.FundingAuthorityState != "PREPAID_CASH_COLLECTED_BUT_PAYOUT_COLLECTION_ALLOCATION_NOT_IMPLEMENTED" {
+		t.Fatalf("completed service receipt overclaimed or lost terminal money: %+v", completedReceipt)
+	}
+	var supplierPayableNanos int64
+	creditedSuppliers := map[uuid.UUID]bool{}
+	for _, credit := range completedReceipt.Settlement.SupplierCredits {
+		supplierPayableNanos += credit.PayableNanos
+		creditedSuppliers[credit.SupplierID] = credit.CreditMicros > 0 && credit.PayoutStatus == PayoutHeld
+	}
+	if supplierPayableNanos != completedReceipt.Lease.SupplierPayableNanos ||
+		len(creditedSuppliers) != 2 || !creditedSuppliers[primaryWorker.SupplierID] || !creditedSuppliers[fallback.SupplierID] {
+		t.Fatalf("service failover payout was not attributed to each metered supplier: %+v", completedReceipt.Settlement.SupplierCredits)
+	}
+	wantBuyerMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: MustParseCurrency("cad"), Nanos: completedReceipt.Lease.BuyerChargeNanos})
+	if err != nil || completedReceipt.Settlement.BuyerChargeMicros != wantBuyerMicros || wantBuyerMicros <= 0 {
+		t.Fatalf("terminal buyer projection=%d receipt=%+v err=%v", wantBuyerMicros, completedReceipt.Settlement, err)
+	}
+	terminalRefs := []string{
+		serviceLeaseLedgerRef(lease.ID, KindBuyerCharge), prepaidServiceLeaseDebitRef(lease.ID),
+		serviceLeaseLedgerRef(lease.ID, KindPlatformTake),
+	}
+	for _, credit := range completedReceipt.Settlement.SupplierCredits {
+		terminalRefs = append(terminalRefs, serviceLeaseSupplierCreditLedgerRef(lease.ID, credit.SupplierID))
+	}
+	var terminalLedgerRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE payout_ref=ANY($1)`, terminalRefs).Scan(&terminalLedgerRows); err != nil || terminalLedgerRows != len(terminalRefs) {
+		t.Fatalf("terminal service ledger rows=%d err=%v, want %d exact rows", terminalLedgerRows, err, len(terminalRefs))
+	}
+	if completed, err := store.FinalizeExpiredServiceLeases(ctx, 10); err != nil || completed != 0 {
+		t.Fatalf("terminal service settlement replay completed=%d err=%v", completed, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE payout_ref=ANY($1)`, terminalRefs).Scan(&terminalLedgerRows); err != nil || terminalLedgerRows != len(terminalRefs) {
+		t.Fatalf("terminal service replay created duplicate ledger rows=%d err=%v", terminalLedgerRows, err)
+	}
+	availableAfterSettlement, err := store.BuyerPrepaidAvailableMicros(ctx, buyerID)
+	if err != nil || availableAfterSettlement != 1_000_000-wantBuyerMicros {
+		t.Fatalf("terminal service balance=%d err=%v, want %d", availableAfterSettlement, err, 1_000_000-wantBuyerMicros)
 	}
 
 	// A different buyer cannot inspect the lease, even though all receipt data is

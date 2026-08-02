@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -125,7 +127,190 @@ type ServiceLeaseReceipt struct {
 	DataPlaneAuthorityStatus  string                   `json:"data_plane_authority_status"`
 	ResidencyAuthorityStatus  string                   `json:"residency_authority_status"`
 	MeteringSemantics         string                   `json:"metering_semantics"`
+	Settlement                *ServiceLeaseSettlement  `json:"settlement,omitempty"`
 	LatestSLOEvidence         *ServiceLeaseSLOEvidence `json:"latest_slo_evidence,omitempty"`
+}
+
+// ServiceLeaseSettlement is the terminal ledger projection of the cumulative
+// meter. PlatformGrossMicros intentionally includes known residency/control/
+// risk costs as well as contribution; it is not a claim about true net Merc
+// contribution after processor fees.
+type ServiceLeaseSettlement struct {
+	Currency              string                       `json:"currency"`
+	BuyerChargeMicros     int64                        `json:"buyer_charge_micros"`
+	PrepaidDebitMicros    int64                        `json:"prepaid_debit_micros"`
+	SupplierCreditMicros  int64                        `json:"supplier_credit_micros"`
+	PlatformGrossMicros   int64                        `json:"platform_gross_micros"`
+	SupplierPayoutStatus  string                       `json:"supplier_payout_status"`
+	FundingAuthorityState string                       `json:"funding_authority_state"`
+	SupplierCredits       []ServiceLeaseSupplierCredit `json:"supplier_credits"`
+}
+
+// ServiceLeaseSupplierCredit preserves the per-supplier terminal projection.
+// Its sum is SupplierCreditMicros; each amount is projected once from that
+// supplier's complete metered duration, never from a rounded heartbeat delta.
+type ServiceLeaseSupplierCredit struct {
+	SupplierID   uuid.UUID `json:"supplier_id"`
+	CreditMicros int64     `json:"credit_micros"`
+	PayoutStatus string    `json:"payout_status"`
+	PayableNanos int64     `json:"payable_nanos"`
+}
+
+func serviceLeaseLedgerRef(leaseID uuid.UUID, kind string) string {
+	return "service-lease-ledger-" + leaseID.String() + ":" + kind
+}
+
+func serviceLeaseSupplierCreditLedgerRef(leaseID, supplierID uuid.UUID) string {
+	return serviceLeaseLedgerRef(leaseID, KindSupplierCredit) + ":" + supplierID.String()
+}
+
+// insertServiceLeaseLedgerEntryTx provides idempotence for a service ledger
+// row without fabricating a task. The existing task/kind unique key cannot be
+// used here because service leases are long-running capacity commitments, not
+// batch tasks. Payout references are opaque immutable identifiers and are also
+// how the receipt reassembles the terminal buyer/prepaid/platform and
+// per-supplier records.
+func insertServiceLeaseLedgerEntryTx(ctx context.Context, tx pgx.Tx, leaseID uuid.UUID, reference string, entry ledgerInsert) error {
+	if leaseID == uuid.Nil {
+		return errors.New("service ledger entry requires a lease")
+	}
+	if reference == "" {
+		return errors.New("service ledger entry requires an immutable reference")
+	}
+	entry.PayoutRef = reference
+	ct, err := insertLedgerEntryIfAbsentByRefTx(ctx, tx, entry)
+	if err != nil || ct.RowsAffected() == 1 {
+		return err
+	}
+	resolved, err := resolveLedgerInsert(entry)
+	if err != nil {
+		return err
+	}
+	var (
+		amountMicros        int64
+		buyerID, supplierID *uuid.UUID
+		currency            string
+	)
+	if err := tx.QueryRow(ctx, `SELECT (amount_usd*1000000)::bigint,buyer_id,supplier_id,currency
+		FROM ledger_entries WHERE kind=$1 AND payout_ref=$2`, resolved.Kind, resolved.PayoutRef).
+		Scan(&amountMicros, &buyerID, &supplierID, &currency); err != nil {
+		return err
+	}
+	if amountMicros != resolved.AmountMicros || !sameOptionalUUID(buyerID, resolved.BuyerID) ||
+		!sameOptionalUUID(supplierID, resolved.SupplierID) || currency != resolved.Currency {
+		return fmt.Errorf("conflicting terminal service ledger entry %s for lease %s", resolved.Kind, leaseID)
+	}
+	return nil
+}
+
+// settleFinalServiceLeaseTx records terminal service money exactly once. The
+// cumulative PricingDecision is projected once at ledger precision, never once
+// per heartbeat, so micro-rounding cannot turn a legal ceiling into a hidden
+// subsidy or an overcharge. Supplier credit is deliberately held: collected
+// prepaid cash is real buyer funding, but the payout rail has not yet bound a
+// particular top-up collection to this service liability.
+func settleFinalServiceLeaseTx(ctx context.Context, tx pgx.Tx, lease *ServiceLease) error {
+	if lease == nil || lease.ID == uuid.Nil || lease.ReservedBuyerMicros <= 0 {
+		return nil // historical/unfunded leases must not acquire invented cash facts.
+	}
+	currency, err := ParseCurrency(lease.Pricing.Currency)
+	if err != nil {
+		return fmt.Errorf("service settlement currency: %w", err)
+	}
+	buyerMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: currency, Nanos: lease.BuyerChargeNanos})
+	if err != nil {
+		return err
+	}
+	payables, err := serviceLeaseSupplierPayables(ctx, tx, lease.ID)
+	if err != nil {
+		return err
+	}
+	var payableNanos, supplierMicros int64
+	for _, payable := range payables {
+		if payable.PayableNanos > int64(^uint64(0)>>1)-payableNanos {
+			return errors.New("service supplier payable attribution overflow")
+		}
+		payableNanos += payable.PayableNanos
+		if payable.PayableNanos == 0 {
+			continue
+		}
+		creditMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: currency, Nanos: payable.PayableNanos})
+		if err != nil {
+			return err
+		}
+		if creditMicros <= 0 || creditMicros > int64(^uint64(0)>>1)-supplierMicros {
+			return errors.New("service supplier ledger projection is invalid")
+		}
+		supplierMicros += creditMicros
+		supplier := payable.SupplierID
+		if err := insertServiceLeaseLedgerEntryTx(ctx, tx, lease.ID,
+			serviceLeaseSupplierCreditLedgerRef(lease.ID, supplier), ledgerInsert{
+				Kind: KindSupplierCredit, SupplierID: &supplier, AmountMicros: creditMicros,
+				Currency: currency.Code(), PayoutStatus: PayoutHeld,
+				ReleaseAt: ptrTime(payoutReleaseAt(time.Now().UTC(), 0)),
+			}); err != nil {
+			return err
+		}
+	}
+	if payableNanos != lease.SupplierPayableNanos || buyerMicros <= 0 || supplierMicros <= 0 ||
+		supplierMicros > buyerMicros || buyerMicros > lease.ReservedBuyerMicros {
+		return fmt.Errorf("service terminal ledger projection violates frozen prepaid or supplier bounds: buyer=%d supplier=%d reserved=%d attributed_nanos=%d aggregate_nanos=%d",
+			buyerMicros, supplierMicros, lease.ReservedBuyerMicros, payableNanos, lease.SupplierPayableNanos)
+	}
+	platformMicros := buyerMicros - supplierMicros
+	if platformMicros < 0 {
+		return errors.New("service terminal ledger projection has negative platform gross")
+	}
+	buyer := lease.BuyerID
+	if err := insertServiceLeaseLedgerEntryTx(ctx, tx, lease.ID, serviceLeaseLedgerRef(lease.ID, KindBuyerCharge), ledgerInsert{
+		Kind: KindBuyerCharge, BuyerID: &buyer, AmountMicros: -buyerMicros,
+		Currency: currency.Code(), PayoutStatus: PayoutReleased,
+	}); err != nil {
+		return err
+	}
+	if err := debitPrepaidForServiceLeaseTx(ctx, tx, buyer, lease.ID, buyerMicros); err != nil {
+		return err
+	}
+	return insertServiceLeaseLedgerEntryTx(ctx, tx, lease.ID, serviceLeaseLedgerRef(lease.ID, KindPlatformTake), ledgerInsert{
+		Kind: KindPlatformTake, AmountMicros: platformMicros,
+		Currency: currency.Code(), PayoutStatus: PayoutReleased,
+	})
+}
+
+func ptrTime(value time.Time) *time.Time { return &value }
+
+type serviceLeaseSupplierPayable struct {
+	SupplierID   uuid.UUID
+	PayableNanos int64
+}
+
+type serviceLeaseMeterReader interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+// serviceLeaseSupplierPayables reconstructs the payout split exclusively from
+// append-only meter deltas. A lease may change workers during failover; its
+// mutable current supplier must never be used to attribute earlier runtime.
+func serviceLeaseSupplierPayables(ctx context.Context, db serviceLeaseMeterReader, leaseID uuid.UUID) ([]serviceLeaseSupplierPayable, error) {
+	rows, err := db.Query(ctx, `SELECT supplier_id,COALESCE(sum(supplier_payable_delta_nanos),0)::bigint
+		FROM service_lease_supplier_meterings WHERE lease_id=$1
+		GROUP BY supplier_id ORDER BY supplier_id`, leaseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	payables := make([]serviceLeaseSupplierPayable, 0)
+	for rows.Next() {
+		var payable serviceLeaseSupplierPayable
+		if err := rows.Scan(&payable.SupplierID, &payable.PayableNanos); err != nil {
+			return nil, err
+		}
+		if payable.SupplierID == uuid.Nil || payable.PayableNanos < 0 {
+			return nil, errors.New("service supplier meter contains invalid payable attribution")
+		}
+		payables = append(payables, payable)
+	}
+	return payables, rows.Err()
 }
 
 func validateServiceLeaseOffer(reg ServiceLeaseOfferRegistration) (VLLMRuntimeProfile, error) {
@@ -428,6 +613,15 @@ func meterServiceLeaseTx(ctx context.Context, tx pgx.Tx, lease *ServiceLease, at
 		money.BuyerCharge.Nanos, money.SupplierPayable.Nanos, variable, money.MercContribution.Nanos); err != nil {
 		return err
 	}
+	supplierDelta := money.SupplierPayable.Nanos - lease.SupplierPayableNanos
+	if supplierDelta < 0 {
+		return errors.New("service lease supplier payable moved backward")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_supplier_meterings
+		(lease_id,sequence,supplier_id,supplier_payable_delta_nanos)
+		VALUES ($1,$2,$3,$4)`, lease.ID, sequence, lease.SupplierID, supplierDelta); err != nil {
+		return err
+	}
 	lease.LastMeteredAt, lease.BuyerChargeNanos, lease.SupplierPayableNanos = at, money.BuyerCharge.Nanos, money.SupplierPayable.Nanos
 	lease.KnownVariableCostNanos, lease.KnownContributionNanos = variable, money.MercContribution.Nanos
 	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail)
@@ -544,6 +738,32 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		TrueNetContributionStatus: "UNKNOWN_PROCESSOR_FEE_UNALLOCATED", DataPlaneAuthorityStatus: "NOT_PROVEN_BY_CONTROL_PLANE",
 		ResidencyAuthorityStatus: "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY",
 		MeteringSemantics:        "cumulative replica-nanoseconds; each receipt is re-derived from lease start"}
+	if lease.State == "COMPLETED" && lease.ReservedBuyerMicros > 0 {
+		settlement, serr := s.serviceLeaseTerminalSettlement(ctx, lease)
+		if serr != nil {
+			return ServiceLeaseReceipt{}, serr
+		}
+		if settlement == nil {
+			// A row can exist from before terminal ledger settlement was added.
+			// Do not retroactively debit it: no stored cash fact proves that was
+			// still the buyer's balance. The receipt says exactly what is missing.
+			receipt.BuyerFundingState = "PREPAID_TERMINAL_SETTLEMENT_MISSING_LEGACY"
+			receipt.SupplierSettlementState = "ACCRUED_PREPAID_RESERVED_UNSETTLED"
+		} else {
+			receipt.Settlement = settlement
+			receipt.BuyerFundingState = "PREPAID_FINAL_DEBIT_RECORDED"
+			switch settlement.SupplierPayoutStatus {
+			case PayoutHeld:
+				receipt.SupplierSettlementState = "SUPPLIER_CREDIT_HELD_PREPAID_COLLECTION_ALLOCATION_REQUIRED"
+			case PayoutAwaitingFunding:
+				receipt.SupplierSettlementState = "SUPPLIER_CREDIT_AWAITING_PREPAID_COLLECTION_ALLOCATION"
+			case PayoutCarried:
+				receipt.SupplierSettlementState = "SUPPLIER_CREDIT_CARRIED_PENDING_PREPAID_COLLECTION_ALLOCATION"
+			default:
+				receipt.SupplierSettlementState = "SUPPLIER_CREDIT_TERMINAL_STATUS_" + settlement.SupplierPayoutStatus
+			}
+		}
+	}
 	var evidence ServiceLeaseSLOEvidence
 	err = s.pool.QueryRow(ctx, `SELECT
 		(detail->>'p95_latency_milliseconds')::bigint,
@@ -561,6 +781,110 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		return ServiceLeaseReceipt{}, err
 	}
 	return receipt, nil
+}
+
+// serviceLeaseTerminalSettlement reassembles immutable buyer, prepaid,
+// platform, and per-supplier entries written by settleFinalServiceLeaseTx. It
+// refuses a partial or cross-currency set rather than displaying a receipt that
+// looks paid while one component is missing. This query is deliberately
+// independent of mutable lease aggregates.
+func (s *Store) serviceLeaseTerminalSettlement(ctx context.Context, lease ServiceLease) (*ServiceLeaseSettlement, error) {
+	payables, err := serviceLeaseSupplierPayables(ctx, s.pool, lease.ID)
+	if err != nil {
+		return nil, err
+	}
+	payableBySupplier := make(map[uuid.UUID]int64, len(payables))
+	for _, payable := range payables {
+		if payable.PayableNanos > 0 {
+			payableBySupplier[payable.SupplierID] = payable.PayableNanos
+		}
+	}
+	refs := []string{
+		serviceLeaseLedgerRef(lease.ID, KindBuyerCharge),
+		prepaidServiceLeaseDebitRef(lease.ID),
+		serviceLeaseLedgerRef(lease.ID, KindPlatformTake),
+	}
+	for supplierID := range payableBySupplier {
+		refs = append(refs, serviceLeaseSupplierCreditLedgerRef(lease.ID, supplierID))
+	}
+	rows, err := s.pool.Query(ctx, `SELECT kind,(amount_usd*1000000)::bigint,currency,payout_status,payout_ref,supplier_id
+		FROM ledger_entries WHERE payout_ref=ANY($1)`, refs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type ledgerFact struct {
+		amount   int64
+		status   string
+		ref      string
+		supplier *uuid.UUID
+	}
+	facts := make(map[string]ledgerFact, len(refs))
+	currency := ""
+	for rows.Next() {
+		var kind, rowCurrency, status, ref string
+		var supplierID *uuid.UUID
+		var amount int64
+		if err := rows.Scan(&kind, &amount, &rowCurrency, &status, &ref, &supplierID); err != nil {
+			return nil, err
+		}
+		if rowCurrency != lease.Pricing.Currency {
+			return nil, fmt.Errorf("service lease %s terminal ledger currency %s differs from pricing currency %s", lease.ID, rowCurrency, lease.Pricing.Currency)
+		}
+		if currency == "" {
+			currency = rowCurrency
+		} else if currency != rowCurrency {
+			return nil, fmt.Errorf("service lease %s terminal ledger mixes currencies", lease.ID)
+		}
+		key := kind + "\x00" + ref
+		if _, exists := facts[key]; exists {
+			return nil, fmt.Errorf("service lease %s terminal ledger repeats %s", lease.ID, key)
+		}
+		facts[key] = ledgerFact{amount: amount, status: status, ref: ref, supplier: supplierID}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(facts) == 0 {
+		return nil, nil
+	}
+	buyer, buyerOK := facts[KindBuyerCharge+"\x00"+serviceLeaseLedgerRef(lease.ID, KindBuyerCharge)]
+	debit, debitOK := facts[KindPrepaidDebit+"\x00"+prepaidServiceLeaseDebitRef(lease.ID)]
+	platform, platformOK := facts[KindPlatformTake+"\x00"+serviceLeaseLedgerRef(lease.ID, KindPlatformTake)]
+	if !buyerOK || !debitOK || !platformOK || currency == "" ||
+		buyer.amount >= 0 || debit.amount >= 0 || platform.amount < 0 || buyer.amount != debit.amount {
+		return nil, fmt.Errorf("service lease %s terminal ledger is incomplete or not conserved", lease.ID)
+	}
+	credits := make([]ServiceLeaseSupplierCredit, 0, len(payableBySupplier))
+	var supplierMicros int64
+	uniformStatus := ""
+	for supplierID, payableNanos := range payableBySupplier {
+		row, ok := facts[KindSupplierCredit+"\x00"+serviceLeaseSupplierCreditLedgerRef(lease.ID, supplierID)]
+		if !ok || row.supplier == nil || *row.supplier != supplierID || row.amount <= 0 ||
+			supplierMicros > int64(^uint64(0)>>1)-row.amount {
+			return nil, fmt.Errorf("service lease %s terminal supplier ledger is incomplete", lease.ID)
+		}
+		supplierMicros += row.amount
+		if uniformStatus == "" {
+			uniformStatus = row.status
+		} else if uniformStatus != row.status {
+			uniformStatus = "MIXED"
+		}
+		credits = append(credits, ServiceLeaseSupplierCredit{
+			SupplierID: supplierID, CreditMicros: row.amount, PayoutStatus: row.status, PayableNanos: payableNanos,
+		})
+	}
+	if len(credits) == 0 || -buyer.amount != supplierMicros+platform.amount {
+		return nil, fmt.Errorf("service lease %s terminal ledger is not conserved", lease.ID)
+	}
+	sort.Slice(credits, func(i, j int) bool { return credits[i].SupplierID.String() < credits[j].SupplierID.String() })
+	return &ServiceLeaseSettlement{
+		Currency: currency, BuyerChargeMicros: -buyer.amount, PrepaidDebitMicros: -debit.amount,
+		SupplierCreditMicros: supplierMicros, PlatformGrossMicros: platform.amount,
+		SupplierPayoutStatus:  uniformStatus,
+		FundingAuthorityState: "PREPAID_CASH_COLLECTED_BUT_PAYOUT_COLLECTION_ALLOCATION_NOT_IMPLEMENTED",
+		SupplierCredits:       credits,
+	}, nil
 }
 
 func (s *Store) ListWorkerServiceLeaseAssignments(ctx context.Context, auth WorkerAuth) ([]ServiceLeaseAssignment, error) {
@@ -771,6 +1095,9 @@ func (s *Store) finalizeExpiredServiceLease(ctx context.Context, leaseID uuid.UU
 	if err := meterServiceLeaseTx(ctx, tx, &lease, lease.ExpiresAt); err != nil {
 		return false, err
 	}
+	if err := settleFinalServiceLeaseTx(ctx, tx, &lease); err != nil {
+		return false, err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE service_leases SET state='COMPLETED',finalized_at=now(),last_metered_at=$2,
 		cumulative_replica_nanoseconds=$3,buyer_charge_nanos=$4,supplier_payable_nanos=$5,known_variable_cost_nanos=$6,known_contribution_nanos=$7 WHERE id=$1`,
 		lease.ID, lease.LastMeteredAt, lease.CumulativeReplicaNanos, lease.BuyerChargeNanos, lease.SupplierPayableNanos, lease.KnownVariableCostNanos, lease.KnownContributionNanos); err != nil {
@@ -780,7 +1107,11 @@ func (s *Store) finalizeExpiredServiceLease(ctx context.Context, leaseID uuid.UU
 		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, lease.WorkerID, lease.RuntimeProfileID, lease.Region, lease.MaximumReplicas); err != nil {
 		return false, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail) VALUES ($1,'EXPIRED','{}'::jsonb)`, lease.ID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail) VALUES ($1,'EXPIRED',
+		jsonb_build_object('buyer_charge_nanos',$2::bigint,'supplier_payable_nanos',$3::bigint,
+		'final_prepaid_debit_ref',$4::text,'final_supplier_credit_ref_prefix',$5::text))`,
+		lease.ID, lease.BuyerChargeNanos, lease.SupplierPayableNanos,
+		prepaidServiceLeaseDebitRef(lease.ID), serviceLeaseLedgerRef(lease.ID, KindSupplierCredit)); err != nil {
 		return false, err
 	}
 	return true, tx.Commit(ctx)

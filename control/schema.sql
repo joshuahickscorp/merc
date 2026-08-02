@@ -3701,6 +3701,21 @@ CREATE TABLE IF NOT EXISTS service_lease_meterings (
     PRIMARY KEY (lease_id,sequence)
 );
 
+-- Supplier payable is attributed at each immutable meter, not inferred from
+-- the worker that happens to own a lease when it expires. A failover can split
+-- one service term across suppliers; assigning the aggregate to the final
+-- worker would be an unearned payout.
+CREATE TABLE IF NOT EXISTS service_lease_supplier_meterings (
+    lease_id                    UUID NOT NULL REFERENCES service_leases(id) ON DELETE RESTRICT,
+    sequence                    BIGINT NOT NULL CHECK (sequence > 0),
+    supplier_id                 UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    supplier_payable_delta_nanos BIGINT NOT NULL CHECK (supplier_payable_delta_nanos >= 0),
+    PRIMARY KEY (lease_id,sequence),
+    FOREIGN KEY (lease_id,sequence) REFERENCES service_lease_meterings(lease_id,sequence) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS service_lease_supplier_meterings_supplier_idx
+    ON service_lease_supplier_meterings (supplier_id,lease_id);
+
 CREATE TABLE IF NOT EXISTS service_lease_events (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     lease_id    UUID NOT NULL REFERENCES service_leases(id) ON DELETE RESTRICT,
@@ -3721,6 +3736,10 @@ $$;
 DROP TRIGGER IF EXISTS service_lease_meterings_append_only ON service_lease_meterings;
 CREATE TRIGGER service_lease_meterings_append_only
 BEFORE UPDATE OR DELETE ON service_lease_meterings
+FOR EACH ROW EXECUTE FUNCTION reject_service_lease_money_mutation();
+DROP TRIGGER IF EXISTS service_lease_supplier_meterings_append_only ON service_lease_supplier_meterings;
+CREATE TRIGGER service_lease_supplier_meterings_append_only
+BEFORE UPDATE OR DELETE ON service_lease_supplier_meterings
 FOR EACH ROW EXECUTE FUNCTION reject_service_lease_money_mutation();
 
 -- Dropping NOT NULL above is what lets a cache hit settle without inventing a
