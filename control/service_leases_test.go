@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -17,6 +19,71 @@ func serviceLeaseOffer(profile VLLMRuntimeProfile) ServiceLeaseOfferRegistration
 		SupplierNanosPerReplicaHour: 2_000_000_000, ResidencyNanosPerReplicaHour: 200_000_000,
 		SupportsRollingUpgrade: true, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
 		LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1", Status: "READY",
+	}
+}
+
+func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	ctx, store, pool := openPayoutTestStore(t)
+	profile := sortedVLLMProfiles()[0]
+	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	offer := serviceLeaseOffer(profile)
+	offer.MaximumWarmReplicas, offer.AvailableWarmReplicas = 1, 1
+	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
+		t.Fatal(err)
+	}
+	buyers := []uuid.UUID{uuid.New(), uuid.New()}
+	for _, buyerID := range buyers {
+		if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email,free_credit_usd) VALUES ($1,$2,10)`, buyerID, buyerID.String()+"@lease-race.invalid"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
+		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		BuyerDeclaredCeilingNanos: 135_000_000}
+
+	start := make(chan struct{})
+	errs := make(chan error, len(buyers)+1)
+	var group sync.WaitGroup
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		<-start
+		for range 20 {
+			if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
+				errs <- err
+				return
+			}
+		}
+	}()
+	for _, buyerID := range buyers {
+		group.Add(1)
+		go func(buyerID uuid.UUID) {
+			defer group.Done()
+			<-start
+			_, err := store.CreateServiceLease(ctx, buyerID, request)
+			if err != nil && !errors.Is(err, errRealtimeNoSupply) {
+				errs <- err
+			}
+		}(buyerID)
+	}
+	close(start)
+	group.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("refresh/reservation race failed: %v", err)
+	}
+
+	var active, available int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM service_leases WHERE worker_id=$1 AND state='ACTIVE'`, worker.WorkerID).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, worker.WorkerID, profile.RuntimeProfileID, offer.Region).Scan(&available); err != nil {
+		t.Fatal(err)
+	}
+	if active != 1 || available != 0 {
+		t.Fatalf("one warm replica became active=%d available=%d after concurrent refreshes", active, available)
 	}
 }
 
