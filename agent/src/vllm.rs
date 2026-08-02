@@ -853,6 +853,12 @@ struct VllmProbeResponse {
     choices: Vec<serde_json::Value>,
 }
 
+#[derive(Debug)]
+struct ServiceDataPlaneMeasurement {
+    latency_millis: i64,
+    probe_receipt_sha256: String,
+}
+
 // A health endpoint only proves that a process answered HTTP. Reserved-service
 // SLOs instead use a fixed, tiny completion through the exact public endpoint
 // registered with Merc. The bounded body, max_tokens, timeout, and cadence are
@@ -862,7 +868,7 @@ async fn measure_public_data_plane(
     profile: &RuntimeProfile,
     upstream_token: &str,
     service: &ServiceLeaseConfig,
-) -> Result<i64> {
+) -> Result<ServiceDataPlaneMeasurement> {
     let client = crate::tls::client_builder()?
         .connect_timeout(Duration::from_secs(2))
         .timeout(Duration::from_millis(service.probe_timeout_millis))
@@ -872,16 +878,19 @@ async fn measure_public_data_plane(
         "{}/completions",
         config.public_base_url.trim_end_matches('/')
     );
+    let request_body = serde_json::to_vec(&serde_json::json!({
+        "model": profile.model_alias,
+        "prompt": "Merc reserved-service probe. Reply READY.",
+        "max_tokens": service.probe_max_tokens,
+        "temperature": 0,
+    }))
+    .context("encoding service lease data-plane probe")?;
     let started = Instant::now();
     let response = client
         .post(&endpoint)
         .bearer_auth(upstream_token)
-        .json(&serde_json::json!({
-            "model": profile.model_alias,
-            "prompt": "Merc reserved-service probe. Reply READY.",
-            "max_tokens": service.probe_max_tokens,
-            "temperature": 0,
-        }))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(request_body.clone())
         .send()
         .await
         .with_context(|| format!("calling bounded service lease probe {endpoint}"))?;
@@ -891,15 +900,28 @@ async fn measure_public_data_plane(
             response.status()
         )
     }
-    let response = response
-        .json::<VllmProbeResponse>()
+    let response_body = response
+        .bytes()
         .await
+        .context("reading service lease data-plane completion")?;
+    let response = serde_json::from_slice::<VllmProbeResponse>(&response_body)
         .context("decoding service lease data-plane completion")?;
     if response.choices.is_empty() {
         bail!("service lease data-plane probe returned no completion choices")
     }
     let milliseconds = started.elapsed().as_millis().max(1);
-    i64::try_from(milliseconds).context("service lease probe latency overflow")
+    let mut digest = Sha256::new();
+    digest.update(b"merc-service-lease-probe-v1\0");
+    digest.update(endpoint.as_bytes());
+    digest.update([0]);
+    digest.update(&request_body);
+    digest.update([0]);
+    digest.update(&response_body);
+    Ok(ServiceDataPlaneMeasurement {
+        latency_millis: i64::try_from(milliseconds)
+            .context("service lease probe latency overflow")?,
+        probe_receipt_sha256: format!("{:x}", digest.finalize()),
+    })
 }
 
 #[derive(Debug)]
@@ -996,6 +1018,7 @@ async fn report_service_lease_failure(
                     latency_measurement_count: 0,
                     latency_window_seconds: 0,
                     latency_measurement_kind: String::new(),
+                    data_plane_probe_receipt_sha256: String::new(),
                     status: "FAILED".to_string(),
                     upgrade_generation: String::new(),
                 };
@@ -1028,8 +1051,12 @@ async fn heartbeat_service_leases(
         .filter(|lease| lease_matches_runtime(lease, profile, service))
         .collect();
     let measurement = measure_public_data_plane(config, profile, upstream_token, service).await;
+    let probe_receipt_sha256;
     match measurement {
-        Ok(latency) => samples.record(latency)?,
+        Ok(measurement) => {
+            samples.record(measurement.latency_millis)?;
+            probe_receipt_sha256 = measurement.probe_receipt_sha256;
+        }
         Err(error) => {
             tracing::warn!(%error, "service lease data-plane probe failed; failing closed");
             if let Ok(offer) = service_offer(profile, profile_sha256, service, samples, "FAILED") {
@@ -1071,6 +1098,11 @@ async fn heartbeat_service_leases(
             latency_measurement_count: samples.measurement_count(),
             latency_window_seconds: samples.window_seconds(),
             latency_measurement_kind: SERVICE_LEASE_MEASUREMENT_KIND.to_string(),
+            data_plane_probe_receipt_sha256: if status == "READY" {
+                probe_receipt_sha256.clone()
+            } else {
+                String::new()
+            },
             status: status.to_string(),
             upgrade_generation: String::new(),
         };
@@ -1165,10 +1197,10 @@ async fn run_vllm_session(
     let mut service_samples = if let Some(service) = &config.service_lease {
         let mut samples = ServiceLatencySamples::new();
         for sample in 0..SERVICE_LEASE_MINIMUM_SAMPLES {
-            let latency = measure_public_data_plane(config, profile, &upstream_token, service)
+            let measurement = measure_public_data_plane(config, profile, &upstream_token, service)
                 .await
                 .context("qualifying reserved service data plane before advertisement")?;
-            samples.record(latency)?;
+            samples.record(measurement.latency_millis)?;
             if sample + 1 < SERVICE_LEASE_MINIMUM_SAMPLES {
                 tokio::time::sleep(Duration::from_secs(service.probe_interval_secs)).await;
             }

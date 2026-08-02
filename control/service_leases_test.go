@@ -315,7 +315,14 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	}
 	if got := post("/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", workerToken,
 		ServiceLeaseHeartbeat{WarmReplicas: 1, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
-			LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1", Status: "READY", UpgradeGeneration: "image-v3"}).Code; got != http.StatusNoContent {
+			LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1", Status: "READY",
+			UpgradeGeneration: "image-v3"}).Code; got != http.StatusConflict {
+		t.Fatalf("ready heartbeat without probe receipt status=%d", got)
+	}
+	if got := post("/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", workerToken,
+		ServiceLeaseHeartbeat{WarmReplicas: 1, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
+			LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1",
+			DataPlaneProbeReceiptSHA256: strings.Repeat("a", 64), Status: "READY", UpgradeGeneration: "image-v3"}).Code; got != http.StatusNoContent {
 		t.Fatalf("upgrade complete heartbeat status=%d", got)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/v1/service-leases/"+lease.ID.String()+"/receipt", nil)
@@ -334,9 +341,10 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		receipt.BuyerFundingState != "PREPAID_MAXIMUM_RESERVED" ||
 		receipt.SupplierSettlementState != "ACCRUED_PREPAID_RESERVED_UNSETTLED" ||
 		receipt.TrueNetContributionStatus != "UNKNOWN_PROCESSOR_FEE_UNALLOCATED" ||
-		receipt.DataPlaneAuthorityStatus != "NOT_PROVEN_BY_CONTROL_PLANE" || receipt.LatestSLOEvidence == nil ||
+		receipt.DataPlaneAuthorityStatus != "WORKER_ATTESTED_PROBE_NOT_BUYER_REQUEST" || receipt.LatestSLOEvidence == nil ||
 		receipt.LatestSLOEvidence.P95LatencyMillis != 200 || receipt.LatestSLOEvidence.LatencyMeasurementCount != 5 ||
-		receipt.LatestSLOEvidence.LatencyMeasurementKind != "DATA_PLANE_COMPLETIONS_V1" {
+		receipt.LatestSLOEvidence.LatencyMeasurementKind != "DATA_PLANE_COMPLETIONS_V1" ||
+		receipt.LatestSLOEvidence.DataPlaneProbeReceiptSHA256 != strings.Repeat("a", 64) {
 		t.Fatalf("receipt overclaimed or lost exact money: %+v", receipt)
 	}
 	var events []string
@@ -584,7 +592,7 @@ func TestBuyerCancelsServiceLeaseAtLastAuthenticatedMeterAndReleasesUnusedReserv
 	}).Scan(&terminalRows); err != nil || terminalRows != 4 {
 		t.Fatalf("cancel retry duplicated terminal ledger: rows=%d err=%v", terminalRows, err)
 	}
-	workerHeartbeat := httptest.NewRequest(http.MethodPost, "/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", bytes.NewReader([]byte(`{"warm_replicas":1,"p95_latency_milliseconds":200,"latency_measurement_count":5,"latency_window_seconds":15,"latency_measurement_kind":"DATA_PLANE_COMPLETIONS_V1","status":"READY"}`)))
+	workerHeartbeat := httptest.NewRequest(http.MethodPost, "/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", bytes.NewReader([]byte(`{"warm_replicas":1,"p95_latency_milliseconds":200,"latency_measurement_count":5,"latency_window_seconds":15,"latency_measurement_kind":"DATA_PLANE_COMPLETIONS_V1","data_plane_probe_receipt_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"READY"}`)))
 	workerHeartbeat.Header.Set("X-Worker-Token", workerToken)
 	workerHeartbeatRec := httptest.NewRecorder()
 	handler.ServeHTTP(workerHeartbeatRec, workerHeartbeat)
