@@ -99,6 +99,27 @@ var productionReachability = []reachabilityClaim{
 			"the high-value warm prefixes that the scheduler is meant to prefer.",
 	},
 	{
+		From:   "Server.handleChatCompletions",
+		Target: "Store.RecordRealtimeAdmissionEvent",
+		Consequence: "capacity refusals leave no execution contract, so without this " +
+			"edge the realtime liquidity report would silently omit denied demand and " +
+			"misstate capacity fill as a completion-only rate.",
+	},
+	{
+		From:   "Server.handleAdminRealtimeMarketLiquidity",
+		Target: "Store.RealtimeMarketLiquidity",
+		Consequence: "operators lose the bounded, receipt-shaped observation of live " +
+			"offer utilization, current supplier ask depth, capacity refusals, and status " +
+			"churn; no deployment decision may replace it with a dashboard guess.",
+	},
+	{
+		From:   "Workers.Run",
+		Target: "Store.DeleteOldRealtimeLiquidityTelemetry",
+		Consequence: "offer and admission telemetry grows without its 30-day retention " +
+			"bound, turning a measured liquidity view into indefinite operational data " +
+			"retention.",
+	},
+	{
 		From:   "Server.createJob",
 		Target: "Store.RecordShadowSelection",
 		Consequence: "shadow runtime selection stops being recorded. Nothing about routing " +

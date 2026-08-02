@@ -3241,6 +3241,30 @@ CREATE INDEX IF NOT EXISTS realtime_worker_offer_route_idx
     ON realtime_worker_offers (runtime_profile_id,status,last_seen_at DESC)
     WHERE status='ACTIVE' AND available_sequences > 0;
 
+-- The live offer row is deliberately mutable: a worker heartbeats its warm
+-- capacity every few seconds. That makes it the wrong source for a claim about
+-- utilization, availability churn, or market depth over time. Keep a bounded,
+-- prompt-free observation stream instead. This is operational evidence only;
+-- no price, capacity, or settlement decision is ever reconstructed from it.
+CREATE TABLE IF NOT EXISTS realtime_offer_samples (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    worker_id             UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    supplier_id           UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    runtime_profile_id    TEXT NOT NULL,
+    runtime_profile_sha256 TEXT NOT NULL CHECK (runtime_profile_sha256 ~ '^[0-9a-f]{64}$'),
+    hw_class              TEXT NOT NULL CHECK (btrim(hw_class) <> ''),
+    status                TEXT NOT NULL CHECK (status IN ('ACTIVE','DRAINING','FAILED','QUARANTINED')),
+    max_active_sequences  INT NOT NULL CHECK (max_active_sequences > 0),
+    available_sequences   INT NOT NULL CHECK (available_sequences BETWEEN 0 AND max_active_sequences),
+    supplier_input_usd_per_million_tokens  NUMERIC(12,6) NOT NULL CHECK (supplier_input_usd_per_million_tokens >= 0),
+    supplier_output_usd_per_million_tokens NUMERIC(12,6) NOT NULL CHECK (supplier_output_usd_per_million_tokens >= 0),
+    observed_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS realtime_offer_samples_liquidity_idx
+    ON realtime_offer_samples (runtime_profile_id,hw_class,observed_at DESC);
+CREATE INDEX IF NOT EXISTS realtime_offer_samples_worker_idx
+    ON realtime_offer_samples (worker_id,runtime_profile_id,observed_at DESC);
+
 CREATE TABLE IF NOT EXISTS execution_contracts (
     id                    UUID PRIMARY KEY,
     request_id            TEXT NOT NULL UNIQUE CHECK (btrim(request_id) <> ''),
@@ -3277,6 +3301,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS execution_contracts_buyer_idempotency_uniq
     ON execution_contracts (buyer_id,idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS execution_contracts_buyer_created_idx
     ON execution_contracts (buyer_id,created_at DESC);
+
+-- A request refused for lack of supply does not create an execution contract.
+-- Without this append-only decision stream, utilization can be measured but
+-- fill rate cannot: the denominator would quietly omit everyone Merc turned
+-- away. There is no prompt, request body, or upstream credential here.
+CREATE TABLE IF NOT EXISTS realtime_admission_events (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    buyer_id           UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    runtime_profile_id TEXT NOT NULL,
+    hw_class           TEXT NOT NULL DEFAULT '',
+    decision           TEXT NOT NULL CHECK (decision IN ('ADMITTED','NO_CAPACITY','INSUFFICIENT_FUNDS','AUTHORIZATION_FAILED')),
+    contract_id        UUID REFERENCES execution_contracts(id) ON DELETE RESTRICT,
+    observed_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((decision='ADMITTED') = (contract_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS realtime_admission_events_liquidity_idx
+    ON realtime_admission_events (runtime_profile_id,hw_class,decision,observed_at DESC);
 
 -- Exact-result reuse contracts never schedule a worker: the answer was already
 -- computed. Allow null worker/supplier/upstream bindings so a cache hit can

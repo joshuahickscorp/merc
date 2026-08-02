@@ -91,7 +91,10 @@ const (
 	verificationRecoveryNoProgressTimeout = 30 * time.Second
 )
 
-var telemetryTables = []string{"worker_memory_samples", "task_durations", "job_events"}
+var telemetryTables = []string{
+	"worker_memory_samples", "task_durations", "job_events",
+	"realtime_offer_samples", "realtime_admission_events",
+}
 
 const staleMultiple = 3
 
@@ -1132,6 +1135,15 @@ func (wk *Workers) sweepTelemetryRetention(ctx context.Context) error {
 	}
 	if je > 0 {
 		log.Printf("workers: telemetry-retention: pruned %d job_events row(s) older than %s", je, jobEventRetention)
+	}
+	ros, rae, err := wk.store.DeleteOldRealtimeLiquidityTelemetry(ctx,
+		time.Now().Add(-realtimeLiquidityRetention))
+	if err != nil {
+		return err
+	}
+	if ros > 0 || rae > 0 {
+		log.Printf("workers: telemetry-retention: pruned offer_samples=%d admission_events=%d older than %s",
+			ros, rae, realtimeLiquidityRetention)
 	}
 	// Fourth retention sweep: non-accepted alpha leads past TTL. Accepted
 	// applicants have no account yet to tombstone, so this is their only path.
