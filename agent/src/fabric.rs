@@ -16,7 +16,7 @@ use anyhow::{bail, Context, Result};
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use serde::Serialize;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{timeout, Duration};
@@ -38,6 +38,8 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct ProbeOptions {
     pub endpoint: SocketAddr,
     pub site: String,
+    pub fabric_session_id: Uuid,
+    pub expected_peer_worker_id: Option<Uuid>,
     pub payload_bytes: usize,
     pub rounds: u16,
     pub shared_secret: Vec<u8>,
@@ -50,12 +52,17 @@ pub struct FabricProbeRound {
     pub round_trip_payload_bytes: usize,
     pub round_trip_micros: u64,
     pub payload_goodput_mbps: f64,
+    pub transcript_sha256: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct FabricProbeReceipt {
     pub schema_version: u32,
     pub receipt_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fabric_session_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_peer_worker_id: Option<Uuid>,
     pub kind: &'static str,
     pub status: &'static str,
     pub measured_at_unix_ms: u128,
@@ -72,6 +79,15 @@ pub struct FabricProbeReceipt {
     pub p50_payload_goodput_mbps: f64,
     pub local_cluster_admissible: bool,
     pub non_admission_reasons: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FabricProbeObservation {
+    pub schema_version: u32,
+    pub fabric_session_id: Uuid,
+    pub transcript_sha256: String,
+    pub payload_bytes_each_direction: usize,
+    pub observed_at_unix_ms: u128,
 }
 
 pub fn read_shared_secret(path: &Path) -> Result<Vec<u8>> {
@@ -96,7 +112,11 @@ pub fn read_shared_secret(path: &Path) -> Result<Vec<u8>> {
     Ok(secret)
 }
 
-pub async fn serve(bind: SocketAddr, shared_secret: Vec<u8>) -> Result<()> {
+pub async fn serve(
+    bind: SocketAddr,
+    shared_secret: Vec<u8>,
+    observer: Option<crate::protocol::ControlPlaneClient>,
+) -> Result<()> {
     validate_secret(&shared_secret)?;
     let listener = TcpListener::bind(bind)
         .await
@@ -105,10 +125,14 @@ pub async fn serve(bind: SocketAddr, shared_secret: Vec<u8>) -> Result<()> {
         .local_addr()
         .context("reading fabric listener address")?;
     tracing::info!(%local, "fabric echo listener ready; it accepts bounded measurement traffic only");
-    run_listener(listener, shared_secret).await
+    run_listener(listener, shared_secret, observer).await
 }
 
-async fn run_listener(listener: TcpListener, shared_secret: Vec<u8>) -> Result<()> {
+async fn run_listener(
+    listener: TcpListener,
+    shared_secret: Vec<u8>,
+    observer: Option<crate::protocol::ControlPlaneClient>,
+) -> Result<()> {
     loop {
         tokio::select! {
             signal = tokio::signal::ctrl_c() => {
@@ -118,8 +142,9 @@ async fn run_listener(listener: TcpListener, shared_secret: Vec<u8>) -> Result<(
             accepted = listener.accept() => {
                 let (stream, remote) = accepted.context("accepting fabric probe connection")?;
                 let secret = shared_secret.clone();
+                let observer = observer.clone();
                 tokio::spawn(async move {
-                    if let Err(error) = echo_once(stream, &secret).await {
+                    if let Err(error) = echo_once(stream, &secret, observer).await {
                         // Invalid probes must neither expose the shared secret nor stop
                         // the listener that a real peer is using.
                         tracing::debug!(%remote, %error, "fabric probe refused");
@@ -137,6 +162,7 @@ pub async fn probe(options: ProbeOptions) -> Result<FabricProbeReceipt> {
         let measurement = probe_once(
             options.endpoint,
             &options.shared_secret,
+            options.fabric_session_id,
             options.payload_bytes,
         )
         .await
@@ -147,6 +173,7 @@ pub async fn probe(options: ProbeOptions) -> Result<FabricProbeReceipt> {
             round_trip_payload_bytes: options.payload_bytes * 2,
             round_trip_micros: measurement.elapsed_micros,
             payload_goodput_mbps: measurement.goodput_mbps,
+            transcript_sha256: measurement.transcript_sha256,
         });
     }
     let mut latencies = rounds
@@ -163,6 +190,8 @@ pub async fn probe(options: ProbeOptions) -> Result<FabricProbeReceipt> {
     Ok(FabricProbeReceipt {
         schema_version: 1,
         receipt_id: Uuid::new_v4(),
+        fabric_session_id: options.expected_peer_worker_id.map(|_| options.fabric_session_id),
+        expected_peer_worker_id: options.expected_peer_worker_id,
         kind: "MERC_FABRIC_TCP_ECHO_RECEIPT",
         status: "MEASURED_NOT_ADMISSIBLE",
         measured_at_unix_ms: SystemTime::now()
@@ -207,18 +236,21 @@ pub fn write_new_receipt(path: &Path, receipt: &[u8]) -> Result<()> {
 struct RoundMeasurement {
     elapsed_micros: u64,
     goodput_mbps: f64,
+    transcript_sha256: String,
 }
 
 async fn probe_once(
     endpoint: SocketAddr,
     secret: &[u8],
+    session_id: Uuid,
     payload_bytes: usize,
 ) -> Result<RoundMeasurement> {
     let mut payload = vec![0_u8; payload_bytes];
     rand::thread_rng().fill_bytes(&mut payload);
     let mut nonce = [0_u8; NONCE_BYTES];
     rand::thread_rng().fill_bytes(&mut nonce);
-    let mac = request_mac(secret, &nonce, &payload)?;
+    let mac = request_mac(secret, session_id, &nonce, &payload)?;
+    let transcript_sha256 = transcript_sha256(session_id, &nonce, &mac, payload.len());
 
     let start = Instant::now();
     let mut stream = timeout(IO_TIMEOUT, TcpStream::connect(endpoint))
@@ -227,6 +259,7 @@ async fn probe_once(
         .with_context(|| format!("connecting to fabric peer {endpoint}"))?;
     timeout(IO_TIMEOUT, async {
         stream.write_all(MAGIC).await?;
+        stream.write_all(session_id.as_bytes()).await?;
         stream.write_all(&nonce).await?;
         stream
             .write_all(&(payload.len() as u32).to_be_bytes())
@@ -235,12 +268,17 @@ async fn probe_once(
         stream.write_all(&payload).await?;
         stream.flush().await?;
 
+        let mut echoed_session = [0_u8; 16];
         let mut echoed_nonce = [0_u8; NONCE_BYTES];
         let mut length = [0_u8; 4];
+        stream.read_exact(&mut echoed_session).await?;
         stream.read_exact(&mut echoed_nonce).await?;
         stream.read_exact(&mut length).await?;
         let echoed_len = u32::from_be_bytes(length) as usize;
-        if echoed_nonce != nonce || echoed_len != payload.len() {
+        if echoed_session != *session_id.as_bytes()
+            || echoed_nonce != nonce
+            || echoed_len != payload.len()
+        {
             bail!("fabric peer echoed a different probe identity or payload length")
         }
         let mut echoed_payload = vec![0_u8; echoed_len];
@@ -262,19 +300,26 @@ async fn probe_once(
     Ok(RoundMeasurement {
         elapsed_micros,
         goodput_mbps,
+        transcript_sha256,
     })
 }
 
-async fn echo_once(mut stream: TcpStream, secret: &[u8]) -> Result<()> {
+async fn echo_once(
+    mut stream: TcpStream,
+    secret: &[u8],
+    observer: Option<crate::protocol::ControlPlaneClient>,
+) -> Result<()> {
     timeout(IO_TIMEOUT, async {
         let mut magic = [0_u8; MAGIC.len()];
         stream.read_exact(&mut magic).await?;
         if magic != *MAGIC {
             bail!("unknown fabric probe protocol")
         }
+        let mut session_bytes = [0_u8; 16];
         let mut nonce = [0_u8; NONCE_BYTES];
         let mut length = [0_u8; 4];
         let mut supplied_mac = [0_u8; MAC_BYTES];
+        stream.read_exact(&mut session_bytes).await?;
         stream.read_exact(&mut nonce).await?;
         stream.read_exact(&mut length).await?;
         stream.read_exact(&mut supplied_mac).await?;
@@ -284,14 +329,33 @@ async fn echo_once(mut stream: TcpStream, secret: &[u8]) -> Result<()> {
         }
         let mut payload = vec![0_u8; payload_len];
         stream.read_exact(&mut payload).await?;
-        let expected = request_mac(secret, &nonce, &payload)?;
+        let session_id = Uuid::from_bytes(session_bytes);
+        let expected = request_mac(secret, session_id, &nonce, &payload)?;
         if !constant_time_equal(&expected, &supplied_mac) {
             bail!("fabric probe authentication failed")
         }
+        stream.write_all(&session_bytes).await?;
         stream.write_all(&nonce).await?;
         stream.write_all(&length).await?;
         stream.write_all(&payload).await?;
         stream.flush().await?;
+        if let Some(observer) = observer {
+            let observation = FabricProbeObservation {
+                schema_version: 1,
+                fabric_session_id: session_id,
+                transcript_sha256: transcript_sha256(session_id, &nonce, &supplied_mac, payload.len()),
+                payload_bytes_each_direction: payload.len(),
+                observed_at_unix_ms: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis(),
+            };
+            tokio::spawn(async move {
+                if let Err(error) = observer.submit_fabric_observation(&observation).await {
+                    tracing::warn!(%error, session_id = %session_id, "could not record fabric peer observation");
+                }
+            });
+        }
         Ok::<(), anyhow::Error>(())
     })
     .await
@@ -301,11 +365,13 @@ async fn echo_once(mut stream: TcpStream, secret: &[u8]) -> Result<()> {
 
 fn request_mac(
     secret: &[u8],
+    session_id: Uuid,
     nonce: &[u8; NONCE_BYTES],
     payload: &[u8],
 ) -> Result<[u8; MAC_BYTES]> {
     let mut mac = HmacSha256::new_from_slice(secret).context("building fabric probe MAC")?;
     mac.update(MAGIC);
+    mac.update(session_id.as_bytes());
     mac.update(nonce);
     mac.update(&(payload.len() as u32).to_be_bytes());
     mac.update(payload);
@@ -313,6 +379,25 @@ fn request_mac(
     let mut out = [0_u8; MAC_BYTES];
     out.copy_from_slice(&bytes);
     Ok(out)
+}
+
+fn transcript_sha256(
+    session_id: Uuid,
+    nonce: &[u8; NONCE_BYTES],
+    mac: &[u8; MAC_BYTES],
+    payload_len: usize,
+) -> String {
+    let mut digest = Sha256::new();
+    digest.update(MAGIC);
+    digest.update(session_id.as_bytes());
+    digest.update(nonce);
+    digest.update((payload_len as u32).to_be_bytes());
+    digest.update(mac);
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
@@ -328,6 +413,9 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
 
 fn validate_options(options: &ProbeOptions) -> Result<()> {
     validate_secret(&options.shared_secret)?;
+    if options.expected_peer_worker_id.is_some() && options.fabric_session_id.is_nil() {
+        bail!("a mutual fabric probe requires a control-plane session id")
+    }
     if options.site.trim().is_empty() || options.site.len() > 128 {
         bail!("fabric site label must be present and at most 128 bytes")
     }
@@ -389,7 +477,7 @@ mod tests {
     async fn listener() -> (SocketAddr, tokio::task::JoinHandle<Result<()>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let server = tokio::spawn(run_listener(listener, SECRET.to_vec()));
+        let server = tokio::spawn(run_listener(listener, SECRET.to_vec(), None));
         (addr, server)
     }
 
@@ -399,6 +487,8 @@ mod tests {
         let receipt = probe(ProbeOptions {
             endpoint,
             site: "lab-rack-a".into(),
+            fabric_session_id: Uuid::new_v4(),
+            expected_peer_worker_id: None,
             payload_bytes: 4096,
             rounds: 3,
             shared_secret: SECRET.to_vec(),
@@ -427,10 +517,11 @@ mod tests {
     #[tokio::test]
     async fn invalid_shared_secret_is_refused_and_does_not_take_down_the_listener() {
         let (endpoint, server) = listener().await;
-        let wrong = probe_once(endpoint, b"abcdefghijklmnopqrstuvwxyz012345", 1024).await;
+        let session = Uuid::new_v4();
+        let wrong = probe_once(endpoint, b"abcdefghijklmnopqrstuvwxyz012345", session, 1024).await;
         assert!(wrong.is_err());
 
-        let good = probe_once(endpoint, SECRET, 1024).await;
+        let good = probe_once(endpoint, SECRET, session, 1024).await;
         server.abort();
         assert!(good.is_ok());
     }
@@ -440,6 +531,8 @@ mod tests {
         let options = ProbeOptions {
             endpoint: "127.0.0.1:1".parse().unwrap(),
             site: "".into(),
+            fabric_session_id: Uuid::new_v4(),
+            expected_peer_worker_id: None,
             payload_bytes: MAX_PAYLOAD_BYTES + 1,
             rounds: MAX_ROUNDS + 1,
             shared_secret: SECRET.to_vec(),

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
@@ -10,6 +11,8 @@ use crate::types::{
 
 const POLL_TIMEOUT: Duration = Duration::from_secs(35);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+const FABRIC_OBSERVATION_WAIT: Duration = Duration::from_secs(15);
+const FABRIC_OBSERVATION_POLL: Duration = Duration::from_millis(250);
 
 const IDEMPOTENT_MAX_ATTEMPTS: usize = 4;
 #[cfg(not(test))]
@@ -45,10 +48,21 @@ pub enum ProtocolError {
     },
 }
 
+#[derive(Clone)]
 pub struct ControlPlaneClient {
     http: Client,
     base_url: String,
     token: String,
+}
+
+#[derive(serde::Deserialize)]
+struct FabricSessionResponse {
+    fabric_session_id: Uuid,
+}
+
+#[derive(serde::Deserialize)]
+struct FabricObservationStatus {
+    observed_transcript_sha256: Vec<String>,
 }
 
 impl ControlPlaneClient {
@@ -254,6 +268,90 @@ impl ControlPlaneClient {
                 .json(receipt)
         })
         .await
+    }
+
+    pub async fn create_fabric_session(
+        &self,
+        peer_worker_id: Uuid,
+        declared_site: &str,
+    ) -> Result<Uuid, ProtocolError> {
+        let endpoint = "/v1/worker/fabric/sessions";
+        let resp = self
+            .http
+            .post(self.url(endpoint))
+            .header("X-Worker-Token", &self.token)
+            .json(&serde_json::json!({
+                "peer_worker_id": peer_worker_id,
+                "declared_site": declared_site,
+            }))
+            .send()
+            .await
+            .map_err(|e| Self::transport(endpoint, e))?;
+        let resp = Self::expect_status(endpoint, resp, &[StatusCode::CREATED]).await?;
+        let response =
+            resp.json::<FabricSessionResponse>()
+                .await
+                .map_err(|e| ProtocolError::Decode {
+                    endpoint: endpoint.to_string(),
+                    source: e,
+                })?;
+        Ok(response.fabric_session_id)
+    }
+
+    pub async fn submit_fabric_observation(
+        &self,
+        observation: &crate::fabric::FabricProbeObservation,
+    ) -> Result<(), ProtocolError> {
+        let endpoint = "/v1/worker/fabric/observations";
+        self.send_idempotent(endpoint, "submit_fabric_observation", &[], || {
+            self.http
+                .post(self.url(endpoint))
+                .header("X-Worker-Token", &self.token)
+                .json(observation)
+        })
+        .await
+    }
+
+    pub async fn wait_for_fabric_observations(
+        &self,
+        session_id: Uuid,
+        transcripts: &[String],
+    ) -> Result<(), ProtocolError> {
+        let endpoint = "/v1/worker/fabric/sessions/{id}/observations";
+        let path = format!("/v1/worker/fabric/sessions/{session_id}/observations");
+        let wanted = transcripts.iter().cloned().collect::<BTreeSet<_>>();
+        let deadline = tokio::time::Instant::now() + FABRIC_OBSERVATION_WAIT;
+        loop {
+            let resp = self
+                .http
+                .get(self.url(&path))
+                .header("X-Worker-Token", &self.token)
+                .send()
+                .await
+                .map_err(|e| Self::transport(endpoint, e))?;
+            let resp = Self::expect_status(endpoint, resp, &[StatusCode::OK]).await?;
+            let observed = resp
+                .json::<FabricObservationStatus>()
+                .await
+                .map_err(|e| ProtocolError::Decode {
+                    endpoint: endpoint.to_string(),
+                    source: e,
+                })?
+                .observed_transcript_sha256
+                .into_iter()
+                .collect::<BTreeSet<_>>();
+            if wanted.is_subset(&observed) {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(ProtocolError::Status {
+                    endpoint: endpoint.to_string(),
+                    status: StatusCode::GATEWAY_TIMEOUT,
+                    body: "timed out waiting for every reserved peer observation".to_string(),
+                });
+            }
+            tokio::time::sleep(FABRIC_OBSERVATION_POLL).await;
+        }
     }
 
     pub async fn poll_task(&self) -> Result<Option<TaskDispatch>, ProtocolError> {

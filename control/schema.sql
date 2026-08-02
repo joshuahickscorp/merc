@@ -5360,6 +5360,47 @@ CREATE TRIGGER fabric_link_measurements_append_only
     BEFORE UPDATE ON fabric_link_measurements
     FOR EACH ROW EXECUTE FUNCTION cx_refuse_fabric_link_measurement_rewrite();
 
+-- A peer session names the two enrolled workers that may attest to one direct
+-- measurement run. It is deliberately short-lived and supplier-scoped; a
+-- future multi-owner site authority must be explicit rather than inferred from
+-- matching labels or addresses.
+CREATE TABLE IF NOT EXISTS fabric_probe_sessions (
+    id UUID PRIMARY KEY,
+    initiator_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    peer_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    declared_site TEXT NOT NULL CHECK (btrim(declared_site) <> '' AND length(declared_site) <= 128),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    CHECK (peer_worker_id <> initiator_worker_id),
+    CHECK (expires_at > created_at)
+);
+CREATE INDEX IF NOT EXISTS fabric_probe_sessions_expiry_idx ON fabric_probe_sessions (expires_at);
+
+-- The peer agent submits this independently with its own worker credential
+-- after it has authenticated and echoed a signed frame. It is not a workload
+-- data-plane receipt and by itself does not qualify a local cluster.
+CREATE TABLE IF NOT EXISTS fabric_probe_observations (
+    fabric_session_id UUID NOT NULL REFERENCES fabric_probe_sessions(id) ON DELETE CASCADE,
+    transcript_sha256 TEXT NOT NULL CHECK (transcript_sha256 ~ '^[0-9a-f]{64}$'),
+    observer_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    observer_supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    payload_bytes_each_direction INTEGER NOT NULL CHECK (payload_bytes_each_direction BETWEEN 1 AND 4194304),
+    observed_at TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (fabric_session_id, transcript_sha256)
+);
+CREATE INDEX IF NOT EXISTS fabric_probe_observations_retention_idx ON fabric_probe_observations (ingested_at);
+
+ALTER TABLE fabric_link_measurements
+    ADD COLUMN IF NOT EXISTS fabric_session_id UUID,
+    ADD COLUMN IF NOT EXISTS expected_peer_worker_id UUID;
+ALTER TABLE fabric_link_measurements
+    DROP CONSTRAINT IF EXISTS fabric_link_measurements_classification_check;
+ALTER TABLE fabric_link_measurements
+    ADD CONSTRAINT fabric_link_measurements_classification_check
+    CHECK (classification IN ('SELF_REPORTED_UNQUALIFIED','MUTUAL_WORKER_OBSERVED_NOT_ADMISSIBLE'));
+
 -- A project order is the server-side ceiling authority for a multi-step
 -- workload. The buyer keeps the full IR locally because it may contain source
 -- paths and private policy, while the control plane retains only the immutable

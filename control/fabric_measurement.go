@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -30,6 +31,8 @@ var errFabricMeasurementConflict = errors.New("fabric measurement receipt confli
 type FabricLinkMeasurementReceipt struct {
 	SchemaVersion          int                          `json:"schema_version"`
 	ReceiptID              uuid.UUID                    `json:"receipt_id"`
+	FabricSessionID        *uuid.UUID                   `json:"fabric_session_id,omitempty"`
+	ExpectedPeerWorkerID   *uuid.UUID                   `json:"expected_peer_worker_id,omitempty"`
 	Kind                   string                       `json:"kind"`
 	Status                 string                       `json:"status"`
 	MeasuredAtUnixMS       int64                        `json:"measured_at_unix_ms"`
@@ -52,6 +55,24 @@ type FabricLinkMeasurementRound struct {
 	RoundTripPayloadBytes     int     `json:"round_trip_payload_bytes"`
 	RoundTripMicros           int64   `json:"round_trip_micros"`
 	PayloadGoodputMbps        float64 `json:"payload_goodput_mbps"`
+	TranscriptSHA256          string  `json:"transcript_sha256"`
+}
+
+type FabricSessionCreateRequest struct {
+	PeerWorkerID uuid.UUID `json:"peer_worker_id"`
+	DeclaredSite string    `json:"declared_site"`
+}
+
+type FabricSessionCreateResponse struct {
+	FabricSessionID uuid.UUID `json:"fabric_session_id"`
+}
+
+type FabricProbeObservation struct {
+	SchemaVersion             int       `json:"schema_version"`
+	FabricSessionID           uuid.UUID `json:"fabric_session_id"`
+	TranscriptSHA256          string    `json:"transcript_sha256"`
+	PayloadBytesEachDirection int       `json:"payload_bytes_each_direction"`
+	ObservedAtUnixMS          int64     `json:"observed_at_unix_ms"`
 }
 
 type fabricMeasurementSummary struct {
@@ -71,6 +92,9 @@ func validateFabricLinkMeasurement(receipt FabricLinkMeasurementReceipt, now tim
 	}
 	if receipt.LocalClusterAdmissible {
 		return fabricMeasurementSummary{}, errors.New("self-reported link measurement must not mark a local cluster admissible")
+	}
+	if (receipt.FabricSessionID == nil) != (receipt.ExpectedPeerWorkerID == nil) {
+		return fabricMeasurementSummary{}, errors.New("fabric receipt must name both a reserved session and expected peer, or neither")
 	}
 	if receipt.Transport != "MERC_FABRIC_TCP_ECHO_V1" ||
 		receipt.PeerAuthentication != "HMAC_SHA256_OWNER_SHARED_PROBE_TOKEN" || !receipt.PayloadIsRandom {
@@ -95,7 +119,7 @@ func validateFabricLinkMeasurement(receipt FabricLinkMeasurementReceipt, now tim
 		if round.Round != index+1 || round.PayloadBytesEachDirection <= 0 ||
 			round.PayloadBytesEachDirection > fabricMaxPayloadBytes ||
 			round.RoundTripPayloadBytes != round.PayloadBytesEachDirection*2 ||
-			round.RoundTripMicros <= 0 || !finitePositive(round.PayloadGoodputMbps) {
+			round.RoundTripMicros <= 0 || !finitePositive(round.PayloadGoodputMbps) || !validSHA256(round.TranscriptSHA256) {
 			return fabricMeasurementSummary{}, fmt.Errorf("fabric receipt round %d is invalid", index+1)
 		}
 		observedGoodput := float64(round.RoundTripPayloadBytes) * 8 / float64(round.RoundTripMicros)
@@ -132,6 +156,135 @@ func validateFabricLinkMeasurement(receipt FabricLinkMeasurementReceipt, now tim
 	}, nil
 }
 
+// CreateFabricProbeSession reserves a short, explicit connection between two
+// enrolled workers of the SAME supplier. It does not grant either worker a
+// cluster placement or any workload-data authority; it merely gives the peer's
+// independently authenticated observer a session it may attest to.
+func (s *Store) CreateFabricProbeSession(ctx context.Context, auth WorkerAuth, request FabricSessionCreateRequest) (FabricSessionCreateResponse, error) {
+	if request.PeerWorkerID == uuid.Nil || request.PeerWorkerID == auth.WorkerID ||
+		strings.TrimSpace(request.DeclaredSite) == "" || len(request.DeclaredSite) > 128 {
+		return FabricSessionCreateResponse{}, errors.New("fabric session has invalid peer or declared site")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return FabricSessionCreateResponse{}, err
+	}
+	defer tx.Rollback(ctx)
+	var peerSupplierID uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT supplier_id FROM workers WHERE id=$1`, request.PeerWorkerID).Scan(&peerSupplierID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return FabricSessionCreateResponse{}, errNotFound
+		}
+		return FabricSessionCreateResponse{}, err
+	}
+	if peerSupplierID != auth.SupplierID {
+		return FabricSessionCreateResponse{}, errors.New("fabric peer must belong to the same supplier until a governed multi-owner site authority exists")
+	}
+	id := uuid.New()
+	if _, err := tx.Exec(ctx, `INSERT INTO fabric_probe_sessions
+		(id,initiator_worker_id,peer_worker_id,supplier_id,declared_site,expires_at)
+		VALUES ($1,$2,$3,$4,$5,now()+interval '10 minutes')`,
+		id, auth.WorkerID, request.PeerWorkerID, auth.SupplierID, strings.TrimSpace(request.DeclaredSite)); err != nil {
+		return FabricSessionCreateResponse{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return FabricSessionCreateResponse{}, err
+	}
+	return FabricSessionCreateResponse{FabricSessionID: id}, nil
+}
+
+func validateFabricProbeObservation(observation FabricProbeObservation, now time.Time) (time.Time, error) {
+	if observation.SchemaVersion != 1 || observation.FabricSessionID == uuid.Nil ||
+		!validSHA256(observation.TranscriptSHA256) || observation.PayloadBytesEachDirection <= 0 ||
+		observation.PayloadBytesEachDirection > fabricMaxPayloadBytes {
+		return time.Time{}, errors.New("fabric peer observation has invalid identity or bounds")
+	}
+	observedAt := time.UnixMilli(observation.ObservedAtUnixMS)
+	if observedAt.Before(now.Add(-48*time.Hour)) || observedAt.After(now.Add(5*time.Minute)) {
+		return time.Time{}, errors.New("fabric peer observation time is outside the accepted evidence window")
+	}
+	return observedAt, nil
+}
+
+func (s *Store) RecordFabricProbeObservation(ctx context.Context, auth WorkerAuth, observation FabricProbeObservation) error {
+	observedAt, err := validateFabricProbeObservation(observation, time.Now())
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var sessionSupplier, peerWorker uuid.UUID
+	var expiresAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT supplier_id,peer_worker_id,expires_at FROM fabric_probe_sessions WHERE id=$1`, observation.FabricSessionID).
+		Scan(&sessionSupplier, &peerWorker, &expiresAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errNotFound
+		}
+		return err
+	}
+	if auth.SupplierID != sessionSupplier || auth.WorkerID != peerWorker {
+		return errors.New("only the reserved peer worker may attest to this fabric session")
+	}
+	if !expiresAt.After(time.Now()) {
+		return errors.New("fabric session has expired")
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO fabric_probe_observations
+		(fabric_session_id,transcript_sha256,observer_worker_id,observer_supplier_id,
+		 payload_bytes_each_direction,observed_at)
+		VALUES ($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (fabric_session_id,transcript_sha256) DO NOTHING`,
+		observation.FabricSessionID, observation.TranscriptSHA256, auth.WorkerID, auth.SupplierID,
+		observation.PayloadBytesEachDirection, observedAt)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		var workerID uuid.UUID
+		var payloadBytes int
+		if err := tx.QueryRow(ctx, `SELECT observer_worker_id,payload_bytes_each_direction
+			FROM fabric_probe_observations WHERE fabric_session_id=$1 AND transcript_sha256=$2`,
+			observation.FabricSessionID, observation.TranscriptSHA256).Scan(&workerID, &payloadBytes); err != nil {
+			return err
+		}
+		if workerID != auth.WorkerID || payloadBytes != observation.PayloadBytesEachDirection {
+			return errFabricMeasurementConflict
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) FabricProbeObservationStatus(ctx context.Context, auth WorkerAuth, sessionID uuid.UUID) ([]string, error) {
+	var initiatorWorker, peerWorker, supplierID uuid.UUID
+	if err := s.pool.QueryRow(ctx, `SELECT initiator_worker_id,peer_worker_id,supplier_id
+		FROM fabric_probe_sessions WHERE id=$1`, sessionID).Scan(&initiatorWorker, &peerWorker, &supplierID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errNotFound
+		}
+		return nil, err
+	}
+	if initiatorWorker != auth.WorkerID || supplierID != auth.SupplierID {
+		return nil, errors.New("only the fabric-session initiator may read peer observations")
+	}
+	rows, err := s.pool.Query(ctx, `SELECT transcript_sha256 FROM fabric_probe_observations
+		WHERE fabric_session_id=$1 AND observer_worker_id=$2 ORDER BY transcript_sha256`, sessionID, peerWorker)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var transcripts []string
+	for rows.Next() {
+		var transcript string
+		if err := rows.Scan(&transcript); err != nil {
+			return nil, err
+		}
+		transcripts = append(transcripts, transcript)
+	}
+	return transcripts, rows.Err()
+}
+
 func (s *Store) RecordFabricLinkMeasurement(ctx context.Context, auth WorkerAuth, raw []byte) error {
 	if len(raw) == 0 || len(raw) > fabricMeasurementBodyLimit {
 		return errors.New("fabric receipt body has invalid size")
@@ -157,18 +310,60 @@ func (s *Store) RecordFabricLinkMeasurement(ctx context.Context, auth WorkerAuth
 	} else if tag.RowsAffected() != 1 {
 		return errNotFound
 	}
+	classification := "SELF_REPORTED_UNQUALIFIED"
+	if receipt.FabricSessionID != nil {
+		var initiatorWorker, peerWorker, supplierID uuid.UUID
+		var declaredSite string
+		var expiresAt time.Time
+		if err := tx.QueryRow(ctx, `SELECT initiator_worker_id,peer_worker_id,supplier_id,declared_site,expires_at
+			FROM fabric_probe_sessions WHERE id=$1`, *receipt.FabricSessionID).
+			Scan(&initiatorWorker, &peerWorker, &supplierID, &declaredSite, &expiresAt); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return errNotFound
+			}
+			return err
+		}
+		if initiatorWorker != auth.WorkerID || supplierID != auth.SupplierID ||
+			receipt.ExpectedPeerWorkerID == nil || peerWorker != *receipt.ExpectedPeerWorkerID ||
+			declaredSite != strings.TrimSpace(receipt.DeclaredSite) || !expiresAt.After(time.Now()) {
+			return errors.New("fabric receipt does not match its reserved peer session")
+		}
+		allObserved := true
+		for _, round := range receipt.Rounds {
+			var observerWorker uuid.UUID
+			var payloadBytes int
+			err := tx.QueryRow(ctx, `SELECT observer_worker_id,payload_bytes_each_direction
+				FROM fabric_probe_observations
+				WHERE fabric_session_id=$1 AND transcript_sha256=$2`, *receipt.FabricSessionID, round.TranscriptSHA256).
+				Scan(&observerWorker, &payloadBytes)
+			if errors.Is(err, pgx.ErrNoRows) {
+				allObserved = false
+				break
+			}
+			if err != nil {
+				return err
+			}
+			if observerWorker != peerWorker || payloadBytes != round.PayloadBytesEachDirection {
+				return errors.New("fabric peer observation does not match the receipt round")
+			}
+		}
+		if allObserved {
+			classification = "MUTUAL_WORKER_OBSERVED_NOT_ADMISSIBLE"
+		}
+	}
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO fabric_link_measurements
 		  (receipt_id, reporting_worker_id, reporting_supplier_id, declared_site,
 		   peer_endpoint_commitment, transport, peer_authentication, measured_at,
 		   payload_bytes_each_direction, sample_count, p50_round_trip_micros,
-		   p95_round_trip_micros, p50_payload_goodput_mbps, receipt_sha256, raw_receipt)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
+		   p95_round_trip_micros, p50_payload_goodput_mbps, fabric_session_id,
+		   expected_peer_worker_id, classification, receipt_sha256, raw_receipt)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb)
 		ON CONFLICT (receipt_id) DO NOTHING`,
 		receipt.ReceiptID, auth.WorkerID, auth.SupplierID, strings.TrimSpace(receipt.DeclaredSite),
 		receipt.PeerEndpointCommitment, receipt.Transport, receipt.PeerAuthentication, summary.MeasuredAt,
 		summary.PayloadBytes, summary.SampleCount, summary.P50LatencyMicros, summary.P95LatencyMicros,
-		summary.P50GoodputMbps, receiptSHA256, raw)
+		summary.P50GoodputMbps, receipt.FabricSessionID, receipt.ExpectedPeerWorkerID, classification, receiptSHA256, raw)
 	if err != nil {
 		return err
 	}
@@ -188,6 +383,14 @@ func (s *Store) RecordFabricLinkMeasurement(ctx context.Context, auth WorkerAuth
 
 func (s *Store) DeleteOldFabricLinkMeasurements(ctx context.Context, before time.Time) (int64, error) {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM fabric_link_measurements WHERE ingested_at < $1`, before)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (s *Store) DeleteOldFabricProbeSessions(ctx context.Context, before time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM fabric_probe_sessions WHERE created_at < $1`, before)
 	if err != nil {
 		return 0, err
 	}

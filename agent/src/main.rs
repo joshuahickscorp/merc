@@ -287,6 +287,10 @@ enum Command {
         /// Path to a local, owner-shared probe secret (never printed or sent to control).
         #[arg(long)]
         token_file: PathBuf,
+        /// Existing agent configuration. When present, this listener separately
+        /// authenticates valid peer observations to the control plane.
+        #[arg(long)]
+        agent_config: Option<PathBuf>,
     },
     /// Measure one authenticated candidate Merc Fabric link and emit a raw receipt.
     FabricProbe {
@@ -299,6 +303,9 @@ enum Command {
         /// Operator-declared site label. It is a claim, not a verified geography authority.
         #[arg(long)]
         site: String,
+        /// Enrolled peer worker expected to observe every round. Requires --agent-config.
+        #[arg(long)]
+        peer_worker_id: Option<uuid::Uuid>,
         /// Random payload bytes per round; bounded at 4 MiB.
         #[arg(long, default_value_t = fabric::DEFAULT_PAYLOAD_BYTES)]
         bytes: usize,
@@ -605,18 +612,37 @@ async fn main() -> Result<()> {
             init_tracing();
             vllm::run(config).await
         }
-        Command::FabricServe { bind, token_file } => {
+        Command::FabricServe {
+            bind,
+            token_file,
+            agent_config,
+        } => {
             init_tracing();
             let bind = bind
                 .parse()
                 .with_context(|| format!("parsing fabric bind address {bind}"))?;
             let token = fabric::read_shared_secret(&token_file)?;
-            fabric::serve(bind, token).await
+            let observer = if let Some(path) = agent_config {
+                let cfg = AgentConfig::load(&path).with_context(|| {
+                    format!(
+                        "loading agent configuration {} for fabric observer",
+                        path.display()
+                    )
+                })?;
+                Some(
+                    ControlPlaneClient::new(cfg.control_url, cfg.worker_token)
+                        .context("building control-plane client for fabric observer")?,
+                )
+            } else {
+                None
+            };
+            fabric::serve(bind, token, observer).await
         }
         Command::FabricProbe {
             endpoint,
             token_file,
             site,
+            peer_worker_id,
             bytes,
             rounds,
             out,
@@ -627,9 +653,35 @@ async fn main() -> Result<()> {
                 .parse()
                 .with_context(|| format!("parsing fabric peer address {endpoint}"))?;
             let token = fabric::read_shared_secret(&token_file)?;
+            let (control, fabric_session_id) = if let Some(path) = agent_config {
+                let cfg = AgentConfig::load(&path).with_context(|| {
+                    format!(
+                        "loading agent configuration {} for fabric receipt upload",
+                        path.display()
+                    )
+                })?;
+                let client = ControlPlaneClient::new(cfg.control_url, cfg.worker_token)
+                    .context("building control-plane client for fabric receipt upload")?;
+                let session = if let Some(peer_worker_id) = peer_worker_id {
+                    client
+                        .create_fabric_session(peer_worker_id, &site)
+                        .await
+                        .context("reserving authenticated fabric peer session")?
+                } else {
+                    uuid::Uuid::new_v4()
+                };
+                (Some(client), session)
+            } else {
+                if peer_worker_id.is_some() {
+                    anyhow::bail!("--peer-worker-id requires --agent-config so Merc can reserve the peer session")
+                }
+                (None, uuid::Uuid::new_v4())
+            };
             let receipt = fabric::probe(fabric::ProbeOptions {
                 endpoint,
                 site,
+                fabric_session_id,
+                expected_peer_worker_id: peer_worker_id,
                 payload_bytes: bytes,
                 rounds,
                 shared_secret: token,
@@ -643,15 +695,20 @@ async fn main() -> Result<()> {
             } else {
                 println!("{}", String::from_utf8_lossy(&rendered));
             }
-            if let Some(path) = agent_config {
-                let cfg = AgentConfig::load(&path).with_context(|| {
-                    format!(
-                        "loading agent configuration {} for fabric receipt upload",
-                        path.display()
-                    )
-                })?;
-                let client = ControlPlaneClient::new(cfg.control_url, cfg.worker_token)
-                    .context("building control-plane client for fabric receipt upload")?;
+            if peer_worker_id.is_some() {
+                let transcripts = receipt
+                    .rounds
+                    .iter()
+                    .map(|round| round.transcript_sha256.clone())
+                    .collect::<Vec<_>>();
+                control
+                    .as_ref()
+                    .expect("peer-bound fabric probe has a control-plane client")
+                    .wait_for_fabric_observations(fabric_session_id, &transcripts)
+                    .await
+                    .context("waiting for every reserved peer observation before uploading fabric receipt")?;
+            }
+            if let Some(client) = control {
                 client
                     .submit_fabric_receipt(&receipt)
                     .await
