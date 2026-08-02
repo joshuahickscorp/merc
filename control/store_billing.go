@@ -522,7 +522,8 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 		tasks             int
 	)
 	rows, err := s.pool.Query(ctx, `
-		SELECT COALESCE(t.expected_output_records,0),
+		SELECT t.id,
+		       COALESCE(t.expected_output_records,0),
 		       t.reported_tokens_used,
 		       t.economic_buyer_charge_usd::float8,
 		       COALESCE((
@@ -538,12 +539,13 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 	defer rows.Close()
 	for rows.Next() {
 		var (
+			taskID          uuid.UUID
 			expectedRecords int64
 			reported        *int64
 			frozen          *float64
 			billed          float64
 		)
-		if err := rows.Scan(&expectedRecords, &reported, &frozen, &billed); err != nil {
+		if err := rows.Scan(&taskID, &expectedRecords, &reported, &frozen, &billed); err != nil {
 			return err
 		}
 		if expectedRecords <= 0 || maxTokens <= 0 ||
@@ -565,21 +567,19 @@ func (s *Store) attachObservedOutputInvoiceEvidence(ctx context.Context, iv *Inv
 		}
 		if frozen != nil && *frozen > 0 {
 			frozenSum += *frozen
+			var rebate float64
 			if billed <= 0 {
-				hasReported := reported != nil
-				var r int64
-				if hasReported {
-					r = *reported
+				// Same loader as settlement so nano authority and floor clamp
+				// cannot disagree with the invoice.
+				settled, serr := loadObservedOutputSettlement(ctx, s.pool, taskID)
+				if serr != nil {
+					return serr
 				}
-				settled := settleObservedOutputTokens(
-					*frozen, *frozen,
-					settlementInputUnitsForComputePlan(*plan), plan.EstimatedOutputTokens,
-					expectedRecords, maxTokens,
-					r, hasReported,
-				)
 				billed = settled.BilledCharge
+				rebate = settled.RebateUSD
+			} else {
+				rebate = roundUSD(*frozen - billed)
 			}
-			rebate := roundUSD(*frozen - billed)
 			if rebate > 0 {
 				rebateSum += rebate
 			}

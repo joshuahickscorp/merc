@@ -133,6 +133,9 @@ func fixedPointPricingFromScenario(
 	scenario EconomicScenario,
 	unknowns []string,
 ) (*FixedPointPricingDecision, error) {
+	// Legacy float path: re-quantises already-rounded scenario fields through
+	// micro-USD. Prefer fixedPointPricingFromPlan when an exact economic plan is
+	// available so supplier/buyer legs match admission.
 	toNanos := func(value float64) int64 { return usdToMicros(value) * NanosPerMicro }
 	buyer := toNanos(buyerPrice)
 	ceiling := toNanos(maximumBuyerPrice)
@@ -149,6 +152,86 @@ func fixedPointPricingFromScenario(
 	}
 	fixed := &FixedPointPricingDecision{
 		Currency: currency, BuyerChargeNanos: buyer, AcceptedCeilingNanos: ceiling,
+		SupplierEntitlementsNanos: supplier, KnownVariableCostsNanos: variable,
+		MercGrossSpreadNanos:       buyer - supplier,
+		KnownCostContributionNanos: contribution,
+		UnknownCostCategories:      append([]string(nil), unknowns...),
+	}
+	if len(unknowns) == 0 {
+		trueNet := contribution
+		fixed.TrueNetContributionNanos = &trueNet
+	}
+	return fixed, nil
+}
+
+// fixedPointPricingFromPlan derives FixedPoint from the plan's integer nano
+// authority for the supplier and buyer legs. Variable costs (processor,
+// control plane) remain float-derived for now — they still cross the micro-USD
+// scenario seam — but the supplier entitlement and buyer charge are the same
+// integers admission used, not a re-quantisation of already-rounded floats.
+func fixedPointPricingFromPlan(
+	economic EconomicPlan,
+	scenario EconomicScenario,
+	unknowns []string,
+) (*FixedPointPricingDecision, error) {
+	if economic.EconomicRoundingPolicy != economicRoundingPolicy ||
+		economic.SupplierPayoutPerTaskNanos <= 0 ||
+		economic.BuyerChargePerTaskNanos <= 0 {
+		return fixedPointPricingFromScenario(
+			economic.Schedule.Currency,
+			economic.InitialBuyerChargeUSD, economic.ReservedBuyerChargeUSD,
+			scenario, unknowns,
+		)
+	}
+	tasks := scenario.AcceptedTasks
+	if tasks <= 0 {
+		return nil, errors.New("fixed-point pricing requires a positive accepted task count")
+	}
+	// Variable costs remain float-derived (processor fee, control-plane cost).
+	toNanos := func(value float64) int64 { return usdToMicros(value) * NanosPerMicro }
+	variable := toNanos(scenario.ProcessorFeeUSD) + toNanos(scenario.ControlPlaneCostUSD)
+
+	supplier := economic.SupplierPayoutPerTaskNanos * int64(tasks)
+	slaNanos := int64(0)
+	if economic.Input.SLAPremiumUSD > 0 {
+		// SLA premium is still a schedule float; convert once at the nano boundary.
+		// full_success_sla_met includes the premium in the buyer charge; sla_miss
+		// refunds it, so net buyer nanos drop by the premium.
+		sn, err := MoneyNanosFromUSDFloat(
+			MustParseCurrency(economic.Schedule.Currency), economic.Input.SLAPremiumUSD)
+		if err != nil {
+			return nil, err
+		}
+		slaNanos = sn.Nanos
+	}
+	buyer := economic.BuyerChargePerTaskNanos*int64(tasks) + slaNanos
+	if scenario.RefundUSD > 0 && slaNanos > 0 {
+		// Refund is the SLA premium on sla_miss scenarios.
+		buyer -= slaNanos
+	}
+	ceiling := economic.BuyerChargePerTaskNanos*
+		int64(economic.Input.InitialTaskCount+economic.Input.ExtraTaskReserve) + slaNanos
+	if economic.Input.FirmQuoteMaxUSD > 0 {
+		firm, err := MoneyNanosFromUSDFloat(
+			MustParseCurrency(economic.Schedule.Currency), economic.Input.FirmQuoteMaxUSD)
+		if err != nil {
+			return nil, err
+		}
+		if firm.Nanos > 0 && firm.Nanos < ceiling {
+			ceiling = firm.Nanos
+		}
+	}
+	if buyer <= 0 || ceiling < buyer || supplier <= 0 {
+		return nil, errors.New("fixed-point pricing lacks positive buyer, supplier, ceiling, or contribution authority")
+	}
+	// Contribution is the residual that makes conservation exact in integers.
+	// Variable costs may still carry micro-quantisation; the residual absorbs it.
+	contribution := buyer - supplier - variable
+	if contribution <= 0 {
+		return nil, errors.New("fixed-point pricing lacks positive buyer, supplier, ceiling, or contribution authority")
+	}
+	fixed := &FixedPointPricingDecision{
+		Currency: economic.Schedule.Currency, BuyerChargeNanos: buyer, AcceptedCeilingNanos: ceiling,
 		SupplierEntitlementsNanos: supplier, KnownVariableCostsNanos: variable,
 		MercGrossSpreadNanos:       buyer - supplier,
 		KnownCostContributionNanos: contribution,
@@ -185,6 +268,49 @@ func validateFixedPointPricing(p PricingDecision) error {
 		}
 	} else if f.TrueNetContributionNanos != nil {
 		return errors.New("fixed-point pricing claims true net contribution with unknown costs")
+	}
+	return nil
+}
+
+// validateFixedPointMatchesPlan is the invariant whose absence was the whole
+// defect: FixedPoint supplier/buyer legs must equal the plan's nano authority
+// times task count (plus SLA premium on the buyer leg). Fail closed.
+func validateFixedPointMatchesPlan(p PricingDecision, economic EconomicPlan, scenario EconomicScenario) error {
+	if p.FixedPoint == nil || economic.EconomicRoundingPolicy != economicRoundingPolicy {
+		return nil
+	}
+	if economic.SupplierPayoutPerTaskNanos <= 0 || economic.BuyerChargePerTaskNanos <= 0 {
+		return nil
+	}
+	tasks := int64(scenario.AcceptedTasks)
+	if tasks <= 0 {
+		return errors.New("fixed-point plan match requires positive settled task count")
+	}
+	wantSupplier := economic.SupplierPayoutPerTaskNanos * tasks
+	slaNanos := int64(0)
+	if economic.Input.SLAPremiumUSD > 0 {
+		sn, err := MoneyNanosFromUSDFloat(
+			MustParseCurrency(economic.Schedule.Currency), economic.Input.SLAPremiumUSD)
+		if err != nil {
+			return err
+		}
+		slaNanos = sn.Nanos
+	}
+	wantBuyer := economic.BuyerChargePerTaskNanos*tasks + slaNanos
+	if scenario.RefundUSD > 0 && slaNanos > 0 {
+		wantBuyer -= slaNanos
+	}
+	if p.FixedPoint.SupplierEntitlementsNanos != wantSupplier {
+		return fmt.Errorf(
+			"fixed-point supplier entitlements %d nanos != plan supplier_payout_per_task_nanos %d × %d tasks (= %d)",
+			p.FixedPoint.SupplierEntitlementsNanos,
+			economic.SupplierPayoutPerTaskNanos, tasks, wantSupplier)
+	}
+	if p.FixedPoint.BuyerChargeNanos != wantBuyer {
+		return fmt.Errorf(
+			"fixed-point buyer charge %d nanos != plan buyer_charge_per_task_nanos %d × %d tasks + SLA (= %d)",
+			p.FixedPoint.BuyerChargeNanos,
+			economic.BuyerChargePerTaskNanos, tasks, wantBuyer)
 	}
 	return nil
 }
@@ -731,16 +857,25 @@ func distributedPricingDecisionAtRate(
 	// this change does), the two sides are the same expression and the comparison
 	// below is an identity. When the min-billable floor lifted the plan's base, the
 	// entitlement is strictly larger, which admission accepts.
+	//
+	// When the plan carries the exact policy and positive supplier nanos, a
+	// failure of exactTaskEconomics MUST refuse the decision rather than fall
+	// through to the legacy hourly admission comparison — that silent downgrade
+	// is how "cannot price exactly" became indistinguishable from legacy.
 	var supplierGrossNanos, supplierRequiredNanos int64
 	var supplierEntitlementPolicy string
 	if economic.EconomicRoundingPolicy == economicRoundingPolicy &&
 		economic.SupplierPayoutPerTaskNanos > 0 && compute.PrimaryTasks > 0 {
 		unitsPerTask := billableUnits / float64(compute.PrimaryTasks)
-		if _, required, rerr := exactTaskEconomics(catalogue, tier, unitsPerTask); rerr == nil {
-			supplierGrossNanos = economic.SupplierPayoutPerTaskNanos
-			supplierRequiredNanos = required.Nanos
-			supplierEntitlementPolicy = economicRoundingPolicy
+		_, required, rerr := exactTaskEconomics(catalogue, tier, unitsPerTask)
+		if rerr != nil {
+			return PricingDecision{}, fmt.Errorf(
+				"exact entitlement policy %q is set but exactTaskEconomics failed: %w",
+				economicRoundingPolicy, rerr)
 		}
+		supplierGrossNanos = economic.SupplierPayoutPerTaskNanos
+		supplierRequiredNanos = required.Nanos
+		supplierEntitlementPolicy = economicRoundingPolicy
 	}
 
 	expectedGrossUSDHr := 0.0
@@ -806,13 +941,14 @@ func distributedPricingDecisionAtRate(
 		},
 	}
 	if economic.Schedule.ControlPlaneAllocationPolicy == controlPlaneAllocationChargeBatchV1 {
-		fixed, ferr := fixedPointPricingFromScenario(
-			out.Currency, out.BuyerPrice, out.MaximumBuyerPrice, scenario, out.Unknowns,
-		)
+		fixed, ferr := fixedPointPricingFromPlan(economic, scenario, out.Unknowns)
 		if ferr != nil {
 			return PricingDecision{}, ferr
 		}
 		out.FixedPoint = fixed
+		if err := validateFixedPointMatchesPlan(out, economic, scenario); err != nil {
+			return PricingDecision{}, err
+		}
 	}
 	return out, validatePricingCostShape(out)
 }

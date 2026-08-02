@@ -190,10 +190,18 @@ func strangerAdmissionUnderCurrency(t *testing.T, settlement string) {
 		t.Fatalf("admitted with the supplier entitled to %d nanos against a %d nano floor",
 			pricing.SupplierGrossNanos, pricing.SupplierRequiredNanos)
 	}
-	settlementProjectionNanos := usdToMicros(economic.SupplierPayoutPerTaskUSD) * NanosPerMicro
-	if settlementProjectionNanos < pricing.SupplierRequiredNanos {
-		t.Fatalf("ledger settlement projection is %d nanos against the admitted supplier floor %d",
-			settlementProjectionNanos, pricing.SupplierRequiredNanos)
+	// Settlement authority is the plan's exact nano entitlement, not the
+	// six-decimal float projection. The float path paid 2000 nanos on the
+	// 1436-nano gross fixture while admission proved 1393 — that was the defect.
+	if economic.SupplierPayoutPerTaskNanos < pricing.SupplierRequiredNanos {
+		t.Fatalf("exact supplier entitlement %d nanos is below the admitted floor %d",
+			economic.SupplierPayoutPerTaskNanos, pricing.SupplierRequiredNanos)
+	}
+	if pricing.FixedPoint != nil &&
+		pricing.FixedPoint.SupplierEntitlementsNanos != economic.SupplierPayoutPerTaskNanos*int64(economic.Input.InitialTaskCount) {
+		t.Fatalf("FixedPoint supplier entitlements %d != plan nanos %d × %d tasks",
+			pricing.FixedPoint.SupplierEntitlementsNanos,
+			economic.SupplierPayoutPerTaskNanos, economic.Input.InitialTaskCount)
 	}
 	// Conservation, exactly: the supplier can never be owed more per task than the
 	// buyer was charged for it.

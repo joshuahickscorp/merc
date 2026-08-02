@@ -128,6 +128,65 @@ func splitFrozenCharge(
 	}
 }
 
+// splitFrozenChargeNanos is the nano-authority form of splitFrozenCharge.
+// Platform take = buyer nanos − supplier nanos, computed in integers, then each
+// leg is projected to micro-USD once at the ledger write boundary. Refuses
+// supplierPayout > buyerCharge rather than relying on callers.
+func splitFrozenChargeNanos(
+	buyerID, supplierID, taskID uuid.UUID,
+	currency string,
+	buyerChargeNanos, supplierPayoutNanos int64,
+	holdSecs uint32,
+	now time.Time,
+) ([]LedgerEntry, error) {
+	if buyerChargeNanos <= 0 {
+		return nil, fmt.Errorf("splitFrozenChargeNanos: buyer charge %d nanos is not positive", buyerChargeNanos)
+	}
+	if supplierPayoutNanos < 0 {
+		return nil, fmt.Errorf("splitFrozenChargeNanos: supplier payout %d nanos is negative", supplierPayoutNanos)
+	}
+	if supplierPayoutNanos > buyerChargeNanos {
+		return nil, fmt.Errorf(
+			"splitFrozenChargeNanos: supplier payout %d exceeds buyer charge %d",
+			supplierPayoutNanos, buyerChargeNanos)
+	}
+	platformNanos := buyerChargeNanos - supplierPayoutNanos
+	// Project each leg once. Platform is the residual in micro space so the
+	// three ledger rows still sum to zero after independent half-away rounding.
+	buyerMicros := projectNanosToMicros(buyerChargeNanos)
+	supplierMicros := projectNanosToMicros(supplierPayoutNanos)
+	if supplierMicros > buyerMicros {
+		return nil, fmt.Errorf(
+			"splitFrozenChargeNanos: projected supplier %d micros exceeds buyer %d micros",
+			supplierMicros, buyerMicros)
+	}
+	platformMicros := buyerMicros - supplierMicros
+	// Sanity: platform micros should be near projectNanosToMicros(platformNanos).
+	_ = platformNanos
+	release := payoutReleaseAt(now, holdSecs)
+	return []LedgerEntry{
+		{Kind: KindBuyerCharge, BuyerID: &buyerID, TaskID: &taskID, AmountUSD: -microsToUSD(buyerMicros), Currency: currency, PayoutStatus: PayoutReleased},
+		{Kind: KindSupplierCredit, SupplierID: &supplierID, TaskID: &taskID, AmountUSD: microsToUSD(supplierMicros), Currency: currency, PayoutStatus: PayoutHeld, ReleaseAt: &release},
+		{Kind: KindPlatformTake, TaskID: &taskID, AmountUSD: microsToUSD(platformMicros), Currency: currency, PayoutStatus: PayoutReleased},
+	}, nil
+}
+
+// projectNanosToMicros is the single micro projection used at ledger write.
+func projectNanosToMicros(nanos int64) int64 {
+	if nanos <= 0 {
+		return 0
+	}
+	whole := nanos / NanosPerMicro
+	remainder := nanos % NanosPerMicro
+	if remainder*2 >= NanosPerMicro {
+		whole++
+	}
+	if whole == 0 {
+		whole = 1
+	}
+	return whole
+}
+
 func clawbackEntry(supplierID, taskID uuid.UUID, amount float64) LedgerEntry {
 	return LedgerEntry{
 		Kind:         KindClawback,

@@ -450,17 +450,22 @@ func seedMoneyPathJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f m
 		if err != nil {
 			t.Fatalf("marshal plan: %v", err)
 		}
+		exactNanos := f.Plan.EconomicRoundingPolicy == economicRoundingPolicy &&
+			f.Plan.BuyerChargePerTaskNanos > 0 && f.Plan.SupplierPayoutPerTaskNanos > 0
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO job_economic_plans (
 			  job_id,plan_version,schedule_version,plan_json,initial_task_count,
 			  buyer_charge_per_task_usd,supplier_payout_per_task_usd,
-			  initial_buyer_charge_usd,reserved_buyer_charge_usd,sla_premium_usd,firm_quote_max_usd
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+			  initial_buyer_charge_usd,reserved_buyer_charge_usd,sla_premium_usd,firm_quote_max_usd,
+			  buyer_charge_per_task_nanos,supplier_payout_per_task_nanos
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 			f.JobID, f.Plan.Version, f.Plan.Schedule.Version, planJSON,
 			f.Plan.Input.InitialTaskCount, f.Plan.BuyerChargePerTaskUSD,
 			f.Plan.SupplierPayoutPerTaskUSD, f.Plan.InitialBuyerChargeUSD,
 			f.Plan.ReservedBuyerChargeUSD, f.Plan.Input.SLAPremiumUSD,
-			nullPosFloat(f.Plan.Input.FirmQuoteMaxUSD)); err != nil {
+			nullPosFloat(f.Plan.Input.FirmQuoteMaxUSD),
+			nullEconomicNanos(f.Plan.BuyerChargePerTaskNanos, exactNanos),
+			nullEconomicNanos(f.Plan.SupplierPayoutPerTaskNanos, exactNanos)); err != nil {
 			t.Fatalf("insert economic plan: %v", err)
 		}
 		if _, err := pool.Exec(ctx, `
@@ -470,6 +475,8 @@ func seedMoneyPathJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f m
 		}
 	}
 
+	exactNanos := f.Plan.EconomicRoundingPolicy == economicRoundingPolicy &&
+		f.Plan.BuyerChargePerTaskNanos > 0 && f.Plan.SupplierPayoutPerTaskNanos > 0
 	for i, taskID := range f.TaskIDs {
 		resultKey := taskAttemptResultKey(f.JobID, taskID, 0)
 		var claimedBy, workerID, execWorker, execSupplier any
@@ -488,13 +495,16 @@ func seedMoneyPathJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f m
 			  (id,job_id,status,input_ref,result_key,chunk_index,retry_count,
 			   claimed_by,worker_id,execution_worker_id,execution_supplier_id,
 			   execution_hw_class,execution_engine,execution_build_hash,
-			   economic_buyer_charge_usd,economic_supplier_payout_usd)
+			   economic_buyer_charge_usd,economic_supplier_payout_usd,
+			   economic_buyer_charge_nanos,economic_supplier_payout_nanos)
 			VALUES ($1,$2,$3,'money/input',$4,$5,0,
-			        $6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+			        $6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 			taskID, f.JobID, opts.TaskStatus, resultKey, i,
 			claimedBy, workerID, execWorker, execSupplier,
 			execHW, execEngine, execBuild,
-			f.Plan.BuyerChargePerTaskUSD, f.Plan.SupplierPayoutPerTaskUSD); err != nil {
+			f.Plan.BuyerChargePerTaskUSD, f.Plan.SupplierPayoutPerTaskUSD,
+			nullEconomicNanos(f.Plan.BuyerChargePerTaskNanos, exactNanos),
+			nullEconomicNanos(f.Plan.SupplierPayoutPerTaskNanos, exactNanos)); err != nil {
 			t.Fatalf("insert task %d: %v", i, err)
 		}
 	}
