@@ -150,6 +150,10 @@ for (const [name, html] of pages) {
   for (const tag of ['style', 'script']) {
     const blocks = html.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'gi'));
     for (const block of blocks) {
+      // External script tags have an empty body and are governed by the
+      // source allowlist. Hashing that empty body would add a meaningless
+      // executable token and diverge from the release CSP manifest test.
+      if (tag === 'script' && block[1].length === 0) continue;
       const digest = crypto.createHash('sha256').update(block[1]).digest('base64');
       inlineHashes.push({name, tag, value: `sha256-${digest}`});
     }

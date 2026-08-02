@@ -668,7 +668,7 @@ CREATE TABLE IF NOT EXISTS models (
     kind           TEXT,
     dim            INT,                 -- embedding dimensionality (embed models)
     job_type       TEXT,
-    price_per_1k   NUMERIC(12,8),       -- settlement-currency major units / 1,000 units
+    price_per_1k   NUMERIC(30,18),      -- settlement-currency major units / 1,000 units; fixed-point authority
     min_memory_gb  REAL,
     hf_repo        TEXT                 -- HuggingFace repo to resolve weights from
 );
@@ -1141,14 +1141,17 @@ ALTER TABLE worker_authorized_capabilities ADD COLUMN IF NOT EXISTS model_kind T
 -- per worker, because one worker can hold both kinds.
 ALTER TABLE worker_authorized_capabilities
     ADD COLUMN IF NOT EXISTS routable BOOLEAN NOT NULL DEFAULT true;
+-- `builtin` is a governed wire kind for non-model runtimes such as the
+-- bounded FFmpeg media cell. It still carries the same matrix-bound
+-- authorization and routability fences as model-backed cells.
 DELETE FROM worker_authorized_capabilities
- WHERE COALESCE(model_kind,'') NOT IN ('gguf','hf');
+ WHERE COALESCE(model_kind,'') NOT IN ('gguf','hf','builtin');
 ALTER TABLE worker_authorized_capabilities ALTER COLUMN model_kind SET NOT NULL;
 ALTER TABLE worker_authorized_capabilities
     DROP CONSTRAINT IF EXISTS worker_authorized_capabilities_model_kind_valid;
 ALTER TABLE worker_authorized_capabilities
     ADD CONSTRAINT worker_authorized_capabilities_model_kind_valid
-    CHECK (model_kind IN ('gguf','hf'));
+    CHECK (model_kind IN ('gguf','hf','builtin'));
 CREATE INDEX IF NOT EXISTS worker_authorized_capabilities_exact_idx
     ON worker_authorized_capabilities (worker_id, job_type, model_ref, matrix_sha256);
 CREATE INDEX IF NOT EXISTS worker_authorized_capabilities_supply_idx
@@ -1952,10 +1955,18 @@ CREATE INDEX IF NOT EXISTS alpha_requests_retention_idx
 ALTER TABLE models ADD COLUMN IF NOT EXISTS price_source  TEXT DEFAULT 'seed';
 ALTER TABLE models ADD COLUMN IF NOT EXISTS price_formula TEXT;
 ALTER TABLE models ADD COLUMN IF NOT EXISTS price_reference_currency TEXT;
-ALTER TABLE models ADD COLUMN IF NOT EXISTS price_reference_per_1k NUMERIC(12,8);
+ALTER TABLE models ADD COLUMN IF NOT EXISTS price_reference_per_1k NUMERIC(30,18);
 ALTER TABLE models ADD COLUMN IF NOT EXISTS price_currency TEXT;
 ALTER TABLE models ADD COLUMN IF NOT EXISTS price_schedule_sha256 TEXT;
 ALTER TABLE models ADD COLUMN IF NOT EXISTS price_schedule_version INT;
+-- The original NUMERIC(12,8) columns rounded sub-cent-per-1k lanes (media and
+-- future high-throughput work) before the append-only authority could replay
+-- them. Keep the price as fixed-point decimal with enough fractional precision
+-- for exact quote/settlement identity; never replace this with float storage.
+ALTER TABLE models ALTER COLUMN price_per_1k TYPE NUMERIC(30,18)
+    USING price_per_1k::NUMERIC(30,18);
+ALTER TABLE models ALTER COLUMN price_reference_per_1k TYPE NUMERIC(30,18)
+    USING price_reference_per_1k::NUMERIC(30,18);
 
 -- One append-only catalogue schedule binds the exact market-board bytes and
 -- every model price applied from them. Applying a schedule is one serializable
@@ -2014,11 +2025,11 @@ ALTER TABLE catalogue_price_schedules ADD CONSTRAINT catalogue_price_schedules_s
 CREATE TABLE IF NOT EXISTS model_price_history (
     schedule_sha256       TEXT NOT NULL REFERENCES catalogue_price_schedules(sha256),
     model_id              TEXT NOT NULL REFERENCES models(id),
-    prior_price_per_1k    NUMERIC(12,8),
+    prior_price_per_1k    NUMERIC(30,18),
     prior_price_source    TEXT,
-    reference_price_per_1k NUMERIC(12,8) NOT NULL CHECK (reference_price_per_1k > 0),
+    reference_price_per_1k NUMERIC(30,18) NOT NULL CHECK (reference_price_per_1k > 0),
     reference_currency    TEXT NOT NULL CHECK (reference_currency = 'usd'),
-    price_per_1k          NUMERIC(12,8) NOT NULL CHECK (price_per_1k > 0),
+    price_per_1k          NUMERIC(30,18) NOT NULL CHECK (price_per_1k > 0),
     price_currency        TEXT NOT NULL CHECK (price_currency IN ('usd','cad','jpy')),
     price_formula         TEXT NOT NULL CHECK (btrim(price_formula) <> ''),
     -- v2 is the per-physical-workload supplier market term. v1 rows retain
@@ -2027,9 +2038,15 @@ CREATE TABLE IF NOT EXISTS model_price_history (
     applied_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (schedule_sha256,model_id)
 );
-ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS reference_price_per_1k NUMERIC(12,8);
+ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS reference_price_per_1k NUMERIC(30,18);
 ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS price_currency TEXT;
 ALTER TABLE model_price_history ADD COLUMN IF NOT EXISTS supplier_share DOUBLE PRECISION;
+ALTER TABLE model_price_history ALTER COLUMN prior_price_per_1k TYPE NUMERIC(30,18)
+    USING prior_price_per_1k::NUMERIC(30,18);
+ALTER TABLE model_price_history ALTER COLUMN reference_price_per_1k TYPE NUMERIC(30,18)
+    USING reference_price_per_1k::NUMERIC(30,18);
+ALTER TABLE model_price_history ALTER COLUMN price_per_1k TYPE NUMERIC(30,18)
+    USING price_per_1k::NUMERIC(30,18);
 ALTER TABLE model_price_history DROP CONSTRAINT IF EXISTS model_price_history_supplier_share_valid;
 ALTER TABLE model_price_history ADD CONSTRAINT model_price_history_supplier_share_valid
     CHECK (supplier_share IS NULL OR (supplier_share > 0 AND supplier_share <= 1)) NOT VALID;
@@ -2084,8 +2101,8 @@ DECLARE
     authority_version INT;
     authority_reference_currency TEXT;
     authority_settlement_currency TEXT;
-    authority_reference_price NUMERIC(12,8);
-    authority_price NUMERIC(12,8);
+    authority_reference_price NUMERIC(30,18);
+    authority_price NUMERIC(30,18);
     authority_formula TEXT;
 BEGIN
     IF TG_OP = 'UPDATE' AND ROW(

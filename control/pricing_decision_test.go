@@ -70,6 +70,22 @@ func TestFixedPointPricingConservesAndRefusesFalseTrueNet(t *testing.T) {
 	}
 }
 
+func TestMediaRenderingPricingUsesDeclaredPixelsNotSceneBytes(t *testing.T) {
+	job := JobType{Type: "media_rendering", RenderWidth: 64, RenderHeight: 32}
+	got := settlementInputUnitsForJobType(job, 1, 1_000_000)
+	if got != 2_048 {
+		t.Fatalf("rendering billable units=%v, want declared canvas pixels 2048", got)
+	}
+	text := settlementInputUnitsForJobType(JobType{Type: "batch_infer", MaxTokens: 1}, 1, 1_000_000)
+	if text <= got {
+		t.Fatalf("text geometry unexpectedly used rendering pixel authority: text=%v render=%v", text, got)
+	}
+	zero := settlementInputUnitsForJobType(JobType{Type: "media_rendering", RenderWidth: 0, RenderHeight: 32}, 1, 100)
+	if zero != 0 {
+		t.Fatalf("invalid rendering geometry produced billable units=%v", zero)
+	}
+}
+
 func TestPricingDecisionRejectsArbitraryPositiveSupplierAdmissionRate(t *testing.T) {
 	workload, compute, placement, economic, pricing := distributedPricingFixture(t)
 	mutantPlacement := placement

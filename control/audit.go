@@ -471,7 +471,7 @@ func writeAudit(root, dir string, records []fileRecord) {
 		"dependencies":       directDependencies(root),
 		"surface": map[string]any{
 			"binaries": []string{"merc", "merc-agent"}, "routes": routeCount(root), "tables": tableCount(root),
-			"workloads": []string{"embed", "batch_infer"}, "runtimes": []string{"candle_metal"},
+			"workloads": []string{"embed", "batch_infer", "media_transcode", "media_rendering"}, "runtimes": []string{"candle_metal"},
 		},
 		"files": files,
 	}

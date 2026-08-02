@@ -191,16 +191,21 @@ requires the upstream job's completed verified receipt and its frozen
 PricingDecision digest to appear in the buyer-scoped server order. Conversely,
 the order is insufficient by itself: changing the local materialized bytes
 after receipt refuses before the next quote or submit. This supports finite
-declared artifact dataflow only; it does not yet make a rendering, image/video,
-LoRA, service, or tightly coupled declaration executable when no governed
-runtime cell exists. `ACCEPTED` is not completion, outcome verification,
+declared artifact dataflow only; it does not yet make image/video generation,
+LoRA, service, or tightly coupled declarations executable when no governed
+runtime cell exists. The bounded deterministic `media_rendering` cell is now
+resolvable for closed scene documents; that does not make prompt-to-image or
+video generation executable. `ACCEPTED` is not completion, outcome verification,
 settlement, or project calibration.
 
 ## Detectors
 
 The v1 static detector taxonomy covers realtime inference, batch inference and
-compute, embeddings, structured extraction, media rendering, image/video,
-LoRA, model evaluation, bounded containers, and service deployment. Evidence is
+compute, embeddings, structured extraction, media rendering, bounded
+`media_transcode`, image/video, LoRA, model evaluation, bounded containers, and
+service deployment. An explicit `ffmpeg` signal proposes the bounded
+`media_transcode` contract; it still requires the exact routable runtime/model
+digests before it can be quoted. Evidence is
 the set of project-relative files carrying each signal. Two independent files
 raise a detector from 0.55 to 0.72; this is only a proposal confidence and does
 not assert that the inferred graph is runnable.
@@ -232,9 +237,10 @@ and the two SHA-256 values used in `merc.project.json`. Compilation resolves a
 step only when exactly one currently routable cell matches both digests and the
 workload kind, and when the declared verification contract equals that cell's
 contract. A well-formed but unknown hash remains refused. The current catalog
-contains only the genuinely advertised batch-inference and embeddings cells;
-rendering, LoRA, and service declarations cannot resolve until governed cells
-for them exist.
+contains the genuinely advertised batch-inference and embeddings cells plus the
+bounded private-canary `media_transcode` and `media_rendering` cells. LoRA and
+service declarations cannot resolve until their trainer/evaluator and
+lease-backed runtime cells exist.
 
 Economics contains an ISO currency and a positive
 `maximum_buyer_price_nanos`. Fixed-point nanos avoid a float or integer-unit

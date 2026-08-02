@@ -1,6 +1,6 @@
 # Merc shippability status
 
-Audited against the code on 2026-07-28. Statuses use the goal's vocabulary.
+Audited against the code on 2026-08-02. Statuses use the goal's vocabulary.
 Nothing here is inferred from intent; each row was probed against the tree.
 
 > Newer than this file for the runtime selector, batching, execution modes and
@@ -87,6 +87,14 @@ accepts only a fresh receipt inside its own window, and embeds both receipts in
 the rollback/forward evidence instead of asserting a success boolean. No
 external offsite backup or rollback run is claimed.
 
+The supplier restart authority contract was also re-run against a disposable
+PostgreSQL 16 instance and retained at
+`evidence/autonomous/agent-restart-authority-r1.json`. It verifies exact-run,
+candidate/driver/worker bindings, durable process-session transitions,
+out-of-window and replay refusal, and release-doctor refusal when the reviewed
+restart-driver digest is absent. This remains a local authority exercise, not
+external staging evidence.
+
 The separate final acceptance validator now prevents individually plausible
 receipts from being spliced into false release authority. It requires one
 fresh, ordered deploy → rollback/forward → restart → canary → qualifying soak
@@ -105,21 +113,26 @@ Direct RunPod/vLLM runtime evidence also remains, but its receipt does not show 
 Merc request-to-settlement chain. None of those facts is promoted into current
 release authorization.
 
-The six previously named product gaps remain: image generation lacks a runtime;
-LoRA lacks trainer/evaluator dispatch; TP>1 lacks a real multi-GPU receipt;
-official-SDK conformance retains a real-engine incompatibility; external-model
-onboarding does not walk the money chain; and alert delivery has not reached a
-real receiver.
+The bounded scene-rendering gap is now closed as a private deterministic lane;
+the remaining product gaps are full prompt-to-image generation (no governed
+model runtime), LoRA trainer/evaluator dispatch, TP>1's real multi-GPU receipt,
+external-model onboarding's money-chain exercise, and alert delivery's lack of
+an external staffed paging receiver. A private Alertmanager→HTTP sink
+fire/resolve receipt is retained, but it is not an external staffed paging
+claim. The scene renderer is deliberately not
+counted as prompt-to-image generation.
 
 ## Lanes
 
 | lane | status | evidence |
 |---|---|---|
-| OpenAI-compatible realtime | `REAL_RUNTIME_PROVEN` historical; candidate canary `OPEN` | `[KILL-RT]` was reversed and `KEEP-RT` executed (`DECISION_ZERO_REVERSAL.md`). A real llama.cpp/Metal engine completed the full contract, verification, debit, supplier-payable, positive-margin, and receipt chain (`evidence/canary/real-runtime-realtime.json`). The retained receipt is clean and provenance-checked but predates the candidate, so it cannot mint `CANARY_PROVEN`. New physical, exact-result-cache, and coalesced-delivery contracts now freeze currency-bound fixed-point `PricingDecision` authority through settlement and receipt. Reuse records zero physical supplier liability, its explicit ledger-minimum delivery charge, and gross contribution separately from unknown processor/control/storage/egress/risk costs; it does not claim true net. The 128-follower database proof creates 128 distinct authorities and receipts with zero duplicate supplier credits, but remains local test evidence rather than a current-image canary. Official Python and JavaScript SDK conformance remains `TESTED`: the fake-upstream suite passes, while the real-engine suite retains a model-specific `parallel_tool_calls` incompatibility. |
+| OpenAI-compatible realtime | `REAL_RUNTIME_PROVEN` historical; candidate canary `OPEN` | `[KILL-RT]` was reversed and `KEEP-RT` executed (`DECISION_ZERO_REVERSAL.md`). A real llama.cpp/Metal engine completed the full contract, verification, debit, supplier-payable, positive-margin, and receipt chain (`evidence/canary/real-runtime-realtime.json`). The retained receipt is clean and provenance-checked but predates the candidate, so it cannot mint `CANARY_PROVEN`. New physical, exact-result-cache, and coalesced-delivery contracts now freeze currency-bound fixed-point `PricingDecision` authority through settlement and receipt. Reuse records zero physical supplier liability, its explicit ledger-minimum delivery charge, and gross contribution separately from unknown processor/control/storage/egress/risk costs; it does not claim true net. The 128-follower database proof creates 128 distinct authorities and receipts with zero duplicate supplier credits, but remains local test evidence rather than a current-image canary. Official Python and JavaScript SDK conformance passes all seven capabilities against the attested Qwen2.5-3B real engine (`evidence/canary/sdk-conformance-real-engine.json`); the older Llama-3.2 tool-template caveat remains model-specific, not a Merc surface defect. |
 | RunPod-backed pinned vLLM | direct runtime `REAL_RUNTIME_PROVEN`; Merc chain `TESTED` | Real NVIDIA hardware served a pinned `vllm/vllm-openai:v0.26.0` image and revision-pinned model with SSE (`evidence/runpod/cuda-first-proof.json`). Measured 7081 tok/s at concurrency 128 for $0.0106 per million tokens (`evidence/perf/cuda-throughput-correction.json`). That provider receipt contains no Merc contract, verification, debit, supplier payable, or Merc contribution, so it is not end-to-end canary authority. |
 | Object storage | `TESTED`; candidate canary `OPEN` | Retention, deletion and tenant isolation were exercised against a live store, but the retained inventory has no exact-candidate full-chain receipt. `control/job_object_retention.go` purges 30 days after terminal, holds while any dispute is unresolved, and refuses a period inside the 7-day filing window; mutation-checked 4/4. Workers hold no S3 credential at all — only per-key presigned URLs. |
 | Image generation | `IMPLEMENTED` (governance `TESTED`) | `control/image_generation.go` + `POST /v1/images/generations`, 81st route, buyer-owned in the authorization matrix. **Governance is the finished part**: size allowlist, n cap, prompt bound, and refusal of `b64_json` (an inline image never enters object storage, so it would have no retention, erasure or dispute-evidence path). Content policy refuses CSAM, non-consensual intimate imagery, photorealistic real-person likeness and forged documents, checking two normalisations because separator evasion defeats either one alone — my own adversarial test caught that. Refusals name the rule and never echo the prompt. Licence gate is separate from the text one because open image licences (OpenRAIL-M/++) attach use restrictions the licensee must pass downstream, and merc resells generation. Mutation-checked 5/5. **`NOT_IMPLEMENTED` for the lane itself**: there is no image runtime, so an acceptable request returns 503 rather than an invented result. No contract, no supplier, no settlement. |
 | Video | `NOT_IMPLEMENTED` | Goal correctly gates this behind image. |
+| Bounded media transcode | `REAL_RUNTIME_PROVEN` private canary; public activation `BLOCKED` | The governed `ffmpeg-transcode-v1` `builtin` cell now completed the real buyer quote → firm submit → two sandboxed `merc-agent` suppliers → FFmpeg execution → byte-exact MP4 merge → primary/redundancy receipt path in `evidence/canary/media-transcode-full-loop-r1.json`. Input/output hashes, H.264 320×180 probe, 4.228s end-to-end elapsed time, zero-sum ledger, and isolated Compose teardown are retained. This is deterministic media processing, not image generation or a public payment claim. |
+| Deterministic scene rendering | `REAL_RUNTIME_PROVEN` private shadow-ledger proof; public activation `BLOCKED` | The bounded `svg-scene-render-v1` builtin cell now completes a real CAD buyer quote → firm submit → two sandboxed agents → deterministic PPM rasterisation → byte-exact merge → receipt path. The latest quote-bound receipt is retained in `evidence/canary/cad-local-proof-aefa51df.json`: its 64×64 quote explicitly records 4,096 declared output-pixel billable/settlement units and CAD currency, alongside the 1.37 FX revision, independent redundancy, teardown and zero-sum invariants. This is governed rendering/media IR, not prompt-to-image generation; the image route remains fail-closed at 503 until a licensed image model runtime exists. |
 | LoRA training | `IMPLEMENTED` (settlement `TESTED`) | `control/lora_settlement.go`. **Outcome-aware settlement is the finished part.** The price splits: a compute floor the supplier is owed however the run turns out, and an outcome bonus contingent on an independent evaluation. Each of the three alternatives is wrong on its own — supplier-bears-risk means a supplier can lose a day's revenue to someone else's dataset (and merc's pricing governance already refuses prices that don't cover electricity); buyer-bears-risk makes 'outcome-aware' just billing with a nicer name; merc-bears-risk is unbounded. merc's cut comes from the floor, so it never earns more from a failed run than a successful one — asserted. Evaluation must be independent at the **account** level, not just the worker: two worker ids on one account are not two opinions. A held-out set that leaked into training is refused, because the improvement would measure memorisation. Conservation proven over 20,000 randomised settlements; mutation-checked 7/7. **`NOT_IMPLEMENTED` for the lane**: no trainer, no evaluator dispatch, no adapter deployment, no GPU. |
 | External-model onboarding | `TESTED` | `control/model_onboarding.go` runs at process start and panics on a model merc cannot resell. Licence is an allowlist (an unrecognised one is refused, not assumed permissive); `remote_code=true` is refused unconditionally because it runs repo-supplied code on third-party supplier hardware; a required attribution must appear in the shipped `NOTICE`, checked against the real file by `TestCatalogueAttributionAppearsInNotice` (mutation-checked: removing "Built with Llama" from NOTICE fails CI). Both catalogue models now declare licence, URL, commercial-use and remote-code posture. `scripts/onboard-model.py` is now the live half: it takes a model through policy, identity, a real smoke completion, determinism at temperature 0, and a MEASURED benchmark against a running runtime, then emits a runtime profile carrying the measured throughput -- so a catalogue price derives from what the model did, not what someone assumed. Proven on Qwen2.5-3B-Instruct: admitted at 142 tok/s, determinism confirmed. `scripts/onboard-model-canary.sh` asserts four refusals too (non-commercial licence, remote_code, an alias the runtime does not serve, an unpinned revision), because a gate that only ever says yes is not a gate. Still `TESTED` not `CANARY_PROVEN`: it does not walk the money chain. |
 | Single-host multi-GPU | `IMPLEMENTED` (local authority `TESTED`) | `control/multi_gpu_admission.go`, `control/realtime_placement.go`, and the compiled `merc-agent vllm` path. The vLLM adapter was previously an orphan source file; it is now built, exposed as a CLI command, and registers explicit CUDA class, physical GPU count, per-GPU memory, committed memory, and `nvlink`/`pcie`. The container receives exactly devices `0..TP-1`, never `--gpus all`. The control plane selects the smallest admissible degree, copies the exact placement JSON+digest from offer to contract, exposes it on the receipt, and makes contract placement immutable in PostgreSQL; historical contracts remain readable without invented topology, while legacy offers are drained until they re-register. Per-rank overhead does **not** shrink; PCIe is capped at TP=2; attention heads must divide the degree; undeclared multi-GPU interconnect is refused. 50,000 randomised planner cases plus offer→contract→receipt and tamper tests; mutation-checked 9/9. **Still `EXTERNALLY_BLOCKED` for a sellable TP>1 lane**: the embedded profile is TP=1 and `UNPROVEN`; no TP>1 profile with measured weight/overhead requirements and no real multi-GPU receipt exists. The code does not promote that missing evidence into a claim. |
@@ -321,7 +334,7 @@ candidate-bound `CANARY_PROVEN`.
 | Stripe sandbox end to end | historical capability evidence; formal gate `OPEN` (`NO_GO`) | Historical CAD-settlement provider evidence is retained without promotion. The current formal candidate still lacks the complete test-mode matrix and provider-reconciliation receipt required by `P1-STRIPE-TEST`; live activation is sealed and Level C remains prohibited. |
 | Production deployment / TLS | `EXTERNALLY_BLOCKED` | No SSH key in session. Droplet still serves the pre-session build (`/version` 404s). |
 | Backup / restore | `TESTED` | Gates present and passing. |
-| Alerts / status / rollback | `IMPLEMENTED` | 27 alerts validated; delivery to a real receiver unproven. |
+| Alerts / status / rollback | `REAL_RUNTIME_PROVEN` private | 27 alerts validated; Alertmanager fire→HTTP sink→resolve was observed through the real local webhook path in `evidence/autonomous/alert-delivery-r1.json`; external staffed paging remains open. |
 | Licence scope | `PARTIAL` | Split done; `validate-license-register` deliberately red pending counsel. |
 | Buyer/supplier/privacy/refund terms | `EXTERNALLY_BLOCKED` | Drafts marked DO NOT PUBLISH pending counsel. |
 | Internal security review | `PARTIAL` | Adversarial input, fuzzing, tenant-isolation and mutation testing done this session; found 3 real defects. |
@@ -349,12 +362,14 @@ VisionMCP-linking `.mcp.json` are preserved in that worktree, not merged here.
 ## Honest summary
 
 Merc is a buildable, locally proven Level A software candidate with batch,
-realtime, and historical single-GPU CUDA/vLLM canary evidence. Quote-bound
-compute and realtime placement authority are frozen into immutable contracts
+realtime, deterministic scene rendering, and historical single-GPU CUDA/vLLM
+canary evidence. Quote-bound compute, rendering, and realtime placement authority are frozen into immutable contracts
 and receipts; claimable capacity is separately frozen into the quote and
-accepted scheduler projection. TP>1, image generation, LoRA execution, real alert
-delivery, and the formal external release exercises remain unproven.
+accepted scheduler projection. TP>1, full prompt-to-image generation, LoRA
+execution, external staffed alert delivery, and the formal external release
+exercises remain unproven. The private local alert receiver path is proven,
+but it is not staffed paging authority.
 
-The machine-derived score remains **83/100**, with **P0=0** and eight external
+The machine-derived score remains **84/100**, with **P0=0** and eight external
 P1 gates. Level B is `NO_GO`; Level C live money/public launch is prohibited.
 No historical credential, deployment, or canary receipt overrides those gates.

@@ -16,7 +16,11 @@ func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	t.Setenv("MERC_CANARY_MODE", "false")
 	t.Setenv("MERC_CANARY_DISABLE_DECISION_REF", "TEST-service-lease-payout-funding")
-	ctx, store, pool := openPayoutTestStore(t)
+	// Finalization is a platform-wide sweep. Under -race the shared suite can
+	// legitimately leave another lease expired while this fixture is waiting;
+	// isolate the database so the returned count names this test's one lease,
+	// not an unrelated sibling's terminal transition.
+	ctx, store, pool := openIsolatedTestStore(t)
 
 	buyerID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@service-payout.invalid"); err != nil {

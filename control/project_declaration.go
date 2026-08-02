@@ -18,7 +18,7 @@ var projectStepIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 var projectWorkloadKinds = map[string]bool{
 	"realtime_inference": true, "batch_inference": true, "batch_compute": true,
 	"embeddings": true, "structured_extraction": true, "media_rendering": true,
-	"image_video": true, "lora_training": true, "model_evaluation": true,
+	"media_transcode": true, "image_video": true, "lora_training": true, "model_evaluation": true,
 	"bounded_container": true, "service_deployment": true,
 }
 

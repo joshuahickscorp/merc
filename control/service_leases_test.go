@@ -200,7 +200,11 @@ func TestServiceLeaseRequiresCollectedPrepaidCashAndFreezesItsMaximum(t *testing
 
 func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
-	ctx, store, pool := openPayoutTestStore(t)
+	// RecoverServiceLeases and FinalizeExpiredServiceLeases are platform-wide
+	// sweeps. A shared suite database can contain another expired fixture under
+	// -race, which would make the returned count unrelated to this test's one
+	// lease. Keep the complete buyer/worker path isolated so its count is exact.
+	ctx, store, pool := openIsolatedTestStore(t)
 	buyerID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email,free_credit_usd) VALUES ($1,$2,10)`, buyerID, buyerID.String()+"@lease.invalid"); err != nil {
 		t.Fatal(err)

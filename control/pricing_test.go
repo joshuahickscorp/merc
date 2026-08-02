@@ -242,6 +242,17 @@ func TestCostFloorExceedsMarketBoard(t *testing.T) {
 		t.Fatal("expected cost/market comparison rows")
 	}
 	for _, g := range gaps {
+		// Media transcode is a measured positive-contribution lane: public
+		// hyperscaler prices are above this fixed-contract laptop floor. The
+		// historical assertion below applies to the embedding/inference lanes,
+		// where the board finding is the opposite and must remain mutation-pinned.
+		if g.ModelID == "ffmpeg-transcode-v1" || g.ModelID == "svg-scene-render-v1" {
+			if g.GapRatio <= 0 {
+				t.Fatalf("%s: expected a positive market contribution gap (gap_ratio=%v cost=%v market=%v)",
+					g.ModelID, g.GapRatio, g.CostPlusPer1K, g.MarketBoardPer1K)
+			}
+			continue
+		}
 		if g.GapRatio <= 1 {
 			t.Fatalf("%s: expected cost-plus floor above market board (gap_ratio=%v cost=%v market=%v)",
 				g.ModelID, g.GapRatio, g.CostPlusPer1K, g.MarketBoardPer1K)

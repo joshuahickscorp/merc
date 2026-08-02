@@ -3,8 +3,9 @@
 merc is a verified AI execution network under active expansion. Its
 currently proven production candidate remains intentionally narrow:
 
-- workloads: `embed` and `batch_infer`
-- models: `all-minilm-l6-v2` and `llama-3.2-1b-instruct-q4`
+- workloads: `embed`, `batch_infer`, and the private-canary `media_transcode` lane
+- models: `all-minilm-l6-v2`, `llama-3.2-1b-instruct-q4`, and the pinned
+  `ffmpeg-transcode-v1` contract
 - execution: Candle on Metal
 - programs: one Go `merc` control command and one Rust `merc-agent`
 
@@ -76,6 +77,21 @@ reusing it with a different request returns `409 Conflict`. The CLI and Python
 SDK generate a key unless the caller supplies one for an uncertain retry.
 
 The Python SDK wraps that API:
+
+The media transcode private canary uses the same quote/submit identity. A small
+local file may be passed through the CLI (bounded base64); larger objects should
+be uploaded to the buyer-owned object namespace and referenced by `--s3-key`:
+
+```bash
+cx quote --model ffmpeg-transcode-v1 --type media_transcode \
+  --input clip.mp4 --input-format mp4 --max-width 1920 --max-height 1080
+cx submit --model ffmpeg-transcode-v1 --type media_transcode \
+  --input clip.mp4 --input-format mp4 --max-width 1920 --max-height 1080 \
+  --quote-id q_… --max-usd 0.05 --wait
+```
+
+Media requests are bounded, byte-exact verified, and remain private-canary only
+until the live legal/payment activation authority is separately approved.
 
 ```python
 from merc import Client

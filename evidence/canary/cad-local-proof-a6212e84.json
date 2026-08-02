@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "kind": "cad_local_shadow_ledger_proof",
+  "status": "PASS_PRIVATE_SHADOW_LEDGER_NOT_PROVIDER_CANARY",
+  "measured_at": "2026-08-02T15:23:12Z",
+  "proof_source_sha256": "a6212e8412dbac302caf6a2e026ff8bb86a4bb6074c5161979320ffdf9d58564",
+  "candidate_head": "424aae375ae76d53d0233cc91a782325db629421",
+  "command": "MERC_SETTLEMENT_CURRENCY=cad MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE=1.37 MERC_PRICE_FX_REVISION=first-complete-loop-operator-declared MERC_PROVE_MEDIA=1 MERC_PROVE_RENDERING=1 USE_DOCKER=1 SKIP_LIVE=0 PGPORT=55442 MINIO_PORT=59010 CONTROL_PORT=18090 scripts/prove-local.sh",
+  "authority": {
+    "settlement_currency": "cad",
+    "reference_currency": "usd",
+    "reference_to_settlement_rate": 1.37,
+    "fx_revision": "first-complete-loop-operator-declared",
+    "payment_mode": "sealed_local_shadow_ledger",
+    "provider_network_accessed": false,
+    "secrets_printed": false,
+    "public_claim_allowed": false
+  },
+  "isolated_resources": {
+    "postgres": true,
+    "object_storage": true,
+    "compose_project": "merc-proof-87233-1785683537",
+    "ports": [55442, 59010, 18090],
+    "teardown_volumes": true,
+    "teardown_processes": true,
+    "orphan_sweep": true
+  },
+  "paths": {
+    "source_bound": true,
+    "census": true,
+    "schema_apply_twice": true,
+    "lifecycle_guard": true,
+    "control_ready": true,
+    "honeypot": true,
+    "two_distinct_agents": true,
+    "idempotency_conflict_refused": true,
+    "embed_and_batch_infer": true,
+    "media_transcode": true,
+    "media_rendering": true,
+    "attempt_fencing": true,
+    "money_invariants": true,
+    "source_stable": true
+  },
+  "pricing_contract": {
+    "authority": "currency-bound fixed-point PricingDecision",
+    "media_rendering_unit_basis": "declared_output_pixels",
+    "scene_document_bytes_not_used_as_physical_unit": true,
+    "regression_test": "TestMediaRenderingPricingUsesDeclaredPixelsNotSceneBytes"
+  },
+  "media": {
+    "transcode_output_sha256": "b37b8f4b0d2988bd585448c586565f4e247da669efbc4905c3f26b99138353f8",
+    "transcode_probe": "h264 320x180",
+    "render_output_sha256": "e59a53f8234af15c59ae070551021cd5da160ab76e1dfa0f0c415663d5c6e56e",
+    "render_output_contract": "P6 PPM 64x64 byte-exact deterministic output"
+  },
+  "timings_ms": {
+    "embed": 6585,
+    "batch_infer": 4508,
+    "media_transcode": 6449,
+    "media_rendering": 4207
+  },
+  "teardown": {
+    "compose_volumes_removed": true,
+    "agent_processes_stopped": true,
+    "control_process_stopped": true,
+    "orphan_sweep": true
+  },
+  "limitations": [
+    "No Stripe provider objects, webhook signatures, Connect account, payout, refund, or dispute receipt was created.",
+    "This is a pre-commit working-tree source binding, not an exact-HEAD release receipt.",
+    "Storage, egress, energy, processor fee, fraud reserve, and other true-net costs remain unknown unless explicitly modeled.",
+    "Deterministic scene rendering is not prompt-to-image generation."
+  ],
+  "public_claim_allowed": false
+}

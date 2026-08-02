@@ -36,6 +36,13 @@ func verificationArtifactMaxBytesForRecords(jobType string, expectedRecords int6
 		}
 		perRow := saturatingAdd(saturatingMul(tokens, 128), 2<<10)
 		estimate = verificationArtifactPolicyFloor + saturatingMul(rows, perRow)
+	case "media_transcode":
+		// Media is one bounded binary artifact, not a JSONL row envelope. Keep
+		// the result cap aligned with the control/agent contract so a valid
+		// transcode cannot be rejected by a legacy text-envelope estimate.
+		estimate = maxMediaResultBytes
+	case "media_rendering":
+		estimate = maxRenderingResultBytes
 	default:
 		return verificationArtifactPolicyFloor
 	}

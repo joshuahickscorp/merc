@@ -532,7 +532,7 @@ func detectProjectWorkloads(files []projectFile) []ProjectIRDetection {
 			{"realtime_inference", "websocket"}, {"embeddings", "embedding"},
 			{"structured_extraction", "json_schema"}, {"model_evaluation", "eval"},
 			{"service_deployment", "deployment"}, {"image_video", "diffusers"},
-			{"batch_inference", "batch_infer"},
+			{"batch_inference", "batch_infer"}, {"media_transcode", "ffmpeg"},
 		} {
 			if strings.Contains(body, signal.token) {
 				add(signal.kind, file.rel)

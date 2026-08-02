@@ -6,7 +6,7 @@
     "supervised_stripe_test_mode_private_canary": "NO_GO",
     "live_money_or_public_launch": "NO_GO_PROHIBITED"
   },
-  "readiness_score": 83,
+  "readiness_score": 84,
   "go_threshold": 95,
   "open_p0": [],
   "open_p1": [
@@ -37,8 +37,8 @@
     {
       "id": "P1-ALERT-DELIVERY",
       "owner": "operations_on_call",
-      "blocker": "Harness-controlled firing, retry, timeout, deduplication, exhaustion, dead letter and resolution pass, but delivery through a genuine receiver has not executed.",
-      "exit_criterion": "Preserve redacted receiver delivery IDs and firing, acknowledgement, deduplication, and resolution timestamps."
+      "blocker": "A private Alertmanager→HTTP sink fire/resolve receipt now passes, but no external staffed paging receiver and acknowledgement route has been exercised.",
+      "exit_criterion": "Preserve redacted external receiver delivery IDs and firing, acknowledgement, deduplication, and resolution timestamps."
     },
     {
       "id": "P1-CANARY-REHEARSAL",

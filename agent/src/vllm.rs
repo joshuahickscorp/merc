@@ -1051,11 +1051,10 @@ async fn heartbeat_service_leases(
         .filter(|lease| lease_matches_runtime(lease, profile, service))
         .collect();
     let measurement = measure_public_data_plane(config, profile, upstream_token, service).await;
-    let probe_receipt_sha256;
-    match measurement {
+    let probe_receipt_sha256 = match measurement {
         Ok(measurement) => {
             samples.record(measurement.latency_millis)?;
-            probe_receipt_sha256 = measurement.probe_receipt_sha256;
+            measurement.probe_receipt_sha256
         }
         Err(error) => {
             tracing::warn!(%error, "service lease data-plane probe failed; failing closed");
@@ -1067,7 +1066,7 @@ async fn heartbeat_service_leases(
             report_service_lease_failure(client, profile, service).await;
             return Ok(());
         }
-    }
+    };
     client
         .register_service_lease_offer(&service_offer(
             profile,
@@ -1184,7 +1183,7 @@ async fn run_vllm_session(
     };
     let upstream_token = generate_upstream_token();
     let mut child = start_container(config, profile, &upstream_token, &latest_prefs)?;
-    if let Err(error) = wait_until_healthy(&mut child, &config, &upstream_token).await {
+    if let Err(error) = wait_until_healthy(&mut child, config, &upstream_token).await {
         let _ = child.start_kill();
         let _ = child.wait().await;
         return Err(error);
@@ -1265,14 +1264,14 @@ async fn run_vllm_session(
                 let status = status.context("waiting for vLLM container")?;
                 report_terminal_state(&client, &profile.runtime_profile_id, "FAILED").await;
                 if let Some(service) = &config.service_lease {
-                    report_service_lease_failure(&client, &profile, service).await;
+                    report_service_lease_failure(&client, profile, service).await;
                 }
                 bail!("vLLM container exited with {status}");
             }
             _ = tokio::signal::ctrl_c() => {
                 report_terminal_state(&client, &profile.runtime_profile_id, "DRAINING").await;
                 if let Some(service) = &config.service_lease {
-                    report_service_lease_failure(&client, &profile, service).await;
+                    report_service_lease_failure(&client, profile, service).await;
                 }
                 let _ = child.start_kill();
                 let _ = child.wait().await;

@@ -287,6 +287,25 @@ func TestWorkerRegistrationConsumesProductionRuntimeProjection(t *testing.T) {
 	}
 }
 
+func TestWorkerRegistrationProjectsBuiltinMediaCell(t *testing.T) {
+	cap := productionMetalCapability()
+	cap.SupportedJobs = []string{"media_transcode"}
+	cap.SupportedModels = []string{"ffmpeg-transcode-v1"}
+	cap.Benchmarks = nil // media has its own physical throughput receipt, not model TPS
+
+	projected, err := projectWorkerRuntimeCapabilities(cap)
+	if err != nil {
+		t.Fatalf("builtin media worker rejected: %v", err)
+	}
+	if len(projected) != 1 {
+		t.Fatalf("projected %d cells, want one media cell: %+v", len(projected), projected)
+	}
+	cell := projected[0]
+	if cell.ID != "candle-metal-ffmpeg-transcode" || cell.ModelKind != "builtin" {
+		t.Fatalf("projected media cell=%+v, want candle-metal-ffmpeg-transcode/builtin", cell)
+	}
+}
+
 func TestHeartbeatLoadedModelsStayInsideProductionProjection(t *testing.T) {
 	if err := validateHeartbeatRuntimeModels([]string{"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4"}); err != nil {
 		t.Fatalf("production warm models rejected: %v", err)
@@ -306,6 +325,8 @@ func productionCatalogRows() []ModelRow {
 	return []ModelRow{
 		{ID: "all-minilm-l6-v2", Kind: "embed", PricePer1K: .001, ReferencePricePer1K: .001, PriceReferenceCurrency: "usd", PriceCurrency: "usd", MinMemoryGB: 2, HFRepo: "sentence-transformers/all-MiniLM-L6-v2"},
 		{ID: "llama-3.2-1b-instruct-q4", Kind: "gguf", PricePer1K: .002, ReferencePricePer1K: .002, PriceReferenceCurrency: "usd", PriceCurrency: "usd", MinMemoryGB: 4, HFRepo: "unsloth/Llama-3.2-1B-Instruct-GGUF"},
+		{ID: "ffmpeg-transcode-v1", Kind: "builtin", PricePer1K: .003, ReferencePricePer1K: .003, PriceReferenceCurrency: "usd", PriceCurrency: "usd", MinMemoryGB: 1, HFRepo: "joshuahickscorp/merc"},
+		{ID: "svg-scene-render-v1", Kind: "builtin", PricePer1K: .003, ReferencePricePer1K: .003, PriceReferenceCurrency: "usd", PriceCurrency: "usd", MinMemoryGB: 1, HFRepo: "joshuahickscorp/merc"},
 	}
 }
 
@@ -365,6 +386,8 @@ func TestGeneratedRuntimeCapabilitiesBindCanonicalWireKind(t *testing.T) {
 	want := map[string]string{
 		"all-minilm-l6-v2":         "hf",
 		"llama-3.2-1b-instruct-q4": "gguf",
+		"ffmpeg-transcode-v1":      "builtin",
+		"svg-scene-render-v1":      "builtin",
 	}
 	for _, cap := range advertisedRuntimeCapabilities() {
 		if cap.ModelKind == "" {
@@ -378,7 +401,7 @@ func TestGeneratedRuntimeCapabilitiesBindCanonicalWireKind(t *testing.T) {
 
 func TestRuntimeWireModelKind(t *testing.T) {
 	for catalog, want := range map[string]string{
-		"gguf": "gguf", "hf": "hf", "embed": "hf",
+		"gguf": "gguf", "hf": "hf", "embed": "hf", "builtin": "builtin",
 	} {
 		got, err := runtimeWireModelKind(catalog)
 		if err != nil || got != want {

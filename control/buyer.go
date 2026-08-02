@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -24,10 +25,17 @@ var (
 )
 
 type jobType struct {
-	Type        string  `json:"type"`
-	BatchSize   int     `json:"batch_size,omitempty"`
-	MaxTokens   uint32  `json:"max_tokens,omitempty"`
-	Temperature float32 `json:"temperature,omitempty"`
+	Type             string  `json:"type"`
+	BatchSize        int     `json:"batch_size,omitempty"`
+	MaxTokens        uint32  `json:"max_tokens,omitempty"`
+	Temperature      float32 `json:"temperature,omitempty"`
+	InputFormat      string  `json:"input_format,omitempty"`
+	MaxWidth         uint32  `json:"max_width,omitempty"`
+	MaxHeight        uint32  `json:"max_height,omitempty"`
+	FPS              uint32  `json:"fps,omitempty"`
+	VideoBitrateKbps uint32  `json:"video_bitrate_kbps,omitempty"`
+	RenderWidth      uint32  `json:"render_width,omitempty"`
+	RenderHeight     uint32  `json:"render_height,omitempty"`
 }
 
 type modelRef struct {
@@ -183,8 +191,8 @@ func cmdVersion(args []string) {
 func cmdSubmit(args []string) {
 	fs := flag.NewFlagSet("submit", flag.ExitOnError)
 	model := fs.String("model", "", "model id, e.g. all-minilm-l6-v2 (required)")
-	typ := fs.String("type", "", "job type: embed|batch_infer (required)")
-	input := fs.String("input", "-", "JSONL input file, or - for stdin")
+	typ := fs.String("type", "", "job type: embed|batch_infer|media_transcode|media_rendering (required)")
+	input := fs.String("input", "-", "JSONL input file, media file, or - for stdin")
 	tier := fs.String("tier", "batch", "service tier: batch|priority|trusted")
 	maxTokens := fs.Uint("max-tokens", 0, "max tokens (batch_infer)")
 	temperature := fs.Float64("temperature", 0, "sampling temperature (batch_infer)")
@@ -201,6 +209,13 @@ func cmdSubmit(args []string) {
 	idempotencyKey := fs.String("idempotency-key", "", "stable retry key (default: generated for this invocation)")
 	maxUSD := fs.Float64("max-usd", 0, "hard spend cap in USD (Budget Governor); 0 = no cap")
 	s3Key := fs.String("s3-key", "", "use an already-uploaded object instead of --input")
+	inputFormat := fs.String("input-format", "", "media input container: mp4|mov|webm|mkv (media_transcode)")
+	maxWidth := fs.Uint("max-width", 0, "maximum output width, even pixels 64..4096 (media_transcode)")
+	maxHeight := fs.Uint("max-height", 0, "maximum output height, even pixels 64..4096 (media_transcode)")
+	fps := fs.Uint("fps", 0, "output frame rate 1..60 (media_transcode; default 30)")
+	videoBitrate := fs.Uint("video-bitrate-kbps", 0, "output video bitrate 200..50000 kbps (media_transcode)")
+	renderWidth := fs.Uint("render-width", 0, "render canvas width 16..1024 (media_rendering)")
+	renderHeight := fs.Uint("render-height", 0, "render canvas height 16..1024 (media_rendering)")
 	wait := fs.Bool("wait", false, "poll to completion and print results")
 	poll := fs.Duration("poll", 3*time.Second, "poll interval with --wait")
 	timeout := fs.Duration("timeout", 30*time.Minute, "give up waiting after this")
@@ -213,7 +228,7 @@ func cmdSubmit(args []string) {
 		fatalf("--model and --type are required")
 	}
 	if !validJobTypes[*typ] {
-		fatalf("--type must be embed or batch_infer")
+		fatalf("--type must be embed, batch_infer, media_transcode, or media_rendering")
 	}
 
 	jt := jobType{Type: *typ}
@@ -226,6 +241,27 @@ func cmdSubmit(args []string) {
 	if *temperature > 0 {
 		jt.Temperature = float32(*temperature)
 	}
+	if *inputFormat != "" {
+		jt.InputFormat = *inputFormat
+	}
+	if *maxWidth > 0 {
+		jt.MaxWidth = uint32(*maxWidth)
+	}
+	if *maxHeight > 0 {
+		jt.MaxHeight = uint32(*maxHeight)
+	}
+	if *fps > 0 {
+		jt.FPS = uint32(*fps)
+	}
+	if *videoBitrate > 0 {
+		jt.VideoBitrateKbps = uint32(*videoBitrate)
+	}
+	if *renderWidth > 0 {
+		jt.RenderWidth = uint32(*renderWidth)
+	}
+	if *renderHeight > 0 {
+		jt.RenderHeight = uint32(*renderHeight)
+	}
 
 	var inputField json.RawMessage
 	if *s3Key != "" {
@@ -233,9 +269,16 @@ func cmdSubmit(args []string) {
 	} else {
 		data := readInput(*input)
 		if len(bytes.TrimSpace(data)) == 0 {
-			fatalf("input is empty (pass --input <file> or pipe JSONL on stdin)")
+			fatalf("input is empty (pass --input <file> or pipe input on stdin)")
 		}
-		inputField = mustJSON(string(data)) // a JSON string IS the inline JSONL
+		if *typ == "media_transcode" {
+			// Binary media cannot be carried as a JSON string without byte loss.
+			// The server accepts this bounded form only for media; larger files
+			// should be uploaded and passed with --s3-key.
+			inputField = mustJSON(map[string]string{"base64": base64.StdEncoding.EncodeToString(data)})
+		} else {
+			inputField = mustJSON(string(data)) // a JSON string IS the inline JSONL
+		}
 	}
 
 	var params json.RawMessage
@@ -531,36 +574,76 @@ type quoteResp struct {
 func cmdQuote(args []string) {
 	fs := flag.NewFlagSet("quote", flag.ExitOnError)
 	model := fs.String("model", "", "model id, e.g. all-minilm-l6-v2 (required)")
-	typ := fs.String("type", "", "job type: embed|batch_infer (required)")
-	input := fs.String("input", "-", "JSONL input file, or - for stdin")
+	typ := fs.String("type", "", "job type: embed|batch_infer|media_transcode|media_rendering (required)")
+	input := fs.String("input", "-", "JSONL input file, media file, or - for stdin")
 	tier := fs.String("tier", "batch", "service tier: batch|priority|trusted")
 	split := fs.Int("split", 0, "lines per task (0 = server adaptive default)")
 	minMemory := fs.Float64("min-memory", 0, "min worker memory GB")
 	redundancy := fs.Float64("redundancy", 0, "redundancy fraction 0.0-1.0")
+	s3Key := fs.String("s3-key", "", "use an already-uploaded object instead of --input")
+	inputFormat := fs.String("input-format", "", "media input container: mp4|mov|webm|mkv (media_transcode)")
+	maxWidth := fs.Uint("max-width", 0, "maximum output width, even pixels 64..4096 (media_transcode)")
+	maxHeight := fs.Uint("max-height", 0, "maximum output height, even pixels 64..4096 (media_transcode)")
+	fps := fs.Uint("fps", 0, "output frame rate 1..60 (media_transcode; default 30)")
+	videoBitrate := fs.Uint("video-bitrate-kbps", 0, "output video bitrate 200..50000 kbps (media_transcode)")
+	renderWidth := fs.Uint("render-width", 0, "render canvas width 16..1024 (media_rendering)")
+	renderHeight := fs.Uint("render-height", 0, "render canvas height 16..1024 (media_rendering)")
 	asJSON := fs.Bool("json", false, "print the full quote JSON")
 	fs.Parse(args)
 	if *model == "" || *typ == "" {
 		fatalf("--model and --type are required")
 	}
 	if !validJobTypes[*typ] {
-		fatalf("--type must be embed or batch_infer")
+		fatalf("--type must be embed, batch_infer, media_transcode, or media_rendering")
 	}
-	data := readInput(*input)
-	if len(bytes.TrimSpace(data)) == 0 {
-		fatalf("input is empty (pass --input <file> or pipe JSONL on stdin)")
+	var inputField json.RawMessage
+	if *s3Key != "" {
+		inputField = mustJSON(map[string]string{"s3_key": *s3Key})
+	} else {
+		data := readInput(*input)
+		if len(bytes.TrimSpace(data)) == 0 {
+			fatalf("input is empty (pass --input <file> or pipe input on stdin)")
+		}
+		if *typ == "media_transcode" {
+			inputField = mustJSON(map[string]string{"base64": base64.StdEncoding.EncodeToString(data)})
+		} else {
+			inputField = mustJSON(string(data))
+		}
 	}
 	var params json.RawMessage
 	if *split > 0 {
 		params = mustJSON(map[string]int{"split_size": *split})
 	}
+	jt := jobType{Type: *typ}
+	if *inputFormat != "" {
+		jt.InputFormat = *inputFormat
+	}
+	if *maxWidth > 0 {
+		jt.MaxWidth = uint32(*maxWidth)
+	}
+	if *maxHeight > 0 {
+		jt.MaxHeight = uint32(*maxHeight)
+	}
+	if *fps > 0 {
+		jt.FPS = uint32(*fps)
+	}
+	if *videoBitrate > 0 {
+		jt.VideoBitrateKbps = uint32(*videoBitrate)
+	}
+	if *renderWidth > 0 {
+		jt.RenderWidth = uint32(*renderWidth)
+	}
+	if *renderHeight > 0 {
+		jt.RenderHeight = uint32(*renderHeight)
+	}
 	sub := cliJobSubmit{
-		JobType:      jobType{Type: *typ},
+		JobType:      jt,
 		Model:        modelRef{Ref: *model},
 		Params:       params,
 		Constraints:  jobConstraints{MinMemoryGB: float32(*minMemory)},
 		Verification: verificationPolicy{RedundancyFrac: float32(*redundancy)},
 		Tier:         *tier,
-		Input:        mustJSON(string(data)),
+		Input:        inputField,
 	}
 	out := newClient().do("POST", "/v1/quote", mustJSON(sub))
 	if *asJSON {
@@ -745,7 +828,7 @@ Env:
   MERC_API_URL   control plane base URL (default http://localhost:8080)
   MERC_API_KEY   buyer api key (sent as Authorization: Bearer)
 
-Job types: embed, batch_infer
+	Job types: embed, batch_infer, media_transcode, media_rendering
 Run "cx submit -h" for the full flag list.
 `)
 }

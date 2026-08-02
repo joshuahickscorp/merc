@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "kind": "runtime_benchmark",
+  "runtime_profile_id": "candle_metal",
+  "runtime_profile_ids": ["candle_metal"],
+  "runtime_revision": "r9",
+  "cell_id": "candle-metal-scene-render",
+  "model_id": "svg-scene-render-v1",
+  "job_type": "media_rendering",
+  "status": "PASS",
+  "measured_at": "2026-08-02T14:19:00Z",
+  "hardware": "apple_silicon_ultra",
+  "hardware_class": "apple_silicon_ultra",
+  "work_unit": "pixels",
+  "physical_throughput": {
+    "model": "svg-scene-render-v1",
+    "fixture": "64x64 closed scene, one rectangle, 32 repetitions",
+    "serial_tokens_per_sec": 148271490.0,
+    "peak_tokens_per_sec": 148271490.0,
+    "peak_batch": 1,
+    "throughput_tps": 148271490.0,
+    "units_per_sec_at_operating_batch": 148271490.0,
+    "slowest_wall_seconds": 0.00002762500059856416,
+    "byte_deterministic": true
+  },
+  "evidence_note": "The cell is a deterministic builtin PPM renderer. This benchmark is private canary evidence and does not authorize image generation or public payment."
+}

@@ -128,8 +128,8 @@ func TestDirectedSetIsASupersetThatDoesNotWidenTheCatalogue(t *testing.T) {
 			t.Errorf("advertised cell %q is not reachable by directed routing", capability.ID)
 		}
 	}
-	if len(advertisedRuntimeCapabilities()) != 2 {
-		t.Fatalf("the advertised catalogue has %d cells, want the 2 candle cells",
+	if len(advertisedRuntimeCapabilities()) != 4 {
+		t.Fatalf("the advertised catalogue has %d cells, want the 4 candle cells",
 			len(advertisedRuntimeCapabilities()))
 	}
 	// The llama.cpp embed cell is nameable and NOT sellable, which is exactly the

@@ -17,8 +17,13 @@ func (s *Server) normalizeWorkloadRequest(sub jobSubmit) (jobSubmit, *httpError)
 		if sub.Verification.RedundancyFrac < 1 {
 			sub.Verification.RedundancyFrac = 1
 		}
-		if sub.Verification.HoneypotFrac <= 0 {
+		// Binary media has no JSONL known-answer corpus. The media runner's
+		// independent byte-exact execution is the canary verifier; injecting a
+		// text honeypot here would make a valid media request unquotable.
+		if !isBinaryMediaJob(sub) && sub.Verification.HoneypotFrac <= 0 {
 			sub.Verification.HoneypotFrac = 0.1
+		} else if isBinaryMediaJob(sub) {
+			sub.Verification.HoneypotFrac = 0
 		}
 		if sub.Verification.PayoutHoldSecs < 7*24*60*60 {
 			sub.Verification.PayoutHoldSecs = 7 * 24 * 60 * 60
@@ -89,6 +94,31 @@ func normalizeAndValidateJobSubmit(sub jobSubmit) (jobSubmit, *httpError) {
 		if sub.JobType.BatchSize != 0 || sub.JobType.EmbedBinary {
 			return sub, &httpError{http.StatusBadRequest,
 				"batch_infer workload cannot carry embedding-only batch_size or binary fields"}
+		}
+	case "media_transcode":
+		if err := normalizeMediaJobType(&sub.JobType); err != nil {
+			return sub, &httpError{http.StatusBadRequest, err.Error()}
+		}
+		// Media has no known-answer corpus. Its bounded runtime verifier is the
+		// agent's ffprobe contract plus byte-exact independent redundancy, so a
+		// media request must carry that redundancy and may not silently fall back
+		// to a JSONL honeypot.
+		if sub.Verification.HoneypotFrac > 0 {
+			return sub, &httpError{http.StatusBadRequest,
+				"media_transcode does not support honeypot verification; use independent redundancy"}
+		}
+		if sub.Verification.RedundancyFrac <= 0 {
+			sub.Verification.RedundancyFrac = 1
+		}
+	case "media_rendering":
+		if err := normalizeRenderingJobType(&sub.JobType); err != nil {
+			return sub, &httpError{http.StatusBadRequest, err.Error()}
+		}
+		if sub.Verification.HoneypotFrac > 0 {
+			return sub, &httpError{http.StatusBadRequest, "media_rendering does not support honeypot verification; use independent redundancy"}
+		}
+		if sub.Verification.RedundancyFrac <= 0 {
+			sub.Verification.RedundancyFrac = 1
 		}
 	}
 

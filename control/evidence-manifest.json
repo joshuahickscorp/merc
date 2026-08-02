@@ -32,6 +32,48 @@
       }
     }
   },
+  "evidence/perf/runtime-benchmarks/candle-metal-ffmpeg-media-r1.json": {
+    "runtime_profile_ids": [
+      "candle_metal"
+    ],
+    "throughput_measured": true,
+    "byte_deterministic": true,
+    "model_ids": [
+      "ffmpeg-transcode-v1"
+    ],
+    "measured_at": "2026-08-02T11:00:00Z",
+    "hw_class": "apple_silicon_ultra",
+    "throughput": {
+      "candle_metal": {
+        "unit": "media_work_units",
+        "precision": "libx264 threads=1, +bitexact, fixed 320x180/24fps/400kbps output",
+        "operating_batch": 1,
+        "units_per_sec_at_operating_batch": 14423.640930216638,
+        "best_observed_units_per_sec": 15284.815254055044,
+        "best_observed_batch": 1,
+        "basis": "430.5 media_work_units divided by the slowest and fastest of 20 real FFmpeg subprocess wall times; the slowest rate is the only admission bound"
+      }
+    }
+  },
+  "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json": {
+    "runtime_profile_ids": ["candle_metal"],
+    "throughput_measured": true,
+    "byte_deterministic": true,
+    "model_ids": ["svg-scene-render-v1"],
+    "measured_at": "2026-08-02T14:19:00Z",
+    "hw_class": "apple_silicon_ultra",
+    "throughput": {
+      "candle_metal": {
+        "unit": "pixels",
+        "precision": "builtin deterministic P6 rasterizer",
+        "operating_batch": 1,
+        "units_per_sec_at_operating_batch": 148271490,
+        "best_observed_units_per_sec": 148271490,
+        "best_observed_batch": 1,
+        "basis": "merc-agent bench on Apple Silicon Ultra; 32 bounded 64x64 renders, admission uses the slowest observed wall time"
+      }
+    }
+  },
   "evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json": {
     "runtime_profile_ids": [
       "llama_cpp_metal"

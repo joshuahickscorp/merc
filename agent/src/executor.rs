@@ -12,7 +12,9 @@ use crate::inference::{GenerateParams, InferenceBackend};
 use crate::media::MediaTranscodeRunner;
 use crate::models;
 use crate::pool::ModelPool;
+use crate::render::MediaRenderingRunner;
 use crate::runtime_driver::RuntimeDriver;
+use crate::token_cache::{CacheStats, TokenizationCache};
 use crate::types::{JobManifest, JobType, ModelKind, WorkerCapability};
 
 #[derive(Debug, Clone)]
@@ -306,6 +308,8 @@ pub const EMBED_DIM: usize = 384;
 pub struct Embedder {
     model: BertModel,
     tokenizer: Tokenizer,
+    tokenizer_revision: String,
+    token_cache: TokenizationCache,
     device: Device,
 }
 
@@ -330,8 +334,16 @@ impl Embedder {
         Ok(Self {
             model,
             tokenizer,
+            tokenizer_revision: spec.revision.to_string(),
+            token_cache: TokenizationCache::default(),
             device,
         })
+    }
+
+    /// Cache diagnostics are local execution evidence only. They never alter
+    /// the control-plane unit count or settlement authority.
+    pub fn token_cache_stats(&self) -> CacheStats {
+        self.token_cache.stats()
     }
 
     pub fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, RunError> {
@@ -339,11 +351,20 @@ impl Embedder {
             return Ok(Vec::new());
         }
         let backend = "embed";
-        let encs: Vec<tokenizers::Encoding> = texts
-            .iter()
-            .map(|t| self.tokenizer.encode(t.as_str(), true))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(infer_err(backend))?;
+        let mut encs = Vec::with_capacity(texts.len());
+        for text in texts {
+            let key = TokenizationCache::key(&self.tokenizer_revision, text);
+            if let Some(cached) = self.token_cache.get(key) {
+                encs.push(cached);
+                continue;
+            }
+            let encoded = self
+                .tokenizer
+                .encode(text.as_str(), true)
+                .map_err(infer_err(backend))?;
+            self.token_cache.insert(key, encoded.clone());
+            encs.push(encoded);
+        }
 
         let mut buckets: std::collections::HashMap<usize, Vec<usize>> =
             std::collections::HashMap::new();
@@ -1075,6 +1096,7 @@ pub fn default_runners(
         // so the agent implementation is exercised as a real process runner,
         // while runtime authority keeps ordinary buyer work out of it.
         Box::new(MediaTranscodeRunner::from_environment()),
+        Box::new(MediaRenderingRunner),
     ]
 }
 
@@ -1139,6 +1161,16 @@ pub async fn run_benchmarks(pool: &crate::pool::ModelPool, _memory_gb: f32) -> V
             tracing::warn!(error = %e, "llama (1B) benchmark unavailable (model load failed)")
         }
     }
+    let media = MediaTranscodeRunner::from_environment();
+    match media.benchmark().await {
+        Ok(b) => out.push(b),
+        Err(e) => tracing::warn!(error = %e, "media transcode benchmark unavailable"),
+    }
+    let rendering = MediaRenderingRunner;
+    match rendering.benchmark().await {
+        Ok(b) => out.push(b),
+        Err(e) => tracing::warn!(error = %e, "media rendering benchmark unavailable"),
+    }
     out
 }
 
@@ -1163,9 +1195,13 @@ async fn bench_embed(pool: &crate::pool::ModelPool) -> Result<BenchResult, RunEr
     let p99_ms = percentile_ms(lat, 99.0);
 
     let (eps, thermal_ok) = sustained_eps(&embedder, &batch)?;
+    let cache = embedder.token_cache_stats();
     tracing::info!(
         model = "all-minilm-l6-v2",
         load_ms,
+        token_cache_hits = cache.hits,
+        token_cache_misses = cache.misses,
+        token_cache_entries = cache.entries,
         "measured cold model load"
     );
     Ok(BenchResult {

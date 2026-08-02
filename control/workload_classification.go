@@ -301,6 +301,10 @@ func buildWorkloadDecisionFromBindingDirected(
 		workloadClass = "embeddings"
 	case capability.Runner == "batch_infer" && capability.Job == "batch_infer":
 		workloadClass = "batch_generation"
+	case capability.Runner == "media_transcode" && capability.Job == "media_transcode":
+		workloadClass = "media_transcode"
+	case capability.Runner == "media_rendering" && capability.Job == "media_rendering":
+		workloadClass = "media_rendering"
 	default:
 		return WorkloadDecision{}, fmt.Errorf(
 			"runtime cell %q has no admitted workload classifier for runner=%q job=%q",
