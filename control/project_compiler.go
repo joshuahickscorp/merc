@@ -60,8 +60,12 @@ type ProjectIRStep struct {
 	ModelID          string                    `json:"model_id,omitempty"`
 	ResourceEstimate ProjectIRResourceEstimate `json:"resource_estimate"`
 	Parallelism      string                    `json:"parallelism"`
-	CheckpointPolicy string                    `json:"checkpoint_policy"`
-	Verification     string                    `json:"verification"`
+	// Topology is compiler-derived shape evidence, not placement authority. A
+	// refused tight shape remains in the IR so a later quote cannot silently
+	// reinterpret it as a WAN or single-device execution.
+	Topology         *ProjectIRTopology `json:"topology,omitempty"`
+	CheckpointPolicy string             `json:"checkpoint_policy"`
+	Verification     string             `json:"verification"`
 	// Rendering is required for media_rendering. It is the render authority,
 	// not a free-form command: all executable assets are project-local and
 	// digest-bound before a supplier can receive them.
@@ -69,6 +73,20 @@ type ProjectIRStep struct {
 	// LoRA is required for lora_training. It freezes the dataset and outcome
 	// contract without accepting any buyer-supplied settlement authority.
 	LoRA *ProjectIRLoRA `json:"lora,omitempty"`
+}
+
+// ProjectIRTopology records the scheduling shape implied by a reviewed step.
+// It deliberately has no fabric, worker, price, or capacity fields: those are
+// resolved later by the production topology and pricing authorities.
+type ProjectIRTopology struct {
+	Version        int      `json:"version"`
+	Parallelism    string   `json:"parallelism"`
+	Degree         int      `json:"degree"`
+	Coupling       string   `json:"coupling"`
+	SchedulerShape string   `json:"scheduler_shape"`
+	Status         string   `json:"status"`
+	Reason         string   `json:"reason"`
+	Evidence       []string `json:"evidence,omitempty"`
 }
 
 // ProjectIRArtifactPin fixes a rendering input to a project-local artifact and
@@ -424,6 +442,7 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) (ProjectWor
 			})
 		}
 	}
+	deriveProjectIRTopologies(&ir)
 	if opts.ProbeRequested {
 		runBoundedProjectProbe(files, &ir)
 		validateBoundedLoRAProjectDatasets(files, &ir)

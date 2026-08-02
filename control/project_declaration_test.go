@@ -84,6 +84,22 @@ func TestProjectDeclarationSuppliesEvidenceBoundDAG(t *testing.T) {
 		render.WorkPlan.UnitCount != 960 || render.WorkPlan.TileColumns != 8 || render.WorkPlan.TileRows != 5 {
 		t.Fatalf("compiler did not derive the bounded deterministic render plan: %+v", render)
 	}
+	if topology := ir.Steps[1].Topology; topology == nil || topology.SchedulerShape != string(TopologyFrameTileSample) ||
+		topology.Status != "SHAPE_DERIVED_NOT_PLACED" || topology.Coupling != "INDEPENDENT" {
+		t.Fatalf("compiler did not derive a non-placement render topology: %+v", topology)
+	}
+	if topology := ir.Steps[0].Topology; topology == nil || topology.SchedulerShape != string(TopologySingleDevice) ||
+		topology.Status != "SHAPE_DERIVED_NOT_PLACED" {
+		t.Fatalf("compiler did not derive the single-device shape: %+v", topology)
+	}
+}
+
+func TestProjectDeclarationCannotSupplyCompilerTopology(t *testing.T) {
+	declaration := projectDeclarationFixture()
+	declaration.Steps[0].Topology = &ProjectIRTopology{Version: topologyPlanVersion, Status: "SHAPE_DERIVED_NOT_PLACED"}
+	if err := validateProjectDeclaration(&declaration); err == nil || !strings.Contains(err.Error(), "topology is compiler-derived") {
+		t.Fatalf("buyer-supplied topology was accepted: %v", err)
+	}
 }
 
 func TestProjectDeclarationResolvesExactAdvertisedContract(t *testing.T) {

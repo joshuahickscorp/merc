@@ -78,6 +78,9 @@ func validateProjectDeclaration(declaration *ProjectDeclaration) error {
 		if step.ResourceEstimate != (ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}) {
 			return fmt.Errorf("step %s resource_estimate must be BOUNDED_PROBE_REQUIRED", step.ID)
 		}
+		if step.Topology != nil {
+			return fmt.Errorf("step %s topology is compiler-derived and may not be supplied by the buyer declaration", step.ID)
+		}
 		switch step.Parallelism {
 		case "INDEPENDENT", "TIGHT", "SINGLE_DEVICE":
 		default:
