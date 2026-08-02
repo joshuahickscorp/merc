@@ -91,6 +91,13 @@ func validateProjectDeclaration(declaration *ProjectDeclaration) error {
 		step.DependsOn = normalizeUniqueStrings(step.DependsOn, strings.TrimSpace)
 		step.Inputs = normalizeUniqueStrings(step.Inputs, strings.TrimSpace)
 		step.Outputs = normalizeUniqueStrings(step.Outputs, strings.TrimSpace)
+		if step.Kind == "media_rendering" {
+			if err := validateProjectRendering(step); err != nil {
+				return fmt.Errorf("step %s rendering: %w", step.ID, err)
+			}
+		} else if step.Rendering != nil {
+			return fmt.Errorf("step %s supplies rendering authority for non-rendering kind %q", step.ID, step.Kind)
+		}
 		if len(step.Inputs) == 0 || len(step.Outputs) == 0 {
 			return fmt.Errorf("step %s requires input and output artifacts", step.ID)
 		}
@@ -142,6 +149,132 @@ func validateProjectDeclaration(declaration *ProjectDeclaration) error {
 	}
 	sort.Slice(declaration.Steps, func(i, j int) bool { return declaration.Steps[i].ID < declaration.Steps[j].ID })
 	return nil
+}
+
+// validateProjectRendering gives a render declaration enough shape to be
+// safely materialised later. It does not make the step schedulable: runtime,
+// verification, topology, and fixed-point economics are separate authorities.
+func validateProjectRendering(step *ProjectIRStep) error {
+	render := step.Rendering
+	if render == nil {
+		return errors.New("media_rendering requires a rendering contract")
+	}
+	render.Scene.Artifact = strings.TrimSpace(render.Scene.Artifact)
+	render.Scene.SHA256 = strings.ToLower(strings.TrimSpace(render.Scene.SHA256))
+	render.Engine.Artifact = strings.TrimSpace(render.Engine.Artifact)
+	render.Engine.SHA256 = strings.ToLower(strings.TrimSpace(render.Engine.SHA256))
+	if err := validateProjectRenderPin("scene", render.Scene); err != nil {
+		return err
+	}
+	if err := validateProjectRenderPin("engine", render.Engine); err != nil {
+		return err
+	}
+	render.ColorManagement = strings.TrimSpace(render.ColorManagement)
+	if render.ColorManagement == "" {
+		return errors.New("color_management is required")
+	}
+	if render.FrameStart < 0 || render.FrameEnd < render.FrameStart || render.FrameEnd-render.FrameStart >= 1_000_000 {
+		return fmt.Errorf("frame range %d..%d is invalid or exceeds the one-million-frame bound", render.FrameStart, render.FrameEnd)
+	}
+	render.Cameras = normalizeUniqueStrings(render.Cameras, strings.TrimSpace)
+	if len(render.Cameras) == 0 {
+		return errors.New("at least one camera is required")
+	}
+	for _, camera := range render.Cameras {
+		if !projectRenderCameraPattern.MatchString(camera) {
+			return fmt.Errorf("camera %q is not a stable render identifier", camera)
+		}
+	}
+	if (render.TileWidth == 0) != (render.TileHeight == 0) {
+		return errors.New("tile_width and tile_height must be set together")
+	}
+	for name, value := range map[string]int{"tile_width": render.TileWidth, "tile_height": render.TileHeight} {
+		if value != 0 && (value < 16 || value > 8192 || value%16 != 0) {
+			return fmt.Errorf("%s must be 0 or a 16-pixel multiple in [16,8192]", name)
+		}
+	}
+	if render.Samples < 1 || render.Samples > 1_000_000 {
+		return errors.New("samples must be in [1,1000000]")
+	}
+	if render.Seed == nil {
+		return errors.New("seed is required for independently reproducible output")
+	}
+	switch render.Mode {
+	case "PREVIEW", "FINAL":
+	default:
+		return fmt.Errorf("mode must be PREVIEW or FINAL, got %q", render.Mode)
+	}
+	if render.Assembly != "FRAME_CAMERA_TILE_LEXICOGRAPHIC_V1" {
+		return errors.New("assembly must be FRAME_CAMERA_TILE_LEXICOGRAPHIC_V1")
+	}
+	if err := normalizeProjectRenderPins("assets", &render.Assets); err != nil {
+		return err
+	}
+	if err := normalizeProjectRenderPins("plugins", &render.Plugins); err != nil {
+		return err
+	}
+	if err := normalizeProjectRenderPins("fonts", &render.Fonts); err != nil {
+		return err
+	}
+	seen := make(map[string]bool)
+	for _, pin := range projectRenderPins(*render) {
+		if seen[pin.Artifact] {
+			return fmt.Errorf("render authority repeats artifact %q across roles", pin.Artifact)
+		}
+		seen[pin.Artifact] = true
+		if !containsString(step.Inputs, pin.Artifact) {
+			return fmt.Errorf("pinned render asset %q is not declared in step inputs", pin.Artifact)
+		}
+	}
+	return nil
+}
+
+var projectRenderCameraPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+
+func validateProjectRenderPin(role string, pin ProjectIRArtifactPin) error {
+	if !validProjectArtifactRef(pin.Artifact) || pin.Artifact == "project://input" {
+		return fmt.Errorf("%s artifact %q must be a project-local static artifact", role, pin.Artifact)
+	}
+	if !validSHA256(pin.SHA256) {
+		return fmt.Errorf("%s artifact %q requires a SHA-256 identity", role, pin.Artifact)
+	}
+	return nil
+}
+
+func normalizeProjectRenderPins(role string, pins *[]ProjectIRArtifactPin) error {
+	seen := make(map[string]bool, len(*pins))
+	for i := range *pins {
+		pin := &(*pins)[i]
+		pin.Artifact = strings.TrimSpace(pin.Artifact)
+		pin.SHA256 = strings.ToLower(strings.TrimSpace(pin.SHA256))
+		if err := validateProjectRenderPin(role, *pin); err != nil {
+			return err
+		}
+		if seen[pin.Artifact] {
+			return fmt.Errorf("%s repeats artifact %q", role, pin.Artifact)
+		}
+		seen[pin.Artifact] = true
+	}
+	sort.Slice(*pins, func(i, j int) bool { return (*pins)[i].Artifact < (*pins)[j].Artifact })
+	return nil
+}
+
+func projectRenderPins(render ProjectIRRendering) []ProjectIRArtifactPin {
+	pins := make([]ProjectIRArtifactPin, 0, 2+len(render.Assets)+len(render.Plugins)+len(render.Fonts))
+	pins = append(pins, render.Scene, render.Engine)
+	pins = append(pins, render.Assets...)
+	pins = append(pins, render.Plugins...)
+	pins = append(pins, render.Fonts...)
+	return pins
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func validateProjectDAG(steps []ProjectIRStep) error {
