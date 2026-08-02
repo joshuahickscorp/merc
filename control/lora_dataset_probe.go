@@ -197,7 +197,16 @@ func validateLoRAJSONL(content []byte, schema loraDatasetSchema, role string) (l
 			return loraDatasetProbeResult{}, fmt.Errorf("%s line %d cannot be canonically represented", role, lineNumber)
 		}
 		digest := sha256.Sum256(canonical)
-		result.rowIDs[hex.EncodeToString(digest[:])] = struct{}{}
+		canonicalID := hex.EncodeToString(digest[:])
+		// A duplicate in either set changes the effective sampling distribution:
+		// in training it silently overweights one example, and in held-out it can
+		// manufacture an outcome metric. Cross-set overlap below is not enough;
+		// each set must itself be a set of canonical examples before it can be
+		// used as independent evidence.
+		if _, exists := result.rowIDs[canonicalID]; exists {
+			return loraDatasetProbeResult{}, fmt.Errorf("%s line %d repeats a canonical record", role, lineNumber)
+		}
+		result.rowIDs[canonicalID] = struct{}{}
 		result.rows++
 	}
 	if err := scanner.Err(); err != nil {
