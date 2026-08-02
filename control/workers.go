@@ -1154,6 +1154,13 @@ func (wk *Workers) sweepTelemetryRetention(ctx context.Context) error {
 	if fabric > 0 {
 		log.Printf("workers: telemetry-retention: pruned %d self-reported fabric measurement receipt(s) older than %s", fabric, fabricMeasurementRetention)
 	}
+	fabricCollectives, err := wk.store.DeleteOldFabricCollectiveMeasurements(ctx, time.Now().Add(-fabricMeasurementRetention))
+	if err != nil {
+		return err
+	}
+	if fabricCollectives > 0 {
+		log.Printf("workers: telemetry-retention: pruned %d non-admissible fabric collective receipt(s) older than %s", fabricCollectives, fabricMeasurementRetention)
+	}
 	fabricSessions, err := wk.store.DeleteOldFabricProbeSessions(ctx, time.Now().Add(-fabricMeasurementRetention))
 	if err != nil {
 		return err

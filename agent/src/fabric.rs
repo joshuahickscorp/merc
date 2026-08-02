@@ -205,6 +205,12 @@ pub struct FabricProbeObservation {
     pub payload_bytes_each_direction: usize,
     pub observed_at_unix_ms: u128,
     pub observed_peer_certificate_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collective_local_payload_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collective_peer_payload_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collective_reduced_payload_sha256: Option<String>,
 }
 
 // CollectiveProbeOptions runs a bounded, two-rank synthetic XOR all-reduce.
@@ -722,6 +728,9 @@ async fn collective_once(
                 .unwrap_or_default()
                 .as_millis(),
             observed_peer_certificate_sha256,
+            collective_local_payload_sha256: Some(sha256_hex(&local)),
+            collective_peer_payload_sha256: Some(sha256_hex(&peer)),
+            collective_reduced_payload_sha256: Some(sha256_hex(&reduced)),
         };
         tokio::spawn(async move {
             if let Err(error) = observer.submit_fabric_observation(&observation).await {
@@ -769,6 +778,9 @@ async fn echo_once(
                 .unwrap_or_default()
                 .as_millis(),
             observed_peer_certificate_sha256: observed_peer_certificate_sha256.clone(),
+            collective_local_payload_sha256: None,
+            collective_peer_payload_sha256: None,
+            collective_reduced_payload_sha256: None,
         };
         tokio::spawn(async move {
             if let Err(error) = observer.submit_fabric_observation(&observation).await {

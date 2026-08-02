@@ -142,6 +142,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /v1/worker/fabric/sessions/{id}/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservationStatus)))
 	mux.Handle("POST /v1/worker/fabric/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservation)))
 	mux.Handle("POST /v1/worker/fabric/receipts", s.authWorker(http.HandlerFunc(s.handleWorkerFabricReceipt)))
+	mux.Handle("POST /v1/worker/fabric/collective-receipts", s.authWorker(http.HandlerFunc(s.handleWorkerFabricCollectiveReceipt)))
 	mux.Handle("POST /v1/worker/fabric/topologies/evaluate", s.authWorker(http.HandlerFunc(s.handleWorkerFabricTopologyEvaluate)))
 	mux.Handle("POST /v1/worker/heartbeat", s.authWorker(http.HandlerFunc(s.handleWorkerHeartbeat)))
 	mux.Handle("GET /v1/worker/poll", s.authWorker(http.HandlerFunc(s.handleWorkerPoll)))
@@ -2325,6 +2326,28 @@ func (s *Server) handleWorkerFabricReceipt(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		writeErr(w, http.StatusBadRequest, "fabric measurement receipt rejected: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleWorkerFabricCollectiveReceipt accepts only a complete, peer-observed
+// synthetic collective measurement. Retention makes the mechanics evidence
+// auditable, but this route remains outside workload admission, topology
+// placement, pricing, and settlement authority.
+func (s *Server) handleWorkerFabricCollectiveReceipt(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	raw, err := io.ReadAll(io.LimitReader(r.Body, fabricMeasurementBodyLimit+1))
+	if err != nil || len(raw) > fabricMeasurementBodyLimit {
+		writeErr(w, http.StatusBadRequest, "invalid fabric collective receipt body")
+		return
+	}
+	if err := s.store.RecordFabricCollectiveMeasurement(r.Context(), *auth, raw); err != nil {
+		if errors.Is(err, errFabricMeasurementConflict) {
+			writeErr(w, http.StatusConflict, "fabric collective receipt id is already bound to different evidence")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, "fabric collective receipt rejected: "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

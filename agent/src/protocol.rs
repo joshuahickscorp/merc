@@ -424,6 +424,23 @@ impl ControlPlaneClient {
         .await
     }
 
+    // A collective receipt is persisted only as certificate-bound measurement
+    // evidence. Control deliberately keeps it outside placement, pricing, and
+    // settlement authorities until those separate gates exist.
+    pub async fn submit_fabric_collective_receipt(
+        &self,
+        receipt: &crate::fabric::FabricCollectiveProbeReceipt,
+    ) -> Result<(), ProtocolError> {
+        let endpoint = "/v1/worker/fabric/collective-receipts";
+        self.send_idempotent(endpoint, "submit_fabric_collective_receipt", &[], || {
+            self.http
+                .post(self.url(endpoint))
+                .header("X-Worker-Token", &self.token)
+                .json(receipt)
+        })
+        .await
+    }
+
     pub async fn wait_for_fabric_observations(
         &self,
         session_id: Uuid,

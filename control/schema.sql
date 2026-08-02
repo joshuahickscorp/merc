@@ -5493,6 +5493,47 @@ CREATE TABLE IF NOT EXISTS fabric_probe_sessions (
 );
 CREATE INDEX IF NOT EXISTS fabric_probe_sessions_expiry_idx ON fabric_probe_sessions (expires_at);
 
+-- Peer-observed, synthetic two-rank collective measurements. These are kept
+-- separately from echo links so no query can accidentally treat a synthetic
+-- XOR proof as a placement or workload-data authorization.
+CREATE TABLE IF NOT EXISTS fabric_collective_measurements (
+    receipt_id UUID PRIMARY KEY,
+    reporting_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    reporting_supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    declared_site TEXT NOT NULL CHECK (btrim(declared_site) <> '' AND length(declared_site) <= 128),
+    peer_endpoint_commitment TEXT NOT NULL CHECK (peer_endpoint_commitment ~ '^[0-9a-f]{64}$'),
+    transport TEXT NOT NULL CHECK (transport = 'MERC_FABRIC_MTLS_SYNTHETIC_COLLECTIVE_V1'),
+    peer_authentication TEXT NOT NULL CHECK (peer_authentication = 'MUTUAL_TLS_WORKER_CERTIFICATE_BOUND'),
+    local_certificate_sha256 TEXT NOT NULL CHECK (local_certificate_sha256 ~ '^[0-9a-f]{64}$'),
+    peer_certificate_sha256 TEXT NOT NULL CHECK (peer_certificate_sha256 ~ '^[0-9a-f]{64}$'),
+    collective TEXT NOT NULL CHECK (collective = 'XOR_ALL_REDUCE_TWO_RANKS_V1'),
+    measured_at TIMESTAMPTZ NOT NULL,
+    payload_bytes_per_rank INTEGER NOT NULL CHECK (payload_bytes_per_rank BETWEEN 1 AND 4194304),
+    sample_count SMALLINT NOT NULL CHECK (sample_count BETWEEN 1 AND 32),
+    p50_round_trip_micros BIGINT NOT NULL CHECK (p50_round_trip_micros > 0),
+    p95_round_trip_micros BIGINT NOT NULL CHECK (p95_round_trip_micros >= p50_round_trip_micros),
+    p50_effective_collective_goodput_mbps DOUBLE PRECISION NOT NULL CHECK (p50_effective_collective_goodput_mbps > 0),
+    fabric_session_id UUID NOT NULL REFERENCES fabric_probe_sessions(id) ON DELETE CASCADE,
+    expected_peer_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    evidence_status TEXT NOT NULL CHECK (evidence_status = 'MUTUAL_MTLS_WORKER_BOUND_NOT_ADMISSIBLE'),
+    receipt_sha256 TEXT NOT NULL CHECK (receipt_sha256 ~ '^[0-9a-f]{64}$'),
+    raw_receipt JSONB NOT NULL CHECK (jsonb_typeof(raw_receipt) = 'object'),
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fabric_collective_measurements_retention_idx
+    ON fabric_collective_measurements (ingested_at);
+CREATE INDEX IF NOT EXISTS fabric_collective_measurements_worker_time_idx
+    ON fabric_collective_measurements (reporting_worker_id, measured_at DESC);
+CREATE OR REPLACE FUNCTION cx_refuse_fabric_collective_measurement_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'fabric collective measurement % is immutable; resubmit a new observed receipt', OLD.receipt_id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS fabric_collective_measurements_append_only ON fabric_collective_measurements;
+CREATE TRIGGER fabric_collective_measurements_append_only
+    BEFORE UPDATE ON fabric_collective_measurements
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_fabric_collective_measurement_rewrite();
+
 -- The certificate digest is the TLS peer identity used by a fabric worker. It
 -- is deliberately separate from short-lived worker tokens and append-only, so
 -- measurement receipts remain interpretable after token rotation.
@@ -5537,7 +5578,10 @@ ALTER TABLE fabric_probe_sessions
     ADD COLUMN IF NOT EXISTS initiator_certificate_sha256 TEXT,
     ADD COLUMN IF NOT EXISTS peer_certificate_sha256 TEXT;
 ALTER TABLE fabric_probe_observations
-    ADD COLUMN IF NOT EXISTS observed_peer_certificate_sha256 TEXT NOT NULL DEFAULT '';
+    ADD COLUMN IF NOT EXISTS observed_peer_certificate_sha256 TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS collective_local_payload_sha256 TEXT NOT NULL DEFAULT '' CHECK (collective_local_payload_sha256 = '' OR collective_local_payload_sha256 ~ '^[0-9a-f]{64}$'),
+    ADD COLUMN IF NOT EXISTS collective_peer_payload_sha256 TEXT NOT NULL DEFAULT '' CHECK (collective_peer_payload_sha256 = '' OR collective_peer_payload_sha256 ~ '^[0-9a-f]{64}$'),
+    ADD COLUMN IF NOT EXISTS collective_reduced_payload_sha256 TEXT NOT NULL DEFAULT '' CHECK (collective_reduced_payload_sha256 = '' OR collective_reduced_payload_sha256 ~ '^[0-9a-f]{64}$');
 ALTER TABLE fabric_link_measurements
     DROP CONSTRAINT IF EXISTS fabric_link_measurements_classification_check;
 ALTER TABLE fabric_link_measurements

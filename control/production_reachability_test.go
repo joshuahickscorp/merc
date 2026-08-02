@@ -134,6 +134,13 @@ var productionReachability = []reachabilityClaim{
 			"the later worker-identity, site, collective, and economics gates.",
 	},
 	{
+		From:   "Server.handleWorkerFabricCollectiveReceipt",
+		Target: "Store.RecordFabricCollectiveMeasurement",
+		Consequence: "a real certificate-bound two-rank collective could complete at the agents but " +
+			"remain an unauditable local file, so later topology work would have no retained evidence " +
+			"while a route response still looked successful.",
+	},
+	{
 		From:   "Server.handleWorkerFabricSessionCreate",
 		Target: "Store.CreateFabricProbeSession",
 		Consequence: "a peer id supplied to the agent would never be bound to a short-lived, " +
@@ -192,6 +199,13 @@ var productionReachability = []reachabilityClaim{
 		Consequence: "self-reported candidate-link observations would be retained indefinitely even " +
 			"though no scheduler may use them, expanding operational metadata retention without " +
 			"advancing a placement capability.",
+	},
+	{
+		From:   "Workers.Run",
+		Target: "Store.DeleteOldFabricCollectiveMeasurements",
+		Consequence: "non-admissible synthetic collective evidence would outlive its declared 30-day " +
+			"operational retention bound, retaining supplier topology metadata without creating any " +
+			"placement capability.",
 	},
 	{
 		From:   "Workers.Run",
