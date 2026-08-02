@@ -6089,3 +6089,52 @@ DROP TRIGGER IF EXISTS jobs_project_link_immutable ON jobs;
 CREATE TRIGGER jobs_project_link_immutable
     BEFORE UPDATE OF project_order_id, project_step_id ON jobs
     FOR EACH ROW EXECUTE FUNCTION cx_reject_job_project_link_update();
+
+-- Exact settlement authority: integer nano columns beside the float projections.
+-- NULL means a legacy row frozen before this authority; those keep float arithmetic
+-- forever and are never backfilled.
+ALTER TABLE job_economic_plans
+    ADD COLUMN IF NOT EXISTS buyer_charge_per_task_nanos BIGINT,
+    ADD COLUMN IF NOT EXISTS supplier_payout_per_task_nanos BIGINT;
+ALTER TABLE job_economic_plans
+    DROP CONSTRAINT IF EXISTS job_economic_plans_nanos_pair;
+ALTER TABLE job_economic_plans
+    ADD CONSTRAINT job_economic_plans_nanos_pair CHECK (
+        (buyer_charge_per_task_nanos IS NULL AND supplier_payout_per_task_nanos IS NULL)
+        OR (buyer_charge_per_task_nanos IS NOT NULL AND supplier_payout_per_task_nanos IS NOT NULL
+            AND buyer_charge_per_task_nanos > 0
+            AND supplier_payout_per_task_nanos >= 0
+            AND supplier_payout_per_task_nanos <= buyer_charge_per_task_nanos)
+    );
+
+ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS economic_buyer_charge_nanos BIGINT,
+    ADD COLUMN IF NOT EXISTS economic_supplier_payout_nanos BIGINT;
+ALTER TABLE tasks
+    DROP CONSTRAINT IF EXISTS tasks_frozen_economic_nanos_valid;
+ALTER TABLE tasks
+    ADD CONSTRAINT tasks_frozen_economic_nanos_valid CHECK (
+        (economic_buyer_charge_nanos IS NULL AND economic_supplier_payout_nanos IS NULL)
+        OR (economic_buyer_charge_nanos IS NOT NULL AND economic_supplier_payout_nanos IS NOT NULL
+            AND economic_buyer_charge_nanos > 0
+            AND economic_supplier_payout_nanos >= 0
+            AND economic_supplier_payout_nanos <= economic_buyer_charge_nanos)
+    );
+
+-- Freeze immutability for the nano pair on tasks (mirrors the usd pair).
+CREATE OR REPLACE FUNCTION cx_reject_frozen_task_economics_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.economic_buyer_charge_usd IS DISTINCT FROM NEW.economic_buyer_charge_usd
+       OR OLD.economic_supplier_payout_usd IS DISTINCT FROM NEW.economic_supplier_payout_usd
+       OR OLD.economic_buyer_charge_nanos IS DISTINCT FROM NEW.economic_buyer_charge_nanos
+       OR OLD.economic_supplier_payout_nanos IS DISTINCT FROM NEW.economic_supplier_payout_nanos THEN
+        RAISE EXCEPTION 'task economic amounts for % are immutable', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS tasks_frozen_economics_immutable ON tasks;
+CREATE TRIGGER tasks_frozen_economics_immutable
+    BEFORE UPDATE OF economic_buyer_charge_usd, economic_supplier_payout_usd,
+                     economic_buyer_charge_nanos, economic_supplier_payout_nanos ON tasks
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_frozen_task_economics_update();

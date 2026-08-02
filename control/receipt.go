@@ -71,6 +71,11 @@ type TaskReceipt struct {
 	FrozenBuyerChargeUSD *float64 `json:"frozen_buyer_charge_usd,omitempty"`
 	BilledBuyerChargeUSD *float64 `json:"billed_buyer_charge_usd,omitempty"`
 	OutputTokenRebateUSD *float64 `json:"output_token_rebate_usd,omitempty"`
+	// ContributionFloorClamped is true when the token-proportional rebate was
+	// reduced so the settled charge still covers the accepted contribution floor.
+	// Surfaced so the buyer can see why the full unused-output rebate was not applied.
+	ContributionFloorClamped *bool    `json:"contribution_floor_clamped,omitempty"`
+	UnclampedRebateUSD       *float64 `json:"unclamped_output_token_rebate_usd,omitempty"`
 }
 
 func taskReceiptRow(chunkIndex int, status string, isHoneypot bool, engine, build, kind, verdict string) TaskReceipt {

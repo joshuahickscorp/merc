@@ -121,17 +121,20 @@ func (s *Store) QueuedTaskCount(ctx context.Context) (int, error) {
 	return n, err
 }
 
-func (s *Store) TaskEconomicAmounts(ctx context.Context, taskID uuid.UUID) (buyerCharge, supplierPayout float64, err error) {
+func (s *Store) TaskEconomicAmounts(ctx context.Context, taskID uuid.UUID) (frozen frozenTaskEconomics, err error) {
 	err = s.pool.QueryRow(ctx, `
-		SELECT economic_buyer_charge_usd::float8,economic_supplier_payout_usd::float8
-		  FROM tasks WHERE id=$1`, taskID).Scan(&buyerCharge, &supplierPayout)
+		SELECT economic_buyer_charge_usd::float8,economic_supplier_payout_usd::float8,
+		       economic_buyer_charge_nanos,economic_supplier_payout_nanos
+		  FROM tasks WHERE id=$1`, taskID).
+		Scan(&frozen.BuyerChargeUSD, &frozen.SupplierPayoutUSD,
+			&frozen.BuyerChargeNanos, &frozen.SupplierPayoutNanos)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, 0, errNotFound
+		return frozenTaskEconomics{}, errNotFound
 	}
 	if err != nil {
-		return 0, 0, fmt.Errorf("task %s has no frozen economic amounts: %w", taskID, err)
+		return frozenTaskEconomics{}, fmt.Errorf("task %s has no frozen economic amounts: %w", taskID, err)
 	}
-	return buyerCharge, supplierPayout, nil
+	return frozen, nil
 }
 
 func (s *Store) StartTask(ctx context.Context, taskID, workerID uuid.UUID, claimAttempt int16) error {
@@ -646,7 +649,7 @@ func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, pe
 	if err := lockLiveJobForDynamicTaskTx(ctx, tx, jobID); err != nil {
 		return uuid.Nil, err
 	}
-	buyerCharge, supplierPayout, err := consumeEconomicReserveTx(ctx, tx, jobID)
+	frozen, err := consumeEconomicReserveTx(ctx, tx, jobID)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -663,14 +666,16 @@ func (s *Store) InsertTiebreakTask(ctx context.Context, jobID, primaryTaskID, pe
 		    input_ref, input_depth_band, result_key, chunk_index, hedged_from,expected_output_records,
 		    verification_hw_class,verification_engine,verification_build_hash,
 		    claimed_by, claimed_at, visible_at,
-		    economic_buyer_charge_usd,economic_supplier_payout_usd)
+		    economic_buyer_charge_usd,economic_supplier_payout_usd,
+		    economic_buyer_charge_nanos,economic_supplier_payout_nanos)
 		 VALUES ($1,$2,'queued',false,true,'REDUNDANT',0,$3,
 		         (SELECT input_depth_band FROM tasks WHERE id=$6),$4,$5,$6,
 		         (SELECT expected_output_records FROM tasks WHERE id=$6),
-		         $7,$8,$9,$10,now(),now(),$11,$12)`,
+		         $7,$8,$9,$10,now(),now(),$11,$12,$13,$14)`,
 		id, jobID, inputRef, resultKey, chunkIndex, primaryTaskID,
 		frozenClass.HWClass, frozenClass.Engine, frozenClass.BuildHash,
-		peerWorker, buyerCharge, supplierPayout,
+		peerWorker, frozen.BuyerChargeUSD, frozen.SupplierPayoutUSD,
+		frozen.BuyerChargeNanos, frozen.SupplierPayoutNanos,
 	); err != nil {
 		return uuid.Nil, err
 	}
@@ -777,7 +782,7 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 		maxTokens = effectiveObservedOutputMaxTokens(*workload, *plan)
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT COALESCE(t.chunk_index,0), t.status, t.is_honeypot,
+		`SELECT t.id, COALESCE(t.chunk_index,0), t.status, t.is_honeypot,
 		        COALESCE(vw.input_snapshot->>'engine',t.execution_engine,''),
 		        COALESCE(vw.input_snapshot->>'build_hash',t.execution_build_hash,''),
 		        COALESCE((SELECT ve.kind FROM verification_events ve
@@ -806,6 +811,7 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 	var out []TaskReceipt
 	for rows.Next() {
 		var (
+			taskID                       uuid.UUID
 			chunk                        int
 			status                       string
 			isHoneypot                   bool
@@ -820,7 +826,7 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 			frozenCharge                 *float64
 			billedCharge                 float64
 		)
-		if err := rows.Scan(&chunk, &status, &isHoneypot, &engine, &build, &kind, &verdict,
+		if err := rows.Scan(&taskID, &chunk, &status, &isHoneypot, &engine, &build, &kind, &verdict,
 			&cellID, &runtimeID, &matrixSHA, &modelKind,
 			&verificationClass, &verificationSelected,
 			&expectedRecords, &reportedTokens, &frozenCharge, &billedCharge); err != nil {
@@ -850,27 +856,32 @@ func (s *Store) JobTaskReceipts(ctx context.Context, jobID uuid.UUID) ([]TaskRec
 				fc := *frozenCharge
 				tr.FrozenBuyerChargeUSD = &fc
 				// Prefer the ledger (what was actually settled). Fall back to
-				// recomputing from the same pure function when no charge yet.
+				// the same loader settlement uses so floor clamp and nano
+				// authority cannot disagree with the receipt.
 				billed := billedCharge
+				rebate := roundUSD(0)
 				if billed <= 0 {
-					hasReported := reportedTokens != nil
-					var reported int64
-					if hasReported {
-						reported = *reportedTokens
+					settled, serr := loadObservedOutputSettlement(ctx, s.pool, taskID)
+					if serr != nil {
+						return nil, serr
 					}
-					settled := settleObservedOutputTokens(
-						fc, fc, // payout unused for receipt charge fields
-						settlementInputUnitsForComputePlan(*plan), plan.EstimatedOutputTokens,
-						expectedRecords, maxTokens,
-						reported, hasReported,
-					)
 					billed = settled.BilledCharge
+					rebate = settled.RebateUSD
+					if settled.FloorClamped {
+						clamped := true
+						tr.ContributionFloorClamped = &clamped
+						if settled.UnclampedRebateUSD > 0 {
+							u := settled.UnclampedRebateUSD
+							tr.UnclampedRebateUSD = &u
+						}
+					}
+				} else {
+					rebate = roundUSD(fc - billed)
+					if rebate < 0 {
+						rebate = 0
+					}
 				}
 				tr.BilledBuyerChargeUSD = &billed
-				rebate := roundUSD(fc - billed)
-				if rebate < 0 {
-					rebate = 0
-				}
 				tr.OutputTokenRebateUSD = &rebate
 			}
 		}
@@ -1072,7 +1083,7 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 	if err := lockLiveJobForDynamicTaskTx(ctx, tx, jobID); err != nil {
 		return uuid.Nil, err
 	}
-	buyerCharge, supplierPayout, err := consumeEconomicReserveTx(ctx, tx, jobID)
+	frozen, err := consumeEconomicReserveTx(ctx, tx, jobID)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -1084,13 +1095,15 @@ func (s *Store) InsertHedgeTask(ctx context.Context, jobID, primaryTaskID, peerW
 		   (id, job_id, status, is_honeypot, is_redundancy, verification_class, retry_count,
 		    input_ref, input_depth_band, result_key, chunk_index, hedged_from,expected_output_records,
 		    claimed_by, claimed_at, visible_at,
-		    economic_buyer_charge_usd,economic_supplier_payout_usd)
+		    economic_buyer_charge_usd,economic_supplier_payout_usd,
+		    economic_buyer_charge_nanos,economic_supplier_payout_nanos)
 		 VALUES ($1,$2,'queued',false,false,'SAMPLED',0,$3,
 		         (SELECT input_depth_band FROM tasks WHERE id=$6),$4,$5,$6,
 		         (SELECT expected_output_records FROM tasks WHERE id=$6),
-		         $7, now(), now(),$8,$9)`,
+		         $7, now(), now(),$8,$9,$10,$11)`,
 		id, jobID, inputRef, resultKey, chunkIndex, primaryTaskID, peerWorker,
-		buyerCharge, supplierPayout)
+		frozen.BuyerChargeUSD, frozen.SupplierPayoutUSD,
+		frozen.BuyerChargeNanos, frozen.SupplierPayoutNanos)
 	if err != nil {
 		return uuid.Nil, err
 	}
