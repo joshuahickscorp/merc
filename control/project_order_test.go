@@ -166,7 +166,9 @@ func TestProjectOrderReservationIsServerSideAndFixedPoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read project order: %v", err)
 	}
-	if got.ReservedNanos != accepted || got.RemainingNanos != 0 || got.Currency != orderInput.Currency {
+	if got.ReservedNanos != accepted || got.RemainingNanos != 0 || got.Currency != orderInput.Currency ||
+		len(got.Steps) != 1 || got.Steps[0].StepID != "embed" || got.Steps[0].JobID != job.ID.String() ||
+		got.Steps[0].QuoteID != quote.QuoteID || got.Steps[0].AcceptedCeilingNanos != accepted {
 		t.Fatalf("server project reserve = %+v, want exact accepted ceiling %d", got, accepted)
 	}
 	var storedSHA string

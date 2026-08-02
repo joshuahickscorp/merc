@@ -123,8 +123,8 @@ func quoteCompiledProject(c *client, root string, ir ProjectWorkloadIR) (Project
 			return ProjectQuote{}, err
 		}
 		if expected.Nanos <= 0 || maximum.Nanos < expected.Nanos ||
-			quote.Pricing.FixedPoint.AcceptedCeilingNanos < maximum.Nanos {
-			return ProjectQuote{}, fmt.Errorf("step %s quote has inconsistent cost ceiling", step.ID)
+			quote.Pricing.FixedPoint.AcceptedCeilingNanos != maximum.Nanos {
+			return ProjectQuote{}, fmt.Errorf("step %s displayed maximum differs from the server-accepted fixed-point reservation", step.ID)
 		}
 		if out.ExpectedCostNanos > int64(^uint64(0)>>1)-expected.Nanos || out.MaximumCostNanos > int64(^uint64(0)>>1)-maximum.Nanos {
 			return ProjectQuote{}, errors.New("project quote cost overflow")
@@ -162,15 +162,48 @@ func exactProjectStepInput(root string, step ProjectIRStep) (string, error) {
 	if len(step.Inputs) != 1 || !strings.HasPrefix(step.Inputs[0], "project://") || step.Inputs[0] == "project://input" {
 		return "", errors.New("quotable finite step requires one explicit project://PATH input")
 	}
-	rel := strings.TrimPrefix(step.Inputs[0], "project://")
+	return exactProjectArtifactPath(root, step.Inputs[0])
+}
+
+// exactProjectArtifactPath returns a regular project artifact only when every
+// component from the declared root to the file is a real directory. Lstat on
+// the leaf alone is not enough: a symlinked parent would make a receipt-bound
+// materialization read a file outside the project while still looking regular.
+func exactProjectArtifactPath(root, ref string) (string, error) {
+	if !validProjectArtifactRef(ref) || ref == "project://input" {
+		return "", errors.New("artifact must be an explicit project://PATH")
+	}
+	rel := strings.TrimPrefix(ref, "project://")
 	clean := filepath.Clean(rel)
 	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", errors.New("input path escapes project root")
+		return "", errors.New("artifact path escapes project root")
 	}
-	path := filepath.Join(root, clean)
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	rootInfo, err := os.Lstat(absRoot)
+	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("project root must be a real directory")
+	}
+	path := filepath.Join(absRoot, clean)
+	if relative, err := filepath.Rel(absRoot, path); err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", errors.New("artifact path escapes project root")
+	}
+	parent := absRoot
+	for _, component := range strings.Split(filepath.Dir(clean), string(filepath.Separator)) {
+		if component == "." || component == "" {
+			continue
+		}
+		parent = filepath.Join(parent, component)
+		info, err := os.Lstat(parent)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("artifact parent must be a real project directory")
+		}
+	}
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > projectQuoteMaxInputBytes {
-		return "", fmt.Errorf("input must be a regular non-symlink file no larger than %d bytes", projectQuoteMaxInputBytes)
+		return "", fmt.Errorf("artifact must be a regular non-symlink file no larger than %d bytes", projectQuoteMaxInputBytes)
 	}
 	return path, nil
 }

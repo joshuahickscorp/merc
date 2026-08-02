@@ -24,11 +24,12 @@ import (
 const projectMaterializeMaxBytes = 64 << 20
 
 // ProjectMaterialization is the buyer-side bridge from a completed Merc job to
-// one declared project artifact. It is evidence for artifact hand-off only; it
-// does not re-quote or submit a dependent step.
+// one declared project artifact. It is evidence for artifact hand-off only;
+// a separate command re-quotes and submits a dependent step against it.
 type ProjectMaterialization struct {
 	Version               int    `json:"version"`
 	IRSHA256              string `json:"ir_sha256"`
+	ProjectID             string `json:"project_id"`
 	StepID                string `json:"step_id"`
 	JobID                 string `json:"job_id"`
 	Output                string `json:"output"`
@@ -95,6 +96,9 @@ func materializeProjectStep(c *client, root string, ir ProjectWorkloadIR, submis
 	if ir.IRSHA256 == "" || !validSHA256(ir.IRSHA256) || submission.IRSHA256 != ir.IRSHA256 || submission.Status != "ACCEPTED" {
 		return ProjectMaterialization{}, errors.New("materialization requires the exact accepted Project IR submission")
 	}
+	if _, err := uuid.Parse(submission.ProjectID); err != nil {
+		return ProjectMaterialization{}, errors.New("materialization requires the server project order id from the accepted submission")
+	}
 	var step *ProjectIRStep
 	for i := range ir.Steps {
 		if ir.Steps[i].ID == stepID {
@@ -142,7 +146,7 @@ func materializeProjectStep(c *client, root string, ir ProjectWorkloadIR, submis
 		return ProjectMaterialization{}, err
 	}
 	sum := sha256.Sum256(body)
-	return ProjectMaterialization{Version: 1, IRSHA256: ir.IRSHA256, StepID: stepID, JobID: jobID.String(),
+	return ProjectMaterialization{Version: 2, IRSHA256: ir.IRSHA256, ProjectID: submission.ProjectID, StepID: stepID, JobID: jobID.String(),
 		Output: step.Outputs[0], Bytes: int64(len(body)), SHA256: hex.EncodeToString(sum[:]),
 		PricingDecisionSHA256: submitted.PricingDecisionSHA256, AuthorityQuoteSHA256: submitted.AuthorityQuoteSHA256,
 		MaterializedAt: now.UTC().Format(time.RFC3339Nano)}, nil
