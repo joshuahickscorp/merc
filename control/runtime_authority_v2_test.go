@@ -172,7 +172,7 @@ func TestRuntimeAuthorityValidationRefusesEveryUngovernedShape(t *testing.T) {
 					HFRevision: "3865026d1c42765271fa0fb509ded77ac383ec69",
 					Artifacts: []authorityArtifact{{
 						Path: "docs/MEDIA_RENDERING_CONTRACT.md", Bytes: 1,
-						SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+						SHA256:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 						WireKind: "builtin",
 					}},
 					License: "Merc-Internal-Contract", LicenseURL: "https://example.invalid",
