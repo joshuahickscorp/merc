@@ -33,6 +33,7 @@ const RESPONSES = {
   "/v1/worker/verification": {
     honeypots_passed: 0, honeypots_failed: 0, verification_label: "unverified",
   },
+  "/v1/worker/service-leases/active": [],
 };
 
 const PUBLIC_CONFIG = {
@@ -101,7 +102,21 @@ for (const { init } of workerRequests) {
   assert.equal(h["X-Worker-Token"], "dev-worker-token-0001", "worker token header");
   assert.equal(h.authorization, undefined, "must not send Authorization: worker auth rejects it");
 }
-assert.equal(workerRequests.length, 4, "earnings, rail, viability and verification are all fetched");
+// The SET, not the count. A bare count let the console grow a fifth fetch
+// (service leases) while this assertion still read "4", so the drift was a
+// failing build rather than a caught regression. Naming the paths means adding
+// or removing one fails here with the path in the message.
+assert.deepEqual(
+  workerRequests.map(({ path }) => path).sort(),
+  [
+    "/v1/worker/connect/status",
+    "/v1/worker/earnings",
+    "/v1/worker/service-leases/active",
+    "/v1/worker/verification",
+    "/v1/worker/viability",
+  ],
+  "earnings, rail, service leases, viability and verification are all fetched",
+);
 const publicRequest = t.requests.find(({ path }) => path === "/v1/public/config");
 assert.equal(publicRequest.init.headers["X-Worker-Token"], undefined, "public config has no worker credential");
 
@@ -143,6 +158,31 @@ denied.trigger("worker-login", "submit");
 await flush();
 assert.equal(denied.el("worker-console").hidden, true, "console must not open when the token is refused");
 assert.match(denied.el("worker-status").textContent, /not accepted/);
+
+// One failing panel must not blank the others. The console fetched five
+// endpoints with Promise.all and wrote every field afterwards, so a single
+// erroring endpoint erased earnings, payout rail and verification too — a
+// supplier whose lease panel broke could not see what they were owed.
+const partial = run(
+  { "/v1/public/config": PUBLIC_CONFIG, ...RESPONSES, "/v1/worker/service-leases/active": { __status: 500, __body: { error: "lease store unavailable" } } },
+  "dev-worker-token-0001",
+);
+partial.trigger("worker-login", "submit");
+await flush();
+assert.equal(partial.el("worker-console").hidden, false, "console still opens when one panel fails");
+assert.equal(partial.el("paid").textContent, "0.010000 USD", "earnings survive a failing sibling panel");
+assert.match(partial.el("connect-status").textContent, /not configured/, "payout rail survives a failing sibling panel");
+assert.match(partial.el("service-assignments-status").textContent, /unavailable/, "the failing panel says so");
+
+// Earnings failing is still fatal: a console that cannot show what is owed has
+// nothing to show, and must not present an authoritative-looking empty page.
+const noEarnings = run(
+  { "/v1/public/config": PUBLIC_CONFIG, ...RESPONSES, "/v1/worker/earnings": { __status: 500, __body: { error: "ledger unavailable" } } },
+  "dev-worker-token-0001",
+);
+noEarnings.trigger("worker-login", "submit");
+await flush();
+assert.equal(noEarnings.el("worker-console").hidden, true, "console must not open without earnings");
 
 // Supplier ownership is a separate buyer-authenticated surface. It must never
 // reuse a device token or accidentally attach worker scope to owner operations.

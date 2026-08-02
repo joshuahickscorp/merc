@@ -98,12 +98,19 @@ byId('worker-login').addEventListener('submit',async event=>{event.preventDefaul
 byId('worker-refresh').addEventListener('click',()=>refreshWorker().catch(error=>status('worker-status',error.message,'error')));
 byId('worker-close').addEventListener('click',()=>{workerToken='';byId('worker-token').value='';byId('worker-console').hidden=true});
 async function refreshWorker(){
-  const [earnings,rail,viability,verification,serviceAssignments]=await Promise.all([request('/v1/worker/earnings',{},'worker'),request('/v1/worker/connect/status',{},'worker'),request('/v1/worker/viability',{},'worker'),request('/v1/worker/verification',{},'worker'),request('/v1/worker/service-leases/active',{},'worker')]);
+  // allSettled, not all: these are five independent panels. Promise.all meant a
+  // single failing endpoint blanked the whole console — a supplier whose service
+  // lease panel errored could not see their earnings either. Each panel now
+  // renders on its own, and a failed one says so instead of erasing its
+  // neighbours. Earnings failing is still fatal: a console that cannot show what
+  // is owed has nothing to show.
+  const [earnings,rail,viability,verification,serviceAssignments]=(await Promise.allSettled([request('/v1/worker/earnings',{},'worker'),request('/v1/worker/connect/status',{},'worker'),request('/v1/worker/viability',{},'worker'),request('/v1/worker/verification',{},'worker'),request('/v1/worker/service-leases/active',{},'worker')])).map(r=>r.status==='fulfilled'?r.value:{__error:r.reason&&r.reason.message||'unavailable'});
+  if(earnings.__error)throw new Error('earnings unavailable: '+earnings.__error);
   byId('paid').textContent=money(earnings.balance_usd);byId('lifetime').textContent=money(earnings.lifetime_usd);byId('carried').textContent=money(earnings.carried_usd);
   const exponent=String(publicConfig?.settlement_currency||'').toLowerCase()==='cad'?2:2,minor=Math.pow(10,-exponent);byId('carry-note').textContent=Number(earnings.carried_usd)>0?`Amounts below one minor unit (${minor} ${(publicConfig?.settlement_currency||'').toUpperCase()}) accrue and remain ledger liabilities.`:'No sub-minor carry is currently outstanding.';
-  byId('connect-status').textContent=!rail.configured?'Merc has not configured the payout provider.':!rail.connected?'No payout account is connected.':!rail.payouts_enabled?'Stripe account connected; payouts remain disabled.':'Stripe account connected and payouts enabled.';byId('connect-status').className=rail.payouts_enabled?'status good':'warn';
-  byId('viability-output').textContent=JSON.stringify(viability,null,2);byId('verification-output').textContent=JSON.stringify(verification,null,2);byId('verification-status').textContent=`${verification.verification_label||'unknown'} · ${verification.honeypots_passed||0} passed · ${verification.honeypots_failed||0} failed`;
-  byId('service-assignments-output').textContent=JSON.stringify(serviceAssignments,null,2);status('service-assignments-status',serviceAssignments.length?`${serviceAssignments.length} active assignment(s); agent remains the service runtime authority`:'no active service assignments');
+  byId('connect-status').textContent=rail.__error?'Payout rail state unavailable: '+rail.__error:!rail.configured?'Merc has not configured the payout provider.':!rail.connected?'No payout account is connected.':!rail.payouts_enabled?'Stripe account connected; payouts remain disabled.':'Stripe account connected and payouts enabled.';byId('connect-status').className=rail.__error?'status warn':rail.payouts_enabled?'status good':'warn';
+  byId('viability-output').textContent=JSON.stringify(viability,null,2);byId('verification-output').textContent=JSON.stringify(verification,null,2);byId('verification-status').textContent=verification.__error?'verification standing unavailable: '+verification.__error:`${verification.verification_label||'unknown'} · ${verification.honeypots_passed||0} passed · ${verification.honeypots_failed||0} failed`;
+  byId('service-assignments-output').textContent=JSON.stringify(serviceAssignments,null,2);status('service-assignments-status',serviceAssignments.__error?'active assignments unavailable: '+serviceAssignments.__error:serviceAssignments.length?`${serviceAssignments.length} active assignment(s); agent remains the service runtime authority`:'no active service assignments');
   byId('worker-raw').textContent=JSON.stringify({earnings,payout_rail:rail,viability,verification,service_assignments:serviceAssignments},null,2);
 }
 loadPublic().catch(error=>{byId('contacts').textContent='Public configuration unavailable: '+error.message;byId('contacts').className='contact-list warn'});
