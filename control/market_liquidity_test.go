@@ -312,3 +312,18 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 	}
 	_ = worker
 }
+
+func TestNetworkMarketLiquidityComposesBoundedLaneReceipts(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	ctx, store, _ := openPayoutTestStore(t)
+	receipt, err := store.NetworkMarketLiquidity(ctx, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Version != 1 || receipt.Window != time.Hour.String() ||
+		receipt.MarketScope != "MERC_RETAINED_REALTIME_AND_WARM_SERVICE_LANES_ONLY_NO_GLOBAL_OR_LEGAL_REGION_CLAIM" ||
+		receipt.Realtime.Version != 1 || receipt.Services.Version != 1 ||
+		receipt.WindowStart.IsZero() || receipt.WindowEnd.Before(receipt.WindowStart) {
+		t.Fatalf("network liquidity receipt lost bounded lane authority: %+v", receipt)
+	}
+}

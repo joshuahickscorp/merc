@@ -175,6 +175,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /admin/scheduler/explain", s.authAdmin(http.HandlerFunc(s.handleAdminSchedulerExplain)))
 	mux.Handle("GET /admin/market/liquidity/realtime", s.authAdmin(http.HandlerFunc(s.handleAdminRealtimeMarketLiquidity)))
 	mux.Handle("GET /admin/market/liquidity/service-leases", s.authAdmin(http.HandlerFunc(s.handleAdminServiceLeaseMarketLiquidity)))
+	mux.Handle("GET /admin/market/liquidity/network", s.authAdmin(http.HandlerFunc(s.handleAdminNetworkMarketLiquidity)))
 	mux.Handle("POST /admin/workers/{id}/suspend", s.authAdmin(http.HandlerFunc(s.handleAdminSuspend)))
 	mux.Handle("POST /admin/workers/{id}/reinstate", s.authAdmin(http.HandlerFunc(s.handleAdminReinstate)))
 	mux.Handle("POST /admin/tasks/{id}/requeue", s.authAdmin(http.HandlerFunc(s.handleAdminRequeueTask)))

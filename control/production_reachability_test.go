@@ -239,6 +239,13 @@ var productionReachability = []reachabilityClaim{
 			"future runtime admission; the route must remain decomposition-only.",
 	},
 	{
+		From:   "Server.handleAdminNetworkMarketLiquidity",
+		Target: "Store.NetworkMarketLiquidity",
+		Consequence: "operators would have separate lane reports but no single bounded receipt " +
+			"that exposes the realtime and warm-service demand/supply window together; a " +
+			"dashboard could then merge unlike windows or mistake one lane for global liquidity.",
+	},
+	{
 		From:   "Server.handleCreateServiceLease",
 		Target: "Store.RecordServiceLeaseAdmissionEvent",
 		Consequence: "successful and capacity-refused buyer service requests would leave no retained " +

@@ -104,7 +104,9 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// same ownership boundary; it returns the stored IR evidence only.
 	// 92 after the buyer-scoped deterministic render-unit read entered the same
 	// boundary; it expands IR only and remains explicitly non-executable.
-	if checked != 92 {
-		t.Fatalf("checked %d protected routes, want 92", checked)
+	// 93 after the composed operator network-liquidity receipt entered the
+	// reviewed operator surface; it combines retained lane evidence only.
+	if checked != 93 {
+		t.Fatalf("checked %d protected routes, want 93", checked)
 	}
 }

@@ -214,6 +214,7 @@
         "GET /admin/jobs",
         "GET /admin/market/liquidity/realtime",
         "GET /admin/market/liquidity/service-leases",
+        "GET /admin/market/liquidity/network",
         "GET /admin/payouts",
         "GET /admin/plan-accuracy",
         "GET /admin/runtime/selector/regret",
