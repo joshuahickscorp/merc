@@ -310,6 +310,29 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	if len(events) < 5 || !has("ACTIVATED") || !has("METERED") || !has("SLO_MEASURED") || !has("ROLLING_UPDATE_STARTED") || !has("ROLLING_UPDATE_COMPLETED") {
 		t.Fatalf("rolling upgrade receipt events=%v", events)
 	}
+	var activationRaw []byte
+	if err := pool.QueryRow(ctx, `SELECT detail FROM service_lease_events WHERE lease_id=$1 AND kind='ACTIVATED' ORDER BY created_at,id LIMIT 1`, lease.ID).Scan(&activationRaw); err != nil {
+		t.Fatal(err)
+	}
+	var activation serviceLeaseActivationDetail
+	if err := json.Unmarshal(activationRaw, &activation); err != nil {
+		t.Fatal(err)
+	}
+	if activation.PricingDecisionSHA256 != lease.PricingDecisionSHA256 ||
+		activation.Currency != "cad" || activation.ReservedCeilingNanos != request.BuyerDeclaredCeilingNanos ||
+		activation.ReservedBuyerMicros != lease.ReservedBuyerMicros ||
+		activation.SupplierFloorNanosPerReplicaHour != lease.Pricing.ServiceLease.SupplierNanosPerReplicaHour ||
+		activation.ResidencyNanosPerReplicaHour != lease.Pricing.ServiceLease.ResidencyNanosPerReplicaHour ||
+		activation.ControlNanosPerReplicaHour != lease.Pricing.ServiceLease.ControlPlaneNanosPerReplicaHour ||
+		activation.RiskReserveNanosPerReplicaHour != lease.Pricing.ServiceLease.RiskReserveNanosPerReplicaHour ||
+		activation.ContributionNanosPerReplicaHour != lease.Pricing.ServiceLease.ContributionNanosPerReplicaHour ||
+		activation.BuyerChargeNanos != lease.Pricing.FixedPoint.BuyerChargeNanos ||
+		activation.SupplierEntitlementsNanos != lease.Pricing.FixedPoint.SupplierEntitlementsNanos ||
+		activation.KnownVariableCostsNanos != lease.Pricing.FixedPoint.KnownVariableCostsNanos ||
+		activation.KnownCostContributionNanos != lease.Pricing.FixedPoint.KnownCostContributionNanos ||
+		activation.TrueNetContributionStatus != "UNKNOWN_PROCESSOR_FEE_UNALLOCATED" {
+		t.Fatalf("activation event lost frozen economic authority: %+v lease=%+v", activation, lease.Pricing)
+	}
 
 	// Loss recovery charges only through the last authenticated heartbeat, then
 	// accepts a different supplier only when it clears the frozen rate ceilings.
