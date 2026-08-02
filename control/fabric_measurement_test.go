@@ -603,6 +603,10 @@ func TestFabricTopologyRequiresFreshBidirectionalMTLSMeshAndRefusesClusterPromot
 	if evaluation.LocalClusterAdmissible {
 		t.Fatal("a link mesh promoted itself to LOCAL_CLUSTER without collective/economic authority")
 	}
+	if evaluation.TopologyPlan == nil || evaluation.TopologyPlan.Status != "REFUSED" ||
+		evaluation.TopologyPlan.Fabric != FabricUnknown {
+		t.Fatalf("fabric topology endpoint did not expose the fail-closed planner projection: %+v", evaluation.TopologyPlan)
+	}
 	if len(evaluation.NonAdmissionReasons) < 3 || !strings.Contains(strings.Join(evaluation.NonAdmissionReasons, " "), "collective benchmark") {
 		t.Fatalf("fabric topology did not preserve its collective refusal: %+v", evaluation.NonAdmissionReasons)
 	}
@@ -657,6 +661,10 @@ func TestFabricTopologyRetainsSyntheticCollectivesButStillRefusesGangPlacement(t
 		evaluation.RequiredDirectedCollectives != 2 || evaluation.VerifiedDirectedCollectives != 2 ||
 		len(evaluation.Collectives) != 2 || evaluation.LocalClusterAdmissible {
 		t.Fatalf("synthetic collective topology had wrong non-admissible state: %+v", evaluation)
+	}
+	if evaluation.TopologyPlan == nil || evaluation.TopologyPlan.Status != "REFUSED" ||
+		evaluation.TopologyPlan.Fabric != FabricUnknown {
+		t.Fatalf("synthetic collective topology did not expose the fail-closed planner projection: %+v", evaluation.TopologyPlan)
 	}
 	reasons := strings.Join(evaluation.NonAdmissionReasons, " ")
 	if !strings.Contains(reasons, "gang scheduler") || !strings.Contains(reasons, "positive true Merc contribution") {

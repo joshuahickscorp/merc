@@ -182,6 +182,13 @@ var productionReachability = []reachabilityClaim{
 			"non-admissible evidence receipt that a later collective gate must examine.",
 	},
 	{
+		From:   "Server.handleWorkerFabricTopologyEvaluate",
+		Target: "PlanTopologyFromFabricEvaluation",
+		Consequence: "a worker-facing fabric receipt would not be bound to the topology planner, " +
+			"so operators could see mesh measurements without the same explicit placement refusal " +
+			"that protects shadow routing.",
+	},
+	{
 		From:   "Server.handleCreateServiceLease",
 		Target: "Store.CreateServiceLease",
 		Consequence: "a buyer-facing service-lease route could validate JSON and return a shape " +

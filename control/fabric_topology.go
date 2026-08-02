@@ -78,6 +78,11 @@ type FabricTopologyEvaluation struct {
 	Collectives                 []FabricTopologyCollectiveEvidence `json:"collectives"`
 	LocalClusterAdmissible      bool                               `json:"local_cluster_admissible"`
 	NonAdmissionReasons         []string                           `json:"non_admission_reasons"`
+	// TopologyPlan is an operator/supplier evidence projection. It is not
+	// persisted as scheduler authority and is never used to route a buyer job.
+	// Keeping it beside the evaluation makes the refusal visible at the production
+	// endpoint that generated the mesh rather than only in unit tests.
+	TopologyPlan *TopologyPlan `json:"topology_plan,omitempty"`
 }
 
 type fabricTopologyEvidenceRow struct {
