@@ -18,9 +18,62 @@ var (
 	errRealtimeIdempotencyConflict = errors.New("idempotency key was already used for a different realtime request")
 	errRealtimeAlreadyFinalized    = errors.New("realtime contract is already finalized")
 	errRealtimeInsufficientFunds   = errors.New("insufficient authorized balance for the maximum request price")
+	// errRealtimeTopupRequired is returned when a saved card is present but the
+	// buyer lacks free credit + prepaid balance to cover the contract ceiling.
+	// A card is a top-up rail, not authorization funding; the buyer must top up
+	// prepaid balance before retrying. Do not auto-charge the card.
+	errRealtimeTopupRequired       = errors.New("insufficient prepaid balance for the maximum request price; top up prepaid balance before retrying")
 	errRealtimeNotRefundable       = errors.New("realtime settlement is not eligible for an internal refund")
 	errRealtimeRefundNeedsReversal = errors.New("supplier payout crossed the internal transfer boundary; external reversal is required")
 )
+
+// evaluateRealtimeBuyerFunding locks the buyer row and requires already-settled
+// money (free-credit grant + materialised prepaid balance, net of charges,
+// prepaid debits, open batch estimates, and EXECUTING realtime ceilings) to
+// cover needUSD. A saved payment method is never treated as funding.
+func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, needUSD float64) error {
+	if needUSD < 0 {
+		return fmt.Errorf("realtime funding need must be non-negative")
+	}
+	var (
+		freeCredit, spent, prepaidDebited, batchReserved, realtimeReserved float64
+		prepaidMicros                                                      int64
+		hasPaymentMethod                                                   bool
+	)
+	err := tx.QueryRow(ctx, `
+		SELECT b.free_credit_usd::float8,
+		       EXISTS(SELECT 1 FROM billing_customers bc
+		               WHERE bc.buyer_id=b.id AND COALESCE(bc.default_payment_method,'')<>''),
+		       COALESCE((SELECT balance_micros FROM buyer_prepaid_balances bp
+		                  WHERE bp.buyer_id=b.id),0)::bigint,
+		       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
+		                 WHERE le.buyer_id=b.id
+		                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8,
+		       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
+		                 WHERE le.buyer_id=b.id AND le.kind='prepaid_debit'),0)::float8,
+		       COALESCE((SELECT sum(j.estimated_usd) FROM jobs j
+		                 WHERE j.buyer_id=b.id AND j.status IN ('queued','running','verifying')),0)::float8,
+		       COALESCE((SELECT sum(c.maximum_price_usd) FROM execution_contracts c
+		                 WHERE c.buyer_id=b.id AND c.state='EXECUTING'),0)::float8
+		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID).
+		Scan(&freeCredit, &hasPaymentMethod, &prepaidMicros, &spent, &prepaidDebited, &batchReserved, &realtimeReserved)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	}
+	if err != nil {
+		return err
+	}
+	// prepaidDebited offsets spent for charges already paid from prepaid so the
+	// combined pool is not double-counted after settlement.
+	available := freeCredit + microsToUSD(prepaidMicros) - spent + prepaidDebited - batchReserved - realtimeReserved
+	if available+1e-12 >= needUSD {
+		return nil
+	}
+	if hasPaymentMethod {
+		return errRealtimeTopupRequired
+	}
+	return errRealtimeInsufficientFunds
+}
 
 type RealtimeOfferRegistration struct {
 	RuntimeProfileID                  string  `json:"runtime_profile_id"`
@@ -548,34 +601,10 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	}
 	// Serialize balance authorization on the buyer row. The execution contract
 	// and RESERVED event are the maximum-cost reservation, so concurrent
-	// requests cannot each spend the same sandbox credit. A saved payment method
-	// is authority only while the Stripe rail itself is configured.
-	{
-		var freeCredit, spent, batchReserved, realtimeReserved float64
-		var hasPaymentMethod bool
-		err := tx.QueryRow(ctx, `
-			SELECT b.free_credit_usd::float8,
-			       EXISTS(SELECT 1 FROM billing_customers bc
-			               WHERE bc.buyer_id=b.id AND COALESCE(bc.default_payment_method,'')<>''),
-			       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
-			                 WHERE le.buyer_id=b.id
-			                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8,
-			       COALESCE((SELECT sum(j.estimated_usd) FROM jobs j
-			                 WHERE j.buyer_id=b.id AND j.status IN ('queued','running','verifying')),0)::float8,
-			       COALESCE((SELECT sum(c.maximum_price_usd) FROM execution_contracts c
-			                 WHERE c.buyer_id=b.id AND c.state='EXECUTING'),0)::float8
-			  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, auth.BuyerID).
-			Scan(&freeCredit, &hasPaymentMethod, &spent, &batchReserved, &realtimeReserved)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return RealtimeContract{}, false, errNotFound
-		}
-		if err != nil {
-			return RealtimeContract{}, false, err
-		}
-		providerFunded := stripeKey() != "" && hasPaymentMethod
-		if !providerFunded && freeCredit-spent-batchReserved-realtimeReserved < auth.MaximumPriceUSD {
-			return RealtimeContract{}, false, errRealtimeInsufficientFunds
-		}
+	// requests cannot each spend the same free-credit/prepaid pool. A saved
+	// payment method is a top-up rail only — never admission funding.
+	if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, auth.MaximumPriceUSD); err != nil {
+		return RealtimeContract{}, false, err
 	}
 
 	var (
@@ -972,32 +1001,8 @@ func (s *Store) SettleRealtimeExactReuse(
 	// Same fund gate as live authorization, against the reuse charge (not the
 	// full-rate maximum) so a cache hit cannot fail for want of capacity money
 	// that physical execution would have reserved.
-	{
-		var freeCredit, spent, batchReserved, realtimeReserved float64
-		var hasPaymentMethod bool
-		err := tx.QueryRow(ctx, `
-			SELECT b.free_credit_usd::float8,
-			       EXISTS(SELECT 1 FROM billing_customers bc
-			               WHERE bc.buyer_id=b.id AND COALESCE(bc.default_payment_method,'')<>''),
-			       COALESCE((SELECT -sum(le.amount_usd) FROM ledger_entries le
-			                 WHERE le.buyer_id=b.id
-			                   AND le.kind IN ('buyer_charge','buyer_refund')),0)::float8,
-			       COALESCE((SELECT sum(j.estimated_usd) FROM jobs j
-			                 WHERE j.buyer_id=b.id AND j.status IN ('queued','running','verifying')),0)::float8,
-			       COALESCE((SELECT sum(c.maximum_price_usd) FROM execution_contracts c
-			                 WHERE c.buyer_id=b.id AND c.state='EXECUTING'),0)::float8
-			  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, auth.BuyerID).
-			Scan(&freeCredit, &hasPaymentMethod, &spent, &batchReserved, &realtimeReserved)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return RealtimeContract{}, RealtimeSettlement{}, errNotFound
-		}
-		if err != nil {
-			return RealtimeContract{}, RealtimeSettlement{}, err
-		}
-		providerFunded := stripeKey() != "" && hasPaymentMethod
-		if !providerFunded && freeCredit-spent-batchReserved-realtimeReserved < buyerCharge {
-			return RealtimeContract{}, RealtimeSettlement{}, errRealtimeInsufficientFunds
-		}
+	if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, buyerCharge); err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
 	}
 
 	var counterfactualSupplierEntitlementNanos int64
@@ -1089,6 +1094,9 @@ func (s *Store) SettleRealtimeExactReuse(
 			return RealtimeContract{}, RealtimeSettlement{}, err
 		}
 	}
+	if err := maybeDebitPrepaidForRealtimeTx(ctx, tx, auth.BuyerID, contractID, money.BuyerDebitMicros); err != nil {
+		return RealtimeContract{}, RealtimeSettlement{}, err
+	}
 
 	settlementID := uuid.New()
 	if _, err := tx.Exec(ctx, `
@@ -1155,6 +1163,35 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 	}
 	if err != nil {
 		return RealtimeSettlement{}, err
+	}
+	// Idempotent settle: a retried settlement intent must not double-charge.
+	if contract.State == "VERIFIED" {
+		var settlement RealtimeSettlement
+		err := tx.QueryRow(ctx, `
+			SELECT id,buyer_charge_usd::float8,supplier_gross_usd::float8,platform_margin_usd::float8,
+			       currency,buyer_charge_nanos,supplier_gross_nanos,known_cost_contribution_nanos
+			  FROM realtime_settlements
+			 WHERE contract_id=$1 AND authoritative_execution_id=$2`, contractID, evidence.ID).
+			Scan(&settlement.ID, &settlement.BuyerChargeUSD, &settlement.SupplierPayableUSD,
+				&settlement.PlatformMarginUSD, &settlement.Currency, &settlement.BuyerChargeNanos,
+				&settlement.SupplierPayableNanos, &settlement.KnownCostContributionNanos)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RealtimeSettlement{}, errRealtimeAlreadyFinalized
+		}
+		if err != nil {
+			return RealtimeSettlement{}, err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE realtime_settlement_intents
+			   SET state='settled', updated_at=now(), last_error=NULL
+			 WHERE contract_id=$1 AND execution_id=$2 AND state IN ('pending','escalated')`,
+			contractID, evidence.ID); err != nil {
+			return RealtimeSettlement{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return RealtimeSettlement{}, err
+		}
+		return settlement, nil
 	}
 	if contract.State != "EXECUTING" {
 		return RealtimeSettlement{}, errRealtimeAlreadyFinalized
@@ -1252,6 +1289,11 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 			return RealtimeSettlement{}, err
 		}
 	}
+	// Debit materialised prepaid for the settled charge when free credit alone
+	// does not cover it. Free-credit sandbox charges remain ledger-only.
+	if err := maybeDebitPrepaidForRealtimeTx(ctx, tx, contract.BuyerID, contractID, buyerMicros); err != nil {
+		return RealtimeSettlement{}, err
+	}
 	settlementID := uuid.New()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO realtime_settlements
@@ -1274,6 +1316,13 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 		return RealtimeSettlement{}, err
 	}
 	if err := releaseRealtimeCapacity(ctx, tx, contract.WorkerID, contract.RuntimeProfileID); err != nil {
+		return RealtimeSettlement{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE realtime_settlement_intents
+		   SET state='settled', updated_at=now(), last_error=NULL
+		 WHERE contract_id=$1 AND execution_id=$2 AND state IN ('pending','escalated')`,
+		contractID, evidence.ID); err != nil {
 		return RealtimeSettlement{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1337,10 +1386,182 @@ func (s *Store) FinalizeRealtimeFailure(ctx context.Context, contractID uuid.UUI
 	if err := releaseRealtimeCapacity(ctx, tx, workerID, profileID); err != nil {
 		return false, err
 	}
+	// Interrupted or undelivered work cancels any pending settlement intent so
+	// the sweep never bills for a stream that did not complete.
+	if _, err := tx.Exec(ctx, `
+		UPDATE realtime_settlement_intents
+		   SET state='cancelled', updated_at=now(),
+		       last_error=LEFT($3,1000)
+		 WHERE contract_id=$1 AND execution_id=$2 AND state='pending'`,
+		contractID, executionID, "cancelled:"+code+":"+detail); err != nil {
+		return false, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+const (
+	realtimeSettlementIntentMaxAttempts = 20
+	realtimeSettlementIntentBaseBackoff = 2 * time.Second
+	realtimeSettlementIntentMaxBackoff  = 5 * time.Minute
+)
+
+// InsertRealtimeSettlementIntent records a durable pending settle before the
+// first stream byte is written. Own transaction so a later finalize failure
+// cannot roll back the obligation to bill delivered work.
+func (s *Store) InsertRealtimeSettlementIntent(ctx context.Context, contractID, executionID uuid.UUID) error {
+	if contractID == uuid.Nil || executionID == uuid.Nil {
+		return errors.New("settlement intent requires contract and execution ids")
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO realtime_settlement_intents (contract_id,execution_id,state)
+		VALUES ($1,$2,'pending')
+		ON CONFLICT (contract_id,execution_id) DO NOTHING`, contractID, executionID)
+	return err
+}
+
+// RecordRealtimeSettlementIntentFailure keeps a delivered-stream intent pending
+// with the observed evidence and error so the worker sweep can retry. It does
+// not void the contract or write failure ledger rows.
+func (s *Store) RecordRealtimeSettlementIntentFailure(ctx context.Context, contractID, executionID uuid.UUID, evidence RealtimeExecutionEvidence, settleErr error) error {
+	if contractID == uuid.Nil || executionID == uuid.Nil {
+		return errors.New("settlement intent failure requires contract and execution ids")
+	}
+	detail := ""
+	if settleErr != nil {
+		detail = settleErr.Error()
+	}
+	if len(detail) > 1000 {
+		detail = detail[:1000]
+	}
+	evidenceJSON, err := json.Marshal(evidence)
+	if err != nil {
+		return err
+	}
+	ct, err := s.pool.Exec(ctx, `
+		UPDATE realtime_settlement_intents
+		   SET evidence=$3::jsonb,
+		       last_error=$4,
+		       next_attempt_at=now(),
+		       updated_at=now()
+		 WHERE contract_id=$1 AND execution_id=$2 AND state='pending'`,
+		contractID, executionID, evidenceJSON, detail)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+// SettlePendingRealtimeIntents retries pending stream settlements from recorded
+// evidence. Bounded attempts escalate rather than silently dropping the bill.
+// Returns settled count and escalated count.
+func (s *Store) SettlePendingRealtimeIntents(ctx context.Context, limit int) (settled, escalated int, err error) {
+	if limit < 1 || limit > 1000 {
+		return 0, 0, errors.New("invalid realtime settlement intent bounds")
+	}
+	// No long-lived row locks: FinalizeRealtimeSuccess is idempotent per
+	// (contract, execution), so concurrent sweeps cannot double-charge.
+	rows, err := s.pool.Query(ctx, `
+		SELECT id,contract_id,execution_id,attempt_count,evidence
+		  FROM realtime_settlement_intents
+		 WHERE state='pending' AND next_attempt_at <= now() AND evidence IS NOT NULL
+		 ORDER BY next_attempt_at,created_at
+		 LIMIT $1`, limit)
+	if err != nil {
+		return 0, 0, err
+	}
+	type pendingIntent struct {
+		id          uuid.UUID
+		contractID  uuid.UUID
+		executionID uuid.UUID
+		attempts    int
+		evidence    []byte
+	}
+	var pending []pendingIntent
+	for rows.Next() {
+		var item pendingIntent
+		if err := rows.Scan(&item.id, &item.contractID, &item.executionID, &item.attempts, &item.evidence); err != nil {
+			rows.Close()
+			return 0, 0, err
+		}
+		pending = append(pending, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, 0, err
+	}
+	rows.Close()
+
+	for _, item := range pending {
+		var evidence RealtimeExecutionEvidence
+		if err := json.Unmarshal(item.evidence, &evidence); err != nil {
+			if markErr := s.markRealtimeSettlementIntentAttempt(ctx, item.id, item.attempts, err); markErr != nil {
+				return settled, escalated, markErr
+			}
+			continue
+		}
+		if evidence.ID == uuid.Nil {
+			evidence.ID = item.executionID
+		}
+		_, settleErr := s.FinalizeRealtimeSuccess(ctx, item.contractID, evidence)
+		if settleErr == nil || errors.Is(settleErr, errRealtimeAlreadyFinalized) {
+			if _, err := s.pool.Exec(ctx, `
+				UPDATE realtime_settlement_intents
+				   SET state='settled', updated_at=now(), last_error=NULL
+				 WHERE id=$1 AND state IN ('pending','escalated')`, item.id); err != nil {
+				return settled, escalated, err
+			}
+			settled++
+			continue
+		}
+		nextAttempts := item.attempts + 1
+		if nextAttempts >= realtimeSettlementIntentMaxAttempts {
+			detail := settleErr.Error()
+			if len(detail) > 1000 {
+				detail = detail[:1000]
+			}
+			if _, err := s.pool.Exec(ctx, `
+				UPDATE realtime_settlement_intents
+				   SET state='escalated', attempt_count=$2, last_error=$3, updated_at=now()
+				 WHERE id=$1 AND state='pending'`, item.id, nextAttempts, detail); err != nil {
+				return settled, escalated, err
+			}
+			escalated++
+			continue
+		}
+		if err := s.markRealtimeSettlementIntentAttempt(ctx, item.id, item.attempts, settleErr); err != nil {
+			return settled, escalated, err
+		}
+	}
+	return settled, escalated, nil
+}
+
+func (s *Store) markRealtimeSettlementIntentAttempt(ctx context.Context, intentID uuid.UUID, priorAttempts int, settleErr error) error {
+	detail := ""
+	if settleErr != nil {
+		detail = settleErr.Error()
+	}
+	if len(detail) > 1000 {
+		detail = detail[:1000]
+	}
+	nextAttempts := priorAttempts + 1
+	backoff := realtimeSettlementIntentBaseBackoff << nextAttempts
+	if backoff > realtimeSettlementIntentMaxBackoff || backoff <= 0 {
+		backoff = realtimeSettlementIntentMaxBackoff
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE realtime_settlement_intents
+		   SET attempt_count=$2, last_error=$3,
+		       next_attempt_at=now()+make_interval(secs=>$4::double precision),
+		       updated_at=now()
+		 WHERE id=$1 AND state='pending'`,
+		intentID, nextAttempts, detail, backoff.Seconds())
+	return err
 }
 
 func (s *Store) RecoverStaleRealtimeContracts(ctx context.Context, grace time.Duration, limit int) (int, error) {
