@@ -127,6 +127,13 @@ var productionReachability = []reachabilityClaim{
 			"a dashboard could then substitute a guess for the observed lane.",
 	},
 	{
+		From:   "Server.tryRealtimeExactReuse",
+		Target: "realtimeIdentityFromPreparedBody",
+		Consequence: "the exact-reuse lane would decode and canonicalise tools/schema independently from " +
+			"coalescing and cache population, losing the bounded tenant/profile/policy-scoped identity " +
+			"cache and making its measured hit/miss evidence inert while responses still look correct.",
+	},
+	{
 		From:   "Workers.Run",
 		Target: "Store.DeleteOldRealtimeLiquidityTelemetry",
 		Consequence: "offer and admission telemetry grows without its 30-day retention " +

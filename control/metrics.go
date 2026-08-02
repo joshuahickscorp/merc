@@ -354,6 +354,10 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "merc_verification_terminal_total{outcome=%q} %d\n", OutcomeLossNoPayout, metrics.verificationNoPayout.Load())
 	fmt.Fprintf(w, "merc_verification_terminal_total{outcome=%q} %d\n", OutcomeFail, metrics.verificationFailed.Load())
 	writeCounter(w, "merc_realtime_contracts_authorized_total", "Realtime execution contracts admitted to a worker.", metrics.realtimeAuthorized.Load())
+	identityCache := realtimeIdentityCacheStatsSnapshot()
+	writeCounter(w, "merc_realtime_identity_cache_hits_total", "Prepared realtime request identities served from the bounded tenant/profile/policy-scoped cache.", int64(identityCache.Hits))
+	writeCounter(w, "merc_realtime_identity_cache_misses_total", "Prepared realtime request identities that required decode and semantic tools/schema canonicalization.", int64(identityCache.Misses))
+	writeGauge(w, "merc_realtime_identity_cache_entries", "Current bounded prepared realtime identity cache entries.", int64(identityCache.Entries))
 	// Counted, never labelled with the prompt: the point of a refusal is not to
 	// keep the thing it refused.
 	writeCounter(w, "merc_image_requests_refused_total", "Image requests refused by merc's generation policy.", metrics.imageRequestsRefused.Load())
@@ -666,6 +670,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 func writeCounter(w http.ResponseWriter, name, help string, v int64) {
 	fmt.Fprintf(w, "# HELP %s %s\n", name, help)
 	fmt.Fprintf(w, "# TYPE %s counter\n", name)
+	fmt.Fprintf(w, "%s %d\n", name, v)
+}
+
+func writeGauge(w http.ResponseWriter, name, help string, v int64) {
+	fmt.Fprintf(w, "# HELP %s %s\n", name, help)
+	fmt.Fprintf(w, "# TYPE %s gauge\n", name)
 	fmt.Fprintf(w, "%s %d\n", name, v)
 }
 

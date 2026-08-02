@@ -1120,11 +1120,7 @@ func (s *Server) tryRealtimeExactReuse(
 	requestID, idempotencyKey string,
 	prepared preparedRealtimeRequest,
 ) (RealtimeContract, []byte, bool, error) {
-	payload, err := decodeRealtimePayload(prepared.Body)
-	if err != nil {
-		return RealtimeContract{}, nil, false, nil
-	}
-	identity, err := realtimeIdentityFromPayload(buyerID, prepared.Profile, payload)
+	identity, err := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body)
 	if err != nil {
 		// Non-deterministic or incomplete identity: not eligible for reuse.
 		return RealtimeContract{}, nil, false, nil
@@ -1178,11 +1174,7 @@ func (s *Server) maybeStoreRealtimeExactResult(
 	ctx context.Context, buyerID uuid.UUID, prepared preparedRealtimeRequest,
 	leaderRef string, leaderContractID uuid.UUID, body []byte, completionTokens int64,
 ) {
-	payload, err := decodeRealtimePayload(prepared.Body)
-	if err != nil {
-		return
-	}
-	identity, err := realtimeIdentityFromPayload(buyerID, prepared.Profile, payload)
+	identity, err := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body)
 	if err != nil {
 		return
 	}
@@ -1226,11 +1218,7 @@ func (s *Server) tryRealtimeCoalescedDelivery(
 	requestID, idempotencyKey string,
 	prepared preparedRealtimeRequest,
 ) (identity, leaderRef string, contract RealtimeContract, body []byte, followed bool, err error) {
-	payload, decodeErr := decodeRealtimePayload(prepared.Body)
-	if decodeErr != nil {
-		return "", "", RealtimeContract{}, nil, false, nil
-	}
-	identity, identityErr := realtimeIdentityFromPayload(buyerID, prepared.Profile, payload)
+	identity, identityErr := realtimeIdentityFromPreparedBody(buyerID, prepared.Profile, prepared.Body)
 	if identityErr != nil {
 		// Non-deterministic sampling: two runs need not agree, so collapsing
 		// them would hand one buyer another's roll of the dice.
