@@ -285,7 +285,8 @@ func (s *Store) maybeCacheCompletedBatchJob(
 // workload decision. This binds input, normalized params, output shape, model
 // kind, pinned revision and runtime authority in one versioned key.
 func batchRequestIdentity(decision WorkloadDecision) string {
-	if !batchExactReuseEnabled || !decision.ExactResultCacheEligible {
+	if !batchExactReuseEnabled || !decision.ExactResultCacheEligible ||
+		decision.Binding.JobType.Type != "batch_infer" || decision.RuntimeJobType != "batch_infer" {
 		return ""
 	}
 	if err := ValidateFrozenWorkloadDecisionSnapshot(decision); err != nil {

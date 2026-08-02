@@ -344,8 +344,9 @@ func buildWorkloadDecisionFromBindingDirected(
 		// authority can meter the full reused workload. The prior path stored
 		// merged record counts as cache "output_tokens" and then billed those
 		// counts as token units, which is not valid for either embedding input
-		// geometry or generative output. Realtime reuse has a separate,
-		// completion-token-metered path and is unaffected.
+		// geometry or generative output. A future batch_infer-only path may use
+		// its canonical completion-token meter; embedding remains excluded.
+		// Realtime reuse has a separate, completion-token-metered path.
 		ExactResultCacheEligible:   false,
 		PrefixReuseEligible:        prefixEligible,
 		InflightCoalescingEligible: false,
