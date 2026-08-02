@@ -74,6 +74,14 @@ Each IR contains:
 - cost/duration estimate state and calibration basis;
 - unknowns and refusal reasons.
 
+Each step also carries compiler-derived topology shape evidence. Independent
+steps are labelled `INDEPENDENT_CHUNK_SPLIT`, service/realtime steps
+`REPLICA_SERVICE`, rendering/media steps `FRAME_TILE_SAMPLE`, and explicit
+single-device steps `SINGLE_DEVICE`. A `TIGHT` declaration is retained as
+`GANG_UNMEASURED_REFUSE` until a later authority supplies measured collective
+fabric, capacity, and topology-specific economics. These fields describe the
+graph; they never select a worker, quote a price, or authorize execution.
+
 Version 1 produces a stable graph for supported detector signals but keeps the
 economics state at `UNCALIBRATED_REFUSE`. Detector confidence is not cost or
 duration confidence, and neither can affect pricing, reserve, settlement, or

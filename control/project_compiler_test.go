@@ -54,6 +54,9 @@ func TestCompileProjectProducesDeterministicGraphProposal(t *testing.T) {
 		if step.DependsOn != nil {
 			t.Fatalf("detector invented a dependency without dataflow evidence: %+v", first.Steps)
 		}
+		if step.Topology == nil || step.Topology.Status != "UNRESOLVED_REFUSE" {
+			t.Fatalf("detector-derived step claimed an executable topology: %+v", step)
+		}
 	}
 	if len(first.Artifacts) != 3 || len(first.ProjectSHA256) != 64 || len(first.IRSHA256) != 64 {
 		t.Fatalf("artifact commitments missing: %+v", first)
