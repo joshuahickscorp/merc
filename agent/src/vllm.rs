@@ -982,4 +982,14 @@ mod tests {
         );
         assert_eq!(samples.p95_millis().unwrap(), 29);
     }
+
+    #[test]
+    fn documented_reserved_service_config_is_parseable_and_opt_in() {
+        let config: VllmAgentConfig = toml::from_str(include_str!("../vllm.example.toml")).unwrap();
+        let service = config
+            .service_lease
+            .expect("the documented service lane must remain an explicit opt-in section");
+        assert_eq!(service.region, "ca-central-1");
+        assert_eq!(service.probe_max_tokens, 1);
+    }
 }

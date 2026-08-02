@@ -18,3 +18,21 @@ memory_gb_in_use = 0.0
 interconnect = ""
 supplier_input_usd_per_million_tokens = 0.08
 supplier_output_usd_per_million_tokens = 0.30
+
+# Optional reserved-service lane. Leaving this section absent means the agent
+# registers realtime capacity only; it cannot sell a service lease. When enabled
+# the agent first collects five actual one-token completions through exactly the
+# advertised public_base_url, then refreshes a measured P95 at this cadence.
+# A missed probe withdraws the offer and fails active leases rather than claiming
+# that a health endpoint proves buyer-path latency.
+[service_lease]
+region = "ca-central-1"
+maximum_warm_replicas = 1
+available_warm_replicas = 1
+# Integer nanos in the control-plane settlement currency, never floating prices.
+supplier_nanos_per_replica_hour = 2000000000
+residency_nanos_per_replica_hour = 200000000
+supports_rolling_upgrade = true
+probe_interval_secs = 15
+probe_timeout_millis = 5000
+probe_max_tokens = 1
