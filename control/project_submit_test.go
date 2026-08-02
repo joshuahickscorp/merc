@@ -39,6 +39,19 @@ func executableProjectQuoteFixture(t *testing.T, root string, now time.Time, han
 		switch r.URL.Path {
 		case "/v1/quote":
 			writeJSON(w, http.StatusOK, serverQuote)
+		case "/v1/projects":
+			var order projectOrderCreateRequest
+			if err := json.NewDecoder(r.Body).Decode(&order); err != nil {
+				t.Error(err)
+				return
+			}
+			if order.IRSHA256 == "" || order.Currency != serverQuote.Currency || order.BuyerCeilingNanos <= 0 ||
+				!strings.HasPrefix(r.Header.Get("Idempotency-Key"), "project-order:") {
+				t.Errorf("project order lost its buyer ceiling authority: %+v", order)
+			}
+			writeJSON(w, http.StatusCreated, ProjectOrder{ID: uuid.NewString(), IRSHA256: order.IRSHA256,
+				Currency: order.Currency, BuyerCeilingNanos: order.BuyerCeilingNanos,
+				RemainingNanos: order.BuyerCeilingNanos, Status: "OPEN"})
 		case "/v1/jobs":
 			var request cliJobSubmit
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -68,7 +81,7 @@ func TestSubmitCompiledProjectPreservesReviewedAuthority(t *testing.T) {
 	var calls int
 	ir, artifact, server := executableProjectQuoteFixture(t, root, now, func(request cliJobSubmit, key string) {
 		calls++
-		if !request.FirmQuote || request.QuoteID == "" {
+		if !request.FirmQuote || request.QuoteID == "" || request.ProjectID == "" || request.ProjectStepID == "" {
 			t.Error("project submit did not bind a firm quote")
 		}
 		if !strings.HasPrefix(key, "project:") || len(key) > 128 {
@@ -82,7 +95,7 @@ func TestSubmitCompiledProjectPreservesReviewedAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	if calls != 1 || result.Status != "ACCEPTED" || result.ExecutionMode != "INDEPENDENT_FINITE_STEPS" ||
-		len(result.Steps) != 1 || !result.Steps[0].IdempotentReplay ||
+		result.ProjectID == "" || len(result.Steps) != 1 || !result.Steps[0].IdempotentReplay ||
 		result.Steps[0].QuoteID != artifact.Steps[0].QuoteID ||
 		result.Steps[0].PricingDecisionSHA256 != artifact.Steps[0].PricingDecisionSHA256 {
 		t.Fatalf("project submission lost reviewed authority: %+v calls=%d", result, calls)
@@ -233,7 +246,7 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("firm submit through public API: %v", err)
 	}
-	if result.Status != "ACCEPTED" || len(result.Steps) != 1 || !strings.HasPrefix(result.Steps[0].IdempotencyKey, "project:") {
+	if result.Status != "ACCEPTED" || result.ProjectID == "" || len(result.Steps) != 1 || !strings.HasPrefix(result.Steps[0].IdempotencyKey, "project:") {
 		t.Fatalf("project public submission was not accepted with its deterministic authority: %+v", result)
 	}
 	jobID, err := uuid.Parse(result.Steps[0].JobID)
@@ -242,20 +255,34 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 	}
 
 	var quoteID *uuid.UUID
+	var projectID *uuid.UUID
+	var projectStep string
 	var firmQuote bool
 	var currency string
 	var pricingJSON []byte
 	if err := pool.QueryRow(ctx, `
-		SELECT quote_id, firm_quote, currency, pricing_decision
-		  FROM jobs WHERE id=$1`, jobID).Scan(&quoteID, &firmQuote, &currency, &pricingJSON); err != nil {
+		SELECT quote_id, project_order_id, COALESCE(project_step_id,''), firm_quote, currency, pricing_decision
+		  FROM jobs WHERE id=$1`, jobID).Scan(&quoteID, &projectID, &projectStep, &firmQuote, &currency, &pricingJSON); err != nil {
 		t.Fatalf("read submitted job authority: %v", err)
 	}
-	if quoteID == nil || "q_"+quoteID.String() != artifact.Steps[0].QuoteID || !firmQuote || currency != "cad" {
-		t.Fatalf("job did not freeze the reviewed CAD firm quote: quote=%v firm=%t currency=%q", quoteID, firmQuote, currency)
+	if quoteID == nil || "q_"+quoteID.String() != artifact.Steps[0].QuoteID || projectID == nil ||
+		projectID.String() != result.ProjectID || projectStep != "embed" || !firmQuote || currency != "cad" {
+		t.Fatalf("job did not freeze the reviewed CAD firm quote/project reservation: quote=%v project=%v step=%q firm=%t currency=%q", quoteID, projectID, projectStep, firmQuote, currency)
 	}
 	var frozen PricingDecision
 	if err := json.Unmarshal(pricingJSON, &frozen); err != nil {
 		t.Fatalf("decode frozen PricingDecision: %v", err)
+	}
+	var ceiling, reserved, remaining int64
+	if err := pool.QueryRow(ctx, `
+		SELECT p.buyer_ceiling_nanos, COALESCE(SUM(s.accepted_ceiling_nanos),0),
+		       p.buyer_ceiling_nanos-COALESCE(SUM(s.accepted_ceiling_nanos),0)
+		  FROM project_orders p LEFT JOIN project_order_steps s ON s.project_order_id=p.id
+		 WHERE p.id=$1 GROUP BY p.id`, *projectID).Scan(&ceiling, &reserved, &remaining); err != nil {
+		t.Fatalf("read exact project reservation: %v", err)
+	}
+	if ceiling != artifact.BuyerCeilingNanos || reserved != frozen.FixedPoint.AcceptedCeilingNanos || remaining != ceiling-reserved {
+		t.Fatalf("project reservation lost fixed point authority: ceiling=%d reserved=%d remaining=%d", ceiling, reserved, remaining)
 	}
 	frozenSHA, err := pricingDecisionDigest(frozen)
 	if err != nil || frozenSHA != artifact.Steps[0].PricingDecisionSHA256 {

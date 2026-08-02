@@ -5278,3 +5278,67 @@ DROP TRIGGER IF EXISTS runtime_shadow_selections_append_only ON runtime_shadow_s
 CREATE TRIGGER runtime_shadow_selections_append_only
     BEFORE UPDATE OR DELETE ON runtime_shadow_selections
     FOR EACH ROW EXECUTE FUNCTION cx_refuse_shadow_selection_rewrite();
+
+-- A project order is the server-side ceiling authority for a multi-step
+-- workload. The buyer keeps the full IR locally because it may contain source
+-- paths and private policy, while the control plane retains only the immutable
+-- IR identity and the fixed-point CAD ceiling it must enforce. A later
+-- materialized dependency therefore cannot escape the original budget merely
+-- because the buyer restarted its CLI.
+CREATE TABLE IF NOT EXISTS project_orders (
+    id UUID PRIMARY KEY,
+    buyer_id UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    ir_sha256 TEXT NOT NULL CHECK (ir_sha256 ~ '^[0-9a-f]{64}$'),
+    currency TEXT NOT NULL,
+    buyer_ceiling_nanos BIGINT NOT NULL CHECK (buyer_ceiling_nanos > 0),
+    status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','CANCELLED','COMPLETE')),
+    create_idempotency_key TEXT NOT NULL,
+    create_request_sha256 TEXT NOT NULL CHECK (create_request_sha256 ~ '^[0-9a-f]{64}$'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (buyer_id, create_idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS project_orders_buyer_created_idx
+    ON project_orders (buyer_id, created_at DESC);
+
+-- One project step can reserve exactly one job. This is separate from jobs so
+-- a unique constraint protects the step even while competing submit requests
+-- are both in flight. accepted_ceiling_nanos comes only from the firm quote's
+-- frozen PricingDecision inside SubmitJobTx.
+CREATE TABLE IF NOT EXISTS project_order_steps (
+    project_order_id UUID NOT NULL REFERENCES project_orders(id) ON DELETE CASCADE,
+    step_id TEXT NOT NULL CHECK (step_id ~ '^[a-z][a-z0-9_-]{0,63}$'),
+    job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE RESTRICT,
+    quote_id UUID NOT NULL REFERENCES quotes(id) ON DELETE RESTRICT,
+    pricing_decision_sha256 TEXT NOT NULL CHECK (pricing_decision_sha256 ~ '^[0-9a-f]{64}$'),
+    accepted_ceiling_nanos BIGINT NOT NULL CHECK (accepted_ceiling_nanos > 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (project_order_id, step_id),
+    UNIQUE (job_id)
+);
+
+-- The job link is a projection for receipts and support lookups. The immutable
+-- project_order_steps ledger above is the budget authority; this pair is never
+-- updated after admission.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS project_order_id UUID REFERENCES project_orders(id) ON DELETE RESTRICT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS project_step_id TEXT;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_project_link_pair;
+ALTER TABLE jobs ADD CONSTRAINT jobs_project_link_pair CHECK (
+    (project_order_id IS NULL AND project_step_id IS NULL)
+    OR (project_order_id IS NOT NULL AND project_step_id ~ '^[a-z][a-z0-9_-]{0,63}$')
+);
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_project_step_unique_idx
+    ON jobs (project_order_id, project_step_id)
+    WHERE project_order_id IS NOT NULL;
+CREATE OR REPLACE FUNCTION cx_reject_job_project_link_update() RETURNS trigger AS $$
+BEGIN
+    IF OLD.project_order_id IS DISTINCT FROM NEW.project_order_id
+       OR OLD.project_step_id IS DISTINCT FROM NEW.project_step_id THEN
+        RAISE EXCEPTION 'project order link for job % is immutable', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS jobs_project_link_immutable ON jobs;
+CREATE TRIGGER jobs_project_link_immutable
+    BEFORE UPDATE OF project_order_id, project_step_id ON jobs
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_job_project_link_update();

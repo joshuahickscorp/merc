@@ -99,6 +99,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/worker/enrollment/exchange", s.handleExchangeWorkerEnrollmentCode)
 
 	mux.Handle("POST /v1/jobs", s.authBuyer(http.HandlerFunc(s.handleCreateJob)))
+	mux.Handle("POST /v1/projects", s.authBuyer(http.HandlerFunc(s.handleCreateProjectOrder)))
+	mux.Handle("GET /v1/projects/{id}", s.authBuyer(http.HandlerFunc(s.handleGetProjectOrder)))
 	mux.Handle("GET /v1/jobs", s.authBuyer(http.HandlerFunc(s.handleListBuyerJobs)))
 	mux.Handle("GET /v1/jobs/{id}", s.authBuyer(http.HandlerFunc(s.handleGetJob)))
 	mux.Handle("GET /v1/jobs/{id}/results", s.authBuyer(http.HandlerFunc(s.handleJobResults)))
@@ -475,21 +477,27 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 type jobSubmit struct {
-	JobType        JobType            `json:"job_type"`
-	Model          ModelRef           `json:"model"`
-	Params         json.RawMessage    `json:"params"`
-	Constraints    JobConstraints     `json:"constraints"`
-	Verification   VerificationPolicy `json:"verification"`
-	Tier           string             `json:"tier"`
-	Input          json.RawMessage    `json:"input"`
-	WebhookURL     string             `json:"webhook_url"`
-	MaxUSD         float64            `json:"max_usd,omitempty"`
-	QuoteID        string             `json:"quote_id,omitempty"`
-	FirmQuote      bool               `json:"firm_quote,omitempty"`
-	MinReputation  float32            `json:"min_reputation,omitempty"`
-	DeadlineSecs   int                `json:"deadline_secs,omitempty"`
-	IdempotencyKey string             `json:"-"`
-	RequestSHA256  string             `json:"-"`
+	JobType      JobType            `json:"job_type"`
+	Model        ModelRef           `json:"model"`
+	Params       json.RawMessage    `json:"params"`
+	Constraints  JobConstraints     `json:"constraints"`
+	Verification VerificationPolicy `json:"verification"`
+	Tier         string             `json:"tier"`
+	Input        json.RawMessage    `json:"input"`
+	WebhookURL   string             `json:"webhook_url"`
+	MaxUSD       float64            `json:"max_usd,omitempty"`
+	QuoteID      string             `json:"quote_id,omitempty"`
+	FirmQuote    bool               `json:"firm_quote,omitempty"`
+	// ProjectID and ProjectStepID bind this firm job to a server-reserved
+	// project ceiling. They are optional for ordinary jobs, but are a pair: a
+	// project job without an exact declared step would make the budget ledger
+	// impossible to audit.
+	ProjectID      string  `json:"project_id,omitempty"`
+	ProjectStepID  string  `json:"project_step_id,omitempty"`
+	MinReputation  float32 `json:"min_reputation,omitempty"`
+	DeadlineSecs   int     `json:"deadline_secs,omitempty"`
+	IdempotencyKey string  `json:"-"`
+	RequestSHA256  string  `json:"-"`
 	// governedVerificationClass is a SERVER-SIDE argument. It is unexported and
 	// has no wire tag, so no buyer request can set it: submit decodes with
 	// DisallowUnknownFields, and a body carrying `verification_class` is refused
@@ -606,6 +614,21 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 	if math.IsNaN(sub.MaxUSD) || math.IsInf(sub.MaxUSD, 0) || sub.MaxUSD < 0 {
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "max_usd must be a finite non-negative number"}
+	}
+	var projectOrderID uuid.UUID
+	if sub.ProjectID != "" || sub.ProjectStepID != "" {
+		stepID := strings.TrimSpace(sub.ProjectStepID)
+		if sub.ProjectID == "" || !projectStepIDPattern.MatchString(stepID) {
+			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "project_id and a declared project_step_id must be supplied together"}
+		}
+		parsed, err := uuid.Parse(sub.ProjectID)
+		if err != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "project_id must be a UUID"}
+		}
+		if !sub.FirmQuote {
+			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "project steps require a firm quote"}
+		}
+		projectOrderID = parsed
 	}
 	// Quote and submit share this exact canonical request-shape gate. It also
 	// applies the canary verification floors, so the shape a quote binds is the
@@ -1343,7 +1366,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		QuoteID:                    boundQuoteID, // D7 quote binding (zero = none -> persisted NULL)
 		DeadlineSecs:               sub.DeadlineSecs,
 		FirmQuote:                  sub.FirmQuote,
-		FirmQuoteMaxUSD:            firmQuoteMaxUSD,  // the real charge ceiling (0 = not firm -> persisted NULL)
+		FirmQuoteMaxUSD:            firmQuoteMaxUSD, // the real charge ceiling (0 = not firm -> persisted NULL)
+		ProjectOrderID:             projectOrderID,
+		ProjectStepID:              strings.TrimSpace(sub.ProjectStepID),
 		SLAGuaranteeSecs:           slaGuaranteeSecs, // wave 2A time guarantee (0 = none -> persisted NULL)
 		SLAPremiumUSD:              slaPremiumUSD,    // wave 2A premium = the miss remedy (0 = none -> NULL)
 		PrepaidRequired:            prepaidRequired,

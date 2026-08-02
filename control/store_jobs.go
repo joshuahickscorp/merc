@@ -377,6 +377,15 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 				j.FirmQuoteMaxUSD, quotePricing.MaximumBuyerPrice)
 		}
 	}
+	if j.ProjectOrderID != uuid.Nil || j.ProjectStepID != "" {
+		if j.PricingDecision.FixedPoint == nil {
+			return errors.New("project job has no fixed-point PricingDecision authority")
+		}
+		if err := reserveProjectStepTx(ctx, tx, j, jobCurrency,
+			j.PricingDecision.FixedPoint.AcceptedCeilingNanos, pricingSHA256); err != nil {
+			return err
+		}
+	}
 
 	var economicInputRecords, economicInputBytes, economicInputSource any
 	if j.EconomicInputSource != "" {
@@ -396,11 +405,12 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		    workload_decision, workload_decision_sha256,
 		    compute_plan, compute_plan_sha256,
 		    placement_requirement, placement_requirement_sha256,
-		    pricing_decision, pricing_decision_sha256, currency, prepaid_required)
+		    pricing_decision, pricing_decision_sha256, currency, prepaid_required,
+		    project_order_id, project_step_id)
 		 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,0,$10,0,
 		         $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'tracking',$21,$22,$23,$24,$25,$26,$27,
 		         $28,$29,$30,NULLIF($31,''),NULLIF($32,''),NULLIF($33,''),
-		         $34,$35,$36,$37,$38,$39,$40,$41,$42,$43)`,
+		         $34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,NULLIF($45,''))`,
 		j.ID, j.BuyerID, j.JobType, j.ModelRef, j.InputRef, j.OutputRef,
 		j.Tier, j.VerificationPolicy, j.EstimatedUSD, j.TaskCount,
 		j.MinMemoryGB, j.MaxDurationSecs, nullStrSlice(j.HWClasses), nullStrSlice(j.DataResidency),
@@ -412,9 +422,20 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 		j.SubmitIdempotencyKey, j.SubmitRequestSHA256, j.PrefixID,
 		workloadJSON, workloadSHA256, computeJSON, computeSHA256,
 		placementJSON, placementSHA256, pricingJSON, pricingSHA256, jobCurrency, j.PrepaidRequired,
+		nullUUID(j.ProjectOrderID), j.ProjectStepID,
 	)
 	if err != nil {
 		return err
+	}
+	if j.ProjectOrderID != uuid.Nil {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO project_order_steps
+			  (project_order_id,step_id,job_id,quote_id,pricing_decision_sha256,accepted_ceiling_nanos)
+			VALUES ($1,$2,$3,$4,$5,$6)`,
+			j.ProjectOrderID, j.ProjectStepID, j.ID, j.QuoteID, pricingSHA256,
+			j.PricingDecision.FixedPoint.AcceptedCeilingNanos); err != nil {
+			return fmt.Errorf("record project step reservation: %w", err)
+		}
 	}
 	// Prefix chain is recorded in the same transaction as the job so a
 	// claimable job never exists without the routing hint the claim SQL
@@ -512,6 +533,8 @@ type jobRow struct {
 	DeadlineSecs       int       // watchdog policy: -1 opt out, 0 default, 60..604800 explicit wall-clock deadline
 	FirmQuote          bool
 	FirmQuoteMaxUSD    float64
+	ProjectOrderID     uuid.UUID // zero = an ordinary, non-project job
+	ProjectStepID      string
 	SLAGuaranteeSecs   int
 	SLAPremiumUSD      float64
 	// PrepaidRequired freezes default-mode batch funding at acceptance. It is
