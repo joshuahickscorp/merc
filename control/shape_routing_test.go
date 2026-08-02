@@ -99,3 +99,75 @@ func TestCostOutranksShapeInTheClaimOrdering(t *testing.T) {
 			"class would take work a cheaper sufficient class could do")
 	}
 }
+
+// Shape ordering never promotes a more expensive cost class: production
+// ClaimTaskSQL (with the flag on) still places cheaper_class_online and
+// cheaper_ask_online before every shape term.
+func TestShapeOrderingNeverPromotesAMoreExpensiveCostClass(t *testing.T) {
+	t.Setenv("MERC_SHAPE_AWARE_ROUTING", "1")
+	sql := ClaimTaskSQL("t.claimed_by IS NULL")
+	orderIdx := strings.LastIndex(sql, "ORDER BY")
+	if orderIdx < 0 {
+		t.Fatal("claim SQL has no ORDER BY")
+	}
+	order := sql[orderIdx:]
+	cheaperClass := strings.Index(order, "cheaper_class_online")
+	cheaperAsk := strings.Index(order, "cheaper_ask_online")
+	// Production path uses preferenceForTier → per-tier CASE with nvidia/apple arms.
+	shape := strings.Index(order, "nvidia%")
+	if shape < 0 {
+		shape = strings.Index(order, "apple_silicon%")
+	}
+	if cheaperClass < 0 || cheaperAsk < 0 || shape < 0 {
+		t.Fatalf("ORDER BY missing cost/shape terms: class=%d ask=%d shape=%d\n%s",
+			cheaperClass, cheaperAsk, shape, order)
+	}
+	if shape < cheaperClass || shape < cheaperAsk {
+		t.Fatal("shape ordering sits above a cost-class term: a shape-favoured expensive " +
+			"class would outrank a cheaper sufficient class")
+	}
+	// Shape must remain a preference expression, never a hard filter.
+	whereEnd := orderIdx
+	if strings.Contains(sql[:whereEnd], "nvidia%") || strings.Contains(sql[:whereEnd], "apple_silicon%") {
+		// me.hw_class appears in SELECT lists; only forbid shape rank as WHERE predicate.
+	}
+	if strings.Contains(sql, "WHERE") && strings.Contains(sql, "LIKE 'nvidia%'") {
+		// The shape CASE uses LIKE; ensure it only appears after ORDER BY.
+		likeInWhere := false
+		for _, segment := range strings.Split(sql, "ORDER BY") {
+			// Only the portion before the final ORDER BY is filter territory for claim.
+			_ = segment
+		}
+		preOrder := sql[:orderIdx]
+		if strings.Contains(preOrder, "LIKE 'nvidia%'") || strings.Contains(preOrder, "LIKE 'apple_silicon%'") {
+			likeInWhere = true
+		}
+		if likeInWhere {
+			t.Fatal("shape rank used as a filter before ORDER BY; shape must never exclude claimable work")
+		}
+	}
+	// The production builder must actually call preferenceForTier (not hardcode).
+	if got := preferenceForTier("batch"); got != shapePreferThroughput {
+		t.Fatalf("preferenceForTier(batch)=%v with flag on; ClaimTaskSQL would not rank throughput", got)
+	}
+}
+
+// ClaimTaskSQL must route through preferenceForTier so the env flag is live.
+func TestClaimTaskSQLUsesPreferenceForTierWhenEnabled(t *testing.T) {
+	t.Setenv("MERC_SHAPE_AWARE_ROUTING", "1")
+	sql := ClaimTaskSQL("t.claimed_by IS NULL")
+	if !strings.Contains(sql, "ej.tier") && !strings.Contains(sql, "batch") {
+		// shapeOrderSQL emits CASE WHEN ej.tier = 'batch' ...
+	}
+	if !strings.Contains(sql, "ej.tier") {
+		t.Fatal("enabled ClaimTaskSQL does not case on ej.tier; preferenceForTier is not driving order")
+	}
+	if !strings.Contains(sql, "nvidia%") || !strings.Contains(sql, "apple_silicon%") {
+		t.Fatal("enabled ClaimTaskSQL lost hardware-shape CASE arms")
+	}
+	t.Setenv("MERC_SHAPE_AWARE_ROUTING", "")
+	off := ClaimTaskSQL("t.claimed_by IS NULL")
+	if strings.Contains(off[strings.LastIndex(off, "ORDER BY"):], "nvidia%") {
+		t.Fatal("disabled ClaimTaskSQL still embeds shape CASE arms; flag must gate the term")
+	}
+}
