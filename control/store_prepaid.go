@@ -496,8 +496,9 @@ func (s *Store) SeedPrepaidBalance(ctx context.Context, buyerID uuid.UUID, micro
 }
 
 // BuyerPrepaidAvailableMicros is an informational view of materialised balance
-// less every open prepay-required job's remaining frozen reservation. Admission
-// uses reservePrepaidForJobTx instead, which locks the balance row.
+// less every open prepay-required job's remaining frozen reservation and every
+// active service lease's frozen maximum. Admission uses a locking reservation
+// helper instead, so this read can never be mistaken for authorization.
 func (s *Store) BuyerPrepaidAvailableMicros(ctx context.Context, buyerID uuid.UUID) (int64, error) {
 	bal, err := s.BuyerPrepaidBalanceMicros(ctx, buyerID)
 	if err != nil {
@@ -515,11 +516,12 @@ func (s *Store) BuyerPrepaidAvailableMicros(ctx context.Context, buyerID uuid.UU
 
 // reservePrepaidForJobTx is the admission-side serialization point. It locks
 // the buyer's balance row and includes every other open job's *remaining*
-// frozen reservation, so neither concurrent submits nor a concurrent task
-// settlement can oversubscribe cash already collected from the buyer.
+// frozen reservation and every active service lease's maximum, so neither
+// concurrent submits nor a concurrent settlement can oversubscribe cash
+// already collected from the buyer.
 func reservePrepaidForJobTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64) error {
 	if buyerID == uuid.Nil || amountMicros <= 0 {
-		return fmt.Errorf("prepaid reservation requires buyer and positive micro-USD")
+		return fmt.Errorf("prepaid reservation requires buyer and positive ledger micros")
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
@@ -542,26 +544,59 @@ func reservePrepaidForJobTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, a
 	return nil
 }
 
+// reservePrepaidForServiceLeaseTx is the service-specific admission boundary.
+// A service request reaches the store directly rather than through job submit,
+// so it must also prove that its buyer is still active before reserving cash.
+// The underlying reservation query includes active services, which gives this
+// path the same serializable cash guarantee as batch admission.
+func reservePrepaidForServiceLeaseTx(ctx context.Context, tx pgx.Tx, buyerID uuid.UUID, amountMicros int64) error {
+	if buyerID == uuid.Nil {
+		return errNotFound
+	}
+	var active bool
+	err := tx.QueryRow(ctx, `SELECT deleted_at IS NULL FROM buyers WHERE id=$1 FOR UPDATE`, buyerID).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !active {
+		return errNotFound
+	}
+	return reservePrepaidForJobTx(ctx, tx, buyerID, amountMicros)
+}
+
 // prepaidOpenReservationMicros sums the unfunded portion of frozen plans for
-// live prepay jobs. A task/SLA debit consumes balance and reduces this virtual
-// reservation by the same amount; terminal jobs release unused reserve by
-// simply leaving this query.
+// live prepay jobs plus the full frozen maximum for active service leases. A
+// task/SLA debit consumes balance and reduces a job reservation by the same
+// amount; a service lease deliberately retains its entire maximum until it is
+// terminal because its continuous settlement path has no per-task debit yet.
+// Terminal jobs and terminal leases release unused reserve by simply leaving
+// this query.
 func prepaidOpenReservationMicros(ctx context.Context, db ledgerExec, buyerID uuid.UUID) (int64, error) {
 	var reserved int64
 	err := db.QueryRow(ctx, `
-		SELECT COALESCE(SUM(GREATEST(0::bigint,
-			  (p.reserved_buyer_charge_usd * 1000000)::bigint - COALESCE((
-			    SELECT SUM((-le.amount_usd * 1000000)::bigint)
-			      FROM ledger_entries le
-			     WHERE le.kind='prepaid_debit'
-			       AND (le.task_id IN (SELECT id FROM tasks WHERE job_id=j.id)
-			            OR le.payout_ref='prepaid-sla-' || j.id::text)
-			  ), 0)
-		)), 0)::bigint
-		  FROM jobs j
-		  JOIN job_economic_plans p ON p.job_id=j.id
-		 WHERE j.buyer_id=$1 AND j.prepaid_required
-		   AND j.status IN ('queued','running','verifying')`, buyerID).Scan(&reserved)
+		SELECT (
+		  SELECT COALESCE(SUM(GREATEST(0::bigint,
+		    (p.reserved_buyer_charge_usd * 1000000)::bigint - COALESCE((
+		      SELECT SUM((-le.amount_usd * 1000000)::bigint)
+		        FROM ledger_entries le
+		       WHERE le.kind='prepaid_debit'
+		         AND (le.task_id IN (SELECT id FROM tasks WHERE job_id=j.id)
+		              OR le.payout_ref='prepaid-sla-' || j.id::text)
+		    ), 0)
+		  )), 0)::bigint
+		    FROM jobs j
+		    JOIN job_economic_plans p ON p.job_id=j.id
+		   WHERE j.buyer_id=$1 AND j.prepaid_required
+		     AND j.status IN ('queued','running','verifying')
+		) + (
+		  SELECT COALESCE(SUM(l.reserved_buyer_micros),0)::bigint
+		    FROM service_leases l
+		   WHERE l.buyer_id=$1
+		     AND l.state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED')
+		)`, buyerID).Scan(&reserved)
 	return reserved, err
 }
 

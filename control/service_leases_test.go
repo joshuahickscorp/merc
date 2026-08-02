@@ -37,6 +37,12 @@ func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
 		if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email,free_credit_usd) VALUES ($1,$2,10)`, buyerID, buyerID.String()+"@lease-race.invalid"); err != nil {
 			t.Fatal(err)
 		}
+		// A service may not use the legacy sandbox grant as cash authority.
+		// Give each racing buyer actual prepaid liability; capacity, not an
+		// accidental funding shortage, is what this test is measuring.
+		if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-race-"+buyerID.String()); err != nil {
+			t.Fatal(err)
+		}
 	}
 	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
@@ -87,11 +93,63 @@ func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
 	}
 }
 
+func TestServiceLeaseRequiresCollectedPrepaidCashAndFreezesItsMaximum(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	ctx, store, pool := openPayoutTestStore(t)
+	buyerID := uuid.New()
+	// The legacy grant is intentionally generous: if this path ever starts
+	// reading free_credit_usd again, the first admission below would succeed.
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email,free_credit_usd) VALUES ($1,$2,1000)`, buyerID, buyerID.String()+"@service-prepaid.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	profile := sortedVLLMProfiles()[0]
+	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	offer := serviceLeaseOffer(profile)
+	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
+		t.Fatal(err)
+	}
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
+		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		BuyerDeclaredCeilingNanos: 135_000_000}
+	pricing, err := newServiceLeasePricingDecision(serviceLeasePricingInputs(profile, MustParseCurrency("cad"), request,
+		offer.SupplierNanosPerReplicaHour, offer.ResidencyNanosPerReplicaHour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserve, err := LedgerMicrosFromNanos(MoneyNanos{Currency: MustParseCurrency("cad"), Nanos: pricing.FixedPoint.AcceptedCeilingNanos})
+	if err != nil || reserve <= 1 {
+		t.Fatalf("service reserve=%d err=%v", reserve, err)
+	}
+	if _, err := store.CreateServiceLease(ctx, buyerID, request); !errors.Is(err, errRealtimeInsufficientFunds) {
+		t.Fatalf("lease used free credit rather than prepaid cash: %v", err)
+	}
+	if err := store.SeedPrepaidBalance(ctx, buyerID, reserve-1, "service-underfunded-"+buyerID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateServiceLease(ctx, buyerID, request); !errors.Is(err, errRealtimeInsufficientFunds) {
+		t.Fatalf("lease accepted one micro below its frozen maximum: %v", err)
+	}
+	if err := store.SeedPrepaidBalance(ctx, buyerID, 1, "service-exact-"+buyerID.String()); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := store.CreateServiceLease(ctx, buyerID, request)
+	if err != nil || lease.ReservedBuyerMicros != reserve {
+		t.Fatalf("exact prepaid service admission lease=%+v err=%v", lease, err)
+	}
+	available, err := store.BuyerPrepaidAvailableMicros(ctx, buyerID)
+	if err != nil || available != 0 {
+		t.Fatalf("active service left %d refundable/unreserved micros err=%v, want 0", available, err)
+	}
+}
+
 func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, pool := openPayoutTestStore(t)
 	buyerID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email,free_credit_usd) VALUES ($1,$2,10)`, buyerID, buyerID.String()+"@lease.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-path-"+buyerID.String()); err != nil {
 		t.Fatal(err)
 	}
 	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "lease-path", true)
@@ -137,7 +195,8 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		t.Fatal(err)
 	}
 	if lease.Pricing.ExecutionMode != pricingExecutionServiceLease || lease.Pricing.FixedPoint == nil ||
-		lease.Pricing.FixedPoint.AcceptedCeilingNanos != request.BuyerDeclaredCeilingNanos || lease.ActiveReplicas != 1 {
+		lease.Pricing.FixedPoint.AcceptedCeilingNanos != request.BuyerDeclaredCeilingNanos || lease.ActiveReplicas != 1 ||
+		lease.ReservedBuyerMicros != 135_000 {
 		t.Fatalf("lease lost frozen pricing/capacity authority: %+v", lease)
 	}
 	// The agent refreshes this offer continuously. Its static configuration says
@@ -214,7 +273,8 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	}
 	if receipt.Lease.State != "ACTIVE" || receipt.Lease.BuyerChargeNanos <= 0 ||
 		receipt.Lease.BuyerChargeNanos != receipt.Lease.SupplierPayableNanos+receipt.Lease.KnownVariableCostNanos+receipt.Lease.KnownContributionNanos ||
-		receipt.SupplierSettlementState != "ACCRUED_UNFUNDED" ||
+		receipt.BuyerFundingState != "PREPAID_MAXIMUM_RESERVED" ||
+		receipt.SupplierSettlementState != "ACCRUED_PREPAID_RESERVED_UNSETTLED" ||
 		receipt.TrueNetContributionStatus != "UNKNOWN_PROCESSOR_FEE_UNALLOCATED" ||
 		receipt.DataPlaneAuthorityStatus != "NOT_PROVEN_BY_CONTROL_PLANE" || receipt.LatestSLOEvidence == nil ||
 		receipt.LatestSLOEvidence.P95LatencyMillis != 200 || receipt.LatestSLOEvidence.LatencyMeasurementCount != 5 ||
