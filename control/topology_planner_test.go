@@ -3,6 +3,9 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestPlanTopologyChoosesBoundedIndependentShapes(t *testing.T) {
@@ -109,5 +112,105 @@ func TestPlanTopologyUsesProviderOnlyForAdmittedTightGang(t *testing.T) {
 func TestPlanTopologyRefusesUnknownShape(t *testing.T) {
 	if _, err := PlanTopology(TopologyRequest{Parallelism: WorkloadParallelism{Mode: "mystery_parallelism", TensorParallelDegree: 2}}); err == nil {
 		t.Fatal("unknown topology mode was silently accepted")
+	}
+}
+
+func TestPlanTopologyFromCurrentFabricEvaluationNeverPromotesSyntheticEvidence(t *testing.T) {
+	now := time.Date(2026, time.August, 2, 12, 0, 0, 0, time.UTC)
+	evaluation := FabricTopologyEvaluation{
+		EvaluationID:                uuid.New(),
+		Status:                      "SYNTHETIC_COLLECTIVES_MEASURED_GANG_SCHEDULER_REQUIRED",
+		EvaluatedAt:                 now.Add(-time.Minute),
+		EvidenceFreshUntil:          now.Add(14 * time.Minute),
+		RequiredDirectedLinks:       2,
+		VerifiedDirectedLinks:       2,
+		RequiredDirectedCollectives: 2,
+		VerifiedDirectedCollectives: 2,
+		LocalClusterAdmissible:      false,
+		NonAdmissionReasons:         []string{"no gang scheduler or workload admission path consumes the measured topology"},
+	}
+	plan, err := PlanTopologyFromFabricEvaluation(evaluation, TopologyRequest{
+		WorkloadClass:              "realtime_generation",
+		Parallelism:                WorkloadParallelism{Mode: "tensor_parallel", TensorParallelDegree: 2},
+		CommunityCapacityAvailable: true,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Status != "REFUSED" || plan.Fabric != FabricUnknown || plan.PlacementMode != "" || plan.SchedulerShape != "" {
+		t.Fatalf("synthetic topology evidence promoted a tight plan: %+v", plan)
+	}
+	joined := strings.Join(plan.Evidence, "\n")
+	if !strings.Contains(joined, evaluation.EvaluationID.String()) ||
+		!strings.Contains(joined, "fabric_topology_refusal=") ||
+		!strings.Contains(plan.Reason, "remains non-admissible") {
+		t.Fatalf("plan lost receipt-bound refusal evidence: %+v", plan)
+	}
+}
+
+func TestPlanTopologyFromFabricEvaluationRequiresAnExplicitFutureAdmission(t *testing.T) {
+	now := time.Date(2026, time.August, 2, 12, 0, 0, 0, time.UTC)
+	base := FabricTopologyEvaluation{
+		EvaluationID:                uuid.New(),
+		Status:                      fabricTopologyAdmittedStatus,
+		EvaluatedAt:                 now.Add(-time.Minute),
+		EvidenceFreshUntil:          now.Add(time.Minute),
+		RequiredDirectedLinks:       2,
+		VerifiedDirectedLinks:       2,
+		RequiredDirectedCollectives: 2,
+		VerifiedDirectedCollectives: 2,
+		LocalClusterAdmissible:      true,
+	}
+	plan, err := PlanTopologyFromFabricEvaluation(base, TopologyRequest{
+		WorkloadClass:              "realtime_generation",
+		Parallelism:                WorkloadParallelism{Mode: "tensor_parallel", TensorParallelDegree: 2},
+		CandidateDeviceCount:       2,
+		CommunityCapacityAvailable: true,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Status != "ACCEPTED" || plan.Fabric != FabricLowLatencySite || plan.PlacementMode != ModeLocalCluster || plan.SchedulerShape != TopologyLocalGang {
+		t.Fatalf("explicitly admitted fabric did not produce the bounded local gang plan: %+v", plan)
+	}
+	if !strings.Contains(strings.Join(plan.Evidence, "\n"), "fabric_topology_class=LOW_LATENCY_SITE") {
+		t.Fatalf("accepted plan did not retain fabric class evidence: %+v", plan)
+	}
+}
+
+func TestPlanTopologyFromFabricEvaluationRefusesStaleOrForgedAdmission(t *testing.T) {
+	now := time.Date(2026, time.August, 2, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*FabricTopologyEvaluation)
+	}{
+		{name: "stale", mutate: func(e *FabricTopologyEvaluation) { e.EvidenceFreshUntil = now.Add(-time.Second) }},
+		{name: "non-admission reason", mutate: func(e *FabricTopologyEvaluation) { e.NonAdmissionReasons = []string{"pricing authority missing"} }},
+		{name: "short mesh", mutate: func(e *FabricTopologyEvaluation) { e.VerifiedDirectedLinks = 1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			evaluation := FabricTopologyEvaluation{
+				EvaluationID:                uuid.New(),
+				Status:                      fabricTopologyAdmittedStatus,
+				EvidenceFreshUntil:          now.Add(time.Minute),
+				RequiredDirectedLinks:       2,
+				VerifiedDirectedLinks:       2,
+				RequiredDirectedCollectives: 2,
+				VerifiedDirectedCollectives: 2,
+				LocalClusterAdmissible:      true,
+			}
+			tc.mutate(&evaluation)
+			plan, err := PlanTopologyFromFabricEvaluation(evaluation, TopologyRequest{
+				WorkloadClass:              "realtime_generation",
+				Parallelism:                WorkloadParallelism{Mode: "tensor_parallel", TensorParallelDegree: 2},
+				CommunityCapacityAvailable: true,
+			}, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Status != "REFUSED" || plan.Fabric != FabricUnknown || plan.PlacementMode != "" {
+				t.Fatalf("%s forged/stale evaluation was admitted: %+v", tc.name, plan)
+			}
+		})
 	}
 }
