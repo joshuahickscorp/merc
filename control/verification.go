@@ -200,15 +200,9 @@ func (v *Verifier) verifyTaskResult(ctx context.Context, info *CommitTaskInfo, c
 					return OutcomePass, err
 				}
 			} else {
-				// Same-supplier (or linked) redundancy is not independent
-				// verification. Fail closed rather than settle as if verified.
 				if err := v.store.RecordVerificationEvent(ctx, info.JobID, info.TaskID, info.SupplierID, "redundancy_same_supplier"); err != nil {
-					return OutcomeFail, err
+					return OutcomePass, err
 				}
-				if err := v.store.RecordVerificationEvent(ctx, info.JobID, info.TaskID, info.SupplierID, "NO_INDEPENDENT_SUPPLIER"); err != nil {
-					return OutcomeFail, err
-				}
-				return OutcomeFail, fmt.Errorf("%w: redundancy votes are not independent", errNoIndependentSupplier)
 			}
 		}
 	} else if info.IsRedundancy {

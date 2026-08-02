@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // A supplier's asking price must change who gets work, not merely who is
@@ -16,10 +17,18 @@ import (
 // previously asserted by string-matching the generated SQL rather than by
 // running it.
 func TestClaimTasksTxDefersToACheaperAskingWorker(t *testing.T) {
-	// Isolated DB: a shared queue with older jobs lets the dear worker claim
-	// unrelated work and masks the ask-deferral assertion.
-	ctx, store, pool := openIsolatedTestStore(t)
-	_ = pool
+	databaseURL := requireTestDatabase(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	store := NewStore(pool)
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
 
 	suffix := uuid.NewString()
 	buyerID, err := store.CreateBuyerAccount(ctx, "ask-"+suffix+"@example.test", "integration-password", 100)
@@ -92,14 +101,12 @@ func TestClaimTasksTxDefersToACheaperAskingWorker(t *testing.T) {
 	}
 
 	// The expensive worker asks first.  A cheaper, equally-capable worker is
-	// online and the job can afford it, so THIS task must not go to the dear one.
-	// Shared DBs may hand the dear worker unrelated jobs; only the fixture job
-	// is under test.
+	// online and the job can afford it, so the task must not go to the dear one.
 	got, err := claim(dear)
 	if err != nil {
 		t.Fatalf("expensive worker claim: %v", err)
 	}
-	if got != nil && got.TaskID == taskID {
+	if got != nil {
 		t.Fatalf("task went to the worker asking $%.2f/hr while one asking $%.2f/hr was online and eligible",
 			dear.askUSDHr, cheap.askUSDHr)
 	}

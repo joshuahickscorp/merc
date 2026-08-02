@@ -423,10 +423,6 @@ pub async fn detect_and_benchmark(
         agent_version: agent_version.to_string(),
         os_version: os_version(),
         min_payout_usd_hr,
-        // Filled by the run loop after sandbox re-exec; detect_and_benchmark
-        // itself does not know the process containment state.
-        sandboxed: false,
-        unsandboxed_opt_in: false,
     }
 }
 
