@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -399,6 +400,14 @@ func TestProjectCompilerCADExecutionThroughPublicAPI(t *testing.T) {
 	keys, err := store.JobResultKeys(loopCtx, jobID)
 	if err != nil || len(keys) == 0 {
 		t.Fatalf("project execution exposes no retained result artifact: keys=%v err=%v", keys, err)
+	}
+	materialized, err := materializeProjectStep(c, root, ir, submission, "embed", time.Now())
+	if err != nil || materialized.Output != "project://vectors" || materialized.Bytes <= 0 ||
+		materialized.PricingDecisionSHA256 != submission.Steps[0].PricingDecisionSHA256 {
+		t.Fatalf("project result materialization lost receipt-bound authority: result=%+v err=%v", materialized, err)
+	}
+	if output, readErr := os.ReadFile(filepath.Join(root, "vectors")); readErr != nil || int64(len(output)) != materialized.Bytes {
+		t.Fatalf("materialized project output is absent or changed: bytes=%d err=%v", len(output), readErr)
 	}
 	if got := c.do("GET", "/v1/jobs/"+jobID.String()+"/receipt", nil); !strings.Contains(string(got), jobID.String()) {
 		t.Fatalf("buyer receipt does not name the project job: %s", got)
