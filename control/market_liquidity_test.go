@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -124,4 +128,90 @@ func TestRealtimeAdmissionEventRejectsFabricatedPlacement(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "contract") {
 		t.Fatalf("fabricated admitted placement accepted: %v", err)
 	}
+}
+
+func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	ctx, store, pool := openPayoutTestStore(t)
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@service-liquidity.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-liquidity-"+buyerID.String()); err != nil {
+		t.Fatal(err)
+	}
+	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "service-liquidity", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker, workerToken := newFabricMeasurementWorker(t, ctx, store)
+	profile := sortedVLLMProfiles()[0]
+	handler := NewServer(store, nil, nil, nil).Routes()
+	post := func(path, token string, body any) *httptest.ResponseRecorder {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
+		if token == workerToken {
+			req.Header.Set("X-Worker-Token", token)
+		} else {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	if got := post("/v1/worker/service-leases/offers", workerToken, serviceLeaseOffer(profile)).Code; got != http.StatusOK {
+		t.Fatalf("service offer status=%d", got)
+	}
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: "ca-central-1",
+		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		BuyerDeclaredCeilingNanos: 135_000_000}
+	if created := post("/v1/service-leases", buyerKey, request); created.Code != http.StatusCreated {
+		t.Fatalf("service admission status=%d body=%s", created.Code, created.Body.String())
+	}
+	if denied := post("/v1/service-leases", buyerKey, request); denied.Code != http.StatusServiceUnavailable {
+		t.Fatalf("second service admission status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	receipt, err := store.ServiceLeaseMarketLiquidity(ctx, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.RegionScope != "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY" {
+		t.Fatalf("service liquidity promoted supplier region: %q", receipt.RegionScope)
+	}
+	var matched, unmatched *ServiceLeaseMarketLiquiditySlice
+	for i := range receipt.Slices {
+		slice := &receipt.Slices[i]
+		if slice.RuntimeProfileID != profile.RuntimeProfileID || slice.Region != request.Region {
+			continue
+		}
+		if slice.WorkerDeclaredHWClass == serviceLiquidityUnmatchedHardware {
+			unmatched = slice
+		} else {
+			matched = slice
+		}
+	}
+	if matched == nil || matched.ModelAlias != profile.ModelAlias || matched.Admitted != 1 ||
+		matched.NoCapacity != 0 || matched.CapacityFillNumerator != 1 ||
+		matched.CapacityFillDenominator != 1 || matched.OfferSamples < 2 ||
+		matched.OccupiedReplicaSamples < 3 || matched.MaximumReplicaSamples < 6 {
+		t.Fatalf("matched service liquidity did not retain real capacity movement: %+v", matched)
+	}
+	if unmatched == nil || unmatched.Admitted != 0 || unmatched.NoCapacity != 1 ||
+		unmatched.CapacityFillNumerator != 0 || unmatched.CapacityFillDenominator != 1 {
+		t.Fatalf("capacity refusal was not kept separate from matched supply: %+v", unmatched)
+	}
+	if err := store.RecordServiceLeaseAdmissionEvent(ctx, buyerID, request, serviceLeaseAdmissionAdmitted, uuid.New()); err == nil {
+		t.Fatal("fabricated admitted service lease entered the liquidity denominator")
+	}
+	if _, _, err := store.DeleteOldServiceLeaseLiquidityTelemetry(ctx, time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	pruned, err := store.ServiceLeaseMarketLiquidity(ctx, time.Hour)
+	if err != nil || len(pruned.Slices) != 0 {
+		t.Fatalf("service liquidity retention left stale evidence: slices=%+v err=%v", pruned.Slices, err)
+	}
+	_ = worker
 }
