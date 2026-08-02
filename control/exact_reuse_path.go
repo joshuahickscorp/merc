@@ -18,13 +18,71 @@ import (
 // api.go must not construct RequestIdentity literals — workload_simulation_test
 // greps for that. Helpers here keep derivation out of the HTTP handlers.
 
-// realtimeIdentityFromPayload builds a cache key from the canonical upstream
-// payload prepareRealtimeRequest already produced. Non-deterministic sampling
-// yields errNonDeterministic from Compute — callers treat that as "not
+// Cacheability is a closed set. prepareRealtimeRequest forwards the buyer's
+// JSON with only a few defaults filled in — there is no field strip — so any
+// generation-affecting key that is not already folded into RequestIdentity
+// would silently collide if we hashed only the known fields. Instead:
+//
+//   - keys covered by RequestIdentity are hashed as before;
+//   - keys that are provably non-semantic for the completion (stream flags,
+//     OpenAI user tagging) are ignored;
+//   - every other key, known or unknown, refuses cacheability.
+//
+// A field added to the OpenAI surface tomorrow therefore falls out of the
+// cache automatically rather than colliding under an under-specified key.
+// That property is the point of the closed set.
+//
+// Non-deterministic sampling yields errNonDeterministic from Compute;
+// out-of-set fields yield errNotExactCacheable. Callers treat both as "not
 // cacheable", never as a hard failure.
+
+// exactReuseIdentityPayloadKeys are folded into RequestIdentity and may appear
+// on a cacheable prepared body.
+var exactReuseIdentityPayloadKeys = map[string]struct{}{
+	"model":                 {},
+	"messages":              {},
+	"tools":                 {},
+	"response_format":       {},
+	"temperature":           {},
+	"top_p":                 {},
+	"seed":                  {},
+	"max_tokens":            {},
+	"max_completion_tokens": {},
+}
+
+// exactReuseNonSemanticPayloadKeys do not change the completion bytes and are
+// stripped from identity consideration. Anything else is refused.
+var exactReuseNonSemanticPayloadKeys = map[string]struct{}{
+	"stream":         {},
+	"stream_options": {},
+	// OpenAI "user" is an abuse/tracking tag; engines do not sample on it.
+	"user": {},
+}
+
+// payloadExactReuseEligible reports whether every key on the prepared body is
+// either identity-covered or explicitly non-semantic. Unknown and known
+// generation-affecting keys (stop, tool_choice, frequency_penalty, …) fail.
+func payloadExactReuseEligible(payload map[string]any) error {
+	for k := range payload {
+		if _, ok := exactReuseIdentityPayloadKeys[k]; ok {
+			continue
+		}
+		if _, ok := exactReuseNonSemanticPayloadKeys[k]; ok {
+			continue
+		}
+		return fmt.Errorf("%w: %q", errNotExactCacheable, k)
+	}
+	return nil
+}
+
+// realtimeIdentityFromPayload builds a cache key from the canonical upstream
+// payload prepareRealtimeRequest already produced.
 func realtimeIdentityFromPayload(
 	buyerID uuid.UUID, profile VLLMRuntimeProfile, payload map[string]any,
 ) (string, error) {
+	if err := payloadExactReuseEligible(payload); err != nil {
+		return "", err
+	}
 	model, _ := payload["model"].(string)
 	inputBlob, err := canonicalJSON(payload["messages"])
 	if err != nil {
@@ -62,6 +120,7 @@ func realtimeIdentityFromPayload(
 		TenantScope:   buyerID.String(),
 		ModelID:       model,
 		ModelRevision: profile.ModelRevision,
+		ProfileSHA256: profile.ProfileSHA256,
 		Input:         string(inputBlob),
 		Tools:         toolsBlob,
 		Schema:        schemaBlob,
@@ -139,7 +198,8 @@ func fullPricePer1KFromRealtime(inputPerMillion, outputPerMillion float64) float
 
 // StoreExactResultBytes writes a content-addressed artifact and registers it
 // in the exact-result cache. Tenant-scoped jobs/ paths are refused by
-// StoreExactResult.
+// StoreExactResult. result_bytes is the body length so the retention sweep can
+// bound total cache size without listing the object store.
 func (s *Store) StoreExactResultBytes(ctx context.Context, storage *Storage, identity string, body []byte, outputTokens int64) (string, error) {
 	if storage == nil {
 		return "", fmt.Errorf("object storage is required to cache an exact result")
@@ -149,7 +209,7 @@ func (s *Store) StoreExactResultBytes(ctx context.Context, storage *Storage, ide
 	if err := storage.PutObject(ctx, ref, body, "application/json"); err != nil {
 		return "", fmt.Errorf("writing content-addressed result: %w", err)
 	}
-	if err := s.StoreExactResult(ctx, identity, ref, outputTokens); err != nil {
+	if err := s.recordExactResult(ctx, identity, ref, outputTokens, int64(len(body))); err != nil {
 		return "", err
 	}
 	return ref, nil

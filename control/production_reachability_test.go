@@ -80,6 +80,12 @@ var productionReachability = []reachabilityClaim{
 			"without bound. Nothing else removes them.",
 	},
 	{
+		From:   "Workers.Run",
+		Target: "Workers.sweepExactResultCache",
+		Consequence: "exact_result_cache rows and their content-addressed objects accumulate " +
+			"without age or size bound. Nothing else deletes them.",
+	},
+	{
 		From:   "Server.handleChatCompletions",
 		Target: "Store.ClaimInflightExecution",
 		Consequence: "in-flight coalescing stops happening entirely and every identical " +
@@ -461,10 +467,18 @@ var knownUnwired = map[string]string{
 		"ClaimTaskSQL passes shapeNoPreference unconditionally, so the flag is inert.",
 	"SelectBatch": "the token-budget batcher. Nothing batches by token budget in " +
 		"production. The four traffic classes now exist and carry promoted budgets " +
-		"(traffic_class.go), so the missing half is a batcher that consumes them.",
+		"(traffic_class.go), so the missing half is a batcher that consumes them. " +
+		"Do not present SelectBatch as a live capability until a production caller " +
+		"exists; wiring it into dispatch is a separate change.",
 	"TokenBudgetFor": "the per-class token budget SelectBatch would consume. Superseded " +
 		"in scope by TokenBudgetForTrafficClass, which reads the promoted per-class " +
 		"table; both are unwired for the same reason.",
+	"EstimatedTTFT": "the measured prefill→TTFT projection ValidateBatchBudget would " +
+		"use to refuse an oversize batch. Unwired: no production admission path " +
+		"consults it, so the latency contract it encodes is documentation only.",
+	"ValidateBatchBudget": "the latency-class budget gate. Unwired with SelectBatch " +
+		"and EstimatedTTFT: nothing in dispatch calls it, so an oversized batch is " +
+		"not refused here. Keep listed until a production caller exists.",
 	"TrafficClassForRealtime": "the realtime lane's traffic class. handleChatCompletions " +
 		"does not consult it, so INTERACTIVE's 4,096-token budget and 2s queue wait " +
 		"bound nothing in production.",
