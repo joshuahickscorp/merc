@@ -231,6 +231,29 @@ func serviceLeaseSupplierCreditLedgerRef(leaseID, supplierID uuid.UUID) string {
 	return serviceLeaseLedgerRef(leaseID, KindSupplierCredit) + ":" + supplierID.String()
 }
 
+// serviceLeaseIDFromSupplierCreditRef is the inverse of the immutable
+// supplier-credit reference. Service lease credits have no task_id, so payout
+// funding must recover the exact terminal lease from this structured reference
+// rather than inventing a job or trusting the lease's mutable current worker.
+func serviceLeaseIDFromSupplierCreditRef(ref string) (uuid.UUID, bool) {
+	const prefix = "service-lease-ledger-"
+	if !strings.HasPrefix(ref, prefix) {
+		return uuid.Nil, false
+	}
+	parts := strings.Split(strings.TrimPrefix(ref, prefix), ":")
+	if len(parts) != 3 || parts[1] != KindSupplierCredit {
+		return uuid.Nil, false
+	}
+	leaseID, err := uuid.Parse(parts[0])
+	if err != nil || leaseID == uuid.Nil {
+		return uuid.Nil, false
+	}
+	if supplierID, err := uuid.Parse(parts[2]); err != nil || supplierID == uuid.Nil {
+		return uuid.Nil, false
+	}
+	return leaseID, true
+}
+
 // insertServiceLeaseLedgerEntryTx provides idempotence for a service ledger
 // row without fabricating a task. The existing task/kind unique key cannot be
 // used here because service leases are long-running capacity commitments, not
@@ -933,15 +956,26 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		} else {
 			receipt.Settlement = settlement
 			receipt.BuyerFundingState = "PREPAID_FINAL_DEBIT_RECORDED"
-			switch settlement.SupplierPayoutStatus {
-			case PayoutHeld:
-				receipt.SupplierSettlementState = "SUPPLIER_CREDIT_HELD_PREPAID_COLLECTION_ALLOCATION_REQUIRED"
-			case PayoutAwaitingFunding:
-				receipt.SupplierSettlementState = "SUPPLIER_CREDIT_AWAITING_PREPAID_COLLECTION_ALLOCATION"
-			case PayoutCarried:
-				receipt.SupplierSettlementState = "SUPPLIER_CREDIT_CARRIED_PENDING_PREPAID_COLLECTION_ALLOCATION"
-			default:
-				receipt.SupplierSettlementState = "SUPPLIER_CREDIT_TERMINAL_STATUS_" + settlement.SupplierPayoutStatus
+			if settlement.FundingAuthorityState == "PREPAID_CASH_ALLOCATED_TO_SUPPLIER_LIABILITIES" {
+				switch settlement.SupplierPayoutStatus {
+				case PayoutSending:
+					receipt.SupplierSettlementState = "SUPPLIER_CREDIT_FUNDED_PAYOUT_SENDING"
+				case PayoutReleased, PayoutExported:
+					receipt.SupplierSettlementState = "SUPPLIER_CREDIT_FUNDED_PAYOUT_" + strings.ToUpper(settlement.SupplierPayoutStatus)
+				default:
+					receipt.SupplierSettlementState = "SUPPLIER_CREDIT_FUNDED_TERMINAL_STATUS_" + settlement.SupplierPayoutStatus
+				}
+			} else {
+				switch settlement.SupplierPayoutStatus {
+				case PayoutHeld:
+					receipt.SupplierSettlementState = "SUPPLIER_CREDIT_HELD_PREPAID_COLLECTION_ALLOCATION_REQUIRED"
+				case PayoutAwaitingFunding:
+					receipt.SupplierSettlementState = "SUPPLIER_CREDIT_AWAITING_PREPAID_COLLECTION_ALLOCATION"
+				case PayoutCarried:
+					receipt.SupplierSettlementState = "SUPPLIER_CREDIT_CARRIED_PENDING_PREPAID_COLLECTION_ALLOCATION"
+				default:
+					receipt.SupplierSettlementState = "SUPPLIER_CREDIT_TERMINAL_STATUS_" + settlement.SupplierPayoutStatus
+				}
 			}
 		}
 	}
@@ -1060,11 +1094,23 @@ func (s *Store) serviceLeaseTerminalSettlement(ctx context.Context, lease Servic
 		return nil, fmt.Errorf("service lease %s terminal ledger is not conserved", lease.ID)
 	}
 	sort.Slice(credits, func(i, j int) bool { return credits[i].SupplierID.String() < credits[j].SupplierID.String() })
+	fundingState := "PREPAID_CASH_COLLECTED_BUT_PAYOUT_COLLECTION_ALLOCATION_NOT_IMPLEMENTED"
+	var fundedCredits int
+	if err := s.pool.QueryRow(ctx, `
+		SELECT count(*)::int
+		  FROM supplier_payout_funding
+		 WHERE source_kind='buyer_collection' AND liability_service_lease_id=$1
+		   AND currency=$2`, lease.ID, currency).Scan(&fundedCredits); err != nil {
+		return nil, err
+	}
+	if fundedCredits == len(credits) {
+		fundingState = "PREPAID_CASH_ALLOCATED_TO_SUPPLIER_LIABILITIES"
+	}
 	return &ServiceLeaseSettlement{
 		Currency: currency, BuyerChargeMicros: -buyer.amount, PrepaidDebitMicros: -debit.amount,
 		SupplierCreditMicros: supplierMicros, PlatformGrossMicros: platform.amount,
 		SupplierPayoutStatus:  uniformStatus,
-		FundingAuthorityState: "PREPAID_CASH_COLLECTED_BUT_PAYOUT_COLLECTION_ALLOCATION_NOT_IMPLEMENTED",
+		FundingAuthorityState: fundingState,
 		SupplierCredits:       credits,
 	}, nil
 }

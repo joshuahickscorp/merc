@@ -240,6 +240,14 @@ var productionReachability = []reachabilityClaim{
 			"instead of producing a bounded terminal service receipt.",
 	},
 	{
+		From:   "Store.ClaimPayout",
+		Target: "reserveServiceLeasePayoutFunding",
+		Consequence: "a terminal service supplier credit would be visible as held money but could " +
+			"never bind to the buyer's collected prepaid top-up: the payout path would either invent a " +
+			"job or leave the liability permanently awaiting funding. The edge preserves the exact lease, " +
+			"payment intent, currency, and minor-unit allocation before any provider operation.",
+	},
+	{
 		From:   "Workers.Run",
 		Target: "Store.DeleteOldFabricLinkMeasurements",
 		Consequence: "self-reported candidate-link observations would be retained indefinitely even " +

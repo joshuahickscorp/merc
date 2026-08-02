@@ -433,7 +433,11 @@ func reservePayoutFunding(
 	taskID *uuid.UUID,
 	requestedCents int64,
 	currency string,
+	serviceLeaseIDs ...uuid.UUID,
 ) (uuid.UUID, bool, error) {
+	if len(serviceLeaseIDs) > 1 {
+		return uuid.Nil, false, errors.New("payout funding received multiple service lease identities")
+	}
 	var (
 		existingID       uuid.UUID
 		existingSource   string
@@ -465,7 +469,16 @@ func reservePayoutFunding(
 		return uuid.Nil, false, err
 	}
 	if taskID == nil {
+		if len(serviceLeaseIDs) == 1 {
+			if serviceLeaseIDs[0] == uuid.Nil {
+				return uuid.Nil, false, errors.New("service lease payout funding requires a non-empty lease")
+			}
+			return reserveServiceLeasePayoutFunding(ctx, tx, entryID, serviceLeaseIDs[0], requestedCents, currency)
+		}
 		return uuid.Nil, false, nil
+	}
+	if len(serviceLeaseIDs) == 1 {
+		return uuid.Nil, false, errors.New("job payout funding cannot carry a service lease identity")
 	}
 
 	var (
@@ -578,6 +591,115 @@ func reservePayoutFunding(
 	return fundingID, true, nil
 }
 
+// reserveServiceLeasePayoutFunding backs a terminal service-lease supplier
+// liability with a real collected prepaid top-up. A lease has no job/task cash
+// collection, so the allocation is explicit: the funding row names the lease,
+// the buyer-owned top-up payment intent, the exact ISO minor-unit amount, and
+// the immutable supplier ledger entry. The top-up is selected deterministically
+// and only after refunds/disputes and prior funding reservations are accounted
+// for. No platform subsidy or synthetic task is accepted on this path.
+func reserveServiceLeasePayoutFunding(
+	ctx context.Context,
+	tx pgx.Tx,
+	entryID, leaseID uuid.UUID,
+	requestedCents int64,
+	currency string,
+) (uuid.UUID, bool, error) {
+	if entryID == uuid.Nil || leaseID == uuid.Nil || requestedCents <= 0 || strings.TrimSpace(currency) == "" {
+		return uuid.Nil, false, errors.New("service lease payout funding identity is invalid")
+	}
+	var (
+		buyerID        uuid.UUID
+		leaseState     string
+		leaseCurrency  string
+		reservedMicros int64
+	)
+	err := tx.QueryRow(ctx, `
+		SELECT buyer_id,state,COALESCE(pricing_decision->>'currency',''),reserved_buyer_micros
+		  FROM service_leases WHERE id=$1 FOR UPDATE`, leaseID).
+		Scan(&buyerID, &leaseState, &leaseCurrency, &reservedMicros)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, false, nil
+	}
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	if leaseState != "COMPLETED" && leaseState != "CANCELLED" {
+		return uuid.Nil, false, nil
+	}
+	if buyerID == uuid.Nil || reservedMicros <= 0 || leaseCurrency != currency {
+		return uuid.Nil, false, nil
+	}
+
+	// Lock all candidate top-up rows before checking their remaining collection
+	// capacity. A competing job or service payout therefore cannot observe the
+	// same unreserved card cash and oversubscribe it.
+	rows, err := tx.Query(ctx, `
+		SELECT payment_intent,received_cents,COALESCE(charge_id,'')
+		  FROM buyer_cash_collections
+		 WHERE buyer_id=$1 AND source_kind='topup' AND currency=$2
+		   AND requested_cents=received_cents
+		 ORDER BY recorded_at,payment_intent
+		 FOR UPDATE`, buyerID, currency)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	type candidate struct {
+		paymentIntent string
+		receivedCents int64
+		chargeID      string
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.paymentIntent, &c.receivedCents, &c.chargeID); err != nil {
+			rows.Close()
+			return uuid.Nil, false, err
+		}
+		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return uuid.Nil, false, err
+	}
+	rows.Close()
+
+	for _, c := range candidates {
+		if c.receivedCents <= 0 || strings.TrimSpace(c.paymentIntent) == "" || strings.TrimSpace(c.chargeID) == "" {
+			continue
+		}
+		unavailable, err := stripeCollectionUnavailableCents(ctx, tx, c.paymentIntent, c.receivedCents)
+		if err != nil {
+			return uuid.Nil, false, err
+		}
+		available := c.receivedCents - unavailable
+		if available < 0 {
+			return uuid.Nil, false, fmt.Errorf("stripe cash state for %s exceeds collected top-up cash", c.paymentIntent)
+		}
+		var reserved int64
+		if err := tx.QueryRow(ctx, `
+			SELECT COALESCE(sum(amount_cents),0)::bigint
+			  FROM supplier_payout_funding
+			 WHERE source_kind='buyer_collection' AND collection_payment_intent=$1`, c.paymentIntent).Scan(&reserved); err != nil {
+			return uuid.Nil, false, err
+		}
+		if reserved < 0 || reserved > available || requestedCents > available-reserved {
+			continue
+		}
+		var fundingID uuid.UUID
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO supplier_payout_funding
+			 (ledger_entry_id,source_kind,liability_job_id,liability_service_lease_id,
+			  collection_payment_intent,amount_cents,currency)
+			VALUES ($1,'buyer_collection',NULL,$2,$3,$4,$5)
+			RETURNING id`, entryID, leaseID, c.paymentIntent, requestedCents, currency).Scan(&fundingID); err != nil {
+			return uuid.Nil, false, err
+		}
+		return fundingID, true, nil
+	}
+	return uuid.Nil, false, nil
+}
+
 func (s *Store) DuePayouts(ctx context.Context, limit int) ([]DueHeldEntry, error) {
 	manualGate, err := canaryManualPayoutGate()
 	if err != nil {
@@ -664,15 +786,16 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 		verdict         string
 		taskID          *uuid.UUID
 		liabilityMicros int64
+		payoutRef       string
 	)
 	err = tx.QueryRow(ctx, `
 		SELECT le.id,le.supplier_id,le.amount_usd::float8,
 		       (le.amount_usd*1000000)::bigint,le.payout_status,
-		       le.release_at,COALESCE(t.verification_outcome,''),le.task_id
+		       le.release_at,COALESCE(t.verification_outcome,''),le.task_id,COALESCE(le.payout_ref,'')
 		  FROM ledger_entries le LEFT JOIN tasks t ON t.id=le.task_id
 		 WHERE le.id=$1 AND le.kind='supplier_credit'
 		 FOR UPDATE OF le`, entryID).
-		Scan(&out.ID, &out.SupplierID, &out.AmountUSD, &liabilityMicros, &status, &releaseAt, &verdict, &taskID)
+		Scan(&out.ID, &out.SupplierID, &out.AmountUSD, &liabilityMicros, &status, &releaseAt, &verdict, &taskID, &payoutRef)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, false, errNotFound
 	}
@@ -731,8 +854,23 @@ func (s *Store) ClaimPayout(ctx context.Context, entryID uuid.UUID) (DueHeldEntr
 		return out, false, err
 	}
 	out.AmountUSD = microsToUSD(cashMicros)
-	fundingID, funded, err := reservePayoutFunding(
-		ctx, tx, entryID, taskID, out.RequestedCents, out.Currency)
+	var serviceLeaseID uuid.UUID
+	var serviceLeaseArgs []uuid.UUID
+	if taskID == nil {
+		if parsed, ok := serviceLeaseIDFromSupplierCreditRef(payoutRef); ok {
+			serviceLeaseID = parsed
+			serviceLeaseArgs = []uuid.UUID{serviceLeaseID}
+		}
+	}
+	var fundingID uuid.UUID
+	var funded bool
+	if len(serviceLeaseArgs) == 1 {
+		fundingID, funded, err = reservePayoutFunding(
+			ctx, tx, entryID, taskID, out.RequestedCents, out.Currency, serviceLeaseArgs[0])
+	} else {
+		fundingID, funded, err = reservePayoutFunding(
+			ctx, tx, entryID, taskID, out.RequestedCents, out.Currency)
+	}
 	if err != nil {
 		return out, false, err
 	}
