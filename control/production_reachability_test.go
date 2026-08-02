@@ -269,6 +269,13 @@ var productionReachability = []reachabilityClaim{
 			"inspected through tests or direct database access.",
 	},
 	{
+		From:   "Server.handleAdminSelectorPromotion",
+		Target: "Store.EvaluateCellPromotion",
+		Consequence: "the narrow promotion gate would remain test-only, leaving operators with no " +
+			"receipt-preserving production path to compare a directed challenger against the " +
+			"routed incumbent before a separately audited activation-policy write.",
+	},
+	{
 		From:   "Server.createJob",
 		Target: "Store.SubmitJobTx",
 		Consequence: "job submission stops persisting anything. Included as a control: if " +

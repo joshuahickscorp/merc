@@ -165,6 +165,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /admin/drift", s.authAdmin(http.HandlerFunc(s.handleAdminDrift)))
 	mux.Handle("GET /admin/plan-accuracy", s.authAdmin(http.HandlerFunc(s.handleAdminPlanAccuracy)))
 	mux.Handle("GET /admin/runtime/selector/regret", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorRegret)))
+	mux.Handle("GET /admin/runtime/selector/promotion", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorPromotion)))
 	mux.Handle("GET /admin/quotes", s.authAdmin(http.HandlerFunc(s.handleAdminQuoteDrift)))
 	mux.Handle("GET /admin/scheduler/explain", s.authAdmin(http.HandlerFunc(s.handleAdminSchedulerExplain)))
 	mux.Handle("GET /admin/market/liquidity/realtime", s.authAdmin(http.HandlerFunc(s.handleAdminRealtimeMarketLiquidity)))

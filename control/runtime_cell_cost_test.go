@@ -26,6 +26,23 @@ func TestAdminSelectorRegretRequiresCompleteScope(t *testing.T) {
 	}
 }
 
+func TestAdminSelectorPromotionRequiresCompleteScope(t *testing.T) {
+	server := &Server{}
+	req := httptest.NewRequest(http.MethodGet,
+		"/admin/runtime/selector/promotion?job_type=embed&model_ref=model-a&incumbent_cell=old",
+		nil)
+	rec := httptest.NewRecorder()
+	server.handleAdminSelectorPromotion(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	for _, field := range []string{"model_revision", "verification_contract", "runtime_id", "cell_id"} {
+		if !strings.Contains(rec.Body.String(), field) {
+			t.Fatalf("error body does not name missing scope field %q: %s", field, rec.Body.String())
+		}
+	}
+}
+
 // The cost arithmetic, without a database.
 //
 // These are the cases where getting it wrong promotes the wrong cell, so they are

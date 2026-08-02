@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Measured per-cell execution cost, and the regret of the cell admission chose.
@@ -423,6 +424,72 @@ func (s *Server) handleAdminSelectorRegret(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{
 		"regret":         regret,
 		"measured_costs": costs,
+	})
+}
+
+// handleAdminSelectorPromotion evaluates, but never applies, the narrow cell
+// promotion gate. Requiring every scope dimension in the query keeps an
+// operator from turning a partial regret report into a fleet-wide promotion;
+// the response is a refusal-preserving evidence receipt whose digest can be
+// carried into the separate activation-policy write after review.
+func (s *Server) handleAdminSelectorPromotion(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	value := func(name string) string { return strings.TrimSpace(query.Get(name)) }
+	scope := CellPromotionScope{
+		JobType:       value("job_type"),
+		ModelRef:      value("model_ref"),
+		ModelRevision: value("model_revision"),
+		QualityTier:   value("quality_tier"),
+		Verification:  value("verification_contract"),
+		HWClass:       value("hw_class"),
+		LatencyClass:  value("latency_class"),
+		RuntimeID:     value("runtime_id"),
+		CellID:        value("cell_id"),
+	}
+	incumbent := value("incumbent_cell")
+	missing := make([]string, 0, 10)
+	for name, field := range map[string]string{
+		"job_type":              scope.JobType,
+		"model_ref":             scope.ModelRef,
+		"model_revision":        scope.ModelRevision,
+		"quality_tier":          scope.QualityTier,
+		"verification_contract": scope.Verification,
+		"hw_class":              scope.HWClass,
+		"latency_class":         scope.LatencyClass,
+		"runtime_id":            scope.RuntimeID,
+		"cell_id":               scope.CellID,
+		"incumbent_cell":        incumbent,
+	} {
+		if field == "" {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		writeErr(w, http.StatusBadRequest, "missing selector promotion scope: "+strings.Join(missing, ", "))
+		return
+	}
+	evidence, err := s.store.EvaluateCellPromotion(r.Context(), scope, incumbent, time.Now().UTC())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "selector promotion evaluation unavailable")
+		return
+	}
+	digest, err := evidence.Digest()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "selector promotion receipt unavailable")
+		return
+	}
+	receiptRef, err := evidence.ReceiptRef()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "selector promotion receipt unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"passed":                evidence.Passed(),
+		"evidence":              evidence,
+		"evidence_sha256":       digest,
+		"promotion_receipt_ref": receiptRef,
+		"activation_applied":    false,
 	})
 }
 

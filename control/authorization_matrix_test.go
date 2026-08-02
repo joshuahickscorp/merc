@@ -86,7 +86,10 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// 70 after the measured RuntimeSelector regret report entered the operator
 	// surface. It is read-only, but still carries the same admin boundary as the
 	// rest of the operator evidence routes.
-	if checked != 70 {
-		t.Fatalf("checked %d protected routes, want 70", checked)
+	// 71 after the scope-pinned RuntimeSelector promotion gate entered the same
+	// operator evidence surface. It evaluates only; activation remains a
+	// separate audited policy write.
+	if checked != 71 {
+		t.Fatalf("checked %d protected routes, want 71", checked)
 	}
 }
