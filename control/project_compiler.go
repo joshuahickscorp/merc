@@ -65,6 +65,9 @@ type ProjectIRStep struct {
 	// not a free-form command: all executable assets are project-local and
 	// digest-bound before a supplier can receive them.
 	Rendering *ProjectIRRendering `json:"rendering,omitempty"`
+	// LoRA is required for lora_training. It freezes the dataset and outcome
+	// contract without accepting any buyer-supplied settlement authority.
+	LoRA *ProjectIRLoRA `json:"lora,omitempty"`
 }
 
 // ProjectIRArtifactPin fixes a rendering input to a project-local artifact and
@@ -102,6 +105,30 @@ type ProjectIRRendering struct {
 	Seed     *int64 `json:"seed"`
 	Mode     string `json:"mode"`
 	Assembly string `json:"assembly"`
+}
+
+// ProjectIRLoRA binds the inputs an outcome-aware training contract needs
+// before an agent is allowed to see buyer data. The held-out set is pinned but
+// deliberately absent from training inputs: it is reserved for a separately
+// governed evaluator, not merely hidden by convention.
+type ProjectIRLoRA struct {
+	TrainingSet         ProjectIRArtifactPin `json:"training_set"`
+	HeldOutSet          ProjectIRArtifactPin `json:"held_out_set"`
+	DatasetSchema       ProjectIRArtifactPin `json:"dataset_schema"`
+	DatasetRights       string               `json:"dataset_rights"`
+	BaselineModelSHA256 string               `json:"baseline_model_sha256"`
+	Rank                int                  `json:"rank"`
+	Alpha               int                  `json:"alpha"`
+	Epochs              int                  `json:"epochs"`
+	Seed                *int64               `json:"seed"`
+	TargetModules       []string             `json:"target_modules"`
+	EvaluationMetric    string               `json:"evaluation_metric"`
+	MetricDirection     string               `json:"metric_direction"`
+	RequiredImprovement float64              `json:"required_improvement"`
+	EvaluatorSeparation string               `json:"evaluator_separation"`
+	AdapterOutput       string               `json:"adapter_output"`
+	Deployment          string               `json:"deployment"`
+	Revocation          string               `json:"revocation"`
 }
 
 type ProjectIRArtifact struct {
@@ -360,7 +387,7 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) (ProjectWor
 	}
 	if declared {
 		applyProjectDeclaration(&ir, declaration)
-		if err := validateProjectRenderingArtifactBindings(ir); err != nil {
+		if err := validateProjectDeclaredArtifactBindings(ir); err != nil {
 			return ProjectWorkloadIR{}, err
 		}
 		resolveDeclaredProjectContracts(&ir)
@@ -404,24 +431,33 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) (ProjectWor
 	return ir, nil
 }
 
-// validateProjectRenderingArtifactBindings makes every render pin point at the
-// exact byte inventory the compiler just inspected. Declarations are buyer
-// input, so accepting a digest written in merc.project.json without comparing
-// it to the actual project would let a worker receive a different plugin or
-// font than the one the graph and later receipt claim.
-func validateProjectRenderingArtifactBindings(ir ProjectWorkloadIR) error {
+// validateProjectDeclaredArtifactBindings makes every render or LoRA pin point
+// at the exact byte inventory the compiler just inspected. Declarations are
+// buyer input, so accepting a digest written in merc.project.json without
+// comparing it to the actual project would let a worker receive different
+// executable or dataset bytes than the graph and later receipt claim.
+func validateProjectDeclaredArtifactBindings(ir ProjectWorkloadIR) error {
 	artifacts := make(map[string]string, len(ir.Artifacts))
 	for _, artifact := range ir.Artifacts {
 		artifacts["project://"+artifact.Path] = artifact.SHA256
 	}
 	for _, step := range ir.Steps {
-		if step.Kind != "media_rendering" {
+		var pins []ProjectIRArtifactPin
+		switch step.Kind {
+		case "media_rendering":
+			if step.Rendering == nil {
+				return fmt.Errorf("declared rendering step %s has no rendering contract", step.ID)
+			}
+			pins = projectRenderPins(*step.Rendering)
+		case "lora_training":
+			if step.LoRA == nil {
+				return fmt.Errorf("declared LoRA step %s has no outcome contract", step.ID)
+			}
+			pins = projectLoRAPins(*step.LoRA)
+		default:
 			continue
 		}
-		if step.Rendering == nil {
-			return fmt.Errorf("declared rendering step %s has no rendering contract", step.ID)
-		}
-		for _, pin := range projectRenderPins(*step.Rendering) {
+		for _, pin := range pins {
 			actual, exists := artifacts[pin.Artifact]
 			if !exists {
 				return fmt.Errorf("rendering step %s pins absent project artifact %q", step.ID, pin.Artifact)

@@ -324,3 +324,85 @@ func TestProjectRenderingDeclarationBindsEveryExecutableAsset(t *testing.T) {
 		}
 	})
 }
+
+func loraProjectDeclarationFixture() ProjectDeclaration {
+	seed := int64(42)
+	return ProjectDeclaration{
+		Version: 1,
+		Steps: []ProjectIRStep{{
+			ID: "train", Kind: "lora_training",
+			Inputs:          []string{"project://train.jsonl", "project://schema.json"},
+			Outputs:         []string{"project://adapter.safetensors"},
+			RuntimeContract: strings.Repeat("1", 64), ModelContract: strings.Repeat("2", 64),
+			ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"},
+			Parallelism:      "SINGLE_DEVICE", CheckpointPolicy: "REQUIRED", Verification: "independent_held_out_eval",
+			LoRA: &ProjectIRLoRA{
+				TrainingSet:         ProjectIRArtifactPin{Artifact: "project://train.jsonl", SHA256: strings.Repeat("3", 64)},
+				HeldOutSet:          ProjectIRArtifactPin{Artifact: "project://held-out.jsonl", SHA256: strings.Repeat("4", 64)},
+				DatasetSchema:       ProjectIRArtifactPin{Artifact: "project://schema.json", SHA256: strings.Repeat("5", 64)},
+				DatasetRights:       "buyer-attests-commercial-training-rights-v1",
+				BaselineModelSHA256: strings.Repeat("6", 64),
+				Rank:                16, Alpha: 32, Epochs: 3, Seed: &seed, TargetModules: []string{"q_proj", "v_proj"},
+				EvaluationMetric: "held_out_exact_match", MetricDirection: "HIGHER_IS_BETTER", RequiredImprovement: 0.02,
+				EvaluatorSeparation: "DIFFERENT_SUPPLIER_ACCOUNT", AdapterOutput: "project://adapter.safetensors",
+				Deployment: "GOVERNED_ONLY", Revocation: "IMMEDIATE_ON_AUTHORIZATION_LOSS",
+			},
+		}},
+		Privacy:   ProjectIRPrivacy{Egress: "DENY", DataLocation: "CA"},
+		Quality:   ProjectIRQuality{Requirement: "held-out-improvement-v1", Verification: "independent"},
+		Result:    ProjectIRResult{Contract: "adapter-artifact-v1", Retention: "30d", Delivery: "object-store"},
+		Economics: ProjectIREconomics{Currency: "cad", MaximumBuyerPriceNanos: 50_000_000, SupplierFloor: "UNRESOLVED_REFUSE", MercContribution: "UNRESOLVED_REFUSE"},
+	}
+}
+
+func writeLoRAFixtureAssets(t *testing.T, root string, declaration *ProjectDeclaration) {
+	t.Helper()
+	pins := map[string]*ProjectIRArtifactPin{
+		"train.jsonl":    &declaration.Steps[0].LoRA.TrainingSet,
+		"held-out.jsonl": &declaration.Steps[0].LoRA.HeldOutSet,
+		"schema.json":    &declaration.Steps[0].LoRA.DatasetSchema,
+	}
+	for path, pin := range pins {
+		contents := "LoRA fixture artifact: " + path
+		writeProjectFixture(t, root, path, contents)
+		digest := sha256.Sum256([]byte(contents))
+		pin.SHA256 = hex.EncodeToString(digest[:])
+	}
+}
+
+func TestProjectLoRAOutcomeContractKeepsEvaluationSeparate(t *testing.T) {
+	t.Run("held-out data is never a training input", func(t *testing.T) {
+		declaration := loraProjectDeclarationFixture()
+		declaration.Steps[0].Inputs = append(declaration.Steps[0].Inputs, "project://held-out.jsonl")
+		if err := validateProjectDeclaration(&declaration); err == nil || !strings.Contains(err.Error(), "held-out set") {
+			t.Fatalf("LoRA declaration leaked its held-out set: %v", err)
+		}
+	})
+
+	t.Run("independence cannot be weakened in the declaration", func(t *testing.T) {
+		declaration := loraProjectDeclarationFixture()
+		declaration.Steps[0].LoRA.EvaluatorSeparation = "SAME_SUPPLIER_ALLOWED"
+		if err := validateProjectDeclaration(&declaration); err == nil || !strings.Contains(err.Error(), "DIFFERENT_SUPPLIER_ACCOUNT") {
+			t.Fatalf("LoRA declaration weakened evaluator independence: %v", err)
+		}
+	})
+
+	t.Run("compiler carries pinned LoRA authority but refuses an absent runtime", func(t *testing.T) {
+		root := t.TempDir()
+		declaration := loraProjectDeclarationFixture()
+		writeLoRAFixtureAssets(t, root, &declaration)
+		writeDeclarationFixture(t, root, declaration)
+		writeProjectFixture(t, root, "training.py", "lora adapter training")
+		ir, err := compileProject(projectCompileOptions{Root: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ir.Steps) != 1 || ir.Steps[0].LoRA == nil ||
+			ir.Steps[0].LoRA.HeldOutSet.SHA256 != declaration.Steps[0].LoRA.HeldOutSet.SHA256 {
+			t.Fatalf("compiled IR lost LoRA authority: %+v", ir.Steps)
+		}
+		if !strings.Contains(strings.Join(ir.RefusalReasons, "\n"), "resolved to 0 routable cells") {
+			t.Fatalf("LoRA IR became executable without a governed cell: %+v", ir.RefusalReasons)
+		}
+	})
+}
