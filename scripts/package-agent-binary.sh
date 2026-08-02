@@ -25,6 +25,15 @@ trap 'rm -rf "$WORK"' EXIT
 STAGE="$WORK/$NAME"
 mkdir -p "$STAGE"
 install -m 0755 "$BIN_SRC" "$STAGE/merc-agent"
+if [[ "$OS" == "darwin" ]]; then
+  # Seatbelt profile is resolved as a sibling of the executable
+  # (agent/src/main.rs resolve_sandbox_profile). A stock install without this
+  # file runs buyer payload with no containment at all — ship it next to the
+  # binary so sibling resolution finds it with no env override.
+  SB_PROFILE="$ROOT/macapp/ComputeExchangeAgent/merc-agent.sb"
+  [[ -f "$SB_PROFILE" ]] || { echo "missing seatbelt profile: $SB_PROFILE" >&2; exit 1; }
+  install -m 0644 "$SB_PROFILE" "$STAGE/merc-agent.sb"
+fi
 if [[ "$OS" == "linux" ]]; then
   # The CUDA supplier process is `merc-agent vllm`, not the Apple-oriented
   # generic runner. Ship the exact profile it loads so a prebuilt install never
@@ -40,7 +49,8 @@ target ${OS}/${ARCH}
 
 Install with scripts/install.sh (preferred) or copy merc-agent onto PATH.
 
-macOS/arm64 runs the Metal supplier path. Linux/amd64 packages the pinned
+macOS/arm64 runs the Metal supplier path under the merc-agent.sb seatbelt
+profile shipped beside this binary. Linux/amd64 packages the pinned
 vLLM adapter and its exact runtime profile; activation requires a supported
 NVIDIA GPU, Docker-compatible container runtime, an enrolled worker token,
 and a TLS public endpoint. Installation alone never advertises supply.
