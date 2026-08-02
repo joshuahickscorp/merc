@@ -19,6 +19,7 @@ candle-nn = "=0.10.2"
 candle-transformers = "=0.10.2"
 clap = { version = "4.5", features = ["derive"] }
 hf-hub = { version = "0.5", default-features = false, features = ["ureq", "rustls-tls"] }
+hmac = "0.12"
 libc = "0.2"
 rand = "0.8"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "gzip", "stream"], default-features = false }
@@ -29,7 +30,7 @@ sha2 = "0.10"
 sysinfo = "0.31"
 thiserror = "1.0"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
-tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "signal", "sync", "fs", "process"] }
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "signal", "sync", "fs", "process", "net", "io-util"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
