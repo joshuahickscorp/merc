@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -203,5 +204,132 @@ func TestProjectCompileRenderUnitRouteExpandsDurableIROnly(t *testing.T) {
 	handler.ServeHTTP(badRec, bad)
 	if badRec.Code != http.StatusBadRequest || !strings.Contains(badRec.Body.String(), "outside") {
 		t.Fatalf("out-of-range render unit status=%d body=%s", badRec.Code, badRec.Body.String())
+	}
+}
+
+func TestProjectCompileRenderAssemblyRoutePersistsReplacementReceipt(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	ctx, store, pool := openPayoutTestStore(t)
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@render-assembly.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "render-assembly", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer(store, nil, nil, nil).Routes()
+	postCompile := func(headers map[string]string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/projects/compile", bytes.NewReader(renderProjectTarArchive(t)))
+		req.Header.Set("Authorization", "Bearer "+buyerKey)
+		req.Header.Set("Content-Type", "application/x-tar")
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	proposal := postCompile(nil)
+	if proposal.Code != http.StatusOK {
+		t.Fatalf("render proposal status=%d body=%s", proposal.Code, proposal.Body.String())
+	}
+	var proposalIR ProjectWorkloadIR
+	if err := json.Unmarshal(proposal.Body.Bytes(), &proposalIR); err != nil {
+		t.Fatal(err)
+	}
+	probe := postCompile(map[string]string{
+		"X-Merc-Bounded-Probe":      "true",
+		"X-Merc-Approved-IR-SHA256": proposalIR.IRSHA256,
+	})
+	if probe.Code != http.StatusOK {
+		t.Fatalf("render probe status=%d body=%s", probe.Code, probe.Body.String())
+	}
+	var probed ProjectWorkloadIR
+	if err := json.Unmarshal(probe.Body.Bytes(), &probed); err != nil {
+		t.Fatal(err)
+	}
+	compileID, err := uuid.Parse(probe.Header().Get("X-Merc-Project-Compile-Receipt"))
+	if err != nil {
+		t.Fatalf("probe omitted compile receipt id: %v", err)
+	}
+	var render *ProjectIRRendering
+	for i := range probed.Steps {
+		if probed.Steps[i].ID == "render" {
+			render = probed.Steps[i].Rendering
+			break
+		}
+	}
+	if render == nil || render.WorkPlan == nil || render.WorkPlan.UnitCount != 960 {
+		t.Fatalf("probed render plan = %+v", render)
+	}
+	units := make([]ProjectRenderAssemblyUnit, 0, int(render.WorkPlan.UnitCount)+1)
+	for ordinal := int64(0); ordinal < render.WorkPlan.UnitCount; ordinal++ {
+		if ordinal == 0 {
+			units = append(units, ProjectRenderAssemblyUnit{Ordinal: ordinal, Attempt: 0, Status: "FAILED", FailureCode: "WORKER_TIMEOUT"})
+		}
+		digest := sha256.Sum256([]byte(fmt.Sprintf("render-unit-%d", ordinal)))
+		units = append(units, ProjectRenderAssemblyUnit{
+			Ordinal: ordinal, Attempt: func() int {
+				if ordinal == 0 {
+					return 1
+				}
+				return 0
+			}(), Status: "SUCCEEDED", OutputSHA256: hex.EncodeToString(digest[:]),
+		})
+	}
+	manifest, err := json.Marshal(ProjectRenderAssemblyManifest{Units: units})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assemblyReq := httptest.NewRequest(http.MethodPost,
+		"/v1/projects/compile/"+compileID.String()+"/render/render/assembly", bytes.NewReader(manifest))
+	assemblyReq.Header.Set("Authorization", "Bearer "+buyerKey)
+	assemblyReq.Header.Set("Content-Type", "application/json")
+	assemblyRec := httptest.NewRecorder()
+	handler.ServeHTTP(assemblyRec, assemblyReq)
+	if assemblyRec.Code != http.StatusCreated {
+		t.Fatalf("assembly status=%d body=%s", assemblyRec.Code, assemblyRec.Body.String())
+	}
+	var receipt ProjectRenderAssemblyReceipt
+	if err := json.Unmarshal(assemblyRec.Body.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Version != renderAssemblyReceiptVersion || receipt.Status != "ASSEMBLY_MANIFEST_VERIFIED_NOT_EXECUTABLE" ||
+		receipt.CompileReceiptID != compileID.String() || receipt.UnitCount != 960 || receipt.SucceededUnits != 960 ||
+		receipt.FailedAttempts != 1 || receipt.ReplacedOrdinals != 1 || len(receipt.Units) != 961 ||
+		!strings.Contains(receipt.ExecutionRefusal, "non-executable") {
+		t.Fatalf("assembly receipt lost bounded replacement evidence: %+v", receipt)
+	}
+	getReq := httptest.NewRequest(http.MethodGet, "/v1/projects/render/assemblies/"+receipt.ID, nil)
+	getReq.Header.Set("Authorization", "Bearer "+buyerKey)
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("assembly receipt read status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+	var replay ProjectRenderAssemblyReceipt
+	if err := json.Unmarshal(getRec.Body.Bytes(), &replay); err != nil {
+		t.Fatal(err)
+	}
+	if replay.ManifestSHA256 != receipt.ManifestSHA256 || replay.FailedAttempts != 1 || replay.ReplacedOrdinals != 1 {
+		t.Fatalf("assembly receipt replay changed identity: got=%+v want=%+v", replay, receipt)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE project_render_assembly_receipts SET status='BROKEN' WHERE id=$1`, receipt.ID); err == nil {
+		t.Fatal("database allowed an immutable render assembly receipt to mutate")
+	}
+	missing := ProjectRenderAssemblyManifest{Units: units[2:]}
+	missingRaw, err := json.Marshal(missing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badReq := httptest.NewRequest(http.MethodPost,
+		"/v1/projects/compile/"+compileID.String()+"/render/render/assembly", bytes.NewReader(missingRaw))
+	badReq.Header.Set("Authorization", "Bearer "+buyerKey)
+	badReq.Header.Set("Content-Type", "application/json")
+	badRec := httptest.NewRecorder()
+	handler.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest || !strings.Contains(badRec.Body.String(), "missing ordinal 0") {
+		t.Fatalf("incomplete assembly status=%d body=%s", badRec.Code, badRec.Body.String())
 	}
 }

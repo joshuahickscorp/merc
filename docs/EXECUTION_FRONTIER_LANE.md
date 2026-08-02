@@ -72,7 +72,13 @@ The response is `DECOMPOSITION_ONLY_NOT_EXECUTABLE` and carries the unresolved
 asset-locality, runtime, worker, assembly, verification, and settlement refusal;
 it does not create a task, reserve capacity, or move money. A real render runtime
 and deterministic assembly/settlement path are still required before this lane
-can claim execution capability.
+can claim execution capability. The buyer-scoped `POST
+/v1/projects/compile/{id}/render/{step}/assembly` now records a complete
+ordinal manifest with explicit failed-attempt replacement, and
+`GET /v1/projects/render/assemblies/{id}` replays the immutable receipt. Its
+status is `ASSEMBLY_MANIFEST_VERIFIED_NOT_EXECUTABLE`: it verifies coverage and
+history only, with no worker assignment, asset transfer, pixel verification,
+or money authority.
 
 ## 2. Work elimination — LARGELY DONE
 

@@ -103,6 +103,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/projects/compile", s.authBuyer(http.HandlerFunc(s.handleProjectCompile)))
 	mux.Handle("GET /v1/projects/compile/{id}", s.authBuyer(http.HandlerFunc(s.handleProjectCompileReceipt)))
 	mux.Handle("GET /v1/projects/compile/{id}/render/{step}/units/{ordinal}", s.authBuyer(http.HandlerFunc(s.handleProjectCompileRenderUnit)))
+	mux.Handle("POST /v1/projects/compile/{id}/render/{step}/assembly", s.authBuyer(http.HandlerFunc(s.handleProjectCompileRenderAssembly)))
+	mux.Handle("GET /v1/projects/render/assemblies/{id}", s.authBuyer(http.HandlerFunc(s.handleProjectRenderAssemblyReceipt)))
 	mux.Handle("GET /v1/projects/{id}", s.authBuyer(http.HandlerFunc(s.handleGetProjectOrder)))
 	mux.Handle("GET /v1/jobs", s.authBuyer(http.HandlerFunc(s.handleListBuyerJobs)))
 	mux.Handle("GET /v1/jobs/{id}", s.authBuyer(http.HandlerFunc(s.handleGetJob)))

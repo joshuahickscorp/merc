@@ -246,6 +246,26 @@ var productionReachability = []reachabilityClaim{
 			"future runtime admission; the route must remain decomposition-only.",
 	},
 	{
+		From:   "Server.handleProjectCompileRenderAssembly",
+		Target: "Store.RecordProjectRenderAssemblyReceipt",
+		Consequence: "a buyer-supplied render manifest could receive a successful HTTP response without " +
+			"durably checking complete ordinal coverage, failed-attempt replacement, or the exact buyer-scoped " +
+			"compile receipt; the route must stop at a non-executable evidence receipt.",
+	},
+	{
+		From:   "Store.RecordProjectRenderAssemblyReceipt",
+		Target: "validateProjectRenderAssemblyManifest",
+		Consequence: "the durable render assembly row would accept missing, duplicate, or worker-failure " +
+			"ordinals, allowing a later assembler to mistake a partial manifest for a complete deterministic " +
+			"frame/tile/sample result.",
+	},
+	{
+		From:   "Server.handleProjectRenderAssemblyReceipt",
+		Target: "Store.GetProjectRenderAssemblyReceipt",
+		Consequence: "an assembly receipt would be written but no production buyer caller could replay its " +
+			"immutable replacement history and revalidate it against the stored render IR.",
+	},
+	{
 		From:   "Server.handleAdminNetworkMarketLiquidity",
 		Target: "Store.NetworkMarketLiquidity",
 		Consequence: "operators would have separate lane reports but no single bounded receipt " +
