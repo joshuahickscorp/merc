@@ -275,6 +275,26 @@ func seedResidencyTestWorker(t *testing.T, ctx context.Context, store *Store, po
 		supplierID, "residency-"+uuid.NewString()+"@example.test"); err != nil {
 		t.Fatal(err)
 	}
+	// This worker is deliberately claimable: fresh last_seen_at, authorized for
+	// both production models, thermally fine. That makes it visible to every
+	// other test in the package, because they share one database — and the batch
+	// claim predicate defers a task whenever some other eligible worker is
+	// online. Left behind, it silently changes what a placement test observes.
+	// Take it offline rather than delete it: capabilities, tps cache and warm
+	// rows all reference workers ON DELETE RESTRICT, so a DELETE here can only
+	// fail. Eligibility is last_seen_at within sixty seconds, so ageing the
+	// heartbeat is the same thing the fleet does when a worker stops, and it
+	// cannot fail on a foreign key.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := pool.Exec(cleanupCtx,
+			`UPDATE workers SET last_seen_at = now() - interval '1 hour' WHERE id=$1`,
+			workerID); err != nil {
+			t.Errorf("residency test worker not taken offline; it stays eligible for "+
+				"every later test in this package: %v", err)
+		}
+	})
 	if _, err := store.CreateWorkerToken(ctx, workerID, supplierID); err != nil {
 		t.Fatal(err)
 	}
