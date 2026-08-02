@@ -81,7 +81,7 @@ func dispatchProject(command string, args []string) bool {
 		return false
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|quote|submit|materialize|quote-step|submit-step|calibration-check}")
+		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|quote|submit|quote-roots|submit-roots|materialize|quote-step|submit-step|calibration-check}")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -110,6 +110,10 @@ func dispatchProject(command string, args []string) bool {
 		os.Exit(runProjectQuote(args[1:]))
 	case "submit":
 		os.Exit(runProjectSubmit(args[1:]))
+	case "quote-roots":
+		os.Exit(runProjectQuoteRoots(args[1:]))
+	case "submit-roots":
+		os.Exit(runProjectSubmitRoots(args[1:]))
 	case "materialize":
 		os.Exit(runProjectMaterialize(args[1:]))
 	case "quote-step":
@@ -121,6 +125,70 @@ func dispatchProject(command string, args []string) bool {
 		os.Exit(2)
 	}
 	return true
+}
+
+func runProjectQuoteRoots(args []string) int {
+	fs := flag.NewFlagSet("project quote-roots", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	root := fs.String("root", "", "project directory containing initial root inputs")
+	irPath := fs.String("ir", "", "buyer-approved probed Project IR artifact")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *root == "" || *irPath == "" {
+		fmt.Fprintln(os.Stderr, "project quote-roots: --root and --ir are required")
+		return 2
+	}
+	var ir ProjectWorkloadIR
+	if err := readProjectArtifact(*irPath, &ir); err != nil {
+		fmt.Fprintf(os.Stderr, "project quote-roots: invalid IR artifact: %v\n", err)
+		return 1
+	}
+	quote, err := quoteInitialProjectRoots(newClient(), *root, ir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "project quote-roots: %v\n", err)
+		return 1
+	}
+	if err := writeProjectInitialQuote(os.Stdout, quote); err != nil {
+		fmt.Fprintf(os.Stderr, "project quote-roots: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runProjectSubmitRoots(args []string) int {
+	fs := flag.NewFlagSet("project submit-roots", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	root := fs.String("root", "", "project directory containing initial root inputs")
+	irPath := fs.String("ir", "", "buyer-approved probed Project IR artifact")
+	quotePath := fs.String("quote", "", "reviewed initial root quote artifact")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *root == "" || *irPath == "" || *quotePath == "" {
+		fmt.Fprintln(os.Stderr, "project submit-roots: --root, --ir and --quote are required")
+		return 2
+	}
+	var ir ProjectWorkloadIR
+	if err := readProjectArtifact(*irPath, &ir); err != nil {
+		fmt.Fprintf(os.Stderr, "project submit-roots: invalid IR artifact: %v\n", err)
+		return 1
+	}
+	var quote ProjectInitialQuote
+	if err := readProjectArtifact(*quotePath, &quote); err != nil {
+		fmt.Fprintf(os.Stderr, "project submit-roots: invalid initial root quote artifact: %v\n", err)
+		return 1
+	}
+	result, err := submitInitialProjectRoots(newClient(), *root, ir, quote, time.Now())
+	if writeErr := writeProjectSubmission(os.Stdout, result); writeErr != nil {
+		fmt.Fprintf(os.Stderr, "project submit-roots: %v\n", writeErr)
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "project submit-roots: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func runProjectQuoteStep(args []string) int {
@@ -201,6 +269,12 @@ func runProjectSubmitStep(args []string) int {
 }
 
 func writeProjectDependentQuote(w io.Writer, quote ProjectDependentQuote) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(quote)
+}
+
+func writeProjectInitialQuote(w io.Writer, quote ProjectInitialQuote) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(quote)

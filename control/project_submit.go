@@ -13,8 +13,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 const projectQuoteArtifactMaxBytes = 32 << 20
@@ -183,16 +181,9 @@ func submitCompiledProject(c *client, root string, ir ProjectWorkloadIR, artifac
 	if err != nil {
 		return result, err
 	}
-	order, err := createProjectOrder(c, projectOrderCreateRequest{
-		IRSHA256: ir.IRSHA256, Currency: artifact.Currency, BuyerCeilingNanos: artifact.BuyerCeilingNanos,
-	})
+	order, err := createBoundProjectOrder(c, ir, artifact.Currency, artifact.BuyerCeilingNanos)
 	if err != nil {
-		return result, fmt.Errorf("create project order: %w", err)
-	}
-	if _, err := uuid.Parse(order.ID); err != nil || order.IRSHA256 != ir.IRSHA256 ||
-		order.Currency != artifact.Currency || order.BuyerCeilingNanos != artifact.BuyerCeilingNanos ||
-		order.Status != "OPEN" || order.RemainingNanos != order.BuyerCeilingNanos {
-		return result, errors.New("project order response does not bind the approved project ceiling")
+		return result, err
 	}
 	result.ProjectID = order.ID
 	result.Status = "SUBMITTING"

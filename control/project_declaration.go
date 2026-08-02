@@ -180,12 +180,14 @@ func validateProjectDAG(steps []ProjectIRStep) error {
 // cosmetic ordering edge, and an input produced by an undeclared step can race
 // its producer. Neither is a schedulable project graph.
 //
-// This validates the IR only; it does not claim that dependency execution is
-// supported yet. The project submitter still refuses dependent steps until it
-// can persist output artifacts and wake downstream work atomically.
+// This validates the IR only. The project executor submits dependency-free
+// roots first; each downstream step is eligible only after its declared inputs
+// are materialized from receipt-bound upstream jobs and re-quoted.
 func validateProjectArtifactDataflow(steps []ProjectIRStep) error {
 	producer := make(map[string]string)
+	byID := make(map[string]ProjectIRStep, len(steps))
 	for _, step := range steps {
+		byID[step.ID] = step
 		for _, output := range step.Outputs {
 			if !validProjectArtifactRef(output) || output == "project://input" ||
 				output == "project://"+projectDeclarationName {
@@ -209,6 +211,10 @@ func validateProjectArtifactDataflow(steps []ProjectIRStep) error {
 				return fmt.Errorf("step %s has invalid input artifact %q", step.ID, input)
 			}
 			if producedBy, exists := producer[input]; exists {
+				producerStep := byID[producedBy]
+				if producerStep.Kind == "embeddings" && (step.Kind == "embeddings" || step.Kind == "batch_inference") {
+					return fmt.Errorf("step %s consumes embedding-vector artifact %q from %s as text input; no governed adapter exists", step.ID, input, producedBy)
+				}
 				if producedBy == step.ID {
 					return fmt.Errorf("step %s reads its own output artifact %q", step.ID, input)
 				}
