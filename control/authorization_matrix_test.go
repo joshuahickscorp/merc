@@ -106,7 +106,9 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// boundary; it expands IR only and remains explicitly non-executable.
 	// 93 after the composed operator network-liquidity receipt entered the
 	// reviewed operator surface; it combines retained lane evidence only.
-	if checked != 93 {
-		t.Fatalf("checked %d protected routes, want 93", checked)
+	// 94 after worker-scoped immutable topology evaluation replay entered the
+	// fabric evidence surface; it cannot promote local placement.
+	if checked != 94 {
+		t.Fatalf("checked %d protected routes, want 94", checked)
 	}
 }

@@ -170,6 +170,7 @@
         "GET /v1/worker/connect/status",
         "GET /v1/worker/earnings",
         "GET /v1/worker/fabric/sessions/{id}/observations",
+		"GET /v1/worker/fabric/topologies/{id}",
         "GET /v1/worker/poll",
         "GET /v1/worker/service-leases/active",
         "GET /v1/worker/verification",
