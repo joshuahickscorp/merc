@@ -73,10 +73,11 @@ if missing or stale:
 # the composed operator network-liquidity receipt, and 114 for the authenticated
 # worker-scoped fabric topology replay, and 116 for the buyer-scoped render
 # assembly manifest and receipt read, and 118 for the worker-authenticated LoRA
-# evaluation report and buyer-scoped receipt read.
+# evaluation report and buyer-scoped receipt read, and 119 for the operator
+# dispute-resolution exit (unresolvable operator queue).
 # The count is pinned so a NEW route cannot be added without a reviewer deciding
 # what every role may do with it.
-if len(reviewed) != 118:
-    fail(f"expected reviewed 118-route surface, found {len(reviewed)}")
+if len(reviewed) != 119:
+    fail(f"expected reviewed 119-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")

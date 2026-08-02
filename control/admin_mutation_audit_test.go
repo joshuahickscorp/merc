@@ -31,6 +31,7 @@ func TestEveryPrivilegedAdminMutationRequiresReason(t *testing.T) {
 		{Kind: adminActionTaskRequeued, TargetKind: adminTargetTask, TargetID: target, CorrelationRef: "INC-1"},
 		{Kind: adminActionReputationChanged, TargetKind: adminTargetSupplier, TargetID: target, Delta: &delta, CorrelationRef: "INC-1"},
 		{Kind: adminActionPayoutReleased, TargetKind: adminTargetLedgerEntry, TargetID: target, CorrelationRef: "INC-1"},
+		{Kind: adminActionDisputeResolved, TargetKind: adminTargetDispute, TargetID: target, CorrelationRef: "INC-1", Resolution: "rejected"},
 	} {
 		if _, err := adminMutationRequestSHA256(intent); !errors.Is(err, errAdminMutationInvalid) {
 			t.Fatalf("action %q accepted an empty reason: %v", intent.Kind, err)

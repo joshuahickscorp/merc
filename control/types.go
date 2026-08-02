@@ -227,16 +227,50 @@ type TaskLease struct {
 	Attempt int16     `json:"attempt"`
 }
 
+// EarningsHoldReason is one bucket of supplier money that is earned but not
+// yet cash-out. Reasons are exclusive per credit (priority order in
+// WorkerEarnings): dispute_freeze > verification > manual_gate > hold_window
+// > awaiting_funding > in_flight.
+type EarningsHoldReason struct {
+	// Reason is a greppable token the supplier (and support) can match to policy.
+	Reason string `json:"reason"`
+	// AmountUSD is the sum of supplier_credit rows in this bucket.
+	AmountUSD float64 `json:"amount_usd"`
+	// EntryCount is how many ledger credits contribute to AmountUSD.
+	EntryCount int `json:"entry_count"`
+	// EarliestReleaseAt is the earliest wall-clock moment any credit in this
+	// bucket could become eligible under its non-manual gates (unix seconds).
+	// Nil when the gate is not time-based (dispute, verification, manual).
+	EarliestReleaseAt *int64 `json:"earliest_release_at,omitempty"`
+	// Detail is a plain-language statement of why the money is held.
+	Detail string `json:"detail"`
+}
+
 type Earnings struct {
 	// Currency governs every major-unit field below. The historical USD field
 	// names describe the ledger's scale, not a USD-only settlement authority.
-	Currency      string   `json:"currency"`
-	BalanceUSD    float64  `json:"balance_usd"`
-	LifetimeUSD   float64  `json:"lifetime_usd"`
-	CarriedUSD    float64  `json:"carried_usd"` // exact sub-cent remainder still owed, never reported as cash
-	LastPayoutUSD *float64 `json:"last_payout_usd,omitempty"`
-	LastPayoutAt  *int64   `json:"last_payout_at,omitempty"` // unix seconds
-	NextPayoutAt  *int64   `json:"next_payout_at,omitempty"` // unix seconds
+	Currency    string  `json:"currency"`
+	BalanceUSD  float64 `json:"balance_usd"`
+	LifetimeUSD float64 `json:"lifetime_usd"`
+	CarriedUSD  float64 `json:"carried_usd"` // exact sub-cent remainder still owed, never reported as cash
+	// HeldUSD is the sum of supplier credits that are not yet cash (held, ready,
+	// awaiting_funding, sending, outcome_unknown). Reconcile as approximately
+	// lifetime − balance − carried when every credit is still positive.
+	HeldUSD float64 `json:"held_usd"`
+	// HeldByReason breaks HeldUSD into exclusive why-buckets so a supplier does
+	// not have to reverse-engineer the 24h hold vs a dispute freeze vs canary.
+	HeldByReason []EarningsHoldReason `json:"held_by_reason"`
+	// ManualPayoutGate is true when canary policy requires an operator to POST
+	// /admin/payouts/{ledger_entry_id}/release before any held credit can leave.
+	// NextPayoutAt in that mode is eligibility only, not a promise of cash.
+	ManualPayoutGate     bool     `json:"manual_payout_gate"`
+	ManualPayoutGateNote string   `json:"manual_payout_gate_note,omitempty"`
+	LastPayoutUSD        *float64 `json:"last_payout_usd,omitempty"`
+	LastPayoutAt         *int64   `json:"last_payout_at,omitempty"` // unix seconds
+	// NextPayoutAt is the earliest release_at among held credits that are not
+	// dispute-frozen and have a durable verification pass. Under a manual gate
+	// this is eligibility only; cash still needs the operator release.
+	NextPayoutAt *int64 `json:"next_payout_at,omitempty"` // unix seconds
 }
 
 type SupplierVerification struct {

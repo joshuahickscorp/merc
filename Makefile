@@ -100,12 +100,14 @@ ci:
 	  exit $$status
 	@bash scripts/assert-no-test-skips.sh "$(CI_TEST_JSON)"
 	@bash scripts/test-release-image-boots.sh
+	@bash scripts/test-release-image-contents.sh
 	cd agent && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
 	python3 -m json.tool proto/manifest.schema.json >/dev/null
 	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
 	python3 -m json.tool ops/live-payment-activation.schema.json >/dev/null
 	python3 scripts/runpod-spend-guard.py --self-test
 	python3 scripts/validate-authorization-matrix.py
+	python3 scripts/validate-sdk-routes.py
 	python3 scripts/validate-independent-reviews.py
 	python3 scripts/validate-governance.py
 	python3 scripts/validate-readiness.py
