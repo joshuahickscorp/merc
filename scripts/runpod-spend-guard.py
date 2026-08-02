@@ -12,6 +12,11 @@
 
     runpod-spend-guard.py --self-test
 
+    # Re-check every retained receipt under evidence/runpod/ against today's rules.
+    # A receipt written before a rule existed is not grandfathered: it fails the
+    # build with the rule and path named, and the artifact is left untouched.
+    runpod-spend-guard.py revalidate
+
 The arithmetic lives here rather than in the shell for one reason: it is the part
 that decides how long real money is allowed to burn, and shell cannot be unit
 tested without spending it. `--self-test` runs the cases offline.
@@ -64,22 +69,26 @@ def spend_usd(cost_per_hr: float, seconds: float) -> float:
     return math.ceil(cost_per_hr * seconds / 3600 * 100) / 100
 
 
-def build_receipt(args) -> dict:
-    seconds = args.stopped_at - args.started_at
-    if seconds < 0:
-        raise ValueError(
-            f"stopped_at {args.stopped_at} precedes started_at {args.started_at}"
-        )
-    allowed = budget_seconds(args.cost_per_hr, args.cap_usd)
-    spent = spend_usd(args.cost_per_hr, seconds)
-
+def receipt_rule_refusals(
+    *,
+    image: str,
+    cost_per_hr: float,
+    cap_usd: float,
+    seconds: float,
+    spent: float,
+    teardown_verified: bool,
+    ready: bool,
+    orphans,
+) -> list:
+    """Today's refusal rules. Shared by fresh receipts and re-validation of stored ones."""
     refusals = []
-    if not args.teardown_verified:
+    allowed = budget_seconds(cost_per_hr, cap_usd)
+    if not teardown_verified:
         refusals.append(
             "teardown was not verified, so the pod may still be billing; a receipt "
             "cannot report a final cost for a pod that might still be running"
         )
-    if not args.ready:
+    if not ready:
         refusals.append(
             "vLLM never reached a verified ready state, so this is a failed "
             "startup receipt rather than usable CUDA-runtime evidence"
@@ -90,17 +99,38 @@ def build_receipt(args) -> dict:
             "did not hold, which is the only thing standing between a hung run and "
             "the whole balance"
         )
-    if spent > args.cap_usd:
-        refusals.append(f"spend ${spent:.2f} exceeded the cap ${args.cap_usd:.2f}")
-    if "@sha256:" not in args.image:
+    if spent > cap_usd:
+        refusals.append(f"spend ${spent:.2f} exceeded the cap ${cap_usd:.2f}")
+    if "@sha256:" not in image:
         refusals.append(
             "image is not an immutable OCI digest, so the runtime this receipt "
             "describes cannot be identified again"
         )
-    if args.orphans:
+    if orphans:
         refusals.append(
-            f"pods left running that this experiment did not create: {args.orphans}"
+            f"pods left running that this experiment did not create: {orphans}"
         )
+    return refusals
+
+
+def build_receipt(args) -> dict:
+    seconds = args.stopped_at - args.started_at
+    if seconds < 0:
+        raise ValueError(
+            f"stopped_at {args.stopped_at} precedes started_at {args.started_at}"
+        )
+    allowed = budget_seconds(args.cost_per_hr, args.cap_usd)
+    spent = spend_usd(args.cost_per_hr, seconds)
+    refusals = receipt_rule_refusals(
+        image=args.image,
+        cost_per_hr=args.cost_per_hr,
+        cap_usd=args.cap_usd,
+        seconds=seconds,
+        spent=spent,
+        teardown_verified=bool(args.teardown_verified),
+        ready=bool(args.ready),
+        orphans=args.orphans,
+    )
 
     return {
         "schema_version": 1,
@@ -129,6 +159,71 @@ def build_receipt(args) -> dict:
             "Storage and network egress are not included.",
         ],
     }
+
+
+def revalidate_stored_receipt(path: str, receipt: dict) -> list:
+    """Re-apply today's rules to a retained receipt. Does not rewrite the file."""
+    if receipt.get("kind") != "runpod_spend_receipt":
+        return [f"not a runpod_spend_receipt (kind={receipt.get('kind')!r})"]
+    try:
+        cost = float(receipt["cost_per_hr_usd"])
+        cap = float(receipt["cap_usd"])
+        seconds = float(receipt["lifetime_actual_secs"])
+        spent = spend_usd(cost, seconds)
+    except (KeyError, TypeError, ValueError) as exc:
+        return [f"receipt fields unreadable under today's rules: {exc}"]
+    return receipt_rule_refusals(
+        image=str(receipt.get("image") or ""),
+        cost_per_hr=cost,
+        cap_usd=cap,
+        seconds=seconds,
+        spent=spent,
+        teardown_verified=bool(receipt.get("teardown_verified")),
+        ready=bool(receipt.get("ready")),
+        orphans=list(receipt.get("orphan_pods") or []),
+    )
+
+
+def revalidate_retained_receipts() -> int:
+    """Walk evidence/runpod/ and fail any retained receipt that fails today's rules."""
+    root = os.path.join(ROOT, "evidence", "runpod")
+    if not os.path.isdir(root):
+        print("runpod-spend-guard revalidate: no evidence/runpod/ directory", file=sys.stderr)
+        return 0
+    paths = sorted(
+        os.path.join(root, name)
+        for name in os.listdir(root)
+        if name.endswith(".json") and name.startswith("spend-")
+    )
+    if not paths:
+        print("runpod-spend-guard revalidate: no spend-*.json receipts retained")
+        return 0
+    failed = 0
+    for path in paths:
+        rel = os.path.relpath(path, ROOT)
+        try:
+            with open(path, encoding="utf-8") as handle:
+                receipt = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"FAIL {rel}: cannot read receipt: {exc}", file=sys.stderr)
+            failed += 1
+            continue
+        refusals = revalidate_stored_receipt(path, receipt)
+        if refusals:
+            failed += 1
+            for reason in refusals:
+                # Name the rule and the receipt; leave the artifact untouched.
+                print(f"FAIL {rel}: {reason}", file=sys.stderr)
+        else:
+            print(f"PASS {rel}")
+    if failed:
+        print(
+            f"runpod-spend-guard revalidate: {failed}/{len(paths)} receipt(s) fail today's rules",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"runpod-spend-guard revalidate: {len(paths)} receipt(s) PASS")
+    return 0
 
 
 def self_test() -> int:
@@ -233,6 +328,11 @@ def main() -> int:
     r.add_argument("--orphans", default="")
     r.add_argument("--out", default="")
 
+    sub.add_parser(
+        "revalidate",
+        help="re-check every retained evidence/runpod/spend-*.json under today's rules",
+    )
+
     args = parser.parse_args()
     if args.self_test:
         return self_test()
@@ -256,6 +356,8 @@ def main() -> int:
         for refusal in receipt["refusals"]:
             print(f"REFUSED: {refusal}", file=sys.stderr)
         return 0 if receipt["admissible"] else 1
+    if args.command == "revalidate":
+        return revalidate_retained_receipts()
     parser.print_help()
     return 2
 
