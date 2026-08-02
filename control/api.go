@@ -901,6 +901,8 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 
 	splitSize, splitErr := selectSubmissionSplitSize(qBind, func() int {
 		if isBinaryMediaJob(sub) {
+			// One segment (or render unit) per task. N-way decomposition lives
+			// in InputRecords / streamMediaAndUpload, not in a JSONL split.
 			return 1
 		}
 		unboundSplit := splitSizeOf(sub.Params)
@@ -961,9 +963,16 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	var sum256 [32]byte
 	var serr error
 	if isMediaTranscodeJob(sub) {
+		segmentCount, segErr := mediaSegmentCountFromParams(sub.Params)
+		if segErr != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, segErr.Error()}
+		}
+		if err := refuseSegmentedMediaCrossSupplierRedundancy(segmentCount, sub.Verification.RedundancyFrac); err != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, err.Error()}
+		}
 		tasks, totalBytes, totalRecords, exactInputBytes, measuredDepth, sum256, serr =
 			s.streamMediaAndUpload(ctx, jobID, sub.JobType.InputFormat, mediaInputBytes,
-				inputKey, canonicalWriter)
+				inputKey, canonicalWriter, segmentCount)
 	} else if isMediaRenderingJob(sub) {
 		tasks, totalBytes, totalRecords, exactInputBytes, measuredDepth, sum256, serr =
 			s.streamRenderingAndUpload(ctx, jobID, sub.JobType.RenderWidth, sub.JobType.RenderHeight,
@@ -1147,8 +1156,22 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 
 	nRedundancy := fracCount(nPrimary, sub.Verification.RedundancyFrac)
-	if isBinaryMediaJob(sub) && nRedundancy == 0 {
+	// Single-artifact media still defaults to full redundancy so two
+	// independent suppliers can byte-compare under one pinned engine class.
+	// Multi-segment media refuses that path: independent segment encodes are
+	// only reproducible under one build, so cross-supplier redundancy would
+	// settle a lane that cannot be independently verified.
+	mediaSegments := 1
+	if isMediaTranscodeJob(sub) {
+		if n, err := mediaSegmentCountFromParams(sub.Params); err == nil {
+			mediaSegments = n
+		}
+	}
+	if isBinaryMediaJob(sub) && nRedundancy == 0 && mediaSegments <= 1 {
 		nRedundancy = nPrimary
+	}
+	if isMediaTranscodeJob(sub) && mediaSegments > 1 {
+		nRedundancy = 0
 	}
 	redundancyPeers := append([]taskRow(nil), tasks[:nPrimary]...)
 	sort.Slice(redundancyPeers, func(i, j int) bool {
@@ -1848,7 +1871,7 @@ func mergeJobResultsWithProbe(
 			outputRecords, err = mergeEmbedBinaryToFile(ctx, storage, tmp, info.Results, first, firstMark)
 		} else if info.JobType == "media_transcode" {
 			contentType = "video/mp4"
-			outputRecords, err = mergeMediaToFile(ctx, tmp, info.Results, first, firstMark)
+			outputRecords, err = mergeMediaToFile(ctx, storage, tmp, info.Results, first, firstMark)
 		} else if info.JobType == "media_rendering" {
 			contentType = "image/x-portable-pixmap"
 			outputRecords, err = mergeRenderingToFile(ctx, tmp, info.Results, first, firstMark)
@@ -1894,22 +1917,32 @@ func mergeJobResultsWithProbe(
 	return int(outputBytes), nil
 }
 
-func mergeMediaToFile(ctx context.Context, out io.Writer, results []PrimaryResult, first []byte, firstMark int64) (int64, error) {
-	if len(results) != 1 {
-		return 0, fmt.Errorf("merge: media_transcode expects exactly one primary artifact, got %d", len(results))
+func mergeMediaToFile(ctx context.Context, storage *Storage, out io.Writer, results []PrimaryResult, first []byte, firstMark int64) (int64, error) {
+	if len(results) == 0 {
+		return 0, errors.New("merge: media_transcode has no primary artifacts")
+	}
+	if err := validateMediaMergeCoverage(int64(len(results)), results); err != nil {
+		return 0, fmt.Errorf("merge: media ordinal coverage refused: %w", err)
 	}
 	if err := validateMediaTranscodeResult(first, resultRecordContract{Exact: 1, Max: 1}); err != nil {
 		return 0, fmt.Errorf("merge: media artifact is invalid: %w", err)
 	}
-	n, err := out.Write(first)
-	if err == nil && n != len(first) {
-		err = io.ErrShortWrite
+	if len(results) == 1 {
+		n, err := out.Write(first)
+		if err == nil && n != len(first) {
+			err = io.ErrShortWrite
+		}
+		releaseVerificationMemoryToMark(ctx, firstMark)
+		if err != nil {
+			return 0, fmt.Errorf("merge: write media artifact: %w", err)
+		}
+		return 1, nil
 	}
+	// N ordered segment containers reassemble via the concat demuxer. Byte
+	// identity with a single continuous encode is not claimed; see the segment
+	// determinism report. Coverage and per-segment validation are the gate.
 	releaseVerificationMemoryToMark(ctx, firstMark)
-	if err != nil {
-		return 0, fmt.Errorf("merge: write media artifact: %w", err)
-	}
-	return 1, nil
+	return mergeMediaSegmentsToFile(ctx, storage, out, results, first)
 }
 
 func mergeRenderingToFile(ctx context.Context, out io.Writer, results []PrimaryResult, first []byte, firstMark int64) (int64, error) {
@@ -2911,6 +2944,23 @@ func (s *Server) handleWorkerPoll(w http.ResponseWriter, r *http.Request) {
 			jt = parsed
 		}
 	}
+	manifestParams := json.RawMessage("null")
+	if c.JobType == "media_transcode" {
+		unitCount, uerr := s.store.JobPrimaryChunkCount(ctx, c.JobID)
+		if uerr != nil {
+			writeErr(w, http.StatusInternalServerError, "resolving media segment plan: "+uerr.Error())
+			return
+		}
+		if unitCount <= 0 {
+			unitCount = 1
+		}
+		raw, perr := mediaSegmentParamsForDispatch(unitCount, c.ChunkIndex)
+		if perr != nil {
+			writeErr(w, http.StatusInternalServerError, "building media segment dispatch: "+perr.Error())
+			return
+		}
+		manifestParams = raw
+	}
 	disp := TaskDispatch{
 		TaskID:           c.TaskID,
 		Attempt:          c.Attempt,
@@ -2923,6 +2973,7 @@ func (s *Server) handleWorkerPoll(w http.ResponseWriter, r *http.Request) {
 			JobType:      jt,
 			Model:        ModelRef{Kind: c.ModelKind, Ref: c.ModelRef},
 			Inputs:       []InputRef{}, // real inputs travel via the presigned input_url, not the manifest
+			Params:       manifestParams,
 			Constraints:  claimedTaskConstraints(c),
 			Verification: vp,
 			Tier:         c.Tier,
@@ -4265,10 +4316,10 @@ func newStreamingPut(ctx context.Context, storage *Storage, key, contentType str
 func (sp *streamingPut) wait() error { return <-sp.done }
 
 // streamMediaAndUpload is the binary counterpart to streamSplitAndUpload.
-// Media bytes are already bounded and validated before this function is called,
-// so the function's only job is to bind one immutable object, one task, one
-// digest and one depth profile. It deliberately does not split at arbitrary
-// byte offsets or feed a binary object through the JSONL parser.
+// Media bytes are already bounded and validated before this function is called.
+// It binds one immutable object and N ordered segment tasks whose ChunkIndex
+// values are the media segment ordinals. It deliberately does not split at
+// arbitrary byte offsets or feed a binary object through the JSONL parser.
 func (s *Server) streamMediaAndUpload(
 	ctx context.Context,
 	jobID uuid.UUID,
@@ -4276,6 +4327,7 @@ func (s *Server) streamMediaAndUpload(
 	input []byte,
 	jobInputKey string,
 	canonicalTee io.Writer,
+	segmentCount int,
 ) (tasks []taskRow, totalBytes, totalRecords, exactInputBytes int, depth InputDepthProfile, sum256 [32]byte, err error) {
 	if err := validateMediaInputBytes(input); err != nil {
 		return nil, 0, 0, 0, depth, sum256, err
@@ -4283,7 +4335,14 @@ func (s *Server) streamMediaAndUpload(
 	if strings.TrimSpace(jobInputKey) == "" {
 		return nil, 0, 0, 0, depth, sum256, errors.New("media input object key is empty")
 	}
-	scan, err := mediaInputScan(input)
+	if segmentCount <= 0 {
+		segmentCount = 1
+	}
+	plan, err := deriveMediaSegmentPlan(int64(segmentCount), 0)
+	if err != nil {
+		return nil, 0, 0, 0, depth, sum256, err
+	}
+	scan, err := mediaInputScan(input, segmentCount)
 	if err != nil {
 		return nil, 0, 0, 0, depth, sum256, err
 	}
@@ -4297,24 +4356,34 @@ func (s *Server) streamMediaAndUpload(
 		}
 	}
 	hash := sha256.Sum256(input)
-	taskID := uuid.New()
-	inputRef := jobInputKey
+	sharedInputRef := jobInputKey
 	if canonicalTee == nil {
 		// A buyer-supplied source key must never be deleted by failed-submit
-		// cleanup. Copy it to a job-owned task object and point the worker at the
-		// copy instead.
-		inputRef = fmt.Sprintf("jobs/%s/tasks/%s/input.%s", jobID, taskID, format)
-		if err := s.storage.PutObject(ctx, inputRef, input, mediaContentType(format)); err != nil {
+		// cleanup. Copy it to a job-owned object once and point every segment
+		// task at the copy; workers receive the full source plus their ordinal.
+		sharedTaskID := uuid.New()
+		sharedInputRef = fmt.Sprintf("jobs/%s/tasks/%s/input.%s", jobID, sharedTaskID, format)
+		if err := s.storage.PutObject(ctx, sharedInputRef, input, mediaContentType(format)); err != nil {
 			return nil, 0, 0, 0, depth, sum256, err
 		}
 	}
-	tasks = []taskRow{{
-		ID: taskID, JobID: jobID, InputRef: inputRef,
-		InputDepthBand: scan.InputDepth.P90DepthBand,
-		ResultKey:      taskAttemptResultKey(jobID, taskID, 0), ChunkIndex: 0,
-		ExpectedOutputRecords: 1,
-	}}
-	return tasks, len(input), 1, len(input), scan.InputDepth, hash, nil
+	tasks = make([]taskRow, 0, plan.UnitCount)
+	for ordinal := int64(0); ordinal < plan.UnitCount; ordinal++ {
+		if _, uerr := mediaSegmentUnitAt(plan, ordinal); uerr != nil {
+			return nil, 0, 0, 0, depth, sum256, uerr
+		}
+		taskID := uuid.New()
+		tasks = append(tasks, taskRow{
+			ID: taskID, JobID: jobID, InputRef: sharedInputRef,
+			InputDepthBand: scan.InputDepth.P90DepthBand,
+			ResultKey:      taskAttemptResultKey(jobID, taskID, 0),
+			ChunkIndex:     int(ordinal),
+			// One container artifact per segment ordinal. Job-level N is the
+			// number of primary tasks, not N artifacts packed into one body.
+			ExpectedOutputRecords: 1,
+		})
+	}
+	return tasks, len(input), segmentCount, len(input), scan.InputDepth, hash, nil
 }
 
 // streamRenderingAndUpload is the JSON-scene counterpart to the binary media
