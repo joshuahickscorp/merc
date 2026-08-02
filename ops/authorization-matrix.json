@@ -196,6 +196,7 @@
         "GET /admin/jobs",
         "GET /admin/payouts",
         "GET /admin/plan-accuracy",
+        "GET /admin/runtime/selector/regret",
         "GET /admin/quotes",
         "GET /admin/scheduler/explain",
         "GET /admin/workers",

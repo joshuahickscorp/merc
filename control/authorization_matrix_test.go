@@ -83,7 +83,10 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// buyer; this exhaustive check ensures its middleware cannot be bypassed.
 	// 69 after the project-order reservation API: both create and buyer-scoped
 	// read carry the same buyer credential boundary as the firm jobs they govern.
-	if checked != 69 {
-		t.Fatalf("checked %d protected routes, want 69", checked)
+	// 70 after the measured RuntimeSelector regret report entered the operator
+	// surface. It is read-only, but still carries the same admin boundary as the
+	// rest of the operator evidence routes.
+	if checked != 70 {
+		t.Fatalf("checked %d protected routes, want 70", checked)
 	}
 }

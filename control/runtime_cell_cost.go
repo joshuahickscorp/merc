@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
+	"strings"
 )
 
 // Measured per-cell execution cost, and the regret of the cell admission chose.
@@ -395,6 +397,33 @@ func (s *Store) SelectorRegretForScope(
 		}
 	}
 	return out, costs, nil
+}
+
+// handleAdminSelectorRegret exposes the same measured-outcome regret used by
+// the promotion gate. It is read-only and admin-scoped: a public caller must
+// not be able to turn a partially measured scope into a routing claim, and an
+// operator needs the explicit unmeasured count to know when the report is not
+// promotion evidence.
+func (s *Server) handleAdminSelectorRegret(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	scope := cellCostScope{
+		JobType:  strings.TrimSpace(query.Get("job_type")),
+		ModelRef: strings.TrimSpace(query.Get("model_ref")),
+		HWClass:  strings.TrimSpace(query.Get("hw_class")),
+	}
+	if scope.JobType == "" || scope.ModelRef == "" || scope.HWClass == "" {
+		writeErr(w, http.StatusBadRequest, "job_type, model_ref, and hw_class are required")
+		return
+	}
+	regret, costs, err := s.store.SelectorRegretForScope(r.Context(), scope)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "selector regret unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"regret":         regret,
+		"measured_costs": costs,
+	})
 }
 
 // scoreDecisionRegret returns the routed cell's regret against the cheapest
