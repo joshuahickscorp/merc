@@ -122,6 +122,7 @@
         "POST /v1/projects",
         "POST /v1/service-leases",
         "POST /v1/service-leases/{id}/cancel",
+        "POST /v1/service-leases/{id}/chat/completions",
         "POST /v1/supplier/enrollment-approvals",
         "POST /v1/supplier/enrollment-codes",
         "POST /v1/supplier/onboard",
