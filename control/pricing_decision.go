@@ -326,6 +326,107 @@ func (s *Store) LoadCataloguePriceAuthority(ctx context.Context, modelID string)
 	return a, nil
 }
 
+// LoadCataloguePriceAuthorityAtSchedule resolves a catalogue row that existed
+// under a specific schedule digest, not "today's price for this model".
+// Already-accepted jobs stay valid when a later reprice moves models.price_*.
+// Missing schedule digests fail closed: the caller must not treat silence as
+// acceptance.
+func (s *Store) LoadCataloguePriceAuthorityAtSchedule(
+	ctx context.Context,
+	scheduleSHA256 string,
+	scheduleVersion int,
+	modelID string,
+	jobType string,
+) (CataloguePriceAuthority, error) {
+	var a CataloguePriceAuthority
+	// price_source is market_board for every schedule-applied history row; do not
+	// read models.price_source, which may have been re-seeded since the schedule.
+	err := s.pool.QueryRow(ctx, `
+		SELECT s.version,m.id,COALESCE(m.job_type,''),'market_board',
+		       s.sha256,s.version,
+		       s.reference_currency,h.reference_price_per_1k::float8,
+		       s.settlement_currency,h.price_per_1k::float8,
+		       s.reference_to_settlement_rate,s.fx_revision,s.board_sha256,
+		       h.price_formula,COALESCE(s.schedule_json->>'supplier_share_policy_revision',''),
+		       CASE WHEN s.version=1 THEN s.supplier_share ELSE h.supplier_share END
+		  FROM catalogue_price_schedules s
+		  JOIN model_price_history h
+		    ON h.schedule_sha256=s.sha256 AND h.model_id=$2
+		  JOIN models m ON m.id=h.model_id
+		 WHERE s.sha256=$1
+		   AND s.version=$3
+		   AND m.id=$2
+		   AND COALESCE(m.job_type,'')=$4`,
+		scheduleSHA256, modelID, scheduleVersion, jobType,
+	).Scan(
+		&a.Version, &a.ModelID, &a.JobType, &a.PriceSource,
+		&a.ScheduleSHA256, &a.ScheduleVersion,
+		&a.ReferenceCurrency, &a.ReferencePricePer1K,
+		&a.SettlementCurrency, &a.SettlementPricePer1K,
+		&a.ReferenceToSettlementRate, &a.FXRevision, &a.BoardSHA256,
+		&a.PriceFormula, &a.SupplierSharePolicyRevision, &a.SupplierShare,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"catalogue schedule digest %s version %d is not resolvable for model %s job type %s",
+			scheduleSHA256, scheduleVersion, modelID, jobType,
+		)
+	}
+	if err != nil {
+		return CataloguePriceAuthority{}, err
+	}
+	if err := validateCataloguePriceAuthority(a); err != nil {
+		return CataloguePriceAuthority{}, fmt.Errorf(
+			"catalogue schedule digest %s resolved to invalid authority: %w",
+			scheduleSHA256, err,
+		)
+	}
+	return a, nil
+}
+
+// cataloguePriceAuthorityFieldMismatch refuses a stored catalogue that does not
+// equal the append-only authority, naming the disagreeing field.
+func cataloguePriceAuthorityFieldMismatch(stored, authority CataloguePriceAuthority) error {
+	floatDiffers := func(a, b float64) bool {
+		return math.Abs(a-b) > 0.0000000001
+	}
+	switch {
+	case stored.Version != authority.Version:
+		return errors.New("pricing decision catalogue Version does not match append-only authority")
+	case stored.ModelID != authority.ModelID:
+		return errors.New("pricing decision catalogue ModelID does not match append-only authority")
+	case stored.JobType != authority.JobType:
+		return errors.New("pricing decision catalogue JobType does not match append-only authority")
+	case stored.PriceSource != authority.PriceSource:
+		return errors.New("pricing decision catalogue PriceSource does not match append-only authority")
+	case stored.ScheduleSHA256 != authority.ScheduleSHA256:
+		return errors.New("pricing decision catalogue ScheduleSHA256 does not match append-only authority")
+	case stored.ScheduleVersion != authority.ScheduleVersion:
+		return errors.New("pricing decision catalogue ScheduleVersion does not match append-only authority")
+	case stored.ReferenceCurrency != authority.ReferenceCurrency:
+		return errors.New("pricing decision catalogue ReferenceCurrency does not match append-only authority")
+	case floatDiffers(stored.ReferencePricePer1K, authority.ReferencePricePer1K):
+		return errors.New("pricing decision catalogue ReferencePricePer1K does not match append-only authority")
+	case stored.SettlementCurrency != authority.SettlementCurrency:
+		return errors.New("pricing decision catalogue SettlementCurrency does not match append-only authority")
+	case floatDiffers(stored.SettlementPricePer1K, authority.SettlementPricePer1K):
+		return errors.New("pricing decision catalogue SettlementPricePer1K does not match append-only authority")
+	case floatDiffers(stored.ReferenceToSettlementRate, authority.ReferenceToSettlementRate):
+		return errors.New("pricing decision catalogue ReferenceToSettlementRate does not match append-only authority")
+	case stored.FXRevision != authority.FXRevision:
+		return errors.New("pricing decision catalogue FXRevision does not match append-only authority")
+	case stored.BoardSHA256 != authority.BoardSHA256:
+		return errors.New("pricing decision catalogue BoardSHA256 does not match append-only authority")
+	case stored.PriceFormula != authority.PriceFormula:
+		return errors.New("pricing decision catalogue PriceFormula does not match append-only authority")
+	case floatDiffers(stored.SupplierShare, authority.SupplierShare):
+		return errors.New("pricing decision catalogue SupplierShare does not match append-only authority")
+	case stored.SupplierSharePolicyRevision != authority.SupplierSharePolicyRevision:
+		return errors.New("pricing decision catalogue SupplierSharePolicyRevision does not match append-only authority")
+	}
+	return nil
+}
+
 // selectCataloguePriceAuthority makes the quote pinning rule executable: a
 // bound submission must not consult the mutable models pointer at all.
 func selectCataloguePriceAuthority(
@@ -1121,6 +1222,12 @@ func validatePricingCostShape(p PricingDecision) error {
 // record's own rate and compared it to the record's own placement, so a decision
 // whose rate and placement were altered together rebuilt to itself and passed at
 // any rate an attacker liked.
+//
+// Catalogue fields still come from decision.Catalogue here. That is also
+// self-certifying when the attacker rewrites pricing, placement and economic
+// plan together. Production paths that hold a store must use
+// ValidateDistributedPricingDecisionSnapshotWithStore, which re-resolves the
+// catalogue from append-only schedule tables first.
 func ValidateDistributedPricingDecisionSnapshot(
 	decision PricingDecision,
 	workload WorkloadDecision,
@@ -1154,6 +1261,46 @@ func ValidateDistributedPricingDecisionSnapshot(
 		return errors.New("pricing decision does not match its deterministic composite authority")
 	}
 	return nil
+}
+
+// ValidateDistributedPricingDecisionSnapshotWithStore is the production
+// validator for distributed pricing. It resolves the catalogue from append-only
+// schedule/history tables by the decision's schedule digest (not the mutable
+// models pointer), requires every catalogue field to match, then runs the pure
+// composite rebuild. Callers without a database must not silently fall back to
+// the pure check; they either use this with a store or report that catalogue
+// authority cannot be store-anchored.
+func ValidateDistributedPricingDecisionSnapshotWithStore(
+	ctx context.Context,
+	store *Store,
+	decision PricingDecision,
+	workload WorkloadDecision,
+	compute ComputePlan,
+	placement PlacementRequirement,
+	economic EconomicPlan,
+) error {
+	if store == nil {
+		return errors.New("catalogue-anchored pricing validation requires a store; pure snapshot check is not a silent substitute")
+	}
+	if ctx == nil {
+		return errors.New("catalogue-anchored pricing validation requires a context")
+	}
+	authority, err := store.LoadCataloguePriceAuthorityAtSchedule(
+		ctx,
+		decision.Catalogue.ScheduleSHA256,
+		decision.Catalogue.ScheduleVersion,
+		decision.Catalogue.ModelID,
+		decision.Catalogue.JobType,
+	)
+	if err != nil {
+		return err
+	}
+	if err := cataloguePriceAuthorityFieldMismatch(decision.Catalogue, authority); err != nil {
+		return err
+	}
+	return ValidateDistributedPricingDecisionSnapshot(
+		decision, workload, compute, placement, economic,
+	)
 }
 
 // rateIsGoverned admits a last-bit difference and nothing wider. The stored
