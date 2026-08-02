@@ -126,6 +126,32 @@ table{width:100%;border-collapse:collapse;font:12px/1.45 ui-monospace,monospace}
     </div>
 
     <div class="card">
+      <h2>Reserved service lease</h2>
+      <p class="muted">Reserve already-warm, measured service capacity only. This workspace cannot create a worker offer or report a latency measurement; the native agent must have registered a compatible live offer first.</p>
+      <form id="service-lease-form">
+        <div class="fields">
+          <label>Runtime profile ID <input id="service-runtime-profile" autocomplete="off" required placeholder="exact active profile ID"></label>
+          <label>Region <input id="service-region" autocomplete="off" required placeholder="ca-central-1"></label>
+          <label>Minimum warm replicas <input id="service-min-replicas" type="number" min="1" step="1" value="1" required></label>
+          <label>Maximum warm replicas <input id="service-max-replicas" type="number" min="1" step="1" value="1" required></label>
+          <label>Term, seconds <input id="service-term-seconds" type="number" min="1" step="1" value="60" required></label>
+          <label>Maximum p95 latency, ms <input id="service-p95-ms" type="number" min="1" step="1" value="500" required></label>
+        </div>
+        <label>Hard reservation ceiling, major currency units <input id="service-ceiling" inputmode="decimal" pattern="[0-9]+(\.[0-9]{1,9})?" value="0.135000000" required></label>
+        <button class="primary" type="submit">reserve compatible warm capacity</button>
+      </form>
+      <div class="actions"><label>Lease ID <input id="service-lease-id" autocomplete="off"></label><button id="service-receipt" type="button">load lease receipt</button></div>
+      <p id="service-status" class="status" aria-live="polite"></p><pre id="service-output">No service lease selected.</pre>
+    </div>
+
+    <div class="card">
+      <h2>Project order</h2>
+      <p class="muted">A Project IR is compiled and probed locally before its individual firm step quotes are submitted. This lookup shows the server-held CAD ceiling and accepted step reservations; it does not re-price or execute a project.</p>
+      <div class="actions"><label>Project order ID <input id="project-id" autocomplete="off"></label><button id="project-load" type="button">load project order</button></div>
+      <p id="project-status" class="status" aria-live="polite"></p><pre id="project-output">No project order selected.</pre>
+    </div>
+
+    <div class="card">
       <h2>Support, security and policies</h2>
       <div id="contacts" class="contact-list muted">Runtime contacts are not configured.</div>
       <p class="muted">Include a job or request ID, never a credential, payment method, presigned URL or private input. Refunds that move provider cash remain an audited operator action after a buyer dispute/request.</p>
@@ -137,6 +163,8 @@ let token='', quoteReceipt=null, publicConfig=null, stripe=null, cardElement=nul
 const byId=id=>document.getElementById(id);
 const status=(id,message,kind='')=>{const n=byId(id);n.className='status '+kind;n.textContent=message};
 const money=value=>{const code=(publicConfig?.settlement_currency||'').toUpperCase();return Number.isFinite(Number(value))?`${Number(value).toFixed(6)} ${code}`:'—'};
+const positiveInteger=(value,label)=>{if(!/^[1-9][0-9]*$/.test(String(value)))throw new Error(label+' must be a positive integer');const parsed=Number(value);if(!Number.isSafeInteger(parsed))throw new Error(label+' is outside the browser safe-integer range');return parsed};
+const majorToNanos=(value,label)=>{const match=/^([0-9]+)(?:\.([0-9]{1,9}))?$/.exec(String(value).trim());if(!match)throw new Error(label+' must be a non-negative decimal with at most 9 fractional digits');const nanos=BigInt(match[1])*1000000000n+BigInt((match[2]||'').padEnd(9,'0'));if(nanos<=0n||nanos>9000000000000000n)throw new Error(label+' must be positive and within the exact browser range');return Number(nanos)};
 
 async function api(path,options={}){
   const headers={accept:'application/json',...(options.headers||{})};
@@ -197,6 +225,11 @@ byId('dispute').addEventListener('click',async()=>{try{const id=byId('job-id').v
 
 byId('realtime-form').addEventListener('submit',async event=>{event.preventDefault();status('realtime-status','authorizing realtime request…');try{const out=await api('/v1/chat/completions',{method:'POST',headers:{'Idempotency-Key':'buyer-rt-'+crypto.randomUUID()},body:JSON.stringify({model:'llama-3.2-1b-instruct-q4',messages:[{role:'user',content:byId('realtime-prompt').value}],max_tokens:Number(byId('realtime-max-tokens').value),temperature:0})});byId('realtime-output').textContent=JSON.stringify(out,null,2);if(out.request_id||out.id)byId('realtime-id').value=out.request_id||out.id;status('realtime-status','realtime response complete','good')}catch(error){status('realtime-status',error.message,'error')}});
 byId('realtime-receipt').addEventListener('click',async()=>{try{const id=byId('realtime-id').value.trim();const out=await api('/v1/realtime/requests/'+encodeURIComponent(id)+'/receipt');byId('realtime-output').textContent=JSON.stringify(out,null,2);status('realtime-status','receipt loaded','good')}catch(error){status('realtime-status',error.message,'error')}});
+
+function serviceLeaseRequest(){const minimum=positiveInteger(byId('service-min-replicas').value,'minimum warm replicas'),maximum=positiveInteger(byId('service-max-replicas').value,'maximum warm replicas');if(maximum<minimum)throw new Error('maximum warm replicas must be at least the minimum');return{runtime_profile_id:byId('service-runtime-profile').value.trim(),region:byId('service-region').value.trim(),minimum_replicas:minimum,maximum_replicas:maximum,term_seconds:positiveInteger(byId('service-term-seconds').value,'term seconds'),maximum_p95_latency_milliseconds:positiveInteger(byId('service-p95-ms').value,'maximum p95 latency'),buyer_declared_ceiling_nanos:majorToNanos(byId('service-ceiling').value,'reservation ceiling')}}
+byId('service-lease-form').addEventListener('submit',async event=>{event.preventDefault();status('service-status','checking compatible warm capacity…');try{const out=await api('/v1/service-leases',{method:'POST',body:JSON.stringify(serviceLeaseRequest())});byId('service-lease-id').value=out.id;byId('service-output').textContent=JSON.stringify(out,null,2);status('service-status','lease reserved at its exact accepted ceiling','good')}catch(error){status('service-status',error.message,'error')}});
+byId('service-receipt').addEventListener('click',async()=>{try{const id=byId('service-lease-id').value.trim();if(!id)throw new Error('enter a service lease ID');const out=await api('/v1/service-leases/'+encodeURIComponent(id)+'/receipt');byId('service-output').textContent=JSON.stringify(out,null,2);status('service-status','lease receipt loaded','good')}catch(error){status('service-status',error.message,'error')}});
+byId('project-load').addEventListener('click',async()=>{try{const id=byId('project-id').value.trim();if(!id)throw new Error('enter a project order ID');const out=await api('/v1/projects/'+encodeURIComponent(id));byId('project-output').textContent=JSON.stringify(out,null,2);status('project-status','project reservation authority loaded','good')}catch(error){status('project-status',error.message,'error')}});
 
 loadPublicConfig().catch(error=>{byId('contacts').textContent='Public configuration unavailable: '+error.message;byId('contacts').className='contact-list warn'});
 window.addEventListener('pagehide',()=>{token='';quoteReceipt=null});

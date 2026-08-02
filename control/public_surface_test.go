@@ -26,7 +26,8 @@ func TestBuyerSurfaceCallsEveryRequiredBuyerCapability(t *testing.T) {
 		"/v1/billing/setup", "/v1/billing/status", "/v1/billing/topup",
 		"/v1/keys", "/v1/quote", "/v1/jobs", "/events", "/failures",
 		"/results", "/invoice", "/receipt", "/dispute",
-		"/v1/chat/completions", "/v1/realtime/requests/",
+		"/v1/chat/completions", "/v1/realtime/requests/", "/v1/projects/",
+		"/v1/service-leases", "/receipt", "majorToNanos",
 	} {
 		if !strings.Contains(page, required) {
 			t.Errorf("buyer surface does not call %s", required)
@@ -50,6 +51,7 @@ func TestSupplierSurfaceSeparatesOwnerAndWorkerAuthority(t *testing.T) {
 		"/v1/supplier/worker-tokens", "/v1/supplier/worker-credentials",
 		"/v1/supplier/credential-audit", "/v1/worker/earnings",
 		"/v1/worker/connect/status", "/v1/worker/viability", "/v1/worker/verification",
+		"/v1/worker/service-leases/active",
 		"headers.Authorization='Bearer '+ownerToken",
 		"headers['X-Worker-Token']=workerToken",
 		"c.credential_id",
