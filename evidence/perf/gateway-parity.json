@@ -1,10 +1,45 @@
 {
   "schema_version": 1,
   "kind": "gateway_parity",
+  "gate_version": "gateway-parity-gate-v1",
+  "measured_at": "2026-07-28T11:10:09Z",
+  "merc_source_commit": "445880863c878c4d6f503c42f5e6bfaea4fb52b3",
   "comparable": true,
   "gate_passed": true,
   "incomparable_reasons": [],
   "measurement_errors": [],
+  "refusals": [],
+  "budget": {
+    "ttft_overhead_p95_ms": 15.0,
+    "throughput_loss_fraction": 0.05,
+    "basis": "policy ceiling calibrated to the 2026-07-28 gateway-parity measurement on Metal/cx-chat-1b (+3.5 ms TTFT p50, +9.6 ms TTFT p95, \u22121.86% aggregate throughput at c=1), with modest headroom; not a derived SLA"
+  },
+  "scope": {
+    "model_ref": "cx-chat-1b",
+    "merc_model_artifact_sha256": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+    "direct_model_artifact_sha256": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1",
+    "precision": "GGUF-Q4_K_M",
+    "engine": "llama_cpp",
+    "engine_build": "",
+    "hw_class": "apple_silicon_ultra",
+    "max_tokens": 32,
+    "temperature": 0,
+    "stream": true,
+    "top_p": null,
+    "seed": null,
+    "prompt": "Write a short factual paragraph about the water cycle. Be specific and do not repeat yourself.",
+    "concurrency_levels": [
+      1,
+      8,
+      32
+    ],
+    "requests_per_level": 4,
+    "min_samples_required": 20
+  },
+  "features_disabled": [
+    "exact_reuse",
+    "request_coalescing"
+  ],
   "config": {
     "model": "cx-chat-1b",
     "max_tokens": 32,
@@ -436,10 +471,16 @@
     "itl_overhead_p50_ms": -0.023,
     "itl_overhead_p95_ms": -0.008,
     "wall_overhead_p50_s": 0.0031,
-    "wall_overhead_p95_s": 0.0087
+    "wall_overhead_p95_s": 0.0087,
+    "throughput_loss_fraction": 0.018631
   },
-  "comparability_warning": "Valid only when both sides used the SAME model, precision and max_tokens against the same engine. The harness refuses a comparison when probes disagree or labels are missing. Quoting one average across incomparable runs is not a measurement.",
-  "note": "Deltas are merc \u2212 direct. Positive TTFT/ITL/wall means merc added latency. Throughput delta is merc \u2212 direct (negative means the gateway reduced aggregate tokens/s).",
+  "comparability_warning": "Valid only when both sides used the SAME model artifact (sha256), precision and max_tokens against the same engine. The harness refuses a comparison when digests disagree, probes disagree or labels are missing. Quoting one average across incomparable runs is not a measurement.",
+  "note": "Deltas are merc \u2212 direct. Positive TTFT/ITL/wall means merc added latency. Throughput delta is merc \u2212 direct (negative means the gateway reduced aggregate tokens/s). Schema upgraded to receipt-grade provenance without re-running the live harness; sample counts remain as measured (n=4 at c=1). Future runs default to minCellCostSamples=20 with interleaved arms.",
+  "limitations": [
+    "Historical measurement used requests_per_level=4; future receipt-grade runs require minCellCostSamples=20. p95/p99 at n=4 collapse to the same observation under nearest-rank.",
+    "Arms were sequential (all direct, then all merc) at measurement time; the harness now interleaves per batch.",
+    "Model artifact digests were bound from ops/model-provenance.json / runtime-benchmark authority for the same GGUF (cx-chat-1b / Llama-3.2-1B-Instruct-Q4_K_M), not re-hashed from a live engine filesystem at measurement time."
+  ],
   "path_profile": {
     "source": "MERC_REALTIME_PATH_TIMING=1 structured logs during TestGatewayParityAgainstRealEngine",
     "engine": "llama-server Metal / cx-chat-1b GGUF-Q4 at http://127.0.0.1:8095/v1",

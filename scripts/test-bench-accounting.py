@@ -8,18 +8,32 @@ The tests below make that specific error fail loudly rather than ship.
     python3 scripts/test-bench-accounting.py
 
 No framework: this runs in CI next to the shell gates.
+
+Evidence files are required. A gate that passes when it ran nothing is worse
+than no gate. Opt out only with the greppable env var
+MERC_BENCH_ACCOUNTING_ALLOW_MISSING=1 for a lane that genuinely has no
+bench evidence (none of the current make ci paths set this).
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
 FAILURES: list[str] = []
 
+# Greppable opt-out for a CI lane that deliberately has no bench evidence.
+# Main `make ci` does not set this; both evidence files are tracked.
+ALLOW_MISSING_ENV = "MERC_BENCH_ACCOUNTING_ALLOW_MISSING"
+
 
 def check(cond: bool, msg: str) -> None:
     if not cond:
         FAILURES.append(msg)
+
+
+def allow_missing() -> bool:
+    return os.environ.get(ALLOW_MISSING_ENV, "") == "1"
 
 
 def physical_tokens(batch: int, prompt: int, output: int, shared: int) -> int:
@@ -72,7 +86,12 @@ def test_definitions() -> None:
 
 def test_recorded_runs(path: Path) -> None:
     if not path.exists():
-        print(f"note: {path} absent, skipping recorded-run checks")
+        if allow_missing():
+            print(f"note: {path} absent, {ALLOW_MISSING_ENV}=1 opt-out")
+            return
+        check(False,
+              f"evidence input absent: {path} "
+              f"(set {ALLOW_MISSING_ENV}=1 only for a lane with no bench evidence)")
         return
     rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
     check(bool(rows), f"{path} is empty")
@@ -117,7 +136,12 @@ def test_recorded_runs(path: Path) -> None:
 
 def test_frozen_benchmark(path: Path) -> None:
     if not path.exists():
-        print(f"note: {path} absent, skipping frozen-benchmark checks")
+        if allow_missing():
+            print(f"note: {path} absent, {ALLOW_MISSING_ENV}=1 opt-out")
+            return
+        check(False,
+              f"evidence input absent: {path} "
+              f"(set {ALLOW_MISSING_ENV}=1 only for a lane with no bench evidence)")
         return
     d = json.loads(path.read_text())
     m = d.get("measured_2026_07_27", {})
