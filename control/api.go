@@ -827,8 +827,6 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		limit := int64(maxMediaControlBytes)
 		if isMediaRenderingJob(sub) {
 			limit = maxRenderingControlBytes
-		} else if isVideoGenerationJob(sub) {
-			limit = maxVideoControlBytes
 		}
 		mediaInputBytes, err = readAndCloseBounded(inputReader, limit)
 		if err != nil {
@@ -841,14 +839,6 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		var inputErr error
 		if isMediaRenderingJob(sub) {
 			inputErr = validateRenderingInputBytes(mediaInputBytes, sub.JobType.RenderWidth, sub.JobType.RenderHeight)
-		} else if isVideoGenerationJob(sub) {
-			if inputErr = refuseVideoGenerationIfNotRoutable(sub); inputErr == nil {
-				var req videoGenerationRequest
-				req, inputErr = validateVideoGenerationInputBytes(mediaInputBytes)
-				if inputErr == nil {
-					inputErr = applyVideoGenerationPolicy(req.Prompt)
-				}
-			}
 		} else {
 			inputErr = validateMediaInputBytes(mediaInputBytes)
 		}
@@ -960,7 +950,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		contentType := "application/x-ndjson"
 		if isMediaTranscodeJob(sub) {
 			contentType = mediaContentType(sub.JobType.InputFormat)
-		} else if isMediaRenderingJob(sub) || isVideoGenerationJob(sub) {
+		} else if isMediaRenderingJob(sub) {
 			contentType = "application/json"
 		}
 		canonicalPut = newStreamingPut(ctx, s.storage, inputKey, contentType)
@@ -982,17 +972,6 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		}
 		tasks, totalBytes, totalRecords, exactInputBytes, measuredDepth, sum256, serr =
 			s.streamMediaAndUpload(ctx, jobID, sub.JobType.InputFormat, mediaInputBytes,
-				inputKey, canonicalWriter, segmentCount)
-	} else if isVideoGenerationJob(sub) {
-		segmentCount, segErr := mediaSegmentCountFromParams(sub.Params)
-		if segErr != nil {
-			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, segErr.Error()}
-		}
-		if err := refuseSegmentedMediaCrossSupplierRedundancy(segmentCount, sub.Verification.RedundancyFrac); err != nil {
-			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, err.Error()}
-		}
-		tasks, totalBytes, totalRecords, exactInputBytes, measuredDepth, sum256, serr =
-			s.streamVideoGenerationAndUpload(ctx, jobID, sub.JobType, mediaInputBytes,
 				inputKey, canonicalWriter, segmentCount)
 	} else if isMediaRenderingJob(sub) {
 		tasks, totalBytes, totalRecords, exactInputBytes, measuredDepth, sum256, serr =
@@ -1174,8 +1153,6 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		outputKey = fmt.Sprintf("jobs/%s/output.mp4", jobID)
 	} else if isMediaRenderingJob(sub) {
 		outputKey = fmt.Sprintf("jobs/%s/output.ppm", jobID)
-	} else if isVideoGenerationJob(sub) {
-		outputKey = fmt.Sprintf("jobs/%s/output.mercvideo", jobID)
 	}
 
 	nRedundancy := fracCount(nPrimary, sub.Verification.RedundancyFrac)
@@ -1185,7 +1162,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	// only reproducible under one build, so cross-supplier redundancy would
 	// settle a lane that cannot be independently verified.
 	mediaSegments := 1
-	if isSegmentedMediaJob(sub) {
+	if isMediaTranscodeJob(sub) {
 		if n, err := mediaSegmentCountFromParams(sub.Params); err == nil {
 			mediaSegments = n
 		}
@@ -1193,7 +1170,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	if isBinaryMediaJob(sub) && nRedundancy == 0 && mediaSegments <= 1 {
 		nRedundancy = nPrimary
 	}
-	if isSegmentedMediaJob(sub) && mediaSegments > 1 {
+	if isMediaTranscodeJob(sub) && mediaSegments > 1 {
 		nRedundancy = 0
 	}
 	redundancyPeers := append([]taskRow(nil), tasks[:nPrimary]...)
@@ -3002,7 +2979,7 @@ func (s *Server) handleWorkerPoll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	manifestParams := json.RawMessage("null")
-	if c.JobType == "media_transcode" || c.JobType == videoGenerationJobType {
+	if c.JobType == "media_transcode" {
 		unitCount, uerr := s.store.JobPrimaryChunkCount(ctx, c.JobID)
 		if uerr != nil {
 			writeErr(w, http.StatusInternalServerError, "resolving media segment plan: "+uerr.Error())
@@ -4437,78 +4414,6 @@ func (s *Server) streamMediaAndUpload(
 			ChunkIndex:     int(ordinal),
 			// One container artifact per segment ordinal. Job-level N is the
 			// number of primary tasks, not N artifacts packed into one body.
-			ExpectedOutputRecords: 1,
-		})
-	}
-	return tasks, len(input), segmentCount, len(input), scan.InputDepth, hash, nil
-}
-
-// streamVideoGenerationAndUpload binds one prompt document and N ordered
-// segment tasks. ChunkIndex is the time ordinal; extents cover the requested
-// duration and are validated to sum exactly to it before any task is created.
-func (s *Server) streamVideoGenerationAndUpload(
-	ctx context.Context,
-	jobID uuid.UUID,
-	jobType JobType,
-	input []byte,
-	jobInputKey string,
-	canonicalTee io.Writer,
-	segmentCount int,
-) (tasks []taskRow, totalBytes, totalRecords, exactInputBytes int, depth InputDepthProfile, sum256 [32]byte, err error) {
-	if _, err := validateVideoGenerationInputBytes(input); err != nil {
-		return nil, 0, 0, 0, depth, sum256, err
-	}
-	if strings.TrimSpace(jobInputKey) == "" {
-		return nil, 0, 0, 0, depth, sum256, errors.New("video_generation input object key is empty")
-	}
-	if segmentCount <= 0 {
-		segmentCount = 1
-	}
-	plan, err := deriveVideoSegmentPlan(int64(segmentCount), float64(jobType.DurationSecs))
-	if err != nil {
-		return nil, 0, 0, 0, depth, sum256, err
-	}
-	units := make([]MediaSegmentUnit, 0, plan.UnitCount)
-	for ordinal := int64(0); ordinal < plan.UnitCount; ordinal++ {
-		u, uerr := mediaSegmentUnitAt(plan, ordinal)
-		if uerr != nil {
-			return nil, 0, 0, 0, depth, sum256, uerr
-		}
-		units = append(units, u)
-	}
-	if err := validateVideoSegmentDurationSum(float64(jobType.DurationSecs), units); err != nil {
-		return nil, 0, 0, 0, depth, sum256, err
-	}
-	scan, err := videoInputScan(input, segmentCount)
-	if err != nil {
-		return nil, 0, 0, 0, depth, sum256, err
-	}
-	if canonicalTee != nil {
-		n, werr := canonicalTee.Write(input)
-		if werr != nil {
-			return nil, 0, 0, 0, depth, sum256, werr
-		}
-		if n != len(input) {
-			return nil, 0, 0, 0, depth, sum256, io.ErrShortWrite
-		}
-	}
-	hash := sha256.Sum256(input)
-	sharedInputRef := jobInputKey
-	if canonicalTee == nil {
-		sharedTaskID := uuid.New()
-		sharedInputRef = fmt.Sprintf("jobs/%s/tasks/%s/prompt.json", jobID, sharedTaskID)
-		if err := s.storage.PutObject(ctx, sharedInputRef, input, "application/json"); err != nil {
-			return nil, 0, 0, 0, depth, sum256, err
-		}
-	}
-	tasks = make([]taskRow, 0, plan.UnitCount)
-	for ordinal := int64(0); ordinal < plan.UnitCount; ordinal++ {
-		taskID := uuid.New()
-		tasks = append(tasks, taskRow{
-			ID: taskID, JobID: jobID, InputRef: sharedInputRef,
-			InputDepthBand:        scan.InputDepth.P90DepthBand,
-			ResultKey:             taskAttemptResultKey(jobID, taskID, 0),
-			ChunkIndex:            int(ordinal),
 			ExpectedOutputRecords: 1,
 		})
 	}
