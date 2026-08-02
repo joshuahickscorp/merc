@@ -81,6 +81,15 @@ design. Prepared request identity now has a bounded production cache; the benchm
 records the hit path separately from the measured canonicalisation baseline so this
 small optimisation cannot be mistaken for a tokenizer or pricing authority.
 
+Realtime demand now also leaves a receipt-bound market observation. The atomic
+offer reservation records candidate depth, selected rank, supplier ask in fixed
+point nanos, and the selected worker/supplier identities beside the immutable
+`PricingDecision`; `/v1/realtime/requests/{id}/receipt` returns the same
+`market_clearing` object. The order-book crossing is production-wired and
+tested through two live offers, including the database immutability refusal.
+This raises the realtime liquidity evidence, not the local-fabric claim: region
+authority, calibrated net costs, and a multi-site market remain absent.
+
 ## 3. Continuous batching — PARTIAL
 
 `agent/src/quantized_llama_batched.rs` has the primitives: padded-mask batched

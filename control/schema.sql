@@ -3442,6 +3442,10 @@ ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS reuse_result_commitment
 ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS reuse_delivered_tokens BIGINT;
 ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS pricing_decision JSONB;
 ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS pricing_decision_sha256 TEXT;
+-- The live offer-book match is retained beside, but never inside, the
+-- PricingDecision. Historical contracts may remain NULL; new realtime code
+-- writes the receipt atomically with the capacity reservation.
+ALTER TABLE execution_contracts ADD COLUMN IF NOT EXISTS market_clearing JSONB;
 
 ALTER TABLE execution_contracts DROP CONSTRAINT IF EXISTS execution_contracts_pricing_pair;
 ALTER TABLE execution_contracts ADD CONSTRAINT execution_contracts_pricing_pair CHECK (
@@ -3484,7 +3488,8 @@ BEGIN
        NEW.reuse_result_commitment IS DISTINCT FROM OLD.reuse_result_commitment OR
        NEW.reuse_delivered_tokens IS DISTINCT FROM OLD.reuse_delivered_tokens OR
        NEW.pricing_decision IS DISTINCT FROM OLD.pricing_decision OR
-       NEW.pricing_decision_sha256 IS DISTINCT FROM OLD.pricing_decision_sha256
+       NEW.pricing_decision_sha256 IS DISTINCT FROM OLD.pricing_decision_sha256 OR
+       NEW.market_clearing IS DISTINCT FROM OLD.market_clearing
      ) THEN
     RAISE EXCEPTION 'execution contract pricing authority is immutable';
   END IF;

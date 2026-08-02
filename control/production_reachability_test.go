@@ -120,6 +120,13 @@ var productionReachability = []reachabilityClaim{
 			"churn; no deployment decision may replace it with a dashboard guess.",
 	},
 	{
+		From:   "Store.AuthorizeRealtimeContract",
+		Target: "newRealtimeMarketClearingReceipt",
+		Consequence: "a realtime buyer order would still reserve one supplier sequence, but its " +
+			"contract and receipt would lose the candidate depth, selected rank, and fixed-point " +
+			"offer identity needed to prove that a live order book—not a hard-coded worker—cleared it.",
+	},
+	{
 		From:   "Server.handleAdminServiceLeaseMarketLiquidity",
 		Target: "Store.ServiceLeaseMarketLiquidity",
 		Consequence: "the warm-service offer and admission evidence would be retained but no operator " +
