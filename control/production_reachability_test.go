@@ -290,6 +290,13 @@ var productionReachability = []reachabilityClaim{
 			"before any separate activation-policy decision.",
 	},
 	{
+		From:   "Server.handleAdminSelectorRollback",
+		Target: "Store.RollbackActivationPolicy",
+		Consequence: "a selector promotion could be applied by policy but its production operator " +
+			"rollback authority would remain store-test-only, forcing an unsafe manual database edit " +
+			"or leaving a bad cell routable after a measured failure.",
+	},
+	{
 		From:   "Server.createJob",
 		Target: "Store.SubmitJobTx",
 		Consequence: "job submission stops persisting anything. Included as a control: if " +

@@ -214,6 +214,7 @@
         "GET /admin/plan-accuracy",
         "GET /admin/runtime/selector/regret",
         "GET /admin/runtime/selector/promotion",
+        "POST /admin/runtime/selector/rollback",
         "GET /admin/quotes",
         "GET /admin/scheduler/explain",
         "GET /admin/workers",
