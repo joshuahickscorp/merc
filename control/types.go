@@ -204,6 +204,15 @@ type TaskCommit struct {
 	InferenceBackend string `json:"inference_backend,omitempty"`
 }
 
+// ResidentModel is a worker-measured residency sample for one warm model.
+// rss_delta_bytes and load_ms are the numbers the agent recorded at load time;
+// the control plane range-checks both before they can reach an economic path.
+type ResidentModel struct {
+	ModelID       string `json:"model_id"`
+	RSSDeltaBytes int64  `json:"rss_delta_bytes"`
+	LoadMS        uint64 `json:"load_ms"`
+}
+
 type Heartbeat struct {
 	WorkerID           uuid.UUID   `json:"worker_id"`
 	Timestamp          uint64      `json:"timestamp"`
@@ -217,6 +226,14 @@ type Heartbeat struct {
 	ReservedHeadroomGB float32     `json:"reserved_headroom_gb"`
 	Throttled          bool        `json:"throttled"`
 	LoadedModels       []string    `json:"loaded_models,omitempty"` // model ids warm in the agent's pool (warm-routing re-rank)
+	// ResidentModels carries measured rss_delta_bytes and load_ms per warm
+	// model. Prefer this over LoadedModels when present: a bare model id is a
+	// declaration, these fields are a measurement.
+	ResidentModels []ResidentModel `json:"resident_models,omitempty"`
+	// EvictedModels are models the agent dropped since the previous heartbeat.
+	// Control deletes the matching worker_model_state row immediately so warmth
+	// consumers stop ranking the worker as warm within one heartbeat.
+	EvictedModels []string `json:"evicted_models,omitempty"`
 }
 
 // TaskLease identifies the exact execution epoch an agent is still running.

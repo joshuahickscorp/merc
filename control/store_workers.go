@@ -211,6 +211,8 @@ type WorkerResources struct {
 	ReservedHeadroomGB float32
 	Throttled          bool
 	LoadedModels       []string
+	ResidentModels     []ResidentModel
+	EvictedModels      []string
 	ActiveTasks        []TaskLease
 }
 
@@ -249,7 +251,43 @@ func (s *Store) HeartbeatTx(ctx context.Context, workerID uuid.UUID, r WorkerRes
 			return err // a failed sample is a real failure, not silently swallowed (BLACKHOLE)
 		}
 	}
-	if len(r.LoadedModels) > 0 {
+	// Evictions first: a model that was dropped and then re-loaded in the same
+	// window reappears below with a fresh measurement. DELETE mirrors the
+	// prefix-routing budget eviction shape — remove the row, do not soft-flag.
+	if len(r.EvictedModels) > 0 {
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM worker_model_state
+			  WHERE worker_id = $1 AND model_id = ANY($2::text[])`,
+			workerID, r.EvictedModels); err != nil {
+			return err
+		}
+	}
+	// Prefer measured resident_models. Legacy agents that only send loaded_models
+	// still refresh last_seen_warm so warm-routing keeps working; those rows
+	// remain unmeasured (NULL rss/load) and cannot authorize service-lease warmth.
+	if len(r.ResidentModels) > 0 {
+		for _, m := range r.ResidentModels {
+			rss, err := residencyRSSDeltaForStore(m.RSSDeltaBytes)
+			if err != nil {
+				return err
+			}
+			loadMS, err := residencyLoadMSForStore(m.LoadMS)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO worker_model_state
+				   (worker_id, model_id, last_seen_warm, rss_delta_bytes, load_ms)
+				 VALUES ($1, $2, now(), $3, $4)
+				 ON CONFLICT (worker_id, model_id)
+				 DO UPDATE SET last_seen_warm = now(),
+				               rss_delta_bytes = EXCLUDED.rss_delta_bytes,
+				               load_ms = EXCLUDED.load_ms`,
+				workerID, m.ModelID, rss, loadMS); err != nil {
+				return err
+			}
+		}
+	} else if len(r.LoadedModels) > 0 {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO worker_model_state (worker_id, model_id, last_seen_warm)
 			 SELECT $1, m, now() FROM unnest($2::text[]) AS m

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -39,6 +40,25 @@ func advertisedRuntimeModel(modelRef string) bool {
 		}
 	}
 	return false
+}
+
+// serviceLeaseProfileModel is true when modelRef is a governed vLLM profile's
+// model_alias. Service-lease offers join warm capacity to measured
+// worker_model_state rows keyed by that alias, so heartbeats may report it.
+func serviceLeaseProfileModel(modelRef string) bool {
+	if modelRef == "" {
+		return false
+	}
+	for _, profile := range vllmRuntimeProfiles {
+		if profile.ModelAlias == modelRef {
+			return true
+		}
+	}
+	return false
+}
+
+func measurableResidencyModel(modelRef string) bool {
+	return advertisedRuntimeModel(modelRef) || serviceLeaseProfileModel(modelRef)
 }
 
 func validateAdvertisedRuntimeJobModel(jobType, modelRef string) error {
@@ -233,6 +253,50 @@ func benchmarkLoadMSForStore(loadMS uint64) (int64, error) {
 	return int64(loadMS), nil
 }
 
+// Residency measurement bounds. load_ms reuses the benchmark ceiling (a load
+// that took more than a day is not an operational measurement). rss_delta_bytes
+// is capped at the same memory ceiling workers are allowed to declare so a
+// malformed heartbeat cannot plant a multi-exabyte residency figure that later
+// reaches a pricing path. Negative deltas are allowed (RSS noise around a small
+// model) but only within the same absolute bound — refuse, never clamp.
+const maxResidencyRSSDeltaBytes = int64(maxWorkerMemoryGB) * 1024 * 1024 * 1024
+
+func residencyLoadMSForStore(loadMS uint64) (int64, error) {
+	return benchmarkLoadMSForStore(loadMS)
+}
+
+func residencyRSSDeltaForStore(rssDeltaBytes int64) (int64, error) {
+	if rssDeltaBytes > maxResidencyRSSDeltaBytes || rssDeltaBytes < -maxResidencyRSSDeltaBytes {
+		return 0, fmt.Errorf(
+			"residency rss_delta_bytes=%d outside the operational range [-%d,%d]",
+			rssDeltaBytes, maxResidencyRSSDeltaBytes, maxResidencyRSSDeltaBytes,
+		)
+	}
+	return rssDeltaBytes, nil
+}
+
+func validateHeartbeatResidentModels(models []ResidentModel) error {
+	if len(models) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(models))
+	for i, m := range models {
+		if strings.TrimSpace(m.ModelID) == "" {
+			return fmt.Errorf("resident_models[%d] has an empty model_id", i)
+		}
+		if _, err := residencyLoadMSForStore(m.LoadMS); err != nil {
+			return fmt.Errorf("resident_models[%d] model %q: %w", i, m.ModelID, err)
+		}
+		if _, err := residencyRSSDeltaForStore(m.RSSDeltaBytes); err != nil {
+			return fmt.Errorf("resident_models[%d] model %q: %w", i, m.ModelID, err)
+		}
+		ids = append(ids, m.ModelID)
+	}
+	// Resident models may include service-lease profile aliases so measured
+	// warmth can authorize offer capacity under the same model_id key.
+	return validateHeartbeatModelIDs("resident_models", ids, true)
+}
+
 func validateWorkerCapabilityShape(cap WorkerCapability) error {
 	for _, field := range []struct {
 		name  string
@@ -301,12 +365,25 @@ func validateUniqueRuntimeStrings(field string, values []string) error {
 }
 
 func validateHeartbeatRuntimeModels(models []string) error {
-	if err := validateUniqueRuntimeStrings("loaded_models", models); err != nil {
+	return validateHeartbeatModelIDs("loaded_models", models, false)
+}
+
+// validateHeartbeatModelIDs checks uniqueness and authority for model id lists
+// on the heartbeat. When allowServiceAlias is true, governed vLLM profile
+// model_alias values are accepted in addition to the advertised production
+// projection — required so measured service-lease residency can land in
+// worker_model_state under the same key the offer join uses.
+func validateHeartbeatModelIDs(field string, models []string, allowServiceAlias bool) error {
+	if err := validateUniqueRuntimeStrings(field, models); err != nil {
 		return err
 	}
 	for _, model := range models {
-		if !advertisedRuntimeModel(model) {
-			return fmt.Errorf("loaded model %q is not in the advertised production runtime projection", model)
+		ok := advertisedRuntimeModel(model)
+		if allowServiceAlias {
+			ok = measurableResidencyModel(model)
+		}
+		if !ok {
+			return fmt.Errorf("%s model %q is not in the advertised production runtime projection", field, model)
 		}
 	}
 	return nil
