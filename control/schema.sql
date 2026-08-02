@@ -2270,6 +2270,9 @@ CREATE TABLE IF NOT EXISTS supplier_payout_funding (
     ledger_entry_id              UUID NOT NULL UNIQUE REFERENCES ledger_entries(id),
     source_kind                  TEXT NOT NULL CHECK (source_kind IN ('buyer_collection','platform_subsidy')),
     liability_job_id             UUID REFERENCES jobs(id),
+    -- Long-running services have no task/job. Their payout funding still
+    -- names the exact terminal lease rather than inventing a synthetic job.
+    liability_service_lease_id   UUID,
     collection_payment_intent    TEXT REFERENCES buyer_cash_collections(payment_intent),
     subsidy_fund_id              UUID REFERENCES platform_subsidy_funds(id),
     subsidy_authorization_ref    TEXT UNIQUE,
@@ -2279,7 +2282,8 @@ CREATE TABLE IF NOT EXISTS supplier_payout_funding (
     created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT supplier_payout_funding_source_valid CHECK (
       (source_kind='buyer_collection'
-       AND liability_job_id IS NOT NULL
+       AND ((liability_job_id IS NOT NULL AND liability_service_lease_id IS NULL)
+            OR (liability_job_id IS NULL AND liability_service_lease_id IS NOT NULL))
        AND collection_payment_intent IS NOT NULL
        AND subsidy_fund_id IS NULL
        AND subsidy_authorization_ref IS NULL AND subsidy_reason IS NULL)
@@ -2291,9 +2295,14 @@ CREATE TABLE IF NOT EXISTS supplier_payout_funding (
        AND subsidy_reason IS NOT NULL AND btrim(subsidy_reason) <> '')
     )
 );
+ALTER TABLE supplier_payout_funding
+    ADD COLUMN IF NOT EXISTS liability_service_lease_id UUID;
 CREATE INDEX IF NOT EXISTS supplier_payout_funding_collection_idx
     ON supplier_payout_funding (collection_payment_intent)
     WHERE source_kind='buyer_collection';
+CREATE INDEX IF NOT EXISTS supplier_payout_funding_service_lease_idx
+    ON supplier_payout_funding (liability_service_lease_id)
+    WHERE liability_service_lease_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS supplier_payout_funding_subsidy_fund_idx
     ON supplier_payout_funding (subsidy_fund_id)
     WHERE source_kind='platform_subsidy';
@@ -2309,7 +2318,9 @@ ALTER TABLE supplier_payout_funding ADD CONSTRAINT supplier_payout_funding_autho
 ALTER TABLE supplier_payout_funding DROP CONSTRAINT IF EXISTS supplier_payout_funding_source_valid;
 ALTER TABLE supplier_payout_funding ADD CONSTRAINT supplier_payout_funding_source_valid CHECK (
   (source_kind='buyer_collection'
-   AND liability_job_id IS NOT NULL AND collection_payment_intent IS NOT NULL
+   AND ((liability_job_id IS NOT NULL AND liability_service_lease_id IS NULL)
+        OR (liability_job_id IS NULL AND liability_service_lease_id IS NOT NULL))
+   AND collection_payment_intent IS NOT NULL
    AND subsidy_fund_id IS NULL
    AND authorization_action_id IS NULL
    AND subsidy_authorization_ref IS NULL AND subsidy_reason IS NULL)
@@ -3724,6 +3735,17 @@ ALTER TABLE service_leases
 CREATE INDEX IF NOT EXISTS service_leases_buyer_created_idx ON service_leases (buyer_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS service_leases_recovery_idx ON service_leases (state,last_worker_heartbeat_at)
     WHERE state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED');
+
+-- The payout-funding table is declared earlier because ordinary job payouts
+-- predate service leases. Bind the optional service-liability reference only
+-- after the lease table exists; old databases therefore migrate idempotently.
+ALTER TABLE supplier_payout_funding
+    ADD COLUMN IF NOT EXISTS liability_service_lease_id UUID;
+ALTER TABLE supplier_payout_funding
+    DROP CONSTRAINT IF EXISTS supplier_payout_funding_service_lease_fkey;
+ALTER TABLE supplier_payout_funding
+    ADD CONSTRAINT supplier_payout_funding_service_lease_fkey
+    FOREIGN KEY (liability_service_lease_id) REFERENCES service_leases(id) ON DELETE RESTRICT NOT VALID;
 
 -- Service admission outcomes contain no prompt, buyer ceiling, or pricing
 -- decision. The admitted row must name the exact lease that accepted capacity;
