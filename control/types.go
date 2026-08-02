@@ -82,7 +82,10 @@ func normalizeEngine(engine string) string {
 	return engine
 }
 
-var validJobTypes = map[string]bool{"embed": true, "batch_infer": true, "media_transcode": true, "media_rendering": true}
+var validJobTypes = map[string]bool{
+	"embed": true, "batch_infer": true, "media_transcode": true,
+	"media_rendering": true, "video_generation": true,
+}
 
 type JobType struct {
 	Type             string  `json:"type"`
@@ -97,6 +100,10 @@ type JobType struct {
 	VideoBitrateKbps uint32  `json:"video_bitrate_kbps,omitempty"`
 	RenderWidth      uint32  `json:"render_width,omitempty"`
 	RenderHeight     uint32  `json:"render_height,omitempty"`
+	// DurationSecs is the closed wall-clock length for video_generation. It is
+	// part of the allowlisted (resolution × duration × fps) product, not a free
+	// range a buyer can inflate past the quoted price.
+	DurationSecs uint32 `json:"duration_secs,omitempty"`
 }
 
 type ModelRef struct {

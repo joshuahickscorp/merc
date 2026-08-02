@@ -222,7 +222,7 @@ impl OperatorPrefs {
             if workloads.iter().any(|workload| {
                 !matches!(
                     workload.as_str(),
-                    "embed" | "batch_infer" | "media_transcode" | "media_rendering"
+                    "embed" | "batch_infer" | "media_transcode" | "media_rendering" | "video_generation"
                 )
             }) {
                 anyhow::bail!("allowed_workload_classes contains an unknown workload");
@@ -435,7 +435,7 @@ impl AgentConfig {
             if workloads.iter().any(|workload| {
                 !matches!(
                     workload.as_str(),
-                    "embed" | "batch_infer" | "media_transcode" | "media_rendering"
+                    "embed" | "batch_infer" | "media_transcode" | "media_rendering" | "video_generation"
                 )
             }) {
                 anyhow::bail!("allowed_workload_classes contains an unknown workload");
