@@ -28,6 +28,7 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 use uuid::Uuid;
 
 const MAGIC: &[u8; 9] = b"MERC-FAB1";
+const COLLECTIVE_MAGIC: &[u8; 9] = b"MERC-FAB2";
 const NONCE_BYTES: usize = 32;
 const MAX_PAYLOAD_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ROUNDS: u16 = 32;
@@ -206,6 +207,63 @@ pub struct FabricProbeObservation {
     pub observed_peer_certificate_sha256: String,
 }
 
+// CollectiveProbeOptions runs a bounded, two-rank synthetic XOR all-reduce.
+// Its bytes are random and never sourced from a buyer task. This measures the
+// actual data movement and reduction protocol that an echo cannot measure, but
+// is intentionally not a workload data-plane authorization.
+#[derive(Debug, Clone)]
+pub struct CollectiveProbeOptions {
+    pub endpoint: SocketAddr,
+    pub site: String,
+    pub fabric_session_id: Uuid,
+    pub expected_peer_worker_id: Option<Uuid>,
+    pub expected_peer_certificate_sha256: String,
+    pub payload_bytes_per_rank: usize,
+    pub rounds: u16,
+    pub tls: FabricTlsMaterial,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FabricCollectiveProbeRound {
+    pub round: u16,
+    pub ranks: u8,
+    pub payload_bytes_per_rank: usize,
+    pub transport_bytes: usize,
+    pub round_trip_micros: u64,
+    pub effective_collective_goodput_mbps: f64,
+    pub local_payload_sha256: String,
+    pub peer_payload_sha256: String,
+    pub reduced_payload_sha256: String,
+    pub transcript_sha256: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FabricCollectiveProbeReceipt {
+    pub schema_version: u32,
+    pub receipt_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fabric_session_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_peer_worker_id: Option<Uuid>,
+    pub kind: &'static str,
+    pub status: &'static str,
+    pub measured_at_unix_ms: u128,
+    pub declared_site: String,
+    pub peer_endpoint_commitment: String,
+    pub transport: &'static str,
+    pub peer_authentication: &'static str,
+    pub local_certificate_sha256: String,
+    pub peer_certificate_sha256: String,
+    pub payload_is_random: bool,
+    pub collective: &'static str,
+    pub rounds: Vec<FabricCollectiveProbeRound>,
+    pub p50_round_trip_micros: u64,
+    pub p95_round_trip_micros: u64,
+    pub p50_effective_collective_goodput_mbps: f64,
+    pub local_cluster_admissible: bool,
+    pub non_admission_reasons: Vec<&'static str>,
+}
+
 pub async fn serve(
     bind: SocketAddr,
     tls: FabricTlsMaterial,
@@ -217,7 +275,7 @@ pub async fn serve(
     let local = listener
         .local_addr()
         .context("reading fabric listener address")?;
-    tracing::info!(%local, certificate_sha256 = %tls.certificate_sha256(), "fabric mTLS echo listener ready; it accepts bounded measurement traffic only");
+    tracing::info!(%local, certificate_sha256 = %tls.certificate_sha256(), "fabric mTLS measurement listener ready; it accepts bounded echo and synthetic collective measurement traffic only");
     run_listener(
         listener,
         TlsAcceptor::from(Arc::new(tls.server_config()?)),
@@ -243,9 +301,9 @@ async fn run_listener(
                 let observer = observer.clone();
                 tokio::spawn(async move {
                     if let Err(error) = async {
-                        let tls = timeout(IO_TIMEOUT, acceptor.accept(stream)).await
+                        let stream = timeout(IO_TIMEOUT, acceptor.accept(stream)).await
                             .context("fabric mTLS handshake timed out")??;
-                        echo_once(tls, observer).await
+                        serve_one(stream, observer).await
                     }.await {
                         // Invalid probes must neither disclose mTLS material nor stop
                         // the listener that a real peer is using.
@@ -254,6 +312,34 @@ async fn run_listener(
                 });
             }
         }
+    }
+}
+
+async fn serve_one(
+    mut stream: tokio_rustls::server::TlsStream<TcpStream>,
+    observer: crate::protocol::ControlPlaneClient,
+) -> Result<()> {
+    let peer = stream
+        .get_ref()
+        .1
+        .peer_certificates()
+        .and_then(|certificates| certificates.first())
+        .ok_or_else(|| {
+            anyhow::anyhow!("fabric mTLS client did not present an end-entity certificate")
+        })?;
+    let observed_peer_certificate_sha256 = sha256_hex(peer.as_ref());
+    let mut magic = [0_u8; MAGIC.len()];
+    timeout(IO_TIMEOUT, stream.read_exact(&mut magic))
+        .await
+        .context("fabric protocol magic timed out")??;
+    match magic {
+        value if value == *MAGIC => {
+            echo_once(stream, observer, observed_peer_certificate_sha256).await
+        }
+        value if value == *COLLECTIVE_MAGIC => {
+            collective_once(stream, observer, observed_peer_certificate_sha256).await
+        }
+        _ => bail!("unknown fabric probe protocol"),
     }
 }
 
@@ -325,6 +411,81 @@ pub async fn probe(options: ProbeOptions) -> Result<FabricProbeReceipt> {
     })
 }
 
+pub async fn collective_probe(
+    options: CollectiveProbeOptions,
+) -> Result<FabricCollectiveProbeReceipt> {
+    validate_collective_options(&options)?;
+    let mut rounds = Vec::with_capacity(options.rounds as usize);
+    for round in 1..=options.rounds {
+        let measurement = collective_probe_once(
+            options.endpoint,
+            &options.tls,
+            &options.expected_peer_certificate_sha256,
+            options.fabric_session_id,
+            options.payload_bytes_per_rank,
+        )
+        .await
+        .with_context(|| format!("fabric collective probe round {round}"))?;
+        rounds.push(FabricCollectiveProbeRound {
+            round,
+            ranks: 2,
+            payload_bytes_per_rank: options.payload_bytes_per_rank,
+            transport_bytes: options.payload_bytes_per_rank * 3,
+            round_trip_micros: measurement.elapsed_micros,
+            effective_collective_goodput_mbps: measurement.goodput_mbps,
+            local_payload_sha256: measurement.local_payload_sha256,
+            peer_payload_sha256: measurement.peer_payload_sha256,
+            reduced_payload_sha256: measurement.reduced_payload_sha256,
+            transcript_sha256: measurement.transcript_sha256,
+        });
+    }
+    let mut latencies = rounds
+        .iter()
+        .map(|round| round.round_trip_micros)
+        .collect::<Vec<_>>();
+    latencies.sort_unstable();
+    let mut goodputs = rounds
+        .iter()
+        .map(|round| round.effective_collective_goodput_mbps)
+        .collect::<Vec<_>>();
+    goodputs.sort_by(f64::total_cmp);
+
+    Ok(FabricCollectiveProbeReceipt {
+        schema_version: 1,
+        receipt_id: Uuid::new_v4(),
+        fabric_session_id: options
+            .expected_peer_worker_id
+            .map(|_| options.fabric_session_id),
+        expected_peer_worker_id: options.expected_peer_worker_id,
+        kind: "MERC_FABRIC_SYNTHETIC_XOR_ALL_REDUCE_RECEIPT",
+        status: "MEASURED_NOT_ADMISSIBLE",
+        measured_at_unix_ms: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+        declared_site: options.site,
+        peer_endpoint_commitment: endpoint_commitment(&options.tls, options.endpoint)?,
+        transport: "MERC_FABRIC_MTLS_SYNTHETIC_COLLECTIVE_V1",
+        peer_authentication: "MUTUAL_TLS_WORKER_CERTIFICATE_BOUND",
+        local_certificate_sha256: options.tls.certificate_sha256(),
+        peer_certificate_sha256: options.expected_peer_certificate_sha256,
+        payload_is_random: true,
+        collective: "XOR_ALL_REDUCE_TWO_RANKS_V1",
+        p50_round_trip_micros: percentile_u64(&latencies, 50),
+        p95_round_trip_micros: percentile_u64(&latencies, 95),
+        p50_effective_collective_goodput_mbps: percentile_f64(&goodputs, 50),
+        rounds,
+        local_cluster_admissible: false,
+        non_admission_reasons: vec![
+            "synthetic random bytes are not a customer workload data plane",
+            "the two-rank XOR probe is not tensor/pipeline/expert/render collective evidence",
+            "certificate-bound mutual TLS does not independently govern a site or residency",
+            "no topology-specific cost, floor, ceiling, or positive-contribution decision is bound",
+            "no gang scheduler, workload admission, result verification, or settlement path consumes this probe",
+        ],
+    })
+}
+
 pub fn write_new_receipt(path: &Path, receipt: &[u8]) -> Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
@@ -343,6 +504,15 @@ pub fn write_new_receipt(path: &Path, receipt: &[u8]) -> Result<()> {
 struct RoundMeasurement {
     elapsed_micros: u64,
     goodput_mbps: f64,
+    transcript_sha256: String,
+}
+
+struct CollectiveRoundMeasurement {
+    elapsed_micros: u64,
+    goodput_mbps: f64,
+    local_payload_sha256: String,
+    peer_payload_sha256: String,
+    reduced_payload_sha256: String,
     transcript_sha256: String,
 }
 
@@ -429,25 +599,148 @@ async fn probe_once(
     })
 }
 
-async fn echo_once(
-    mut stream: tokio_rustls::server::TlsStream<TcpStream>,
-    observer: crate::protocol::ControlPlaneClient,
-) -> Result<()> {
-    let peer = stream
+async fn collective_probe_once(
+    endpoint: SocketAddr,
+    tls: &FabricTlsMaterial,
+    expected_peer_certificate_sha256: &str,
+    session_id: Uuid,
+    payload_bytes: usize,
+) -> Result<CollectiveRoundMeasurement> {
+    let mut local = vec![0_u8; payload_bytes];
+    rand::thread_rng().fill_bytes(&mut local);
+    let mut nonce = [0_u8; NONCE_BYTES];
+    rand::thread_rng().fill_bytes(&mut nonce);
+
+    let start = Instant::now();
+    let stream = timeout(IO_TIMEOUT, TcpStream::connect(endpoint))
+        .await
+        .context("fabric collective peer connection timed out")?
+        .with_context(|| format!("connecting to fabric collective peer {endpoint}"))?;
+    let connector = TlsConnector::from(Arc::new(tls.client_config()?));
+    let mut stream = timeout(IO_TIMEOUT, connector.connect(tls.server_name()?, stream))
+        .await
+        .context("fabric collective mTLS client handshake timed out")?
+        .context("authenticating fabric collective mTLS peer")?;
+    let peer_certificate = stream
         .get_ref()
         .1
         .peer_certificates()
         .and_then(|certificates| certificates.first())
         .ok_or_else(|| {
-            anyhow::anyhow!("fabric mTLS client did not present an end-entity certificate")
+            anyhow::anyhow!("fabric collective peer did not present an end-entity certificate")
         })?;
-    let observed_peer_certificate_sha256 = sha256_hex(peer.as_ref());
-    timeout(IO_TIMEOUT, async {
-        let mut magic = [0_u8; MAGIC.len()];
-        stream.read_exact(&mut magic).await?;
-        if magic != *MAGIC {
-            bail!("unknown fabric probe protocol")
+    if sha256_hex(peer_certificate.as_ref()) != expected_peer_certificate_sha256 {
+        bail!("fabric collective peer certificate differs from the control-plane reserved worker identity")
+    }
+
+    let (peer, reduced) = timeout(IO_TIMEOUT, async {
+        stream.write_all(COLLECTIVE_MAGIC).await?;
+        stream.write_all(session_id.as_bytes()).await?;
+        stream.write_all(&nonce).await?;
+        stream
+            .write_all(&(local.len() as u32).to_be_bytes())
+            .await?;
+        stream.write_all(&local).await?;
+        stream.flush().await?;
+
+        let mut peer_len = [0_u8; 4];
+        stream.read_exact(&mut peer_len).await?;
+        let peer_len = u32::from_be_bytes(peer_len) as usize;
+        if peer_len != local.len() {
+            bail!("fabric collective peer contribution length differs from the local rank")
         }
+        let mut peer = vec![0_u8; peer_len];
+        stream.read_exact(&mut peer).await?;
+        let mut reduced_len = [0_u8; 4];
+        stream.read_exact(&mut reduced_len).await?;
+        let reduced_len = u32::from_be_bytes(reduced_len) as usize;
+        if reduced_len != local.len() {
+            bail!("fabric collective reduction length differs from the local rank")
+        }
+        let mut reduced = vec![0_u8; reduced_len];
+        stream.read_exact(&mut reduced).await?;
+        Ok::<(Vec<u8>, Vec<u8>), anyhow::Error>((peer, reduced))
+    })
+    .await
+    .context("fabric collective peer I/O timed out")??;
+    let expected = xor_payloads(&local, &peer)?;
+    if reduced != expected {
+        bail!("fabric collective reduction did not equal the two rank XOR")
+    }
+    let elapsed_micros = start.elapsed().as_micros().max(1).min(u64::MAX as u128) as u64;
+    let transcript_sha256 =
+        collective_transcript_sha256(session_id, &nonce, &local, &peer, &reduced);
+    // A two-rank all-reduce has one logical reduced payload per rank. This is
+    // deliberately labelled *effective collective* goodput; it is not a link
+    // bandwidth claim (the 3× wire byte count is retained separately).
+    let goodput_mbps = local.len() as f64 * 2.0 * 8.0 / elapsed_micros as f64;
+    Ok(CollectiveRoundMeasurement {
+        elapsed_micros,
+        goodput_mbps,
+        local_payload_sha256: sha256_hex(&local),
+        peer_payload_sha256: sha256_hex(&peer),
+        reduced_payload_sha256: sha256_hex(&reduced),
+        transcript_sha256,
+    })
+}
+
+async fn collective_once(
+    mut stream: tokio_rustls::server::TlsStream<TcpStream>,
+    observer: crate::protocol::ControlPlaneClient,
+    observed_peer_certificate_sha256: String,
+) -> Result<()> {
+    timeout(IO_TIMEOUT, async {
+        let mut session_bytes = [0_u8; 16];
+        let mut nonce = [0_u8; NONCE_BYTES];
+        let mut length = [0_u8; 4];
+        stream.read_exact(&mut session_bytes).await?;
+        stream.read_exact(&mut nonce).await?;
+        stream.read_exact(&mut length).await?;
+        let payload_len = u32::from_be_bytes(length) as usize;
+        if payload_len == 0 || payload_len > MAX_PAYLOAD_BYTES {
+            bail!("fabric collective payload is outside the bounded range")
+        }
+        let mut local = vec![0_u8; payload_len];
+        stream.read_exact(&mut local).await?;
+        let mut peer = vec![0_u8; payload_len];
+        rand::thread_rng().fill_bytes(&mut peer);
+        let reduced = xor_payloads(&local, &peer)?;
+        stream.write_all(&length).await?;
+        stream.write_all(&peer).await?;
+        stream.write_all(&length).await?;
+        stream.write_all(&reduced).await?;
+        stream.flush().await?;
+
+        let session_id = Uuid::from_bytes(session_bytes);
+        let observation = FabricProbeObservation {
+            schema_version: 1,
+            fabric_session_id: session_id,
+            transcript_sha256: collective_transcript_sha256(session_id, &nonce, &local, &peer, &reduced),
+            payload_bytes_each_direction: payload_len,
+            observed_at_unix_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis(),
+            observed_peer_certificate_sha256,
+        };
+        tokio::spawn(async move {
+            if let Err(error) = observer.submit_fabric_observation(&observation).await {
+                tracing::warn!(%error, session_id = %session_id, "could not record fabric collective peer observation");
+            }
+        });
+        Ok::<(), anyhow::Error>(())
+    })
+    .await
+    .context("fabric collective peer I/O timed out")??;
+    Ok(())
+}
+
+async fn echo_once(
+    mut stream: tokio_rustls::server::TlsStream<TcpStream>,
+    observer: crate::protocol::ControlPlaneClient,
+    observed_peer_certificate_sha256: String,
+) -> Result<()> {
+    timeout(IO_TIMEOUT, async {
         let mut session_bytes = [0_u8; 16];
         let mut nonce = [0_u8; NONCE_BYTES];
         let mut length = [0_u8; 4];
@@ -489,6 +782,17 @@ async fn echo_once(
     Ok(())
 }
 
+fn xor_payloads(left: &[u8], right: &[u8]) -> Result<Vec<u8>> {
+    if left.len() != right.len() {
+        bail!("fabric collective payload lengths differ")
+    }
+    Ok(left
+        .iter()
+        .zip(right)
+        .map(|(left, right)| left ^ right)
+        .collect())
+}
+
 fn transcript_sha256(session_id: Uuid, nonce: &[u8; NONCE_BYTES], payload: &[u8]) -> String {
     let mut digest = Sha256::new();
     digest.update(MAGIC);
@@ -496,6 +800,24 @@ fn transcript_sha256(session_id: Uuid, nonce: &[u8; NONCE_BYTES], payload: &[u8]
     digest.update(nonce);
     digest.update((payload.len() as u32).to_be_bytes());
     digest.update(payload);
+    sha256_hex(digest.finalize().as_slice())
+}
+
+fn collective_transcript_sha256(
+    session_id: Uuid,
+    nonce: &[u8; NONCE_BYTES],
+    local: &[u8],
+    peer: &[u8],
+    reduced: &[u8],
+) -> String {
+    let mut digest = Sha256::new();
+    digest.update(COLLECTIVE_MAGIC);
+    digest.update(session_id.as_bytes());
+    digest.update(nonce);
+    for payload in [local, peer, reduced] {
+        digest.update((payload.len() as u32).to_be_bytes());
+        digest.update(payload);
+    }
     sha256_hex(digest.finalize().as_slice())
 }
 
@@ -514,6 +836,27 @@ fn validate_options(options: &ProbeOptions) -> Result<()> {
     }
     if !is_sha256_hex(&options.expected_peer_certificate_sha256) {
         bail!("fabric peer certificate fingerprint must be a SHA-256 hex digest")
+    }
+    Ok(())
+}
+
+fn validate_collective_options(options: &CollectiveProbeOptions) -> Result<()> {
+    if options.expected_peer_worker_id.is_none() || options.fabric_session_id.is_nil() {
+        bail!(
+            "a certificate-bound fabric collective requires a control-plane reserved peer session"
+        )
+    }
+    if options.site.trim().is_empty() || options.site.len() > 128 {
+        bail!("fabric collective site label must be present and at most 128 bytes")
+    }
+    if options.payload_bytes_per_rank == 0 || options.payload_bytes_per_rank > MAX_PAYLOAD_BYTES {
+        bail!("fabric collective payload bytes must be between 1 and {MAX_PAYLOAD_BYTES}")
+    }
+    if options.rounds == 0 || options.rounds > MAX_ROUNDS {
+        bail!("fabric collective rounds must be between 1 and {MAX_ROUNDS}")
+    }
+    if !is_sha256_hex(&options.expected_peer_certificate_sha256) {
+        bail!("fabric collective peer certificate fingerprint must be a SHA-256 hex digest")
     }
     Ok(())
 }
@@ -597,6 +940,21 @@ mod tests {
             tls: unvalidated_tls(),
         };
         assert!(validate_options(&options).is_err());
+    }
+
+    #[test]
+    fn collective_refuses_unreserved_or_unbounded_inputs() {
+        let options = CollectiveProbeOptions {
+            endpoint: "127.0.0.1:1".parse().unwrap(),
+            site: "".into(),
+            fabric_session_id: Uuid::new_v4(),
+            expected_peer_worker_id: None,
+            expected_peer_certificate_sha256: "e".repeat(64),
+            payload_bytes_per_rank: MAX_PAYLOAD_BYTES + 1,
+            rounds: MAX_ROUNDS + 1,
+            tls: unvalidated_tls(),
+        };
+        assert!(validate_collective_options(&options).is_err());
     }
 
     #[test]
@@ -693,5 +1051,85 @@ mod tests {
             receipt.peer_certificate_sha256,
             sha256_hex(&server_certificate)
         );
+    }
+
+    #[tokio::test]
+    async fn actual_mutual_tls_collective_executes_and_verifies_two_rank_xor() {
+        let mut ca_params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        ca_params.key_usages = vec![
+            KeyUsagePurpose::DigitalSignature,
+            KeyUsagePurpose::KeyCertSign,
+        ];
+        let ca_key = KeyPair::generate().unwrap();
+        let ca_certificate = ca_params.self_signed(&ca_key).unwrap();
+        let issuer = Issuer::new(ca_params, ca_key);
+
+        let issue = |name: &str| {
+            let mut params = CertificateParams::new(vec![name.to_string()]).unwrap();
+            params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+            params.extended_key_usages = vec![
+                ExtendedKeyUsagePurpose::ServerAuth,
+                ExtendedKeyUsagePurpose::ClientAuth,
+            ];
+            let key = KeyPair::generate().unwrap();
+            let certificate = params.signed_by(&key, &issuer).unwrap();
+            (certificate.der().to_vec(), key.serialize_der())
+        };
+        let (server_certificate, server_key) = issue("fabric.test");
+        let (client_certificate, client_key) = issue("fabric.client.test");
+        let server_tls = FabricTlsMaterial {
+            certificate_der: server_certificate.clone(),
+            private_key_der: server_key,
+            ca_certificate_der: ca_certificate.der().to_vec(),
+            server_name: "fabric.test".into(),
+        };
+        let client_tls = FabricTlsMaterial {
+            certificate_der: client_certificate,
+            private_key_der: client_key,
+            ca_certificate_der: ca_certificate.der().to_vec(),
+            server_name: "fabric.test".into(),
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = listener.local_addr().unwrap();
+        let observer =
+            crate::protocol::ControlPlaneClient::new("https://127.0.0.1", "test-worker-token")
+                .unwrap();
+        let server = tokio::spawn(run_listener(
+            listener,
+            TlsAcceptor::from(Arc::new(server_tls.server_config().unwrap())),
+            observer,
+        ));
+
+        let receipt = collective_probe(CollectiveProbeOptions {
+            endpoint,
+            site: "lab-rack-a".into(),
+            fabric_session_id: Uuid::new_v4(),
+            expected_peer_worker_id: Some(Uuid::new_v4()),
+            expected_peer_certificate_sha256: sha256_hex(&server_certificate),
+            payload_bytes_per_rank: 1024,
+            rounds: 3,
+            tls: client_tls,
+        })
+        .await
+        .unwrap();
+        server.abort();
+
+        assert_eq!(receipt.kind, "MERC_FABRIC_SYNTHETIC_XOR_ALL_REDUCE_RECEIPT");
+        assert_eq!(receipt.status, "MEASURED_NOT_ADMISSIBLE");
+        assert_eq!(receipt.collective, "XOR_ALL_REDUCE_TWO_RANKS_V1");
+        assert_eq!(receipt.rounds.len(), 3);
+        assert!(!receipt.local_cluster_admissible);
+        for round in &receipt.rounds {
+            assert_eq!(round.ranks, 2);
+            assert_eq!(round.payload_bytes_per_rank, 1024);
+            assert_eq!(round.transport_bytes, 3072);
+            assert!(round.round_trip_micros > 0);
+            assert!(round.effective_collective_goodput_mbps > 0.0);
+            assert!(is_sha256_hex(&round.local_payload_sha256));
+            assert!(is_sha256_hex(&round.peer_payload_sha256));
+            assert!(is_sha256_hex(&round.reduced_payload_sha256));
+            assert!(is_sha256_hex(&round.transcript_sha256));
+        }
     }
 }
