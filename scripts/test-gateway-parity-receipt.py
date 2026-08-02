@@ -5,10 +5,24 @@ Fails when the parity receipt is absent, undated, older than the revalidation
 window (aligned with control/runtime_cell_performance.go
 benchmarkRevalidationWindow = 180 days), or carries a non-empty refusals list.
 
-Also runs offline unit checks that a receipt with no measured_at fails, that a
-non-empty refusals list fails, and that budget evaluation produces refusals when
-overhead exceeds the declared ceiling. Those unit checks import the harness so
-a broken evaluate_budget cannot hide behind a green gate.
+Also refuses receipts that do not meet measurement-grade standards even when
+refusals is empty:
+
+  - scope.requests_per_level < scope.min_samples_required
+  - arms_interleaved is not true (sequential arms are not receipt-grade)
+  - artifact_digests_remeasured is not true (provenance-bound digests are not
+    live re-hashes)
+  - non-empty limitations with empty refusals (those fields contradict)
+
+A limitations list is prose; the gate checks the explicit booleans and sample
+counts, never the text of a limitation string. The committed historical
+receipt is expected to fail until a live n>=min_samples_required interleaved
+run with measurement-time digest re-hashing is produced. That red is accurate;
+there is no env-var opt-out.
+
+Also runs offline unit checks (undated, refusals, budget, under-sampled,
+limitations/refusals contradiction, sequential arms, synthetic pass). Those
+import the harness so a broken evaluate_budget cannot hide behind a green gate.
 
     python3 scripts/test-gateway-parity-receipt.py
     python3 scripts/test-gateway-parity-receipt.py --self-test-only
@@ -25,6 +39,7 @@ import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = ROOT / "evidence" / "perf" / "gateway-parity.json"
@@ -64,6 +79,45 @@ def parse_measured_at(value: object) -> datetime | None:
         return datetime.fromisoformat(text)
     except ValueError:
         return None
+
+
+def base_receipt(**overrides: Any) -> dict[str, Any]:
+    """Minimal receipt that would pass structural checks if complete."""
+    digest = "b" * 64
+    receipt: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "gateway_parity",
+        "gate_version": "gateway-parity-gate-v1",
+        "measured_at": "2026-07-28T11:10:09Z",
+        "merc_source_commit": "a" * 40,
+        "refusals": [],
+        "budget": {
+            "ttft_overhead_p95_ms": 15.0,
+            "throughput_loss_fraction": 0.05,
+            "basis": "test",
+        },
+        "scope": {
+            "model_ref": "cx-chat-1b",
+            "merc_model_artifact_sha256": digest,
+            "direct_model_artifact_sha256": digest,
+            "max_tokens": 32,
+            "temperature": 0,
+            "requests_per_level": 20,
+            "min_samples_required": 20,
+        },
+        "features_disabled": ["exact_reuse", "request_coalescing"],
+        "arms_interleaved": True,
+        "artifact_digests_remeasured": True,
+        "limitations": [],
+    }
+    for key, value in overrides.items():
+        if key == "scope" and isinstance(value, dict):
+            merged = dict(receipt["scope"])
+            merged.update(value)
+            receipt["scope"] = merged
+        else:
+            receipt[key] = value
+    return receipt
 
 
 def validate_receipt(path: Path, *, now: datetime | None = None) -> list[str]:
@@ -155,73 +209,88 @@ def validate_receipt(path: Path, *, now: datetime | None = None) -> list[str]:
                 f"(merc={merc_d} direct={direct_d})"
             )
 
+        # Sample floor is a receipt-validation rule, not only a harness default.
+        rpl = scope.get("requests_per_level")
+        min_req = scope.get("min_samples_required")
+        if rpl is None:
+            errors.append(f"{path}: scope.requests_per_level missing")
+        elif min_req is None:
+            errors.append(f"{path}: scope.min_samples_required missing")
+        else:
+            try:
+                rpl_n = int(rpl)
+                min_n = int(min_req)
+            except (TypeError, ValueError):
+                errors.append(
+                    f"{path}: scope.requests_per_level={rpl!r} and "
+                    f"scope.min_samples_required={min_req!r} must be integers"
+                )
+            else:
+                if rpl_n < min_n:
+                    errors.append(
+                        f"{path}: scope.requests_per_level={rpl_n} is below "
+                        f"scope.min_samples_required={min_n}"
+                    )
+
     if "features_disabled" not in data:
         errors.append(f"{path}: features_disabled missing")
+
+    # Explicit measurement facts — gate must not parse limitations prose.
+    arms = data.get("arms_interleaved")
+    if arms is not True:
+        errors.append(
+            f"{path}: arms_interleaved={arms!r} (required true); "
+            "sequential arms are not receipt-grade"
+        )
+
+    digests_remeasured = data.get("artifact_digests_remeasured")
+    if digests_remeasured is not True:
+        errors.append(
+            f"{path}: artifact_digests_remeasured={digests_remeasured!r} "
+            "(required true); digests must be re-hashed from the model "
+            "artifact at measurement time, not bound from provenance alone"
+        )
+
+    # limitations (prose caveats) and empty refusals contradict each other:
+    # a clean receipt either has no caveats, or names them as refusals.
+    limitations = data.get("limitations")
+    if isinstance(limitations, list) and limitations:
+        if isinstance(refusals, list) and not refusals:
+            errors.append(
+                f"{path}: limitations is non-empty ({len(limitations)} entries) "
+                "while refusals is empty []; a receipt that records caveats "
+                "must not claim an empty refusals list"
+            )
 
     return errors
 
 
 def run_unit_tests() -> None:
-    """Demonstrate the five required behaviours against fixtures and harness logic."""
+    """Offline fixtures: structural refusals and harness budget/digest logic."""
     harness = load_harness()
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
 
-        # 1) Receipt with no measured_at fails the gate.
-        undated = tmp_path / "undated.json"
-        undated.write_text(
-            json.dumps({
-                "schema_version": 1,
-                "kind": "gateway_parity",
-                "gate_version": "gateway-parity-gate-v1",
-                "merc_source_commit": "a" * 40,
-                "refusals": [],
-                "budget": {
-                    "ttft_overhead_p95_ms": 15.0,
-                    "throughput_loss_fraction": 0.05,
-                    "basis": "test",
-                },
-                "scope": {
-                    "model_ref": "cx-chat-1b",
-                    "merc_model_artifact_sha256": "b" * 64,
-                    "direct_model_artifact_sha256": "b" * 64,
-                    "max_tokens": 32,
-                    "temperature": 0,
-                },
-                "features_disabled": ["exact_reuse"],
-            }),
-            encoding="utf-8",
-        )
+        def write(name: str, payload: dict[str, Any]) -> Path:
+            path = tmp_path / name
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            return path
+
+        # Receipt with no measured_at fails the gate.
+        undated_payload = base_receipt()
+        del undated_payload["measured_at"]
+        undated = write("undated.json", undated_payload)
         errs = validate_receipt(undated)
         check(any("measured_at" in e for e in errs),
               f"undated receipt must fail gate, got {errs!r}")
 
-        # 2) Non-empty refusals fails the gate.
-        refused = tmp_path / "refused.json"
-        refused.write_text(
-            json.dumps({
-                "schema_version": 1,
-                "kind": "gateway_parity",
-                "gate_version": "gateway-parity-gate-v1",
-                "measured_at": "2026-07-28T11:10:09Z",
-                "merc_source_commit": "a" * 40,
-                "refusals": ["ttft overhead p95 50.000 ms exceeds budget 15.000 ms"],
-                "budget": {
-                    "ttft_overhead_p95_ms": 15.0,
-                    "throughput_loss_fraction": 0.05,
-                    "basis": "test",
-                },
-                "scope": {
-                    "model_ref": "cx-chat-1b",
-                    "merc_model_artifact_sha256": "b" * 64,
-                    "direct_model_artifact_sha256": "b" * 64,
-                    "max_tokens": 32,
-                    "temperature": 0,
-                },
-                "features_disabled": ["exact_reuse"],
-            }),
-            encoding="utf-8",
+        # Non-empty refusals fails the gate.
+        refused = write(
+            "refused.json",
+            base_receipt(
+                refusals=["ttft overhead p95 50.000 ms exceeds budget 15.000 ms"],
+            ),
         )
         errs = validate_receipt(refused)
         check(any("refusals is non-empty" in e for e in errs),
@@ -234,39 +303,79 @@ def run_unit_tests() -> None:
               f"absent receipt must fail, got {errs!r}")
 
         # Stale receipt fails.
-        stale = tmp_path / "stale.json"
         old = (datetime.now(timezone.utc) - timedelta(days=200)).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        stale.write_text(
-            json.dumps({
-                "schema_version": 1,
-                "kind": "gateway_parity",
-                "gate_version": "gateway-parity-gate-v1",
-                "measured_at": old,
-                "merc_source_commit": "a" * 40,
-                "refusals": [],
-                "budget": {
-                    "ttft_overhead_p95_ms": 15.0,
-                    "throughput_loss_fraction": 0.05,
-                    "basis": "test",
-                },
-                "scope": {
-                    "model_ref": "cx-chat-1b",
-                    "merc_model_artifact_sha256": "b" * 64,
-                    "direct_model_artifact_sha256": "b" * 64,
-                    "max_tokens": 32,
-                    "temperature": 0,
-                },
-                "features_disabled": ["exact_reuse"],
-            }),
-            encoding="utf-8",
-        )
+        stale = write("stale.json", base_receipt(measured_at=old))
         errs = validate_receipt(stale)
         check(any("revalidation window" in e for e in errs),
               f"stale receipt must fail, got {errs!r}")
 
-    # 3) Overhead above budget → non-empty refusals from the harness.
+        # 1) requests_per_level < min_samples_required fails the gate.
+        undersampled = write(
+            "undersampled.json",
+            base_receipt(scope={"requests_per_level": 4, "min_samples_required": 20}),
+        )
+        errs = validate_receipt(undersampled)
+        check(
+            any(
+                "scope.requests_per_level=4 is below scope.min_samples_required=20" in e
+                for e in errs
+            ),
+            f"under-sampled receipt must fail gate naming both values, got {errs!r}",
+        )
+
+        # 2) Non-empty limitations + empty refusals fails the gate.
+        caveated = write(
+            "caveated.json",
+            base_receipt(
+                refusals=[],
+                limitations=["historical n=4; not receipt-grade"],
+            ),
+        )
+        errs = validate_receipt(caveated)
+        check(
+            any("limitations is non-empty" in e and "refusals is empty" in e for e in errs),
+            f"limitations+empty refusals must fail, got {errs!r}",
+        )
+
+        # 3) Sequential arms (arms_interleaved false) fails the gate.
+        sequential = write(
+            "sequential.json",
+            base_receipt(arms_interleaved=False),
+        )
+        errs = validate_receipt(sequential)
+        check(
+            any("arms_interleaved=False" in e for e in errs),
+            f"sequential-arms receipt must fail, got {errs!r}",
+        )
+        # Missing boolean is also not receipt-grade.
+        missing_interleave = base_receipt()
+        del missing_interleave["arms_interleaved"]
+        missing_path = write("missing-interleave.json", missing_interleave)
+        errs = validate_receipt(missing_path)
+        check(
+            any("arms_interleaved=" in e for e in errs),
+            f"missing arms_interleaved must fail, got {errs!r}",
+        )
+
+        # Digests not re-hashed at measurement time fails.
+        provenance_bound = write(
+            "provenance-bound.json",
+            base_receipt(artifact_digests_remeasured=False),
+        )
+        errs = validate_receipt(provenance_bound)
+        check(
+            any("artifact_digests_remeasured=False" in e for e in errs),
+            f"provenance-bound digests must fail, got {errs!r}",
+        )
+
+        # 4) Synthetic receipt meeting every requirement passes.
+        clean = write("clean.json", base_receipt())
+        errs = validate_receipt(clean)
+        check(errs == [], f"receipt-grade synthetic must pass, got {errs!r}")
+
+    # Overhead above budget → non-empty refusals from the harness.
     budget = harness.default_budget()
     summary = {
         "ttft_overhead_p50_ms": 3.474,
@@ -286,7 +395,7 @@ def run_unit_tests() -> None:
     check(len(refusals) > 0 and any("ttft overhead p95" in r for r in refusals),
           f"over-budget TTFT must produce refusals, got {refusals!r}")
 
-    # 5) Scope round-trips; mismatched digests are incomparable.
+    # Scope round-trips; mismatched digests are incomparable.
     digest_a = "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
     digest_b = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     scope = harness.build_scope(
@@ -348,7 +457,8 @@ def main() -> int:
         return 1
     print(
         "gateway-parity-receipt: PASS "
-        "(dated, inside revalidation window, empty refusals)"
+        "(dated, inside revalidation window, empty refusals, "
+        "n>=min_samples, interleaved arms, digests remeasured)"
     )
     return 0
 
