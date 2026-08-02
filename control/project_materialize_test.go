@@ -41,7 +41,7 @@ func materializationFixture(t *testing.T, receiptPricing string, resultsURL bool
 	ir := ProjectWorkloadIR{IRSHA256: strings.Repeat("b", 64), Steps: []ProjectIRStep{{
 		ID: "extract", Outputs: []string{"project://generated/scene.json"},
 	}}}
-	submission := ProjectSubmission{IRSHA256: ir.IRSHA256, Status: "ACCEPTED", Steps: []ProjectStepSubmission{{
+	submission := ProjectSubmission{IRSHA256: ir.IRSHA256, ProjectID: uuid.NewString(), Status: "ACCEPTED", Steps: []ProjectStepSubmission{{
 		StepID: "extract", JobID: jobID.String(), PricingDecisionSHA256: pricing, AuthorityQuoteSHA256: strings.Repeat("c", 64),
 	}}}
 	return ir, submission, &client{base: server.URL, hc: server.Client()}, payload
@@ -61,13 +61,23 @@ func TestMaterializeProjectStepBindsReceiptAndWritesDeclaredOutput(t *testing.T)
 		t.Fatalf("materialized output = %q err=%v", stored, err)
 	}
 	sum := sha256.Sum256(payload)
-	if result.Version != 1 || result.Output != "project://generated/scene.json" || result.Bytes != int64(len(payload)) ||
+	if result.Version != 2 || result.ProjectID != submission.ProjectID || result.Output != "project://generated/scene.json" || result.Bytes != int64(len(payload)) ||
 		result.SHA256 != hex.EncodeToString(sum[:]) || result.PricingDecisionSHA256 != pricing ||
 		result.MaterializedAt != now.Format(time.RFC3339Nano) {
 		t.Fatalf("materialization receipt lost authority: %+v", result)
 	}
 	if _, err := materializeProjectStep(c, root, ir, submission, "extract", now); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("existing output was overwritten: %v", err)
+	}
+}
+
+func TestMaterializeProjectStepRefusesSubmissionWithoutServerProjectOrder(t *testing.T) {
+	pricing := strings.Repeat("a", 64)
+	ir, submission, c, _ := materializationFixture(t, pricing, true)
+	submission.ProjectID = ""
+	_, err := materializeProjectStep(c, t.TempDir(), ir, submission, "extract", time.Now())
+	if err == nil || !strings.Contains(err.Error(), "server project order id") {
+		t.Fatalf("materialization accepted unreserved submission: %v", err)
 	}
 }
 

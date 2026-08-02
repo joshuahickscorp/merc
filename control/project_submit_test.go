@@ -281,7 +281,8 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 		 WHERE p.id=$1 GROUP BY p.id`, *projectID).Scan(&ceiling, &reserved, &remaining); err != nil {
 		t.Fatalf("read exact project reservation: %v", err)
 	}
-	if ceiling != artifact.BuyerCeilingNanos || reserved != frozen.FixedPoint.AcceptedCeilingNanos || remaining != ceiling-reserved {
+	if ceiling != artifact.BuyerCeilingNanos || artifact.Steps[0].MaximumCostNanos != frozen.FixedPoint.AcceptedCeilingNanos ||
+		reserved != frozen.FixedPoint.AcceptedCeilingNanos || remaining != ceiling-reserved {
 		t.Fatalf("project reservation lost fixed point authority: ceiling=%d reserved=%d remaining=%d", ceiling, reserved, remaining)
 	}
 	frozenSHA, err := pricingDecisionDigest(frozen)

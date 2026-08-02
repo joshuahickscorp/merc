@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -17,6 +19,21 @@ func projectQuoteIRFixture(quote Quote, ceiling int64) ProjectWorkloadIR {
 			ID: "embed", Kind: "embeddings", Inputs: []string{"project://input.jsonl"},
 			RuntimeID: quote.Workload.RuntimeCandidates[0].RuntimeID, ModelID: quote.Model,
 		}},
+	}
+}
+
+func TestQuoteCompiledProjectRefusesSymlinkedArtifactParent(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "materialized")); err != nil {
+		t.Skipf("cannot create symlink fixture: %v", err)
+	}
+	serverQuote := validProjectServerQuote(t)
+	ir := projectQuoteIRFixture(serverQuote, 1_000_000_000)
+	ir.Steps[0].Inputs = []string{"project://materialized/input.jsonl"}
+	_, err := quoteCompiledProject(&client{base: "http://127.0.0.1:1", hc: http.DefaultClient}, root, ir)
+	if err == nil || !strings.Contains(err.Error(), "parent must be a real project directory") {
+		t.Fatalf("symlinked artifact parent reached quote transport: %v", err)
 	}
 }
 
@@ -156,5 +173,20 @@ func TestQuoteCompiledProjectRefusesTamperedPricingDecision(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "PricingDecision is invalid") {
 		t.Fatalf("tampered PricingDecision was aggregated: %v", err)
+	}
+}
+
+func TestQuoteCompiledProjectRefusesDisplayedMaximumThatDiffersFromReservation(t *testing.T) {
+	root := t.TempDir()
+	writeProjectFixture(t, root, "input.jsonl", "{\"text\":\"hello\"}\n")
+	serverQuote := validProjectServerQuote(t)
+	serverQuote.Pricing.FixedPoint.AcceptedCeilingNanos++
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, serverQuote)
+	}))
+	defer server.Close()
+	_, err := quoteCompiledProject(&client{base: server.URL, hc: server.Client()}, root, projectQuoteIRFixture(serverQuote, 1_000_000_000))
+	if err == nil || (!strings.Contains(err.Error(), "differs from the server-accepted") && !strings.Contains(err.Error(), "does not match its deterministic composite authority")) {
+		t.Fatalf("project quote accepted a hidden reservation premium: %v", err)
 	}
 }

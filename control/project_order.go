@@ -19,14 +19,27 @@ import (
 // It deliberately stores no source tree, prompt, or materialized output: those
 // remain buyer-controlled artifacts and are bound at each firm-job boundary.
 type ProjectOrder struct {
-	ID                string    `json:"id"`
-	IRSHA256          string    `json:"ir_sha256"`
-	Currency          string    `json:"currency"`
-	BuyerCeilingNanos int64     `json:"buyer_ceiling_nanos"`
-	ReservedNanos     int64     `json:"reserved_nanos"`
-	RemainingNanos    int64     `json:"remaining_nanos"`
-	Status            string    `json:"status"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID                string             `json:"id"`
+	IRSHA256          string             `json:"ir_sha256"`
+	Currency          string             `json:"currency"`
+	BuyerCeilingNanos int64              `json:"buyer_ceiling_nanos"`
+	ReservedNanos     int64              `json:"reserved_nanos"`
+	RemainingNanos    int64              `json:"remaining_nanos"`
+	Status            string             `json:"status"`
+	CreatedAt         time.Time          `json:"created_at"`
+	Steps             []ProjectOrderStep `json:"steps"`
+}
+
+// ProjectOrderStep is server-side evidence that a specific firm job consumed a
+// named project slot. It is deliberately returned on the buyer-scoped order
+// read so a later dependent quote can reject a fabricated local hand-off
+// receipt before it sends its own input to /v1/quote.
+type ProjectOrderStep struct {
+	StepID                string `json:"step_id"`
+	JobID                 string `json:"job_id"`
+	QuoteID               string `json:"quote_id"`
+	PricingDecisionSHA256 string `json:"pricing_decision_sha256"`
+	AcceptedCeilingNanos  int64  `json:"accepted_ceiling_nanos"`
 }
 
 type projectOrderCreateRequest struct {
@@ -128,6 +141,27 @@ func fillProjectOrderReservation(ctx context.Context, q pgx.Tx, out *ProjectOrde
 		return errors.New("project order reservation ledger is invalid")
 	}
 	out.RemainingNanos = out.BuyerCeilingNanos - out.ReservedNanos
+	rows, err := q.Query(ctx, `
+		SELECT step_id,job_id,quote_id,pricing_decision_sha256,accepted_ceiling_nanos
+		  FROM project_order_steps WHERE project_order_id=$1 ORDER BY step_id`, out.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	out.Steps = out.Steps[:0]
+	for rows.Next() {
+		var step ProjectOrderStep
+		var quoteID uuid.UUID
+		if err := rows.Scan(&step.StepID, &step.JobID, &quoteID,
+			&step.PricingDecisionSHA256, &step.AcceptedCeilingNanos); err != nil {
+			return err
+		}
+		step.QuoteID = "q_" + quoteID.String()
+		out.Steps = append(out.Steps, step)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	return nil
 }
 

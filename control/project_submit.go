@@ -116,7 +116,7 @@ func validateProjectQuoteForSubmit(root string, ir ProjectWorkloadIR, artifact P
 		}
 		if expected.Nanos != quoted.ExpectedCostNanos || maximum.Nanos != quoted.MaximumCostNanos ||
 			expected.Nanos <= 0 || maximum.Nanos < expected.Nanos ||
-			maximum.Nanos <= 0 || q.Pricing.FixedPoint.AcceptedCeilingNanos < maximum.Nanos {
+			maximum.Nanos <= 0 || q.Pricing.FixedPoint.AcceptedCeilingNanos != maximum.Nanos {
 			return nil, fmt.Errorf("step %s quote cost authority changed", step.ID)
 		}
 		wireMaximum := maximum.USDFloat()

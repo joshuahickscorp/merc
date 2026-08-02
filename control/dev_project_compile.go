@@ -6,8 +6,21 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 )
+
+type projectArtifactPaths []string
+
+func (p *projectArtifactPaths) String() string { return strings.Join(*p, ",") }
+func (p *projectArtifactPaths) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("artifact path must not be empty")
+	}
+	*p = append(*p, value)
+	return nil
+}
 
 func runProjectSubmit(args []string) int {
 	fs := flag.NewFlagSet("project submit", flag.ContinueOnError)
@@ -68,7 +81,7 @@ func dispatchProject(command string, args []string) bool {
 		return false
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|quote|submit|materialize|calibration-check}")
+		fmt.Fprintln(os.Stderr, "usage: merc project {contracts|compile|quote|submit|materialize|quote-step|submit-step|calibration-check}")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -99,11 +112,98 @@ func dispatchProject(command string, args []string) bool {
 		os.Exit(runProjectSubmit(args[1:]))
 	case "materialize":
 		os.Exit(runProjectMaterialize(args[1:]))
+	case "quote-step":
+		os.Exit(runProjectQuoteStep(args[1:]))
+	case "submit-step":
+		os.Exit(runProjectSubmitStep(args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown project subcommand %q\n", args[0])
 		os.Exit(2)
 	}
 	return true
+}
+
+func runProjectQuoteStep(args []string) int {
+	fs := flag.NewFlagSet("project quote-step", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	root := fs.String("root", "", "project directory containing materialized artifacts")
+	irPath := fs.String("ir", "", "buyer-approved probed Project IR artifact")
+	projectID := fs.String("project-id", "", "server project order UUID")
+	stepID := fs.String("step", "", "declared dependent project step id")
+	var materializations projectArtifactPaths
+	fs.Var(&materializations, "materialization", "receipt-bound upstream materialization artifact (repeat once per dependency)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *root == "" || *irPath == "" || *projectID == "" || *stepID == "" || len(materializations) == 0 {
+		fmt.Fprintln(os.Stderr, "project quote-step: --root, --ir, --project-id, --step and --materialization are required")
+		return 2
+	}
+	var ir ProjectWorkloadIR
+	if err := readProjectArtifact(*irPath, &ir); err != nil {
+		fmt.Fprintf(os.Stderr, "project quote-step: invalid IR artifact: %v\n", err)
+		return 1
+	}
+	receipts := make([]ProjectMaterialization, 0, len(materializations))
+	for _, path := range materializations {
+		var receipt ProjectMaterialization
+		if err := readProjectArtifact(path, &receipt); err != nil {
+			fmt.Fprintf(os.Stderr, "project quote-step: invalid materialization artifact: %v\n", err)
+			return 1
+		}
+		receipts = append(receipts, receipt)
+	}
+	quote, err := quoteDependentProjectStep(newClient(), *root, ir, *projectID, *stepID, receipts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "project quote-step: %v\n", err)
+		return 1
+	}
+	if err := writeProjectDependentQuote(os.Stdout, quote); err != nil {
+		fmt.Fprintf(os.Stderr, "project quote-step: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runProjectSubmitStep(args []string) int {
+	fs := flag.NewFlagSet("project submit-step", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	root := fs.String("root", "", "project directory containing materialized artifacts")
+	irPath := fs.String("ir", "", "buyer-approved probed Project IR artifact")
+	quotePath := fs.String("quote", "", "reviewed dependent project quote artifact")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *root == "" || *irPath == "" || *quotePath == "" {
+		fmt.Fprintln(os.Stderr, "project submit-step: --root, --ir and --quote are required")
+		return 2
+	}
+	var ir ProjectWorkloadIR
+	if err := readProjectArtifact(*irPath, &ir); err != nil {
+		fmt.Fprintf(os.Stderr, "project submit-step: invalid IR artifact: %v\n", err)
+		return 1
+	}
+	var quote ProjectDependentQuote
+	if err := readProjectArtifact(*quotePath, &quote); err != nil {
+		fmt.Fprintf(os.Stderr, "project submit-step: invalid dependent quote artifact: %v\n", err)
+		return 1
+	}
+	result, err := submitDependentProjectStep(newClient(), *root, ir, quote, time.Now())
+	if writeErr := writeProjectSubmission(os.Stdout, result); writeErr != nil {
+		fmt.Fprintf(os.Stderr, "project submit-step: %v\n", writeErr)
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "project submit-step: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func writeProjectDependentQuote(w io.Writer, quote ProjectDependentQuote) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(quote)
 }
 
 func runProjectQuote(args []string) int {
