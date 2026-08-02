@@ -298,10 +298,10 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 // ledger assertion below is intentionally platform take, not true net
 // contribution; project execution must not relabel gross rows as net economics.
 //
-// This deliberately proves only one independent finite step. A dependent graph
-// still needs durable result materialization and a new quote after each upstream
-// artifact is frozen; accepting it here would turn a declaration into a false
-// execution capability.
+// This deliberately proves one independently executable finite step. A
+// declared dependency is executable only when the upstream artifact contract
+// is accepted by the downstream runner; a vector result is not silently
+// relabelled as a text/prompt input just to make a graph appear runnable.
 func TestProjectCompilerCADExecutionThroughPublicAPI(t *testing.T) {
 	agentBinaryPath(t)
 	llamaURL := os.Getenv("MERC_LLAMA_EMBED_URL")
@@ -440,4 +440,5 @@ func TestProjectCompilerCADExecutionThroughPublicAPI(t *testing.T) {
 	if got := c.do("GET", "/v1/jobs/"+jobID.String()+"/receipt", nil); !strings.Contains(string(got), jobID.String()) {
 		t.Fatalf("buyer receipt does not name the project job: %s", got)
 	}
+
 }

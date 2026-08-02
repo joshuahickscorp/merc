@@ -118,6 +118,14 @@ func TestProjectDeclarationRequiresArtifactBoundDependencies(t *testing.T) {
 		want   string
 	}{
 		{
+			name: "embedding vectors cannot become text input",
+			mutate: func(d *ProjectDeclaration) {
+				d.Steps[1].Kind = "embeddings"
+				d.Steps[0].Kind = "batch_inference"
+			},
+			want: "embedding-vector artifact",
+		},
+		{
 			name: "dependency does not produce an input",
 			mutate: func(d *ProjectDeclaration) {
 				d.Steps[0].Inputs = []string{"project://unrelated-scene"}

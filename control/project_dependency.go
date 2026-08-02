@@ -28,6 +28,146 @@ type ProjectDependentQuote struct {
 	CalibrationState     string                   `json:"calibration_state"`
 }
 
+// ProjectInitialQuote is the reviewed authority for every dependency-free root
+// in a declared graph. It deliberately does not price a future dependent step:
+// that input does not yet exist and must be materialized, receipt-bound, and
+// quoted later by ProjectDependentQuote.
+type ProjectInitialQuote struct {
+	Version             int                `json:"version"`
+	IRSHA256            string             `json:"ir_sha256"`
+	Currency            string             `json:"currency"`
+	BuyerCeilingNanos   int64              `json:"buyer_ceiling_nanos"`
+	ExpectedCostNanos   int64              `json:"expected_cost_nanos"`
+	MaximumCostNanos    int64              `json:"maximum_cost_nanos"`
+	CriticalPathP50Secs int                `json:"critical_path_p50_secs"`
+	CriticalPathP90Secs int                `json:"critical_path_p90_secs"`
+	MinimumConfidence   float64            `json:"minimum_confidence"`
+	Steps               []ProjectStepQuote `json:"steps"`
+	CalibrationState    string             `json:"calibration_state"`
+}
+
+func initialProjectRoots(ir ProjectWorkloadIR) ([]ProjectIRStep, error) {
+	if err := validateProjectArtifactDataflow(ir.Steps); err != nil {
+		return nil, fmt.Errorf("project artifact dataflow: %w", err)
+	}
+	roots := make([]ProjectIRStep, 0, len(ir.Steps))
+	for _, step := range ir.Steps {
+		if len(step.DependsOn) == 0 {
+			roots = append(roots, step)
+		}
+	}
+	if len(roots) == 0 {
+		return nil, errors.New("declared project graph has no dependency-free root step")
+	}
+	return roots, nil
+}
+
+// quoteInitialProjectRoots quotes only inputs that exist in the buyer's
+// project today. This is intentionally separate from quoteCompiledProject:
+// making a quote for a downstream output before it is verified would be a
+// second, fictional input authority.
+func quoteInitialProjectRoots(c *client, root string, ir ProjectWorkloadIR) (ProjectInitialQuote, error) {
+	if ir.IRSHA256 == "" || !validSHA256(ir.IRSHA256) || !ir.Probe.Executed ||
+		ir.Probe.ApprovedIRSHA256 == "" || ir.Economics.PricingDecisionSHA256 != "" {
+		return ProjectInitialQuote{}, errors.New("initial-root quote requires the exact buyer-approved, unquoted Project IR")
+	}
+	roots, err := initialProjectRoots(ir)
+	if err != nil {
+		return ProjectInitialQuote{}, err
+	}
+	rootIR := ir
+	rootIR.Steps = roots
+	quoted, err := quoteCompiledProject(c, root, rootIR)
+	if err != nil {
+		return ProjectInitialQuote{}, err
+	}
+	return ProjectInitialQuote{
+		Version: 1, IRSHA256: ir.IRSHA256, Currency: quoted.Currency,
+		BuyerCeilingNanos: quoted.BuyerCeilingNanos, ExpectedCostNanos: quoted.ExpectedCostNanos,
+		MaximumCostNanos: quoted.MaximumCostNanos, CriticalPathP50Secs: quoted.CriticalPathP50Secs,
+		CriticalPathP90Secs: quoted.CriticalPathP90Secs, MinimumConfidence: quoted.MinimumConfidence,
+		Steps: quoted.Steps, CalibrationState: quoted.CalibrationState,
+	}, nil
+}
+
+func validateInitialProjectQuoteForSubmit(root string, ir ProjectWorkloadIR, artifact ProjectInitialQuote, now time.Time) ([]projectPreparedSubmission, error) {
+	if artifact.Version != 1 || artifact.IRSHA256 != ir.IRSHA256 || artifact.Currency != ir.Economics.Currency ||
+		artifact.BuyerCeilingNanos != ir.Economics.MaximumBuyerPriceNanos ||
+		artifact.CalibrationState != "STEP_QUOTES_NOT_PROJECT_OUTCOME_CALIBRATED" {
+		return nil, errors.New("initial-root quote does not bind the exact approved project")
+	}
+	roots, err := initialProjectRoots(ir)
+	if err != nil {
+		return nil, err
+	}
+	rootIR := ir
+	rootIR.Steps = roots
+	quote := ProjectQuote{Version: 2, IRSHA256: artifact.IRSHA256, Currency: artifact.Currency,
+		ExpectedCostNanos: artifact.ExpectedCostNanos, MaximumCostNanos: artifact.MaximumCostNanos,
+		BuyerCeilingNanos: artifact.BuyerCeilingNanos, CriticalPathP50Secs: artifact.CriticalPathP50Secs,
+		CriticalPathP90Secs: artifact.CriticalPathP90Secs, MinimumConfidence: artifact.MinimumConfidence,
+		CalibrationState: artifact.CalibrationState, Steps: artifact.Steps}
+	return validateProjectQuoteForSubmit(root, rootIR, quote, now)
+}
+
+func createBoundProjectOrder(c *client, ir ProjectWorkloadIR, currency string, ceiling int64) (ProjectOrder, error) {
+	order, err := createProjectOrder(c, projectOrderCreateRequest{
+		IRSHA256: ir.IRSHA256, Currency: currency, BuyerCeilingNanos: ceiling,
+	})
+	if err != nil {
+		return ProjectOrder{}, fmt.Errorf("create project order: %w", err)
+	}
+	if _, err := uuid.Parse(order.ID); err != nil || order.IRSHA256 != ir.IRSHA256 ||
+		order.Currency != currency || order.BuyerCeilingNanos != ceiling ||
+		order.Status != "OPEN" || order.ReservedNanos < 0 || order.RemainingNanos < 0 ||
+		order.ReservedNanos+order.RemainingNanos != order.BuyerCeilingNanos {
+		return ProjectOrder{}, errors.New("project order response does not bind the approved project ceiling")
+	}
+	return order, nil
+}
+
+// submitInitialProjectRoots creates the one project order before it submits any
+// root. Later steps consume its server-side slots rather than introducing a
+// second project price ledger.
+func submitInitialProjectRoots(c *client, root string, ir ProjectWorkloadIR, artifact ProjectInitialQuote, now time.Time) (ProjectSubmission, error) {
+	result := ProjectSubmission{Version: 2, IRSHA256: ir.IRSHA256, Currency: artifact.Currency,
+		BuyerCeilingNanos: artifact.BuyerCeilingNanos, Status: "REFUSED", ExecutionMode: "INITIAL_MATERIALIZED_ROOTS"}
+	prepared, err := validateInitialProjectQuoteForSubmit(root, ir, artifact, now)
+	if err != nil {
+		return result, err
+	}
+	order, err := createBoundProjectOrder(c, ir, artifact.Currency, artifact.BuyerCeilingNanos)
+	if err != nil {
+		return result, err
+	}
+	result.ProjectID, result.Status = order.ID, "SUBMITTING"
+	for _, item := range prepared {
+		key := "project-root:" + ir.IRSHA256[:24] + ":" + strings.TrimPrefix(item.quoted.QuoteID, "q_")
+		result.AttemptedStepID, result.AttemptedKey = item.step.ID, key
+		item.request.ProjectID, item.request.ProjectStepID = order.ID, item.step.ID
+		response, replayed, submitErr := projectSubmitRequest(c, mustJSON(item.request), key)
+		if submitErr != nil {
+			result.Status = "INDETERMINATE"
+			if len(result.Steps) > 0 {
+				result.Status = "PARTIAL"
+			}
+			return result, fmt.Errorf("root step %s submit failed after %d accepted step(s): %w", item.step.ID, len(result.Steps), submitErr)
+		}
+		if response.JobID == uuid.Nil {
+			result.Status = "INDETERMINATE"
+			if len(result.Steps) > 0 {
+				result.Status = "PARTIAL"
+			}
+			return result, fmt.Errorf("root step %s submit response omitted job_id", item.step.ID)
+		}
+		result.Steps = append(result.Steps, ProjectStepSubmission{StepID: item.step.ID, JobID: response.JobID.String(),
+			QuoteID: item.quoted.QuoteID, PricingDecisionSHA256: item.quoted.PricingDecisionSHA256,
+			AuthorityQuoteSHA256: item.quoted.AuthorityQuoteSHA256, IdempotencyKey: key, IdempotentReplay: replayed})
+	}
+	result.Status, result.AttemptedStepID, result.AttemptedKey = "ACCEPTED", "", ""
+	return result, nil
+}
+
 func findProjectIRStep(ir ProjectWorkloadIR, stepID string) (ProjectIRStep, bool) {
 	for _, step := range ir.Steps {
 		if step.ID == stepID {
