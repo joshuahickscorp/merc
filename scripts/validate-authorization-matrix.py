@@ -64,11 +64,11 @@ missing = sorted(set(registered) - set(reviewed))
 stale = sorted(set(reviewed) - set(registered))
 if missing or stale:
     fail(f"coverage mismatch missing={missing} stale={stale}")
-# The pinned surface size. Raised from 85 to 87 after adding the pre-existing
-# public browser configuration endpoint and buyer-scoped job listing to the
-# reviewed matrix. The count is pinned so a NEW route cannot be added without
-# a reviewer deciding what every role may do with it.
-if len(reviewed) != 87:
-    fail(f"expected reviewed 87-route surface, found {len(reviewed)}")
+# The pinned surface size. Raised from 91 to 107 after the service-lease, fabric,
+# and market-liquidity routes entered the reviewed matrix.
+# The count is pinned so a NEW route cannot be added without a reviewer deciding
+# what every role may do with it.
+if len(reviewed) != 107:
+    fail(f"expected reviewed 107-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")

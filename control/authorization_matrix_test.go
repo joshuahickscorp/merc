@@ -89,7 +89,10 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// 71 after the scope-pinned RuntimeSelector promotion gate entered the same
 	// operator evidence surface. It evaluates only; activation remains a
 	// separate audited policy write.
-	if checked != 71 {
-		t.Fatalf("checked %d protected routes, want 71", checked)
+	// 87 after the service-lease, fabric, and market-liquidity routes entered the
+	// reviewed matrix. The matrix includes public routes too; this assertion
+	// covers the protected subset exercised by the credential-bound middleware.
+	if checked != 87 {
+		t.Fatalf("checked %d protected routes, want 87", checked)
 	}
 }
