@@ -1,22 +1,51 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
 )
 
 func projectDeclarationFixture() ProjectDeclaration {
+	seed := int64(0)
 	return ProjectDeclaration{
 		Version: 1,
 		Steps: []ProjectIRStep{
-			{ID: "render", Kind: "media_rendering", DependsOn: []string{"extract"}, Inputs: []string{"project://scene"}, Outputs: []string{"project://frames"}, RuntimeContract: strings.Repeat("a", 64), ModelContract: strings.Repeat("b", 64), ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}, Parallelism: "INDEPENDENT", CheckpointPolicy: "REQUIRED", Verification: "frame_hash_and_quality"},
+			{ID: "render", Kind: "media_rendering", DependsOn: []string{"extract"}, Inputs: []string{"project://scene", "project://scene.blend", "project://engine.bin", "project://textures/albedo.png", "project://plugins/denoise.bin", "project://fonts/inter.ttf"}, Outputs: []string{"project://frames"}, RuntimeContract: strings.Repeat("a", 64), ModelContract: strings.Repeat("b", 64), ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}, Parallelism: "INDEPENDENT", CheckpointPolicy: "REQUIRED", Verification: "frame_hash_and_quality", Rendering: &ProjectIRRendering{
+				Scene:           ProjectIRArtifactPin{Artifact: "project://scene.blend", SHA256: strings.Repeat("e", 64)},
+				Assets:          []ProjectIRArtifactPin{{Artifact: "project://textures/albedo.png", SHA256: strings.Repeat("f", 64)}},
+				Engine:          ProjectIRArtifactPin{Artifact: "project://engine.bin", SHA256: strings.Repeat("a", 64)},
+				Plugins:         []ProjectIRArtifactPin{{Artifact: "project://plugins/denoise.bin", SHA256: strings.Repeat("b", 64)}},
+				Fonts:           []ProjectIRArtifactPin{{Artifact: "project://fonts/inter.ttf", SHA256: strings.Repeat("c", 64)}},
+				ColorManagement: "ACEScg-v1.3", FrameStart: 1, FrameEnd: 24, Cameras: []string{"hero"},
+				TileWidth: 256, TileHeight: 256, Samples: 64, Seed: &seed, Mode: "FINAL",
+				Assembly: "FRAME_CAMERA_TILE_LEXICOGRAPHIC_V1",
+			}},
 			{ID: "extract", Kind: "structured_extraction", Inputs: []string{"project://input"}, Outputs: []string{"project://scene"}, RuntimeContract: strings.Repeat("c", 64), ModelContract: strings.Repeat("d", 64), ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}, Parallelism: "SINGLE_DEVICE", CheckpointPolicy: "NOT_APPLICABLE", Verification: "schema"},
 		},
 		Privacy:   ProjectIRPrivacy{Egress: "DENY", DataLocation: "CA"},
 		Quality:   ProjectIRQuality{Requirement: "buyer-fixture-v1", Verification: "independent"},
 		Result:    ProjectIRResult{Contract: "artifact-set-v1", Retention: "30d", Delivery: "object-store"},
 		Economics: ProjectIREconomics{Currency: "cad", MaximumBuyerPriceNanos: 50_000_000, SupplierFloor: "UNRESOLVED_REFUSE", MercContribution: "UNRESOLVED_REFUSE"},
+	}
+}
+
+func writeRenderFixtureAssets(t *testing.T, root string, declaration *ProjectDeclaration) {
+	t.Helper()
+	pins := map[string]*ProjectIRArtifactPin{
+		"scene.blend":         &declaration.Steps[0].Rendering.Scene,
+		"engine.bin":          &declaration.Steps[0].Rendering.Engine,
+		"textures/albedo.png": &declaration.Steps[0].Rendering.Assets[0],
+		"plugins/denoise.bin": &declaration.Steps[0].Rendering.Plugins[0],
+		"fonts/inter.ttf":     &declaration.Steps[0].Rendering.Fonts[0],
+	}
+	for path, pin := range pins {
+		contents := "project render asset: " + path
+		writeProjectFixture(t, root, path, contents)
+		digest := sha256.Sum256([]byte(contents))
+		pin.SHA256 = hex.EncodeToString(digest[:])
 	}
 }
 
@@ -32,6 +61,7 @@ func writeDeclarationFixture(t *testing.T, root string, declaration ProjectDecla
 func TestProjectDeclarationSuppliesEvidenceBoundDAG(t *testing.T) {
 	root := t.TempDir()
 	declaration := projectDeclarationFixture()
+	writeRenderFixtureAssets(t, root, &declaration)
 	writeDeclarationFixture(t, root, declaration)
 	writeProjectFixture(t, root, "pipeline.py", "json_schema rendering")
 	ir, err := compileProject(projectCompileOptions{Root: root})
@@ -122,13 +152,14 @@ func TestProjectDeclarationRequiresArtifactBoundDependencies(t *testing.T) {
 			mutate: func(d *ProjectDeclaration) {
 				d.Steps[1].Kind = "embeddings"
 				d.Steps[0].Kind = "batch_inference"
+				d.Steps[0].Rendering = nil
 			},
 			want: "embedding-vector artifact",
 		},
 		{
 			name: "dependency does not produce an input",
 			mutate: func(d *ProjectDeclaration) {
-				d.Steps[0].Inputs = []string{"project://unrelated-scene"}
+				d.Steps[0].Inputs = d.Steps[0].Inputs[1:]
 			},
 			want: "consumes none of its output artifacts",
 		},
@@ -149,7 +180,7 @@ func TestProjectDeclarationRequiresArtifactBoundDependencies(t *testing.T) {
 		{
 			name: "non project input",
 			mutate: func(d *ProjectDeclaration) {
-				d.Steps[0].Inputs = []string{"https://example.invalid/scene"}
+				d.Steps[0].Inputs[0] = "https://example.invalid/scene"
 			},
 			want: "invalid input artifact",
 		},
@@ -227,4 +258,69 @@ func TestDeclaredStepProbeIsScopedToItsInputArtifact(t *testing.T) {
 		resource.ProbeKind != "NON_EXECUTING_FILE_SHAPE_V1" {
 		t.Fatalf("step probe escaped or missed its input artifact: %+v", resource)
 	}
+}
+
+func TestProjectRenderingDeclarationBindsEveryExecutableAsset(t *testing.T) {
+	t.Run("missing rendering contract is refused before any probe or price", func(t *testing.T) {
+		declaration := projectDeclarationFixture()
+		declaration.Steps[0].Rendering = nil
+		if err := validateProjectDeclaration(&declaration); err == nil ||
+			!strings.Contains(err.Error(), "requires a rendering contract") {
+			t.Fatalf("media step without render authority validation error = %v", err)
+		}
+	})
+
+	t.Run("inventory pin must name the inspected bytes", func(t *testing.T) {
+		root := t.TempDir()
+		declaration := projectDeclarationFixture()
+		writeRenderFixtureAssets(t, root, &declaration)
+		declaration.Steps[0].Rendering.Engine = ProjectIRArtifactPin{
+			Artifact: "project://engine-replaced.bin", SHA256: strings.Repeat("a", 64),
+		}
+		declaration.Steps[0].Inputs = append(declaration.Steps[0].Inputs, "project://engine-replaced.bin")
+		writeDeclarationFixture(t, root, declaration)
+		writeProjectFixture(t, root, "pipeline.py", "json_schema rendering")
+		if _, err := compileProject(projectCompileOptions{Root: root}); err == nil ||
+			!strings.Contains(err.Error(), "pins absent project artifact") {
+			t.Fatalf("absent render asset compile error = %v", err)
+		}
+	})
+
+	t.Run("declaration digest cannot lie about an inspected asset", func(t *testing.T) {
+		root := t.TempDir()
+		declaration := projectDeclarationFixture()
+		writeRenderFixtureAssets(t, root, &declaration)
+		declaration.Steps[0].Rendering.Scene.SHA256 = strings.Repeat("0", 64)
+		writeDeclarationFixture(t, root, declaration)
+		writeProjectFixture(t, root, "pipeline.py", "json_schema rendering")
+		if _, err := compileProject(projectCompileOptions{Root: root}); err == nil ||
+			!strings.Contains(err.Error(), "project inventory") {
+			t.Fatalf("render asset digest mismatch compile error = %v", err)
+		}
+	})
+
+	t.Run("valid rendering authority remains in the frozen IR", func(t *testing.T) {
+		root := t.TempDir()
+		declaration := projectDeclarationFixture()
+		writeRenderFixtureAssets(t, root, &declaration)
+		writeDeclarationFixture(t, root, declaration)
+		writeProjectFixture(t, root, "pipeline.py", "json_schema rendering")
+		ir, err := compileProject(projectCompileOptions{Root: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var render *ProjectIRStep
+		for i := range ir.Steps {
+			if ir.Steps[i].ID == "render" {
+				render = &ir.Steps[i]
+			}
+		}
+		if render == nil || render.Rendering == nil || render.Rendering.Mode != "FINAL" ||
+			render.Rendering.Scene.SHA256 != declaration.Steps[0].Rendering.Scene.SHA256 {
+			t.Fatalf("compiled IR lost render authority: %+v", render)
+		}
+		if !strings.Contains(strings.Join(ir.RefusalReasons, "\n"), "resolved to 0 routable cells") {
+			t.Fatalf("rendering IR became executable without a governed cell: %+v", ir.RefusalReasons)
+		}
+	})
 }

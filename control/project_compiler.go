@@ -61,6 +61,47 @@ type ProjectIRStep struct {
 	Parallelism      string                    `json:"parallelism"`
 	CheckpointPolicy string                    `json:"checkpoint_policy"`
 	Verification     string                    `json:"verification"`
+	// Rendering is required for media_rendering. It is the render authority,
+	// not a free-form command: all executable assets are project-local and
+	// digest-bound before a supplier can receive them.
+	Rendering *ProjectIRRendering `json:"rendering,omitempty"`
+}
+
+// ProjectIRArtifactPin fixes a rendering input to a project-local artifact and
+// its complete-file digest. A path alone is not an asset identity: it can name
+// a different font, plugin, or scene on the next checkout without changing the
+// declared graph.
+type ProjectIRArtifactPin struct {
+	Artifact string `json:"artifact"`
+	SHA256   string `json:"sha256"`
+}
+
+// ProjectIRRendering is the non-money authority for a deterministic render
+// step. It deliberately describes the unit that a future topology planner may
+// split (frame/camera/tile/sample) without allowing that planner to replace the
+// buyer-approved scene, engine, or colour pipeline.
+//
+// This is an IR contract only. A declaration that carries it remains refused
+// until an exact runtime cell, verification implementation, and economic plan
+// are available; see resolveDeclaredProjectContracts.
+type ProjectIRRendering struct {
+	Scene           ProjectIRArtifactPin   `json:"scene"`
+	Assets          []ProjectIRArtifactPin `json:"assets,omitempty"`
+	Engine          ProjectIRArtifactPin   `json:"engine"`
+	Plugins         []ProjectIRArtifactPin `json:"plugins,omitempty"`
+	Fonts           []ProjectIRArtifactPin `json:"fonts,omitempty"`
+	ColorManagement string                 `json:"color_management"`
+	FrameStart      int64                  `json:"frame_start"`
+	FrameEnd        int64                  `json:"frame_end"`
+	Cameras         []string               `json:"cameras"`
+	TileWidth       int                    `json:"tile_width,omitempty"`
+	TileHeight      int                    `json:"tile_height,omitempty"`
+	Samples         int                    `json:"samples"`
+	// Seed is a pointer so zero is a valid, explicit seed rather than an absent
+	// one. An unseeded rendering step cannot be independently reproduced.
+	Seed     *int64 `json:"seed"`
+	Mode     string `json:"mode"`
+	Assembly string `json:"assembly"`
 }
 
 type ProjectIRArtifact struct {
@@ -319,6 +360,9 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) (ProjectWor
 	}
 	if declared {
 		applyProjectDeclaration(&ir, declaration)
+		if err := validateProjectRenderingArtifactBindings(ir); err != nil {
+			return ProjectWorkloadIR{}, err
+		}
 		resolveDeclaredProjectContracts(&ir)
 	} else {
 		for i, detection := range ir.Detections {
@@ -358,6 +402,37 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) (ProjectWor
 	ir.RefusalReasons = append(ir.RefusalReasons, "cost and duration estimates are not calibrated against outcome-linked observations")
 	sort.Strings(ir.RefusalReasons)
 	return ir, nil
+}
+
+// validateProjectRenderingArtifactBindings makes every render pin point at the
+// exact byte inventory the compiler just inspected. Declarations are buyer
+// input, so accepting a digest written in merc.project.json without comparing
+// it to the actual project would let a worker receive a different plugin or
+// font than the one the graph and later receipt claim.
+func validateProjectRenderingArtifactBindings(ir ProjectWorkloadIR) error {
+	artifacts := make(map[string]string, len(ir.Artifacts))
+	for _, artifact := range ir.Artifacts {
+		artifacts["project://"+artifact.Path] = artifact.SHA256
+	}
+	for _, step := range ir.Steps {
+		if step.Kind != "media_rendering" {
+			continue
+		}
+		if step.Rendering == nil {
+			return fmt.Errorf("declared rendering step %s has no rendering contract", step.ID)
+		}
+		for _, pin := range projectRenderPins(*step.Rendering) {
+			actual, exists := artifacts[pin.Artifact]
+			if !exists {
+				return fmt.Errorf("rendering step %s pins absent project artifact %q", step.ID, pin.Artifact)
+			}
+			if actual != pin.SHA256 {
+				return fmt.Errorf("rendering step %s pin for %q is %s, project inventory is %s",
+					step.ID, pin.Artifact, pin.SHA256, actual)
+			}
+		}
+	}
+	return nil
 }
 
 func detectProjectWorkloads(files []projectFile) []ProjectIRDetection {
