@@ -90,6 +90,10 @@ test-unit:
 CI_TEST_JSON = $(CURDIR)/.ci-test.json
 
 ci:
+	# The public API integration tests launch the release agent as a real
+	# subprocess. Build it from this tree before those tests so a stale binary
+	# cannot enroll against one capability digest and dispatch another.
+	cd agent && cargo build --release
 	cd control && test -z "$$(gofmt -l .)" && go vet ./...
 	cd control && $(CI_TEST_ENV) bash ../scripts/with-isolated-test-storage.sh bash ../scripts/with-isolated-test-db.sh go test -timeout 45m -json ./... > "$(CI_TEST_JSON)"; \
 	  status=$$?; python3 "$(CURDIR)/scripts/summarize-go-test-json.py" "$(CI_TEST_JSON)"; \
