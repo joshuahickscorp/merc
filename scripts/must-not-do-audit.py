@@ -172,13 +172,38 @@ def check_physical_and_reused_delivery_are_separate():
 
 
 def check_no_wan_tightly_coupled_inference():
-    """7. Tightly coupled inference is not distributed across WAN nodes."""
+    """7. Tightly coupled inference is not distributed across WAN nodes.
+
+    Executable check, not a substring match on production constants: a rename
+    that keeps the refusal must pass, and a rename that inverts the logic must
+    fail. control/execution_mode_test.go calls ChooseExecutionMode with a WAN
+    fabric and tightly coupled parallelism; the suite runs that test. This
+    audit only verifies the test still exists and exercises the authority.
+    """
     if not os.path.exists(os.path.join(ROOT, "control/execution_mode.go")):
         return FAIL, "no execution-mode authority exists to refuse it"
-    source = read("control/execution_mode.go")
-    if "FabricWAN" not in source or "collective would dominate" not in source:
-        return FAIL, "the execution-mode authority does not refuse a WAN fabric"
-    return PASS, "ChooseExecutionMode refuses tightly coupled work on WAN and on an unmeasured fabric"
+    test_path = "control/execution_mode_test.go"
+    if not os.path.exists(os.path.join(ROOT, test_path)):
+        return FAIL, f"{test_path} is missing; the WAN refusal is not executed"
+    test_source = read(test_path)
+    if "func TestTightlyCoupledWorkIsRefusedOnAWANFabric" not in test_source:
+        return FAIL, "no test calls ChooseExecutionMode for tightly coupled work on a WAN"
+    if "ChooseExecutionMode" not in test_source:
+        return FAIL, f"{test_path} does not call ChooseExecutionMode"
+    if "FabricWAN" not in test_source or "CouplingTight" not in test_source:
+        return FAIL, f"{test_path} does not exercise WAN + tightly coupled placement"
+    # Surrounding admitted cases (site fabric, independent pool/service/cloud)
+    # must also be executable so the refusal is not the only path covered.
+    for needle, label in (
+        ("TestMeasuredSiteFabricWinsLocalCluster", "measured-site admission"),
+        ("TestIndependentWorkChoosesPoolServiceOrCloud", "independent-work admission"),
+    ):
+        if needle not in test_source:
+            return FAIL, f"{test_path} is missing {label} ({needle})"
+    return PASS, (
+        "ChooseExecutionMode is exercised by execution_mode_test.go: refuses "
+        "tightly coupled work on WAN, admits measured site and independent work"
+    )
 
 
 def check_supplier_usage_is_not_payment_authority():
