@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -85,6 +87,16 @@ func newFabricPeerWorker(t *testing.T, ctx context.Context, store *Store, suppli
 		t.Fatal(err)
 	}
 	return WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, token
+}
+
+func registerFabricIdentity(t *testing.T, ctx context.Context, store *Store, worker WorkerAuth) string {
+	t.Helper()
+	sum := sha256.Sum256([]byte("fabric-test-worker-certificate:" + worker.WorkerID.String()))
+	fingerprint := hex.EncodeToString(sum[:])
+	if err := store.RegisterFabricWorkerIdentity(ctx, worker, FabricWorkerIdentity{CertificateSHA256: fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	return fingerprint
 }
 
 func TestFabricReceiptIsWorkerAuthenticatedRecomputedImmutableAndNonAdmissible(t *testing.T) {
@@ -172,10 +184,35 @@ func TestFabricReceiptRefusesSelfPromotionAndMalformedEvidence(t *testing.T) {
 	}
 }
 
+func TestFabricWorkerCertificateIdentityIsAuthenticatedUniqueAndImmutable(t *testing.T) {
+	ctx, store, _ := openPayoutTestStore(t)
+	worker, token := newFabricMeasurementWorker(t, ctx, store)
+	handler := NewServer(store, nil, nil, nil).Routes()
+	fingerprint := strings.Repeat("e", 64)
+	if got := requestFabricJSON(t, handler, token, "/v1/worker/fabric/identity", FabricWorkerIdentity{CertificateSHA256: fingerprint}).Code; got != http.StatusNoContent {
+		t.Fatalf("fabric identity status=%d", got)
+	}
+	// Exact retries are safe. A changed certificate identity is not: certificate
+	// rotation needs a separately governed operation rather than a token call.
+	if got := requestFabricJSON(t, handler, token, "/v1/worker/fabric/identity", FabricWorkerIdentity{CertificateSHA256: fingerprint}).Code; got != http.StatusNoContent {
+		t.Fatalf("fabric identity retry status=%d", got)
+	}
+	if got := requestFabricJSON(t, handler, token, "/v1/worker/fabric/identity", FabricWorkerIdentity{CertificateSHA256: strings.Repeat("f", 64)}).Code; got != http.StatusConflict {
+		t.Fatalf("fabric identity mutation status=%d, want 409", got)
+	}
+	peer, peerToken := newFabricPeerWorker(t, ctx, store, worker.SupplierID)
+	if got := requestFabricJSON(t, handler, peerToken, "/v1/worker/fabric/identity", FabricWorkerIdentity{CertificateSHA256: fingerprint}).Code; got != http.StatusConflict {
+		t.Fatalf("cross-worker fabric certificate reuse status=%d, want 409", got)
+	}
+	_ = peer
+}
+
 func TestFabricSessionRequiresEveryRoundFromTheReservedPeerAndStaysNonAdmissible(t *testing.T) {
 	ctx, store, pool := openPayoutTestStore(t)
 	initiator, initiatorToken := newFabricMeasurementWorker(t, ctx, store)
 	peer, peerToken := newFabricPeerWorker(t, ctx, store, initiator.SupplierID)
+	initiatorCertificate := registerFabricIdentity(t, ctx, store, initiator)
+	peerCertificate := registerFabricIdentity(t, ctx, store, peer)
 	handler := NewServer(store, nil, nil, nil).Routes()
 
 	created := requestFabricJSON(t, handler, initiatorToken, "/v1/worker/fabric/sessions", FabricSessionCreateRequest{
@@ -188,15 +225,30 @@ func TestFabricSessionRequiresEveryRoundFromTheReservedPeerAndStaysNonAdmissible
 	if err := json.NewDecoder(created.Body).Decode(&session); err != nil || session.FabricSessionID == uuid.Nil {
 		t.Fatalf("decode fabric session: session=%+v err=%v", session, err)
 	}
+	if session.PeerCertificateSHA256 != peerCertificate {
+		t.Fatalf("fabric session returned peer certificate %q, want %q", session.PeerCertificateSHA256, peerCertificate)
+	}
 
 	receipt := fabricReceipt()
+	receipt.Transport = "MERC_FABRIC_MTLS_ECHO_V1"
+	receipt.PeerAuthentication = "MUTUAL_TLS_WORKER_CERTIFICATE_BOUND"
+	receipt.LocalCertificateSHA256 = initiatorCertificate
+	receipt.PeerCertificateSHA256 = peerCertificate
 	receipt.FabricSessionID = &session.FabricSessionID
 	receipt.ExpectedPeerWorkerID = &peer.WorkerID
+	wrongObserved := requestFabricJSON(t, handler, peerToken, "/v1/worker/fabric/observations", FabricProbeObservation{
+		SchemaVersion: 1, FabricSessionID: session.FabricSessionID,
+		TranscriptSHA256: receipt.Rounds[0].TranscriptSHA256, PayloadBytesEachDirection: receipt.Rounds[0].PayloadBytesEachDirection,
+		ObservedAtUnixMS: time.Now().UnixMilli(), ObservedPeerCertificateSHA256: strings.Repeat("0", 64),
+	})
+	if wrongObserved.Code != http.StatusBadRequest {
+		t.Fatalf("wrong mTLS client certificate observation status=%d body=%s", wrongObserved.Code, wrongObserved.Body.String())
+	}
 	for _, round := range receipt.Rounds {
 		observed := requestFabricJSON(t, handler, peerToken, "/v1/worker/fabric/observations", FabricProbeObservation{
 			SchemaVersion: 1, FabricSessionID: session.FabricSessionID,
 			TranscriptSHA256: round.TranscriptSHA256, PayloadBytesEachDirection: round.PayloadBytesEachDirection,
-			ObservedAtUnixMS: time.Now().UnixMilli(),
+			ObservedAtUnixMS: time.Now().UnixMilli(), ObservedPeerCertificateSHA256: initiatorCertificate,
 		})
 		if observed.Code != http.StatusNoContent {
 			t.Fatalf("fabric observation status=%d body=%s", observed.Code, observed.Body.String())
@@ -223,12 +275,15 @@ func TestFabricSessionRequiresEveryRoundFromTheReservedPeerAndStaysNonAdmissible
 	if got := requestFabricReceipt(t, handler, initiatorToken, raw).Code; got != http.StatusNoContent {
 		t.Fatalf("mutual fabric receipt status=%d", got)
 	}
-	var classification string
-	if err := pool.QueryRow(ctx, `SELECT classification FROM fabric_link_measurements WHERE receipt_id=$1`, receipt.ReceiptID).Scan(&classification); err != nil {
+	var classification, storedLocalCertificate, storedPeerCertificate string
+	if err := pool.QueryRow(ctx, `SELECT classification,local_certificate_sha256,peer_certificate_sha256
+		FROM fabric_link_measurements WHERE receipt_id=$1`, receipt.ReceiptID).
+		Scan(&classification, &storedLocalCertificate, &storedPeerCertificate); err != nil {
 		t.Fatal(err)
 	}
-	if classification != "MUTUAL_WORKER_OBSERVED_NOT_ADMISSIBLE" {
-		t.Fatalf("classification=%q, want mutual non-admissible evidence", classification)
+	if classification != "MUTUAL_MTLS_WORKER_BOUND_NOT_ADMISSIBLE" ||
+		storedLocalCertificate != initiatorCertificate || storedPeerCertificate != peerCertificate {
+		t.Fatalf("mTLS evidence was not bound and retained: class=%q local=%q peer=%q", classification, storedLocalCertificate, storedPeerCertificate)
 	}
 
 	// A missing observation cannot self-promote: it remains self-reported rather
@@ -244,6 +299,10 @@ func TestFabricSessionRequiresEveryRoundFromTheReservedPeerAndStaysNonAdmissible
 		t.Fatal(err)
 	}
 	second := fabricReceipt()
+	second.Transport = "MERC_FABRIC_MTLS_ECHO_V1"
+	second.PeerAuthentication = "MUTUAL_TLS_WORKER_CERTIFICATE_BOUND"
+	second.LocalCertificateSHA256 = initiatorCertificate
+	second.PeerCertificateSHA256 = peerCertificate
 	second.FabricSessionID = &unobservedSession.FabricSessionID
 	second.ExpectedPeerWorkerID = &peer.WorkerID
 	second.ReceiptID = uuid.New()

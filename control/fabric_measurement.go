@@ -26,8 +26,9 @@ var errFabricMeasurementConflict = errors.New("fabric measurement receipt confli
 
 // FabricLinkMeasurementReceipt is an agent's raw direct-link observation. The
 // server verifies its shape and recomputes all summary metrics before persisting
-// it, but this is still self-reported evidence: the currently owner-shared
-// probe secret cannot establish a peer worker identity or a governed site.
+// it. A mutual-TLS receipt can bind each endpoint to an immutable worker
+// certificate, but remains non-admissible until governed site, workload data,
+// collective, and topology-economic authority exist.
 type FabricLinkMeasurementReceipt struct {
 	SchemaVersion          int                          `json:"schema_version"`
 	ReceiptID              uuid.UUID                    `json:"receipt_id"`
@@ -40,6 +41,8 @@ type FabricLinkMeasurementReceipt struct {
 	PeerEndpointCommitment string                       `json:"peer_endpoint_commitment"`
 	Transport              string                       `json:"transport"`
 	PeerAuthentication     string                       `json:"peer_authentication"`
+	LocalCertificateSHA256 string                       `json:"local_certificate_sha256,omitempty"`
+	PeerCertificateSHA256  string                       `json:"peer_certificate_sha256,omitempty"`
 	PayloadIsRandom        bool                         `json:"payload_is_random"`
 	Rounds                 []FabricLinkMeasurementRound `json:"rounds"`
 	P50RoundTripMicros     int64                        `json:"p50_round_trip_micros"`
@@ -64,15 +67,24 @@ type FabricSessionCreateRequest struct {
 }
 
 type FabricSessionCreateResponse struct {
-	FabricSessionID uuid.UUID `json:"fabric_session_id"`
+	FabricSessionID       uuid.UUID `json:"fabric_session_id"`
+	PeerCertificateSHA256 string    `json:"peer_certificate_sha256"`
 }
 
 type FabricProbeObservation struct {
-	SchemaVersion             int       `json:"schema_version"`
-	FabricSessionID           uuid.UUID `json:"fabric_session_id"`
-	TranscriptSHA256          string    `json:"transcript_sha256"`
-	PayloadBytesEachDirection int       `json:"payload_bytes_each_direction"`
-	ObservedAtUnixMS          int64     `json:"observed_at_unix_ms"`
+	SchemaVersion                 int       `json:"schema_version"`
+	FabricSessionID               uuid.UUID `json:"fabric_session_id"`
+	TranscriptSHA256              string    `json:"transcript_sha256"`
+	PayloadBytesEachDirection     int       `json:"payload_bytes_each_direction"`
+	ObservedAtUnixMS              int64     `json:"observed_at_unix_ms"`
+	ObservedPeerCertificateSHA256 string    `json:"observed_peer_certificate_sha256,omitempty"`
+}
+
+// FabricWorkerIdentity names the exact DER end-entity certificate a worker
+// uses for fabric mTLS. Control stores only its digest: private key material,
+// certificate subject names, and site addresses never enter this API.
+type FabricWorkerIdentity struct {
+	CertificateSHA256 string `json:"certificate_sha256"`
 }
 
 type fabricMeasurementSummary struct {
@@ -96,9 +108,21 @@ func validateFabricLinkMeasurement(receipt FabricLinkMeasurementReceipt, now tim
 	if (receipt.FabricSessionID == nil) != (receipt.ExpectedPeerWorkerID == nil) {
 		return fabricMeasurementSummary{}, errors.New("fabric receipt must name both a reserved session and expected peer, or neither")
 	}
-	if receipt.Transport != "MERC_FABRIC_TCP_ECHO_V1" ||
-		receipt.PeerAuthentication != "HMAC_SHA256_OWNER_SHARED_PROBE_TOKEN" || !receipt.PayloadIsRandom {
+	if !receipt.PayloadIsRandom {
 		return fabricMeasurementSummary{}, errors.New("fabric receipt has an unrecognized measurement protocol")
+	}
+	isMTLS := receipt.Transport == "MERC_FABRIC_MTLS_ECHO_V1" &&
+		receipt.PeerAuthentication == "MUTUAL_TLS_WORKER_CERTIFICATE_BOUND"
+	isLegacyHMAC := receipt.Transport == "MERC_FABRIC_TCP_ECHO_V1" &&
+		receipt.PeerAuthentication == "HMAC_SHA256_OWNER_SHARED_PROBE_TOKEN"
+	if !isMTLS && !isLegacyHMAC {
+		return fabricMeasurementSummary{}, errors.New("fabric receipt has an unrecognized measurement protocol")
+	}
+	if isMTLS && (!validSHA256(receipt.LocalCertificateSHA256) || !validSHA256(receipt.PeerCertificateSHA256)) {
+		return fabricMeasurementSummary{}, errors.New("mTLS fabric receipt omits a valid bound certificate fingerprint")
+	}
+	if isLegacyHMAC && (receipt.LocalCertificateSHA256 != "" || receipt.PeerCertificateSHA256 != "") {
+		return fabricMeasurementSummary{}, errors.New("legacy HMAC receipt must not claim certificate identities")
 	}
 	if strings.TrimSpace(receipt.DeclaredSite) == "" || len(receipt.DeclaredSite) > 128 ||
 		!validSHA256(receipt.PeerEndpointCommitment) {
@@ -156,6 +180,45 @@ func validateFabricLinkMeasurement(receipt FabricLinkMeasurementReceipt, now tim
 	}, nil
 }
 
+// RegisterFabricWorkerIdentity atomically binds one worker to the digest of
+// its mTLS end-entity certificate. It is intentionally immutable: a leaked
+// worker token cannot replace the certificate identity under existing or
+// future session evidence without an explicit credential-rotation authority.
+func (s *Store) RegisterFabricWorkerIdentity(ctx context.Context, auth WorkerAuth, identity FabricWorkerIdentity) error {
+	if !validSHA256(identity.CertificateSHA256) {
+		return errors.New("fabric certificate fingerprint must be a SHA-256 hex digest")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if tag, err := tx.Exec(ctx, `UPDATE workers SET last_seen_at=now() WHERE id=$1 AND supplier_id=$2`, auth.WorkerID, auth.SupplierID); err != nil {
+		return err
+	} else if tag.RowsAffected() != 1 {
+		return errNotFound
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO worker_fabric_identities
+		(worker_id,supplier_id,certificate_sha256) VALUES ($1,$2,$3)
+		ON CONFLICT DO NOTHING`, auth.WorkerID, auth.SupplierID, identity.CertificateSHA256); err != nil {
+		return err
+	}
+	var storedWorker, storedSupplier uuid.UUID
+	var storedFingerprint string
+	if err := tx.QueryRow(ctx, `SELECT worker_id,supplier_id,certificate_sha256
+		FROM worker_fabric_identities WHERE worker_id=$1`, auth.WorkerID).
+		Scan(&storedWorker, &storedSupplier, &storedFingerprint); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errFabricMeasurementConflict
+		}
+		return err
+	}
+	if storedWorker != auth.WorkerID || storedSupplier != auth.SupplierID || storedFingerprint != identity.CertificateSHA256 {
+		return errFabricMeasurementConflict
+	}
+	return tx.Commit(ctx)
+}
+
 // CreateFabricProbeSession reserves a short, explicit connection between two
 // enrolled workers of the SAME supplier. It does not grant either worker a
 // cluster placement or any workload-data authority; it merely gives the peer's
@@ -180,17 +243,30 @@ func (s *Store) CreateFabricProbeSession(ctx context.Context, auth WorkerAuth, r
 	if peerSupplierID != auth.SupplierID {
 		return FabricSessionCreateResponse{}, errors.New("fabric peer must belong to the same supplier until a governed multi-owner site authority exists")
 	}
+	var initiatorCertificate, peerCertificate string
+	if err := tx.QueryRow(ctx, `SELECT certificate_sha256 FROM worker_fabric_identities WHERE worker_id=$1 AND supplier_id=$2`, auth.WorkerID, auth.SupplierID).Scan(&initiatorCertificate); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return FabricSessionCreateResponse{}, errors.New("fabric initiator has no immutable mTLS worker certificate identity")
+		}
+		return FabricSessionCreateResponse{}, err
+	}
+	if err := tx.QueryRow(ctx, `SELECT certificate_sha256 FROM worker_fabric_identities WHERE worker_id=$1 AND supplier_id=$2`, request.PeerWorkerID, auth.SupplierID).Scan(&peerCertificate); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return FabricSessionCreateResponse{}, errors.New("fabric peer has no immutable mTLS worker certificate identity")
+		}
+		return FabricSessionCreateResponse{}, err
+	}
 	id := uuid.New()
 	if _, err := tx.Exec(ctx, `INSERT INTO fabric_probe_sessions
-		(id,initiator_worker_id,peer_worker_id,supplier_id,declared_site,expires_at)
-		VALUES ($1,$2,$3,$4,$5,now()+interval '10 minutes')`,
-		id, auth.WorkerID, request.PeerWorkerID, auth.SupplierID, strings.TrimSpace(request.DeclaredSite)); err != nil {
+		(id,initiator_worker_id,peer_worker_id,supplier_id,declared_site,initiator_certificate_sha256,peer_certificate_sha256,expires_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,now()+interval '10 minutes')`,
+		id, auth.WorkerID, request.PeerWorkerID, auth.SupplierID, strings.TrimSpace(request.DeclaredSite), initiatorCertificate, peerCertificate); err != nil {
 		return FabricSessionCreateResponse{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return FabricSessionCreateResponse{}, err
 	}
-	return FabricSessionCreateResponse{FabricSessionID: id}, nil
+	return FabricSessionCreateResponse{FabricSessionID: id, PeerCertificateSHA256: peerCertificate}, nil
 }
 
 func validateFabricProbeObservation(observation FabricProbeObservation, now time.Time) (time.Time, error) {
@@ -217,9 +293,10 @@ func (s *Store) RecordFabricProbeObservation(ctx context.Context, auth WorkerAut
 	}
 	defer tx.Rollback(ctx)
 	var sessionSupplier, peerWorker uuid.UUID
+	var initiatorCertificate string
 	var expiresAt time.Time
-	if err := tx.QueryRow(ctx, `SELECT supplier_id,peer_worker_id,expires_at FROM fabric_probe_sessions WHERE id=$1`, observation.FabricSessionID).
-		Scan(&sessionSupplier, &peerWorker, &expiresAt); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT supplier_id,peer_worker_id,initiator_certificate_sha256,expires_at FROM fabric_probe_sessions WHERE id=$1`, observation.FabricSessionID).
+		Scan(&sessionSupplier, &peerWorker, &initiatorCertificate, &expiresAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errNotFound
 		}
@@ -231,25 +308,29 @@ func (s *Store) RecordFabricProbeObservation(ctx context.Context, auth WorkerAut
 	if !expiresAt.After(time.Now()) {
 		return errors.New("fabric session has expired")
 	}
+	if initiatorCertificate != "" && observation.ObservedPeerCertificateSHA256 != initiatorCertificate {
+		return errors.New("fabric peer observation mTLS client certificate does not match the reserved initiator worker")
+	}
 	tag, err := tx.Exec(ctx, `INSERT INTO fabric_probe_observations
 		(fabric_session_id,transcript_sha256,observer_worker_id,observer_supplier_id,
-		 payload_bytes_each_direction,observed_at)
-		VALUES ($1,$2,$3,$4,$5,$6)
+		 payload_bytes_each_direction,observed_peer_certificate_sha256,observed_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
 		ON CONFLICT (fabric_session_id,transcript_sha256) DO NOTHING`,
 		observation.FabricSessionID, observation.TranscriptSHA256, auth.WorkerID, auth.SupplierID,
-		observation.PayloadBytesEachDirection, observedAt)
+		observation.PayloadBytesEachDirection, observation.ObservedPeerCertificateSHA256, observedAt)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		var workerID uuid.UUID
 		var payloadBytes int
-		if err := tx.QueryRow(ctx, `SELECT observer_worker_id,payload_bytes_each_direction
+		var observedCertificate string
+		if err := tx.QueryRow(ctx, `SELECT observer_worker_id,payload_bytes_each_direction,observed_peer_certificate_sha256
 			FROM fabric_probe_observations WHERE fabric_session_id=$1 AND transcript_sha256=$2`,
-			observation.FabricSessionID, observation.TranscriptSHA256).Scan(&workerID, &payloadBytes); err != nil {
+			observation.FabricSessionID, observation.TranscriptSHA256).Scan(&workerID, &payloadBytes, &observedCertificate); err != nil {
 			return err
 		}
-		if workerID != auth.WorkerID || payloadBytes != observation.PayloadBytesEachDirection {
+		if workerID != auth.WorkerID || payloadBytes != observation.PayloadBytesEachDirection || observedCertificate != observation.ObservedPeerCertificateSHA256 {
 			return errFabricMeasurementConflict
 		}
 	}
@@ -310,14 +391,30 @@ func (s *Store) RecordFabricLinkMeasurement(ctx context.Context, auth WorkerAuth
 	} else if tag.RowsAffected() != 1 {
 		return errNotFound
 	}
+	isMTLS := receipt.Transport == "MERC_FABRIC_MTLS_ECHO_V1"
+	if isMTLS {
+		var boundCertificate string
+		if err := tx.QueryRow(ctx, `SELECT certificate_sha256 FROM worker_fabric_identities
+			WHERE worker_id=$1 AND supplier_id=$2`, auth.WorkerID, auth.SupplierID).Scan(&boundCertificate); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return errors.New("reporting worker has no immutable mTLS fabric certificate identity")
+			}
+			return err
+		}
+		if receipt.LocalCertificateSHA256 != boundCertificate {
+			return errors.New("fabric receipt local mTLS certificate does not match reporting worker identity")
+		}
+	}
 	classification := "SELF_REPORTED_UNQUALIFIED"
 	if receipt.FabricSessionID != nil {
 		var initiatorWorker, peerWorker, supplierID uuid.UUID
 		var declaredSite string
+		var initiatorCertificate, peerCertificate string
 		var expiresAt time.Time
-		if err := tx.QueryRow(ctx, `SELECT initiator_worker_id,peer_worker_id,supplier_id,declared_site,expires_at
+		if err := tx.QueryRow(ctx, `SELECT initiator_worker_id,peer_worker_id,supplier_id,declared_site,
+			initiator_certificate_sha256,peer_certificate_sha256,expires_at
 			FROM fabric_probe_sessions WHERE id=$1`, *receipt.FabricSessionID).
-			Scan(&initiatorWorker, &peerWorker, &supplierID, &declaredSite, &expiresAt); err != nil {
+			Scan(&initiatorWorker, &peerWorker, &supplierID, &declaredSite, &initiatorCertificate, &peerCertificate, &expiresAt); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return errNotFound
 			}
@@ -328,14 +425,18 @@ func (s *Store) RecordFabricLinkMeasurement(ctx context.Context, auth WorkerAuth
 			declaredSite != strings.TrimSpace(receipt.DeclaredSite) || !expiresAt.After(time.Now()) {
 			return errors.New("fabric receipt does not match its reserved peer session")
 		}
+		if isMTLS && (receipt.LocalCertificateSHA256 != initiatorCertificate || receipt.PeerCertificateSHA256 != peerCertificate) {
+			return errors.New("fabric receipt mTLS certificate identities do not match the reserved worker session")
+		}
 		allObserved := true
 		for _, round := range receipt.Rounds {
 			var observerWorker uuid.UUID
 			var payloadBytes int
-			err := tx.QueryRow(ctx, `SELECT observer_worker_id,payload_bytes_each_direction
+			var observedCertificate string
+			err := tx.QueryRow(ctx, `SELECT observer_worker_id,payload_bytes_each_direction,observed_peer_certificate_sha256
 				FROM fabric_probe_observations
 				WHERE fabric_session_id=$1 AND transcript_sha256=$2`, *receipt.FabricSessionID, round.TranscriptSHA256).
-				Scan(&observerWorker, &payloadBytes)
+				Scan(&observerWorker, &payloadBytes, &observedCertificate)
 			if errors.Is(err, pgx.ErrNoRows) {
 				allObserved = false
 				break
@@ -343,27 +444,33 @@ func (s *Store) RecordFabricLinkMeasurement(ctx context.Context, auth WorkerAuth
 			if err != nil {
 				return err
 			}
-			if observerWorker != peerWorker || payloadBytes != round.PayloadBytesEachDirection {
+			if observerWorker != peerWorker || payloadBytes != round.PayloadBytesEachDirection || (isMTLS && observedCertificate != initiatorCertificate) {
 				return errors.New("fabric peer observation does not match the receipt round")
 			}
 		}
 		if allObserved {
-			classification = "MUTUAL_WORKER_OBSERVED_NOT_ADMISSIBLE"
+			if isMTLS {
+				classification = "MUTUAL_MTLS_WORKER_BOUND_NOT_ADMISSIBLE"
+			} else {
+				classification = "MUTUAL_WORKER_OBSERVED_NOT_ADMISSIBLE"
+			}
 		}
 	}
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO fabric_link_measurements
 		  (receipt_id, reporting_worker_id, reporting_supplier_id, declared_site,
 		   peer_endpoint_commitment, transport, peer_authentication, measured_at,
+		   local_certificate_sha256, peer_certificate_sha256,
 		   payload_bytes_each_direction, sample_count, p50_round_trip_micros,
 		   p95_round_trip_micros, p50_payload_goodput_mbps, fabric_session_id,
 		   expected_peer_worker_id, classification, receipt_sha256, raw_receipt)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb)
 		ON CONFLICT (receipt_id) DO NOTHING`,
 		receipt.ReceiptID, auth.WorkerID, auth.SupplierID, strings.TrimSpace(receipt.DeclaredSite),
 		receipt.PeerEndpointCommitment, receipt.Transport, receipt.PeerAuthentication, summary.MeasuredAt,
-		summary.PayloadBytes, summary.SampleCount, summary.P50LatencyMicros, summary.P95LatencyMicros,
-		summary.P50GoodputMbps, receipt.FabricSessionID, receipt.ExpectedPeerWorkerID, classification, receiptSHA256, raw)
+		receipt.LocalCertificateSHA256, receipt.PeerCertificateSHA256, summary.PayloadBytes, summary.SampleCount,
+		summary.P50LatencyMicros, summary.P95LatencyMicros, summary.P50GoodputMbps, receipt.FabricSessionID,
+		receipt.ExpectedPeerWorkerID, classification, receiptSHA256, raw)
 	if err != nil {
 		return err
 	}

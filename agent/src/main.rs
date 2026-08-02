@@ -279,34 +279,51 @@ enum Command {
         #[arg(long, default_value = "vllm.toml")]
         config: PathBuf,
     },
-    /// Serve authenticated, bounded TCP echo probes for a candidate Merc Fabric link.
+    /// Serve bounded mTLS echo probes for a candidate Merc Fabric link.
     /// This proves only link measurements; it does not expose a workload data plane.
     FabricServe {
         /// Address to bind, for example `10.0.0.12:9444`.
         #[arg(long)]
         bind: String,
-        /// Path to a local, owner-shared probe secret (never printed or sent to control).
+        /// DER-encoded end-entity certificate for this worker's mTLS identity.
         #[arg(long)]
-        token_file: PathBuf,
-        /// Existing agent configuration. When present, this listener separately
-        /// authenticates valid peer observations to the control plane.
+        certificate_der: PathBuf,
+        /// DER-encoded private key for the local mTLS certificate. Must be 0600 on Unix.
         #[arg(long)]
-        agent_config: Option<PathBuf>,
+        private_key_der: PathBuf,
+        /// DER-encoded CA certificate trusted for both Fabric peer directions.
+        #[arg(long)]
+        ca_certificate_der: PathBuf,
+        /// DNS subject-alt-name of the Fabric server certificate, never inferred from an IP.
+        #[arg(long)]
+        server_name: String,
+        /// Existing agent configuration used to bind this certificate and peer observations to control.
+        #[arg(long)]
+        agent_config: PathBuf,
     },
-    /// Measure one authenticated candidate Merc Fabric link and emit a raw receipt.
+    /// Measure one certificate-bound mTLS candidate Merc Fabric link and emit a raw receipt.
     FabricProbe {
         /// Peer address advertised by the known site owner, for example `10.0.0.13:9444`.
         #[arg(long)]
         endpoint: String,
-        /// Path to the local, owner-shared probe secret.
+        /// DER-encoded end-entity certificate for this worker's mTLS identity.
         #[arg(long)]
-        token_file: PathBuf,
+        certificate_der: PathBuf,
+        /// DER-encoded private key for the local mTLS certificate. Must be 0600 on Unix.
+        #[arg(long)]
+        private_key_der: PathBuf,
+        /// DER-encoded CA certificate trusted for both Fabric peer directions.
+        #[arg(long)]
+        ca_certificate_der: PathBuf,
+        /// DNS subject-alt-name expected on the peer Fabric server certificate.
+        #[arg(long)]
+        server_name: String,
         /// Operator-declared site label. It is a claim, not a verified geography authority.
         #[arg(long)]
         site: String,
-        /// Enrolled peer worker expected to observe every round. Requires --agent-config.
+        /// Enrolled peer worker expected to observe every round.
         #[arg(long)]
-        peer_worker_id: Option<uuid::Uuid>,
+        peer_worker_id: uuid::Uuid,
         /// Random payload bytes per round; bounded at 4 MiB.
         #[arg(long, default_value_t = fabric::DEFAULT_PAYLOAD_BYTES)]
         bytes: usize,
@@ -316,10 +333,9 @@ enum Command {
         /// Receipt destination. Refuses to overwrite an existing file; omit to print JSON.
         #[arg(long)]
         out: Option<PathBuf>,
-        /// Existing agent configuration used only to authenticate receipt upload.
-        /// Omitting it keeps the receipt local and does not make a placement claim.
+        /// Existing agent configuration used to bind the local certificate, reserve the peer, and upload evidence.
         #[arg(long)]
-        agent_config: Option<PathBuf>,
+        agent_config: PathBuf,
     },
     Bench {
         #[arg(long)]
@@ -615,33 +631,42 @@ async fn main() -> Result<()> {
         }
         Command::FabricServe {
             bind,
-            token_file,
+            certificate_der,
+            private_key_der,
+            ca_certificate_der,
+            server_name,
             agent_config,
         } => {
             init_tracing();
             let bind = bind
                 .parse()
                 .with_context(|| format!("parsing fabric bind address {bind}"))?;
-            let token = fabric::read_shared_secret(&token_file)?;
-            let observer = if let Some(path) = agent_config {
-                let cfg = AgentConfig::load(&path).with_context(|| {
-                    format!(
-                        "loading agent configuration {} for fabric observer",
-                        path.display()
-                    )
-                })?;
-                Some(
-                    ControlPlaneClient::new(cfg.control_url, cfg.worker_token)
-                        .context("building control-plane client for fabric observer")?,
+            let tls = fabric::read_tls_material(
+                &certificate_der,
+                &private_key_der,
+                &ca_certificate_der,
+                server_name,
+            )?;
+            let cfg = AgentConfig::load(&agent_config).with_context(|| {
+                format!(
+                    "loading agent configuration {} for fabric observer",
+                    agent_config.display()
                 )
-            } else {
-                None
-            };
-            fabric::serve(bind, token, observer).await
+            })?;
+            let observer = ControlPlaneClient::new(cfg.control_url, cfg.worker_token)
+                .context("building control-plane client for fabric observer")?;
+            observer
+                .register_fabric_identity(&tls.certificate_sha256())
+                .await
+                .context("binding immutable fabric mTLS certificate identity to this worker")?;
+            fabric::serve(bind, tls, observer).await
         }
         Command::FabricProbe {
             endpoint,
-            token_file,
+            certificate_der,
+            private_key_der,
+            ca_certificate_der,
+            server_name,
             site,
             peer_worker_id,
             bytes,
@@ -653,39 +678,37 @@ async fn main() -> Result<()> {
             let endpoint = endpoint
                 .parse()
                 .with_context(|| format!("parsing fabric peer address {endpoint}"))?;
-            let token = fabric::read_shared_secret(&token_file)?;
-            let (control, fabric_session_id) = if let Some(path) = agent_config {
-                let cfg = AgentConfig::load(&path).with_context(|| {
-                    format!(
-                        "loading agent configuration {} for fabric receipt upload",
-                        path.display()
-                    )
-                })?;
-                let client = ControlPlaneClient::new(cfg.control_url, cfg.worker_token)
-                    .context("building control-plane client for fabric receipt upload")?;
-                let session = if let Some(peer_worker_id) = peer_worker_id {
-                    client
-                        .create_fabric_session(peer_worker_id, &site)
-                        .await
-                        .context("reserving authenticated fabric peer session")?
-                } else {
-                    uuid::Uuid::new_v4()
-                };
-                (Some(client), session)
-            } else {
-                if peer_worker_id.is_some() {
-                    anyhow::bail!("--peer-worker-id requires --agent-config so Merc can reserve the peer session")
-                }
-                (None, uuid::Uuid::new_v4())
-            };
+            let tls = fabric::read_tls_material(
+                &certificate_der,
+                &private_key_der,
+                &ca_certificate_der,
+                server_name,
+            )?;
+            let cfg = AgentConfig::load(&agent_config).with_context(|| {
+                format!(
+                    "loading agent configuration {} for fabric receipt upload",
+                    agent_config.display()
+                )
+            })?;
+            let control = ControlPlaneClient::new(cfg.control_url, cfg.worker_token)
+                .context("building control-plane client for fabric receipt upload")?;
+            control
+                .register_fabric_identity(&tls.certificate_sha256())
+                .await
+                .context("binding immutable fabric mTLS certificate identity to this worker")?;
+            let session = control
+                .create_fabric_session(peer_worker_id, &site)
+                .await
+                .context("reserving certificate-bound fabric peer session")?;
             let receipt = fabric::probe(fabric::ProbeOptions {
                 endpoint,
                 site,
-                fabric_session_id,
-                expected_peer_worker_id: peer_worker_id,
+                fabric_session_id: session.fabric_session_id,
+                expected_peer_worker_id: Some(peer_worker_id),
+                expected_peer_certificate_sha256: session.peer_certificate_sha256,
                 payload_bytes: bytes,
                 rounds,
-                shared_secret: token,
+                tls,
             })
             .await?;
             let rendered = serde_json::to_vec_pretty(&receipt)
@@ -696,26 +719,22 @@ async fn main() -> Result<()> {
             } else {
                 println!("{}", String::from_utf8_lossy(&rendered));
             }
-            if peer_worker_id.is_some() {
-                let transcripts = receipt
-                    .rounds
-                    .iter()
-                    .map(|round| round.transcript_sha256.clone())
-                    .collect::<Vec<_>>();
-                control
-                    .as_ref()
-                    .expect("peer-bound fabric probe has a control-plane client")
-                    .wait_for_fabric_observations(fabric_session_id, &transcripts)
-                    .await
-                    .context("waiting for every reserved peer observation before uploading fabric receipt")?;
-            }
-            if let Some(client) = control {
-                client
-                    .submit_fabric_receipt(&receipt)
-                    .await
-                    .context("uploading self-reported fabric measurement receipt")?;
-                tracing::info!(receipt_id = %receipt.receipt_id, "fabric receipt recorded by control plane as non-admissible evidence");
-            }
+            let transcripts = receipt
+                .rounds
+                .iter()
+                .map(|round| round.transcript_sha256.clone())
+                .collect::<Vec<_>>();
+            control
+                .wait_for_fabric_observations(session.fabric_session_id, &transcripts)
+                .await
+                .context(
+                    "waiting for every reserved peer observation before uploading fabric receipt",
+                )?;
+            control
+                .submit_fabric_receipt(&receipt)
+                .await
+                .context("uploading mutual mTLS fabric measurement receipt")?;
+            tracing::info!(receipt_id = %receipt.receipt_id, "fabric receipt recorded by control plane as mTLS worker-bound non-admissible evidence");
             Ok(())
         }
     }

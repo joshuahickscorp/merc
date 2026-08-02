@@ -5444,8 +5444,10 @@ CREATE TABLE IF NOT EXISTS fabric_link_measurements (
     reporting_supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
     declared_site TEXT NOT NULL CHECK (btrim(declared_site) <> '' AND length(declared_site) <= 128),
     peer_endpoint_commitment TEXT NOT NULL CHECK (peer_endpoint_commitment ~ '^[0-9a-f]{64}$'),
-    transport TEXT NOT NULL CHECK (transport = 'MERC_FABRIC_TCP_ECHO_V1'),
-    peer_authentication TEXT NOT NULL CHECK (peer_authentication = 'HMAC_SHA256_OWNER_SHARED_PROBE_TOKEN'),
+    transport TEXT NOT NULL CHECK (transport IN ('MERC_FABRIC_TCP_ECHO_V1','MERC_FABRIC_MTLS_ECHO_V1')),
+    peer_authentication TEXT NOT NULL CHECK (peer_authentication IN ('HMAC_SHA256_OWNER_SHARED_PROBE_TOKEN','MUTUAL_TLS_WORKER_CERTIFICATE_BOUND')),
+    local_certificate_sha256 TEXT NOT NULL DEFAULT '' CHECK (local_certificate_sha256 = '' OR local_certificate_sha256 ~ '^[0-9a-f]{64}$'),
+    peer_certificate_sha256 TEXT NOT NULL DEFAULT '' CHECK (peer_certificate_sha256 = '' OR peer_certificate_sha256 ~ '^[0-9a-f]{64}$'),
     measured_at TIMESTAMPTZ NOT NULL,
     payload_bytes_each_direction INTEGER NOT NULL CHECK (payload_bytes_each_direction BETWEEN 1 AND 4194304),
     sample_count SMALLINT NOT NULL CHECK (sample_count BETWEEN 1 AND 32),
@@ -5482,12 +5484,33 @@ CREATE TABLE IF NOT EXISTS fabric_probe_sessions (
     peer_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
     supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
     declared_site TEXT NOT NULL CHECK (btrim(declared_site) <> '' AND length(declared_site) <= 128),
+    initiator_certificate_sha256 TEXT,
+    peer_certificate_sha256 TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     expires_at TIMESTAMPTZ NOT NULL,
     CHECK (peer_worker_id <> initiator_worker_id),
     CHECK (expires_at > created_at)
 );
 CREATE INDEX IF NOT EXISTS fabric_probe_sessions_expiry_idx ON fabric_probe_sessions (expires_at);
+
+-- The certificate digest is the TLS peer identity used by a fabric worker. It
+-- is deliberately separate from short-lived worker tokens and append-only, so
+-- measurement receipts remain interpretable after token rotation.
+CREATE TABLE IF NOT EXISTS worker_fabric_identities (
+    worker_id UUID PRIMARY KEY REFERENCES workers(id) ON DELETE RESTRICT,
+    supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    certificate_sha256 TEXT NOT NULL UNIQUE CHECK (certificate_sha256 ~ '^[0-9a-f]{64}$'),
+    bound_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE OR REPLACE FUNCTION cx_refuse_worker_fabric_identity_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'worker fabric certificate identity for % is immutable; rotate worker credentials explicitly', OLD.worker_id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS worker_fabric_identities_append_only ON worker_fabric_identities;
+CREATE TRIGGER worker_fabric_identities_append_only
+    BEFORE UPDATE OR DELETE ON worker_fabric_identities
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_worker_fabric_identity_rewrite();
 
 -- The peer agent submits this independently with its own worker credential
 -- after it has authenticated and echoed a signed frame. It is not a workload
@@ -5498,6 +5521,7 @@ CREATE TABLE IF NOT EXISTS fabric_probe_observations (
     observer_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
     observer_supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
     payload_bytes_each_direction INTEGER NOT NULL CHECK (payload_bytes_each_direction BETWEEN 1 AND 4194304),
+    observed_peer_certificate_sha256 TEXT NOT NULL DEFAULT '' CHECK (observed_peer_certificate_sha256 = '' OR observed_peer_certificate_sha256 ~ '^[0-9a-f]{64}$'),
     observed_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (fabric_session_id, transcript_sha256)
@@ -5506,12 +5530,27 @@ CREATE INDEX IF NOT EXISTS fabric_probe_observations_retention_idx ON fabric_pro
 
 ALTER TABLE fabric_link_measurements
     ADD COLUMN IF NOT EXISTS fabric_session_id UUID,
-    ADD COLUMN IF NOT EXISTS expected_peer_worker_id UUID;
+    ADD COLUMN IF NOT EXISTS expected_peer_worker_id UUID,
+    ADD COLUMN IF NOT EXISTS local_certificate_sha256 TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS peer_certificate_sha256 TEXT NOT NULL DEFAULT '';
+ALTER TABLE fabric_probe_sessions
+    ADD COLUMN IF NOT EXISTS initiator_certificate_sha256 TEXT,
+    ADD COLUMN IF NOT EXISTS peer_certificate_sha256 TEXT;
+ALTER TABLE fabric_probe_observations
+    ADD COLUMN IF NOT EXISTS observed_peer_certificate_sha256 TEXT NOT NULL DEFAULT '';
 ALTER TABLE fabric_link_measurements
     DROP CONSTRAINT IF EXISTS fabric_link_measurements_classification_check;
 ALTER TABLE fabric_link_measurements
     ADD CONSTRAINT fabric_link_measurements_classification_check
-    CHECK (classification IN ('SELF_REPORTED_UNQUALIFIED','MUTUAL_WORKER_OBSERVED_NOT_ADMISSIBLE'));
+    CHECK (classification IN ('SELF_REPORTED_UNQUALIFIED','MUTUAL_WORKER_OBSERVED_NOT_ADMISSIBLE','MUTUAL_MTLS_WORKER_BOUND_NOT_ADMISSIBLE'));
+ALTER TABLE fabric_link_measurements
+    DROP CONSTRAINT IF EXISTS fabric_link_measurements_transport_check,
+    DROP CONSTRAINT IF EXISTS fabric_link_measurements_peer_authentication_check;
+ALTER TABLE fabric_link_measurements
+    ADD CONSTRAINT fabric_link_measurements_transport_check
+    CHECK (transport IN ('MERC_FABRIC_TCP_ECHO_V1','MERC_FABRIC_MTLS_ECHO_V1')),
+    ADD CONSTRAINT fabric_link_measurements_peer_authentication_check
+    CHECK (peer_authentication IN ('HMAC_SHA256_OWNER_SHARED_PROBE_TOKEN','MUTUAL_TLS_WORKER_CERTIFICATE_BOUND'));
 
 -- A project order is the server-side ceiling authority for a multi-step
 -- workload. The buyer keeps the full IR locally because it may contain source
