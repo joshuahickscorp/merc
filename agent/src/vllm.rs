@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -10,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::process::{Child, Command};
 
+use crate::config::{OperatorPrefs, ThermalPressure};
+use crate::hardware::MemorySnapshot;
 use crate::protocol::ControlPlaneClient;
 use crate::types::{
     RealtimeOfferHeartbeat, RealtimeOfferRegistration, ServiceLeaseAssignment,
@@ -22,6 +25,8 @@ const SERVICE_LEASE_MINIMUM_SAMPLES: usize = 5;
 const SERVICE_LEASE_MAXIMUM_SAMPLES: usize = 20;
 const SERVICE_LEASE_MEASUREMENT_KIND: &str = "DATA_PLANE_COMPLETIONS_V1";
 const PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(5);
+const OPERATOR_POLICY_RECHECK_INTERVAL: Duration = Duration::from_secs(5);
+const DECIMAL_GB: u64 = 1_000_000_000;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,6 +36,12 @@ pub struct VllmAgentConfig {
     pub runtime_profile_path: PathBuf,
     pub public_base_url: String,
     pub model_cache_dir: PathBuf,
+    // Linux one-click installation points this at the same live supplier
+    // controls used by the cross-platform agent. It is optional only to keep
+    // hand-authored, pre-policy configs parseable; an installed runtime always
+    // supplies it and fails closed when it cannot be read.
+    #[serde(default)]
+    pub operator_prefs_path: Option<PathBuf>,
     #[serde(default = "default_container_runtime")]
     pub container_runtime: String,
     #[serde(default = "default_listen_host")]
@@ -355,6 +366,197 @@ fn validate_vllm_start_readiness(config: &VllmAgentConfig) -> Result<()> {
     Ok(())
 }
 
+fn vllm_thermal_rank(pressure: ThermalPressure) -> u8 {
+    match pressure {
+        ThermalPressure::Nominal => 0,
+        ThermalPressure::Fair => 1,
+        ThermalPressure::Serious => 2,
+        ThermalPressure::Critical => 3,
+    }
+}
+
+// Count the trusted local cache without following symlinks. Hugging Face cache
+// snapshots deliberately link the same blobs many times; following them would
+// both over-count disk use and let a hostile link escape the operator-selected
+// cache root.
+fn vllm_cache_bytes(path: &Path) -> Result<u64> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => {
+            return Err(error).with_context(|| format!("reading model cache {}", path.display()))
+        }
+    };
+    if metadata.file_type().is_symlink() {
+        return Ok(0);
+    }
+    if metadata.is_file() {
+        return Ok(metadata.len());
+    }
+    if !metadata.is_dir() {
+        return Ok(0);
+    }
+    let mut total = 0_u64;
+    for entry in
+        fs::read_dir(path).with_context(|| format!("listing model cache {}", path.display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("reading model-cache entry under {}", path.display()))?;
+        total = total.saturating_add(vllm_cache_bytes(&entry.path())?);
+    }
+    Ok(total)
+}
+
+fn validate_vllm_operator_policy(
+    prefs: &OperatorPrefs,
+    now_hour: u8,
+    weekday_sunday_zero: u8,
+    on_battery: bool,
+    memory: MemorySnapshot,
+    cache_bytes: u64,
+    thermal_pressure: Option<ThermalPressure>,
+) -> Result<()> {
+    prefs.validate()?;
+    if prefs.paused.unwrap_or(false) {
+        bail!("supplier policy is paused")
+    }
+    if prefs
+        .allowed_workload_classes
+        .as_ref()
+        .is_some_and(|allowed| !allowed.iter().any(|kind| kind == "batch_infer"))
+    {
+        bail!("supplier policy does not permit batch_infer required by vLLM")
+    }
+    if prefs
+        .allowed_weekdays
+        .as_ref()
+        .is_some_and(|days| !days.contains(&weekday_sunday_zero))
+    {
+        bail!("supplier policy disallows the current weekday")
+    }
+    if prefs.power_only.unwrap_or(false) && on_battery {
+        bail!("supplier policy permits work only while on external power")
+    }
+    if let Some((start, end)) = prefs.quiet_hours {
+        let in_quiet_hours = if start <= end {
+            now_hour >= start && now_hour < end
+        } else {
+            now_hour >= start || now_hour < end
+        };
+        if in_quiet_hours {
+            bail!("supplier policy is in quiet hours")
+        }
+    }
+    if let Some(max_cache_gb) = prefs.max_model_cache_gb {
+        let max_bytes = (f64::from(max_cache_gb) * DECIMAL_GB as f64).floor() as u64;
+        if cache_bytes > max_bytes {
+            bail!("model cache has {cache_bytes} bytes, exceeding supplier cap {max_bytes} bytes")
+        }
+    }
+    if prefs.memory_headroom_gb.is_some() || prefs.max_memory_pct.is_some() {
+        if !memory.total_gb.is_finite()
+            || !memory.available_gb.is_finite()
+            || memory.total_gb <= 0.0
+        {
+            bail!("cannot enforce supplier RAM policy without a valid host-memory reading")
+        }
+        let headroom = prefs.memory_headroom_gb.unwrap_or(0.0);
+        if memory.available_gb <= headroom {
+            bail!(
+                "available host RAM {:.3} GB does not preserve supplier headroom {:.3} GB",
+                memory.available_gb,
+                headroom
+            )
+        }
+        let used_pct =
+            ((memory.total_gb - memory.available_gb) / memory.total_gb * 100.0).clamp(0.0, 100.0);
+        if let Some(max_pct) = prefs.max_memory_pct {
+            if used_pct >= max_pct {
+                bail!(
+                    "host RAM use {:.2}% reaches supplier maximum {:.2}%",
+                    used_pct,
+                    max_pct
+                )
+            }
+        }
+    }
+    if let Some(limit) = prefs.thermal_limit {
+        let observed = thermal_pressure
+            .context("cannot enforce supplier thermal policy without a GPU thermal reading")?;
+        if vllm_thermal_rank(observed) >= vllm_thermal_rank(limit) {
+            bail!(
+                "GPU thermal pressure {} reached supplier limit {}",
+                observed.as_str(),
+                limit.as_str()
+            )
+        }
+    }
+    Ok(())
+}
+
+async fn vllm_gpu_thermal_pressure(config: &VllmAgentConfig) -> Result<ThermalPressure> {
+    let output = command_output_with_timeout(
+        {
+            let mut command = Command::new("nvidia-smi");
+            command.args([
+                "--query-gpu=temperature.gpu",
+                "--format=csv,noheader,nounits",
+            ]);
+            command
+        },
+        "nvidia-smi GPU temperature query",
+    )
+    .await?;
+    if !output.status.success() {
+        bail!("nvidia-smi GPU temperature query exited {}", output.status)
+    }
+    let hottest = std::str::from_utf8(&output.stdout)
+        .context("decoding nvidia-smi GPU temperature output")?
+        .lines()
+        .take(config.gpu_count as usize)
+        .map(|line| {
+            line.trim()
+                .parse::<u16>()
+                .context("parsing GPU temperature")
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .max()
+        .context("nvidia-smi returned no configured GPU temperature")?;
+    // These bands are intentionally conservative and only translate the GPU's
+    // measured Celsius temperature into the existing supplier-controlled
+    // thermal policy vocabulary. They are not a benchmark or an SLO claim.
+    Ok(match hottest {
+        0..=69 => ThermalPressure::Nominal,
+        70..=79 => ThermalPressure::Fair,
+        80..=89 => ThermalPressure::Serious,
+        _ => ThermalPressure::Critical,
+    })
+}
+
+async fn active_vllm_operator_prefs(config: &VllmAgentConfig) -> Result<OperatorPrefs> {
+    let prefs = match &config.operator_prefs_path {
+        Some(path) => OperatorPrefs::load(path)?,
+        None => OperatorPrefs::default(),
+    };
+    let thermal_pressure = if prefs.thermal_limit.is_some() {
+        Some(vllm_gpu_thermal_pressure(config).await?)
+    } else {
+        None
+    };
+    let (hour, weekday) = crate::current_local_schedule_clock();
+    validate_vllm_operator_policy(
+        &prefs,
+        hour,
+        weekday,
+        crate::on_battery(),
+        crate::hardware::read_memory_snapshot(),
+        vllm_cache_bytes(&config.model_cache_dir)?,
+        thermal_pressure,
+    )?;
+    Ok(prefs)
+}
+
 async fn command_output_with_timeout(
     mut command: Command,
     description: &str,
@@ -469,6 +671,7 @@ fn container_args(
     config: &VllmAgentConfig,
     profile: &RuntimeProfile,
     upstream_token: &str,
+    prefs: &OperatorPrefs,
 ) -> Vec<String> {
     let selected_devices = (0..profile.tensor_parallel_size)
         .map(|device| device.to_string())
@@ -494,6 +697,29 @@ fn container_args(
         "HF_HUB_DISABLE_TELEMETRY=1".into(),
         "-v".into(),
         format!("{}:/root/.cache", config.model_cache_dir.display()),
+    ];
+    // Docker enforces this ceiling across the container's CPU work rather than
+    // merely observing host use after a supplier limit has already been
+    // exceeded. Zero retains the established preference meaning of no cap.
+    if let Some(max_cpu_pct) = prefs.max_cpu_pct.filter(|value| *value > 0.0) {
+        let host_cpus = std::thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(1) as f64;
+        let cap = (host_cpus * f64::from(max_cpu_pct) / 100.0).max(0.01);
+        args.extend(["--cpus".into(), format!("{cap:.2}")]);
+    }
+    if prefs.allow_model_downloads == Some(false) {
+        // vLLM's Hugging Face stack honours these offline controls. It may use
+        // a previously pinned cache, but it cannot fetch a new model after the
+        // supplier has disabled downloads.
+        args.extend([
+            "-e".into(),
+            "HF_HUB_OFFLINE=1".into(),
+            "-e".into(),
+            "TRANSFORMERS_OFFLINE=1".into(),
+        ]);
+    }
+    args.extend([
         profile.container_reference(),
         profile.model_repository.clone(),
         "--revision".into(),
@@ -522,7 +748,7 @@ fn container_args(
         config.listen_port.to_string(),
         "--api-key".into(),
         upstream_token.to_string(),
-    ];
+    ]);
     if profile.prefix_caching {
         args.push("--enable-prefix-caching".into());
     }
@@ -550,9 +776,10 @@ fn start_container(
     config: &VllmAgentConfig,
     profile: &RuntimeProfile,
     upstream_token: &str,
+    prefs: &OperatorPrefs,
 ) -> Result<Child> {
     Command::new(&config.container_runtime)
-        .args(container_args(config, profile, upstream_token))
+        .args(container_args(config, profile, upstream_token, prefs))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -840,29 +1067,64 @@ async fn report_terminal_state(client: &ControlPlaneClient, profile_id: &str, st
     }
 }
 
-pub async fn run(config_path: PathBuf) -> Result<()> {
-    if !cfg!(target_os = "linux") {
-        bail!("the production vLLM adapter requires a Linux CUDA host")
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VllmSessionExit {
+    Shutdown,
+    PolicyChanged,
+}
+
+async fn stop_vllm_for_policy(
+    child: &mut Child,
+    client: &ControlPlaneClient,
+    profile: &RuntimeProfile,
+    service: Option<&ServiceLeaseConfig>,
+) {
+    report_terminal_state(client, &profile.runtime_profile_id, "DRAINING").await;
+    if let Some(service) = service {
+        report_service_lease_failure(client, profile, service).await;
     }
-    if std::env::consts::ARCH != "x86_64" {
-        bail!("this runtime profile pins a linux/amd64 vLLM container manifest")
+    let _ = child.start_kill();
+    let _ = child.wait().await;
+}
+
+async fn wait_for_vllm_operator_policy(config: &VllmAgentConfig) -> Result<Option<OperatorPrefs>> {
+    loop {
+        match active_vllm_operator_prefs(config).await {
+            Ok(prefs) => return Ok(Some(prefs)),
+            Err(error) => {
+                tracing::warn!(%error, "supplier policy blocks vLLM; no container is running or advertised")
+            }
+        }
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => return Ok(None),
+            _ = tokio::time::sleep(OPERATOR_POLICY_RECHECK_INTERVAL) => {}
+        }
     }
-    let text = std::fs::read_to_string(&config_path)
-        .with_context(|| format!("reading vLLM agent config {}", config_path.display()))?;
-    let config: VllmAgentConfig = toml::from_str(&text)
-        .with_context(|| format!("decoding vLLM agent config {}", config_path.display()))?;
-    let (profile, profile_sha256) = load_profile(&config.runtime_profile_path)?;
-    validate_config(&config, &profile)?;
-    validate_vllm_start_readiness(&config)?;
+}
+
+async fn vllm_policy_still_matches(config: &VllmAgentConfig, running: &OperatorPrefs) -> bool {
+    matches!(active_vllm_operator_prefs(config).await, Ok(latest) if latest == *running)
+}
+
+async fn run_vllm_session(
+    config: &VllmAgentConfig,
+    profile: &RuntimeProfile,
+    profile_sha256: &str,
+    prefs: OperatorPrefs,
+) -> Result<VllmSessionExit> {
     // Fail before pull/start if this host cannot meet the declared physical
     // topology. A signed profile and a valid TOML file are not CUDA capacity.
-    verify_local_vllm_environment(&config).await?;
-    std::fs::create_dir_all(&config.model_cache_dir)
-        .with_context(|| format!("creating model cache {}", config.model_cache_dir.display()))?;
-
-    pull_pinned_container(&config, &profile).await?;
+    verify_local_vllm_environment(config).await?;
+    pull_pinned_container(config, profile).await?;
+    // The policy file is live. Re-read it after the image operation and before
+    // the first GPU process so a pause or stricter resource cap cannot race a
+    // cached image pull into a workload start.
+    let latest_prefs = match active_vllm_operator_prefs(config).await {
+        Ok(latest) if latest == prefs => prefs,
+        Ok(_) | Err(_) => return Ok(VllmSessionExit::PolicyChanged),
+    };
     let upstream_token = generate_upstream_token();
-    let mut child = start_container(&config, &profile, &upstream_token)?;
+    let mut child = start_container(config, profile, &upstream_token, &latest_prefs)?;
     if let Err(error) = wait_until_healthy(&mut child, &config, &upstream_token).await {
         let _ = child.start_kill();
         let _ = child.wait().await;
@@ -876,7 +1138,7 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
     let mut service_samples = if let Some(service) = &config.service_lease {
         let mut samples = ServiceLatencySamples::new();
         for sample in 0..SERVICE_LEASE_MINIMUM_SAMPLES {
-            let latency = measure_public_data_plane(&config, &profile, &upstream_token, service)
+            let latency = measure_public_data_plane(config, profile, &upstream_token, service)
                 .await
                 .context("qualifying reserved service data plane before advertisement")?;
             samples.record(latency)?;
@@ -884,10 +1146,14 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
                 tokio::time::sleep(Duration::from_secs(service.probe_interval_secs)).await;
             }
         }
+        if !vllm_policy_still_matches(config, &latest_prefs).await {
+            stop_vllm_for_policy(&mut child, &client, profile, config.service_lease.as_ref()).await;
+            return Ok(VllmSessionExit::PolicyChanged);
+        }
         client
             .register_service_lease_offer(&service_offer(
-                &profile,
-                &profile_sha256,
+                profile,
+                profile_sha256,
                 service,
                 &samples,
                 "READY",
@@ -901,7 +1167,7 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
     client
         .register_realtime(&RealtimeOfferRegistration {
             runtime_profile_id: profile.runtime_profile_id.clone(),
-            runtime_profile_sha256: profile_sha256.clone(),
+            runtime_profile_sha256: profile_sha256.to_string(),
             hw_class: config.hw_class.clone(),
             gpu_count: config.gpu_count,
             memory_gb_per_gpu: config.memory_gb_per_gpu,
@@ -927,6 +1193,8 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
     );
     let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut policy_heartbeat = tokio::time::interval(OPERATOR_POLICY_RECHECK_INTERVAL);
+    policy_heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut service_heartbeat = config.service_lease.as_ref().map(|service| {
         let mut heartbeat = tokio::time::interval(Duration::from_secs(service.probe_interval_secs));
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -949,7 +1217,16 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
                 }
                 let _ = child.start_kill();
                 let _ = child.wait().await;
-                return Ok(());
+                return Ok(VllmSessionExit::Shutdown);
+            }
+            _ = policy_heartbeat.tick() => {
+                // Any live-policy change restarts the container under the new
+                // Docker resource and offline-download controls. An invalid or
+                // unreadable policy drains first and then idles fail-closed.
+                if !vllm_policy_still_matches(config, &latest_prefs).await {
+                    stop_vllm_for_policy(&mut child, &client, profile, config.service_lease.as_ref()).await;
+                    return Ok(VllmSessionExit::PolicyChanged);
+                }
             }
             _ = heartbeat.tick() => {
                 let hb = RealtimeOfferHeartbeat {
@@ -970,11 +1247,39 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
                 }
             } => {
                 if let (Some(service), Some(samples)) = (&config.service_lease, &mut service_samples) {
-                    if let Err(error) = heartbeat_service_leases(&client, &config, &profile, &profile_sha256, &upstream_token, service, samples).await {
+                    if let Err(error) = heartbeat_service_leases(&client, config, profile, profile_sha256, &upstream_token, service, samples).await {
                         tracing::warn!(%error, "vLLM service lease heartbeat failed");
                     }
                 }
             }
+        }
+    }
+}
+
+pub async fn run(config_path: PathBuf) -> Result<()> {
+    if !cfg!(target_os = "linux") {
+        bail!("the production vLLM adapter requires a Linux CUDA host")
+    }
+    if std::env::consts::ARCH != "x86_64" {
+        bail!("this runtime profile pins a linux/amd64 vLLM container manifest")
+    }
+    let text = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("reading vLLM agent config {}", config_path.display()))?;
+    let config: VllmAgentConfig = toml::from_str(&text)
+        .with_context(|| format!("decoding vLLM agent config {}", config_path.display()))?;
+    let (profile, profile_sha256) = load_profile(&config.runtime_profile_path)?;
+    validate_config(&config, &profile)?;
+    validate_vllm_start_readiness(&config)?;
+    std::fs::create_dir_all(&config.model_cache_dir)
+        .with_context(|| format!("creating model cache {}", config.model_cache_dir.display()))?;
+
+    loop {
+        let Some(prefs) = wait_for_vllm_operator_policy(&config).await? else {
+            return Ok(());
+        };
+        match run_vllm_session(&config, &profile, &profile_sha256, prefs).await? {
+            VllmSessionExit::Shutdown => return Ok(()),
+            VllmSessionExit::PolicyChanged => continue,
         }
     }
 }
@@ -1026,6 +1331,7 @@ mod tests {
             runtime_profile_path: PathBuf::from("profile.json"),
             public_base_url: "https://worker.example/v1".into(),
             model_cache_dir: PathBuf::from("/var/lib/cx/models"),
+            operator_prefs_path: None,
             container_runtime: "docker".into(),
             listen_host: "127.0.0.1".into(),
             listen_port: 8000,
@@ -1059,7 +1365,12 @@ mod tests {
     #[test]
     fn command_is_digest_pinned_and_has_no_buyer_controlled_flags() {
         let profile = profile();
-        let args = container_args(&config(), &profile, "cx_vllm_secret");
+        let args = container_args(
+            &config(),
+            &profile,
+            "cx_vllm_secret",
+            &OperatorPrefs::default(),
+        );
         let joined = args.join(" ");
         assert!(joined.contains(&profile.container_reference()));
         assert!(joined.contains("--revision bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
@@ -1071,6 +1382,96 @@ mod tests {
         assert!(joined.contains("--enable-prefix-caching"));
         assert!(joined.contains("--enable-chunked-prefill"));
         assert!(!joined.contains(":latest"));
+    }
+
+    #[test]
+    fn live_supplier_policy_blocks_unsafe_vllm_and_binds_container_limits() {
+        let safe_memory = MemorySnapshot {
+            total_gb: 64.0,
+            available_gb: 48.0,
+        };
+        let mut prefs = OperatorPrefs {
+            allowed_workload_classes: Some(vec!["batch_infer".into()]),
+            allowed_weekdays: Some(vec![1]),
+            quiet_hours: Some((22, 6)),
+            max_model_cache_gb: Some(4.0),
+            memory_headroom_gb: Some(8.0),
+            max_memory_pct: Some(85.0),
+            thermal_limit: Some(ThermalPressure::Serious),
+            max_cpu_pct: Some(50.0),
+            allow_model_downloads: Some(false),
+            ..OperatorPrefs::default()
+        };
+        assert!(validate_vllm_operator_policy(
+            &prefs,
+            12,
+            1,
+            false,
+            safe_memory,
+            3 * DECIMAL_GB,
+            Some(ThermalPressure::Fair),
+        )
+        .is_ok());
+        let args = container_args(&config(), &profile(), "cx_vllm_secret", &prefs).join(" ");
+        assert!(args.contains("--cpus"));
+        assert!(args.contains("HF_HUB_OFFLINE=1"));
+        assert!(args.contains("TRANSFORMERS_OFFLINE=1"));
+
+        prefs.paused = Some(true);
+        assert!(validate_vllm_operator_policy(
+            &prefs,
+            12,
+            1,
+            false,
+            safe_memory,
+            0,
+            Some(ThermalPressure::Fair),
+        )
+        .is_err());
+        prefs.paused = None;
+        assert!(validate_vllm_operator_policy(
+            &prefs,
+            23,
+            1,
+            false,
+            safe_memory,
+            0,
+            Some(ThermalPressure::Fair),
+        )
+        .is_err());
+        assert!(validate_vllm_operator_policy(
+            &prefs,
+            12,
+            1,
+            false,
+            MemorySnapshot {
+                total_gb: 64.0,
+                available_gb: 7.0,
+            },
+            0,
+            Some(ThermalPressure::Fair),
+        )
+        .is_err());
+        assert!(validate_vllm_operator_policy(
+            &prefs,
+            12,
+            1,
+            false,
+            safe_memory,
+            5 * DECIMAL_GB,
+            Some(ThermalPressure::Fair),
+        )
+        .is_err());
+        assert!(validate_vllm_operator_policy(
+            &prefs,
+            12,
+            1,
+            false,
+            safe_memory,
+            0,
+            Some(ThermalPressure::Serious),
+        )
+        .is_err());
     }
 
     #[test]
