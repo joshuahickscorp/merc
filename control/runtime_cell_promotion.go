@@ -176,6 +176,44 @@ func (e CellPromotionEvidence) ReceiptRef() (string, error) {
 	return fmt.Sprintf("%s:%s:%s", promotionGateVersion, e.Scope.CellID, digest), nil
 }
 
+// RecordCellPromotionEvaluation persists the complete refusal-preserving
+// evidence receipt. It is deliberately separate from activation: an operator
+// can inspect and review a receipt without granting the challenger traffic.
+// The digest is the idempotency key, so retries of the same evaluation cannot
+// rewrite its historical observation or create a second identity for it.
+func (s *Store) RecordCellPromotionEvaluation(ctx context.Context, evidence CellPromotionEvidence) (bool, error) {
+	raw, err := json.Marshal(evidence)
+	if err != nil {
+		return false, err
+	}
+	digest, err := evidence.Digest()
+	if err != nil {
+		return false, err
+	}
+	receiptRef, err := evidence.ReceiptRef()
+	if err != nil {
+		return false, err
+	}
+	scope, err := json.Marshal(evidence.Scope)
+	if err != nil {
+		return false, err
+	}
+	result, err := s.pool.Exec(ctx, `
+		INSERT INTO runtime_cell_promotion_evaluations
+		  (evidence_sha256, promotion_receipt_ref, gate_version, scope_json,
+		   incumbent_cell, challenger_cell, passed, policy_revision,
+		   runtime_matrix_sha256, evaluated_at, evidence_json)
+		VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11::jsonb)
+		ON CONFLICT (evidence_sha256) DO NOTHING`,
+		digest, receiptRef, evidence.GateVersion, string(scope), evidence.IncumbentCell,
+		evidence.Scope.CellID, evidence.Passed(), evidence.PolicyRevision,
+		evidence.RuntimeMatrixSHA256, evidence.EvaluatedAt, string(raw))
+	if err != nil {
+		return false, err
+	}
+	return result.RowsAffected() == 1, nil
+}
+
 // EvaluateCellPromotion decides whether challenger may replace incumbent for one
 // scope, and returns the evidence either way.
 //

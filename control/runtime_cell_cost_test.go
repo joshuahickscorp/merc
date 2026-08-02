@@ -43,6 +43,62 @@ func TestAdminSelectorPromotionRequiresCompleteScope(t *testing.T) {
 	}
 }
 
+func TestCellPromotionEvidenceIsAppendOnlyAndIdempotent(t *testing.T) {
+	ctx, store, pool := openIsolatedMoneyPathStore(t)
+	evidence := CellPromotionEvidence{
+		GateVersion: promotionGateVersion,
+		EvaluatedAt: time.Now().UTC().Truncate(time.Microsecond),
+		Scope: CellPromotionScope{
+			JobType:       "embed",
+			ModelRef:      "all-minilm-l6-v2",
+			ModelRevision: "model-revision-1",
+			QualityTier:   "OUTCOME_EQUIVALENT",
+			Verification:  "cosine_similarity",
+			HWClass:       "apple_silicon_ultra",
+			LatencyClass:  "standard_batch",
+			RuntimeID:     "llama_cpp_metal",
+			CellID:        "llama_cpp_embed",
+		},
+		IncumbentCell:          "candle_embed",
+		PolicyRevision:         1,
+		RollbackTargetRevision: 1,
+		RuntimeMatrixSHA256:    generatedRuntimeMatrixSHA256,
+		Refusals:               []string{"no measured verified-outcome cost"},
+		UnknownCostComponents:  []string{"startup"},
+	}
+	inserted, err := store.RecordCellPromotionEvaluation(ctx, evidence)
+	if err != nil {
+		t.Fatalf("record promotion evidence: %v", err)
+	}
+	if !inserted {
+		t.Fatal("first promotion evidence write was not inserted")
+	}
+	inserted, err = store.RecordCellPromotionEvaluation(ctx, evidence)
+	if err != nil {
+		t.Fatalf("record duplicate promotion evidence: %v", err)
+	}
+	if inserted {
+		t.Fatal("duplicate promotion evidence was inserted twice")
+	}
+
+	digest, err := evidence.Digest()
+	if err != nil {
+		t.Fatalf("digest: %v", err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM runtime_cell_promotion_evaluations WHERE evidence_sha256=$1`, digest).Scan(&count); err != nil {
+		t.Fatalf("count promotion evidence: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("promotion evidence rows = %d, want 1", count)
+	}
+	if _, err := pool.Exec(ctx,
+		`DELETE FROM runtime_cell_promotion_evaluations WHERE evidence_sha256=$1`, digest); err == nil {
+		t.Fatal("append-only promotion evidence was deleted")
+	}
+}
+
 // The cost arithmetic, without a database.
 //
 // These are the cases where getting it wrong promotes the wrong cell, so they are

@@ -276,6 +276,13 @@ var productionReachability = []reachabilityClaim{
 			"routed incumbent before a separately audited activation-policy write.",
 	},
 	{
+		From:   "Server.handleAdminSelectorPromotion",
+		Target: "Store.RecordCellPromotionEvaluation",
+		Consequence: "the promotion response would contain a digest but no durable evidence row, " +
+			"so a refusal or pass could disappear with the HTTP request and could not be audited " +
+			"before any separate activation-policy decision.",
+	},
+	{
 		From:   "Server.createJob",
 		Target: "Store.SubmitJobTx",
 		Consequence: "job submission stops persisting anything. Included as a control: if " +
