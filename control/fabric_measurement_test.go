@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -318,5 +319,116 @@ func TestFabricSessionRequiresEveryRoundFromTheReservedPeerAndStaysNonAdmissible
 	}
 	if classification != "SELF_REPORTED_UNQUALIFIED" {
 		t.Fatalf("partial observation classification=%q", classification)
+	}
+}
+
+func recordQualifiedMutualFabricLink(t *testing.T, handler http.Handler, from WorkerAuth, fromToken, fromCertificate string, to WorkerAuth, toToken, toCertificate, site string) {
+	t.Helper()
+	created := requestFabricJSON(t, handler, fromToken, "/v1/worker/fabric/sessions", FabricSessionCreateRequest{
+		PeerWorkerID: to.WorkerID, DeclaredSite: site,
+	})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create qualified fabric session status=%d body=%s", created.Code, created.Body.String())
+	}
+	var session FabricSessionCreateResponse
+	if err := json.NewDecoder(created.Body).Decode(&session); err != nil {
+		t.Fatal(err)
+	}
+	if session.PeerCertificateSHA256 != toCertificate {
+		t.Fatalf("reserved peer certificate=%s want=%s", session.PeerCertificateSHA256, toCertificate)
+	}
+
+	const payloadBytes = 256 * 1024
+	const roundTripMicros = int64(1_000)
+	goodput := float64(payloadBytes*2*8) / float64(roundTripMicros)
+	receipt := fabricReceipt()
+	receipt.DeclaredSite = site
+	receipt.Transport = "MERC_FABRIC_MTLS_ECHO_V1"
+	receipt.PeerAuthentication = "MUTUAL_TLS_WORKER_CERTIFICATE_BOUND"
+	receipt.LocalCertificateSHA256 = fromCertificate
+	receipt.PeerCertificateSHA256 = toCertificate
+	receipt.FabricSessionID = &session.FabricSessionID
+	receipt.ExpectedPeerWorkerID = &to.WorkerID
+	receipt.Rounds = make([]FabricLinkMeasurementRound, 0, fabricTopologyMinRoundSamples)
+	for round := 1; round <= fabricTopologyMinRoundSamples; round++ {
+		sum := sha256.Sum256([]byte(fmt.Sprintf("fabric-topology-test:%s:%s:%d", from.WorkerID, to.WorkerID, round)))
+		receipt.Rounds = append(receipt.Rounds, FabricLinkMeasurementRound{
+			Round: round, PayloadBytesEachDirection: payloadBytes, RoundTripPayloadBytes: payloadBytes * 2,
+			RoundTripMicros: roundTripMicros, PayloadGoodputMbps: goodput, TranscriptSHA256: hex.EncodeToString(sum[:]),
+		})
+	}
+	receipt.P50RoundTripMicros = roundTripMicros
+	receipt.P95RoundTripMicros = roundTripMicros
+	receipt.P50PayloadGoodputMbps = goodput
+	for _, round := range receipt.Rounds {
+		observed := requestFabricJSON(t, handler, toToken, "/v1/worker/fabric/observations", FabricProbeObservation{
+			SchemaVersion: 1, FabricSessionID: session.FabricSessionID,
+			TranscriptSHA256: round.TranscriptSHA256, PayloadBytesEachDirection: payloadBytes,
+			ObservedAtUnixMS: time.Now().UnixMilli(), ObservedPeerCertificateSHA256: fromCertificate,
+		})
+		if observed.Code != http.StatusNoContent {
+			t.Fatalf("qualified fabric observation status=%d body=%s", observed.Code, observed.Body.String())
+		}
+	}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requestFabricReceipt(t, handler, fromToken, raw).Code; got != http.StatusNoContent {
+		t.Fatalf("qualified fabric receipt status=%d", got)
+	}
+}
+
+func TestFabricTopologyRequiresFreshBidirectionalMTLSMeshAndRefusesClusterPromotion(t *testing.T) {
+	ctx, store, pool := openPayoutTestStore(t)
+	first, firstToken := newFabricMeasurementWorker(t, ctx, store)
+	second, secondToken := newFabricPeerWorker(t, ctx, store, first.SupplierID)
+	firstCertificate := registerFabricIdentity(t, ctx, store, first)
+	secondCertificate := registerFabricIdentity(t, ctx, store, second)
+	handler := NewServer(store, nil, nil, nil).Routes()
+	const site = "supplier-lab-rack-a"
+	recordQualifiedMutualFabricLink(t, handler, first, firstToken, firstCertificate, second, secondToken, secondCertificate, site)
+	recordQualifiedMutualFabricLink(t, handler, second, secondToken, secondCertificate, first, firstToken, firstCertificate, site)
+
+	response := requestFabricJSON(t, handler, firstToken, "/v1/worker/fabric/topologies/evaluate", FabricTopologyEvaluationRequest{
+		SchemaVersion: 1, DeclaredSite: site, WorkerIDs: []uuid.UUID{second.WorkerID, first.WorkerID},
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("fabric topology evaluation status=%d body=%s", response.Code, response.Body.String())
+	}
+	var evaluation FabricTopologyEvaluation
+	if err := json.NewDecoder(response.Body).Decode(&evaluation); err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.Status != "LINK_MESH_MEASURED_COLLECTIVE_REQUIRED" ||
+		evaluation.RequiredDirectedLinks != 2 || evaluation.VerifiedDirectedLinks != 2 || len(evaluation.Links) != 2 {
+		t.Fatalf("fabric topology did not derive the complete mesh: %+v", evaluation)
+	}
+	if evaluation.LocalClusterAdmissible {
+		t.Fatal("a link mesh promoted itself to LOCAL_CLUSTER without collective/economic authority")
+	}
+	if len(evaluation.NonAdmissionReasons) < 3 || !strings.Contains(strings.Join(evaluation.NonAdmissionReasons, " "), "collective benchmark") {
+		t.Fatalf("fabric topology did not preserve its collective refusal: %+v", evaluation.NonAdmissionReasons)
+	}
+	var storedStatus string
+	var storedLinks int
+	if err := pool.QueryRow(ctx, `SELECT status,jsonb_array_length(links) FROM fabric_topology_evaluations WHERE id=$1`, evaluation.EvaluationID).
+		Scan(&storedStatus, &storedLinks); err != nil {
+		t.Fatal(err)
+	}
+	if storedStatus != evaluation.Status || storedLinks != 2 {
+		t.Fatalf("fabric topology receipt was not persisted exactly: status=%q links=%d", storedStatus, storedLinks)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE fabric_topology_evaluations SET status='LINK_MESH_REFUSED' WHERE id=$1`, evaluation.EvaluationID); err == nil {
+		t.Fatal("database allowed an immutable fabric topology receipt to be rewritten")
+	}
+
+	// The endpoint is a supplier-scoped discovery aid, not an inventory oracle.
+	other, _ := newFabricMeasurementWorker(t, ctx, store)
+	forbidden := requestFabricJSON(t, handler, firstToken, "/v1/worker/fabric/topologies/evaluate", FabricTopologyEvaluationRequest{
+		SchemaVersion: 1, DeclaredSite: site, WorkerIDs: []uuid.UUID{first.WorkerID, other.WorkerID},
+	})
+	if forbidden.Code != http.StatusBadRequest {
+		t.Fatalf("cross-supplier topology status=%d, want 400", forbidden.Code)
 	}
 }

@@ -5,9 +5,9 @@ name: agent release binaries
 #   linux/amd64  (--no-default-features; CPU Candle only)
 #   windows/amd64 (--no-default-features; CPU Candle only)
 #
-# This does NOT expand validHWClasses / validEngines. A Linux binary can be
-# installed and run, but control still rejects non-Apple hw_class and non-candle
-# engines for batch registration.
+# Linux/amd64 is the pinned CUDA/vLLM supplier adapter. The release archive
+# includes its exact runtime profile; install still refuses activation until the
+# supplier configures a supported NVIDIA topology and public TLS endpoint.
 
 on:
   push:
@@ -189,8 +189,8 @@ jobs:
               "artifacts": artifacts,
               "notes": [
                   "linux/amd64 and windows/amd64 are CPU Candle only (--no-default-features).",
-                  "control validHWClasses still accepts only Apple Silicon classes;",
-                  "a Linux/NVIDIA host can install the agent but cannot register for batch work until that enum changes.",
+                  "linux/amd64 is the pinned CUDA/vLLM adapter and requires a configured NVIDIA host and public TLS endpoint;",
+                  "installing its signed archive alone never advertises capacity.",
               ],
           }
           (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -230,5 +230,5 @@ jobs:
               "" \
               "Checksums: SHA256SUMS (cosign keyless bundle alongside each file)." \
               "" \
-              "**Not unlocked:** control validHWClasses still allows only Apple Silicon classes and validEngines only candle. Linux install does not imply batch supplier registration.")" \
+              "**Not unlocked:** a Linux install still needs a supported NVIDIA GPU, Docker-compatible runtime, enrolled worker credential, and public TLS endpoint. Installation alone never advertises supply.")" \
             ./*

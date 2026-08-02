@@ -142,6 +142,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /v1/worker/fabric/sessions/{id}/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservationStatus)))
 	mux.Handle("POST /v1/worker/fabric/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservation)))
 	mux.Handle("POST /v1/worker/fabric/receipts", s.authWorker(http.HandlerFunc(s.handleWorkerFabricReceipt)))
+	mux.Handle("POST /v1/worker/fabric/topologies/evaluate", s.authWorker(http.HandlerFunc(s.handleWorkerFabricTopologyEvaluate)))
 	mux.Handle("POST /v1/worker/heartbeat", s.authWorker(http.HandlerFunc(s.handleWorkerHeartbeat)))
 	mux.Handle("GET /v1/worker/poll", s.authWorker(http.HandlerFunc(s.handleWorkerPoll)))
 	mux.Handle("POST /v1/worker/task/{id}/start", s.authWorker(http.HandlerFunc(s.handleWorkerStart)))
@@ -2384,6 +2385,30 @@ func (s *Server) handleWorkerFabricObservationStatus(w http.ResponseWriter, r *h
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"observed_transcript_sha256": transcripts})
+}
+
+// handleWorkerFabricTopologyEvaluate derives a short-lived, same-supplier link
+// mesh from the retained receipt set. Its response is deliberately not a
+// placement grant: only a future governed collective and economic authority may
+// select LOCAL_CLUSTER for a customer workload.
+func (s *Server) handleWorkerFabricTopologyEvaluate(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	raw, err := io.ReadAll(io.LimitReader(r.Body, fabricMeasurementBodyLimit+1))
+	if err != nil || len(raw) > fabricMeasurementBodyLimit {
+		writeErr(w, http.StatusBadRequest, "invalid fabric topology evaluation body")
+		return
+	}
+	var request FabricTopologyEvaluationRequest
+	if err := decodeStrictJSONObject(raw, &request); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid fabric topology evaluation json")
+		return
+	}
+	evaluation, err := s.store.EvaluateFabricTopology(r.Context(), *auth, request)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "fabric topology evaluation rejected: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, evaluation)
 }
 
 func (s *Server) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {

@@ -337,6 +337,20 @@ enum Command {
         #[arg(long)]
         agent_config: PathBuf,
     },
+    /// Derive a fresh, bidirectional mutual-mTLS mesh receipt for a candidate
+    /// local Fabric site. This never grants LOCAL_CLUSTER placement: collective
+    /// performance and topology economics remain separate control authorities.
+    FabricTopology {
+        /// The same declared site label used for every directional FabricProbe.
+        #[arg(long)]
+        site: String,
+        /// Comma-separated worker UUIDs, including this agent's worker identity.
+        #[arg(long)]
+        worker_ids: String,
+        /// Existing agent configuration used to authenticate this supplier-scoped evaluation.
+        #[arg(long)]
+        agent_config: PathBuf,
+    },
     Bench {
         #[arg(long)]
         config: Option<PathBuf>,
@@ -737,7 +751,54 @@ async fn main() -> Result<()> {
             tracing::info!(receipt_id = %receipt.receipt_id, "fabric receipt recorded by control plane as mTLS worker-bound non-admissible evidence");
             Ok(())
         }
+        Command::FabricTopology {
+            site,
+            worker_ids,
+            agent_config,
+        } => {
+            init_tracing();
+            let worker_ids = parse_fabric_topology_workers(&worker_ids)?;
+            let cfg = AgentConfig::load(&agent_config).with_context(|| {
+                format!(
+                    "loading agent configuration {} for fabric topology evaluation",
+                    agent_config.display()
+                )
+            })?;
+            let control = ControlPlaneClient::new(cfg.control_url, cfg.worker_token)
+                .context("building control-plane client for fabric topology evaluation")?;
+            let evaluation = control
+                .evaluate_fabric_topology(&site, &worker_ids)
+                .await
+                .context("deriving fresh certificate-bound fabric topology evidence")?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&evaluation)
+                    .context("rendering fabric topology evaluation")?
+            );
+            Ok(())
+        }
     }
+}
+
+fn parse_fabric_topology_workers(raw: &str) -> Result<Vec<uuid::Uuid>> {
+    let mut workers = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .parse::<uuid::Uuid>()
+                .context("parsing --worker-ids UUID")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if workers.len() < 2 || workers.len() > 8 {
+        anyhow::bail!("--worker-ids must contain 2..8 distinct worker UUIDs")
+    }
+    workers.sort_unstable();
+    if workers.windows(2).any(|pair| pair[0] == pair[1]) {
+        anyhow::bail!("--worker-ids contains a duplicate worker UUID")
+    }
+    Ok(workers)
 }
 
 #[derive(serde::Serialize)]

@@ -349,6 +349,36 @@ impl ControlPlaneClient {
         .await
     }
 
+    // This asks control to derive a short-lived evidence mesh from retained
+    // mutual-mTLS receipts. A successful response is explicitly not permission
+    // to start a workload collective or transfer customer data between peers.
+    pub async fn evaluate_fabric_topology(
+        &self,
+        declared_site: &str,
+        worker_ids: &[Uuid],
+    ) -> Result<serde_json::Value, ProtocolError> {
+        let endpoint = "/v1/worker/fabric/topologies/evaluate";
+        let resp = self
+            .http
+            .post(self.url(endpoint))
+            .header("X-Worker-Token", &self.token)
+            .json(&serde_json::json!({
+                "schema_version": 1,
+                "declared_site": declared_site,
+                "worker_ids": worker_ids,
+            }))
+            .send()
+            .await
+            .map_err(|e| Self::transport(endpoint, e))?;
+        let resp = Self::expect_status(endpoint, resp, &[StatusCode::OK]).await?;
+        resp.json::<serde_json::Value>()
+            .await
+            .map_err(|e| ProtocolError::Decode {
+                endpoint: endpoint.to_string(),
+                source: e,
+            })
+    }
+
     pub async fn create_fabric_session(
         &self,
         peer_worker_id: Uuid,

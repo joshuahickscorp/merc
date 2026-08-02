@@ -155,6 +155,13 @@ var productionReachability = []reachabilityClaim{
 			"having completed the signed direct-transfer exchange.",
 	},
 	{
+		From:   "Server.handleWorkerFabricTopologyEvaluate",
+		Target: "Store.EvaluateFabricTopology",
+		Consequence: "the supplier-facing mesh command could receive a successful HTTP response " +
+			"without deriving fresh bidirectional certificate-bound links or preserving the exact " +
+			"non-admissible evidence receipt that a later collective gate must examine.",
+	},
+	{
 		From:   "Server.handleCreateServiceLease",
 		Target: "Store.CreateServiceLease",
 		Consequence: "a buyer-facing service-lease route could validate JSON and return a shape " +
@@ -192,6 +199,12 @@ var productionReachability = []reachabilityClaim{
 		Consequence: "short-lived peer-session identity bindings and their observations would grow " +
 			"without bound after their evidence window, retaining operational topology metadata beyond " +
 			"the stated 30-day period.",
+	},
+	{
+		From:   "Workers.Run",
+		Target: "Store.DeleteOldFabricTopologyEvaluations",
+		Consequence: "derived mesh receipts would persist after the underlying link evidence is " +
+			"operationally stale, retaining supplier topology metadata without a declared bound.",
 	},
 	{
 		From:   "Server.createJob",

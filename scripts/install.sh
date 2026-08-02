@@ -18,6 +18,8 @@ LEGACY_BIN="$PREFIX/cx-agent"
 HOMEDIR="$HOME/.merc"
 LEGACY_HOMEDIR="$HOME/.compute-exchange"
 CONFIG="$HOMEDIR/agent.toml"
+VLLM_CONFIG="$HOMEDIR/vllm.toml"
+VLLM_PROFILE="$HOMEDIR/vllm-runtime-profile.json"
 PREFS="$HOMEDIR/agent.prefs.toml"
 PLIST="$HOME/Library/LaunchAgents/dev.merc.agent.plist"
 LEGACY_PLIST="$HOME/Library/LaunchAgents/dev.computeexchange.agent.plist"
@@ -174,6 +176,9 @@ fetch_prebuilt() {
   [[ -x "$extracted" ]] || die "archive did not contain an executable merc-agent"
   mkdir -p "$PREFIX"
   install -m 0755 "$extracted" "$BIN"
+  if [[ "$OS" == "linux" ]]; then
+    install_linux_vllm_profile "$work"
+  fi
   # Drop the pre-rebrand binary name so PATH does not keep serving the old one.
   if [[ -e "$LEGACY_BIN" && "$LEGACY_BIN" != "$BIN" ]]; then
     rm -f "$LEGACY_BIN"
@@ -194,6 +199,9 @@ build_from_source() {
   [[ -x "$src" ]] || die "built binary not found at $src"
   mkdir -p "$PREFIX"
   install -m 0755 "$src" "$BIN"
+  if [[ "$OS" == "linux" ]]; then
+    install_linux_vllm_profile "$ROOT"
+  fi
   if [[ -e "$LEGACY_BIN" && "$LEGACY_BIN" != "$BIN" ]]; then
     rm -f "$LEGACY_BIN"
     say "removed legacy binary $LEGACY_BIN"
@@ -212,9 +220,108 @@ migrate_legacy_state() {
   fi
 }
 
+install_linux_vllm_profile() {
+  local source_root="$1" profile
+  [[ "$OS" == "linux" ]] || return 0
+  # Prebuilt archives include this exact file next to the binary. The source
+  # escape hatch reads the same authority from the checkout. Do not download a
+  # profile independently of the signed archive that supplied the binary.
+  profile="$(find "$source_root" -type f \( -name vllm-runtime-profile.json -o -path "$source_root/control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json" \) | head -n 1)"
+  [[ -f "$profile" ]] || die "Linux vLLM archive omitted its pinned runtime profile"
+  migrate_legacy_state
+  mkdir -p "$HOMEDIR"
+  if [[ -f "$VLLM_PROFILE" ]]; then
+    say "keeping existing pinned vLLM profile $VLLM_PROFILE"
+  else
+    install -m 0644 "$profile" "$VLLM_PROFILE"
+    say "installed pinned vLLM profile $VLLM_PROFILE"
+  fi
+}
+
+detect_linux_vllm_topology() {
+  command -v nvidia-smi >/dev/null 2>&1 || return 1
+  local mem_lines memory_mib gpu_count lowest_mib gpu_class interconnect
+  mem_lines="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null)" || return 1
+  gpu_count="$(printf '%s\n' "$mem_lines" | awk 'NF {n++} END {print n+0}')"
+  [[ "$gpu_count" -ge 1 ]] || return 1
+  lowest_mib="$(printf '%s\n' "$mem_lines" | awk 'NF {if (!seen || $1 < min) min=$1; seen=1} END {if (seen) print min}')"
+  [[ "$lowest_mib" =~ ^[0-9]+$ ]] || return 1
+  # `nvidia-smi` reports vendor MiB totals, which vary slightly among cards
+  # sold as the same nominal capacity. Classify only downward from a conservative
+  # threshold; a 48GB card may safely use the 24GB capability tier, but a
+  # nearly-24GB card must never be rounded upward into an unavailable class.
+  if (( lowest_mib >= 172 * 1024 )); then
+    gpu_class="nvidia_180gb"
+  elif (( lowest_mib >= 76 * 1024 )); then
+    gpu_class="nvidia_80gb"
+  elif (( lowest_mib >= 46 * 1024 )); then
+    gpu_class="nvidia_48gb"
+  elif (( lowest_mib >= 23 * 1024 )); then
+    gpu_class="nvidia_24gb"
+  else
+    return 1
+  fi
+  interconnect=""
+  if [[ "$gpu_count" -gt 1 ]]; then
+    if nvidia-smi topo -m 2>/dev/null | grep -Eq 'NV[0-9]+'; then
+      interconnect="nvlink"
+    else
+      interconnect="pcie"
+    fi
+  fi
+  # Print only topology metadata, never a credential or an endpoint.
+  printf '%s %s %.3f %s\n' "$gpu_class" "$gpu_count" "$(awk -v mib="$lowest_mib" 'BEGIN {printf "%.3f", mib/1024}')" "$interconnect"
+}
+
+write_linux_vllm_config() {
+  if [[ -f "$VLLM_CONFIG" ]]; then
+    say "keeping existing vLLM configuration $VLLM_CONFIG"
+    return
+  fi
+  local hw_class="REQUIRE_NVIDIA_DETECTION" gpu_count=0 memory_gb=0.0 interconnect=""
+  local detected
+  if detected="$(detect_linux_vllm_topology)"; then
+    read -r hw_class gpu_count memory_gb interconnect <<<"$detected"
+    say "detected CUDA topology: class=$hw_class gpus=$gpu_count memory_gb_per_gpu=$memory_gb"
+  else
+    warn "no supported NVIDIA topology was detected; the vLLM config will refuse activation until corrected on a supported CUDA host"
+  fi
+  local public_url="${MERC_VLLM_PUBLIC_BASE_URL:-https://REQUIRE_CONFIGURED_TLS_PUBLIC_ENDPOINT/v1}"
+  if [[ "$public_url" == *'"'* || "$public_url" == *$'\n'* || "$public_url" == *$'\r'* ]]; then
+    die "MERC_VLLM_PUBLIC_BASE_URL cannot contain quotes or newlines"
+  fi
+  umask 077
+  cat >"$VLLM_CONFIG" <<TOML
+control_url = "${MERC_CONTROL_URL:-http://localhost:8080}"
+worker_token = "${MERC_WORKER_TOKEN:-PASTE_WORKER_TOKEN_FROM_make_seed}"
+runtime_profile_path = "${VLLM_PROFILE}"
+public_base_url = "${public_url}"
+model_cache_dir = "${HOMEDIR}/models"
+container_runtime = "docker"
+listen_host = "127.0.0.1"
+listen_port = 8000
+max_active_sequences = 128
+startup_timeout_secs = 900
+hw_class = "${hw_class}"
+gpu_count = ${gpu_count}
+memory_gb_per_gpu = ${memory_gb}
+memory_gb_in_use = 0.0
+interconnect = "${interconnect}"
+supplier_input_usd_per_million_tokens = 0.08
+supplier_output_usd_per_million_tokens = 0.30
+TOML
+  say "wrote pinned CUDA/vLLM configuration $VLLM_CONFIG"
+  [[ -n "${MERC_WORKER_TOKEN:-}" ]] || warn "set worker_token in $VLLM_CONFIG before earning"
+  [[ -n "${MERC_VLLM_PUBLIC_BASE_URL:-}" ]] || warn "set public_base_url in $VLLM_CONFIG to the externally reachable TLS endpoint before activation"
+}
+
 write_config() {
   migrate_legacy_state
   mkdir -p "$HOMEDIR"
+  if [[ "$OS" == "linux" ]]; then
+    write_linux_vllm_config
+    return
+  fi
   if [[ -f "$CONFIG" ]]; then
     say "keeping existing config $CONFIG"
     return
@@ -302,7 +409,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${BIN} run --config ${CONFIG}
+ExecStart=${BIN} vllm --config ${VLLM_CONFIG}
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=true
@@ -325,6 +432,9 @@ UNIT_EOF
   if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload || warn "systemctl --user daemon-reload failed; log in with a user systemd session before starting"
     if [[ "$MODE" == "start" ]]; then
+      if grep -Eq 'PASTE_WORKER_TOKEN|REQUIRE_CONFIGURED_TLS_PUBLIC_ENDPOINT|REQUIRE_NVIDIA_DETECTION' "$VLLM_CONFIG"; then
+        die "vLLM activation requires a real worker token, TLS public endpoint, and detected supported NVIDIA topology in $VLLM_CONFIG"
+      fi
       systemctl --user enable --now merc-agent.service \
         && say "agent enabled and started (systemd --user)" \
         || die "could not enable/start merc-agent.service"
@@ -332,10 +442,10 @@ UNIT_EOF
       say "to start now: systemctl --user enable --now merc-agent.service (or re-run with --start)"
     fi
   else
-    warn "systemctl is unavailable; run $BIN run --config $CONFIG under your service manager"
+    warn "systemctl is unavailable; run $BIN vllm --config $VLLM_CONFIG under your service manager"
   fi
-  say "Note: control validHWClasses currently accepts only Apple Silicon classes,"
-  say "so this host can install the agent but cannot register for batch work yet."
+  say "Linux starts the pinned CUDA/vLLM adapter, not the generic Apple-oriented runner."
+  say "It will refuse to advertise capacity until the pinned container is healthy and control accepts the configured runtime profile."
   say "done."
 }
 
@@ -348,7 +458,12 @@ if [[ "$MODE" == "check" ]]; then
     say "  would verify SHA256SUMS (and cosign bundle when cosign is present)"
   fi
   say "  would install binary to: $BIN"
-  say "  would write starter config: $CONFIG (if missing)"
+  if [[ "$OS" == "linux" ]]; then
+    say "  would install the pinned vLLM profile: $VLLM_PROFILE (if missing)"
+    say "  would write CUDA/vLLM config: $VLLM_CONFIG (if missing)"
+  else
+    say "  would write starter config: $CONFIG (if missing)"
+  fi
   say "  would write live preferences: $PREFS (if missing)"
   if [[ -d "$LEGACY_HOMEDIR" && ! -d "$HOMEDIR" ]]; then
     say "  would migrate legacy state: $LEGACY_HOMEDIR -> $HOMEDIR"

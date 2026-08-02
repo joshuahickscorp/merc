@@ -28,6 +28,8 @@ require "$PS_INSTALL" 'run --config' 'Windows scheduled task does not run from t
 require "$PS_INSTALL" 'agent.prefs.toml' 'Windows installer does not create live operator preferences'
 
 require "$SH_INSTALL" 'merc-agent.service' 'Linux installer does not install a user service'
+require "$SH_INSTALL" 'vllm --config' 'Linux installer does not launch the pinned CUDA/vLLM adapter'
+require "$SH_INSTALL" 'vllm-runtime-profile.json' 'Linux installer does not install the pinned vLLM profile'
 require "$SH_INSTALL" 'ProtectSystem=strict' 'Linux service lacks filesystem isolation'
 require "$SH_INSTALL" 'NoNewPrivileges=true' 'Linux service can gain privileges'
 require "$SH_INSTALL" 'systemctl --user enable --now' 'Linux one-command start is missing'
