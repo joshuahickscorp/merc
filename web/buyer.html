@@ -126,6 +126,21 @@ table{width:100%;border-collapse:collapse;font:12px/1.45 ui-monospace,monospace}
     </div>
 
     <div class="card">
+      <h2>Image generation availability</h2>
+      <p class="muted">Image requests are policy-screened before any capacity, storage, or money authority is touched. A permitted request may still return no-capacity until a pinned image runtime has completed its full receipt-backed canary.</p>
+      <form id="image-form">
+        <label>Exact active image model ID <input id="image-model" autocomplete="off" required placeholder="from the active image runtime"></label>
+        <label>Prompt <textarea id="image-prompt" required placeholder="Describe the image to generate"></textarea></label>
+        <div class="fields">
+          <label>Count <input id="image-count" type="number" min="1" max="4" step="1" value="1" required></label>
+          <label>Size <select id="image-size"><option>1024x1024</option><option>256x256</option><option>512x512</option><option>768x768</option><option>1024x1792</option><option>1792x1024</option></select></label>
+        </div>
+        <button class="primary" type="submit">check governed image capacity</button>
+      </form>
+      <p id="image-status" class="status" aria-live="polite"></p><pre id="image-output">No image request submitted.</pre>
+    </div>
+
+    <div class="card">
       <h2>Reserved service lease</h2>
       <p class="muted">Reserve already-warm, measured service capacity only. This workspace cannot create a worker offer or report a latency measurement; the native agent must have registered a compatible live offer first.</p>
       <form id="service-lease-form">
@@ -226,6 +241,7 @@ byId('dispute').addEventListener('click',async()=>{try{const id=byId('job-id').v
 byId('realtime-form').addEventListener('submit',async event=>{event.preventDefault();status('realtime-status','authorizing realtime request…');try{const out=await api('/v1/chat/completions',{method:'POST',headers:{'Idempotency-Key':'buyer-rt-'+crypto.randomUUID()},body:JSON.stringify({model:'llama-3.2-1b-instruct-q4',messages:[{role:'user',content:byId('realtime-prompt').value}],max_tokens:Number(byId('realtime-max-tokens').value),temperature:0})});byId('realtime-output').textContent=JSON.stringify(out,null,2);if(out.request_id||out.id)byId('realtime-id').value=out.request_id||out.id;status('realtime-status','realtime response complete','good')}catch(error){status('realtime-status',error.message,'error')}});
 byId('realtime-receipt').addEventListener('click',async()=>{try{const id=byId('realtime-id').value.trim();const out=await api('/v1/realtime/requests/'+encodeURIComponent(id)+'/receipt');byId('realtime-output').textContent=JSON.stringify(out,null,2);status('realtime-status','receipt loaded','good')}catch(error){status('realtime-status',error.message,'error')}});
 
+byId('image-form').addEventListener('submit',async event=>{event.preventDefault();status('image-status','checking image policy and capacity…');try{const out=await api('/v1/images/generations',{method:'POST',body:JSON.stringify({model:byId('image-model').value.trim(),prompt:byId('image-prompt').value,n:Number(byId('image-count').value),size:byId('image-size').value,response_format:'url'})});byId('image-output').textContent=JSON.stringify(out,null,2);status('image-status','image request accepted','good')}catch(error){status('image-status',error.message,'error')}});
 function serviceLeaseRequest(){const minimum=positiveInteger(byId('service-min-replicas').value,'minimum warm replicas'),maximum=positiveInteger(byId('service-max-replicas').value,'maximum warm replicas');if(maximum<minimum)throw new Error('maximum warm replicas must be at least the minimum');return{runtime_profile_id:byId('service-runtime-profile').value.trim(),region:byId('service-region').value.trim(),minimum_replicas:minimum,maximum_replicas:maximum,term_seconds:positiveInteger(byId('service-term-seconds').value,'term seconds'),maximum_p95_latency_milliseconds:positiveInteger(byId('service-p95-ms').value,'maximum p95 latency'),buyer_declared_ceiling_nanos:majorToNanos(byId('service-ceiling').value,'reservation ceiling')}}
 byId('service-lease-form').addEventListener('submit',async event=>{event.preventDefault();status('service-status','checking compatible warm capacity…');try{const out=await api('/v1/service-leases',{method:'POST',body:JSON.stringify(serviceLeaseRequest())});byId('service-lease-id').value=out.id;byId('service-output').textContent=JSON.stringify(out,null,2);status('service-status','lease reserved at its exact accepted ceiling','good')}catch(error){status('service-status',error.message,'error')}});
 byId('service-receipt').addEventListener('click',async()=>{try{const id=byId('service-lease-id').value.trim();if(!id)throw new Error('enter a service lease ID');const out=await api('/v1/service-leases/'+encodeURIComponent(id)+'/receipt');byId('service-output').textContent=JSON.stringify(out,null,2);status('service-status','lease receipt loaded','good')}catch(error){status('service-status',error.message,'error')}});
