@@ -1,6 +1,7 @@
 mod config;
 mod deadline;
 mod executor;
+mod fabric;
 mod failure;
 mod hardware;
 mod inference;
@@ -276,6 +277,37 @@ enum Command {
     Vllm {
         #[arg(long, default_value = "vllm.toml")]
         config: PathBuf,
+    },
+    /// Serve authenticated, bounded TCP echo probes for a candidate Merc Fabric link.
+    /// This proves only link measurements; it does not expose a workload data plane.
+    FabricServe {
+        /// Address to bind, for example `10.0.0.12:9444`.
+        #[arg(long)]
+        bind: String,
+        /// Path to a local, owner-shared probe secret (never printed or sent to control).
+        #[arg(long)]
+        token_file: PathBuf,
+    },
+    /// Measure one authenticated candidate Merc Fabric link and emit a raw receipt.
+    FabricProbe {
+        /// Peer address advertised by the known site owner, for example `10.0.0.13:9444`.
+        #[arg(long)]
+        endpoint: String,
+        /// Path to the local, owner-shared probe secret.
+        #[arg(long)]
+        token_file: PathBuf,
+        /// Operator-declared site label. It is a claim, not a verified geography authority.
+        #[arg(long)]
+        site: String,
+        /// Random payload bytes per round; bounded at 4 MiB.
+        #[arg(long, default_value_t = fabric::DEFAULT_PAYLOAD_BYTES)]
+        bytes: usize,
+        /// Number of independently connected rounds; bounded at 32.
+        #[arg(long, default_value_t = fabric::DEFAULT_ROUNDS)]
+        rounds: u16,
+        /// Receipt destination. Refuses to overwrite an existing file; omit to print JSON.
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     Bench {
         #[arg(long)]
@@ -568,6 +600,45 @@ async fn main() -> Result<()> {
         Command::Vllm { config } => {
             init_tracing();
             vllm::run(config).await
+        }
+        Command::FabricServe { bind, token_file } => {
+            init_tracing();
+            let bind = bind
+                .parse()
+                .with_context(|| format!("parsing fabric bind address {bind}"))?;
+            let token = fabric::read_shared_secret(&token_file)?;
+            fabric::serve(bind, token).await
+        }
+        Command::FabricProbe {
+            endpoint,
+            token_file,
+            site,
+            bytes,
+            rounds,
+            out,
+        } => {
+            init_tracing();
+            let endpoint = endpoint
+                .parse()
+                .with_context(|| format!("parsing fabric peer address {endpoint}"))?;
+            let token = fabric::read_shared_secret(&token_file)?;
+            let receipt = fabric::probe(fabric::ProbeOptions {
+                endpoint,
+                site,
+                payload_bytes: bytes,
+                rounds,
+                shared_secret: token,
+            })
+            .await?;
+            let rendered = serde_json::to_vec_pretty(&receipt)
+                .context("encoding fabric measurement receipt")?;
+            if let Some(path) = out {
+                fabric::write_new_receipt(&path, &rendered)?;
+                tracing::info!(receipt = %path.display(), "fabric measurement receipt written");
+            } else {
+                println!("{}", String::from_utf8_lossy(&rendered));
+            }
+            Ok(())
         }
     }
 }
