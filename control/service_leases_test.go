@@ -24,6 +24,58 @@ func serviceLeaseOffer(profile VLLMRuntimeProfile) ServiceLeaseOfferRegistration
 	}
 }
 
+func TestServiceLeaseMarketClearingReceiptBindsLiveOfferBook(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	ctx, store, pool := openPayoutTestStore(t)
+	profile := sortedVLLMProfiles()[0]
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@service-clearing.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SeedPrepaidBalance(ctx, buyerID, 1_000_000, "service-clearing-"+buyerID.String()); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := newFabricMeasurementWorker(t, ctx, store)
+	second, _ := newFabricMeasurementWorker(t, ctx, store)
+	region := "ca-clearing-" + uuid.NewString()
+	firstOffer := serviceLeaseOffer(profile)
+	firstOffer.Region = region
+	secondOffer := firstOffer
+	secondOffer.SupplierNanosPerReplicaHour += 100_000_000
+	if err := store.UpsertServiceLeaseOffer(ctx, first, firstOffer); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertServiceLeaseOffer(ctx, second, secondOffer); err != nil {
+		t.Fatal(err)
+	}
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: region,
+		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
+		BuyerDeclaredCeilingNanos: 135_000_000}
+	lease, err := store.CreateServiceLease(ctx, buyerID, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lease.WorkerID != first.WorkerID || lease.SupplierID != first.SupplierID {
+		t.Fatalf("clearing did not choose the lowest measured ask: lease=%+v first=%+v", lease, first)
+	}
+	receipt, err := store.GetServiceLeaseReceipt(ctx, buyerID, lease.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	market := receipt.MarketClearing
+	if market == nil || market.Version != serviceLeaseMarketClearingVersion || market.CandidateCount != 2 ||
+		market.SelectedRank != 1 || market.SelectedWorkerID != first.WorkerID ||
+		market.SelectedSupplierID != first.SupplierID ||
+		market.SelectedSupplierRateNanos != firstOffer.SupplierNanosPerReplicaHour ||
+		market.SelectedResidencyRateNanos != firstOffer.ResidencyNanosPerReplicaHour ||
+		market.BuyerCeilingNanos != request.BuyerDeclaredCeilingNanos ||
+		market.AcceptedCeilingNanos != lease.Pricing.FixedPoint.AcceptedCeilingNanos ||
+		market.PricingDecisionSHA256 != lease.PricingDecisionSHA256 ||
+		market.PositiveContributionNanos <= 0 || market.OrderBookPolicy == "" {
+		t.Fatalf("market clearing receipt lost live offer/pricing authority: %+v lease=%+v", market, lease)
+	}
+}
+
 func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, pool := openPayoutTestStore(t)
