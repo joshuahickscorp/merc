@@ -679,4 +679,22 @@ func TestFabricTopologyRetainsSyntheticCollectivesButStillRefusesGangPlacement(t
 	if storedStatus != evaluation.Status || storedCollectives != 2 {
 		t.Fatalf("synthetic collective topology receipt was not persisted exactly: status=%q collectives=%d", storedStatus, storedCollectives)
 	}
+	get := httptest.NewRequest(http.MethodGet, "/v1/worker/fabric/topologies/"+evaluation.EvaluationID.String(), nil)
+	get.Header.Set("X-Worker-Token", firstToken)
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, get)
+	var replay FabricTopologyEvaluation
+	if getRec.Code != http.StatusOK || json.Unmarshal(getRec.Body.Bytes(), &replay) != nil ||
+		replay.EvaluationID != evaluation.EvaluationID || replay.Status != evaluation.Status ||
+		replay.TopologyPlan == nil || replay.TopologyPlan.Status != "REFUSED" ||
+		replay.TopologyPlan.Fabric != FabricUnknown || len(replay.Collectives) != 2 {
+		t.Fatalf("fabric topology replay lost immutable refusal evidence: status=%d body=%s replay=%+v", getRec.Code, getRec.Body.String(), replay)
+	}
+	forbidden := httptest.NewRequest(http.MethodGet, "/v1/worker/fabric/topologies/"+evaluation.EvaluationID.String(), nil)
+	forbidden.Header.Set("X-Worker-Token", secondToken)
+	forbiddenRec := httptest.NewRecorder()
+	handler.ServeHTTP(forbiddenRec, forbidden)
+	if forbiddenRec.Code != http.StatusNotFound {
+		t.Fatalf("non-requesting worker replay status=%d, want 404", forbiddenRec.Code)
+	}
 }

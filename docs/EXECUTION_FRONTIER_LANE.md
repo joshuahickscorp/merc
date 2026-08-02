@@ -114,6 +114,12 @@ demand, fill, utilization, churn, and fixed-point price-depth evidence and
 states that the scope is retained Merc lanes only. It does not infer a global
 market, legal region, or a new price.
 
+Fabric topology evaluations are also replayable through the authenticated
+worker-scoped `GET /v1/worker/fabric/topologies/{id}` read. The response
+reconstructs the exact persisted links, synthetic collective evidence, freshness
+and planner refusal. It remains evidence only: the stored non-admissible status
+cannot create a `LOCAL_CLUSTER` placement or a gang scheduler grant.
+
 ## 3. Continuous batching — PARTIAL
 
 `agent/src/quantized_llama_batched.rs` has the primitives: padded-mask batched

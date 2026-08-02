@@ -203,6 +203,13 @@ var productionReachability = []reachabilityClaim{
 			"that protects shadow routing.",
 	},
 	{
+		From:   "Server.handleWorkerFabricTopologyGet",
+		Target: "Store.GetFabricTopologyEvaluation",
+		Consequence: "a persisted topology evaluation could be written but not replayed by the " +
+			"authenticated requester, forcing operators to trust a transient POST response and " +
+			"losing the exact immutable evidence/refusal needed before any future gang gate.",
+	},
+	{
 		From:   "Server.handleCreateServiceLease",
 		Target: "Store.CreateServiceLease",
 		Consequence: "a buyer-facing service-lease route could validate JSON and return a shape " +

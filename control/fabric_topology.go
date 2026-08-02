@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // A link mesh is deliberately a much narrower claim than a local cluster. It
@@ -335,6 +336,59 @@ func (s *Store) EvaluateFabricTopology(ctx context.Context, auth WorkerAuth, req
 		evaluation.RequiredDirectedCollectives, evaluation.VerifiedDirectedCollectives, collectivesJSON, reasonsJSON); err != nil {
 		return FabricTopologyEvaluation{}, err
 	}
+	return evaluation, nil
+}
+
+// GetFabricTopologyEvaluation replays one immutable topology evidence receipt
+// for the worker that requested it. The read reconstructs the same
+// fail-closed planner projection; it never treats the stored status or boolean
+// as scheduler authority and never exposes another worker's evaluation.
+func (s *Store) GetFabricTopologyEvaluation(ctx context.Context, auth WorkerAuth, id uuid.UUID) (FabricTopologyEvaluation, error) {
+	if auth.WorkerID == uuid.Nil || auth.SupplierID == uuid.Nil || id == uuid.Nil {
+		return FabricTopologyEvaluation{}, errNotFound
+	}
+	var evaluation FabricTopologyEvaluation
+	var linksRaw, collectivesRaw, reasonsRaw []byte
+	err := s.pool.QueryRow(ctx, `SELECT declared_site,worker_ids,status,created_at,evidence_fresh_until,
+		required_directed_links,verified_directed_links,links,required_directed_collectives,
+		verified_directed_collectives,collectives,local_cluster_admissible,non_admission_reasons
+		FROM fabric_topology_evaluations
+		WHERE id=$1 AND requesting_worker_id=$2 AND requesting_supplier_id=$3`,
+		id, auth.WorkerID, auth.SupplierID).Scan(
+		&evaluation.DeclaredSite, &evaluation.WorkerIDs, &evaluation.Status, &evaluation.EvaluatedAt,
+		&evaluation.EvidenceFreshUntil, &evaluation.RequiredDirectedLinks,
+		&evaluation.VerifiedDirectedLinks, &linksRaw, &evaluation.RequiredDirectedCollectives,
+		&evaluation.VerifiedDirectedCollectives, &collectivesRaw, &evaluation.LocalClusterAdmissible,
+		&reasonsRaw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return FabricTopologyEvaluation{}, errNotFound
+	}
+	if err != nil {
+		return FabricTopologyEvaluation{}, err
+	}
+	evaluation.SchemaVersion = 1
+	evaluation.EvaluationID = id
+	if err := json.Unmarshal(linksRaw, &evaluation.Links); err != nil {
+		return FabricTopologyEvaluation{}, fmt.Errorf("decode stored fabric topology links: %w", err)
+	}
+	if err := json.Unmarshal(collectivesRaw, &evaluation.Collectives); err != nil {
+		return FabricTopologyEvaluation{}, fmt.Errorf("decode stored fabric topology collectives: %w", err)
+	}
+	if err := json.Unmarshal(reasonsRaw, &evaluation.NonAdmissionReasons); err != nil {
+		return FabricTopologyEvaluation{}, fmt.Errorf("decode stored fabric topology refusals: %w", err)
+	}
+	plan, err := PlanTopologyFromFabricEvaluation(evaluation, TopologyRequest{
+		WorkloadClass: "fabric_topology_evaluation",
+		Parallelism: WorkloadParallelism{
+			Mode: "tensor_parallel", TensorParallelDegree: len(evaluation.WorkerIDs),
+		},
+		CommunityCapacityAvailable: true,
+		CandidateDeviceCount:       len(evaluation.WorkerIDs),
+	}, time.Now().UTC())
+	if err != nil {
+		return FabricTopologyEvaluation{}, err
+	}
+	evaluation.TopologyPlan = &plan
 	return evaluation, nil
 }
 

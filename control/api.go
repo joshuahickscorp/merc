@@ -149,6 +149,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/worker/fabric/receipts", s.authWorker(http.HandlerFunc(s.handleWorkerFabricReceipt)))
 	mux.Handle("POST /v1/worker/fabric/collective-receipts", s.authWorker(http.HandlerFunc(s.handleWorkerFabricCollectiveReceipt)))
 	mux.Handle("POST /v1/worker/fabric/topologies/evaluate", s.authWorker(http.HandlerFunc(s.handleWorkerFabricTopologyEvaluate)))
+	mux.Handle("GET /v1/worker/fabric/topologies/{id}", s.authWorker(http.HandlerFunc(s.handleWorkerFabricTopologyGet)))
 	mux.Handle("POST /v1/worker/heartbeat", s.authWorker(http.HandlerFunc(s.handleWorkerHeartbeat)))
 	mux.Handle("GET /v1/worker/poll", s.authWorker(http.HandlerFunc(s.handleWorkerPoll)))
 	mux.Handle("POST /v1/worker/task/{id}/start", s.authWorker(http.HandlerFunc(s.handleWorkerStart)))
@@ -2514,6 +2515,24 @@ func (s *Server) handleWorkerFabricTopologyEvaluate(w http.ResponseWriter, r *ht
 		return
 	}
 	evaluation.TopologyPlan = &plan
+	writeJSON(w, http.StatusOK, evaluation)
+}
+
+func (s *Server) handleWorkerFabricTopologyGet(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	id, ok := pathUUID(w, r)
+	if !ok {
+		return
+	}
+	evaluation, err := s.store.GetFabricTopologyEvaluation(r.Context(), *auth, id)
+	if errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "fabric topology evaluation not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "fabric topology evaluation unavailable")
+		return
+	}
 	writeJSON(w, http.StatusOK, evaluation)
 }
 
