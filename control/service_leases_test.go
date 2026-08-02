@@ -73,6 +73,29 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		lease.Pricing.FixedPoint.AcceptedCeilingNanos != request.BuyerDeclaredCeilingNanos || lease.ActiveReplicas != 1 {
 		t.Fatalf("lease lost frozen pricing/capacity authority: %+v", lease)
 	}
+	// The agent refreshes this offer continuously. Its static configuration says
+	// it can warm three replicas, but all three are now reserved by this lease;
+	// accepting the refresh verbatim would let a second buyer overbook the host.
+	if got := post("/v1/worker/service-leases/offers", workerToken, serviceLeaseOffer(profile)).Code; got != http.StatusOK {
+		t.Fatalf("periodic offer refresh status=%d", got)
+	}
+	var available int
+	if err := pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, lease.WorkerID, profile.RuntimeProfileID, "ca-central-1").Scan(&available); err != nil {
+		t.Fatal(err)
+	}
+	if available != 0 {
+		t.Fatalf("offer refresh restored %d already-reserved replicas", available)
+	}
+	if got := post("/v1/service-leases", buyerKey, request).Code; got != http.StatusServiceUnavailable {
+		t.Fatalf("second lease overbooked the refreshed offer: status=%d", got)
+	}
+	undersized := serviceLeaseOffer(profile)
+	undersized.MaximumWarmReplicas = 2
+	undersized.AvailableWarmReplicas = 2
+	if got := post("/v1/worker/service-leases/offers", workerToken, undersized).Code; got != http.StatusConflict {
+		t.Fatalf("offer reduced below active reservation: status=%d", got)
+	}
 	assignmentReq := httptest.NewRequest(http.MethodGet, "/v1/worker/service-leases/active", nil)
 	assignmentReq.Header.Set("X-Worker-Token", workerToken)
 	assignmentRec := httptest.NewRecorder()

@@ -23,6 +23,10 @@ func (s *Server) handleServiceLeaseOffer(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := s.store.UpsertServiceLeaseOffer(r.Context(), *auth, offer); err != nil {
+		if errors.Is(err, errServiceLeaseOfferBelowReservations) {
+			writeErr(w, http.StatusConflict, "service lease offer conflicts with active reserved capacity")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "service lease offer registration failed")
 		return
 	}
