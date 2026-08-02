@@ -167,29 +167,75 @@ func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, regi
 	if err != nil {
 		return err
 	}
+	// The mutable offer answers "what is available now". A sample answers the
+	// separate, time-bounded operations question: did demand find capacity, and
+	// how much of it stayed occupied? Keep the latter prompt-free and outside
+	// every admission and money decision.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO realtime_offer_samples
+		  (worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,hw_class,
+		   status,max_active_sequences,available_sequences,
+		   supplier_input_usd_per_million_tokens,supplier_output_usd_per_million_tokens)
+		VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$7,$8,$9)`,
+		worker.WorkerID, worker.SupplierID, registration.RuntimeProfileID,
+		registration.RuntimeProfileSHA256, plan.HWClass, registration.MaxActiveSequences,
+		registration.AvailableSequences, registration.SupplierInputUSDPerMillionTokens,
+		registration.SupplierOutputUSDPerMillionTokens); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
 func (s *Store) HeartbeatRealtimeOffer(ctx context.Context, worker WorkerAuth, hb RealtimeOfferHeartbeat) error {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE realtime_worker_offers
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var (
+		profileSHA string
+		hwClass    string
+		maxActive  int
+		available  int
+		inputRate  float64
+		outputRate float64
+	)
+	err = tx.QueryRow(ctx, `
+		UPDATE realtime_worker_offers AS o
 		   SET warmth=$4,
-		       available_sequences=GREATEST(0,LEAST($5,max_active_sequences-(
+		       available_sequences=GREATEST(0,LEAST($5,o.max_active_sequences-(
 		           SELECT count(*)::int FROM execution_contracts c
 		            WHERE c.worker_id=$1 AND c.runtime_profile_id=$3
 		              AND c.state='EXECUTING'))),
 		       status=$6,last_seen_at=now(),updated_at=now()
-		 WHERE worker_id=$1 AND supplier_id=$2 AND runtime_profile_id=$3
-		   AND $5 BETWEEN 0 AND max_active_sequences`,
+		  FROM workers AS w
+		 WHERE o.worker_id=$1 AND o.supplier_id=$2 AND o.runtime_profile_id=$3
+		   AND w.id=o.worker_id
+		   AND $5 BETWEEN 0 AND o.max_active_sequences
+		RETURNING o.runtime_profile_sha256,
+	          COALESCE(NULLIF(o.placement_plan->>'hw_class',''),w.hw_class),o.max_active_sequences,
+	          o.available_sequences,o.supplier_input_usd_per_million_tokens,
+	          o.supplier_output_usd_per_million_tokens`,
 		worker.WorkerID, worker.SupplierID, hb.RuntimeProfileID, hb.Warmth,
-		hb.AvailableSequences, hb.Status)
+		hb.AvailableSequences, hb.Status).Scan(&profileSHA, &hwClass, &maxActive,
+		&available, &inputRate, &outputRate)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	}
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() != 1 {
-		return errNotFound
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO realtime_offer_samples
+		  (worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,hw_class,
+		   status,max_active_sequences,available_sequences,
+		   supplier_input_usd_per_million_tokens,supplier_output_usd_per_million_tokens)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		worker.WorkerID, worker.SupplierID, hb.RuntimeProfileID, profileSHA, hwClass,
+		hb.Status, maxActive, available, inputRate, outputRate); err != nil {
+		return err
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func scanRealtimeContract(row pgx.Row) (RealtimeContract, error) {

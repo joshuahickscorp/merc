@@ -48,6 +48,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	// these tables, and truncating more would make this test destructive to its
 	// neighbours instead of merely self-sufficient.
 	if _, err := pool.Exec(ctx, `TRUNCATE
+		realtime_admission_events, realtime_offer_samples,
 		realtime_authorization_events, realtime_settlements, realtime_executions,
 		realtime_refunds, execution_contracts, realtime_worker_offers
 		RESTART IDENTITY CASCADE`); err != nil {
@@ -217,6 +218,14 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	}
 	if _, err := store.RealtimeReceipt(ctx, buyerID, contractID); err != nil {
 		t.Fatalf("direct realtime receipt read failed: %v", err)
+	}
+	var admissionDecision, admissionHW string
+	if err := pool.QueryRow(ctx, `
+		SELECT decision,hw_class FROM realtime_admission_events
+		 WHERE contract_id=$1 AND buyer_id=$2`, contractID, buyerID).Scan(&admissionDecision, &admissionHW); err != nil ||
+		admissionDecision != realtimeAdmissionAdmitted || admissionHW != "nvidia_24gb" {
+		t.Fatalf("production chat caller did not retain its admitted capacity evidence: decision=%q hw=%q err=%v",
+			admissionDecision, admissionHW, err)
 	}
 
 	receiptRequest, _ := http.NewRequestWithContext(ctx, http.MethodGet,

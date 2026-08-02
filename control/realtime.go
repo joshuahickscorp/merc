@@ -886,14 +886,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(err, errRealtimeNoSupply) {
+		s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
+			"", realtimeAdmissionNoCapacity, uuid.Nil)
 		writeOpenAIError(w, http.StatusServiceUnavailable, "no compatible realtime capacity is currently available", "server_error", "no_capacity")
 		return
 	}
 	if errors.Is(err, errRealtimeInsufficientFunds) {
+		s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
+			"", realtimeAdmissionInsufficient, uuid.Nil)
 		writeOpenAIError(w, http.StatusPaymentRequired, err.Error(), "insufficient_quota", "insufficient_quota")
 		return
 	}
 	if err != nil {
+		s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
+			"", realtimeAdmissionAuthorization, uuid.Nil)
 		writeOpenAIError(w, http.StatusServiceUnavailable, "realtime contract authorization failed", "server_error", "authorization_failed")
 		return
 	}
@@ -906,6 +912,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	metrics.realtimeAuthorized.Add(1)
+	s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
+		contract.PlacementPlan.HWClass, realtimeAdmissionAdmitted, contract.ID)
 
 	started := time.Now()
 	executionID := uuid.New()
@@ -1090,6 +1098,17 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	pathTiming.mark("exact_cache_store", stage)
 	cacheCancel()
 	pathTiming.log(false, contract.ID.String())
+}
+
+// recordRealtimeAdmissionEvent is observational. A telemetry database fault
+// must never turn an otherwise valid buyer request into a failed contract, nor
+// can it alter capacity selection, pricing, or settlement.
+func (s *Server) recordRealtimeAdmissionEvent(
+	ctx context.Context, buyerID uuid.UUID, runtimeProfileID, hwClass, decision string, contractID uuid.UUID,
+) {
+	if err := s.store.RecordRealtimeAdmissionEvent(ctx, buyerID, runtimeProfileID, hwClass, decision, contractID); err != nil {
+		log.Printf("realtime liquidity telemetry: decision=%s profile=%s: %v", decision, runtimeProfileID, err)
+	}
 }
 
 // tryRealtimeExactReuse serves a prior identical deterministic response from
