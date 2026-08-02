@@ -203,6 +203,15 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 		unmatched.CapacityFillNumerator != 0 || unmatched.CapacityFillDenominator != 1 {
 		t.Fatalf("capacity refusal was not kept separate from matched supply: %+v", unmatched)
 	}
+	var sampleID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM service_lease_offer_samples
+		WHERE worker_id=$1 ORDER BY observed_at,id LIMIT 1`, worker.WorkerID).Scan(&sampleID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE service_lease_offer_samples
+		SET available_warm_replicas=available_warm_replicas WHERE id=$1`, sampleID); err == nil {
+		t.Fatal("service liquidity evidence row was mutable")
+	}
 	if err := store.RecordServiceLeaseAdmissionEvent(ctx, buyerID, request, serviceLeaseAdmissionAdmitted, uuid.New()); err == nil {
 		t.Fatal("fabricated admitted service lease entered the liquidity denominator")
 	}

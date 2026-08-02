@@ -1036,6 +1036,9 @@ func (s *Store) CancelServiceLease(ctx context.Context, buyerID, leaseID uuid.UU
 		lease.RuntimeProfileID, lease.Region, lease.MaximumReplicas); err != nil {
 		return ServiceLease{}, false, err
 	}
+	if err := recordServiceLeaseOfferSampleTx(ctx, tx, lease.WorkerID, lease.RuntimeProfileID, lease.Region); err != nil {
+		return ServiceLease{}, false, err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail)
 		VALUES ($1,'CANCELLED',jsonb_build_object('metered_through',$2::timestamptz,
 		'cumulative_replica_nanoseconds',$3::bigint,'buyer_charge_nanos',$4::bigint,
@@ -1168,6 +1171,9 @@ func (s *Store) FailoverServiceLease(ctx context.Context, leaseID uuid.UUID) (bo
 		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3 AND available_warm_replicas >= $4`, workerID, lease.RuntimeProfileID, lease.Region, lease.MaximumReplicas); err != nil {
 		return false, err
 	}
+	if err := recordServiceLeaseOfferSampleTx(ctx, tx, workerID, lease.RuntimeProfileID, lease.Region); err != nil {
+		return false, err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE service_leases SET worker_id=$2,supplier_id=$3,state='ACTIVE',active_replicas=$4,
 		last_metered_at=$5,last_worker_heartbeat_at=$5,cumulative_replica_nanoseconds=$6,buyer_charge_nanos=$7,
 		supplier_payable_nanos=$8,known_variable_cost_nanos=$9,known_contribution_nanos=$10 WHERE id=$1`,
@@ -1244,6 +1250,9 @@ func (s *Store) finalizeExpiredServiceLease(ctx context.Context, leaseID uuid.UU
 	}
 	if _, err := tx.Exec(ctx, `UPDATE service_lease_worker_offers SET available_warm_replicas=LEAST(maximum_warm_replicas,available_warm_replicas+$4),updated_at=now()
 		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, lease.WorkerID, lease.RuntimeProfileID, lease.Region, lease.MaximumReplicas); err != nil {
+		return false, err
+	}
+	if err := recordServiceLeaseOfferSampleTx(ctx, tx, lease.WorkerID, lease.RuntimeProfileID, lease.Region); err != nil {
 		return false, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail) VALUES ($1,'EXPIRED',
