@@ -105,6 +105,7 @@ ci:
 	python3 -m json.tool ops/governance-approval-bundle.schema.json >/dev/null
 	python3 -m json.tool ops/live-payment-activation.schema.json >/dev/null
 	python3 scripts/runpod-spend-guard.py --self-test
+	python3 scripts/runpod-spend-guard.py revalidate
 	python3 scripts/validate-authorization-matrix.py
 	python3 scripts/validate-independent-reviews.py
 	python3 scripts/validate-governance.py

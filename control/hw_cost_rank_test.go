@@ -77,3 +77,48 @@ func TestHardwareCostRankOrdersOwnedBeforeRented(t *testing.T) {
 		}
 	}
 }
+
+// Go and SQL must never disagree: claim $3 is the Go rank, and the EXISTS
+// predicate ranks rivals in SQL. A twin that drifts (as it once did for CUDA)
+// is exactly how rented hardware stopped deferring to owned Macs.
+func TestGoAndSQLCostRanksAgree(t *testing.T) {
+	ctx, store, _ := openAdminMutationTestStore(t)
+
+	sqlRank := func(class string) int {
+		var got int
+		q := "SELECT " + hwClassCostRankSQL("$1::text")
+		if err := store.pool.QueryRow(ctx, q, class).Scan(&got); err != nil {
+			t.Fatalf("sql rank(%q): %v", class, err)
+		}
+		return got
+	}
+
+	for _, e := range hwClassCostRankTable {
+		goRank := hwClassCostRank(e.class)
+		sql := sqlRank(e.class)
+		if goRank != sql {
+			t.Fatalf("class %q: Go rank %d != SQL rank %d — the claim $3 and the "+
+				"cheaper-class EXISTS predicate have diverged", e.class, goRank, sql)
+		}
+		if goRank != e.rank {
+			t.Fatalf("class %q: table says %d but Go returns %d", e.class, e.rank, goRank)
+		}
+	}
+
+	const unknown = "some_future_accelerator_not_in_table"
+	goUnknown := hwClassCostRank(unknown)
+	sqlUnknown := sqlRank(unknown)
+	if goUnknown != sqlUnknown {
+		t.Fatalf("unknown class: Go rank %d != SQL rank %d", goUnknown, sqlUnknown)
+	}
+	if goUnknown != hwClassCostRankUnknown {
+		t.Fatalf("unknown class Go rank = %d, want %d (fail-safe: expensive)",
+			goUnknown, hwClassCostRankUnknown)
+	}
+	for _, e := range hwClassCostRankTable {
+		if goUnknown <= e.rank {
+			t.Fatalf("unknown class ranks %d, at or below priced %s (%d)",
+				goUnknown, e.class, e.rank)
+		}
+	}
+}

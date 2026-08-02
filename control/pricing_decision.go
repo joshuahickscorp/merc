@@ -78,9 +78,16 @@ type FixedPointPricingDecision struct {
 type PricingDecision struct {
 	Version        int    `json:"version"`
 	PolicyRevision string `json:"policy_revision"`
-	ExecutionMode  string `json:"execution_mode"`
-	Currency       string `json:"currency"`
-	Tier           string `json:"tier"`
+	// ExecutionMode is the billing axis for this decision ("distributed",
+	// "exact_result_reuse", "realtime_physical", "realtime_exact_reuse",
+	// "service_lease"). It is NOT the network placement axis in
+	// execution_mode.go (POOL / REPLICA_SERVICE / LOCAL_CLUSTER /
+	// CLOUD_BACKSTOP). Both axes use the JSON key "execution_mode"; the value
+	// sets must remain disjoint (TestExecutionModeValueSetsAreDisjoint). Do not
+	// rename this key here — that is a storage migration.
+	ExecutionMode string `json:"execution_mode"`
+	Currency      string `json:"currency"`
+	Tier          string `json:"tier"`
 
 	WorkloadDecisionSHA256           string `json:"workload_decision_sha256"`
 	ComputePlanSHA256                string `json:"compute_plan_sha256"`
