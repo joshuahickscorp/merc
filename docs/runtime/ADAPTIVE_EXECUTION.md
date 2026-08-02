@@ -332,7 +332,7 @@ so the receipt cannot restate a number a previous report chose.
 | in-flight coalescing | PRODUCTION_WIRED |
 | execution overhead actuals | PRODUCTION_WIRED |
 | token-budget batching | IMPLEMENTED_UNWIRED |
-| tokenization / tool-schema caches | ABSENT |
+| prepared tools/schema identity cache | PRODUCTION_WIRED (tokenizer absent) |
 | RuntimeSelector | ABSENT |
 
 **The second runtime is REAL_RUNTIME_PROVEN, not ECONOMICALLY_PROVEN.** Real agent
@@ -385,7 +385,7 @@ wiring, and a caller census is the only thing that finds them.
 | 7 | llama.cpp embedding enters bounded CANARY or is honestly blocked | **honestly blocked** — blocked by 4-6, not by measurement |
 | 8 | 128 eligible requests produce one physical execution and one payable | **not done** — coalescing is concurrency-tested, not money-proved through a real runtime |
 | 9 | Coalesced buyer charges and Merc contribution reconcile | **not done** |
-| 10 | Tokenization and schema caches with real callers | **not done** |
+| 10 | Tokenization and schema caches with real callers | **partial** — prepared request identity cache is live and bounded; model tokenizer cache remains absent because the control plane never tokenizes |
 | 11 | Token-budget policies measured per traffic class | **not done** |
 | 12 | Full suite green and every pushed checkpoint receipt-bound | **done** — and `make ci` is green for the first time on this branch |
 
@@ -404,7 +404,7 @@ rollback, and none of that was expressible before.
 | 6. Paired selector evidence | **not done** |
 | 7. Selector promotion gate | **not done** |
 | 8. Coalescing proved through real money | **not done** — coalescing works and is concurrency-tested; the 128-request money proof through real runtime execution is not taken |
-| 9. Tokenization / tool-schema caches | **not done** |
+| 9. Prepared tools/schema identity cache | **partial** — `realtime_identity_cache.go` has production callers, tenant/profile/policy invalidation, bounded LRU/TTL, and hit/miss metrics; token-ID caching remains unimplemented |
 | 10. Token-budget batching sweep | **not done** |
 | 11. vLLM CUDA as a governed cell | **not done** |
 

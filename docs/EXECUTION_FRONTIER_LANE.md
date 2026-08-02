@@ -65,7 +65,7 @@ estimator change from the measured band through the promotion gate.
 | in-flight coalescing | **WIRED** — `control/inflight_coalescing.go`, governed `inflight_executions` with lease, state machine, bounded re-election and expiry; called from the realtime lane after the exact-cache miss. The old unwired `ClaimInflightLeader`/`ReleaseInflight` and `inflight_requests` are deleted. |
 | tokenized prefix trie | `control/prefix_routing.go:173` — `ComputePrefixChain` over token ids, `DeepestWarmPrefix`, value-ranked eviction (`EvictPrefixCacheToBudget`) |
 | KV-hit-aware routing | prefix warmth feeds the scheduler; `prefixWarmTTL` is deliberately shorter than model warmth |
-| tokenization / tool-schema caches | absent |
+| prepared tools/schema identity cache | **WIRED** — `control/realtime_identity_cache.go`; bounded tenant/profile/policy-scoped cache is called by exact reuse, coalescing, and cache population. It caches semantic request identity only; no tokenizer exists. |
 | image / audio preprocessing caches | not applicable — no image or audio runtime exists (`docs/SHIPPABILITY_STATUS.md`; the image route returns 503) |
 | deterministic JSON / tool scaffolding | absent |
 
@@ -76,7 +76,10 @@ not grow with the followers. Cross-tenant sharing is deliberately not attempted 
 `RequestIdentity` carries a tenant scope, so two tenants issuing byte-identical
 requests never meet.
 
-Tokenization and tool-schema caches remain absent and unblocked.
+The control plane still has no model tokenizer, so token-ID caching remains absent by
+design. Prepared request identity now has a bounded production cache; the benchmark
+records the hit path separately from the measured canonicalisation baseline so this
+small optimisation cannot be mistaken for a tokenizer or pricing authority.
 
 ## 3. Continuous batching — PARTIAL
 
