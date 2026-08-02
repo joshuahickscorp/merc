@@ -744,7 +744,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if reuseContract, reuseBody, reuseHit, err := s.tryRealtimeExactReuse(
 			r.Context(), auth.BuyerID, requestID, idempotencyKey, prepared); err != nil {
 			pathTiming.mark("exact_reuse", stage)
-			if errors.Is(err, errRealtimeInsufficientFunds) {
+			if errors.Is(err, errRealtimeInsufficientFunds) || errors.Is(err, errRealtimeTopupRequired) {
 				writeOpenAIError(w, http.StatusPaymentRequired, err.Error(), "insufficient_quota", "insufficient_quota")
 				return
 			}
@@ -784,7 +784,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		pathTiming.mark("coalesce", stage)
 		switch {
 		case coalesceErr != nil:
-			if errors.Is(coalesceErr, errRealtimeInsufficientFunds) {
+			if errors.Is(coalesceErr, errRealtimeInsufficientFunds) || errors.Is(coalesceErr, errRealtimeTopupRequired) {
 				writeOpenAIError(w, http.StatusPaymentRequired, coalesceErr.Error(), "insufficient_quota", "insufficient_quota")
 				return
 			}
@@ -891,7 +891,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusServiceUnavailable, "no compatible realtime capacity is currently available", "server_error", "no_capacity")
 		return
 	}
-	if errors.Is(err, errRealtimeInsufficientFunds) {
+	if errors.Is(err, errRealtimeInsufficientFunds) || errors.Is(err, errRealtimeTopupRequired) {
 		s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
 			"", realtimeAdmissionInsufficient, uuid.Nil)
 		writeOpenAIError(w, http.StatusPaymentRequired, err.Error(), "insufficient_quota", "insufficient_quota")
@@ -962,6 +962,21 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			writeOpenAIError(w, http.StatusBadGateway, "realtime worker returned an invalid stream", "server_error", "invalid_upstream_stream")
 			return
 		}
+		// Delivered stream work must always settle. Insert the durable intent
+		// before the first buyer byte so a post-stream finalize failure cannot
+		// silently void the bill for work already written to the client.
+		// Detached from the buyer request context: a disconnect can race the
+		// upstream first-byte signal and cancel r.Context() before this insert
+		// runs. The intent is an obligation to settle delivered work and must
+		// still arm.
+		intentCtx, intentCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := s.store.InsertRealtimeSettlementIntent(intentCtx, contract.ID, executionID)
+		intentCancel()
+		if err != nil {
+			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "settlement_intent_failed", err, false)
+			writeOpenAIError(w, http.StatusInternalServerError, "could not arm durable stream settlement", "server_error", "settlement_intent_failed")
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -975,6 +990,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			if cancelled {
 				code = "client_cancelled"
 			}
+			// Interrupted stream was not fully delivered — keep failure behaviour.
 			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, code, err, cancelled)
 			pathTiming.log(true, contract.ID.String())
 			return
@@ -982,6 +998,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		pathTiming.mark("proxy_sse", stage)
 		evidence, err := tracker.evidence(executionID, response.StatusCode, time.Since(started))
 		if err != nil {
+			// No reconcilable usage means the bill cannot be computed. That is not
+			// "delivered work" for settlement purposes — void like today (worker
+			// death after a partial stream without final usage).
 			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "usage_reconciliation_failed", err, false)
 			pathTiming.log(true, contract.ID.String())
 			return
@@ -992,8 +1011,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		pathTiming.mark("settlement", stage)
 		settlementCancel()
 		if err != nil {
+			// Stream fully delivered with reconcilable usage: do not void. Keep
+			// the intent pending with evidence so the worker sweep settles it.
 			metrics.realtimeFinalizationErrors.Add(1)
-			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "settlement_failed", err, false)
+			_ = s.store.RecordRealtimeSettlementIntentFailure(context.Background(), contract.ID, executionID, evidence, err)
 		} else {
 			metrics.realtimeVerified.Add(1)
 		}

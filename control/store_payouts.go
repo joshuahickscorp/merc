@@ -475,7 +475,29 @@ func reservePayoutFunding(
 			}
 			return reserveServiceLeasePayoutFunding(ctx, tx, entryID, serviceLeaseIDs[0], requestedCents, currency)
 		}
-		return uuid.Nil, false, nil
+		// Realtime supplier credits have no task or service lease. Bind them to
+		// the buyer's collected top-up cash via the execution contract.
+		var contractID *uuid.UUID
+		var buyerID uuid.UUID
+		err := tx.QueryRow(ctx, `
+			SELECT le.execution_contract_id, c.buyer_id
+			  FROM ledger_entries le
+			  JOIN execution_contracts c ON c.id=le.execution_contract_id
+			 WHERE le.id=$1 AND le.kind='supplier_credit' AND le.execution_contract_id IS NOT NULL
+			 FOR UPDATE OF c`, entryID).Scan(&contractID, &buyerID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, false, nil
+		}
+		if err != nil {
+			return uuid.Nil, false, err
+		}
+		if contractID == nil || *contractID == uuid.Nil || buyerID == uuid.Nil {
+			return uuid.Nil, false, nil
+		}
+		return reserveBuyerTopupPayoutFunding(ctx, tx, topupPayoutFunding{
+			EntryID: entryID, BuyerID: buyerID, ExecutionContractID: contractID,
+			RequestedCents: requestedCents, Currency: currency,
+		})
 	}
 	if len(serviceLeaseIDs) == 1 {
 		return uuid.Nil, false, errors.New("job payout funding cannot carry a service lease identity")
@@ -487,20 +509,31 @@ func reservePayoutFunding(
 		chargeStatus, paymentIntent, cashCurrency string
 		batchID                                   *uuid.UUID
 		cashRequested, cashReceived               int64
+		prepaidRequired                           bool
 	)
 	if err := tx.QueryRow(ctx, `
 		SELECT j.id,j.buyer_id,j.charge_status,j.charge_batch_id,
 		       COALESCE(j.stripe_pi,''),COALESCE(j.charge_requested_cents,0),
-		       COALESCE(j.charge_received_cents,0),COALESCE(j.charge_currency,'')
+		       COALESCE(j.charge_received_cents,0),COALESCE(j.charge_currency,''),
+		       COALESCE(j.prepaid_required,false)
 		  FROM tasks t JOIN jobs j ON j.id=t.job_id
 		 WHERE t.id=$1
 		 FOR UPDATE OF j`, *taskID,
 	).Scan(&jobID, &buyerID, &chargeStatus, &batchID, &paymentIntent,
-		&cashRequested, &cashReceived, &cashCurrency); err != nil {
+		&cashRequested, &cashReceived, &cashCurrency, &prepaidRequired); err != nil {
 		return uuid.Nil, false, err
 	}
 	if chargeStatus != "charged" {
-		return uuid.Nil, false, nil
+		// Fully prepaid jobs never reach charge_status='charged' (JobChargeInfo
+		// nets prepaid_debit to zero). Fund their supplier credits from the
+		// buyer's settled top-up collections, same rail as service leases.
+		if !prepaidRequired {
+			return uuid.Nil, false, nil
+		}
+		return reserveBuyerTopupPayoutFunding(ctx, tx, topupPayoutFunding{
+			EntryID: entryID, BuyerID: buyerID, JobID: &jobID,
+			RequestedCents: requestedCents, Currency: currency,
+		})
 	}
 
 	sourceKind := "job"
@@ -591,44 +624,48 @@ func reservePayoutFunding(
 	return fundingID, true, nil
 }
 
-// reserveServiceLeasePayoutFunding backs a terminal service-lease supplier
-// liability with a real collected prepaid top-up. A lease has no job/task cash
-// collection, so the allocation is explicit: the funding row names the lease,
-// the buyer-owned top-up payment intent, the exact ISO minor-unit amount, and
-// the immutable supplier ledger entry. The top-up is selected deterministically
-// and only after refunds/disputes and prior funding reservations are accounted
-// for. No platform subsidy or synthetic task is accepted on this path.
-func reserveServiceLeasePayoutFunding(
+// topupPayoutFunding names exactly one liability identity that a collected
+// prepaid top-up may fund. Job, service lease, and execution-contract paths
+// share the same cash-selection logic.
+type topupPayoutFunding struct {
+	EntryID             uuid.UUID
+	BuyerID             uuid.UUID
+	JobID               *uuid.UUID
+	ServiceLeaseID      *uuid.UUID
+	ExecutionContractID *uuid.UUID
+	RequestedCents      int64
+	Currency            string
+}
+
+func (f topupPayoutFunding) valid() bool {
+	if f.EntryID == uuid.Nil || f.BuyerID == uuid.Nil || f.RequestedCents <= 0 || strings.TrimSpace(f.Currency) == "" {
+		return false
+	}
+	n := 0
+	if f.JobID != nil && *f.JobID != uuid.Nil {
+		n++
+	}
+	if f.ServiceLeaseID != nil && *f.ServiceLeaseID != uuid.Nil {
+		n++
+	}
+	if f.ExecutionContractID != nil && *f.ExecutionContractID != uuid.Nil {
+		n++
+	}
+	return n == 1
+}
+
+// reserveBuyerTopupPayoutFunding backs a supplier liability with a real
+// collected prepaid top-up. The funding row names exactly one liability
+// identity (job, service lease, or execution contract), the buyer-owned top-up
+// payment intent, and the exact ISO minor-unit amount. Top-ups are selected
+// deterministically after refunds/disputes and prior reservations.
+func reserveBuyerTopupPayoutFunding(
 	ctx context.Context,
 	tx pgx.Tx,
-	entryID, leaseID uuid.UUID,
-	requestedCents int64,
-	currency string,
+	f topupPayoutFunding,
 ) (uuid.UUID, bool, error) {
-	if entryID == uuid.Nil || leaseID == uuid.Nil || requestedCents <= 0 || strings.TrimSpace(currency) == "" {
-		return uuid.Nil, false, errors.New("service lease payout funding identity is invalid")
-	}
-	var (
-		buyerID        uuid.UUID
-		leaseState     string
-		leaseCurrency  string
-		reservedMicros int64
-	)
-	err := tx.QueryRow(ctx, `
-		SELECT buyer_id,state,COALESCE(pricing_decision->>'currency',''),reserved_buyer_micros
-		  FROM service_leases WHERE id=$1 FOR UPDATE`, leaseID).
-		Scan(&buyerID, &leaseState, &leaseCurrency, &reservedMicros)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, false, nil
-	}
-	if err != nil {
-		return uuid.Nil, false, err
-	}
-	if leaseState != "COMPLETED" && leaseState != "CANCELLED" {
-		return uuid.Nil, false, nil
-	}
-	if buyerID == uuid.Nil || reservedMicros <= 0 || leaseCurrency != currency {
-		return uuid.Nil, false, nil
+	if !f.valid() {
+		return uuid.Nil, false, errors.New("top-up payout funding identity is invalid")
 	}
 
 	// Lock all candidate top-up rows before checking their remaining collection
@@ -640,7 +677,7 @@ func reserveServiceLeasePayoutFunding(
 		 WHERE buyer_id=$1 AND source_kind='topup' AND currency=$2
 		   AND requested_cents=received_cents
 		 ORDER BY recorded_at,payment_intent
-		 FOR UPDATE`, buyerID, currency)
+		 FOR UPDATE`, f.BuyerID, f.Currency)
 	if err != nil {
 		return uuid.Nil, false, err
 	}
@@ -683,21 +720,68 @@ func reserveServiceLeasePayoutFunding(
 			 WHERE source_kind='buyer_collection' AND collection_payment_intent=$1`, c.paymentIntent).Scan(&reserved); err != nil {
 			return uuid.Nil, false, err
 		}
-		if reserved < 0 || reserved > available || requestedCents > available-reserved {
+		if reserved < 0 || reserved > available || f.RequestedCents > available-reserved {
 			continue
 		}
 		var fundingID uuid.UUID
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO supplier_payout_funding
 			 (ledger_entry_id,source_kind,liability_job_id,liability_service_lease_id,
-			  collection_payment_intent,amount_cents,currency)
-			VALUES ($1,'buyer_collection',NULL,$2,$3,$4,$5)
-			RETURNING id`, entryID, leaseID, c.paymentIntent, requestedCents, currency).Scan(&fundingID); err != nil {
+			  liability_execution_contract_id,collection_payment_intent,amount_cents,currency)
+			VALUES ($1,'buyer_collection',$2,$3,$4,$5,$6,$7)
+			RETURNING id`, f.EntryID, f.JobID, f.ServiceLeaseID, f.ExecutionContractID,
+			c.paymentIntent, f.RequestedCents, f.Currency).Scan(&fundingID); err != nil {
 			return uuid.Nil, false, err
 		}
 		return fundingID, true, nil
 	}
 	return uuid.Nil, false, nil
+}
+
+// reserveServiceLeasePayoutFunding backs a terminal service-lease supplier
+// liability with a real collected prepaid top-up. A lease has no job/task cash
+// collection, so the allocation is explicit: the funding row names the lease,
+// the buyer-owned top-up payment intent, the exact ISO minor-unit amount, and
+// the immutable supplier ledger entry. The top-up is selected deterministically
+// and only after refunds/disputes and prior funding reservations are accounted
+// for. No platform subsidy or synthetic task is accepted on this path.
+func reserveServiceLeasePayoutFunding(
+	ctx context.Context,
+	tx pgx.Tx,
+	entryID, leaseID uuid.UUID,
+	requestedCents int64,
+	currency string,
+) (uuid.UUID, bool, error) {
+	if entryID == uuid.Nil || leaseID == uuid.Nil || requestedCents <= 0 || strings.TrimSpace(currency) == "" {
+		return uuid.Nil, false, errors.New("service lease payout funding identity is invalid")
+	}
+	var (
+		buyerID        uuid.UUID
+		leaseState     string
+		leaseCurrency  string
+		reservedMicros int64
+	)
+	err := tx.QueryRow(ctx, `
+		SELECT buyer_id,state,COALESCE(pricing_decision->>'currency',''),reserved_buyer_micros
+		  FROM service_leases WHERE id=$1 FOR UPDATE`, leaseID).
+		Scan(&buyerID, &leaseState, &leaseCurrency, &reservedMicros)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, false, nil
+	}
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	if leaseState != "COMPLETED" && leaseState != "CANCELLED" {
+		return uuid.Nil, false, nil
+	}
+	if buyerID == uuid.Nil || reservedMicros <= 0 || leaseCurrency != currency {
+		return uuid.Nil, false, nil
+	}
+	lease := leaseID
+	return reserveBuyerTopupPayoutFunding(ctx, tx, topupPayoutFunding{
+		EntryID: entryID, BuyerID: buyerID, ServiceLeaseID: &lease,
+		RequestedCents: requestedCents, Currency: currency,
+	})
 }
 
 func (s *Store) DuePayouts(ctx context.Context, limit int) ([]DueHeldEntry, error) {

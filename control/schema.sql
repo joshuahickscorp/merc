@@ -6159,3 +6159,68 @@ CREATE TRIGGER tasks_frozen_economics_immutable
     BEFORE UPDATE OF economic_buyer_charge_usd, economic_supplier_payout_usd,
                      economic_buyer_charge_nanos, economic_supplier_payout_nanos ON tasks
     FOR EACH ROW EXECUTE FUNCTION cx_reject_frozen_task_economics_update();
+-- Realtime and fully-prepaid job supplier credits are funded from collected
+-- prepaid top-ups (the same cash rail service leases already use). A saved card
+-- is not funding; only settled top-up collections may reserve payout cash.
+ALTER TABLE supplier_payout_funding
+    ADD COLUMN IF NOT EXISTS liability_execution_contract_id UUID;
+CREATE INDEX IF NOT EXISTS supplier_payout_funding_execution_contract_idx
+    ON supplier_payout_funding (liability_execution_contract_id)
+    WHERE liability_execution_contract_id IS NOT NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid='supplier_payout_funding'::regclass
+           AND conname='supplier_payout_funding_execution_contract_fkey'
+    ) THEN
+        ALTER TABLE supplier_payout_funding
+            ADD CONSTRAINT supplier_payout_funding_execution_contract_fkey
+            FOREIGN KEY (liability_execution_contract_id)
+            REFERENCES execution_contracts(id) ON DELETE RESTRICT NOT VALID;
+    END IF;
+END $$;
+ALTER TABLE supplier_payout_funding
+    VALIDATE CONSTRAINT supplier_payout_funding_execution_contract_fkey;
+ALTER TABLE supplier_payout_funding DROP CONSTRAINT IF EXISTS supplier_payout_funding_source_valid;
+ALTER TABLE supplier_payout_funding ADD CONSTRAINT supplier_payout_funding_source_valid CHECK (
+  (source_kind='buyer_collection'
+   AND (
+        (liability_job_id IS NOT NULL AND liability_service_lease_id IS NULL AND liability_execution_contract_id IS NULL)
+     OR (liability_job_id IS NULL AND liability_service_lease_id IS NOT NULL AND liability_execution_contract_id IS NULL)
+     OR (liability_job_id IS NULL AND liability_service_lease_id IS NULL AND liability_execution_contract_id IS NOT NULL)
+   )
+   AND collection_payment_intent IS NOT NULL
+   AND subsidy_fund_id IS NULL
+   AND authorization_action_id IS NULL
+   AND subsidy_authorization_ref IS NULL AND subsidy_reason IS NULL)
+  OR
+  (source_kind='platform_subsidy'
+   AND liability_execution_contract_id IS NULL
+   AND collection_payment_intent IS NULL AND subsidy_fund_id IS NOT NULL
+   AND authorization_action_id IS NOT NULL
+   AND subsidy_authorization_ref IS NOT NULL AND btrim(subsidy_authorization_ref) <> ''
+   AND subsidy_reason IS NOT NULL AND btrim(subsidy_reason) <> '')
+) NOT VALID;
+ALTER TABLE supplier_payout_funding VALIDATE CONSTRAINT supplier_payout_funding_source_valid;
+
+-- Durable settlement intents for streaming realtime responses. The stream is
+-- delivered before finalization; a pending intent ensures delivered work is
+-- settled even when the post-stream finalize attempt fails. Historical rows
+-- without an intent keep their prior meaning (best-effort finalize only).
+CREATE TABLE IF NOT EXISTS realtime_settlement_intents (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    contract_id     UUID NOT NULL REFERENCES execution_contracts(id) ON DELETE RESTRICT,
+    execution_id    UUID NOT NULL,
+    state           TEXT NOT NULL CHECK (state IN ('pending','settled','cancelled','escalated')),
+    attempt_count   INT NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_error      TEXT,
+    evidence        JSONB,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (contract_id, execution_id)
+);
+CREATE INDEX IF NOT EXISTS realtime_settlement_intents_pending_idx
+    ON realtime_settlement_intents (next_attempt_at, created_at)
+    WHERE state = 'pending';
