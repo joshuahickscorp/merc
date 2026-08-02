@@ -26,7 +26,7 @@ func TestBuyerSurfaceCallsEveryRequiredBuyerCapability(t *testing.T) {
 		"/v1/billing/setup", "/v1/billing/status", "/v1/billing/topup",
 		"/v1/keys", "/v1/quote", "/v1/jobs", "/events", "/failures",
 		"/results", "/invoice", "/receipt", "/dispute",
-		"/v1/chat/completions", "/v1/realtime/requests/", "/v1/projects/",
+		"/v1/chat/completions", "/v1/images/generations", "/v1/realtime/requests/", "/v1/projects/",
 		"/v1/service-leases", "/receipt", "majorToNanos",
 	} {
 		if !strings.Contains(page, required) {
