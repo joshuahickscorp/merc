@@ -175,8 +175,23 @@ pub fn embed_spec_for_kind(kind: &str) -> Result<ModelSpec, RunError> {
     }
 }
 
-pub fn llama_gguf_spec(_model_ref: &str) -> ModelSpec {
-    INFER
+/// Resolve a generative model reference to its governed id and GGUF pin.
+///
+/// Unknown refs fail closed: the pool must never alias an unrecognised name
+/// onto a resident model. Today only one generative model is governed; when a
+/// second is added, it gets its own entry here and its own pool slot.
+pub fn llama_spec(model_ref: &str) -> Result<(&'static str, ModelSpec), RunError> {
+    match model_ref {
+        INFER_LLAMA_ID => Ok((INFER_LLAMA_ID, INFER)),
+        other => Err(RunError::Inference {
+            backend: "batch_infer",
+            msg: format!("unresolvable generative model ref: {other:?}"),
+        }),
+    }
+}
+
+pub fn llama_gguf_spec(model_ref: &str) -> Result<ModelSpec, RunError> {
+    Ok(llama_spec(model_ref)?.1)
 }
 
 fn model_cache() -> Cache {
