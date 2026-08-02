@@ -173,8 +173,8 @@ func (s *Store) SubmitJobTx(ctx context.Context, j *jobRow, tasks []taskRow) err
 	if err := ValidateComputePlanEconomicSnapshot(j.ComputePlan, j.WorkloadDecision, j.EconomicPlan); err != nil {
 		return fmt.Errorf("refusing job without valid compute plan: %w", err)
 	}
-	if err := ValidateDistributedPricingDecisionSnapshot(
-		j.PricingDecision, j.WorkloadDecision, j.ComputePlan,
+	if err := ValidateDistributedPricingDecisionSnapshotWithStore(
+		ctx, s, j.PricingDecision, j.WorkloadDecision, j.ComputePlan,
 		j.PlacementRequirement, j.EconomicPlan,
 	); err != nil {
 		return fmt.Errorf("refusing job without valid composite pricing authority: %w", err)
@@ -749,8 +749,8 @@ func (s *Store) JobPricingDecision(ctx context.Context, jobID uuid.UUID) (*Prici
 		if err := json.Unmarshal(economicBlob, &economic); err != nil {
 			return nil, fmt.Errorf("decode economic plan for pricing on job %s: %w", jobID, err)
 		}
-		if err := ValidateDistributedPricingDecisionSnapshot(
-			pricing, *workload, *compute, *placement, economic,
+		if err := ValidateDistributedPricingDecisionSnapshotWithStore(
+			ctx, s, pricing, *workload, *compute, *placement, economic,
 		); err != nil {
 			return nil, fmt.Errorf("invalid physical pricing decision for job %s: %w", jobID, err)
 		}

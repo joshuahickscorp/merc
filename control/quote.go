@@ -1090,8 +1090,8 @@ func (s *Store) InsertQuote(ctx context.Context, buyerID uuid.UUID, q Quote) err
 	if err := ValidateComputePlanEconomicSnapshot(q.ComputePlan, q.Workload, q.Economics); err != nil {
 		return fmt.Errorf("refusing quote without valid compute plan: %w", err)
 	}
-	if err := ValidateDistributedPricingDecisionSnapshot(
-		q.Pricing, q.Workload, q.ComputePlan, q.Placement, q.Economics,
+	if err := ValidateDistributedPricingDecisionSnapshotWithStore(
+		ctx, s, q.Pricing, q.Workload, q.ComputePlan, q.Placement, q.Economics,
 	); err != nil {
 		return fmt.Errorf("refusing quote without valid composite pricing authority: %w", err)
 	}
@@ -1311,8 +1311,8 @@ func (s *Store) GetBindableQuote(ctx context.Context, quoteID, buyerID uuid.UUID
 			q.ComputePlanSHA256 != snapshotSHA256 {
 			return nil, errors.New("frozen quote compute plan digest mismatch")
 		}
-		if err := ValidateDistributedPricingDecisionSnapshot(
-			q.Pricing, snapshot.Workload, q.ComputePlan, q.Placement, q.EconomicPlan,
+		if err := ValidateDistributedPricingDecisionSnapshotWithStore(
+			ctx, s, q.Pricing, snapshot.Workload, q.ComputePlan, q.Placement, q.EconomicPlan,
 		); err != nil {
 			return nil, fmt.Errorf("invalid frozen quote pricing decision: %w", err)
 		}
