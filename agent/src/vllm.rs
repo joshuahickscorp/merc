@@ -425,6 +425,25 @@ fn validate_vllm_operator_policy(
     thermal_pressure: Option<ThermalPressure>,
 ) -> Result<()> {
     prefs.validate()?;
+    // vLLM serves through Docker host networking so its public endpoint keeps a
+    // stable, externally routable address. The normal agent's transfer limiter
+    // wraps each worker-owned object transfer; it cannot shape arbitrary inbound
+    // and outbound HTTP traffic in this host-networked process. Likewise, a
+    // supplier token rate is an asking price, not evidence that a continuously
+    // available replica will earn a particular amount per hour. Treating either
+    // setting as applied here would let the adapter advertise work under a
+    // supplier control it cannot actually enforce. A nonzero value therefore
+    // withdraws the offer until a future metered/traffic-shaping adapter exists.
+    if prefs.max_bandwidth_mbps.unwrap_or(0.0) > 0.0 {
+        bail!(
+			"vLLM host-network adapter cannot enforce nonzero max_bandwidth_mbps; leave it unset or 0 to avoid advertising under an unenforced supplier limit"
+		)
+    }
+    if prefs.min_payout_usd_per_hr.unwrap_or(0.0) > 0.0 {
+        bail!(
+			"vLLM continuous offer cannot prove min_payout_usd_per_hr from a token asking rate; leave it unset or 0 to avoid advertising under an unenforced earnings floor"
+		)
+    }
     if prefs.paused.unwrap_or(false) {
         bail!("supplier policy is paused")
     }
@@ -1478,6 +1497,31 @@ mod tests {
             safe_memory,
             0,
             Some(ThermalPressure::Serious),
+        )
+        .is_err());
+
+        prefs.thermal_limit = None;
+        prefs.max_bandwidth_mbps = Some(1.0);
+        assert!(validate_vllm_operator_policy(
+            &prefs,
+            12,
+            1,
+            false,
+            safe_memory,
+            0,
+            Some(ThermalPressure::Fair),
+        )
+        .is_err());
+        prefs.max_bandwidth_mbps = None;
+        prefs.min_payout_usd_per_hr = Some(0.01);
+        assert!(validate_vllm_operator_policy(
+            &prefs,
+            12,
+            1,
+            false,
+            safe_memory,
+            0,
+            Some(ThermalPressure::Fair),
         )
         .is_err());
     }

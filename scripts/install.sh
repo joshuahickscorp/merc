@@ -372,12 +372,16 @@ allowed_weekdays = [0, 1, 2, 3, 4, 5, 6]
 allowed_workload_classes = ["embed", "batch_infer"]
 allow_model_downloads = true
 max_model_cache_gb = 4.0
-max_bandwidth_mbps = 25.0
+# The Linux vLLM adapter uses a public host-networked endpoint. A nonzero
+# bandwidth cap is refused until the adapter has a real traffic shaper.
+max_bandwidth_mbps = 0.0
 max_cpu_pct = 80.0
 thermal_limit = "serious"
 power_only = true
 quiet_hours = [22, 6]
-min_payout_usd_per_hr = 0.05
+# A vLLM supplier rate is not an hourly-earnings guarantee. A nonzero floor is
+# refused until continuous service revenue is metered against it.
+min_payout_usd_per_hr = 0.0
 memory_headroom_gb = 8.0
 max_memory_pct = 85.0
 TOML
