@@ -134,6 +134,79 @@ func TestRealtimeMarketLiquidityRetainsOfferAndCapacityEvidence(t *testing.T) {
 	}
 }
 
+func TestRealtimeMarketClearingReceiptBindsOfferBookAndPricing(t *testing.T) {
+	installSettlementCurrencyForTest(t, "usd")
+	ctx, store, pool := openPayoutTestStore(t)
+	t.Setenv("MERC_TOKEN_KEY", "market-clearing-test-key-with-at-least-32-bytes")
+	if _, err := pool.Exec(ctx, `TRUNCATE
+		realtime_admission_events, realtime_offer_samples,
+		realtime_authorization_events, realtime_settlements, realtime_executions,
+		realtime_refunds, execution_contracts, realtime_worker_offers
+		RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatalf("reset realtime market state: %v", err)
+	}
+
+	buyerID, err := store.CreateBuyerAccount(ctx,
+		"market-clearing-"+uuid.NewString()+"@example.test", "integration-password", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := sortedVLLMProfiles()[0]
+	newOffer := func(warmth string, input, output float64) WorkerAuth {
+		supplierID, workerID := uuid.New(), uuid.New()
+		if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
+			supplierID, "market-supplier-"+uuid.NewString()+"@example.test"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.CreateWorkerToken(ctx, workerID, supplierID); err != nil {
+			t.Fatal(err)
+		}
+		worker := WorkerAuth{WorkerID: workerID, SupplierID: supplierID}
+		if err := store.UpsertRealtimeOffer(ctx, worker, RealtimeOfferRegistration{
+			RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
+			HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
+			UpstreamBaseURL: "http://127.0.0.1:8811/v1", UpstreamToken: "cx_vllm_market_clearing_test_token_123456",
+			Warmth: warmth, MaxActiveSequences: 1, AvailableSequences: 1,
+			SupplierInputUSDPerMillionTokens: input, SupplierOutputUSDPerMillionTokens: output,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return worker
+	}
+	hotWorker := newOffer("HOT", 0.08, 0.30)
+	_ = newOffer("WARM", 0.05, 0.20)
+
+	contract, _, err := store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
+		RequestID: "req-market-clearing-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
+		InputCommitment: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64),
+		MaximumPriceUSD: 0.001, EstimatedPriceUSD: 0.0005, DeadlineAt: time.Now().Add(time.Minute),
+		MaximumPromptTokens: 8_330, MaximumCompletionTokens: 1,
+		EstimatedPromptTokens: 4_163, EstimatedCompletionTokens: 1, BuyerDeclaredCeilingUSD: 0.0011,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	market := contract.MarketClearing
+	if market == nil || market.Version != 1 || market.CandidateCount != 2 || market.SelectedRank != 1 ||
+		market.SelectedWorkerID != hotWorker.WorkerID || market.SelectedSupplierID != hotWorker.SupplierID ||
+		market.PricingDecisionSHA256 != contract.PricingDecisionSHA256 || market.BuyerCeilingNanos <= 0 ||
+		market.PositiveContributionNanos <= 0 ||
+		market.AcceptedCeilingNanos != contract.Pricing.FixedPoint.AcceptedCeilingNanos {
+		t.Fatalf("realtime market receipt did not bind live offer book: %+v contract=%+v", market, contract)
+	}
+	receipt, err := store.RealtimeReceipt(ctx, buyerID, contract.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.MarketClearing == nil || receipt.MarketClearing.SelectedWorkerID != hotWorker.WorkerID ||
+		receipt.MarketClearing.CandidateCount != 2 {
+		t.Fatalf("buyer receipt omitted market clearing authority: %+v", receipt.MarketClearing)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE execution_contracts SET market_clearing='{}' WHERE id=$1`, contract.ID); err == nil {
+		t.Fatal("database allowed frozen market-clearing evidence to mutate")
+	}
+}
+
 func TestRealtimeAdmissionEventRejectsFabricatedPlacement(t *testing.T) {
 	ctx, store, _ := openPayoutTestStore(t)
 	err := store.RecordRealtimeAdmissionEvent(ctx, uuid.New(), "profile", "nvidia_24gb",
