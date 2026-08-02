@@ -499,4 +499,50 @@ func TestLoRAProbeValidatesOnlyCompleteSchemaBoundDatasets(t *testing.T) {
 			t.Fatalf("overlapping held-out data was not explicitly refused: %+v", probed.RefusalReasons)
 		}
 	})
+
+	t.Run("duplicates within either dataset are refused before training or evaluation", func(t *testing.T) {
+		for _, tc := range []struct {
+			name     string
+			training string
+			heldOut  string
+		}{
+			{
+				name: "training duplicate",
+				training: "{\"input\":\"first prompt\",\"target\":\"first completion\"}\n" +
+					"{\"target\":\"first completion\",\"input\":\"first prompt\"}\n",
+				heldOut: validHeldOut,
+			},
+			{
+				name:     "held-out duplicate",
+				training: "{\"input\":\"first prompt\",\"target\":\"first completion\"}\n",
+				heldOut: "{\"input\":\"held out prompt\",\"target\":\"held out completion\"}\n" +
+					"{\"target\":\"held out completion\",\"input\":\"held out prompt\"}\n",
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				root := t.TempDir()
+				declaration := loraProjectDeclarationFixture()
+				writeSchemaValidatedLoRAFixture(t, root, &declaration, tc.heldOut)
+				writeProjectFixture(t, root, "train.jsonl", tc.training)
+				trainDigest := sha256.Sum256([]byte(tc.training))
+				declaration.Steps[0].LoRA.TrainingSet.SHA256 = hex.EncodeToString(trainDigest[:])
+				writeDeclarationFixture(t, root, declaration)
+
+				proposal, err := compileProject(projectCompileOptions{Root: root})
+				if err != nil {
+					t.Fatal(err)
+				}
+				probed, err := compileProject(projectCompileOptions{Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := probed.Steps[0].ResourceEstimate.State; got != "DATASET_SCHEMA_REFUSED" {
+					t.Fatalf("duplicate %s state=%q", tc.name, got)
+				}
+				if !strings.Contains(strings.Join(probed.RefusalReasons, "\n"), "repeats a canonical record") {
+					t.Fatalf("duplicate %s was not explicitly refused: %+v", tc.name, probed.RefusalReasons)
+				}
+			})
+		}
+	})
 }
