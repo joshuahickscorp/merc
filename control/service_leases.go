@@ -427,7 +427,8 @@ func (s *Store) UpsertServiceLeaseOffer(ctx context.Context, auth WorkerAuth, re
 	if auth.WorkerID == uuid.Nil || auth.SupplierID == uuid.Nil {
 		return errors.New("service lease offer requires worker and supplier identity")
 	}
-	if _, err := validateServiceLeaseOffer(reg); err != nil {
+	profile, err := validateServiceLeaseOffer(reg)
+	if err != nil {
 		return err
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -474,6 +475,17 @@ func (s *Store) UpsertServiceLeaseOffer(ctx context.Context, auth WorkerAuth, re
 	if reg.Status != "READY" {
 		available = 0
 	}
+	// Join declared warm capacity to measured worker_model_state. An offer may
+	// not advertise warm replicas the worker's own measured residency does not
+	// support. Unmeasurable (no fresh measured row for the profile model) fails
+	// closed to zero — never fall back to the operator-declared TOML value.
+	measured, err := measuredServiceLeaseWarmCapacityTx(ctx, tx, auth.WorkerID, profile.ModelAlias, reg.MaximumWarmReplicas)
+	if err != nil {
+		return err
+	}
+	if available > measured {
+		available = measured
+	}
 	if _, err := tx.Exec(ctx, `UPDATE service_lease_worker_offers SET
 		supplier_id=$4,maximum_warm_replicas=$5,available_warm_replicas=$6,
 		supplier_nanos_per_replica_hour=$7,residency_nanos_per_replica_hour=$8,
@@ -518,6 +530,37 @@ func recordServiceLeaseOfferSampleTx(ctx context.Context, tx pgx.Tx, workerID uu
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, workerID, supplierID, runtimeProfileID,
 		profileSHA, region, workerHW, status, maximum, available, supplierRate, residencyRate)
 	return err
+}
+
+// measuredServiceLeaseWarmCapacityTx returns how many warm replicas the
+// worker's measured residency currently supports for this profile's model.
+//
+// worker_model_state is one row per model, not per replica: a fresh measured
+// row (rss_delta_bytes and load_ms both set, last_seen_warm within the warmth
+// TTL) means residency is observed and the declared maximum may be advertised.
+// No measured row means the offer is unmeasurable and must advertise zero.
+// Declared-only loaded_models rows (NULL measurements) do not count.
+func measuredServiceLeaseWarmCapacityTx(ctx context.Context, tx pgx.Tx, workerID uuid.UUID, modelAlias string, maximumWarmReplicas int) (int, error) {
+	if workerID == uuid.Nil || strings.TrimSpace(modelAlias) == "" || maximumWarmReplicas < 1 {
+		return 0, nil
+	}
+	var measured bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM worker_model_state
+			 WHERE worker_id = $1
+			   AND model_id = $2
+			   AND last_seen_warm > now() - interval '60 seconds'
+			   AND rss_delta_bytes IS NOT NULL
+			   AND load_ms IS NOT NULL
+		)`, workerID, modelAlias).Scan(&measured)
+	if err != nil {
+		return 0, err
+	}
+	if !measured {
+		return 0, nil
+	}
+	return maximumWarmReplicas, nil
 }
 
 // activeServiceLeaseReservationTx returns capacity still promised on this

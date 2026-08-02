@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func serviceLeaseOffer(profile VLLMRuntimeProfile) ServiceLeaseOfferRegistration {
@@ -21,6 +23,27 @@ func serviceLeaseOffer(profile VLLMRuntimeProfile) ServiceLeaseOfferRegistration
 		SupplierNanosPerReplicaHour: 2_000_000_000, ResidencyNanosPerReplicaHour: 200_000_000,
 		SupportsRollingUpgrade: true, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
 		LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1", Status: "READY",
+	}
+}
+
+// seedMeasuredWarmResidency plants a fresh measured worker_model_state row so a
+// service-lease offer is allowed to advertise warm capacity. Offers fail closed
+// to zero available replicas without this measurement.
+func seedMeasuredWarmResidency(t *testing.T, ctx context.Context, pool *pgxpool.Pool, workerID uuid.UUID, modelID string) {
+	t.Helper()
+	if modelID == "" {
+		t.Fatal("seedMeasuredWarmResidency requires a model id")
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO worker_model_state
+		  (worker_id, model_id, last_seen_warm, rss_delta_bytes, load_ms)
+		VALUES ($1, $2, now(), $3, $4)
+		ON CONFLICT (worker_id, model_id) DO UPDATE SET
+		  last_seen_warm = now(),
+		  rss_delta_bytes = EXCLUDED.rss_delta_bytes,
+		  load_ms = EXCLUDED.load_ms`,
+		workerID, modelID, int64(100*1024*1024), int64(1500)); err != nil {
+		t.Fatalf("seed measured warm residency for %s: %v", modelID, err)
 	}
 }
 
@@ -37,6 +60,8 @@ func TestServiceLeaseMarketClearingReceiptBindsLiveOfferBook(t *testing.T) {
 	}
 	first, _ := newFabricMeasurementWorker(t, ctx, store)
 	second, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, first.WorkerID, profile.ModelAlias)
+	seedMeasuredWarmResidency(t, ctx, pool, second.WorkerID, profile.ModelAlias)
 	region := "ca-clearing-" + uuid.NewString()
 	firstOffer := serviceLeaseOffer(profile)
 	firstOffer.Region = region
@@ -81,6 +106,7 @@ func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
 	ctx, store, pool := openPayoutTestStore(t)
 	profile := sortedVLLMProfiles()[0]
 	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-race-" + uuid.NewString()
 	offer.MaximumWarmReplicas, offer.AvailableWarmReplicas = 1, 1
@@ -159,6 +185,7 @@ func TestServiceLeaseRequiresCollectedPrepaidCashAndFreezesItsMaximum(t *testing
 	}
 	profile := sortedVLLMProfiles()[0]
 	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-prepaid-" + uuid.NewString()
 	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
@@ -218,6 +245,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	}
 	primaryWorker, workerToken := newFabricMeasurementWorker(t, ctx, store)
 	profile := sortedVLLMProfiles()[0]
+	seedMeasuredWarmResidency(t, ctx, pool, primaryWorker.WorkerID, profile.ModelAlias)
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-path-" + uuid.NewString()
 	handler := NewServer(store, nil, nil, nil).Routes()
@@ -405,6 +433,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	// Loss recovery charges only through the last authenticated heartbeat, then
 	// accepts a different supplier only when it clears the frozen rate ceilings.
 	fallback, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, fallback.WorkerID, profile.ModelAlias)
 	fallbackOffer := serviceLeaseOffer(profile)
 	fallbackOffer.Region = request.Region
 	if err := store.UpsertServiceLeaseOffer(ctx, fallback, fallbackOffer); err != nil {
@@ -514,6 +543,7 @@ func TestBuyerCancelsServiceLeaseAtLastAuthenticatedMeterAndReleasesUnusedReserv
 	}
 	profile := sortedVLLMProfiles()[0]
 	worker, workerToken := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-cancel-" + uuid.NewString()
 	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {

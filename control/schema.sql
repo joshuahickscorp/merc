@@ -1582,6 +1582,12 @@ CREATE TABLE IF NOT EXISTS worker_model_state (
 CREATE INDEX IF NOT EXISTS worker_model_state_model_idx
     ON worker_model_state (model_id, last_seen_warm DESC);  -- "which live workers have THIS model warm" (scheduler + quote)
 
+-- Measured residency reported on the worker heartbeat. NULL means an older
+-- agent that only declared loaded_models: warm-routing still works off
+-- last_seen_warm, but economic paths that need a measurement fail closed.
+ALTER TABLE worker_model_state ADD COLUMN IF NOT EXISTS rss_delta_bytes BIGINT;
+ALTER TABLE worker_model_state ADD COLUMN IF NOT EXISTS load_ms BIGINT;
+
 CREATE TABLE IF NOT EXISTS worker_tps_cache (
     worker_id  UUID NOT NULL,
     job_type   TEXT NOT NULL,

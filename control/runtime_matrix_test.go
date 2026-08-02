@@ -321,6 +321,29 @@ func TestHeartbeatLoadedModelsStayInsideProductionProjection(t *testing.T) {
 	}
 }
 
+func TestHeartbeatResidentModelsRefuseOutOfRangeMeasurements(t *testing.T) {
+	if err := validateHeartbeatResidentModels([]ResidentModel{{
+		ModelID: "all-minilm-l6-v2", RSSDeltaBytes: 1 << 20, LoadMS: 100,
+	}}); err != nil {
+		t.Fatalf("in-range residency rejected: %v", err)
+	}
+	if err := validateHeartbeatResidentModels([]ResidentModel{{
+		ModelID: "all-minilm-l6-v2", RSSDeltaBytes: maxResidencyRSSDeltaBytes + 1, LoadMS: 100,
+	}}); err == nil {
+		t.Fatal("over-max rss_delta_bytes accepted")
+	}
+	if err := validateHeartbeatResidentModels([]ResidentModel{{
+		ModelID: "all-minilm-l6-v2", RSSDeltaBytes: 1, LoadMS: maxBenchmarkLoadMS + 1,
+	}}); err == nil {
+		t.Fatal("over-max load_ms accepted")
+	}
+	if err := validateHeartbeatResidentModels([]ResidentModel{{
+		ModelID: "not-a-production-model", RSSDeltaBytes: 1, LoadMS: 1,
+	}}); err == nil {
+		t.Fatal("non-production resident model accepted")
+	}
+}
+
 func productionCatalogRows() []ModelRow {
 	return []ModelRow{
 		{ID: "all-minilm-l6-v2", Kind: "embed", PricePer1K: .001, ReferencePricePer1K: .001, PriceReferenceCurrency: "usd", PriceCurrency: "usd", MinMemoryGB: 2, HFRepo: "sentence-transformers/all-MiniLM-L6-v2"},

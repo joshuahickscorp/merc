@@ -2745,18 +2745,52 @@ func (s *Server) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "runtime heartbeat rejected: "+err.Error())
 		return
 	}
+	if err := validateHeartbeatResidentModels(hb.ResidentModels); err != nil {
+		// Refuse out-of-range residency measurements. Never clamp: a worker that
+		// cannot report a number inside the operational bounds does not get to
+		// plant an adjusted figure that later reaches warm-capacity economics.
+		writeErr(w, http.StatusBadRequest, "runtime heartbeat rejected: "+err.Error())
+		return
+	}
+	// Evictions may name either a production model or a service-lease alias —
+	// the same set resident_models may have previously planted.
+	if err := validateHeartbeatModelIDs("evicted_models", hb.EvictedModels, true); err != nil {
+		writeErr(w, http.StatusBadRequest, "runtime heartbeat rejected: "+err.Error())
+		return
+	}
 	if err := s.store.HeartbeatTx(r.Context(), auth.WorkerID, WorkerResources{
 		AvailableMemoryGB:  hb.AvailableMemoryGB,
 		EffectiveMemoryGB:  hb.EffectiveMemoryGB,
 		ReservedHeadroomGB: hb.ReservedHeadroomGB,
 		Throttled:          hb.Throttled,
 		LoadedModels:       hb.LoadedModels,
+		ResidentModels:     hb.ResidentModels,
+		EvictedModels:      hb.EvictedModels,
 		ActiveTasks:        hb.ActiveTasks,
 	}); err != nil {
+		// Validation already rejected bad ranges; remaining failures are store
+		// faults. Range errors that slip past the handler still surface as 400.
+		if _, isRange := residencyRangeError(err); isRange {
+			writeErr(w, http.StatusBadRequest, "runtime heartbeat rejected: "+err.Error())
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// residencyRangeError reports whether err is a residency measurement that
+// failed its operational bounds (as opposed to a database fault).
+func residencyRangeError(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "rss_delta_bytes=") || strings.Contains(msg, "load_ms=") {
+		return msg, true
+	}
+	return "", false
 }
 
 const longPollCap = 25 * time.Second

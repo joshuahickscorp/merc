@@ -59,6 +59,21 @@ pub fn residency_snapshot() -> HashMap<String, ResidencyMeasurement> {
         .clone()
 }
 
+/// Drop measured residency for models that are no longer resident. Called when
+/// the pool evicts idle warm models so the next heartbeat cannot re-advertise
+/// numbers that belong to a process that already freed the weights.
+pub fn clear_residency(keys: &[String]) {
+    if keys.is_empty() {
+        return;
+    }
+    let mut table = residency_table()
+        .lock()
+        .expect("residency table mutex poisoned");
+    for key in keys {
+        table.remove(key);
+    }
+}
+
 type Warm<T> = Arc<OnceCell<Arc<Mutex<T>>>>;
 
 #[derive(Clone, Default)]
@@ -164,6 +179,10 @@ impl ModelPool {
                 last_used.remove(key);
             }
         }
+        // Drop measurements with the weights. The control plane learns via the
+        // heartbeat's evicted_models list; keeping numbers here would let a
+        // subsequent loaded-model snapshot re-report a free model as resident.
+        clear_residency(&stale);
         stale
     }
 
