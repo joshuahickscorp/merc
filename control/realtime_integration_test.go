@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +27,12 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	t.Setenv("STRIPE_SECRET_KEY", "")
 	t.Setenv("MERC_CANARY_ENABLED", "false")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	// Real engines need a longer suite budget than the httptest fake.
+	suiteTimeout := 45 * time.Second
+	if strings.TrimSpace(os.Getenv("MERC_REALTIME_UPSTREAM")) != "" {
+		suiteTimeout = 3 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
@@ -78,63 +84,113 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Prefer a configured real OpenAI-compatible engine when present. The fake
+	// is only for the no-upstream case (local unit runs). private-canary lanes
+	// that require real_inference_runtime scrape merc_canary: realtime_upstream=
+	// and refuse TESTED when the value is not "real".
 	upstreamToken := "cx_vllm_integration_secret_123456789"
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" {
-			t.Errorf("upstream path = %s", r.URL.Path)
+	upstreamBaseURL := ""
+	usedRealUpstream := false
+	var upstream *httptest.Server
+	if realURL := strings.TrimSpace(os.Getenv("MERC_REALTIME_UPSTREAM")); realURL != "" {
+		realKey := strings.TrimSpace(os.Getenv("MERC_REALTIME_UPSTREAM_KEY"))
+		if realKey == "" {
+			t.Fatal("MERC_REALTIME_UPSTREAM is set but MERC_REALTIME_UPSTREAM_KEY is empty")
 		}
-		if r.Header.Get("Authorization") != "Bearer "+upstreamToken {
-			t.Error("upstream bearer credential was not forwarded")
-		}
-		body, readErr := io.ReadAll(r.Body)
-		if readErr != nil {
-			t.Error(readErr)
-		}
-		var request map[string]any
-		if json.Unmarshal(body, &request) != nil {
-			t.Error("upstream body was not JSON")
-		}
-		benchmarkRequest := request["user"] == "merc-benchmark-v1"
-		if benchmarkRequest {
-			time.Sleep(150 * time.Millisecond)
-		}
-		if request["stream"] != true {
-			w.Header().Set("Content-Type", "application/json")
-			if tools, ok := request["tools"].([]any); ok && len(tools) == 2 && request["parallel_tool_calls"] == true {
-				_, _ = io.WriteString(w, `{"id":"chatcmpl_tools","object":"chat.completion","created":1,"model":"cx-chat-1b","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_weather","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Toronto\"}"}},{"id":"call_time","type":"function","function":{"name":"time","arguments":"{\"zone\":\"UTC\"}"}}]},"finish_reason":"tool_calls","logprobs":null}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`)
-				return
+		// Probe before wiring so a dead "real" engine cannot pass as TESTED.
+		modelsURL := strings.TrimRight(realURL, "/")
+		if !strings.HasSuffix(modelsURL, "/models") {
+			if strings.HasSuffix(modelsURL, "/v1") {
+				modelsURL = modelsURL + "/models"
+			} else {
+				modelsURL = modelsURL + "/v1/models"
 			}
-			if _, ok := request["response_format"].(map[string]any); ok {
-				_, _ = io.WriteString(w, `{"id":"chatcmpl_structured","object":"chat.completion","created":1,"model":"cx-chat-1b","choices":[{"index":0,"message":{"role":"assistant","content":"{\"status\":\"ready\",\"count\":3}"},"finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`)
-				return
+		}
+		probe, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		probe.Header.Set("Authorization", "Bearer "+realKey)
+		probeResp, err := http.DefaultClient.Do(probe)
+		if err != nil {
+			t.Fatalf("configured real inference runtime unreachable at %s: %v", realURL, err)
+		}
+		probeResp.Body.Close()
+		if probeResp.StatusCode != http.StatusOK {
+			t.Fatalf("configured real inference runtime at %s answered HTTP %d", realURL, probeResp.StatusCode)
+		}
+		upstreamBaseURL = strings.TrimRight(realURL, "/")
+		if !strings.HasSuffix(upstreamBaseURL, "/v1") {
+			upstreamBaseURL = upstreamBaseURL + "/v1"
+		}
+		upstreamToken = realKey
+		usedRealUpstream = true
+	} else {
+		upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/v1/chat/completions" {
+				t.Errorf("upstream path = %s", r.URL.Path)
 			}
-			_, _ = io.WriteString(w, `{"id":"chatcmpl_integration_json","object":"chat.completion","created":1,"model":"cx-chat-1b","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`)
-			return
-		}
-		streamOptions, _ := request["stream_options"].(map[string]any)
-		if streamOptions["include_usage"] != true {
-			t.Error("gateway did not request final usage")
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		flusher := w.(http.Flusher)
-		for _, event := range []string{
-			`data: {"id":"chatcmpl_integration","object":"chat.completion.chunk","created":1,"model":"cx-chat-1b","choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}],"usage":null}` + "\n\n",
-			`data: {"id":"chatcmpl_integration","object":"chat.completion.chunk","created":1,"model":"cx-chat-1b","choices":[],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}` + "\n\n",
-			"data: [DONE]\n\n",
-		} {
-			_, _ = io.WriteString(w, event)
-			flusher.Flush()
+			if r.Header.Get("Authorization") != "Bearer "+upstreamToken {
+				t.Error("upstream bearer credential was not forwarded")
+			}
+			body, readErr := io.ReadAll(r.Body)
+			if readErr != nil {
+				t.Error(readErr)
+			}
+			var request map[string]any
+			if json.Unmarshal(body, &request) != nil {
+				t.Error("upstream body was not JSON")
+			}
+			benchmarkRequest := request["user"] == "merc-benchmark-v1"
 			if benchmarkRequest {
 				time.Sleep(150 * time.Millisecond)
 			}
-		}
-	}))
-	defer upstream.Close()
+			if request["stream"] != true {
+				w.Header().Set("Content-Type", "application/json")
+				if tools, ok := request["tools"].([]any); ok && len(tools) == 2 && request["parallel_tool_calls"] == true {
+					_, _ = io.WriteString(w, `{"id":"chatcmpl_tools","object":"chat.completion","created":1,"model":"cx-chat-1b","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_weather","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Toronto\"}"}},{"id":"call_time","type":"function","function":{"name":"time","arguments":"{\"zone\":\"UTC\"}"}}]},"finish_reason":"tool_calls","logprobs":null}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`)
+					return
+				}
+				if _, ok := request["response_format"].(map[string]any); ok {
+					_, _ = io.WriteString(w, `{"id":"chatcmpl_structured","object":"chat.completion","created":1,"model":"cx-chat-1b","choices":[{"index":0,"message":{"role":"assistant","content":"{\"status\":\"ready\",\"count\":3}"},"finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`)
+					return
+				}
+				_, _ = io.WriteString(w, `{"id":"chatcmpl_integration_json","object":"chat.completion","created":1,"model":"cx-chat-1b","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`)
+				return
+			}
+			streamOptions, _ := request["stream_options"].(map[string]any)
+			if streamOptions["include_usage"] != true {
+				t.Error("gateway did not request final usage")
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			flusher := w.(http.Flusher)
+			for _, event := range []string{
+				`data: {"id":"chatcmpl_integration","object":"chat.completion.chunk","created":1,"model":"cx-chat-1b","choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}],"usage":null}` + "\n\n",
+				`data: {"id":"chatcmpl_integration","object":"chat.completion.chunk","created":1,"model":"cx-chat-1b","choices":[],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}` + "\n\n",
+				"data: [DONE]\n\n",
+			} {
+				_, _ = io.WriteString(w, event)
+				flusher.Flush()
+				if benchmarkRequest {
+					time.Sleep(150 * time.Millisecond)
+				}
+			}
+		}))
+		defer upstream.Close()
+		upstreamBaseURL = upstream.URL + "/v1"
+	}
+	// Always emit the kind so private-canary can distinguish real vs fake.
+	// Printed on stderr so it appears in CombinedOutput without -v.
+	if usedRealUpstream {
+		fmt.Fprintf(os.Stderr, "merc_canary: realtime_upstream=real\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "merc_canary: realtime_upstream=fake\n")
+	}
 	profile := sortedVLLMProfiles()[0]
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
 		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
-		UpstreamBaseURL: upstream.URL + "/v1", UpstreamToken: upstreamToken,
+		UpstreamBaseURL: upstreamBaseURL, UpstreamToken: upstreamToken,
 		Warmth: "HOT", MaxActiveSequences: 8, AvailableSequences: 8,
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
 	}); err != nil {
@@ -209,8 +265,16 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("chat status=%d body=%s", response.StatusCode, streamBody)
 	}
-	if !strings.Contains(string(streamBody), "hello") || !strings.Contains(string(streamBody), "[DONE]") {
+	if !strings.Contains(string(streamBody), "[DONE]") {
 		t.Fatalf("compatible stream was not relayed: %s", streamBody)
+	}
+	// The fake returns a fixed "hello" token; a real engine returns whatever
+	// the model generates. Require content only under the fake.
+	if !usedRealUpstream && !strings.Contains(string(streamBody), "hello") {
+		t.Fatalf("compatible stream was not relayed: %s", streamBody)
+	}
+	if usedRealUpstream && len(bytes.TrimSpace(streamBody)) == 0 {
+		t.Fatalf("real-upstream stream was empty")
 	}
 	contractID, err := uuid.Parse(response.Header.Get("X-Merc-Contract-ID"))
 	if err != nil {
@@ -320,7 +384,14 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 		 WHERE id=$1`, contractID); err == nil {
 		t.Fatal("database allowed legacy supplier-rate projection to diverge from PricingDecision")
 	}
-	if receipt.TotalTokens != 9 || receipt.PromptTokens != 7 || receipt.CompletionTokens != 2 {
+	// Fake upstream emits fixed 7/2/9 usage. A real engine reports its own
+	// counts; require only that they are positive and internally consistent.
+	if usedRealUpstream {
+		if receipt.PromptTokens <= 0 || receipt.CompletionTokens <= 0 ||
+			receipt.TotalTokens != receipt.PromptTokens+receipt.CompletionTokens {
+			t.Fatalf("real-upstream usage did not reconcile: %+v", receipt)
+		}
+	} else if receipt.TotalTokens != 9 || receipt.PromptTokens != 7 || receipt.CompletionTokens != 2 {
 		t.Fatalf("usage did not reconcile: %+v", receipt)
 	}
 	if receipt.BuyerChargeUSD <= 0 || receipt.SupplierPayableUSD <= 0 ||
@@ -545,6 +616,9 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 			!result.ParallelToolCalls || !result.StructuredOutput {
 			t.Fatalf("incomplete official SDK conformance result: %+v", result)
 		}
+		// Do not weaken ParallelToolCalls: a real engine that cannot parse the
+		// model tool schema must fail here. private-canary scrapes sdk_verified.
+		fmt.Fprintf(os.Stderr, "merc_canary: sdk_verified=python\n")
 		t.Logf("official OpenAI Python SDK %s conformance: PASS", result.OpenAIPythonVersion)
 	}
 	if node := strings.TrimSpace(os.Getenv("MERC_TEST_OPENAI_NODE")); node != "" {
@@ -583,12 +657,13 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 			!result.ParallelToolCalls || !result.StructuredOutput {
 			t.Fatalf("incomplete official JavaScript SDK conformance result: %+v", result)
 		}
+		fmt.Fprintf(os.Stderr, "merc_canary: sdk_verified=node\n")
 		t.Logf("official OpenAI JavaScript SDK %s conformance: PASS", result.OpenAINodeVersion)
 	}
-	benchmarkOutput := filepath.Join(t.TempDir(), "fake-upstream-parity.json")
+	benchmarkOutput := filepath.Join(t.TempDir(), "parity-benchmark.json")
 	benchmark := exec.CommandContext(ctx, "python3", "../scripts/realtime-parity-benchmark.py",
 		"--merc-base-url", server.URL+"/v1",
-		"--direct-base-url", upstream.URL+"/v1",
+		"--direct-base-url", upstreamBaseURL,
 		"--samples", "5", "--warmups", "1", "--concurrency", "1",
 		"--max-completion-tokens", "8", "--out", benchmarkOutput)
 	benchmark.Env = append(os.Environ(),
@@ -611,8 +686,19 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	if err := json.Unmarshal(benchmarkRaw, &benchmarkEvidence); err != nil {
 		t.Fatal(err)
 	}
-	if !benchmarkEvidence.GatePassed || benchmarkEvidence.RealRuntimeAttested ||
-		benchmarkEvidence.PublicClaimAllowed || benchmarkEvidence.EvidenceLevel != "UNATTESTED_HARNESS_RUN" {
+	// Against the httptest fake the harness must not claim a real-runtime
+	// attestation. Against a real engine the evidence level may rise, but a
+	// public claim still requires an explicit runtime attestation header.
+	if !benchmarkEvidence.GatePassed {
+		t.Fatalf("benchmark harness gate failed: %+v", benchmarkEvidence)
+	}
+	if usedRealUpstream {
+		if benchmarkEvidence.PublicClaimAllowed {
+			t.Fatalf("benchmark must not grant public claim without attestation: %+v", benchmarkEvidence)
+		}
+	} else if benchmarkEvidence.RealRuntimeAttested ||
+		benchmarkEvidence.PublicClaimAllowed ||
+		benchmarkEvidence.EvidenceLevel != "UNATTESTED_HARNESS_RUN" {
 		t.Fatalf("benchmark harness mislabeled fake-upstream evidence: %+v", benchmarkEvidence)
 	}
 
@@ -666,7 +752,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
 		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
-		UpstreamBaseURL: upstream.URL + "/v1", UpstreamToken: upstreamToken,
+		UpstreamBaseURL: upstreamBaseURL, UpstreamToken: upstreamToken,
 		Warmth: "HOT", MaxActiveSequences: 1, AvailableSequences: 1,
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
 	}); err != nil {
@@ -717,7 +803,7 @@ func TestRealtimeStreamContractVerificationSettlementAndReceipt(t *testing.T) {
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
 		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
-		UpstreamBaseURL: upstream.URL + "/v1", UpstreamToken: upstreamToken,
+		UpstreamBaseURL: upstreamBaseURL, UpstreamToken: upstreamToken,
 		Warmth: "HOT", MaxActiveSequences: 1, AvailableSequences: 1,
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
 	}); err != nil {
