@@ -80,6 +80,18 @@ status is `ASSEMBLY_MANIFEST_VERIFIED_NOT_EXECUTABLE`: it verifies coverage and
 history only, with no worker assignment, asset transfer, pixel verification,
 or money authority.
 
+LoRA now has the corresponding independent-evaluation evidence boundary:
+`POST /v1/worker/lora/evaluations` takes the evaluator worker from the
+authenticated token, derives trainer/evaluator supplier and buyer-account
+separation, and binds the held-out pin, baseline model, metric direction, and
+required margin from a durable probed compile receipt. The append-only
+`project_lora_evaluation_receipts` row is replayable by the buyer through
+`GET /v1/projects/lora/evaluations/{id}` and records the normalized improvement
+for either higher- or lower-is-better metrics. Its status remains
+`EVALUATION_RECORDED_NOT_EXECUTABLE`: no trainer, adapter deployment, charge,
+payable, or outcome settlement is implied until those independently governed
+runtime paths exist.
+
 ## 2. Work elimination — LARGELY DONE
 
 | item | state |

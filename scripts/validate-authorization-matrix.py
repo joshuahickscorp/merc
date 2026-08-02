@@ -72,10 +72,11 @@ if missing or stale:
 # and 112 for the buyer-scoped deterministic render-unit read, and 113 for
 # the composed operator network-liquidity receipt, and 114 for the authenticated
 # worker-scoped fabric topology replay, and 116 for the buyer-scoped render
-# assembly manifest and receipt read.
+# assembly manifest and receipt read, and 118 for the worker-authenticated LoRA
+# evaluation report and buyer-scoped receipt read.
 # The count is pinned so a NEW route cannot be added without a reviewer deciding
 # what every role may do with it.
-if len(reviewed) != 116:
-	fail(f"expected reviewed 116-route surface, found {len(reviewed)}")
+if len(reviewed) != 118:
+    fail(f"expected reviewed 118-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")
