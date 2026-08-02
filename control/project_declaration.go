@@ -189,6 +189,14 @@ func validateProjectRendering(step *ProjectIRStep) error {
 	if render.FrameStart < 0 || render.FrameEnd < render.FrameStart || render.FrameEnd-render.FrameStart >= 1_000_000 {
 		return fmt.Errorf("frame range %d..%d is invalid or exceeds the one-million-frame bound", render.FrameStart, render.FrameEnd)
 	}
+	if render.WorkPlan != nil {
+		return errors.New("work_plan is compiler-derived and may not be supplied by the buyer declaration")
+	}
+	for name, value := range map[string]int{"width": render.Width, "height": render.Height} {
+		if value < 16 || value > 32768 || value%2 != 0 {
+			return fmt.Errorf("%s must be an even pixel value in [16,32768]", name)
+		}
+	}
 	render.Cameras = normalizeUniqueStrings(render.Cameras, strings.TrimSpace)
 	if len(render.Cameras) == 0 {
 		return errors.New("at least one camera is required")
@@ -205,6 +213,9 @@ func validateProjectRendering(step *ProjectIRStep) error {
 		if value != 0 && (value < 16 || value > 8192 || value%16 != 0) {
 			return fmt.Errorf("%s must be 0 or a 16-pixel multiple in [16,8192]", name)
 		}
+	}
+	if render.TileWidth != 0 && (render.TileWidth > render.Width || render.TileHeight > render.Height) {
+		return errors.New("render tile dimensions may not exceed render resolution")
 	}
 	if render.Samples < 1 || render.Samples > 1_000_000 {
 		return errors.New("samples must be in [1,1000000]")
