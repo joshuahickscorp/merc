@@ -175,11 +175,26 @@ func (s *Store) RecordDispute(ctx context.Context, jobID, buyerID uuid.UUID, rea
 type DisputeRow struct {
 	ID, JobID uuid.UUID
 	Status    string
+	// NoPeerAttempts is populated for no_peer rows so the sweep can promote to
+	// the operator queue without a second round-trip. Zero for other statuses.
+	NoPeerAttempts int
+	FirstNoPeerAt  *time.Time
 }
+
+// noPeerDisputeMaxAttempts is how many failed peer searches a no_peer dispute
+// may accumulate before becoming unresolvable (operator queue). At the
+// disputeInterval of 20s this is ~10 minutes of continuous re-sweeping.
+const noPeerDisputeMaxAttempts = 30
+
+// noPeerDisputeMaxAge is the wall-clock bound: even if sweeps are sparse, a
+// dispute that has sat with no peer for this long joins the operator queue
+// rather than livelocking forever on a one- or two-worker network.
+const noPeerDisputeMaxAge = 30 * time.Minute
 
 func (s *Store) ActiveDisputes(ctx context.Context, limit int) ([]DisputeRow, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, job_id, status FROM disputes
+		`SELECT id, job_id, status, no_peer_attempts, first_no_peer_at
+		   FROM disputes
 		  WHERE status IN ('open','no_peer','reverifying') ORDER BY created_at LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -188,7 +203,7 @@ func (s *Store) ActiveDisputes(ctx context.Context, limit int) ([]DisputeRow, er
 	var out []DisputeRow
 	for rows.Next() {
 		var d DisputeRow
-		if err := rows.Scan(&d.ID, &d.JobID, &d.Status); err != nil {
+		if err := rows.Scan(&d.ID, &d.JobID, &d.Status, &d.NoPeerAttempts, &d.FirstNoPeerAt); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -211,6 +226,94 @@ func (s *Store) SetDisputeStatus(ctx context.Context, id uuid.UUID, status strin
 		return fmt.Errorf("unsupported dispute status %q", status)
 	}
 	return s.setActiveDisputeStatus(ctx, id, status, nil)
+}
+
+// NoteDisputeNoPeer records one failed peer search for an active dispute.
+// After noPeerDisputeMaxAttempts or noPeerDisputeMaxAge the dispute moves to
+// unresolvable (operator queue) with the attempt count and reason in evidence.
+// Returns the status after the note (no_peer or unresolvable).
+func (s *Store) NoteDisputeNoPeer(ctx context.Context, id uuid.UUID) (string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var jobID uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT job_id FROM disputes WHERE id=$1`, id).Scan(&jobID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", errNotFound
+		}
+		return "", err
+	}
+	if err := tx.QueryRow(ctx, `SELECT id FROM jobs WHERE id=$1 FOR UPDATE`, jobID).Scan(&jobID); err != nil {
+		return "", err
+	}
+	var before string
+	var attempts int
+	var firstNoPeer *time.Time
+	var createdAt time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT status, no_peer_attempts, first_no_peer_at, created_at
+		  FROM disputes WHERE id=$1 FOR UPDATE`, id).Scan(
+		&before, &attempts, &firstNoPeer, &createdAt); err != nil {
+		return "", err
+	}
+	if before == "upheld" || before == "rejected" || before == "unresolvable" {
+		return before, tx.Commit(ctx)
+	}
+	if before != "open" && before != "no_peer" && before != "reverifying" {
+		return "", fmt.Errorf("dispute %s cannot record no_peer from %s", id, before)
+	}
+
+	attempts++
+	now := time.Now().UTC()
+	if firstNoPeer == nil {
+		firstNoPeer = &now
+	}
+	ageStart := *firstNoPeer
+	promote := attempts >= noPeerDisputeMaxAttempts || now.Sub(ageStart) >= noPeerDisputeMaxAge
+	to := "no_peer"
+	reason := "no_redundancy_peer_available"
+	if promote {
+		to = "unresolvable"
+		if attempts >= noPeerDisputeMaxAttempts {
+			reason = "no_peer_attempt_bound_exhausted"
+		} else {
+			reason = "no_peer_age_bound_exhausted"
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE disputes
+		   SET status=$2,
+		       no_peer_attempts=$3,
+		       first_no_peer_at=COALESCE(first_no_peer_at,$4)
+		 WHERE id=$1`, id, to, attempts, *firstNoPeer); err != nil {
+		return "", err
+	}
+	detail, _ := json.Marshal(map[string]any{
+		"from": before, "to": to,
+		"no_peer_attempts": attempts,
+		"first_no_peer_at": firstNoPeer.UTC().Format(time.RFC3339Nano),
+		"reason":           reason,
+		"max_attempts":     noPeerDisputeMaxAttempts,
+		"max_age_secs":     int(noPeerDisputeMaxAge.Seconds()),
+	})
+	if err := appendDisputeEventTx(ctx, tx, id, jobID, to, detail); err != nil {
+		return "", err
+	}
+	buyerText := "Dispute remains open pending independent review: no re-verification peer is available"
+	if to == "unresolvable" {
+		buyerText = "Dispute moved to operator review: no re-verification peer became available within the bound"
+	}
+	if err := insertEventTx(ctx, tx, jobID, nil, "dispute_"+to, buyerText, detail); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return to, nil
 }
 
 func (s *Store) setActiveDisputeStatus(
@@ -260,12 +363,25 @@ func (s *Store) setActiveDisputeStatus(
 	if status == "reverifying" {
 		buyerText = "Dispute: independent re-verification dispatched"
 	} else if status == "unresolvable" {
-		buyerText = "Dispute remains open: independent resolution is currently unavailable"
+		buyerText = "Dispute remains open: independent resolution is currently unavailable; an operator must decide"
 	}
 	if err := insertEventTx(ctx, tx, jobID, nil, "dispute_"+status, buyerText, detail); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+type disputeResolveResult struct {
+	Before               string
+	Resolution           string
+	JobID                uuid.UUID
+	ClawedCredits        int64
+	BuyerRefundMicros    int64
+	PlatformRefundMicros int64
+	TasksRefunded        int64
+	FundingDestination   string
+	Currency             string
+	MoneyEffect          string
 }
 
 func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution string) error {
@@ -274,31 +390,136 @@ func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution str
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if _, err := resolveDisputeInTx(ctx, tx, id, resolution); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 
+// ResolveDisputeTx is the operator exit for a terminal (unresolvable) dispute.
+// It records who decided, on what basis, and what happened to the money in
+// admin_actions, then applies the same upheld/rejected money effects as the
+// automatic re-verification path. It never chooses a side without the human
+// resolution argument.
+func (s *Store) ResolveDisputeTx(
+	ctx context.Context,
+	actor AdminActor,
+	disputeID uuid.UUID,
+	resolution, reason, correlationRef string,
+) error {
+	resolution = strings.TrimSpace(resolution)
+	if resolution != "upheld" && resolution != "rejected" {
+		return errDisputeResolutionInvalid
+	}
+	intent, err := prepareAdminMutation(actor, adminMutationIntent{
+		Kind: adminActionDisputeResolved, TargetKind: adminTargetDispute,
+		TargetID: disputeID, Reason: reason, CorrelationRef: correlationRef,
+		Resolution: resolution,
+	})
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := revalidateAdminActor(ctx, tx, actor); err != nil {
+		return err
+	}
+	if replay, err := acquireAdminMutationReplay(ctx, tx, actor, intent); err != nil {
+		return err
+	} else if replay.Found {
+		return tx.Commit(ctx)
+	}
+
+	var before string
 	var jobID uuid.UUID
-	if err := tx.QueryRow(ctx, `SELECT job_id FROM disputes WHERE id=$1`, id).Scan(&jobID); err != nil {
+	if err := tx.QueryRow(ctx, `
+		SELECT status, job_id FROM disputes WHERE id=$1`, disputeID).Scan(&before, &jobID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errNotFound
 		}
 		return err
 	}
-	if err := tx.QueryRow(ctx, `SELECT id FROM jobs WHERE id=$1 FOR UPDATE`, jobID).Scan(&jobID); err != nil {
+	if before == "upheld" || before == "rejected" {
+		return errDisputeAlreadyResolved
+	}
+	// Operator queue only. Automatic re-verification still owns the active
+	// sweep states; unresolvable is exactly the case where a human chooses.
+	if before != "unresolvable" {
+		return errDisputeNotOperatorQueue
+	}
+
+	result, err := resolveDisputeInTx(ctx, tx, disputeID, resolution)
+	if err != nil {
 		return err
+	}
+	moneyEffect := "held_supplier_credits_eligible_again"
+	if resolution == "upheld" {
+		moneyEffect = "supplier_credits_clawed_back_buyer_refunded"
+	}
+	beforeState := map[string]any{
+		"status": before, "job_id": jobID.String(),
+	}
+	afterState := map[string]any{
+		"status":                 result.Resolution,
+		"job_id":                 result.JobID.String(),
+		"money_effect":           moneyEffect,
+		"new_clawback_entries":   result.ClawedCredits,
+		"buyer_refund_micros":    result.BuyerRefundMicros,
+		"platform_refund_micros": result.PlatformRefundMicros,
+		"tasks_refunded":         result.TasksRefunded,
+		"funding_destination":    result.FundingDestination,
+		"currency":               result.Currency,
+		"basis":                  reason,
+	}
+	if err := insertAdminMutationAction(ctx, tx, actor, intent, nil, nil, nil,
+		beforeState, afterState); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func resolveDisputeInTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	id uuid.UUID,
+	resolution string,
+) (disputeResolveResult, error) {
+	var out disputeResolveResult
+	out.Resolution = resolution
+	if resolution != "upheld" && resolution != "rejected" {
+		return out, errDisputeResolutionInvalid
+	}
+
+	var jobID uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT job_id FROM disputes WHERE id=$1`, id).Scan(&jobID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return out, errNotFound
+		}
+		return out, err
+	}
+	if err := tx.QueryRow(ctx, `SELECT id FROM jobs WHERE id=$1 FOR UPDATE`, jobID).Scan(&jobID); err != nil {
+		return out, err
 	}
 	var before string
 	if err := tx.QueryRow(ctx, `SELECT status FROM disputes WHERE id=$1 FOR UPDATE`, id).Scan(&before); err != nil {
-		return err
+		return out, err
 	}
+	out.Before = before
+	out.JobID = jobID
 	if before == resolution {
-		return tx.Commit(ctx)
+		// Idempotent commit path for automatic retries.
+		return out, nil
 	}
 	if before == "upheld" || before == "rejected" {
-		return fmt.Errorf("dispute %s is already resolved as %s", id, before)
+		return out, fmt.Errorf("%w: dispute %s is already resolved as %s", errDisputeAlreadyResolved, id, before)
 	}
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE disputes SET status=$2,resolved_at=now() WHERE id=$1`, id, resolution); err != nil {
-		return err
+		return out, err
 	}
 	clawedCredits := int64(0)
 	var refundResult disputeBuyerRefundResult
@@ -308,7 +529,7 @@ func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution str
 		// verification clawbacks are idempotently retained by the task/kind key.
 		ct, err := insertJobDisputeClawbacksTx(ctx, tx, jobID)
 		if err != nil {
-			return err
+			return out, err
 		}
 		clawedCredits = ct.RowsAffected()
 		if _, err := tx.Exec(ctx, `
@@ -322,7 +543,7 @@ func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution str
 			  FROM tasks t
 			 WHERE le.task_id=t.id AND t.job_id=$1 AND le.kind='supplier_credit'
 			   AND le.payout_status NOT IN ('clawed_back','reversal_required')`, jobID); err != nil {
-			return err
+			return out, err
 		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE supplier_payout_operations op
@@ -331,14 +552,14 @@ func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution str
 			         THEN 'upheld buyer dispute requires external recovery' ELSE op.last_error END
 			  FROM ledger_entries le JOIN tasks t ON t.id=le.task_id
 			 WHERE op.ledger_entry_id=le.id AND t.job_id=$1`, jobID); err != nil {
-			return err
+			return out, err
 		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE tasks SET verification_outcome='clawed_back',verified_at=now()
 			 WHERE job_id=$1 AND id IN (
 			   SELECT task_id FROM ledger_entries
 			    WHERE kind='supplier_credit' AND task_id IS NOT NULL)`, jobID); err != nil {
-			return err
+			return out, err
 		}
 
 		// Credit the buyer. Ledger buyer_refund rows feed every balance formula
@@ -347,18 +568,18 @@ func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution str
 		// refund is left as an external settlement step.
 		refundResult, err = insertJobDisputeBuyerRefundsTx(ctx, tx, jobID, id)
 		if err != nil {
-			return err
+			return out, err
 		}
 		fundingDestination, err = applyDisputeBuyerRefundFundingTx(ctx, tx, jobID, id, refundResult)
 		if err != nil {
-			return err
+			return out, err
 		}
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE dispute_payout_holds
 		   SET resolution=$2,resolved_at=now()
 		 WHERE dispute_id=$1 AND resolution IS NULL`, id, resolution); err != nil {
-		return err
+		return out, err
 	}
 	detail, _ := json.Marshal(map[string]any{
 		"from": before, "resolution": resolution, "new_clawback_entries": clawedCredits,
@@ -369,16 +590,27 @@ func (s *Store) resolveDispute(ctx context.Context, id uuid.UUID, resolution str
 		"currency":               refundResult.Currency,
 	})
 	if err := appendDisputeEventTx(ctx, tx, id, jobID, resolution, detail); err != nil {
-		return err
+		return out, err
 	}
 	buyerText := "Dispute rejected: independent re-verification agreed with the original result; held payouts are eligible again"
 	if resolution == "upheld" {
 		buyerText = disputeUpheldBuyerText(refundResult, fundingDestination)
 	}
 	if err := insertEventTx(ctx, tx, jobID, nil, "dispute_"+resolution, buyerText, detail); err != nil {
-		return err
+		return out, err
 	}
-	return tx.Commit(ctx)
+	out.ClawedCredits = clawedCredits
+	out.BuyerRefundMicros = refundResult.BuyerRefundMicros
+	out.PlatformRefundMicros = refundResult.PlatformRefundMicros
+	out.TasksRefunded = refundResult.TasksRefunded
+	out.FundingDestination = fundingDestination
+	out.Currency = refundResult.Currency
+	if resolution == "upheld" {
+		out.MoneyEffect = "supplier_credits_clawed_back_buyer_refunded"
+	} else {
+		out.MoneyEffect = "held_supplier_credits_eligible_again"
+	}
+	return out, nil
 }
 
 func disputeUpheldBuyerText(refund disputeBuyerRefundResult, funding string) string {

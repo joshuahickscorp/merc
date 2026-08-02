@@ -26,6 +26,7 @@ const (
 	adminActionBuyerTombstoned   = "buyer_tombstoned"
 	adminActionRealtimeRefunded  = "realtime_refunded"
 	adminActionPrepaidRefunded   = "prepaid_refunded"
+	adminActionDisputeResolved   = "dispute_resolved"
 
 	adminTargetWorker      = "worker"
 	adminTargetTask        = "task"
@@ -34,6 +35,7 @@ const (
 	adminTargetControl     = "operational_control"
 	adminTargetBuyer       = "buyer"
 	adminTargetContract    = "execution_contract"
+	adminTargetDispute     = "dispute"
 )
 
 var errAdminMutationInvalid = errors.New("invalid admin mutation")
@@ -46,6 +48,10 @@ type adminMutationIntent struct {
 	Reason         string    `json:"reason"`
 	CorrelationRef string    `json:"correlation_ref,omitempty"`
 	Delta          *float32  `json:"delta,omitempty"`
+	// Resolution is required for dispute_resolved (upheld|rejected) so a retry
+	// with the same correlation_ref but a different verdict cannot no-op as a
+	// same-request replay.
+	Resolution string `json:"resolution,omitempty"`
 }
 
 type adminMutationReplay struct {
@@ -59,6 +65,7 @@ func (in adminMutationIntent) normalized() adminMutationIntent {
 	in.TargetKind = strings.TrimSpace(in.TargetKind)
 	in.Reason = strings.TrimSpace(in.Reason)
 	in.CorrelationRef = strings.TrimSpace(in.CorrelationRef)
+	in.Resolution = strings.TrimSpace(in.Resolution)
 	return in
 }
 
@@ -91,6 +98,12 @@ func (in adminMutationIntent) validate() error {
 		wantTarget = adminTargetBuyer
 	case adminActionRealtimeRefunded:
 		wantTarget = adminTargetContract
+	case adminActionDisputeResolved:
+		wantTarget = adminTargetDispute
+		res := strings.TrimSpace(in.Resolution)
+		if res != "upheld" && res != "rejected" {
+			return fmt.Errorf("%w: dispute resolution must be upheld or rejected", errAdminMutationInvalid)
+		}
 	default:
 		return fmt.Errorf("%w: unsupported action %q", errAdminMutationInvalid, in.Kind)
 	}
@@ -99,6 +112,9 @@ func (in adminMutationIntent) validate() error {
 	}
 	if in.Kind != adminActionReputationChanged && in.Delta != nil {
 		return fmt.Errorf("%w: action %q does not accept a reputation delta", errAdminMutationInvalid, in.Kind)
+	}
+	if in.Kind != adminActionDisputeResolved && strings.TrimSpace(in.Resolution) != "" {
+		return fmt.Errorf("%w: action %q does not accept a dispute resolution", errAdminMutationInvalid, in.Kind)
 	}
 	return nil
 }

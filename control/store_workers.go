@@ -463,8 +463,8 @@ func (s *Store) QuarantineSupplier(ctx context.Context, supplierID uuid.UUID) er
 	return nil
 }
 
-// WorkerEarnings reports what a supplier has been paid, earned in total, and
-// still carries.
+// WorkerEarnings reports what a supplier has been paid, earned in total, still
+// carries, and — crucially — what is held and why.
 //
 // CarriedUSD reads the account-level accrual, NOT a sum over per-entry
 // settlement rows. Under account accrual each settlement records the carry
@@ -472,6 +472,10 @@ func (s *Store) QuarantineSupplier(ctx context.Context, supplierID uuid.UUID) er
 // money once per entry. That bug reported five 0.4-cent credits, all of which
 // had been paid, as $0.02 permanently carried: a supplier being told their
 // entire earnings were stuck when the cash had already been sent.
+//
+// HeldByReason is exclusive per credit so the three freeze reasons (24h hold,
+// dispute, canary manual gate) and verification are not collapsed into one
+// opaque "owed" number the supplier must reverse-engineer.
 func (s *Store) WorkerEarnings(ctx context.Context, supplierID uuid.UUID) (Earnings, error) {
 	var e Earnings
 	settlement, err := SettlementCurrency()
@@ -503,6 +507,17 @@ func (s *Store) WorkerEarnings(ctx context.Context, supplierID uuid.UUID) (Earni
 	e.BalanceUSD = microsToUSD(paidMicros)
 	e.CarriedUSD = microsToUSD(carriedMicros)
 
+	manualGate, err := canaryManualPayoutGate()
+	if err != nil {
+		return e, err
+	}
+	e.ManualPayoutGate = manualGate
+	if manualGate {
+		e.ManualPayoutGateNote = "canary manual payout gate is in force: no cash leaves until an operator POSTs " +
+			"/admin/payouts/{ledger_entry_id}/release naming the held credit. " +
+			"next_payout_at is eligibility only, not a promise of automatic payout."
+	}
+
 	var lastMinorUnits int64
 	var lastAt time.Time
 	err = s.pool.QueryRow(ctx,
@@ -529,21 +544,129 @@ func (s *Store) WorkerEarnings(ctx context.Context, supplierID uuid.UUID) (Earni
 		return e, err
 	}
 
-	var nextAt time.Time
-	err = s.pool.QueryRow(ctx,
-		`SELECT release_at FROM ledger_entries
-		  WHERE supplier_id = $1 AND kind = 'supplier_credit'
-		    AND payout_status = 'held' AND release_at IS NOT NULL
-		  ORDER BY release_at ASC LIMIT 1`,
-		supplierID,
-	).Scan(&nextAt)
-	switch {
-	case err == nil:
-		t := nextAt.Unix()
-		e.NextPayoutAt = &t
-	case errors.Is(err, pgx.ErrNoRows):
-	default:
+	// Per-credit hold classification. One credit contributes to exactly one
+	// reason bucket so the sums reconcile to HeldUSD.
+	type holdRow struct {
+		amountUSD float64
+		status    string
+		releaseAt *time.Time
+		verdict   string
+		disputed  bool
+		approved  bool
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT le.amount_usd::float8, le.payout_status, le.release_at,
+		       COALESCE(t.verification_outcome,''),
+		       EXISTS(
+		         SELECT 1 FROM disputes d
+		          WHERE d.job_id=t.job_id
+		            AND d.status IN ('open','no_peer','reverifying','unresolvable')
+		       ),
+		       EXISTS(
+		         SELECT 1 FROM admin_actions aa
+		          WHERE aa.kind='payout_released' AND aa.ledger_entry_id=le.id
+		       )
+		  FROM ledger_entries le
+		  LEFT JOIN tasks t ON t.id=le.task_id
+		 WHERE le.supplier_id=$1 AND le.kind='supplier_credit'
+		   AND le.payout_status IN ('held','ready','awaiting_funding','sending','outcome_unknown')
+		   AND le.amount_usd > 0
+		 ORDER BY le.release_at NULLS LAST, le.id`, supplierID)
+	if err != nil {
 		return e, err
+	}
+	defer rows.Close()
+
+	type bucket struct {
+		amount   float64
+		count    int
+		earliest *time.Time
+	}
+	buckets := map[string]*bucket{}
+	add := func(reason string, amount float64, releaseAt *time.Time) {
+		b := buckets[reason]
+		if b == nil {
+			b = &bucket{}
+			buckets[reason] = b
+		}
+		b.amount += amount
+		b.count++
+		if releaseAt != nil && (b.earliest == nil || releaseAt.Before(*b.earliest)) {
+			t := *releaseAt
+			b.earliest = &t
+		}
+	}
+
+	var nextEligible *time.Time
+	for rows.Next() {
+		var row holdRow
+		if err := rows.Scan(&row.amountUSD, &row.status, &row.releaseAt, &row.verdict, &row.disputed, &row.approved); err != nil {
+			return e, err
+		}
+		e.HeldUSD += row.amountUSD
+		switch {
+		case row.disputed:
+			add("dispute_freeze", row.amountUSD, row.releaseAt)
+		case row.status == PayoutSending || row.status == PayoutOutcomeUnknown:
+			add("in_flight", row.amountUSD, row.releaseAt)
+		case row.status == PayoutAwaitingFunding:
+			add("awaiting_funding", row.amountUSD, row.releaseAt)
+		case row.verdict != "" && row.verdict != string(OutcomePass):
+			add("verification", row.amountUSD, row.releaseAt)
+		case manualGate && !row.approved && (row.status == PayoutHeld || row.status == PayoutReady):
+			add("manual_gate", row.amountUSD, row.releaseAt)
+			// Still surface eligibility for the hold window under manual gate.
+			if row.releaseAt != nil && (nextEligible == nil || row.releaseAt.Before(*nextEligible)) {
+				t := *row.releaseAt
+				nextEligible = &t
+			}
+		case row.releaseAt != nil && row.releaseAt.After(time.Now()):
+			add("hold_window", row.amountUSD, row.releaseAt)
+			if nextEligible == nil || row.releaseAt.Before(*nextEligible) {
+				t := *row.releaseAt
+				nextEligible = &t
+			}
+		default:
+			// Due / ready under the automatic path, or held with release_at past.
+			add("hold_window", row.amountUSD, row.releaseAt)
+			if row.releaseAt != nil && (nextEligible == nil || row.releaseAt.Before(*nextEligible)) {
+				t := *row.releaseAt
+				nextEligible = &t
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return e, err
+	}
+
+	details := map[string]string{
+		"dispute_freeze":   "held while an active buyer dispute (open/no_peer/reverifying/unresolvable) freezes the job",
+		"verification":     "held until the task has a durable unqualified verification pass",
+		"manual_gate":      "canary manual payout gate: operator must release each ledger-entry UUID before cash moves",
+		"hold_window":      "inside the post-completion payout hold window, or eligible and waiting for the payout sweep",
+		"awaiting_funding": "held until buyer-collection or subsidy funding is reserved for this credit",
+		"in_flight":        "payout has been claimed and is at the provider boundary (sending/outcome_unknown)",
+	}
+	// Stable order for clients that render the list as-is.
+	order := []string{"dispute_freeze", "verification", "manual_gate", "hold_window", "awaiting_funding", "in_flight"}
+	e.HeldByReason = make([]EarningsHoldReason, 0, len(buckets))
+	for _, reason := range order {
+		b := buckets[reason]
+		if b == nil {
+			continue
+		}
+		hr := EarningsHoldReason{
+			Reason: reason, AmountUSD: b.amount, EntryCount: b.count, Detail: details[reason],
+		}
+		if b.earliest != nil && (reason == "hold_window" || reason == "manual_gate") {
+			t := b.earliest.Unix()
+			hr.EarliestReleaseAt = &t
+		}
+		e.HeldByReason = append(e.HeldByReason, hr)
+	}
+	if nextEligible != nil {
+		t := nextEligible.Unix()
+		e.NextPayoutAt = &t
 	}
 	return e, nil
 }

@@ -134,6 +134,12 @@ var (
 	errDisputeJobNotTerminal = errors.New("only terminal jobs may be disputed")
 	errDisputeWindowClosed   = errors.New("the seven-day dispute filing window has closed")
 	errDisputeAlreadyActive  = errors.New("an active dispute already exists for this job")
+	// Operator resolution is only for the terminal operator queue. Automatic
+	// re-verification still owns open/no_peer/reverifying; unresolvable is the
+	// human queue (no silent auto-award to either party).
+	errDisputeNotOperatorQueue  = errors.New("dispute_not_operator_queue: only unresolvable disputes may be operator-resolved")
+	errDisputeResolutionInvalid = errors.New("dispute_resolution_invalid: resolution must be upheld or rejected")
+	errDisputeAlreadyResolved   = errors.New("dispute_already_resolved: dispute is already terminal")
 )
 
 var errOAuthLinkStateInvalid = errors.New("invalid or expired OAuth link state")
