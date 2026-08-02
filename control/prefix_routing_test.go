@@ -406,3 +406,43 @@ func TestEvictionKeepsTheValuableNodes(t *testing.T) {
 		t.Fatalf("evicted %d more rows while already within budget", again)
 	}
 }
+
+func TestEnforcePrefixRoutingStateBudgetsCoversEveryWorker(t *testing.T) {
+	ctx, store, pool := openPayoutTestStore(t)
+	for workerIndex := 0; workerIndex < 2; workerIndex++ {
+		supplier := uuid.New()
+		if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,reputation,status) VALUES ($1,$2,0.5,'active')`, supplier, supplier.String()+"@routing-budget.invalid"); err != nil {
+			t.Fatal(err)
+		}
+		worker := uuid.New()
+		if _, err := store.CreateWorkerToken(ctx, worker, supplier); err != nil {
+			t.Fatal(err)
+		}
+		for seed := 0; seed < 3; seed++ {
+			id := prefixIDForTokens([]int{workerIndex + 1, seed + 1, 7})
+			if _, err := pool.Exec(ctx, `
+				INSERT INTO worker_prefix_state (worker_id,prefix_id,depth,hits,last_seen_warm)
+				VALUES ($1,$2,$3,1,now())`, worker, id, 2048); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	evicted, err := store.EnforcePrefixRoutingStateBudgets(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evicted < 2 {
+		t.Fatalf("evicted=%d, want low-value state removed for both workers", evicted)
+	}
+	var overBudget int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM (
+			SELECT worker_id, COALESCE(sum(depth),0) * $1 > $2 AS over_budget
+			  FROM worker_prefix_state GROUP BY worker_id
+		) workers WHERE over_budget`, kvBytesPerToken, prefixRoutingStateBudgetBytes).Scan(&overBudget); err != nil {
+		t.Fatal(err)
+	}
+	if overBudget != 0 {
+		t.Fatalf("%d workers retained over-budget advisory prefix state", overBudget)
+	}
+}

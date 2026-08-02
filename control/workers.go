@@ -1226,8 +1226,12 @@ func (wk *Workers) sweepStalePrefixState(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if n > 0 {
-		log.Printf("workers: prefix-state-retention: swept %d stale warm-prefix row(s)", n)
+	evicted, err := wk.store.EnforcePrefixRoutingStateBudgets(ctx)
+	if err != nil {
+		return err
+	}
+	if n > 0 || evicted > 0 {
+		log.Printf("workers: prefix-state-retention: swept=%d budget-evicted=%d warm-prefix row(s)", n, evicted)
 	}
 	return nil
 }

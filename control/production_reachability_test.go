@@ -92,6 +92,13 @@ var productionReachability = []reachabilityClaim{
 			"becomes unmeasurable rather than zero.",
 	},
 	{
+		From:   "Workers.Run",
+		Target: "Store.EvictPrefixCacheToBudget",
+		Consequence: "worker_prefix_state would be bounded only by age, not by its " +
+			"advisory per-worker residency budget; stale routing hints could crowd out " +
+			"the high-value warm prefixes that the scheduler is meant to prefer.",
+	},
+	{
 		From:   "Server.createJob",
 		Target: "Store.RecordShadowSelection",
 		Consequence: "shadow runtime selection stops being recorded. Nothing about routing " +
@@ -153,9 +160,6 @@ func TestProductionEntryPointsReachTheMechanismsTheyClaim(t *testing.T) {
 // This is deliberately not a lint. A linter would report unused symbols; this
 // reports symbols someone described as working.
 var knownUnwired = map[string]string{
-	"Store.EvictPrefixCacheToBudget": "value-ranked prefix eviction. worker_prefix_state is " +
-		"bounded only by the retention sweep, so the memory budget documented for it " +
-		"is not enforced.",
 	"Store.DeepestWarmPrefix": "a second definition of warm prefix depth. The scheduler " +
 		"uses its own inline SQL, so two definitions exist and only one is live.",
 	"preferenceForTier": "the shape preference MERC_SHAPE_AWARE_ROUTING advertises. " +
