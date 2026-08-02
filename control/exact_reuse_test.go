@@ -53,15 +53,16 @@ func TestEveryOutputAffectingFieldChangesIdentity(t *testing.T) {
 	}
 
 	mutations := map[string]func(*RequestIdentity){
-		"model":      func(r *RequestIdentity) { r.ModelID = "other" },
-		"revision":   func(r *RequestIdentity) { r.ModelRevision = "main@2026-01-01" },
-		"adapter":    func(r *RequestIdentity) { r.Adapter = "lora-x" },
-		"input":      func(r *RequestIdentity) { r.Input += "?" },
-		"tools":      func(r *RequestIdentity) { r.Tools = `[{"name":"search"}]` },
-		"schema":     func(r *RequestIdentity) { r.Schema = `{"type":"object"}` },
-		"seed":       func(r *RequestIdentity) { r.Seed = 43 },
-		"max_tokens": func(r *RequestIdentity) { r.MaxTokens = 65 },
-		"policy":     func(r *RequestIdentity) { r.Policy = "strict" },
+		"model":          func(r *RequestIdentity) { r.ModelID = "other" },
+		"revision":       func(r *RequestIdentity) { r.ModelRevision = "main@2026-01-01" },
+		"profile_sha256": func(r *RequestIdentity) { r.ProfileSHA256 = "aaaa" + r.ProfileSHA256 },
+		"adapter":        func(r *RequestIdentity) { r.Adapter = "lora-x" },
+		"input":          func(r *RequestIdentity) { r.Input += "?" },
+		"tools":          func(r *RequestIdentity) { r.Tools = `[{"name":"search"}]` },
+		"schema":         func(r *RequestIdentity) { r.Schema = `{"type":"object"}` },
+		"seed":           func(r *RequestIdentity) { r.Seed = 43 },
+		"max_tokens":     func(r *RequestIdentity) { r.MaxTokens = 65 },
+		"policy":         func(r *RequestIdentity) { r.Policy = "strict" },
 	}
 	for name, mutate := range mutations {
 		r := base

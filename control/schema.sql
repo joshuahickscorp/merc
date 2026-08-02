@@ -3226,11 +3226,32 @@ CREATE TABLE IF NOT EXISTS exact_result_cache (
     output_tokens    BIGINT NOT NULL CHECK (output_tokens >= 0),
     hits             BIGINT NOT NULL DEFAULT 0 CHECK (hits >= 0),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_hit_at      TIMESTAMPTZ
+    last_hit_at      TIMESTAMPTZ,
+    -- Body length at store time. Size-based eviction sums this column so the
+    -- sweep does not have to list the object store to know how big the cache is.
+    result_bytes     BIGINT NOT NULL DEFAULT 0 CHECK (result_bytes >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS exact_result_cache_hits_idx
     ON exact_result_cache (hits DESC, last_hit_at DESC NULLS LAST);
+
+-- Age-based retention orders by coalesce(last_hit_at, created_at).
+CREATE INDEX IF NOT EXISTS exact_result_cache_age_idx
+    ON exact_result_cache (coalesce(last_hit_at, created_at));
+
+ALTER TABLE exact_result_cache ADD COLUMN IF NOT EXISTS result_bytes BIGINT NOT NULL DEFAULT 0;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conname = 'exact_result_cache_result_bytes_nonneg'
+           AND conrelid = 'exact_result_cache'::regclass
+    ) THEN
+        ALTER TABLE exact_result_cache
+            ADD CONSTRAINT exact_result_cache_result_bytes_nonneg
+            CHECK (result_bytes >= 0);
+    END IF;
+END $$;
 
 -- inflight_requests is superseded by inflight_executions below and dropped.
 --
