@@ -261,6 +261,14 @@ var productionReachability = []reachabilityClaim{
 			"chosen simply stops accumulating.",
 	},
 	{
+		From:   "Server.handleAdminSelectorRegret",
+		Target: "Store.SelectorRegretForScope",
+		Consequence: "operators lose the measured outcome regret that distinguishes a " +
+			"promotion-ready RuntimeSelector scope from a winner-only or partially " +
+			"measured report; without this edge, the selection gate can only be " +
+			"inspected through tests or direct database access.",
+	},
+	{
 		From:   "Server.createJob",
 		Target: "Store.SubmitJobTx",
 		Consequence: "job submission stops persisting anything. Included as a control: if " +

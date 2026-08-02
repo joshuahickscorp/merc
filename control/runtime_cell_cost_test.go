@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +11,20 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestAdminSelectorRegretRequiresCompleteScope(t *testing.T) {
+	server := &Server{}
+	req := httptest.NewRequest(http.MethodGet,
+		"/admin/runtime/selector/regret?job_type=embed&model_ref=model-a", nil)
+	rec := httptest.NewRecorder()
+	server.handleAdminSelectorRegret(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(rec.Body.String(), "hw_class") {
+		t.Fatalf("error body does not name the missing scope dimension: %s", rec.Body.String())
+	}
+}
 
 // The cost arithmetic, without a database.
 //
