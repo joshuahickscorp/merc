@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -81,6 +82,63 @@ func (s *Server) handleProjectCompileReceipt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, receipt)
+}
+
+// handleProjectCompileRenderUnit expands exactly one render work ordinal from
+// a durable buyer-scoped compile receipt. The route is intentionally a
+// decomposition read: it cannot create a quote, reserve capacity, transfer
+// assets, dispatch a worker, assemble output, verify a frame, or settle money.
+func (s *Server) handleProjectCompileRenderUnit(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxBuyer).(*AuthResult)
+	receiptID, ok := pathUUID(w, r)
+	if !ok {
+		return
+	}
+	stepID := strings.TrimSpace(r.PathValue("step"))
+	if !projectStepIDPattern.MatchString(stepID) {
+		writeErr(w, http.StatusBadRequest, "invalid render step id")
+		return
+	}
+	ordinal, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("ordinal")), 10, 64)
+	if err != nil || ordinal < 0 || ordinal >= projectRenderMaxWorkUnits {
+		writeErr(w, http.StatusBadRequest, "render ordinal is outside the bounded work-plan range")
+		return
+	}
+	receipt, err := s.store.GetProjectCompileReceipt(r.Context(), auth.BuyerID, receiptID)
+	if errors.Is(err, errProjectCompileReceiptNotFound) {
+		writeErr(w, http.StatusNotFound, "project compile receipt not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "project compile receipt unavailable")
+		return
+	}
+	var step *ProjectIRStep
+	for i := range receipt.IR.Steps {
+		if receipt.IR.Steps[i].ID == stepID {
+			step = &receipt.IR.Steps[i]
+			break
+		}
+	}
+	if step == nil || step.Kind != "media_rendering" || step.Rendering == nil {
+		writeErr(w, http.StatusNotFound, "render step not found")
+		return
+	}
+	unit, err := projectRenderWorkUnitAt(*step.Rendering, ordinal)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "render work unit refused: "+err.Error())
+		return
+	}
+	refusal := "render execution is not admitted: asset locality, runtime, worker assignment, assembly, verification, and settlement remain unresolved"
+	if step.Topology != nil && strings.TrimSpace(step.Topology.Reason) != "" {
+		refusal = step.Topology.Reason
+	}
+	writeJSON(w, http.StatusOK, ProjectRenderWorkUnitReceipt{
+		Version: renderWorkUnitReceiptVersion, CompileReceiptID: receipt.ID,
+		ProjectSHA256: receipt.ProjectSHA256, IRSHA256: receipt.IRSHA256,
+		StepID: step.ID, Status: "DECOMPOSITION_ONLY_NOT_EXECUTABLE",
+		WorkUnit: unit, ExecutionRefusal: refusal,
+	})
 }
 
 func parseProjectProbeHeader(raw string) (bool, error) {

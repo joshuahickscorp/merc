@@ -3,6 +3,8 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +30,30 @@ func projectTarArchive(t *testing.T, files map[string]string) []byte {
 		t.Fatal(err)
 	}
 	return out.Bytes()
+}
+
+func renderProjectTarArchive(t *testing.T) []byte {
+	t.Helper()
+	declaration := projectDeclarationFixture()
+	files := map[string]string{"pipeline.py": "json_schema rendering\n"}
+	for path, pin := range map[string]*ProjectIRArtifactPin{
+		"scene.blend":         &declaration.Steps[0].Rendering.Scene,
+		"engine.bin":          &declaration.Steps[0].Rendering.Engine,
+		"textures/albedo.png": &declaration.Steps[0].Rendering.Assets[0],
+		"plugins/denoise.bin": &declaration.Steps[0].Rendering.Plugins[0],
+		"fonts/inter.ttf":     &declaration.Steps[0].Rendering.Fonts[0],
+	} {
+		contents := "project render asset: " + path
+		digest := sha256.Sum256([]byte(contents))
+		pin.SHA256 = hex.EncodeToString(digest[:])
+		files[path] = contents
+	}
+	declarationRaw, err := json.Marshal(declaration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files[projectDeclarationName] = string(declarationRaw)
+	return projectTarArchive(t, files)
 }
 
 func TestProjectCompileProductionRouteBindsProposalAndProbe(t *testing.T) {
@@ -129,5 +155,53 @@ func TestProjectCompileProductionRouteBindsProposalAndProbe(t *testing.T) {
 	linkRec := post(linkArchive.Bytes(), nil)
 	if linkRec.Code != http.StatusBadRequest || !strings.Contains(linkRec.Body.String(), "not allowed") {
 		t.Fatalf("symlink archive status=%d body=%s", linkRec.Code, linkRec.Body.String())
+	}
+}
+
+func TestProjectCompileRenderUnitRouteExpandsDurableIROnly(t *testing.T) {
+	installSettlementCurrencyForTest(t, "cad")
+	ctx, store, pool := openPayoutTestStore(t)
+	buyerID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO buyers (id,email) VALUES ($1,$2)`, buyerID, buyerID.String()+"@render-unit.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	_, buyerKey, _, err := store.CreateAPIKey(ctx, buyerID, "render-unit", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer(store, nil, nil, nil).Routes()
+	post := httptest.NewRequest(http.MethodPost, "/v1/projects/compile", bytes.NewReader(renderProjectTarArchive(t)))
+	post.Header.Set("Authorization", "Bearer "+buyerKey)
+	post.Header.Set("Content-Type", "application/x-tar")
+	posted := httptest.NewRecorder()
+	handler.ServeHTTP(posted, post)
+	if posted.Code != http.StatusOK {
+		t.Fatalf("render compile status=%d body=%s", posted.Code, posted.Body.String())
+	}
+	receiptID, err := uuid.Parse(posted.Header().Get("X-Merc-Project-Compile-Receipt"))
+	if err != nil {
+		t.Fatalf("render compile omitted receipt id: %v", err)
+	}
+	get := httptest.NewRequest(http.MethodGet,
+		"/v1/projects/compile/"+receiptID.String()+"/render/render/units/0", nil)
+	get.Header.Set("Authorization", "Bearer "+buyerKey)
+	got := httptest.NewRecorder()
+	handler.ServeHTTP(got, get)
+	var receipt ProjectRenderWorkUnitReceipt
+	if got.Code != http.StatusOK || json.Unmarshal(got.Body.Bytes(), &receipt) != nil ||
+		receipt.Version != renderWorkUnitReceiptVersion || receipt.CompileReceiptID != receiptID.String() ||
+		receipt.Status != "DECOMPOSITION_ONLY_NOT_EXECUTABLE" || receipt.StepID != "render" ||
+		receipt.WorkUnit.Ordinal != 0 || receipt.WorkUnit.Frame != 1 || receipt.WorkUnit.Camera != "hero" ||
+		receipt.WorkUnit.PixelWidth != 256 || receipt.WorkUnit.PixelHeight != 256 ||
+		!strings.Contains(receipt.ExecutionRefusal, "unresolved") {
+		t.Fatalf("render unit route overclaimed or lost deterministic identity: status=%d body=%s receipt=%+v", got.Code, got.Body.String(), receipt)
+	}
+	bad := httptest.NewRequest(http.MethodGet,
+		"/v1/projects/compile/"+receiptID.String()+"/render/render/units/960", nil)
+	bad.Header.Set("Authorization", "Bearer "+buyerKey)
+	badRec := httptest.NewRecorder()
+	handler.ServeHTTP(badRec, bad)
+	if badRec.Code != http.StatusBadRequest || !strings.Contains(badRec.Body.String(), "outside") {
+		t.Fatalf("out-of-range render unit status=%d body=%s", badRec.Code, badRec.Body.String())
 	}
 }
