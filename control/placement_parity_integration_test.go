@@ -103,12 +103,19 @@ func TestPlacementSnapshotAndClaimSharePayoutAndRuntimeEligibility(t *testing.T)
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
+		// Age offline first: workers is ON DELETE RESTRICT from several tables,
+		// and a leftover live worker changes later placement fleet counts and
+		// cheaper_ask deferral. Discarding cleanup errors is not a cleanup.
 		for _, workerID := range extraWorkers {
-			_, _ = pool.Exec(cleanupCtx, `DELETE FROM worker_authorized_capabilities WHERE worker_id=$1`, workerID)
-			_, _ = pool.Exec(cleanupCtx, `DELETE FROM workers WHERE id=$1`, workerID)
-		}
-		for _, supplierID := range extraSuppliers {
-			_, _ = pool.Exec(cleanupCtx, `DELETE FROM suppliers WHERE id=$1`, supplierID)
+			if _, err := pool.Exec(cleanupCtx,
+				`UPDATE workers SET last_seen_at = now() - interval '10 minutes' WHERE id=$1`,
+				workerID); err != nil {
+				t.Errorf("age placement worker offline: %v", err)
+			}
+			if _, err := pool.Exec(cleanupCtx,
+				`DELETE FROM worker_authorized_capabilities WHERE worker_id=$1`, workerID); err != nil {
+				t.Errorf("cleanup worker_authorized_capabilities: %v", err)
+			}
 		}
 	})
 

@@ -24,6 +24,18 @@ fn client_builder_with_ca(configured_ca: Option<&str>) -> Result<reqwest::Client
             builder = builder.add_root_certificate(certificate);
         }
     }
+    // Seatbelt confines the process to loopback; remote HTTPS goes through the
+    // allowlisted CONNECT proxy the unsandboxed parent spawned (MERC_EGRESS_PROXY).
+    // reqwest is built with default-features=false so system-proxy autodetection
+    // is off — wire the proxy explicitly when present.
+    if let Ok(proxy_url) = std::env::var(crate::sandbox_egress::MERC_EGRESS_PROXY_ENV) {
+        let proxy_url = proxy_url.trim();
+        if !proxy_url.is_empty() {
+            let proxy = reqwest::Proxy::all(proxy_url)
+                .with_context(|| format!("parsing {proxy_url} as HTTP proxy"))?;
+            builder = builder.proxy(proxy);
+        }
+    }
     Ok(builder)
 }
 

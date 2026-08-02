@@ -409,6 +409,28 @@ func seedMoneyPathFixture(t *testing.T, ctx context.Context, store *Store, pool 
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
+		// Age workers offline FIRST. workers is ON DELETE RESTRICT from several
+		// tables, so DELETE often fails silently under the discarded-error
+		// pattern and a still-live worker changes what a later claim test sees
+		// (cheaper_ask deferral, fleet counts, cross-currency residual claims).
+		// Ageing last_seen_at is what the fleet already does when a worker stops.
+		for _, workerID := range []uuid.UUID{f.WorkerID, f.OtherWorkerID} {
+			if _, err := pool.Exec(c,
+				`UPDATE workers SET last_seen_at = now() - interval '10 minutes' WHERE id=$1`,
+				workerID); err != nil {
+				t.Errorf("age money-path worker offline: %v", err)
+			}
+		}
+		// Cancel only non-terminal residual tasks so they are not claimable by
+		// a later fixture's worker. Terminal rows cannot legally transition to
+		// cancelled (lifecycle trigger); leave those for the deletes below.
+		if _, err := pool.Exec(c,
+			`UPDATE tasks SET status='cancelled', claimed_by=NULL
+			   WHERE (job_id=$1 OR id = ANY($2::uuid[]))
+			     AND status IN ('queued','retrying','running','verifying')`,
+			f.JobID, f.TaskIDs); err != nil {
+			t.Errorf("cancel money-path residual tasks: %v", err)
+		}
 		// verification_work references tasks with ON DELETE RESTRICT.
 		_, _ = pool.Exec(c, `DELETE FROM task_failures WHERE job_id=$1 OR task_id = ANY($2::uuid[])`,
 			f.JobID, f.TaskIDs)
@@ -428,6 +450,7 @@ func seedMoneyPathFixture(t *testing.T, ctx context.Context, store *Store, pool 
 		_, _ = pool.Exec(c, `DELETE FROM jobs WHERE id=$1`, f.JobID)
 		for _, workerID := range []uuid.UUID{f.WorkerID, f.OtherWorkerID} {
 			_, _ = pool.Exec(c, `DELETE FROM worker_authorized_capabilities WHERE worker_id=$1`, workerID)
+			// Prefer offline over delete; RESTRICT FKs make delete unreliable.
 			_, _ = pool.Exec(c, `DELETE FROM workers WHERE id=$1`, workerID)
 		}
 		for _, supplierID := range []uuid.UUID{f.SupplierID, f.OtherSupplierID} {
