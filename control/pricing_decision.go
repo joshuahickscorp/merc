@@ -350,13 +350,25 @@ func estimateJobSettlementWithAuthority(
 	maxTokens uint32,
 	tier string,
 ) (float64, error) {
+	return estimateJobSettlementForJobType(a, JobType{Type: jobType, MaxTokens: maxTokens}, inputBytesLen, nLines, tier)
+}
+
+// estimateJobSettlementForJobType keeps the complete request geometry in the
+// pricing authority. In particular, media_rendering is sold in declared output
+// pixels, not in the size of the closed scene JSON document.
+func estimateJobSettlementForJobType(
+	a CataloguePriceAuthority,
+	jobType JobType,
+	inputBytesLen, nLines int,
+	tier string,
+) (float64, error) {
 	if err := validateCataloguePriceAuthority(a); err != nil {
 		return 0, err
 	}
-	if a.JobType != jobType {
-		return 0, fmt.Errorf("catalogue job type %s does not match %s", a.JobType, jobType)
+	if a.JobType != jobType.Type {
+		return 0, fmt.Errorf("catalogue job type %s does not match %s", a.JobType, jobType.Type)
 	}
-	units := settlementBillableUnitsForGeometry(a, jobType, inputBytesLen, nLines, maxTokens)
+	units := settlementBillableUnitsForJobType(a, jobType, inputBytesLen, nLines)
 	gross, err := CatalogueGrossNanos(
 		MustParseCurrency(a.SettlementCurrency),
 		catalogueSettlementPriceNanosPer1K(a, tier),
@@ -389,9 +401,15 @@ func estimateJobSettlementWithAuthority(
 func settlementBillableUnitsForGeometry(
 	a CataloguePriceAuthority, jobType string, inputBytesLen, nLines int, maxTokens uint32,
 ) float64 {
-	units := settlementInputUnitsForGeometry(nLines, int64(inputBytesLen))
-	if generativeJobType(jobType) && nLines > 0 {
-		outTokensPerRecord := maxTokens
+	return settlementBillableUnitsForJobType(a, JobType{Type: jobType, MaxTokens: maxTokens}, inputBytesLen, nLines)
+}
+
+func settlementBillableUnitsForJobType(
+	a CataloguePriceAuthority, jobType JobType, inputBytesLen, nLines int,
+) float64 {
+	units := settlementInputUnitsForJobType(jobType, nLines, int64(inputBytesLen))
+	if generativeJobType(jobType.Type) && nLines > 0 {
+		outTokensPerRecord := jobType.MaxTokens
 		if outTokensPerRecord == 0 {
 			outTokensPerRecord = defaultQuoteMaxTokens
 		}
@@ -419,10 +437,21 @@ func exactBaseComputeNanos(
 	maxTokens uint32,
 	primaryTasks, initialEconomicTasks int,
 ) int64 {
+	return exactBaseComputeNanosForJobType(a, JobType{Type: jobType, MaxTokens: maxTokens}, tier,
+		inputBytesLen, nLines, primaryTasks, initialEconomicTasks)
+}
+
+func exactBaseComputeNanosForJobType(
+	a CataloguePriceAuthority,
+	jobType JobType,
+	tier string,
+	inputBytesLen, nLines int,
+	primaryTasks, initialEconomicTasks int,
+) int64 {
 	if primaryTasks <= 0 || initialEconomicTasks <= 0 {
 		return 0
 	}
-	units := settlementBillableUnitsForGeometry(a, jobType, inputBytesLen, nLines, maxTokens)
+	units := settlementBillableUnitsForJobType(a, jobType, inputBytesLen, nLines)
 	if units <= 0 {
 		return 0
 	}

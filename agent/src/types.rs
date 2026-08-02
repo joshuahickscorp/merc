@@ -57,6 +57,15 @@ pub enum JobType {
         fps: u32,
         video_bitrate_kbps: u32,
     },
+    /// Deterministic bounded vector-scene rasterisation. This is deliberately
+    /// not image generation: the buyer supplies a closed scene document and
+    /// the builtin renderer produces one byte-exact PPM artifact.
+    MediaRendering {
+        #[serde(rename = "render_width")]
+        width: u32,
+        #[serde(rename = "render_height")]
+        height: u32,
+    },
 }
 
 impl JobType {
@@ -65,6 +74,7 @@ impl JobType {
             JobType::Embed { .. } => "embed",
             JobType::BatchInfer { .. } => "batch_infer",
             JobType::MediaTranscode { .. } => "media_transcode",
+            JobType::MediaRendering { .. } => "media_rendering",
         }
     }
 }
@@ -137,6 +147,8 @@ pub struct JobManifest {
 pub struct BenchResult {
     pub model_id: String,
     pub job_type: String,
+    // tokens/sec for generation and media_work_units/sec for media_transcode;
+    // the job type and runtime authority bind the unit before admission.
     pub tps: f32,
     pub eps: f32,
     pub p99_ms: u32,

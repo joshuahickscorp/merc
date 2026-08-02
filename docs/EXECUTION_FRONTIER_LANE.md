@@ -101,7 +101,7 @@ runtime paths exist.
 | tokenized prefix trie | `control/prefix_routing.go:173` — `ComputePrefixChain` over token ids, `DeepestWarmPrefix`, value-ranked eviction (`EvictPrefixCacheToBudget`) |
 | KV-hit-aware routing | prefix warmth feeds the scheduler; `prefixWarmTTL` is deliberately shorter than model warmth |
 | prepared tools/schema identity cache | **WIRED** — `control/realtime_identity_cache.go`; bounded tenant/profile/policy-scoped cache is called by exact reuse, coalescing, and cache population. It caches semantic request identity only; no tokenizer exists. |
-| image / audio preprocessing caches | not applicable — no image or audio runtime exists (`docs/SHIPPABILITY_STATUS.md`; the image route returns 503) |
+| image / audio preprocessing caches | image generation remains unavailable and the route returns 503; the separate deterministic `media_rendering` lane is governed as a byte-exact scene artifact and does not claim prompt-to-image or audio preprocessing |
 | deterministic JSON / tool scaffolding | absent |
 
 Coalescing proves the shape the milestone asks for: 128 concurrent callers elect

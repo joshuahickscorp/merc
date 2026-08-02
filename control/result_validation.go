@@ -119,9 +119,33 @@ func validateTaskResultArtifact(info *CommitTaskInfo, body []byte) error {
 		return validateResultRecordCount(info.jobType, len(vectors), records)
 	case "batch_infer":
 		return validateBatchInferResult(body, records)
+	case "media_transcode":
+		return validateMediaTranscodeResult(body, records)
+	case "media_rendering":
+		return validateMediaRenderingResult(body, records)
 	default:
 		return invalidResultArtifact(info.jobType, resultValidationUnsupported, "workload has no retained result contract")
 	}
+}
+
+func validateMediaTranscodeResult(body []byte, records resultRecordContract) error {
+	if len(body) == 0 || len(body) > maxMediaResultBytes {
+		return invalidResultArtifact("media_transcode", resultValidationCount,
+			fmt.Sprintf("output is %d bytes; allowed range is 1..%d", len(body), maxMediaResultBytes))
+	}
+	if records.Exact > 0 && records.Exact != 1 {
+		return invalidResultArtifact("media_transcode", resultValidationCount,
+			fmt.Sprintf("media output must contain exactly one artifact, attempt expects %d", records.Exact))
+	}
+	// The fixed runner always emits an MP4 container. Checking the ISO-BMFF
+	// ftyp box here keeps a worker from committing arbitrary bytes under a
+	// successful media receipt; FFprobe remains the deeper stream/codec check on
+	// the worker before it uploads the result.
+	if len(body) < 8 || string(body[4:8]) != "ftyp" {
+		return invalidResultArtifact("media_transcode", resultValidationEnvelope,
+			"output is not an MP4 container (missing ftyp box)")
+	}
+	return nil
 }
 
 type resultRecordContract struct {

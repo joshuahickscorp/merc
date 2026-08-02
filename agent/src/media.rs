@@ -9,11 +9,14 @@ use uuid::Uuid;
 
 use crate::executor::{JobOutput, JobRunner, RunError};
 use crate::pool::ModelPool;
-use crate::types::{JobManifest, JobType, ModelKind, WorkerCapability};
+use crate::types::{
+    BenchResult, InputRef, JobConstraints, JobManifest, JobType, ModelKind, ModelRef, OutputRef,
+    ServiceTier, VerificationPolicy, WorkerCapability,
+};
 
-// This model ref is an executable identity, not a model-card alias. The public
-// control plane does not advertise it yet; accepting a near match here would
-// turn a future runtime-matrix typo into arbitrary local process execution.
+// This model ref is an executable identity, not a model-card alias. Accepting a
+// near match would turn a future runtime-matrix typo into arbitrary local
+// process execution.
 pub const MEDIA_TRANSCODE_MODEL_REF: &str = "ffmpeg-transcode-v1";
 
 const MAX_MEDIA_INPUT_BYTES: usize = 512 << 20;
@@ -108,10 +111,8 @@ fn media_transcode_spec(manifest: &JobManifest) -> Result<MediaTranscodeSpec, Ru
 }
 
 // MediaTranscodeRunner is intentionally narrow. It is an actual FFmpeg process
-// runner, but it is not a buyer-facing capability until the control plane has
-// a governed cell, an independent verifier, and settlement authority for the
-// media workload. Keeping it unadvertised prevents this implementation work
-// from being mistaken for a sellable lane.
+// runner behind the governed builtin cell; the control plane independently
+// bounds and verifies the resulting artifact before settlement.
 pub struct MediaTranscodeRunner {
     ffmpeg: PathBuf,
     ffprobe: PathBuf,
@@ -127,6 +128,105 @@ impl MediaTranscodeRunner {
 
     pub fn new(ffmpeg: PathBuf, ffprobe: PathBuf) -> Self {
         Self { ffmpeg, ffprobe }
+    }
+
+    /// Measure the same fixed contract the worker advertises. This is kept
+    /// separate from model benchmarks because media has no model load; the
+    /// measured unit is the control-plane media_work_units geometry.
+    pub(crate) async fn benchmark(&self) -> Result<BenchResult, RunError> {
+        let scratch = MediaScratch::new().map_err(media_err)?;
+        let source = scratch.path().join("benchmark-source.mp4");
+        let mut fixture = Command::new(&self.ffmpeg);
+        fixture
+            .kill_on_drop(true)
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .args([
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=blue:s=320x180:r=24",
+                "-t",
+                "0.208333",
+                "-an",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+                "-threads",
+                "1",
+                "-movflags",
+                "+faststart",
+                "-f",
+                "mp4",
+            ])
+            .arg(&source);
+        let fixture_result =
+            bounded_media_command(fixture, Duration::from_secs(10), "media benchmark fixture")
+                .await?;
+        if !fixture_result.status.success() {
+            return Err(RunError::Inference {
+                backend: MEDIA_BACKEND,
+                msg: format!(
+                    "benchmark fixture exited {}: {}",
+                    fixture_result.status,
+                    bounded_process_error(&fixture_result.stderr)
+                ),
+            });
+        }
+        let input = tokio::fs::read(&source).await.map_err(media_err)?;
+        let manifest = media_benchmark_manifest();
+        let spec = media_transcode_spec(&manifest)?;
+        let work_units = input.len() as f64 / 4.0;
+        let mut durations = Vec::with_capacity(20);
+        for _ in 0..20 {
+            let started = std::time::Instant::now();
+            let output = self.transcode(spec, &input).await?;
+            if output.is_empty() {
+                return Err(RunError::Inference {
+                    backend: MEDIA_BACKEND,
+                    msg: "media benchmark produced an empty output".to_string(),
+                });
+            }
+            durations.push(started.elapsed().as_secs_f64());
+        }
+        let slowest = durations.iter().copied().fold(0.0_f64, f64::max).max(1e-6);
+        let fastest = durations
+            .iter()
+            .copied()
+            .fold(f64::INFINITY, f64::min)
+            .max(1e-6);
+        let mut p99 = durations.clone();
+        p99.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let p99_ms = (p99[((p99.len() * 99).saturating_add(99) / 100)
+            .saturating_sub(1)
+            .min(p99.len() - 1)]
+            * 1000.0)
+            .round() as u32;
+        tracing::info!(
+            input_bytes = input.len(),
+            work_units,
+            slowest_secs = slowest,
+            fastest_secs = fastest,
+            "measured fixed media transcode contract"
+        );
+        Ok(BenchResult {
+            model_id: MEDIA_TRANSCODE_MODEL_REF.to_string(),
+            job_type: "media_transcode".to_string(),
+            tps: (work_units / slowest) as f32,
+            eps: 0.0,
+            p99_ms,
+            thermal_ok: true,
+            load_ms: 0,
+        })
     }
 
     async fn transcode(&self, spec: MediaTranscodeSpec, input: &[u8]) -> Result<Vec<u8>, RunError> {
@@ -238,6 +338,43 @@ impl MediaTranscodeRunner {
             });
         }
         tokio::fs::read(output).await.map_err(media_err)
+    }
+}
+
+fn media_benchmark_manifest() -> JobManifest {
+    JobManifest {
+        id: Uuid::nil(),
+        job_type: JobType::MediaTranscode {
+            input_format: "mp4".to_string(),
+            max_width: 320,
+            max_height: 180,
+            fps: 24,
+            video_bitrate_kbps: 400,
+        },
+        model: ModelRef {
+            kind: ModelKind::Builtin,
+            model_ref: MEDIA_TRANSCODE_MODEL_REF.to_string(),
+        },
+        inputs: vec![InputRef {
+            url: "benchmark://fixed-media-fixture".to_string(),
+            bytes: 0,
+        }],
+        output: OutputRef {
+            url: "benchmark://output".to_string(),
+        },
+        params: serde_json::Value::Null,
+        constraints: JobConstraints {
+            min_memory_gb: 1.0,
+            hw_classes: None,
+            max_duration_secs: 150,
+            data_residency: None,
+        },
+        verification: VerificationPolicy {
+            redundancy_frac: 1.0,
+            honeypot_frac: 0.0,
+            payout_hold_secs: 0,
+        },
+        tier: ServiceTier::Batch,
     }
 }
 

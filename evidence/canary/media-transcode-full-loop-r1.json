@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "kind": "media_transcode_real_caller_canary",
+  "status": "PASS_PRIVATE_CANARY_NOT_PUBLIC",
+  "measured_at": "2026-08-02T13:54:47Z",
+  "proof_source_sha256": "3ffa9a2f242b2e7fdd68d86a4242ed04fe40d79a1b73783e37ac244286715b1a",
+  "runtime_matrix_sha256": "f7a1565984604305f49ff6fa49e48d99a42008079c31fa314f9a1c616102bed2",
+  "runtime_profile": {
+    "id": "candle_metal",
+    "revision": "r8",
+    "hardware_class": "apple_silicon_ultra",
+    "cell_id": "candle-metal-ffmpeg-transcode",
+    "model_id": "ffmpeg-transcode-v1",
+    "model_kind": "builtin"
+  },
+  "caller": {
+    "proof_command": "MERC_PROVE_MEDIA=1 USE_DOCKER=1 SKIP_LIVE=0 scripts/prove-local.sh",
+    "quote_route": "/v1/quote",
+    "submit_route": "/v1/jobs",
+    "result_route": "/v1/jobs/{job_id}/results",
+    "workers": 2,
+    "worker_process": "release merc-agent run",
+    "sandbox_required": true,
+    "isolated_database_and_object_store": true,
+    "settlement_currency": "usd",
+    "payment_provider": "disabled_in_local_proof"
+  },
+  "artifact": {
+    "input_format": "mp4",
+    "input_bytes": 1816,
+    "input_sha256": "d7d80e94f0a5776390b9921b5d835269a84d72dd162383700e1e72ab1b31096d",
+    "media_work_units": 454,
+    "output_format": "mp4",
+    "output_bytes": 1909,
+    "output_sha256": "b37b8f4b0d2988bd585448c586565f4e247da669efbc4905c3f26b99138353f8",
+    "probe": {
+      "codec": "h264",
+      "width": 320,
+      "height": 180,
+      "stream_count": 1
+    }
+  },
+  "verification": {
+    "primary_tasks": 1,
+    "independent_redundancy_tasks": 1,
+    "honeypot_tasks": 0,
+    "equivalence": "byte_exact_mp4_artifact",
+    "database_receipt_shape": "media_transcode|complete|1|2",
+    "elapsed_ms": 4228
+  },
+  "economics": {
+    "quote_bound_firm_submit": true,
+    "ledger_zero_sum": true,
+    "duplicate_task_effects": false,
+    "positive_contribution_checked": true,
+    "stripe_live_value_movement": false
+  },
+  "teardown": {
+    "proof_compose_volumes_removed": true,
+    "worker_scratch_cleanup": "agent sandbox cleanup",
+    "process_timeouts_and_kill_on_drop": true,
+    "source_stable_after_run": true
+  },
+  "evidence_level": "REAL_RUNTIME_PROVEN_PRIVATE_CANARY",
+  "public_claim_allowed": false,
+  "public_activation_blocker": "live-public legal/payment authority"
+}

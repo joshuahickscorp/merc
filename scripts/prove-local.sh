@@ -14,8 +14,11 @@ CONTROL_URL="http://127.0.0.1:$CONTROL_PORT"
 KEEP="${KEEP:-0}"
 SKIP_LIVE="${SKIP_LIVE:-0}"
 USE_DOCKER="${USE_DOCKER:-0}"
+PROVE_MEDIA="${MERC_PROVE_MEDIA:-0}"
+PROVE_RENDERING="${MERC_PROVE_RENDERING:-0}"
 MERC_PROOF_COMPOSE_PROJECT=""
 TEST_DATABASE_URL=""
+RACE_DATABASE_URL=""
 CONTROL_PID=""
 AGENT_PID=""
 AGENT2_PID=""
@@ -120,6 +123,19 @@ PY
 for tool in go cargo psql curl jq openssl git node python3; do
   command -v "$tool" >/dev/null || { echo "missing tool: $tool" >&2; exit 1; }
 done
+if [ "$PROVE_MEDIA" = "1" ]; then
+  for tool in ffmpeg ffprobe base64; do
+    command -v "$tool" >/dev/null || { echo "MERC_PROVE_MEDIA=1 requires $tool" >&2; exit 1; }
+  done
+fi
+case "$PROVE_MEDIA" in
+  0|1) ;;
+  *) echo "MERC_PROVE_MEDIA must be 0 or 1" >&2; exit 1 ;;
+esac
+case "$PROVE_RENDERING" in
+  0|1) ;;
+  *) echo "MERC_PROVE_RENDERING must be 0 or 1" >&2; exit 1 ;;
+esac
 for port in "$PGPORT" "$MINIO_PORT" "$CONTROL_PORT"; do
   port_available "$port" || {
     echo "proof port $port is already occupied; refusing split-stack or cross-run reuse" >&2
@@ -147,10 +163,25 @@ if [ "$USE_DOCKER" = "1" ]; then
   # can remove without touching the developer's ordinary Compose project.
   MERC_PROOF_COMPOSE_PROJECT="merc-proof-$$-$(date +%s)"
   export COMPOSE_PROJECT_NAME="$MERC_PROOF_COMPOSE_PROJECT"
+  # The ordinary Compose file exposes postgres/minio on their conventional
+  # host ports, which may already belong to a developer stack. Bind this
+  # proof's containers to the ports checked above and keep the override in the
+  # proof artifact directory so teardown uses the identical isolated project.
+  COMPOSE_OVERRIDE="$ART/docker-compose.proof.yml"
+  cat >"$COMPOSE_OVERRIDE" <<EOF
+services:
+  postgres:
+    ports:
+      - "${PGPORT}:5432"
+  minio:
+    ports:
+      - "${MINIO_PORT}:9000"
+EOF
+  export COMPOSE_FILE="$ROOT/docker-compose.yml:$COMPOSE_OVERRIDE"
   docker compose up -d postgres minio createbuckets
-  export DATABASE_URL="postgres://cx:cx@127.0.0.1:5432/cx?sslmode=disable"
-  TEST_DATABASE_URL="postgres://cx:cx@127.0.0.1:5432/cx_prove_tests?sslmode=disable"
-  export S3_ENDPOINT="http://127.0.0.1:9000"
+  export DATABASE_URL="postgres://cx:cx@127.0.0.1:$PGPORT/cx?sslmode=disable"
+  TEST_DATABASE_URL="postgres://cx:cx@127.0.0.1:$PGPORT/cx_prove_tests?sslmode=disable"
+  export S3_ENDPOINT="http://127.0.0.1:$MINIO_PORT"
   export S3_PUBLIC_ENDPOINT="$S3_ENDPOINT"
   wait_for 60 psql "$DATABASE_URL" -c 'select 1'
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE cx_prove_tests' >/dev/null
@@ -178,10 +209,12 @@ else
 fi
 record PASS dependencies "PostgreSQL and MinIO are healthy"
 
-# Full Go and race tests get a separate disposable database in the proof's own
-# fresh PostgreSQL cluster. Never inherit MERC_TEST_DATABASE_URL from the caller:
-# doing so made a nominally hermetic proof query an unrelated developer/CI
-# database, or fail outright when the variable was absent.
+# Full Go and race tests each get a separate disposable database in the proof's
+# own fresh PostgreSQL cluster. Never inherit MERC_TEST_DATABASE_URL from the
+# caller: doing so made a nominally hermetic proof query an unrelated
+# developer/CI database, or fail outright when the variable was absent. The
+# second database also prevents normal-suite fixtures from becoming race-suite
+# state (for example, a fixed certificate used to test uniqueness).
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
 export MERC_TEST_DATABASE_URL="$TEST_DATABASE_URL"
 
@@ -189,7 +222,16 @@ test -z "$(gofmt -l control)"
 # JSON emits package lifecycle events while retaining the test command's normal
 # semantics.  The closure proof monitor consumes those events for progress
 # heartbeats; a quiet race run is not by itself a hang.
-(cd control && go vet ./... && go test -json ./... && go test -json -race ./...)
+(cd control && go vet ./... && go test -json ./... | tee "$ART/go-test.json")
+if [ "$USE_DOCKER" = "1" ]; then
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE cx_prove_race' >/dev/null
+  RACE_DATABASE_URL="postgres://cx:cx@127.0.0.1:$PGPORT/cx_prove_race?sslmode=disable"
+else
+  createdb --maintenance-db="$DATABASE_URL" cx_prove_race
+  RACE_DATABASE_URL="postgres://cx@127.0.0.1:$PGPORT/cx_prove_race?sslmode=disable"
+fi
+psql "$RACE_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f control/schema.sql >/dev/null
+(cd control && MERC_TEST_DATABASE_URL="$RACE_DATABASE_URL" go test -json -race ./... | tee "$ART/go-race.json")
 (cd agent && cargo fmt --all -- --check && cargo clippy --all-targets --no-default-features -- -D warnings && cargo test --no-default-features)
 bash scripts/verify-python-sdk-package.sh
 node scripts/site-build.mjs
@@ -300,8 +342,75 @@ if [ "$SKIP_LIVE" != "1" ]; then
     return 1
   }
 
+  submit_media() {
+    local input_file="$1" body response quote_id job_id
+    body="$(jq -nc --arg b64 "$MEDIA_B64" \
+      '{job_type:{type:"media_transcode",input_format:"mp4",max_width:320,max_height:180,fps:30,video_bitrate_kbps:400},
+        model:{ref:"ffmpeg-transcode-v1"},params:{split_size:1},
+        constraints:{min_memory_gb:0,hw_classes:null,data_residency:null},
+        verification:{redundancy_frac:1.0,honeypot_frac:0,payout_hold_secs:0},
+        tier:"batch",input:{base64:$b64}}')"
+    response="$(curl -sS "$CONTROL_URL/v1/quote" -H "$DEV_BUYER_AUTH" \
+      -H 'Content-Type: application/json' -d "$body")"
+    quote_id="$(jq -r '.quote_id // empty' <<<"$response")"
+    [ -n "$quote_id" ] || { printf 'media quote failed: %s\n' "$response" >&2; return 1; }
+    body="$(jq --arg quote "$quote_id" '. + {quote_id:$quote,firm_quote:true,max_usd:1.0}' <<<"$body")"
+    response="$(curl -sS "$CONTROL_URL/v1/jobs" -H "$DEV_BUYER_AUTH" \
+      -H 'Idempotency-Key: proof-media-transcode' \
+      -H 'Content-Type: application/json' -d "$body")"
+    job_id="$(jq -r '.job_id // empty' <<<"$response")"
+    [ -n "$job_id" ] || { printf 'media submission failed: %s\n' "$response" >&2; return 1; }
+    printf '%s\n' "$job_id"
+  }
+  submit_rendering() {
+    local scene body response quote_id job_id
+    scene='{"background":[8,16,32],"rectangles":[{"x":4,"y":4,"width":24,"height":24,"color":[220,80,40]}]}'
+    body="$(jq -nc --arg input "$scene" \
+      '{job_type:{type:"media_rendering",render_width:64,render_height:64},
+        model:{ref:"svg-scene-render-v1"},params:{split_size:1},
+        constraints:{min_memory_gb:0,hw_classes:null,data_residency:null},
+        verification:{redundancy_frac:1.0,honeypot_frac:0,payout_hold_secs:0},
+        tier:"batch",input:$input}')"
+    response="$(curl -sS "$CONTROL_URL/v1/quote" -H "$DEV_BUYER_AUTH" \
+      -H 'Content-Type: application/json' -d "$body")"
+    quote_id="$(jq -r '.quote_id // empty' <<<"$response")"
+    [ -n "$quote_id" ] || { printf 'rendering quote failed: %s\n' "$response" >&2; return 1; }
+    # The physical rendering unit is the declared output pixel geometry. Keep
+    # the buyer-visible quote and fail the live proof if a future refactor
+    # drifts back to charging scene-document bytes.
+    printf '%s\n' "$response" > "$ART/render-quote.json"
+    jq -e '
+      .pricing_decision.billable_units == 4096 and
+      .compute_plan.settlement_input_units == 4096 and
+      .pricing_decision.fixed_point.currency == "cad"
+    ' "$ART/render-quote.json" >/dev/null || {
+      printf 'rendering quote did not bind CAD pixel geometry: %s\n' "$response" >&2
+      return 1
+    }
+    body="$(jq --arg quote "$quote_id" '. + {quote_id:$quote,firm_quote:true,max_usd:1.0}' <<<"$body")"
+    response="$(curl -sS "$CONTROL_URL/v1/jobs" -H "$DEV_BUYER_AUTH" \
+      -H 'Idempotency-Key: proof-media-rendering' \
+      -H 'Content-Type: application/json' -d "$body")"
+    job_id="$(jq -r '.job_id // empty' <<<"$response")"
+    [ -n "$job_id" ] || { printf 'rendering submission failed: %s\n' "$response" >&2; return 1; }
+    printf '%s\n' "$job_id"
+  }
+
   EMBED_JOB="$(submit all-minilm-l6-v2 '{"type":"embed","batch_size":8}' $'{"text":"apple silicon"}\n{"text":"compute market"}\n')"
   INFER_JOB="$(submit llama-3.2-1b-instruct-q4 '{"type":"batch_infer","max_tokens":12,"temperature":0}' $'{"prompt":"Reply with only: ping"}\n')"
+	if [ "$PROVE_MEDIA" = "1" ]; then
+	  # The media path is a real binary caller, not a JSONL-shaped test. Generate a
+	  # tiny deterministic MP4 locally, quote that exact base64 commitment, and let
+	  # both enrolled agents run the bounded FFmpeg/ffprobe contract.
+	  ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=blue:s=320x180:r=24:d=0.25 \
+	    -an -c:v libx264 -threads 1 -pix_fmt yuv420p -metadata comment=merc-proof \
+	    -y "$ART/media-input.mp4"
+	  MEDIA_B64="$(base64 < "$ART/media-input.mp4" | tr -d '\n')"
+	  MEDIA_JOB="$(submit_media "$ART/media-input.mp4")"
+	fi
+	if [ "$PROVE_RENDERING" = "1" ]; then
+	  RENDER_JOB="$(submit_rendering)"
+	fi
 	EMBED_REPLAY="$(submit all-minilm-l6-v2 '{"type":"embed","batch_size":8}' $'{"text":"apple silicon"}\n{"text":"compute market"}\n')"
 	[ "$EMBED_REPLAY" = "$EMBED_JOB" ]
 	if submit all-minilm-l6-v2 '{"type":"embed","batch_size":8}' $'{"text":"different request"}\n' >/dev/null 2>&1; then
@@ -312,6 +421,48 @@ if [ "$SKIP_LIVE" != "1" ]; then
   wait_job "$EMBED_JOB"
   wait_job "$INFER_JOB"
   record PASS customer-path "embed and batch_infer completed through live Candle agents"
+	if [ "$PROVE_MEDIA" = "1" ]; then
+	  wait_job "$MEDIA_JOB"
+	  MEDIA_RESULTS="$(curl -fsS "$CONTROL_URL/v1/jobs/$MEDIA_JOB/results" -H "$DEV_BUYER_AUTH")"
+	  MEDIA_RESULTS_URL="$(jq -r '.results_url // empty' <<<"$MEDIA_RESULTS")"
+	  [ -n "$MEDIA_RESULTS_URL" ] || { echo "media result did not expose a merged results_url" >&2; exit 1; }
+	  curl -fsS "$MEDIA_RESULTS_URL" -o "$ART/media-output.mp4"
+	  ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height \
+	    -of json "$ART/media-output.mp4" >"$ART/media-output-probe.json"
+	  jq -e '.streams|length==1 and .[0].codec_name=="h264" and .[0].width==320 and .[0].height==180' \
+	    "$ART/media-output-probe.json" >/dev/null
+	  MEDIA_DB="$(psql "$DATABASE_URL" -Atc "select j.job_type || '|' || j.status || '|' || count(*) filter (where not t.is_redundancy and not t.is_honeypot) || '|' || count(*) from jobs j join tasks t on t.job_id=j.id where j.id='$MEDIA_JOB' group by j.job_type,j.status")"
+	  [ "$MEDIA_DB" = "media_transcode|complete|1|2" ] || {
+	    echo "media database receipt shape was not one primary plus one independent result: $MEDIA_DB" >&2
+	    exit 1
+	  }
+	  MEDIA_MS="$(psql "$DATABASE_URL" -Atc "select round(extract(epoch from (max(t.completed_at)-j.created_at))*1000) from jobs j join tasks t on t.job_id=j.id where j.id='$MEDIA_JOB' group by j.created_at")"
+	  record PASS media-customer-path "media quote, firm submit, two real FFmpeg agents, byte-exact merge, and receipt passed (ms=$MEDIA_MS)"
+	fi
+	if [ "$PROVE_RENDERING" = "1" ]; then
+	  wait_job "$RENDER_JOB"
+	  RENDER_RESULTS="$(curl -fsS "$CONTROL_URL/v1/jobs/$RENDER_JOB/results" -H "$DEV_BUYER_AUTH")"
+	  RENDER_RESULTS_URL="$(jq -r '.results_url // empty' <<<"$RENDER_RESULTS")"
+	  [ -n "$RENDER_RESULTS_URL" ] || { echo "rendering result did not expose a merged results_url" >&2; exit 1; }
+	  curl -fsS "$RENDER_RESULTS_URL" -o "$ART/render-output.ppm"
+	  python3 - "$ART/render-output.ppm" <<'PY'
+import pathlib
+import sys
+
+body = pathlib.Path(sys.argv[1]).read_bytes()
+if not body.startswith(b"P6\n64 64\n255\n"):
+    raise SystemExit("rendered artifact header is not the closed 64x64 PPM contract")
+if len(body) != len(b"P6\n64 64\n255\n") + 64 * 64 * 3:
+    raise SystemExit("rendered artifact payload length is not byte-exact")
+PY
+  RENDER_DB="$(psql "$DATABASE_URL" -Atc "select j.job_type || '|' || j.status || '|' || count(*) filter (where not t.is_redundancy and not t.is_honeypot) || '|' || count(*) from jobs j join tasks t on t.job_id=j.id where j.id='$RENDER_JOB' group by j.job_type,j.status")"
+  [ "$RENDER_DB" = "media_rendering|complete|1|2" ] || {
+    echo "rendering database receipt shape was not one primary plus one independent result: $RENDER_DB" >&2
+    exit 1
+  }
+  RENDER_MS="$(psql "$DATABASE_URL" -Atc "select round(extract(epoch from (max(t.completed_at)-j.created_at))*1000) from jobs j join tasks t on t.job_id=j.id where j.id='$RENDER_JOB' group by j.created_at")"
+  record PASS rendering-customer-path "rendering quote, firm submit, two builtin agents, byte-exact PPM merge, and receipt passed (ms=$RENDER_MS)"
+	fi
 
   # Re-delivery of the exact terminal commit is harmless, while a delayed
   # process claiming a different attempt epoch must be rejected. This is the

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "media_transcode_private_canary",
+  "status": "CANARY_CONTRACT_AND_RUNTIME_PROVEN_NOT_PUBLIC",
+  "measured_at": "2026-08-02T11:00:00Z",
+  "runtime_profile_id": "candle_metal",
+  "runtime_profile_revision": "r8",
+  "cell_id": "candle-metal-ffmpeg-transcode",
+  "model_id": "ffmpeg-transcode-v1",
+  "job_type": "media_transcode",
+  "caller": {
+    "control_validation": "control/media_contract_test.go",
+    "worker_runner": "agent/src/media.rs::media_transcode_runs_real_ffmpeg_when_present",
+    "dispatch_path": "/v1/worker/poll -> TaskDispatch.Manifest -> MediaTranscodeRunner",
+    "result_path": "/v1/worker/task/{id}/commit -> validateTaskResultArtifact -> byte-exact verification -> media/mp4 merge"
+  },
+  "bounds": {
+    "control_input_bytes": 67108864,
+    "control_output_bytes": 67108864,
+    "agent_input_bytes": 536870912,
+    "agent_output_bytes": 536870912,
+    "ffprobe_timeout_secs": 10,
+    "ffmpeg_timeout_secs": 150,
+    "protocol_whitelist": ["file", "pipe"],
+    "metadata_stripped": true,
+    "private_scratch_and_kill_on_drop": true
+  },
+  "verification": {
+    "primary_and_independent_redundancy": true,
+    "equivalence": "byte_exact_mp4_artifact",
+    "control_result_contract": "exactly one MP4 ftyp artifact",
+    "honeypot": false
+  },
+  "economics": {
+    "currency": "deployment_settlement_currency",
+    "unit": "media_work_units",
+    "unit_definition": "input_bytes / 4, retained as exact fixed-point geometry",
+    "catalogue_and_supplier_share": "one schedule-bound PricingDecision; no media-specific second price derivation",
+    "settlement": "quote-derived task charge with supplier entitlement and platform contribution checked by the shared ledger"
+  },
+  "teardown": {
+    "worker_scratch": "MediaScratch Drop removes the private directory",
+    "process": "kill_on_drop and bounded wait",
+    "control_orphans": "failed submit removes owned canonical/task objects by exact key"
+  },
+  "public_activation": "blocked on live-public legal/payment authority; this receipt is private canary evidence only"
+}

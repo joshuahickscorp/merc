@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "matrix_version": "2026-07-30.8",
+  "matrix_version": "2026-08-02.11",
   "engines": [
     {
       "engine": "candle",
@@ -96,12 +96,66 @@
       "attribution_required": true,
       "attribution_text": "Built with Llama",
       "remote_code": false
+    },
+    {
+      "id": "ffmpeg-transcode-v1",
+      "family": "media-transcode",
+      "kind": "builtin",
+      "wire_kind": "builtin",
+      "quant": null,
+      "dim": null,
+      "job_type": "media_transcode",
+      "price_per_1k": 0.01,
+      "min_memory_gb": 1,
+      "hf_repo": "joshuahickscorp/merc",
+      "hf_revision": "3865026d1c42765271fa0fb509ded77ac383ec69",
+      "artifacts": [
+        {
+          "path": "docs/MEDIA_TRANSCODE_CONTRACT.md",
+          "bytes": 1003,
+          "sha256": "3865026d1c42765271fa0fb509ded77ac383ec696a3c07ebac04493ae920ce6f",
+          "wire_kind": "builtin"
+        }
+      ],
+      "license": "Merc-Internal-Contract",
+      "license_url": "https://github.com/joshuahickscorp/merc/blob/program/network-10of10/docs/MEDIA_TRANSCODE_CONTRACT.md",
+      "commercial_use": true,
+      "attribution_required": false,
+      "attribution_text": "",
+      "remote_code": false
+    },
+    {
+      "id": "svg-scene-render-v1",
+      "family": "media-rendering",
+      "kind": "builtin",
+      "wire_kind": "builtin",
+      "quant": null,
+      "dim": null,
+      "job_type": "media_rendering",
+      "price_per_1k": 0.01,
+      "min_memory_gb": 1,
+      "hf_repo": "joshuahickscorp/merc",
+      "hf_revision": "3865026d1c42765271fa0fb509ded77ac383ec69",
+      "artifacts": [
+        {
+          "path": "docs/MEDIA_RENDERING_CONTRACT.md",
+          "bytes": 1132,
+          "sha256": "54a5e0f6e1c474f2dade766fb8625ce6aab2773e2dc687206d45c9758ddbd811",
+          "wire_kind": "builtin"
+        }
+      ],
+      "license": "Merc-Internal-Contract",
+      "license_url": "https://github.com/joshuahickscorp/merc/blob/program/network-10of10/docs/MEDIA_RENDERING_CONTRACT.md",
+      "commercial_use": true,
+      "attribution_required": false,
+      "attribution_text": "",
+      "remote_code": false
     }
   ],
   "runtimes": [
     {
       "runtime_id": "candle_metal",
-      "revision": "r6",
+      "revision": "r9",
       "superseded_by": "",
       "engine": "candle",
       "engine_revision": "",
@@ -164,6 +218,34 @@
           "quality_tier": "OUTCOME_EQUIVALENT",
           "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json",
           "max_batch": 128
+        },
+        {
+          "id": "candle-metal-ffmpeg-transcode",
+          "job": "media_transcode",
+          "model": "ffmpeg-transcode-v1",
+          "runner": "media_transcode",
+          "wire_kind": "builtin",
+          "min_memory_gb": 1,
+          "verification": "byte_exact",
+          "lifecycle": "CANARY",
+          "quality_tier": "OUTCOME_EQUIVALENT",
+          "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-ffmpeg-media-r1.json",
+          "max_batch": 1,
+          "max_concurrency": 1
+        },
+        {
+          "id": "candle-metal-scene-render",
+          "job": "media_rendering",
+          "model": "svg-scene-render-v1",
+          "runner": "media_rendering",
+          "wire_kind": "builtin",
+          "min_memory_gb": 1,
+          "verification": "byte_exact",
+          "lifecycle": "CANARY",
+          "quality_tier": "OUTCOME_EQUIVALENT",
+          "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json",
+          "max_batch": 1,
+          "max_concurrency": 1
         }
       ]
     },

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "kind": "restore_drill",
+  "status": "PASS",
+  "drill_id": "20260802T123702Z-12707",
+  "completed_at": "2026-08-02T12:37:15Z",
+  "runtime": "docker",
+  "rto_seconds_measured": 2.463,
+  "thresholds": {
+    "min_jobs": 10000,
+    "min_ledger_entries": 1000,
+    "min_objects": 1000
+  },
+  "source": {
+    "buyers": 1,
+    "jobs": 10000,
+    "tasks": 1,
+    "ledger_entries": 1000,
+    "marker": "queued"
+  },
+  "restored": {
+    "buyers": 1,
+    "jobs": 10000,
+    "tasks": 1,
+    "ledger_entries": 1000,
+    "marker": "queued"
+  },
+  "source_object_count": 1000,
+  "restored_object_count": 1000,
+  "db_dump_sha256": "0f2338631673da883cd1d989d88d6ce4eb0edd964132515f80353c9abb1e72b0",
+  "restored_state_sha256": "f02ada7dd23758f6b143abb1d3d2df21fca3976715be1f871fac5688982811a1",
+  "restored_object_manifest_sha256": "552d03ff74f49566905be14249485b678f502f3763cf234bf03e7c35ccb541a7",
+  "corrupt_backup_evidence": "/Users/scammermike/Downloads/merc-wt-a1/evidence/autonomous/corrupt-backup-refused-r1.json",
+  "assertions_derived_from_observation": [
+    "source and restored row-count JSON match",
+    "jobs/ledger/objects meet production-shaped minima",
+    "database and object content hashes match",
+    "RTO measured wall-clock around pg_restore + object mirror"
+  ]
+}

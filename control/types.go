@@ -82,14 +82,21 @@ func normalizeEngine(engine string) string {
 	return engine
 }
 
-var validJobTypes = map[string]bool{"embed": true, "batch_infer": true}
+var validJobTypes = map[string]bool{"embed": true, "batch_infer": true, "media_transcode": true, "media_rendering": true}
 
 type JobType struct {
-	Type        string  `json:"type"`
-	BatchSize   int     `json:"batch_size,omitempty"`
-	EmbedBinary bool    `json:"binary,omitempty"`
-	MaxTokens   uint32  `json:"max_tokens,omitempty"`
-	Temperature float32 `json:"temperature,omitempty"`
+	Type             string  `json:"type"`
+	BatchSize        int     `json:"batch_size,omitempty"`
+	EmbedBinary      bool    `json:"binary,omitempty"`
+	MaxTokens        uint32  `json:"max_tokens,omitempty"`
+	Temperature      float32 `json:"temperature,omitempty"`
+	InputFormat      string  `json:"input_format,omitempty"`
+	MaxWidth         uint32  `json:"max_width,omitempty"`
+	MaxHeight        uint32  `json:"max_height,omitempty"`
+	FPS              uint32  `json:"fps,omitempty"`
+	VideoBitrateKbps uint32  `json:"video_bitrate_kbps,omitempty"`
+	RenderWidth      uint32  `json:"render_width,omitempty"`
+	RenderHeight     uint32  `json:"render_height,omitempty"`
 }
 
 type ModelRef struct {

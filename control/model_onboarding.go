@@ -24,10 +24,11 @@ import (
 // rather than assumed permissive. Getting that backwards means the first
 // non-commercial model anyone adds ships silently.
 var resaleAllowedLicenses = map[string]string{
-	"Apache-2.0":          "permissive, commercial use unrestricted",
-	"MIT":                 "permissive, commercial use unrestricted",
-	"BSD-3-Clause":        "permissive, commercial use unrestricted",
-	"Llama-3.2-Community": "commercial use permitted below 700M MAU, with attribution and an acceptable use policy",
+	"Apache-2.0":             "permissive, commercial use unrestricted",
+	"MIT":                    "permissive, commercial use unrestricted",
+	"BSD-3-Clause":           "permissive, commercial use unrestricted",
+	"Llama-3.2-Community":    "commercial use permitted below 700M MAU, with attribution and an acceptable use policy",
+	"Merc-Internal-Contract": "Merc-owned fixed runtime contract; third-party codec terms remain separately governed",
 }
 
 func validateModelOnboarding(authority runtimeAuthorityDocument) error {

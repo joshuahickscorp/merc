@@ -10,10 +10,12 @@ mod models;
 mod pool;
 mod protocol;
 mod quantized_llama_batched; // vendored + patched candle quantized_llama (bsz>1 batched prefill)
+mod render;
 mod runtime_authority;
 mod runtime_driver;
 mod status;
 mod tls;
+mod token_cache;
 mod types;
 mod vllm;
 

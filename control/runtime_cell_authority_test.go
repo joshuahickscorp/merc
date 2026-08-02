@@ -206,12 +206,14 @@ func TestArtifactReplacementMovesTheDigestThatGatesTheCell(t *testing.T) {
 	}
 }
 
-// The advertised set is still exactly the two candle cells. Cell-level
-// lifecycles must not have widened what Merc sells by one cell.
+// The advertised set is exactly the four routable candle cells. Cell-level lifecycles
+// must not widen it beyond the authority document.
 func TestCellLifecyclesDidNotWidenTheAdvertisedSurface(t *testing.T) {
 	want := map[string]bool{
-		"candle-metal-minilm-embed": true,
-		"candle-metal-llama1-infer": true,
+		"candle-metal-minilm-embed":     true,
+		"candle-metal-llama1-infer":     true,
+		"candle-metal-ffmpeg-transcode": true,
+		"candle-metal-scene-render":     true,
 	}
 	if len(advertisedRuntimeCapabilities()) != len(want) {
 		t.Fatalf("advertised %d cells, want %d",

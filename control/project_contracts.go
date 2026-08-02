@@ -26,6 +26,10 @@ func projectKindForRuntimeJob(job string) string {
 		return "embeddings"
 	case "batch_infer":
 		return "batch_inference"
+	case "media_transcode":
+		return "media_transcode"
+	case "media_rendering":
+		return "media_rendering"
 	default:
 		return ""
 	}

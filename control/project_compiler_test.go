@@ -78,6 +78,31 @@ func TestCompileProjectRequiresProbeAuthorization(t *testing.T) {
 	}
 }
 
+func TestCompileProjectDetectsBoundedMediaTranscodeSignal(t *testing.T) {
+	root := t.TempDir()
+	writeProjectFixture(t, root, "transcode.py", "ffmpeg -i input.mp4 -vf scale=320:180 output.mp4\n")
+	writeProjectFixture(t, root, "transcode.md", "The ffmpeg transcode output is byte bounded.\n")
+	proposal, err := compileProject(projectCompileOptions{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, detection := range proposal.Detections {
+		if detection.Kind == "media_transcode" {
+			found = true
+			if detection.Confidence < 0.70 {
+				t.Fatalf("media transcode signal confidence=%v", detection.Confidence)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("ffmpeg project did not produce media_transcode detection: %+v", proposal.Detections)
+	}
+	if len(proposal.Steps) == 0 || proposal.Steps[0].Topology == nil {
+		t.Fatalf("media transcode detection lost its bounded IR step: %+v", proposal.Steps)
+	}
+}
+
 func TestCompileProjectRefusesChangedProjectAfterApproval(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFixture(t, root, "pipeline.py", "embedding")

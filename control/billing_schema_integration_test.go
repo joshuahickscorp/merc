@@ -59,9 +59,9 @@ func TestBillingCustomerCanonicalSchema(t *testing.T) {
 
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO jobs
-		    (id,buyer_id,status,job_type,input_ref,actual_usd,charge_status)
-		VALUES ($1,$2,'complete','embed','schema/input',1.00,'no_payment_method')`,
-		jobID, buyerID); err != nil {
+		    (id,buyer_id,status,job_type,input_ref,actual_usd,currency,charge_status)
+		VALUES ($1,$2,'complete','embed','schema/input',1.00,$3,'no_payment_method')`,
+		jobID, buyerID, SettlementCurrencyCode()); err != nil {
 		t.Fatalf("insert no-card job: %v", err)
 	}
 	changed, err := store.ReflipNoCardJobs(ctx)

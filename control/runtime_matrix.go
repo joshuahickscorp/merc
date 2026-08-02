@@ -392,6 +392,8 @@ func runtimeWireModelKind(catalogKind string) (string, error) {
 		return "gguf", nil
 	case "hf", "embed":
 		return "hf", nil
+	case "builtin":
+		return "builtin", nil
 	default:
 		return "", fmt.Errorf("catalog kind %q has no agent wire mapping", catalogKind)
 	}

@@ -38,12 +38,13 @@ type ComputePlan struct {
 	InputRecords            int    `json:"input_records"`
 	InputBytes              int64  `json:"input_bytes"`
 	EstimatedInputTokens    int64  `json:"estimated_input_tokens"`
-	// SettlementInputUnits is the exact input-side unit count that the frozen
+	// SettlementInputUnits is the exact workload-unit count that the frozen
 	// catalogue price used. It is deliberately separate from
 	// EstimatedInputTokens: the latter is a selected-body depth estimate for
-	// planning and ETA, whereas settlement prices complete JSONL input geometry.
-	// Version 3 writes this as max(records, input_bytes/4), without a rounding
-	// conversion, so pricing, settlement, and the receipt share one authority.
+	// planning and ETA. Text/transcode use bounded input geometry; deterministic
+	// rendering uses declared output pixels. Version 3 writes the applicable
+	// fractional geometry without a rounding conversion, so pricing, settlement,
+	// and the receipt share one authority.
 	SettlementInputUnits  float64            `json:"settlement_input_units,omitempty"`
 	EstimatedOutputTokens int64              `json:"estimated_output_tokens"`
 	InputDepthProfile     *InputDepthProfile `json:"input_depth_profile,omitempty"`
@@ -124,6 +125,22 @@ func settlementInputUnitsForGeometry(records int, inputBytes int64) float64 {
 		units = byteUnits
 	}
 	return units
+}
+
+// settlementInputUnitsForJobType is the workload-specific extension of the
+// historical byte geometry. Text and media-transcode jobs are still priced from
+// their bounded input geometry. A deterministic renderer, however, is measured
+// and executed in output pixels; charging only the JSON scene bytes would make
+// the frozen money authority unrelated to the physical work being sold.
+func settlementInputUnitsForJobType(jobType JobType, records int, inputBytes int64) float64 {
+	if jobType.Type == "media_rendering" {
+		if records <= 0 || jobType.RenderWidth == 0 || jobType.RenderHeight == 0 {
+			return 0
+		}
+		pixels := uint64(jobType.RenderWidth) * uint64(jobType.RenderHeight)
+		return float64(records) * float64(pixels)
+	}
+	return settlementInputUnitsForGeometry(records, inputBytes)
 }
 
 func estimatedOutputTokensForComputePlan(decision WorkloadDecision, records int) int64 {
@@ -269,7 +286,7 @@ func newDistributedComputePlan(
 		InputRecords:            inputRecords,
 		InputBytes:              inputBytes,
 		EstimatedInputTokens:    depth.EstimatedTokens,
-		SettlementInputUnits:    settlementInputUnitsForGeometry(inputRecords, inputBytes),
+		SettlementInputUnits:    settlementInputUnitsForJobType(decision.Binding.JobType, inputRecords, inputBytes),
 		EstimatedOutputTokens:   estimatedOutputTokensForComputePlan(decision, inputRecords),
 		InputDepthProfile:       &depthCopy,
 		SplitSize:               splitSize,
@@ -327,7 +344,7 @@ func newExactReuseComputePlan(
 		InputRecords:            inputRecords,
 		InputBytes:              inputBytes,
 		EstimatedInputTokens:    depth.EstimatedTokens,
-		SettlementInputUnits:    settlementInputUnitsForGeometry(inputRecords, inputBytes),
+		SettlementInputUnits:    settlementInputUnitsForJobType(decision.Binding.JobType, inputRecords, inputBytes),
 		EstimatedOutputTokens:   estimatedOutputTokensForComputePlan(decision, inputRecords),
 		InputDepthProfile:       &depthCopy,
 		ETASource:               computeExecutionExactReuse,
@@ -433,7 +450,7 @@ func ValidateFrozenComputePlanSnapshot(plan ComputePlan, decision WorkloadDecisi
 				return errors.New("version-2 compute plan cannot carry settlement input units")
 			}
 		} else {
-			wantSettlementUnits := settlementInputUnitsForGeometry(plan.InputRecords, plan.InputBytes)
+			wantSettlementUnits := settlementInputUnitsForJobType(decision.Binding.JobType, plan.InputRecords, plan.InputBytes)
 			if math.IsNaN(plan.SettlementInputUnits) || math.IsInf(plan.SettlementInputUnits, 0) ||
 				plan.SettlementInputUnits <= 0 ||
 				math.Abs(plan.SettlementInputUnits-wantSettlementUnits) > 0.000000001 {

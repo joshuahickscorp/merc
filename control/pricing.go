@@ -40,6 +40,20 @@ var repricingBenchmarks = []measuredThroughput{
 		HWClass:        "apple_silicon_pro",
 		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#batch_infer",
 	},
+	{
+		ModelID:        "ffmpeg-transcode-v1",
+		JobType:        "media_transcode",
+		UnitsPerSec:    14423.640930216638,
+		HWClass:        "apple_silicon_ultra",
+		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-ffmpeg-media-r1.json#physical_throughput",
+	},
+	{
+		ModelID:        "svg-scene-render-v1",
+		JobType:        "media_rendering",
+		UnitsPerSec:    148271490.0,
+		HWClass:        "apple_silicon_ultra",
+		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json#physical_throughput",
+	},
 }
 
 var sustainedWattsByHWClass = map[string]float64{
@@ -322,6 +336,20 @@ func ceilPricePer1K(value float64) float64 {
 	return math.Ceil(value*scale) / scale
 }
 
+// canonicalPricePer1K gives the reference-price projection a fixed decimal
+// boundary before it is persisted. The database stores eighteen fractional
+// places, but float64 has about fifteen significant decimal digits; rounding
+// here means a schedule result and a NUMERIC round-trip name the same decimal
+// rather than differing in the last binary bit. Settlement publication still
+// uses ceilPricePer1K so the buyer-facing ceiling never rounds downward.
+func canonicalPricePer1K(value float64) float64 {
+	const scale = 1_000_000_000_000_000.0 // 15 decimal places
+	if !finiteNonNegative(value) || value <= 0 {
+		return 0
+	}
+	return math.Round(value*scale) / scale
+}
+
 func cataloguePriceScheduleDigest(schedule CataloguePriceSchedule) (string, error) {
 	payload := schedule
 	payload.SHA256 = ""
@@ -451,7 +479,10 @@ func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
 				"price board has no governed price for measured model %s", b.ModelID,
 			)
 		}
-		referencePrice := r.PricePer1K
+		referencePrice := canonicalPricePer1K(r.PricePer1K)
+		if referencePrice <= 0 {
+			return CataloguePriceSchedule{}, fmt.Errorf("model %s has no finite canonical reference price", b.ModelID)
+		}
 		supplierShare, serr := supplierShareForWorkload(b.JobType, b.ModelID)
 		if serr != nil {
 			return CataloguePriceSchedule{}, serr
@@ -463,7 +494,7 @@ func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
 		r.PricePer1K = ceilPricePer1K(referencePrice * fxRate)
 		r.SupplierShare = supplierShare
 		r.Formula += fmt.Sprintf(
-			" board_sha256=%s reference_price_per_1k=%.8f reference_currency=%s reference_to_settlement_rate=%.12g fx_revision=%s settlement_price_per_1k=%.8f settlement_currency=%s supplier_share_policy=%s supplier_share=%.8f",
+			" board_sha256=%s reference_price_per_1k=%.15f reference_currency=%s reference_to_settlement_rate=%.12g fx_revision=%s settlement_price_per_1k=%.8f settlement_currency=%s supplier_share_policy=%s supplier_share=%.8f",
 			priceBoardSHA256, r.ReferencePricePer1K, catalogueReferenceCurrency,
 			fxRate, fxRevision, r.PricePer1K, settlementCurrency,
 			supplierSharePolicyRevision, supplierShare,

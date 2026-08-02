@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "kind": "cad_local_full_loop_proof",
+  "status": "PASS_PRIVATE_SHADOW_LEDGER_NOT_PROVIDER_CANARY",
+  "measured_at": "2026-08-02T14:49:24Z",
+  "proof_source_sha256": "d0f1e802445805dcfc5cfce31db744734131a2b8a97e58192104aaa582463345",
+  "command": "MERC_SETTLEMENT_CURRENCY=cad MERC_PRICE_REFERENCE_TO_SETTLEMENT_RATE=1.37 MERC_PRICE_FX_REVISION=operator-canary-2026-08-02 MERC_PROVE_MEDIA=1 MERC_PROVE_RENDERING=1 USE_DOCKER=1 SKIP_LIVE=0 scripts/prove-local.sh",
+  "environment": {
+    "database": "isolated disposable PostgreSQL Compose volume",
+    "object_store": "isolated disposable MinIO Compose volume",
+    "settlement_currency": "cad",
+    "reference_to_settlement_rate": 1.37,
+    "fx_revision": "operator-canary-2026-08-02",
+    "payment_provider": "disabled in local proof",
+    "live_value_movement": false,
+    "secret_values_recorded": false
+  },
+  "paths": {
+    "two_distinct_agents": true,
+    "idempotency_conflict_refusal": true,
+    "embed_and_batch_infer": true,
+    "media_transcode": true,
+    "media_rendering": true,
+    "attempt_fencing": true,
+    "zero_sum_money_invariants": true,
+    "source_stable_after_run": true
+  },
+  "receipts": {
+    "ledger": ".artifacts/prove-local/ledger.jsonl",
+    "source_sha256": "d0f1e802445805dcfc5cfce31db744734131a2b8a97e58192104aaa582463345",
+    "media_output_sha256": "b37b8f4b0d2988bd585448c586565f4e247da669efbc4905c3f26b99138353f8",
+    "render_output": "P6 64x64 byte-exact artifact",
+    "control_rss_kb": 63968,
+    "two_agent_rss_kb": 2560976,
+    "embed_ms": 6564,
+    "batch_infer_ms": 4541,
+    "media_transcode_ms": 6425,
+    "media_rendering_ms": 4248
+  },
+  "teardown": {
+    "compose_volumes_removed": true,
+    "worker_processes_stopped": true,
+    "orphan_sweep": true
+  },
+  "limitations": [
+    "This is a local shadow-ledger proof, not a Stripe provider-owned test-mode receipt.",
+    "The source fingerprint is bound to the pre-commit working tree; exact-head canary authority still requires the checkpoint receipt.",
+    "True Merc net contribution remains unknown for storage, egress, energy/depreciation and risk reserve.",
+    "media_rendering is deterministic scene rasterisation and does not claim prompt-to-image generation."
+  ],
+  "public_claim_allowed": false
+}

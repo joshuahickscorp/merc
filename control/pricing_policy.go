@@ -37,6 +37,14 @@ var physicalSupplierSharePolicies = []supplierSharePolicy{
 		JobType: "batch_infer", ModelID: "llama-3.2-1b-instruct-q4", SupplierShare: 0.86,
 		Rationale: "longer-tailed inference lane with verification and capacity reserve",
 	},
+	{
+		JobType: "media_transcode", ModelID: "ffmpeg-transcode-v1", SupplierShare: 0.82,
+		Rationale: "bounded binary transcode with independent byte-exact execution and fixed-cost reserve",
+	},
+	{
+		JobType: "media_rendering", ModelID: "svg-scene-render-v1", SupplierShare: 0.82,
+		Rationale: "bounded deterministic rasterization with independent byte-exact execution and fixed-cost reserve",
+	},
 }
 
 func supplierShareForWorkload(jobType, modelID string) (float64, error) {

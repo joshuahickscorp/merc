@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -808,21 +809,53 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		}
 	}
 
-	inputReader, srcKey, err := s.resolveInput(ctx, buyerID, sub.Input)
+	inputReader, srcKey, err := s.resolveInput(ctx, buyerID, sub.JobType.Type, sub.Input)
 	if err != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "resolving input: " + err.Error()}
 	}
 	defer inputReader.Close()
 
-	// Always sample the leading bytes once: adaptive split sizing and the
-	// warm-prefix chain both need them. The sample is teed back into the
-	// reader so streamSplitAndUpload still sees the full input.
-	prefixSample, rest, serr := peekInputSample(inputReader, inputSampleBytes)
-	if serr != nil {
-		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "reading input: " + serr.Error()}
+	var mediaInputBytes []byte
+	var prefixSample []byte
+	var prefixChain []PrefixChainEntry
+	if isBinaryMediaJob(sub) {
+		// Media is a bounded binary object, not a stream of JSONL records. Read
+		// the exact bytes once so quote/submit geometry, hashing and the task
+		// object all bind the same container. The worker performs the deeper
+		// ffprobe validation before executing the fixed FFmpeg contract.
+		limit := int64(maxMediaControlBytes)
+		if isMediaRenderingJob(sub) {
+			limit = maxRenderingControlBytes
+		}
+		mediaInputBytes, err = readAndCloseBounded(inputReader, limit)
+		if err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, errSynchronousInputTooLarge) {
+				status = http.StatusRequestEntityTooLarge
+			}
+			return JobSubmitResponse{}, &httpError{status, "reading media input: " + err.Error()}
+		}
+		var inputErr error
+		if isMediaRenderingJob(sub) {
+			inputErr = validateRenderingInputBytes(mediaInputBytes, sub.JobType.RenderWidth, sub.JobType.RenderHeight)
+		} else {
+			inputErr = validateMediaInputBytes(mediaInputBytes)
+		}
+		if inputErr != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, inputErr.Error()}
+		}
+	} else {
+		// Always sample the leading bytes once: adaptive split sizing and the
+		// warm-prefix chain both need them. The sample is teed back into the
+		// reader so streamSplitAndUpload still sees the full input.
+		var rest io.ReadCloser
+		prefixSample, rest, err = peekInputSample(inputReader, inputSampleBytes)
+		if err != nil {
+			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "reading input: " + err.Error()}
+		}
+		inputReader = rest
+		prefixChain = prefixChainFromInputBytes(prefixSample)
 	}
-	inputReader = rest
-	prefixChain := prefixChainFromInputBytes(prefixSample)
 	prefixID := ""
 	if len(prefixChain) > 0 {
 		// Shallowest node: the widest match a later job can share. Deeper
@@ -866,6 +899,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 
 	splitSize, splitErr := selectSubmissionSplitSize(qBind, func() int {
+		if isBinaryMediaJob(sub) {
+			return 1
+		}
 		unboundSplit := splitSizeOf(sub.Params)
 		if unboundSplit != defaultSplitSize || hasExplicitSplitSize(sub.Params) {
 			return unboundSplit
@@ -900,21 +936,48 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	var canonicalWriter io.Writer
 	var canonicalPut *streamingPut
 	if inputKey == "" {
-		inputKey = fmt.Sprintf("jobs/%s/input.jsonl", jobID)
+		inputName := "input.jsonl"
+		if isMediaTranscodeJob(sub) {
+			inputName = "input." + sub.JobType.InputFormat
+		} else if isMediaRenderingJob(sub) {
+			inputName = "scene.json"
+		}
+		inputKey = fmt.Sprintf("jobs/%s/%s", jobID, inputName)
 		ownedInputKey = inputKey
-		canonicalPut = newStreamingPut(ctx, s.storage, inputKey, "application/x-ndjson")
+		contentType := "application/x-ndjson"
+		if isMediaTranscodeJob(sub) {
+			contentType = mediaContentType(sub.JobType.InputFormat)
+		} else if isMediaRenderingJob(sub) {
+			contentType = "application/json"
+		}
+		canonicalPut = newStreamingPut(ctx, s.storage, inputKey, contentType)
 		canonicalWriter = canonicalPut.writer
 	}
 
-	tasks, _, totalRecords, exactInputBytes, measuredDepth, sum256, serr := s.streamSplitAndUpload(
-		ctx, jobID, sub.JobType.Type, inputReader, splitSize, canonicalWriter,
-	)
+	var tasks []taskRow
+	var totalBytes, totalRecords, exactInputBytes int
+	var measuredDepth InputDepthProfile
+	var sum256 [32]byte
+	var serr error
+	if isMediaTranscodeJob(sub) {
+		tasks, totalBytes, totalRecords, exactInputBytes, measuredDepth, sum256, serr =
+			s.streamMediaAndUpload(ctx, jobID, sub.JobType.InputFormat, mediaInputBytes,
+				inputKey, canonicalWriter)
+	} else if isMediaRenderingJob(sub) {
+		tasks, totalBytes, totalRecords, exactInputBytes, measuredDepth, sum256, serr =
+			s.streamRenderingAndUpload(ctx, jobID, sub.JobType.RenderWidth, sub.JobType.RenderHeight,
+				mediaInputBytes, inputKey, canonicalWriter)
+	} else {
+		tasks, totalBytes, totalRecords, exactInputBytes, measuredDepth, sum256, serr =
+			s.streamSplitAndUpload(ctx, jobID, sub.JobType.Type, inputReader, splitSize, canonicalWriter)
+	}
 	if canonicalPut != nil {
 		canonicalPut.writer.Close() // signal EOF to the tee goroutine regardless of serr
 		if perr := canonicalPut.wait(); perr != nil && serr == nil {
 			serr = perr
 		}
 	}
+	_ = totalBytes // exactInputBytes is the economic geometry; totalBytes is a legacy JSONL statistic.
 	cleanupStreamArtifacts := true
 	defer func() {
 		if cleanupStreamArtifacts {
@@ -933,6 +996,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			fmt.Sprintf("private-canary input limit is %d bytes", s.canary.MaxInputBytes)}
 	}
 	if len(tasks) == 0 {
+		if isBinaryMediaJob(sub) {
+			return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "media_transcode input produced no task"}
+		}
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "input is empty: at least one JSONL line is required"}
 	}
 	nPrimary := len(tasks) // primaries precede any redundancy/honeypot clones
@@ -1073,8 +1139,16 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 
 	outputKey := fmt.Sprintf("jobs/%s/output.jsonl", jobID)
+	if isMediaTranscodeJob(sub) {
+		outputKey = fmt.Sprintf("jobs/%s/output.mp4", jobID)
+	} else if isMediaRenderingJob(sub) {
+		outputKey = fmt.Sprintf("jobs/%s/output.ppm", jobID)
+	}
 
 	nRedundancy := fracCount(nPrimary, sub.Verification.RedundancyFrac)
+	if isBinaryMediaJob(sub) && nRedundancy == 0 {
+		nRedundancy = nPrimary
+	}
 	redundancyPeers := append([]taskRow(nil), tasks[:nPrimary]...)
 	sort.Slice(redundancyPeers, func(i, j int) bool {
 		return redundancySelectionHash(jobID, redundancyPeers[i].ID) < redundancySelectionHash(jobID, redundancyPeers[j].ID)
@@ -1095,6 +1169,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 
 	nHoneypot := fracCount(nPrimary, sub.Verification.HoneypotFrac)
+	if isBinaryMediaJob(sub) {
+		nHoneypot = 0
+	}
 	if (wantVerificationFloor || s.canary.Enabled) && nHoneypot == 0 {
 		nHoneypot = 1
 	}
@@ -1171,9 +1248,8 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 			fmt.Sprintf("private-canary task limit is %d after verification expansion", s.canary.MaxTasksPerJob)}
 	}
 
-	basePrimaryCompute, priceErr := estimateJobSettlementWithAuthority(
-		cataloguePrice, sub.JobType.Type, exactInputBytes, totalRecords,
-		sub.JobType.MaxTokens, sub.Tier,
+	basePrimaryCompute, priceErr := estimateJobSettlementForJobType(
+		cataloguePrice, sub.JobType, exactInputBytes, totalRecords, sub.Tier,
 	)
 	if priceErr != nil {
 		return JobSubmitResponse{}, &httpError{
@@ -1193,9 +1269,9 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		// Same exact catalogue derivation the quote made, over the same geometry.
 		// If it differs the plans differ, and a bound submit is refused rather than
 		// settled against economics the buyer never saw.
-		BaseComputeNanos: exactBaseComputeNanos(
-			cataloguePrice, sub.JobType.Type, sub.Tier,
-			exactInputBytes, totalRecords, sub.JobType.MaxTokens,
+		BaseComputeNanos: exactBaseComputeNanosForJobType(
+			cataloguePrice, sub.JobType, sub.Tier,
+			exactInputBytes, totalRecords,
 			nPrimary, len(tasks),
 		),
 	}
@@ -1519,10 +1595,10 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 
 var jobsKeyPattern = regexp.MustCompile(`^jobs/([0-9a-fA-F-]{36})/`)
 
-func (s *Server) resolveInput(ctx context.Context, buyerID uuid.UUID, raw json.RawMessage) (r io.ReadCloser, fromKey string, err error) {
+func (s *Server) resolveInput(ctx context.Context, buyerID uuid.UUID, jobType string, raw json.RawMessage) (r io.ReadCloser, fromKey string, err error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || string(raw) == "null" {
-		return nil, "", errors.New("input is required (inline JSONL string or {\"s3_key\":\"...\"})")
+		return nil, "", errors.New("input is required (inline JSONL string, media base64 object, or {\"s3_key\":\"...\"})")
 	}
 	if raw[0] == '"' {
 		var inline string
@@ -1532,9 +1608,31 @@ func (s *Server) resolveInput(ctx context.Context, buyerID uuid.UUID, raw json.R
 		return io.NopCloser(strings.NewReader(inline)), "", nil
 	}
 	var ref struct {
-		S3Key string `json:"s3_key"`
+		S3Key  string  `json:"s3_key"`
+		Base64 *string `json:"base64"`
 	}
-	if err := json.Unmarshal(raw, &ref); err != nil || ref.S3Key == "" {
+	if err := json.Unmarshal(raw, &ref); err != nil {
+		return nil, "", errors.New("input must be a JSONL string or an input object")
+	}
+	// The binary form is intentionally restricted to media. Decoding arbitrary
+	// buyer JSON as base64 would make the JSONL lane ambiguous and would create a
+	// second, unbounded input authority. The public CLI uses this form for small
+	// local media files; larger media should be uploaded to object storage and
+	// referenced by s3_key.
+	if ref.Base64 != nil {
+		if jobType != "media_transcode" {
+			return nil, "", errors.New("base64 input is supported only for media_transcode")
+		}
+		if len(ref.S3Key) != 0 {
+			return nil, "", errors.New("input object must contain exactly one of s3_key or base64")
+		}
+		decoded, derr := decodeInlineMediaBase64(*ref.Base64)
+		if derr != nil {
+			return nil, "", derr
+		}
+		return io.NopCloser(bytes.NewReader(decoded)), "", nil
+	}
+	if ref.S3Key == "" {
 		return nil, "", errors.New("input must be a JSONL string or an object with a non-empty s3_key")
 	}
 	m := jobsKeyPattern.FindStringSubmatch(ref.S3Key)
@@ -1554,6 +1652,23 @@ func (s *Server) resolveInput(ctx context.Context, buyerID uuid.UUID, raw json.R
 		return nil, "", fmt.Errorf("fetching input %q: %w", ref.S3Key, err)
 	}
 	return rc, ref.S3Key, nil
+}
+
+func decodeInlineMediaBase64(encoded string) ([]byte, error) {
+	if len(encoded) > ((maxMediaControlBytes+2)/3)*4 {
+		return nil, fmt.Errorf("base64 media input exceeds the %d-byte decoded limit", maxMediaControlBytes)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base64 media input: %w", err)
+	}
+	if len(decoded) == 0 {
+		return nil, errors.New("base64 media input is empty")
+	}
+	if len(decoded) > maxMediaControlBytes {
+		return nil, fmt.Errorf("base64 media input exceeds the %d-byte decoded limit", maxMediaControlBytes)
+	}
+	return decoded, nil
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
@@ -1730,6 +1845,12 @@ func mergeJobResultsWithProbe(
 		if info.JobType == "embed" && isEmbedBinary(first) {
 			contentType = "application/octet-stream"
 			outputRecords, err = mergeEmbedBinaryToFile(ctx, storage, tmp, info.Results, first, firstMark)
+		} else if info.JobType == "media_transcode" {
+			contentType = "video/mp4"
+			outputRecords, err = mergeMediaToFile(ctx, tmp, info.Results, first, firstMark)
+		} else if info.JobType == "media_rendering" {
+			contentType = "image/x-portable-pixmap"
+			outputRecords, err = mergeRenderingToFile(ctx, tmp, info.Results, first, firstMark)
 		} else {
 			outputRecords, outputTokens, exactReuseTokenMetered, err = mergeJSONResultsToFile(ctx, storage, tmp, info.JobType, info.Results, first, firstMark)
 		}
@@ -1770,6 +1891,42 @@ func mergeJobResultsWithProbe(
 	}
 	reachRecoveryBoundary(ctx, probe, BoundaryMergeAfterPublish)
 	return int(outputBytes), nil
+}
+
+func mergeMediaToFile(ctx context.Context, out io.Writer, results []PrimaryResult, first []byte, firstMark int64) (int64, error) {
+	if len(results) != 1 {
+		return 0, fmt.Errorf("merge: media_transcode expects exactly one primary artifact, got %d", len(results))
+	}
+	if err := validateMediaTranscodeResult(first, resultRecordContract{Exact: 1, Max: 1}); err != nil {
+		return 0, fmt.Errorf("merge: media artifact is invalid: %w", err)
+	}
+	n, err := out.Write(first)
+	if err == nil && n != len(first) {
+		err = io.ErrShortWrite
+	}
+	releaseVerificationMemoryToMark(ctx, firstMark)
+	if err != nil {
+		return 0, fmt.Errorf("merge: write media artifact: %w", err)
+	}
+	return 1, nil
+}
+
+func mergeRenderingToFile(ctx context.Context, out io.Writer, results []PrimaryResult, first []byte, firstMark int64) (int64, error) {
+	if len(results) != 1 {
+		return 0, fmt.Errorf("merge: media_rendering expects exactly one primary artifact, got %d", len(results))
+	}
+	if err := validateMediaRenderingResult(first, resultRecordContract{Exact: 1, Max: 1}); err != nil {
+		return 0, fmt.Errorf("merge: rendering artifact is invalid: %w", err)
+	}
+	n, err := out.Write(first)
+	if err == nil && n != len(first) {
+		err = io.ErrShortWrite
+	}
+	releaseVerificationMemoryToMark(ctx, firstMark)
+	if err != nil {
+		return 0, fmt.Errorf("merge: write rendering artifact: %w", err)
+	}
+	return 1, nil
 }
 
 func verifyMergedObject(
@@ -2087,6 +2244,22 @@ func mergeResultObjectTo(out io.Writer, jobType string, obj []byte, base int) (i
 			return 0, err
 		}
 		if err := writeBytes([]byte{'\n'}); err != nil {
+			return 0, err
+		}
+		return 1, nil
+	case "media_transcode":
+		if err := validateMediaTranscodeResult(obj, resultRecordContract{Exact: 1, Max: 1}); err != nil {
+			return 0, err
+		}
+		if err := writeBytes(obj); err != nil {
+			return 0, err
+		}
+		return 1, nil
+	case "media_rendering":
+		if err := validateMediaRenderingResult(obj, resultRecordContract{Exact: 1, Max: 1}); err != nil {
+			return 0, err
+		}
+		if err := writeBytes(obj); err != nil {
 			return 0, err
 		}
 		return 1, nil
@@ -4031,6 +4204,107 @@ func newStreamingPut(ctx context.Context, storage *Storage, key, contentType str
 }
 
 func (sp *streamingPut) wait() error { return <-sp.done }
+
+// streamMediaAndUpload is the binary counterpart to streamSplitAndUpload.
+// Media bytes are already bounded and validated before this function is called,
+// so the function's only job is to bind one immutable object, one task, one
+// digest and one depth profile. It deliberately does not split at arbitrary
+// byte offsets or feed a binary object through the JSONL parser.
+func (s *Server) streamMediaAndUpload(
+	ctx context.Context,
+	jobID uuid.UUID,
+	format string,
+	input []byte,
+	jobInputKey string,
+	canonicalTee io.Writer,
+) (tasks []taskRow, totalBytes, totalRecords, exactInputBytes int, depth InputDepthProfile, sum256 [32]byte, err error) {
+	if err := validateMediaInputBytes(input); err != nil {
+		return nil, 0, 0, 0, depth, sum256, err
+	}
+	if strings.TrimSpace(jobInputKey) == "" {
+		return nil, 0, 0, 0, depth, sum256, errors.New("media input object key is empty")
+	}
+	scan, err := mediaInputScan(input)
+	if err != nil {
+		return nil, 0, 0, 0, depth, sum256, err
+	}
+	if canonicalTee != nil {
+		n, werr := canonicalTee.Write(input)
+		if werr != nil {
+			return nil, 0, 0, 0, depth, sum256, werr
+		}
+		if n != len(input) {
+			return nil, 0, 0, 0, depth, sum256, io.ErrShortWrite
+		}
+	}
+	hash := sha256.Sum256(input)
+	taskID := uuid.New()
+	inputRef := jobInputKey
+	if canonicalTee == nil {
+		// A buyer-supplied source key must never be deleted by failed-submit
+		// cleanup. Copy it to a job-owned task object and point the worker at the
+		// copy instead.
+		inputRef = fmt.Sprintf("jobs/%s/tasks/%s/input.%s", jobID, taskID, format)
+		if err := s.storage.PutObject(ctx, inputRef, input, mediaContentType(format)); err != nil {
+			return nil, 0, 0, 0, depth, sum256, err
+		}
+	}
+	tasks = []taskRow{{
+		ID: taskID, JobID: jobID, InputRef: inputRef,
+		InputDepthBand: scan.InputDepth.P90DepthBand,
+		ResultKey:      taskAttemptResultKey(jobID, taskID, 0), ChunkIndex: 0,
+		ExpectedOutputRecords: 1,
+	}}
+	return tasks, len(input), 1, len(input), scan.InputDepth, hash, nil
+}
+
+// streamRenderingAndUpload is the JSON-scene counterpart to the binary media
+// path. It still creates exactly one immutable task and never splits a scene
+// document; the agent owns the deterministic rasterization contract.
+func (s *Server) streamRenderingAndUpload(
+	ctx context.Context,
+	jobID uuid.UUID,
+	width, height uint32,
+	input []byte,
+	jobInputKey string,
+	canonicalTee io.Writer,
+) (tasks []taskRow, totalBytes, totalRecords, exactInputBytes int, depth InputDepthProfile, sum256 [32]byte, err error) {
+	if err := validateRenderingInputBytes(input, width, height); err != nil {
+		return nil, 0, 0, 0, depth, sum256, err
+	}
+	if strings.TrimSpace(jobInputKey) == "" {
+		return nil, 0, 0, 0, depth, sum256, errors.New("rendering input object key is empty")
+	}
+	scan, err := renderingInputScan(input)
+	if err != nil {
+		return nil, 0, 0, 0, depth, sum256, err
+	}
+	if canonicalTee != nil {
+		n, werr := canonicalTee.Write(input)
+		if werr != nil {
+			return nil, 0, 0, 0, depth, sum256, werr
+		}
+		if n != len(input) {
+			return nil, 0, 0, 0, depth, sum256, io.ErrShortWrite
+		}
+	}
+	hash := sha256.Sum256(input)
+	taskID := uuid.New()
+	inputRef := jobInputKey
+	if canonicalTee == nil {
+		inputRef = fmt.Sprintf("jobs/%s/tasks/%s/scene.json", jobID, taskID)
+		if err := s.storage.PutObject(ctx, inputRef, input, "application/json"); err != nil {
+			return nil, 0, 0, 0, depth, sum256, err
+		}
+	}
+	tasks = []taskRow{{
+		ID: taskID, JobID: jobID, InputRef: inputRef,
+		InputDepthBand: scan.InputDepth.P90DepthBand,
+		ResultKey:      taskAttemptResultKey(jobID, taskID, 0), ChunkIndex: 0,
+		ExpectedOutputRecords: 1,
+	}}
+	return tasks, len(input), 1, len(input), scan.InputDepth, hash, nil
+}
 
 func (s *Server) streamSplitAndUpload(ctx context.Context, jobID uuid.UUID, jobType string, input io.Reader, splitSize int, canonicalTee io.Writer) (tasks []taskRow, totalBytes int, totalRecords int, exactInputBytes int, depth InputDepthProfile, sum256 [32]byte, err error) {
 	if splitSize <= 0 {

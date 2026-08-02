@@ -219,10 +219,12 @@ impl OperatorPrefs {
             }
         }
         if let Some(workloads) = &self.allowed_workload_classes {
-            if workloads
-                .iter()
-                .any(|workload| !matches!(workload.as_str(), "embed" | "batch_infer"))
-            {
+            if workloads.iter().any(|workload| {
+                !matches!(
+                    workload.as_str(),
+                    "embed" | "batch_infer" | "media_transcode" | "media_rendering"
+                )
+            }) {
                 anyhow::bail!("allowed_workload_classes contains an unknown workload");
             }
         }
@@ -430,10 +432,12 @@ impl AgentConfig {
             }
         }
         if let Some(workloads) = &self.allowed_workload_classes {
-            if workloads
-                .iter()
-                .any(|workload| !matches!(workload.as_str(), "embed" | "batch_infer"))
-            {
+            if workloads.iter().any(|workload| {
+                !matches!(
+                    workload.as_str(),
+                    "embed" | "batch_infer" | "media_transcode" | "media_rendering"
+                )
+            }) {
                 anyhow::bail!("allowed_workload_classes contains an unknown workload");
             }
         }
@@ -831,6 +835,9 @@ mod tests {
     fn workload_allowlist_is_exact() {
         let mut c = cfg(None, false);
         assert!(c.allows_workload("embed"));
+        c.allowed_workload_classes = Some(vec!["media_transcode".into()]);
+        assert!(c.allows_workload("media_transcode"));
+        assert!(!c.allows_workload("embed"));
         c.allowed_workload_classes = Some(vec!["embed".into()]);
         assert!(c.allows_workload("embed"));
         assert!(!c.allows_workload("batch_infer"));

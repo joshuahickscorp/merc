@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Assert every model in repricingBenchmarks has a non-BLOCKED license register row.
+"""Assert every model in repricingBenchmarks has an explicit register row.
 
-This check is expected to FAIL on today's tree: the register marks both sold
-models BLOCKED while control/pricing.go prices them at boot. Do not "fix" that
-by editing the register — it is a legal question, not an engineering one.
+The check is expected to FAIL while the two externally licensed catalogue
+models remain legally blocked even though their engineering price paths exist.
+Do not "fix" that by editing those blocked rows — it is a legal question, not
+an engineering one. Merc-owned built-in contracts may be explicitly cleared
+as internal contracts, but that does not clear any future third-party model.
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ REGISTER = ROOT / "docs" / "THIRD_PARTY_LICENSES.md"
 MODEL_REGISTER_LABELS = {
     "all-minilm-l6-v2": "all-MiniLM-L6-v2",
     "llama-3.2-1b-instruct-q4": "Llama 3.2 1B Instruct GGUF",
+    "ffmpeg-transcode-v1": "Merc fixed media transcode contract",
+    "svg-scene-render-v1": "Merc fixed scene rendering contract",
 }
 
 

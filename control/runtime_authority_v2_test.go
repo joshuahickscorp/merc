@@ -61,8 +61,8 @@ func TestNonRoutableProfilesDoNotWidenTheSellableSurface(t *testing.T) {
 				cap.Runtime, cap)
 		}
 	}
-	if len(advertisedRuntimeCapabilities()) != 2 {
-		t.Fatalf("advertised projection has %d cells, want the 2 candle cells",
+	if len(advertisedRuntimeCapabilities()) != 4 {
+		t.Fatalf("advertised projection has %d cells, want the 4 candle cells",
 			len(advertisedRuntimeCapabilities()))
 	}
 }
@@ -288,7 +288,7 @@ func TestRuntimeProfileContentDigestsArePinned(t *testing.T) {
 	// content drift, and its old digest is retained so anything that recorded it
 	// still resolves.
 	pinned := map[string]string{
-		"candle_metal":    "6efbda3639b086a705b3ef6af85968f7ffdf703cdc3dbff867ae1452caf5c271",
+		"candle_metal":    "b9f27c5095194d97ed6a48fca5bf6f3dce56de9ab912ad6177d400c43e1718c3",
 		"mlx_metal":       "caa99a2d13e1a742d757500c22aa073c3a3514f4f6e034aea7ec8d8c9b755086",
 		"llama_cpp_metal": "4f3da7514fca79fe5a1f25a57a5333df3eb0a091ff9179da70eeb0a3ab223efe",
 		"vllm_cuda":       "9f4a241f9c3a0bb017303cf50b036aaf31ace5934e9d6562051c887e1d42f5e3",
@@ -858,8 +858,8 @@ func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
 			t.Errorf("non-routable runtime %q is advertised", cap.Runtime)
 		}
 	}
-	if len(advertisedRuntimeCapabilities()) != 2 {
-		t.Fatalf("advertised projection has %d cells, want the 2 candle cells",
+	if len(advertisedRuntimeCapabilities()) != 4 {
+		t.Fatalf("advertised projection has %d cells, want the 4 candle cells",
 			len(advertisedRuntimeCapabilities()))
 	}
 }

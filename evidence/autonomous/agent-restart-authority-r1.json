@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "kind": "agent_restart_authority",
+  "status": "PASS",
+  "measured_at": "2026-08-02T15:47:00Z",
+  "command": "MERC_TEST_DATABASE_URL=postgres://<redacted>@127.0.0.1:55462/merc_test?sslmode=disable bash scripts/test-agent-restart-authority.sh",
+  "database": {
+    "provider": "disposable PostgreSQL 16 Alpine container",
+    "isolated": true,
+    "port": 55462,
+    "secret_values_recorded": false,
+    "container_removed_after_run": true
+  },
+  "assertions": {
+    "exact_run_receipt": true,
+    "candidate_commit_binding": true,
+    "driver_digest_binding": true,
+    "approved_worker_allowlist": true,
+    "duplicate_action_refused": true,
+    "replayed_run_refused": true,
+    "wrong_worker_refused": true,
+    "out_of_window_action_refused": true,
+    "secret_shaped_field_refused": true,
+    "durable_session_transition_correlated": true,
+    "unchanged_worker_session_refused": true,
+    "unreviewed_agent_version_refused": true,
+    "release_doctor_missing_restart_digest_refused": true
+  },
+  "limitations": [
+    "This is an isolated local authority contract, not an external staging restart storm.",
+    "It creates no Stripe provider objects and moves no value."
+  ],
+  "public_claim_allowed": false
+}

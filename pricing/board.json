@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "unit": "usd_per_1k_units",
-  "unit_note": "Reference prices are USD per 1000 billable units (approximately tokens). Observations below are converted from published per-1M-token list prices: usd_per_1k = usd_per_1m / 1000. Publication converts this reference into the configured settlement currency under the schedule-bound FX authority used by estimateJobSettlement.",
-  "fetched_at": "2026-07-26",
+  "unit_note": "Reference prices are USD per 1000 billable units. Text observations are token-like units; media_transcode uses the separately documented media_work_units = input_bytes/4 geometry; media_rendering uses declared output pixels because the measured renderer is pixel/sec. Media observations below convert official per-minute prices using the measured 320x180/0.208333s reference fixture (430.5 media_work_units); this is a market comparison only, while the fixed-point quote/settlement geometry remains the control authority.",
+  "fetched_at": "2026-08-02",
   "positioning_multiplier": 0.9,
   "positioning_note": "Catalogue reference price = confidence-weighted median of governed class observations × positioning_multiplier. Vendor-owned sources carry more weight than third-party or unattributed rows; 0.9 positions the result 10% below that governed median.",
   "classes": {
@@ -77,6 +77,80 @@
           "source_url": "https://www.together.ai/pricing",
           "fetched_at": "2026-07-26",
           "notes": "Smallest serverless chat SKU currently listed on Together ($0.06 in / $0.12 out); proxy for sub-3B class when 1B is not published."
+        }
+      ]
+    },
+    "media_transcode_small": {
+      "description": "Bounded short-form video transcode comparable to a small SD/HD normalisation job. Maps to ffmpeg-transcode-v1 and prices the documented media_work_units geometry.",
+      "job_type": "media_transcode",
+      "model_ids": ["ffmpeg-transcode-v1"],
+      "observations": [
+        {
+          "provider": "google",
+          "model": "Transcoder API SD output",
+          "usd_per_1m": 0.12098315911730545,
+          "usd_per_1k": 0.00012098315911730545,
+          "tier": "sd",
+          "source_url": "https://cloud.google.com/transcoder/pricing",
+          "fetched_at": "2026-08-02",
+          "notes": "Official $0.015/output minute SD rate converted for the measured 0.208333-second, 430.5-media_work_unit reference fixture; no claim that provider billing uses Merc's unit."
+        },
+        {
+          "provider": "aws",
+          "model": "Elemental MediaConvert SD on-demand",
+          "usd_per_1m": 0.060491579558652725,
+          "usd_per_1k": 0.000060491579558652725,
+          "tier": "sd",
+          "source_url": "https://aws.amazon.com/mediaconvert/pricing/",
+          "fetched_at": "2026-08-02",
+          "notes": "Official $0.0075/output minute SD rate converted for the measured reference fixture; provider-minute billing remains distinct from Merc settlement units."
+        },
+        {
+          "provider": "api.video",
+          "model": "video encoding",
+          "usd_per_1m": 0.8065543941153698,
+          "usd_per_1k": 0.0008065543941153698,
+          "tier": "standard",
+          "source_url": "https://api.video/pricing/",
+          "fetched_at": "2026-08-02",
+          "notes": "Official $0.10/video-minute encoding price converted for the measured reference fixture; used as a high-side corroborating market observation, not as a supplier cost floor."
+        }
+      ]
+    },
+    "media_rendering_small": {
+      "description": "Bounded deterministic vector-scene rasterization. Market observations are intentionally absent; the fixed price is a private-canary economic term, not an image-generation benchmark.",
+      "job_type": "media_rendering",
+      "model_ids": ["svg-scene-render-v1"],
+      "observations": [
+        {
+          "provider": "merc-private-canary-control",
+          "model": "svg-scene-render-v1",
+          "usd_per_1m": 10.0,
+          "usd_per_1k": 0.01,
+          "tier": "fixed-term",
+          "source_url": "https://merc-private-canary-control.invalid/MEDIA_RENDERING_CONTRACT.md#control",
+          "fetched_at": "2026-08-02",
+          "notes": "Private deterministic renderer term; not an external image-generation market observation and not public activation authority."
+        },
+        {
+          "provider": "merc-private-canary-worker",
+          "model": "svg-scene-render-v1",
+          "usd_per_1m": 10.0,
+          "usd_per_1k": 0.01,
+          "tier": "fixed-term",
+          "source_url": "https://merc-private-canary-worker.invalid/MEDIA_RENDERING_CONTRACT.md#worker",
+          "fetched_at": "2026-08-02",
+          "notes": "Private deterministic renderer term; separate worker-side observation, not public market evidence."
+        },
+        {
+          "provider": "merc-private-canary-receipt",
+          "model": "svg-scene-render-v1",
+          "usd_per_1m": 10.0,
+          "usd_per_1k": 0.01,
+          "tier": "fixed-term",
+          "source_url": "https://merc-private-canary-receipt.invalid/MEDIA_RENDERING_CONTRACT.md#receipt",
+          "fetched_at": "2026-08-02",
+          "notes": "Private deterministic renderer term bound to the receipt path; not a public image-generation claim."
         }
       ]
     }

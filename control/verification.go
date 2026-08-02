@@ -545,6 +545,10 @@ func resultsAgree(jobType string, a, b []byte) bool {
 		return CompareEmbeddings(a, b).Passed
 	case "batch_infer":
 		return bytes.Equal(a, b)
+	case "media_transcode":
+		return bytes.Equal(a, b)
+	case "media_rendering":
+		return bytes.Equal(a, b)
 	default:
 		return false
 	}

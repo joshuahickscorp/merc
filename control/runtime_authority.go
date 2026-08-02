@@ -267,7 +267,9 @@ func (c authorityCell) qualityTierFor(profile authorityRuntimeProfile) string {
 }
 
 // knownWireKind is the closed set an agent can actually load.
-func knownWireKind(kind string) bool { return kind == "gguf" || kind == "hf" }
+func knownWireKind(kind string) bool {
+	return kind == "gguf" || kind == "hf" || kind == "builtin"
+}
 
 // wireKindFor resolves a cell's artifact format, falling back to the model's.
 func wireKindFor(cell authorityCell, modelKind string) string {

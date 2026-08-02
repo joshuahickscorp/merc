@@ -454,6 +454,15 @@ func (s *Server) quoteInitialEconomicTaskCounts(ctx context.Context, sub jobSubm
 		return 0, 0, 0, nil
 	}
 	redundancy = fracCount(primaryTasks, sub.Verification.RedundancyFrac)
+	// Media has no known-answer corpus. Its independent byte-exact execution
+	// is the verification contract, so quote and submit must never inject a
+	// JSONL honeypot or silently price one when the request carries media.
+	if isBinaryMediaJob(sub) {
+		if redundancy == 0 {
+			redundancy = primaryTasks
+		}
+		return redundancy, 0, primaryTasks + redundancy, nil
+	}
 	honeypots = fracCount(primaryTasks, sub.Verification.HoneypotFrac)
 	if sub.Verification.RedundancyFrac <= 0 && sub.Verification.HoneypotFrac <= 0 && honeypots == 0 {
 		honeypots = 1
@@ -478,7 +487,20 @@ var errQuoteVerificationUnavailable = errors.New("quote verification authority i
 func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, sub jobSubmit, inputBytes []byte, workload WorkloadDecision, schedule EconomicSchedule) (Quote, error) {
 	jobType := sub.JobType.Type
 	tier := sub.Tier
-	scan := scanJSONL(inputBytes)
+	var scan QuoteInputScan
+	var scanErr error
+	if isBinaryMediaJob(sub) {
+		if isMediaRenderingJob(sub) {
+			scan, scanErr = renderingInputScan(inputBytes)
+		} else {
+			scan, scanErr = mediaInputScan(inputBytes)
+		}
+	} else {
+		scan = scanJSONL(inputBytes)
+	}
+	if scanErr != nil {
+		return Quote{}, fmt.Errorf("scanning input: %w", scanErr)
+	}
 	catalogue, err := s.store.LoadCataloguePriceAuthority(ctx, sub.Model.Ref)
 	if err != nil {
 		return Quote{}, fmt.Errorf("resolving catalogue price authority: %w", err)
@@ -501,7 +523,12 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		avgLineBytes = float64(len(inputBytes)) / float64(scan.Records)
 	}
 	split := adaptiveSplitSize(jobType, sub.Params, avgLineBytes)
-	if jobType == "embed" && sub.JobType.BatchSize > 0 && !hasExplicitSplitSize(sub.Params) {
+	if isBinaryMediaJob(sub) {
+		// One binary object is one physical media task. Splitting bytes would
+		// create invalid containers and would make quote geometry diverge from
+		// submit, so the fixed contract has no adaptive JSONL split.
+		split = 1
+	} else if jobType == "embed" && sub.JobType.BatchSize > 0 && !hasExplicitSplitSize(sub.Params) {
 		split = sub.JobType.BatchSize
 	} else if !hasExplicitSplitSize(sub.Params) {
 		split = s.adaptiveSplitSizeLiveFor(
@@ -513,9 +540,8 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 		tasks = (scan.Records + split - 1) / split
 	}
 
-	expected, err := estimateJobSettlementWithAuthority(
-		catalogue, sub.JobType.Type, len(inputBytes), scan.Records,
-		sub.JobType.MaxTokens, sub.Tier,
+	expected, err := estimateJobSettlementForJobType(
+		catalogue, sub.JobType, len(inputBytes), scan.Records, sub.Tier,
 	)
 	if err != nil {
 		return Quote{}, fmt.Errorf("pricing quote: %w", err)
@@ -543,9 +569,9 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	// the supplier's share is taken. This is the unrounded figure the pricing
 	// decision derives the supplier's floor from, so the plan and the floor are the
 	// same expression rather than two roundings of it.
-	baseComputeNanos := exactBaseComputeNanos(
-		catalogue, sub.JobType.Type, tier, len(inputBytes), scan.Records,
-		sub.JobType.MaxTokens, tasks, initialEconomicTasks,
+	baseComputeNanos := exactBaseComputeNanosForJobType(
+		catalogue, sub.JobType, tier, len(inputBytes), scan.Records,
+		tasks, initialEconomicTasks,
 	)
 
 	costMin := roundUSD(expected * 0.85)
@@ -867,12 +893,18 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "economic schedule unavailable: "+err.Error())
 		return
 	}
-	inputReader, _, err := s.resolveInput(r.Context(), auth.BuyerID, sub.Input)
+	inputReader, _, err := s.resolveInput(r.Context(), auth.BuyerID, sub.JobType.Type, sub.Input)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "resolving input: "+err.Error())
 		return
 	}
-	inputBytes, err := readSynchronousInput(inputReader)
+	inputLimit := int64(maxSynchronousInputBytes)
+	if isMediaTranscodeJob(sub) {
+		inputLimit = maxMediaControlBytes
+	} else if isMediaRenderingJob(sub) {
+		inputLimit = maxRenderingControlBytes
+	}
+	inputBytes, err := readAndCloseBounded(inputReader, inputLimit)
 	if err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, errSynchronousInputTooLarge) {
@@ -881,7 +913,17 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, "reading input: "+err.Error())
 		return
 	}
-	if err := validateWorkloadJSONL(sub.JobType.Type, inputBytes); err != nil {
+	if isMediaTranscodeJob(sub) {
+		if err := validateMediaInputBytes(inputBytes); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	} else if isMediaRenderingJob(sub) {
+		if err := validateRenderingInputBytes(inputBytes, sub.JobType.RenderWidth, sub.JobType.RenderHeight); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	} else if err := validateWorkloadJSONL(sub.JobType.Type, inputBytes); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

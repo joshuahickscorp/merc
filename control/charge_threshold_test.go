@@ -43,9 +43,9 @@ func TestAgedSubThresholdBalanceIsNotCharged(t *testing.T) {
 	// $0.60 of deferred work, deferred well beyond the 24h age trigger: above
 	// Stripe's $0.50 API minimum, far below the $5.00 economic threshold.
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO jobs (id,buyer_id,status,job_type,input_ref,charge_status,actual_usd,deferred_at,terminal_at)
-		 VALUES ($1,$2,'complete','embed','t/i','deferred',0.60,now() - interval '30 days',now())`,
-		uuid.New(), buyer); err != nil {
+		`INSERT INTO jobs (id,buyer_id,status,job_type,input_ref,charge_status,actual_usd,currency,deferred_at,terminal_at)
+		 VALUES ($1,$2,'complete','embed','t/i','deferred',0.60,$3,now() - interval '30 days',now())`,
+		uuid.New(), buyer, SettlementCurrencyCode()); err != nil {
 		t.Fatalf("seed aged deferred job: %v", err)
 	}
 
@@ -74,9 +74,9 @@ func TestBalanceAtThresholdIsCharged(t *testing.T) {
 		t.Fatalf("seed buyer: %v", err)
 	}
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO jobs (id,buyer_id,status,job_type,input_ref,charge_status,actual_usd,deferred_at,terminal_at)
-		 VALUES ($1,$2,'complete','embed','t/i','deferred',$3,now() - interval '30 days',now())`,
-		uuid.New(), buyer, defaultChargeMinUSD); err != nil {
+		`INSERT INTO jobs (id,buyer_id,status,job_type,input_ref,charge_status,actual_usd,currency,deferred_at,terminal_at)
+		 VALUES ($1,$2,'complete','embed','t/i','deferred',$3,$4,now() - interval '30 days',now())`,
+		uuid.New(), buyer, defaultChargeMinUSD, SettlementCurrencyCode()); err != nil {
 		t.Fatalf("seed at-threshold job: %v", err)
 	}
 

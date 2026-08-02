@@ -110,6 +110,52 @@ def payment_simulated(doc: Any) -> bool:
     return "SIMULATED" in status or label == "SIMULATED"
 
 
+def alert_delivery_proven(doc: Any) -> bool:
+    """Validate an observed Alertmanager fire/resolve delivery receipt.
+
+    The receipt is deliberately stricter than the harness simulation: it must
+    contain two observed sink payloads, matching alert fingerprints, and both
+    Alertmanager states.  This earns the private technical-delivery point only;
+    the external staffed paging receiver remains a separate release gate.
+    """
+    if not isinstance(doc, dict):
+        return False
+    if str(doc.get("kind", "")) != "alert_delivery" or str(doc.get("status", "")).upper() != "PASS":
+        return False
+    receiver = doc.get("receiver")
+    delivery = doc.get("delivery")
+    observations = doc.get("observations")
+    if not isinstance(receiver, dict) or not isinstance(delivery, dict) or not isinstance(observations, dict):
+        return False
+    if receiver.get("transport") != "alertmanager_webhook" or receiver.get("secret_values_recorded") is not False:
+        return False
+    host = str(receiver.get("url_host", "")).strip().lower()
+    if not host or "harness" in host or "example" in host:
+        return False
+    try:
+        count = int(delivery.get("sink_event_count", 0))
+    except (TypeError, ValueError):
+        return False
+    firing = observations.get("firing")
+    resolved = observations.get("resolved")
+    if not isinstance(firing, dict) or not isinstance(resolved, dict):
+        return False
+    firing_body = firing.get("body")
+    resolved_body = resolved.get("body")
+    if not isinstance(firing_body, dict) or not isinstance(resolved_body, dict):
+        return False
+    return (
+        count >= 2
+        and bool(str(delivery.get("firing_received_at", "")).strip())
+        and bool(str(delivery.get("resolved_received_at", "")).strip())
+        and str(delivery.get("firing_fingerprint", "")).strip()
+        == str(delivery.get("resolved_fingerprint", "")).strip()
+        and bool(str(delivery.get("firing_fingerprint", "")).strip())
+        and str(firing_body.get("status", "")).lower() == "firing"
+        and str(resolved_body.get("status", "")).lower() == "resolved"
+    )
+
+
 # Each domain's possible points are fixed. earned is the sum of points for
 # receipts that exist and pass their content check. Missing/failed => 0.
 DOMAIN_RECEIPTS: dict[str, dict[str, Any]] = {
@@ -179,7 +225,7 @@ DOMAIN_RECEIPTS: dict[str, dict[str, Any]] = {
         "receipts": [
             ("evidence/autonomous/alert-pipeline-simulation.json", status_in("PASS"), 3),
             ("evidence/autonomous/alert-page-simulation.json", status_in("PASS"), 2),
-            # genuine receiver delivery: no receipt → 0
+            ("evidence/autonomous/alert-delivery-r1.json", alert_delivery_proven, 1),
         ],
     },
     "privacy_and_data_governance": {
