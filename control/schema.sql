@@ -3859,10 +3859,18 @@ CREATE INDEX IF NOT EXISTS service_lease_supplier_meterings_supplier_idx
 CREATE TABLE IF NOT EXISTS service_lease_events (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     lease_id    UUID NOT NULL REFERENCES service_leases(id) ON DELETE RESTRICT,
-    kind        TEXT NOT NULL CHECK (kind IN ('ACTIVATED','METERED','SLO_MEASURED','ROLLING_UPDATE_STARTED','ROLLING_UPDATE_COMPLETED','WORKER_LOSS','FAILOVER_COMPLETED','EXPIRED','CANCELLED')),
+    kind        TEXT NOT NULL,
     detail      JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- FAILOVER_TERMINATED records the production path that releases prepaid
+-- reservation when no replacement clears the frozen ceilings (wired into
+-- Workers.recoverServiceLeases). Inline CHECK on CREATE is not re-applied to
+-- existing databases; drop/add keeps the allowed set current.
+ALTER TABLE service_lease_events DROP CONSTRAINT IF EXISTS service_lease_events_kind_check;
+ALTER TABLE service_lease_events
+    ADD CONSTRAINT service_lease_events_kind_check
+    CHECK (kind IN ('ACTIVATED','METERED','SLO_MEASURED','ROLLING_UPDATE_STARTED','ROLLING_UPDATE_COMPLETED','WORKER_LOSS','FAILOVER_COMPLETED','FAILOVER_TERMINATED','EXPIRED','CANCELLED'));
 CREATE INDEX IF NOT EXISTS service_lease_events_lease_idx ON service_lease_events (lease_id,created_at,id);
 
 -- Continuous-metering facts and service receipts are append-only. Current

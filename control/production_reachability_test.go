@@ -21,8 +21,10 @@ import (
 //	EvictPrefixCacheToBudget  value-ranked eviction that never ran
 //	DeepestWarmPrefix         a second, dead definition of warm depth beside the
 //	                          scheduler's live inline SQL
-//	preferenceForTier         the thing MERC_SHAPE_AWARE_ROUTING claims to switch
-//	SelectBatch               the token-budget batcher
+//	preferenceForTier         WAS unwired (ClaimTaskSQL forced shapeNoPreference);
+//	                          now production via ClaimTaskSQL → shapeOrderSQL
+//	SelectBatch               the token-budget batcher (still deliberately unwired;
+//	                          see knownUnwired refusal note)
 //	ClassCoalescedDelivery    a billing class registered and never written
 //
 // Finding those took a manual census. This test is that census, standing. Each
@@ -331,9 +333,31 @@ var productionReachability = []reachabilityClaim{
 	},
 	{
 		From:   "Workers.Run",
+		Target: "Store.FailoverServiceLease",
+		Consequence: "a lease in FAILOVER_REQUIRED after worker loss would never acquire a " +
+			"replacement under the frozen ceilings. Billing already stopped at the last " +
+			"authenticated heartbeat, but the buyer's prepaid reservation would remain " +
+			"frozen and the data plane would return 503 until expires_at (up to 7 days).",
+	},
+	{
+		From:   "Workers.Run",
+		Target: "Store.TerminateServiceLeaseNoReplacement",
+		Consequence: "when no replacement clears the frozen ceiling the lease would sit in " +
+			"FAILOVER_REQUIRED until expires_at, holding prepaid capacity against supply " +
+			"that will never arrive. The only escape would be the buyer noticing and cancelling.",
+	},
+	{
+		From:   "Workers.Run",
 		Target: "Store.FinalizeExpiredServiceLeases",
 		Consequence: "expired warm-capacity reservations would retain capacity and remain billable " +
 			"instead of producing a bounded terminal service receipt.",
+	},
+	{
+		From:   "ClaimTaskSQL",
+		Target: "preferenceForTier",
+		Consequence: "MERC_SHAPE_AWARE_ROUTING would be an inert flag: claim ordering would " +
+			"ignore measured hardware-shape fitness and always pass shapeNoPreference, so the " +
+			"only measured cross-hardware advantage could never influence placement.",
 	},
 	{
 		From:   "Store.ClaimPayout",
@@ -476,19 +500,29 @@ func TestProductionEntryPointsReachTheMechanismsTheyClaim(t *testing.T) {
 var knownUnwired = map[string]string{
 	"Store.DeepestWarmPrefix": "a second definition of warm prefix depth. The scheduler " +
 		"uses its own inline SQL, so two definitions exist and only one is live.",
-	"preferenceForTier": "the shape preference MERC_SHAPE_AWARE_ROUTING advertises. " +
-		"ClaimTaskSQL passes shapeNoPreference unconditionally, so the flag is inert.",
+	// SelectBatch / EstimatedTTFT / ValidateBatchBudget: deliberately refused for
+	// production wiring without a larger redesign. The realtime path authorizes
+	// one contract at a time (AuthorizeRealtimeContract → one worker offer); there
+	// is no multi-candidate pending set to SelectBatch over, and no control-plane
+	// batcher that packs concurrent chat completions by prefill tokens. Wiring
+	// them as a capability would invent a batcher the data plane does not run.
+	// The assertion below (TestKnownUnwiredMechanismsAreStillUnwired and
+	// TestBatchingPolicyWithNoProductionCallerFailsATest) is the anti-gaming
+	// gate: a policy function that claims to govern live batching and has no
+	// caller must fail a test so the gap cannot be presented as a capability.
 	"SelectBatch": "the token-budget batcher. Nothing batches by token budget in " +
 		"production. The four traffic classes now exist and carry promoted budgets " +
 		"(traffic_class.go), so the missing half is a batcher that consumes them. " +
-		"Do not present SelectBatch as a live capability until a production caller " +
-		"exists; wiring it into dispatch is a separate change.",
+		"Still unwired after d13: live path is one-request realtime dispatch, not " +
+		"multi-candidate packing. Do not present SelectBatch as a live capability " +
+		"until a production caller exists; wiring it into dispatch is a separate change.",
 	"TokenBudgetFor": "the per-class token budget SelectBatch would consume. Superseded " +
 		"in scope by TokenBudgetForTrafficClass, which reads the promoted per-class " +
 		"table; both are unwired for the same reason.",
 	"EstimatedTTFT": "the measured prefill→TTFT projection ValidateBatchBudget would " +
 		"use to refuse an oversize batch. Unwired: no production admission path " +
-		"consults it, so the latency contract it encodes is documentation only.",
+		"consults it, so the latency contract it encodes is documentation only. " +
+		"Refused with SelectBatch: same redesign boundary.",
 	"ValidateBatchBudget": "the latency-class budget gate. Unwired with SelectBatch " +
 		"and EstimatedTTFT: nothing in dispatch calls it, so an oversized batch is " +
 		"not refused here. Keep listed until a production caller exists.",
