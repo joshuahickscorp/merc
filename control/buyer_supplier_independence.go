@@ -158,19 +158,64 @@ func (s *Store) RecordClaimIndependenceExclusion(
 	return err
 }
 
+// supplierNotLinkedToBuyerSQL is the shared "this supplier is not linked to
+// the job's buyer" predicate. supplierAlias is the suppliers-table alias
+// (e.g. "me", "s2", "s3"); the job row is always "j".
+//
+// Used both as a hard claim filter on the claiming worker and inside the
+// cheaper_class_online / cheaper_ask_online fleet scans so a linked worker is
+// removed from consideration entirely — never left as a phantom deferral peer
+// that would change when an eligible worker can claim. It is a set-membership
+// filter only; it does not appear in ORDER BY and cannot reorder eligible
+// workers relative to each other.
+//
+// Link signals (must match buyerSupplierLinkSignals):
+//   - owner_buyer_id
+//   - email_domain (non-public)
+//   - enrollment_device (consumed enrollment code for this buyer+supplier)
+func supplierNotLinkedToBuyerSQL(supplierAlias string) string {
+	return `
+	     AND NOT (
+	       ` + supplierAlias + `.owner_buyer_id IS NOT NULL
+	       AND ` + supplierAlias + `.owner_buyer_id = j.buyer_id
+	     )
+	     AND NOT (
+	       EXISTS (
+	         SELECT 1 FROM buyers b_link
+	          WHERE b_link.id = j.buyer_id
+	            AND lower(split_part(` + supplierAlias + `.email,'@',2)) = lower(split_part(b_link.email,'@',2))
+	            AND lower(split_part(b_link.email,'@',2)) <> ''
+	            AND lower(split_part(b_link.email,'@',2)) NOT IN (
+	              'gmail.com','googlemail.com','yahoo.com','hotmail.com','outlook.com',
+	              'live.com','icloud.com','me.com','aol.com','proton.me','protonmail.com',
+	              'mail.com','example.com','example.invalid','example.test','invalid.example'
+	            )
+	       )
+	     )
+	     AND NOT EXISTS (
+	       SELECT 1 FROM worker_enrollment_codes wec
+	        WHERE wec.buyer_id = j.buyer_id
+	          AND wec.supplier_id = ` + supplierAlias + `.id
+	          AND wec.consumed_at IS NOT NULL
+	     )`
+}
+
 // claimIndependenceSQL is the predicate spliced into ClaimTaskSQL: the claiming
 // supplier must not be linked to the job's buyer. Applied to ALL tasks
 // (ordinary + verification). Verification tasks get an additional permanent
 // exclusion of prior executors already present in the claim SQL.
 //
-// Link signals evaluated in SQL (must match buyerSupplierLinkSignals):
-//   - owner_buyer_id
-//   - email_domain (non-public)
-//   - enrollment_device (consumed enrollment code for this buyer+supplier)
+// The claiming worker's suppliers row is projected as me.supplier_id_s for id
+// and the full row is joined as the workers→suppliers alias "me" does not
+// expose email; the me CTE selects s.id AS supplier_id_s from suppliers s, so
+// we re-check via supplier id and the link tables rather than s.email on me.
+// Prefer the shared helper against a real suppliers alias wherever one exists
+// (cheaper_* scans); for the claimer, keep the historical me.supplier_id_s form.
 const claimIndependenceSQL = `
 	     -- Buyer–supplier independence (D6): a supplier owned by, enrolled by,
 	     -- or sharing a meaningful email domain with the buyer cannot claim
 	     -- that buyer's tasks — including redundancy/honeypot verification.
+	     -- Filter only: never an ORDER BY term, so eligible workers keep rank.
 	     AND NOT (
 	       me.supplier_id_s IN (
 	         SELECT s_link.id FROM suppliers s_link

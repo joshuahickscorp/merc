@@ -78,10 +78,21 @@ func mkPrefixClaimWorker(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		_, _ = pool.Exec(c, `DELETE FROM worker_prefix_state WHERE worker_id=$1`, w.workerID)
-		_, _ = pool.Exec(c, `DELETE FROM worker_authorized_capabilities WHERE worker_id=$1`, w.workerID)
-		_, _ = pool.Exec(c, `DELETE FROM workers WHERE id=$1`, w.workerID)
-		_, _ = pool.Exec(c, `DELETE FROM suppliers WHERE id=$1`, w.supplierID)
+		// workers is referenced ON DELETE RESTRICT from several tables; ageing
+		// last_seen_at is the reliable way to take a test worker offline so a
+		// later placement test's cheaper_ask / fleet count does not see it.
+		// Cleanup that discards errors is not a cleanup — surface failures.
+		if _, err := pool.Exec(c,
+			`UPDATE workers SET last_seen_at = now() - interval '10 minutes' WHERE id=$1`,
+			w.workerID); err != nil {
+			t.Errorf("age prefix claim worker offline: %v", err)
+		}
+		if _, err := pool.Exec(c, `DELETE FROM worker_prefix_state WHERE worker_id=$1`, w.workerID); err != nil {
+			t.Errorf("cleanup worker_prefix_state: %v", err)
+		}
+		if _, err := pool.Exec(c, `DELETE FROM worker_authorized_capabilities WHERE worker_id=$1`, w.workerID); err != nil {
+			t.Errorf("cleanup worker_authorized_capabilities: %v", err)
+		}
 	})
 	return w
 }
