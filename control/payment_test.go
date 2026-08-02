@@ -11,6 +11,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// Test fixtures that deliberately model historical USD rows retain the legacy
+// scale name. Production payout arithmetic must obtain its factor from the
+// settlement Currency instead.
+const microUSDPerCent int64 = 10_000
+
 func TestSplitFrozenChargeDoesNotLeakBuyerSafetyFeeToSupplier(t *testing.T) {
 	buyer, supplier, task := uuid.New(), uuid.New(), uuid.New()
 	entries := splitFrozenCharge(buyer, supplier, task, "usd", 0.50, 0.05, 90, time.Unix(100, 0))

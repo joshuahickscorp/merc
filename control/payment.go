@@ -57,17 +57,36 @@ const (
 )
 
 const (
-	supplierSettlementPolicyFloorCentCarryV1       = "floor_cent_carry_v1"
-	microUSDPerCent                          int64 = 10_000
+	// supplierSettlementPolicyFloorCentCarryV1 remains readable for historical
+	// USD/CAD rows.  New plans must name the actual invariant: ISO minor units,
+	// not cents, are what leave the platform.
+	supplierSettlementPolicyFloorCentCarryV1      = "floor_cent_carry_v1"
+	supplierSettlementPolicyFloorMinorUnitCarryV2 = "floor_minor_unit_carry_v2"
 )
 
-func splitSupplierLiabilityMicros(liabilityMicros int64) (cashCents, remainderMicros int64, err error) {
+// splitSupplierLiabilityMicros projects an exact ledger liability into the
+// configured settlement currency's ISO minor units.  Its returned cash value
+// keeps the historical `cents` storage name, but is one JPY for JPY settlement,
+// not one hundredth of a JPY.
+func splitSupplierLiabilityMicros(liabilityMicros int64) (cashMinorUnits, remainderMicros int64, err error) {
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return 0, 0, err
+	}
+	return splitSupplierLiabilityMicrosForCurrency(liabilityMicros, settlement)
+}
+
+func splitSupplierLiabilityMicrosForCurrency(liabilityMicros int64, currency Currency) (cashMinorUnits, remainderMicros int64, err error) {
 	if liabilityMicros < 0 {
 		return 0, 0, fmt.Errorf("supplier liability must be non-negative, got %d microusd", liabilityMicros)
 	}
-	cashCents = liabilityMicros / microUSDPerCent
-	remainderMicros = liabilityMicros % microUSDPerCent
-	return cashCents, remainderMicros, nil
+	factor, err := currency.MicrosPerMinorUnit()
+	if err != nil {
+		return 0, 0, err
+	}
+	cashMinorUnits = liabilityMicros / factor
+	remainderMicros = liabilityMicros % factor
+	return cashMinorUnits, remainderMicros, nil
 }
 
 const minimumPayoutHold = 24 * time.Hour

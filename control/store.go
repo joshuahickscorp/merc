@@ -1298,7 +1298,7 @@ func persistMinorUnitSettlement(
 		  (ledger_entry_id,policy,liability_microusd,cash_cents,remainder_microusd,currency)
 		VALUES ($1,$2,$3,$4,$5,$6)
 		ON CONFLICT (ledger_entry_id) DO NOTHING`,
-		entryID, supplierSettlementPolicyFloorCentCarryV1, liabilityMicros, cashCents, remainderMicros, settleCode,
+		entryID, supplierSettlementPolicyFloorMinorUnitCarryV2, liabilityMicros, cashCents, remainderMicros, settleCode,
 	); err != nil {
 		return 0, 0, err
 	}
@@ -1310,7 +1310,7 @@ func persistMinorUnitSettlement(
 	).Scan(&existingPolicy, &existingLiability, &existingCash, &existingRemainder, &currency); err != nil {
 		return 0, 0, err
 	}
-	if existingPolicy != supplierSettlementPolicyFloorCentCarryV1 ||
+	if existingPolicy != supplierSettlementPolicyFloorMinorUnitCarryV2 ||
 		existingLiability != liabilityMicros || existingCash != cashCents ||
 		existingRemainder != remainderMicros || RequireSettlementCurrency(currency) != nil {
 		return 0, 0, fmt.Errorf(

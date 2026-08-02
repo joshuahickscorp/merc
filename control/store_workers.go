@@ -474,36 +474,53 @@ func (s *Store) QuarantineSupplier(ctx context.Context, supplierID uuid.UUID) er
 // entire earnings were stuck when the cash had already been sent.
 func (s *Store) WorkerEarnings(ctx context.Context, supplierID uuid.UUID) (Earnings, error) {
 	var e Earnings
-	err := s.pool.QueryRow(ctx,
+	settlement, err := SettlementCurrency()
+	if err != nil {
+		return e, err
+	}
+	e.Currency = settlement.Code()
+	var paidMinorUnits, carriedMicros int64
+	err = s.pool.QueryRow(ctx,
 		`SELECT
 		   COALESCE(SUM(op.sent_cents) FILTER (
 		     WHERE le.payout_status = 'released' AND op.cash_moved = true
-		       AND op.sent_cents > 0), 0)::float8 / 100.0,
+		       AND op.sent_cents > 0), 0)::bigint,
 		   COALESCE(SUM(le.amount_usd) FILTER (WHERE le.amount_usd > 0), 0),
 		   COALESCE((SELECT a.accrued_microusd FROM supplier_payout_accruals a
-		              WHERE a.supplier_id = $1), 0)::float8 / 1000000.0
+		              WHERE a.supplier_id = $1), 0)::bigint
 		 FROM ledger_entries le
 		 LEFT JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
 		 WHERE le.supplier_id = $1 AND le.kind = 'supplier_credit'`,
 		supplierID,
-	).Scan(&e.BalanceUSD, &e.LifetimeUSD, &e.CarriedUSD)
+	).Scan(&paidMinorUnits, &e.LifetimeUSD, &carriedMicros)
 	if err != nil {
 		return e, err
 	}
+	paidMicros, err := settlement.MinorToMicros(paidMinorUnits)
+	if err != nil {
+		return e, err
+	}
+	e.BalanceUSD = microsToUSD(paidMicros)
+	e.CarriedUSD = microsToUSD(carriedMicros)
 
-	var lastAmt float64
+	var lastMinorUnits int64
 	var lastAt time.Time
 	err = s.pool.QueryRow(ctx,
-		`SELECT op.sent_cents::float8 / 100.0,op.updated_at
+		`SELECT op.sent_cents,op.updated_at
 		   FROM ledger_entries le
 		   JOIN supplier_payout_operations op ON op.ledger_entry_id=le.id
 		  WHERE le.supplier_id=$1 AND le.kind='supplier_credit'
 		    AND le.payout_status='released' AND op.cash_moved=true
 		  ORDER BY op.updated_at DESC,le.id DESC LIMIT 1`,
 		supplierID,
-	).Scan(&lastAmt, &lastAt)
+	).Scan(&lastMinorUnits, &lastAt)
 	switch {
 	case err == nil:
+		lastMicros, err := settlement.MinorToMicros(lastMinorUnits)
+		if err != nil {
+			return e, err
+		}
+		lastAmt := microsToUSD(lastMicros)
 		e.LastPayoutUSD = &lastAmt
 		t := lastAt.Unix()
 		e.LastPayoutAt = &t
