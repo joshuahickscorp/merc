@@ -7,6 +7,11 @@ model_cache_dir = "/var/lib/computeexchange/models"
 # CPU, RAM, disk-cache, power, and thermal controls before vLLM starts or
 # advertises. The one-click Linux installer writes this binding automatically.
 # operator_prefs_path = "/home/merc/.merc/agent.prefs.toml"
+# The host-networked vLLM adapter enforces pause, schedule, workload allowlist,
+# power, RAM, cache, CPU, thermal, and download policy from that file. It
+# deliberately refuses to advertise if max_bandwidth_mbps or
+# min_payout_usd_per_hr is nonzero: those settings need traffic shaping and
+# metered revenue authority that a token asking rate cannot provide.
 container_runtime = "docker"
 listen_host = "127.0.0.1"
 listen_port = 8000
