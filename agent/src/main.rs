@@ -541,7 +541,7 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-fn current_local_schedule_clock() -> (u8, u8) {
+pub(crate) fn current_local_schedule_clock() -> (u8, u8) {
     unsafe {
         let now = libc::time(std::ptr::null_mut());
         let mut tm: libc::tm = std::mem::zeroed();
@@ -553,7 +553,7 @@ fn current_local_schedule_clock() -> (u8, u8) {
     }
 }
 
-fn on_battery() -> bool {
+pub(crate) fn on_battery() -> bool {
     hardware::on_battery()
 }
 

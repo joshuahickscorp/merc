@@ -38,6 +38,8 @@ require "$SH_INSTALL" 'ProtectSystem=strict' 'Linux service lacks filesystem iso
 require "$SH_INSTALL" 'NoNewPrivileges=true' 'Linux service can gain privileges'
 require "$SH_INSTALL" 'systemctl --user enable --now' 'Linux one-command start is missing'
 require "$SH_INSTALL" 'agent.prefs.toml' 'Unix installer does not create live operator preferences'
+require "$SH_INSTALL" 'operator_prefs_path' 'Linux vLLM adapter is not bound to live operator preferences'
+require "$SH_INSTALL" 'bind_linux_vllm_prefs' 'existing Linux vLLM installs are not migrated to live supplier controls'
 
 bash -n "$SH_INSTALL" "$ROOT/scripts/uninstall.sh"
 MERC_PREFIX="$ROOT/.artifacts/install-contract-never-created" bash "$SH_INSTALL" --check >/dev/null

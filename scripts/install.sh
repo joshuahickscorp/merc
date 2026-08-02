@@ -297,6 +297,7 @@ worker_token = "${MERC_WORKER_TOKEN:-PASTE_WORKER_TOKEN_FROM_make_seed}"
 runtime_profile_path = "${VLLM_PROFILE}"
 public_base_url = "${public_url}"
 model_cache_dir = "${HOMEDIR}/models"
+operator_prefs_path = "${PREFS}"
 container_runtime = "docker"
 listen_host = "127.0.0.1"
 listen_port = 8000
@@ -314,6 +315,19 @@ TOML
   [[ -n "${MERC_WORKER_TOKEN:-}" ]] || warn "set worker_token in $VLLM_CONFIG before earning"
   [[ -n "${MERC_VLLM_PUBLIC_BASE_URL:-}" ]] || warn "set public_base_url in $VLLM_CONFIG to the externally reachable TLS endpoint before activation"
   say "after configuration, verify without pulling or advertising: $BIN vllm-check --config $VLLM_CONFIG"
+}
+
+# Existing Linux installs predate the vLLM adapter's live policy binding. Add
+# the one unambiguous sidecar path without rewriting supplier-provided runtime
+# values; an explicit existing binding remains the supplier's authority.
+bind_linux_vllm_prefs() {
+  [[ "$OS" == "linux" && -f "$VLLM_CONFIG" ]] || return
+  if grep -Eq '^[[:space:]]*operator_prefs_path[[:space:]]*=' "$VLLM_CONFIG"; then
+    return
+  fi
+  umask 077
+  printf '\noperator_prefs_path = "%s"\n' "$PREFS" >>"$VLLM_CONFIG"
+  say "bound live supplier preferences to $VLLM_CONFIG"
 }
 
 write_config() {
@@ -489,6 +503,7 @@ fi
 
 write_config
 write_prefs
+bind_linux_vllm_prefs
 
 case "$OS" in
   darwin) install_darwin_launchagent ;;

@@ -182,7 +182,7 @@ pub struct AgentConfig {
     pub prefs_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 pub struct OperatorPrefs {
     pub paused: Option<bool>,
     pub allowed_weekdays: Option<Vec<u8>>,
@@ -206,6 +206,54 @@ impl OperatorPrefs {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading prefs file {}", path.display()))?;
         toml::from_str(&text).with_context(|| format!("parsing prefs TOML {}", path.display()))
+    }
+
+    // The vLLM adapter has its own immutable runtime configuration, but it
+    // shares this live, supplier-owned policy file with the general-purpose
+    // agent. Keep validation here so a malformed preference file cannot be
+    // interpreted differently by the two execution paths.
+    pub fn validate(&self) -> Result<()> {
+        if let Some(days) = &self.allowed_weekdays {
+            if days.iter().any(|day| *day > 6) {
+                anyhow::bail!("allowed_weekdays values must be 0..6 (Sunday..Saturday)");
+            }
+        }
+        if let Some(workloads) = &self.allowed_workload_classes {
+            if workloads
+                .iter()
+                .any(|workload| !matches!(workload.as_str(), "embed" | "batch_infer"))
+            {
+                anyhow::bail!("allowed_workload_classes contains an unknown workload");
+            }
+        }
+        if let Some((start, end)) = self.quiet_hours {
+            if start > 23 || end > 23 {
+                anyhow::bail!("quiet_hours values must be 0..23");
+            }
+        }
+        for (name, value) in [
+            ("min_payout_usd_per_hr", self.min_payout_usd_per_hr),
+            ("memory_headroom_gb", self.memory_headroom_gb),
+            ("max_model_cache_gb", self.max_model_cache_gb),
+            ("max_bandwidth_mbps", self.max_bandwidth_mbps),
+        ] {
+            if let Some(value) = value {
+                if !value.is_finite() || value < 0.0 {
+                    anyhow::bail!("{name} must be finite and non-negative");
+                }
+            }
+        }
+        for (name, value) in [
+            ("max_memory_pct", self.max_memory_pct),
+            ("max_cpu_pct", self.max_cpu_pct),
+        ] {
+            if let Some(value) = value {
+                if !value.is_finite() || !(0.0..=100.0).contains(&value) {
+                    anyhow::bail!("{name} must be between 0 and 100");
+                }
+            }
+        }
+        Ok(())
     }
 }
 
