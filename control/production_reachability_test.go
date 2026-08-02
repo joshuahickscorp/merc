@@ -134,11 +134,39 @@ var productionReachability = []reachabilityClaim{
 			"the later worker-identity, site, collective, and economics gates.",
 	},
 	{
+		From:   "Server.handleWorkerFabricSessionCreate",
+		Target: "Store.CreateFabricProbeSession",
+		Consequence: "a peer id supplied to the agent would never be bound to a short-lived, " +
+			"same-supplier control-plane session, so a receiving worker could not separately attest " +
+			"to the particular direct link the initiator claims to have measured.",
+	},
+	{
+		From:   "Server.handleWorkerFabricObservation",
+		Target: "Store.RecordFabricProbeObservation",
+		Consequence: "the peer agent's independently authenticated observation would be dropped, " +
+			"leaving every receipt self-reported even when two enrolled workers actually completed " +
+			"the signed direct-transfer exchange.",
+	},
+	{
+		From:   "Server.handleWorkerFabricObservationStatus",
+		Target: "Store.FabricProbeObservationStatus",
+		Consequence: "the initiating agent could not wait for the independently authenticated peer " +
+			"observations and would race straight to a self-reported receipt, despite both workers " +
+			"having completed the signed direct-transfer exchange.",
+	},
+	{
 		From:   "Workers.Run",
 		Target: "Store.DeleteOldFabricLinkMeasurements",
 		Consequence: "self-reported candidate-link observations would be retained indefinitely even " +
 			"though no scheduler may use them, expanding operational metadata retention without " +
 			"advancing a placement capability.",
+	},
+	{
+		From:   "Workers.Run",
+		Target: "Store.DeleteOldFabricProbeSessions",
+		Consequence: "short-lived peer-session identity bindings and their observations would grow " +
+			"without bound after their evidence window, retaining operational topology metadata beyond " +
+			"the stated 30-day period.",
 	},
 	{
 		From:   "Server.createJob",

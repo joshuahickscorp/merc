@@ -131,6 +131,9 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/worker/register", s.authWorker(http.HandlerFunc(s.handleWorkerRegister)))
 	mux.Handle("POST /v1/worker/realtime/register", s.authWorker(http.HandlerFunc(s.handleRealtimeWorkerRegister)))
 	mux.Handle("POST /v1/worker/realtime/heartbeat", s.authWorker(http.HandlerFunc(s.handleRealtimeWorkerHeartbeat)))
+	mux.Handle("POST /v1/worker/fabric/sessions", s.authWorker(http.HandlerFunc(s.handleWorkerFabricSessionCreate)))
+	mux.Handle("GET /v1/worker/fabric/sessions/{id}/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservationStatus)))
+	mux.Handle("POST /v1/worker/fabric/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservation)))
 	mux.Handle("POST /v1/worker/fabric/receipts", s.authWorker(http.HandlerFunc(s.handleWorkerFabricReceipt)))
 	mux.Handle("POST /v1/worker/heartbeat", s.authWorker(http.HandlerFunc(s.handleWorkerHeartbeat)))
 	mux.Handle("GET /v1/worker/poll", s.authWorker(http.HandlerFunc(s.handleWorkerPoll)))
@@ -2294,6 +2297,63 @@ func (s *Server) handleWorkerFabricReceipt(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleWorkerFabricSessionCreate(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	raw, err := io.ReadAll(io.LimitReader(r.Body, fabricMeasurementBodyLimit+1))
+	if err != nil || len(raw) > fabricMeasurementBodyLimit {
+		writeErr(w, http.StatusBadRequest, "invalid fabric peer-session body")
+		return
+	}
+	var request FabricSessionCreateRequest
+	if err := decodeStrictJSONObject(raw, &request); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid fabric peer-session json")
+		return
+	}
+	response, err := s.store.CreateFabricProbeSession(r.Context(), *auth, request)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "fabric peer-session rejected: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, response)
+}
+
+func (s *Server) handleWorkerFabricObservation(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	raw, err := io.ReadAll(io.LimitReader(r.Body, fabricMeasurementBodyLimit+1))
+	if err != nil || len(raw) > fabricMeasurementBodyLimit {
+		writeErr(w, http.StatusBadRequest, "invalid fabric peer-observation body")
+		return
+	}
+	var observation FabricProbeObservation
+	if err := decodeStrictJSONObject(raw, &observation); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid fabric peer-observation json")
+		return
+	}
+	if err := s.store.RecordFabricProbeObservation(r.Context(), *auth, observation); err != nil {
+		if errors.Is(err, errFabricMeasurementConflict) {
+			writeErr(w, http.StatusConflict, "fabric peer observation conflicts with existing evidence")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, "fabric peer observation rejected: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleWorkerFabricObservationStatus(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	id, ok := pathUUID(w, r)
+	if !ok {
+		return
+	}
+	transcripts, err := s.store.FabricProbeObservationStatus(r.Context(), *auth, id)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "fabric peer-observation status rejected: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"observed_transcript_sha256": transcripts})
 }
 
 func (s *Server) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {

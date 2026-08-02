@@ -34,9 +34,9 @@ func fabricReceipt() FabricLinkMeasurementReceipt {
 			"the owner-shared probe token does not bind the peer to a control-plane worker identity",
 		},
 		Rounds: []FabricLinkMeasurementRound{
-			{Round: 1, PayloadBytesEachDirection: 4096, RoundTripPayloadBytes: 8192, RoundTripMicros: 3200, PayloadGoodputMbps: 20.48},
-			{Round: 2, PayloadBytesEachDirection: 4096, RoundTripPayloadBytes: 8192, RoundTripMicros: 1600, PayloadGoodputMbps: 40.96},
-			{Round: 3, PayloadBytesEachDirection: 4096, RoundTripPayloadBytes: 8192, RoundTripMicros: 800, PayloadGoodputMbps: 81.92},
+			{Round: 1, PayloadBytesEachDirection: 4096, RoundTripPayloadBytes: 8192, RoundTripMicros: 3200, PayloadGoodputMbps: 20.48, TranscriptSHA256: strings.Repeat("b", 64)},
+			{Round: 2, PayloadBytesEachDirection: 4096, RoundTripPayloadBytes: 8192, RoundTripMicros: 1600, PayloadGoodputMbps: 40.96, TranscriptSHA256: strings.Repeat("c", 64)},
+			{Round: 3, PayloadBytesEachDirection: 4096, RoundTripPayloadBytes: 8192, RoundTripMicros: 800, PayloadGoodputMbps: 81.92, TranscriptSHA256: strings.Repeat("d", 64)},
 		},
 	}
 }
@@ -62,6 +62,29 @@ func requestFabricReceipt(t *testing.T, handler http.Handler, token string, raw 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	return rec
+}
+
+func requestFabricJSON(t *testing.T, handler http.Handler, token, path string, value any) *httptest.ResponseRecorder {
+	t.Helper()
+	body, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	req.Header.Set("X-Worker-Token", token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func newFabricPeerWorker(t *testing.T, ctx context.Context, store *Store, supplierID uuid.UUID) (WorkerAuth, string) {
+	t.Helper()
+	workerID := uuid.New()
+	token, err := store.CreateWorkerToken(ctx, workerID, supplierID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, token
 }
 
 func TestFabricReceiptIsWorkerAuthenticatedRecomputedImmutableAndNonAdmissible(t *testing.T) {
@@ -146,5 +169,95 @@ func TestFabricReceiptRefusesSelfPromotionAndMalformedEvidence(t *testing.T) {
 	}
 	if got := requestFabricReceipt(t, handler, token, []byte(`{"receipt_id":"`+uuid.NewString()+`"}`)).Code; got != http.StatusBadRequest {
 		t.Fatalf("incomplete receipt status=%d, want 400", got)
+	}
+}
+
+func TestFabricSessionRequiresEveryRoundFromTheReservedPeerAndStaysNonAdmissible(t *testing.T) {
+	ctx, store, pool := openPayoutTestStore(t)
+	initiator, initiatorToken := newFabricMeasurementWorker(t, ctx, store)
+	peer, peerToken := newFabricPeerWorker(t, ctx, store, initiator.SupplierID)
+	handler := NewServer(store, nil, nil, nil).Routes()
+
+	created := requestFabricJSON(t, handler, initiatorToken, "/v1/worker/fabric/sessions", FabricSessionCreateRequest{
+		PeerWorkerID: peer.WorkerID, DeclaredSite: "supplier-lab-rack-a",
+	})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("fabric session status=%d body=%s", created.Code, created.Body.String())
+	}
+	var session FabricSessionCreateResponse
+	if err := json.NewDecoder(created.Body).Decode(&session); err != nil || session.FabricSessionID == uuid.Nil {
+		t.Fatalf("decode fabric session: session=%+v err=%v", session, err)
+	}
+
+	receipt := fabricReceipt()
+	receipt.FabricSessionID = &session.FabricSessionID
+	receipt.ExpectedPeerWorkerID = &peer.WorkerID
+	for _, round := range receipt.Rounds {
+		observed := requestFabricJSON(t, handler, peerToken, "/v1/worker/fabric/observations", FabricProbeObservation{
+			SchemaVersion: 1, FabricSessionID: session.FabricSessionID,
+			TranscriptSHA256: round.TranscriptSHA256, PayloadBytesEachDirection: round.PayloadBytesEachDirection,
+			ObservedAtUnixMS: time.Now().UnixMilli(),
+		})
+		if observed.Code != http.StatusNoContent {
+			t.Fatalf("fabric observation status=%d body=%s", observed.Code, observed.Body.String())
+		}
+	}
+	statusReq := httptest.NewRequest(http.MethodGet,
+		"/v1/worker/fabric/sessions/"+session.FabricSessionID.String()+"/observations", nil)
+	statusReq.Header.Set("X-Worker-Token", initiatorToken)
+	statusRec := httptest.NewRecorder()
+	handler.ServeHTTP(statusRec, statusReq)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("fabric observation status=%d body=%s", statusRec.Code, statusRec.Body.String())
+	}
+	var status struct {
+		Observed []string `json:"observed_transcript_sha256"`
+	}
+	if err := json.NewDecoder(statusRec.Body).Decode(&status); err != nil || len(status.Observed) != len(receipt.Rounds) {
+		t.Fatalf("fabric observation status body=%+v err=%v", status, err)
+	}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requestFabricReceipt(t, handler, initiatorToken, raw).Code; got != http.StatusNoContent {
+		t.Fatalf("mutual fabric receipt status=%d", got)
+	}
+	var classification string
+	if err := pool.QueryRow(ctx, `SELECT classification FROM fabric_link_measurements WHERE receipt_id=$1`, receipt.ReceiptID).Scan(&classification); err != nil {
+		t.Fatal(err)
+	}
+	if classification != "MUTUAL_WORKER_OBSERVED_NOT_ADMISSIBLE" {
+		t.Fatalf("classification=%q, want mutual non-admissible evidence", classification)
+	}
+
+	// A missing observation cannot self-promote: it remains self-reported rather
+	// than being treated as a partly proven local cluster.
+	created = requestFabricJSON(t, handler, initiatorToken, "/v1/worker/fabric/sessions", FabricSessionCreateRequest{
+		PeerWorkerID: peer.WorkerID, DeclaredSite: "supplier-lab-rack-a",
+	})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("second fabric session status=%d", created.Code)
+	}
+	var unobservedSession FabricSessionCreateResponse
+	if err := json.NewDecoder(created.Body).Decode(&unobservedSession); err != nil {
+		t.Fatal(err)
+	}
+	second := fabricReceipt()
+	second.FabricSessionID = &unobservedSession.FabricSessionID
+	second.ExpectedPeerWorkerID = &peer.WorkerID
+	second.ReceiptID = uuid.New()
+	secondRaw, err := json.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requestFabricReceipt(t, handler, initiatorToken, secondRaw).Code; got != http.StatusNoContent {
+		t.Fatalf("partially observed receipt status=%d", got)
+	}
+	if err := pool.QueryRow(ctx, `SELECT classification FROM fabric_link_measurements WHERE receipt_id=$1`, second.ReceiptID).Scan(&classification); err != nil {
+		t.Fatal(err)
+	}
+	if classification != "SELF_REPORTED_UNQUALIFIED" {
+		t.Fatalf("partial observation classification=%q", classification)
 	}
 }
