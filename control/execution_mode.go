@@ -21,7 +21,17 @@ import (
 // measured otherwise, so the mode is refused rather than offered — which is the
 // same fail-closed posture the runtime authority takes toward an unproven cell.
 
-// ExecutionMode is where and how a workload's tasks are placed.
+// ExecutionMode is where and how a workload's tasks are placed on the network
+// axis (POOL / REPLICA_SERVICE / LOCAL_CLUSTER / CLOUD_BACKSTOP).
+//
+// Naming collision: the JSON key "execution_mode" is also used on the billing
+// axis — ComputePlan.ExecutionMode and PricingDecision.ExecutionMode carry
+// values such as "distributed", "exact_result_reuse", "realtime_physical",
+// "realtime_exact_reuse", and "service_lease". Those name how work is charged
+// and geometried, not where ranks talk. The two vocabularies share a key by
+// historical accident; their value sets must remain disjoint (see
+// TestExecutionModeValueSetsAreDisjoint). Do not rename either JSON key here —
+// that is a storage migration of its own.
 type ExecutionMode string
 
 const (

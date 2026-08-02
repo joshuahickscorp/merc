@@ -30,7 +30,14 @@ const (
 // snapshots. Dynamic supply may affect when a task is claimed, but never the
 // purchased geometry recorded here.
 type ComputePlan struct {
-	Version                 int    `json:"version"`
+	Version int `json:"version"`
+	// ExecutionMode is the billing/geometry path for this plan
+	// ("distributed" or "exact_result_reuse"). It is NOT the network placement
+	// axis in execution_mode.go (POOL / REPLICA_SERVICE / LOCAL_CLUSTER /
+	// CLOUD_BACKSTOP). Both axes serialize under the JSON key "execution_mode";
+	// the value sets are required to stay disjoint
+	// (TestExecutionModeValueSetsAreDisjoint). Do not rename this key here —
+	// that is a storage migration.
 	ExecutionMode           string `json:"execution_mode"`
 	WorkloadBindingSHA256   string `json:"workload_binding_sha256"`
 	WorkloadDecisionSHA256  string `json:"workload_decision_sha256"`

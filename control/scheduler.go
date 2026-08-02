@@ -158,48 +158,61 @@ func containsStr(xs []string, x string) bool {
 // notices, long enough that a polling worker gets a turn.
 var askDeferralWindow = 20 * time.Second
 
-func hwClassCostRank(hwClass string) int {
-	switch hwClass {
-	case "apple_silicon_base":
-		return 0
-	case "apple_silicon_pro":
-		return 1
-	case "apple_silicon_max":
-		return 2
-	case "apple_silicon_ultra":
-		return 3
-	default:
-		return 0 // unknown/new class: treat as cheapest so it is never deprioritized
-	}
-}
-
-// hwClassCostRankSQL ranks a hardware class by MARGINAL COST TO MERC, cheapest
-// first. The claim predicate defers a task when some cheaper class could also
-// take it, so this ordering decides where work actually lands.
+// hwClassCostRankTable ranks hardware classes by MARGINAL COST TO MERC,
+// cheapest first. Both the Go lookup bound as claim $3 (selfCostRank) and the
+// SQL CASE used by the cheaper-class EXISTS predicate are derived from this
+// single table so a class cannot be priced in one half and missing from the
+// other.
 //
-// The CUDA classes were missing and fell through to ELSE 0, which ranked an
-// A100 at $1.19/hr as cheap as a base Mac. The consequence ran the wrong way and
-// cost real money: an owned apple_silicon_ultra (rank 3) saw a rented
-// nvidia_80gb at rank 0, concluded a cheaper class was available, and DEFERRED
-// to it. Owned hardware stepped back for rented hardware on every claim.
+// History: the two halves used to be hand-maintained twins. The SQL side once
+// fell CUDA classes through to ELSE 0, ranking a rented A100 as cheap as a base
+// Mac — an owned apple_silicon_ultra (rank 3) then deferred to a rented
+// nvidia_80gb at rank 0 on every claim. The SQL was fixed; the Go twin was not.
+// An nvidia_80gb claimer computed selfCostRank 0, nothing ranked below 0, the
+// EXISTS was always false, and a rented NVIDIA worker never deferred to an idle
+// owned Mac. Same money bug, mirror image.
 //
 // Owned Apple Silicon is cheapest because its marginal cost is electricity;
 // rented NVIDIA is billed by the hour whether or not it is busy, and the bigger
-// the card the more it costs. An unknown class ranks LAST, not first: assuming
-// an unrecognised class is free is the mistake that produced this bug, and the
-// fail-safe direction is to treat what we cannot price as expensive.
+// the card the more it costs. An unknown class ranks LAST (hwClassCostRankUnknown),
+// not first: what cannot be priced is treated as expensive so it is never
+// preferred by default.
+var hwClassCostRankTable = []struct {
+	class string
+	rank  int
+}{
+	{"apple_silicon_base", 0},
+	{"apple_silicon_pro", 1},
+	{"apple_silicon_max", 2},
+	{"apple_silicon_ultra", 3},
+	{"nvidia_24gb", 4},
+	{"nvidia_48gb", 5},
+	{"nvidia_80gb", 6},
+	{"nvidia_180gb", 7},
+}
+
+// hwClassCostRankUnknown is the fail-safe rank for a class not in the table.
+// It must sort after every priced class.
+const hwClassCostRankUnknown = 99
+
+func hwClassCostRank(hwClass string) int {
+	for _, e := range hwClassCostRankTable {
+		if e.class == hwClass {
+			return e.rank
+		}
+	}
+	return hwClassCostRankUnknown
+}
+
+// hwClassCostRankSQL is the SQL twin of hwClassCostRank, generated from the
+// same table. col is a SQL expression naming the hw_class column (or a parameter).
 func hwClassCostRankSQL(col string) string {
-	return `CASE ` + col + `
-	          WHEN 'apple_silicon_base' THEN 0
-	          WHEN 'apple_silicon_pro' THEN 1
-	          WHEN 'apple_silicon_max' THEN 2
-	          WHEN 'apple_silicon_ultra' THEN 3
-	          WHEN 'nvidia_24gb' THEN 4
-	          WHEN 'nvidia_48gb' THEN 5
-	          WHEN 'nvidia_80gb' THEN 6
-	          WHEN 'nvidia_180gb' THEN 7
-	          ELSE 99
-	        END`
+	sql := "CASE " + col
+	for _, e := range hwClassCostRankTable {
+		sql += fmt.Sprintf("\n\t          WHEN '%s' THEN %d", e.class, e.rank)
+	}
+	sql += fmt.Sprintf("\n\t          ELSE %d\n\t        END", hwClassCostRankUnknown)
+	return sql
 }
 
 func (s *Store) SelectRedundancyPeer(ctx context.Context, jobType, modelRef string, minMemGB float32, primaryWorker uuid.UUID) (uuid.UUID, error) {
