@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -257,5 +259,148 @@ func TestProjectCompilerCADAdmissionThroughPublicAPI(t *testing.T) {
 	frozenSHA, err := pricingDecisionDigest(frozen)
 	if err != nil || frozenSHA != artifact.Steps[0].PricingDecisionSHA256 {
 		t.Fatalf("job pricing decision diverged from reviewed project quote: %s err=%v", frozenSHA, err)
+	}
+}
+
+// TestProjectCompilerCADExecutionThroughPublicAPI closes the gap left by the
+// admission-only proof above. It drives a buyer-approved Project IR through a
+// public CAD quote and firm submission, then makes a real enrolled agent claim,
+// execute, verify, settle, and expose a receipt for that project step. The
+// ledger assertion below is intentionally platform take, not true net
+// contribution; project execution must not relabel gross rows as net economics.
+//
+// This deliberately proves only one independent finite step. A dependent graph
+// still needs durable result materialization and a new quote after each upstream
+// artifact is frozen; accepting it here would turn a declaration into a false
+// execution capability.
+func TestProjectCompilerCADExecutionThroughPublicAPI(t *testing.T) {
+	agentBinaryPath(t)
+	llamaURL := os.Getenv("MERC_LLAMA_EMBED_URL")
+	strangerDeploymentInputs(t)
+	installSettlementCurrencyForTest(t, "cad")
+
+	artifacts := newArtifactHarness(t)
+	ctx, store, pool := openIsolatedTestStore(t)
+	schedule, err := BuildCataloguePriceSchedule()
+	if err != nil {
+		t.Fatalf("build catalogue price schedule: %v", err)
+	}
+	if _, err := store.ApplyRepricing(ctx, schedule); err != nil {
+		t.Fatalf("publish catalogue price schedule: %v", err)
+	}
+	verifier := NewVerifier(store).WithStorage(artifacts.storage)
+	server := httptest.NewServer(NewServer(store, artifacts.storage, verifier, nil).Routes())
+	t.Cleanup(server.Close)
+
+	workersCtx, stopWorkers := context.WithCancel(context.Background())
+	workersDone := make(chan struct{})
+	go func() {
+		defer close(workersDone)
+		NewWorkers(store, artifacts.storage, stubPayout{}).Run(workersCtx)
+	}()
+	t.Cleanup(func() {
+		stopWorkers()
+		<-workersDone
+	})
+	if err := seedDemo(ctx, pool, artifacts.storage); err != nil {
+		t.Fatalf("seed verification floor: %v", err)
+	}
+	agent := launchAgent(t, ctx, store, pool, server.URL, "candle", "candle_metal", llamaURL)
+	waitForEnrolment(t, ctx, pool, agent)
+
+	contracts, err := advertisedProjectRuntimeContracts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var embed ProjectRuntimeContract
+	for _, candidate := range contracts {
+		if candidate.WorkloadKind == "embeddings" {
+			embed = candidate
+			break
+		}
+	}
+	if embed.RuntimeID == "" || embed.ModelID == "" {
+		t.Fatal("no advertised embeddings runtime contract")
+	}
+	root := t.TempDir()
+	writeProjectFixture(t, root, "input.jsonl", "{\"text\":\"project IR execution must retain the frozen CAD authority\"}\n")
+	writeProjectFixture(t, root, "pipeline.py", "embedding = client.embeddings.create(...)\n")
+	writeDeclarationFixture(t, root, ProjectDeclaration{
+		Version: 1,
+		Steps: []ProjectIRStep{{
+			ID: "embed", Kind: "embeddings", Inputs: []string{"project://input.jsonl"}, Outputs: []string{"project://vectors"},
+			RuntimeContract: embed.RuntimeContractSHA256, ModelContract: embed.ModelContractSHA256,
+			ResourceEstimate: ProjectIRResourceEstimate{State: "BOUNDED_PROBE_REQUIRED"}, Parallelism: "INDEPENDENT",
+			CheckpointPolicy: "NOT_APPLICABLE", Verification: embed.Verification,
+		}},
+		Privacy: ProjectIRPrivacy{Egress: "DENY", DataLocation: "CA"},
+		Quality: ProjectIRQuality{Requirement: "project-public-execution-v1", Verification: "independent"},
+		Result:  ProjectIRResult{Contract: "vectors-v1", Retention: "30d", Delivery: "object-store"},
+		Economics: ProjectIREconomics{Currency: "cad", MaximumBuyerPriceNanos: 20_000_000_000,
+			SupplierFloor: "UNRESOLVED_REFUSE", MercContribution: "UNRESOLVED_REFUSE"},
+	})
+	proposal, err := compileProject(projectCompileOptions{Root: root})
+	if err != nil {
+		t.Fatalf("compile unprobed project: %v", err)
+	}
+	ir, err := compileProject(projectCompileOptions{Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256})
+	if err != nil {
+		t.Fatalf("compile buyer-approved probe: %v", err)
+	}
+
+	signup := postJSON(t, server.URL+"/v1/signup", "", map[string]any{
+		"email": "project-execution-" + uuid.NewString() + "@example.test", "password": "a-stranger-password-1234",
+	})
+	if signup.status != http.StatusOK && signup.status != http.StatusCreated {
+		t.Fatalf("signup: HTTP %d: %s", signup.status, signup.body)
+	}
+	buyerKey, _ := signup.json["sandbox_key"].(string)
+	if buyerKey == "" {
+		t.Fatalf("signup issued no sandbox API key: %s", signup.body)
+	}
+	c := &client{base: server.URL, key: buyerKey, hc: server.Client()}
+	artifact, err := quoteCompiledProject(c, root, ir)
+	if err != nil {
+		t.Fatalf("quote through public API: %v", err)
+	}
+	submission, err := submitCompiledProject(c, root, ir, artifact, time.Now().UTC())
+	if err != nil || submission.Status != "ACCEPTED" || len(submission.Steps) != 1 {
+		t.Fatalf("firm project submit: result=%+v err=%v", submission, err)
+	}
+	jobID, err := uuid.Parse(submission.Steps[0].JobID)
+	if err != nil {
+		t.Fatalf("submitted job id: %v", err)
+	}
+	loopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	waitForJobSettled(t, loopCtx, pool, jobID, "project-ir")
+
+	var status, currency, verification string
+	var resultCount, supplierCredits int
+	var platformTakeMicros int64
+	if err := pool.QueryRow(loopCtx, `SELECT status, currency FROM jobs WHERE id=$1`, jobID).Scan(&status, &currency); err != nil {
+		t.Fatalf("read project job: %v", err)
+	}
+	if status != "complete" || currency != "cad" {
+		t.Fatalf("project job status/currency = %q/%q, want complete/cad", status, currency)
+	}
+	if err := pool.QueryRow(loopCtx, `
+		SELECT count(*), COALESCE(max(verification_outcome),''),
+		       count(*) FILTER (WHERE kind='supplier_credit'),
+		       COALESCE((sum(amount_usd) FILTER (WHERE kind='platform_take')*1000000)::bigint,0)
+		  FROM tasks t
+		  LEFT JOIN ledger_entries l ON l.task_id=t.id
+		 WHERE t.job_id=$1`, jobID).Scan(&resultCount, &verification, &supplierCredits, &platformTakeMicros); err != nil {
+		t.Fatalf("read project execution evidence: %v", err)
+	}
+	if resultCount == 0 || verification != "pass" || supplierCredits == 0 || platformTakeMicros <= 0 {
+		t.Fatalf("project step lacked execution/verification/gross-platform evidence: tasks=%d verification=%q supplier_credits=%d platform_take=%d", resultCount, verification, supplierCredits, platformTakeMicros)
+	}
+	keys, err := store.JobResultKeys(loopCtx, jobID)
+	if err != nil || len(keys) == 0 {
+		t.Fatalf("project execution exposes no retained result artifact: keys=%v err=%v", keys, err)
+	}
+	if got := c.do("GET", "/v1/jobs/"+jobID.String()+"/receipt", nil); !strings.Contains(string(got), jobID.String()) {
+		t.Fatalf("buyer receipt does not name the project job: %s", got)
 	}
 }
