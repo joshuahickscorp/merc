@@ -21,6 +21,8 @@ const (
 
 var serviceLeaseRegionPattern = regexp.MustCompile(`^[a-z0-9-]{2,64}$`)
 
+var errServiceLeaseOfferBelowReservations = errors.New("service lease offer maximum cannot fall below active reserved replicas")
+
 type ServiceLeaseOfferRegistration struct {
 	RuntimeProfileID             string `json:"runtime_profile_id"`
 	RuntimeProfileSHA256         string `json:"runtime_profile_sha256"`
@@ -149,29 +151,91 @@ func (s *Store) UpsertServiceLeaseOffer(ctx context.Context, auth WorkerAuth, re
 	if _, err := validateServiceLeaseOffer(reg); err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Materialise then lock the offer row before reading reservations. Creation,
+	// failover, expiry, and a worker refresh all serialize on this row: otherwise
+	// a normal periodic agent refresh could overwrite the decrement made when a
+	// buyer reserved warm capacity and overbook the host.
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO service_lease_worker_offers
 		 (worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,
 		  maximum_warm_replicas,available_warm_replicas,supplier_nanos_per_replica_hour,
 		  residency_nanos_per_replica_hour,supports_rolling_upgrade,p95_latency_milliseconds,
 		  latency_measurement_count,latency_window_seconds,latency_measurement_kind,status,last_seen_at,updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now(),now())
-		ON CONFLICT (worker_id,runtime_profile_id,region) DO UPDATE SET
-		 supplier_id=EXCLUDED.supplier_id,maximum_warm_replicas=EXCLUDED.maximum_warm_replicas,
-		 available_warm_replicas=EXCLUDED.available_warm_replicas,
-		 supplier_nanos_per_replica_hour=EXCLUDED.supplier_nanos_per_replica_hour,
-		 residency_nanos_per_replica_hour=EXCLUDED.residency_nanos_per_replica_hour,
-		 supports_rolling_upgrade=EXCLUDED.supports_rolling_upgrade,
-		 p95_latency_milliseconds=EXCLUDED.p95_latency_milliseconds,
-		 latency_measurement_count=EXCLUDED.latency_measurement_count,
-		 latency_window_seconds=EXCLUDED.latency_window_seconds,
-		 latency_measurement_kind=EXCLUDED.latency_measurement_kind,status=EXCLUDED.status,
-		 last_seen_at=now(),updated_at=now()`,
+		ON CONFLICT (worker_id,runtime_profile_id,region) DO NOTHING`,
 		auth.WorkerID, auth.SupplierID, reg.RuntimeProfileID, reg.RuntimeProfileSHA256, reg.Region,
 		reg.MaximumWarmReplicas, reg.AvailableWarmReplicas, reg.SupplierNanosPerReplicaHour,
 		reg.ResidencyNanosPerReplicaHour, reg.SupportsRollingUpgrade, reg.P95LatencyMillis,
-		reg.LatencyMeasurementCount, reg.LatencyWindowSeconds, reg.LatencyMeasurementKind, reg.Status)
-	return err
+		reg.LatencyMeasurementCount, reg.LatencyWindowSeconds, reg.LatencyMeasurementKind, reg.Status); err != nil {
+		return err
+	}
+	var locked int
+	if err := tx.QueryRow(ctx, `SELECT 1 FROM service_lease_worker_offers
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3 FOR UPDATE`,
+		auth.WorkerID, reg.RuntimeProfileID, reg.Region).Scan(&locked); err != nil {
+		return err
+	}
+	reserved, err := activeServiceLeaseReservationTx(ctx, tx, auth.WorkerID, reg.RuntimeProfileID, reg.Region)
+	if err != nil {
+		return err
+	}
+	if reserved > reg.MaximumWarmReplicas {
+		return errServiceLeaseOfferBelowReservations
+	}
+	available := reg.AvailableWarmReplicas
+	if free := reg.MaximumWarmReplicas - reserved; available > free {
+		available = free
+	}
+	if reg.Status != "READY" {
+		available = 0
+	}
+	if _, err := tx.Exec(ctx, `UPDATE service_lease_worker_offers SET
+		supplier_id=$4,maximum_warm_replicas=$5,available_warm_replicas=$6,
+		supplier_nanos_per_replica_hour=$7,residency_nanos_per_replica_hour=$8,
+		supports_rolling_upgrade=$9,p95_latency_milliseconds=$10,
+		latency_measurement_count=$11,latency_window_seconds=$12,
+		latency_measurement_kind=$13,status=$14,last_seen_at=now(),updated_at=now()
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`,
+		auth.WorkerID, reg.RuntimeProfileID, reg.Region, auth.SupplierID,
+		reg.MaximumWarmReplicas, available, reg.SupplierNanosPerReplicaHour,
+		reg.ResidencyNanosPerReplicaHour, reg.SupportsRollingUpgrade, reg.P95LatencyMillis,
+		reg.LatencyMeasurementCount, reg.LatencyWindowSeconds, reg.LatencyMeasurementKind, reg.Status); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// activeServiceLeaseReservationTx returns capacity still promised on this
+// exact worker/profile/region. A worker that reported failure continues to
+// hold its allocation until a successful failover rewrites the lease, so it
+// cannot immediately advertise the same replicas to another buyer.
+func activeServiceLeaseReservationTx(ctx context.Context, tx pgx.Tx, workerID uuid.UUID, runtimeProfileID, region string) (int, error) {
+	rows, err := tx.Query(ctx, `SELECT maximum_replicas FROM service_leases
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3
+		  AND state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED') AND expires_at>now()
+		FOR UPDATE`, workerID, runtimeProfileID, region)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	reserved := 0
+	for rows.Next() {
+		var replicas int
+		if err := rows.Scan(&replicas); err != nil {
+			return 0, err
+		}
+		if replicas < 1 || reserved > int(^uint(0)>>1)-replicas {
+			return 0, errors.New("service lease reserved replica count is invalid")
+		}
+		reserved += replicas
+	}
+	return reserved, rows.Err()
 }
 
 func serviceLeasePricingInputs(profile VLLMRuntimeProfile, currency Currency, request ServiceLeaseRequest, supplierRate, residencyRate int64) ServiceLeasePricingInputs {
