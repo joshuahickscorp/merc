@@ -243,7 +243,9 @@ export class Client {
     return this.#request("GET", "/v1/models");
   }
   estimate(model: string, units: number, tier: Tier = "batch"): Promise<unknown> {
-    return this.#request("GET", "/v1/estimate", undefined, { model, units, tier });
+    // Registered as GET /v1/price-estimate in control/api.go (Python SDK already
+    // used the correct path; /v1/estimate was a client-only drift that 404'd).
+    return this.#request("GET", "/v1/price-estimate", undefined, { model, units, tier });
   }
 
   /**
