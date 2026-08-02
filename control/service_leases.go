@@ -557,7 +557,7 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		   AND latency_window_seconds BETWEEN 1 AND 300 AND latency_measurement_kind='DATA_PLANE_COMPLETIONS_V1'
 		   AND p95_latency_milliseconds <= $5 AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $4
 		 ORDER BY supplier_nanos_per_replica_hour ASC,worker_id ASC
-		 FOR UPDATE SKIP LOCKED LIMIT 1`, profile.RuntimeProfileID, profile.ProfileSHA256, request.Region, request.MaximumReplicas, request.MaximumP95LatencyMilliseconds).
+		 FOR UPDATE LIMIT 1`, profile.RuntimeProfileID, profile.ProfileSHA256, request.Region, request.MaximumReplicas, request.MaximumP95LatencyMilliseconds).
 		Scan(&workerID, &supplierID, &supplierRate, &residencyRate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ServiceLease{}, errRealtimeNoSupply

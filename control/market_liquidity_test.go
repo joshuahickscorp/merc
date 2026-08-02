@@ -17,6 +17,19 @@ func TestRealtimeMarketLiquidityRetainsOfferAndCapacityEvidence(t *testing.T) {
 	installSettlementCurrencyForTest(t, "cad")
 	ctx, store, pool := openPayoutTestStore(t)
 	t.Setenv("MERC_TOKEN_KEY", "liquidity-test-key-with-at-least-32-bytes")
+	// This report is intentionally a current fleet snapshot. Reset only the
+	// realtime lane so an earlier integration test's live offer cannot masquerade
+	// as liquidity belonging to this fixture when the suite shares a database.
+	if _, err := pool.Exec(ctx, `TRUNCATE
+		realtime_admission_events, realtime_offer_samples,
+		realtime_authorization_events, realtime_settlements, realtime_executions,
+		realtime_refunds, execution_contracts, realtime_worker_offers
+		RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatalf("reset realtime liquidity state: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM ledger_entries WHERE execution_contract_id IS NOT NULL`); err != nil {
+		t.Fatalf("reset realtime liquidity ledger rows: %v", err)
+	}
 
 	buyerID, err := store.CreateBuyerAccount(ctx,
 		"liquidity-"+uuid.NewString()+"@example.test", "integration-password", 5)
@@ -146,6 +159,8 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 	}
 	worker, workerToken := newFabricMeasurementWorker(t, ctx, store)
 	profile := sortedVLLMProfiles()[0]
+	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-liquidity-" + uuid.NewString()
 	handler := NewServer(store, nil, nil, nil).Routes()
 	post := func(path, token string, body any) *httptest.ResponseRecorder {
 		raw, err := json.Marshal(body)
@@ -162,10 +177,10 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 		handler.ServeHTTP(rec, req)
 		return rec
 	}
-	if got := post("/v1/worker/service-leases/offers", workerToken, serviceLeaseOffer(profile)).Code; got != http.StatusOK {
+	if got := post("/v1/worker/service-leases/offers", workerToken, offer).Code; got != http.StatusOK {
 		t.Fatalf("service offer status=%d", got)
 	}
-	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: "ca-central-1",
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
 		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 	if created := post("/v1/service-leases", buyerKey, request); created.Code != http.StatusCreated {

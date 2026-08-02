@@ -41,15 +41,18 @@ func TestRecordedShadowSelectionCarriesItsExecutionMode(t *testing.T) {
 	if err := store.RecordShadowSelection(ctx, f.JobID.String(), shadow); err != nil {
 		t.Fatalf("record: %v", err)
 	}
-	var mode, reason string
+	var mode, reason, topology string
 	if err := pool.QueryRow(ctx, `
-		SELECT execution_mode, execution_mode_reason
+		SELECT execution_mode, execution_mode_reason, topology_plan::text
 		  FROM runtime_shadow_selections WHERE job_id=$1`, f.JobID).
-		Scan(&mode, &reason); err != nil {
+		Scan(&mode, &reason, &topology); err != nil {
 		t.Fatalf("read back: %v", err)
 	}
 	if mode != string(ModePool) || reason != shadow.ExecutionModeReason {
 		t.Fatalf("round trip lost the placement: mode=%q reason=%q", mode, reason)
+	}
+	if !strings.Contains(topology, `"status": "ACCEPTED"`) || !strings.Contains(topology, `"scheduler_shape": "INDEPENDENT_CHUNK_SPLIT"`) {
+		t.Fatalf("round trip lost bounded topology plan: %s", topology)
 	}
 
 	// A named mode with no reason must not be storable at all.

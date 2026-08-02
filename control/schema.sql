@@ -5574,6 +5574,19 @@ ALTER TABLE runtime_shadow_selections
     ADD CONSTRAINT runtime_shadow_selections_mode_reasoned
     CHECK ((btrim(execution_mode) <> '') = (btrim(execution_mode_reason) <> ''));
 
+-- The placement lane is not the whole topology decision. Keep the bounded
+-- parallel shape, scheduler shape, and refusal evidence beside the execution
+-- mode so a later reader cannot mistake POOL for a promise of tensor or
+-- rendering parallelism. Legacy rows get an honest empty object; new API rows
+-- write the immutable TopologyPlan produced by the authority.
+ALTER TABLE runtime_shadow_selections
+    ADD COLUMN IF NOT EXISTS topology_plan JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE runtime_shadow_selections
+    DROP CONSTRAINT IF EXISTS runtime_shadow_selections_topology_shape;
+ALTER TABLE runtime_shadow_selections
+    ADD CONSTRAINT runtime_shadow_selections_topology_shape
+    CHECK (jsonb_typeof(topology_plan) = 'object');
+
 ALTER TABLE runtime_shadow_selections
     DROP CONSTRAINT IF EXISTS runtime_shadow_selections_cost_scope;
 ALTER TABLE runtime_shadow_selections

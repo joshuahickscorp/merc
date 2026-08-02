@@ -121,6 +121,10 @@ type ShadowSelection struct {
 	// rather than one to paper over with a default.
 	ExecutionMode       string `json:"execution_mode"`
 	ExecutionModeReason string `json:"execution_mode_reason"`
+	// TopologyPlan is retained even when placement is refused. A refusal is
+	// evidence about the requested parallel shape and measured fabric, not an
+	// empty result that could later be mistaken for a default.
+	Topology TopologyPlan `json:"topology_plan"`
 }
 
 // withExecutionMode records the placement decision for this workload.
@@ -137,10 +141,9 @@ type ShadowSelection struct {
 // work on, so passing UNKNOWN is the honest input and the refusal it produces is
 // the correct answer.
 func (s ShadowSelection) withExecutionMode(decision WorkloadDecision) ShadowSelection {
-	placement, err := ChooseExecutionMode(PlacementRequest{
+	topology, err := PlanTopology(TopologyRequest{
 		WorkloadClass: decision.WorkloadClass,
-		Coupling:      CouplingForParallelism(decision.Parallelism),
-		Degree:        decision.Parallelism.TensorParallelDegree,
+		Parallelism:   decision.Parallelism,
 		Fabric:        FabricUnknown,
 		// A job that reached this point was admitted against a frozen runtime
 		// candidate, so community capacity for it existed. The deadline is not at
@@ -150,12 +153,21 @@ func (s ShadowSelection) withExecutionMode(decision WorkloadDecision) ShadowSele
 		CloudBackstopPermitted:     false,
 	})
 	if err != nil {
-		// Every mode refused. The reason is the error, and it is recorded nowhere
-		// else; the caller logs it.
+		// Malformed parallelism is a refusal too, but preserve the prior contract:
+		// no execution mode is recorded as though an invalid request had placed.
+		s.Topology = TopologyPlan{Version: topologyPlanVersion, Status: "REFUSED",
+			Parallelism: decision.Parallelism.Mode, Degree: decision.Parallelism.TensorParallelDegree,
+			Fabric: FabricUnknown, Reason: err.Error()}
 		return s
 	}
-	s.ExecutionMode = string(placement.Mode)
-	s.ExecutionModeReason = placement.Explain()
+	s.Topology = topology
+	if topology.Status != "ACCEPTED" {
+		return s
+	}
+	s.ExecutionMode = string(topology.PlacementMode)
+	// Include the topology shape in the persisted explanation so the mode cannot
+	// be read as a generic POOL/cluster label without its workload semantics.
+	s.ExecutionModeReason = topology.Explain()
 	return s
 }
 
@@ -336,18 +348,22 @@ func (s *Store) RecordShadowSelection(ctx context.Context, jobID string, sel Sha
 	if err != nil {
 		return err
 	}
+	topology, err := json.Marshal(sel.Topology)
+	if err != nil {
+		return err
+	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO runtime_shadow_selections
 		  (job_id, runtime_matrix_sha256, policy_revision, job_type, model_ref,
 		   model_kind, workload_class, latency_class, routed_cell_id, shadow_cell_id,
 		   considered_cells, excluded_cells, selection_policy, selection_basis,
-		   cost_hw_class, execution_mode, execution_mode_reason)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+		   cost_hw_class, execution_mode, execution_mode_reason, topology_plan)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb)
 		ON CONFLICT (job_id) DO NOTHING`,
 		jobID, sel.RuntimeMatrixSHA, sel.PolicyRevision, sel.JobType, sel.ModelRef,
 		sel.ModelKind, sel.WorkloadClass, sel.LatencyClass, sel.RoutedCellID,
 		sel.ShadowCellID, string(considered), string(excluded), sel.SelectionPolicy,
-		sel.SelectionBasis, sel.CostHWClass, sel.ExecutionMode, sel.ExecutionModeReason)
+		sel.SelectionBasis, sel.CostHWClass, sel.ExecutionMode, sel.ExecutionModeReason, string(topology))
 	return err
 }
 

@@ -30,6 +30,7 @@ func TestServiceLeaseOfferRefreshCannotRaceCapacityReservation(t *testing.T) {
 	profile := sortedVLLMProfiles()[0]
 	worker, _ := newFabricMeasurementWorker(t, ctx, store)
 	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-race-" + uuid.NewString()
 	offer.MaximumWarmReplicas, offer.AvailableWarmReplicas = 1, 1
 	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
 		t.Fatal(err)
@@ -107,6 +108,7 @@ func TestServiceLeaseRequiresCollectedPrepaidCashAndFreezesItsMaximum(t *testing
 	profile := sortedVLLMProfiles()[0]
 	worker, _ := newFabricMeasurementWorker(t, ctx, store)
 	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-prepaid-" + uuid.NewString()
 	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
 		t.Fatal(err)
 	}
@@ -160,6 +162,8 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	}
 	primaryWorker, workerToken := newFabricMeasurementWorker(t, ctx, store)
 	profile := sortedVLLMProfiles()[0]
+	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-path-" + uuid.NewString()
 	handler := NewServer(store, nil, nil, nil).Routes()
 
 	post := func(path, token string, body any) *httptest.ResponseRecorder {
@@ -177,10 +181,10 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		handler.ServeHTTP(rec, req)
 		return rec
 	}
-	if got := post("/v1/worker/service-leases/offers", workerToken, serviceLeaseOffer(profile)).Code; got != http.StatusOK {
+	if got := post("/v1/worker/service-leases/offers", workerToken, offer).Code; got != http.StatusOK {
 		t.Fatalf("offer registration status=%d", got)
 	}
-	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: "ca-central-1",
+	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
 		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
 	tooStrict := request
@@ -204,12 +208,12 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	// The agent refreshes this offer continuously. Its static configuration says
 	// it can warm three replicas, but all three are now reserved by this lease;
 	// accepting the refresh verbatim would let a second buyer overbook the host.
-	if got := post("/v1/worker/service-leases/offers", workerToken, serviceLeaseOffer(profile)).Code; got != http.StatusOK {
+	if got := post("/v1/worker/service-leases/offers", workerToken, offer).Code; got != http.StatusOK {
 		t.Fatalf("periodic offer refresh status=%d", got)
 	}
 	var available int
 	if err := pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
-		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, lease.WorkerID, profile.RuntimeProfileID, "ca-central-1").Scan(&available); err != nil {
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, lease.WorkerID, profile.RuntimeProfileID, offer.Region).Scan(&available); err != nil {
 		t.Fatal(err)
 	}
 	if available != 0 {
@@ -218,7 +222,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	if got := post("/v1/service-leases", buyerKey, request).Code; got != http.StatusServiceUnavailable {
 		t.Fatalf("second lease overbooked the refreshed offer: status=%d", got)
 	}
-	undersized := serviceLeaseOffer(profile)
+	undersized := offer
 	undersized.MaximumWarmReplicas = 2
 	undersized.AvailableWarmReplicas = 2
 	if got := post("/v1/worker/service-leases/offers", workerToken, undersized).Code; got != http.StatusConflict {
@@ -337,7 +341,9 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	// Loss recovery charges only through the last authenticated heartbeat, then
 	// accepts a different supplier only when it clears the frozen rate ceilings.
 	fallback, _ := newFabricMeasurementWorker(t, ctx, store)
-	if err := store.UpsertServiceLeaseOffer(ctx, fallback, serviceLeaseOffer(profile)); err != nil {
+	fallbackOffer := serviceLeaseOffer(profile)
+	fallbackOffer.Region = request.Region
+	if err := store.UpsertServiceLeaseOffer(ctx, fallback, fallbackOffer); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE service_leases SET last_metered_at=now()-interval '60 seconds',last_worker_heartbeat_at=now()-interval '60 seconds' WHERE id=$1`, lease.ID); err != nil {
@@ -444,11 +450,13 @@ func TestBuyerCancelsServiceLeaseAtLastAuthenticatedMeterAndReleasesUnusedReserv
 	}
 	profile := sortedVLLMProfiles()[0]
 	worker, workerToken := newFabricMeasurementWorker(t, ctx, store)
-	if err := store.UpsertServiceLeaseOffer(ctx, worker, serviceLeaseOffer(profile)); err != nil {
+	offer := serviceLeaseOffer(profile)
+	offer.Region = "ca-cancel-" + uuid.NewString()
+	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {
 		t.Fatal(err)
 	}
 	lease, err := store.CreateServiceLease(ctx, buyerID, ServiceLeaseRequest{
-		RuntimeProfileID: profile.RuntimeProfileID, Region: "ca-central-1",
+		RuntimeProfileID: profile.RuntimeProfileID, Region: offer.Region,
 		MinimumReplicas: 1, MaximumReplicas: 1, TermSeconds: 90, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000,
 	})
@@ -496,7 +504,7 @@ func TestBuyerCancelsServiceLeaseAtLastAuthenticatedMeterAndReleasesUnusedReserv
 	}
 	var offerAvailable int
 	if err := pool.QueryRow(ctx, `SELECT available_warm_replicas FROM service_lease_worker_offers
-		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, worker.WorkerID, profile.RuntimeProfileID, "ca-central-1").Scan(&offerAvailable); err != nil || offerAvailable != 3 {
+		WHERE worker_id=$1 AND runtime_profile_id=$2 AND region=$3`, worker.WorkerID, profile.RuntimeProfileID, offer.Region).Scan(&offerAvailable); err != nil || offerAvailable != 3 {
 		t.Fatalf("cancel did not release warm capacity: available=%d err=%v", offerAvailable, err)
 	}
 	assignmentsReq := httptest.NewRequest(http.MethodGet, "/v1/worker/service-leases/active", nil)
