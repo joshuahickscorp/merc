@@ -7,12 +7,12 @@
 //! become execution authority.
 
 use std::collections::{HashMap, VecDeque};
-use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
+use sha2::{Digest, Sha256};
 use tokenizers::Encoding;
 
-const CACHE_REVISION: &str = "tokenization-cache-v1";
+const CACHE_REVISION: &str = "tokenization-cache-v2";
 const DEFAULT_MAX_ENTRIES: usize = 2048;
 const DEFAULT_MAX_BYTES: usize = 16 * 1024 * 1024;
 
@@ -31,10 +31,16 @@ struct Entry {
     bytes: usize,
 }
 
+/// Domain-separated SHA-256 identity for a (revision, model_revision, text)
+/// triple. Fixed-size so the map key cannot retain buyer text, and collision
+/// probability is cryptographic rather than birthday-on-64-bits.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TokenCacheKey([u8; 32]);
+
 #[derive(Debug)]
 struct State {
-    entries: HashMap<u64, Entry>,
-    order: VecDeque<u64>,
+    entries: HashMap<TokenCacheKey, Entry>,
+    order: VecDeque<TokenCacheKey>,
     bytes: usize,
     hits: u64,
     misses: u64,
@@ -73,23 +79,29 @@ impl TokenizationCache {
         }
     }
 
-    /// Return the exact key for a model revision and normalized input. Hashing
-    /// keeps buyer text out of diagnostic state while still separating models,
-    /// tokenizer revisions, and the cache schema.
-    pub fn key(model_revision: &str, text: &str) -> u64 {
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        CACHE_REVISION.hash(&mut h);
-        model_revision.hash(&mut h);
-        text.hash(&mut h);
-        h.finish()
+    /// Exact identity for a model revision and input text. Domain-separated
+    /// SHA-256 matches every other identity in this tree (request identity,
+    /// prefix routing): a 64-bit non-cryptographic hash is not acceptable here
+    /// because a silent wrong tokenization is worse than a miss.
+    pub fn key(model_revision: &str, text: &str) -> TokenCacheKey {
+        let mut h = Sha256::new();
+        h.update(CACHE_REVISION.as_bytes());
+        h.update([0]);
+        h.update(model_revision.as_bytes());
+        h.update([0]);
+        h.update(text.as_bytes());
+        let digest = h.finalize();
+        let mut out = [0_u8; 32];
+        out.copy_from_slice(&digest);
+        TokenCacheKey(out)
     }
 
-    pub fn get(&self, key: u64) -> Option<Encoding> {
+    pub fn get(&self, key: &TokenCacheKey) -> Option<Encoding> {
         let mut state = self
             .state
             .lock()
             .expect("tokenization cache mutex poisoned");
-        let entry = state.entries.get(&key).cloned();
+        let entry = state.entries.get(key).cloned();
         match entry {
             Some(entry) => {
                 state.hits = state.hits.saturating_add(1);
@@ -103,7 +115,7 @@ impl TokenizationCache {
         }
     }
 
-    pub fn insert(&self, key: u64, encoding: Encoding) {
+    pub fn insert(&self, key: TokenCacheKey, encoding: Encoding) {
         let bytes = encoding_bytes(&encoding);
         if bytes > self.max_bytes {
             return;
@@ -114,7 +126,7 @@ impl TokenizationCache {
             .expect("tokenization cache mutex poisoned");
         if let Some(previous) = state.entries.remove(&key) {
             state.bytes = state.bytes.saturating_sub(previous.bytes);
-            remove_key(&mut state.order, key);
+            remove_key(&mut state.order, &key);
         }
         while state.entries.len() >= self.max_entries
             || state.bytes.saturating_add(bytes) > self.max_bytes
@@ -128,7 +140,7 @@ impl TokenizationCache {
             }
         }
         state.bytes = state.bytes.saturating_add(bytes);
-        state.entries.insert(key, Entry { encoding, bytes });
+        state.entries.insert(key.clone(), Entry { encoding, bytes });
         state.order.push_back(key);
     }
 
@@ -147,13 +159,15 @@ impl TokenizationCache {
     }
 }
 
-fn touch(order: &mut VecDeque<u64>, key: u64) {
+fn touch(order: &mut VecDeque<TokenCacheKey>, key: &TokenCacheKey) {
     remove_key(order, key);
-    order.push_back(key);
+    order.push_back(key.clone());
 }
 
-fn remove_key(order: &mut VecDeque<u64>, key: u64) {
-    if let Some(pos) = order.iter().position(|candidate| *candidate == key) {
+// O(n) scan over the LRU order on every get/insert. Fine at the 2048-entry
+// ceiling (DEFAULT_MAX_ENTRIES); raise that cap only with a better index.
+fn remove_key(order: &mut VecDeque<TokenCacheKey>, key: &TokenCacheKey) {
+    if let Some(pos) = order.iter().position(|candidate| candidate == key) {
         order.remove(pos);
     }
 }
@@ -199,17 +213,41 @@ mod tests {
     }
 
     #[test]
+    fn get_never_returns_encoding_for_text_not_stored() {
+        let cache = TokenizationCache::new(8, 1024);
+        let stored = encoding(1);
+        let key_one = TokenizationCache::key("rev", "text-one");
+        let key_two = TokenizationCache::key("rev", "text-two");
+        assert_ne!(
+            key_one, key_two,
+            "distinct texts must not share a cache identity"
+        );
+        cache.insert(key_one.clone(), stored);
+        assert!(
+            cache.get(&key_one).is_some(),
+            "stored text must hit"
+        );
+        assert!(
+            cache.get(&key_two).is_none(),
+            "a text that was never stored must miss — silent wrong tokenization is forbidden"
+        );
+        // A fabricated key that never went through insert must also miss.
+        let forged = TokenCacheKey([0xAB; 32]);
+        assert!(cache.get(&forged).is_none());
+    }
+
+    #[test]
     fn bounded_lru_reports_hits_misses_and_evictions() {
         let cache = TokenizationCache::new(1, 1024);
         let first = encoding(1);
         let second = encoding(2);
         let key1 = TokenizationCache::key("rev", "one");
         let key2 = TokenizationCache::key("rev", "two");
-        assert!(cache.get(key1).is_none());
-        cache.insert(key1, first);
-        assert!(cache.get(key1).is_some());
+        assert!(cache.get(&key1).is_none());
+        cache.insert(key1.clone(), first);
+        assert!(cache.get(&key1).is_some());
         cache.insert(key2, second);
-        assert!(cache.get(key1).is_none());
+        assert!(cache.get(&key1).is_none());
         let stats = cache.stats();
         assert_eq!(stats.hits, 1);
         assert_eq!(stats.misses, 2);
