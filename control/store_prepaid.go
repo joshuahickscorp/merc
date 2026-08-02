@@ -693,6 +693,14 @@ func debitPrepaidForTaskTx(ctx context.Context, tx pgx.Tx, buyerID, taskID uuid.
 
 func prepaidSLAPremiumDebitRef(jobID uuid.UUID) string { return "prepaid-sla-" + jobID.String() }
 
+// prepaidServiceLeaseDebitRef is deliberately distinct from every job-level
+// debit reference. A service has no task ID, so using the job task uniqueness
+// key would either make the debit non-idempotent or incorrectly attach it to
+// an unrelated buyer workload.
+func prepaidServiceLeaseDebitRef(leaseID uuid.UUID) string {
+	return "prepaid-service-lease-" + leaseID.String()
+}
+
 // debitPrepaidForSLAPremiumTx is the job-level counterpart to task settlement.
 // It is keyed by an immutable payout reference because SLA premium charges have
 // no task_id. The caller creates the corresponding buyer_charge in this same
@@ -735,6 +743,68 @@ func debitPrepaidForSLAPremiumTx(ctx context.Context, tx pgx.Tx, buyerID, jobID 
 		_, err = tx.Exec(ctx, `
 			UPDATE buyer_prepaid_balances SET balance_micros=balance_micros+$2, updated_at=now()
 			 WHERE buyer_id=$1`, buyerID, amountMicros)
+	}
+	return err
+}
+
+// debitPrepaidForServiceLeaseTx consumes the final, cumulative service charge
+// from the balance that admitted the lease. It is keyed by the immutable lease
+// reference because service settlement has no task. The existing-debit check
+// happens before touching the materialised balance, so a retry can neither
+// double-debit nor transiently fail because another terminal transition already
+// consumed the same funds.
+func debitPrepaidForServiceLeaseTx(ctx context.Context, tx pgx.Tx, buyerID, leaseID uuid.UUID, amountMicros int64) error {
+	if buyerID == uuid.Nil || leaseID == uuid.Nil || amountMicros <= 0 {
+		return fmt.Errorf("prepaid service debit requires buyer, lease, and positive ledger micros")
+	}
+	ref := prepaidServiceLeaseDebitRef(leaseID)
+	var existingAmount int64
+	var existingBuyer *uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT (amount_usd*1000000)::bigint,buyer_id
+		FROM ledger_entries WHERE kind=$1 AND payout_ref=$2`, KindPrepaidDebit, ref).
+		Scan(&existingAmount, &existingBuyer)
+	if err == nil {
+		if existingAmount != -amountMicros || !sameOptionalUUID(existingBuyer, &buyerID) {
+			return fmt.Errorf("conflicting prepaid service debit for lease %s", leaseID)
+		}
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO buyer_prepaid_balances (buyer_id, balance_micros)
+		VALUES ($1, 0) ON CONFLICT (buyer_id) DO NOTHING`, buyerID); err != nil {
+		return err
+	}
+	var balance int64
+	if err := tx.QueryRow(ctx, `SELECT balance_micros FROM buyer_prepaid_balances
+		WHERE buyer_id=$1 FOR UPDATE`, buyerID).Scan(&balance); err != nil {
+		return err
+	}
+	if balance < amountMicros {
+		return errInsufficientPrepaid
+	}
+	ct, err := tx.Exec(ctx, `UPDATE buyer_prepaid_balances
+		SET balance_micros=balance_micros-$2,updated_at=now()
+		WHERE buyer_id=$1 AND balance_micros >= $2`, buyerID, amountMicros)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() != 1 {
+		return errInsufficientPrepaid
+	}
+	buyer := buyerID
+	ct, err = insertLedgerEntryIfAbsentByRefTx(ctx, tx, ledgerInsert{
+		Kind: KindPrepaidDebit, BuyerID: &buyer, AmountMicros: -amountMicros,
+		PayoutStatus: PayoutReleased, PayoutRef: ref,
+	})
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		_, err = tx.Exec(ctx, `UPDATE buyer_prepaid_balances
+			SET balance_micros=balance_micros+$2,updated_at=now() WHERE buyer_id=$1`, buyerID, amountMicros)
 	}
 	return err
 }
