@@ -238,6 +238,24 @@ impl ControlPlaneClient {
         Ok(())
     }
 
+    // A fabric receipt is worker-authenticated operational evidence. The
+    // control plane persists it as self-reported and non-admissible; the agent
+    // must never treat a successful upload as permission to carry workload
+    // data over this measured link.
+    pub async fn submit_fabric_receipt(
+        &self,
+        receipt: &crate::fabric::FabricProbeReceipt,
+    ) -> Result<(), ProtocolError> {
+        let endpoint = "/v1/worker/fabric/receipts";
+        self.send_idempotent(endpoint, "submit_fabric_receipt", &[], || {
+            self.http
+                .post(self.url(endpoint))
+                .header("X-Worker-Token", &self.token)
+                .json(receipt)
+        })
+        .await
+    }
+
     pub async fn poll_task(&self) -> Result<Option<TaskDispatch>, ProtocolError> {
         let endpoint = "/v1/worker/poll";
         let resp = self

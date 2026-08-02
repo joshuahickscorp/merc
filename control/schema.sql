@@ -5320,6 +5320,46 @@ CREATE TRIGGER runtime_shadow_selections_append_only
     BEFORE UPDATE OR DELETE ON runtime_shadow_selections
     FOR EACH ROW EXECUTE FUNCTION cx_refuse_shadow_selection_rewrite();
 
+-- Candidate local-fabric link observations. These rows are intentionally
+-- self-reported, owner-scoped, and unusable by the scheduler: an authenticated
+-- TCP echo only proves that a holder of a shared probe token answered. It does
+-- not prove which enrolled worker answered, a governed site/residency boundary,
+-- an mTLS workload plane, a collective benchmark, or economics. Those gates
+-- must be bound separately before LOCAL_CLUSTER can ever be selected.
+CREATE TABLE IF NOT EXISTS fabric_link_measurements (
+    receipt_id UUID PRIMARY KEY,
+    reporting_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    reporting_supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    declared_site TEXT NOT NULL CHECK (btrim(declared_site) <> '' AND length(declared_site) <= 128),
+    peer_endpoint_commitment TEXT NOT NULL CHECK (peer_endpoint_commitment ~ '^[0-9a-f]{64}$'),
+    transport TEXT NOT NULL CHECK (transport = 'MERC_FABRIC_TCP_ECHO_V1'),
+    peer_authentication TEXT NOT NULL CHECK (peer_authentication = 'HMAC_SHA256_OWNER_SHARED_PROBE_TOKEN'),
+    measured_at TIMESTAMPTZ NOT NULL,
+    payload_bytes_each_direction INTEGER NOT NULL CHECK (payload_bytes_each_direction BETWEEN 1 AND 4194304),
+    sample_count SMALLINT NOT NULL CHECK (sample_count BETWEEN 1 AND 32),
+    p50_round_trip_micros BIGINT NOT NULL CHECK (p50_round_trip_micros > 0),
+    p95_round_trip_micros BIGINT NOT NULL CHECK (p95_round_trip_micros >= p50_round_trip_micros),
+    p50_payload_goodput_mbps DOUBLE PRECISION NOT NULL CHECK (p50_payload_goodput_mbps > 0),
+    classification TEXT NOT NULL DEFAULT 'SELF_REPORTED_UNQUALIFIED'
+        CHECK (classification = 'SELF_REPORTED_UNQUALIFIED'),
+    receipt_sha256 TEXT NOT NULL CHECK (receipt_sha256 ~ '^[0-9a-f]{64}$'),
+    raw_receipt JSONB NOT NULL CHECK (jsonb_typeof(raw_receipt) = 'object'),
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fabric_link_measurements_retention_idx
+    ON fabric_link_measurements (ingested_at);
+CREATE INDEX IF NOT EXISTS fabric_link_measurements_worker_time_idx
+    ON fabric_link_measurements (reporting_worker_id, measured_at DESC);
+CREATE OR REPLACE FUNCTION cx_refuse_fabric_link_measurement_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'fabric link measurement % is immutable; resubmit a new observed receipt', OLD.receipt_id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS fabric_link_measurements_append_only ON fabric_link_measurements;
+CREATE TRIGGER fabric_link_measurements_append_only
+    BEFORE UPDATE ON fabric_link_measurements
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_fabric_link_measurement_rewrite();
+
 -- A project order is the server-side ceiling authority for a multi-step
 -- workload. The buyer keeps the full IR locally because it may contain source
 -- paths and private policy, while the control plane retains only the immutable

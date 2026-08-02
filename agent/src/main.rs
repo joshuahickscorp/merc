@@ -308,6 +308,10 @@ enum Command {
         /// Receipt destination. Refuses to overwrite an existing file; omit to print JSON.
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Existing agent configuration used only to authenticate receipt upload.
+        /// Omitting it keeps the receipt local and does not make a placement claim.
+        #[arg(long)]
+        agent_config: Option<PathBuf>,
     },
     Bench {
         #[arg(long)]
@@ -616,6 +620,7 @@ async fn main() -> Result<()> {
             bytes,
             rounds,
             out,
+            agent_config,
         } => {
             init_tracing();
             let endpoint = endpoint
@@ -637,6 +642,21 @@ async fn main() -> Result<()> {
                 tracing::info!(receipt = %path.display(), "fabric measurement receipt written");
             } else {
                 println!("{}", String::from_utf8_lossy(&rendered));
+            }
+            if let Some(path) = agent_config {
+                let cfg = AgentConfig::load(&path).with_context(|| {
+                    format!(
+                        "loading agent configuration {} for fabric receipt upload",
+                        path.display()
+                    )
+                })?;
+                let client = ControlPlaneClient::new(cfg.control_url, cfg.worker_token)
+                    .context("building control-plane client for fabric receipt upload")?;
+                client
+                    .submit_fabric_receipt(&receipt)
+                    .await
+                    .context("uploading self-reported fabric measurement receipt")?;
+                tracing::info!(receipt_id = %receipt.receipt_id, "fabric receipt recorded by control plane as non-admissible evidence");
             }
             Ok(())
         }

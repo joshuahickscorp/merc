@@ -1145,6 +1145,13 @@ func (wk *Workers) sweepTelemetryRetention(ctx context.Context) error {
 		log.Printf("workers: telemetry-retention: pruned offer_samples=%d admission_events=%d older than %s",
 			ros, rae, realtimeLiquidityRetention)
 	}
+	fabric, err := wk.store.DeleteOldFabricLinkMeasurements(ctx, time.Now().Add(-fabricMeasurementRetention))
+	if err != nil {
+		return err
+	}
+	if fabric > 0 {
+		log.Printf("workers: telemetry-retention: pruned %d self-reported fabric measurement receipt(s) older than %s", fabric, fabricMeasurementRetention)
+	}
 	// Fourth retention sweep: non-accepted alpha leads past TTL. Accepted
 	// applicants have no account yet to tombstone, so this is their only path.
 	alphaRetention := alphaRequestRetention()

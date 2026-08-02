@@ -131,6 +131,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/worker/register", s.authWorker(http.HandlerFunc(s.handleWorkerRegister)))
 	mux.Handle("POST /v1/worker/realtime/register", s.authWorker(http.HandlerFunc(s.handleRealtimeWorkerRegister)))
 	mux.Handle("POST /v1/worker/realtime/heartbeat", s.authWorker(http.HandlerFunc(s.handleRealtimeWorkerHeartbeat)))
+	mux.Handle("POST /v1/worker/fabric/receipts", s.authWorker(http.HandlerFunc(s.handleWorkerFabricReceipt)))
 	mux.Handle("POST /v1/worker/heartbeat", s.authWorker(http.HandlerFunc(s.handleWorkerHeartbeat)))
 	mux.Handle("GET /v1/worker/poll", s.authWorker(http.HandlerFunc(s.handleWorkerPoll)))
 	mux.Handle("POST /v1/worker/task/{id}/start", s.authWorker(http.HandlerFunc(s.handleWorkerStart)))
@@ -2270,6 +2271,29 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, cap)
+}
+
+// handleWorkerFabricReceipt accepts raw, worker-authenticated candidate-link
+// measurements. A receipt is retained as SELF_REPORTED_UNQUALIFIED evidence:
+// it is intentionally not an admission path and cannot cause LOCAL_CLUSTER
+// placement. The remaining identity, site, mTLS data-plane, collective, and
+// economics authorities are separate gates.
+func (s *Server) handleWorkerFabricReceipt(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	raw, err := io.ReadAll(io.LimitReader(r.Body, fabricMeasurementBodyLimit+1))
+	if err != nil || len(raw) > fabricMeasurementBodyLimit {
+		writeErr(w, http.StatusBadRequest, "invalid fabric measurement receipt body")
+		return
+	}
+	if err := s.store.RecordFabricLinkMeasurement(r.Context(), *auth, raw); err != nil {
+		if errors.Is(err, errFabricMeasurementConflict) {
+			writeErr(w, http.StatusConflict, "fabric receipt id is already bound to different evidence")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, "fabric measurement receipt rejected: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
