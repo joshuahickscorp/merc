@@ -271,6 +271,12 @@ const prefillCostExponent = 1.01
 // x 2 bytes.
 const kvBytesPerToken = 16 * 2 * 8 * 64 * 2
 
+// prefixRoutingStateBudgetBytes bounds Merc's advisory belief about one
+// worker's KV residency. It is not a claim about physical VRAM and never
+// causes a worker-side eviction; crossing it only removes low-value routing
+// hints, whose safe failure mode is a cold recompute.
+const prefixRoutingStateBudgetBytes int64 = 64 << 20
+
 // PrefixCacheValue scores a cache node for eviction. Higher survives.
 //
 // hits is observed reuse; age is time since last use. Reuse probability is
@@ -360,6 +366,38 @@ func (s *Store) EvictPrefixCacheToBudget(ctx context.Context, workerID uuid.UUID
 			evicted++
 			total -= n.bytes
 		}
+	}
+	return evicted, nil
+}
+
+// EnforcePrefixRoutingStateBudgets applies the fixed advisory budget to every
+// worker with recorded warm-prefix state. It is called by Workers rather than
+// a request path so an attacker cannot turn cache-hint eviction into a
+// per-request database amplification vector.
+func (s *Store) EnforcePrefixRoutingStateBudgets(ctx context.Context) (int64, error) {
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT worker_id FROM worker_prefix_state ORDER BY worker_id`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var workers []uuid.UUID
+	for rows.Next() {
+		var workerID uuid.UUID
+		if err := rows.Scan(&workerID); err != nil {
+			return 0, err
+		}
+		workers = append(workers, workerID)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	var evicted int64
+	for _, workerID := range workers {
+		n, err := s.EvictPrefixCacheToBudget(ctx, workerID, prefixRoutingStateBudgetBytes)
+		if err != nil {
+			return evicted, err
+		}
+		evicted += n
 	}
 	return evicted, nil
 }
