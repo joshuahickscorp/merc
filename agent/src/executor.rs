@@ -9,6 +9,7 @@ use tokenizers::Tokenizer;
 
 use crate::deadline::DeadlineError;
 use crate::inference::{GenerateParams, InferenceBackend};
+use crate::media::MediaTranscodeRunner;
 use crate::models;
 use crate::pool::ModelPool;
 use crate::runtime_driver::RuntimeDriver;
@@ -18,6 +19,10 @@ use crate::types::{JobManifest, JobType, ModelKind, WorkerCapability};
 pub struct JobOutput {
     pub result: Vec<u8>,
     pub binary: bool,
+    /// Exact object-store content type for this produced artifact. A binary
+    /// result is not necessarily opaque bytes: media needs video/mp4 so buyers
+    /// and verifiers do not have to infer a type from an untrusted filename.
+    pub content_type: &'static str,
     pub duration_ms: u64,
     pub tokens_used: u64,
     /// Which pluggable inference backend produced this result (`candle`, `openai_http`, …).
@@ -472,6 +477,11 @@ impl JobRunner for EmbedRunner {
         Ok(JobOutput {
             result: bytes,
             binary: is_binary,
+            content_type: if is_binary {
+                "application/octet-stream"
+            } else {
+                "application/json"
+            },
             duration_ms: started.elapsed().as_millis() as u64,
             tokens_used: count as u64,
             inference_backend: String::new(),
@@ -1042,6 +1052,7 @@ impl JobRunner for BatchInferRunner {
         Ok(JobOutput {
             result: bytes,
             binary: false,
+            content_type: "application/json",
             duration_ms: started.elapsed().as_millis() as u64,
             tokens_used: total_tokens as u64,
             inference_backend: backend_name,
@@ -1060,6 +1071,10 @@ pub fn default_runners(
     vec![
         Box::new(EmbedRunner::new(embed_driver)),
         Box::new(BatchInferRunner { inference }),
+        // This runner has no advertised control-plane cell yet. It is present
+        // so the agent implementation is exercised as a real process runner,
+        // while runtime authority keeps ordinary buyer work out of it.
+        Box::new(MediaTranscodeRunner::from_environment()),
     ]
 }
 

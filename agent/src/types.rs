@@ -46,6 +46,17 @@ pub enum JobType {
         #[serde(default)]
         temperature: f32,
     },
+    // A fixed, local video-normalisation operation. This is deliberately not a
+    // free-form command surface: the runner accepts only a bounded source
+    // format and output geometry and invokes a pinned local FFmpeg binary with
+    // a constant argument template.
+    MediaTranscode {
+        input_format: String,
+        max_width: u32,
+        max_height: u32,
+        fps: u32,
+        video_bitrate_kbps: u32,
+    },
 }
 
 impl JobType {
@@ -53,6 +64,7 @@ impl JobType {
         match self {
             JobType::Embed { .. } => "embed",
             JobType::BatchInfer { .. } => "batch_infer",
+            JobType::MediaTranscode { .. } => "media_transcode",
         }
     }
 }
@@ -69,6 +81,7 @@ pub struct ModelRef {
 pub enum ModelKind {
     Gguf,
     Hf,
+    Builtin,
 }
 
 impl ModelKind {
@@ -76,6 +89,7 @@ impl ModelKind {
         match self {
             Self::Gguf => "gguf",
             Self::Hf => "hf",
+            Self::Builtin => "builtin",
         }
     }
 }

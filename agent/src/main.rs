@@ -5,6 +5,7 @@ mod fabric;
 mod failure;
 mod hardware;
 mod inference;
+mod media;
 mod models;
 mod pool;
 mod protocol;
@@ -2202,11 +2203,7 @@ async fn execute_task(
     let (duration_ms, tokens_used) = (output.duration_ms, output.tokens_used);
 
     let mut result = output.result;
-    let content_type = if output.binary {
-        "application/octet-stream"
-    } else {
-        "application/json"
-    };
+    let content_type = output.content_type;
     let put = deadline
         .run("result upload", async {
             if result.len() > STAGING_THRESHOLD {
