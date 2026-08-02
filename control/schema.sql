@@ -6242,3 +6242,21 @@ CREATE TABLE IF NOT EXISTS realtime_settlement_intents (
 CREATE INDEX IF NOT EXISTS realtime_settlement_intents_pending_idx
     ON realtime_settlement_intents (next_attempt_at, created_at)
     WHERE state = 'pending';
+
+-- True-net cost settlement: accepted storage/egress bounds beside settled actuals.
+-- Separate from the frozen pricing_decision so historical decisions are never
+-- rewritten under later geometry.
+CREATE TABLE IF NOT EXISTS job_cost_settlements (
+    job_id UUID PRIMARY KEY REFERENCES jobs(id) ON DELETE RESTRICT,
+    settlement JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE OR REPLACE FUNCTION cx_reject_job_cost_settlement_update() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'job_cost_settlements row for job % is immutable', OLD.job_id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS job_cost_settlements_immutable ON job_cost_settlements;
+CREATE TRIGGER job_cost_settlements_immutable
+    BEFORE UPDATE OR DELETE ON job_cost_settlements
+    FOR EACH ROW EXECUTE FUNCTION cx_reject_job_cost_settlement_update();
