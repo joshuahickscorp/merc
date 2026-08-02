@@ -24,28 +24,52 @@ const sandboxFreeCreditUSD = 0.0
 const sessionTTL = 30 * 24 * time.Hour
 
 const (
-	maxLoginFails   = 5
-	loginLockout    = 30 * time.Second
-	loginLockoutMax = 15 * time.Minute
-	loginGuardCap   = 8192
+	maxLoginFails    = 5
+	loginLockout     = 30 * time.Second
+	loginLockoutMax  = 15 * time.Minute
+	loginGuardCap    = 8192
+	maxLoginEmailLen = 254 // RFC 5321 path-element upper bound
 )
 
 type loginAttempt struct {
 	fails       int
 	lockedUntil time.Time
+	touched     time.Time // oldest-first eviction under a hard cap
 }
 
+// loginGuardT is a hard-capped map of login lockout state. Shape mirrors
+// rateLimiter (mutex + map + sweep): entries are reaped by a background
+// sweeper and, on insert pressure, by oldest-first eviction so the cap is a
+// real ceiling even when every entry is still locked.
 type loginGuardT struct {
-	mu sync.Mutex
-	m  map[string]*loginAttempt
+	mu  sync.Mutex
+	m   map[string]*loginAttempt
+	cap int
 }
 
-var loginGuard = &loginGuardT{m: map[string]*loginAttempt{}}
+var loginGuard = newLoginGuard(loginGuardCap)
+
+func newLoginGuard(cap int) *loginGuardT {
+	if cap < 1 {
+		cap = 1
+	}
+	return &loginGuardT{m: map[string]*loginAttempt{}, cap: cap}
+}
+
+// validLoginIdentifier rejects attacker-chosen strings before they become map
+// keys. Length and shape only — password verification still decides existence.
+func validLoginIdentifier(email string) bool {
+	if email == "" || len(email) > maxLoginEmailLen {
+		return false
+	}
+	return looksLikeEmail(email)
+}
 
 func (g *loginGuardT) allow(email string, now time.Time) (bool, time.Duration) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if a := g.m[email]; a != nil && now.Before(a.lockedUntil) {
+		a.touched = now
 		return false, a.lockedUntil.Sub(now)
 	}
 	return true, 0
@@ -54,12 +78,10 @@ func (g *loginGuardT) allow(email string, now time.Time) (bool, time.Duration) {
 func (g *loginGuardT) fail(email string, now time.Time) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if len(g.m) > loginGuardCap {
-		for k, a := range g.m {
-			if now.After(a.lockedUntil) {
-				delete(g.m, k)
-			}
-		}
+	if _, exists := g.m[email]; !exists {
+		// Leave room for the new key: expired first, then oldest-first so a
+		// flood of still-locked entries cannot grow the map without bound.
+		g.evictToLocked(now, g.cap-1)
 	}
 	a := g.m[email]
 	if a == nil {
@@ -67,6 +89,7 @@ func (g *loginGuardT) fail(email string, now time.Time) {
 		g.m[email] = a
 	}
 	a.fails++
+	a.touched = now
 	if a.fails >= maxLoginFails {
 		d := loginLockout << (a.fails - maxLoginFails)
 		if d <= 0 || d > loginLockoutMax {
@@ -80,6 +103,64 @@ func (g *loginGuardT) success(email string) {
 	g.mu.Lock()
 	delete(g.m, email)
 	g.mu.Unlock()
+}
+
+// sweep removes idle unlocked entries. Called from the rate-limit sweeper so
+// the guard does not need its own ticker. Locked entries stay until they expire
+// or oldest-first eviction under cap pressure reclaims them.
+func (g *loginGuardT) sweep(now time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for k, a := range g.m {
+		if now.Before(a.lockedUntil) {
+			continue
+		}
+		// Drop only when the lock has lapsed and the entry has been idle for a
+		// full max lockout window — progressive fail counts are no longer
+		// useful for an address nobody is probing.
+		if now.Sub(a.touched) >= loginLockoutMax {
+			delete(g.m, k)
+		}
+	}
+}
+
+// evictToLocked shrinks the map to at most target entries. Prefer expired
+// lockouts; if still over target, drop the oldest touched entry regardless of
+// lock state so the cap cannot be defeated by sustained lockouts.
+func (g *loginGuardT) evictToLocked(now time.Time, target int) {
+	if target < 0 {
+		target = 0
+	}
+	for k, a := range g.m {
+		if len(g.m) <= target {
+			return
+		}
+		if !now.Before(a.lockedUntil) {
+			delete(g.m, k)
+		}
+	}
+	for len(g.m) > target {
+		var oldestKey string
+		var oldestTime time.Time
+		first := true
+		for k, a := range g.m {
+			if first || a.touched.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = a.touched
+				first = false
+			}
+		}
+		if oldestKey == "" {
+			return
+		}
+		delete(g.m, oldestKey)
+	}
+}
+
+func (g *loginGuardT) len() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return len(g.m)
 }
 
 func (s *Store) CreateBuyerAccount(ctx context.Context, email, password string, freeCreditUSD float64) (uuid.UUID, error) {
@@ -314,6 +395,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := normalizeEmail(req.Email)
+	// Bound and shape-check before the string is ever used as a loginGuard key.
+	// Signup already enforces looksLikeEmail; login must not accept free-form
+	// attacker text that would otherwise inflate the guard map.
+	if !validLoginIdentifier(email) {
+		writeErr(w, http.StatusBadRequest, "login identifier rejected: well-formed email at most 254 characters required")
+		return
+	}
 	if !s.canary.allowsBuyerEmail(email) {
 		writeErr(w, http.StatusForbidden, "email is not approved for this private canary")
 		return
