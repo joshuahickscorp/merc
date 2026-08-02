@@ -407,6 +407,9 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	         AND w2.last_seen_at > now() - interval '60 seconds'
 	         AND s2.status = 'active'
 	         AND NOT COALESCE(w2.throttled, false)
+	         -- A worker that opted out of the seatbelt cannot take buyer work;
+	         -- do not count it as a cheaper class that "could take" this task.
+	         AND NOT COALESCE(w2.unsandboxed_opt_in, false)
 	         AND (`+hwClassCostRankSQL("w2.hw_class")+`) < $3
 	         AND COALESCE(j.min_memory_gb,0) <= COALESCE(w2.effective_memory_gb, w2.memory_gb, 0)
 	         AND (j.hw_classes IS NULL OR w2.hw_class = ANY(j.hw_classes))
@@ -417,6 +420,7 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	           OR (COALESCE(s2.reputation,0) >= 0.80 AND COALESCE(s2.completed_tasks,0) >= 500)
 	         )
 	         AND COALESCE(j.offered_rate_usd_hr,1e9) >= COALESCE(w2.min_payout_usd_hr,0)
+`+supplierNotLinkedToBuyerSQL("s2")+`
 	         AND EXISTS (
 	           SELECT 1 FROM worker_authorized_capabilities wac2
 	            WHERE wac2.worker_id = w2.id
@@ -480,6 +484,7 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	         AND w3.last_seen_at > now() - interval '60 seconds'
 	         AND s3.status = 'active'
 	         AND NOT COALESCE(w3.throttled, false)
+	         AND NOT COALESCE(w3.unsandboxed_opt_in, false)
 	         AND COALESCE(w3.min_payout_usd_hr, 0) < $5
 	         AND COALESCE(j.offered_rate_usd_hr, 1e9) >= COALESCE(w3.min_payout_usd_hr, 0)
 	         AND COALESCE(j.min_memory_gb,0) <= COALESCE(w3.effective_memory_gb, w3.memory_gb, 0)
@@ -490,6 +495,7 @@ func ClaimTaskSQLForShape(claimedByPredicate string, pref shapePreference) strin
 	           j.tier <> 'trusted'
 	           OR (COALESCE(s3.reputation,0) >= 0.80 AND COALESCE(s3.completed_tasks,0) >= 500)
 	         )
+`+supplierNotLinkedToBuyerSQL("s3")+`
 	         AND EXISTS (
 	           SELECT 1 FROM worker_authorized_capabilities wac3
 	            WHERE wac3.worker_id = w3.id

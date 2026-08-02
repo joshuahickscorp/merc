@@ -389,7 +389,12 @@ func TestNoIndependentSupplierIsRefusedNotSettled(t *testing.T) {
 	}
 }
 
-// ── Test 7: uncorroborated benchmark does not route at claimed rate ──────────
+// ── Test 7: disputed vs unpeered benchmark rates ─────────────────────────────
+//
+// The floor is for cells that *could* be corroborated and were not — peers
+// exist in the class and none agree. A cell with no peer is unpeered, not
+// uncorroborated; flooring it would make a single-supplier fleet unroutable
+// and invert cost rank against every fixture that seeds one worker.
 
 func TestUncorroboratedBenchmarkRatePolicy(t *testing.T) {
 	if !ratesAgreeWithinTolerance(100, 110, benchmarkCorroborationTolerance) {
@@ -398,24 +403,31 @@ func TestUncorroboratedBenchmarkRatePolicy(t *testing.T) {
 	if ratesAgreeWithinTolerance(100, 200, benchmarkCorroborationTolerance) {
 		t.Fatal("100 vs 200 must not corroborate under 25% tolerance")
 	}
-	// Uncorroborated: scheduler/admission see the floor, not the claim.
-	if got := RoutableBenchmarkRate(500, false); got != uncorroboratedBenchmarkFloorTPS {
-		t.Fatalf("uncorroborated rate=%v want floor %v", got, uncorroboratedBenchmarkFloorTPS)
+	// Disputed (peers present, not agreed): floor.
+	if got := RoutableBenchmarkRate(500, false, true); got != uncorroboratedBenchmarkFloorTPS {
+		t.Fatalf("disputed rate=%v want floor %v", got, uncorroboratedBenchmarkFloorTPS)
 	}
-	if got := RoutableBenchmarkRate(500, true); got != 500 {
+	// Unpeered: provisional claimed rate, not the floor.
+	if got := RoutableBenchmarkRate(500, false, false); got != 500 {
+		t.Fatalf("unpeered rate=%v want claimed 500", got)
+	}
+	// Corroborated: claimed rate regardless of peerAvailable flag.
+	if got := RoutableBenchmarkRate(500, true, true); got != 500 {
 		t.Fatalf("corroborated rate=%v want 500", got)
 	}
 }
 
-func TestUncorroboratedBenchmarkIsNotRoutableAtClaimedRate(t *testing.T) {
-	ctx, store, pool := openContainmentTestStore(t)
+func TestUnpeeredBenchmarkKeepsClaimedRate(t *testing.T) {
+	// Isolated DB: residual fleet benchmarks for all-minilm would look like peers
+	// and turn this unpeered case into a dispute on a shared database.
+	ctx, store, pool := openIsolatedTestStore(t)
 	supplierID, workerID := uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
 		supplierID, "bench-"+uuid.NewString()+"@corp.example"); err != nil {
 		t.Fatal(err)
 	}
 	cap := testWorkerCapability(workerID, supplierID)
-	// Inflated self-report with no peer to corroborate.
+	// Self-report with no peer in the cell class: unpeered, not disputed.
 	cap.Benchmarks = []BenchResult{{
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
 		EPS: 9999, TPS: 0, ThermalOK: true, P99MS: 10,
@@ -434,8 +446,56 @@ func TestUncorroboratedBenchmarkIsNotRoutableAtClaimedRate(t *testing.T) {
 	if corroborated {
 		t.Fatal("self-report alone marked corroborated")
 	}
+	if tps != 9999 {
+		t.Fatalf("unpeered cache tps=%v want claimed 9999 (no peer ⇒ not the floor)", tps)
+	}
+}
+
+func TestDisputedBenchmarkIsNotRoutableAtClaimedRate(t *testing.T) {
+	// Isolated so the only peer is the one this test seeds.
+	ctx, store, pool := openIsolatedTestStore(t)
+	// Honest peer at ~100 eps.
+	peerSupplier, peerWorker := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
+		peerSupplier, "bench-peer-"+uuid.NewString()+"@corp.example"); err != nil {
+		t.Fatal(err)
+	}
+	peerCap := testWorkerCapability(peerWorker, peerSupplier)
+	peerCap.Benchmarks = []BenchResult{{
+		ModelID: "all-minilm-l6-v2", JobType: "embed",
+		EPS: 100, TPS: 0, ThermalOK: true, P99MS: 10,
+	}}
+	if err := store.UpsertWorker(ctx, peerCap); err != nil {
+		t.Fatalf("peer upsert: %v", err)
+	}
+
+	// Inflated self-report that cannot agree with the peer within 25%.
+	supplierID, workerID := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
+		supplierID, "bench-"+uuid.NewString()+"@corp.example"); err != nil {
+		t.Fatal(err)
+	}
+	cap := testWorkerCapability(workerID, supplierID)
+	cap.Benchmarks = []BenchResult{{
+		ModelID: "all-minilm-l6-v2", JobType: "embed",
+		EPS: 9999, TPS: 0, ThermalOK: true, P99MS: 10,
+	}}
+	if err := store.UpsertWorker(ctx, cap); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	var tps float32
+	var corroborated bool
+	if err := pool.QueryRow(ctx,
+		`SELECT tps, corroborated FROM worker_tps_cache WHERE worker_id=$1 AND job_type='embed'`,
+		workerID,
+	).Scan(&tps, &corroborated); err != nil {
+		t.Fatal(err)
+	}
+	if corroborated {
+		t.Fatal("disputed self-report marked corroborated")
+	}
 	if tps != uncorroboratedBenchmarkFloorTPS {
-		t.Fatalf("uncorroborated cache tps=%v want floor %v (claimed rate must not govern routing)",
+		t.Fatalf("disputed cache tps=%v want floor %v (peer exists and disagrees)",
 			tps, uncorroboratedBenchmarkFloorTPS)
 	}
 }

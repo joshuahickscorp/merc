@@ -290,10 +290,11 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		if b.JobType == "embed" {
 			claimedRate = b.EPS
 		}
-		// Self-reported rates enter uncorroborated. Until an independent
-		// observation agrees within the policy tolerance, the scheduler and
-		// admission paths see only the conservative floor (see
-		// uncorroboratedBenchmarkFloorTPS), not the claimed rate.
+		// Self-reported rates are provisional until a peer of the same cell
+		// class can corroborate them. Unpeered cells (no peer measurement)
+		// keep the claimed rate so a single-supplier fleet stays routable;
+		// only a disputed claim — peers exist and none agree — falls to the
+		// floor (see RoutableBenchmarkRate / uncorroboratedBenchmarkFloorTPS).
 		_, err = tx.Exec(ctx,
 			`INSERT INTO benchmark_results
 			   (worker_id, model_id, job_type, tps, eps, thermal_ok, p99_latency_ms, load_ms,
@@ -305,15 +306,12 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		if err != nil {
 			return err
 		}
-		// Attempt corroboration against peer measurements of the same cell class.
-		corroborated, source, err := tryCorroborateBenchmarkTx(ctx, tx, cap.WorkerID, b.JobType, b.ModelID, claimedRate)
+		corroborated, peerAvailable, source, err := tryCorroborateBenchmarkTx(ctx, tx, cap.WorkerID, b.JobType, b.ModelID, claimedRate)
 		if err != nil {
 			return err
 		}
-		schedulerRate := claimedRate
-		if !corroborated {
-			schedulerRate = uncorroboratedBenchmarkFloorTPS
-		} else {
+		schedulerRate := RoutableBenchmarkRate(claimedRate, corroborated, peerAvailable)
+		if corroborated {
 			if _, err := tx.Exec(ctx,
 				`UPDATE benchmark_results
 				    SET corroborated = true, corroboration_source = $2, corroborated_at = now()
