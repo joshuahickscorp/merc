@@ -25,8 +25,8 @@ func TestVideoGenerationIsARealJobType(t *testing.T) {
 			Type: videoGenerationJobType, RenderWidth: 512, RenderHeight: 512,
 			FPS: 8, DurationSecs: 2,
 		},
-		Model: ModelRef{Kind: "builtin", Ref: videoGenerationModelRef},
-		Params: json.RawMessage(`{"segment_count":2}`),
+		Model:        ModelRef{Kind: "builtin", Ref: videoGenerationModelRef},
+		Params:       json.RawMessage(`{"segment_count":2}`),
 		Verification: VerificationPolicy{RedundancyFrac: 0},
 	}
 	// Shape path accepts the job type even though the cell is not buyer-routable.
@@ -211,8 +211,8 @@ func TestVideoCrossSupplierRedundancyIsRefusedNotMismatched(t *testing.T) {
 			Type: videoGenerationJobType, RenderWidth: 512, RenderHeight: 512,
 			FPS: 8, DurationSecs: 2,
 		},
-		Model: ModelRef{Kind: "builtin", Ref: videoGenerationModelRef},
-		Params: json.RawMessage(`{"segment_count":3}`),
+		Model:        ModelRef{Kind: "builtin", Ref: videoGenerationModelRef},
+		Params:       json.RawMessage(`{"segment_count":3}`),
 		Verification: VerificationPolicy{RedundancyFrac: 0.5},
 	}
 	if _, herr := normalizeAndValidateJobSubmit(sub); herr == nil {

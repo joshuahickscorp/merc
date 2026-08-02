@@ -201,8 +201,8 @@ func applyVideoGenerationPolicy(prompt string) error {
 // exercise synthesizer contract. Open image/video licences (OpenRAIL) still
 // require pass-through use restrictions because merc resells generation.
 var videoLicenceTerms = map[string]imageLicenceObligations{
-	"Apache-2.0":            {PassThroughUseRestrictions: false},
-	"MIT":                   {PassThroughUseRestrictions: false},
+	"Apache-2.0":             {PassThroughUseRestrictions: false},
+	"MIT":                    {PassThroughUseRestrictions: false},
 	"Merc-Internal-Contract": {PassThroughUseRestrictions: false},
 	"CreativeML-OpenRAIL-M": {
 		PassThroughUseRestrictions: true,
