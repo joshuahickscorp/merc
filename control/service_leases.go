@@ -120,15 +120,16 @@ type ServiceLease struct {
 }
 
 type ServiceLeaseReceipt struct {
-	Lease                     ServiceLease             `json:"lease"`
-	BuyerFundingState         string                   `json:"buyer_funding_state"`
-	SupplierSettlementState   string                   `json:"supplier_settlement_state"`
-	TrueNetContributionStatus string                   `json:"true_net_contribution_status"`
-	DataPlaneAuthorityStatus  string                   `json:"data_plane_authority_status"`
-	ResidencyAuthorityStatus  string                   `json:"residency_authority_status"`
-	MeteringSemantics         string                   `json:"metering_semantics"`
-	Settlement                *ServiceLeaseSettlement  `json:"settlement,omitempty"`
-	LatestSLOEvidence         *ServiceLeaseSLOEvidence `json:"latest_slo_evidence,omitempty"`
+	Lease                     ServiceLease                      `json:"lease"`
+	BuyerFundingState         string                            `json:"buyer_funding_state"`
+	SupplierSettlementState   string                            `json:"supplier_settlement_state"`
+	TrueNetContributionStatus string                            `json:"true_net_contribution_status"`
+	DataPlaneAuthorityStatus  string                            `json:"data_plane_authority_status"`
+	ResidencyAuthorityStatus  string                            `json:"residency_authority_status"`
+	MeteringSemantics         string                            `json:"metering_semantics"`
+	MarketClearing            *serviceLeaseMarketClearingDetail `json:"market_clearing,omitempty"`
+	Settlement                *ServiceLeaseSettlement           `json:"settlement,omitempty"`
+	LatestSLOEvidence         *ServiceLeaseSLOEvidence          `json:"latest_slo_evidence,omitempty"`
 }
 
 // serviceLeaseActivationDetail is the immutable admission-side economic
@@ -139,28 +140,29 @@ type ServiceLeaseReceipt struct {
 // allocated: a gross platform spread must never be mistaken for true net
 // contribution.
 type serviceLeaseActivationDetail struct {
-	ReservedCeilingNanos             int64    `json:"reserved_ceiling_nanos"`
-	ReservedBuyerMicros              int64    `json:"reserved_buyer_micros"`
-	Currency                         string   `json:"currency"`
-	PricingDecisionSHA256            string   `json:"pricing_decision_sha256"`
-	PricingAuthorityVersion          int      `json:"pricing_authority_version"`
-	PricingPolicyRevision            string   `json:"pricing_policy_revision"`
-	RoundingPolicy                   string   `json:"rounding_policy"`
-	SupplierFloorNanosPerReplicaHour int64    `json:"supplier_floor_nanos_per_replica_hour"`
-	ResidencyNanosPerReplicaHour     int64    `json:"residency_nanos_per_replica_hour"`
-	ControlNanosPerReplicaHour       int64    `json:"control_nanos_per_replica_hour"`
-	RiskReserveNanosPerReplicaHour   int64    `json:"risk_reserve_nanos_per_replica_hour"`
-	ContributionNanosPerReplicaHour  int64    `json:"contribution_nanos_per_replica_hour"`
-	BuyerChargeNanos                 int64    `json:"buyer_charge_nanos"`
-	SupplierEntitlementsNanos        int64    `json:"supplier_entitlements_nanos"`
-	KnownVariableCostsNanos          int64    `json:"known_variable_costs_nanos"`
-	MercGrossSpreadNanos             int64    `json:"merc_gross_spread_nanos"`
-	KnownCostContributionNanos       int64    `json:"known_cost_contribution_nanos"`
-	TrueNetContributionStatus        string   `json:"true_net_contribution_status"`
-	UnknownCostCategories            []string `json:"unknown_cost_categories,omitempty"`
+	ReservedCeilingNanos             int64                             `json:"reserved_ceiling_nanos"`
+	ReservedBuyerMicros              int64                             `json:"reserved_buyer_micros"`
+	Currency                         string                            `json:"currency"`
+	PricingDecisionSHA256            string                            `json:"pricing_decision_sha256"`
+	PricingAuthorityVersion          int                               `json:"pricing_authority_version"`
+	PricingPolicyRevision            string                            `json:"pricing_policy_revision"`
+	RoundingPolicy                   string                            `json:"rounding_policy"`
+	SupplierFloorNanosPerReplicaHour int64                             `json:"supplier_floor_nanos_per_replica_hour"`
+	ResidencyNanosPerReplicaHour     int64                             `json:"residency_nanos_per_replica_hour"`
+	ControlNanosPerReplicaHour       int64                             `json:"control_nanos_per_replica_hour"`
+	RiskReserveNanosPerReplicaHour   int64                             `json:"risk_reserve_nanos_per_replica_hour"`
+	ContributionNanosPerReplicaHour  int64                             `json:"contribution_nanos_per_replica_hour"`
+	BuyerChargeNanos                 int64                             `json:"buyer_charge_nanos"`
+	SupplierEntitlementsNanos        int64                             `json:"supplier_entitlements_nanos"`
+	KnownVariableCostsNanos          int64                             `json:"known_variable_costs_nanos"`
+	MercGrossSpreadNanos             int64                             `json:"merc_gross_spread_nanos"`
+	KnownCostContributionNanos       int64                             `json:"known_cost_contribution_nanos"`
+	TrueNetContributionStatus        string                            `json:"true_net_contribution_status"`
+	UnknownCostCategories            []string                          `json:"unknown_cost_categories,omitempty"`
+	MarketClearing                   *serviceLeaseMarketClearingDetail `json:"market_clearing,omitempty"`
 }
 
-func serviceLeaseActivationEventDetail(pricing PricingDecision, digest string, reservedBuyerMicros int64) ([]byte, error) {
+func serviceLeaseActivationEventDetail(pricing PricingDecision, digest string, reservedBuyerMicros int64, market *serviceLeaseMarketClearingDetail) ([]byte, error) {
 	authority := pricing.ServiceLease
 	fixed := pricing.FixedPoint
 	if authority == nil || fixed == nil || digest == "" || fixed.Currency != pricing.Currency {
@@ -186,6 +188,7 @@ func serviceLeaseActivationEventDetail(pricing PricingDecision, digest string, r
 		KnownCostContributionNanos:       fixed.KnownCostContributionNanos,
 		TrueNetContributionStatus:        "UNKNOWN_PROCESSOR_FEE_UNALLOCATED",
 		UnknownCostCategories:            append([]string(nil), fixed.UnknownCostCategories...),
+		MarketClearing:                   market,
 	}
 	return json.Marshal(detail)
 }
@@ -547,28 +550,65 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	}
 	defer tx.Rollback(ctx)
 
-	var workerID, supplierID uuid.UUID
-	var supplierRate, residencyRate int64
-	err = tx.QueryRow(ctx, `
-		SELECT worker_id,supplier_id,supplier_nanos_per_replica_hour,residency_nanos_per_replica_hour
+	// This is a real buyer order crossing a live supplier offer book. Lock every
+	// compatible candidate in deterministic ask order until the lease commits so
+	// the selected rank and candidate depth cannot describe a market that changed
+	// underneath the reservation. The canonical PricingDecision still decides
+	// whether an ask clears the buyer ceiling and preserves positive contribution.
+	rows, err := tx.Query(ctx, `
+		SELECT worker_id,supplier_id,supplier_nanos_per_replica_hour,
+		       residency_nanos_per_replica_hour,available_warm_replicas
 		  FROM service_lease_worker_offers
 		 WHERE runtime_profile_id=$1 AND runtime_profile_sha256=$2 AND region=$3 AND status='READY'
 		   AND p95_latency_milliseconds>0 AND latency_measurement_count>=5
 		   AND latency_window_seconds BETWEEN 1 AND 300 AND latency_measurement_kind='DATA_PLANE_COMPLETIONS_V1'
 		   AND p95_latency_milliseconds <= $5 AND last_seen_at > now()-interval '45 seconds' AND available_warm_replicas >= $4
-		 ORDER BY supplier_nanos_per_replica_hour ASC,worker_id ASC
-		 FOR UPDATE LIMIT 1`, profile.RuntimeProfileID, profile.ProfileSHA256, request.Region, request.MaximumReplicas, request.MaximumP95LatencyMilliseconds).
-		Scan(&workerID, &supplierID, &supplierRate, &residencyRate)
-	if errors.Is(err, pgx.ErrNoRows) {
+		 ORDER BY supplier_nanos_per_replica_hour ASC,residency_nanos_per_replica_hour ASC,worker_id ASC
+		 FOR UPDATE`, profile.RuntimeProfileID, profile.ProfileSHA256, request.Region, request.MaximumReplicas, request.MaximumP95LatencyMilliseconds)
+	if err != nil {
+		return ServiceLease{}, err
+	}
+	defer rows.Close()
+	candidates := make([]serviceLeaseMarketCandidate, 0)
+	for rows.Next() {
+		var candidate serviceLeaseMarketCandidate
+		if err := rows.Scan(&candidate.WorkerID, &candidate.SupplierID,
+			&candidate.SupplierNanosPerReplicaHour, &candidate.ResidencyNanosPerReplicaHour,
+			&candidate.AvailableWarmReplicas); err != nil {
+			return ServiceLease{}, err
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return ServiceLease{}, err
+	}
+	if len(candidates) == 0 {
 		return ServiceLease{}, errRealtimeNoSupply
 	}
-	if err != nil {
-		return ServiceLease{}, err
+	var (
+		selectedCandidate serviceLeaseMarketCandidate
+		selectedPricing   PricingDecision
+		selectedRank      int
+	)
+	for i, candidate := range candidates {
+		candidatePricing, pricingErr := newServiceLeasePricingDecision(
+			serviceLeasePricingInputs(profile, currency, request,
+				candidate.SupplierNanosPerReplicaHour, candidate.ResidencyNanosPerReplicaHour))
+		if pricingErr != nil {
+			// An ask that cannot clear the frozen buyer ceiling or the positive
+			// contribution invariant is not silently admitted. Continue only to
+			// another measured ask; if none clears, the order is refused.
+			continue
+		}
+		selectedCandidate, selectedPricing, selectedRank = candidate, candidatePricing, i+1
+		break
 	}
-	pricing, err := newServiceLeasePricingDecision(serviceLeasePricingInputs(profile, currency, request, supplierRate, residencyRate))
-	if err != nil {
-		return ServiceLease{}, err
+	if selectedRank == 0 {
+		return ServiceLease{}, errRealtimeNoSupply
 	}
+	workerID, supplierID := selectedCandidate.WorkerID, selectedCandidate.SupplierID
+	supplierRate, residencyRate := selectedCandidate.SupplierNanosPerReplicaHour, selectedCandidate.ResidencyNanosPerReplicaHour
+	pricing := selectedPricing
 	reservedMicros, err := LedgerMicrosFromNanos(MoneyNanos{Currency: currency, Nanos: pricing.FixedPoint.AcceptedCeilingNanos})
 	if err != nil {
 		return ServiceLease{}, err
@@ -621,7 +661,22 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	if err := recordServiceLeaseOfferSampleTx(ctx, tx, workerID, profile.RuntimeProfileID, request.Region); err != nil {
 		return ServiceLease{}, err
 	}
-	activationDetail, err := serviceLeaseActivationEventDetail(pricing, pricingSHA, lease.ReservedBuyerMicros)
+	market := &serviceLeaseMarketClearingDetail{
+		Version:                    serviceLeaseMarketClearingVersion,
+		CandidateCount:             len(candidates),
+		SelectedRank:               selectedRank,
+		SelectedWorkerID:           workerID,
+		SelectedSupplierID:         supplierID,
+		SelectedSupplierRateNanos:  supplierRate,
+		SelectedResidencyRateNanos: residencyRate,
+		BuyerCeilingNanos:          request.BuyerDeclaredCeilingNanos,
+		AcceptedCeilingNanos:       pricing.FixedPoint.AcceptedCeilingNanos,
+		PricingDecisionSHA256:      pricingSHA,
+		PositiveContributionNanos:  pricing.FixedPoint.KnownCostContributionNanos,
+		OrderBookPolicy:            "lowest_supplier_then_residency_ask_v1",
+		SelectionReason:            "measured READY offer cleared the buyer ceiling with positive fixed-point contribution",
+	}
+	activationDetail, err := serviceLeaseActivationEventDetail(pricing, pricingSHA, lease.ReservedBuyerMicros, market)
 	if err != nil {
 		return ServiceLease{}, err
 	}
@@ -833,6 +888,18 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 		TrueNetContributionStatus: "UNKNOWN_PROCESSOR_FEE_UNALLOCATED", DataPlaneAuthorityStatus: "NOT_PROVEN_BY_CONTROL_PLANE",
 		ResidencyAuthorityStatus: "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY",
 		MeteringSemantics:        "cumulative replica-nanoseconds; each receipt is re-derived from lease start"}
+	var activationRaw []byte
+	err = s.pool.QueryRow(ctx, `SELECT detail FROM service_lease_events
+		WHERE lease_id=$1 AND kind='ACTIVATED' ORDER BY created_at,id LIMIT 1`, lease.ID).Scan(&activationRaw)
+	if err == nil {
+		var activation serviceLeaseActivationDetail
+		if err := json.Unmarshal(activationRaw, &activation); err != nil {
+			return ServiceLeaseReceipt{}, err
+		}
+		receipt.MarketClearing = activation.MarketClearing
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return ServiceLeaseReceipt{}, err
+	}
 	if (lease.State == "COMPLETED" || lease.State == "CANCELLED") && lease.ReservedBuyerMicros > 0 {
 		settlement, serr := s.serviceLeaseTerminalSettlement(ctx, lease)
 		if serr != nil {

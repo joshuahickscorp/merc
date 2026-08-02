@@ -62,6 +62,41 @@ const (
 	serviceLiquidityUnmatchedHardware    = "UNMATCHED"
 )
 
+const serviceLeaseMarketClearingVersion = 1
+
+// serviceLeaseMarketCandidate is the authority-side offer book row considered
+// for one buyer order. It is read under the same transaction lock as the
+// reservation, so the candidate count and selected rank describe the market
+// that actually cleared rather than a best-effort snapshot taken beforehand.
+type serviceLeaseMarketCandidate struct {
+	WorkerID                     uuid.UUID
+	SupplierID                   uuid.UUID
+	SupplierNanosPerReplicaHour  int64
+	ResidencyNanosPerReplicaHour int64
+	AvailableWarmReplicas        int
+}
+
+// serviceLeaseMarketClearingDetail is embedded in the activation receipt. It
+// is a matching receipt, not a second price authority: the only amount frozen
+// here is the digest and fixed-point result of the canonical PricingDecision.
+// Candidate rates are retained so an operator can distinguish a genuine
+// order-book match from a hard-coded single-worker route.
+type serviceLeaseMarketClearingDetail struct {
+	Version                    int       `json:"version"`
+	CandidateCount             int       `json:"candidate_count"`
+	SelectedRank               int       `json:"selected_rank"`
+	SelectedWorkerID           uuid.UUID `json:"selected_worker_id"`
+	SelectedSupplierID         uuid.UUID `json:"selected_supplier_id"`
+	SelectedSupplierRateNanos  int64     `json:"selected_supplier_nanos_per_replica_hour"`
+	SelectedResidencyRateNanos int64     `json:"selected_residency_nanos_per_replica_hour"`
+	BuyerCeilingNanos          int64     `json:"buyer_ceiling_nanos"`
+	AcceptedCeilingNanos       int64     `json:"accepted_ceiling_nanos"`
+	PricingDecisionSHA256      string    `json:"pricing_decision_sha256"`
+	PositiveContributionNanos  int64     `json:"positive_contribution_nanos"`
+	OrderBookPolicy            string    `json:"order_book_policy"`
+	SelectionReason            string    `json:"selection_reason"`
+}
+
 // RecordServiceLeaseAdmissionEvent accepts only a lease-bound admission as a
 // capacity success. It contains no buyer ceiling or request body and therefore
 // cannot become a second pricing or customer-data store.
