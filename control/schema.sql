@@ -5606,11 +5606,14 @@ CREATE TABLE IF NOT EXISTS fabric_topology_evaluations (
     requesting_supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
     declared_site TEXT NOT NULL CHECK (btrim(declared_site) <> '' AND length(declared_site) <= 128),
     worker_ids UUID[] NOT NULL CHECK (cardinality(worker_ids) BETWEEN 2 AND 8),
-    status TEXT NOT NULL CHECK (status IN ('LINK_MESH_MEASURED_COLLECTIVE_REQUIRED','LINK_MESH_REFUSED')),
+    status TEXT NOT NULL CHECK (status IN ('LINK_MESH_MEASURED_COLLECTIVE_REQUIRED','SYNTHETIC_COLLECTIVES_MEASURED_GANG_SCHEDULER_REQUIRED','LINK_MESH_REFUSED')),
     required_directed_links INTEGER NOT NULL CHECK (required_directed_links BETWEEN 2 AND 56),
     verified_directed_links INTEGER NOT NULL CHECK (verified_directed_links BETWEEN 0 AND required_directed_links),
     evidence_fresh_until TIMESTAMPTZ NOT NULL,
     links JSONB NOT NULL CHECK (jsonb_typeof(links) = 'array'),
+    required_directed_collectives INTEGER NOT NULL DEFAULT 2 CHECK (required_directed_collectives BETWEEN 2 AND 56),
+    verified_directed_collectives INTEGER NOT NULL DEFAULT 0 CHECK (verified_directed_collectives BETWEEN 0 AND required_directed_collectives),
+    collectives JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(collectives) = 'array'),
     local_cluster_admissible BOOLEAN NOT NULL DEFAULT false CHECK (local_cluster_admissible = false),
     non_admission_reasons JSONB NOT NULL CHECK (jsonb_typeof(non_admission_reasons) = 'array'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -5628,6 +5631,27 @@ DROP TRIGGER IF EXISTS fabric_topology_evaluations_append_only ON fabric_topolog
 CREATE TRIGGER fabric_topology_evaluations_append_only
     BEFORE UPDATE OR DELETE ON fabric_topology_evaluations
     FOR EACH ROW EXECUTE FUNCTION cx_refuse_fabric_topology_evaluation_rewrite();
+
+ALTER TABLE fabric_topology_evaluations
+    ADD COLUMN IF NOT EXISTS required_directed_collectives INTEGER NOT NULL DEFAULT 2,
+    ADD COLUMN IF NOT EXISTS verified_directed_collectives INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS collectives JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE fabric_topology_evaluations
+    DROP CONSTRAINT IF EXISTS fabric_topology_evaluations_status_check,
+    DROP CONSTRAINT IF EXISTS fabric_topology_evaluations_required_directed_collectives_check,
+    DROP CONSTRAINT IF EXISTS fabric_topology_evaluations_verified_directed_collectives_check,
+    DROP CONSTRAINT IF EXISTS fabric_topology_evaluations_required_collectives_check,
+    DROP CONSTRAINT IF EXISTS fabric_topology_evaluations_verified_collectives_check,
+    DROP CONSTRAINT IF EXISTS fabric_topology_evaluations_collectives_check;
+ALTER TABLE fabric_topology_evaluations
+    ADD CONSTRAINT fabric_topology_evaluations_status_check
+        CHECK (status IN ('LINK_MESH_MEASURED_COLLECTIVE_REQUIRED','SYNTHETIC_COLLECTIVES_MEASURED_GANG_SCHEDULER_REQUIRED','LINK_MESH_REFUSED')),
+    ADD CONSTRAINT fabric_topology_evaluations_required_collectives_check
+        CHECK (required_directed_collectives BETWEEN 2 AND 56),
+    ADD CONSTRAINT fabric_topology_evaluations_verified_collectives_check
+        CHECK (verified_directed_collectives BETWEEN 0 AND required_directed_collectives),
+    ADD CONSTRAINT fabric_topology_evaluations_collectives_check
+        CHECK (jsonb_typeof(collectives) = 'array');
 
 -- A project order is the server-side ceiling authority for a multi-step
 -- workload. The buyer keeps the full IR locally because it may contain source

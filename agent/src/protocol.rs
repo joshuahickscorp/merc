@@ -350,8 +350,9 @@ impl ControlPlaneClient {
     }
 
     // This asks control to derive a short-lived evidence mesh from retained
-    // mutual-mTLS receipts. A successful response is explicitly not permission
-    // to start a workload collective or transfer customer data between peers.
+    // mutual-mTLS link and synthetic-collective receipts. A successful response
+    // is explicitly not permission to start a workload collective, transfer
+    // customer data, or place a gang between peers.
     pub async fn evaluate_fabric_topology(
         &self,
         declared_site: &str,

@@ -383,9 +383,10 @@ enum Command {
         #[arg(long)]
         agent_config: PathBuf,
     },
-    /// Derive a fresh, bidirectional mutual-mTLS mesh receipt for a candidate
-    /// local Fabric site. This never grants LOCAL_CLUSTER placement: collective
-    /// performance and topology economics remain separate control authorities.
+    /// Derive a fresh, bidirectional Fabric evidence receipt for a candidate
+    /// local site. It can report peer-observed synthetic collectives, but never
+    /// grants LOCAL_CLUSTER placement: workload collectives, gang scheduling,
+    /// and topology economics remain separate control authorities.
     FabricTopology {
         /// The same declared site label used for every directional FabricProbe.
         #[arg(long)]

@@ -516,6 +516,65 @@ func recordQualifiedMutualFabricLink(t *testing.T, handler http.Handler, from Wo
 	}
 }
 
+func recordQualifiedMutualFabricCollective(t *testing.T, handler http.Handler, from WorkerAuth, fromToken, fromCertificate string, to WorkerAuth, toToken, toCertificate, site string) {
+	t.Helper()
+	created := requestFabricJSON(t, handler, fromToken, "/v1/worker/fabric/sessions", FabricSessionCreateRequest{
+		PeerWorkerID: to.WorkerID, DeclaredSite: site,
+	})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create qualified fabric collective session status=%d body=%s", created.Code, created.Body.String())
+	}
+	var session FabricSessionCreateResponse
+	if err := json.NewDecoder(created.Body).Decode(&session); err != nil {
+		t.Fatal(err)
+	}
+
+	const payloadBytes = 256 * 1024
+	const roundTripMicros = int64(1_000)
+	goodput := float64(payloadBytes*2*8) / float64(roundTripMicros)
+	hash := func(round int, part string) string {
+		sum := sha256.Sum256([]byte(fmt.Sprintf("fabric-collective-topology-test:%s:%s:%d:%s", from.WorkerID, to.WorkerID, round, part)))
+		return hex.EncodeToString(sum[:])
+	}
+	receipt := fabricCollectiveReceipt()
+	receipt.DeclaredSite = site
+	receipt.LocalCertificateSHA256 = fromCertificate
+	receipt.PeerCertificateSHA256 = toCertificate
+	receipt.FabricSessionID = &session.FabricSessionID
+	receipt.ExpectedPeerWorkerID = &to.WorkerID
+	receipt.Rounds = make([]FabricCollectiveMeasurementRound, 0, fabricTopologyMinRoundSamples)
+	for round := 1; round <= fabricTopologyMinRoundSamples; round++ {
+		receipt.Rounds = append(receipt.Rounds, FabricCollectiveMeasurementRound{
+			Round: round, Ranks: 2, PayloadBytesPerRank: payloadBytes, TransportBytes: payloadBytes * 3,
+			RoundTripMicros: roundTripMicros, EffectiveCollectiveGoodputMbps: goodput,
+			LocalPayloadSHA256: hash(round, "local"), PeerPayloadSHA256: hash(round, "peer"),
+			ReducedPayloadSHA256: hash(round, "reduced"), TranscriptSHA256: hash(round, "transcript"),
+		})
+	}
+	receipt.P50RoundTripMicros = roundTripMicros
+	receipt.P95RoundTripMicros = roundTripMicros
+	receipt.P50EffectiveCollectiveGoodputMbps = goodput
+	for _, round := range receipt.Rounds {
+		observed := requestFabricJSON(t, handler, toToken, "/v1/worker/fabric/observations", FabricProbeObservation{
+			SchemaVersion: 1, FabricSessionID: session.FabricSessionID,
+			TranscriptSHA256: round.TranscriptSHA256, PayloadBytesEachDirection: payloadBytes,
+			ObservedAtUnixMS: time.Now().UnixMilli(), ObservedPeerCertificateSHA256: fromCertificate,
+			CollectiveLocalPayloadSHA256: round.LocalPayloadSHA256, CollectivePeerPayloadSHA256: round.PeerPayloadSHA256,
+			CollectiveReducedPayloadSHA256: round.ReducedPayloadSHA256,
+		})
+		if observed.Code != http.StatusNoContent {
+			t.Fatalf("qualified fabric collective observation status=%d body=%s", observed.Code, observed.Body.String())
+		}
+	}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requestFabricCollectiveReceipt(t, handler, fromToken, raw).Code; got != http.StatusNoContent {
+		t.Fatalf("qualified fabric collective receipt status=%d", got)
+	}
+}
+
 func TestFabricTopologyRequiresFreshBidirectionalMTLSMeshAndRefusesClusterPromotion(t *testing.T) {
 	ctx, store, pool := openPayoutTestStore(t)
 	first, firstToken := newFabricMeasurementWorker(t, ctx, store)
@@ -567,5 +626,49 @@ func TestFabricTopologyRequiresFreshBidirectionalMTLSMeshAndRefusesClusterPromot
 	})
 	if forbidden.Code != http.StatusBadRequest {
 		t.Fatalf("cross-supplier topology status=%d, want 400", forbidden.Code)
+	}
+}
+
+func TestFabricTopologyRetainsSyntheticCollectivesButStillRefusesGangPlacement(t *testing.T) {
+	ctx, store, pool := openPayoutTestStore(t)
+	first, firstToken := newFabricMeasurementWorker(t, ctx, store)
+	second, secondToken := newFabricPeerWorker(t, ctx, store, first.SupplierID)
+	firstCertificate := registerFabricIdentity(t, ctx, store, first)
+	secondCertificate := registerFabricIdentity(t, ctx, store, second)
+	handler := NewServer(store, nil, nil, nil).Routes()
+	const site = "supplier-lab-rack-a"
+	recordQualifiedMutualFabricLink(t, handler, first, firstToken, firstCertificate, second, secondToken, secondCertificate, site)
+	recordQualifiedMutualFabricLink(t, handler, second, secondToken, secondCertificate, first, firstToken, firstCertificate, site)
+	recordQualifiedMutualFabricCollective(t, handler, first, firstToken, firstCertificate, second, secondToken, secondCertificate, site)
+	recordQualifiedMutualFabricCollective(t, handler, second, secondToken, secondCertificate, first, firstToken, firstCertificate, site)
+
+	response := requestFabricJSON(t, handler, firstToken, "/v1/worker/fabric/topologies/evaluate", FabricTopologyEvaluationRequest{
+		SchemaVersion: 1, DeclaredSite: site, WorkerIDs: []uuid.UUID{second.WorkerID, first.WorkerID},
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("synthetic collective topology evaluation status=%d body=%s", response.Code, response.Body.String())
+	}
+	var evaluation FabricTopologyEvaluation
+	if err := json.NewDecoder(response.Body).Decode(&evaluation); err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.Status != "SYNTHETIC_COLLECTIVES_MEASURED_GANG_SCHEDULER_REQUIRED" ||
+		evaluation.RequiredDirectedLinks != 2 || evaluation.VerifiedDirectedLinks != 2 ||
+		evaluation.RequiredDirectedCollectives != 2 || evaluation.VerifiedDirectedCollectives != 2 ||
+		len(evaluation.Collectives) != 2 || evaluation.LocalClusterAdmissible {
+		t.Fatalf("synthetic collective topology had wrong non-admissible state: %+v", evaluation)
+	}
+	reasons := strings.Join(evaluation.NonAdmissionReasons, " ")
+	if !strings.Contains(reasons, "gang scheduler") || !strings.Contains(reasons, "positive true Merc contribution") {
+		t.Fatalf("synthetic collective topology lost its scheduling/economics refusals: %+v", evaluation.NonAdmissionReasons)
+	}
+	var storedStatus string
+	var storedCollectives int
+	if err := pool.QueryRow(ctx, `SELECT status,jsonb_array_length(collectives) FROM fabric_topology_evaluations WHERE id=$1`, evaluation.EvaluationID).
+		Scan(&storedStatus, &storedCollectives); err != nil {
+		t.Fatal(err)
+	}
+	if storedStatus != evaluation.Status || storedCollectives != 2 {
+		t.Fatalf("synthetic collective topology receipt was not persisted exactly: status=%q collectives=%d", storedStatus, storedCollectives)
 	}
 }
