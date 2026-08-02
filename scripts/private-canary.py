@@ -35,9 +35,52 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_PATH = Path(REPO).resolve()
+
+# RunPod's edge blocks default library User-Agents. Python's urllib sends
+# "Python-urllib/3.x" and gets 403 from the pod proxy even with a valid key and
+# URL -- identical request via curl returns 200. A probe that omits this reports
+# "no CUDA runtime" while a healthy vLLM is serving.
+MERC_UA = "merc-canary/1.0"
+
+
+def _models_url(endpoint):
+    """Model-list URL for an endpoint that may or may not already end in /v1.
+
+    MERC_GPU_ENDPOINT is conventionally written with the /v1 suffix (that is what
+    OpenAI clients take as base_url), so blindly appending it produced
+    /v1/v1/models and a 404 that looked like an unreachable runtime. The same
+    helper is used for MERC_REALTIME_UPSTREAM so a bare host:port works.
+    """
+    base = endpoint.rstrip("/")
+    return base + "/models" if base.endswith("/v1") else base + "/v1/models"
+
+
+def _endpoint_host_port(endpoint):
+    """Host and port from a scheme-ful or scheme-less endpoint string.
+
+    Accepts both ``127.0.0.1:9000`` (legacy probe form) and
+    ``http://127.0.0.1:9000`` (what control/storage.go and compose files use).
+    """
+    if "://" in endpoint:
+        parsed = urlparse(endpoint)
+        host = parsed.hostname
+        if not host:
+            raise ValueError(f"no host in {endpoint}")
+        if parsed.port is not None:
+            port = parsed.port
+        elif parsed.scheme == "https":
+            port = 443
+        else:
+            port = 80
+        return host, port
+    host, _, port_s = endpoint.partition(":")
+    if not host:
+        raise ValueError(f"no host in {endpoint}")
+    return host, int(port_s or 80)
 
 
 # --------------------------------------------------------------- capabilities
@@ -55,9 +98,9 @@ def cap_object_store():
     endpoint = os.environ.get("S3_ENDPOINT", "")
     if not endpoint:
         return False, "S3_ENDPOINT is not set"
-    host, _, port = endpoint.partition(":")
     try:
-        with socket.create_connection((host, int(port or 80)), timeout=3):
+        host, port = _endpoint_host_port(endpoint)
+        with socket.create_connection((host, port), timeout=3):
             return True, f"object store reachable at {endpoint}"
     except (OSError, ValueError) as exc:
         return False, f"object store unreachable at {endpoint}: {exc}"
@@ -79,7 +122,7 @@ def cap_real_inference_runtime():
         return False, ("no real inference runtime: set MERC_REALTIME_UPSTREAM and "
                        "MERC_REALTIME_UPSTREAM_KEY (llama-server on Metal satisfies this)")
     try:
-        req = urllib.request.Request(endpoint.rstrip("/") + "/models",
+        req = urllib.request.Request(_models_url(endpoint),
                                      headers={"authorization": f"Bearer {key}", "User-Agent": MERC_UA})
         with urllib.request.urlopen(req, timeout=10) as resp:
             if resp.status != 200:
@@ -88,22 +131,6 @@ def cap_real_inference_runtime():
     except (urllib.error.URLError, OSError) as exc:
         return False, f"inference runtime unreachable at {endpoint}: {exc}"
 
-
-# RunPod's edge blocks default library User-Agents. Python's urllib sends
-# "Python-urllib/3.x" and gets 403 from the pod proxy even with a valid key and
-# URL -- identical request via curl returns 200. A probe that omits this reports
-# "no CUDA runtime" while a healthy vLLM is serving.
-MERC_UA = "merc-canary/1.0"
-
-def _models_url(endpoint):
-    """Model-list URL for an endpoint that may or may not already end in /v1.
-
-    MERC_GPU_ENDPOINT is conventionally written with the /v1 suffix (that is what
-    OpenAI clients take as base_url), so blindly appending it produced
-    /v1/v1/models and a 404 that looked like an unreachable runtime.
-    """
-    base = endpoint.rstrip("/")
-    return base + "/models" if base.endswith("/v1") else base + "/v1/models"
 
 def cap_cuda_runtime():
     """CUDA supply specifically, for the RunPod-backed pinned vLLM lane.
@@ -144,14 +171,32 @@ def cap_stripe_sandbox():
 
 
 def cap_openai_sdks():
+    """Both official SDKs, configured the way the integration test actually runs them.
+
+    The Node half of TestRealtimeStreamContractVerificationSettlementAndReceipt
+    only runs when MERC_TEST_OPENAI_NODE is set, and then requires
+    MERC_TEST_OPENAI_NODE_MODULE and MERC_TEST_OPENAI_NODE_VERSION. Probing the
+    module path alone let a Python-only environment look fully configured.
+    """
     py = os.environ.get("MERC_TEST_OPENAI_PYTHON", "")
+    node = os.environ.get("MERC_TEST_OPENAI_NODE", "")
     node_module = os.environ.get("MERC_TEST_OPENAI_NODE_MODULE", "")
-    if not py or not node_module:
-        return False, ("official OpenAI SDKs not configured "
-                       "(MERC_TEST_OPENAI_PYTHON, MERC_TEST_OPENAI_NODE_MODULE)")
-    if not os.path.exists(py):
+    node_version = os.environ.get("MERC_TEST_OPENAI_NODE_VERSION", "")
+    missing = []
+    if not py:
+        missing.append("MERC_TEST_OPENAI_PYTHON")
+    elif not os.path.exists(py):
         return False, f"MERC_TEST_OPENAI_PYTHON points at a missing interpreter: {py}"
-    return True, "official OpenAI SDKs available"
+    if not node:
+        missing.append("MERC_TEST_OPENAI_NODE")
+    if not node_module:
+        missing.append("MERC_TEST_OPENAI_NODE_MODULE")
+    if not node_version:
+        missing.append("MERC_TEST_OPENAI_NODE_VERSION")
+    if missing:
+        return False, ("official OpenAI SDKs not configured "
+                       f"({', '.join(missing)})")
+    return True, "official OpenAI SDKs available (python + node)"
 
 
 def cap_local_runtime():
@@ -307,9 +352,67 @@ def go_test(pattern):
     return ["go", "test", "-count=1", "-run", pattern, "."]
 
 
+def go_test_run_pattern(cmd):
+    """Return the -run pattern from a go test command, or None if not applicable."""
+    if not cmd or cmd[0] != "go" or "test" not in cmd or "-run" not in cmd:
+        return None
+    try:
+        return cmd[cmd.index("-run") + 1]
+    except (ValueError, IndexError):
+        return None
+
+
+def list_matching_go_tests(pattern, cwd, timeout=120):
+    """Return test names matching pattern via `go test -list` (honest empty probe).
+
+    Raises RuntimeError if the list command itself fails (compile error, etc.).
+    """
+    proc = subprocess.run(
+        ["go", "test", "-list", pattern, "."],
+        cwd=os.path.join(REPO, cwd),
+        capture_output=True, text=True, timeout=timeout,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"go test -list failed for pattern {pattern!r}: "
+            f"{failure_summary(proc.stdout + proc.stderr)}")
+    names = []
+    for line in proc.stdout.splitlines():
+        s = line.strip()
+        # go test -list prints one name per line, then an "ok package" summary.
+        if s.startswith("Test") and "\t" not in s and " " not in s:
+            names.append(s)
+    return names
+
+
+def parse_canary_markers(output):
+    """Extract merc_canary: key=value markers the integration test emits on stderr."""
+    markers = {}
+    sdks = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line.startswith("merc_canary:"):
+            continue
+        body = line[len("merc_canary:"):].strip()
+        if body.startswith("sdk_verified="):
+            sdks.append(body.split("=", 1)[1].strip())
+            continue
+        if "=" in body:
+            key, _, value = body.partition("=")
+            markers[key.strip()] = value.strip()
+    if sdks:
+        markers["sdk_verified"] = sdks
+    return markers
+
+
 LANES = [
+    # Job/task money path lives under TestSubmitJobTx* / TestFinalizeJobTx*;
+    # payout funding path under TestReservePayoutFunding* / TestFinalizePayout*.
+    # The previous TestJobTaskMoney|TestPayoutMoneyPath patterns matched nothing.
     {"id": "batch_inference", "needs": ["database", "object_store", "local_runtime"],
-     "cmd": go_test("TestJobTaskMoney|TestPayoutMoneyPath"), "cwd": "control",
+     "cmd": go_test("TestSubmitJobTx|TestFinalizeJobTxActualUSD|"
+                    "TestReservePayoutFunding|TestFinalizePayout|TestAuthorizePayoutSubsidy"),
+     "cwd": "control",
      "retained_evidence": {
          "path": "evidence/canary/real-runtime-embed.json",
          "lane": "batch_embeddings",
@@ -318,8 +421,9 @@ LANES = [
      },
      "note": "proven end to end against a real Apple Silicon worker "
              "(evidence/canary/real-runtime-embed.json)"},
+    # TestBillingSchema matched nothing; real name is TestBillingCustomerCanonicalSchema.
     {"id": "embeddings", "needs": ["database", "object_store", "local_runtime"],
-     "cmd": go_test("TestBillingSchema|TestExactReuse"), "cwd": "control",
+     "cmd": go_test("TestBillingCustomerCanonicalSchema|TestExactReuse"), "cwd": "control",
      "retained_evidence": {
          "path": "evidence/canary/real-runtime-embed.json",
          "lane": "batch_embeddings",
@@ -330,6 +434,7 @@ LANES = [
     {"id": "realtime", "needs": ["database", "real_inference_runtime"],
      "cmd": go_test("TestRealtimeStreamContractVerificationSettlementAndReceipt"),
      "cwd": "control",
+     "require_real_upstream": True,
      "retained_evidence": {
          "path": "evidence/canary/real-runtime-realtime.json",
          "lane": "openai_compatible_realtime",
@@ -339,30 +444,36 @@ LANES = [
      "note": "proven against a real llama.cpp/Metal engine: contract, real completion, "
              "VERIFIED receipt, CAPTURED authorization, positive margin "
              "(evidence/canary/real-runtime-realtime.json)"},
+    # TestCUDAAdmission|TestEngineAdmissible matched nothing; real names are
+    # TestCUDAClassesAreAdmitted and TestEngineAdmissionIsPairedToHardware.
     {"id": "runpod_vllm", "needs": ["database", "cuda_runtime"],
-     "cmd": go_test("TestCUDAAdmission|TestEngineAdmissible"), "cwd": "control",
+     "cmd": go_test("TestCUDAClassesAreAdmitted|TestEngineAdmissionIsPairedToHardware|"
+                    "TestVLLMEngineIsAdmitted"),
+     "cwd": "control",
      "note": "NVIDIA hardware and a pinned digest-addressed vLLM image; no Apple "
              "Silicon engine substitutes for this; the retained provider receipt is "
              "direct-runtime evidence, not a merc request-to-settlement chain"},
-    {"id": "openai_sdk_conformance", "needs": ["database", "openai_sdks"],
+    {"id": "openai_sdk_conformance", "needs": ["database", "openai_sdks", "real_inference_runtime"],
      "cmd": go_test("TestRealtimeStreamContractVerificationSettlementAndReceipt"),
      "cwd": "control",
-     "note": ("official openai Python 2.48.0 and JS 6.49.0 against merc. Against a REAL "
-              "engine the JS client passes all seven capabilities and Python passes six: "
-              "parallel_tool_calls fails because llama.cpp cannot parse this model's tool "
-              "schema. Against the httptest fake it passed -- the fake was masking a real "
+     "require_real_upstream": True,
+     "note": ("official openai Python and JS SDKs against merc with a REAL engine. "
+              "ParallelToolCalls is not weakened: against some llama.cpp models it "
+              "fails because the engine cannot parse that model's tool schema. "
+              "Against the httptest fake it passed -- the fake was masking a real "
               "incompatibility, which is the whole argument for real-runtime proof")},
     {"id": "object_storage", "needs": ["database", "object_store"],
      "cmd": go_test("TestJobObjectRetention|TestBuyerObjectDeletion|TestBuyerCannotReach"),
      "cwd": "control",
      "note": "retention, deletion, tenant isolation against a live store"},
-    {"id": "image_generation", "needs": ["cuda_runtime"],
+    # Pure local unit tests (governance / settlement / admission). No CUDA.
+    {"id": "image_generation", "needs": [],
      "cmd": go_test("TestImage"), "cwd": "control",
      "note": "governance only; no image runtime exists"},
-    {"id": "lora", "needs": ["cuda_runtime"],
+    {"id": "lora", "needs": [],
      "cmd": go_test("TestLoRA"), "cwd": "control",
      "note": "settlement arithmetic only; no trainer, no evaluator dispatch"},
-    {"id": "multi_gpu", "needs": ["cuda_runtime"],
+    {"id": "multi_gpu", "needs": [],
      "cmd": go_test("TestAdmittedPlansAlwaysFit|TestHostTopologyFromRegistration"),
      "cwd": "control",
      "note": "admission only; no tensor-parallel runtime has served a request"},
@@ -379,11 +490,17 @@ LANES = [
      "cmd": go_test("TestWorkerEarnings|TestEarningsCarry|TestSupplierAccrual"),
      "cwd": "control",
      "note": "accrual and reconciliation; a real transfer needs the sandbox"},
+    # StuckRunningJobs / RescueStuckJob have no test coverage under any name.
+    # Leave the dead patterns so the empty-match gate reports FAILED honestly.
     {"id": "failure_recovery", "needs": ["database"],
      "cmd": go_test("TestStuckRunningJobs|TestRescueStuckJob"), "cwd": "control",
-     "note": "stuck-job rescue and cancellation"},
+     "note": "stuck-job rescue and cancellation; no test currently exercises "
+             "Store.StuckRunningJobs or Store.RescueStuckJob"},
+    # TestMoneyCompleteness matched nothing; real coverage is in money_completeness_test.go.
     {"id": "receipt_verification", "needs": ["database"],
-     "cmd": go_test("TestMoneyCompleteness|TestLedgerWrite"), "cwd": "control",
+     "cmd": go_test("TestMoneyUSDDomainBounds|TestNoRawLedgerInsertsOutsideWriter|"
+                    "TestLedgerAmountDomainWideIntegration|TestLedgerWrite"),
+     "cwd": "control",
      "note": "ledger conservation and sole-writer enforcement"},
     {"id": "backup_restore", "needs": [],
      "cmd": ["bash", "scripts/test-backup-schedule.sh"], "cwd": ".",
@@ -470,6 +587,26 @@ def run_lane(lane, capabilities, timeout):
             }
         return result
 
+    # A go test -run that matches nothing exits 0 with "no tests to run". That
+    # is not evidence. Probe with -list first so an empty match is FAILED.
+    pattern = go_test_run_pattern(lane["cmd"])
+    if pattern is not None:
+        try:
+            matched = list_matching_go_tests(pattern, lane["cwd"], timeout=min(timeout, 300))
+        except (RuntimeError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            return {"lane": lane["id"], "status": "FAILED",
+                    "reason": f"could not list tests for -run {pattern!r}: {exc}",
+                    "note": lane["note"]}
+        if not matched:
+            return {
+                "lane": lane["id"],
+                "status": "FAILED",
+                "reason": (f"no tests matched -run pattern: {pattern} "
+                           f"(go test -list returned empty; a green exit is not evidence)"),
+                "unmatched_pattern": pattern,
+                "note": lane["note"],
+            }
+
     try:
         proc = subprocess.run(lane["cmd"], cwd=os.path.join(REPO, lane["cwd"]),
                               capture_output=True, text=True, timeout=timeout)
@@ -477,10 +614,35 @@ def run_lane(lane, capabilities, timeout):
         return {"lane": lane["id"], "status": "FAILED",
                 "reason": f"{type(exc).__name__}: {exc}", "note": lane["note"]}
 
+    combined = proc.stdout + proc.stderr
+    markers = parse_canary_markers(combined)
+
     if proc.returncode != 0:
-        return {"lane": lane["id"], "status": "FAILED",
-                "reason": failure_summary(proc.stdout + proc.stderr),
-                "note": lane["note"]}
+        result = {"lane": lane["id"], "status": "FAILED",
+                  "reason": failure_summary(combined),
+                  "note": lane["note"]}
+        if "realtime_upstream" in markers:
+            result["realtime_upstream"] = markers["realtime_upstream"]
+        if "sdk_verified" in markers:
+            result["sdks_verified"] = markers["sdk_verified"]
+        return result
+
+    # A lane that requires a real engine must have reached one. The integration
+    # test emits merc_canary: realtime_upstream=real|fake so a fake cannot
+    # masquerade as TESTED. Only lanes that opt in via require_real_upstream
+    # are checked this way (the onboard-model bash lane proves reachability
+    # through its own probe, not this marker).
+    if lane.get("require_real_upstream"):
+        kind = markers.get("realtime_upstream")
+        if kind != "real":
+            return {
+                "lane": lane["id"],
+                "status": "FAILED",
+                "reason": (f"lane requires a real inference runtime but the command "
+                           f"reported realtime_upstream={kind!r} (want 'real')"),
+                "realtime_upstream": kind or "missing",
+                "note": lane["note"],
+            }
 
     # The command passing proves TESTED. A clean, committed retained receipt can
     # preserve REAL_RUNTIME_PROVEN. Neither condition binds the current
@@ -491,6 +653,11 @@ def run_lane(lane, capabilities, timeout):
         "reason": "passed",
         "note": lane["note"],
     }
+    if "realtime_upstream" in markers:
+        result["realtime_upstream"] = markers["realtime_upstream"]
+    if "sdk_verified" in markers:
+        result["sdks_verified"] = markers["sdk_verified"]
+        result["reason"] = f"passed; sdks_verified={markers['sdk_verified']}"
     if lane.get("retained_evidence"):
         result["retained_evidence"] = evidence_detail or {
             "status": "REJECTED",
