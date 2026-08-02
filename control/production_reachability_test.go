@@ -155,6 +155,31 @@ var productionReachability = []reachabilityClaim{
 			"having completed the signed direct-transfer exchange.",
 	},
 	{
+		From:   "Server.handleCreateServiceLease",
+		Target: "Store.CreateServiceLease",
+		Consequence: "a buyer-facing service-lease route could validate JSON and return a shape " +
+			"without reserving supplier warm capacity, checking prepaid maximum exposure, or freezing " +
+			"the currency-bound PricingDecision that every later meter must reproduce.",
+	},
+	{
+		From:   "Server.handleServiceLeaseHeartbeat",
+		Target: "Store.HeartbeatServiceLease",
+		Consequence: "worker health would be accepted at HTTP level but cumulative replica-time, " +
+			"SLO bounds, rolling-update facts, and exact payable accrual would never change.",
+	},
+	{
+		From:   "Workers.Run",
+		Target: "Store.RecoverServiceLeases",
+		Consequence: "a dead service worker would continue to look active and accrue through the " +
+			"detector tick rather than stopping at its final authenticated heartbeat.",
+	},
+	{
+		From:   "Workers.Run",
+		Target: "Store.FinalizeExpiredServiceLeases",
+		Consequence: "expired warm-capacity reservations would retain capacity and remain billable " +
+			"instead of producing a bounded terminal service receipt.",
+	},
+	{
 		From:   "Workers.Run",
 		Target: "Store.DeleteOldFabricLinkMeasurements",
 		Consequence: "self-reported candidate-link observations would be retained indefinitely even " +

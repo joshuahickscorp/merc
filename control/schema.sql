@@ -3521,6 +3521,100 @@ CREATE TRIGGER execution_contract_placement_authority
 BEFORE INSERT OR UPDATE ON execution_contracts
 FOR EACH ROW EXECUTE FUNCTION enforce_execution_contract_placement_authority();
 
+-- Reserved services are deliberately separate from per-request realtime
+-- contracts. A warm service commits capacity for a term, meters cumulative
+-- replica-time, and preserves its original PricingDecision even if offers move.
+-- `region` is an operational declaration; it is not a legal residency claim.
+CREATE TABLE IF NOT EXISTS service_lease_worker_offers (
+    worker_id                         UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    supplier_id                       UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    runtime_profile_id                TEXT NOT NULL,
+    runtime_profile_sha256            TEXT NOT NULL CHECK (runtime_profile_sha256 ~ '^[0-9a-f]{64}$'),
+    region                            TEXT NOT NULL CHECK (region ~ '^[a-z0-9-]{2,64}$'),
+    maximum_warm_replicas             INT NOT NULL CHECK (maximum_warm_replicas > 0),
+    available_warm_replicas           INT NOT NULL CHECK (available_warm_replicas BETWEEN 0 AND maximum_warm_replicas),
+    supplier_nanos_per_replica_hour   BIGINT NOT NULL CHECK (supplier_nanos_per_replica_hour > 0),
+    residency_nanos_per_replica_hour  BIGINT NOT NULL CHECK (residency_nanos_per_replica_hour > 0),
+    supports_rolling_upgrade          BOOLEAN NOT NULL,
+    status                            TEXT NOT NULL CHECK (status IN ('READY','DRAINING','FAILED')),
+    last_seen_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at                        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (worker_id,runtime_profile_id,region)
+);
+CREATE INDEX IF NOT EXISTS service_lease_offer_route_idx
+    ON service_lease_worker_offers (runtime_profile_id,region,supplier_nanos_per_replica_hour,last_seen_at DESC)
+    WHERE status='READY' AND available_warm_replicas > 0;
+
+CREATE TABLE IF NOT EXISTS service_leases (
+    id                               UUID PRIMARY KEY,
+    buyer_id                         UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    worker_id                        UUID NOT NULL REFERENCES workers(id) ON DELETE RESTRICT,
+    supplier_id                      UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    runtime_profile_id               TEXT NOT NULL,
+    runtime_profile_sha256           TEXT NOT NULL CHECK (runtime_profile_sha256 ~ '^[0-9a-f]{64}$'),
+    region                           TEXT NOT NULL CHECK (region ~ '^[a-z0-9-]{2,64}$'),
+    minimum_replicas                 INT NOT NULL CHECK (minimum_replicas > 0),
+    maximum_replicas                 INT NOT NULL CHECK (maximum_replicas >= minimum_replicas),
+    maximum_p95_latency_milliseconds BIGINT NOT NULL CHECK (maximum_p95_latency_milliseconds > 0),
+    term_seconds                     BIGINT NOT NULL CHECK (term_seconds BETWEEN 60 AND 604800),
+    state                            TEXT NOT NULL CHECK (state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED','COMPLETED','CANCELLED')),
+    active_replicas                  INT NOT NULL CHECK (active_replicas BETWEEN 0 AND maximum_replicas),
+    upgrade_generation               TEXT NOT NULL DEFAULT '',
+    pricing_decision                 JSONB NOT NULL,
+    pricing_decision_sha256          TEXT NOT NULL CHECK (pricing_decision_sha256 ~ '^[0-9a-f]{64}$'),
+    started_at                       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at                       TIMESTAMPTZ NOT NULL,
+    last_metered_at                  TIMESTAMPTZ NOT NULL,
+    last_worker_heartbeat_at         TIMESTAMPTZ NOT NULL,
+    cumulative_replica_nanoseconds   BIGINT NOT NULL DEFAULT 0 CHECK (cumulative_replica_nanoseconds >= 0),
+    buyer_charge_nanos               BIGINT NOT NULL DEFAULT 0 CHECK (buyer_charge_nanos >= 0),
+    supplier_payable_nanos           BIGINT NOT NULL DEFAULT 0 CHECK (supplier_payable_nanos >= 0),
+    known_variable_cost_nanos        BIGINT NOT NULL DEFAULT 0 CHECK (known_variable_cost_nanos >= 0),
+    known_contribution_nanos         BIGINT NOT NULL DEFAULT 0 CHECK (known_contribution_nanos >= 0),
+    created_at                       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finalized_at                     TIMESTAMPTZ,
+    CHECK (active_replicas >= minimum_replicas OR state IN ('FAILOVER_REQUIRED','COMPLETED','CANCELLED')),
+    CHECK ((state IN ('COMPLETED','CANCELLED')) = (finalized_at IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS service_leases_buyer_created_idx ON service_leases (buyer_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS service_leases_recovery_idx ON service_leases (state,last_worker_heartbeat_at)
+    WHERE state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED');
+
+CREATE TABLE IF NOT EXISTS service_lease_meterings (
+    lease_id                         UUID NOT NULL REFERENCES service_leases(id) ON DELETE RESTRICT,
+    sequence                         BIGINT NOT NULL CHECK (sequence > 0),
+    metered_at                       TIMESTAMPTZ NOT NULL,
+    cumulative_replica_nanoseconds   BIGINT NOT NULL CHECK (cumulative_replica_nanoseconds >= 0),
+    buyer_charge_nanos               BIGINT NOT NULL CHECK (buyer_charge_nanos >= 0),
+    supplier_payable_nanos           BIGINT NOT NULL CHECK (supplier_payable_nanos >= 0),
+    known_variable_cost_nanos        BIGINT NOT NULL CHECK (known_variable_cost_nanos >= 0),
+    known_contribution_nanos         BIGINT NOT NULL CHECK (known_contribution_nanos >= 0),
+    PRIMARY KEY (lease_id,sequence)
+);
+
+CREATE TABLE IF NOT EXISTS service_lease_events (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lease_id    UUID NOT NULL REFERENCES service_leases(id) ON DELETE RESTRICT,
+    kind        TEXT NOT NULL CHECK (kind IN ('ACTIVATED','METERED','ROLLING_UPDATE_STARTED','ROLLING_UPDATE_COMPLETED','WORKER_LOSS','FAILOVER_COMPLETED','EXPIRED','CANCELLED')),
+    detail      JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS service_lease_events_lease_idx ON service_lease_events (lease_id,created_at,id);
+
+-- Continuous-metering facts and service receipts are append-only. Current
+-- aggregate state lives on service_leases solely to make the next delta cheap.
+CREATE OR REPLACE FUNCTION reject_service_lease_money_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'service lease metering facts are append-only';
+END;
+$$;
+DROP TRIGGER IF EXISTS service_lease_meterings_append_only ON service_lease_meterings;
+CREATE TRIGGER service_lease_meterings_append_only
+BEFORE UPDATE OR DELETE ON service_lease_meterings
+FOR EACH ROW EXECUTE FUNCTION reject_service_lease_money_mutation();
+
 -- Dropping NOT NULL above is what lets a cache hit settle without inventing a
 -- capacity reservation. On its own it also lets ANY contract be written with no
 -- worker and no supplier, which is the failure a scheduling bug produces: a
