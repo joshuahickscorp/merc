@@ -28,22 +28,68 @@ type WorkerAuth struct {
 	DeviceFingerprint     string
 	CredentialVersion     int
 	EnrollmentDeviceBound bool
+	// ExpiresAt is the current token lifetime end. Zero means the row predated
+	// expiry and is still inside the migration grace window (see
+	// workerTokenGraceUntil). Callers must not treat zero as "never expires"
+	// past the grace window — LookupWorkerToken rejects those.
+	ExpiresAt time.Time
 }
+
+// Worker token lifetime policy.
+//
+// Short-lived tokens force a worker that has been offline past the window to
+// re-enroll rather than resume with an indefinitely valid secret. Renewal is
+// attached to the existing heartbeat so a live worker never needs a separate
+// round-trip.
+//
+// workerTokenTTL is the lifetime of a newly issued or renewed token.
+// workerTokenGrace is how long pre-expiry rows (expires_at IS NULL) remain
+// valid after this code ships, so existing enrolled workers are not silently
+// locked out at migration time.
+const (
+	workerTokenTTL   = 2 * time.Hour
+	workerTokenGrace = 7 * 24 * time.Hour
+)
+
+// workerTokenGraceUntil is computed once at process start so grace is stable
+// for the lifetime of a control-plane binary, not a moving window that never
+// closes.
+var workerTokenGraceUntil = time.Now().UTC().Add(workerTokenGrace)
+
+// errWorkerTokenExpired is the greppable refusal for an expired credential.
+var errWorkerTokenExpired = errors.New("WORKER_TOKEN_EXPIRED: worker token has expired; re-enroll")
 
 func (s *Store) LookupWorkerToken(ctx context.Context, token string) (WorkerAuth, error) {
 	var w WorkerAuth
+	var expiresAt *time.Time
 	err := s.pool.QueryRow(ctx,
 		`SELECT worker_id,supplier_id,credential_id,COALESCE(device_fingerprint,''),
-		        credential_version,device_fingerprint IS NOT NULL
+		        credential_version,device_fingerprint IS NOT NULL, expires_at
 		   FROM worker_tokens
 		 WHERE token_hash = $1 AND revoked = false`,
 		hashKey(token),
 	).Scan(&w.WorkerID, &w.SupplierID, &w.CredentialID, &w.DeviceFingerprint,
-		&w.CredentialVersion, &w.EnrollmentDeviceBound)
+		&w.CredentialVersion, &w.EnrollmentDeviceBound, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return w, errNotFound
 	}
-	return w, err
+	if err != nil {
+		return w, err
+	}
+	now := time.Now().UTC()
+	if expiresAt == nil {
+		// Pre-migration token: honour the grace window, then force re-enroll.
+		if now.After(workerTokenGraceUntil) {
+			return w, errWorkerTokenExpired
+		}
+		w.ExpiresAt = workerTokenGraceUntil
+		return w, nil
+	}
+	w.ExpiresAt = expiresAt.UTC()
+	if !w.ExpiresAt.After(now) {
+		return w, errWorkerTokenExpired
+	}
+	return w, nil
 }
 
 func (s *Store) CreateWorkerToken(ctx context.Context, workerID, supplierID uuid.UUID) (string, error) {
@@ -51,6 +97,7 @@ func (s *Store) CreateWorkerToken(ctx context.Context, workerID, supplierID uuid
 	if raw == "" {
 		return "", errors.New("worker token: entropy failure")
 	}
+	expires := time.Now().UTC().Add(workerTokenTTL)
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", err
@@ -64,9 +111,9 @@ func (s *Store) CreateWorkerToken(ctx context.Context, workerID, supplierID uuid
 		return "", err
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked)
-		 VALUES ($1, $2, $3, false)`,
-		hashKey(raw), workerID, supplierID,
+		`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at)
+		 VALUES ($1, $2, $3, false, $4, now())`,
+		hashKey(raw), workerID, supplierID, expires,
 	); err != nil {
 		return "", err
 	}
@@ -80,6 +127,63 @@ func (s *Store) CreateWorkerToken(ctx context.Context, workerID, supplierID uuid
 		return "", err
 	}
 	return raw, nil
+}
+
+// CreateWorkerTokenWithExpiry issues a token with an explicit lifetime. Used by
+// seed/dev so demo tokens have a visible (long) expiry rather than infinite.
+func (s *Store) CreateWorkerTokenWithExpiry(ctx context.Context, workerID, supplierID uuid.UUID, ttl time.Duration) (string, time.Time, error) {
+	if ttl <= 0 {
+		ttl = workerTokenTTL
+	}
+	raw := newSecret("cxw_")
+	if raw == "" {
+		return "", time.Time{}, errors.New("worker token: entropy failure")
+	}
+	expires := time.Now().UTC().Add(ttl)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO workers (id, supplier_id, hw_class) VALUES ($1, $2, 'cpu')
+		 ON CONFLICT (id) DO NOTHING`,
+		workerID, supplierID,
+	); err != nil {
+		return "", time.Time{}, err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at)
+		 VALUES ($1, $2, $3, false, $4, now())`,
+		hashKey(raw), workerID, supplierID, expires,
+	); err != nil {
+		return "", time.Time{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", time.Time{}, err
+	}
+	return raw, expires, nil
+}
+
+// RenewWorkerToken extends the lifetime of the credential currently presented
+// by the worker. Called from the heartbeat path so a live worker never needs a
+// separate renewal round-trip. Returns the new expiry.
+func (s *Store) RenewWorkerToken(ctx context.Context, credentialID uuid.UUID) (time.Time, error) {
+	expires := time.Now().UTC().Add(workerTokenTTL)
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE worker_tokens
+		    SET expires_at = $2, last_renewed_at = now()
+		  WHERE credential_id = $1 AND revoked = false
+		    AND (expires_at IS NULL OR expires_at > now())`,
+		credentialID, expires,
+	)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return time.Time{}, errWorkerTokenExpired
+	}
+	return expires, nil
 }
 
 func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
@@ -119,9 +223,10 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		   (id, supplier_id, hw_class, engine, build_hash, memory_gb, bw_gbps, last_seen_at, version,
 		    supported_jobs, supported_models, min_payout_usd_hr, thermal_ok,
 		    agent_session_id, agent_session_started_at, runtime_profile_id,
-		    runtime_profile_revision, runtime_profile_digest)
+		    runtime_profile_revision, runtime_profile_digest,
+		    sandboxed, unsandboxed_opt_in)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7, now(), $8,$9,$10,$11,$12,$13,
-		         CASE WHEN $13::uuid IS NULL THEN NULL ELSE now() END, $14,$15,$16)
+		         CASE WHEN $13::uuid IS NULL THEN NULL ELSE now() END, $14,$15,$16,$17,$18)
 		 ON CONFLICT (id) DO UPDATE SET
 		   hw_class = EXCLUDED.hw_class,
 		   engine = EXCLUDED.engine,
@@ -137,6 +242,8 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		   supported_models = EXCLUDED.supported_models,
 		   min_payout_usd_hr = EXCLUDED.min_payout_usd_hr,
 		   thermal_ok = EXCLUDED.thermal_ok,
+		   sandboxed = EXCLUDED.sandboxed,
+		   unsandboxed_opt_in = EXCLUDED.unsandboxed_opt_in,
 		   agent_session_started_at = CASE
 		     WHEN EXCLUDED.agent_session_id IS NOT NULL
 		      AND workers.agent_session_id IS DISTINCT FROM EXCLUDED.agent_session_id
@@ -147,6 +254,7 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		cap.WorkerID, cap.SupplierID, cap.HWClass, cap.Engine, cap.BuildHash, cap.MemoryGB, cap.MemoryBwGbps, cap.AgentVersion,
 		cap.SupportedJobs, cap.SupportedModels, cap.MinPayoutUsdHr, thermalOK, cap.AgentSessionID,
 		profile.RuntimeID, profile.Revision, profileDigest,
+		cap.Sandboxed, cap.UnsandboxedOptIn,
 	)
 	if err != nil {
 		return err
@@ -178,25 +286,54 @@ func (s *Store) UpsertWorker(ctx context.Context, cap WorkerCapability) error {
 		if err != nil {
 			return err // projectWorkerRuntimeCapabilities already validates this; keep the cast local and checked.
 		}
+		claimedRate := b.TPS
+		if b.JobType == "embed" {
+			claimedRate = b.EPS
+		}
+		// Self-reported rates enter uncorroborated. Until an independent
+		// observation agrees within the policy tolerance, the scheduler and
+		// admission paths see only the conservative floor (see
+		// uncorroboratedBenchmarkFloorTPS), not the claimed rate.
 		_, err = tx.Exec(ctx,
 			`INSERT INTO benchmark_results
-			   (worker_id, model_id, job_type, tps, eps, thermal_ok, p99_latency_ms, load_ms)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+			   (worker_id, model_id, job_type, tps, eps, thermal_ok, p99_latency_ms, load_ms,
+			    corroborated, claimed_rate)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8, false, $9)`,
 			cap.WorkerID, b.ModelID, b.JobType, b.TPS, b.EPS, b.ThermalOK, float32(b.P99MS), loadMS,
+			claimedRate,
 		)
 		if err != nil {
 			return err
 		}
-		schedulerRate := b.TPS
-		if b.JobType == "embed" {
-			schedulerRate = b.EPS
+		// Attempt corroboration against peer measurements of the same cell class.
+		corroborated, source, err := tryCorroborateBenchmarkTx(ctx, tx, cap.WorkerID, b.JobType, b.ModelID, claimedRate)
+		if err != nil {
+			return err
+		}
+		schedulerRate := claimedRate
+		if !corroborated {
+			schedulerRate = uncorroboratedBenchmarkFloorTPS
+		} else {
+			if _, err := tx.Exec(ctx,
+				`UPDATE benchmark_results
+				    SET corroborated = true, corroboration_source = $2, corroborated_at = now()
+				  WHERE id = (
+				    SELECT id FROM benchmark_results
+				     WHERE worker_id = $1 AND job_type = $3 AND model_id = $4
+				     ORDER BY measured_at DESC LIMIT 1
+				  )`,
+				cap.WorkerID, source, b.JobType, b.ModelID,
+			); err != nil {
+				return err
+			}
 		}
 		_, err = tx.Exec(ctx,
-			`INSERT INTO worker_tps_cache (worker_id, job_type, tps, updated_at)
-			 VALUES ($1,$2,$3, now())
+			`INSERT INTO worker_tps_cache (worker_id, job_type, tps, claimed_tps, corroborated, updated_at)
+			 VALUES ($1,$2,$3,$4,$5, now())
 			 ON CONFLICT (worker_id, job_type) DO UPDATE SET
-			   tps = EXCLUDED.tps, updated_at = now()`,
-			cap.WorkerID, b.JobType, schedulerRate,
+			   tps = EXCLUDED.tps, claimed_tps = EXCLUDED.claimed_tps,
+			   corroborated = EXCLUDED.corroborated, updated_at = now()`,
+			cap.WorkerID, b.JobType, schedulerRate, claimedRate, corroborated,
 		)
 		if err != nil {
 			return err
