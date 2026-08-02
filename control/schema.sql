@@ -3658,6 +3658,11 @@ CREATE TABLE IF NOT EXISTS service_leases (
     state                            TEXT NOT NULL CHECK (state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED','COMPLETED','CANCELLED')),
     active_replicas                  INT NOT NULL CHECK (active_replicas BETWEEN 0 AND maximum_replicas),
     upgrade_generation               TEXT NOT NULL DEFAULT '',
+    -- The buyer's exact maximum service exposure, projected once from the
+    -- frozen currency-bound PricingDecision into the ledger's 1e-6-major-unit
+    -- scale. This remains reserved (not spent) until the lease finalizes, so
+    -- a prepaid refund cannot strip funding from already-warm supplier capacity.
+    reserved_buyer_micros             BIGINT NOT NULL DEFAULT 0 CHECK (reserved_buyer_micros >= 0),
     pricing_decision                 JSONB NOT NULL,
     pricing_decision_sha256          TEXT NOT NULL CHECK (pricing_decision_sha256 ~ '^[0-9a-f]{64}$'),
     started_at                       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3674,6 +3679,12 @@ CREATE TABLE IF NOT EXISTS service_leases (
     CHECK (active_replicas >= minimum_replicas OR state IN ('FAILOVER_REQUIRED','COMPLETED','CANCELLED')),
     CHECK ((state IN ('COMPLETED','CANCELLED')) = (finalized_at IS NOT NULL))
 );
+-- Existing rows predate prepaid service reservation and deliberately remain
+-- marked as unreserved historical leases; a migration must not manufacture a
+-- cash claim that was never admitted against a buyer's prepaid balance.
+ALTER TABLE service_leases
+    ADD COLUMN IF NOT EXISTS reserved_buyer_micros BIGINT NOT NULL DEFAULT 0
+    CHECK (reserved_buyer_micros >= 0);
 CREATE INDEX IF NOT EXISTS service_leases_buyer_created_idx ON service_leases (buyer_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS service_leases_recovery_idx ON service_leases (state,last_worker_heartbeat_at)
     WHERE state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED');

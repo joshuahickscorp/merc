@@ -86,36 +86,40 @@ type ServiceLeaseSLOEvidence struct {
 }
 
 type ServiceLease struct {
-	ID                      uuid.UUID       `json:"id"`
-	BuyerID                 uuid.UUID       `json:"buyer_id"`
-	WorkerID                uuid.UUID       `json:"worker_id"`
-	SupplierID              uuid.UUID       `json:"supplier_id"`
-	RuntimeProfileID        string          `json:"runtime_profile_id"`
-	RuntimeProfileSHA256    string          `json:"runtime_profile_sha256"`
-	Region                  string          `json:"region"`
-	MinimumReplicas         int             `json:"minimum_replicas"`
-	MaximumReplicas         int             `json:"maximum_replicas"`
-	MaximumP95LatencyMillis int64           `json:"maximum_p95_latency_milliseconds"`
-	TermSeconds             int64           `json:"term_seconds"`
-	State                   string          `json:"state"`
-	ActiveReplicas          int             `json:"active_replicas"`
-	UpgradeGeneration       string          `json:"upgrade_generation,omitempty"`
-	Pricing                 PricingDecision `json:"pricing_decision"`
-	PricingDecisionSHA256   string          `json:"pricing_decision_sha256"`
-	StartedAt               time.Time       `json:"started_at"`
-	ExpiresAt               time.Time       `json:"expires_at"`
-	LastMeteredAt           time.Time       `json:"last_metered_at"`
-	LastWorkerHeartbeatAt   time.Time       `json:"last_worker_heartbeat_at"`
-	CumulativeReplicaNanos  int64           `json:"cumulative_replica_nanoseconds"`
-	BuyerChargeNanos        int64           `json:"buyer_charge_nanos"`
-	SupplierPayableNanos    int64           `json:"supplier_payable_nanos"`
-	KnownVariableCostNanos  int64           `json:"known_variable_cost_nanos"`
-	KnownContributionNanos  int64           `json:"known_contribution_nanos"`
-	FinalizedAt             *time.Time      `json:"finalized_at,omitempty"`
+	ID                      uuid.UUID `json:"id"`
+	BuyerID                 uuid.UUID `json:"buyer_id"`
+	WorkerID                uuid.UUID `json:"worker_id"`
+	SupplierID              uuid.UUID `json:"supplier_id"`
+	RuntimeProfileID        string    `json:"runtime_profile_id"`
+	RuntimeProfileSHA256    string    `json:"runtime_profile_sha256"`
+	Region                  string    `json:"region"`
+	MinimumReplicas         int       `json:"minimum_replicas"`
+	MaximumReplicas         int       `json:"maximum_replicas"`
+	MaximumP95LatencyMillis int64     `json:"maximum_p95_latency_milliseconds"`
+	TermSeconds             int64     `json:"term_seconds"`
+	State                   string    `json:"state"`
+	ActiveReplicas          int       `json:"active_replicas"`
+	UpgradeGeneration       string    `json:"upgrade_generation,omitempty"`
+	// ReservedBuyerMicros is the exact prepaid maximum held for this lease.
+	// It is a ledger-scale amount, never a USD display projection.
+	ReservedBuyerMicros    int64           `json:"reserved_buyer_micros"`
+	Pricing                PricingDecision `json:"pricing_decision"`
+	PricingDecisionSHA256  string          `json:"pricing_decision_sha256"`
+	StartedAt              time.Time       `json:"started_at"`
+	ExpiresAt              time.Time       `json:"expires_at"`
+	LastMeteredAt          time.Time       `json:"last_metered_at"`
+	LastWorkerHeartbeatAt  time.Time       `json:"last_worker_heartbeat_at"`
+	CumulativeReplicaNanos int64           `json:"cumulative_replica_nanoseconds"`
+	BuyerChargeNanos       int64           `json:"buyer_charge_nanos"`
+	SupplierPayableNanos   int64           `json:"supplier_payable_nanos"`
+	KnownVariableCostNanos int64           `json:"known_variable_cost_nanos"`
+	KnownContributionNanos int64           `json:"known_contribution_nanos"`
+	FinalizedAt            *time.Time      `json:"finalized_at,omitempty"`
 }
 
 type ServiceLeaseReceipt struct {
 	Lease                     ServiceLease             `json:"lease"`
+	BuyerFundingState         string                   `json:"buyer_funding_state"`
 	SupplierSettlementState   string                   `json:"supplier_settlement_state"`
 	TrueNetContributionStatus string                   `json:"true_net_contribution_status"`
 	DataPlaneAuthorityStatus  string                   `json:"data_plane_authority_status"`
@@ -295,28 +299,15 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	if err != nil {
 		return ServiceLease{}, err
 	}
-	var freeMicros, spentMicros, batchReservedMicros, realtimeReservedMicros, serviceReservedMicros int64
-	err = tx.QueryRow(ctx, `
-		SELECT round(b.free_credit_usd*1000000)::bigint,
-		       COALESCE((SELECT -sum((le.amount_usd*1000000)::bigint) FROM ledger_entries le
-		                  WHERE le.buyer_id=b.id AND le.kind IN ('buyer_charge','buyer_refund')),0)::bigint,
-		       COALESCE((SELECT sum(round(j.estimated_usd*1000000)::bigint) FROM jobs j
-		                  WHERE j.buyer_id=b.id AND j.status IN ('queued','running','verifying')),0)::bigint,
-		       COALESCE((SELECT sum(round(c.maximum_price_usd*1000000)::bigint) FROM execution_contracts c
-		                  WHERE c.buyer_id=b.id AND c.state='EXECUTING'),0)::bigint,
-		       COALESCE((SELECT sum(GREATEST(((l.pricing_decision #>> '{fixed_point,accepted_ceiling_nanos}')::bigint+500)/1000,1))
-		                  FROM service_leases l WHERE l.buyer_id=b.id
-		                    AND l.state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED')),0)::bigint
-		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID).
-		Scan(&freeMicros, &spentMicros, &batchReservedMicros, &realtimeReservedMicros, &serviceReservedMicros)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ServiceLease{}, errNotFound
-	}
-	if err != nil {
+	// Services are not allowed to borrow from free_credit_usd, deferred-card
+	// exposure, or a future charge. A warm replica burns immediately, so its
+	// full frozen ceiling has to be reserved against collected prepaid cash
+	// before the supplier capacity is removed from the market.
+	if err := reservePrepaidForServiceLeaseTx(ctx, tx, buyerID, reservedMicros); err != nil {
+		if errors.Is(err, errInsufficientPrepaid) {
+			return ServiceLease{}, errRealtimeInsufficientFunds
+		}
 		return ServiceLease{}, err
-	}
-	if freeMicros-spentMicros-batchReservedMicros-realtimeReservedMicros-serviceReservedMicros < reservedMicros {
-		return ServiceLease{}, errRealtimeInsufficientFunds
 	}
 	pricingJSON, err := json.Marshal(pricing)
 	if err != nil {
@@ -332,17 +323,18 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		Region: request.Region, MinimumReplicas: request.MinimumReplicas, MaximumReplicas: request.MaximumReplicas,
 		MaximumP95LatencyMillis: request.MaximumP95LatencyMilliseconds, TermSeconds: request.TermSeconds,
 		State: "ACTIVE", ActiveReplicas: request.MinimumReplicas, Pricing: pricing, PricingDecisionSHA256: pricingSHA,
-		StartedAt: now, ExpiresAt: now.Add(time.Duration(request.TermSeconds) * time.Second),
+		ReservedBuyerMicros: reservedMicros,
+		StartedAt:           now, ExpiresAt: now.Add(time.Duration(request.TermSeconds) * time.Second),
 		LastMeteredAt: now, LastWorkerHeartbeatAt: now}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO service_leases
 		 (id,buyer_id,worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,region,
 		  minimum_replicas,maximum_replicas,maximum_p95_latency_milliseconds,term_seconds,state,
-		  active_replicas,pricing_decision,pricing_decision_sha256,started_at,expires_at,last_metered_at,last_worker_heartbeat_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',$8,$12,$13,$14,$15,$14,$14)`,
+		  active_replicas,reserved_buyer_micros,pricing_decision,pricing_decision_sha256,started_at,expires_at,last_metered_at,last_worker_heartbeat_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',$8,$12,$13,$14,$15,$16,$15,$15)`,
 		lease.ID, lease.BuyerID, lease.WorkerID, lease.SupplierID, lease.RuntimeProfileID,
 		lease.RuntimeProfileSHA256, lease.Region, lease.MinimumReplicas, lease.MaximumReplicas,
-		lease.MaximumP95LatencyMillis, lease.TermSeconds, pricingJSON, pricingSHA, now, lease.ExpiresAt)
+		lease.MaximumP95LatencyMillis, lease.TermSeconds, lease.ReservedBuyerMicros, pricingJSON, pricingSHA, now, lease.ExpiresAt)
 	if err != nil {
 		return ServiceLease{}, err
 	}
@@ -353,8 +345,8 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 		return ServiceLease{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail)
-		VALUES ($1,'ACTIVATED',jsonb_build_object('reserved_ceiling_nanos',$2::bigint,'currency',$3::text))`,
-		lease.ID, pricing.FixedPoint.AcceptedCeilingNanos, currency.Code()); err != nil {
+		VALUES ($1,'ACTIVATED',jsonb_build_object('reserved_ceiling_nanos',$2::bigint,'reserved_buyer_micros',$3::bigint,'currency',$4::text))`,
+		lease.ID, pricing.FixedPoint.AcceptedCeilingNanos, lease.ReservedBuyerMicros, currency.Code()); err != nil {
 		return ServiceLease{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -384,7 +376,7 @@ func scanServiceLease(row pgx.Row) (ServiceLease, error) {
 	err := row.Scan(&lease.ID, &lease.BuyerID, &lease.WorkerID, &lease.SupplierID,
 		&lease.RuntimeProfileID, &lease.RuntimeProfileSHA256, &lease.Region, &lease.MinimumReplicas,
 		&lease.MaximumReplicas, &lease.MaximumP95LatencyMillis, &lease.TermSeconds, &lease.State,
-		&lease.ActiveReplicas, &lease.UpgradeGeneration, &raw, &lease.PricingDecisionSHA256,
+		&lease.ActiveReplicas, &lease.UpgradeGeneration, &lease.ReservedBuyerMicros, &raw, &lease.PricingDecisionSHA256,
 		&lease.StartedAt, &lease.ExpiresAt, &lease.LastMeteredAt, &lease.LastWorkerHeartbeatAt,
 		&lease.CumulativeReplicaNanos, &lease.BuyerChargeNanos, &lease.SupplierPayableNanos,
 		&lease.KnownVariableCostNanos, &lease.KnownContributionNanos, &lease.FinalizedAt)
@@ -397,7 +389,7 @@ func scanServiceLease(row pgx.Row) (ServiceLease, error) {
 
 const serviceLeaseColumns = `id,buyer_id,worker_id,supplier_id,runtime_profile_id,runtime_profile_sha256,
  region,minimum_replicas,maximum_replicas,maximum_p95_latency_milliseconds,term_seconds,state,
- active_replicas,upgrade_generation,pricing_decision,pricing_decision_sha256,started_at,expires_at,
+ active_replicas,upgrade_generation,reserved_buyer_micros,pricing_decision,pricing_decision_sha256,started_at,expires_at,
  last_metered_at,last_worker_heartbeat_at,cumulative_replica_nanoseconds,buyer_charge_nanos,
  supplier_payable_nanos,known_variable_cost_nanos,known_contribution_nanos,finalized_at`
 
@@ -542,7 +534,13 @@ func (s *Store) GetServiceLeaseReceipt(ctx context.Context, buyerID, leaseID uui
 	if err != nil {
 		return ServiceLeaseReceipt{}, err
 	}
-	receipt := ServiceLeaseReceipt{Lease: lease, SupplierSettlementState: "ACCRUED_UNFUNDED",
+	buyerFundingState := "LEGACY_UNFUNDED"
+	supplierSettlementState := "ACCRUED_UNFUNDED"
+	if lease.ReservedBuyerMicros > 0 {
+		buyerFundingState = "PREPAID_MAXIMUM_RESERVED"
+		supplierSettlementState = "ACCRUED_PREPAID_RESERVED_UNSETTLED"
+	}
+	receipt := ServiceLeaseReceipt{Lease: lease, BuyerFundingState: buyerFundingState, SupplierSettlementState: supplierSettlementState,
 		TrueNetContributionStatus: "UNKNOWN_PROCESSOR_FEE_UNALLOCATED", DataPlaneAuthorityStatus: "NOT_PROVEN_BY_CONTROL_PLANE",
 		ResidencyAuthorityStatus: "SUPPLIER_DECLARED_OPERATIONAL_REGION_ONLY",
 		MeteringSemantics:        "cumulative replica-nanoseconds; each receipt is re-derived from lease start"}
