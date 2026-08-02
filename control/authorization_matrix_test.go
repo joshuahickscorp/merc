@@ -108,7 +108,9 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// reviewed operator surface; it combines retained lane evidence only.
 	// 94 after worker-scoped immutable topology evaluation replay entered the
 	// fabric evidence surface; it cannot promote local placement.
-	if checked != 94 {
-		t.Fatalf("checked %d protected routes, want 94", checked)
+	// 96 after buyer-scoped render assembly manifests and immutable receipt reads
+	// entered the rendering evidence surface; neither route can execute or settle.
+	if checked != 96 {
+		t.Fatalf("checked %d protected routes, want 96", checked)
 	}
 }

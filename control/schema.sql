@@ -5929,6 +5929,40 @@ CREATE TRIGGER project_compile_receipts_append_only
     BEFORE UPDATE OR DELETE ON project_compile_receipts
     FOR EACH ROW EXECUTE FUNCTION cx_refuse_project_compile_receipt_rewrite();
 
+-- A render assembly receipt is a buyer-scoped, append-only observation of
+-- complete deterministic unit coverage. It records failed attempts and their
+-- replacements, but never grants a worker, transfers an asset, verifies pixel
+-- bytes, or creates a money obligation.
+CREATE TABLE IF NOT EXISTS project_render_assembly_receipts (
+    id                 UUID PRIMARY KEY,
+    buyer_id           UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    compile_receipt_id UUID NOT NULL REFERENCES project_compile_receipts(id) ON DELETE RESTRICT,
+    project_sha256     TEXT NOT NULL CHECK (project_sha256 ~ '^[0-9a-f]{64}$'),
+    ir_sha256          TEXT NOT NULL CHECK (ir_sha256 ~ '^[0-9a-f]{64}$'),
+    step_id            TEXT NOT NULL CHECK (step_id ~ '^[a-z][a-z0-9_-]{0,63}$'),
+    manifest_sha256    TEXT NOT NULL CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'),
+    status             TEXT NOT NULL CHECK (status = 'ASSEMBLY_MANIFEST_VERIFIED_NOT_EXECUTABLE'),
+    unit_count         BIGINT NOT NULL CHECK (unit_count > 0 AND unit_count <= 2000000),
+    succeeded_units    BIGINT NOT NULL CHECK (succeeded_units = unit_count),
+    failed_attempts    BIGINT NOT NULL CHECK (failed_attempts >= 0),
+    replaced_ordinals  BIGINT NOT NULL CHECK (replaced_ordinals BETWEEN 0 AND unit_count),
+    manifest           JSONB NOT NULL CHECK (jsonb_typeof(manifest) = 'object'),
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (compile_receipt_id, step_id, manifest_sha256)
+);
+CREATE INDEX IF NOT EXISTS project_render_assembly_receipts_buyer_created_idx
+    ON project_render_assembly_receipts (buyer_id, created_at DESC);
+CREATE OR REPLACE FUNCTION cx_refuse_project_render_assembly_receipt_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'project render assembly receipt % is immutable; submit a new evidence manifest', OLD.id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS project_render_assembly_receipts_append_only
+    ON project_render_assembly_receipts;
+CREATE TRIGGER project_render_assembly_receipts_append_only
+    BEFORE UPDATE OR DELETE ON project_render_assembly_receipts
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_project_render_assembly_receipt_rewrite();
+
 CREATE TABLE IF NOT EXISTS project_orders (
     id UUID PRIMARY KEY,
     buyer_id UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,

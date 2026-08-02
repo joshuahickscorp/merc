@@ -141,6 +141,65 @@ func (s *Server) handleProjectCompileRenderUnit(w http.ResponseWriter, r *http.R
 	})
 }
 
+// handleProjectCompileRenderAssembly records a buyer-supplied manifest of
+// deterministic render-unit outcomes. It verifies complete ordinal coverage and
+// failed-attempt replacement, then stops at the evidence boundary: this route
+// cannot receive assets, assign a worker, assemble bytes, verify pixels, or
+// settle money.
+func (s *Server) handleProjectCompileRenderAssembly(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxBuyer).(*AuthResult)
+	receiptID, ok := pathUUID(w, r)
+	if !ok {
+		return
+	}
+	stepID := strings.TrimSpace(r.PathValue("step"))
+	if !projectStepIDPattern.MatchString(stepID) {
+		writeErr(w, http.StatusBadRequest, "invalid render step id")
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxJSONRequestBodyBytes+1))
+	if err != nil || len(raw) > maxJSONRequestBodyBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge, "render assembly manifest exceeds the bounded JSON limit")
+		return
+	}
+	var manifest ProjectRenderAssemblyManifest
+	if err := decodeStrictJSONObject(raw, &manifest); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid render assembly manifest: "+err.Error())
+		return
+	}
+	receipt, err := s.store.RecordProjectRenderAssemblyReceipt(
+		r.Context(), auth.BuyerID, receiptID, stepID, manifest,
+	)
+	if errors.Is(err, errProjectRenderAssemblyReceiptNotFound) {
+		writeErr(w, http.StatusNotFound, "render compile receipt or step not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "render assembly refused: "+err.Error())
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusCreated, receipt)
+}
+
+func (s *Server) handleProjectRenderAssemblyReceipt(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxBuyer).(*AuthResult)
+	receiptID, ok := pathUUID(w, r)
+	if !ok {
+		return
+	}
+	receipt, err := s.store.GetProjectRenderAssemblyReceipt(r.Context(), auth.BuyerID, receiptID)
+	if errors.Is(err, errProjectRenderAssemblyReceiptNotFound) {
+		writeErr(w, http.StatusNotFound, "render assembly receipt not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "render assembly receipt unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, receipt)
+}
+
 func parseProjectProbeHeader(raw string) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "0", "false", "no":
