@@ -63,6 +63,7 @@ const (
 	budgetStopInterval           = 7 * time.Second
 	realtimeRecoveryInterval     = 15 * time.Second
 	realtimeRecoveryGrace        = 30 * time.Second
+	serviceLeaseRecoveryInterval = 15 * time.Second
 	hedgeAfter                   = 90 * time.Second // 2 × ~45s target per-task time
 	hedgeMaxInFlight             = 4                // concurrent hedges per job
 	hedgeBatch                   = 20               // max new hedges per tick
@@ -294,6 +295,7 @@ func (wk *Workers) Run(ctx context.Context) {
 		{prefixStateSweepInterval, "prefix-state-retention", wk.sweepStalePrefixState},
 		{budgetStopInterval, "budget-stop-sweep", wk.sweepBudgetStops},
 		{realtimeRecoveryInterval, "realtime-contract-recovery", wk.recoverRealtimeContracts},
+		{serviceLeaseRecoveryInterval, "service-lease-recovery", wk.recoverServiceLeases},
 		{noPeerWatchdogInterval, "no-peer-watchdog", wk.reapNoPeerWedged},
 		{overheadSweepInterval, overheadTickerName, wk.sweepExecutionOverhead},
 		// The in-flight sweep had no caller at all: expired inflight_executions
@@ -1274,6 +1276,21 @@ func (wk *Workers) recoverRealtimeContracts(ctx context.Context) error {
 		metrics.realtimeRecovered.Add(int64(recovered))
 		metrics.realtimeFailed.Add(int64(recovered))
 		log.Printf("workers: recovered %d stale realtime execution contract(s)", recovered)
+	}
+	return nil
+}
+
+func (wk *Workers) recoverServiceLeases(ctx context.Context) error {
+	lost, err := wk.store.RecoverServiceLeases(ctx, sweepBatch)
+	if err != nil {
+		return err
+	}
+	completed, err := wk.store.FinalizeExpiredServiceLeases(ctx, sweepBatch)
+	if err != nil {
+		return err
+	}
+	if lost > 0 || completed > 0 {
+		log.Printf("workers: service-lease-recovery lost=%d completed=%d", lost, completed)
 	}
 	return nil
 }

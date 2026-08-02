@@ -113,6 +113,9 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/chat/completions", s.authBuyer(http.HandlerFunc(s.handleChatCompletions)))
 	mux.Handle("POST /v1/images/generations", s.authBuyer(http.HandlerFunc(s.handleImageGenerations)))
 	mux.Handle("GET /v1/realtime/requests/{id}/receipt", s.authBuyer(http.HandlerFunc(s.handleRealtimeReceipt)))
+	mux.Handle("POST /v1/service-leases", s.authBuyer(http.HandlerFunc(s.handleCreateServiceLease)))
+	mux.Handle("GET /v1/service-leases/{id}", s.authBuyer(http.HandlerFunc(s.handleServiceLeaseReceipt)))
+	mux.Handle("GET /v1/service-leases/{id}/receipt", s.authBuyer(http.HandlerFunc(s.handleServiceLeaseReceipt)))
 	mux.Handle("GET /v1/models", s.authBuyer(http.HandlerFunc(s.handleModels)))
 	mux.Handle("GET /v1/price-estimate", s.authBuyer(http.HandlerFunc(s.handlePriceEstimate)))
 	mux.Handle("POST /v1/quote", s.authBuyer(http.HandlerFunc(s.handleQuote))) // Plane C: scan + price, no spend
@@ -131,6 +134,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/worker/register", s.authWorker(http.HandlerFunc(s.handleWorkerRegister)))
 	mux.Handle("POST /v1/worker/realtime/register", s.authWorker(http.HandlerFunc(s.handleRealtimeWorkerRegister)))
 	mux.Handle("POST /v1/worker/realtime/heartbeat", s.authWorker(http.HandlerFunc(s.handleRealtimeWorkerHeartbeat)))
+	mux.Handle("POST /v1/worker/service-leases/offers", s.authWorker(http.HandlerFunc(s.handleServiceLeaseOffer)))
+	mux.Handle("POST /v1/worker/service-leases/{id}/heartbeat", s.authWorker(http.HandlerFunc(s.handleServiceLeaseHeartbeat)))
 	mux.Handle("POST /v1/worker/fabric/sessions", s.authWorker(http.HandlerFunc(s.handleWorkerFabricSessionCreate)))
 	mux.Handle("GET /v1/worker/fabric/sessions/{id}/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservationStatus)))
 	mux.Handle("POST /v1/worker/fabric/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservation)))

@@ -93,6 +93,7 @@ type PricingDecision struct {
 	Catalogue     CataloguePriceAuthority        `json:"catalogue"`
 	Realtime      *RealtimePricingAuthority      `json:"realtime,omitempty"`
 	RealtimeReuse *RealtimeReusePricingAuthority `json:"realtime_reuse,omitempty"`
+	ServiceLease  *ServiceLeasePricingAuthority  `json:"service_lease,omitempty"`
 
 	BillableUnits                 float64 `json:"billable_units"`
 	ExpectedSupplierUnitsPerSec   float64 `json:"expected_supplier_units_per_sec"`
@@ -1015,7 +1016,7 @@ func validatePricingCostShape(p PricingDecision) error {
 			return errors.New("exact-reuse pricing falsely attributes physical execution")
 		}
 	case pricingExecutionRealtime:
-		if p.Realtime == nil || p.RealtimeReuse != nil {
+		if p.Realtime == nil || p.RealtimeReuse != nil || p.ServiceLease != nil {
 			return errors.New("realtime pricing decision lacks realtime authority")
 		}
 		if p.Catalogue != (CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
@@ -1033,7 +1034,7 @@ func validatePricingCostShape(p PricingDecision) error {
 			return errors.New("realtime pricing decision does not conserve modeled buyer price")
 		}
 	case pricingExecutionRealtimeReuse:
-		if p.Realtime != nil || p.RealtimeReuse == nil {
+		if p.Realtime != nil || p.RealtimeReuse == nil || p.ServiceLease != nil {
 			return errors.New("realtime reuse pricing decision lacks reuse authority")
 		}
 		if p.Catalogue != (CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
@@ -1049,6 +1050,29 @@ func validatePricingCostShape(p PricingDecision) error {
 		}
 		if math.Abs(p.PlatformContribution.Amount-p.BuyerPrice) > 0.000000002 {
 			return errors.New("realtime reuse pricing does not conserve gross buyer price")
+		}
+	case pricingExecutionServiceLease:
+		if p.Realtime != nil || p.RealtimeReuse != nil || p.ServiceLease == nil {
+			return errors.New("service lease pricing decision lacks service lease authority")
+		}
+		if p.Catalogue != (CataloguePriceAuthority{}) || p.WorkloadDecisionSHA256 != "" ||
+			p.ComputePlanSHA256 != "" || p.PlacementRequirementSHA256 != "" ||
+			p.EconomicPlanSHA256 != "" || p.EconomicScheduleSHA256 != "" ||
+			p.SupplierGrossNanos != 0 || p.SupplierRequiredNanos != 0 ||
+			p.SupplierEntitlementPolicy != "" || p.VerificationCost.Status != pricingCostNotApplicable ||
+			p.StorageCost.Status != pricingCostNotApplicable || p.EgressCost.Status != pricingCostNotApplicable {
+			return errors.New("service lease pricing decision carries unrelated execution authority")
+		}
+		if err := validateServiceLeasePricingAuthority(*p.ServiceLease, p.Currency); err != nil {
+			return err
+		}
+		if p.FixedPoint == nil {
+			return errors.New("service lease pricing decision lacks exact fixed-point authority")
+		}
+		conserved := p.PrimarySupplierCost.Amount + p.ControlPlaneCost.Amount +
+			p.ProviderCost.Amount + p.RiskReserve.Amount + p.PlatformContribution.Amount
+		if math.Abs(conserved-p.BuyerPrice) > 0.000000002 {
+			return errors.New("service lease pricing decision does not conserve modeled buyer price")
 		}
 	default:
 		return fmt.Errorf("unknown pricing execution mode %q", p.ExecutionMode)
