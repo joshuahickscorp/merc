@@ -11,10 +11,16 @@ use sha2::{Digest, Sha256};
 use tokio::process::{Child, Command};
 
 use crate::protocol::ControlPlaneClient;
-use crate::types::{RealtimeOfferHeartbeat, RealtimeOfferRegistration};
+use crate::types::{
+    RealtimeOfferHeartbeat, RealtimeOfferRegistration, ServiceLeaseAssignment,
+    ServiceLeaseHeartbeat, ServiceLeaseOfferRegistration,
+};
 
 const HEALTH_INTERVAL: Duration = Duration::from_millis(500);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
+const SERVICE_LEASE_MINIMUM_SAMPLES: usize = 5;
+const SERVICE_LEASE_MAXIMUM_SAMPLES: usize = 20;
+const SERVICE_LEASE_MEASUREMENT_KIND: &str = "DATA_PLANE_COMPLETIONS_V1";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -43,6 +49,29 @@ pub struct VllmAgentConfig {
     pub interconnect: String,
     pub supplier_input_usd_per_million_tokens: f64,
     pub supplier_output_usd_per_million_tokens: f64,
+    // An omitted section means this adapter cannot advertise reserved service
+    // capacity. Opt-in is deliberate because qualifying the data-plane causes
+    // bounded real completions against the advertised endpoint.
+    #[serde(default)]
+    pub service_lease: Option<ServiceLeaseConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceLeaseConfig {
+    pub region: String,
+    pub maximum_warm_replicas: u32,
+    pub available_warm_replicas: u32,
+    pub supplier_nanos_per_replica_hour: i64,
+    pub residency_nanos_per_replica_hour: i64,
+    #[serde(default)]
+    pub supports_rolling_upgrade: bool,
+    #[serde(default = "default_service_probe_interval_secs")]
+    pub probe_interval_secs: u64,
+    #[serde(default = "default_service_probe_timeout_millis")]
+    pub probe_timeout_millis: u64,
+    #[serde(default = "default_service_probe_max_tokens")]
+    pub probe_max_tokens: u32,
 }
 
 fn default_container_runtime() -> String {
@@ -63,6 +92,18 @@ const fn default_max_active_sequences() -> u32 {
 
 const fn default_startup_timeout_secs() -> u64 {
     900
+}
+
+const fn default_service_probe_interval_secs() -> u64 {
+    15
+}
+
+const fn default_service_probe_timeout_millis() -> u64 {
+    5_000
+}
+
+const fn default_service_probe_max_tokens() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -251,6 +292,26 @@ fn validate_config(config: &VllmAgentConfig, profile: &RuntimeProfile) -> Result
     {
         bail!("supplier rates must be non-negative and no greater than buyer rates")
     }
+    if let Some(service) = &config.service_lease {
+        let region_valid = service.region.len() >= 2
+            && service.region.len() <= 64
+            && service
+                .region
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+        if !region_valid
+            || service.maximum_warm_replicas == 0
+            || service.available_warm_replicas == 0
+            || service.available_warm_replicas > service.maximum_warm_replicas
+            || service.supplier_nanos_per_replica_hour <= 0
+            || service.residency_nanos_per_replica_hour <= 0
+            || !(5..=300).contains(&service.probe_interval_secs)
+            || !(100..=30_000).contains(&service.probe_timeout_millis)
+            || !(1..=4).contains(&service.probe_max_tokens)
+        {
+            bail!("service lease config has invalid capacity, fixed-point floor, or bounded probe settings")
+        }
+    }
     Ok(())
 }
 
@@ -392,6 +453,240 @@ async fn wait_until_healthy(
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct VllmProbeResponse {
+    choices: Vec<serde_json::Value>,
+}
+
+// A health endpoint only proves that a process answered HTTP. Reserved-service
+// SLOs instead use a fixed, tiny completion through the exact public endpoint
+// registered with Merc. The bounded body, max_tokens, timeout, and cadence are
+// all operator configuration, never buyer input.
+async fn measure_public_data_plane(
+    config: &VllmAgentConfig,
+    profile: &RuntimeProfile,
+    upstream_token: &str,
+    service: &ServiceLeaseConfig,
+) -> Result<i64> {
+    let client = crate::tls::client_builder()?
+        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_millis(service.probe_timeout_millis))
+        .build()
+        .context("building service lease data-plane probe client")?;
+    let endpoint = format!(
+        "{}/completions",
+        config.public_base_url.trim_end_matches('/')
+    );
+    let started = Instant::now();
+    let response = client
+        .post(&endpoint)
+        .bearer_auth(upstream_token)
+        .json(&serde_json::json!({
+            "model": profile.model_alias,
+            "prompt": "Merc reserved-service probe. Reply READY.",
+            "max_tokens": service.probe_max_tokens,
+            "temperature": 0,
+        }))
+        .send()
+        .await
+        .with_context(|| format!("calling bounded service lease probe {endpoint}"))?;
+    if !response.status().is_success() {
+        bail!(
+            "service lease data-plane probe returned {}",
+            response.status()
+        )
+    }
+    let response = response
+        .json::<VllmProbeResponse>()
+        .await
+        .context("decoding service lease data-plane completion")?;
+    if response.choices.is_empty() {
+        bail!("service lease data-plane probe returned no completion choices")
+    }
+    let milliseconds = started.elapsed().as_millis().max(1);
+    i64::try_from(milliseconds).context("service lease probe latency overflow")
+}
+
+#[derive(Debug)]
+struct ServiceLatencySamples {
+    started_at: Instant,
+    samples_millis: Vec<i64>,
+}
+
+impl ServiceLatencySamples {
+    fn new() -> Self {
+        Self {
+            started_at: Instant::now(),
+            samples_millis: Vec::with_capacity(SERVICE_LEASE_MAXIMUM_SAMPLES),
+        }
+    }
+
+    fn record(&mut self, latency_millis: i64) -> Result<()> {
+        if latency_millis < 1 {
+            bail!("service lease latency measurement must be positive")
+        }
+        if self.samples_millis.len() == SERVICE_LEASE_MAXIMUM_SAMPLES {
+            self.samples_millis.remove(0);
+        }
+        self.samples_millis.push(latency_millis);
+        Ok(())
+    }
+
+    fn p95_millis(&self) -> Result<i64> {
+        if self.samples_millis.len() < SERVICE_LEASE_MINIMUM_SAMPLES {
+            bail!("service lease requires five actual data-plane measurements before advertisement")
+        }
+        let mut sorted = self.samples_millis.clone();
+        sorted.sort_unstable();
+        let rank = (sorted.len() * 95).div_ceil(100).saturating_sub(1);
+        Ok(sorted[rank])
+    }
+
+    fn measurement_count(&self) -> u32 {
+        self.samples_millis.len() as u32
+    }
+
+    fn window_seconds(&self) -> i64 {
+        i64::try_from(self.started_at.elapsed().as_secs().max(1)).unwrap_or(i64::MAX)
+    }
+}
+
+fn service_offer(
+    profile: &RuntimeProfile,
+    profile_sha256: &str,
+    service: &ServiceLeaseConfig,
+    samples: &ServiceLatencySamples,
+    status: &str,
+) -> Result<ServiceLeaseOfferRegistration> {
+    let p95_latency_milliseconds = samples.p95_millis()?;
+    Ok(ServiceLeaseOfferRegistration {
+        runtime_profile_id: profile.runtime_profile_id.clone(),
+        runtime_profile_sha256: profile_sha256.to_string(),
+        region: service.region.clone(),
+        maximum_warm_replicas: service.maximum_warm_replicas,
+        available_warm_replicas: service.available_warm_replicas,
+        supplier_nanos_per_replica_hour: service.supplier_nanos_per_replica_hour,
+        residency_nanos_per_replica_hour: service.residency_nanos_per_replica_hour,
+        supports_rolling_upgrade: service.supports_rolling_upgrade,
+        p95_latency_milliseconds,
+        latency_measurement_count: samples.measurement_count(),
+        latency_window_seconds: samples.window_seconds(),
+        latency_measurement_kind: SERVICE_LEASE_MEASUREMENT_KIND.to_string(),
+        status: status.to_string(),
+    })
+}
+
+fn lease_matches_runtime(
+    lease: &ServiceLeaseAssignment,
+    profile: &RuntimeProfile,
+    service: &ServiceLeaseConfig,
+) -> bool {
+    lease.runtime_profile_id == profile.runtime_profile_id && lease.region == service.region
+}
+
+async fn report_service_lease_failure(
+    client: &ControlPlaneClient,
+    profile: &RuntimeProfile,
+    service: &ServiceLeaseConfig,
+) {
+    match client.service_lease_assignments().await {
+        Ok(assignments) => {
+            for lease in assignments
+                .iter()
+                .filter(|lease| lease_matches_runtime(lease, profile, service))
+            {
+                let heartbeat = ServiceLeaseHeartbeat {
+                    warm_replicas: 0,
+                    p95_latency_milliseconds: 0,
+                    latency_measurement_count: 0,
+                    latency_window_seconds: 0,
+                    latency_measurement_kind: String::new(),
+                    status: "FAILED".to_string(),
+                    upgrade_generation: String::new(),
+                };
+                if let Err(error) = client.heartbeat_service_lease(lease.id, &heartbeat).await {
+                    tracing::warn!(%error, lease_id = %lease.id, "could not report failed service lease")
+                }
+            }
+        }
+        Err(error) => {
+            tracing::warn!(%error, "could not read service lease assignments for failure report")
+        }
+    }
+}
+
+async fn heartbeat_service_leases(
+    client: &ControlPlaneClient,
+    config: &VllmAgentConfig,
+    profile: &RuntimeProfile,
+    profile_sha256: &str,
+    upstream_token: &str,
+    service: &ServiceLeaseConfig,
+    samples: &mut ServiceLatencySamples,
+) -> Result<()> {
+    let assignments = client
+        .service_lease_assignments()
+        .await
+        .context("reading service lease assignments")?;
+    let assignments: Vec<_> = assignments
+        .into_iter()
+        .filter(|lease| lease_matches_runtime(lease, profile, service))
+        .collect();
+    let measurement = measure_public_data_plane(config, profile, upstream_token, service).await;
+    match measurement {
+        Ok(latency) => samples.record(latency)?,
+        Err(error) => {
+            tracing::warn!(%error, "service lease data-plane probe failed; failing closed");
+            if let Ok(offer) = service_offer(profile, profile_sha256, service, samples, "FAILED") {
+                if let Err(error) = client.register_service_lease_offer(&offer).await {
+                    tracing::warn!(%error, "could not withdraw failed service lease offer")
+                }
+            }
+            report_service_lease_failure(client, profile, service).await;
+            return Ok(());
+        }
+    }
+    client
+        .register_service_lease_offer(&service_offer(
+            profile,
+            profile_sha256,
+            service,
+            samples,
+            "READY",
+        )?)
+        .await
+        .context("refreshing measured service lease offer")?;
+    if assignments.is_empty() {
+        return Ok(());
+    }
+    let p95 = samples.p95_millis()?;
+    for lease in assignments {
+        let status = if p95 <= lease.maximum_p95_latency_milliseconds {
+            "READY"
+        } else {
+            "FAILED"
+        };
+        let heartbeat = ServiceLeaseHeartbeat {
+            warm_replicas: if status == "READY" {
+                service.available_warm_replicas
+            } else {
+                0
+            },
+            p95_latency_milliseconds: p95,
+            latency_measurement_count: samples.measurement_count(),
+            latency_window_seconds: samples.window_seconds(),
+            latency_measurement_kind: SERVICE_LEASE_MEASUREMENT_KIND.to_string(),
+            status: status.to_string(),
+            upgrade_generation: String::new(),
+        };
+        client
+            .heartbeat_service_lease(lease.id, &heartbeat)
+            .await
+            .with_context(|| format!("heartbeating service lease {}", lease.id))?;
+    }
+    Ok(())
+}
+
 async fn report_terminal_state(client: &ControlPlaneClient, profile_id: &str, status: &str) {
     let heartbeat = RealtimeOfferHeartbeat {
         runtime_profile_id: profile_id.to_string(),
@@ -433,17 +728,42 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
         ControlPlaneClient::new(config.control_url.clone(), config.worker_token.clone())
             .context("building vLLM control-plane client")?,
     );
+    let mut service_samples = if let Some(service) = &config.service_lease {
+        let mut samples = ServiceLatencySamples::new();
+        for sample in 0..SERVICE_LEASE_MINIMUM_SAMPLES {
+            let latency = measure_public_data_plane(&config, &profile, &upstream_token, service)
+                .await
+                .context("qualifying reserved service data plane before advertisement")?;
+            samples.record(latency)?;
+            if sample + 1 < SERVICE_LEASE_MINIMUM_SAMPLES {
+                tokio::time::sleep(Duration::from_secs(service.probe_interval_secs)).await;
+            }
+        }
+        client
+            .register_service_lease_offer(&service_offer(
+                &profile,
+                &profile_sha256,
+                service,
+                &samples,
+                "READY",
+            )?)
+            .await
+            .context("registering measured vLLM service lease offer")?;
+        Some(samples)
+    } else {
+        None
+    };
     client
         .register_realtime(&RealtimeOfferRegistration {
             runtime_profile_id: profile.runtime_profile_id.clone(),
-            runtime_profile_sha256: profile_sha256,
+            runtime_profile_sha256: profile_sha256.clone(),
             hw_class: config.hw_class.clone(),
             gpu_count: config.gpu_count,
             memory_gb_per_gpu: config.memory_gb_per_gpu,
             memory_gb_in_use: config.memory_gb_in_use,
             interconnect: config.interconnect.clone(),
             upstream_base_url: config.public_base_url.clone(),
-            upstream_token,
+            upstream_token: upstream_token.clone(),
             warmth: "HOT".to_string(),
             max_active_sequences: config.max_active_sequences,
             available_sequences: config.max_active_sequences,
@@ -462,15 +782,26 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
     );
     let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut service_heartbeat = config.service_lease.as_ref().map(|service| {
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(service.probe_interval_secs));
+        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        heartbeat
+    });
     loop {
         tokio::select! {
             status = child.wait() => {
                 let status = status.context("waiting for vLLM container")?;
                 report_terminal_state(&client, &profile.runtime_profile_id, "FAILED").await;
+                if let Some(service) = &config.service_lease {
+                    report_service_lease_failure(&client, &profile, service).await;
+                }
                 bail!("vLLM container exited with {status}");
             }
             _ = tokio::signal::ctrl_c() => {
                 report_terminal_state(&client, &profile.runtime_profile_id, "DRAINING").await;
+                if let Some(service) = &config.service_lease {
+                    report_service_lease_failure(&client, &profile, service).await;
+                }
                 let _ = child.start_kill();
                 let _ = child.wait().await;
                 return Ok(());
@@ -484,6 +815,19 @@ pub async fn run(config_path: PathBuf) -> Result<()> {
                 };
                 if let Err(error) = client.heartbeat_realtime(&hb).await {
                     tracing::warn!(%error, "vLLM offer heartbeat failed");
+                }
+            }
+            _ = async {
+                if let Some(heartbeat) = &mut service_heartbeat {
+                    heartbeat.tick().await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {
+                if let (Some(service), Some(samples)) = (&config.service_lease, &mut service_samples) {
+                    if let Err(error) = heartbeat_service_leases(&client, &config, &profile, &profile_sha256, &upstream_token, service, samples).await {
+                        tracing::warn!(%error, "vLLM service lease heartbeat failed");
+                    }
                 }
             }
         }
@@ -549,6 +893,7 @@ mod tests {
             interconnect: "nvlink".into(),
             supplier_input_usd_per_million_tokens: 0.08,
             supplier_output_usd_per_million_tokens: 0.30,
+            service_lease: None,
         }
     }
 
@@ -597,5 +942,44 @@ mod tests {
         let mut bad = config();
         bad.gpu_count = 1;
         assert!(validate_config(&bad, &profile).is_err());
+    }
+
+    #[test]
+    fn service_lease_requires_real_capacity_and_bounded_probes() {
+        let profile = profile();
+        let mut configured = config();
+        configured.service_lease = Some(ServiceLeaseConfig {
+            region: "ca-central-1".into(),
+            maximum_warm_replicas: 2,
+            available_warm_replicas: 2,
+            supplier_nanos_per_replica_hour: 2_000_000_000,
+            residency_nanos_per_replica_hour: 200_000_000,
+            supports_rolling_upgrade: true,
+            probe_interval_secs: 15,
+            probe_timeout_millis: 5_000,
+            probe_max_tokens: 1,
+        });
+        assert!(validate_config(&configured, &profile).is_ok());
+        configured.service_lease.as_mut().unwrap().probe_max_tokens = 5;
+        assert!(validate_config(&configured, &profile).is_err());
+    }
+
+    #[test]
+    fn service_p95_is_exact_order_statistic_and_requires_five_samples() {
+        let mut samples = ServiceLatencySamples::new();
+        for sample in [9, 4, 7, 2] {
+            samples.record(sample).unwrap();
+        }
+        assert!(samples.p95_millis().is_err());
+        samples.record(6).unwrap();
+        assert_eq!(samples.p95_millis().unwrap(), 9);
+        for sample in 10..=30 {
+            samples.record(sample).unwrap();
+        }
+        assert_eq!(
+            samples.measurement_count(),
+            SERVICE_LEASE_MAXIMUM_SAMPLES as u32
+        );
+        assert_eq!(samples.p95_millis().unwrap(), 29);
     }
 }

@@ -3536,12 +3536,30 @@ CREATE TABLE IF NOT EXISTS service_lease_worker_offers (
     supplier_nanos_per_replica_hour   BIGINT NOT NULL CHECK (supplier_nanos_per_replica_hour > 0),
     residency_nanos_per_replica_hour  BIGINT NOT NULL CHECK (residency_nanos_per_replica_hour > 0),
     supports_rolling_upgrade          BOOLEAN NOT NULL,
+    p95_latency_milliseconds          BIGINT NOT NULL CHECK (p95_latency_milliseconds > 0),
+    latency_measurement_count         INT NOT NULL CHECK (latency_measurement_count >= 5),
+    latency_window_seconds            BIGINT NOT NULL CHECK (latency_window_seconds BETWEEN 1 AND 300),
+    latency_measurement_kind          TEXT NOT NULL CHECK (latency_measurement_kind = 'DATA_PLANE_COMPLETIONS_V1'),
     status                            TEXT NOT NULL CHECK (status IN ('READY','DRAINING','FAILED')),
     last_seen_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at                        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at                        TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (worker_id,runtime_profile_id,region)
 );
+-- The deployment path accepts no legacy READY offer as measured. Existing
+-- rows remain unselectable until the current agent re-registers a real probe.
+ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS p95_latency_milliseconds BIGINT;
+ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS latency_measurement_count INT;
+ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS latency_window_seconds BIGINT;
+ALTER TABLE service_lease_worker_offers ADD COLUMN IF NOT EXISTS latency_measurement_kind TEXT;
+ALTER TABLE service_lease_worker_offers DROP CONSTRAINT IF EXISTS service_lease_offer_measurement_check;
+ALTER TABLE service_lease_worker_offers ADD CONSTRAINT service_lease_offer_measurement_check CHECK (
+    status <> 'READY' OR (
+        p95_latency_milliseconds > 0 AND latency_measurement_count >= 5 AND
+        latency_window_seconds BETWEEN 1 AND 300 AND
+        latency_measurement_kind = 'DATA_PLANE_COMPLETIONS_V1'
+    )
+) NOT VALID;
 CREATE INDEX IF NOT EXISTS service_lease_offer_route_idx
     ON service_lease_worker_offers (runtime_profile_id,region,supplier_nanos_per_replica_hour,last_seen_at DESC)
     WHERE status='READY' AND available_warm_replicas > 0;
@@ -3596,7 +3614,7 @@ CREATE TABLE IF NOT EXISTS service_lease_meterings (
 CREATE TABLE IF NOT EXISTS service_lease_events (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     lease_id    UUID NOT NULL REFERENCES service_leases(id) ON DELETE RESTRICT,
-    kind        TEXT NOT NULL CHECK (kind IN ('ACTIVATED','METERED','ROLLING_UPDATE_STARTED','ROLLING_UPDATE_COMPLETED','WORKER_LOSS','FAILOVER_COMPLETED','EXPIRED','CANCELLED')),
+    kind        TEXT NOT NULL CHECK (kind IN ('ACTIVATED','METERED','SLO_MEASURED','ROLLING_UPDATE_STARTED','ROLLING_UPDATE_COMPLETED','WORKER_LOSS','FAILOVER_COMPLETED','EXPIRED','CANCELLED')),
     detail      JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );

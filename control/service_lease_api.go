@@ -74,6 +74,16 @@ func (s *Server) handleServiceLeaseHeartbeat(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+func (s *Server) handleWorkerServiceLeaseAssignments(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	assignments, err := s.store.ListWorkerServiceLeaseAssignments(r.Context(), *auth)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "service lease assignments unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, assignments)
+}
+
 func (s *Server) handleServiceLeaseReceipt(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxBuyer).(*AuthResult)
 	leaseID, ok := pathUUID(w, r)
