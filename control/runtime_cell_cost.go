@@ -484,11 +484,17 @@ func (s *Server) handleAdminSelectorPromotion(w http.ResponseWriter, r *http.Req
 		writeErr(w, http.StatusInternalServerError, "selector promotion receipt unavailable")
 		return
 	}
+	recorded, err := s.store.RecordCellPromotionEvaluation(r.Context(), evidence)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "selector promotion receipt could not be recorded")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"passed":                evidence.Passed(),
 		"evidence":              evidence,
 		"evidence_sha256":       digest,
 		"promotion_receipt_ref": receiptRef,
+		"evidence_recorded":     recorded,
 		"activation_applied":    false,
 	})
 }

@@ -5611,6 +5611,39 @@ CREATE TRIGGER runtime_shadow_selections_append_only
     BEFORE UPDATE OR DELETE ON runtime_shadow_selections
     FOR EACH ROW EXECUTE FUNCTION cx_refuse_shadow_selection_rewrite();
 
+-- Promotion evaluation is evidence, not activation. Keep every refusal and pass
+-- as an immutable receipt so an operator can review the exact scope, authority,
+-- and measured argument after the admin request has returned. The digest is the
+-- application-canonical identity; the database still enforces its shape and
+-- uniqueness, while the JSON preserves every refusal and unknown cost component.
+CREATE TABLE IF NOT EXISTS runtime_cell_promotion_evaluations (
+    evidence_sha256       TEXT PRIMARY KEY CHECK (evidence_sha256 ~ '^[0-9a-f]{64}$'),
+    promotion_receipt_ref  TEXT NOT NULL UNIQUE CHECK (btrim(promotion_receipt_ref) <> ''),
+    gate_version           TEXT NOT NULL CHECK (btrim(gate_version) <> ''),
+    scope_json             JSONB NOT NULL CHECK (jsonb_typeof(scope_json) = 'object'),
+    incumbent_cell         TEXT NOT NULL CHECK (btrim(incumbent_cell) <> ''),
+    challenger_cell        TEXT NOT NULL CHECK (btrim(challenger_cell) <> ''),
+    passed                 BOOLEAN NOT NULL,
+    policy_revision        BIGINT NOT NULL CHECK (policy_revision >= 1),
+    runtime_matrix_sha256  TEXT NOT NULL CHECK (runtime_matrix_sha256 ~ '^[0-9a-f]{64}$'),
+    evaluated_at           TIMESTAMPTZ NOT NULL,
+    evidence_json           JSONB NOT NULL CHECK (jsonb_typeof(evidence_json) = 'object'),
+    recorded_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS runtime_cell_promotion_evaluations_scope_idx
+    ON runtime_cell_promotion_evaluations (challenger_cell, evaluated_at DESC);
+CREATE OR REPLACE FUNCTION cx_refuse_cell_promotion_evaluation_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'cell promotion evaluation % is immutable; evaluate again for a new receipt',
+        OLD.evidence_sha256;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS runtime_cell_promotion_evaluations_append_only
+    ON runtime_cell_promotion_evaluations;
+CREATE TRIGGER runtime_cell_promotion_evaluations_append_only
+    BEFORE UPDATE OR DELETE ON runtime_cell_promotion_evaluations
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_cell_promotion_evaluation_rewrite();
+
 -- Candidate local-fabric link observations. Legacy TCP/HMAC rows are
 -- self-reported; mTLS rows can bind both endpoints to enrolled workers. Neither
 -- form is usable by the scheduler: a direct echo does not prove a governed
