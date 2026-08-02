@@ -22,6 +22,10 @@ const MAX_MEDIA_INPUT_WIDTH: u32 = 4096;
 const MAX_MEDIA_INPUT_HEIGHT: u32 = 4096;
 const MAX_MEDIA_INPUT_DURATION_SECS: f64 = 120.0;
 const MAX_MEDIA_INPUT_FPS: f64 = 60.0;
+// FFmpeg may finish the frame in progress while it changes a variable-rate
+// source to the declared constant frame rate.  One output frame plus a small
+// container timestamp allowance is the only duration growth we permit.
+const MEDIA_OUTPUT_DURATION_TIMESTAMP_ALLOWANCE_SECS: f64 = 0.05;
 const MEDIA_PROCESS_TIMEOUT: Duration = Duration::from_secs(150);
 const MEDIA_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 const MEDIA_BACKEND: &str = "ffmpeg_transcode";
@@ -141,7 +145,7 @@ impl MediaTranscodeRunner {
             .join(format!("source.{}", spec.input_extension));
         let output = scratch.path().join("output.mp4");
         tokio::fs::write(&source, input).await.map_err(media_err)?;
-        verify_media_input(&self.ffprobe, &source, spec).await?;
+        let input_evidence = verify_media_input(&self.ffprobe, &source, spec).await?;
 
         // Every variable below is a validated numeric value or a path generated
         // inside this scratch directory. There is no shell and no buyer supplied
@@ -222,7 +226,7 @@ impl MediaTranscodeRunner {
                 ),
             });
         }
-        verify_media_output(&self.ffprobe, &output, spec).await?;
+        verify_media_output(&self.ffprobe, &output, spec, input_evidence.duration_secs).await?;
         let metadata = tokio::fs::metadata(&output).await.map_err(media_err)?;
         if metadata.len() == 0 || metadata.len() > MAX_MEDIA_OUTPUT_BYTES {
             return Err(RunError::Inference {
@@ -321,7 +325,14 @@ fn bounded_process_error(stderr: &[u8]) -> String {
     if rendered.len() <= MAX {
         rendered.to_string()
     } else {
-        format!("{}…", &rendered[..MAX])
+        // stderr is not trustworthy: FFmpeg can report a non-ASCII metadata
+        // value, and slicing a UTF-8 string at an arbitrary byte offset would
+        // panic precisely while handling the original process failure.
+        let mut end = MAX;
+        while !rendered.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &rendered[..end])
     }
 }
 
@@ -373,7 +384,11 @@ async fn bounded_media_command(
     }
 }
 
-async fn probe_media_file(ffprobe: &Path, path: &Path) -> Result<ProbeOutput, RunError> {
+async fn probe_media_file(
+    ffprobe: &Path,
+    path: &Path,
+    demuxer: &str,
+) -> Result<ProbeOutput, RunError> {
     let mut command = Command::new(ffprobe);
     command
         .kill_on_drop(true)
@@ -384,6 +399,17 @@ async fn probe_media_file(ffprobe: &Path, path: &Path) -> Result<ProbeOutput, Ru
         .args([
             "-v",
             "error",
+            // A local path does not by itself make FFprobe local-only: a
+            // playlist/container may ask it to open another protocol while it
+            // inspects the source.  Match the transcode child: only the
+            // private scratch file and its pipes are in scope.
+            "-protocol_whitelist",
+            "file,pipe",
+            // The submission selected this narrow source format.  Do not
+            // auto-detect a different container during the preflight, then
+            // call that result evidence for the declared media contract.
+            "-f",
+            demuxer,
             "-show_entries",
             "format=duration:stream=codec_type,codec_name,pix_fmt,width,height,avg_frame_rate",
             "-of",
@@ -402,6 +428,11 @@ async fn probe_media_file(ffprobe: &Path, path: &Path) -> Result<ProbeOutput, Ru
         });
     }
     serde_json::from_slice(&probe.stdout).map_err(media_err)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MediaInputEvidence {
+    duration_secs: f64,
 }
 
 fn exactly_one_video_stream<'a>(
@@ -473,9 +504,9 @@ fn probe_frame_rate(value: Option<&str>, field: &str) -> Result<f64, RunError> {
 async fn verify_media_input(
     ffprobe: &Path,
     input: &Path,
-    _spec: MediaTranscodeSpec,
-) -> Result<(), RunError> {
-    let parsed = probe_media_file(ffprobe, input).await?;
+    spec: MediaTranscodeSpec,
+) -> Result<MediaInputEvidence, RunError> {
+    let parsed = probe_media_file(ffprobe, input, spec.input_demuxer).await?;
     let video = exactly_one_video_stream(&parsed, "input")?;
     let (width, height) = match (video.width, video.height) {
         (Some(width), Some(height)) if width > 0 && height > 0 => (width, height),
@@ -516,16 +547,40 @@ async fn verify_media_input(
             msg: format!("input frame rate {fps:.3} exceeds {MAX_MEDIA_INPUT_FPS:.0} fps"),
         });
     }
-    Ok(())
+    Ok(MediaInputEvidence {
+        duration_secs: duration,
+    })
+}
+
+fn maximum_media_output_duration_secs(
+    input_duration_secs: f64,
+    output_fps: u32,
+) -> Result<f64, RunError> {
+    if !input_duration_secs.is_finite() || input_duration_secs <= 0.0 || output_fps == 0 {
+        return Err(RunError::Inference {
+            backend: MEDIA_BACKEND,
+            msg: "cannot derive a bounded output duration from invalid input evidence".to_string(),
+        });
+    }
+    Ok(input_duration_secs
+        + (1.0 / f64::from(output_fps))
+        + MEDIA_OUTPUT_DURATION_TIMESTAMP_ALLOWANCE_SECS)
 }
 
 async fn verify_media_output(
     ffprobe: &Path,
     output: &Path,
     spec: MediaTranscodeSpec,
+    input_duration_secs: f64,
 ) -> Result<(), RunError> {
-    let parsed = probe_media_file(ffprobe, output).await?;
+    let parsed = probe_media_file(ffprobe, output, "mov").await?;
     let video = exactly_one_video_stream(&parsed, "FFmpeg output")?;
+    if parsed.streams.len() != 1 {
+        return Err(RunError::Inference {
+            backend: MEDIA_BACKEND,
+            msg: "FFmpeg output has streams outside the fixed video-only contract".to_string(),
+        });
+    }
     let (width, height) = match (video.width, video.height) {
         (Some(width), Some(height)) if width > 0 && height > 0 => (width, height),
         _ => {
@@ -557,6 +612,22 @@ async fn verify_media_output(
             msg: format!(
                 "output frame rate {fps:.3} does not match requested {} fps",
                 spec.fps
+            ),
+        });
+    }
+    let duration = finite_positive_probe_number(
+        parsed
+            .format
+            .as_ref()
+            .and_then(|format| format.duration.as_deref()),
+        "output duration",
+    )?;
+    let maximum_duration = maximum_media_output_duration_secs(input_duration_secs, spec.fps)?;
+    if duration > maximum_duration {
+        return Err(RunError::Inference {
+            backend: MEDIA_BACKEND,
+            msg: format!(
+                "output duration {duration:.3}s exceeds bounded source duration {input_duration_secs:.3}s (maximum {maximum_duration:.3}s)"
             ),
         });
     }
@@ -707,6 +778,25 @@ mod tests {
         }
         assert!(finite_positive_probe_number(Some("NaN"), "duration").is_err());
         assert!(finite_positive_probe_number(Some("-1"), "duration").is_err());
+    }
+
+    #[test]
+    fn media_output_duration_is_bound_to_the_verified_source() {
+        let max = maximum_media_output_duration_secs(10.0, 24).expect("bounded source");
+        assert!(max > 10.0);
+        assert!(max < 10.1);
+        assert!(maximum_media_output_duration_secs(0.0, 24).is_err());
+        assert!(maximum_media_output_duration_secs(f64::NAN, 24).is_err());
+        assert!(maximum_media_output_duration_secs(10.0, 0).is_err());
+    }
+
+    #[test]
+    fn bounded_process_error_never_slices_through_utf8() {
+        let stderr = format!("{}💥", "x".repeat(1023));
+        let rendered = bounded_process_error(stderr.as_bytes());
+        assert!(rendered.ends_with('…'));
+        assert!(rendered.is_char_boundary(rendered.len()));
+        assert!(rendered.starts_with(&"x".repeat(1023)));
     }
 
     #[cfg(unix)]
