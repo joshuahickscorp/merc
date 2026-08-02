@@ -69,10 +69,11 @@ if missing or stale:
 # authenticated RuntimeSelector rollback caller, and 109 for the buyer data
 # plane bound to a reserved service lease, and 110 for the authenticated
 # project compiler/probe upload, 111 for its buyer-scoped durable receipt read,
-# and 112 for the buyer-scoped deterministic render-unit read.
+# and 112 for the buyer-scoped deterministic render-unit read, and 113 for
+# the composed operator network-liquidity receipt.
 # The count is pinned so a NEW route cannot be added without a reviewer deciding
 # what every role may do with it.
-if len(reviewed) != 112:
-    fail(f"expected reviewed 112-route surface, found {len(reviewed)}")
+if len(reviewed) != 113:
+    fail(f"expected reviewed 113-route surface, found {len(reviewed)}")
 
 print(f"authorization matrix: PASS ({len(reviewed)} routes, {len(ROLES)} roles, default deny)")

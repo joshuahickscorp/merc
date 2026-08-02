@@ -107,6 +107,13 @@ tested through two live offers, including the database immutability refusal.
 This raises the realtime liquidity evidence, not the local-fabric claim: region
 authority, calibrated net costs, and a multi-site market remain absent.
 
+The operator surface now also exposes `GET /admin/market/liquidity/network`, a
+single bounded receipt that composes the realtime and warm-service lane reports
+for the same requested retention window. It preserves each lane's own offer,
+demand, fill, utilization, churn, and fixed-point price-depth evidence and
+states that the scope is retained Merc lanes only. It does not infer a global
+market, legal region, or a new price.
+
 ## 3. Continuous batching — PARTIAL
 
 `agent/src/quantized_llama_batched.rs` has the primitives: padded-mask batched
