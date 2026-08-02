@@ -79,6 +79,7 @@ func TestUnsandboxedCapabilityIsRecordedOnRegister(t *testing.T) {
 		supplierID, "unsandbox-"+uuid.NewString()+"@corp.example"); err != nil {
 		t.Fatal(err)
 	}
+	registerContainmentCleanup(t, pool, []uuid.UUID{workerID}, nil)
 	if _, err := store.CreateWorkerToken(ctx, workerID, supplierID); err != nil {
 		t.Fatal(err)
 	}
@@ -111,6 +112,7 @@ func TestExpiredWorkerTokenIsRejectedAndRenewedIsAccepted(t *testing.T) {
 		supplierID, "token-"+uuid.NewString()+"@corp.example"); err != nil {
 		t.Fatal(err)
 	}
+	registerContainmentCleanup(t, pool, []uuid.UUID{workerID}, nil)
 	raw, expires, err := store.CreateWorkerTokenWithExpiry(ctx, workerID, supplierID, 2*time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -195,6 +197,7 @@ func TestLinkedSupplierCannotClaimBuyerTaskAndExclusionIsRecorded(t *testing.T) 
 	}
 
 	jobID, taskID := uuid.New(), uuid.New()
+	registerContainmentCleanup(t, pool, []uuid.UUID{workerID}, []uuid.UUID{jobID})
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO jobs (id,buyer_id,status,job_type,model_ref,input_ref,task_count,
 		                  offered_rate_usd_hr,min_memory_gb,tier)
@@ -288,6 +291,7 @@ func TestLinkedSupplierCannotClaimVerificationTasks(t *testing.T) {
 	}
 
 	jobID, honeypotID, redunID := uuid.New(), uuid.New(), uuid.New()
+	registerContainmentCleanup(t, pool, []uuid.UUID{workerID}, []uuid.UUID{jobID})
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO jobs (id,buyer_id,status,job_type,model_ref,input_ref,task_count,
 		                  offered_rate_usd_hr,min_memory_gb,tier)
@@ -364,6 +368,7 @@ func TestNoIndependentSupplierIsRefusedNotSettled(t *testing.T) {
 		t.Fatal(err)
 	}
 	jobID := uuid.New()
+	registerContainmentCleanup(t, pool, []uuid.UUID{workerID}, []uuid.UUID{jobID})
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO jobs (id,buyer_id,status,job_type,model_ref,input_ref,task_count,tier)
 		VALUES ($1,$2,'running','embed','all-minilm-l6-v2','in',1,'batch')`,
@@ -426,6 +431,7 @@ func TestUnpeeredBenchmarkKeepsClaimedRate(t *testing.T) {
 		supplierID, "bench-"+uuid.NewString()+"@corp.example"); err != nil {
 		t.Fatal(err)
 	}
+	registerContainmentCleanup(t, pool, []uuid.UUID{workerID}, nil)
 	cap := testWorkerCapability(workerID, supplierID)
 	// Self-report with no peer in the cell class: unpeered, not disputed.
 	cap.Benchmarks = []BenchResult{{
@@ -460,6 +466,13 @@ func TestDisputedBenchmarkIsNotRoutableAtClaimedRate(t *testing.T) {
 		peerSupplier, "bench-peer-"+uuid.NewString()+"@corp.example"); err != nil {
 		t.Fatal(err)
 	}
+	// Inflated self-report that cannot agree with the peer within 25%.
+	supplierID, workerID := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
+		supplierID, "bench-"+uuid.NewString()+"@corp.example"); err != nil {
+		t.Fatal(err)
+	}
+	registerContainmentCleanup(t, pool, []uuid.UUID{peerWorker, workerID}, nil)
 	peerCap := testWorkerCapability(peerWorker, peerSupplier)
 	peerCap.Benchmarks = []BenchResult{{
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
@@ -469,12 +482,6 @@ func TestDisputedBenchmarkIsNotRoutableAtClaimedRate(t *testing.T) {
 		t.Fatalf("peer upsert: %v", err)
 	}
 
-	// Inflated self-report that cannot agree with the peer within 25%.
-	supplierID, workerID := uuid.New(), uuid.New()
-	if _, err := pool.Exec(ctx, `INSERT INTO suppliers (id,email,status) VALUES ($1,$2,'active')`,
-		supplierID, "bench-"+uuid.NewString()+"@corp.example"); err != nil {
-		t.Fatal(err)
-	}
 	cap := testWorkerCapability(workerID, supplierID)
 	cap.Benchmarks = []BenchResult{{
 		ModelID: "all-minilm-l6-v2", JobType: "embed",
@@ -505,6 +512,44 @@ func TestDisputedBenchmarkIsNotRoutableAtClaimedRate(t *testing.T) {
 func openContainmentTestStore(t *testing.T) (context.Context, *Store, *pgxpool.Pool) {
 	t.Helper()
 	return openPayoutTestStore(t)
+}
+
+// registerContainmentCleanup ages workers offline and cancels residual tasks so
+// a later placement/currency claim does not see leftover claimable work. workers
+// is ON DELETE RESTRICT from several tables; discarding cleanup errors is not a
+// cleanup.
+func registerContainmentCleanup(t *testing.T, pool *pgxpool.Pool, workerIDs, jobIDs []uuid.UUID) {
+	t.Helper()
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		for _, workerID := range workerIDs {
+			if _, err := pool.Exec(c,
+				`UPDATE workers SET last_seen_at = now() - interval '10 minutes' WHERE id=$1`,
+				workerID); err != nil {
+				t.Errorf("age containment worker offline: %v", err)
+			}
+			if _, err := pool.Exec(c,
+				`DELETE FROM worker_authorized_capabilities WHERE worker_id=$1`, workerID); err != nil {
+				t.Errorf("cleanup containment capability: %v", err)
+			}
+			if _, err := pool.Exec(c,
+				`DELETE FROM worker_tps_cache WHERE worker_id=$1`, workerID); err != nil {
+				t.Errorf("cleanup containment tps cache: %v", err)
+			}
+		}
+		for _, jobID := range jobIDs {
+			if _, err := pool.Exec(c,
+				`UPDATE tasks SET status='cancelled', claimed_by=NULL
+				   WHERE job_id=$1 AND status IN ('queued','retrying','running','verifying')`,
+				jobID); err != nil {
+				t.Errorf("cancel containment residual tasks: %v", err)
+			}
+			_, _ = pool.Exec(c, `DELETE FROM claim_independence_exclusions WHERE job_id=$1`, jobID)
+			_, _ = pool.Exec(c, `DELETE FROM tasks WHERE job_id=$1`, jobID)
+			_, _ = pool.Exec(c, `DELETE FROM jobs WHERE id=$1`, jobID)
+		}
+	})
 }
 
 func testWorkerCapability(workerID, supplierID uuid.UUID) WorkerCapability {
