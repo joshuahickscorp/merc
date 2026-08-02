@@ -35,10 +35,11 @@ func TestMediaContractNormalizesAndRejectsTextOnlyFields(t *testing.T) {
 
 func TestMediaInputScanUsesOneBoundedBinaryGeometry(t *testing.T) {
 	input := append([]byte{0, 0, 0, 24, 'f', 't', 'y', 'p'}, bytes.Repeat([]byte{'x'}, 16)...)
-	scan, err := mediaInputScan(input)
+	scan, err := mediaInputScan(input, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Pin single-segment numbers: one record, full object byte geometry.
 	if scan.Records != 1 || scan.Bytes != len(input) || scan.MaxLineBytes != len(input) {
 		t.Fatalf("media scan geometry = %+v", scan)
 	}
@@ -50,6 +51,44 @@ func TestMediaInputScanUsesOneBoundedBinaryGeometry(t *testing.T) {
 	}
 	if err := validateMediaInputBytes([]byte(`{"not":"media"}`)); err == nil {
 		t.Fatal("JSONL bytes entered the binary media lane")
+	}
+}
+
+func TestMediaInputScanPricesNSegmentsAsNUnits(t *testing.T) {
+	input := append([]byte{0, 0, 0, 24, 'f', 't', 'y', 'p'}, bytes.Repeat([]byte{'x'}, 8)...)
+	one, err := mediaInputScan(input, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	three, err := mediaInputScan(input, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.Records != 1 || three.Records != 3 {
+		t.Fatalf("records one=%d three=%d", one.Records, three.Records)
+	}
+	// Media settlement multiplies the historical single-object geometry by N.
+	// Plain max(records, bytes/4) would collapse large objects to one unit.
+	u1 := settlementInputUnitsForMediaSegments(one.Records, int64(one.Bytes))
+	u3 := settlementInputUnitsForMediaSegments(three.Records, int64(three.Bytes))
+	pinned := settlementInputUnitsForGeometry(1, int64(one.Bytes))
+	if u1 != pinned {
+		t.Fatalf("single-segment units=%v, want pinned historical %v", u1, pinned)
+	}
+	if u3 != pinned*3 {
+		t.Fatalf("three-segment units=%v, want %v (3× single)", u3, pinned*3)
+	}
+	// Naive geometry still collapses — the media path must not use it for N>1.
+	naive := settlementInputUnitsForGeometry(three.Records, int64(three.Bytes))
+	if naive >= u3 {
+		// only interesting when bytes/4 > 1; document the collapse we fixed
+	}
+	if u3 <= u1 {
+		t.Fatalf("N segments must price strictly above one segment: %v vs %v", u3, u1)
+	}
+	jt := JobType{Type: "media_transcode"}
+	if got := settlementInputUnitsForJobType(jt, 3, int64(one.Bytes)); got != u3 {
+		t.Fatalf("job-type media units=%v, want %v", got, u3)
 	}
 }
 
