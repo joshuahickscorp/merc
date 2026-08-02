@@ -370,6 +370,26 @@ func writeLoRAFixtureAssets(t *testing.T, root string, declaration *ProjectDecla
 	}
 }
 
+func writeSchemaValidatedLoRAFixture(t *testing.T, root string, declaration *ProjectDeclaration, heldOut string) {
+	t.Helper()
+	assets := map[string]string{
+		"schema.json":    `{"version":"MERC_LORA_DATASET_SCHEMA_V1","fields":{"input":"string","target":"string"},"required":["input","target"]}`,
+		"train.jsonl":    "{\"input\":\"first prompt\",\"target\":\"first completion\"}\n{\"input\":\"second prompt\",\"target\":\"second completion\"}\n",
+		"held-out.jsonl": heldOut,
+	}
+	pins := map[string]*ProjectIRArtifactPin{
+		"train.jsonl":    &declaration.Steps[0].LoRA.TrainingSet,
+		"held-out.jsonl": &declaration.Steps[0].LoRA.HeldOutSet,
+		"schema.json":    &declaration.Steps[0].LoRA.DatasetSchema,
+	}
+	for path, contents := range assets {
+		writeProjectFixture(t, root, path, contents)
+		digest := sha256.Sum256([]byte(contents))
+		pins[path].SHA256 = hex.EncodeToString(digest[:])
+	}
+	writeDeclarationFixture(t, root, *declaration)
+}
+
 func TestProjectLoRAOutcomeContractKeepsEvaluationSeparate(t *testing.T) {
 	t.Run("held-out data is never a training input", func(t *testing.T) {
 		declaration := loraProjectDeclarationFixture()
@@ -403,6 +423,53 @@ func TestProjectLoRAOutcomeContractKeepsEvaluationSeparate(t *testing.T) {
 		}
 		if !strings.Contains(strings.Join(ir.RefusalReasons, "\n"), "resolved to 0 routable cells") {
 			t.Fatalf("LoRA IR became executable without a governed cell: %+v", ir.RefusalReasons)
+		}
+	})
+}
+
+func TestLoRAProbeValidatesOnlyCompleteSchemaBoundDatasets(t *testing.T) {
+	validHeldOut := "{\"input\":\"held out prompt\",\"target\":\"held out completion\"}\n"
+	t.Run("complete distinct records are validated without making training executable", func(t *testing.T) {
+		root := t.TempDir()
+		declaration := loraProjectDeclarationFixture()
+		writeSchemaValidatedLoRAFixture(t, root, &declaration, validHeldOut)
+		proposal, err := compileProject(projectCompileOptions{Root: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		probed, err := compileProject(projectCompileOptions{Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := probed.Steps[0].ResourceEstimate.State; got != "DATASET_SCHEMA_VALIDATED_CALIBRATION_REQUIRED" {
+			t.Fatalf("LoRA dataset probe state=%q, want exact bounded schema validation", got)
+		}
+		if probed.Steps[0].ResourceEstimate.SampleRecords != 3 {
+			t.Fatalf("LoRA dataset record evidence=%+v, want training plus held-out records", probed.Steps[0].ResourceEstimate)
+		}
+		joined := strings.Join(probed.RefusalReasons, "\n")
+		if !strings.Contains(joined, "resolved to 0 routable cells") || strings.Contains(joined, "LoRA dataset probe") {
+			t.Fatalf("dataset validation made LoRA runnable or hid runtime refusal: %+v", probed.RefusalReasons)
+		}
+	})
+
+	t.Run("held-out overlap is refused before a trainer can receive data", func(t *testing.T) {
+		root := t.TempDir()
+		declaration := loraProjectDeclarationFixture()
+		writeSchemaValidatedLoRAFixture(t, root, &declaration, "{\"target\":\"first completion\",\"input\":\"first prompt\"}\n")
+		proposal, err := compileProject(projectCompileOptions{Root: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		probed, err := compileProject(projectCompileOptions{Root: root, ProbeRequested: true, BuyerApprovedIRSHA256: proposal.IRSHA256})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := probed.Steps[0].ResourceEstimate.State; got != "DATASET_SCHEMA_REFUSED" {
+			t.Fatalf("overlapping held-out data state=%q", got)
+		}
+		if !strings.Contains(strings.Join(probed.RefusalReasons, "\n"), "same canonical record") {
+			t.Fatalf("overlapping held-out data was not explicitly refused: %+v", probed.RefusalReasons)
 		}
 	})
 }

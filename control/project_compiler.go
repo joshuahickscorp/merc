@@ -405,6 +405,7 @@ func buildProjectIR(files []projectFile, opts projectCompileOptions) (ProjectWor
 	}
 	if opts.ProbeRequested {
 		runBoundedProjectProbe(files, &ir)
+		validateBoundedLoRAProjectDatasets(files, &ir)
 	}
 	if len(ir.Detections) == 0 {
 		ir.RefusalReasons = append(ir.RefusalReasons, "no supported workload detector reached confidence floor")
