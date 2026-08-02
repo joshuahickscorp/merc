@@ -45,6 +45,20 @@ func seedMeasuredWarmResidency(t *testing.T, ctx context.Context, pool *pgxpool.
 		workerID, modelID, int64(100*1024*1024), int64(1500)); err != nil {
 		t.Fatalf("seed measured warm residency for %s: %v", modelID, err)
 	}
+	// Remove the row when the test ends. The package shares one database, and a
+	// warm row is an ordering input to the batch claim predicate: a worker left
+	// warm and online here makes another test's deferral check see a cheaper
+	// eligible peer that its own fixture never created. That is exactly how
+	// TestClaimTasksTxDefersToACheaperAskingWorker started failing in the full
+	// suite while passing alone — and because last_seen_at ages out after sixty
+	// seconds, it failed on run order rather than reliably.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(cleanupCtx,
+			`DELETE FROM worker_model_state WHERE worker_id=$1 AND model_id=$2`,
+			workerID, modelID)
+	})
 }
 
 func TestServiceLeaseMarketClearingReceiptBindsLiveOfferBook(t *testing.T) {
