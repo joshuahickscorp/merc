@@ -173,8 +173,11 @@ func TestRealtimeMarketClearingReceiptBindsOfferBookAndPricing(t *testing.T) {
 		}
 		return worker
 	}
+	// Failing-before: warmth-first ranking selected the HOT 0.08/0.30 offer over
+	// the cheaper WARM 0.05/0.20 offer. Verified-outcome cost ranking selects
+	// the cheaper ask; warmth is tiebreak only inside a cost class.
 	hotWorker := newOffer("HOT", 0.08, 0.30)
-	_ = newOffer("WARM", 0.05, 0.20)
+	cheapWorker := newOffer("WARM", 0.05, 0.20)
 
 	contract, _, err := store.AuthorizeRealtimeContract(ctx, RealtimeContractAuthorization{
 		RequestID: "req-market-clearing-" + uuid.NewString(), BuyerID: buyerID, Profile: profile,
@@ -188,18 +191,22 @@ func TestRealtimeMarketClearingReceiptBindsOfferBookAndPricing(t *testing.T) {
 	}
 	market := contract.MarketClearing
 	if market == nil || market.Version != 1 || market.CandidateCount != 2 || market.SelectedRank != 1 ||
-		market.SelectedWorkerID != hotWorker.WorkerID || market.SelectedSupplierID != hotWorker.SupplierID ||
+		market.SelectedWorkerID != cheapWorker.WorkerID || market.SelectedSupplierID != cheapWorker.SupplierID ||
 		market.PricingDecisionSHA256 != contract.PricingDecisionSHA256 || market.BuyerCeilingNanos <= 0 ||
 		market.PositiveContributionNanos <= 0 ||
-		market.AcceptedCeilingNanos != contract.Pricing.FixedPoint.AcceptedCeilingNanos {
-		t.Fatalf("realtime market receipt did not bind live offer book: %+v contract=%+v", market, contract)
+		market.AcceptedCeilingNanos != contract.Pricing.FixedPoint.AcceptedCeilingNanos ||
+		market.OrderBookPolicy != realtimeOrderBookPolicy ||
+		market.RankingInputs == nil || market.RankingInputs.VerifiedOutcomeCostNanos <= 0 ||
+		market.RankingInputs.Warmth != "WARM" || len(market.RankingInputs.OmittedTerms) == 0 {
+		t.Fatalf("realtime market receipt did not bind live offer book under verified-outcome ranking: %+v contract=%+v hot=%+v",
+			market, contract, hotWorker)
 	}
 	receipt, err := store.RealtimeReceipt(ctx, buyerID, contract.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.MarketClearing == nil || receipt.MarketClearing.SelectedWorkerID != hotWorker.WorkerID ||
-		receipt.MarketClearing.CandidateCount != 2 {
+	if receipt.MarketClearing == nil || receipt.MarketClearing.SelectedWorkerID != cheapWorker.WorkerID ||
+		receipt.MarketClearing.CandidateCount != 2 || receipt.MarketClearing.RankingInputs == nil {
 		t.Fatalf("buyer receipt omitted market clearing authority: %+v", receipt.MarketClearing)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE execution_contracts SET market_clearing='{}' WHERE id=$1`, contract.ID); err == nil {

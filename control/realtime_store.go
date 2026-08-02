@@ -141,20 +141,25 @@ type RealtimeContract struct {
 // observation of the candidates considered by the atomic reservation, not a
 // second pricing authority: all money fields are copied from the frozen
 // PricingDecision and retained in fixed-point nanos.
+//
+// RankingInputs freezes every signal that ordered the offer book so a buyer
+// can see why a supplier cleared and a ranking regression is visible rather
+// than silent.
 type RealtimeMarketClearingReceipt struct {
-	Version                     int       `json:"version"`
-	CandidateCount              int       `json:"candidate_count"`
-	SelectedRank                int       `json:"selected_rank"`
-	SelectedWorkerID            uuid.UUID `json:"selected_worker_id"`
-	SelectedSupplierID          uuid.UUID `json:"selected_supplier_id"`
-	SelectedSupplierInputNanos  int64     `json:"selected_supplier_input_nanos_per_million_tokens"`
-	SelectedSupplierOutputNanos int64     `json:"selected_supplier_output_nanos_per_million_tokens"`
-	BuyerCeilingNanos           int64     `json:"buyer_ceiling_nanos"`
-	AcceptedCeilingNanos        int64     `json:"accepted_ceiling_nanos"`
-	PricingDecisionSHA256       string    `json:"pricing_decision_sha256"`
-	PositiveContributionNanos   int64     `json:"positive_contribution_nanos"`
-	OrderBookPolicy             string    `json:"order_book_policy"`
-	SelectionReason             string    `json:"selection_reason"`
+	Version                     int                            `json:"version"`
+	CandidateCount              int                            `json:"candidate_count"`
+	SelectedRank                int                            `json:"selected_rank"`
+	SelectedWorkerID            uuid.UUID                      `json:"selected_worker_id"`
+	SelectedSupplierID          uuid.UUID                      `json:"selected_supplier_id"`
+	SelectedSupplierInputNanos  int64                          `json:"selected_supplier_input_nanos_per_million_tokens"`
+	SelectedSupplierOutputNanos int64                          `json:"selected_supplier_output_nanos_per_million_tokens"`
+	BuyerCeilingNanos           int64                          `json:"buyer_ceiling_nanos"`
+	AcceptedCeilingNanos        int64                          `json:"accepted_ceiling_nanos"`
+	PricingDecisionSHA256       string                         `json:"pricing_decision_sha256"`
+	PositiveContributionNanos   int64                          `json:"positive_contribution_nanos"`
+	OrderBookPolicy             string                         `json:"order_book_policy"`
+	SelectionReason             string                         `json:"selection_reason"`
+	RankingInputs               *RealtimeClearingRankingInputs `json:"ranking_inputs,omitempty"`
 }
 
 type RealtimeContractAuthorization struct {
@@ -390,9 +395,23 @@ func attachRealtimeMarketClearing(contract *RealtimeContract, raw []byte) error 
 		(market.BuyerCeilingNanos > 0 && market.AcceptedCeilingNanos > market.BuyerCeilingNanos) ||
 		market.PositiveContributionNanos <= 0 ||
 		!validSHA256(market.PricingDecisionSHA256) ||
-		market.OrderBookPolicy != "lowest_warmth_then_supplier_rate_v1" ||
+		(market.OrderBookPolicy != realtimeOrderBookPolicy &&
+			market.OrderBookPolicy != "lowest_warmth_then_supplier_rate_v1") ||
 		strings.TrimSpace(market.SelectionReason) == "" {
 		return errors.New("realtime market-clearing receipt has invalid bounded authority")
+	}
+	// New receipts must carry ranking inputs so a buyer can see why a supplier
+	// cleared. Historical rows written under the warmth-first policy predate
+	// that field and are still attachable (read path must not break).
+	if market.OrderBookPolicy == realtimeOrderBookPolicy {
+		if market.RankingInputs == nil ||
+			market.RankingInputs.BaseAskNanos <= 0 ||
+			market.RankingInputs.VerifiedOutcomeCostNanos <= 0 ||
+			market.RankingInputs.SelectedSupplierInputNanos != market.SelectedSupplierInputNanos ||
+			market.RankingInputs.SelectedSupplierOutputNanos != market.SelectedSupplierOutputNanos ||
+			len(market.RankingInputs.OmittedTerms) == 0 {
+			return errors.New("realtime market-clearing receipt lacks ranking inputs")
+		}
 	}
 	if contract.WorkerID == uuid.Nil || contract.SupplierID == uuid.Nil ||
 		market.SelectedWorkerID != contract.WorkerID || market.SelectedSupplierID != contract.SupplierID {
@@ -413,6 +432,7 @@ func attachRealtimeMarketClearing(contract *RealtimeContract, raw []byte) error 
 func newRealtimeMarketClearingReceipt(
 	candidateCount, selectedRank int, workerID, supplierID uuid.UUID,
 	supplierInput, supplierOutput float64, pricing PricingDecision, pricingSHA256 string,
+	inputs RealtimeClearingRankingInputs,
 ) (*RealtimeMarketClearingReceipt, error) {
 	if candidateCount <= 0 || selectedRank <= 0 || selectedRank > candidateCount ||
 		workerID == uuid.Nil || supplierID == uuid.Nil || pricing.Realtime == nil || pricing.FixedPoint == nil {
@@ -426,6 +446,17 @@ func newRealtimeMarketClearingReceipt(
 	if err != nil {
 		return nil, err
 	}
+	// Ranking inputs are authoritative for the selected offer's rates; the
+	// float path above is only the PricingDecision hand-off. They must agree.
+	if inputs.SelectedSupplierInputNanos != int64(supplierInputNanos) ||
+		inputs.SelectedSupplierOutputNanos != int64(supplierOutputNanos) ||
+		inputs.BaseAskNanos <= 0 || inputs.VerifiedOutcomeCostNanos <= 0 {
+		return nil, errors.New("realtime market-clearing ranking inputs disagree with selected offer rates")
+	}
+	inputs.OmittedTerms = realtimeClearingOmittedTerms()
+	if inputs.WarmthRank == 0 && inputs.Warmth != "HOT" {
+		inputs.WarmthRank = warmthRank(inputs.Warmth)
+	}
 	market := &RealtimeMarketClearingReceipt{
 		Version:                     1,
 		CandidateCount:              candidateCount,
@@ -438,8 +469,9 @@ func newRealtimeMarketClearingReceipt(
 		AcceptedCeilingNanos:        pricing.FixedPoint.AcceptedCeilingNanos,
 		PricingDecisionSHA256:       pricingSHA256,
 		PositiveContributionNanos:   pricing.FixedPoint.KnownCostContributionNanos,
-		OrderBookPolicy:             "lowest_warmth_then_supplier_rate_v1",
-		SelectionReason:             "live ACTIVE offer crossed the buyer rate ceiling with positive fixed-point contribution",
+		OrderBookPolicy:             realtimeOrderBookPolicy,
+		SelectionReason:             realtimeClearingSelectionReason(inputs),
+		RankingInputs:               &inputs,
 	}
 	if market.PositiveContributionNanos <= 0 || !validSHA256(pricingSHA256) {
 		return nil, errors.New("realtime market-clearing receipt lacks positive PricingDecision contribution")
@@ -616,6 +648,11 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		placementSHA256      string
 		candidateCount       int
 		selectedRank         int
+		selectedWarmth       string
+		terminalAttempts     int
+		terminalFails        int
+		verifiedSettlements  int
+		refundCount          int
 	)
 	// Reserve a sequence with a single atomic decrement that is also the
 	// selection.
@@ -637,19 +674,96 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	// available_sequences > 0 in the WHERE clause is what makes it safe: the
 	// decrement and the capacity check are the same atomic operation, so the
 	// counter cannot go negative under any interleaving.
+	//
+	// Ranking is verified-outcome cost first (base ask adjusted by measured
+	// failure and refund rates when enough samples exist), then warmth only as
+	// a tiebreak inside a cost class. Self-declared HOT cannot outrank a
+	// materially cheaper measured cost — the same discipline as batch claim
+	// (scheduler.go: cost rank wins; warmth breaks ties within a class).
 	err = tx.QueryRow(ctx, `
-		WITH candidates AS (
+		WITH supplier_outcomes AS (
+			SELECT supplier_id,
+			       count(*) FILTER (WHERE state IN ('VERIFIED','FAILED'))::int AS terminal_attempts,
+			       count(*) FILTER (WHERE state = 'FAILED')::int AS terminal_fails
+			  FROM execution_contracts
+			 WHERE runtime_profile_id = $1
+			 GROUP BY supplier_id
+		), supplier_refunds AS (
+			SELECT c.supplier_id,
+			       count(*)::int AS verified_settlements,
+			       count(r.id)::int AS refund_count
+			  FROM execution_contracts c
+			  JOIN realtime_settlements s ON s.contract_id = c.id
+			  LEFT JOIN realtime_refunds r ON r.contract_id = c.id
+			 WHERE c.runtime_profile_id = $1 AND c.state = 'VERIFIED'
+			 GROUP BY c.supplier_id
+		), candidates AS (
 			SELECT c.worker_id,c.runtime_profile_id,c.supplier_id,c.upstream_base_url,
 			       c.upstream_token_sealed,c.supplier_input_usd_per_million_tokens::float8 AS supplier_input,
 			       c.supplier_output_usd_per_million_tokens::float8 AS supplier_output,
-			       c.placement_plan,c.placement_plan_sha256,
+			       c.placement_plan,c.placement_plan_sha256,c.warmth,
+			       COALESCE(o.terminal_attempts,0)::int AS terminal_attempts,
+			       COALESCE(o.terminal_fails,0)::int AS terminal_fails,
+			       COALESCE(rf.verified_settlements,0)::int AS verified_settlements,
+			       COALESCE(rf.refund_count,0)::int AS refund_count,
+			       -- verified_outcome_cost: base ask, then divide by delivered and
+			       -- kept rates when measured (same arithmetic as
+			       -- ExpectedVerifiedOutcomeUSDPerUnit). Unmeasured rates leave the
+			       -- base ask unchanged rather than inventing a coefficient.
+			       (
+			         (c.supplier_input_usd_per_million_tokens + c.supplier_output_usd_per_million_tokens)
+			         * CASE
+			             WHEN COALESCE(o.terminal_attempts,0) >= $5
+			              AND COALESCE(o.terminal_fails,0) >= o.terminal_attempts
+			             THEN 1e12::numeric
+			             WHEN COALESCE(o.terminal_attempts,0) >= $5
+			              AND COALESCE(o.terminal_fails,0) < o.terminal_attempts
+			             THEN o.terminal_attempts::numeric
+			                  / (o.terminal_attempts - o.terminal_fails)::numeric
+			             ELSE 1::numeric
+			           END
+			         * CASE
+			             WHEN COALESCE(rf.verified_settlements,0) >= $5
+			              AND COALESCE(rf.refund_count,0) >= rf.verified_settlements
+			             THEN 1e12::numeric
+			             WHEN COALESCE(rf.verified_settlements,0) >= $5
+			              AND COALESCE(rf.refund_count,0) < rf.verified_settlements
+			             THEN rf.verified_settlements::numeric
+			                  / (rf.verified_settlements - rf.refund_count)::numeric
+			             ELSE 1::numeric
+			           END
+			       ) AS verified_outcome_cost,
 			       count(*) OVER ()::int AS candidate_count,
 			       row_number() OVER (ORDER BY
+			         (
+			           (c.supplier_input_usd_per_million_tokens + c.supplier_output_usd_per_million_tokens)
+			           * CASE
+			               WHEN COALESCE(o.terminal_attempts,0) >= $5
+			                AND COALESCE(o.terminal_fails,0) >= o.terminal_attempts
+			               THEN 1e12::numeric
+			               WHEN COALESCE(o.terminal_attempts,0) >= $5
+			                AND COALESCE(o.terminal_fails,0) < o.terminal_attempts
+			               THEN o.terminal_attempts::numeric
+			                    / (o.terminal_attempts - o.terminal_fails)::numeric
+			               ELSE 1::numeric
+			             END
+			           * CASE
+			               WHEN COALESCE(rf.verified_settlements,0) >= $5
+			                AND COALESCE(rf.refund_count,0) >= rf.verified_settlements
+			               THEN 1e12::numeric
+			               WHEN COALESCE(rf.verified_settlements,0) >= $5
+			                AND COALESCE(rf.refund_count,0) < rf.verified_settlements
+			               THEN rf.verified_settlements::numeric
+			                    / (rf.verified_settlements - rf.refund_count)::numeric
+			               ELSE 1::numeric
+			             END
+			         ) ASC,
 			         CASE c.warmth WHEN 'HOT' THEN 0 WHEN 'WARM' THEN 1 WHEN 'CACHED' THEN 2 ELSE 3 END,
-			         (c.supplier_input_usd_per_million_tokens+c.supplier_output_usd_per_million_tokens),
 			         c.available_sequences DESC, c.last_seen_at DESC, c.worker_id ASC)::int AS selected_rank
 			  FROM realtime_worker_offers c
 			  JOIN suppliers s ON s.id = c.supplier_id
+			  LEFT JOIN supplier_outcomes o ON o.supplier_id = c.supplier_id
+			  LEFT JOIN supplier_refunds rf ON rf.supplier_id = c.supplier_id
 			 WHERE c.runtime_profile_id=$1 AND c.runtime_profile_sha256=$2
 			   AND c.status='ACTIVE' AND c.available_sequences > 0
 			   AND c.last_seen_at > now()-interval '45 seconds'
@@ -667,19 +781,24 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			 RETURNING o.worker_id,o.supplier_id,o.upstream_base_url,o.upstream_token_sealed,
 			           o.supplier_input_usd_per_million_tokens::float8,
 			           o.supplier_output_usd_per_million_tokens::float8,
-			           o.placement_plan,o.placement_plan_sha256,
-			           c.candidate_count,c.selected_rank
+			           o.placement_plan,o.placement_plan_sha256,o.warmth,
+			           c.candidate_count,c.selected_rank,
+			           c.terminal_attempts,c.terminal_fails,
+			           c.verified_settlements,c.refund_count
 		)
 		SELECT worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
 		       supplier_input_usd_per_million_tokens::float8,
 		       supplier_output_usd_per_million_tokens::float8,
-		       placement_plan,placement_plan_sha256,
-		       candidate_count,selected_rank
+		       placement_plan,placement_plan_sha256,warmth,
+		       candidate_count,selected_rank,
+		       terminal_attempts,terminal_fails,verified_settlements,refund_count
 		  FROM updated`,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
-		auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens).
+		auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens,
+		minRealtimeOutcomeSamples).
 		Scan(&workerID, &supplierID, &baseURL, &sealed, &supplierInput, &supplierOutput,
-			&placementJSON, &placementSHA256, &candidateCount, &selectedRank)
+			&placementJSON, &placementSHA256, &selectedWarmth, &candidateCount, &selectedRank,
+			&terminalAttempts, &terminalFails, &verifiedSettlements, &refundCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RealtimeContract{}, false, errRealtimeNoSupply
 	}
@@ -720,8 +839,22 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
+	inputNanos, err := nanoRatePerMillionFromFloat(supplierInput)
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
+	outputNanos, err := nanoRatePerMillionFromFloat(supplierOutput)
+	if err != nil {
+		return RealtimeContract{}, false, err
+	}
+	rankingInputs := buildRealtimeClearingRankingInputs(
+		int64(inputNanos), int64(outputNanos),
+		terminalAttempts, terminalFails, verifiedSettlements, refundCount,
+		selectedWarmth,
+	)
 	market, err := newRealtimeMarketClearingReceipt(
-		candidateCount, selectedRank, workerID, supplierID, supplierInput, supplierOutput, pricing, pricingSHA256)
+		candidateCount, selectedRank, workerID, supplierID, supplierInput, supplierOutput, pricing, pricingSHA256,
+		rankingInputs)
 	if err != nil {
 		return RealtimeContract{}, false, err
 	}
