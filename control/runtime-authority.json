@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "matrix_version": "2026-08-02.12",
+  "matrix_version": "2026-08-02.11",
   "engines": [
     {
       "engine": "candle",
@@ -150,39 +150,12 @@
       "attribution_required": false,
       "attribution_text": "",
       "remote_code": false
-    },
-    {
-      "id": "merc-video-synth-v1",
-      "family": "video-generation",
-      "kind": "builtin",
-      "wire_kind": "builtin",
-      "quant": null,
-      "dim": null,
-      "job_type": "video_generation",
-      "price_per_1k": 0.01,
-      "min_memory_gb": 1,
-      "hf_repo": "joshuahickscorp/merc",
-      "hf_revision": "3865026d1c42765271fa0fb509ded77ac383ec69",
-      "artifacts": [
-        {
-          "path": "docs/VIDEO_GENERATION_CONTRACT.md",
-          "bytes": 878,
-          "sha256": "984a1c8e53a21eae17bfcd37b0651300eccb17693dfc2eb967aad6eccafb23a0",
-          "wire_kind": "builtin"
-        }
-      ],
-      "license": "Merc-Internal-Contract",
-      "license_url": "https://github.com/joshuahickscorp/merc/blob/program/network-10of10/docs/VIDEO_GENERATION_CONTRACT.md",
-      "commercial_use": true,
-      "attribution_required": false,
-      "attribution_text": "",
-      "remote_code": false
     }
   ],
   "runtimes": [
     {
       "runtime_id": "candle_metal",
-      "revision": "r10",
+      "revision": "r9",
       "superseded_by": "",
       "engine": "candle",
       "engine_revision": "",
@@ -271,19 +244,6 @@
           "lifecycle": "CANARY",
           "quality_tier": "OUTCOME_EQUIVALENT",
           "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json",
-          "max_batch": 1,
-          "max_concurrency": 1
-        },
-        {
-          "id": "candle-metal-video-synth",
-          "job": "video_generation",
-          "model": "merc-video-synth-v1",
-          "runner": "video_generation",
-          "wire_kind": "builtin",
-          "min_memory_gb": 1,
-          "verification": "byte_exact",
-          "lifecycle": "DRAFT",
-          "quality_tier": "UNPROVEN",
           "max_batch": 1,
           "max_concurrency": 1
         }

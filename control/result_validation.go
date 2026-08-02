@@ -123,8 +123,6 @@ func validateTaskResultArtifact(info *CommitTaskInfo, body []byte) error {
 		return validateMediaTranscodeResult(body, records)
 	case "media_rendering":
 		return validateMediaRenderingResult(body, records)
-	case "video_generation":
-		return validateVideoGenerationResult(body, records)
 	default:
 		return invalidResultArtifact(info.jobType, resultValidationUnsupported, "workload has no retained result contract")
 	}

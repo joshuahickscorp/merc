@@ -493,21 +493,6 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	if isBinaryMediaJob(sub) {
 		if isMediaRenderingJob(sub) {
 			scan, scanErr = renderingInputScan(inputBytes)
-		} else if isVideoGenerationJob(sub) {
-			if err := refuseVideoGenerationIfNotRoutable(sub); err != nil {
-				return Quote{}, err
-			}
-			mediaSegments, scanErr = mediaSegmentCountFromParams(sub.Params)
-			if scanErr == nil {
-				req, perr := validateVideoGenerationInputBytes(inputBytes)
-				if perr != nil {
-					scanErr = perr
-				} else if perr = applyVideoGenerationPolicy(req.Prompt); perr != nil {
-					scanErr = perr
-				} else {
-					scan, scanErr = videoInputScan(inputBytes, mediaSegments)
-				}
-			}
 		} else {
 			mediaSegments, scanErr = mediaSegmentCountFromParams(sub.Params)
 			if scanErr == nil {
@@ -520,7 +505,7 @@ func (s *Server) buildQuoteWithSchedule(ctx context.Context, buyerID uuid.UUID, 
 	if scanErr != nil {
 		return Quote{}, fmt.Errorf("scanning input: %w", scanErr)
 	}
-	if isSegmentedMediaJob(sub) {
+	if isMediaTranscodeJob(sub) {
 		if err := refuseSegmentedMediaCrossSupplierRedundancy(mediaSegments, sub.Verification.RedundancyFrac); err != nil {
 			return Quote{}, err
 		}
@@ -927,8 +912,6 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		inputLimit = maxMediaControlBytes
 	} else if isMediaRenderingJob(sub) {
 		inputLimit = maxRenderingControlBytes
-	} else if isVideoGenerationJob(sub) {
-		inputLimit = maxVideoControlBytes
 	}
 	inputBytes, err := readAndCloseBounded(inputReader, inputLimit)
 	if err != nil {
@@ -947,18 +930,6 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 	} else if isMediaRenderingJob(sub) {
 		if err := validateRenderingInputBytes(inputBytes, sub.JobType.RenderWidth, sub.JobType.RenderHeight); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	} else if isVideoGenerationJob(sub) {
-		req, err := validateVideoGenerationInputBytes(inputBytes)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if err := applyVideoGenerationPolicy(req.Prompt); err != nil {
-			var refusal videoPolicyRefusal
-			_ = errors.As(err, &refusal)
-			writeErr(w, http.StatusBadRequest, "merc does not generate this: "+refusal.Reason)
 			return
 		}
 	} else if err := validateWorkloadJSONL(sub.JobType.Type, inputBytes); err != nil {

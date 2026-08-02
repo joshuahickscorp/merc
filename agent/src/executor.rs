@@ -14,7 +14,6 @@ use crate::models;
 use crate::pool::ModelPool;
 use crate::render::MediaRenderingRunner;
 use crate::runtime_driver::RuntimeDriver;
-use crate::video::VideoGenerationRunner;
 use crate::token_cache::{CacheStats, TokenizationCache};
 use crate::types::{JobManifest, JobType, ModelKind, WorkerCapability};
 
@@ -1098,10 +1097,6 @@ pub fn default_runners(
         // while runtime authority keeps ordinary buyer work out of it.
         Box::new(MediaTranscodeRunner::from_environment()),
         Box::new(MediaRenderingRunner),
-        // Present so the agent can exercise the governed video lane under the
-        // Merc-owned synthesizer. Runtime authority keeps the cell DRAFT, so
-        // ordinary buyer work is not advertised or dispatched.
-        Box::new(VideoGenerationRunner),
     ]
 }
 
@@ -1175,11 +1170,6 @@ pub async fn run_benchmarks(pool: &crate::pool::ModelPool, _memory_gb: f32) -> V
     match rendering.benchmark().await {
         Ok(b) => out.push(b),
         Err(e) => tracing::warn!(error = %e, "media rendering benchmark unavailable"),
-    }
-    let video = VideoGenerationRunner;
-    match video.benchmark().await {
-        Ok(b) => out.push(b),
-        Err(e) => tracing::warn!(error = %e, "video generation synthesizer benchmark unavailable"),
     }
     out
 }

@@ -177,18 +177,14 @@ func mediaSegmentParamsForDispatch(unitCount, ordinal int) (json.RawMessage, err
 }
 
 // refuseSegmentedMediaCrossSupplierRedundancy is the honest policy when a
-// multi-unit media or video job cannot be independently byte-verified across
-// suppliers: do not sell redundancy that verification cannot settle.
-//
-// Measured fact: same segment, same engine, twice → byte-equal; cross-supplier
-// determinism does not hold. A fabricated perceptual floor would be worse than
-// refusing the redundancy product.
+// multi-unit media job cannot be independently byte-verified across suppliers:
+// do not sell redundancy that verification cannot settle.
 func refuseSegmentedMediaCrossSupplierRedundancy(segmentCount int, redundancyFrac float32) error {
 	if segmentCount <= 1 {
 		return nil
 	}
 	if redundancyFrac > 0 {
-		return errors.New("segmented media refuses cross-supplier redundancy: independent segment outputs are only byte-reproducible under one pinned engine build, not across suppliers")
+		return errors.New("segmented media_transcode refuses cross-supplier redundancy: independent segment encodes are only byte-reproducible under one pinned engine build, not across suppliers")
 	}
 	return nil
 }

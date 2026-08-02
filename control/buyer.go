@@ -36,7 +36,6 @@ type jobType struct {
 	VideoBitrateKbps uint32  `json:"video_bitrate_kbps,omitempty"`
 	RenderWidth      uint32  `json:"render_width,omitempty"`
 	RenderHeight     uint32  `json:"render_height,omitempty"`
-	DurationSecs     uint32  `json:"duration_secs,omitempty"`
 }
 
 type modelRef struct {
@@ -192,7 +191,7 @@ func cmdVersion(args []string) {
 func cmdSubmit(args []string) {
 	fs := flag.NewFlagSet("submit", flag.ExitOnError)
 	model := fs.String("model", "", "model id, e.g. all-minilm-l6-v2 (required)")
-	typ := fs.String("type", "", "job type: embed|batch_infer|media_transcode|media_rendering|video_generation (required)")
+	typ := fs.String("type", "", "job type: embed|batch_infer|media_transcode|media_rendering (required)")
 	input := fs.String("input", "-", "JSONL input file, media file, or - for stdin")
 	tier := fs.String("tier", "batch", "service tier: batch|priority|trusted")
 	maxTokens := fs.Uint("max-tokens", 0, "max tokens (batch_infer)")
@@ -215,9 +214,8 @@ func cmdSubmit(args []string) {
 	maxHeight := fs.Uint("max-height", 0, "maximum output height, even pixels 64..4096 (media_transcode)")
 	fps := fs.Uint("fps", 0, "output frame rate 1..60 (media_transcode; default 30)")
 	videoBitrate := fs.Uint("video-bitrate-kbps", 0, "output video bitrate 200..50000 kbps (media_transcode)")
-	renderWidth := fs.Uint("render-width", 0, "render canvas width (media_rendering) or video profile width (video_generation)")
-	renderHeight := fs.Uint("render-height", 0, "render canvas height (media_rendering) or video profile height (video_generation)")
-	durationSecs := fs.Uint("duration-secs", 0, "closed duration for video_generation allowlisted profiles")
+	renderWidth := fs.Uint("render-width", 0, "render canvas width 16..1024 (media_rendering)")
+	renderHeight := fs.Uint("render-height", 0, "render canvas height 16..1024 (media_rendering)")
 	wait := fs.Bool("wait", false, "poll to completion and print results")
 	poll := fs.Duration("poll", 3*time.Second, "poll interval with --wait")
 	timeout := fs.Duration("timeout", 30*time.Minute, "give up waiting after this")
@@ -230,7 +228,7 @@ func cmdSubmit(args []string) {
 		fatalf("--model and --type are required")
 	}
 	if !validJobTypes[*typ] {
-		fatalf("--type must be embed, batch_infer, media_transcode, media_rendering, or video_generation")
+		fatalf("--type must be embed, batch_infer, media_transcode, or media_rendering")
 	}
 
 	jt := jobType{Type: *typ}
@@ -263,9 +261,6 @@ func cmdSubmit(args []string) {
 	}
 	if *renderHeight > 0 {
 		jt.RenderHeight = uint32(*renderHeight)
-	}
-	if *durationSecs > 0 {
-		jt.DurationSecs = uint32(*durationSecs)
 	}
 
 	var inputField json.RawMessage
@@ -579,7 +574,7 @@ type quoteResp struct {
 func cmdQuote(args []string) {
 	fs := flag.NewFlagSet("quote", flag.ExitOnError)
 	model := fs.String("model", "", "model id, e.g. all-minilm-l6-v2 (required)")
-	typ := fs.String("type", "", "job type: embed|batch_infer|media_transcode|media_rendering|video_generation (required)")
+	typ := fs.String("type", "", "job type: embed|batch_infer|media_transcode|media_rendering (required)")
 	input := fs.String("input", "-", "JSONL input file, media file, or - for stdin")
 	tier := fs.String("tier", "batch", "service tier: batch|priority|trusted")
 	split := fs.Int("split", 0, "lines per task (0 = server adaptive default)")
@@ -591,16 +586,15 @@ func cmdQuote(args []string) {
 	maxHeight := fs.Uint("max-height", 0, "maximum output height, even pixels 64..4096 (media_transcode)")
 	fps := fs.Uint("fps", 0, "output frame rate 1..60 (media_transcode; default 30)")
 	videoBitrate := fs.Uint("video-bitrate-kbps", 0, "output video bitrate 200..50000 kbps (media_transcode)")
-	renderWidth := fs.Uint("render-width", 0, "render canvas width (media_rendering) or video profile width (video_generation)")
-	renderHeight := fs.Uint("render-height", 0, "render canvas height (media_rendering) or video profile height (video_generation)")
-	durationSecs := fs.Uint("duration-secs", 0, "closed duration for video_generation allowlisted profiles")
+	renderWidth := fs.Uint("render-width", 0, "render canvas width 16..1024 (media_rendering)")
+	renderHeight := fs.Uint("render-height", 0, "render canvas height 16..1024 (media_rendering)")
 	asJSON := fs.Bool("json", false, "print the full quote JSON")
 	fs.Parse(args)
 	if *model == "" || *typ == "" {
 		fatalf("--model and --type are required")
 	}
 	if !validJobTypes[*typ] {
-		fatalf("--type must be embed, batch_infer, media_transcode, media_rendering, or video_generation")
+		fatalf("--type must be embed, batch_infer, media_transcode, or media_rendering")
 	}
 	var inputField json.RawMessage
 	if *s3Key != "" {
@@ -641,9 +635,6 @@ func cmdQuote(args []string) {
 	}
 	if *renderHeight > 0 {
 		jt.RenderHeight = uint32(*renderHeight)
-	}
-	if *durationSecs > 0 {
-		jt.DurationSecs = uint32(*durationSecs)
 	}
 	sub := cliJobSubmit{
 		JobType:      jt,
@@ -837,7 +828,7 @@ Env:
   MERC_API_URL   control plane base URL (default http://localhost:8080)
   MERC_API_KEY   buyer api key (sent as Authorization: Bearer)
 
-	Job types: embed, batch_infer, media_transcode, media_rendering, video_generation
+	Job types: embed, batch_infer, media_transcode, media_rendering
 Run "cx submit -h" for the full flag list.
 `)
 }

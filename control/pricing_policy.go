@@ -45,10 +45,6 @@ var physicalSupplierSharePolicies = []supplierSharePolicy{
 		JobType: "media_rendering", ModelID: "svg-scene-render-v1", SupplierShare: 0.82,
 		Rationale: "bounded deterministic rasterization with independent byte-exact execution and fixed-cost reserve",
 	},
-	{
-		JobType: "video_generation", ModelID: "merc-video-synth-v1", SupplierShare: 0.82,
-		Rationale: "exercise-only deterministic video synthesizer; not buyer-routable until a licensed weight set and lifecycle promote the cell",
-	},
 }
 
 func supplierShareForWorkload(jobType, modelID string) (float64, error) {

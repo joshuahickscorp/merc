@@ -54,15 +54,6 @@ var repricingBenchmarks = []measuredThroughput{
 		HWClass:        "apple_silicon_ultra",
 		SourceCitation: "evidence/perf/runtime-benchmarks/candle-metal-rendering-r1.json#physical_throughput",
 	},
-	{
-		// Exercise synthesizer only. Not a market observation and not a public
-		// activation claim: the cell is DRAFT/UNPROVEN and not buyer-routable.
-		ModelID:        "merc-video-synth-v1",
-		JobType:        "video_generation",
-		UnitsPerSec:    1_000_000.0,
-		HWClass:        "apple_silicon_ultra",
-		SourceCitation: "docs/VIDEO_GENERATION_CONTRACT.md#exercise-synthesizer",
-	},
 }
 
 var sustainedWattsByHWClass = map[string]float64{

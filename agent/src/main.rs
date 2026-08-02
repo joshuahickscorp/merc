@@ -12,7 +12,6 @@ mod protocol;
 mod quantized_llama_batched; // vendored + patched candle quantized_llama (bsz>1 batched prefill)
 mod render;
 mod runtime_authority;
-mod video;
 mod runtime_driver;
 mod status;
 mod tls;

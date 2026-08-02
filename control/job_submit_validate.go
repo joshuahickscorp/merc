@@ -74,16 +74,7 @@ func normalizeAndValidateJobSubmit(sub jobSubmit) (jobSubmit, *httpError) {
 	if !validTiers[sub.Tier] {
 		return sub, &httpError{http.StatusBadRequest, "invalid tier: " + sub.Tier}
 	}
-	// video_generation may exist only as a below-routable cell (exercise
-	// synthesizer). Shape and policy still need a canonical model ref; ordinary
-	// buyer advertisement is refused later by refuseVideoGenerationIfNotRoutable.
-	var canonicalModel ModelRef
-	var err error
-	if sub.JobType.Type == videoGenerationJobType {
-		canonicalModel, err = normalizeCapabilityRuntimeModelRef(sub.JobType.Type, sub.Model)
-	} else {
-		canonicalModel, err = normalizeAdvertisedRuntimeModelRef(sub.JobType.Type, sub.Model)
-	}
+	canonicalModel, err := normalizeAdvertisedRuntimeModelRef(sub.JobType.Type, sub.Model)
 	if err != nil {
 		return sub, &httpError{http.StatusBadRequest, err.Error()}
 	}
@@ -127,32 +118,6 @@ func normalizeAndValidateJobSubmit(sub jobSubmit) (jobSubmit, *httpError) {
 			return sub, &httpError{http.StatusBadRequest, "media_rendering does not support honeypot verification; use independent redundancy"}
 		}
 		if sub.Verification.RedundancyFrac <= 0 {
-			sub.Verification.RedundancyFrac = 1
-		}
-	case "video_generation":
-		if err := normalizeVideoGenerationJobType(&sub.JobType); err != nil {
-			return sub, &httpError{http.StatusBadRequest, err.Error()}
-		}
-		if err := videoGenerationLicenceGate(sub.Model.Ref); err != nil {
-			return sub, &httpError{http.StatusBadRequest, err.Error()}
-		}
-		// No known-answer corpus. Verification is byte-exact under one pinned
-		// engine class; multi-segment jobs refuse cross-supplier redundancy
-		// rather than selling a check that cannot settle.
-		if sub.Verification.HoneypotFrac > 0 {
-			return sub, &httpError{http.StatusBadRequest,
-				"video_generation does not support honeypot verification; use independent redundancy under one pinned engine"}
-		}
-		segmentCount, segErr := mediaSegmentCountFromParams(sub.Params)
-		if segErr != nil {
-			return sub, &httpError{http.StatusBadRequest, segErr.Error()}
-		}
-		if err := refuseSegmentedMediaCrossSupplierRedundancy(segmentCount, sub.Verification.RedundancyFrac); err != nil {
-			return sub, &httpError{http.StatusBadRequest, err.Error()}
-		}
-		// Single-segment may still carry independent redundancy under one
-		// engine class. Multi-segment defaults to zero (refused above if >0).
-		if segmentCount <= 1 && sub.Verification.RedundancyFrac <= 0 {
 			sub.Verification.RedundancyFrac = 1
 		}
 	}

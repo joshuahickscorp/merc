@@ -71,32 +71,9 @@ func validateAdvertisedRuntimeJobModel(jobType, modelRef string) error {
 	)
 }
 
-// capabilityRuntimeJobModel reports whether any cell (lifecycle-blind) declares
-// this job/model pair. Used for lanes that exist below routable so shape and
-// policy can be exercised without advertising ordinary buyer work.
-func capabilityRuntimeJobModel(jobType, modelRef string) bool {
-	if jobType == "" || modelRef == "" {
-		return false
-	}
-	for _, cap := range generatedCapabilityRuntimeCells {
-		if cap.Job == jobType && cap.Model == modelRef {
-			return true
-		}
-	}
-	return false
-}
-
 func generatedRuntimeModelRef(jobType, modelRef string) ModelRef {
 	ref := ModelRef{Ref: modelRef}
 	for _, cap := range advertisedRuntimeCapabilities() {
-		if cap.Job == jobType && cap.Model == modelRef {
-			ref.Kind = cap.ModelKind
-			return ref
-		}
-	}
-	// Fall back to the capability set so a DRAFT/VALIDATED cell still has a
-	// canonical kind for shape validation of pre-routable lanes.
-	for _, cap := range generatedCapabilityRuntimeCells {
 		if cap.Job == jobType && cap.Model == modelRef {
 			ref.Kind = cap.ModelKind
 			return ref
@@ -108,27 +85,6 @@ func generatedRuntimeModelRef(jobType, modelRef string) ModelRef {
 func normalizeAdvertisedRuntimeModelRef(jobType string, submitted ModelRef) (ModelRef, error) {
 	if err := validateAdvertisedRuntimeJobModel(jobType, submitted.Ref); err != nil {
 		return ModelRef{}, err
-	}
-	canonical := generatedRuntimeModelRef(jobType, submitted.Ref)
-	if submitted.Kind != "" && submitted.Kind != canonical.Kind {
-		return ModelRef{}, fmt.Errorf(
-			"runtime matrix requires model.kind=%q for job_type=%q model=%q; got %q",
-			canonical.Kind, jobType, submitted.Ref, submitted.Kind,
-		)
-	}
-	return canonical, nil
-}
-
-// normalizeCapabilityRuntimeModelRef accepts a job/model that exists as a cell
-// anywhere in the authority document, including below routable. Ordinary buyer
-// quote/submit must still call refuseVideoGenerationIfNotRoutable (or the
-// equivalent gate) so DRAFT cells do not silently become a catalogue.
-func normalizeCapabilityRuntimeModelRef(jobType string, submitted ModelRef) (ModelRef, error) {
-	if !capabilityRuntimeJobModel(jobType, submitted.Ref) {
-		return ModelRef{}, fmt.Errorf(
-			"runtime capability is not declared for job_type=%q model=%q (matrix %s)",
-			jobType, submitted.Ref, generatedRuntimeMatrixVersion,
-		)
 	}
 	canonical := generatedRuntimeModelRef(jobType, submitted.Ref)
 	if submitted.Kind != "" && submitted.Kind != canonical.Kind {
