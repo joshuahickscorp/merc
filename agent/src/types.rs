@@ -211,6 +211,50 @@ pub struct RealtimeOfferHeartbeat {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceLeaseOfferRegistration {
+    pub runtime_profile_id: String,
+    pub runtime_profile_sha256: String,
+    pub region: String,
+    pub maximum_warm_replicas: u32,
+    pub available_warm_replicas: u32,
+    pub supplier_nanos_per_replica_hour: i64,
+    pub residency_nanos_per_replica_hour: i64,
+    pub supports_rolling_upgrade: bool,
+    pub p95_latency_milliseconds: i64,
+    pub latency_measurement_count: u32,
+    pub latency_window_seconds: i64,
+    pub latency_measurement_kind: String,
+    pub status: String,
+}
+
+// This worker-local view intentionally has no buyer, pricing, prompt, or
+// payment fields. The agent needs only the operational SLO it was assigned.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceLeaseAssignment {
+    pub id: Uuid,
+    pub runtime_profile_id: String,
+    pub region: String,
+    pub minimum_replicas: u32,
+    pub maximum_replicas: u32,
+    pub maximum_p95_latency_milliseconds: i64,
+    pub state: String,
+    #[serde(default)]
+    pub upgrade_generation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceLeaseHeartbeat {
+    pub warm_replicas: u32,
+    pub p95_latency_milliseconds: i64,
+    pub latency_measurement_count: u32,
+    pub latency_window_seconds: i64,
+    pub latency_measurement_kind: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub upgrade_generation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskDispatch {
     pub task_id: Uuid,
     #[serde(default)]

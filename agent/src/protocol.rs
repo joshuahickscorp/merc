@@ -6,7 +6,9 @@ use uuid::Uuid;
 
 use crate::types::{
     ConnectStatus, Earnings, FailReport, Heartbeat, RealtimeOfferHeartbeat,
-    RealtimeOfferRegistration, SupplierVerification, TaskCommit, TaskDispatch, WorkerCapability,
+    RealtimeOfferRegistration, ServiceLeaseAssignment, ServiceLeaseHeartbeat,
+    ServiceLeaseOfferRegistration, SupplierVerification, TaskCommit, TaskDispatch,
+    WorkerCapability,
 };
 
 const POLL_TIMEOUT: Duration = Duration::from_secs(35);
@@ -243,6 +245,62 @@ impl ControlPlaneClient {
         let resp = self
             .http
             .post(self.url(endpoint))
+            .header("X-Worker-Token", &self.token)
+            .json(heartbeat)
+            .send()
+            .await
+            .map_err(|e| Self::transport(endpoint, e))?;
+        Self::expect_status(endpoint, resp, &[StatusCode::NO_CONTENT, StatusCode::OK]).await?;
+        Ok(())
+    }
+
+    pub async fn register_service_lease_offer(
+        &self,
+        offer: &ServiceLeaseOfferRegistration,
+    ) -> Result<(), ProtocolError> {
+        let endpoint = "/v1/worker/service-leases/offers";
+        let resp = self
+            .http
+            .post(self.url(endpoint))
+            .header("X-Worker-Token", &self.token)
+            .json(offer)
+            .send()
+            .await
+            .map_err(|e| Self::transport(endpoint, e))?;
+        Self::expect_status(endpoint, resp, &[StatusCode::OK, StatusCode::CREATED]).await?;
+        Ok(())
+    }
+
+    pub async fn service_lease_assignments(
+        &self,
+    ) -> Result<Vec<ServiceLeaseAssignment>, ProtocolError> {
+        let endpoint = "/v1/worker/service-leases/active";
+        let resp = self
+            .http
+            .get(self.url(endpoint))
+            .header("X-Worker-Token", &self.token)
+            .send()
+            .await
+            .map_err(|e| Self::transport(endpoint, e))?;
+        let resp = Self::expect_status(endpoint, resp, &[StatusCode::OK]).await?;
+        resp.json::<Vec<ServiceLeaseAssignment>>()
+            .await
+            .map_err(|e| ProtocolError::Decode {
+                endpoint: endpoint.to_string(),
+                source: e,
+            })
+    }
+
+    pub async fn heartbeat_service_lease(
+        &self,
+        lease_id: Uuid,
+        heartbeat: &ServiceLeaseHeartbeat,
+    ) -> Result<(), ProtocolError> {
+        let endpoint = "/v1/worker/service-leases/{id}/heartbeat";
+        let path = format!("/v1/worker/service-leases/{lease_id}/heartbeat");
+        let resp = self
+            .http
+            .post(self.url(&path))
             .header("X-Worker-Token", &self.token)
             .json(heartbeat)
             .send()
@@ -578,6 +636,67 @@ mod tests {
         });
 
         (format!("http://{addr}"), calls, requests)
+    }
+
+    async fn spawn_json_response_server(
+        body: String,
+    ) -> (String, Arc<tokio::sync::Mutex<Vec<String>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let requests = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let requests_for_server = requests.clone();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 16_384];
+            let mut total = 0usize;
+            loop {
+                let n = socket.read(&mut buf[total..]).await.unwrap();
+                total += n;
+                if buf[..total].windows(4).any(|window| window == b"\r\n\r\n") || n == 0 {
+                    break;
+                }
+            }
+            requests_for_server
+                .lock()
+                .await
+                .push(String::from_utf8_lossy(&buf[..total]).to_string());
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(), body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            socket.shutdown().await.ok();
+        });
+        (format!("http://{addr}"), requests)
+    }
+
+    #[tokio::test]
+    async fn service_lease_assignments_are_worker_scoped_and_strictly_decoded() {
+        let lease_id = Uuid::new_v4();
+        let body = serde_json::json!([{
+            "id": lease_id,
+            "runtime_profile_id": "rtp_vllm_test",
+            "region": "ca-central-1",
+            "minimum_replicas": 1,
+            "maximum_replicas": 2,
+            "maximum_p95_latency_milliseconds": 500,
+            "state": "ACTIVE",
+            "expires_at": "2030-01-01T00:00:00Z"
+        }])
+        .to_string();
+        let (base, requests) = spawn_json_response_server(body).await;
+        let client = ControlPlaneClient::new(base, "worker-token").unwrap();
+        let assignments = client.service_lease_assignments().await.unwrap();
+        assert_eq!(assignments.len(), 1);
+        assert_eq!(assignments[0].id, lease_id);
+        assert_eq!(assignments[0].maximum_p95_latency_milliseconds, 500);
+
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 1);
+        let request = requests[0].to_lowercase();
+        assert!(request.starts_with("get /v1/worker/service-leases/active http/1.1\r\n"));
+        assert!(request.contains("\r\nx-worker-token: worker-token\r\n"));
+        assert!(!request.contains("authorization: bearer"));
     }
 
     #[tokio::test]

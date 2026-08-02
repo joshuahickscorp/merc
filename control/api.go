@@ -135,6 +135,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/worker/realtime/register", s.authWorker(http.HandlerFunc(s.handleRealtimeWorkerRegister)))
 	mux.Handle("POST /v1/worker/realtime/heartbeat", s.authWorker(http.HandlerFunc(s.handleRealtimeWorkerHeartbeat)))
 	mux.Handle("POST /v1/worker/service-leases/offers", s.authWorker(http.HandlerFunc(s.handleServiceLeaseOffer)))
+	mux.Handle("GET /v1/worker/service-leases/active", s.authWorker(http.HandlerFunc(s.handleWorkerServiceLeaseAssignments)))
 	mux.Handle("POST /v1/worker/service-leases/{id}/heartbeat", s.authWorker(http.HandlerFunc(s.handleServiceLeaseHeartbeat)))
 	mux.Handle("POST /v1/worker/fabric/sessions", s.authWorker(http.HandlerFunc(s.handleWorkerFabricSessionCreate)))
 	mux.Handle("GET /v1/worker/fabric/sessions/{id}/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservationStatus)))

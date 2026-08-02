@@ -15,7 +15,8 @@ func serviceLeaseOffer(profile VLLMRuntimeProfile) ServiceLeaseOfferRegistration
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
 		Region: "ca-central-1", MaximumWarmReplicas: 3, AvailableWarmReplicas: 3,
 		SupplierNanosPerReplicaHour: 2_000_000_000, ResidencyNanosPerReplicaHour: 200_000_000,
-		SupportsRollingUpgrade: true, Status: "READY",
+		SupportsRollingUpgrade: true, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
+		LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1", Status: "READY",
 	}
 }
 
@@ -55,6 +56,11 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 	request := ServiceLeaseRequest{RuntimeProfileID: profile.RuntimeProfileID, Region: "ca-central-1",
 		MinimumReplicas: 1, MaximumReplicas: 3, TermSeconds: 60, MaximumP95LatencyMilliseconds: 500,
 		BuyerDeclaredCeilingNanos: 135_000_000}
+	tooStrict := request
+	tooStrict.MaximumP95LatencyMilliseconds = 199
+	if got := post("/v1/service-leases", buyerKey, tooStrict).Code; got != http.StatusServiceUnavailable {
+		t.Fatalf("lease admitted an offer that missed its measured p95: status=%d", got)
+	}
 	created := post("/v1/service-leases", buyerKey, request)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create lease status=%d body=%s", created.Code, created.Body.String())
@@ -67,6 +73,28 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		lease.Pricing.FixedPoint.AcceptedCeilingNanos != request.BuyerDeclaredCeilingNanos || lease.ActiveReplicas != 1 {
 		t.Fatalf("lease lost frozen pricing/capacity authority: %+v", lease)
 	}
+	assignmentReq := httptest.NewRequest(http.MethodGet, "/v1/worker/service-leases/active", nil)
+	assignmentReq.Header.Set("X-Worker-Token", workerToken)
+	assignmentRec := httptest.NewRecorder()
+	handler.ServeHTTP(assignmentRec, assignmentReq)
+	if assignmentRec.Code != http.StatusOK {
+		t.Fatalf("worker assignment status=%d body=%s", assignmentRec.Code, assignmentRec.Body.String())
+	}
+	var assignments []ServiceLeaseAssignment
+	if err := json.Unmarshal(assignmentRec.Body.Bytes(), &assignments); err != nil || len(assignments) != 1 ||
+		assignments[0].ID != lease.ID || assignments[0].RuntimeProfileID != profile.RuntimeProfileID ||
+		assignments[0].MaximumP95LatencyMillis != request.MaximumP95LatencyMilliseconds {
+		t.Fatalf("worker assignment leaked or lost lease authority: assignments=%+v err=%v", assignments, err)
+	}
+	_, unrelatedWorkerToken := newFabricMeasurementWorker(t, ctx, store)
+	unrelatedReq := httptest.NewRequest(http.MethodGet, "/v1/worker/service-leases/active", nil)
+	unrelatedReq.Header.Set("X-Worker-Token", unrelatedWorkerToken)
+	unrelatedRec := httptest.NewRecorder()
+	handler.ServeHTTP(unrelatedRec, unrelatedReq)
+	var unrelatedAssignments []ServiceLeaseAssignment
+	if unrelatedRec.Code != http.StatusOK || json.Unmarshal(unrelatedRec.Body.Bytes(), &unrelatedAssignments) != nil || len(unrelatedAssignments) != 0 {
+		t.Fatalf("unrelated worker observed lease assignment: status=%d assignments=%+v", unrelatedRec.Code, unrelatedAssignments)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE service_leases SET last_metered_at=now()-interval '2 seconds' WHERE id=$1`, lease.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +103,12 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		t.Fatalf("upgrade begin heartbeat status=%d", got)
 	}
 	if got := post("/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", workerToken,
-		ServiceLeaseHeartbeat{WarmReplicas: 1, P95LatencyMillis: 200, Status: "READY", UpgradeGeneration: "image-v3"}).Code; got != http.StatusNoContent {
+		ServiceLeaseHeartbeat{WarmReplicas: 1, P95LatencyMillis: 200, Status: "READY", UpgradeGeneration: "image-v3"}).Code; got != http.StatusConflict {
+		t.Fatalf("unmeasured ready heartbeat status=%d", got)
+	}
+	if got := post("/v1/worker/service-leases/"+lease.ID.String()+"/heartbeat", workerToken,
+		ServiceLeaseHeartbeat{WarmReplicas: 1, P95LatencyMillis: 200, LatencyMeasurementCount: 5,
+			LatencyWindowSeconds: 15, LatencyMeasurementKind: "DATA_PLANE_COMPLETIONS_V1", Status: "READY", UpgradeGeneration: "image-v3"}).Code; got != http.StatusNoContent {
 		t.Fatalf("upgrade complete heartbeat status=%d", got)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/v1/service-leases/"+lease.ID.String()+"/receipt", nil)
@@ -93,7 +126,9 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		receipt.Lease.BuyerChargeNanos != receipt.Lease.SupplierPayableNanos+receipt.Lease.KnownVariableCostNanos+receipt.Lease.KnownContributionNanos ||
 		receipt.SupplierSettlementState != "ACCRUED_UNFUNDED" ||
 		receipt.TrueNetContributionStatus != "UNKNOWN_PROCESSOR_FEE_UNALLOCATED" ||
-		receipt.DataPlaneAuthorityStatus != "NOT_PROVEN_BY_CONTROL_PLANE" {
+		receipt.DataPlaneAuthorityStatus != "NOT_PROVEN_BY_CONTROL_PLANE" || receipt.LatestSLOEvidence == nil ||
+		receipt.LatestSLOEvidence.P95LatencyMillis != 200 || receipt.LatestSLOEvidence.LatencyMeasurementCount != 5 ||
+		receipt.LatestSLOEvidence.LatencyMeasurementKind != "DATA_PLANE_COMPLETIONS_V1" {
 		t.Fatalf("receipt overclaimed or lost exact money: %+v", receipt)
 	}
 	var events []string
@@ -120,7 +155,7 @@ func TestServiceLeaseCADBuyerAndWorkerPathUsesFrozenPricingAndCumulativeMetering
 		}
 		return false
 	}
-	if len(events) < 4 || !has("ACTIVATED") || !has("METERED") || !has("ROLLING_UPDATE_STARTED") || !has("ROLLING_UPDATE_COMPLETED") {
+	if len(events) < 5 || !has("ACTIVATED") || !has("METERED") || !has("SLO_MEASURED") || !has("ROLLING_UPDATE_STARTED") || !has("ROLLING_UPDATE_COMPLETED") {
 		t.Fatalf("rolling upgrade receipt events=%v", events)
 	}
 
