@@ -67,12 +67,16 @@ func seedDemo(ctx context.Context, pool *pgxpool.Pool, storage *Storage) error {
 			[]any{demoSupplierID}},
 		// Remap demo tokens onto the v4 worker rows so existing local DBs that still
 		// hold version-nibble-0 demo workers stop advertising non-receipt-grade IDs.
-		{`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked)
-		  VALUES ($1, $2, $3, false)
+		// Expiry is long but finite (1 year) so local agent configs keep working
+		// and the lifetime is visible rather than infinite.
+		{`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at)
+		  VALUES ($1, $2, $3, false, now() + interval '365 days', now())
 		  ON CONFLICT (token_hash) DO UPDATE
 		  SET worker_id = EXCLUDED.worker_id,
 		      supplier_id = EXCLUDED.supplier_id,
-		      revoked = false`, []any{hashKey(demoWorkerToken), demoWorkerID, demoSupplierID}},
+		      revoked = false,
+		      expires_at = EXCLUDED.expires_at,
+		      last_renewed_at = now()`, []any{hashKey(demoWorkerToken), demoWorkerID, demoSupplierID}},
 		{`INSERT INTO suppliers (id, email, reputation, tier, status)
 		  VALUES ($1, 'demo-supplier-2@example.com', 0.90, 2, 'active')
 		  ON CONFLICT (id) DO NOTHING`, []any{demoSupplierID2}},
@@ -84,12 +88,14 @@ func seedDemo(ctx context.Context, pool *pgxpool.Pool, storage *Storage) error {
 		  ON CONFLICT (id) DO NOTHING`, []any{demoWorkerID2, demoSupplierID2}},
 		{`UPDATE suppliers SET data_country = 'US' WHERE id = $1 AND data_country IS NULL`,
 			[]any{demoSupplierID2}},
-		{`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked)
-		  VALUES ($1, $2, $3, false)
+		{`INSERT INTO worker_tokens (token_hash, worker_id, supplier_id, revoked, expires_at, last_renewed_at)
+		  VALUES ($1, $2, $3, false, now() + interval '365 days', now())
 		  ON CONFLICT (token_hash) DO UPDATE
 		  SET worker_id = EXCLUDED.worker_id,
 		      supplier_id = EXCLUDED.supplier_id,
-		      revoked = false`, []any{hashKey(demoWorkerToken2), demoWorkerID2, demoSupplierID2}},
+		      revoked = false,
+		      expires_at = EXCLUDED.expires_at,
+		      last_renewed_at = now()`, []any{hashKey(demoWorkerToken2), demoWorkerID2, demoSupplierID2}},
 		{`INSERT INTO api_keys (buyer_id, key_hash, is_admin, revoked)
 		  VALUES ($1, $2, false, false)
 		  ON CONFLICT (key_hash) DO NOTHING`, []any{demoBuyerID, hashKey(demoAPIKey)}},

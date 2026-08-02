@@ -6089,3 +6089,48 @@ DROP TRIGGER IF EXISTS jobs_project_link_immutable ON jobs;
 CREATE TRIGGER jobs_project_link_immutable
     BEFORE UPDATE OF project_order_id, project_step_id ON jobs
     FOR EACH ROW EXECUTE FUNCTION cx_reject_job_project_link_update();
+
+-- ── containment / identity / token expiry (D6) ───────────────────────────────
+-- Worker token lifetime. Existing rows without expires_at are treated as
+-- grace-window tokens (see workerTokenGraceUntil) so enrolled workers are not
+-- silently locked out at migration time. New tokens always carry a finite
+-- expires_at; renewal happens on the heartbeat path.
+ALTER TABLE worker_tokens ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+ALTER TABLE worker_tokens ADD COLUMN IF NOT EXISTS last_renewed_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS worker_tokens_expires_at_idx
+    ON worker_tokens (expires_at)
+    WHERE revoked = false;
+
+-- Containment record reported by the agent at /v1/worker/register.
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS sandboxed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS unsandboxed_opt_in BOOLEAN NOT NULL DEFAULT false;
+
+-- Benchmark corroboration: a self-reported rate is not scheduling/admission
+-- authority until an independent observation agrees within the policy tolerance.
+ALTER TABLE benchmark_results ADD COLUMN IF NOT EXISTS corroborated BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE benchmark_results ADD COLUMN IF NOT EXISTS corroboration_source TEXT;
+ALTER TABLE benchmark_results ADD COLUMN IF NOT EXISTS corroborated_at TIMESTAMPTZ;
+ALTER TABLE benchmark_results ADD COLUMN IF NOT EXISTS claimed_rate REAL;
+ALTER TABLE worker_tps_cache ADD COLUMN IF NOT EXISTS corroborated BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE worker_tps_cache ADD COLUMN IF NOT EXISTS claimed_tps REAL NOT NULL DEFAULT 0;
+
+-- Placement independence exclusions: recorded when a linked supplier is
+-- refused a buyer's task (or a verification task) so a receipt can show
+-- independence was enforced, not assumed.
+CREATE TABLE IF NOT EXISTS claim_independence_exclusions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id          UUID NOT NULL,
+    task_id         UUID,
+    buyer_id        UUID NOT NULL,
+    supplier_id     UUID NOT NULL,
+    worker_id       UUID,
+    link_signals    TEXT[] NOT NULL DEFAULT '{}',
+    exclusion_kind  TEXT NOT NULL CHECK (exclusion_kind IN (
+                        'buyer_work', 'verification_work', 'no_independent_supplier')),
+    detail          JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS claim_independence_exclusions_job_idx
+    ON claim_independence_exclusions (job_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS claim_independence_exclusions_supplier_idx
+    ON claim_independence_exclusions (supplier_id, created_at DESC);

@@ -1,17 +1,113 @@
+;; merc-agent seatbelt profile — deny-default containment.
+;;
+;; Product claim: buyer payload on a supplier machine is filesystem- and
+;; network-contained. Allow-default would permit every operation class that is
+;; not explicitly denied (arbitrary process execution, mach services, open
+;; egress). This profile inverts that: only the classes the agent needs are
+;; permitted, each with a reason.
+;;
+;; Network egress host allowlisting is NOT expressible in public sandbox-exec
+;; on modern macOS: the filter language only accepts "*" or "localhost" as
+;; host (specific IPs and DNS names fail at profile compile with
+;; "host must be * or localhost in network address"). Therefore this profile
+;; allows only DNS + loopback + unix-socket. Remote HTTPS is reached through
+;; a local allowlisted CONNECT proxy that the agent spawns *outside* the
+;; sandbox before re-exec (see agent/src/sandbox_egress.rs). The proxy is the
+;; host allowlist; seatbelt ensures buyer payload can only talk to that
+;; localhost proxy (or local control plane), not to an arbitrary remote.
+;;
+;; Params expected from the re-exec wrapper (agent/src/main.rs):
+;;   HOME, MODELCACHE, DATADIR, TMPDIR, BINDIR
+;;
+;; What this profile cannot confine on macOS (stated, not papered over):
+;;   - Metal / GPU: IOKit user clients and GPU driver mach services must be
+;;     reachable or inference dies. Those services are not host-scoped; a
+;;     compromised agent can still talk to the local GPU stack.
+;;   - dyld shared cache and system frameworks: read of /System, /usr/lib,
+;;     /Library/Frameworks is required to load the binary and Metal.
+;;   - DNS to any resolver: required so the egress proxy (outside the sandbox)
+;;     can be reached by name only on loopback; in-sandbox DNS is used only
+;;     for local resolution. Remote name→IP for allowlisted peers happens in
+;;     the unsandboxed proxy.
+;;   - Host-scoped remote TCP: impossible via sandbox-exec; see header. The
+;;     proxy is the confinement boundary for remote destinations.
+;;   - process-exec of /bin and /usr/bin is allowed because the agent and its
+;;     Metal stack invoke system helpers (sysctl, sw_vers). With network
+;;     restricted to loopback, curl/wget cannot phone home to an arbitrary
+;;     remote host; with file-write restricted, they cannot plant persistence
+;;     under $HOME outside DATADIR/MODELCACHE/tmp.
 
 (version 1)
 
-(allow default)
+(deny default)
 
-(deny file-write*)
-(allow file-write*
-  (subpath (param "MODELCACHE"))
+;; ── process ────────────────────────────────────────────────────────────────
+;; System helpers the agent and Metal stack invoke. Home-directory binaries
+;; are NOT covered except BINDIR (the install prefix of merc-agent itself):
+;; a payload cannot exec ~/Downloads/exfil.
+(allow process-exec*
+  (subpath "/bin")
+  (subpath "/sbin")
+  (subpath "/usr/bin")
+  (subpath "/usr/sbin")
+  (subpath "/usr/lib")
+  (subpath "/usr/libexec")
+  (subpath "/System")
+  (subpath "/Library/Frameworks")
+  (subpath "/Applications/Merc.app")
+  (subpath "/Applications/MercAgent.app")
+  (subpath (param "BINDIR"))
   (subpath (param "DATADIR"))
+  (subpath (param "MODELCACHE"))
+  (subpath "/private/tmp")
+  (subpath "/private/var/folders")
+  (subpath (param "TMPDIR")))
+(allow process-fork)
+(allow process-info* (target self))
+(allow signal (target self))
+
+;; ── mach / IOKit (Metal inference) ─────────────────────────────────────────
+;; Required for Metal device enumeration, shader compile, and host services
+;; (notifyd, logd, system-status). Cannot be host-scoped; see header note.
+(allow mach-lookup)
+(allow mach-register)
+(allow iokit-open)
+(allow iokit-get-properties)
+(allow device*)
+
+;; ── sysctl ─────────────────────────────────────────────────────────────────
+;; hardware.rs reads hw.model / machdep.cpu.brand_string for class detection.
+(allow sysctl-read)
+(deny sysctl-write)
+
+;; ── file read ──────────────────────────────────────────────────────────────
+;; System frameworks and the agent/model trees must be readable. Sensitive
+;; operator secrets under $HOME are still denied below.
+(allow file-read-metadata)
+(allow file-read*
+  (subpath "/System")
+  (subpath "/usr")
+  (subpath "/bin")
+  (subpath "/sbin")
+  (subpath "/Library/Frameworks")
+  (subpath "/Library/Apple")
+  (subpath "/private/var/db/dyld")
+  (subpath "/private/var/db/timezone")
+  (subpath "/private/etc")
+  (subpath "/etc")
+  (subpath "/dev")
   (subpath "/private/tmp")
   (subpath "/private/var/folders")
   (subpath (param "TMPDIR"))
-  (subpath "/dev"))
+  (subpath (param "MODELCACHE"))
+  (subpath (param "DATADIR"))
+  (subpath (param "BINDIR"))
+  (subpath (param "HOME"))
+  (subpath "/Applications/Merc.app")
+  (subpath "/Applications/MercAgent.app")
+  (literal "/"))
 
+;; Operator secret paths: never readable by buyer payload.
 (deny file-read*
   (subpath (string-append (param "HOME") "/.ssh"))
   (subpath (string-append (param "HOME") "/.gnupg"))
@@ -24,13 +120,43 @@
   (subpath (string-append (param "HOME") "/Desktop"))
   (subpath (string-append (param "HOME") "/Downloads")))
 
+;; ── file write ─────────────────────────────────────────────────────────────
+(deny file-write*)
+(allow file-write*
+  (subpath (param "MODELCACHE"))
+  (subpath (param "DATADIR"))
+  (subpath "/private/tmp")
+  (subpath "/private/var/folders")
+  (subpath (param "TMPDIR"))
+  (subpath "/dev"))
+
+;; ── pseudo-tty / IPC used by runtime ───────────────────────────────────────
+(allow pseudo-tty)
+(allow ipc-posix-shm*)
+(allow ipc-posix-sem*)
+(allow ipc-sysv*)
+
+;; ── network ────────────────────────────────────────────────────────────────
+;; Default-deny all network, then open only DNS + loopback. No
+;; (remote ip "*:443") / (remote ip "*:80") — that was the buyer-payload
+;; exfil path. Remote destinations are reached only via the local egress
+;; proxy on loopback (spawned outside this profile before re-exec).
 (deny network-inbound)
 (deny network-bind)
 (deny network*)
+
+;; DNS: the agent may resolve names (loopback services, proxy discovery).
+;; Remote allowlist enforcement is the unsandboxed egress proxy's job.
 (allow network-outbound
-  (remote ip "*:443")
-  (remote ip "*:80")
-  (remote ip "*:53")
   (remote udp "*:53")
+  (remote tcp "*:53")
+  (remote ip "*:53"))
+
+;; Loopback + unix: local control plane in dev, the allowlisted CONNECT
+;; egress proxy, and optional openai_http sidecar. sandbox-exec only accepts
+;; "*" or "localhost" as host; "127.0.0.1" is rejected at compile time on
+;; modern macOS, so we use the localhost token.
+(allow network-outbound
   (remote ip "localhost:*")
+  (remote tcp "localhost:*")
   (remote unix-socket))
