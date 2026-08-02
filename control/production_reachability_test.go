@@ -266,6 +266,26 @@ var productionReachability = []reachabilityClaim{
 			"immutable replacement history and revalidate it against the stored render IR.",
 	},
 	{
+		From:   "Server.handleWorkerLoRAEvaluation",
+		Target: "Store.RecordProjectLoRAEvaluation",
+		Consequence: "an evaluator worker could receive a successful HTTP response while its score report " +
+			"was not bound to a probed buyer IR, independently owned supplier accounts, or an append-only " +
+			"receipt; a later outcome decision would then have no production evidence boundary.",
+	},
+	{
+		From:   "Store.RecordProjectLoRAEvaluation",
+		Target: "validateProjectLoRAEvaluationEvidence",
+		Consequence: "a durable LoRA score row could accept a same-account evaluator, held-out mismatch, " +
+			"dataset leakage, non-finite score, or wrong metric-direction improvement, making the outcome " +
+			"receipt an incentive-shaped claim rather than an independent measurement.",
+	},
+	{
+		From:   "Server.handleProjectLoRAEvaluationReceipt",
+		Target: "Store.GetProjectLoRAEvaluationReceipt",
+		Consequence: "an evaluator report could be written but no buyer caller could replay its immutable " +
+			"identity, score direction, account separation, or explicit non-executable refusal.",
+	},
+	{
 		From:   "Server.handleAdminNetworkMarketLiquidity",
 		Target: "Store.NetworkMarketLiquidity",
 		Consequence: "operators would have separate lane reports but no single bounded receipt " +

@@ -110,7 +110,10 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// fabric evidence surface; it cannot promote local placement.
 	// 96 after buyer-scoped render assembly manifests and immutable receipt reads
 	// entered the rendering evidence surface; neither route can execute or settle.
-	if checked != 96 {
-		t.Fatalf("checked %d protected routes, want 96", checked)
+	// 98 after the worker-authenticated LoRA evaluation report and buyer-scoped
+	// receipt read entered the outcome-evidence surface; neither route can train,
+	// deploy, charge, pay, or settle.
+	if checked != 98 {
+		t.Fatalf("checked %d protected routes, want 98", checked)
 	}
 }

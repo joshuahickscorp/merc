@@ -5963,6 +5963,58 @@ CREATE TRIGGER project_render_assembly_receipts_append_only
     BEFORE UPDATE OR DELETE ON project_render_assembly_receipts
     FOR EACH ROW EXECUTE FUNCTION cx_refuse_project_render_assembly_receipt_rewrite();
 
+-- An evaluator worker may append one score comparison to a probed LoRA IR.
+-- Worker/supplier/account identities are captured at submission, while the
+-- buyer can replay the receipt by compile scope. This is outcome evidence only:
+-- it creates no task, adapter deployment, charge, payable, or settlement row.
+CREATE TABLE IF NOT EXISTS project_lora_evaluation_receipts (
+    id                       UUID PRIMARY KEY,
+    buyer_id                 UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    compile_receipt_id       UUID NOT NULL REFERENCES project_compile_receipts(id) ON DELETE RESTRICT,
+    project_sha256           TEXT NOT NULL CHECK (project_sha256 ~ '^[0-9a-f]{64}$'),
+    ir_sha256                TEXT NOT NULL CHECK (ir_sha256 ~ '^[0-9a-f]{64}$'),
+    step_id                  TEXT NOT NULL CHECK (step_id ~ '^[a-z][a-z0-9_-]{0,63}$'),
+    run_id                   UUID NOT NULL,
+    trainer_worker_id        UUID NOT NULL,
+    evaluator_worker_id      UUID NOT NULL,
+    trainer_supplier_id      UUID NOT NULL,
+    evaluator_supplier_id    UUID NOT NULL,
+    trainer_account_id       UUID NOT NULL,
+    evaluator_account_id     UUID NOT NULL,
+    held_out_set_sha256      TEXT NOT NULL CHECK (held_out_set_sha256 ~ '^[0-9a-f]{64}$'),
+    reserved_set_sha256      TEXT NOT NULL CHECK (reserved_set_sha256 ~ '^[0-9a-f]{64}$'),
+    adapter_sha256           TEXT NOT NULL CHECK (adapter_sha256 ~ '^[0-9a-f]{64}$'),
+    baseline_model_sha256    TEXT NOT NULL CHECK (baseline_model_sha256 ~ '^[0-9a-f]{64}$'),
+    evaluation_metric        TEXT NOT NULL CHECK (length(evaluation_metric) BETWEEN 1 AND 128),
+    metric_direction          TEXT NOT NULL CHECK (metric_direction IN ('HIGHER_IS_BETTER','LOWER_IS_BETTER')),
+    baseline_score           DOUBLE PRECISION NOT NULL CHECK (baseline_score > 0 AND baseline_score < 1000000 AND baseline_score <> 'NaN'::double precision),
+    candidate_score          DOUBLE PRECISION NOT NULL CHECK (candidate_score >= 0 AND candidate_score < 1000000 AND candidate_score <> 'NaN'::double precision),
+    required_improvement     DOUBLE PRECISION NOT NULL CHECK (required_improvement >= 0 AND required_improvement <= 10 AND required_improvement <> 'NaN'::double precision),
+    improvement_fraction     DOUBLE PRECISION NOT NULL CHECK (improvement_fraction > -1000000 AND improvement_fraction < 1000000 AND improvement_fraction <> 'NaN'::double precision),
+    trainer_saw_held_out_set BOOLEAN NOT NULL,
+    succeeded                BOOLEAN NOT NULL,
+    status                   TEXT NOT NULL CHECK (status = 'EVALUATION_RECORDED_NOT_EXECUTABLE'),
+    evidence_sha256          TEXT NOT NULL CHECK (evidence_sha256 ~ '^[0-9a-f]{64}$'),
+    evidence                 JSONB NOT NULL CHECK (jsonb_typeof(evidence) = 'object'),
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (compile_receipt_id, step_id, evaluator_worker_id, run_id),
+    CHECK (trainer_worker_id <> evaluator_worker_id),
+    CHECK (trainer_supplier_id <> evaluator_supplier_id),
+    CHECK (trainer_account_id <> evaluator_account_id),
+    CHECK (held_out_set_sha256 = reserved_set_sha256)
+);
+CREATE INDEX IF NOT EXISTS project_lora_evaluation_receipts_buyer_created_idx
+    ON project_lora_evaluation_receipts (buyer_id, created_at DESC);
+CREATE OR REPLACE FUNCTION cx_refuse_project_lora_evaluation_receipt_rewrite() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'project LoRA evaluation receipt % is immutable; submit a new run evidence object', OLD.id;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS project_lora_evaluation_receipts_append_only ON project_lora_evaluation_receipts;
+CREATE TRIGGER project_lora_evaluation_receipts_append_only
+    BEFORE UPDATE OR DELETE ON project_lora_evaluation_receipts
+    FOR EACH ROW EXECUTE FUNCTION cx_refuse_project_lora_evaluation_receipt_rewrite();
+
 CREATE TABLE IF NOT EXISTS project_orders (
     id UUID PRIMARY KEY,
     buyer_id UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
