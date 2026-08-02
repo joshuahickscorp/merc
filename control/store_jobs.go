@@ -1483,6 +1483,13 @@ func (s *Store) completeJobEconomics(
 		 WHERE id=$1`, jobID, slaPremiumChargeRef(jobID)); err != nil {
 		return err
 	}
+	// Accrue the modeled risk reserve when the frozen decision carries a cost
+	// schedule. Historical decisions without a schedule are a no-op.
+	if pricing, perr := s.JobPricingDecision(ctx, jobID); perr == nil && pricing != nil {
+		if err := AccrueRiskReserveAtSettlementTx(ctx, tx, jobID, *pricing); err != nil {
+			return fmt.Errorf("accrue risk reserve for job %s: %w", jobID, err)
+		}
+	}
 	reachRecoveryBoundary(ctx, probe, BoundaryCompleteAfterActualUSD)
 	reachRecoveryBoundary(ctx, probe, BoundaryCompleteBeforeDBCommit)
 	if err := tx.Commit(ctx); err != nil {

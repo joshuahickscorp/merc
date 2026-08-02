@@ -59,6 +59,16 @@ type PricingCostComponent struct {
 // PricingDecision. Human-facing floats remain projections for compatibility;
 // admission, ceilings and economic identity use these integer nano-major-units.
 // Historical decisions omit this object and retain their frozen arithmetic.
+//
+// Conservation (exact integers):
+//
+//	BuyerChargeNanos = SupplierEntitlementsNanos
+//	                 + KnownVariableCostsNanos
+//	                 + KnownCostContributionNanos
+//
+// KnownVariableCostsNanos includes every modeled variable cost (processor,
+// control-plane, storage, egress, provider, risk). A modeled PricingCostComponent
+// left out of that sum fails validation closed.
 type FixedPointPricingDecision struct {
 	Currency                   string   `json:"currency"`
 	BuyerChargeNanos           int64    `json:"buyer_charge_nanos"`
@@ -82,11 +92,23 @@ type PricingDecision struct {
 	Currency       string `json:"currency"`
 	Tier           string `json:"tier"`
 
-	WorkloadDecisionSHA256           string `json:"workload_decision_sha256"`
-	ComputePlanSHA256                string `json:"compute_plan_sha256"`
-	PlacementRequirementSHA256       string `json:"placement_requirement_sha256,omitempty"`
-	EconomicPlanSHA256               string `json:"economic_plan_sha256,omitempty"`
-	EconomicScheduleSHA256           string `json:"economic_schedule_sha256,omitempty"`
+	WorkloadDecisionSHA256     string `json:"workload_decision_sha256"`
+	ComputePlanSHA256          string `json:"compute_plan_sha256"`
+	PlacementRequirementSHA256 string `json:"placement_requirement_sha256,omitempty"`
+	EconomicPlanSHA256         string `json:"economic_plan_sha256,omitempty"`
+	EconomicScheduleSHA256     string `json:"economic_schedule_sha256,omitempty"`
+	// CostScheduleSHA256 binds the versioned cost-policy rates (storage, egress,
+	// risk reserve). Empty means a historical decision frozen before cost
+	// schedule attribution; such decisions keep their unknown categories forever
+	// and are never re-read under a later schedule.
+	CostScheduleSHA256   string `json:"cost_schedule_sha256,omitempty"`
+	CostScheduleRevision string `json:"cost_schedule_revision,omitempty"`
+	// StorageAcceptedBytes / EgressAcceptedBytes are the upper-bound byte counts
+	// used to model those components at acceptance. Settlement records actual
+	// bytes beside these bounds in job_cost_settlements, never by rewriting this
+	// decision.
+	StorageAcceptedBytes             int64  `json:"storage_accepted_bytes,omitempty"`
+	EgressAcceptedBytes              int64  `json:"egress_accepted_bytes,omitempty"`
 	OriginQuotePricingDecisionSHA256 string `json:"origin_quote_pricing_decision_sha256,omitempty"`
 	OriginPricingDecisionSHA256      string `json:"origin_pricing_decision_sha256,omitempty"`
 
@@ -136,20 +158,52 @@ func fixedPointPricingFromScenario(
 	// Legacy float path: re-quantises already-rounded scenario fields through
 	// micro-USD. Prefer fixedPointPricingFromPlan when an exact economic plan is
 	// available so supplier/buyer legs match admission.
+	return fixedPointPricingFromScenarioWithExtras(
+		currency, buyerPrice, maximumBuyerPrice, scenario, 0, unknowns,
+	)
+}
+
+// fixedPointPricingFromScenarioWithExtras is the legacy float path with
+// additional modeled variable costs (storage, egress, provider, risk) folded
+// into the conservation equation. Use only when the economic plan has no exact
+// nano authority; exact plans must go through fixedPointPricingFromPlanWithExtras
+// so the supplier and buyer legs stay the integers admission proved.
+//
+//	buyer = supplier + (processor+control+extras) + (contribution-extras)
+//
+// A negative residual contribution fails closed: the job cannot be accepted
+// under a cost schedule that exceeds the economic headroom.
+func fixedPointPricingFromScenarioWithExtras(
+	currency string,
+	buyerPrice, maximumBuyerPrice float64,
+	scenario EconomicScenario,
+	extraVariableNanos int64,
+	unknowns []string,
+) (*FixedPointPricingDecision, error) {
 	toNanos := func(value float64) int64 { return usdToMicros(value) * NanosPerMicro }
 	buyer := toNanos(buyerPrice)
 	ceiling := toNanos(maximumBuyerPrice)
 	supplier := toNanos(scenario.SupplierLiabilityUSD)
-	variable := toNanos(scenario.ProcessorFeeUSD) + toNanos(scenario.ControlPlaneCostUSD)
-	contribution := toNanos(scenario.ContributionMarginUSD)
-	if buyer <= 0 || ceiling < buyer || supplier <= 0 || contribution <= 0 {
+	baseVariable := toNanos(scenario.ProcessorFeeUSD) + toNanos(scenario.ControlPlaneCostUSD)
+	baseContribution := toNanos(scenario.ContributionMarginUSD)
+	if buyer <= 0 || ceiling < buyer || supplier <= 0 || baseContribution <= 0 {
 		return nil, errors.New("fixed-point pricing lacks positive buyer, supplier, ceiling, or contribution authority")
 	}
-	if buyer != supplier+variable+contribution {
+	if buyer != supplier+baseVariable+baseContribution {
 		return nil, fmt.Errorf(
 			"fixed-point pricing does not conserve: buyer %d != supplier %d + variable %d + contribution %d",
-			buyer, supplier, variable, contribution)
+			buyer, supplier, baseVariable, baseContribution)
 	}
+	if extraVariableNanos < 0 {
+		return nil, errors.New("fixed-point pricing refuses negative extra variable costs")
+	}
+	if extraVariableNanos >= baseContribution {
+		return nil, fmt.Errorf(
+			"modeled variable costs %d nanos exceed or equal known contribution headroom %d nanos",
+			extraVariableNanos, baseContribution)
+	}
+	variable := baseVariable + extraVariableNanos
+	contribution := baseContribution - extraVariableNanos
 	fixed := &FixedPointPricingDecision{
 		Currency: currency, BuyerChargeNanos: buyer, AcceptedCeilingNanos: ceiling,
 		SupplierEntitlementsNanos: supplier, KnownVariableCostsNanos: variable,
@@ -174,14 +228,36 @@ func fixedPointPricingFromPlan(
 	scenario EconomicScenario,
 	unknowns []string,
 ) (*FixedPointPricingDecision, error) {
+	return fixedPointPricingFromPlanWithExtras(economic, scenario, 0, unknowns)
+}
+
+// fixedPointPricingFromPlanWithExtras is the single derivation that does both:
+// plan nanos for the supplier and buyer legs, plus modeled extras inside the
+// conservation equation.
+//
+//	buyer = supplier + (processor + control + extras) + (contribution - extras)
+//
+// Supplier and buyer come from the plan's integers. Extras are Merc's costs and
+// never touch the supplier entitlement. A residual contribution that is not
+// strictly positive fails closed. Plans with no exact nanos fall through to the
+// legacy float path with the same extras.
+func fixedPointPricingFromPlanWithExtras(
+	economic EconomicPlan,
+	scenario EconomicScenario,
+	extraVariableNanos int64,
+	unknowns []string,
+) (*FixedPointPricingDecision, error) {
 	if economic.EconomicRoundingPolicy != economicRoundingPolicy ||
 		economic.SupplierPayoutPerTaskNanos <= 0 ||
 		economic.BuyerChargePerTaskNanos <= 0 {
-		return fixedPointPricingFromScenario(
+		return fixedPointPricingFromScenarioWithExtras(
 			economic.Schedule.Currency,
 			economic.InitialBuyerChargeUSD, economic.ReservedBuyerChargeUSD,
-			scenario, unknowns,
+			scenario, extraVariableNanos, unknowns,
 		)
+	}
+	if extraVariableNanos < 0 {
+		return nil, errors.New("fixed-point pricing refuses negative extra variable costs")
 	}
 	tasks := scenario.AcceptedTasks
 	if tasks <= 0 {
@@ -189,7 +265,7 @@ func fixedPointPricingFromPlan(
 	}
 	// Variable costs remain float-derived (processor fee, control-plane cost).
 	toNanos := func(value float64) int64 { return usdToMicros(value) * NanosPerMicro }
-	variable := toNanos(scenario.ProcessorFeeUSD) + toNanos(scenario.ControlPlaneCostUSD)
+	baseVariable := toNanos(scenario.ProcessorFeeUSD) + toNanos(scenario.ControlPlaneCostUSD)
 
 	supplier := economic.SupplierPayoutPerTaskNanos * int64(tasks)
 	slaNanos := int64(0)
@@ -226,10 +302,19 @@ func fixedPointPricingFromPlan(
 	}
 	// Contribution is the residual that makes conservation exact in integers.
 	// Variable costs may still carry micro-quantisation; the residual absorbs it.
-	contribution := buyer - supplier - variable
-	if contribution <= 0 {
+	// Modeled extras (storage/egress/provider/risk) sit inside the variable leg
+	// and reduce contribution by the same amount so the supplier leg is untouched.
+	baseContribution := buyer - supplier - baseVariable
+	if baseContribution <= 0 {
 		return nil, errors.New("fixed-point pricing lacks positive buyer, supplier, ceiling, or contribution authority")
 	}
+	if extraVariableNanos >= baseContribution {
+		return nil, fmt.Errorf(
+			"modeled variable costs %d nanos exceed or equal known contribution headroom %d nanos",
+			extraVariableNanos, baseContribution)
+	}
+	variable := baseVariable + extraVariableNanos
+	contribution := baseContribution - extraVariableNanos
 	fixed := &FixedPointPricingDecision{
 		Currency: economic.Schedule.Currency, BuyerChargeNanos: buyer, AcceptedCeilingNanos: ceiling,
 		SupplierEntitlementsNanos: supplier, KnownVariableCostsNanos: variable,
@@ -268,6 +353,80 @@ func validateFixedPointPricing(p PricingDecision) error {
 		}
 	} else if f.TrueNetContributionNanos != nil {
 		return errors.New("fixed-point pricing claims true net contribution with unknown costs")
+	}
+	// When a cost schedule is bound, every modeled variable cost component must
+	// be inside KnownVariableCostsNanos (or be the supplier / contribution leg).
+	// A modeled cost left out of the sum is the exact bug true-net attribution
+	// exists to prevent.
+	if p.CostScheduleSHA256 != "" {
+		if err := validateModeledCostsAccountedInFixedPoint(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateModeledCostsAccountedInFixedPoint fails closed when a modeled
+// PricingCostComponent is not reflected in the fixed-point conservation sum.
+// Supplier legs (primary + verification) and platform contribution are the
+// non-variable legs; everything else modeled must land in KnownVariableCostsNanos.
+func validateModeledCostsAccountedInFixedPoint(p PricingDecision) error {
+	f := p.FixedPoint
+	if f == nil {
+		return nil
+	}
+	toNanos := func(amount float64) int64 { return usdToMicros(amount) * NanosPerMicro }
+
+	// Exact settlement authority: FixedPoint supplier is plan-nano authority.
+	// Float PrimarySupplierCost/VerificationCost are six-decimal projections and
+	// may differ by the same micro-quantisation gap that FixedPoint-from-plan
+	// exists to close. Only the legacy float path requires those projections to
+	// equal the FixedPoint supplier leg. validateFixedPointMatchesPlan is the
+	// supplier invariant under the exact policy.
+	if p.SupplierEntitlementPolicy != economicRoundingPolicy {
+		supplierNanos := int64(0)
+		if p.PrimarySupplierCost.Status == pricingCostModeled {
+			supplierNanos += toNanos(p.PrimarySupplierCost.Amount)
+		}
+		if p.VerificationCost.Status == pricingCostModeled {
+			supplierNanos += toNanos(p.VerificationCost.Amount)
+		}
+		if supplierNanos != f.SupplierEntitlementsNanos {
+			return fmt.Errorf(
+				"modeled supplier cost components %d nanos are not accounted for in "+
+					"SupplierEntitlementsNanos %d",
+				supplierNanos, f.SupplierEntitlementsNanos)
+		}
+	}
+	if p.PlatformContribution.Status == pricingCostModeled {
+		// Plan-path contribution may carry sub-micro residual nanos. The float
+		// component is the micro projection (integer division by NanosPerMicro);
+		// compare against that projection so exact and float paths share one check.
+		projected := (f.KnownCostContributionNanos / NanosPerMicro) * NanosPerMicro
+		if toNanos(p.PlatformContribution.Amount) != projected {
+			return fmt.Errorf(
+				"modeled platform contribution %d nanos is not accounted for in "+
+					"KnownCostContributionNanos %d (micro-projected %d)",
+				toNanos(p.PlatformContribution.Amount), f.KnownCostContributionNanos, projected)
+		}
+	}
+
+	variableParts := []PricingCostComponent{
+		p.PaymentCost, p.ControlPlaneCost, p.StorageCost, p.EgressCost,
+		p.ProviderCost, p.RiskReserve,
+	}
+	var sum int64
+	for _, c := range variableParts {
+		if c.Status != pricingCostModeled {
+			continue
+		}
+		sum += toNanos(c.Amount)
+	}
+	if sum != f.KnownVariableCostsNanos {
+		return fmt.Errorf(
+			"modeled variable cost components %d nanos are not accounted for in "+
+				"KnownVariableCostsNanos %d",
+			sum, f.KnownVariableCostsNanos)
 	}
 	return nil
 }
@@ -998,6 +1157,121 @@ func distributedPricingDecisionAtRate(
 		pricingAssumptions = append(pricingAssumptions,
 			"fixed account/invoice overhead is allocated over the collector's minimum economic charge batch")
 	}
+
+	// Cost schedule attribution. Always bind the governed default for new
+	// decisions so storage/egress/provider/risk can leave the unknown set.
+	// Historical decisions rebuilt without a schedule keep the pre-schedule
+	// unknown markers via the migration path below only when schedule load fails
+	// closed — LoadCostScheduleFromEnv always returns a validated schedule.
+	costSchedule, cerr := LoadCostScheduleFromEnv()
+	if cerr != nil {
+		// Fall back to currency-bound default when env is incomplete in tests.
+		costSchedule = DefaultCostSchedule(economic.Schedule.Currency)
+		if reason := validateCostSchedule(costSchedule); reason != "" {
+			return PricingDecision{}, fmt.Errorf("cost schedule unavailable: %w", cerr)
+		}
+	}
+	if costSchedule.Currency != economic.Schedule.Currency {
+		costSchedule.Currency = economic.Schedule.Currency
+	}
+	costSHA, cerr := costScheduleDigest(costSchedule)
+	if cerr != nil {
+		return PricingDecision{}, fmt.Errorf("cost schedule digest: %w", cerr)
+	}
+
+	// Storage and egress: upper-bound from frozen compute plan geometry and the
+	// job-object retention period. Settlement recomputes from actual bytes.
+	storageBytes, egressBytes := declaredOutputBytesBound(compute)
+	retention := jobObjectRetentionPeriod()
+	storageNanos, serr := storageNanosForBytes(costSchedule, storageBytes, retention)
+	if serr != nil {
+		return PricingDecision{}, fmt.Errorf("storage cost model: %w", serr)
+	}
+	egressNanos, eerr := egressNanosForBytes(costSchedule, egressBytes)
+	if eerr != nil {
+		return PricingDecision{}, fmt.Errorf("egress cost model: %w", eerr)
+	}
+	storageCost := modeledCost(nanosToEconomicUSD(storageNanos),
+		fmt.Sprintf("policy storage bound: %d bytes × retention %s at schedule rate; %s",
+			storageBytes, retention, costSchedule.StorageProvenance))
+	egressCost := modeledCost(nanosToEconomicUSD(egressNanos),
+		fmt.Sprintf("policy egress bound: %d result bytes at schedule rate; %s",
+			egressBytes, costSchedule.EgressProvenance))
+	// A workload that stores nothing (no input, no declared output) is N/A.
+	if storageBytes == 0 {
+		storageCost = notApplicableCost(
+			"compute plan declares zero retained payload bytes; no object-storage cost applies")
+	}
+	if egressBytes == 0 {
+		egressCost = notApplicableCost(
+			"compute plan declares zero result bytes; no egress cost applies")
+	}
+
+	// Provider: N/A for community/owned; modeled or unknown for cloud-backed.
+	providerCost := providerCostComponentForPlacement(
+		placement.RuntimeCellID, placement.HWClasses, expectedSeconds,
+	)
+
+	// Risk reserve: real policy money on the buyer charge.
+	buyerNanos := usdToMicros(economic.InitialBuyerChargeUSD) * NanosPerMicro
+	riskNanos, rerr := riskReserveNanos(costSchedule, buyerNanos)
+	if rerr != nil {
+		return PricingDecision{}, fmt.Errorf("risk reserve model: %w", rerr)
+	}
+	riskCost := modeledCost(nanosToEconomicUSD(riskNanos),
+		fmt.Sprintf("%d bps of buyer charge as platform risk reserve; %s",
+			costSchedule.RiskReserveBasisPoints, costSchedule.RiskReserveProvenance))
+
+	// Extra variable costs beyond processor+control, in the same micro-aligned
+	// nanos the fixed-point layer and validateModeledCostsAccountedInFixedPoint
+	// use. Taking the rounded component amounts (not the pre-projection nanos)
+	// keeps conservation exact under the six-decimal ledger float.
+	componentNanos := func(c PricingCostComponent) int64 {
+		if c.Status != pricingCostModeled {
+			return 0
+		}
+		return usdToMicros(c.Amount) * NanosPerMicro
+	}
+	extraVariableNanos := componentNanos(storageCost) + componentNanos(egressCost) +
+		componentNanos(providerCost) + componentNanos(riskCost)
+
+	// Contribution basis text; the residual amount is taken from fixed-point
+	// after the extras are applied so float and nano legs cannot disagree.
+	contributionBasis = "known-cost contribution after modeled supplier, processor, " +
+		"control-plane, storage, egress, provider and risk costs"
+	if providerCost.Status == pricingCostUnknown ||
+		storageCost.Status == pricingCostUnknown ||
+		egressCost.Status == pricingCostUnknown ||
+		riskCost.Status == pricingCostUnknown {
+		contributionBasis += "; not true net while named costs remain unknown"
+	} else {
+		contributionBasis += "; true net when every named cost is modeled or not applicable"
+	}
+	contributionUSD := scenario.ContributionMarginUSD
+	if extraVariableNanos > 0 {
+		contributionUSD = microsToUSD(
+			usdToMicros(scenario.ContributionMarginUSD) - extraVariableNanos/NanosPerMicro)
+	}
+
+	unknowns := make([]string, 0, 4)
+	if storageCost.Status == pricingCostUnknown {
+		unknowns = append(unknowns, "storage cost")
+	}
+	if egressCost.Status == pricingCostUnknown {
+		unknowns = append(unknowns, "egress cost")
+	}
+	if providerCost.Status == pricingCostUnknown {
+		unknowns = append(unknowns, "provider cost")
+	}
+	if riskCost.Status == pricingCostUnknown {
+		unknowns = append(unknowns, "risk reserve")
+	}
+	pricingAssumptions = append(pricingAssumptions,
+		"storage and egress use cost-schedule policy rates on declared compute-plan byte bounds and job-object retention; settlement remeasures actual artifact bytes",
+		"provider cost is not_applicable for owned/community supply and governed pod-rate × seconds for cloud-backed cells",
+		"risk reserve is accrued to a platform ledger account at settlement and released or consumed after the dispute window",
+	)
+
 	out := PricingDecision{
 		Version: pricingDecisionVersion, PolicyRevision: pricingDecisionPolicyRevision,
 		ExecutionMode: computeExecutionDistributed,
@@ -1005,6 +1279,10 @@ func distributedPricingDecisionAtRate(
 		WorkloadDecisionSHA256: workloadSHA, ComputePlanSHA256: computeSHA,
 		PlacementRequirementSHA256: placementSHA,
 		EconomicPlanSHA256:         economicSHA, EconomicScheduleSHA256: scheduleSHA,
+		CostScheduleSHA256:               costSHA,
+		CostScheduleRevision:             costSchedule.Revision,
+		StorageAcceptedBytes:             storageBytes,
+		EgressAcceptedBytes:              egressBytes,
 		OriginQuotePricingDecisionSHA256: originQuotePricingSHA,
 		Catalogue:                        catalogue,
 		BillableUnits:                    billableUnits,
@@ -1025,28 +1303,40 @@ func distributedPricingDecisionAtRate(
 			"economic schedule processor percentage and allocated fixed fee"),
 		ControlPlaneCost: modeledCost(scenario.ControlPlaneCostUSD,
 			controlBasis),
-		StorageCost: unknownCost(
-			"no independently metered object-storage cost is attributed at acceptance"),
-		EgressCost: unknownCost(
-			"result egress destination and billable bytes are unknown at acceptance"),
-		ProviderCost: unknownCost(
-			"worker/provider energy and depreciation are not independently metered"),
-		RiskReserve: unknownCost(
-			"no independently calibrated loss reserve is available"),
-		PlatformContribution: modeledCost(scenario.ContributionMarginUSD,
+		StorageCost:  storageCost,
+		EgressCost:   egressCost,
+		ProviderCost: providerCost,
+		RiskReserve:  riskCost,
+		PlatformContribution: modeledCost(contributionUSD,
 			contributionBasis),
 		Confidence:  compute.Confidence,
 		Assumptions: pricingAssumptions,
-		Unknowns: []string{
-			"storage cost", "egress cost", "provider energy and depreciation", "risk reserve",
-		},
+	}
+	// Nil, not empty, when every category is known: omitempty JSON round-trips
+	// drop empty slices to nil, and ValidateDistributedPricingDecisionSnapshot
+	// uses reflect.DeepEqual.
+	if len(unknowns) > 0 {
+		out.Unknowns = append([]string(nil), unknowns...)
 	}
 	if economic.Schedule.ControlPlaneAllocationPolicy == controlPlaneAllocationChargeBatchV1 {
-		fixed, ferr := fixedPointPricingFromPlan(economic, scenario, out.Unknowns)
+		fixed, ferr := fixedPointPricingFromPlanWithExtras(
+			economic, scenario, extraVariableNanos, out.Unknowns,
+		)
 		if ferr != nil {
 			return PricingDecision{}, ferr
 		}
 		out.FixedPoint = fixed
+		// Float contribution realignment: project KnownCostContributionNanos back
+		// through micros so the float conservation check agrees with the nano
+		// equation. Runs before validateFixedPointMatchesPlan. The order cannot
+		// change the plan match — that validator only reads FixedPoint supplier
+		// and buyer legs, which realignment never touches — but realignment must
+		// complete before validatePricingCostShape, which checks the float
+		// PlatformContribution against the FixedPoint residual.
+		if fixed != nil {
+			out.PlatformContribution = modeledCost(
+				microsToUSD(fixed.KnownCostContributionNanos/NanosPerMicro), contributionBasis)
+		}
 		if err := validateFixedPointMatchesPlan(out, economic, scenario); err != nil {
 			return PricingDecision{}, err
 		}
@@ -1260,10 +1550,19 @@ func validatePricingCostShape(p PricingDecision) error {
 		conserved := roundEconomicUSD(
 			p.PrimarySupplierCost.Amount + p.VerificationCost.Amount +
 				p.PaymentCost.Amount + p.ControlPlaneCost.Amount +
+				p.StorageCost.Amount + p.EgressCost.Amount +
+				p.ProviderCost.Amount + p.RiskReserve.Amount +
 				p.PlatformContribution.Amount,
 		)
 		if math.Abs(conserved-p.BuyerPrice) > 0.000002 {
 			return errors.New("physical pricing decision does not conserve modeled buyer price")
+		}
+		// Cost schedule, when present, must be a valid SHA-256 and match a
+		// decision that has left storage/egress/provider/risk as unknown only
+		// for honest reasons (unknown status with a basis), never as a silent
+		// zero.
+		if p.CostScheduleSHA256 != "" && !validSHA256(p.CostScheduleSHA256) {
+			return errors.New("physical pricing decision cost schedule digest is not a sha256")
 		}
 	case computeExecutionExactReuse:
 		if p.Realtime != nil || p.RealtimeReuse != nil || p.Currency != p.Catalogue.SettlementCurrency ||

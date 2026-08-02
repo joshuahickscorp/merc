@@ -145,7 +145,22 @@ func TestClearingReceiptExposesExactCompositePricingAndReconciliation(t *testing
 }
 
 func TestContributionViewNeverCallsGrossSpreadTrueNetWhileCostsAreUnknown(t *testing.T) {
-	_, _, _, _, pricing := distributedPricingFixture(t)
+	// Historical decision shape: no cost schedule, named costs still unknown.
+	// The live distributed fixture now models storage/egress/risk under the
+	// cost schedule, so true net is reachable there; this test guards the
+	// historical reporting path.
+	pricing := PricingDecision{
+		Currency:             "usd",
+		PrimarySupplierCost:  modeledCost(0.01, "supplier"),
+		VerificationCost:     modeledCost(0.001, "verification"),
+		PaymentCost:          modeledCost(0.000002, "processor"),
+		ControlPlaneCost:     modeledCost(0.000001, "control"),
+		StorageCost:          unknownCost("no independently metered object-storage cost"),
+		EgressCost:           unknownCost("result egress unknown"),
+		ProviderCost:         unknownCost("provider energy unmetered"),
+		RiskReserve:          unknownCost("no calibrated reserve"),
+		PlatformContribution: modeledCost(0.01, "gross before unknown costs"),
+	}
 	processor := 0.000002
 	view := buildEconomicContributionView(&pricing, pricing.Currency, 0.011562, &processor, 0)
 	if view.MercGrossSpread.AmountUSD == nil || *view.MercGrossSpread.AmountUSD != 0.011562 {
