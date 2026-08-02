@@ -41,6 +41,7 @@ func TestServiceLeaseSupplierPayoutFundingUsesCollectedTopup(t *testing.T) {
 
 	profile := sortedVLLMProfiles()[0]
 	worker, _ := newFabricMeasurementWorker(t, ctx, store)
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-service-payout-" + uuid.NewString()
 	if err := store.UpsertServiceLeaseOffer(ctx, worker, offer); err != nil {

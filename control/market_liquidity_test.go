@@ -232,6 +232,7 @@ func TestServiceLeaseMarketLiquidityUsesRealOfferAndBuyerAdmissionPaths(t *testi
 	}
 	worker, workerToken := newFabricMeasurementWorker(t, ctx, store)
 	profile := sortedVLLMProfiles()[0]
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
 	offer := serviceLeaseOffer(profile)
 	offer.Region = "ca-liquidity-" + uuid.NewString()
 	handler := NewServer(store, nil, nil, nil).Routes()

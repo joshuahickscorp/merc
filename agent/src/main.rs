@@ -2938,12 +2938,15 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
                 LAST_HOST_CPU_MILLIPCT.store((cpu.max(0.0) * 1000.0) as u64, Ordering::Release);
                 let throttle = cfg.evaluate_memory_throttle(&throttle_snapshot(), None);
                 cfg.refresh_thermal_pressure();
+                // Snapshot residency before idle eviction clears measurements so
+                // the log line can still report reclaimed bytes; the heartbeat
+                // carries the eviction list so control can delete warm rows.
+                let residency_before_evict = pool::residency_snapshot();
                 let evicted = ctx.pool.evict_idle(MODEL_IDLE_EVICT_AFTER).await;
                 if !evicted.is_empty() {
-                    let residency = pool::residency_snapshot();
                     let reclaimed_bytes: i64 = evicted
                         .iter()
-                        .filter_map(|k| residency.get(k))
+                        .filter_map(|k| residency_before_evict.get(k))
                         .map(|m| m.rss_delta_bytes.max(0))
                         .sum();
                     tracing::info!(
@@ -2955,6 +2958,17 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
                     );
                 }
                 let loaded_models = ctx.pool.loaded_model_ids().await;
+                let residency = pool::residency_snapshot();
+                let resident_models: Vec<types::ResidentModel> = loaded_models
+                    .iter()
+                    .filter_map(|model_id| {
+                        residency.get(model_id).map(|m| types::ResidentModel {
+                            model_id: model_id.clone(),
+                            rss_delta_bytes: m.rss_delta_bytes,
+                            load_ms: m.load_ms,
+                        })
+                    })
+                    .collect();
                 let (gpu, gpu_temp) = gpu_telemetry();
                 let live_throttling = executor::live_throttle_detected();
                 let active_tasks = status.active_task_leases();
@@ -2971,6 +2985,8 @@ async fn run_agent(mut cfg: AgentConfig) -> Result<()> {
                     reserved_headroom_gb: throttle.reserved_headroom_gb,
                     throttled: throttle.throttled || live_throttling,
                     loaded_models,
+                    resident_models,
+                    evicted_models: evicted,
                 };
                 if let Err(e) = ctx.client.heartbeat(&hb).await {
                     tracing::warn!(error = %e, "heartbeat failed");

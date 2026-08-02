@@ -76,6 +76,7 @@ func TestServiceLeaseDataPlaneUsesReservedWorkerAndFailsClosed(t *testing.T) {
 		return rec
 	}
 
+	seedMeasuredWarmResidency(t, ctx, pool, worker.WorkerID, profile.ModelAlias)
 	serviceOffer := serviceLeaseOffer(profile)
 	serviceOffer.Region = "ca-data-plane-" + uuid.NewString()
 	serviceOffer.MaximumWarmReplicas = 1
