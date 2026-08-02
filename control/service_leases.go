@@ -131,6 +131,65 @@ type ServiceLeaseReceipt struct {
 	LatestSLOEvidence         *ServiceLeaseSLOEvidence `json:"latest_slo_evidence,omitempty"`
 }
 
+// serviceLeaseActivationDetail is the immutable admission-side economic
+// receipt. The lease row keeps the full PricingDecision, while this compact
+// event makes the selected supplier floor, every allocated cost, and the
+// fixed-point conservation identity auditable from the append-only event
+// stream alone. It is deliberately explicit that processor fees are not yet
+// allocated: a gross platform spread must never be mistaken for true net
+// contribution.
+type serviceLeaseActivationDetail struct {
+	ReservedCeilingNanos             int64    `json:"reserved_ceiling_nanos"`
+	ReservedBuyerMicros              int64    `json:"reserved_buyer_micros"`
+	Currency                         string   `json:"currency"`
+	PricingDecisionSHA256            string   `json:"pricing_decision_sha256"`
+	PricingAuthorityVersion          int      `json:"pricing_authority_version"`
+	PricingPolicyRevision            string   `json:"pricing_policy_revision"`
+	RoundingPolicy                   string   `json:"rounding_policy"`
+	SupplierFloorNanosPerReplicaHour int64    `json:"supplier_floor_nanos_per_replica_hour"`
+	ResidencyNanosPerReplicaHour     int64    `json:"residency_nanos_per_replica_hour"`
+	ControlNanosPerReplicaHour       int64    `json:"control_nanos_per_replica_hour"`
+	RiskReserveNanosPerReplicaHour   int64    `json:"risk_reserve_nanos_per_replica_hour"`
+	ContributionNanosPerReplicaHour  int64    `json:"contribution_nanos_per_replica_hour"`
+	BuyerChargeNanos                 int64    `json:"buyer_charge_nanos"`
+	SupplierEntitlementsNanos        int64    `json:"supplier_entitlements_nanos"`
+	KnownVariableCostsNanos          int64    `json:"known_variable_costs_nanos"`
+	MercGrossSpreadNanos             int64    `json:"merc_gross_spread_nanos"`
+	KnownCostContributionNanos       int64    `json:"known_cost_contribution_nanos"`
+	TrueNetContributionStatus        string   `json:"true_net_contribution_status"`
+	UnknownCostCategories            []string `json:"unknown_cost_categories,omitempty"`
+}
+
+func serviceLeaseActivationEventDetail(pricing PricingDecision, digest string, reservedBuyerMicros int64) ([]byte, error) {
+	authority := pricing.ServiceLease
+	fixed := pricing.FixedPoint
+	if authority == nil || fixed == nil || digest == "" || fixed.Currency != pricing.Currency {
+		return nil, errors.New("service lease activation event lacks complete pricing authority")
+	}
+	detail := serviceLeaseActivationDetail{
+		ReservedCeilingNanos:             fixed.AcceptedCeilingNanos,
+		ReservedBuyerMicros:              reservedBuyerMicros,
+		Currency:                         fixed.Currency,
+		PricingDecisionSHA256:            digest,
+		PricingAuthorityVersion:          authority.Version,
+		PricingPolicyRevision:            pricing.PolicyRevision,
+		RoundingPolicy:                   authority.RoundingPolicy,
+		SupplierFloorNanosPerReplicaHour: authority.SupplierNanosPerReplicaHour,
+		ResidencyNanosPerReplicaHour:     authority.ResidencyNanosPerReplicaHour,
+		ControlNanosPerReplicaHour:       authority.ControlPlaneNanosPerReplicaHour,
+		RiskReserveNanosPerReplicaHour:   authority.RiskReserveNanosPerReplicaHour,
+		ContributionNanosPerReplicaHour:  authority.ContributionNanosPerReplicaHour,
+		BuyerChargeNanos:                 fixed.BuyerChargeNanos,
+		SupplierEntitlementsNanos:        fixed.SupplierEntitlementsNanos,
+		KnownVariableCostsNanos:          fixed.KnownVariableCostsNanos,
+		MercGrossSpreadNanos:             fixed.MercGrossSpreadNanos,
+		KnownCostContributionNanos:       fixed.KnownCostContributionNanos,
+		TrueNetContributionStatus:        "UNKNOWN_PROCESSOR_FEE_UNALLOCATED",
+		UnknownCostCategories:            append([]string(nil), fixed.UnknownCostCategories...),
+	}
+	return json.Marshal(detail)
+}
+
 // ServiceLeaseSettlement is the terminal ledger projection of the cumulative
 // meter. PlatformGrossMicros intentionally includes known residency/control/
 // risk costs as well as contribution; it is not a claim about true net Merc
@@ -562,9 +621,12 @@ func (s *Store) CreateServiceLease(ctx context.Context, buyerID uuid.UUID, reque
 	if err := recordServiceLeaseOfferSampleTx(ctx, tx, workerID, profile.RuntimeProfileID, request.Region); err != nil {
 		return ServiceLease{}, err
 	}
+	activationDetail, err := serviceLeaseActivationEventDetail(pricing, pricingSHA, lease.ReservedBuyerMicros)
+	if err != nil {
+		return ServiceLease{}, err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO service_lease_events (lease_id,kind,detail)
-		VALUES ($1,'ACTIVATED',jsonb_build_object('reserved_ceiling_nanos',$2::bigint,'reserved_buyer_micros',$3::bigint,'currency',$4::text))`,
-		lease.ID, pricing.FixedPoint.AcceptedCeilingNanos, lease.ReservedBuyerMicros, currency.Code()); err != nil {
+		VALUES ($1,'ACTIVATED',$2::jsonb)`, lease.ID, activationDetail); err != nil {
 		return ServiceLease{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
