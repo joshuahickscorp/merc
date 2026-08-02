@@ -23,6 +23,7 @@ hmac = "0.12"
 libc = "0.2"
 rand = "0.8"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "gzip", "stream"], default-features = false }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 futures-util = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -31,6 +32,7 @@ sysinfo = "0.31"
 thiserror = "1.0"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "time", "signal", "sync", "fs", "process", "net", "io-util"] }
+tokio-rustls = { version = "0.26", default-features = false }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -46,6 +48,7 @@ metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 
 [dev-dependencies]
 flate2 = "1"
+rcgen = "0.14"
 
 [profile.release]
 lto = true

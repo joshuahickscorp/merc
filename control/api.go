@@ -137,6 +137,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/worker/service-leases/offers", s.authWorker(http.HandlerFunc(s.handleServiceLeaseOffer)))
 	mux.Handle("GET /v1/worker/service-leases/active", s.authWorker(http.HandlerFunc(s.handleWorkerServiceLeaseAssignments)))
 	mux.Handle("POST /v1/worker/service-leases/{id}/heartbeat", s.authWorker(http.HandlerFunc(s.handleServiceLeaseHeartbeat)))
+	mux.Handle("POST /v1/worker/fabric/identity", s.authWorker(http.HandlerFunc(s.handleWorkerFabricIdentity)))
 	mux.Handle("POST /v1/worker/fabric/sessions", s.authWorker(http.HandlerFunc(s.handleWorkerFabricSessionCreate)))
 	mux.Handle("GET /v1/worker/fabric/sessions/{id}/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservationStatus)))
 	mux.Handle("POST /v1/worker/fabric/observations", s.authWorker(http.HandlerFunc(s.handleWorkerFabricObservation)))
@@ -2282,11 +2283,34 @@ func (s *Server) handleWorkerRegister(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, cap)
 }
 
+// handleWorkerFabricIdentity binds a worker credential to the SHA-256 of the
+// exact DER certificate that worker will use for mutual TLS measurements. The
+// binding is append-only: changing a TLS identity requires explicit future
+// credential rotation rather than silently changing what old receipts mean.
+func (s *Server) handleWorkerFabricIdentity(w http.ResponseWriter, r *http.Request) {
+	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
+	var identity FabricWorkerIdentity
+	raw, err := io.ReadAll(io.LimitReader(r.Body, fabricMeasurementBodyLimit+1))
+	if err != nil || len(raw) > fabricMeasurementBodyLimit || decodeStrictJSONObject(raw, &identity) != nil {
+		writeErr(w, http.StatusBadRequest, "invalid fabric worker identity json")
+		return
+	}
+	if err := s.store.RegisterFabricWorkerIdentity(r.Context(), *auth, identity); err != nil {
+		if errors.Is(err, errFabricMeasurementConflict) {
+			writeErr(w, http.StatusConflict, "fabric worker certificate identity is already immutable or bound to another worker")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, "fabric worker certificate identity rejected: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleWorkerFabricReceipt accepts raw, worker-authenticated candidate-link
-// measurements. A receipt is retained as SELF_REPORTED_UNQUALIFIED evidence:
-// it is intentionally not an admission path and cannot cause LOCAL_CLUSTER
-// placement. The remaining identity, site, mTLS data-plane, collective, and
-// economics authorities are separate gates.
+// measurements. Even mutual-TLS receipts remain non-admissible evidence: they
+// are not an admission path and cannot cause LOCAL_CLUSTER placement. Site,
+// workload data-plane, collective, and topology economics authorities remain
+// separate gates.
 func (s *Server) handleWorkerFabricReceipt(w http.ResponseWriter, r *http.Request) {
 	auth := r.Context().Value(ctxWorker).(*WorkerAuth)
 	raw, err := io.ReadAll(io.LimitReader(r.Body, fabricMeasurementBodyLimit+1))

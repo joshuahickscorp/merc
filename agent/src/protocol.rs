@@ -60,6 +60,13 @@ pub struct ControlPlaneClient {
 #[derive(serde::Deserialize)]
 struct FabricSessionResponse {
     fabric_session_id: Uuid,
+    peer_certificate_sha256: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct FabricSession {
+    pub fabric_session_id: Uuid,
+    pub peer_certificate_sha256: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -328,11 +335,25 @@ impl ControlPlaneClient {
         .await
     }
 
+    pub async fn register_fabric_identity(
+        &self,
+        certificate_sha256: &str,
+    ) -> Result<(), ProtocolError> {
+        let endpoint = "/v1/worker/fabric/identity";
+        self.send_idempotent(endpoint, "register_fabric_identity", &[], || {
+            self.http
+                .post(self.url(endpoint))
+                .header("X-Worker-Token", &self.token)
+                .json(&serde_json::json!({ "certificate_sha256": certificate_sha256 }))
+        })
+        .await
+    }
+
     pub async fn create_fabric_session(
         &self,
         peer_worker_id: Uuid,
         declared_site: &str,
-    ) -> Result<Uuid, ProtocolError> {
+    ) -> Result<FabricSession, ProtocolError> {
         let endpoint = "/v1/worker/fabric/sessions";
         let resp = self
             .http
@@ -353,7 +374,10 @@ impl ControlPlaneClient {
                     endpoint: endpoint.to_string(),
                     source: e,
                 })?;
-        Ok(response.fabric_session_id)
+        Ok(FabricSession {
+            fabric_session_id: response.fabric_session_id,
+            peer_certificate_sha256: response.peer_certificate_sha256,
+        })
     }
 
     pub async fn submit_fabric_observation(
