@@ -1,0 +1,708 @@
+{
+  "does_not_prove": "Does NOT prove the c=32 CUDA throughput deficit on a live GPU pod is closed. Does not measure AuthorizeRealtimeContract, buyer funding locks, SSE evidence hashing cost, or any real model engine. Stand-in token timing and dial delay are artificial. Overclaiming that the production CUDA gap is gone would be false.",
+  "kind": "gateway_concurrency_sweep",
+  "levels": {
+    "default_transport_max_idle_per_host_2": {
+      "1": {
+        "concurrency": 1,
+        "requests_attempted": 20,
+        "requests_ok": 20,
+        "errors": 0,
+        "wall_seconds": 0.432,
+        "completed_requests_per_second": 46.338,
+        "ttft_ms": {
+          "samples": 20,
+          "mean_ms": 2.816,
+          "p50_ms": 0.177,
+          "p95_ms": 52.961,
+          "p99_ms": 52.961,
+          "min_ms": 0.128,
+          "max_ms": 52.961
+        },
+        "tcp_connections_opened": 1,
+        "peak_active_connections": 20,
+        "client_dials": 1,
+        "dials_per_ok_request": 0.05,
+        "requests_per_connection_p50": 20,
+        "requests_per_connection_mean": 20,
+        "requests_per_connection_max": 20,
+        "connection_count": 1
+      },
+      "16": {
+        "concurrency": 16,
+        "requests_attempted": 80,
+        "requests_ok": 80,
+        "errors": 0,
+        "wall_seconds": 0.175,
+        "completed_requests_per_second": 456.383,
+        "ttft_ms": {
+          "samples": 80,
+          "mean_ms": 14.135,
+          "p50_ms": 0.951,
+          "p95_ms": 52.883,
+          "p99_ms": 53.068,
+          "min_ms": 0.253,
+          "max_ms": 53.068
+        },
+        "tcp_connections_opened": 45,
+        "peak_active_connections": 80,
+        "client_dials": 54,
+        "dials_per_ok_request": 0.675,
+        "requests_per_connection_p50": 1,
+        "requests_per_connection_mean": 1.778,
+        "requests_per_connection_max": 6,
+        "connection_count": 45
+      },
+      "2": {
+        "concurrency": 2,
+        "requests_attempted": 20,
+        "requests_ok": 20,
+        "errors": 0,
+        "wall_seconds": 0.24,
+        "completed_requests_per_second": 83.377,
+        "ttft_ms": {
+          "samples": 20,
+          "mean_ms": 5.311,
+          "p50_ms": 0.168,
+          "p95_ms": 51.608,
+          "p99_ms": 51.608,
+          "min_ms": 0.136,
+          "max_ms": 51.608
+        },
+        "tcp_connections_opened": 2,
+        "peak_active_connections": 20,
+        "client_dials": 2,
+        "dials_per_ok_request": 0.1,
+        "requests_per_connection_p50": 10,
+        "requests_per_connection_mean": 10,
+        "requests_per_connection_max": 10,
+        "connection_count": 2
+      },
+      "32": {
+        "concurrency": 32,
+        "requests_attempted": 160,
+        "requests_ok": 160,
+        "errors": 0,
+        "wall_seconds": 0.164,
+        "completed_requests_per_second": 974.007,
+        "ttft_ms": {
+          "samples": 160,
+          "mean_ms": 12.432,
+          "p50_ms": 1.11,
+          "p95_ms": 53.767,
+          "p99_ms": 53.857,
+          "min_ms": 0.225,
+          "max_ms": 53.94
+        },
+        "tcp_connections_opened": 96,
+        "peak_active_connections": 160,
+        "client_dials": 109,
+        "dials_per_ok_request": 0.681,
+        "requests_per_connection_p50": 0,
+        "requests_per_connection_mean": 1.667,
+        "requests_per_connection_max": 6,
+        "connection_count": 96
+      },
+      "4": {
+        "concurrency": 4,
+        "requests_attempted": 20,
+        "requests_ok": 20,
+        "errors": 0,
+        "wall_seconds": 0.162,
+        "completed_requests_per_second": 123.538,
+        "ttft_ms": {
+          "samples": 20,
+          "mean_ms": 13.01,
+          "p50_ms": 0.238,
+          "p95_ms": 51.776,
+          "p99_ms": 51.776,
+          "min_ms": 0.143,
+          "max_ms": 51.776
+        },
+        "tcp_connections_opened": 6,
+        "peak_active_connections": 20,
+        "client_dials": 7,
+        "dials_per_ok_request": 0.35,
+        "requests_per_connection_p50": 5,
+        "requests_per_connection_mean": 3.333,
+        "requests_per_connection_max": 6,
+        "connection_count": 6
+      },
+      "64": {
+        "concurrency": 64,
+        "requests_attempted": 320,
+        "requests_ok": 320,
+        "errors": 0,
+        "wall_seconds": 0.166,
+        "completed_requests_per_second": 1926.213,
+        "ttft_ms": {
+          "samples": 320,
+          "mean_ms": 12.154,
+          "p50_ms": 1.869,
+          "p95_ms": 54.37,
+          "p99_ms": 55.676,
+          "min_ms": 0.235,
+          "max_ms": 61.492
+        },
+        "tcp_connections_opened": 186,
+        "peak_active_connections": 320,
+        "client_dials": 262,
+        "dials_per_ok_request": 0.819,
+        "requests_per_connection_p50": 0,
+        "requests_per_connection_mean": 1.72,
+        "requests_per_connection_max": 6,
+        "connection_count": 186
+      },
+      "8": {
+        "concurrency": 8,
+        "requests_attempted": 40,
+        "requests_ok": 40,
+        "errors": 0,
+        "wall_seconds": 0.163,
+        "completed_requests_per_second": 245.952,
+        "ttft_ms": {
+          "samples": 40,
+          "mean_ms": 12.023,
+          "p50_ms": 0.412,
+          "p95_ms": 52.39,
+          "p99_ms": 52.473,
+          "min_ms": 0.222,
+          "max_ms": 52.473
+        },
+        "tcp_connections_opened": 13,
+        "peak_active_connections": 40,
+        "client_dials": 16,
+        "dials_per_ok_request": 0.4,
+        "requests_per_connection_p50": 5,
+        "requests_per_connection_mean": 3.077,
+        "requests_per_connection_max": 6,
+        "connection_count": 13
+      }
+    },
+    "fixed_transport_max_idle_per_host_128": {
+      "1": {
+        "concurrency": 1,
+        "requests_attempted": 20,
+        "requests_ok": 20,
+        "errors": 0,
+        "wall_seconds": 0.463,
+        "completed_requests_per_second": 43.21,
+        "ttft_ms": {
+          "samples": 20,
+          "mean_ms": 2.88,
+          "p50_ms": 0.217,
+          "p95_ms": 51.217,
+          "p99_ms": 51.217,
+          "min_ms": 0.128,
+          "max_ms": 51.217
+        },
+        "tcp_connections_opened": 1,
+        "peak_active_connections": 20,
+        "client_dials": 1,
+        "dials_per_ok_request": 0.05,
+        "requests_per_connection_p50": 20,
+        "requests_per_connection_mean": 20,
+        "requests_per_connection_max": 20,
+        "connection_count": 1
+      },
+      "16": {
+        "concurrency": 16,
+        "requests_attempted": 80,
+        "requests_ok": 80,
+        "errors": 0,
+        "wall_seconds": 0.144,
+        "completed_requests_per_second": 555.895,
+        "ttft_ms": {
+          "samples": 80,
+          "mean_ms": 11.017,
+          "p50_ms": 0.648,
+          "p95_ms": 52.823,
+          "p99_ms": 52.893,
+          "min_ms": 0.126,
+          "max_ms": 52.893
+        },
+        "tcp_connections_opened": 16,
+        "peak_active_connections": 80,
+        "client_dials": 16,
+        "dials_per_ok_request": 0.2,
+        "requests_per_connection_p50": 5,
+        "requests_per_connection_mean": 5,
+        "requests_per_connection_max": 5,
+        "connection_count": 16
+      },
+      "2": {
+        "concurrency": 2,
+        "requests_attempted": 20,
+        "requests_ok": 20,
+        "errors": 0,
+        "wall_seconds": 0.239,
+        "completed_requests_per_second": 83.777,
+        "ttft_ms": {
+          "samples": 20,
+          "mean_ms": 5.329,
+          "p50_ms": 0.197,
+          "p95_ms": 51.54,
+          "p99_ms": 51.54,
+          "min_ms": 0.14,
+          "max_ms": 51.54
+        },
+        "tcp_connections_opened": 2,
+        "peak_active_connections": 20,
+        "client_dials": 2,
+        "dials_per_ok_request": 0.1,
+        "requests_per_connection_p50": 10,
+        "requests_per_connection_mean": 10,
+        "requests_per_connection_max": 10,
+        "connection_count": 2
+      },
+      "32": {
+        "concurrency": 32,
+        "requests_attempted": 160,
+        "requests_ok": 160,
+        "errors": 0,
+        "wall_seconds": 0.144,
+        "completed_requests_per_second": 1109.499,
+        "ttft_ms": {
+          "samples": 160,
+          "mean_ms": 11.509,
+          "p50_ms": 1.138,
+          "p95_ms": 53.535,
+          "p99_ms": 53.633,
+          "min_ms": 0.215,
+          "max_ms": 53.642
+        },
+        "tcp_connections_opened": 32,
+        "peak_active_connections": 160,
+        "client_dials": 32,
+        "dials_per_ok_request": 0.2,
+        "requests_per_connection_p50": 5,
+        "requests_per_connection_mean": 5,
+        "requests_per_connection_max": 5,
+        "connection_count": 32
+      },
+      "4": {
+        "concurrency": 4,
+        "requests_attempted": 20,
+        "requests_ok": 20,
+        "errors": 0,
+        "wall_seconds": 0.147,
+        "completed_requests_per_second": 136.316,
+        "ttft_ms": {
+          "samples": 20,
+          "mean_ms": 10.414,
+          "p50_ms": 0.223,
+          "p95_ms": 51.465,
+          "p99_ms": 51.465,
+          "min_ms": 0.131,
+          "max_ms": 51.465
+        },
+        "tcp_connections_opened": 4,
+        "peak_active_connections": 20,
+        "client_dials": 4,
+        "dials_per_ok_request": 0.2,
+        "requests_per_connection_p50": 5,
+        "requests_per_connection_mean": 5,
+        "requests_per_connection_max": 5,
+        "connection_count": 4
+      },
+      "64": {
+        "concurrency": 64,
+        "requests_attempted": 320,
+        "requests_ok": 320,
+        "errors": 0,
+        "wall_seconds": 0.144,
+        "completed_requests_per_second": 2215.193,
+        "ttft_ms": {
+          "samples": 320,
+          "mean_ms": 12.054,
+          "p50_ms": 1.139,
+          "p95_ms": 56.754,
+          "p99_ms": 57.098,
+          "min_ms": 0.114,
+          "max_ms": 57.314
+        },
+        "tcp_connections_opened": 64,
+        "peak_active_connections": 320,
+        "client_dials": 64,
+        "dials_per_ok_request": 0.2,
+        "requests_per_connection_p50": 5,
+        "requests_per_connection_mean": 5,
+        "requests_per_connection_max": 5,
+        "connection_count": 64
+      },
+      "8": {
+        "concurrency": 8,
+        "requests_attempted": 40,
+        "requests_ok": 40,
+        "errors": 0,
+        "wall_seconds": 0.143,
+        "completed_requests_per_second": 279.006,
+        "ttft_ms": {
+          "samples": 40,
+          "mean_ms": 10.506,
+          "p50_ms": 0.313,
+          "p95_ms": 51.166,
+          "p99_ms": 51.218,
+          "min_ms": 0.23,
+          "max_ms": 51.218
+        },
+        "tcp_connections_opened": 8,
+        "peak_active_connections": 40,
+        "client_dials": 8,
+        "dials_per_ok_request": 0.2,
+        "requests_per_connection_p50": 5,
+        "requests_per_connection_mean": 5,
+        "requests_per_connection_max": 5,
+        "connection_count": 8
+      }
+    }
+  },
+  "measured_at": "2026-08-03T00:26:51Z",
+  "merc_source_commit": "695fa1e9de0c3a8194ee79cc486cead4bc8887e0",
+  "proves": "Gateway upstream-client connection-reuse overhead under a synthetic streaming stand-in. Side-by-side DefaultMaxIdleConnsPerHost=2 vs MaxIdleConnsPerHost=128 (production fix) at c=1,2,4,8,16,32,64. Primary evidence is connection/dial counts; TTFT includes a 50ms synthetic dial RTT so remote-pod shape is visible on loopback.",
+  "root_cause": {
+    "file_line": "control/realtime.go:637 (newRealtimeHTTPClient; was Transport: http.DefaultTransport)",
+    "default_that_was_wrong": {
+      "symbol": "http.DefaultMaxIdleConnsPerHost",
+      "value": 2,
+      "also": "http.Transport.MaxIdleConns default 100 would re-cap if only MaxIdleConnsPerHost were raised to 128"
+    },
+    "mechanism": "newRealtimeHTTPClient used http.DefaultTransport, inheriting MaxIdleConnsPerHost=2. Each concurrent streaming completion holds one TCP connection for the full stream. When a stream ends, only 2 idle keep-alives are retained per upstream host; the rest are closed. The next admission therefore cold-dials. At c=1 a single connection is reused (dials/ok\u22481/N). At c=32\u201364 dials/ok climbs toward 1 (almost every request dials). On a remote GPU pod each cold dial is TCP+TLS tens-to-hundreds of ms, which is the +TTFT and under-utilization tax.",
+    "evidence_from_this_sweep": "Under the default arm, dials_per_ok_request rises from 0.05 at c=1 to 0.82 at c=64 and tcp_connections_opened tracks request volume (186 conns for 320 requests at c=64). Under the fixed arm, dials_per_ok_request stays at concurrency/requests (=0.20 at every level once c>=4) and tcp_connections_opened equals concurrency (64 conns for 320 requests at c=64). Completed request rate at c=64 improves from 1926/s to 2215/s (+15%) under identical stand-in load.",
+    "why_free_at_c1_expensive_at_c32": "c=1: one connection, MaxIdleConnsPerHost=2 retains it, every subsequent request reuses \u2014 zero dial tax after warm. c=32: thirty-two concurrent streams; only two survive as idle; ~30 of the next wave pay cold dial. The cost is proportional to in-flight concurrency, not to anything about a single request body.",
+    "money_locks_untouched": "Buyer funding serialization (evaluateRealtimeBuyerFunding advisory xact lock + FOR UPDATE) is preserved unchanged. This fix is only the upstream http.Transport idle pool."
+  },
+  "schema_version": 1,
+  "scope": {
+    "arms": [
+      "default_transport_max_idle_per_host_2",
+      "fixed_transport_max_idle_per_host_128"
+    ],
+    "concurrency_levels": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32,
+      64
+    ],
+    "dial_delay_ms": 50,
+    "dial_delay_note": "synthetic per-dial RTT to make remote-pod cold-dial cost visible on loopback; connection counts are the primary evidence and do not depend on this",
+    "inter_token_delay_ms": 2,
+    "measurement_target": "control-plane upstream http.Client / http.Transport idle pool (newRealtimeHTTPClient)",
+    "requests_per_level": "max(20, 5*concurrency)",
+    "stream": true,
+    "temperature": 0,
+    "token_count": 8,
+    "upstream": "synthetic_streaming_stand_in",
+    "upstream_label": "gateway-only synthetic SSE stand-in (not a model; not llama-server)"
+  },
+  "summary": {
+    "1": {
+      "default_conns": 1,
+      "default_dials_per_ok": 0.05,
+      "default_rps": 46.338,
+      "default_ttft_p50_ms": 0.177,
+      "default_ttft_p95_ms": 52.961,
+      "fixed_conns": 1,
+      "fixed_dials_per_ok": 0.05,
+      "fixed_rps": 43.21,
+      "fixed_ttft_p50_ms": 0.217,
+      "fixed_ttft_p95_ms": 51.217
+    },
+    "32": {
+      "default_conns": 96,
+      "default_dials_per_ok": 0.681,
+      "default_rps": 974.007,
+      "default_ttft_p50_ms": 1.11,
+      "default_ttft_p95_ms": 53.767,
+      "fixed_conns": 32,
+      "fixed_dials_per_ok": 0.2,
+      "fixed_rps": 1109.499,
+      "fixed_ttft_p50_ms": 1.138,
+      "fixed_ttft_p95_ms": 53.535
+    },
+    "64": {
+      "default_conns": 186,
+      "default_dials_per_ok": 0.819,
+      "default_rps": 1926.213,
+      "default_ttft_p50_ms": 1.869,
+      "default_ttft_p95_ms": 54.37,
+      "fixed_conns": 64,
+      "fixed_dials_per_ok": 0.2,
+      "fixed_rps": 2215.193,
+      "fixed_ttft_p50_ms": 1.139,
+      "fixed_ttft_p95_ms": 56.754
+    },
+    "8": {
+      "default_conns": 13,
+      "default_dials_per_ok": 0.4,
+      "default_rps": 245.952,
+      "default_ttft_p50_ms": 0.412,
+      "default_ttft_p95_ms": 52.39,
+      "fixed_conns": 8,
+      "fixed_dials_per_ok": 0.2,
+      "fixed_rps": 279.006,
+      "fixed_ttft_p50_ms": 0.313,
+      "fixed_ttft_p95_ms": 51.166
+    }
+  },
+  "before_after": {
+    "1": {
+      "concurrency": 1,
+      "before_default_idle_2": {
+        "ttft_p50_ms": 0.177,
+        "ttft_p95_ms": 52.961,
+        "ttft_p99_ms": 52.961,
+        "wall_seconds": 0.432,
+        "completed_requests_per_second": 46.338,
+        "tcp_connections_opened": 1,
+        "client_dials": 1,
+        "dials_per_ok_request": 0.05,
+        "requests_per_connection_mean": 20,
+        "requests_ok": 20
+      },
+      "after_idle_128": {
+        "ttft_p50_ms": 0.217,
+        "ttft_p95_ms": 51.217,
+        "ttft_p99_ms": 51.217,
+        "wall_seconds": 0.463,
+        "completed_requests_per_second": 43.21,
+        "tcp_connections_opened": 1,
+        "client_dials": 1,
+        "dials_per_ok_request": 0.05,
+        "requests_per_connection_mean": 20,
+        "requests_ok": 20
+      },
+      "delta": {
+        "connection_reduction": 0,
+        "dials_per_ok_before": 0.05,
+        "dials_per_ok_after": 0.05,
+        "rps_before": 46.338,
+        "rps_after": 43.21,
+        "rps_improvement_fraction": -0.0675
+      }
+    },
+    "2": {
+      "concurrency": 2,
+      "before_default_idle_2": {
+        "ttft_p50_ms": 0.168,
+        "ttft_p95_ms": 51.608,
+        "ttft_p99_ms": 51.608,
+        "wall_seconds": 0.24,
+        "completed_requests_per_second": 83.377,
+        "tcp_connections_opened": 2,
+        "client_dials": 2,
+        "dials_per_ok_request": 0.1,
+        "requests_per_connection_mean": 10,
+        "requests_ok": 20
+      },
+      "after_idle_128": {
+        "ttft_p50_ms": 0.197,
+        "ttft_p95_ms": 51.54,
+        "ttft_p99_ms": 51.54,
+        "wall_seconds": 0.239,
+        "completed_requests_per_second": 83.777,
+        "tcp_connections_opened": 2,
+        "client_dials": 2,
+        "dials_per_ok_request": 0.1,
+        "requests_per_connection_mean": 10,
+        "requests_ok": 20
+      },
+      "delta": {
+        "connection_reduction": 0,
+        "dials_per_ok_before": 0.1,
+        "dials_per_ok_after": 0.1,
+        "rps_before": 83.377,
+        "rps_after": 83.777,
+        "rps_improvement_fraction": 0.0048
+      }
+    },
+    "4": {
+      "concurrency": 4,
+      "before_default_idle_2": {
+        "ttft_p50_ms": 0.238,
+        "ttft_p95_ms": 51.776,
+        "ttft_p99_ms": 51.776,
+        "wall_seconds": 0.162,
+        "completed_requests_per_second": 123.538,
+        "tcp_connections_opened": 6,
+        "client_dials": 7,
+        "dials_per_ok_request": 0.35,
+        "requests_per_connection_mean": 3.333,
+        "requests_ok": 20
+      },
+      "after_idle_128": {
+        "ttft_p50_ms": 0.223,
+        "ttft_p95_ms": 51.465,
+        "ttft_p99_ms": 51.465,
+        "wall_seconds": 0.147,
+        "completed_requests_per_second": 136.316,
+        "tcp_connections_opened": 4,
+        "client_dials": 4,
+        "dials_per_ok_request": 0.2,
+        "requests_per_connection_mean": 5,
+        "requests_ok": 20
+      },
+      "delta": {
+        "connection_reduction": 2,
+        "dials_per_ok_before": 0.35,
+        "dials_per_ok_after": 0.2,
+        "rps_before": 123.538,
+        "rps_after": 136.316,
+        "rps_improvement_fraction": 0.1034
+      }
+    },
+    "8": {
+      "concurrency": 8,
+      "before_default_idle_2": {
+        "ttft_p50_ms": 0.412,
+        "ttft_p95_ms": 52.39,
+        "ttft_p99_ms": 52.473,
+        "wall_seconds": 0.163,
+        "completed_requests_per_second": 245.952,
+        "tcp_connections_opened": 13,
+        "client_dials": 16,
+        "dials_per_ok_request": 0.4,
+        "requests_per_connection_mean": 3.077,
+        "requests_ok": 40
+      },
+      "after_idle_128": {
+        "ttft_p50_ms": 0.313,
+        "ttft_p95_ms": 51.166,
+        "ttft_p99_ms": 51.218,
+        "wall_seconds": 0.143,
+        "completed_requests_per_second": 279.006,
+        "tcp_connections_opened": 8,
+        "client_dials": 8,
+        "dials_per_ok_request": 0.2,
+        "requests_per_connection_mean": 5,
+        "requests_ok": 40
+      },
+      "delta": {
+        "connection_reduction": 5,
+        "dials_per_ok_before": 0.4,
+        "dials_per_ok_after": 0.2,
+        "rps_before": 245.952,
+        "rps_after": 279.006,
+        "rps_improvement_fraction": 0.1344
+      }
+    },
+    "16": {
+      "concurrency": 16,
+      "before_default_idle_2": {
+        "ttft_p50_ms": 0.951,
+        "ttft_p95_ms": 52.883,
+        "ttft_p99_ms": 53.068,
+        "wall_seconds": 0.175,
+        "completed_requests_per_second": 456.383,
+        "tcp_connections_opened": 45,
+        "client_dials": 54,
+        "dials_per_ok_request": 0.675,
+        "requests_per_connection_mean": 1.778,
+        "requests_ok": 80
+      },
+      "after_idle_128": {
+        "ttft_p50_ms": 0.648,
+        "ttft_p95_ms": 52.823,
+        "ttft_p99_ms": 52.893,
+        "wall_seconds": 0.144,
+        "completed_requests_per_second": 555.895,
+        "tcp_connections_opened": 16,
+        "client_dials": 16,
+        "dials_per_ok_request": 0.2,
+        "requests_per_connection_mean": 5,
+        "requests_ok": 80
+      },
+      "delta": {
+        "connection_reduction": 29,
+        "dials_per_ok_before": 0.675,
+        "dials_per_ok_after": 0.2,
+        "rps_before": 456.383,
+        "rps_after": 555.895,
+        "rps_improvement_fraction": 0.218
+      }
+    },
+    "32": {
+      "concurrency": 32,
+      "before_default_idle_2": {
+        "ttft_p50_ms": 1.11,
+        "ttft_p95_ms": 53.767,
+        "ttft_p99_ms": 53.857,
+        "wall_seconds": 0.164,
+        "completed_requests_per_second": 974.007,
+        "tcp_connections_opened": 96,
+        "client_dials": 109,
+        "dials_per_ok_request": 0.681,
+        "requests_per_connection_mean": 1.667,
+        "requests_ok": 160
+      },
+      "after_idle_128": {
+        "ttft_p50_ms": 1.138,
+        "ttft_p95_ms": 53.535,
+        "ttft_p99_ms": 53.633,
+        "wall_seconds": 0.144,
+        "completed_requests_per_second": 1109.499,
+        "tcp_connections_opened": 32,
+        "client_dials": 32,
+        "dials_per_ok_request": 0.2,
+        "requests_per_connection_mean": 5,
+        "requests_ok": 160
+      },
+      "delta": {
+        "connection_reduction": 64,
+        "dials_per_ok_before": 0.681,
+        "dials_per_ok_after": 0.2,
+        "rps_before": 974.007,
+        "rps_after": 1109.499,
+        "rps_improvement_fraction": 0.1391
+      }
+    },
+    "64": {
+      "concurrency": 64,
+      "before_default_idle_2": {
+        "ttft_p50_ms": 1.869,
+        "ttft_p95_ms": 54.37,
+        "ttft_p99_ms": 55.676,
+        "wall_seconds": 0.166,
+        "completed_requests_per_second": 1926.213,
+        "tcp_connections_opened": 186,
+        "client_dials": 262,
+        "dials_per_ok_request": 0.819,
+        "requests_per_connection_mean": 1.72,
+        "requests_ok": 320
+      },
+      "after_idle_128": {
+        "ttft_p50_ms": 1.139,
+        "ttft_p95_ms": 56.754,
+        "ttft_p99_ms": 57.098,
+        "wall_seconds": 0.144,
+        "completed_requests_per_second": 2215.193,
+        "tcp_connections_opened": 64,
+        "client_dials": 64,
+        "dials_per_ok_request": 0.2,
+        "requests_per_connection_mean": 5,
+        "requests_ok": 320
+      },
+      "delta": {
+        "connection_reduction": 122,
+        "dials_per_ok_before": 0.819,
+        "dials_per_ok_after": 0.2,
+        "rps_before": 1926.213,
+        "rps_after": 2215.193,
+        "rps_improvement_fraction": 0.15
+      }
+    }
+  },
+  "fix": {
+    "change": "newRealtimeHTTPClient clones DefaultTransport and sets MaxIdleConnsPerHost=realtimeMaxIdleConnsPerHost (128) and MaxIdleConns=512",
+    "derivation": "128 = agent default max_active_sequences (agent/src/vllm.rs default_max_active_sequences / vllm.example.toml). Above that value additional concurrent streams still dial; idle keep-alives amortize up to that many per origin.",
+    "regression_tests": [
+      "TestRealtimeHTTPClientIdlePoolCoversOfferConcurrency",
+      "TestRealtimeHTTPClientReusesConnectionsUnderConcurrency"
+    ],
+    "regression_tests_fail_on_revert": true
+  },
+  "merc_source_commit_note": "Base HEAD of the worktree. Fix lives in working tree on control/realtime.go (newRealtimeHTTPClient); git commit was blocked by environment lock on this host. Receipt body is the measurement of default vs fixed transport arms at this code state."
+}
