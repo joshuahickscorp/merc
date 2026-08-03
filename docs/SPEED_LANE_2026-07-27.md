@@ -1,9 +1,16 @@
 # Speed lane, measured 2026-07-27
 
-Target was ≥50× the 138.7 tok/s on record. Measured **49.2× for independent
-prompts** and **105.3× when streams share a prefix**, on an M3 Ultra.
+> **Historical planning snapshot — superseded.** These MLX / llama.cpp multiples
+> rest on unbound bench logs and must not be labelled as today's physical or
+> delivered performance under bound identity. The 145× accounting error retired
+> in `docs/FRONTIER_300X.md` is the same chain. Use `docs/SHIPPABILITY_STATUS.md`
+> and bound receipts under `evidence/` for current claims. This file is retained
+> as an audit trail, not a live speed claim. (Banner pattern matches
+> `docs/PATH_TO_TEN.md`.)
 
-Every number below is from a run on this machine, not a projection.
+Target was ≥50× the 138.7 tok/s on record. The table below records what an
+unbound 2026-07-27 harness reported on an M3 Ultra; those figures are historical
+only.
 
 ## The baseline was measured on different hardware
 

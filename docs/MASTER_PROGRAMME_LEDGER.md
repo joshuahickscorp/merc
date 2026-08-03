@@ -38,7 +38,7 @@ database projection), `ops/go-no-go.json`, and the tree. Not from prose.
 | 9 | RuntimeSelector shadow mode | `PRODUCTION_WIRED`, eligibility only | `control/runtime_shadow_selection.go`, policy `eligibility-only-v1`. No cost or latency scoring, no outcome table |
 | 10 | Paired cohorts and regret | `ABSENT` through the chain | `embed-cell-candle-vs-llama-cpp-r1.json` is a bench harness, not a Merc-chain cohort; nothing computes regret |
 | 11 | Narrow selector promotion authority | `ABSENT` | no promotion receipt, no rollback target |
-| 12 | 128-request coalescing through money | `PRODUCTION_WIRED`, economics unproven | `control/inflight_coalescing.go`, caller `control/realtime.go` |
+| 12 | 128-request coalescing through money | `PRODUCTION_WIRED`; bound money-path proofs against a double upstream | `control/inflight_coalescing.go`, caller `control/realtime.go`; `evidence/reuse/public-path-coalescing-128-to-1.json` (commit `4ef1922a`) |
 | 13 | Tokenization and tool-schema caches | `PARTIAL` | prepared request identity cache is production-wired; model tokenizer cache remains absent because the control plane does not tokenize |
 | 14 | Token-budget batching by traffic class | `PARTIAL` | `control/batch_policy.go` declares `INTERACTIVE` and `BATCH` only |
 | 15 | Governed vLLM CUDA cell through RunPod | direct runtime `REAL_RUNTIME_PROVEN`, Merc chain `ABSENT` | `evidence/runpod/cuda-first-proof.json`; `vllm_cuda` r3 cell is `DRAFT`. **The stored RunPod key returns HTTP 401** |
@@ -74,7 +74,7 @@ existing.
 | 9 | RuntimeSelector shadow mode | `DONE` | the scoring half arrived. `control/runtime_cell_cost.go` reads measured per-cell cost out of the money path — the earlier comment claiming no such source existed was wrong, since every committed task already carries its cell, units, duration, frozen supplier liability, retries and verification outcome. Cost is a query, not a new table. Policy is now `eligibility-and-measured-cost-v2` and every row records which arm decided it |
 | 10 | Paired cohorts and regret | `PARTIAL` | `SelectorRegretForScope` computes regret against the cheapest measured eligible cell, counts unmeasured decisions rather than scoring them zero, and refuses to compare cost across hardware classes. Tested against seeded completed tasks. **No cohort was driven through live agents this session**, so the regret figure has no production cohort behind it yet |
 | 11 | Selector promotion authority | `DONE` | `control/runtime_cell_promotion.go`: exact scope, both sides measured above 20 samples, zero challenger verification failures, a 10% cost margin, production decisions required (not a benchmark), incumbent must be the routable cell, rollback target resolved before promotion, SHA-256 receipt reference. Refusals are returned as evidence with reasons, not as errors |
-| 13 | Tokenization and tool-schema caches | `PARTIAL, production-wired identity cache` | `control/realtime_identity_cache.go` is called by exact reuse, coalescing, and cache population with tenant/profile/policy-scoped semantic identity, bounded LRU/TTL, and hit/miss metrics. The prior `BenchmarkCanonicalToolsAndSchema` result still bounds the gain (~10.8µs canonicalisation against ~3.9ms Merc overhead); model tokenization remains absent and is not claimed |
+| 13 | Tokenization and tool-schema caches | `PARTIAL, production-wired identity cache` | `control/realtime_identity_cache.go` is called by exact reuse, coalescing, and cache population with tenant/profile/policy-scoped semantic identity, bounded LRU/TTL, and hit/miss metrics. A micro-benchmark once timed canonicalisation around ~10.8µs; gateway overhead itself is unproven at this commit and self-test/unattested harness numbers must not be quoted. Model tokenization remains absent and is not claimed |
 | 14 | Batching by traffic class | `DONE, declared unwired` | `control/traffic_class.go`: the four classes with promoted policy, and `ValidateTrafficClassPolicies` proving the ordering invariants — every lower class declares it never delays every higher one, only BACKGROUND is preemptible, INTERACTIVE stays below the throughput knee. Budgets come from the two MEASURED points on the existing curve; classes sharing one say so rather than interpolating a third. Registered in `knownUnwired` because no production path asks for the class yet |
 | 19 | Execution fabric modes | `DONE, declared unwired` | `control/execution_mode.go`: POOL, REPLICA_SERVICE, LOCAL_CLUSTER, CLOUD_BACKSTOP, each placement carrying its reason and every refused mode carrying its own. Tightly coupled work is refused on a WAN fabric and on an unmeasured one; unknown parallelism fails closed to tight, so a new upstream mode cannot be silently placed on the public internet |
 | 21 | §20 must-not-do audit | `DONE` | `scripts/must-not-do-audit.py` → `evidence/state/must-not-do-audit.json`. **12 PASS, 1 FAIL, 1 not mechanically checkable.** The failure is prohibition 10: `control/payment.go` has one process-wide `platformTakeRate`, so one percentage applies to embeddings, generation, rendering and every future lane alike, and the published schedule carries a single supplier share of 0.97 |
@@ -86,7 +86,7 @@ existing.
 | 3 | Boot the production image | `DONE`, verified this session | `scripts/test-release-image-boots.sh` built the final image from the tree and served every probe with **no host files**: `/healthz`, `/version`, `/prices`, `/pricing/board.json`, `/.well-known/security.txt`, and the price board loaded from the release at digest `0e4a70dc40f8`. Receipt: `evidence/state/release-image-boot.json` |
 | 4 | Canary packaging and readiness | `DONE`, already tested at entry | `/readyz` returns 503 with `reason_code: canary_policy_unconfigured` — a direct configuration error, not an unexplained buyer-facing 403 — and it reads BOTH the boot copy and a live re-read, so a decision that stops resolving on a running process cannot leave the probe green while payouts halt. `TestReadyzGoesRedWhenTheDisableDecisionStopsResolving` and `TestReadyzNamesCanaryMisconfigurationAndProbesStayReachable` |
 | 10 | Paired cohorts and regret | `DONE`, and it found something | `control/paired_cohort_test.go` drives 40 real executions through two enrolled agents across both embed cells, records the shadow decisions the way `createJob` does, then reads measured cost, regret and the promotion gate off the result and writes `evidence/perf/selector/paired-cohort-embed.json`. Opt-in behind `MERC_PAIRED_COHORT=1` and registered in `allowed-test-skips.txt` |
-| 12 | 128-request coalescing | `ECONOMICALLY_PROVEN` for the follower half | `control/coalesced_cluster_money_test.go`: 128 distinct delivery authorities, 128 receipts, **zero** supplier credits, every follower charged strictly less than a fresh execution, buyer debit equal to platform take across the cluster, and a second tenant unable to read any of it. The leader's single payable is explicitly not claimed — no test drives the realtime finalise path |
+| 12 | 128-request coalescing | bound money-path proofs (double upstream) | Bound proofs at commit `4ef1922a` (`evidence/reuse/public-path-128-to-1.json`, `evidence/reuse/public-path-coalescing-128-to-1.json`) show 128 deliveries to 1 upstream call through the real public handler against an HTTP upstream double. They prove control-plane reuse/coalescing money and receipt paths; they do not measure GPU performance. Store-level follower money/isolation remains in `control/coalesced_cluster_money_test.go` |
 | 15 | Governed vLLM CUDA cell | harness ready, credential still dead | `scripts/runpod-spend-guard.py` converts a dollar cap into a pod lifetime with a self-test, holds back 20% for teardown delay, rounds spend up, and marks a receipt **inadmissible** on unverified teardown, an overrun lifetime, a floating image tag or a leftover pod. `runpod-vllm.sh experiment` wires that around the existing provisioner and refuses to start while anything else is billing. The self-test runs in `make ci` |
 | 19 | Execution fabric modes | `PRODUCTION_WIRED` | `createJob` now asks `ChooseExecutionMode` and stores the mode plus the full explanation, refusals included, beside the shadow selection. Batch work reaches POOL by construction, which is the reason to record it: once a second mode is reachable, "by construction" and "by decision" are indistinguishable afterwards. A tightly coupled degree-4 workload records **no** mode rather than being defaulted onto the public internet, and the database refuses a mode with no reason |
 
@@ -116,9 +116,9 @@ The wider margin on the second is because it protects against noise in a duratio
 measured on a shared host rather than noise in a dollar figure.
 
 The same run measured 3.0000 ms per unit on both cells, identical to four decimals
-— a task too small to separate two engines rather than two engines agreeing. The
-retained bench receipt puts llama.cpp at 2,179 texts/sec against candle's 326 at
-batch 8, so the cohort now embeds batches of 32.
+— a task too small to separate two engines rather than two engines agreeing. An
+unbound in-process harness had once suggested a large batch-8 gap, so the cohort
+now embeds batches of 32 to give the chain a chance to separate the cells.
 
 The gate also caught its own caller: the cohort's scope claimed verification
 contract `cosine_similarity` where the cell sells `cosine`, and the authority check
@@ -134,10 +134,12 @@ retained benchmark implies:
 | `candle-metal-minilm-embed` | 0.2188 ms/unit | 0.006062500 |
 | `llama-cpp-metal-minilm-embed` | 0.2812 ms/unit | 0.006062500 |
 
-`evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json` puts
-llama.cpp at 2,179 texts/sec against candle's 326 at batch 8 — about 6.7× faster.
-Through the full Merc chain at batch 32 it is **28.6% slower per unit**, and the
-gate refused the promotion for exactly that reason.
+An unbound in-process harness once reported roughly 6.7× at batch 8
+(`evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json`:
+llama.cpp 2,179 texts/sec against candle's 326). That is not product throughput
+and it is not chain cost. Through the full Merc chain at batch 32 llama.cpp was
+**28.6% slower per unit**, and the gate refused the promotion for exactly that
+reason.
 
 The two numbers are not the same quantity: one is raw engine throughput on a warm
 in-process harness, the other is what an enrolled agent reports for a task that

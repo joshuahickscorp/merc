@@ -64,11 +64,11 @@ func TestShapeRankEncodesTheMeasurement(t *testing.T) {
 
 	if rank(lat, "apple_silicon%") >= rank(lat, "nvidia%") {
 		t.Fatal("low-latency preference does not rank locally attached Apple Silicon " +
-			"first, contradicting the measured 14.4ms vs 181ms TTFT")
+			"first (heuristic ordering; no bound crossover measurement exists)")
 	}
 	if rank(thr, "nvidia%") >= rank(thr, "apple_silicon%") {
-		t.Fatal("throughput preference does not rank NVIDIA first, contradicting the " +
-			"measured 1617 vs 211 tok/s at concurrency 16")
+		t.Fatal("throughput preference does not rank NVIDIA first " +
+			"(heuristic ordering; no bound crossover measurement exists)")
 	}
 	// An unmeasured class must never be preferred by default, the same rule the
 	// cost rank follows.
@@ -80,8 +80,8 @@ func TestShapeRankEncodesTheMeasurement(t *testing.T) {
 }
 
 // Cost must still outrank shape. Shape breaks a tie; it does not overturn the
-// cheapest-sufficient-class rule, because one crossover measurement on two
-// different models is not grounds for inverting who gets paid.
+// cheapest-sufficient-class rule, because no bound matched-weight crossover
+// exists and shape routing must not invert who gets paid on unbound history.
 func TestCostOutranksShapeInTheClaimOrdering(t *testing.T) {
 	sql := ClaimTaskSQLForShape("t.claimed_by = $1", shapePreferThroughput)
 	order := sql[strings.LastIndex(sql, "ORDER BY"):]

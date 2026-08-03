@@ -210,9 +210,10 @@ Done since:
 - A receipt-bound benchmark authority exists for the embed cell:
   `evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json`,
   produced by `merc-agent bench-embed` — one harness, one corpus, both drivers,
-  the quality gate evaluated before any timing. llama.cpp wins at every batch
-  size measured (1.5×, 6.7×, 2.7×, 1.2× at batch 1/8/32/128) and clears the 0.999
-  cosine gate at 0.999998 minimum.
+  the quality gate evaluated before any timing. An unbound in-process harness
+  once reported roughly 6.7× at batch 8 (and 1.5×/2.7×/1.2× at batch 1/32/128);
+  that is not product throughput and it is not chain cost. The quality gate
+  cleared at 0.999998 minimum cosine on that same harness.
 
 Remaining to reach the milestone:
 
