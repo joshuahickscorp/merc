@@ -25,7 +25,7 @@ and every "not done" row says so plainly rather than being described as partial.
 | 5 | RuntimeSelector produces shadow decisions and regret measurements | **NOT done** — not started |
 | 6 | Routing has not changed without promotion evidence | **done** — `llama_cpp_metal` is still `VALIDATED`; the advertised projection is still exactly the two candle cells, asserted by test |
 | 7 | In-flight coalescing works with one payable and independent discounted receipts | **Bound money-path proofs against a double upstream (commit `4ef1922a`).** `evidence/reuse/public-path-coalescing-128-to-1.json` and `evidence/reuse/public-path-128-to-1.json` show 128 deliveries to 1 upstream call through the real public handler; they prove control-plane money/receipt paths and do not measure GPU performance. The 2026-07-31 correction still records earlier store-level gaps; see `evidence/state/correction-2026-07-31-coalescing-and-directed-routing.json` |
-| 8 | Tokenization / tool-schema caches with real callers and measured savings | **NOT done** — not started |
+| 8 | Tokenization / tool-schema caches with real callers and measured savings | **partial, closed honestly** — tool/schema identity cache is production-wired; control-plane tokenization **DOES_NOT_APPLY** (no tokenizer on control plane). Bound audit: `evidence/perf/five-cache-architecture-audit.json`. Do not build an empty tokenizer cache |
 | 9 | Token-budget batching with measured policies per latency class | **NOT done** — not started |
 | 10 | No calibration or overhead authority can affect money | **done** — call-graph gate, mutation-verified |
 | 11 | Full suite green | **done** — on an isolated database; see the caveat below |
