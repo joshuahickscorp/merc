@@ -1067,7 +1067,7 @@
   "benchmark_status": "PHYSICAL_THROUGHPUT_MEASURED",
   "notes": [
     "local host evidence (CPU --device none in sandbox; Metal on host with MERC_LLAMA_DEVICE=)",
-    "CUDA engines (sglang/tensorrt_llm/lmdeploy/vllm) remain DRAFT/unproven — no fabricated numbers",
+    "CUDA engines (sglang/tensorrt_llm/lmdeploy/vllm) remain DRAFT/unproven \u2014 no fabricated numbers",
     "llama.cpp batch_infer cell stays REJECTED_FOR_CONTRACT for byte_exact; this receipt measures physical throughput only",
     "finding: scripts/gateway-parity.py evaluate_budget only inspects concurrency=1; this harness evaluates every claimed level"
   ],
@@ -1082,7 +1082,7 @@
     "llama_device": "none",
     "note": "local developer host; hw_class not attested; Metal unavailable in this environment so default is CPU (--device none)"
   },
-  "binding_status": "UNBOUND",
+  "binding_status": "SUPERSEDED",
   "missing_identity_fields": [
     "source_commit",
     "build_digest",
@@ -1090,5 +1090,19 @@
     "corpus_digest",
     "exact_config",
     "raw_samples"
-  ]
+  ],
+  "validity": "SUPERSEDED",
+  "superseded": true,
+  "superseded_at": "2026-08-03",
+  "superseded_by": [
+    "evidence/perf/runtime-benchmarks/serving-matrix-llama-cpp-metal-local-r2.json (Metal remeasure sealed; BOUND, PHYSICAL_THROUGHPUT_MEASURED, device=metal)",
+    "evidence/perf/runtime-benchmarks/engine-tournament-metal-host-scope-r1.json (tournament scope + INCOMPARABLE_ARMS)"
+  ],
+  "supersession_reasons": [
+    "hardware.note claimed Metal unavailable; host truth is Apple M3 Ultra with Metal Supported (vendor 0x106b)",
+    "measurement used --device none (CPU) because a seatbelt sandbox could not create a Metal command queue (ggml_metal_init)",
+    "path name serving-matrix-llama-cpp-metal-local-r1 implied Metal; numbers are real CPU measurements and must not be cited as Metal serving-matrix evidence",
+    "retained deliberately as the record of the mislabel; deleting it would erase the correction"
+  ],
+  "superseded_note": "HISTORICAL ONLY. Real CPU measurements under --device none. Not Metal evidence. Not valid for metal-local claims. Superseded by serving-matrix-llama-cpp-metal-local-r2.json (Metal, BOUND) and engine-tournament-metal-host-scope-r1.json (tournament refusals/scope)."
 }
