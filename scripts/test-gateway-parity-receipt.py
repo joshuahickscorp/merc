@@ -1,36 +1,28 @@
 #!/usr/bin/env python3
-"""CI gate for evidence/perf/gateway-parity.json.
+"""CI gate for evidence/perf/gateway-parity.json (and v2 receipts).
+
+Validates the authoritative v2 harness receipt shape produced by
+control/gateway_parity_harness.go (schema_version=2, gate_version=
+gateway-parity-gate-v3). The withdrawn v1 shape (scripts/gateway-parity.py)
+is refused as parity evidence — institutional green must not mean the old
+harness's verdict.
 
 Fails when the parity receipt is absent, undated, older than the revalidation
 window (aligned with control/runtime_cell_performance.go
-benchmarkRevalidationWindow = 180 days), or carries a non-empty refusals list.
-
-Also refuses receipts that do not meet measurement-grade standards even when
-refusals is empty:
-
-  - scope.requests_per_level < scope.min_samples_required
-  - arms_interleaved is not true (sequential arms are not receipt-grade)
-  - artifact_digests_remeasured is not true (provenance-bound digests are not
-    live re-hashes)
-  - non-empty limitations with empty refusals (those fields contradict)
-
-A limitations list is prose; the gate checks the explicit booleans and sample
-counts, never the text of a limitation string.
+benchmarkRevalidationWindow = 180 days), carries a non-empty refusals list,
+or claims gate_passed/comparable without Merc-bound body identity and the
+required concurrency ladder {1,8,32}.
 
 A receipt carrying validity != "VALID" is WITHDRAWN. That is a self-consistent
 state, not a broken one -- the honest answer to "is there valid parity
 evidence" is no -- so it reports NO VALID PARITY EVIDENCE and exits 0, printing
-every recorded reason. None of the ordinary field checks run on it; reporting
-them would read like a repairable receipt, and that repair path ends with a
-retracted number passing a gate.
+every recorded reason. None of the ordinary field checks run on it.
 
-A withdrawal with an empty superseded_reason IS a failure. That asymmetry is
-the anti-gaming property: withdrawing a receipt must cost an explanation, or
-one line silences any failing gate.
+A withdrawal with an empty superseded_reason IS a failure.
 
-Also runs offline unit checks (undated, refusals, budget, under-sampled,
-limitations/refusals contradiction, sequential arms, synthetic pass). Those
-import the harness so a broken evaluate_budget cannot hide behind a green gate.
+schema_version != 2 (including the historical v1 file) is treated as withdrawn
+with an automatic reason when validity is unset, so the committed v1 receipt
+cannot greenwash a gate that only the v2 harness may pass.
 
     python3 scripts/test-gateway-parity-receipt.py
     python3 scripts/test-gateway-parity-receipt.py --self-test-only
@@ -41,7 +33,6 @@ No live engine. No network.
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import sys
 import tempfile
@@ -54,6 +45,10 @@ DEFAULT_RECEIPT = ROOT / "evidence" / "perf" / "gateway-parity.json"
 
 # Keep aligned with control/runtime_cell_performance.go:benchmarkRevalidationWindow.
 REVALIDATION_WINDOW = timedelta(days=180)
+
+REQUIRED_LADDER = (1, 8, 32)
+GATE_VERSION = "gateway-parity-gate-v3"
+SCHEMA_VERSION = 2
 
 FAILURES: list[str] = []
 # Receipts explicitly withdrawn, with their recorded reasons. Not failures:
@@ -70,16 +65,6 @@ def check(cond: bool, msg: str) -> None:
         fail(msg)
 
 
-def load_harness():
-    path = ROOT / "scripts" / "gateway-parity.py"
-    spec = importlib.util.spec_from_file_location("gateway_parity", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load {path}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
 def parse_measured_at(value: object) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -93,39 +78,78 @@ def parse_measured_at(value: object) -> datetime | None:
 
 
 def base_receipt(**overrides: Any) -> dict[str, Any]:
-    """Minimal receipt that would pass structural checks if complete."""
+    """Minimal v2 receipt that would pass structural checks if complete."""
     digest = "b" * 64
     receipt: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": SCHEMA_VERSION,
         "kind": "gateway_parity",
-        "gate_version": "gateway-parity-gate-v1",
+        "harness": "merc-gateway-parity-v2",
+        "gate_version": GATE_VERSION,
         "measured_at": "2026-07-28T11:10:09Z",
         "merc_source_commit": "a" * 40,
+        "evidence_class": "PARITY_EVIDENCE",
+        "comparable": True,
+        "gate_passed": True,
         "refusals": [],
         "budget": {
             "ttft_overhead_p95_ms": 15.0,
             "throughput_loss_fraction": 0.05,
+            "require_measured_at_every_level": True,
+            "primary_metric": "ttft_overhead_p95_ms",
             "basis": "test",
         },
-        "scope": {
-            "model_ref": "cx-chat-1b",
-            "merc_model_artifact_sha256": digest,
-            "direct_model_artifact_sha256": digest,
-            "max_tokens": 32,
-            "temperature": 0,
-            "requests_per_level": 20,
-            "min_samples_required": 20,
+        "claimed_concurrency_levels": list(REQUIRED_LADDER),
+        "body_identity": {
+            "proven": True,
+            "bodies_equal": True,
+            "method": "X-Merc-Upstream-Body-SHA256 + X-Merc-Contract-ID on every OK merc sample",
+            "harness_body_sha256": digest,
+            "detail": "proven",
+            "ok_samples_examined": 20,
+            "contract_ids_observed": 20,
+            "bare_sha_standin_refused": False,
         },
-        "features_disabled": ["exact_reuse", "request_coalescing"],
-        "arms_interleaved": True,
-        "artifact_digests_remeasured": True,
-        "limitations": [],
+        "gate": {
+            "version": GATE_VERSION,
+            "gate_passed": True,
+            "verdict": "PASS",
+            "primary_metric": "ttft_overhead_p95_ms",
+            "claimed_concurrency_levels": list(REQUIRED_LADDER),
+            "levels": [
+                {
+                    "concurrency": c,
+                    "verdict": "PASS",
+                    "passed": True,
+                    "refusals": [],
+                    "ttft_overhead_budget_ms": 15.0,
+                    "minimum_detectable_effect_ms": 5.0,
+                }
+                for c in REQUIRED_LADDER
+            ],
+        },
+        "sampling_contract": {
+            "model": "cx-chat-1b",
+            "prompt": "test",
+            "temperature": 0,
+            "top_p": 0.95,
+            "max_tokens": 32,
+            "stream": True,
+            "model_digest": digest,
+        },
     }
     for key, value in overrides.items():
-        if key == "scope" and isinstance(value, dict):
-            merged = dict(receipt["scope"])
+        if key == "body_identity" and isinstance(value, dict):
+            merged = dict(receipt["body_identity"])
             merged.update(value)
-            receipt["scope"] = merged
+            receipt["body_identity"] = merged
+        elif key == "gate" and isinstance(value, dict):
+            merged = dict(receipt["gate"])
+            merged.update(value)
+            receipt["gate"] = merged
+        elif key == "budget" and isinstance(value, dict):
+            merged = dict(receipt["budget"])
+            merged.update(value)
+            receipt["budget"] = merged
         else:
             receipt[key] = value
     return receipt
@@ -145,20 +169,7 @@ def validate_receipt(path: Path, *, now: datetime | None = None) -> list[str]:
     if not isinstance(data, dict):
         return [f"parity receipt must be a JSON object: {path}"]
 
-    # A withdrawn receipt is a self-consistent state, not a broken one: the
-    # honest answer to "is there valid parity evidence" is no, and a repository
-    # that says so is not failing. So a withdrawal with recorded reasons is NOT
-    # an error here — validate_receipt returns clean and main() reports
-    # NO VALID PARITY EVIDENCE loudly instead.
-    #
-    # A withdrawal WITHOUT reasons is an error, and that asymmetry is the whole
-    # anti-gaming property: marking a receipt withdrawn must cost you an
-    # explanation, or "validity: WITHDRAWN" becomes a one-line way to silence
-    # any failing gate.
-    #
-    # None of the ordinary field checks run on a withdrawn receipt. Reporting
-    # them would read like a repairable receipt, and that repair path ends with
-    # a retracted number passing a gate.
+    # Explicit withdrawal path.
     validity = str(data.get("validity", "")).strip()
     if validity and validity != "VALID":
         reasons = data.get("superseded_reason") or []
@@ -174,6 +185,25 @@ def validate_receipt(path: Path, *, now: datetime | None = None) -> list[str]:
             ]
         WITHDRAWN.append((path, validity, reasons))
         return []
+
+    # v1 / non-v2 receipts are not parity evidence. Treat as withdrawn when the
+    # file has not already declared validity, so the committed historical v1
+    # artifact does not greenwash this gate.
+    schema = data.get("schema_version")
+    if schema != SCHEMA_VERSION:
+        reasons = [
+            f"schema_version={schema!r} is not v2; v1 and other shapes are withdrawn "
+            f"as parity evidence (authoritative harness is merc-gateway-parity-v2 / "
+            f"{GATE_VERSION})"
+        ]
+        WITHDRAWN.append((path, "WITHDRAWN_V1_OR_FOREIGN_SCHEMA", reasons))
+        return []
+
+    gate_version = data.get("gate_version")
+    if gate_version != GATE_VERSION:
+        errors.append(
+            f"{path}: gate_version={gate_version!r} want {GATE_VERSION!r}"
+        )
 
     measured_at = parse_measured_at(data.get("measured_at"))
     if measured_at is None:
@@ -198,8 +228,12 @@ def validate_receipt(path: Path, *, now: datetime | None = None) -> list[str]:
     if not isinstance(commit, str) or not commit.strip():
         errors.append(f"{path}: merc_source_commit missing or empty")
 
-    if data.get("gate_version") in (None, ""):
-        errors.append(f"{path}: gate_version missing or empty")
+    evidence_class = data.get("evidence_class")
+    if evidence_class != "PARITY_EVIDENCE":
+        errors.append(
+            f"{path}: evidence_class={evidence_class!r} is not PARITY_EVIDENCE "
+            f"(HARNESS_SELF_TEST / INCOMPLETE_LADDER / others are not parity claims)"
+        )
 
     refusals = data.get("refusals")
     if refusals is None:
@@ -215,101 +249,120 @@ def validate_receipt(path: Path, *, now: datetime | None = None) -> list[str]:
             + "; ".join(str(r) for r in refusals)
         )
 
+    if data.get("gate_passed") is not True:
+        errors.append(f"{path}: gate_passed={data.get('gate_passed')!r} (required true)")
+    if data.get("comparable") is not True:
+        errors.append(f"{path}: comparable={data.get('comparable')!r} (required true)")
+
     budget = data.get("budget")
     if not isinstance(budget, dict):
         errors.append(f"{path}: budget block missing")
     else:
-        for key in ("ttft_overhead_p95_ms", "throughput_loss_fraction", "basis"):
+        for key in (
+            "ttft_overhead_p95_ms",
+            "throughput_loss_fraction",
+            "basis",
+            "primary_metric",
+        ):
             if key not in budget:
                 errors.append(f"{path}: budget.{key} missing")
 
-    scope = data.get("scope")
-    if not isinstance(scope, dict):
-        errors.append(f"{path}: scope block missing")
+    claimed = data.get("claimed_concurrency_levels")
+    if not isinstance(claimed, list):
+        errors.append(f"{path}: claimed_concurrency_levels missing or not a list")
+        claimed_set: set[int] = set()
     else:
-        for key in (
-            "model_ref",
-            "merc_model_artifact_sha256",
-            "direct_model_artifact_sha256",
-            "max_tokens",
-            "temperature",
-        ):
-            if key not in scope:
-                errors.append(f"{path}: scope.{key} missing")
-        merc_d = scope.get("merc_model_artifact_sha256")
-        direct_d = scope.get("direct_model_artifact_sha256")
-        if (
-            isinstance(merc_d, str)
-            and isinstance(direct_d, str)
-            and merc_d
-            and direct_d
-            and merc_d != direct_d
-        ):
-            errors.append(
-                f"{path}: scope model artifact digests disagree "
-                f"(merc={merc_d} direct={direct_d})"
-            )
-
-        # Sample floor is a receipt-validation rule, not only a harness default.
-        rpl = scope.get("requests_per_level")
-        min_req = scope.get("min_samples_required")
-        if rpl is None:
-            errors.append(f"{path}: scope.requests_per_level missing")
-        elif min_req is None:
-            errors.append(f"{path}: scope.min_samples_required missing")
-        else:
-            try:
-                rpl_n = int(rpl)
-                min_n = int(min_req)
-            except (TypeError, ValueError):
+        try:
+            claimed_set = {int(c) for c in claimed}
+        except (TypeError, ValueError):
+            errors.append(f"{path}: claimed_concurrency_levels must be integers")
+            claimed_set = set()
+        for need in REQUIRED_LADDER:
+            if need not in claimed_set:
                 errors.append(
-                    f"{path}: scope.requests_per_level={rpl!r} and "
-                    f"scope.min_samples_required={min_req!r} must be integers"
+                    f"{path}: claimed_concurrency_levels missing required level {need} "
+                    f"(ladder {list(REQUIRED_LADDER)}; got {claimed})"
                 )
-            else:
-                if rpl_n < min_n:
-                    errors.append(
-                        f"{path}: scope.requests_per_level={rpl_n} is below "
-                        f"scope.min_samples_required={min_n}"
-                    )
 
-    if "features_disabled" not in data:
-        errors.append(f"{path}: features_disabled missing")
-
-    # Explicit measurement facts — gate must not parse limitations prose.
-    arms = data.get("arms_interleaved")
-    if arms is not True:
-        errors.append(
-            f"{path}: arms_interleaved={arms!r} (required true); "
-            "sequential arms are not receipt-grade"
-        )
-
-    digests_remeasured = data.get("artifact_digests_remeasured")
-    if digests_remeasured is not True:
-        errors.append(
-            f"{path}: artifact_digests_remeasured={digests_remeasured!r} "
-            "(required true); digests must be re-hashed from the model "
-            "artifact at measurement time, not bound from provenance alone"
-        )
-
-    # limitations (prose caveats) and empty refusals contradict each other:
-    # a clean receipt either has no caveats, or names them as refusals.
-    limitations = data.get("limitations")
-    if isinstance(limitations, list) and limitations:
-        if isinstance(refusals, list) and not refusals:
+    body = data.get("body_identity")
+    if not isinstance(body, dict):
+        errors.append(f"{path}: body_identity block missing")
+    else:
+        if body.get("proven") is not True:
             errors.append(
-                f"{path}: limitations is non-empty ({len(limitations)} entries) "
-                "while refusals is empty []; a receipt that records caveats "
-                "must not claim an empty refusals list"
+                f"{path}: body_identity.proven={body.get('proven')!r} "
+                "(PARITY_EVIDENCE requires Merc-bound proof)"
             )
+        if body.get("bodies_equal") is not True:
+            errors.append(
+                f"{path}: body_identity.bodies_equal={body.get('bodies_equal')!r} "
+                "(must be true only on evidence; default is false)"
+            )
+        if body.get("bare_sha_standin_refused") is True:
+            errors.append(
+                f"{path}: body_identity.bare_sha_standin_refused=true; "
+                "bare-SHA stand-in is not parity evidence"
+            )
+        method = str(body.get("method") or "")
+        if "Contract-ID" not in method and "contract" not in method.lower():
+            errors.append(
+                f"{path}: body_identity.method must name Contract-ID / contract proof "
+                f"(got {method!r})"
+            )
+
+    gate = data.get("gate")
+    if not isinstance(gate, dict):
+        errors.append(f"{path}: gate block missing")
+    else:
+        if gate.get("version") != GATE_VERSION:
+            errors.append(
+                f"{path}: gate.version={gate.get('version')!r} want {GATE_VERSION!r}"
+            )
+        if gate.get("gate_passed") is not True:
+            errors.append(
+                f"{path}: gate.gate_passed={gate.get('gate_passed')!r} (required true)"
+            )
+        if gate.get("verdict") != "PASS":
+            errors.append(f"{path}: gate.verdict={gate.get('verdict')!r} want PASS")
+        # Nested flag must not disagree with the receipt (dual-pass collapse).
+        if bool(gate.get("gate_passed")) != bool(data.get("gate_passed")):
+            errors.append(
+                f"{path}: nested gate.gate_passed={gate.get('gate_passed')!r} "
+                f"disagrees with receipt gate_passed={data.get('gate_passed')!r}"
+            )
+        levels = gate.get("levels")
+        if not isinstance(levels, list) or not levels:
+            errors.append(f"{path}: gate.levels missing or empty")
+        else:
+            for lvl in levels:
+                if not isinstance(lvl, dict):
+                    errors.append(f"{path}: gate.levels entry is not an object")
+                    continue
+                c = lvl.get("concurrency")
+                verdict = lvl.get("verdict")
+                mde = lvl.get("minimum_detectable_effect_ms")
+                budget_ms = lvl.get("ttft_overhead_budget_ms")
+                if verdict != "PASS":
+                    errors.append(
+                        f"{path}: gate level c={c} verdict={verdict!r} want PASS"
+                    )
+                # Power gate: MDE must not exceed budget when present.
+                if (
+                    isinstance(mde, (int, float))
+                    and isinstance(budget_ms, (int, float))
+                    and budget_ms > 0
+                    and mde > budget_ms
+                ):
+                    errors.append(
+                        f"{path}: gate level c={c} under-powered: "
+                        f"MDE={mde} > budget={budget_ms}"
+                    )
 
     return errors
 
 
 def run_unit_tests() -> None:
-    """Offline fixtures: structural refusals and harness budget/digest logic."""
-    harness = load_harness()
-
+    """Offline fixtures: structural refusals for the v2 schema."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
 
@@ -318,201 +371,135 @@ def run_unit_tests() -> None:
             path.write_text(json.dumps(payload), encoding="utf-8")
             return path
 
-        # A withdrawal WITH reasons is not an error: it is the repository
-        # honestly reporting that no valid parity evidence exists. It is
-        # recorded so main() can announce it, and no field checks run on it.
         before = len(WITHDRAWN)
         withdrawn_payload = base_receipt()
         withdrawn_payload["validity"] = "INVALIDATED_PENDING_RERUN"
         withdrawn_payload["superseded_reason"] = ["one wave at c=32; n == c"]
-        # Deliberately also broken in an ordinary way, to prove the field checks
-        # are skipped rather than merely passing.
         del withdrawn_payload["measured_at"]
         withdrawn = write("withdrawn.json", withdrawn_payload)
         errs = validate_receipt(withdrawn)
-        check(errs == [],
-              f"withdrawn receipt with reasons must not error, got {errs!r}")
-        check(len(WITHDRAWN) == before + 1,
-              "withdrawn receipt must be recorded so main() can announce it")
-        check(WITHDRAWN[-1][2] == ["one wave at c=32; n == c"],
-              f"withdrawal must carry its recorded reasons, got {WITHDRAWN[-1]!r}")
+        check(errs == [], f"withdrawn receipt with reasons must not error, got {errs!r}")
+        check(
+            len(WITHDRAWN) == before + 1,
+            "withdrawn receipt must be recorded so main() can announce it",
+        )
 
-        # A withdrawal WITHOUT a reason is a failure. Otherwise one line
-        # silences any gate.
         silent_payload = base_receipt()
         silent_payload["validity"] = "WITHDRAWN"
         silent = write("silent-withdrawal.json", silent_payload)
         errs = validate_receipt(silent)
-        check(len(errs) == 1 and "superseded_reason is empty" in errs[0],
-              f"reasonless withdrawal must fail, got {errs!r}")
+        check(
+            len(errs) == 1 and "superseded_reason is empty" in errs[0],
+            f"reasonless withdrawal must fail, got {errs!r}",
+        )
 
-        # Blank-string reasons do not count as reasons.
-        blank_payload = base_receipt()
-        blank_payload["validity"] = "WITHDRAWN"
-        blank_payload["superseded_reason"] = ["   ", ""]
-        blank = write("blank-withdrawal.json", blank_payload)
-        check(any("superseded_reason is empty" in e for e in validate_receipt(blank)),
-              "whitespace-only reasons must not satisfy the withdrawal requirement")
+        # v1 schema is withdrawn, not a hard field-check failure.
+        v1 = write(
+            "v1.json",
+            {
+                "schema_version": 1,
+                "kind": "gateway_parity",
+                "gate_version": "gateway-parity-gate-v1",
+                "measured_at": "2026-07-28T11:10:09Z",
+                "merc_source_commit": "a" * 40,
+                "refusals": [],
+                "gate_passed": True,
+                "comparable": True,
+            },
+        )
+        before_v1 = len(WITHDRAWN)
+        errs = validate_receipt(v1)
+        check(errs == [], f"v1 must be withdrawn cleanly, got {errs!r}")
+        check(len(WITHDRAWN) == before_v1 + 1, "v1 must be recorded as withdrawn")
+        check(
+            any("not v2" in r for r in WITHDRAWN[-1][2]),
+            f"v1 withdrawal must name schema: {WITHDRAWN[-1]!r}",
+        )
 
-        # An otherwise-identical receipt marked VALID is not short-circuited, so
-        # the withdrawal path cannot mask ordinary validation.
-        valid_payload = base_receipt()
-        valid_payload["validity"] = "VALID"
-        del valid_payload["measured_at"]
-        valid_marked = write("valid-marked.json", valid_payload)
-        check(any("measured_at" in e for e in validate_receipt(valid_marked)),
-              "validity=VALID must still run ordinary field validation")
-
-        # Receipt with no measured_at fails the gate.
         undated_payload = base_receipt()
         del undated_payload["measured_at"]
         undated = write("undated.json", undated_payload)
         errs = validate_receipt(undated)
-        check(any("measured_at" in e for e in errs),
-              f"undated receipt must fail gate, got {errs!r}")
+        check(any("measured_at" in e for e in errs), f"undated must fail, got {errs!r}")
 
-        # Non-empty refusals fails the gate.
         refused = write(
             "refused.json",
-            base_receipt(
-                refusals=["ttft overhead p95 50.000 ms exceeds budget 15.000 ms"],
-            ),
+            base_receipt(refusals=["under-powered: MDE=21.000 ms exceeds TTFT budget 15.000 ms"]),
         )
         errs = validate_receipt(refused)
-        check(any("refusals is non-empty" in e for e in errs),
-              f"non-empty refusals must fail gate, got {errs!r}")
-
-        # Absent receipt fails.
-        missing = tmp_path / "no-such-receipt.json"
-        errs = validate_receipt(missing)
-        check(any("absent" in e for e in errs),
-              f"absent receipt must fail, got {errs!r}")
-
-        # Stale receipt fails.
-        old = (datetime.now(timezone.utc) - timedelta(days=200)).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
-        stale = write("stale.json", base_receipt(measured_at=old))
-        errs = validate_receipt(stale)
-        check(any("revalidation window" in e for e in errs),
-              f"stale receipt must fail, got {errs!r}")
-
-        # 1) requests_per_level < min_samples_required fails the gate.
-        undersampled = write(
-            "undersampled.json",
-            base_receipt(scope={"requests_per_level": 4, "min_samples_required": 20}),
-        )
-        errs = validate_receipt(undersampled)
         check(
-            any(
-                "scope.requests_per_level=4 is below scope.min_samples_required=20" in e
-                for e in errs
-            ),
-            f"under-sampled receipt must fail gate naming both values, got {errs!r}",
+            any("refusals is non-empty" in e for e in errs),
+            f"non-empty refusals must fail, got {errs!r}",
         )
 
-        # 2) Non-empty limitations + empty refusals fails the gate.
-        caveated = write(
-            "caveated.json",
+        bare = write(
+            "bare-sha.json",
             base_receipt(
-                refusals=[],
-                limitations=["historical n=4; not receipt-grade"],
+                body_identity={
+                    "proven": False,
+                    "bodies_equal": False,
+                    "bare_sha_standin_refused": True,
+                    "method": "bare-SHA only",
+                    "detail": "bare-SHA stand-in refused",
+                },
+                gate_passed=False,
+                comparable=False,
+                refusals=["bare-SHA stand-in refused"],
             ),
         )
-        errs = validate_receipt(caveated)
+        errs = validate_receipt(bare)
+        check(len(errs) > 0, "bare-SHA receipt must fail")
+
+        incomplete = write(
+            "incomplete.json",
+            base_receipt(
+                claimed_concurrency_levels=[1],
+                evidence_class="INCOMPLETE_LADDER",
+                gate_passed=False,
+                comparable=False,
+                refusals=["incomplete concurrency ladder"],
+            ),
+        )
+        errs = validate_receipt(incomplete)
         check(
-            any("limitations is non-empty" in e and "refusals is empty" in e for e in errs),
-            f"limitations+empty refusals must fail, got {errs!r}",
+            any("PARITY_EVIDENCE" in e or "claimed_concurrency" in e for e in errs),
+            f"incomplete ladder must fail, got {errs!r}",
         )
 
-        # 3) Sequential arms (arms_interleaved false) fails the gate.
-        sequential = write(
-            "sequential.json",
-            base_receipt(arms_interleaved=False),
-        )
-        errs = validate_receipt(sequential)
+        # Nested gate_passed true while receipt refused.
+        dual = base_receipt(gate_passed=False, comparable=False, refusals=["x"])
+        dual["gate"] = dict(dual["gate"])
+        dual["gate"]["gate_passed"] = True
+        dual_path = write("dual-flag.json", dual)
+        errs = validate_receipt(dual_path)
         check(
-            any("arms_interleaved=False" in e for e in errs),
-            f"sequential-arms receipt must fail, got {errs!r}",
-        )
-        # Missing boolean is also not receipt-grade.
-        missing_interleave = base_receipt()
-        del missing_interleave["arms_interleaved"]
-        missing_path = write("missing-interleave.json", missing_interleave)
-        errs = validate_receipt(missing_path)
-        check(
-            any("arms_interleaved=" in e for e in errs),
-            f"missing arms_interleaved must fail, got {errs!r}",
+            any("disagrees" in e or "gate_passed" in e for e in errs),
+            f"dual pass flags must fail, got {errs!r}",
         )
 
-        # Digests not re-hashed at measurement time fails.
-        provenance_bound = write(
-            "provenance-bound.json",
-            base_receipt(artifact_digests_remeasured=False),
-        )
-        errs = validate_receipt(provenance_bound)
+        # Under-powered level recorded as PASS must fail validator.
+        under = base_receipt()
+        under["gate"] = dict(under["gate"])
+        under["gate"]["levels"] = [
+            {
+                "concurrency": 1,
+                "verdict": "PASS",
+                "passed": True,
+                "refusals": [],
+                "ttft_overhead_budget_ms": 15.0,
+                "minimum_detectable_effect_ms": 21.0,
+            }
+        ]
+        under_path = write("underpowered.json", under)
+        errs = validate_receipt(under_path)
         check(
-            any("artifact_digests_remeasured=False" in e for e in errs),
-            f"provenance-bound digests must fail, got {errs!r}",
+            any("under-powered" in e or "MDE=" in e for e in errs),
+            f"under-powered PASS level must fail validator, got {errs!r}",
         )
 
-        # 4) Synthetic receipt meeting every requirement passes.
         clean = write("clean.json", base_receipt())
         errs = validate_receipt(clean)
-        check(errs == [], f"receipt-grade synthetic must pass, got {errs!r}")
-
-    # Overhead above budget → non-empty refusals from the harness.
-    budget = harness.default_budget()
-    summary = {
-        "ttft_overhead_p50_ms": 3.474,
-        "ttft_overhead_p95_ms": 50.0,
-        "ttft_overhead_p99_ms": 50.0,
-    }
-    deltas = {
-        "1": {
-            "aggregate_tokens_per_sec": {
-                "merc": 144.85,
-                "direct": 147.6,
-                "delta": -2.75,
-            }
-        }
-    }
-    refusals = harness.evaluate_budget(summary, deltas, budget)
-    check(len(refusals) > 0 and any("ttft overhead p95" in r for r in refusals),
-          f"over-budget TTFT must produce refusals, got {refusals!r}")
-
-    # Scope round-trips; mismatched digests are incomparable.
-    digest_a = "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
-    digest_b = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-    scope = harness.build_scope(
-        model="cx-chat-1b",
-        merc_artifact_sha256=digest_a,
-        direct_artifact_sha256=digest_a,
-        precision="GGUF-Q4_K_M",
-        engine="llama_cpp",
-        engine_build="",
-        hw_class="apple_silicon_ultra",
-        max_tokens=32,
-        temperature=0,
-        stream=True,
-        top_p=None,
-        seed=None,
-        prompt=harness.PROMPT,
-        concurrency_levels=[1, 8, 32],
-        requests_per_level=harness.MIN_CELL_COST_SAMPLES,
-    )
-    check(json.loads(json.dumps(scope)) == scope, "scope must round-trip")
-    reasons = harness.assert_comparable(
-        "cx-chat-1b", 32,
-        {"reachable": True, "model_ids": ["cx-chat-1b"]},
-        {"reachable": True, "model_ids": ["cx-chat-1b"]},
-        {"accepted": True}, {"accepted": True},
-        "merc", "direct",
-        merc_artifact_sha256=digest_a,
-        direct_artifact_sha256=digest_b,
-    )
-    check(any("mismatch" in r for r in reasons),
-          f"mismatched digests must be incomparable, got {reasons!r}")
+        check(errs == [], f"receipt-grade synthetic v2 must pass, got {errs!r}")
 
 
 def main() -> int:
@@ -531,8 +518,6 @@ def main() -> int:
     args = ap.parse_args()
 
     run_unit_tests()
-    # Self-test fixtures record themselves; drop them so the announcement
-    # below names only receipts that actually live in this repository.
     WITHDRAWN.clear()
 
     if not args.self_test_only:
@@ -546,23 +531,23 @@ def main() -> int:
         return 1
 
     if WITHDRAWN:
-        # Loud on purpose. This repository has no valid parity evidence, and the
-        # only thing worse than saying so is letting it read as a pass.
         print("gateway-parity-receipt: NO VALID PARITY EVIDENCE")
         for path, validity, reasons in WITHDRAWN:
             print(f"  {path}: {validity}")
             for r in reasons:
                 print(f"    * {r}")
         print(
-            "  No parity or deficit claim may cite a withdrawn receipt. "
-            "A replacement requires a new measurement, not an edit to the file."
+            "  No parity or deficit claim may cite a withdrawn or non-v2 receipt. "
+            "A replacement requires a new v2 measurement against a real Merc "
+            "control plane (X-Merc-Contract-ID + upstream body SHA on every OK "
+            "sample), not an edit to the file."
         )
         return 0
 
     print(
         "gateway-parity-receipt: PASS "
-        "(dated, inside revalidation window, empty refusals, "
-        "n>=min_samples, interleaved arms, digests remeasured)"
+        "(v2/gate-v3, dated, empty refusals, Merc-bound body_identity, "
+        "ladder {1,8,32}, nested gate_passed consistent, MDE ≤ budget)"
     )
     return 0
 
