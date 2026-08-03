@@ -271,6 +271,19 @@ func (s *Store) RevokeSession(ctx context.Context, rawToken string) error {
 	return err
 }
 
+// BuyerFreeCreditRemaining is the free-credit leg of committed-money accounting.
+// It is not advisory-only: job intake clamps MaxUSD and refuses submission when
+// this figure is exhausted and no payment method is on file (see api.go).
+//
+// Committed-money shape matches evaluateRealtimeBuyerFunding and
+// prepaidOpenReservationMicros so the three rails cannot drift:
+//   - open batch estimates
+//   - EXECUTING realtime maxima, excluding contracts already held by an ACTIVE
+//     envelope (counting both would double-hold)
+//   - ACTIVE envelope residual (cap − spent), ceil-nanos → micros → USD
+// When an envelope leaves ACTIVE, the exclusion falls off and still-EXECUTING
+// work is held by the contract term again — the same expiry fallback the other
+// two rails apply.
 func (s *Store) BuyerFreeCreditRemaining(ctx context.Context, buyerID uuid.UUID) (float64, error) {
 	var remaining float64
 	err := s.pool.QueryRow(ctx,
@@ -281,8 +294,16 @@ func (s *Store) BuyerFreeCreditRemaining(ctx context.Context, buyerID uuid.UUID)
 		                         AND kind IN ('buyer_charge','buyer_refund')), 0)
 		          - COALESCE((SELECT SUM(estimated_usd) FROM jobs
 		                       WHERE buyer_id = b.id AND status IN ('queued','running','verifying')), 0)
-		          - COALESCE((SELECT SUM(maximum_price_usd) FROM execution_contracts
-		                       WHERE buyer_id = b.id AND state = 'EXECUTING'), 0),
+		          - COALESCE((SELECT SUM(c.maximum_price_usd) FROM execution_contracts c
+		                       WHERE c.buyer_id = b.id AND c.state = 'EXECUTING'
+		                         AND NOT EXISTS (
+		                           SELECT 1 FROM execution_envelope_spends s
+		                             JOIN execution_envelopes e ON e.id = s.envelope_id
+		                            WHERE s.contract_id = c.id AND e.state = 'ACTIVE'
+		                         )), 0)
+		          - COALESCE((SELECT SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000)
+		                        FROM execution_envelopes e
+		                       WHERE e.buyer_id = b.id AND e.state = 'ACTIVE'), 0)::float8 / 1000000.0,
 		          0)::float8
 		   FROM buyers b WHERE b.id = $1`, buyerID,
 	).Scan(&remaining)
