@@ -159,7 +159,7 @@ func TestRuntimeAuthorityValidationRefusesEveryUngovernedShape(t *testing.T) {
 					Lifecycle:   runtimeLifecycleActive,
 					QualityTier: "OUTCOME_EQUIVALENT",
 					BenchmarkAuthority: "evidence/perf/runtime-benchmarks/" +
-						"embed-cell-candle-vs-llama-cpp-r1.json",
+						"embed-cell-candle-vs-llama-cpp-r2.json",
 				}}
 			}},
 		{"a sellable model no CANARY/ACTIVE runtime serves", "no CANARY/ACTIVE runtime cell serves",
