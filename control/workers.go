@@ -64,6 +64,8 @@ const (
 	realtimeRecoveryInterval     = 15 * time.Second
 	realtimeRecoveryGrace        = 30 * time.Second
 	serviceLeaseRecoveryInterval = 15 * time.Second
+	envelopeRecoveryInterval     = 15 * time.Second
+	envelopeOrphanGrace          = 30 * time.Second
 	hedgeAfter                   = 90 * time.Second // 2 × ~45s target per-task time
 	hedgeMaxInFlight             = 4                // concurrent hedges per job
 	hedgeBatch                   = 20               // max new hedges per tick
@@ -301,6 +303,10 @@ func (wk *Workers) Run(ctx context.Context) {
 		{realtimeRecoveryInterval, "realtime-contract-recovery", wk.recoverRealtimeContracts},
 		{realtimeRecoveryInterval, "realtime-settlement-intents", wk.settleRealtimeSettlementIntents},
 		{serviceLeaseRecoveryInterval, "service-lease-recovery", wk.recoverServiceLeases},
+		// Envelope expiry returns unspent remainder to the buyer's available
+		// balance; orphan-spend recovery converges reserved holds after a crash.
+		{envelopeRecoveryInterval, "execution-envelope-expiry", wk.releaseExpiredExecutionEnvelopes},
+		{envelopeRecoveryInterval, "execution-envelope-orphan-spends", wk.recoverOrphanEnvelopeSpends},
 		{noPeerWatchdogInterval, "no-peer-watchdog", wk.reapNoPeerWedged},
 		{overheadSweepInterval, overheadTickerName, wk.sweepExecutionOverhead},
 		// The in-flight sweep had no caller at all: expired inflight_executions
@@ -1329,6 +1335,28 @@ func (wk *Workers) settleRealtimeSettlementIntents(ctx context.Context) error {
 	if escalated > 0 {
 		metrics.realtimeFinalizationErrors.Add(int64(escalated))
 		log.Printf("workers: ALERT escalated %d realtime settlement intent(s) after bounded retries", escalated)
+	}
+	return nil
+}
+
+func (wk *Workers) releaseExpiredExecutionEnvelopes(ctx context.Context) error {
+	n, err := wk.store.ReleaseExpiredExecutionEnvelopes(ctx, sweepBatch)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		log.Printf("workers: expired %d execution envelope(s); unspent remainder released to buyer available balance", n)
+	}
+	return nil
+}
+
+func (wk *Workers) recoverOrphanEnvelopeSpends(ctx context.Context) error {
+	n, err := wk.store.RecoverOrphanEnvelopeSpends(ctx, envelopeOrphanGrace, sweepBatch)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		log.Printf("workers: voided %d orphan execution-envelope spend(s) after crash/recovery grace", n)
 	}
 	return nil
 }
