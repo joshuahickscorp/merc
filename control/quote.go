@@ -353,11 +353,19 @@ func placementRequirementFor(
 		)
 	}
 	candidate := workload.RuntimeCandidates[0]
+	// Placement model_kind is the frozen cell's artifact format, not the buyer's
+	// declaration. Claim matching already uses the cell's kind; capacity and
+	// worker filters must agree or a directed/multi-kind freeze would look for
+	// workers under the wrong wire kind.
+	modelKind := candidate.ModelKind
+	if modelKind == "" {
+		modelKind = sub.Model.Kind
+	}
 	out := PlacementRequirement{
 		Version:             placementRequirementVersion,
 		JobType:             workload.RuntimeJobType,
 		ModelRef:            sub.Model.Ref,
-		ModelKind:           sub.Model.Kind,
+		ModelKind:           modelKind,
 		RuntimeCellID:       candidate.CellID,
 		RuntimeID:           candidate.RuntimeID,
 		Engine:              candidate.Engine,
@@ -384,9 +392,15 @@ func validatePlacementRequirement(p PlacementRequirement, workload WorkloadDecis
 	}
 	candidate := workload.RuntimeCandidates[0]
 	binding := workload.Binding
+	// Prefer the frozen cell's kind; fall back to the binding only for decisions
+	// written before runtime candidates carried model_kind.
+	wantKind := candidate.ModelKind
+	if wantKind == "" {
+		wantKind = binding.Model.Kind
+	}
 	if p.JobType != workload.RuntimeJobType ||
 		p.ModelRef != binding.Model.Ref ||
-		p.ModelKind != binding.Model.Kind ||
+		p.ModelKind != wantKind ||
 		p.RuntimeCellID != candidate.CellID ||
 		p.RuntimeID != candidate.RuntimeID ||
 		p.Engine != candidate.Engine ||

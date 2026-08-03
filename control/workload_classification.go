@@ -202,12 +202,18 @@ func runtimeCapabilityForBinding(binding WorkloadBinding) (generatedRuntimeCapab
 // runtimeCapabilityForBindingDirected resolves the cell that will execute a
 // workload, optionally forced to a named one.
 //
-// Ordinary admission is a singleton today. The advertised catalogue carries at
-// most one cell per (job type, model); this function filters to that match and
-// freezes it. Competing engines exist only as DRAFT or in the directed set —
-// the shadow selector scores them but does not route ordinary buyer traffic.
-// Multi-candidate production selection is a separate lane (the engine
-// tournament); it is not what this path does.
+// Ordinary admission freezes exactly one cell. When several advertised cells
+// serve the same (job type, model), they are ranked with the same lifecycle
+// ladder the shadow selector uses and the winner alone is frozen. Freezing N
+// would hand selection to the claim query's ORDER BY cell_id LIMIT 1, which
+// decides alphabetically rather than by governed ranking. Rank-and-freeze-1
+// keeps every downstream len(RuntimeCandidates) != 1 assertion intact.
+//
+// Artifact format is not a match key. A buyer names a model; each cell decides
+// which of that model's artifacts it loads. Matching on kind made the buyer's
+// kind a runtime selector and left a promoted second cell routable but
+// unaddressable (naming its kind 400'd; omitting kind collapsed to the first
+// advertised kind). The frozen candidate carries the cell's own ModelKind.
 //
 // With a directed cell an operator or a test names the cell explicitly, and the
 // search widens to cells reachable by directed routing — a superset that
@@ -227,36 +233,79 @@ func runtimeCapabilityForBindingDirected(
 		if directedCellID != "" && candidate.ID != directedCellID {
 			continue
 		}
-		// The directed cell still has to fit the workload. Naming a cell is a
-		// choice of runtime, never a licence to run a model on a cell that does
-		// not serve it.
+		// The cell still has to fit the workload. Naming a cell is a choice of
+		// runtime, never a licence to run a model on a cell that does not serve it.
 		if candidate.Job != binding.JobType.Type || candidate.Model != binding.Model.Ref {
-			continue
-		}
-		// Artifact format is NOT matched against the buyer's declaration when a
-		// cell is named. The buyer asks for a model; the cell decides which of
-		// that model's artifacts it loads. Requiring them to agree would make the
-		// buyer's `kind` a runtime selector, which is precisely the coupling that
-		// kept llama.cpp's proven embed cell unreachable for a request naming the
-		// same logical model.
-		if directedCellID == "" && candidate.ModelKind != binding.Model.Kind {
 			continue
 		}
 		matches = append(matches, candidate)
 	}
-	if len(matches) != 1 {
-		if directedCellID != "" {
+	if directedCellID != "" {
+		if len(matches) != 1 {
 			return generatedRuntimeCapability{}, fmt.Errorf(
 				"directed runtime cell %q does not serve job_type=%q model=%q kind=%q "+
 					"(matched %d reachable cells)",
 				directedCellID, binding.JobType.Type, binding.Model.Ref,
 				binding.Model.Kind, len(matches))
 		}
-		return generatedRuntimeCapability{}, fmt.Errorf(
-			"workload classification requires one runtime cell for job_type=%q model=%q kind=%q; found %d",
-			binding.JobType.Type, binding.Model.Ref, binding.Model.Kind, len(matches))
+		return matches[0], nil
 	}
-	return matches[0], nil
+	if len(matches) == 0 {
+		return generatedRuntimeCapability{}, fmt.Errorf(
+			"workload classification requires one runtime cell for job_type=%q model=%q; found 0",
+			binding.JobType.Type, binding.Model.Ref)
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	// Multiple advertised cells for one model: rank, then freeze exactly one.
+	return rankAndFreezeAdmissionCell(matches)
+}
+
+// rankAndFreezeAdmissionCell promotes chooseShadowCell onto the freeze path.
+// It never returns more than one cell: the claim path is LIMIT 1 by cell_id, so
+// freezing N would make selection alphabetical-by-whoever-claims-first.
+func rankAndFreezeAdmissionCell(matches []generatedRuntimeCapability) (generatedRuntimeCapability, error) {
+	byID := make(map[string]generatedRuntimeCapability, len(matches))
+	considered := make([]shadowCandidate, 0, len(matches))
+	activation := currentActivation()
+	for _, capability := range matches {
+		byID[capability.ID] = capability
+		lifecycle := ""
+		quality := ""
+		for _, profile := range activation.profiles() {
+			for _, cell := range profile.Cells {
+				if cell.ID != capability.ID {
+					continue
+				}
+				lifecycle = cell.EffectiveLifecycle(profile)
+				quality = cell.qualityTierFor(profile)
+			}
+		}
+		considered = append(considered, shadowCandidate{
+			CellID: capability.ID, RuntimeID: capability.Runtime, Engine: capability.Engine,
+			ModelKind: capability.ModelKind, Lifecycle: lifecycle, QualityTier: quality,
+			Routable: true, Verification: capability.Verification,
+		})
+	}
+	sort.Slice(considered, func(i, j int) bool {
+		return considered[i].CellID < considered[j].CellID
+	})
+	// No preferred routed cell at admission: the ranking itself is the decision.
+	// Ties keep the first winner in sorted cell-id order so reconstruction is
+	// deterministic for ValidateWorkloadDecisionSnapshot.
+	winnerID := chooseShadowCell(considered, "")
+	if winnerID == "" {
+		return generatedRuntimeCapability{}, fmt.Errorf(
+			"workload classification ranked %d cells for job_type=%q model=%q but none survived the ladder",
+			len(matches), matches[0].Job, matches[0].Model)
+	}
+	winner, ok := byID[winnerID]
+	if !ok {
+		return generatedRuntimeCapability{}, fmt.Errorf(
+			"workload classification ranked unknown cell %q", winnerID)
+	}
+	return winner, nil
 }
 
 func modelRevisionFor(modelID string) string {
@@ -382,6 +431,16 @@ func buildWorkloadDecision(sub jobSubmit, inputSHA256 string) (WorkloadDecision,
 		return WorkloadDecision{}, err
 	}
 	return buildWorkloadDecisionFromBinding(binding)
+}
+
+// buildWorkloadDecisionForSubmit is the production admission freeze path.
+// Ordinary buyer traffic leaves directedCellID empty. The admin directed route
+// sets it so a named non-routable cell can be driven through the money path.
+func buildWorkloadDecisionForSubmit(sub jobSubmit, inputSHA256 string) (WorkloadDecision, error) {
+	if sub.directedCellID != "" {
+		return buildWorkloadDecisionDirected(sub, inputSHA256, sub.directedCellID)
+	}
+	return buildWorkloadDecision(sub, inputSHA256)
 }
 
 // buildWorkloadDecisionDirected freezes a decision onto a named runtime cell.

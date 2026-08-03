@@ -33,10 +33,9 @@ import (
 // of those submits a TEST-CONSTRUCTED job row through store.SubmitJobTx. That
 // skips signup, skips the API key, skips admission, skips the quote, skips the
 // compute plan and skips the pricing decision — which is to say it skips
-// everything a stranger actually encounters. `buildWorkloadDecisionDirected` is
-// listed in knownUnwired for exactly that reason: "there is no operator entry
-// point, so every second-runtime chain proof submits a test-constructed job row
-// rather than going through the API."
+// everything a stranger actually encounters. Directed routing is production via
+// POST /admin/runtime/jobs/directed; this loop still uses ordinary buyer submit
+// because a stranger does not name a cell.
 //
 // This one goes through the API. Nothing is inserted into the database by the
 // test except the supplier and worker credential a real supplier would be issued,
