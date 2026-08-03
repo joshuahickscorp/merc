@@ -5,6 +5,7 @@ mod fabric;
 mod failure;
 mod hardware;
 mod inference;
+mod openai_serve;
 mod media;
 mod models;
 mod pool;
@@ -638,6 +639,26 @@ enum Command {
     },
     Characterize,
     Version,
+    /// Serve a minimal OpenAI-compatible HTTP surface over the in-process Candle
+    /// engine on the pinned GGUF. Exists so merc-serving-matrix-v1 can enter
+    /// Candle as a same-digest arm against llama.cpp (streamed chat completions).
+    ///
+    /// Prints `CANDLE_OPENAI_READY base_url=...` on stdout when the model is
+    /// loaded. Concurrent requests serialise on the Metal model lock — that is
+    /// the engine property under measurement, not a bug.
+    #[command(name = "serve-openai")]
+    ServeOpenAI {
+        /// Bind address, e.g. `127.0.0.1:0` is not supported (OS picks port via
+        /// explicit port). Use `127.0.0.1:PORT`.
+        #[arg(long, default_value = "127.0.0.1:8199")]
+        bind: String,
+        /// Advertised model id (OpenAI `model` field).
+        #[arg(long, default_value = "llama-3.2-1b-instruct-q4")]
+        model: String,
+        /// Model ref resolved by the agent pin table (defaults to --model).
+        #[arg(long, default_value = "")]
+        model_ref: String,
+    },
     /// Measure a batch_infer known-answer honeypot against this binary's engine
     /// build. Prints one JSON object with answer_class and known_answer for
     /// scripts/seed-batch-infer-honeypot.sh / control seed.
@@ -737,6 +758,20 @@ async fn main() -> Result<()> {
         Command::Version => {
             println!("merc-agent {AGENT_VERSION}");
             Ok(())
+        }
+        Command::ServeOpenAI {
+            bind,
+            model,
+            model_ref,
+        } => {
+            init_tracing();
+            // Blocking std HTTP + Metal decode; the tokio runtime is unused for
+            // this subcommand (same pattern as several other bench entry points).
+            openai_serve::run(openai_serve::ServeConfig {
+                bind,
+                model_id: model,
+                model_ref,
+            })
         }
         Command::HoneypotAnswer {
             model,
