@@ -9,6 +9,7 @@
 #
 # Usage, any of:
 #   bash scripts/merc-credentials.sh                    # prompts, input hidden
+#   bash scripts/merc-credentials.sh --runpod           # rotate ONLY the RunPod key
 #   RUNPOD_API_KEY=... STRIPE_SECRET_KEY=... bash scripts/merc-credentials.sh
 #   bash scripts/merc-credentials.sh --check            # re-verify what is stored
 #
@@ -21,7 +22,17 @@ umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ENV_FILE="$ROOT/.merc-credentials.env"
 CHECK_ONLY=0
-[ "${1:-}" = "--check" ] && CHECK_ONLY=1
+ONLY=""
+case "${1:-}" in
+  --check)  CHECK_ONLY=1 ;;
+  --runpod) ONLY=runpod ;;
+  --stripe) ONLY=stripe ;;
+  "")       ;;
+  *)        printf 'ERROR: unknown flag %s\n' "$1" >&2; exit 2 ;;
+esac
+# Rotating one credential must not make the operator re-type the others. `want`
+# gates each prompt; anything not prompted for keeps its stored value verbatim.
+want() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  \033[32mOK\033[0m    %s\n' "$*"; }
@@ -147,13 +158,15 @@ MERC_GPU_ENDPOINT="${MERC_GPU_ENDPOINT:-}"
 
 if [ "$CHECK_ONLY" -eq 0 ]; then
   ensure_ignored
-  if [ -z "${RUNPOD_API_KEY:-}" ] || [ -t 0 ]; then
+  # `-n "$ONLY"` forces the prompt: naming a credential explicitly is a request to
+  # replace it, so it must be asked for even when stdin is a pipe rather than a tty.
+  if want runpod && { [ -n "$ONLY" ] || [ -z "${RUNPOD_API_KEY:-}" ] || [ -t 0 ]; }; then
     read_secret "RunPod API key" RUNPOD_API_KEY "${RUNPOD_API_KEY:-}"
   fi
-  if [ -z "${STRIPE_SECRET_KEY:-}" ] || [ -t 0 ]; then
+  if want stripe && { [ -n "$ONLY" ] || [ -z "${STRIPE_SECRET_KEY:-}" ] || [ -t 0 ]; }; then
     read_secret "Stripe TEST secret key (sk_test_...)" STRIPE_SECRET_KEY "${STRIPE_SECRET_KEY:-}"
   fi
-  if [ -t 0 ]; then
+  if [ -z "$ONLY" ] && [ -t 0 ]; then
     _existing_endpoint="${MERC_GPU_ENDPOINT:-}"
     if [ -n "$_existing_endpoint" ]; then
       printf 'vLLM endpoint [keep %s]: ' "$_existing_endpoint"
@@ -184,6 +197,11 @@ if [ "$CHECK_ONLY" -eq 0 ]; then
     [ -n "${RUNPOD_API_KEY:-}" ]     && printf 'export RUNPOD_API_KEY=%q\n' "$RUNPOD_API_KEY"
     [ -n "${STRIPE_SECRET_KEY:-}" ]  && printf 'export STRIPE_SECRET_KEY=%q\n' "$STRIPE_SECRET_KEY"
     [ -n "${MERC_GPU_ENDPOINT:-}" ]  && printf 'export MERC_GPU_ENDPOINT=%q\n' "$MERC_GPU_ENDPOINT"
+    # Carried through, never prompted for. This file is rewritten from scratch on
+    # every run, so a value this script does not re-emit is a value it deletes:
+    # rotating the RunPod key used to silently drop the sample secret with it.
+    [ -n "${MERC_VERIFICATION_SAMPLE_SECRET:-}" ] \
+      && printf 'export MERC_VERIFICATION_SAMPLE_SECRET=%q\n' "$MERC_VERIFICATION_SAMPLE_SECRET"
     # NOT aliased to RUNPOD_API_KEY. The RunPod account key authenticates to
     # RunPod's control API; the engine on a pod has its own --api-key. Aliasing
     # them sends the account key to vLLM, which answers 401. scripts/runpod-vllm.sh
