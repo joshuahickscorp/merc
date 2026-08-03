@@ -31,8 +31,9 @@ func runGatewayParityCLI(args []string) int {
 	seed := fs.Int64("seed", -1, "seed; <0 means omit")
 	levelsFlag := fs.String("concurrency", "1,8,32", "comma-separated concurrency levels")
 	out := fs.String("out", "evidence/perf/gateway-parity-v2.json", "receipt path")
-	evidenceClass := fs.String("evidence-class", "PARITY_EVIDENCE", "PARITY_EVIDENCE | HARNESS_SELF_TEST")
-	modelDigest := fs.String("model-digest", "", "sha256 of model artifact (required for PARITY_EVIDENCE)")
+	evidenceClass := fs.String("evidence-class", "PARITY_EVIDENCE",
+		"PARITY_EVIDENCE | LOCAL_METAL_PARITY | HARNESS_SELF_TEST")
+	modelDigest := fs.String("model-digest", "", "sha256 of model artifact (required for PARITY_EVIDENCE and LOCAL_METAL_PARITY)")
 	topologyNote := fs.String("topology-note", "", "where client / control plane / engine run")
 	selfTestStandin := fs.Bool("self-test-standin", false, "run against a local stand-in; forces HARNESS_SELF_TEST")
 	if err := fs.Parse(args); err != nil {
@@ -47,8 +48,14 @@ func runGatewayParityCLI(args []string) int {
 		fmt.Fprintln(os.Stderr, "-merc-base-url and -direct-base-url are required (or -self-test-standin)")
 		return 2
 	}
-	if *evidenceClass == "PARITY_EVIDENCE" && len(*modelDigest) != 64 {
-		fmt.Fprintln(os.Stderr, "PARITY_EVIDENCE requires -model-digest (64 hex chars)")
+	switch *evidenceClass {
+	case "PARITY_EVIDENCE", "LOCAL_METAL_PARITY", "HARNESS_SELF_TEST":
+	default:
+		fmt.Fprintf(os.Stderr, "unknown -evidence-class %q (want PARITY_EVIDENCE | LOCAL_METAL_PARITY | HARNESS_SELF_TEST)\n", *evidenceClass)
+		return 2
+	}
+	if (*evidenceClass == "PARITY_EVIDENCE" || *evidenceClass == "LOCAL_METAL_PARITY") && len(*modelDigest) != 64 {
+		fmt.Fprintf(os.Stderr, "%s requires -model-digest (64 hex chars)\n", *evidenceClass)
 		return 2
 	}
 

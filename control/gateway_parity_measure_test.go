@@ -115,11 +115,17 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	}
 
 	profile := sortedVLLMProfiles()[0]
+	// Max sequences high enough for c=128 ladder attempts. The catalogue
+	// profile still describes vLLM; the actual upstream is whatever
+	// MERC_REALTIME_UPSTREAM serves (llama.cpp/Metal for LOCAL_METAL_PARITY).
+	// We do NOT relax validateVLLMRuntimeProfile — the profile remains the
+	// catalogue pin used for routing/auth; evidence_class carries the scope.
+	const offerSequences = 256
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
 		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
 		UpstreamBaseURL: strings.TrimRight(upstream, "/"), UpstreamToken: upstreamKey,
-		Warmth: "HOT", MaxActiveSequences: 64, AvailableSequences: 64,
+		Warmth: "HOT", MaxActiveSequences: offerSequences, AvailableSequences: offerSequences,
 		SupplierInputUSDPerMillionTokens: 0.08, SupplierOutputUSDPerMillionTokens: 0.30,
 	}); err != nil {
 		t.Fatal(err)
@@ -137,7 +143,7 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 					WorkerAuth{WorkerID: workerID, SupplierID: supplierID},
 					RealtimeOfferHeartbeat{
 						RuntimeProfileID: profile.RuntimeProfileID, Warmth: "HOT",
-						AvailableSequences: 64, Status: "ACTIVE",
+						AvailableSequences: offerSequences, Status: "ACTIVE",
 					})
 			}
 		}
@@ -187,7 +193,8 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 		artifactSHA = v
 	}
 
-	// Default claimed levels; operators can narrow for a short smoke.
+	// Default claimed levels; operators can narrow or extend (e.g. 1,8,32,64,128).
+	// Do not claim a level you did not run — set MERC_GATEWAY_PARITY_CONCURRENCY.
 	claimed := []int{1, 8, 32}
 	if v := os.Getenv("MERC_GATEWAY_PARITY_CONCURRENCY"); v != "" {
 		claimed = claimed[:0]
@@ -202,6 +209,14 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 			}
 			claimed = append(claimed, n)
 		}
+	}
+
+	// Evidence class: default LOCAL_METAL_PARITY for real-engine host runs so a
+	// Metal/llama.cpp receipt cannot be quoted as catalogue PARITY_EVIDENCE.
+	// Operators targeting a true vLLM dual-arm may set MERC_GATEWAY_PARITY_EVIDENCE_CLASS=PARITY_EVIDENCE.
+	evidenceClass := "LOCAL_METAL_PARITY"
+	if v := strings.TrimSpace(os.Getenv("MERC_GATEWAY_PARITY_EVIDENCE_CLASS")); v != "" {
+		evidenceClass = v
 	}
 
 	contract := GatewayParitySamplingContract{
@@ -225,7 +240,10 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	hostStart := CaptureGatewayParityHostLoad()
 	levels := map[string]GatewayParityLevelResult{}
 	for _, c := range claimed {
-		n := GatewayParitySampleFloor(c)
+		// Attempt above the floor so a single transport hiccup does not drop
+		// RequestsOK under the floor. The gate still requires the floor.
+		floor := GatewayParitySampleFloor(c)
+		n := floor + floor/10 + 2
 		// Optional override for short smoke — RefuseGatewayParitySampleCount will
 		// still refuse gate_passed below the floor.
 		if v := os.Getenv("MERC_GATEWAY_PARITY_REQUESTS"); v != "" {
@@ -233,7 +251,7 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 				n = override
 			}
 		}
-		t.Logf("=== alternating-batch interleaved c=%d n=%d per arm ===", c, n)
+		t.Logf("=== alternating-batch interleaved c=%d n=%d (floor %d) per arm ===", c, n, floor)
 		merc, direct := RunGatewayParityInterleavedLevel(
 			ctx, client,
 			server.URL+"/v1", buyerKey,
@@ -250,21 +268,30 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	hostEnd := CaptureGatewayParityHostLoad()
 
 	identity := ProveGatewayParityBodyIdentity(body, claimed, levels)
+	engineNote := strings.TrimSpace(os.Getenv("MERC_GATEWAY_PARITY_ENGINE_NOTE"))
+	if engineNote == "" {
+		engineNote = "local engine at MERC_REALTIME_UPSTREAM (expect llama.cpp/Metal for LOCAL_METAL_PARITY)"
+	}
 	topology := GatewayParityNetworkTopology{
 		ClientHost: "measure-test-process", ControlPlane: "httptest control plane",
-		Engine:          "local engine (MERC_REALTIME_UPSTREAM)",
-		ClientToControl: "loopback", ControlToEngine: "loopback/lan",
-		ClientToEngine: "loopback/lan",
+		Engine:          engineNote,
+		ClientToControl: "loopback", ControlToEngine: "loopback",
+		ClientToEngine: "loopback",
 		Notes:          "opt-in live measure via control harness (not gateway-parity.py)",
+	}
+	notes := []string{
+		"driven by TestGatewayParityAgainstRealEngine using control/gateway_parity_harness.go",
+		"invalidated path scripts/gateway-parity.py is not invoked",
+		fmt.Sprintf("evidence_class=%s (env MERC_GATEWAY_PARITY_EVIDENCE_CLASS)", evidenceClass),
+		fmt.Sprintf("catalogue runtime_profile_id=%s used for merc routing/auth only; engine under test is the upstream, not the catalogue engine pin",
+			profile.RuntimeProfileID),
+		"validateVLLMRuntimeProfile was not relaxed; Metal run is scoped via evidence_class, not profile rewrite",
 	}
 	rec := BuildGatewayParityReceipt(
 		contract, topology, client, claimed, levels, identity,
 		DefaultGatewayParityBudget(), hostStart, hostEnd,
-		"PARITY_EVIDENCE",
-		[]string{
-			"driven by TestGatewayParityAgainstRealEngine using control/gateway_parity_harness.go",
-			"invalidated path scripts/gateway-parity.py is not invoked",
-		},
+		evidenceClass,
+		notes,
 	)
 
 	raw, err := json.MarshalIndent(rec, "", "  ")
@@ -274,8 +301,8 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	if err := os.WriteFile(outPath, append(raw, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("wrote receipt to %s gate_passed=%v verdict=%s comparable=%v refusals=%v",
-		outPath, rec.GatePassed, rec.Gate.Verdict, rec.Comparable, rec.Refusals)
+	t.Logf("wrote receipt to %s gate_passed=%v verdict=%s comparable=%v evidence_class=%s refusals=%v",
+		outPath, rec.GatePassed, rec.Gate.Verdict, rec.Comparable, rec.EvidenceClass, rec.Refusals)
 
 	// Live measure asserts the harness produced a complete receipt; pass/fail
 	// of the budget is the scientific claim and must not be silently greenwashed.
@@ -289,11 +316,14 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	if rec.GateVersion == "" {
 		t.Fatal("receipt missing gate_version")
 	}
-	if rec.EvidenceClass != "PARITY_EVIDENCE" {
-		t.Fatalf("evidence_class=%s", rec.EvidenceClass)
+	if rec.EvidenceClass != evidenceClass && rec.EvidenceClass != "INCOMPLETE_LADDER" {
+		t.Fatalf("evidence_class=%s want %s (or INCOMPLETE_LADDER)", rec.EvidenceClass, evidenceClass)
 	}
 	if rec.SamplingContract.ModelDigest != artifactSHA {
 		t.Fatalf("model digest not pinned: %q want %q", rec.SamplingContract.ModelDigest, artifactSHA)
+	}
+	if evidenceClass == "LOCAL_METAL_PARITY" && len(rec.DoesNotProve) == 0 && rec.EvidenceClass == "LOCAL_METAL_PARITY" {
+		t.Fatal("LOCAL_METAL_PARITY receipt missing does_not_prove")
 	}
 	// Log primary metric per level for the operator.
 	for _, gl := range rec.Gate.Levels {
