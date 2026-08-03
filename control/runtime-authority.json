@@ -200,11 +200,11 @@
         "prefix_cache": true,
         "speculation": false
       },
-      "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json",
+      "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r4.json",
       "quality_tier": "OUTCOME_EQUIVALENT",
       "evidence": [
         "evidence/canary/real-runtime-realtime.json",
-        "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json"
+        "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r4.json"
       ],
       "cells": [
         {
@@ -228,7 +228,7 @@
           "verification": "byte_exact",
           "lifecycle": "ACTIVE",
           "quality_tier": "OUTCOME_EQUIVALENT",
-          "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r3.json",
+          "benchmark_authority": "evidence/perf/runtime-benchmarks/candle-metal-llama1-q4-r4.json",
           "max_batch": 128
         },
         {

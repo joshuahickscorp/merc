@@ -298,11 +298,11 @@ func TestObservedOutputSettlementMinBillableFloor(t *testing.T) {
 // rebuilt CommitTaskInfo has jobMaxTokens=0. Planning and apply must both load
 // the same frozen workload/compute/economic authority and agree on the rebate.
 //
-// batch_infer is not advertised (its authority does not bind). Ordinary
-// admission would refuse this submit; the regression is about settlement
-// recovery after a generative commit, not about the catalogue. Directed
-// routing freezes the lifecycle-present generation cell so the max_tokens
-// path stays covered without re-advertising an unbound receipt.
+// Settlement recovery after a generative commit: verification snapshots omit
+// job max_tokens, so rebuilt CommitTaskInfo has jobMaxTokens=0. Planning and
+// apply must both load the same frozen workload/compute/economic authority and
+// agree on the rebate. Directed routing freezes the generation cell so the
+// max_tokens path stays covered even if ordinary admission later changes.
 func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openMoneyPathStore(t)

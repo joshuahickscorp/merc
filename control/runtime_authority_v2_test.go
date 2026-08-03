@@ -61,9 +61,8 @@ func TestNonRoutableProfilesDoNotWidenTheSellableSurface(t *testing.T) {
 				cap.Runtime, cap)
 		}
 	}
-	if len(advertisedRuntimeCapabilities()) != 1 {
-		t.Fatalf("advertised projection has %d cells, want the 1 bindable candle cell",
-			len(advertisedRuntimeCapabilities()))
+	if n := len(advertisedRuntimeCapabilities()); n != 2 {
+		t.Fatalf("advertised projection has %d cells, want the 2 bindable candle cells (embed + batch_infer)", n)
 	}
 }
 
@@ -850,8 +849,8 @@ func TestWireKindBelongsToTheRuntimeModelPair(t *testing.T) {
 	}
 }
 
-// Registering the embed cell must not have widened what is sellable: the cell is
-// on a VALIDATED profile and cannot reach the advertised projection.
+// The llama.cpp embed cell stays on a non-ACTIVE profile and must not reach the
+// advertised projection; only BOUND candle cells do.
 func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
 	for _, cap := range advertisedRuntimeCapabilities() {
 		if cap.ID == "llama-cpp-metal-minilm-embed" {
@@ -861,8 +860,7 @@ func TestTheNewEmbedCellIsNotYetSellable(t *testing.T) {
 			t.Errorf("non-routable runtime %q is advertised", cap.Runtime)
 		}
 	}
-	if len(advertisedRuntimeCapabilities()) != 1 {
-		t.Fatalf("advertised projection has %d cells, want the 1 bindable candle cell",
-			len(advertisedRuntimeCapabilities()))
+	if n := len(advertisedRuntimeCapabilities()); n != 2 {
+		t.Fatalf("advertised projection has %d cells, want the 2 bindable candle cells (embed + batch_infer)", n)
 	}
 }
