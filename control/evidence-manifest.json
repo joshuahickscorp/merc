@@ -194,5 +194,41 @@
       "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037",
       "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
     ]
+  },
+  "evidence/perf/runtime-benchmarks/engine-tournament-metal-host-scope-r1.json": {
+    "runtime_profile_ids": [
+      "llama_cpp_metal",
+      "mlx_metal"
+    ],
+    "throughput_measured": false,
+    "byte_deterministic": false,
+    "model_ids": [
+      "llama-3.2-1b-instruct-q4"
+    ],
+    "measured_at": "2026-08-03T15:32:19Z",
+    "hw_class": "apple_silicon_ultra",
+    "merc_source_commit": "a8159ac787f3f785e303d402ec806da65452d0f5",
+    "harness": "merc-serving-matrix-v1",
+    "model_artifact_sha256s": [
+      "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
+    ]
+  },
+  "evidence/perf/runtime-benchmarks/serving-matrix-llama-cpp-metal-local-r2.json": {
+    "runtime_profile_ids": [
+      "llama_cpp_metal"
+    ],
+    "throughput_measured": true,
+    "byte_deterministic": false,
+    "model_ids": [
+      "llama-3.2-1b-instruct-q4"
+    ],
+    "measured_at": "2026-08-03T15:32:00Z",
+    "hw_class": "apple_silicon_ultra",
+    "merc_source_commit": "a8159ac787f3f785e303d402ec806da65452d0f5",
+    "profile_revision": "r8",
+    "harness": "merc-serving-matrix-v1",
+    "model_artifact_sha256s": [
+      "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
+    ]
   }
 }
