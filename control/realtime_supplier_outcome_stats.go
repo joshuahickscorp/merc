@@ -27,15 +27,23 @@ type realtimeSupplierOutcomeStats struct {
 // AuthorizeRealtimeContract. Reputation joins realtime_supplier_outcome_stats
 // (PK lookup) instead of aggregating execution_contracts history per request.
 //
-// Tail note (see evidence/perf/authorize-auth-tails-*.json): under concurrency
-// every contender used to target selected_rank=1 and serialise on that one
-// offer row even when other equal-or-next-rank offers had free capacity.
-// The claim path now prefers FOR UPDATE SKIP LOCKED ordered by rank so
-// multi-offer books admit in parallel; when every candidate is locked (the
-// single-offer case) a blocking claim waits instead of returning no-supply
-// while capacity sits idle. available_sequences > 0 on the UPDATE still makes
-// decrement-and-check atomic. Lock hierarchy is unchanged: this runs only
-// after evaluateRealtimeBuyerFunding.
+// Tail note (see evidence/perf/authorize-auth-tails-*.json and
+// docs/OFFER_MULTIPLICITY.md): under concurrency every contender used to
+// target selected_rank=1 and serialise on that one offer row even when other
+// equal-or-next-rank offers had free capacity. The claim path now prefers
+// FOR UPDATE SKIP LOCKED ordered by rank so multi-offer books admit in
+// parallel; when every candidate is locked (the single-offer case) a
+// blocking claim waits instead of returning no-supply while capacity sits
+// idle. available_sequences > 0 on the UPDATE still makes decrement-and-check
+// atomic. Lock hierarchy is unchanged: this runs only after
+// evaluateRealtimeBuyerFunding.
+//
+// The multi-buyer single-offer p95 (~50–75 ms at c=32) is a thin-book /
+// fixture characterisation: one (worker, profile) capacity row is one
+// Postgres row lock held through commit. Seed and single-agent local paths
+// create that shape deliberately; a healthy multi-supplier book does not.
+// Do not split available_sequences into slot rows against that number —
+// capacity truth stays on the counter + release path.
 const realtimeAuthorizeSelectOfferSQL = realtimeAuthorizeSelectOfferSQLBlocking
 
 // realtimeAuthorizeCandidatesCTE is the shared ranking body. $1 profile id,
