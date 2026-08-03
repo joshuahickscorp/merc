@@ -62,7 +62,13 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	// Capture so body identity can be proven for PARITY_EVIDENCE.
 	t.Setenv(parityUpstreamCaptureEnv, "1")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	// Matrix mode (full competitive ladder including c=128) needs a longer
+	// wall budget than the single-shape ladder; single-shape keeps 20m.
+	measureTimeout := 20 * time.Minute
+	if os.Getenv("MERC_GATEWAY_PARITY_MATRIX") == "1" {
+		measureTimeout = 90 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), measureTimeout)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
@@ -193,6 +199,84 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 		artifactSHA = v
 	}
 
+	// Evidence class: default LOCAL_METAL_PARITY for real-engine host runs so a
+	// Metal/llama.cpp receipt cannot be quoted as catalogue PARITY_EVIDENCE.
+	// Operators targeting a true vLLM dual-arm may set MERC_GATEWAY_PARITY_EVIDENCE_CLASS=PARITY_EVIDENCE.
+	evidenceClass := "LOCAL_METAL_PARITY"
+	if v := strings.TrimSpace(os.Getenv("MERC_GATEWAY_PARITY_EVIDENCE_CLASS")); v != "" {
+		evidenceClass = v
+	}
+
+	contract := GatewayParitySamplingContract{
+		Model: profile.ModelAlias, Prompt: "Write a short factual paragraph about the water cycle. Be specific and do not repeat yourself.",
+		Temperature: 0, TopP: 0.95, MaxTokens: maxTokens, Stream: true,
+		ModelDigest: artifactSHA, RuntimeProfileID: profile.RuntimeProfileID,
+		RuntimeProfileSHA256: profile.ProfileSHA256,
+	}
+
+	engineNote := strings.TrimSpace(os.Getenv("MERC_GATEWAY_PARITY_ENGINE_NOTE"))
+	if engineNote == "" {
+		engineNote = "local engine at MERC_REALTIME_UPSTREAM (expect llama.cpp/Metal for LOCAL_METAL_PARITY)"
+	}
+	topology := GatewayParityNetworkTopology{
+		ClientHost: "measure-test-process", ControlPlane: "httptest control plane",
+		Engine:          engineNote,
+		ClientToControl: "loopback", ControlToEngine: "loopback",
+		ClientToEngine: "loopback",
+		Notes:          "opt-in live measure via control harness (not gateway-parity.py)",
+	}
+
+	// Matrix mode (revision-1 competitive CUDA): prompt × output × state ×
+	// concurrency, every cell independently gated. Single-shape ladder remains
+	// the default when MERC_GATEWAY_PARITY_MATRIX is unset.
+	if os.Getenv("MERC_GATEWAY_PARITY_MATRIX") == "1" {
+		selection := CompetitiveCUDAParityMatrixSelection()
+		if os.Getenv("MERC_GATEWAY_PARITY_MATRIX_DEFAULT") == "1" {
+			selection = DefaultGatewayParityMatrixSelection()
+		}
+		t.Logf("=== matrix mode: %d cells — %s ===", len(selection.Selected), selection.Rationale)
+		hostStart := CaptureGatewayParityHostLoad()
+		cells := RunGatewayParityMatrix(
+			ctx,
+			server.URL+"/v1", buyerKey,
+			strings.TrimRight(upstream, "/"), upstreamKey,
+			contract, selection,
+		)
+		hostEnd := CaptureGatewayParityHostLoad()
+		notes := []string{
+			"driven by TestGatewayParityAgainstRealEngine matrix mode (control/gateway_parity_matrix.go)",
+			"invalidated path scripts/gateway-parity.py is not invoked",
+			fmt.Sprintf("evidence_class=%s (env MERC_GATEWAY_PARITY_EVIDENCE_CLASS)", evidenceClass),
+			fmt.Sprintf("catalogue runtime_profile_id=%s used for merc routing/auth only", profile.RuntimeProfileID),
+			"selection=CompetitiveCUDAParityMatrixSelection unless MERC_GATEWAY_PARITY_MATRIX_DEFAULT=1",
+			"do not quote the withdrawn 'Merc is 17.5% behind' claim; this receipt supersedes it",
+		}
+		rec := BuildGatewayParityMatrixReceipt(
+			contract, topology, selection, cells,
+			DefaultGatewayParityBudget(), hostStart, hostEnd,
+			evidenceClass, notes,
+		)
+		raw, err := json.MarshalIndent(rec, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(outPath, append(raw, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote matrix receipt to %s cells=%d gate_passed=%v verdict=%s comparable=%v",
+			outPath, len(rec.Cells), rec.GatePassed, rec.Gate.Verdict, rec.Comparable)
+		if rec.MeasuredAt == "" || rec.MercSourceCommit == "" || rec.GateVersion == "" {
+			t.Fatal("matrix receipt missing required identity fields")
+		}
+		if rec.SamplingContract.ModelDigest != artifactSHA {
+			t.Fatalf("model digest not pinned: %q want %q", rec.SamplingContract.ModelDigest, artifactSHA)
+		}
+		for _, cell := range rec.Cells {
+			t.Logf("  cell %s status=%s gate=%s", cell.Spec.Key(), cell.Status, cell.Gate.Verdict)
+		}
+		return
+	}
+
 	// Default claimed levels; operators can narrow or extend (e.g. 1,8,32,64,128).
 	// Do not claim a level you did not run — set MERC_GATEWAY_PARITY_CONCURRENCY.
 	claimed := []int{1, 8, 32}
@@ -211,20 +295,6 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 		}
 	}
 
-	// Evidence class: default LOCAL_METAL_PARITY for real-engine host runs so a
-	// Metal/llama.cpp receipt cannot be quoted as catalogue PARITY_EVIDENCE.
-	// Operators targeting a true vLLM dual-arm may set MERC_GATEWAY_PARITY_EVIDENCE_CLASS=PARITY_EVIDENCE.
-	evidenceClass := "LOCAL_METAL_PARITY"
-	if v := strings.TrimSpace(os.Getenv("MERC_GATEWAY_PARITY_EVIDENCE_CLASS")); v != "" {
-		evidenceClass = v
-	}
-
-	contract := GatewayParitySamplingContract{
-		Model: profile.ModelAlias, Prompt: "Write a short factual paragraph about the water cycle. Be specific and do not repeat yourself.",
-		Temperature: 0, TopP: 0.95, MaxTokens: maxTokens, Stream: true,
-		ModelDigest: artifactSHA, RuntimeProfileID: profile.RuntimeProfileID,
-		RuntimeProfileSHA256: profile.ProfileSHA256,
-	}
 	body, err := contract.BuildChatCompletionsBody()
 	if err != nil {
 		t.Fatal(err)
@@ -268,17 +338,6 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	hostEnd := CaptureGatewayParityHostLoad()
 
 	identity := ProveGatewayParityBodyIdentity(body, claimed, levels)
-	engineNote := strings.TrimSpace(os.Getenv("MERC_GATEWAY_PARITY_ENGINE_NOTE"))
-	if engineNote == "" {
-		engineNote = "local engine at MERC_REALTIME_UPSTREAM (expect llama.cpp/Metal for LOCAL_METAL_PARITY)"
-	}
-	topology := GatewayParityNetworkTopology{
-		ClientHost: "measure-test-process", ControlPlane: "httptest control plane",
-		Engine:          engineNote,
-		ClientToControl: "loopback", ControlToEngine: "loopback",
-		ClientToEngine: "loopback",
-		Notes:          "opt-in live measure via control harness (not gateway-parity.py)",
-	}
 	notes := []string{
 		"driven by TestGatewayParityAgainstRealEngine using control/gateway_parity_harness.go",
 		"invalidated path scripts/gateway-parity.py is not invoked",
