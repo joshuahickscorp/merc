@@ -1,0 +1,1382 @@
+{
+  "assertions": {
+    "128_independent_deliveries": true,
+    "128_valid_individually_verifiable_receipts": true,
+    "buyer_discount_on_coalesced_deliveries": true,
+    "coalesced_counter_plus_127": true,
+    "exactly_one_physical_execution": true,
+    "exactly_one_supplier_payable": true,
+    "ledger_conserves": true,
+    "positive_merc_net_contribution": true,
+    "public_path_requests_128": true,
+    "reused_counter_unchanged": true,
+    "verified_counter_plus_one": true
+  },
+  "binding_status": "BOUND",
+  "cluster": {
+    "buyer_charge_nanos_total": 1493280,
+    "coalesced_follower_deliveries": 127,
+    "independent_deliveries": 128,
+    "known_cost_contribution_nanos_total": 1473120,
+    "leader_contract_id": "9bfc35ad-44d0-4ea6-bee9-fecf266f2c23",
+    "ledger_buyer_micros": 1554,
+    "ledger_platform_micros": 1534,
+    "ledger_supplier_micros": 20,
+    "physical_buyer_charge_nanos": 30240,
+    "physical_deliveries": 1,
+    "physical_executions": 1,
+    "public_path_requests": 128,
+    "settlement_currency": "cad",
+    "supplier_payable_count": 1,
+    "supplier_payable_nanos": 20160,
+    "supplier_payable_nanos_total": 20160,
+    "upstream_calls": 1,
+    "valid_receipts": 128
+  },
+  "counter_deltas": {
+    "merc_realtime_contracts_verified_total": 1,
+    "merc_realtime_deliveries_coalesced_total": 127,
+    "merc_realtime_deliveries_reused_total": 0
+  },
+  "deliveries": [
+    {
+      "contract_id": "795023f7-643f-4a27-9b43-9396ab316b5b",
+      "receipt_id": "rcp_fdcfdaf3-666c-47ed-a74f-bdbcba250898",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "c88a94dd-9b64-4c28-8829-fa294b118511",
+      "receipt_id": "rcp_5f689467-2f3a-4c13-9662-cceb73d7df97",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "362ea515-b03c-42cf-851e-ad30eadb1aed",
+      "receipt_id": "rcp_739ad137-b4ba-4ee5-a345-06e587f08d9a",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "2e439eda-a670-4745-a221-f8b9c9905386",
+      "receipt_id": "rcp_c0743d91-2977-41b5-8cbd-044581fdcbba",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "e701727a-175c-4035-817e-c09371fb0c34",
+      "receipt_id": "rcp_cf746f9e-b382-42e6-8ed5-380c909e5890",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "7003c4f2-0e46-48df-8223-8d7c5a7fba00",
+      "receipt_id": "rcp_ca720db6-7aa5-4a36-92e0-d99aaba1c63e",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "da60e292-6818-4389-bf2c-d721953993cb",
+      "receipt_id": "rcp_22a31d47-a6d0-4d89-9d8f-d82fd4ae9c3d",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "d5f1dab5-0c4d-46c5-8dcb-632c212dd50e",
+      "receipt_id": "rcp_d5456e99-c6f4-480f-ab55-df320524fc77",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "e8f57759-6678-4331-9904-435c627b6f43",
+      "receipt_id": "rcp_9fcb0ad8-521a-4e25-8aff-a2909bca22c2",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "02d1b5e3-ea77-41f2-ba0b-19b53f645de3",
+      "receipt_id": "rcp_eadaf340-d5cb-4385-9d7a-ccd3427c77aa",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "613e6a94-a87d-42f0-a7e1-fcc02ea3ce9e",
+      "receipt_id": "rcp_8aae25ec-e34f-4ea3-8685-d88de4423c23",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "08968725-0cae-45ca-a6e0-f3ee27797658",
+      "receipt_id": "rcp_240a2db6-189b-40af-ac06-ef54b88f5032",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "ec537a06-a264-4030-94d3-87f12b1af335",
+      "receipt_id": "rcp_7350ba8c-d9b0-4cd9-a3cc-2efdb7087bf0",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "3a41d923-71e0-46b5-88a8-acfd48524157",
+      "receipt_id": "rcp_23ccff06-cf26-4608-a768-8f6a1d44cba5",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "793757e4-8408-4111-8235-070fa40c0b18",
+      "receipt_id": "rcp_b5edda0d-a243-47c3-b844-a1aedf276a1e",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "b8262ac8-e670-467c-9c30-5f0cfac62d1f",
+      "receipt_id": "rcp_43d9a076-0a00-4b30-9d05-38352950790f",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "abbf9eb0-03f9-4028-9b8d-29a49e760cc1",
+      "receipt_id": "rcp_5911647a-ad33-474e-9d34-289a030b4432",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "04b7d4cb-6861-441c-82db-e906cbd45203",
+      "receipt_id": "rcp_676b9a3c-8b4a-4276-addd-81ac78d4436f",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "d5deb631-be22-4c07-929c-3e9c4e941c89",
+      "receipt_id": "rcp_5555df25-dd93-4479-8ed1-0dbea17f22b8",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "fffd4554-bce0-4815-981a-deee43ed6cdc",
+      "receipt_id": "rcp_fda8a3b7-c158-4b95-93fe-5fb77dbba073",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "ae96a301-cbcf-4fa0-bd7b-1eb1ca89eac7",
+      "receipt_id": "rcp_334577f7-2318-4932-aa60-50712f9f7ccd",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "5009a5c2-f6b7-428c-95f0-87e3932f0e26",
+      "receipt_id": "rcp_af562141-6a9c-4606-aedb-c21621fded9e",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "b6f23ea3-2afa-4d37-a3a9-23ac86f50684",
+      "receipt_id": "rcp_9ab02564-6dda-4a7b-8ee6-94f718003e6e",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "cbf3de0d-731a-4f58-8f96-2fa2beb36fa4",
+      "receipt_id": "rcp_3c3a3a63-ecba-4e01-9833-e660040ac00e",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "00d8a2ee-c7d3-47ad-8c43-90ede9ce2bcf",
+      "receipt_id": "rcp_20674c5e-81d7-4131-bedc-eb3040f6aabf",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "61a11996-536f-4614-af19-5b87f6fae009",
+      "receipt_id": "rcp_bb107e71-64de-4f33-b1d3-207f42f694a2",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "ef3b264e-1cce-4590-89fc-47fb21c5b853",
+      "receipt_id": "rcp_44c15169-1d02-4744-b27d-06d8022e7e34",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "76e871f0-28a4-469e-8a58-8f77efdaef75",
+      "receipt_id": "rcp_3af63534-69e1-40eb-a030-34349dd3d749",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "2ddba24a-29fc-4d5f-87c7-6544ba0d1f6a",
+      "receipt_id": "rcp_cd9f8075-d078-4fdf-90e8-aafec2224db1",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "56319523-4ed5-4c3c-94e3-cffbc14c1aa2",
+      "receipt_id": "rcp_250e923d-df18-46b8-ac00-d78bd21a86ce",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "518ee1cd-bccf-44b4-8cb1-8aea9a8bdf0a",
+      "receipt_id": "rcp_18659074-36e7-4326-9c5d-f00f4b92ed18",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "26cdae67-ec84-4223-a8b3-aae56b710ae0",
+      "receipt_id": "rcp_c57bb6fb-7f09-482b-82a8-19b627072046",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "b09d60fb-b80c-408d-9fbc-2f6746c9e77c",
+      "receipt_id": "rcp_ff1ffc9f-4e18-4f1f-8399-a99899a1089b",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "09daafb3-3537-4a45-907d-5680b7991233",
+      "receipt_id": "rcp_994a9fd8-f929-40ce-9319-887c4749da84",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "9bfc35ad-44d0-4ea6-bee9-fecf266f2c23",
+      "receipt_id": "rcp_ebb482ea-b682-4951-9658-b9f4a9686465",
+      "state": "VERIFIED",
+      "coalesced": false,
+      "buyer_charge_nanos": 30240,
+      "supplier_payable_nanos": 20160,
+      "known_cost_contribution_nanos": 10080,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "d2e052f9-6b93-445b-99f5-c3059933d9aa",
+      "receipt_id": "rcp_c6781246-0599-49a0-be90-3c8de6d4c1b9",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "5fbed0be-e130-4529-9ab1-5ca65ad430af",
+      "receipt_id": "rcp_68260ad0-f4c3-4f38-8d0a-2c91af6ded08",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "1413101f-9008-4d54-b5f4-f1ac42acbdca",
+      "receipt_id": "rcp_8b24c7f2-9099-4f15-a0d4-26d076113d48",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "bd95a11f-75c3-4729-af60-bbce54876115",
+      "receipt_id": "rcp_1c443f3f-2fe1-4e8a-a435-061776dbd0ae",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "263b0f5d-ec8d-46fe-9022-78bad7c76666",
+      "receipt_id": "rcp_d67ebd10-4858-4054-a7a6-579e32b66e4a",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "1f599b52-da22-41f2-841e-9d31bd857a8a",
+      "receipt_id": "rcp_e7d252bf-df89-43a9-bf7b-e9c9f8c5a46b",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "e84d505c-06c4-4511-b9f3-7a462717bca5",
+      "receipt_id": "rcp_f4c4d182-d07c-4a9a-abee-5b6320ab06f0",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "52cdb4dc-e99a-4f46-9c72-eccda24ca2f1",
+      "receipt_id": "rcp_d4536d9c-010e-4d9e-86d8-4c9bd0daadda",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "f101ccd6-82c2-4d34-b8c1-c96b5673b85c",
+      "receipt_id": "rcp_3bc1c398-ccc4-48f5-8034-1fca4b9c771a",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "3852eb50-ec69-49bd-8f98-4181e3189039",
+      "receipt_id": "rcp_bf5b0ad3-213b-419f-9cdb-f1fbb80984c0",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "65f25e52-c3fb-4fda-a378-31db641d1265",
+      "receipt_id": "rcp_2e08e5ad-a492-4e67-9d5f-b8ed35420696",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "5c22ab21-be3d-4071-bfac-52df65891d27",
+      "receipt_id": "rcp_02479b60-af80-4642-b57b-c662ce434b55",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "434add42-de09-4df9-aa36-358a122e20bd",
+      "receipt_id": "rcp_3f66da13-d00f-472d-b5fc-73f8d40e94e3",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "004e97d3-bce0-4390-b0f9-5f8042353755",
+      "receipt_id": "rcp_e07f4c34-8cda-4efb-b246-47a474be33a2",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "6e0ad0a7-c9f7-4dbf-a838-5f035cabcf1b",
+      "receipt_id": "rcp_6d809754-22fb-4803-82b0-141012c36d70",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "5e185f32-04cf-47bc-8f76-35b0ab7f0bfd",
+      "receipt_id": "rcp_cd68558d-6b40-4d96-89ed-f5fe0cacb6e5",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "52999c82-0faf-4b01-aa89-4360bb5e19cd",
+      "receipt_id": "rcp_6589ab22-0e55-43d6-aa51-e3e4d8cb8ff1",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "d31a138e-2663-4806-be9a-30b0e6db4013",
+      "receipt_id": "rcp_bc8f89c1-fa60-4c46-8ca2-7bc4eec58e7c",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "ddc0d3d4-e872-46f3-a5cf-397bcd5b8704",
+      "receipt_id": "rcp_c539a6d1-7ee0-40c1-978c-ef029a575bc4",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "51c27fcf-d352-4b66-b233-4059a48cb3f0",
+      "receipt_id": "rcp_7829cab5-d2ef-48ed-bbb4-d9297a1823d2",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "0685058e-413b-4d6e-9da4-a70ef241d7c8",
+      "receipt_id": "rcp_0e5e7f52-5948-43d5-b3eb-044429898d31",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "effea222-54cb-4c35-a6d7-9fdc2c7ebae3",
+      "receipt_id": "rcp_08d1b16b-42e2-44ea-b3c2-3a21f1179f60",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "706d3fbc-9e92-405a-98d6-32b7e8b582b3",
+      "receipt_id": "rcp_30eb9bb9-0d97-4ffd-a2c0-08935f2182ae",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "de8540ca-7cd2-4f3a-980a-c52f6a87e6fb",
+      "receipt_id": "rcp_125fcf12-df00-461b-ac2a-86a013cf78bb",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "1b5049db-a189-4fb1-992a-4eaa7f302856",
+      "receipt_id": "rcp_eac56e43-5d3a-4eaf-99e4-21d816f0764f",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "615d1af6-dafa-45c2-aeae-b35cba94a181",
+      "receipt_id": "rcp_a171eb07-c4b3-4a8a-aa65-5391cbb19ea2",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "773bfa93-c33d-42c1-b58e-2dfce80c1e97",
+      "receipt_id": "rcp_7ca25a5d-7da3-475e-a4e0-247c0021b820",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "b5becc68-3aa2-4b73-a3cf-1c583352dc33",
+      "receipt_id": "rcp_1236fec9-9016-4df2-b8e9-6565a0c8e38d",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "1e45aa27-5913-491c-b69b-7b907693595d",
+      "receipt_id": "rcp_f1deee2c-fa6d-438b-a445-c6821dd1a615",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "1150e897-c5e0-4127-a3f7-3e4681c83b14",
+      "receipt_id": "rcp_4418adea-93bd-42ba-8199-7b3737d8dd20",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "a123e720-171c-471e-9559-959356289261",
+      "receipt_id": "rcp_3649e45e-e080-4820-88c1-04eb002f1279",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "3ab951b9-6cbc-407d-860a-312fa647f226",
+      "receipt_id": "rcp_f3736257-be51-4414-80ff-71e3962a7a25",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "e888fef1-3911-4dde-bbc0-4e6fe88e004b",
+      "receipt_id": "rcp_7828685f-9757-4637-be81-429c6e74bd67",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "6d679ff8-9a71-4d27-9eee-3c9b2669109b",
+      "receipt_id": "rcp_cd5f41ae-4267-4dd6-a783-51d6878972bf",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "c8c94a61-03da-497a-b8ed-96030c3fb808",
+      "receipt_id": "rcp_000ec04a-7ddc-4e6c-b653-be528e7a7522",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "d4f417dd-28e0-481b-82b7-71d621d104b6",
+      "receipt_id": "rcp_08c35e4f-86c6-4224-b2e5-bb62c6236904",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "a65d0a40-19f2-4eab-93fd-9f1efbbfb394",
+      "receipt_id": "rcp_1dba1c08-da94-406b-96ff-af1b6854d9cd",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "168c5ba4-e751-4364-b6f9-2bba79102462",
+      "receipt_id": "rcp_1bcf6199-aaa5-485e-bbca-ff40cfc7465d",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "136f1c16-63e7-471e-b8ab-e6ee165fc00c",
+      "receipt_id": "rcp_82e3daa2-e02e-46ad-8114-e69b186a482c",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "2f7bf99c-b497-47a2-864d-a6cb73ff9ddb",
+      "receipt_id": "rcp_01e90511-db50-4cc5-9cff-a59254807b30",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "290faeba-a2f3-470f-99c5-694effb3de40",
+      "receipt_id": "rcp_6c0f94a9-f513-44ef-8d91-c5c52a552442",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "f2bfa523-17d3-453a-999a-8d45e6b81f98",
+      "receipt_id": "rcp_64535538-9b3f-4fb3-9aff-d0d3b7671578",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "c83e1f3a-67ae-47d9-999a-f153a9517069",
+      "receipt_id": "rcp_41f7361e-da91-46d5-a0bc-185dda41c0f8",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "0f382e06-1654-4b4c-838f-a7594077ff95",
+      "receipt_id": "rcp_cd016b1f-1aad-4586-b2d1-8e3c2ea84fdb",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "23e24e92-fb3e-41c2-8bae-7375680a0684",
+      "receipt_id": "rcp_b393563b-e06d-4a03-8a53-d4a3185a5ae5",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "b71fdaeb-9431-43d9-808c-ac88a5e616d8",
+      "receipt_id": "rcp_92c9fea7-c427-4c05-a789-7d76555c4562",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "7afd0448-4efc-486c-a468-ca84569112d9",
+      "receipt_id": "rcp_23b06997-9895-4cda-9e77-c12772173c30",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "b0898644-090b-4b27-8407-56202fd097dc",
+      "receipt_id": "rcp_b9696c8f-348a-4946-b57e-bce14d51af4f",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "a99f7610-14ad-4001-b27b-29b925bfae05",
+      "receipt_id": "rcp_be8d8b59-df8e-49bf-895e-d73c5614cc6e",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "b6dabfac-4e70-4ed3-bef9-373003ed267b",
+      "receipt_id": "rcp_1a442112-a798-4797-872e-df4a952804be",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "98ce1716-181c-45f7-8b82-0d8e4c9cedad",
+      "receipt_id": "rcp_6f58aa92-45e6-480c-9066-0bab5dd574b1",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "4659f5a8-53b2-4a09-84f8-e96b4a793e4b",
+      "receipt_id": "rcp_55b17bca-537e-4746-960f-78815bcde3e3",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "1ad69319-a26a-4e87-8d08-e27bb358c9ac",
+      "receipt_id": "rcp_896c4ba0-ff2a-4f0e-8604-c34f4de17f8c",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "c26bba3a-193c-482d-a2ec-7111d0715e6a",
+      "receipt_id": "rcp_49ae3b1d-5edc-48c8-ad77-bf37ea105f95",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "722aea17-8f68-4d1c-8a4f-3a74341d5401",
+      "receipt_id": "rcp_f7b41eb5-bf49-40da-87e9-173d07f8b1af",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "a3e6c686-addb-4455-baf7-67460e1aed8c",
+      "receipt_id": "rcp_284dc67d-2416-4647-af4c-2d6e3fd3af39",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "48c37cb5-b5eb-4108-935f-dcf8b5d636c6",
+      "receipt_id": "rcp_54480f28-46b5-4732-8575-cd0b840e479d",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "0b5eea95-14e7-451f-907d-1311e4600ddd",
+      "receipt_id": "rcp_f11c1d98-693b-4f79-a7fc-6767b0c9de90",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "2872705a-1ce8-4994-8d2c-6799b3468a51",
+      "receipt_id": "rcp_e92b373a-5cef-4474-b5b4-ab1f8b3fea31",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "41deed90-9c21-42f2-835b-9aa639ed5592",
+      "receipt_id": "rcp_683d9a56-570b-4d66-ad33-8581fd7c4393",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "c3688ebe-3fe7-4be5-adba-6fc4c47c14b4",
+      "receipt_id": "rcp_a587e6d9-5dd0-4f13-aaf5-a1905e3a1b45",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "2d8a7bcf-4dd9-46d7-adf2-a7482e93c98e",
+      "receipt_id": "rcp_668c8ba1-0f1d-44d5-9f64-16c40486a372",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "73dafa24-6f3f-4c7f-9bbe-a9b47af14efa",
+      "receipt_id": "rcp_a86a9878-18ee-404a-aa21-2a5749131576",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "42408fab-97c7-4de4-b006-34c0076cb140",
+      "receipt_id": "rcp_74d647f8-c278-4012-8ff6-0e21a68d7d23",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "b5070560-1444-4d7f-9d65-450a556ee742",
+      "receipt_id": "rcp_8bc4a24c-60e3-4bfe-90ad-dc943cc0af33",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "e15974cf-2731-408b-ae69-94a1eccefecb",
+      "receipt_id": "rcp_5ef019ec-15e9-40e5-ae1d-3a1609980eb7",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "8c2c0fd5-4872-4d01-81a9-fa45118e028b",
+      "receipt_id": "rcp_332da31f-e69e-4953-b7a2-695576063150",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "9d5c81f1-6168-4b55-b8bd-b48d2e66c245",
+      "receipt_id": "rcp_ff067115-6907-4408-b348-a1f5844b492f",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "d4be87bc-edad-40eb-9b58-663c5f9c4d13",
+      "receipt_id": "rcp_0908098b-6b86-42f3-a149-2d2a40c896bb",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "dfd43a33-43d3-49c9-80d0-8382f7059517",
+      "receipt_id": "rcp_2f656190-94b3-4572-b49d-9ea778ff9d85",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "d7f6891a-635e-4bd4-a1ec-d44ed4ca9174",
+      "receipt_id": "rcp_71e98e05-e7be-44b8-8dcc-654cb04fd729",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "a0e4e855-f14c-4e28-8f96-e86612c80771",
+      "receipt_id": "rcp_2fb8f7f4-fd59-4cce-9373-64920d99fee5",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "946dd5f7-00c9-47d2-a5fe-8b232786d6af",
+      "receipt_id": "rcp_433b13b7-e2e2-4a1a-b9a8-a78a9b9f00a1",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "f381e777-6da1-4031-8247-ec08b04c7bd4",
+      "receipt_id": "rcp_1d6b7a5f-9eb6-42d1-879b-329d20bce451",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "2b0c7817-7089-4592-918e-428bdde32eda",
+      "receipt_id": "rcp_0516ae65-cf7f-4eaa-99fa-85ba037d6ba6",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "f119fa88-0896-4005-9ade-894aec3e87e8",
+      "receipt_id": "rcp_c433020d-d247-46ad-bf63-1481d33112b8",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "1172c15e-731a-4c8c-89bb-5bfc78d1e7f1",
+      "receipt_id": "rcp_fb2d595a-b0bc-408a-9479-3ff9770d981a",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "f88a83f4-e72f-441c-8c0a-4a58bd96cdcb",
+      "receipt_id": "rcp_0c533932-498f-463c-8d0f-754de13c6f30",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "fa9d65b0-4d8f-4b71-b436-a88713e699b9",
+      "receipt_id": "rcp_3b110a3d-eb4d-4109-b7fd-04f5c8db708a",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "e9fcda8d-b53a-4ef6-a1e7-518bed93f150",
+      "receipt_id": "rcp_60eb9c83-b52c-436d-885e-8c15bc5f1603",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "dcc0e36f-2829-420f-9385-be5fcbc01f2f",
+      "receipt_id": "rcp_aa95fae2-9022-48d0-8757-449e9e1f04a0",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "d829a827-7bfd-40b1-a4e0-0227cd8bda11",
+      "receipt_id": "rcp_66bfcc91-a0da-4e81-93e6-f8ab10d73018",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "daf9304a-32d0-4db7-8e29-d0a6849d2476",
+      "receipt_id": "rcp_55015644-3fc7-4b83-8390-18bad0248e62",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "936fbcb0-d8bb-4481-beb2-a9d9993f3d4c",
+      "receipt_id": "rcp_0d8d88c9-1a2c-4ed9-9587-13b388343b0a",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "ef42a573-60d0-497c-b757-2a5f4940ad75",
+      "receipt_id": "rcp_5192d32e-b532-47d2-866b-c6caefde1c88",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "6de3e0ab-1f25-4166-985f-60bdcf143561",
+      "receipt_id": "rcp_095d3a2b-6e20-4ce9-851e-d2b2e4b04649",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "e64308d1-c174-4cbb-b269-8408c19d5463",
+      "receipt_id": "rcp_5f06b185-b306-411a-ac2d-8e9cdb73f7ea",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "786a75c5-e61e-444b-819e-dc59b51da06d",
+      "receipt_id": "rcp_e643b507-f9e6-44b5-a963-c6f51426a5ec",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "727136c8-3de9-467b-8117-624021daf651",
+      "receipt_id": "rcp_049c2960-db78-4735-991f-70a77a4ee1c4",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "0db64046-d1d9-4105-b754-d40f0b53c0be",
+      "receipt_id": "rcp_a1ff3055-21d4-4fbd-9690-ff15fcfc81d2",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "264db19a-5273-4f0b-b1d2-17475f7138a5",
+      "receipt_id": "rcp_681d7c21-9636-479e-8dfc-21e78168e387",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "4a64f3b9-b5d4-418e-9c9c-16d95e4bafce",
+      "receipt_id": "rcp_4967aa73-9989-4652-a9d0-82b1e8721ee8",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    },
+    {
+      "contract_id": "9834b9ca-78c6-4507-a11e-f9488f76d298",
+      "receipt_id": "rcp_f3c2ab24-0f46-4d33-a323-50205e8cd4f2",
+      "state": "VERIFIED",
+      "coalesced": true,
+      "buyer_charge_nanos": 11520,
+      "supplier_payable_nanos": 0,
+      "known_cost_contribution_nanos": 11520,
+      "settlement_currency": "cad"
+    }
+  ],
+  "does_not_prove": [
+    "physical vLLM / GPU performance or TTFT against a real engine",
+    "live Stripe or external payment rail behaviour",
+    "exact-result cache reuse after a durable cache entry (see public-path-128-to-1)",
+    "batch exact reuse (batchExactReuseEnabled remains false)",
+    "a cost ratio derived from Merc's price book (price/price is not a measurement)",
+    "streaming (stream:true) in-flight coalescing"
+  ],
+  "headline": "1 physical upstream call : 128 deliveries",
+  "kind": "public_path_inflight_coalescing_128_to_1",
+  "measured_at": "2026-08-03T14:55:37Z",
+  "path": {
+    "authentication": "buyer API key (Authorization: Bearer)",
+    "mechanism": "inflight_executions follower join while leader is still at upstream",
+    "metrics_route": "GET /metrics",
+    "not_the_path": "exact_result_cache (sequential exact reuse after durable store)",
+    "receipt_route": "GET /v1/realtime/requests/{id}/receipt (store.RealtimeReceipt equivalent)",
+    "route": "POST /v1/chat/completions",
+    "stream": false,
+    "stripe": "disabled (no live payment rail)",
+    "upstream_double": true
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "4ef1922a1c28dfe7d17f0d7709f259d9dfd6e445"
+    },
+    "build_digest": {
+      "value": "331a283a6f037d06a4a69e06c613658593dbba4fcf5f2e2b2341456847c7afb6"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this measurement"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "control/coalesced_cluster_money_test.go#TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this measurement"
+    },
+    "exact_config": {
+      "value": "temperature=0 top_p=1 seed=42 max_tokens=64 stream=false concurrent 128 same body"
+    },
+    "raw_samples": {
+      "value": "embedded deliveries[] + counter_deltas + ledger micros"
+    }
+  },
+  "proves": [
+    "128 authenticated concurrent public-path chat completions collapse to one physical upstream call",
+    "headline ratio is 1 physical upstream call : 128 deliveries (not a price-book cost ratio)",
+    "exactly one supplier_credit ledger row and one positive supplier payable in nanos",
+    "128 distinct VERIFIED receipts with independent contract authorities",
+    "127 coalesced followers charge the buyer less than the physical leader and write zero supplier payable",
+    "merc_realtime_contracts_verified_total moves only for the physical execution",
+    "merc_realtime_deliveries_coalesced_total moves for each follower; reused does not",
+    "cluster ledger conserves: buyer = supplier + platform"
+  ],
+  "schema_version": 1
+}

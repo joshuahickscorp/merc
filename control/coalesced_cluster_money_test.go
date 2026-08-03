@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -152,6 +154,12 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 	server.buyerLimiter = newRateLimiter(10_000, coalescedFollowers*2)
 	control := httptest.NewServer(server.Routes())
 	defer control.Close()
+
+	// Counter snapshot before the cluster so other suite activity is excluded
+	// from the deltas this receipt records.
+	beforeVerified := metrics.realtimeVerified.Load()
+	beforeReused := metrics.realtimeReuseDeliveries.Load()
+	beforeCoalesced := metrics.realtimeCoalescedDeliveries.Load()
 
 	requestBody := []byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"prove one physical execution"}],"temperature":0,"top_p":1,"seed":42,"max_tokens":64}`)
 	type delivery struct {
@@ -353,8 +361,193 @@ func TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement(t *testi
 		t.Fatalf("cluster ledger supplier_rows=%d buyer_rows=%d platform_rows=%d buyer=%d supplier=%d platform=%d",
 			supplierRows, buyerRows, platformRows, buyerMicros, supplierMicros, platformMicros)
 	}
-	t.Logf("CAD coalescing proof: 1 upstream call, %d receipt authorities, 1 supplier payable, buyer=%d supplier=%d platform=%d micros",
-		coalescedFollowers, buyerMicros, supplierMicros, platformMicros)
+
+	// Counter deltas: physical verified +1, coalesced +127, reused unchanged.
+	// Reuse is a different path (durable exact_result_cache after the first
+	// response); this proof forces all followers to join while the leader is
+	// still in flight, so reused must not move.
+	deltaVerified := metrics.realtimeVerified.Load() - beforeVerified
+	deltaReused := metrics.realtimeReuseDeliveries.Load() - beforeReused
+	deltaCoalesced := metrics.realtimeCoalescedDeliveries.Load() - beforeCoalesced
+	if deltaVerified != 1 {
+		t.Fatalf("merc_realtime_contracts_verified_total delta=%d want 1 (physical only)", deltaVerified)
+	}
+	if deltaCoalesced != coalescedFollowers-1 {
+		t.Fatalf("merc_realtime_deliveries_coalesced_total delta=%d want %d",
+			deltaCoalesced, coalescedFollowers-1)
+	}
+	if deltaReused != 0 {
+		t.Fatalf("merc_realtime_deliveries_reused_total delta=%d want 0 (in-flight path, not exact cache)", deltaReused)
+	}
+
+	// Metrics HTTP surface agrees with the process counters for this server.
+	metricsResp, err := http.Get(control.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metricsBody, err := io.ReadAll(metricsResp.Body)
+	metricsResp.Body.Close()
+	if err != nil || metricsResp.StatusCode != http.StatusOK {
+		t.Fatalf("metrics: status=%d err=%v", metricsResp.StatusCode, err)
+	}
+	for _, series := range []string{
+		"merc_realtime_contracts_verified_total",
+		"merc_realtime_deliveries_reused_total",
+		"merc_realtime_deliveries_coalesced_total",
+	} {
+		if !bytes.Contains(metricsBody, []byte(series)) {
+			t.Fatalf("/metrics missing %s", series)
+		}
+	}
+
+	// Per-delivery public receipt identifiers for the sealed artifact.
+	type deliveryReceipt struct {
+		ContractID                 string `json:"contract_id"`
+		ReceiptID                  string `json:"receipt_id"`
+		State                      string `json:"state"`
+		Coalesced                  bool   `json:"coalesced"`
+		BuyerChargeNanos           int64  `json:"buyer_charge_nanos"`
+		SupplierPayableNanos       int64  `json:"supplier_payable_nanos"`
+		KnownCostContributionNanos int64  `json:"known_cost_contribution_nanos"`
+		SettlementCurrency         string `json:"settlement_currency"`
+	}
+	receiptEntries := make([]deliveryReceipt, 0, coalescedFollowers)
+	var totalBuyerChargeNanos, totalKnownContributionNanos int64
+	var physicalBuyerChargeNanos int64
+	for contractID := range contractIDs {
+		receipt, err := store.RealtimeReceipt(ctx, buyerID, contractID)
+		if err != nil {
+			t.Fatalf("receipt for artifact %s: %v", contractID, err)
+		}
+		coalesced := receipt.PricingDecision != nil && receipt.PricingDecision.RealtimeReuse != nil
+		entry := deliveryReceipt{
+			ContractID:                 receipt.ContractID,
+			ReceiptID:                  receipt.ReceiptID,
+			State:                      receipt.State,
+			Coalesced:                  coalesced,
+			BuyerChargeNanos:           receipt.BuyerChargeNanos,
+			SupplierPayableNanos:       receipt.SupplierPayableNanos,
+			KnownCostContributionNanos: receipt.KnownCostContributionNanos,
+			SettlementCurrency:         receipt.SettlementCurrency,
+		}
+		receiptEntries = append(receiptEntries, entry)
+		totalBuyerChargeNanos += receipt.BuyerChargeNanos
+		totalKnownContributionNanos += receipt.KnownCostContributionNanos
+		if !coalesced {
+			physicalBuyerChargeNanos = receipt.BuyerChargeNanos
+		}
+	}
+	// Followers must pay strictly less than the physical leader (buyer discount).
+	for _, r := range receiptEntries {
+		if !r.Coalesced {
+			continue
+		}
+		if r.BuyerChargeNanos >= physicalBuyerChargeNanos {
+			t.Fatalf("coalesced delivery charge %d not less than physical %d",
+				r.BuyerChargeNanos, physicalBuyerChargeNanos)
+		}
+	}
+
+	t.Logf("CAD coalescing proof: 1 physical upstream call : %d deliveries; verified_delta=%d coalesced_delta=%d reused_delta=%d; buyer=%d supplier=%d platform=%d micros",
+		coalescedFollowers, deltaVerified, deltaCoalesced, deltaReused, buyerMicros, supplierMicros, platformMicros)
+
+	// Opt-in sealed receipt. A verification suite run must not dirty tracked evidence.
+	// Set MERC_COALESCING_PROOF=1 to seal evidence/reuse/public-path-coalescing-128-to-1.json.
+	if os.Getenv("MERC_COALESCING_PROOF") != "1" {
+		t.Logf("skipping evidence write (set MERC_COALESCING_PROOF=1 to seal)")
+		return
+	}
+	measuredAt := time.Now().UTC().Format(time.RFC3339)
+	out := map[string]any{
+		"schema_version": 1,
+		"kind":           "public_path_inflight_coalescing_128_to_1",
+		"measured_at":    measuredAt,
+		"headline":       fmt.Sprintf("1 physical upstream call : %d deliveries", coalescedFollowers),
+		"path": map[string]any{
+			"route":           "POST /v1/chat/completions",
+			"receipt_route":   "GET /v1/realtime/requests/{id}/receipt (store.RealtimeReceipt equivalent)",
+			"metrics_route":   "GET /metrics",
+			"authentication":  "buyer API key (Authorization: Bearer)",
+			"stream":          false,
+			"mechanism":       "inflight_executions follower join while leader is still at upstream",
+			"not_the_path":    "exact_result_cache (sequential exact reuse after durable store)",
+			"upstream_double": true,
+			"stripe":          "disabled (no live payment rail)",
+		},
+		"cluster": map[string]any{
+			"public_path_requests":                coalescedFollowers,
+			"physical_executions":                 1,
+			"upstream_calls":                      upstreamCalls.Load(),
+			"supplier_payable_count":              1,
+			"supplier_payable_nanos":              leaderSupplierEntitlementNanos,
+			"independent_deliveries":              coalescedFollowers,
+			"valid_receipts":                      len(receiptEntries),
+			"coalesced_follower_deliveries":       coalescedFollowers - 1,
+			"physical_deliveries":                 1,
+			"buyer_charge_nanos_total":            totalBuyerChargeNanos,
+			"supplier_payable_nanos_total":        leaderSupplierEntitlementNanos,
+			"known_cost_contribution_nanos_total": totalKnownContributionNanos,
+			"ledger_buyer_micros":                 buyerMicros,
+			"ledger_supplier_micros":              supplierMicros,
+			"ledger_platform_micros":              platformMicros,
+			"settlement_currency":                 "cad",
+			"physical_buyer_charge_nanos":         physicalBuyerChargeNanos,
+			"leader_contract_id":                  leaderContractID.String(),
+		},
+		"counter_deltas": map[string]any{
+			"merc_realtime_contracts_verified_total":   deltaVerified,
+			"merc_realtime_deliveries_reused_total":    deltaReused,
+			"merc_realtime_deliveries_coalesced_total": deltaCoalesced,
+		},
+		"assertions": map[string]bool{
+			"public_path_requests_128":                   true,
+			"exactly_one_physical_execution":             upstreamCalls.Load() == 1,
+			"exactly_one_supplier_payable":               supplierRows == 1,
+			"128_independent_deliveries":                 len(contractIDs) == coalescedFollowers,
+			"128_valid_individually_verifiable_receipts": len(receiptEntries) == coalescedFollowers,
+			"buyer_discount_on_coalesced_deliveries":     true,
+			"positive_merc_net_contribution":             totalKnownContributionNanos > 0 && platformMicros > 0,
+			"verified_counter_plus_one":                  deltaVerified == 1,
+			"coalesced_counter_plus_127":                 deltaCoalesced == coalescedFollowers-1,
+			"reused_counter_unchanged":                   deltaReused == 0,
+			"ledger_conserves":                           buyerMicros == supplierMicros+platformMicros,
+		},
+		"deliveries": receiptEntries,
+		"proves": []string{
+			"128 authenticated concurrent public-path chat completions collapse to one physical upstream call",
+			fmt.Sprintf("headline ratio is 1 physical upstream call : %d deliveries (not a price-book cost ratio)", coalescedFollowers),
+			"exactly one supplier_credit ledger row and one positive supplier payable in nanos",
+			"128 distinct VERIFIED receipts with independent contract authorities",
+			"127 coalesced followers charge the buyer less than the physical leader and write zero supplier payable",
+			"merc_realtime_contracts_verified_total moves only for the physical execution",
+			"merc_realtime_deliveries_coalesced_total moves for each follower; reused does not",
+			"cluster ledger conserves: buyer = supplier + platform",
+		},
+		"does_not_prove": []string{
+			"physical vLLM / GPU performance or TTFT against a real engine",
+			"live Stripe or external payment rail behaviour",
+			"exact-result cache reuse after a durable cache entry (see public-path-128-to-1)",
+			"batch exact reuse (batchExactReuseEnabled remains false)",
+			"a cost ratio derived from Merc's price book (price/price is not a measurement)",
+			"streaming (stream:true) in-flight coalescing",
+		},
+	}
+	id, bin, err := DefaultBoundIdentity("..",
+		"control/coalesced_cluster_money_test.go#TestProductionRealtimeCoalescing128DeliveriesOnePhysicalSettlement",
+		"temperature=0 top_p=1 seed=42 max_tokens=64 stream=false concurrent 128 same body",
+		"embedded deliveries[] + counter_deltas + ledger micros")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join("..", "evidence", "reuse", "public-path-coalescing-128-to-1.json")
+	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+		RepoRoot: "..", Path: outPath, Payload: out,
+		Identity: id, BuildBinaryPath: bin,
+	}); err != nil {
+		t.Fatalf("bound evidence write refused: %v", err)
+	}
+	t.Logf("wrote %s (verified_delta=%d coalesced_delta=%d reused_delta=%d)",
+		outPath, deltaVerified, deltaCoalesced, deltaReused)
 }
 
 func TestOneExecutionWith128FollowersWritesNoSupplierCreditAndOneAuthorityEach(t *testing.T) {
