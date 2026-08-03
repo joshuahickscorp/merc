@@ -215,7 +215,9 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /admin/plan-accuracy", s.authAdmin(http.HandlerFunc(s.handleAdminPlanAccuracy)))
 	mux.Handle("GET /admin/runtime/selector/regret", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorRegret)))
 	mux.Handle("GET /admin/runtime/selector/promotion", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorPromotion)))
+	mux.Handle("POST /admin/runtime/selector/activation", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorActivation)))
 	mux.Handle("POST /admin/runtime/selector/rollback", s.authAdmin(http.HandlerFunc(s.handleAdminSelectorRollback)))
+	mux.Handle("POST /admin/runtime/jobs/directed", s.authAdmin(http.HandlerFunc(s.handleAdminDirectedJob)))
 	mux.Handle("GET /admin/quotes", s.authAdmin(http.HandlerFunc(s.handleAdminQuoteDrift)))
 	mux.Handle("GET /admin/scheduler/explain", s.authAdmin(http.HandlerFunc(s.handleAdminSchedulerExplain)))
 	mux.Handle("GET /admin/market/liquidity/realtime", s.authAdmin(http.HandlerFunc(s.handleAdminRealtimeMarketLiquidity)))
@@ -590,6 +592,11 @@ type jobSubmit struct {
 	// against an answer it could then read back. Proof runs, canary cohorts and
 	// directed experiments set this from inside the control plane.
 	governedVerificationClass string
+	// directedCellID is a SERVER-SIDE argument. It is unexported and has no wire
+	// tag, so a buyer cannot name a cell on POST /v1/jobs. The admin directed
+	// route sets it so a non-routable cell can be driven through the money path
+	// that produces promotion evidence.
+	directedCellID string
 }
 
 var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
@@ -922,7 +929,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 		// the slowest cell this job can be routed to and the candidate set is what
 		// says which cells those are. Pricing against the whole catalogue for the
 		// model offers a job pinned to a fast cell at a slow cell's rate.
-		planningWorkload, perr := buildWorkloadDecision(sub, strings.Repeat("0", sha256.Size*2))
+		planningWorkload, perr := buildWorkloadDecisionForSubmit(sub, strings.Repeat("0", sha256.Size*2))
 		if perr != nil {
 			return JobSubmitResponse{}, &httpError{
 				http.StatusBadRequest, "resolving placement authority: " + perr.Error(),
@@ -1061,7 +1068,7 @@ func (s *Server) createJob(ctx context.Context, buyerID uuid.UUID, sub jobSubmit
 	}
 	nPrimary := len(tasks) // primaries precede any redundancy/honeypot clones
 	inputSHA256 := hex.EncodeToString(sum256[:])
-	workloadDecision, werr := buildWorkloadDecision(sub, inputSHA256)
+	workloadDecision, werr := buildWorkloadDecisionForSubmit(sub, inputSHA256)
 	if werr != nil {
 		return JobSubmitResponse{}, &httpError{http.StatusBadRequest, "classifying workload: " + werr.Error()}
 	}
