@@ -128910,5 +128910,13 @@
     "evidence_class=LOCAL_METAL_PARITY: measures Merc gateway overhead vs direct llama.cpp/Metal (same model digest, same host). NOT a measurement of the advertised vLLM/bf16/linux-amd64 profile.",
     "comparable=true under LOCAL_METAL_PARITY means only: Merc-vs-llama.cpp/Metal TTFT overhead is within budget at every claimed level with proven body identity. It does NOT mean Merc matches vLLM.",
     "do not re-label as PARITY_EVIDENCE; does_not_prove travels with every number in this receipt"
+  ],
+  "validity": "SUPERSEDED_GATE_STATISTICS",
+  "superseded_reason": [
+    "gate_version gateway-parity-gate-v3 computed MDE under an independence assumption the harness scheduler refutes: wave size equals concurrency, so every level is ~6 waves regardless of n; the independent observation is the wave, not the request. At c=64 the shipped MDE was 6.9 ms; wave-block MDE is ~105 ms.",
+    "primary metric renamed ttft_overhead_p95_ms → ttft_shift_q95_ms: the estimator is q95(merc)−q95(direct) (a shift function), not a percentile of paired overheads. Method string was already honest; the human-facing name was not.",
+    "pointEstimateBounds collapsed unset CI (lo=hi=0, point≠0) to a zero-width interval at the point, disarming MDE and allowing point-estimate PASS — fixed to refuse instead.",
+    "sample floor was request-count based (max(20,5×c)); a finite 97.5% percentile-bootstrap upper bound needs ≥72 independent waves. Floor is now a wave floor with cost-capped schedule and explicit non-identification when wave_count < 72.",
+    "Superseded by gateway-parity-gate-v4 (wave-block bootstrap of the difference; pass_hi=max(diff_hi, merc_hi−direct_lo)). Raw samples retained on disk for re-adjudication; do not rewrite."
   ]
 }
