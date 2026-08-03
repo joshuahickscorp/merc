@@ -3,8 +3,11 @@
 Current committed candidate: `54ab790d5926d3eb671a754e8d07dbb48557fbde`.
 The plan command binds the actual candidate to exact clean `HEAD`; reseal after
 any commit. Readiness is **84/100**, P0 is **0**, P1 is **8**, Level B is
-**NO-GO**, and Level C is **NO-GO / NOT ASSESSED**. A Stripe live credential is
-prohibited and is not an input to this procedure.
+**NO-GO**, and Level C is **NO-GO / NOT ASSESSED**. **84/100 is the
+machine-reachable ceiling** without staging, offsite storage, or human
+approvers; the remaining 16 points are external-only (see
+`docs/FACET_EXTERNAL_ACTION_PACK.md`). A Stripe live credential is prohibited
+and is not an input to this procedure.
 
 The eight P1s are: persistent TLS staging; independent encrypted offsite
 backup and isolated restore; complete Stripe sandbox CAD matrix; external

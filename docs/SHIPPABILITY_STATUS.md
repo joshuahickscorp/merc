@@ -372,5 +372,11 @@ exercises remain unproven. The private local alert receiver path is proven,
 but it is not staffed paging authority.
 
 The machine-derived score remains **84/100**, with **P0=0** and eight external
-P1 gates. Level B is `NO_GO`; Level C live money/public launch is prohibited.
-No historical credential, deployment, or canary receipt overrides those gates.
+P1 gates. **84 is the machine-reachable maximum** on a host with no staging, no
+offsite storage, and no human approvers — the other 16 points are externally
+blocked by design (Stripe sandbox matrix, qualifying 24 h soak, independent
+offsite copy/restore, external attack rehearsal, and qualified
+privacy/licensing/abuse approvals). Do not hunt for local code that will raise
+the facet; use `docs/FACET_EXTERNAL_ACTION_PACK.md`. Level B is `NO_GO`; Level C
+live money/public launch is prohibited. No historical credential, deployment, or
+canary receipt overrides those gates.
