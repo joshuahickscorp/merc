@@ -133,6 +133,9 @@ sdk/typescript/node_modules/
 .merc-credentials.env
 .merc-runpod.env
 .merc-secrets.env
+# RunPod intent markers (create-before-bind trail) and other local pod state.
+# Not evidence: a crash mid-run must not leave a committed spend claim.
+.merc-runpod/
 # Wildcard so a newly introduced .merc-*.env cannot be committed by accident.
 .merc-*.env
 .merc-release/
