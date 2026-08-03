@@ -270,7 +270,26 @@ if [ -n "$RESULT_FILE" ]; then
       completed_at:$completed
     }' > "$result_tmp"
   chmod 600 "$result_tmp"
-  mv -f -- "$result_tmp" "$RESULT_FILE"
+  # When the operator points the result at evidence/, stamp it. Elsewhere
+  # (scratch dirs) keep the plain atomic mv so backup stays usable offline.
+  case "$RESULT_FILE" in
+    */evidence/*|"$ROOT"/evidence/*)
+      # shellcheck source=scripts/lib/write-bound-evidence.sh
+      # shellcheck disable=SC1091
+      . "$ROOT/scripts/lib/write-bound-evidence.sh"
+      merc_emit_bound_json "$RESULT_FILE" "scripts/backup.sh" "$result_tmp" \
+        --exact-config "backup invocation result id=$TS" \
+        --raw-samples "embedded backup_id and digests" \
+        --model-na "backup receipt does not load model weights" \
+        --image-na "no container image in this measurement" \
+        --corpus-na "no external corpus"
+      rm -f -- "$result_tmp"
+      chmod 600 "$RESULT_FILE" 2>/dev/null || true
+      ;;
+    *)
+      mv -f -- "$result_tmp" "$RESULT_FILE"
+      ;;
+  esac
 fi
 
 log "done: $TS (encrypted offsite $DEST, encrypted local $STAGE)"

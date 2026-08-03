@@ -271,6 +271,7 @@ SQL
   jq -e '.terminal_open_tasks == 0 and (.ledger_sum|tonumber) > -0.000001 and (.ledger_sum|tonumber) < 0.000001 and .duplicate_money == 0' <<< "$after" >/dev/null
   corrupt_rejected="$(jq -r '.integrity.corrupt_backup_rejected' "$EVIDENCE_DIR/logical-independent-restore.json")"
   [ "$corrupt_rejected" = true ]
+  payload="$ART/local-rollback.payload.json"
   jq -n --arg started "$started" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg source_commit "$SOURCE_COMMIT" --arg source_state "$SOURCE_STATE" \
     --arg local_image "$LOCAL_IMAGE" --arg prior "$prior" --argjson before "$before" \
@@ -284,7 +285,16 @@ SQL
        unavailable_image:"PASS",corrupt_backup_rejection:"PASS"},
      payments:{deterministic_provider_events:"PASS",label:"SIMULATED",stripe_sandbox:"NOT EXECUTED",stripe_live:"PROHIBITED"},
      limitation:"Published amd64 candidate workload execution is not claimed on this arm64 host; current source was exercised as an immutable native image ID."}' \
-    > "$EVIDENCE_DIR/local-rollback.json"
+    > "$payload"
+  # shellcheck source=scripts/lib/write-bound-evidence.sh
+  . "$ROOT/scripts/lib/write-bound-evidence.sh"
+  merc_emit_bound_json "$EVIDENCE_DIR/local-rollback.json" \
+    "scripts/local-resilience-rehearsal.sh" "$payload" \
+    --exact-config "local immutable rollback; image_id=$LOCAL_IMAGE" \
+    --raw-samples "embedded before/after snapshots" \
+    --model-na "rollback rehearsal does not load model weights" \
+    --image-na "image_id recorded in receipt body; not a content digest slot" \
+    --corpus-na "no external corpus"
   echo "PASS local rollback and forward recovery"
   exit 0
 fi
@@ -334,6 +344,7 @@ if [ "$MODE" = restart-storm ]; then
   [ "$(psql_value "SELECT COALESCE(max(retry_count),0) FROM tasks WHERE job_id='$stale_job'")" -ge 1 ]
   final="$(semantic_snapshot)"
   jq -e '.terminal_open_tasks == 0 and (.ledger_sum|tonumber) > -0.000001 and (.ledger_sum|tonumber) < 0.000001 and .duplicate_money == 0 and .webhook_dead_letters == 0' <<< "$final" >/dev/null
+  payload="$ART/local-restart-storm.payload.json"
   jq -n --arg started "$started" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg source_commit "$SOURCE_COMMIT" --arg source_state "$SOURCE_STATE" \
     --arg image "$LOCAL_IMAGE" --argjson seed "$seed" \
@@ -347,7 +358,16 @@ if [ "$MODE" = restart-storm ]; then
        ledger_zero_sum:true,stale_lease_recovered:true,agents_reconnected:true,finalization_resumed:true,webhook_delivery_resumed:($final.webhook_dead_letters==0),
        reconciliation_fault_detection:"covered by deterministic simulator"},final_snapshot:$final,
      external:{stripe_sandbox:"NOT EXECUTED",real_receiver:"NOT EXECUTED"}}' \
-    > "$EVIDENCE_DIR/local-restart-storm.json"
+    > "$payload"
+  # shellcheck source=scripts/lib/write-bound-evidence.sh
+  . "$ROOT/scripts/lib/write-bound-evidence.sh"
+  merc_emit_bound_json "$EVIDENCE_DIR/local-restart-storm.json" \
+    "scripts/local-resilience-rehearsal.sh" "$payload" \
+    --exact-config "local restart storm seed=$seed" \
+    --raw-samples "embedded final_snapshot and fault_order" \
+    --model-na "restart-storm rehearsal does not load model weights" \
+    --image-na "immutable_local_image_id recorded in receipt body" \
+    --corpus-na "no external corpus"
   echo "PASS local restart storm seed=$seed"
   exit 0
 fi
@@ -435,10 +455,12 @@ jq -e '.sample_count > 0 and .backup_unhealthy_samples == 0 and
   .go_heap_alloc_bytes.max < .go_memory_limit_bytes.min' <<< "$summary" >/dev/null
 qualifies=false; [ "$actual" -ge 86400 ] && qualifies=true
 receipt="$EVIDENCE_DIR/local-soak-${DURATION}s.json"
+payload="$ART/local-soak.payload.json"
+samples_sha="$(shasum -a 256 "$samples" | awk '{print $1}')"
 jq -n --arg started "$(date -u -r "$started_epoch" +%Y-%m-%dT%H:%M:%SZ)" \
   --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg source_commit "$SOURCE_COMMIT" \
   --arg source_state "$SOURCE_STATE" \
-  --arg image "$LOCAL_IMAGE" --arg samples_sha "$(shasum -a 256 "$samples" | awk '{print $1}')" \
+  --arg image "$LOCAL_IMAGE" --arg samples_sha "$samples_sha" \
   --arg docker_health_interval "$CONTROL_HEALTH_INTERVAL" \
   --argjson requested "$DURATION" --argjson actual "$actual" --argjson interval "$INTERVAL" \
   --argjson count "$sequence" --argjson qualifies "$qualifies" --argjson final "$final" \
@@ -463,5 +485,13 @@ jq -n --arg started "$(date -u -r "$started_epoch" +%Y-%m-%dT%H:%M:%SZ)" \
      reconciliation_mismatches_zero:($summary.reconciliation_mismatches.max==0)},
    final_snapshot:$final,
    qualification:{qualifies_for_24h_gate:$qualifies,status:(if $qualifies then "PASS" else "NOT EXECUTED" end)},
-   external:{stripe_sandbox:"NOT EXECUTED",live_money:"PROHIBITED"}}' > "$receipt"
+   external:{stripe_sandbox:"NOT EXECUTED",live_money:"PROHIBITED"}}' > "$payload"
+# shellcheck source=scripts/lib/write-bound-evidence.sh
+. "$ROOT/scripts/lib/write-bound-evidence.sh"
+merc_emit_bound_json "$receipt" "scripts/local-resilience-rehearsal.sh" "$payload" \
+  --exact-config "local soak duration=${DURATION}s interval=${INTERVAL}s" \
+  --raw-samples "samples sha256=$samples_sha (artifact dir)" \
+  --model-na "soak rehearsal does not load model weights" \
+  --image-na "immutable_local_image_id recorded in receipt body" \
+  --corpus-na "no external corpus"
 echo "PASS local soak ${actual}s; 24-hour qualification=$qualifies"

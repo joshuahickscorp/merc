@@ -33,6 +33,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 # An upstream claiming to be a real runtime must return this header carrying a
 # pinned image digest. An httptest fake does not have one, which is exactly how
@@ -160,9 +161,39 @@ def main() -> int:
                  "Upstream presented a runtime attestation; figures describe that runtime."),
     }
 
-    with open(args.out, "w") as fh:
-        json.dump(evidence, fh, indent=2)
-        fh.write("\n")
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Always route through the bound writer when the destination sits under
+    # evidence/; other destinations (scratch) stay plain for local probes.
+    root = Path(__file__).resolve().parents[1]
+    try:
+        under_evidence = out_path.resolve().is_relative_to((root / "evidence").resolve())
+    except (OSError, ValueError):
+        under_evidence = "evidence/" in out_path.as_posix()
+    if under_evidence:
+        sys.path.insert(0, str(root / "scripts"))
+        from lib.evidence_binding import EvidenceBindingError, emit_bound_json  # noqa: E402
+
+        try:
+            emit_bound_json(
+                out_path,
+                evidence,
+                harness="scripts/realtime-parity-benchmark.py",
+                repo_root=root,
+                build_binary_path=Path(__file__).resolve(),
+                exact_config=json.dumps(evidence.get("config") or {}, sort_keys=True),
+                raw_samples=f"samples={args.samples} warmups={args.warmups}",
+                model_na="model alias recorded in config; no weight digest",
+                image_na="no container image in this measurement",
+                corpus_na="no external corpus",
+            )
+        except EvidenceBindingError as exc:
+            print(f"realtime-parity-benchmark: REFUSED: {exc}", file=sys.stderr)
+            return 2
+    else:
+        with open(out_path, "w", encoding="utf-8") as fh:
+            json.dump(evidence, fh, indent=2)
+            fh.write("\n")
     print(json.dumps({k: evidence[k] for k in
                       ("gate_passed", "real_runtime_attested",
                        "public_claim_allowed", "evidence_level")}))

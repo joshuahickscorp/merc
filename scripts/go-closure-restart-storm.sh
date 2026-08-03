@@ -224,12 +224,24 @@ host_storm() {
   umask 077
   [ "$(gc_sha256 "$MERC_AGENT_RESTART_DRIVER")" = "$MERC_RESTART_DRIVER_SHA256" ] \
     || gc_die "agent-restart driver bytes changed before execution"
-  if ! "$MERC_AGENT_RESTART_DRIVER" restart-all 2 > "$agent_receipt"; then
-    rm -f -- "$agent_receipt"
+  payload="$(mktemp "$GC_EVIDENCE_DIR/.agent-restarts.XXXXXX.json")"
+  if ! "$MERC_AGENT_RESTART_DRIVER" restart-all 2 > "$payload"; then
+    rm -f -- "$payload" "$agent_receipt"
     gc_die "agent restart driver failed"
   fi
   [ "$(gc_sha256 "$MERC_AGENT_RESTART_DRIVER")" = "$MERC_RESTART_DRIVER_SHA256" ] \
     || gc_die "agent-restart driver bytes changed during execution"
+  # shellcheck source=scripts/lib/write-bound-evidence.sh
+  ROOT="${ROOT:-$GC_ROOT}"
+  # shellcheck disable=SC1091
+  . "$GC_ROOT/scripts/lib/write-bound-evidence.sh"
+  merc_emit_bound_json "$agent_receipt" "scripts/go-closure-restart-storm.sh" "$payload" \
+    --exact-config "agent restart-all; run_id=${MERC_RESTART_RUN_ID:-}" \
+    --raw-samples "embedded agent restart observations" \
+    --model-na "agent restart receipt does not load model weights" \
+    --image-na "control image recorded in receipt body when present" \
+    --corpus-na "no external corpus"
+  rm -f -- "$payload"
   chmod 600 "$agent_receipt"
   checked_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   validate_agent_receipt "$agent_receipt" "$checked_at"

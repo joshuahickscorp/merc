@@ -296,7 +296,15 @@ jq -n \
       no_full_database_from_corrupt: ($corrupt_job_rows < $min_jobs)
     }
   }' >"$ART/corrupt-evidence.json"
-cp "$ART/corrupt-evidence.json" "$CORRUPT_EVIDENCE_OUT"
+# shellcheck source=scripts/lib/write-bound-evidence.sh
+. "$ROOT/scripts/lib/write-bound-evidence.sh"
+merc_emit_bound_json "$CORRUPT_EVIDENCE_OUT" "scripts/restore-drill.sh" \
+  "$ART/corrupt-evidence.json" \
+  --exact-config "restore-drill corrupt-backup path; drill_id=$DRILL_ID" \
+  --raw-samples "embedded observations in receipt body" \
+  --model-na "restore drill does not load model weights" \
+  --image-na "drill uses pinned postgres/minio images; digests live in script pins, not receipt identity" \
+  --corpus-na "no external corpus; synthetic seed only"
 [ "$CORRUPT_STATUS" = "PASS" ] || die "corrupt backup refusal evidence status=$CORRUPT_STATUS"
 
 # --- Clean restore + measured RTO ---
@@ -428,7 +436,15 @@ jq -n \
     ]
   }' >"$ART/evidence.json"
 
-cp "$ART/evidence.json" "$EVIDENCE_OUT"
+# shellcheck source=scripts/lib/write-bound-evidence.sh
+. "$ROOT/scripts/lib/write-bound-evidence.sh"
+merc_emit_bound_json "$EVIDENCE_OUT" "scripts/restore-drill.sh" \
+  "$ART/evidence.json" \
+  --exact-config "restore-drill clean path; drill_id=$DRILL_ID min_jobs=$MIN_JOBS" \
+  --raw-samples "embedded source/restored counts and hashes in receipt body" \
+  --model-na "restore drill does not load model weights" \
+  --image-na "drill uses pinned postgres/minio images; digests live in script pins, not receipt identity" \
+  --corpus-na "no external corpus; synthetic seed only"
 log "status=$STATUS evidence=$EVIDENCE_OUT rto_seconds=$RTO_SECONDS"
 [ "$STATUS" = "PASS" ] || die "derived status is $STATUS"
 log "PASS evidence=$EVIDENCE_OUT"

@@ -8,6 +8,7 @@ import json
 import os
 import re
 import socket
+import sys
 import threading
 import time
 import urllib.error
@@ -17,8 +18,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from lib.evidence_binding import EvidenceBindingError, emit_bound_json  # noqa: E402
 
 
 class Receiver(BaseHTTPRequestHandler):
@@ -191,9 +193,22 @@ def main() -> int:
         }
         destination = Path(args.out)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_suffix(destination.suffix + ".tmp")
-        temporary.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
-        temporary.replace(destination)
+        try:
+            emit_bound_json(
+                destination,
+                receipt,
+                harness="scripts/alert-pipeline-simulation.py",
+                repo_root=ROOT,
+                build_binary_path=Path(__file__).resolve(),
+                exact_config=f"profile={args.profile}",
+                raw_samples="embedded checks and attempt_counts",
+                model_na="alert pipeline simulation does not load model weights",
+                image_na="no container image in this measurement",
+                corpus_na="no external corpus",
+            )
+        except EvidenceBindingError as exc:
+            print(f"alert-pipeline-simulation: REFUSED: {exc}", file=sys.stderr)
+            return 2
         print(json.dumps(receipt, separators=(",", ":")))
         return 0 if passed else 1
     finally:
