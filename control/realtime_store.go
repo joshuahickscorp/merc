@@ -68,11 +68,24 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		                 WHERE j.buyer_id=b.id AND j.status IN ('queued','running','verifying')),0)::float8,
 		       -- Envelope-funded EXECUTING contracts are already reserved on the
 		       -- envelope (cap - spent). Counting them again here would double-hold.
+		       --
+		       -- The exclusion is conditional on the envelope still being ACTIVE,
+		       -- and that condition is load-bearing. The envelope term below only
+		       -- sums ACTIVE envelopes, so the moment expiry flips an envelope to
+		       -- EXPIRED its hold drops to zero. An unconditional exclusion here
+		       -- would then leave a still-running contract held by NEITHER term:
+		       -- the buyer's available funds would jump by the full in-flight
+		       -- amount while the work was still executing, and the next
+		       -- admission would be granted against money already committed.
+		       -- Requiring ACTIVE means an expired envelope's in-flight spends
+		       -- fall back to being held as ordinary realtime reservations, which
+		       -- is what ReleaseExpiredExecutionEnvelopes already claims happens.
 		       COALESCE((SELECT sum(c.maximum_price_usd) FROM execution_contracts c
 		                 WHERE c.buyer_id=b.id AND c.state='EXECUTING'
 		                   AND NOT EXISTS (
 		                     SELECT 1 FROM execution_envelope_spends s
-		                      WHERE s.contract_id=c.id
+		                       JOIN execution_envelopes e ON e.id = s.envelope_id
+		                      WHERE s.contract_id=c.id AND e.state='ACTIVE'
 		                   )),0)::float8,
 		       COALESCE((SELECT SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000)
 		                   FROM execution_envelopes e
