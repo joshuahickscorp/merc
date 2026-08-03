@@ -453,6 +453,9 @@ func main() {
 	if err := srv.Shutdown(shutCtx); err != nil {
 		log.Printf("graceful shutdown failed: %v", err)
 	}
+	// Drain observational admission telemetry after HTTP has stopped accepting
+	// so no new enqueues race the close. Bound: queueCap on hard kill only.
+	server.CloseAdmissionTelemetry(5 * time.Second)
 	log.Print("stopped")
 }
 

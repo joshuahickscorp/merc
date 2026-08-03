@@ -987,14 +987,50 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	metrics.realtimeAuthorized.Add(1)
-	// RecordRealtimeAdmissionEvent does two synchronous DB round-trips
-	// (placement verify + insert) before the upstream dial. That cost sits on
-	// TTFT and was previously uninstrumented — path timing without this mark
-	// cannot attribute gateway overhead correctly.
+	// Admission telemetry is observational: enqueue (or sync-fallback) and do
+	// not wait. See admission_telemetry.go for the loss bound.
 	stage = time.Now()
 	s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
 		contract.PlacementPlan.HWClass, realtimeAdmissionAdmitted, contract.ID)
 	pathTiming.mark("admission_event", stage)
+
+	// Stream path: arm the durable settlement intent as early as possible so
+	// its Postgres write overlaps arrival-batch join, request construction,
+	// and the upstream dial. Invariant preserved: the intent is still durable
+	// before the first buyer byte (drainIntent waits before WriteHeader). It
+	// is not best-effort. FinalizeRealtimeFailure cancels a pending intent
+	// when delivery never happens, so an early insert on a failed attempt
+	// cannot become an unbilled-or-overbilled obligation.
+	started := time.Now()
+	executionID := uuid.New()
+	var (
+		intentErrCh  chan error
+		intentCancel context.CancelFunc
+	)
+	if prepared.Stream {
+		intentCtx, cancelIntent := context.WithTimeout(context.Background(), 5*time.Second)
+		intentCancel = cancelIntent
+		intentErrCh = make(chan error, 1)
+		go func() {
+			intentErrCh <- s.store.InsertRealtimeSettlementIntent(intentCtx, contract.ID, executionID)
+		}()
+	}
+	// drainIntent waits for an in-flight arm so finalize can cancel a
+	// successful insert, and so we never leak the goroutine. Residual wait
+	// just before the first client byte is what still sits on TTFT.
+	drainIntent := func() error {
+		if intentErrCh == nil {
+			return nil
+		}
+		waitStart := time.Now()
+		err := <-intentErrCh
+		if intentCancel != nil {
+			intentCancel()
+		}
+		pathTiming.mark("settlement_intent", waitStart)
+		intentErrCh = nil
+		return err
+	}
 
 	// Traffic class is a property of the product the buyer entered — realtime
 	// chat completions with a reserved contract — not a free caller label.
@@ -1026,20 +1062,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			OutputTokens: int(prepared.EstimatedCompletionTokens),
 		})
 		if !WaitArrival(r.Context(), ready) {
-			finalizeRealtimeFailure(s.store, contract.ID, uuid.New(), 0, time.Now(), "client_cancelled",
+			_ = drainIntent()
+			finalizeRealtimeFailure(s.store, contract.ID, executionID, 0, started, "client_cancelled",
 				errors.New("client cancelled during arrival batch join"), true)
 			return
 		}
 	}
 	pathTiming.mark("arrival_batch", stage)
 
-	started := time.Now()
-	executionID := uuid.New()
 	requestContext, cancel := context.WithDeadline(r.Context(), contract.DeadlineAt)
 	defer cancel()
 	upstreamRequest, err := http.NewRequestWithContext(requestContext, http.MethodPost,
 		realtimeUpstreamURL(contract.UpstreamBaseURL), bytes.NewReader(prepared.Body))
 	if err != nil {
+		_ = drainIntent()
 		finalizeRealtimeFailure(s.store, contract.ID, executionID, 0, started, "upstream_request_invalid", err, false)
 		writeOpenAIError(w, http.StatusInternalServerError, "could not construct the upstream request", "server_error", "upstream_request_invalid")
 		return
@@ -1055,6 +1091,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if client == nil {
 		client = newRealtimeHTTPClient()
 	}
+
 	stage = time.Now()
 	var connectDur time.Duration
 	var connectOnce sync.Once
@@ -1070,6 +1107,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	pathTiming.mark("upstream_ttfb", stage)
 	pathTiming.set("upstream_connect", connectDur)
 	if err != nil {
+		_ = drainIntent()
 		cancelled := errors.Is(requestContext.Err(), context.Canceled)
 		code := "upstream_unavailable"
 		if cancelled {
@@ -1083,6 +1121,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode > 299 {
+		_ = drainIntent()
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
 		finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "upstream_rejected", errors.New(http.StatusText(response.StatusCode)), false)
 		writeOpenAIError(w, response.StatusCode, "realtime worker rejected the canonical request", "server_error", "upstream_rejected")
@@ -1091,26 +1130,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if prepared.Stream {
 		if !strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
+			_ = drainIntent()
 			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "invalid_upstream_content_type", errors.New("upstream did not return text/event-stream"), false)
 			writeOpenAIError(w, http.StatusBadGateway, "realtime worker returned an invalid stream", "server_error", "invalid_upstream_stream")
 			return
 		}
-		// Delivered stream work must always settle. Insert the durable intent
-		// before the first buyer byte so a post-stream finalize failure cannot
-		// silently void the bill for work already written to the client.
-		// Detached from the buyer request context: a disconnect can race the
-		// upstream first-byte signal and cancel r.Context() before this insert
-		// runs. The intent is an obligation to settle delivered work and must
-		// still arm.
-		// Settlement-intent insert sits between the engine's first byte and the
-		// buyer's first byte. Without this mark, TTFT overhead attributed to
-		// "the gateway" cannot distinguish stream-forward cost from DB write.
-		intentCtx, intentCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		stage = time.Now()
-		err := s.store.InsertRealtimeSettlementIntent(intentCtx, contract.ID, executionID)
-		pathTiming.mark("settlement_intent", stage)
-		intentCancel()
-		if err != nil {
+		// Wait for the overlapped intent. Must complete before the first buyer
+		// byte so a post-stream finalize crash cannot void delivered work.
+		if err := drainIntent(); err != nil {
 			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "settlement_intent_failed", err, false)
 			writeOpenAIError(w, http.StatusInternalServerError, "could not arm durable stream settlement", "server_error", "settlement_intent_failed")
 			return
@@ -1268,9 +1295,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 // recordRealtimeAdmissionEvent is observational. A telemetry database fault
 // must never turn an otherwise valid buyer request into a failed contract, nor
 // can it alter capacity selection, pricing, or settlement.
+//
+// When admissionTelemetry is configured (production Server via NewServer), the
+// write is enqueued and returns immediately so the first-token path does not
+// wait on two DB round-trips. Loss is impossible under load (sync fallback on
+// full queue) and bounded on crash (queueCap + workers). See admission_telemetry.go.
+// A nil recorder (hand-built Server in tests) keeps the historical synchronous
+// write so existing assertions remain exact.
 func (s *Server) recordRealtimeAdmissionEvent(
 	ctx context.Context, buyerID uuid.UUID, runtimeProfileID, hwClass, decision string, contractID uuid.UUID,
 ) {
+	if s.admissionTelemetry != nil {
+		s.admissionTelemetry.record(buyerID, runtimeProfileID, hwClass, decision, contractID)
+		return
+	}
 	if err := s.store.RecordRealtimeAdmissionEvent(ctx, buyerID, runtimeProfileID, hwClass, decision, contractID); err != nil {
 		log.Printf("realtime liquidity telemetry: decision=%s profile=%s: %v", decision, runtimeProfileID, err)
 	}

@@ -77,6 +77,10 @@ const (
 // prepared request. It deliberately has no prompt, canonical request, token
 // count, or upstream identifier. An admitted event verifies its contract
 // binding before it can affect the fill-rate denominator.
+//
+// Prefer InsertRealtimeAdmissionEventTrusted from the request path when the
+// caller already holds the authorize-returned placement: the verify SELECT
+// here can deadlock with FinalizeRealtimeSuccess's FOR UPDATE under load.
 func (s *Store) RecordRealtimeAdmissionEvent(
 	ctx context.Context, buyerID uuid.UUID, runtimeProfileID, hwClass, decision string, contractID uuid.UUID,
 ) error {
@@ -112,6 +116,40 @@ func (s *Store) RecordRealtimeAdmissionEvent(
 			return fmt.Errorf("unknown realtime admission decision %q", decision)
 		}
 	}
+	return s.insertRealtimeAdmissionEvent(ctx, buyerID, runtimeProfileID, hwClass, decision, contractID)
+}
+
+// InsertRealtimeAdmissionEventTrusted records an admission outcome without the
+// contract-binding re-verify. Use only when the caller already holds the
+// authorize-returned contract and placement (the realtime handler). Avoids the
+// verify SELECT that can deadlock with finalize under concurrent load.
+// Shape checks still apply so a buggy caller cannot insert a nonsense row.
+func (s *Store) InsertRealtimeAdmissionEventTrusted(
+	ctx context.Context, buyerID uuid.UUID, runtimeProfileID, hwClass, decision string, contractID uuid.UUID,
+) error {
+	if buyerID == uuid.Nil || strings.TrimSpace(runtimeProfileID) == "" {
+		return errors.New("realtime admission event lacks buyer or runtime profile")
+	}
+	switch decision {
+	case realtimeAdmissionAdmitted:
+		if contractID == uuid.Nil || strings.TrimSpace(hwClass) == "" {
+			return errors.New("admitted realtime event lacks contract or hardware placement")
+		}
+	default:
+		if contractID != uuid.Nil || strings.TrimSpace(hwClass) != "" {
+			return errors.New("non-admitted realtime event must not claim a contract or hardware placement")
+		}
+		if decision != realtimeAdmissionNoCapacity && decision != realtimeAdmissionInsufficient &&
+			decision != realtimeAdmissionAuthorization {
+			return fmt.Errorf("unknown realtime admission decision %q", decision)
+		}
+	}
+	return s.insertRealtimeAdmissionEvent(ctx, buyerID, runtimeProfileID, hwClass, decision, contractID)
+}
+
+func (s *Store) insertRealtimeAdmissionEvent(
+	ctx context.Context, buyerID uuid.UUID, runtimeProfileID, hwClass, decision string, contractID uuid.UUID,
+) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO realtime_admission_events
 		  (buyer_id,runtime_profile_id,hw_class,decision,contract_id)
