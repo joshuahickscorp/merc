@@ -36,7 +36,11 @@ Preserve and verify this current truth before changing it:
 
 - Local Metal execution works.
 - Realtime, batch inference, and embeddings have real local execution evidence.
-- Gateway overhead has been measured at low single-digit milliseconds and approximately within 2% throughput of the underlying engine.
+- Gateway overhead is NOT currently measured. The artifact this line used to rest
+  on, `evidence/perf/gateway-parity.json`, is `INVALIDATED_PENDING_RERUN`, and the
+  only parity artifacts that exist at this commit are `HARNESS_SELF_TEST` with
+  `comparable: false`. Until a bound parity receipt exists, treat gateway overhead
+  as unproven rather than small.
 - Supplier microunit accrual conserves money.
 - Finite charge retries exist.
 - Reuse billing classes distinguish physical and nonphysical work.
