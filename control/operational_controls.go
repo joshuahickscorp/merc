@@ -53,12 +53,20 @@ func (s *Store) OperationalControlPaused(ctx context.Context, name string) (bool
 	if err != nil {
 		return true, err
 	}
+	if paused, ok := s.operationalControls.get(name); ok {
+		return paused, nil
+	}
 	var paused bool
 	err = s.pool.QueryRow(ctx, `SELECT paused FROM operational_controls WHERE name=$1`, name).Scan(&paused)
 	if errors.Is(err, pgx.ErrNoRows) {
+		// Fail closed; do not cache a missing row as active.
 		return true, fmt.Errorf("operational control %s is missing", name)
 	}
-	return paused, err
+	if err != nil {
+		return paused, err
+	}
+	s.operationalControls.put(name, paused)
+	return paused, nil
 }
 
 func (s *Store) ListOperationalControls(ctx context.Context) ([]OperationalControl, error) {
@@ -149,6 +157,9 @@ func (s *Store) AdminSetOperationalControl(
 	if err := tx.Commit(ctx); err != nil {
 		return OperationalControl{}, err
 	}
+	// Same-process kill-switch / resume is immediate. Multi-instance lag is
+	// bounded by operationalControlCacheTTL (see operational_control_cache.go).
+	s.operationalControls.invalidate(name)
 	return after, nil
 }
 

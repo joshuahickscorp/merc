@@ -44,6 +44,10 @@ type Server struct {
 	// disabled is a pure bypass: every request forwards alone. Billing never
 	// consults it.
 	arrivalBatcher *ArrivalBatcher
+	// admissionTelemetry moves observational market-liquidity events off the
+	// first-token path. Nil falls back to a synchronous write (tests that
+	// construct Server{} by hand keep the old behaviour).
+	admissionTelemetry *admissionTelemetry
 }
 
 func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout) *Server {
@@ -69,8 +73,18 @@ func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout
 		// costs measured latency for an unmeasured gain should not be on the
 		// path by default. Everything under it — class derivation, the deadline
 		// gate, billing neutrality — is tested and stays wired.
-		arrivalBatcher: NewArrivalBatcher(ArrivalBatchConfig{Enabled: false}),
+		arrivalBatcher:     NewArrivalBatcher(ArrivalBatchConfig{Enabled: false}),
+		admissionTelemetry: newAdmissionTelemetry(store),
 	}
+}
+
+// CloseAdmissionTelemetry drains the async admission-event queue. Call during
+// graceful shutdown so in-flight telemetry is not lost on a clean stop.
+func (s *Server) CloseAdmissionTelemetry(timeout time.Duration) {
+	if s == nil || s.admissionTelemetry == nil {
+		return
+	}
+	s.admissionTelemetry.Close(timeout)
 }
 
 const signupsPerIPPerDay = 5
