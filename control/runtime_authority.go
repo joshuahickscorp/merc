@@ -221,15 +221,17 @@ func (c authorityCell) EffectiveLifecycle(profile authorityRuntimeProfile) strin
 //
 //  1. Lifecycle is CANARY or ACTIVE (REAL_RUNTIME_PROVEN is deliberately not:
 //     it is the evidence a promotion is built FROM, not the promotion itself).
-//  2. The cell's benchmark authority is bindable: the receipt resolves, every
-//     applicable identity field is present and valid (including merc_source_commit
-//     as a real git object), and the authority has not been INVALIDATED,
-//     WITHDRAWN or SUPERSEDED.
+//  2. The cell's benchmark authority is BOUND: the receipt resolves, carries
+//     binding_status=BOUND (the eight-field producer-identity programme bar),
+//     merc_source_commit is a real git object, weight digests match pins, and
+//     the authority has not been INVALIDATED, WITHDRAWN or SUPERSEDED.
 //
 // Lifecycle alone used to be enough. That left three candle cells routable on
 // receipts that could not bind — a free-string source commit, a missing identity
-// block, a profile revision that no longer matches. A dead receipt must leave
-// the routable set automatically; see cellAuthorityBindable.
+// block, a profile revision that no longer matches. The next bar (bindable
+// merc_source_commit) still left the embed cell routable on an UNBOUND receipt.
+// A dead or merely UNBOUND receipt must leave the routable set automatically;
+// see cellAuthorityBindable.
 func (c authorityCell) Routable(profile authorityRuntimeProfile) bool {
 	if !runtimeLifecycleRoutable(c.EffectiveLifecycle(profile)) {
 		return false
@@ -963,13 +965,18 @@ type benchmarkReceiptSummary struct {
 
 	// Identity and validity fields used by cellAuthorityBindable. Mirrored from
 	// the receipt so a container that ships only the binary can still refuse a
-	// free-string commit, a withdrawn authority, or a stale profile revision.
-	// TestBenchmarkManifestIdentityMatchesTheReceipts keeps them honest.
+	// free-string commit, a withdrawn authority, a non-BOUND receipt, or a stale
+	// profile revision. TestBenchmarkManifestIdentityMatchesTheReceipts keeps
+	// them honest.
 	//
 	// Validity empty or "VALID" means the receipt still stands. INVALIDATED,
 	// WITHDRAWN and SUPERSEDED (including spellings like INVALIDATED_PENDING_RERUN)
 	// demote every dependent cell from the routable set automatically.
+	//
+	// BindingStatus must be "BOUND" for ordinary routing. The historical
+	// bindable bar (real merc_source_commit alone) is deliberately insufficient.
 	Validity             string   `json:"validity,omitempty"`
+	BindingStatus        string   `json:"binding_status,omitempty"`
 	MercSourceCommit     string   `json:"merc_source_commit,omitempty"`
 	ProfileRevision      string   `json:"profile_revision,omitempty"`
 	Harness              string   `json:"harness,omitempty"`

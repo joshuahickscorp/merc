@@ -7,18 +7,20 @@ import (
 	"testing"
 )
 
-// Scoreboard before this change: four lifecycle-routable candle cells, one of
-// which actually bound. After: only the bindable one remains advertised.
+// Scoreboard before the bindable raise: four lifecycle-routable candle cells,
+// one of which actually bound at the merc_source_commit bar. After the BOUND
+// raise: only the cell whose authority is genuinely BOUND remains advertised.
 
 func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 	// Reasons the audit named. Each demotion is a predicate result, not a
-	// hand-edited lifecycle field.
+	// hand-edited lifecycle field. The three still fail at the pre-BOUND checks;
+	// embed is the sole cell that reaches the BOUND bar.
 	wantDemoted := map[string]string{
 		"candle-metal-ffmpeg-transcode": "not a git object",
 		"candle-metal-scene-render":     "merc_source_commit is missing",
 		"candle-metal-llama1-infer":     "profile_revision",
 	}
-	// Embed is the sole bindable ordinary cell at this commit.
+	// Embed is the sole BOUND ordinary cell at this commit.
 	const wantRoutable = "candle-metal-minilm-embed"
 
 	var got []string
@@ -68,7 +70,7 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 		t.Fatalf("advertised projection has %d cells, want 1", n)
 	}
 	if !advertisedRuntimeCell(wantRoutable) {
-		t.Fatal("the bindable embed cell is not advertised")
+		t.Fatal("the BOUND embed cell is not advertised")
 	}
 	for id := range wantDemoted {
 		if advertisedRuntimeCell(id) {
@@ -106,7 +108,7 @@ func TestNonGitMercSourceCommitIsRejected(t *testing.T) {
 // Automatic demotion: invalidate an authority and the dependent cell leaves the
 // routable set without any lifecycle field being edited.
 func TestInvalidatingAuthorityDemotesDependentCell(t *testing.T) {
-	const path = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json"
+	const path = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json"
 	const cellID = "candle-metal-minilm-embed"
 
 	profile, ok := runtimeProfileByID("candle_metal")
@@ -130,7 +132,7 @@ func TestInvalidatingAuthorityDemotesDependentCell(t *testing.T) {
 		}
 	}
 	if !cell.Routable(embedded) {
-		t.Fatal("embed cell must start routable under bindable authority")
+		t.Fatal("embed cell must start routable under BOUND authority")
 	}
 	previous := benchmarkAuthorityManifest[path].Validity
 	t.Cleanup(func() { RestoreBenchmarkAuthorityValidity(path, previous) })
@@ -203,17 +205,78 @@ func TestBenchmarkManifestIdentityMatchesTheReceipts(t *testing.T) {
 			t.Errorf("%s: manifest harness %q, receipt %q",
 				path, summary.Harness, harness)
 		}
+		// When the manifest records binding_status, the on-disk receipt must match.
+		// Historical UNBOUND receipts often carry binding_status on disk without a
+		// mirrored field in the manifest; missing is treated as not BOUND by the
+		// routability predicate, so that is fine.
+		if bs := strings.TrimSpace(summary.BindingStatus); bs != "" {
+			status, _ := receipt["binding_status"].(string)
+			if !strings.EqualFold(strings.TrimSpace(status), bs) {
+				t.Errorf("%s: manifest binding_status %q, receipt %q",
+					path, summary.BindingStatus, status)
+			}
+		}
 	}
 }
 
 func TestAdvertisedSurfaceIsTheBindableSingleton(t *testing.T) {
 	// Ordinary admission freezes one advertised cell per (job, model). Today the
-	// whole advertised surface is a single bindable embed cell.
+	// whole advertised surface is a single BOUND embed cell.
 	caps := advertisedRuntimeCapabilities()
 	if len(caps) != 1 {
-		t.Fatalf("advertised %d cells, want 1 bindable cell", len(caps))
+		t.Fatalf("advertised %d cells, want 1 BOUND cell", len(caps))
 	}
 	if caps[0].ID != "candle-metal-minilm-embed" || caps[0].Job != "embed" {
 		t.Fatalf("advertised %+v, want candle-metal-minilm-embed/embed", caps[0])
 	}
+}
+
+// Raising the bar to BOUND must not silently demote the embed cell that was
+// re-measured and sealed, and must keep the three previously quarantined cells
+// non-routable.
+func TestBoundAuthorityIsRequiredForRoutability(t *testing.T) {
+	const path = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json"
+	summary, ok := benchmarkAuthorityManifest[path]
+	if !ok {
+		t.Fatalf("manifest missing %s", path)
+	}
+	if !strings.EqualFold(summary.BindingStatus, BindingBound) {
+		t.Fatalf("embed r2 binding_status=%q, want BOUND", summary.BindingStatus)
+	}
+	profile, ok := runtimeProfileByID("candle_metal")
+	if !ok {
+		t.Fatal("candle_metal missing")
+	}
+	var embedded authorityRuntimeProfile
+	for _, p := range runtimeAuthority.Runtimes {
+		if p.RuntimeID == "candle_metal" {
+			embedded = p
+			break
+		}
+	}
+	var embedCell authorityCell
+	for _, c := range embedded.Cells {
+		if c.ID == "candle-metal-minilm-embed" {
+			embedCell = c
+			break
+		}
+	}
+	if !embedCell.Routable(embedded) {
+		ok, reason := cellAuthorityBindable(embedded, embedCell)
+		t.Fatalf("BOUND embed cell not routable: ok=%v reason=%q", ok, reason)
+	}
+	// Strip BOUND and the cell must leave ordinary routing without any lifecycle edit.
+	saved := benchmarkAuthorityManifest[path]
+	t.Cleanup(func() { benchmarkAuthorityManifest[path] = saved })
+	stripped := saved
+	stripped.BindingStatus = BindingUnbound
+	benchmarkAuthorityManifest[path] = stripped
+	if embedCell.Routable(embedded) {
+		t.Fatal("cell stayed routable after its authority was reduced to UNBOUND")
+	}
+	ok, reason := cellAuthorityBindable(embedded, embedCell)
+	if ok || !strings.Contains(reason, "not BOUND") {
+		t.Fatalf("expected not-BOUND refusal, got ok=%v reason=%q", ok, reason)
+	}
+	_ = profile
 }

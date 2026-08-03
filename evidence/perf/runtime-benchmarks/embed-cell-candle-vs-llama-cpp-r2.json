@@ -1,6 +1,7 @@
 {
-  "authority_matrix_sha256": "075c588a8ded0eb9f44b06837a2eb46b2a8d9a44439ad82816357ddb2556c1d4",
-  "authority_matrix_version": "2026-07-30.6",
+  "authority_document_sha256": "9281fa51493e847c6d3a69a51200cc549cd715b7ded741fdb6b25a7d7af11176",
+  "authority_matrix_sha256": "0814f833d415287f45502cd6d42455958c279ff8e43514adccf00169742f0b9c",
+  "authority_matrix_version": "2026-08-02.12",
   "corpus": {
     "sha256": "01fcad50dcc300f12f31f91d3ae356746382ef9961594715563958829bad59f9",
     "texts": 8
@@ -13,8 +14,8 @@
     "llama_cpp_metal": {
       "build_info": "b9430-d48a56eff",
       "model_path": "/Users/scammermike/.cache/huggingface/hub/models--leliuga--all-MiniLM-L6-v2-GGUF/snapshots/ddf2e25d5b8530422e7b14aa39f33a657ff9aec0/all-MiniLM-L6-v2.F16.gguf",
-      "n_ctx": 256,
-      "total_slots": 128
+      "n_ctx": 512,
+      "total_slots": 4
     }
   },
   "hardware": {
@@ -26,78 +27,78 @@
   "measurements": [
     {
       "batch": 1,
-      "max_wall_s": 0.00342875,
-      "median_wall_s": 0.003074875,
-      "min_wall_s": 0.002988792,
+      "max_wall_s": 0.004889834,
+      "median_wall_s": 0.003404791,
+      "min_wall_s": 0.003245458,
       "reps": 5,
       "runtime_profile_id": "candle_metal",
-      "texts_per_sec": 325.21647221431766
+      "texts_per_sec": 293.7037838739588
     },
     {
       "batch": 1,
-      "max_wall_s": 0.002210834,
-      "median_wall_s": 0.002043792,
-      "min_wall_s": 0.002031041,
+      "max_wall_s": 0.003432125,
+      "median_wall_s": 0.002805917,
+      "min_wall_s": 0.0026555,
       "reps": 5,
       "runtime_profile_id": "llama_cpp_metal",
-      "texts_per_sec": 489.2865810219435
+      "texts_per_sec": 356.38972927567
     },
     {
       "batch": 8,
-      "max_wall_s": 0.044848625,
-      "median_wall_s": 0.024500084,
-      "min_wall_s": 0.024213792,
+      "max_wall_s": 0.030968375,
+      "median_wall_s": 0.028011417,
+      "min_wall_s": 0.025693709,
       "reps": 5,
       "runtime_profile_id": "candle_metal",
-      "texts_per_sec": 326.5294927152087
+      "texts_per_sec": 285.59783319779933
     },
     {
       "batch": 8,
-      "max_wall_s": 0.0038905,
-      "median_wall_s": 0.003670583,
-      "min_wall_s": 0.003619958,
+      "max_wall_s": 0.010718959,
+      "median_wall_s": 0.008255959,
+      "min_wall_s": 0.006749292,
       "reps": 5,
       "runtime_profile_id": "llama_cpp_metal",
-      "texts_per_sec": 2179.4902880550585
+      "texts_per_sec": 968.997060184044
     },
     {
       "batch": 32,
-      "max_wall_s": 0.027514583,
-      "median_wall_s": 0.026790333,
-      "min_wall_s": 0.026529291,
+      "max_wall_s": 0.026576208,
+      "median_wall_s": 0.026467,
+      "min_wall_s": 0.026057708,
       "reps": 5,
       "runtime_profile_id": "candle_metal",
-      "texts_per_sec": 1194.4607034186547
+      "texts_per_sec": 1209.0527827105452
     },
     {
       "batch": 32,
-      "max_wall_s": 0.010569583,
-      "median_wall_s": 0.009988875,
-      "min_wall_s": 0.008682542,
+      "max_wall_s": 0.021227541,
+      "median_wall_s": 0.020363125,
+      "min_wall_s": 0.020175625,
       "reps": 5,
       "runtime_profile_id": "llama_cpp_metal",
-      "texts_per_sec": 3203.5639649109635
+      "texts_per_sec": 1571.4680335164667
     },
     {
       "batch": 128,
-      "max_wall_s": 0.053773708,
-      "median_wall_s": 0.038098084,
-      "min_wall_s": 0.037581375,
+      "max_wall_s": 0.036548042,
+      "median_wall_s": 0.036333375,
+      "min_wall_s": 0.035922125,
       "reps": 5,
       "runtime_profile_id": "candle_metal",
-      "texts_per_sec": 3359.749009950212
+      "texts_per_sec": 3522.931739757179
     },
     {
       "batch": 128,
-      "max_wall_s": 0.03230175,
-      "median_wall_s": 0.031999041,
-      "min_wall_s": 0.031481167,
+      "max_wall_s": 0.098106916,
+      "median_wall_s": 0.082152666,
+      "min_wall_s": 0.080253208,
       "reps": 5,
       "runtime_profile_id": "llama_cpp_metal",
-      "texts_per_sec": 4000.1198785926117
+      "texts_per_sec": 1558.0748164642641
     }
   ],
-  "merc_source_commit": "c0cf09360b64b15b16b8405659e350669b6d72e4",
+  "merc_source_commit": "f137430fc5fce06f8967807a619b1d3fed43f50a",
   "model_artifacts": {
     "by_wire_kind": {
       "gguf": [
@@ -145,50 +146,67 @@
       "engine_revision": "",
       "lifecycle": "ACTIVE",
       "quality_tier": "OUTCOME_EQUIVALENT",
-      "revision": "r5",
+      "revision": "r9",
       "runtime_profile_id": "candle_metal",
       "tokenizer_revision": "b69aef112e9f895e6f98d7ae0949f72ff09aa401"
     },
     "llama_cpp_metal": {
       "engine": "llama_cpp",
       "engine_revision": "",
-      "lifecycle": "VALIDATED",
+      "lifecycle": "REAL_RUNTIME_PROVEN",
       "quality_tier": "UNPROVEN",
-      "revision": "r6",
+      "revision": "r8",
       "runtime_profile_id": "llama_cpp_metal",
       "tokenizer_revision": "b69aef112e9f895e6f98d7ae0949f72ff09aa401"
     }
   },
   "quality": {
     "gate": 0.999,
-    "mean_cosine": 0.9999992847442627,
-    "min_cosine": 0.9999985694885254,
+    "mean_cosine": 0.9999991655349731,
+    "min_cosine": 0.9999983310699463,
     "passes": true,
     "reference": "candle_metal",
     "verification": "cosine"
   },
   "question": "What does the embed cell cost and deliver on each of the two registered runtime profiles, measured on one harness over one corpus?",
   "schema_version": 1,
-  "binding_status": "SUPERSEDED",
-  "missing_identity_fields": [
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ],
-  "validity": "SUPERSEDED",
-  "superseded": true,
-  "superseded_at": "2026-08-03",
-  "superseded_by": [
-    "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json (Metal remeasure sealed BOUND with full producer_identity)"
-  ],
-  "supersession_reasons": [
-    "r1 was UNBOUND under the evidence programme identity bar: missing build_digest, model_artifact_digest, image_digest, harness_revision, corpus_digest, exact_config, raw_samples",
-    "merc_source_commit alone is not BOUND; the directive requires the eight-field producer identity",
-    "r2 re-measured on this host through merc-agent bench-embed and sealed via scripts/write-bound-evidence.py",
-    "retained deliberately as historical measurement; deleting it would erase the correction path"
-  ],
-  "superseded_note": "HISTORICAL ONLY. Real measurements but UNBOUND identity. Not valid for ordinary routing after the BOUND predicate raise. Superseded by embed-cell-candle-vs-llama-cpp-r2.json (BOUND)."
+  "measured_at": "2026-08-03T16:26:26Z",
+  "supersedes": {
+    "paths": [
+      "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json",
+      "evidence/perf/runtime-benchmarks/llama-cpp-metal-embed-cosine-gate.json"
+    ],
+    "reasons": [
+      "r1 (embed-cell comparison) was UNBOUND: missing producer_identity (build_digest, model_artifact_digest, image_digest, harness_revision, corpus_digest, exact_config, raw_samples)",
+      "llama-cpp-metal-embed-cosine-gate.json was UNBOUND: same missing identity fields; quality gate result is re-measured inside r2.quality",
+      "r2 re-ran merc-agent bench-embed on this host and sealed through the bound evidence writer"
+    ]
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "f137430fc5fce06f8967807a619b1d3fed43f50a"
+    },
+    "build_digest": {
+      "value": "3f29a3cb269eaff57108158f93801d4c547cd1fbbafd29e01056be52268b7cbc"
+    },
+    "model_artifact_digest": {
+      "value": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+    },
+    "image_digest": {
+      "na": "in-process candle + local llama-server process; no container image"
+    },
+    "harness_revision": {
+      "value": "agent/src/main.rs:run_bench_embed (merc-agent 0.1.0 bench-embed)"
+    },
+    "corpus_digest": {
+      "value": "01fcad50dcc300f12f31f91d3ae356746382ef9961594715563958829bad59f9"
+    },
+    "exact_config": {
+      "value": "embedded engine_configuration + batch_sizes=1,8,32,128 reps=5 model=all-minilm-l6-v2"
+    },
+    "raw_samples": {
+      "value": "embedded measurements[] wall times and texts_per_sec; quality cosine over corpus"
+    }
+  },
+  "binding_status": "BOUND"
 }

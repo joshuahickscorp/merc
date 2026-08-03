@@ -9,10 +9,16 @@ import (
 // Cell → authority artifact → validity.
 //
 // A lifecycle of CANARY or ACTIVE is not enough to take ordinary buyer work.
-// The cell's benchmark authority must resolve, every applicable identity field
-// must be present and valid, and the authority must not have been withdrawn.
+// The cell's benchmark authority must resolve, carry BOUND producer identity
+// (the eight-field evidence programme bar), and must not have been withdrawn.
 // Routability is this predicate, not a free-standing lifecycle field: a dead
-// receipt keeps its lifecycle but leaves the routable set automatically.
+// or merely UNBOUND receipt keeps its lifecycle but leaves the routable set
+// automatically.
+//
+// The weaker historical bar (merc_source_commit is a real git object) is
+// strictly weaker than BOUND. A receipt can clear that check and still miss
+// build_digest, model_artifact_digest, corpus_digest, and the rest. Ordinary
+// buyer traffic requires BOUND.
 //
 // The embedded evidence-manifest is the control plane's view of each receipt.
 // Production containers ship the binary, not evidence/, so identity is checked
@@ -42,6 +48,12 @@ var weightArtifactSuffixes = []string{
 
 // cellAuthorityBindable reports whether a cell may stand on its declared
 // benchmark authority for ordinary buyer work.
+//
+// The bar is BOUND: the receipt must clear every historical bindable check
+// (resolves, measures the right model, merc_source_commit is a real git object,
+// weight digests match pins, not withdrawn) AND carry binding_status=BOUND in
+// the embedded manifest. BOUND means the eight programme identity fields are
+// each a value or an explicit N/A with reason — see control/receipt_identity.go.
 //
 // Returns ok=false with a machine-readable reason when it may not. The reason
 // is for tests and operator diagnostics; callers that only need a bool use
@@ -90,6 +102,17 @@ func cellAuthorityBindable(profile authorityRuntimeProfile, cell authorityCell) 
 				"authority %q model artifact digests do not match the pinned artifacts for %q",
 				path, cell.Model)
 		}
+	}
+	// BOUND is the programme bar. A receipt that only has a real merc_source_commit
+	// (the historical "bindable" check) is not enough for ordinary buyer work.
+	if !strings.EqualFold(strings.TrimSpace(receipt.BindingStatus), BindingBound) {
+		status := strings.TrimSpace(receipt.BindingStatus)
+		if status == "" {
+			status = "missing"
+		}
+		return false, fmt.Sprintf(
+			"authority %q is not BOUND (binding_status=%s); ordinary routing requires BOUND producer identity",
+			path, status)
 	}
 	return true, ""
 }
