@@ -343,14 +343,29 @@ func TestRealtimeReputationDoesNotEnterBuyerCharge(t *testing.T) {
 // the historical full-table supplier_outcomes aggregate. Reverting the SQL
 // constant fails this test without needing a live database.
 func TestRealtimeAuthorizeSQLUsesStatsJoin(t *testing.T) {
-	if !strings.Contains(realtimeAuthorizeSelectOfferSQL, "realtime_supplier_outcome_stats") {
-		t.Fatal("authorize SQL lost the stats table join")
+	for _, name := range []struct {
+		label string
+		sql   string
+	}{
+		{"blocking", realtimeAuthorizeSelectOfferSQLBlocking},
+		{"skip", realtimeAuthorizeSelectOfferSQLSkip},
+		{"alias", realtimeAuthorizeSelectOfferSQL},
+	} {
+		if !strings.Contains(name.sql, "realtime_supplier_outcome_stats") {
+			t.Fatalf("%s authorize SQL lost the stats table join", name.label)
+		}
+		if strings.Contains(name.sql, "supplier_outcomes AS") {
+			t.Fatalf("%s authorize SQL still embeds the per-request supplier_outcomes aggregate", name.label)
+		}
+		if strings.Contains(name.sql, "FROM execution_contracts") {
+			t.Fatalf("%s authorize SQL must not scan execution_contracts for reputation", name.label)
+		}
 	}
-	if strings.Contains(realtimeAuthorizeSelectOfferSQL, "supplier_outcomes AS") {
-		t.Fatal("authorize SQL still embeds the per-request supplier_outcomes aggregate")
+	if !strings.Contains(realtimeAuthorizeSelectOfferSQLSkip, "SKIP LOCKED") {
+		t.Fatal("skip-path authorize SQL must use FOR UPDATE SKIP LOCKED")
 	}
-	if strings.Contains(realtimeAuthorizeSelectOfferSQL, "FROM execution_contracts") {
-		t.Fatal("authorize SQL must not scan execution_contracts for reputation")
+	if strings.Contains(realtimeAuthorizeSelectOfferSQLBlocking, "SKIP LOCKED") {
+		t.Fatal("blocking authorize SQL must not SKIP LOCKED (single-offer wait path)")
 	}
 	// Legacy probe must still hold the aggregate so drift tests stay meaningful.
 	if !strings.Contains(realtimeClearingProbeLegacySQL, "FROM execution_contracts") {

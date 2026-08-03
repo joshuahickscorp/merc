@@ -1,0 +1,612 @@
+{
+  "binding_status": "BOUND",
+  "cells": [
+    {
+      "max_conns": 20,
+      "concurrency": 1,
+      "samples": 80,
+      "pool_acquire_ms": {
+        "p50": 0.000125,
+        "p95": 0.000208,
+        "p99": 0.004208,
+        "min": 0.000083,
+        "max": 0.004208,
+        "mean": 0.00016767500000000008,
+        "n": 80
+      },
+      "pool_stat_delta": {
+        "acquired_conns_end": 0,
+        "canceled_acquire_count_delta": 0,
+        "empty_acquire_count_delta": 0,
+        "empty_acquire_wait_ms_delta": 0,
+        "idle_conns_end": 1,
+        "max_conns": 20,
+        "total_conns_end": 1
+      },
+      "lookup_api_key_cold_ms": {
+        "p50": 0.070125,
+        "p95": 0.118625,
+        "p99": 0.153375,
+        "min": 0.045917,
+        "max": 0.153375,
+        "mean": 0.07850257499999999,
+        "n": 80
+      },
+      "lookup_api_key_warm_ms": {
+        "p50": 0.000167,
+        "p95": 0.0005,
+        "p99": 0.007292,
+        "min": 0.000166,
+        "max": 0.007292,
+        "mean": 0.00038902500000000015,
+        "n": 80
+      },
+      "authorize_same_buyer_1offer_ms": {
+        "p50": 0.970208,
+        "p95": 1.351541,
+        "p99": 2.865125,
+        "min": 0.67175,
+        "max": 2.865125,
+        "mean": 1.008652175,
+        "n": 80
+      },
+      "authorize_multi_buyer_1offer_ms": {
+        "p50": 1.012,
+        "p95": 1.330875,
+        "p99": 1.413875,
+        "min": 0.732042,
+        "max": 1.413875,
+        "mean": 1.0451234,
+        "n": 80
+      },
+      "authorize_multi_buyer_Noffer_ms": {
+        "p50": 1.248833,
+        "p95": 1.53275,
+        "p99": 1.620833,
+        "min": 0.870958,
+        "max": 1.620833,
+        "mean": 1.2418958499999997,
+        "n": 80
+      },
+      "authorize_ok": {
+        "multi_buyer_1offer": 80,
+        "multi_buyer_Noffer": 80,
+        "same_buyer_1offer": 80
+      },
+      "authorize_fail": {
+        "multi_buyer_1offer": 0,
+        "multi_buyer_Noffer": 0,
+        "same_buyer_1offer": 0
+      },
+      "slow_sample_notes": [
+        "same_buyer max=2.865ms p95=1.352ms p50=0.970ms ratio_p95/p50=1.39"
+      ],
+      "cause_hint": "pool_ok: pool_p95=0.000ms empty_count=0 | lookup_cold_ok: p95=0.119ms",
+      "pg_wait_events_during_auth": {
+        "\u003cnone\u003e:\u003cnone\u003e": 23,
+        "IO:DataFileExtend": 1,
+        "IO:WalWrite": 2
+      }
+    },
+    {
+      "max_conns": 20,
+      "concurrency": 8,
+      "samples": 80,
+      "pool_acquire_ms": {
+        "p50": 0.000167,
+        "p95": 0.042,
+        "p99": 6.186792,
+        "min": 0.000083,
+        "max": 6.186792,
+        "mean": 0.24021260000000005,
+        "n": 80
+      },
+      "pool_stat_delta": {
+        "acquired_conns_end": 0,
+        "canceled_acquire_count_delta": 0,
+        "empty_acquire_count_delta": 4,
+        "empty_acquire_wait_ms_delta": 19.133792,
+        "idle_conns_end": 6,
+        "max_conns": 20,
+        "total_conns_end": 6
+      },
+      "lookup_api_key_cold_ms": {
+        "p50": 0.000167,
+        "p95": 0.202208,
+        "p99": 0.220875,
+        "min": 0.000125,
+        "max": 0.220875,
+        "mean": 0.020940562500000034,
+        "n": 80
+      },
+      "lookup_api_key_warm_ms": {
+        "p50": 0.000208,
+        "p95": 0.04,
+        "p99": 0.040709,
+        "min": 0.000125,
+        "max": 0.040709,
+        "mean": 0.003924949999999996,
+        "n": 80
+      },
+      "authorize_same_buyer_1offer_ms": {
+        "p50": 14.538208,
+        "p95": 36.068917,
+        "p99": 56.0715,
+        "min": 1.969167,
+        "max": 56.0715,
+        "mean": 16.482389037500013,
+        "n": 80
+      },
+      "authorize_multi_buyer_1offer_ms": {
+        "p50": 2.740667,
+        "p95": 24.682583,
+        "p99": 68.576291,
+        "min": 1.575792,
+        "max": 68.576291,
+        "mean": 6.614654124999997,
+        "n": 80
+      },
+      "authorize_multi_buyer_Noffer_ms": {
+        "p50": 1.685542,
+        "p95": 3.111958,
+        "p99": 3.378208,
+        "min": 1.164208,
+        "max": 3.378208,
+        "mean": 1.8337906750000001,
+        "n": 80
+      },
+      "authorize_ok": {
+        "multi_buyer_1offer": 80,
+        "multi_buyer_Noffer": 80,
+        "same_buyer_1offer": 80
+      },
+      "authorize_fail": {
+        "multi_buyer_1offer": 0,
+        "multi_buyer_Noffer": 0,
+        "same_buyer_1offer": 0
+      },
+      "slow_sample_notes": [
+        "same_buyer max=56.072ms p95=36.069ms p50=14.538ms ratio_p95/p50=2.48"
+      ],
+      "cause_hint": "POOL_ACQUIRE_WAIT: empty_acquire_count_delta=4 empty_wait_ms_delta=19.134 pool_p95=0.042ms (c=8 max_conns=20) | OFFER_ROW_LOCK: multi_buyer_1offer p95=24.683 p50=2.741 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.112 \u003c\u003c 1-offer p95=24.683 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=36.069 \u003e multi_buyer_1offer p95=24.683 | lookup_cold_ok: p95=0.202ms",
+      "pg_wait_events_during_auth": {
+        "\u003cnone\u003e:\u003cnone\u003e": 72,
+        "IO:WalWrite": 5,
+        "Lock:advisory": 560
+      }
+    },
+    {
+      "max_conns": 20,
+      "concurrency": 32,
+      "samples": 80,
+      "pool_acquire_ms": {
+        "p50": 0.000792,
+        "p95": 0.01675,
+        "p99": 0.054666,
+        "min": 0.000125,
+        "max": 0.054666,
+        "mean": 0.0034078624999999995,
+        "n": 80
+      },
+      "pool_stat_delta": {
+        "acquired_conns_end": 0,
+        "canceled_acquire_count_delta": 0,
+        "empty_acquire_count_delta": 0,
+        "empty_acquire_wait_ms_delta": 0,
+        "idle_conns_end": 9,
+        "max_conns": 20,
+        "total_conns_end": 9
+      },
+      "lookup_api_key_cold_ms": {
+        "p50": 0.16,
+        "p95": 0.184916,
+        "p99": 0.196375,
+        "min": 0.109708,
+        "max": 0.196375,
+        "mean": 0.1517771,
+        "n": 80
+      },
+      "lookup_api_key_warm_ms": {
+        "p50": 0.0005,
+        "p95": 0.003459,
+        "p99": 0.022833,
+        "min": 0.000166,
+        "max": 0.022833,
+        "mean": 0.0013630500000000004,
+        "n": 80
+      },
+      "authorize_same_buyer_1offer_ms": {
+        "p50": 56.4935,
+        "p95": 119.239417,
+        "p99": 120.132958,
+        "min": 2.085208,
+        "max": 120.132958,
+        "mean": 68.27369789999997,
+        "n": 80
+      },
+      "authorize_multi_buyer_1offer_ms": {
+        "p50": 20.804,
+        "p95": 55.880834,
+        "p99": 76.815917,
+        "min": 2.136584,
+        "max": 76.815917,
+        "mean": 25.25405415,
+        "n": 80
+      },
+      "authorize_multi_buyer_Noffer_ms": {
+        "p50": 4.915167,
+        "p95": 7.210208,
+        "p99": 8.092959,
+        "min": 2.942792,
+        "max": 8.092959,
+        "mean": 5.107257887500001,
+        "n": 80
+      },
+      "authorize_ok": {
+        "multi_buyer_1offer": 80,
+        "multi_buyer_Noffer": 80,
+        "same_buyer_1offer": 80
+      },
+      "authorize_fail": {
+        "multi_buyer_1offer": 0,
+        "multi_buyer_Noffer": 0,
+        "same_buyer_1offer": 0
+      },
+      "slow_sample_notes": [
+        "same_buyer max=120.133ms p95=119.239ms p50=56.493ms ratio_p95/p50=2.11"
+      ],
+      "cause_hint": "pool_ok: pool_p95=0.017ms empty_count=0 | MULTI_OFFER_HELPS: N-offer p95=7.210 \u003c\u003c 1-offer p95=55.881 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=119.239 \u003e multi_buyer_1offer p95=55.881 | lookup_cold_ok: p95=0.185ms",
+      "pg_wait_events_during_auth": {
+        "\u003cnone\u003e:\u003cnone\u003e": 14,
+        "Client:ClientRead": 1,
+        "IO:WalWrite": 2,
+        "Lock:advisory": 225,
+        "Timeout:VacuumDelay": 1
+      }
+    },
+    {
+      "max_conns": 64,
+      "concurrency": 1,
+      "samples": 80,
+      "pool_acquire_ms": {
+        "p50": 0.000125,
+        "p95": 0.000208,
+        "p99": 0.004542,
+        "min": 0.000083,
+        "max": 0.004542,
+        "mean": 0.0001714000000000001,
+        "n": 80
+      },
+      "pool_stat_delta": {
+        "acquired_conns_end": 0,
+        "canceled_acquire_count_delta": 0,
+        "empty_acquire_count_delta": 0,
+        "empty_acquire_wait_ms_delta": 0,
+        "idle_conns_end": 1,
+        "max_conns": 64,
+        "total_conns_end": 1
+      },
+      "lookup_api_key_cold_ms": {
+        "p50": 0.045625,
+        "p95": 0.116333,
+        "p99": 0.22275,
+        "min": 0.035916,
+        "max": 0.22275,
+        "mean": 0.057962475,
+        "n": 80
+      },
+      "lookup_api_key_warm_ms": {
+        "p50": 0.000167,
+        "p95": 0.000459,
+        "p99": 0.004458,
+        "min": 0.000125,
+        "max": 0.004458,
+        "mean": 0.00027757500000000007,
+        "n": 80
+      },
+      "authorize_same_buyer_1offer_ms": {
+        "p50": 0.962875,
+        "p95": 1.83775,
+        "p99": 8.826291,
+        "min": 0.6475,
+        "max": 8.826291,
+        "mean": 1.1241171375,
+        "n": 80
+      },
+      "authorize_multi_buyer_1offer_ms": {
+        "p50": 1.214584,
+        "p95": 1.571667,
+        "p99": 1.724667,
+        "min": 0.835167,
+        "max": 1.724667,
+        "mean": 1.2402448000000006,
+        "n": 80
+      },
+      "authorize_multi_buyer_Noffer_ms": {
+        "p50": 0.93875,
+        "p95": 1.261292,
+        "p99": 1.574209,
+        "min": 0.680375,
+        "max": 1.574209,
+        "mean": 0.9635573000000003,
+        "n": 80
+      },
+      "authorize_ok": {
+        "multi_buyer_1offer": 80,
+        "multi_buyer_Noffer": 80,
+        "same_buyer_1offer": 80
+      },
+      "authorize_fail": {
+        "multi_buyer_1offer": 0,
+        "multi_buyer_Noffer": 0,
+        "same_buyer_1offer": 0
+      },
+      "slow_sample_notes": [
+        "same_buyer max=8.826ms p95=1.838ms p50=0.963ms ratio_p95/p50=1.91"
+      ],
+      "cause_hint": "pool_ok: pool_p95=0.000ms empty_count=0 | lookup_cold_ok: p95=0.116ms",
+      "pg_wait_events_during_auth": {
+        "\u003cnone\u003e:\u003cnone\u003e": 23,
+        "Client:ClientRead": 4,
+        "IO:WalWrite": 4,
+        "LWLock:LockManager": 1
+      }
+    },
+    {
+      "max_conns": 64,
+      "concurrency": 8,
+      "samples": 80,
+      "pool_acquire_ms": {
+        "p50": 0.000167,
+        "p95": 4.376834,
+        "p99": 9.211292,
+        "min": 0.000083,
+        "max": 9.211292,
+        "mean": 0.4760411624999996,
+        "n": 80
+      },
+      "pool_stat_delta": {
+        "acquired_conns_end": 0,
+        "canceled_acquire_count_delta": 0,
+        "empty_acquire_count_delta": 6,
+        "empty_acquire_wait_ms_delta": 38.058082999999996,
+        "idle_conns_end": 8,
+        "max_conns": 64,
+        "total_conns_end": 8
+      },
+      "lookup_api_key_cold_ms": {
+        "p50": 0.000208,
+        "p95": 0.245208,
+        "p99": 0.273167,
+        "min": 0.000166,
+        "max": 0.273167,
+        "mean": 0.025515074999999998,
+        "n": 80
+      },
+      "lookup_api_key_warm_ms": {
+        "p50": 0.00025,
+        "p95": 0.001375,
+        "p99": 0.003459,
+        "min": 0.000166,
+        "max": 0.003459,
+        "mean": 0.00046458750000000025,
+        "n": 80
+      },
+      "authorize_same_buyer_1offer_ms": {
+        "p50": 13.137459,
+        "p95": 37.02525,
+        "p99": 45.052208,
+        "min": 1.1985,
+        "max": 45.052208,
+        "mean": 14.506227049999998,
+        "n": 80
+      },
+      "authorize_multi_buyer_1offer_ms": {
+        "p50": 3.370834,
+        "p95": 16.607167,
+        "p99": 75.9645,
+        "min": 2.25325,
+        "max": 75.9645,
+        "mean": 7.272961399999995,
+        "n": 80
+      },
+      "authorize_multi_buyer_Noffer_ms": {
+        "p50": 1.598083,
+        "p95": 3.123583,
+        "p99": 3.3215,
+        "min": 1.195292,
+        "max": 3.3215,
+        "mean": 1.7696822875000002,
+        "n": 80
+      },
+      "authorize_ok": {
+        "multi_buyer_1offer": 80,
+        "multi_buyer_Noffer": 80,
+        "same_buyer_1offer": 80
+      },
+      "authorize_fail": {
+        "multi_buyer_1offer": 0,
+        "multi_buyer_Noffer": 0,
+        "same_buyer_1offer": 0
+      },
+      "slow_sample_notes": [
+        "same_buyer max=45.052ms p95=37.025ms p50=13.137ms ratio_p95/p50=2.82"
+      ],
+      "cause_hint": "POOL_ACQUIRE_WAIT: empty_acquire_count_delta=6 empty_wait_ms_delta=38.058 pool_p95=4.377ms (c=8 max_conns=64) | OFFER_ROW_LOCK: multi_buyer_1offer p95=16.607 p50=3.371 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.124 \u003c\u003c 1-offer p95=16.607 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=37.025 \u003e multi_buyer_1offer p95=16.607 | lookup_cold_ok: p95=0.245ms",
+      "pg_wait_events_during_auth": {
+        "\u003cnone\u003e:\u003cnone\u003e": 56,
+        "Client:ClientRead": 1,
+        "IO:WalWrite": 4,
+        "Lock:advisory": 487
+      }
+    },
+    {
+      "max_conns": 64,
+      "concurrency": 32,
+      "samples": 80,
+      "pool_acquire_ms": {
+        "p50": 0.000708,
+        "p95": 0.015958,
+        "p99": 0.048834,
+        "min": 0.000083,
+        "max": 0.048834,
+        "mean": 0.0026499875,
+        "n": 80
+      },
+      "pool_stat_delta": {
+        "acquired_conns_end": 0,
+        "canceled_acquire_count_delta": 0,
+        "empty_acquire_count_delta": 0,
+        "empty_acquire_wait_ms_delta": 0,
+        "idle_conns_end": 9,
+        "max_conns": 64,
+        "total_conns_end": 9
+      },
+      "lookup_api_key_cold_ms": {
+        "p50": 0.151084,
+        "p95": 0.396458,
+        "p99": 0.415917,
+        "min": 0.080208,
+        "max": 0.415917,
+        "mean": 0.18525155000000004,
+        "n": 80
+      },
+      "lookup_api_key_warm_ms": {
+        "p50": 0.000875,
+        "p95": 0.004292,
+        "p99": 0.027708,
+        "min": 0.000167,
+        "max": 0.027708,
+        "mean": 0.001725974999999999,
+        "n": 80
+      },
+      "authorize_same_buyer_1offer_ms": {
+        "p50": 109.384208,
+        "p95": 197.040125,
+        "p99": 228.458583,
+        "min": 2.36025,
+        "max": 228.458583,
+        "mean": 108.9129478875,
+        "n": 80
+      },
+      "authorize_multi_buyer_1offer_ms": {
+        "p50": 22.088459,
+        "p95": 75.555542,
+        "p99": 85.141917,
+        "min": 1.901042,
+        "max": 85.141917,
+        "mean": 27.9969385625,
+        "n": 80
+      },
+      "authorize_multi_buyer_Noffer_ms": {
+        "p50": 5.370833,
+        "p95": 9.988459,
+        "p99": 10.407833,
+        "min": 3.007708,
+        "max": 10.407833,
+        "mean": 5.8940129625000015,
+        "n": 80
+      },
+      "authorize_ok": {
+        "multi_buyer_1offer": 80,
+        "multi_buyer_Noffer": 80,
+        "same_buyer_1offer": 80
+      },
+      "authorize_fail": {
+        "multi_buyer_1offer": 0,
+        "multi_buyer_Noffer": 0,
+        "same_buyer_1offer": 0
+      },
+      "slow_sample_notes": [
+        "same_buyer max=228.459ms p95=197.040ms p50=109.384ms ratio_p95/p50=1.80"
+      ],
+      "cause_hint": "pool_ok: pool_p95=0.016ms empty_count=0 | OFFER_ROW_LOCK: multi_buyer_1offer p95=75.556 p50=22.088 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=9.988 \u003c\u003c 1-offer p95=75.556 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=197.040 \u003e multi_buyer_1offer p95=75.556 | lookup_cold_ok: p95=0.396ms",
+      "pg_wait_events_during_auth": {
+        "\u003cnone\u003e:\u003cnone\u003e": 144,
+        "Client:ClientRead": 4,
+        "Lock:advisory": 3922
+      }
+    }
+  ],
+  "does_not_prove": [
+    "engine / model inference latency",
+    "end-to-end client TTFT under a real Metal/CUDA engine",
+    "that multi-tenant production load matches this fixture shape"
+  ],
+  "kind": "authorize_auth_tail_characterization",
+  "measured_at": "2026-08-03T17:47:11Z",
+  "method": {
+    "concurrency_levels": [
+      1,
+      8,
+      32
+    ],
+    "lock_hierarchy": "unchanged: buyer funding before offer capacity",
+    "machine": {
+      "goarch": "arm64",
+      "goos": "darwin",
+      "hostname": "Mac-Studio",
+      "load_average": [
+        10.34,
+        8.94,
+        7.43
+      ],
+      "load_n": 28,
+      "num_cpu": 28,
+      "quiet": true,
+      "quiet_reason": "1-min load 10.34 \u003c half of 28 CPUs"
+    },
+    "max_conns_levels": [
+      20,
+      64
+    ],
+    "percentile_method": "nearest-rank: ceil(p*n)-1",
+    "samples_per_cell": 80,
+    "void_strategy": "FinalizeRealtimeFailure AFTER each authorize wave (not interleaved)",
+    "what": "Factorial separation of authorize and LookupAPIKey tails into pool acquire wait, same-buyer funding lock, single-offer row lock, and rank-1 pile-on (multi equal-rank offers)."
+  },
+  "phase": "after_skip_gated_by_offer_count",
+  "producer_identity": {
+    "source_commit": {
+      "value": "2c8518dc908bda0651706d24e26e6f49acf0659e"
+    },
+    "build_digest": {
+      "value": "910eb18205f6c78bc16f7c747c99c6f961e64c4f5f8c137ab6b830f4bde0787a"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this measurement"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "control/authorize_tail_characterize_test.go"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this measurement"
+    },
+    "exact_config": {
+      "value": "embedded method + cells"
+    },
+    "raw_samples": {
+      "value": "embedded cells[].samples"
+    }
+  },
+  "schema_version": 1,
+  "synthesis": {
+    "buyer_funding_lock_cells": 4,
+    "how_to_read": "If pool_acquire_ms.p95 rises when max_conns=20 and c=32 but not at max_conns=64, the tail is connection-pool starvation. If authorize_multi_buyer_1offer_ms tails with pool_ok, the tail is offer-row lock. If authorize_multi_buyer_Noffer_ms ≈ 1offer, the SQL always piles onto selected_rank=1 (FOR UPDATE without SKIP LOCKED across candidates). If same_buyer \u003e\u003e multi_buyer_1offer, buyer funding advisory lock dominates.",
+    "lookup_cold_tail_cells": 0,
+    "offer_row_lock_cells": 3,
+    "per_cell_cause_hints": [
+      "max_conns=20 c=1: pool_ok: pool_p95=0.000ms empty_count=0 | lookup_cold_ok: p95=0.119ms",
+      "max_conns=20 c=8: POOL_ACQUIRE_WAIT: empty_acquire_count_delta=4 empty_wait_ms_delta=19.134 pool_p95=0.042ms (c=8 max_conns=20) | OFFER_ROW_LOCK: multi_buyer_1offer p95=24.683 p50=2.741 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.112 \u003c\u003c 1-offer p95=24.683 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=36.069 \u003e multi_buyer_1offer p95=24.683 | lookup_cold_ok: p95=0.202ms",
+      "max_conns=20 c=32: pool_ok: pool_p95=0.017ms empty_count=0 | MULTI_OFFER_HELPS: N-offer p95=7.210 \u003c\u003c 1-offer p95=55.881 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=119.239 \u003e multi_buyer_1offer p95=55.881 | lookup_cold_ok: p95=0.185ms",
+      "max_conns=64 c=1: pool_ok: pool_p95=0.000ms empty_count=0 | lookup_cold_ok: p95=0.116ms",
+      "max_conns=64 c=8: POOL_ACQUIRE_WAIT: empty_acquire_count_delta=6 empty_wait_ms_delta=38.058 pool_p95=4.377ms (c=8 max_conns=64) | OFFER_ROW_LOCK: multi_buyer_1offer p95=16.607 p50=3.371 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=3.124 \u003c\u003c 1-offer p95=16.607 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=37.025 \u003e multi_buyer_1offer p95=16.607 | lookup_cold_ok: p95=0.245ms",
+      "max_conns=64 c=32: pool_ok: pool_p95=0.016ms empty_count=0 | OFFER_ROW_LOCK: multi_buyer_1offer p95=75.556 p50=22.088 (same-buyer funding excluded) | MULTI_OFFER_HELPS: N-offer p95=9.988 \u003c\u003c 1-offer p95=75.556 (unexpected under current rank-1 SQL) | BUYER_FUNDING_LOCK: same_buyer p95=197.040 \u003e multi_buyer_1offer p95=75.556 | lookup_cold_ok: p95=0.396ms"
+    ],
+    "pool_starvation_cells": 2,
+    "rank1_pile_on_cells": 0
+  }
+}

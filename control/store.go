@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/singleflight"
 )
 
 type Store struct {
@@ -27,6 +28,10 @@ type Store struct {
 	// and operational_control_cache.go for the revocation / kill-switch bounds.
 	apiKeys             apiKeyCache
 	operationalControls operationalControlCache
+	// apiKeyLookups collapses concurrent cold LookupAPIKey misses for the same
+	// key_hash so a TTL-expiry stampede is one DB round-trip, not N. Negatives
+	// are still never cached (singleflight only shares the in-flight result).
+	apiKeyLookups singleflight.Group
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {
@@ -271,26 +276,38 @@ func (s *Store) LookupAPIKey(ctx context.Context, rawKey string) (AuthResult, er
 	if cached, ok := s.apiKeys.get(keyHash); ok {
 		return cached, nil
 	}
-	var r AuthResult
-	err := s.pool.QueryRow(ctx,
-		`SELECT id, buyer_id, is_admin,
-		        COALESCE(NULLIF(name,''), CASE WHEN is_admin THEN 'break-glass API key' ELSE 'API key' END)
-		   FROM api_keys
-		 WHERE key_hash = $1 AND revoked = false
-		   AND (is_admin OR EXISTS (
-		     SELECT 1 FROM buyers b WHERE b.id=api_keys.buyer_id AND b.deleted_at IS NULL))`,
-		keyHash,
-	).Scan(&r.APIKeyID, &r.BuyerID, &r.IsAdmin, &r.APIKeyLabel)
-	if errors.Is(err, pgx.ErrNoRows) {
-		// Never cache negatives: a re-minted or un-revoked key must not be
-		// blocked by a stale miss, and an attacker must not pin "denied".
-		return r, errNotFound
-	}
+	// Coalesce concurrent cold misses for this hash. Double-check the cache
+	// inside the group so a leader that just filled it satisfies waiters
+	// without a second query.
+	v, err, _ := s.apiKeyLookups.Do(keyHash, func() (any, error) {
+		if cached, ok := s.apiKeys.get(keyHash); ok {
+			return cached, nil
+		}
+		var r AuthResult
+		qerr := s.pool.QueryRow(ctx,
+			`SELECT id, buyer_id, is_admin,
+			        COALESCE(NULLIF(name,''), CASE WHEN is_admin THEN 'break-glass API key' ELSE 'API key' END)
+			   FROM api_keys
+			 WHERE key_hash = $1 AND revoked = false
+			   AND (is_admin OR EXISTS (
+			     SELECT 1 FROM buyers b WHERE b.id=api_keys.buyer_id AND b.deleted_at IS NULL))`,
+			keyHash,
+		).Scan(&r.APIKeyID, &r.BuyerID, &r.IsAdmin, &r.APIKeyLabel)
+		if errors.Is(qerr, pgx.ErrNoRows) {
+			// Never cache negatives: a re-minted or un-revoked key must not be
+			// blocked by a stale miss, and an attacker must not pin "denied".
+			return AuthResult{}, errNotFound
+		}
+		if qerr != nil {
+			return AuthResult{}, qerr
+		}
+		s.apiKeys.put(keyHash, r)
+		return r, nil
+	})
 	if err != nil {
-		return r, err
+		return AuthResult{}, err
 	}
-	s.apiKeys.put(keyHash, r)
-	return r, nil
+	return v.(AuthResult), nil
 }
 
 type APIKeyRow struct {
