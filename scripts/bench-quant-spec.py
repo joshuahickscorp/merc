@@ -20,6 +20,13 @@ import time
 from pathlib import Path
 
 import mlx.core as mx
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from lib.evidence_binding import (  # noqa: E402
+    EvidenceBindingError,
+    write_bound_jsonl_sidecar,
+)
 from mlx_lm import load
 from mlx_lm.models.cache import make_prompt_cache
 
@@ -196,6 +203,21 @@ def main() -> int:
             r.setdefault("runtime", "mlx")
             fh.write(json.dumps(r) + "\n")
             print(json.dumps(r), flush=True)
+    try:
+        write_bound_jsonl_sidecar(
+            out,
+            harness="scripts/bench-quant-spec.py",
+            repo_root=ROOT,
+            build_binary_path=Path(__file__).resolve(),
+            exact_config=f"batches={args.batches}",
+            raw_samples=f"JSONL rows at {out.as_posix()}",
+            model_na="model ids recorded per JSONL row; no single artifact digest",
+            image_na="no container image in this measurement",
+            corpus_na="no external corpus",
+        )
+    except EvidenceBindingError as exc:
+        print(f"bench-quant-spec: REFUSED binding sidecar: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 

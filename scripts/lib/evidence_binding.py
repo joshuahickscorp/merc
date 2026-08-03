@@ -532,3 +532,54 @@ def emit_bound_json(
         build_binary_path=build,
         authority_id=authority_id,
     )
+
+
+def write_bound_jsonl_sidecar(
+    path: str | Path,
+    *,
+    harness: str,
+    repo_root: str | Path | None = None,
+    build_binary_path: str | Path | None = None,
+    exact_config: str = "embedded in JSONL rows",
+    raw_samples: str = "JSONL rows at this path",
+    model_na: str = "no model weights recorded in sidecar; see JSONL rows",
+    image_na: str = "no container image in this measurement",
+    corpus_na: str = "no external corpus in this measurement",
+    note: str = "sidecar for non-object evidence written via bound path",
+) -> None:
+    """Write a BOUND .binding.json sidecar for a JSONL/txt evidence file.
+
+    The content file is left untouched (JSONL rows are not a receipt object).
+    Call after the content write so re-runs refresh identity rather than leave
+    a stale UNBOUND sidecar or no sidecar at all.
+    """
+    root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[2]
+    dest = Path(path)
+    build = Path(build_binary_path) if build_binary_path else Path(harness)
+    if not build.is_file():
+        build = Path(__file__).resolve()
+    identity = default_bound_identity(
+        root,
+        harness_revision=harness,
+        build_binary_path=build,
+        exact_config=exact_config,
+        raw_samples=raw_samples,
+        model_na=model_na,
+        image_na=image_na,
+        corpus_na=corpus_na,
+    )
+    try:
+        target = dest.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        target = dest.as_posix()
+    doc = {
+        "schema_version": 1,
+        "kind": "evidence_binding_sidecar",
+        "target": target,
+        "binding_status": BINDING_BOUND,
+        "producer_identity": identity,
+        "note": note,
+    }
+    side = binding_sidecar_path(dest)
+    text = json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
+    _atomic_write(side, text)
