@@ -2,11 +2,55 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// seedPassedPromotionGate inserts a passed gate verdict and returns the receipt
+// ref ApplyActivationPolicy will accept for an operator promotion of cellID.
+func seedPassedPromotionGate(t *testing.T, ctx context.Context, store *Store, cellID string) string {
+	t.Helper()
+	// Unique digest per call so ON CONFLICT DO NOTHING does not collide across tests.
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s-%d", cellID, time.Now().UnixNano())))
+	digest := hex.EncodeToString(sum[:])
+	ref := fmt.Sprintf("%s:%s:%s", promotionGateVersion, cellID, digest)
+	evidence := CellPromotionEvidence{
+		GateVersion:            promotionGateVersion,
+		EvaluatedAt:            time.Now().UTC(),
+		Scope:                  CellPromotionScope{CellID: cellID, JobType: "embed", ModelRef: "all-minilm-l6-v2"},
+		IncumbentCell:          "candle-metal-minilm-embed",
+		Basis:                  promotionBasisCost,
+		RequiredMarginFraction: promotionCostMarginFraction,
+		RuntimeMatrixSHA256:    generatedRuntimeMatrixSHA256,
+		// Empty refusals ⇒ Passed().
+	}
+	// Stamp the digest that ReceiptRef would compute only if we used Digest();
+	// here we write the row directly so the ref is under our control.
+	raw, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.pool.Exec(ctx, `
+		INSERT INTO runtime_cell_promotion_evaluations
+		  (evidence_sha256, promotion_receipt_ref, gate_version, scope_json,
+		   incumbent_cell, challenger_cell, passed, policy_revision,
+		   runtime_matrix_sha256, evaluated_at, evidence_json)
+		VALUES ($1,$2,$3,$4::jsonb,$5,$6,true,1,$7,$8,$9::jsonb)`,
+		digest, ref, promotionGateVersion, `{"cell_id":"`+cellID+`"}`,
+		evidence.IncumbentCell, cellID, generatedRuntimeMatrixSHA256,
+		evidence.EvaluatedAt, string(raw))
+	if err != nil {
+		t.Fatalf("seed promotion gate verdict: %v", err)
+	}
+	return ref
+}
 
 // withActivationRestored makes the process-wide policy snapshot safe to mutate.
 //
@@ -90,12 +134,14 @@ func TestPromotionIsAPolicyWriteAndLeavesCapabilityIdentityUntouched(t *testing.
 	// BOTH the profile and the cell. A cell cannot outrank its profile, so a
 	// cell-only CANARY statement is floored back to REAL_RUNTIME_PROVEN and
 	// changes nothing — which is the rule working, not the promotion failing.
-	const receipt = "evidence/chain/two-agent-product-chain.json"
+	// Operator promotion requires the cell-promotion-gate verdict, not a path.
+	receipt := seedPassedPromotionGate(t, ctx, store, llamaEmbedCell)
 	revision, err := store.ApplyActivationPolicy(ctx, []ActivationPolicyEntry{
 		{
 			RuntimeProfileID: "llama_cpp_metal",
 			Lifecycle:        runtimeLifecycleCanary,
-			PromotionReceipt: receipt,
+			// Profile-level entries are not cell promotions; no gate required.
+			PromotionReceipt: "profile-canary-note",
 		},
 		{
 			RuntimeProfileID: "llama_cpp_metal",
@@ -331,6 +377,7 @@ func TestQuarantinePolicyRemovesACellFromEveryRoute(t *testing.T) {
 
 // Nothing becomes routable without naming the receipt that authorised it. The
 // rule is in the database, so a caller that forgets cannot make it optional.
+// Operator promotions further require the gate's verdict, not a free string.
 func TestRoutablePolicyRequiresAPromotionReceipt(t *testing.T) {
 	ctx, store, _ := openActivationStore(t)
 
@@ -341,6 +388,20 @@ func TestRoutablePolicyRequiresAPromotionReceipt(t *testing.T) {
 	}}, "promotion with no evidence")
 	if err == nil {
 		t.Fatal("a cell was promoted to CANARY with no promotion receipt")
+	}
+
+	// A non-empty path that is not a gate verdict is also refused.
+	_, err = store.ApplyActivationPolicy(ctx, []ActivationPolicyEntry{{
+		RuntimeProfileID: "llama_cpp_metal",
+		CellID:           llamaEmbedCell,
+		Lifecycle:        runtimeLifecycleCanary,
+		PromotionReceipt: "evidence/chain/two-agent-product-chain.json",
+	}}, "promotion with a loose path")
+	if err == nil {
+		t.Fatal("a cell was promoted with a loose receipt path, not a gate verdict")
+	}
+	if !strings.Contains(err.Error(), promotionGateVersion) {
+		t.Fatalf("refusal did not name the gate: %v", err)
 	}
 }
 
@@ -421,8 +482,11 @@ func assertRegistryMatchesPolicy(t *testing.T, ctx context.Context, pool *pgxpoo
 				t.Errorf("%s/%s: registry says %s, policy says %s",
 					runtimeID, cellID, lifecycle, want)
 			}
-			if routable != runtimeLifecycleRoutable(lifecycle) {
-				t.Errorf("%s/%s: routable=%v at lifecycle %s", runtimeID, cellID, routable, lifecycle)
+			// Registry routable tracks lifecycle AND bindable authority.
+			wantRoutable := snapshot.cellRoutable(profile, cell)
+			if routable != wantRoutable {
+				t.Errorf("%s/%s: routable=%v, want %v at lifecycle %s",
+					runtimeID, cellID, routable, wantRoutable, lifecycle)
 			}
 		}
 	}

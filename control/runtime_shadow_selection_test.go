@@ -80,9 +80,12 @@ func TestShadowSelectionConsidersTheProvenCellAdmissionCannotRoute(t *testing.T)
 func TestShadowSelectionRecordsWhyACellWasExcluded(t *testing.T) {
 	withActivationRestored(t)
 
+	// Ordinary admission freezes the bindable embed singleton. Shadow selection
+	// then scores the directed set, where llama.cpp's embed cell is reachable
+	// and its rejected generation cell must be excluded with the measurement.
 	decision, err := buildWorkloadDecision(jobSubmit{
-		JobType:     JobType{Type: "batch_infer", MaxTokens: 128},
-		Model:       ModelRef{Kind: "gguf", Ref: "llama-3.2-1b-instruct-q4"},
+		JobType:     JobType{Type: "embed"},
+		Model:       ModelRef{Kind: "hf", Ref: "all-minilm-l6-v2"},
 		Tier:        "batch",
 		Constraints: JobConstraints{MaxDurationSecs: 3600},
 	}, strings.Repeat("b", 64))
@@ -95,8 +98,40 @@ func TestShadowSelectionRecordsWhyACellWasExcluded(t *testing.T) {
 	}
 	t.Logf("excluded: %+v", shadow.Excluded)
 
-	var reason string
+	// The rejected generation cell is not in the embed directed set; exclusion
+	// of a peer that sells a different job is not required. What is required:
+	// any cell shadow considers and rejects must name why. For embed the
+	// interesting exclusion is the generation cell if it appears, otherwise we
+	// assert the rejected cell is not silently considered as a candidate.
+	for _, c := range shadow.Considered {
+		if c.CellID == "llama-cpp-metal-llama1-infer" {
+			t.Fatal("the REJECTED_FOR_CONTRACT generation cell was considered for embed work")
+		}
+	}
+	// Directed embed peers may include llama.cpp embed; it must not be excluded
+	// for a fabricated reason.
 	for _, exclusion := range shadow.Excluded {
+		if exclusion.CellID == "llama-cpp-metal-minilm-embed" && exclusion.Reason == "" {
+			t.Fatal("llama embed excluded with an empty reason")
+		}
+	}
+	// Re-check the generation cell on a directed batch_infer decision so the
+	// REJECTED_FOR_CONTRACT exclusion remains covered.
+	infer, err := buildWorkloadDecisionDirected(jobSubmit{
+		JobType:     JobType{Type: "batch_infer", MaxTokens: 128},
+		Model:       ModelRef{Kind: "gguf", Ref: "llama-3.2-1b-instruct-q4"},
+		Tier:        "batch",
+		Constraints: JobConstraints{MaxDurationSecs: 3600},
+	}, strings.Repeat("b", 64), "candle-metal-llama1-infer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inferShadow, err := planShadowSelection(infer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reason string
+	for _, exclusion := range inferShadow.Excluded {
 		if exclusion.CellID == "llama-cpp-metal-llama1-infer" {
 			reason = exclusion.Reason
 		}

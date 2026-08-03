@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -118,7 +119,24 @@ func (a *runtimeActivation) cellLifecycle(p authorityRuntimeProfile, c authority
 }
 
 func (a *runtimeActivation) cellRoutable(p authorityRuntimeProfile, c authorityCell) bool {
-	return runtimeLifecycleRoutable(a.cellLifecycle(p, c))
+	// Lifecycle from policy, authority binding from the document: a CANARY cell
+	// whose receipt was withdrawn is not routable, and an operator write cannot
+	// make it so without a new bindable authority.
+	resolved := a.resolve(p)
+	var cell authorityCell
+	for _, candidate := range resolved.Cells {
+		if candidate.ID == c.ID {
+			cell = candidate
+			break
+		}
+	}
+	if cell.ID == "" {
+		cell = c
+		if state, ok := a.lifecycle[activationKey(p.RuntimeID, c.ID)]; ok && state != "" {
+			cell.Lifecycle = state
+		}
+	}
+	return cell.Routable(resolved)
 }
 
 func (a *runtimeActivation) cellDirected(p authorityRuntimeProfile, c authorityCell) bool {
@@ -230,6 +248,9 @@ func documentActivationEntries() ([]ActivationPolicyEntry, error) {
 			ProfileRevision:  profile.Revision,
 			CapabilityDigest: digest,
 			Lifecycle:        profile.Lifecycle,
+			// Profile-level routable stays lifecycle-derived: the catalogue is
+			// per cell. A profile with every cell unbound is still "ACTIVE" as a
+			// document statement; its cells are simply not advertised.
 			Routable:         runtimeLifecycleRoutable(profile.Lifecycle),
 			DirectedEligible: directedReachableLifecycle(profile.Lifecycle),
 			PromotionReceipt: profile.BenchmarkAuthority,
@@ -243,7 +264,11 @@ func documentActivationEntries() ([]ActivationPolicyEntry, error) {
 				CellID:           cell.ID,
 				CapabilityDigest: digest,
 				Lifecycle:        effective,
-				Routable:         runtimeLifecycleRoutable(effective),
+				// Cell routability is lifecycle AND bindable authority — the same
+				// predicate projectActivationPolicyIntoRegistry writes into the
+				// registry, so a document seed cannot advertise a cell the
+				// predicate would refuse.
+				Routable:         cell.Routable(profile),
 				DirectedEligible: directedReachableLifecycle(effective),
 				PromotionReceipt: cell.benchmarkAuthorityFor(profile),
 				Source:           activationSourceDocument,
@@ -318,6 +343,26 @@ func insertActivationPolicy(
 		if !entry.EffectiveAt.IsZero() {
 			effective = entry.EffectiveAt
 		}
+		// Routable is lifecycle-derived for the policy ROW only when the entry
+		// does not carry a precomputed value — document seeds set it via
+		// cell.Routable. Operator writes recompute against the live authority so
+		// a withdrawn receipt cannot be re-advertised by lifecycle alone.
+		routable := entry.Routable
+		if entry.CellID != "" {
+			if profile, ok := runtimeProfileByID(entry.RuntimeProfileID); ok {
+				proposed := profile
+				proposed.Cells = append([]authorityCell(nil), profile.Cells...)
+				for j := range proposed.Cells {
+					if proposed.Cells[j].ID == entry.CellID {
+						proposed.Cells[j].Lifecycle = entry.Lifecycle
+						routable = proposed.Cells[j].Routable(proposed)
+						break
+					}
+				}
+			}
+		} else {
+			routable = runtimeLifecycleRoutable(entry.Lifecycle)
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO runtime_activation_policies
 			  (policy_revision, runtime_profile_id, profile_revision, cell_id,
@@ -327,7 +372,7 @@ func insertActivationPolicy(
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE($13,now()),$14,$15)`,
 			next, entry.RuntimeProfileID, entry.ProfileRevision, entry.CellID,
 			entry.CapabilityDigest, entry.Lifecycle,
-			runtimeLifecycleRoutable(entry.Lifecycle),
+			routable,
 			directedReachableLifecycle(entry.Lifecycle),
 			allowlist, entry.CanaryTrafficPct, entry.PromotionReceipt,
 			rollbackTarget, effective, source, note); err != nil {
@@ -461,6 +506,11 @@ func (s *Store) CurrentActivationPolicy(ctx context.Context) ([]ActivationPolicy
 // that profile. Writing a promotion against a stale digest would produce a policy
 // that is refused the moment it is read, so it is refused at the moment it is
 // written instead, where the operator is still there to be told.
+//
+// Operator promotions into CANARY/ACTIVE require the cell-promotion-gate verdict
+// as promotion_receipt — not a free path string. The gate's ReceiptRef is the
+// only string this column may store for an operator promotion; a loose receipt
+// path used to activate a cell without the gate ever having run.
 func (s *Store) ApplyActivationPolicy(
 	ctx context.Context, entries []ActivationPolicyEntry, note string,
 ) (int64, error) {
@@ -493,57 +543,68 @@ func (s *Store) writeActivationPolicy(
 			return 0, fmt.Errorf("activation policy for %s names unknown lifecycle %q",
 				activationKey(entry.RuntimeProfileID, entry.CellID), entry.Lifecycle)
 		}
-		if entry.CellID == "" {
-			continue
-		}
-		var cell authorityCell
-		found := false
-		for _, candidate := range profile.Cells {
-			if candidate.ID == entry.CellID {
-				cell, found = candidate, true
-				break
+		if entry.CellID != "" {
+			var cell authorityCell
+			found := false
+			for _, candidate := range profile.Cells {
+				if candidate.ID == entry.CellID {
+					cell, found = candidate, true
+					break
+				}
+			}
+			if !found {
+				return 0, fmt.Errorf("activation policy names cell %q, which profile %q %s "+
+					"does not declare", entry.CellID, profile.RuntimeID, profile.Revision)
+			}
+			// A rejection is a measurement, and policy does not reverse measurements.
+			//
+			// Without this, an operator could promote llama.cpp's byte_exact generation
+			// cell straight to CANARY by writing policy — the very cell whose
+			// determinism sweep found divergence from its own serial output in every
+			// batched configuration. Reversing that needs a new engine version, which
+			// is a capability change with a new digest, not a policy write.
+			if cell.Lifecycle == runtimeLifecycleRejectedForContract &&
+				entry.Lifecycle != runtimeLifecycleRejectedForContract {
+				return 0, fmt.Errorf(
+					"cell %q is REJECTED_FOR_CONTRACT: %s\n"+
+						"activation policy cannot reverse a measurement; that needs a new "+
+						"capability revision", cell.ID, cell.RejectionReason)
+			}
+			// Every document-level cell rule, re-applied to the state policy proposes.
+			//
+			// The rules that decide whether a cell may sell its verification contract
+			// live in validateCellAuthority and run when the document loads. Policy is
+			// a second door into the same decision, so it has to face the same rules —
+			// otherwise the determinism gate, the per-cell evidence requirement and the
+			// receipt-binding check are all reachable around rather than through.
+			proposed := profile
+			proposed.Cells = append([]authorityCell(nil), profile.Cells...)
+			for j := range proposed.Cells {
+				if proposed.Cells[j].ID == cell.ID {
+					// Only the lifecycle. The promotion receipt is the record of the
+					// DECISION and the benchmark authority is the record of the
+					// MEASUREMENT; substituting one for the other here would let a
+					// promotion supply its own evidence.
+					proposed.Cells[j].Lifecycle = entry.Lifecycle
+					cell = proposed.Cells[j]
+				}
+			}
+			if err := validateCellAuthority(proposed, cell); err != nil {
+				return 0, fmt.Errorf("activation policy for %s: %w",
+					activationKey(entry.RuntimeProfileID, entry.CellID), err)
 			}
 		}
-		if !found {
-			return 0, fmt.Errorf("activation policy names cell %q, which profile %q %s "+
-				"does not declare", entry.CellID, profile.RuntimeID, profile.Revision)
-		}
-		// A rejection is a measurement, and policy does not reverse measurements.
-		//
-		// Without this, an operator could promote llama.cpp's byte_exact generation
-		// cell straight to CANARY by writing policy — the very cell whose
-		// determinism sweep found divergence from its own serial output in every
-		// batched configuration. Reversing that needs a new engine version, which
-		// is a capability change with a new digest, not a policy write.
-		if cell.Lifecycle == runtimeLifecycleRejectedForContract &&
-			entry.Lifecycle != runtimeLifecycleRejectedForContract {
-			return 0, fmt.Errorf(
-				"cell %q is REJECTED_FOR_CONTRACT: %s\n"+
-					"activation policy cannot reverse a measurement; that needs a new "+
-					"capability revision", cell.ID, cell.RejectionReason)
-		}
-		// Every document-level cell rule, re-applied to the state policy proposes.
-		//
-		// The rules that decide whether a cell may sell its verification contract
-		// live in validateCellAuthority and run when the document loads. Policy is
-		// a second door into the same decision, so it has to face the same rules —
-		// otherwise the determinism gate, the per-cell evidence requirement and the
-		// receipt-binding check are all reachable around rather than through.
-		proposed := profile
-		proposed.Cells = append([]authorityCell(nil), profile.Cells...)
-		for j := range proposed.Cells {
-			if proposed.Cells[j].ID == cell.ID {
-				// Only the lifecycle. The promotion receipt is the record of the
-				// DECISION and the benchmark authority is the record of the
-				// MEASUREMENT; substituting one for the other here would let a
-				// promotion supply its own evidence.
-				proposed.Cells[j].Lifecycle = entry.Lifecycle
-				cell = proposed.Cells[j]
+		// Operator promotion into the routable lifecycle band requires the gate's
+		// verdict. Runs after rejection/document rules so a measured rejection is
+		// still refused for that reason, not for a missing gate receipt. Document
+		// seed and rollback re-state prior receipts and are not promotions.
+		// Profile-level entries have no cell gate (promotion is per cell).
+		if source == activationSourceOperator &&
+			runtimeLifecycleRoutable(entry.Lifecycle) &&
+			entry.CellID != "" {
+			if err := s.requirePromotionGateVerdict(ctx, entry); err != nil {
+				return 0, err
 			}
-		}
-		if err := validateCellAuthority(proposed, cell); err != nil {
-			return 0, fmt.Errorf("activation policy for %s: %w",
-				activationKey(entry.RuntimeProfileID, entry.CellID), err)
 		}
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -565,6 +626,57 @@ func (s *Store) writeActivationPolicy(
 		return revision, err
 	}
 	return revision, nil
+}
+
+// requirePromotionGateVerdict refuses an operator promotion whose receipt is
+// not a passed evaluation of the cell-promotion gate.
+//
+// The gate's ReceiptRef format is `cell-promotion-gate-v2:<cell_id>:<sha256>`.
+// Anything else — a benchmark path, a chain receipt, a free string — used to
+// satisfy the non-empty CHECK and activate the cell without the gate running.
+func (s *Store) requirePromotionGateVerdict(ctx context.Context, entry ActivationPolicyEntry) error {
+	ref := strings.TrimSpace(entry.PromotionReceipt)
+	if ref == "" {
+		return fmt.Errorf(
+			"activation policy for %s promotes to %s without a promotion receipt",
+			activationKey(entry.RuntimeProfileID, entry.CellID), entry.Lifecycle)
+	}
+	prefix := promotionGateVersion + ":" + entry.CellID + ":"
+	if !strings.HasPrefix(ref, prefix) {
+		return fmt.Errorf(
+			"activation policy for %s: promotion_receipt must be a %s verdict for cell %q, got %q",
+			activationKey(entry.RuntimeProfileID, entry.CellID), promotionGateVersion,
+			entry.CellID, ref)
+	}
+	digest := strings.TrimPrefix(ref, prefix)
+	if len(digest) != 64 {
+		return fmt.Errorf(
+			"activation policy for %s: promotion_receipt digest is not a sha256",
+			activationKey(entry.RuntimeProfileID, entry.CellID))
+	}
+	for _, r := range digest {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return fmt.Errorf(
+				"activation policy for %s: promotion_receipt digest is not lowercase hex",
+				activationKey(entry.RuntimeProfileID, entry.CellID))
+		}
+	}
+	var passed bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT passed FROM runtime_cell_promotion_evaluations
+		 WHERE promotion_receipt_ref = $1`, ref).Scan(&passed)
+	if err != nil {
+		return fmt.Errorf(
+			"activation policy for %s: promotion_receipt %q is not a recorded gate verdict "+
+				"(EvaluateCellPromotion must pass and be recorded first): %w",
+			activationKey(entry.RuntimeProfileID, entry.CellID), ref, err)
+	}
+	if !passed {
+		return fmt.Errorf(
+			"activation policy for %s: promotion gate verdict %q did not pass",
+			activationKey(entry.RuntimeProfileID, entry.CellID), ref)
+	}
+	return nil
 }
 
 // RollbackActivationPolicy restores an earlier revision by writing it forward.
@@ -642,11 +754,27 @@ func projectActivationPolicyIntoRegistry(ctx context.Context, tx pgx.Tx) error {
 		}
 		for _, cell := range profile.Cells {
 			effective := snapshot.cellLifecycle(profile, cell)
+			// Registry routable tracks the full predicate (lifecycle + bindable
+			// authority), not lifecycle alone. The DB CHECK allows CANARY/ACTIVE
+			// with routable=false so a withdrawn receipt demotes without editing
+			// the lifecycle field by hand.
+			resolved := snapshot.resolve(profile)
+			routable := false
+			for _, candidate := range resolved.Cells {
+				if candidate.ID == cell.ID {
+					// Effective lifecycle is already on the resolved cell when
+					// policy overlaid it; force the projected effective so a
+					// policy demotion is visible even if resolve missed it.
+					candidate.Lifecycle = effective
+					routable = candidate.Routable(resolved)
+					break
+				}
+			}
 			if _, err := tx.Exec(ctx, `
 				UPDATE runtime_profile_models
-				   SET lifecycle = $4, routable = ($4 IN ('CANARY','ACTIVE'))
+				   SET lifecycle = $4, routable = $5
 				 WHERE runtime_profile_id = $1 AND revision = $2 AND cell_id = $3`,
-				profile.RuntimeID, profile.Revision, cell.ID, effective); err != nil {
+				profile.RuntimeID, profile.Revision, cell.ID, effective, routable); err != nil {
 				return fmt.Errorf("project activation policy onto cell %s: %w", cell.ID, err)
 			}
 		}

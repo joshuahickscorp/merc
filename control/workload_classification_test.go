@@ -15,9 +15,12 @@ import (
 
 func validBatchWorkloadSubmit(t *testing.T) jobSubmit {
 	t.Helper()
+	// Ordinary admission is a singleton on the bindable advertised cell. At this
+	// commit that is embed/all-minilm — batch_infer is lifecycle-present but its
+	// authority does not bind, so it is not an ordinary buyer submit path.
 	sub, herr := normalizeAndValidateJobSubmit(jobSubmit{
-		JobType: JobType{Type: "batch_infer", MaxTokens: 32},
-		Model:   ModelRef{Ref: "llama-3.2-1b-instruct-q4"},
+		JobType: JobType{Type: "embed"},
+		Model:   ModelRef{Ref: "all-minilm-l6-v2"},
 		Params:  json.RawMessage(`{"split_size":8}`),
 		Constraints: JobConstraints{
 			MaxDurationSecs: 3600,
@@ -43,17 +46,18 @@ func TestWorkloadDecisionIsServerClassifiedAndRevisionPinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.WorkloadClass != "batch_generation" ||
-		decision.RuntimeJobType != "batch_infer" ||
-		decision.ModelRevision != "b69aef112e9f895e6f98d7ae0949f72ff09aa401" {
+	if decision.WorkloadClass != "embeddings" ||
+		decision.RuntimeJobType != "embed" ||
+		decision.ModelRevision != "1110a243fdf4706b3f48f1d95db1a4f5529b4d41" {
 		t.Fatalf("decision did not derive class/job/revision from runtime authority: %+v", decision)
 	}
 	if len(decision.RuntimeCandidates) != 1 ||
-		decision.RuntimeCandidates[0].CellID != "candle-metal-llama1-infer" {
+		decision.RuntimeCandidates[0].CellID != "candle-metal-minilm-embed" {
 		t.Fatalf("decision did not resolve one exact runtime cell: %+v", decision.RuntimeCandidates)
 	}
+	// Embed is cosine-verified: deterministic for cache purposes, not prefix-reuse.
 	if !decision.Deterministic || decision.ExactResultCacheEligible ||
-		!decision.PrefixReuseEligible || decision.InflightCoalescingEligible {
+		decision.PrefixReuseEligible || decision.InflightCoalescingEligible {
 		t.Fatalf("decision over/under-stated reuse eligibility: %+v", decision)
 	}
 	if err := ValidateWorkloadDecisionSnapshot(decision); err != nil {
@@ -146,7 +150,7 @@ func TestPlacementRequirementRejectsEveryClaimAuthorityMutation(t *testing.T) {
 		mutate func(*PlacementRequirement)
 	}{
 		{"version", func(p *PlacementRequirement) { p.Version++ }},
-		{"job type", func(p *PlacementRequirement) { p.JobType = "embed" }},
+		{"job type", func(p *PlacementRequirement) { p.JobType = "batch_infer" }},
 		{"model ref", func(p *PlacementRequirement) { p.ModelRef = "different-model" }},
 		{"model kind", func(p *PlacementRequirement) { p.ModelKind = "different-kind" }},
 		{"runtime cell", func(p *PlacementRequirement) { p.RuntimeCellID = "different-cell" }},

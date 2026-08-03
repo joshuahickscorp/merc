@@ -10,9 +10,9 @@ import (
 
 func TestAdminSelectorRollbackReachesAppendOnlyPolicy(t *testing.T) {
 	ctx, store, pool := openActivationStore(t)
-	const receipt = "evidence/chain/two-agent-product-chain.json"
+	receipt := seedPassedPromotionGate(t, ctx, store, llamaEmbedCell)
 	if _, err := store.ApplyActivationPolicy(ctx, []ActivationPolicyEntry{
-		{RuntimeProfileID: "llama_cpp_metal", Lifecycle: runtimeLifecycleCanary, PromotionReceipt: receipt},
+		{RuntimeProfileID: "llama_cpp_metal", Lifecycle: runtimeLifecycleCanary, PromotionReceipt: "profile-canary"},
 		{RuntimeProfileID: "llama_cpp_metal", CellID: llamaEmbedCell,
 			Lifecycle: runtimeLifecycleCanary, PromotionReceipt: receipt,
 			CanaryAllowlist: []string{"selector-rollback-test"}, CanaryTrafficPct: 5},
