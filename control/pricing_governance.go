@@ -252,10 +252,7 @@ func (e errNegativeContribution) Error() string {
 // reusing the same measured throughput and sustained-power figures the
 // viability report uses so the two can never disagree.
 func marginsForPrice(b measuredThroughput, pricePer1K, supplierShare float64) contributionMargins {
-	watts := sustainedWattsByHWClass[b.HWClass]
-	if watts <= 0 {
-		watts = 30.0
-	}
+	watts := sustainedWattsForClass(b.HWClass)
 	elec := watts / 1000.0 * defaultElectricityUSDPerKWh
 	unitsPerHr := b.UnitsPerSec * 3600.0
 	revenue := unitsPerHr / 1000.0 * pricePer1K

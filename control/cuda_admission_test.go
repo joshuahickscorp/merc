@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // CUDA admission.
 //
@@ -25,20 +28,30 @@ func TestCUDAClassesAreAdmitted(t *testing.T) {
 	}
 }
 
-// Every admitted class needs a real sustained-power figure. Without one,
-// supplier viability falls back to a default and the economics report is wrong
-// in the direction that hides a loss.
+// Every admitted class needs a real sustained-power figure with provenance.
+// Without one, supplier viability falls back to a default and the economics
+// report is wrong in the direction that hides a loss. An unlabelled constant
+// is refused the same way.
 func TestEveryAdmittedClassHasAPowerFigure(t *testing.T) {
+	if err := validateSustainedWattsTable(); err != nil {
+		t.Fatalf("sustained watts table invalid: %v", err)
+	}
 	for class := range validHWClasses {
 		w, ok := sustainedWattsByHWClass[class]
-		if !ok || w <= 0 {
+		if !ok || w.Watts() <= 0 {
 			t.Fatalf("hardware class %q is admitted but has no sustained-power figure; "+
 				"supplier break-even for it would be computed from a default", class)
+		}
+		if w.Kind() != wattKindMeasured && w.Kind() != wattKindAssumed {
+			t.Fatalf("hardware class %q power figure has no MEASURED/ASSUMED kind: %q", class, w.Kind())
+		}
+		if strings.TrimSpace(w.Provenance()) == "" {
+			t.Fatalf("hardware class %q power figure has empty provenance", class)
 		}
 	}
 	// CUDA draws must be materially above Apple Silicon, or the break-even
 	// arithmetic is quietly using the wrong order of magnitude.
-	if sustainedWattsByHWClass["nvidia_80gb"] <= sustainedWattsByHWClass["apple_silicon_ultra"] {
+	if sustainedWattsByHWClass["nvidia_80gb"].Watts() <= sustainedWattsByHWClass["apple_silicon_ultra"].Watts() {
 		t.Fatal("an 80GB CUDA board is not modelled as drawing more than an M-series Ultra")
 	}
 }
