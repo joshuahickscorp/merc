@@ -193,6 +193,75 @@ func DefaultGatewayParityMatrixSelection() GatewayParityMatrixSelection {
 	}
 }
 
+// CompetitiveCUDAParityMatrixSelection is the revision-1 competitive matrix.
+//
+// Extends the defensible subset so the CUDA dual-arm run answers the programme
+// question on the full concurrency ladder {1,8,32,64,128} where the pod
+// sustains them, with short/medium/long prompts, short/long outputs, and
+// cold/warm (plus prefix-hit contrast on the overhead shape). Every cell is
+// independently gated — no level may be claimed from another level's data.
+//
+// Selected deliberately (not the 1440-cell product): corners that change the
+// overhead answer, plus the full ladder on the overhead-dominated shape where
+// gateway cost is the largest fraction of wall time.
+func CompetitiveCUDAParityMatrixSelection() GatewayParityMatrixSelection {
+	type shape struct{ p, o int }
+	overhead := shape{32, 16}  // short prompt, short output
+	medium := shape{256, 128}  // medium / legacy mid
+	prefill := shape{8192, 16} // long prompt, short output
+	decode := shape{32, 512}   // short prompt, long output
+	// Full competitive ladder required by revision-1. A cell that the pod
+	// cannot sustain will REFUSE on its own (error rate / peak in-flight).
+	ladder := []int{1, 8, 32, 64, 128}
+
+	var selected []GatewayParityCellSpec
+	add := func(s shape, state string, conc ...int) {
+		for _, c := range conc {
+			selected = append(selected, GatewayParityCellSpec{
+				Concurrency: c, PromptTokens: s.p, OutputTokens: s.o, State: state,
+			})
+		}
+	}
+	// Overhead shape: cold + warm × full ladder. Prefix-hit only to c=8
+	// (higher concurrencies thrash-evict the prefix cache and refuse on signal).
+	add(overhead, "warm", ladder...)
+	add(overhead, "cold", ladder...)
+	add(overhead, "prefix-hit", 1, 8)
+	// Medium shape: warm × {1,8,32}; cold at c=1 for contrast.
+	add(medium, "warm", 1, 8, 32)
+	add(medium, "cold", 1)
+	// Prefill shape: warm × {1,8}; cold + prefix-hit at c=1.
+	add(prefill, "warm", 1, 8)
+	add(prefill, "cold", 1)
+	add(prefill, "prefix-hit", 1)
+	// Decode shape: warm × {1,8}; cold at c=1.
+	add(decode, "warm", 1, 8)
+	add(decode, "cold", 1)
+
+	return GatewayParityMatrixSelection{
+		Selected: selected,
+		Rationale: "competitive CUDA matrix (revision-1): overhead (32,16) cold+warm × " +
+			"{1,8,32,64,128}; medium (256,128); prefill (8192,16); decode (32,512); " +
+			"prefix-hit contrast where reuse can matter; every cell independently gated. " +
+			fmt.Sprintf("selected=%d", len(selected)),
+		DroppedSummary: []string{
+			fmt.Sprintf("selected %d cells; every omission is in dropped_axes", len(selected)),
+			"concurrency full competitive ladder {1,8,32,64,128} on overhead cold/warm; thinner ladders on non-overhead shapes; dropped {2,4,16}",
+			"prompt_tokens kept {32,256,8192}; dropped {1024,32768}",
+			"output_tokens kept {16,128,512}; dropped {2048}",
+			"state kept {cold,warm,prefix-hit}; prefix-hit refused per-cell without cached_tokens signal",
+			"traffic_class dropped entirely: non-acting label on the parity path",
+			"silent truncation forbidden: quoting one cell as another refused by per-cell gating",
+		},
+		DroppedAxes: []GatewayParityDroppedAxis{
+			{Axis: "concurrency", Values: strInts([]int{2, 4, 16}), Reason: "outside competitive ladder {1,8,32,64,128}"},
+			{Axis: "prompt_tokens", Values: strInts([]int{1024, 32768}), Reason: "outside selected {32,256,8192}"},
+			{Axis: "output_tokens", Values: strInts([]int{2048}), Reason: "outside selected {16,128,512}"},
+			{Axis: "traffic_class", Values: append([]string(nil), gatewayParityFullTrafficClasses...), Reason: TrafficClassNonActingNote},
+		},
+	}
+}
+
 // GatewayParityStateDefinitions are the precise operational meanings of state.
 // Embedded in every matrix receipt so a reader never invents a softer meaning.
 type GatewayParityStateDefinitions struct {

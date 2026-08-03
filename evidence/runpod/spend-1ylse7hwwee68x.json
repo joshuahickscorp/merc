@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "kind": "runpod_spend_receipt",
+  "pod_id": "1ylse7hwwee68x",
+  "gpu": "NVIDIA A40",
+  "image": "vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0",
+  "model": "unsloth/Llama-3.2-1B-Instruct",
+  "cost_per_hr_usd": 0.44,
+  "cap_usd": 3.0,
+  "lifetime_budget_secs": 19636,
+  "lifetime_actual_secs": 375,
+  "spend_usd": 0.05,
+  "cap_headroom_usd": 2.95,
+  "started_at_unix": 1785779579,
+  "stopped_at_unix": 1785779954,
+  "teardown_verified": true,
+  "orphan_pods": [],
+  "ready": true,
+  "admissible": true,
+  "refusals": [],
+  "limitations": [
+    "Spend is derived from RunPod's advertised cost per hour and the pod's observed lifetime, not from an invoice. It is what Merc believes it spent; the provider's own billing is the authority.",
+    "Storage and network egress are not included."
+  ],
+  "producer_identity": {
+    "source_commit": {
+      "value": "e66c6cc5dbc8b58558bcb3517100f6ef345b9bc3"
+    },
+    "build_digest": {
+      "value": "ec7bf8b47212693a305f03787afb305cbaee63c4180fe5abf44a045b1859ca63"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this measurement"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/runpod-spend-guard.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this measurement"
+    },
+    "exact_config": {
+      "value": "spend guard args embedded in receipt"
+    },
+    "raw_samples": {
+      "value": "spend fields embedded; no sample array"
+    }
+  },
+  "binding_status": "BOUND"
+}
