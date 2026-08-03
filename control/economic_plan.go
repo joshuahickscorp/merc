@@ -64,6 +64,16 @@ func (s EconomicSchedule) processorFloorTerms() (rate, perTaskFixed float64) {
 // processorFeeFor is the fee a charge of netUSD actually incurs.  A charge at or
 // above the batch floor stands alone and pays the whole fixed fee; a smaller one
 // rides along with other jobs in the same PaymentIntent and pays its share.
+//
+// Pro-rata shares of a batch fee are continuous. Micro-ceiling each share that
+// is a fraction of a micro reintroduces the commercially meaningless split that
+// batch allocation exists to remove: processor and control each jump to one
+// micro, the headroom loop then inflates the buyer charge around those phantom
+// floors, and a supplier entitled to ~0.94 of catalogue compute is left with a
+// 20% commercial share on the CAD stranger fixture (2 µ of a 10 µ charge). A
+// standalone charge still ceils so we never understate a whole PaymentIntent's
+// fee; a partial share rounds half-away to the ledger micro, matching how the
+// rest of the six-decimal domain treats non-entitlement amounts.
 func (s EconomicSchedule) processorFeeFor(netUSD float64) float64 {
 	if netUSD <= 0 {
 		return 0
@@ -72,7 +82,8 @@ func (s EconomicSchedule) processorFeeFor(netUSD float64) float64 {
 	if s.MinChargeBatchUSD > 0 && netUSD < s.MinChargeBatchUSD {
 		fixedShare = netUSD / s.MinChargeBatchUSD
 	}
-	return ceilEconomicUSD(netUSD*s.ProcessorPercent + s.ProcessorFixedUSD*fixedShare)
+	raw := netUSD*s.ProcessorPercent + s.ProcessorFixedUSD*fixedShare
+	return roundProRataBatchFeeUSD(raw, fixedShare)
 }
 
 // controlPlaneFloorTerms and controlPlaneCostFor are the inverse and forward
@@ -100,7 +111,21 @@ func (s EconomicSchedule) controlPlaneCostFor(netUSD float64, tasks int) float64
 	if s.MinChargeBatchUSD > 0 && netUSD < s.MinChargeBatchUSD {
 		fixedShare = netUSD / s.MinChargeBatchUSD
 	}
-	return ceilEconomicUSD(s.ControlPlanePerBatchUSD * fixedShare)
+	return roundProRataBatchFeeUSD(s.ControlPlanePerBatchUSD*fixedShare, fixedShare)
+}
+
+// roundProRataBatchFeeUSD projects a continuous pro-rata batch fee into the
+// six-decimal ledger domain. fixedShare < 1 means the job rides a larger
+// PaymentIntent; fixedShare == 1 means this charge stands alone and must cover
+// a whole fixed fee, so the projection ceils.
+func roundProRataBatchFeeUSD(raw, fixedShare float64) float64 {
+	if raw <= 0 {
+		return 0
+	}
+	if fixedShare < 1.0 {
+		return roundEconomicUSD(raw)
+	}
+	return ceilEconomicUSD(raw)
 }
 
 type EconomicPlanInput struct {
@@ -536,10 +561,11 @@ func BuildEconomicPlan(in EconomicPlanInput, schedule EconomicSchedule) Economic
 		controlPerTaskFixed + minimumContributionPerTask) / denominator
 	buyerPerTask := ceilEconomicUSD(math.Max(computePerTask, minimumBuyerPerTask))
 	// Percentage algebra is continuous; the durable ledger is micro-major-unit.
-	// On a tiny job, processor allocation, control allocation and minimum
-	// contribution can each round to one micro. Solve against the actual scenario
-	// arithmetic so those discrete boundaries cannot turn a positive configured
-	// contribution into break-even or a loss.
+	// On a tiny job the absolute minimum contribution still rounds to one micro,
+	// and a standalone (full-batch) fee still ceils. Pro-rata batch fee shares
+	// no longer micro-ceil independently — see processorFeeFor — but the
+	// headroom loop remains so any remaining discrete boundary cannot turn a
+	// positive configured contribution into break-even or a loss.
 	scenarioAt := func(name string, price float64, tasks int, slaMiss bool) EconomicScenario {
 		gross := price*float64(tasks) + in.SLAPremiumUSD
 		if in.FirmQuoteMaxUSD > 0 {
