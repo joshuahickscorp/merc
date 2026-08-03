@@ -26,7 +26,21 @@ type realtimeSupplierOutcomeStats struct {
 // realtimeAuthorizeSelectOfferSQL is the atomic offer reservation used by
 // AuthorizeRealtimeContract. Reputation joins realtime_supplier_outcome_stats
 // (PK lookup) instead of aggregating execution_contracts history per request.
-const realtimeAuthorizeSelectOfferSQL = `
+//
+// Tail note (see evidence/perf/authorize-auth-tails-*.json): under concurrency
+// every contender used to target selected_rank=1 and serialise on that one
+// offer row even when other equal-or-next-rank offers had free capacity.
+// The claim path now prefers FOR UPDATE SKIP LOCKED ordered by rank so
+// multi-offer books admit in parallel; when every candidate is locked (the
+// single-offer case) a blocking claim waits instead of returning no-supply
+// while capacity sits idle. available_sequences > 0 on the UPDATE still makes
+// decrement-and-check atomic. Lock hierarchy is unchanged: this runs only
+// after evaluateRealtimeBuyerFunding.
+const realtimeAuthorizeSelectOfferSQL = realtimeAuthorizeSelectOfferSQLBlocking
+
+// realtimeAuthorizeCandidatesCTE is the shared ranking body. $1 profile id,
+// $2 profile sha, $3/$4 buyer ceilings, $5 min outcome samples.
+const realtimeAuthorizeCandidatesCTE = `
 		WITH candidates AS (
 			SELECT c.worker_id,c.runtime_profile_id,c.supplier_id,c.upstream_base_url,
 			       c.upstream_token_sealed,c.supplier_input_usd_per_million_tokens::float8 AS supplier_input,
@@ -101,12 +115,66 @@ const realtimeAuthorizeSelectOfferSQL = `
 			   AND s.status='active' AND s.quarantined_at IS NULL
 			   AND c.supplier_input_usd_per_million_tokens <= $3
 			   AND c.supplier_output_usd_per_million_tokens <= $4
-		), chosen AS (
-			SELECT * FROM candidates WHERE selected_rank=1
+		)`
+
+// realtimeAuthorizeSelectOfferSQLSkip claims the best currently-unlocked offer
+// by rank. Contenders step to the next free candidate instead of queueing on
+// rank-1 when other offers have capacity.
+const realtimeAuthorizeSelectOfferSQLSkip = realtimeAuthorizeCandidatesCTE + `
+		, picked AS (
+			SELECT c.worker_id,c.runtime_profile_id,c.supplier_id,c.upstream_base_url,
+			       c.upstream_token_sealed,c.supplier_input,c.supplier_output,
+			       c.placement_plan,c.placement_plan_sha256,c.warmth,
+			       c.terminal_attempts,c.terminal_fails,c.verified_settlements,c.refund_count,
+			       c.candidate_count,c.selected_rank
+			  FROM candidates c
+			  JOIN realtime_worker_offers o
+			    ON o.worker_id = c.worker_id AND o.runtime_profile_id = c.runtime_profile_id
+			 ORDER BY c.selected_rank
+			 FOR UPDATE OF o SKIP LOCKED
+			 LIMIT 1
 		), updated AS (
 			UPDATE realtime_worker_offers o
 			   SET available_sequences = o.available_sequences - 1, updated_at = now()
-			  FROM chosen c
+			  FROM picked c
+			 WHERE o.worker_id = c.worker_id AND o.runtime_profile_id = c.runtime_profile_id
+			   AND o.available_sequences > 0
+			 RETURNING o.worker_id,o.supplier_id,o.upstream_base_url,o.upstream_token_sealed,
+			           o.supplier_input_usd_per_million_tokens::float8,
+			           o.supplier_output_usd_per_million_tokens::float8,
+			           o.placement_plan,o.placement_plan_sha256,o.warmth,
+			           c.candidate_count,c.selected_rank,
+			           c.terminal_attempts,c.terminal_fails,
+			           c.verified_settlements,c.refund_count
+		)
+		SELECT worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
+		       supplier_input_usd_per_million_tokens::float8,
+		       supplier_output_usd_per_million_tokens::float8,
+		       placement_plan,placement_plan_sha256,warmth,
+		       candidate_count,selected_rank,
+		       terminal_attempts,terminal_fails,verified_settlements,refund_count
+		  FROM updated`
+
+// realtimeAuthorizeSelectOfferSQLBlocking waits for the best-ranked offer row.
+// Used when SKIP LOCKED found nothing: either the only candidate is locked
+// (wait for capacity) or the book is empty (still returns no rows).
+const realtimeAuthorizeSelectOfferSQLBlocking = realtimeAuthorizeCandidatesCTE + `
+		, picked AS (
+			SELECT c.worker_id,c.runtime_profile_id,c.supplier_id,c.upstream_base_url,
+			       c.upstream_token_sealed,c.supplier_input,c.supplier_output,
+			       c.placement_plan,c.placement_plan_sha256,c.warmth,
+			       c.terminal_attempts,c.terminal_fails,c.verified_settlements,c.refund_count,
+			       c.candidate_count,c.selected_rank
+			  FROM candidates c
+			  JOIN realtime_worker_offers o
+			    ON o.worker_id = c.worker_id AND o.runtime_profile_id = c.runtime_profile_id
+			 ORDER BY c.selected_rank
+			 FOR UPDATE OF o
+			 LIMIT 1
+		), updated AS (
+			UPDATE realtime_worker_offers o
+			   SET available_sequences = o.available_sequences - 1, updated_at = now()
+			  FROM picked c
 			 WHERE o.worker_id = c.worker_id AND o.runtime_profile_id = c.runtime_profile_id
 			   AND o.available_sequences > 0
 			 RETURNING o.worker_id,o.supplier_id,o.upstream_base_url,o.upstream_token_sealed,

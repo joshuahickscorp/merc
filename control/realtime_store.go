@@ -811,20 +811,24 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		verifiedSettlements  int
 		refundCount          int
 	)
-	// Reserve a sequence with a single atomic decrement that is also the
-	// selection. Hierarchy step 2: offer capacity after buyer funding.
+	// Reserve a sequence with an atomic decrement that is also the selection.
+	// Hierarchy step 2: offer capacity after buyer funding.
 	//
-	// This was a SELECT ... FOR UPDATE OF o SKIP LOCKED followed by a separate
-	// UPDATE, which under SKIP LOCKED made contenders step over the only
-	// candidate row and return errRealtimeNoSupply while capacity sat idle.
-	// One UPDATE ... RETURNING makes contending writers block and retry
-	// against the new value. available_sequences > 0 in the WHERE clause is
-	// what makes it safe: decrement and capacity check are one atomic
-	// operation, so the counter cannot go negative under any interleaving.
+	// Multi-offer book: FOR UPDATE SKIP LOCKED ordered by verified-outcome
+	// rank so concurrent admits take distinct free offers instead of all
+	// piling onto selected_rank=1. Single-offer book: blocking FOR UPDATE
+	// only — trying SKIP first when there is only one candidate doubles the
+	// ranking CTE under contention (SKIP miss + BLOCK wait) and made the
+	// 1-offer multi-buyer p95 worse in the tail probe.
+	//
+	// available_sequences > 0 on the UPDATE still makes decrement-and-check
+	// atomic. When SKIP returns no rows on a multi-offer book (every
+	// candidate locked, or a last-sequence race), fall back to blocking so
+	// we wait rather than report no-supply while capacity sits idle.
 	//
 	// PostgreSQL holds the offer row lock until this transaction commits or
 	// rolls back — not merely for the statement. Same-buyer admits therefore
-	// serialise on the funding lock (already held) and then queue on the
+	// serialise on the funding lock (already held) and then on the claimed
 	// offer row for the remainder of the transaction.
 	//
 	// Ranking is verified-outcome cost first (base ask adjusted by measured
@@ -838,13 +842,38 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	// settlements/refunds are written. Money (buyer charge / supplier payable)
 	// still comes only from the selected offer rates and PricingDecision —
 	// never from these counters.
-	err = tx.QueryRow(ctx, realtimeAuthorizeSelectOfferSQL,
+	var activeOfferCount int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*)::int FROM realtime_worker_offers o
+		 JOIN suppliers s ON s.id = o.supplier_id
+		 WHERE o.runtime_profile_id=$1 AND o.runtime_profile_sha256=$2
+		   AND o.status='ACTIVE' AND o.available_sequences > 0
+		   AND o.last_seen_at > now()-interval '45 seconds'
+		   AND s.status='active' AND s.quarantined_at IS NULL
+		   AND o.supplier_input_usd_per_million_tokens <= $3
+		   AND o.supplier_output_usd_per_million_tokens <= $4`,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
 		auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens,
-		minRealtimeOutcomeSamples).
-		Scan(&workerID, &supplierID, &baseURL, &sealed, &supplierInput, &supplierOutput,
-			&placementJSON, &placementSHA256, &selectedWarmth, &candidateCount, &selectedRank,
-			&terminalAttempts, &terminalFails, &verifiedSettlements, &refundCount)
+	).Scan(&activeOfferCount); err != nil {
+		return RealtimeContract{}, false, err
+	}
+	scanOffer := func(sql string) error {
+		return tx.QueryRow(ctx, sql,
+			auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
+			auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens,
+			minRealtimeOutcomeSamples).
+			Scan(&workerID, &supplierID, &baseURL, &sealed, &supplierInput, &supplierOutput,
+				&placementJSON, &placementSHA256, &selectedWarmth, &candidateCount, &selectedRank,
+				&terminalAttempts, &terminalFails, &verifiedSettlements, &refundCount)
+	}
+	if activeOfferCount > 1 {
+		err = scanOffer(realtimeAuthorizeSelectOfferSQLSkip)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = scanOffer(realtimeAuthorizeSelectOfferSQLBlocking)
+		}
+	} else {
+		err = scanOffer(realtimeAuthorizeSelectOfferSQLBlocking)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RealtimeContract{}, false, errRealtimeNoSupply
 	}
