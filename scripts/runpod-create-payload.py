@@ -127,7 +127,11 @@ def main() -> int:
         "containerDiskInGb": 20,
         "volumeInGb": 25,
         "volumeMountPath": "/root/.cache/huggingface",
-        "ports": ["8000/http"],
+        # 8000 serves vLLM; 22/tcp is for in-experiment board-power sampling
+        # (nvidia-smi under load). No permanent shell access is required beyond
+        # that measurement window; the governed experiment still tears the pod
+        # down on exit.
+        "ports": ["8000/http", "22/tcp"],
         "cloudType": cloud,
         # Tuning, not defaults. The first sweep ran stock vLLM and left real
         # throughput unclaimed, which matters because throughput is the
