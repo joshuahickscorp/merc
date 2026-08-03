@@ -7,13 +7,11 @@ import (
 
 // Token-budget batching.
 //
-// PRODUCTION STATUS: SelectBatch, EstimatedTTFT, and ValidateBatchBudget have
-// no production caller. TokenBudgetFor is only consumed by tests and by the
-// (also unwired-for-dispatch) traffic_class path's sibling helpers. They are
-// policy primitives, not a live capability. production_reachability_test lists
-// them under knownUnwired so wiring one fails the census until it is moved into
-// productionReachability. Do not wire them into dispatch from this package
-// without a dedicated change: that path has its own risk.
+// PRODUCTION STATUS: SelectBatch, EstimatedTTFT, and ValidateBatchBudget are
+// consumed by ArrivalBatcher (arrival_batch.go), which handleChatCompletions
+// calls after AuthorizeRealtimeContract and before the upstream forward.
+// TokenBudgetFor remains the two-way LatencyClass helper used by tests;
+// production packing reads budgets from PolicyForTrafficClass.
 //
 // Batching was previously bounded by request count, which is the wrong unit: a
 // batch of 64 short prompts and a batch of 64 long ones do wildly different
