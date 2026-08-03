@@ -28,5 +28,14 @@
   },
   "merc_overhead_median_ms": 3.913,
   "errors": [],
-  "note": "Latency measured against an upstream that presented no runtime attestation. This is a harness self-check, not evidence about any GPU, and must not be published as a performance claim."
+  "note": "Latency measured against an upstream that presented no runtime attestation. This is a harness self-check, not evidence about any GPU, and must not be published as a performance claim.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest"
+  ]
 }

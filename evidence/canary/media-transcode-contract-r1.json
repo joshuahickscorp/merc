@@ -21,7 +21,10 @@
     "agent_output_bytes": 536870912,
     "ffprobe_timeout_secs": 10,
     "ffmpeg_timeout_secs": 150,
-    "protocol_whitelist": ["file", "pipe"],
+    "protocol_whitelist": [
+      "file",
+      "pipe"
+    ],
     "metadata_stripped": true,
     "private_scratch_and_kill_on_drop": true
   },
@@ -43,5 +46,16 @@
     "process": "kill_on_drop and bounded wait",
     "control_orphans": "failed submit removes owned canonical/task objects by exact key"
   },
-  "public_activation": "blocked on live-public legal/payment authority; this receipt is private canary evidence only"
+  "public_activation": "blocked on live-public legal/payment authority; this receipt is private canary evidence only",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

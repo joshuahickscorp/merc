@@ -20,7 +20,11 @@
     "postgres": true,
     "object_storage": true,
     "compose_project": "merc-proof-92715-1785684369",
-    "ports": [55452, 59020, 18100],
+    "ports": [
+      55452,
+      59020,
+      18100
+    ],
     "teardown_volumes": true,
     "teardown_processes": true,
     "orphan_sweep": true
@@ -74,5 +78,16 @@
     "Storage, egress, energy, processor fee, fraud reserve, and other true-net costs remain unknown unless explicitly modeled.",
     "Deterministic scene rendering is not prompt-to-image generation."
   ],
-  "public_claim_allowed": false
+  "public_claim_allowed": false,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

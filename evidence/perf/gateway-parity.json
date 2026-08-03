@@ -12,7 +12,7 @@
   "budget": {
     "ttft_overhead_p95_ms": 15.0,
     "throughput_loss_fraction": 0.05,
-    "basis": "policy ceiling calibrated to the 2026-07-28 gateway-parity measurement on Metal/cx-chat-1b (+3.5 ms TTFT p50, +9.6 ms TTFT p95, \u22121.86% aggregate throughput at c=1), with modest headroom; not a derived SLA"
+    "basis": "policy ceiling calibrated to the 2026-07-28 gateway-parity measurement on Metal/cx-chat-1b (+3.5 ms TTFT p50, +9.6 ms TTFT p95, −1.86% aggregate throughput at c=1), with modest headroom; not a derived SLA"
   },
   "scope": {
     "model_ref": "cx-chat-1b",
@@ -475,7 +475,7 @@
     "throughput_loss_fraction": 0.018631
   },
   "comparability_warning": "Valid only when both sides used the SAME model artifact (sha256), precision and max_tokens against the same engine. The harness refuses a comparison when digests disagree, probes disagree or labels are missing. Quoting one average across incomparable runs is not a measurement.",
-  "note": "Deltas are merc \u2212 direct. Positive TTFT/ITL/wall means merc added latency. Throughput delta is merc \u2212 direct (negative means the gateway reduced aggregate tokens/s). Schema upgraded to receipt-grade provenance without re-running the live harness; sample counts remain as measured (n=4 at c=1). Future runs default to minCellCostSamples=20 with interleaved arms.",
+  "note": "Deltas are merc − direct. Positive TTFT/ITL/wall means merc added latency. Throughput delta is merc − direct (negative means the gateway reduced aggregate tokens/s). Schema upgraded to receipt-grade provenance without re-running the live harness; sample counts remain as measured (n=4 at c=1). Future runs default to minCellCostSamples=20 with interleaved arms.",
   "limitations": [
     "Historical measurement used requests_per_level=4; future receipt-grade runs require minCellCostSamples=20. p95/p99 at n=4 collapse to the same observation under nearest-rank.",
     "Arms were sequential (all direct, then all merc) at measurement time; the harness now interleaves per batch.",
@@ -514,12 +514,12 @@
       {
         "change": "skip exact-reuse lookup for stream:true",
         "why": "cache stores non-stream JSON; looking it up on every stream request was both a correctness footgun and a TTFT-path DB round-trip",
-        "risk": "low \u2014 stream clients never received a valid reuse hit before either"
+        "risk": "low — stream clients never received a valid reuse hit before either"
       },
       {
         "change": "move maybeStoreRealtimeExactResult after Write on non-stream path",
         "why": "S3 put + DB insert was gating the buyer response after settlement already succeeded; cache is explicitly best-effort",
-        "risk": "low \u2014 failure already only logged; detached 10s timeout"
+        "risk": "low — failure already only logged; detached 10s timeout"
       },
       {
         "change": "decodeRealtimePayload uses bytes.NewReader instead of string(body) copy",
@@ -536,12 +536,12 @@
       {
         "item": "AuthorizeRealtimeContract synchronous DB transaction on every request",
         "why_leave": "buyer balance FOR UPDATE + sequence reservation + contract insert are the money path; moving them off-path would relax no-duplicate-billing / no-double-payout guarantees",
-        "cost": "~1.5\u20133 ms p50 on local Postgres, dominates merc-owned TTFT"
+        "cost": "~1.5–3 ms p50 on local Postgres, dominates merc-owned TTFT"
       },
       {
         "item": "settlement after stream is still synchronous on the handler goroutine",
         "why_leave": "does not affect client-visible TTFT/ITL (stream already flushed); async settlement needs careful failure accounting and is not a small safe change",
-        "cost": "~2\u20134 ms after last token"
+        "cost": "~2–4 ms after last token"
       },
       {
         "item": "per-event JSON Unmarshal + sha256 hash chain in proxySSE",
@@ -556,7 +556,7 @@
       {
         "item": "OperationalControlPaused DB read every request",
         "why_leave": "caching with TTL could delay a kill-switch by that TTL; ~0.15 ms is not worth weakening intake control",
-        "cost": "~0.1\u20130.3 ms"
+        "cost": "~0.1–0.3 ms"
       }
     ]
   },
@@ -571,5 +571,6 @@
     "Any throughput-loss figure derived alongside a TTFT delta in this shape double-counts one defect: with identical token counts in both arms, the aggregate-throughput gap and the TTFT gap are the same quantity expressed twice."
   ],
   "superseded_note": "Retained deliberately. This is the record of what was believed and why it was withdrawn; deleting it would erase the correction. It is not valid parity evidence and it is not valid deficit evidence. No parity or deficit claim may cite this file. A replacement measurement requires the rebuilt harness.",
-  "superseded_by": "merc-gateway-parity-v2 (control/gateway_parity_harness.go)"
+  "superseded_by": "merc-gateway-parity-v2 (control/gateway_parity_harness.go)",
+  "binding_status": "WITHDRAWN"
 }

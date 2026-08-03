@@ -63,5 +63,16 @@
   },
   "evidence_level": "REAL_RUNTIME_PROVEN_PRIVATE_CANARY",
   "public_claim_allowed": false,
-  "public_activation_blocker": "live-public legal/payment authority"
+  "public_activation_blocker": "live-public legal/payment authority",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

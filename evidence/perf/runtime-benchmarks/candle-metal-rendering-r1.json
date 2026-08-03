@@ -2,7 +2,9 @@
   "schema_version": 1,
   "kind": "runtime_benchmark",
   "runtime_profile_id": "candle_metal",
-  "runtime_profile_ids": ["candle_metal"],
+  "runtime_profile_ids": [
+    "candle_metal"
+  ],
   "runtime_revision": "r9",
   "cell_id": "candle-metal-scene-render",
   "model_id": "svg-scene-render-v1",
@@ -20,8 +22,19 @@
     "peak_batch": 1,
     "throughput_tps": 148271490.0,
     "units_per_sec_at_operating_batch": 148271490.0,
-    "slowest_wall_seconds": 0.00002762500059856416,
+    "slowest_wall_seconds": 2.762500059856416e-05,
     "byte_deterministic": true
   },
-  "evidence_note": "The cell is a deterministic builtin PPM renderer. This benchmark is private canary evidence and does not authorize image generation or public payment."
+  "evidence_note": "The cell is a deterministic builtin PPM renderer. This benchmark is private canary evidence and does not authorize image generation or public payment.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

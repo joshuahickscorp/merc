@@ -74,5 +74,16 @@
     "external CUDA execution",
     "an approved worker independent of the local Mac"
   ],
-  "external_action_required": "RunPod account cannot schedule pods. Balance, spend limit and minimum balance are all satisfied, so this needs RunPod support or account verification. machine_quota reads 0 and is worth asking them about."
+  "external_action_required": "RunPod account cannot schedule pods. Balance, spend limit and minimum balance are all satisfied, so this needs RunPod support or account verification. machine_quota reads 0 and is worth asking them about.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

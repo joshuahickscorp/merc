@@ -404,15 +404,28 @@ def main():
         "failed": [r["prohibition"] for r in results if r["status"] == FAIL],
         "undecidable": [r["prohibition"] for r in results if r["status"] == UNDECIDABLE],
     }
-    rendered = json.dumps(receipt, indent=2)
     if args.out:
         path = os.path.join(ROOT, args.out)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as handle:
-            handle.write(rendered + "\n")
+        _scripts = os.path.join(ROOT, "scripts")
+        if _scripts not in sys.path:
+            sys.path.insert(0, _scripts)
+        from lib.evidence_binding import EvidenceBindingError, emit_bound_json
+        try:
+            emit_bound_json(
+                path,
+                receipt,
+                harness="scripts/must-not-do-audit.py",
+                repo_root=ROOT,
+                build_binary_path=os.path.join(ROOT, "scripts", "must-not-do-audit.py"),
+                exact_config="prohibition checks embedded in results",
+                raw_samples="results[] per prohibition",
+            )
+        except EvidenceBindingError as exc:
+            print(f"REFUSED evidence write: {exc}", file=sys.stderr)
+            return 2
         print(f"must-not-do audit written to {args.out}", file=sys.stderr)
     else:
-        print(rendered)
+        print(json.dumps(receipt, indent=2))
     for r in results:
         print(f"{r['status']:>28}  {r['prohibition']:>2}. {r['name']}: {r['detail']}", file=sys.stderr)
     return 1 if receipt["failed"] else 0

@@ -85,5 +85,16 @@
     "stale_belief_invalidated": true,
     "no_signal_does_not_thrash": true,
     "cost_class_not_promoted_by_warmth": true
-  }
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

@@ -88,7 +88,7 @@
       "provider energy and depreciation",
       "risk reserve"
     ],
-    "supplier_payable_major_units": 0.000003,
+    "supplier_payable_major_units": 3e-06,
     "supplier_payout_state": "held"
   },
   "cash_and_dispute": {
@@ -124,5 +124,16 @@
     "The temporary tunnel is not a persistent named TLS staging hostname, so it cannot establish LIVE_PUBLIC_AUTHORITY.",
     "Supplier Connect hosted onboarding remains incomplete at Stripe's hCaptcha and no supplier cash payout was initiated.",
     "True Merc net contribution is intentionally unavailable while named cost categories are unattributed; the receipt reports known-cost contribution separately."
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }

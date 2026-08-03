@@ -30,5 +30,16 @@
     "This is an isolated local authority contract, not an external staging restart storm.",
     "It creates no Stripe provider objects and moves no value."
   ],
-  "public_claim_allowed": false
+  "public_claim_allowed": false,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

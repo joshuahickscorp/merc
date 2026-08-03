@@ -28,5 +28,16 @@
   "limitations": [
     "Single Apple M3 Pro measurement; not a fleet-capacity claim.",
     "Electricity, depreciation, utilization, support, payment, fraud, refund, tax, and working-capital costs are not measured by this receipt."
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }

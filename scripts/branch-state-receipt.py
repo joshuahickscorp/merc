@@ -572,15 +572,28 @@ def main():
     else:
         receipt["database_projection"] = "not_probed"
 
-    rendered = json.dumps(receipt, indent=2)
     if args.out:
         path = os.path.join(ROOT, args.out)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as handle:
-            handle.write(rendered + "\n")
+        _scripts = os.path.join(ROOT, "scripts")
+        if _scripts not in sys.path:
+            sys.path.insert(0, _scripts)
+        from lib.evidence_binding import EvidenceBindingError, emit_bound_json
+        try:
+            emit_bound_json(
+                path,
+                receipt,
+                harness="scripts/branch-state-receipt.py",
+                repo_root=ROOT,
+                build_binary_path=os.path.join(ROOT, "scripts", "branch-state-receipt.py"),
+                exact_config="branch-state probe config embedded",
+                raw_samples="database_projection + file probes embedded",
+            )
+        except EvidenceBindingError as exc:
+            print(f"REFUSED evidence write: {exc}", file=sys.stderr)
+            raise SystemExit(2)
         print(f"state receipt written to {args.out}", file=sys.stderr)
     else:
-        print(rendered)
+        print(json.dumps(receipt, indent=2))
 
 
 if __name__ == "__main__":

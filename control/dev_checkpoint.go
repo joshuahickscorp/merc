@@ -184,13 +184,27 @@ func runDevCheckpoint(args []string) int {
 		fmt.Fprintf(os.Stderr, "checkpoint: %v\n", err)
 		return 1
 	}
-	blob, err := json.MarshalIndent(receipt, "", "  ")
+	raw, err := json.Marshal(receipt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "checkpoint: %v\n", err)
 		return 1
 	}
-	if err := os.WriteFile(path, append(blob, '\n'), 0o644); err != nil {
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		fmt.Fprintf(os.Stderr, "checkpoint: %v\n", err)
+		return 1
+	}
+	id, bin, err := DefaultBoundIdentity(root, "control/dev_checkpoint.go",
+		"embedded checkpoint steps", "embedded step results")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "checkpoint: identity: %v\n", err)
+		return 1
+	}
+	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+		RepoRoot: root, Path: path, Payload: payload,
+		Identity: id, BuildBinaryPath: bin,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "checkpoint: bound write refused: %v\n", err)
 		return 1
 	}
 	fmt.Printf("checkpoint receipt written for %s (%s)\n  %s\n",

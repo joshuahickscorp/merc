@@ -190,10 +190,24 @@ def main() -> int:
             "different precision; quoting one number across them is not a "
             "measurement, it is a slogan."),
     }
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    with open(args.out, "w") as fh:
-        json.dump(report, fh, indent=2)
-        fh.write("\n")
+    from pathlib import Path as _Path
+    import sys as _sys
+    _scripts = str(_Path(__file__).resolve().parent)
+    if _scripts not in _sys.path:
+        _sys.path.insert(0, _scripts)
+    from lib.evidence_binding import EvidenceBindingError, emit_bound_json
+    try:
+        emit_bound_json(
+            args.out,
+            report,
+            harness="scripts/runtime-parity-sweep.py",
+            build_binary_path=str(_Path(__file__).resolve()),
+            exact_config="embedded concurrency levels + model/precision",
+            raw_samples="embedded levels results",
+        )
+    except EvidenceBindingError as exc:
+        print(f"REFUSED evidence write: {exc}", file=sys.stderr)
+        return 2
     print(f"\npeak {peak} tok/s aggregate"
           + (f", ${report['usd_per_million_tokens_at_peak']}/M tokens"
              if report["usd_per_million_tokens_at_peak"] else ""))

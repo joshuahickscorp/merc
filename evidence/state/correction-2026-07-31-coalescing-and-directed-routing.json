@@ -60,5 +60,16 @@
     "RuntimeSelector does not exist in any form: no type, no tables, no callers"
   ],
   "grok_status": "DEFERRED_USAGE_LIMIT",
-  "adversarial_review_label": "NOT_GROK_INDEPENDENT"
+  "adversarial_review_label": "NOT_GROK_INDEPENDENT",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

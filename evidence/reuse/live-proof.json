@@ -21,5 +21,16 @@
   },
   "reduction_factor": 125,
   "defect_found_and_fixed": "Before the floor, the reuse charge underflowed micro-USD to 0 on a small result. SubmitExactReuseBatchJob then correctly refused it ('must charge the buyer' -- reuse is cheaper, never free) and the caller silently fell back to executing live at FULL price. The cache was hit and the hit counter incremented while the buyer paid the undiscounted amount. The only trace was one log line.",
-  "note": "Verified end to end against a running control plane and a real Apple Silicon worker, not in a unit test. The ledger on the hit has no supplier_credit row at all: no supplier was scheduled and none was paid."
+  "note": "Verified end to end against a running control plane and a real Apple Silicon worker, not in a unit test. The ledger on the hit has no supplier_credit row at all: no supplier was scheduled and none was paid.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

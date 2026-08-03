@@ -292,5 +292,16 @@
   },
   "all_lanes_canary_proven": false,
   "public_capability_allowed": false,
-  "note": "This inventory cannot mint CANARY_PROVEN. A passing command proves TESTED; a strict committed historical receipt may preserve REAL_RUNTIME_PROVEN. Only the formal immutable-image/exact-commit GO-closure rehearsal can produce candidate-bound canary authority. A missing current capability remains EXTERNALLY_BLOCKED even when retained historical evidence validates."
+  "note": "This inventory cannot mint CANARY_PROVEN. A passing command proves TESTED; a strict committed historical receipt may preserve REAL_RUNTIME_PROVEN. Only the formal immutable-image/exact-commit GO-closure rehearsal can produce candidate-bound canary authority. A missing current capability remains EXTERNALLY_BLOCKED even when retained historical evidence validates.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

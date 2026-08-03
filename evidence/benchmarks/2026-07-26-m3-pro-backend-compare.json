@@ -235,12 +235,23 @@
       32,
       64
     ],
-    "note": "openai_http forces temperature=0,top_p=1,seed=0 but continuous batching still diverges from serial at batch>1 on this engine \u2014 unusable for byte-exact redundancy verification."
+    "note": "openai_http forces temperature=0,top_p=1,seed=0 but continuous batching still diverges from serial at batch>1 on this engine — unusable for byte-exact redundancy verification."
   },
   "findings": [
     "openai_http Metal serial 323.5 tok/s vs prior candle Metal serial 91.2 tok/s = 3.55x",
     "openai_http Metal peak 519.5 tok/s at best batch vs prior candle Metal peak 138.7 tok/s = 3.75x",
-    "openai_http aggregate tok/s peaks at batch 8 then regresses at 32/64 on this Metal host \u2014 continuous batching still has contention at large fan-out with 1B Q4.",
+    "openai_http aggregate tok/s peaks at batch 8 then regresses at 32/64 on this Metal host — continuous batching still has contention at large fan-out with 1B Q4.",
     "HTTP backend is faster than Candle even at batch 1 on Metal (engine kernel quality), but is not byte-deterministic under batching."
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }

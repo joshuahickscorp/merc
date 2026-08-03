@@ -367,9 +367,9 @@
       "value": 2,
       "also": "http.Transport.MaxIdleConns default 100 would re-cap if only MaxIdleConnsPerHost were raised to 128"
     },
-    "mechanism": "newRealtimeHTTPClient used http.DefaultTransport, inheriting MaxIdleConnsPerHost=2. Each concurrent streaming completion holds one TCP connection for the full stream. When a stream ends, only 2 idle keep-alives are retained per upstream host; the rest are closed. The next admission therefore cold-dials. At c=1 a single connection is reused (dials/ok\u22481/N). At c=32\u201364 dials/ok climbs toward 1 (almost every request dials). On a remote GPU pod each cold dial is TCP+TLS tens-to-hundreds of ms, which is the +TTFT and under-utilization tax.",
+    "mechanism": "newRealtimeHTTPClient used http.DefaultTransport, inheriting MaxIdleConnsPerHost=2. Each concurrent streaming completion holds one TCP connection for the full stream. When a stream ends, only 2 idle keep-alives are retained per upstream host; the rest are closed. The next admission therefore cold-dials. At c=1 a single connection is reused (dials/ok≈1/N). At c=32–64 dials/ok climbs toward 1 (almost every request dials). On a remote GPU pod each cold dial is TCP+TLS tens-to-hundreds of ms, which is the +TTFT and under-utilization tax.",
     "evidence_from_this_sweep": "Under the default arm, dials_per_ok_request rises from 0.05 at c=1 to 0.82 at c=64 and tcp_connections_opened tracks request volume (186 conns for 320 requests at c=64). Under the fixed arm, dials_per_ok_request stays at concurrency/requests (=0.20 at every level once c>=4) and tcp_connections_opened equals concurrency (64 conns for 320 requests at c=64). Completed request rate at c=64 improves from 1926/s to 2215/s (+15%) under identical stand-in load.",
-    "why_free_at_c1_expensive_at_c32": "c=1: one connection, MaxIdleConnsPerHost=2 retains it, every subsequent request reuses \u2014 zero dial tax after warm. c=32: thirty-two concurrent streams; only two survive as idle; ~30 of the next wave pay cold dial. The cost is proportional to in-flight concurrency, not to anything about a single request body.",
+    "why_free_at_c1_expensive_at_c32": "c=1: one connection, MaxIdleConnsPerHost=2 retains it, every subsequent request reuses — zero dial tax after warm. c=32: thirty-two concurrent streams; only two survive as idle; ~30 of the next wave pay cold dial. The cost is proportional to in-flight concurrency, not to anything about a single request body.",
     "money_locks_untouched": "Buyer funding serialization (evaluateRealtimeBuyerFunding advisory xact lock + FOR UPDATE) is preserved unchanged. This fix is only the upstream http.Transport idle pool."
   },
   "schema_version": 1,
@@ -704,5 +704,13 @@
     ],
     "regression_tests_fail_on_revert": true
   },
-  "merc_source_commit_note": "Base HEAD of the worktree. Fix lives in working tree on control/realtime.go (newRealtimeHTTPClient); git commit was blocked by environment lock on this host. Receipt body is the measurement of default vs fixed transport arms at this code state."
+  "merc_source_commit_note": "Base HEAD of the worktree. Fix lives in working tree on control/realtime.go (newRealtimeHTTPClient); git commit was blocked by environment lock on this host. Receipt body is the measurement of default vs fixed transport arms at this code state.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest"
+  ]
 }
