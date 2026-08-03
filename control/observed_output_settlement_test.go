@@ -297,25 +297,32 @@ func TestObservedOutputSettlementMinBillableFloor(t *testing.T) {
 // verification work snapshots deliberately do not duplicate job max_tokens, so
 // rebuilt CommitTaskInfo has jobMaxTokens=0. Planning and apply must both load
 // the same frozen workload/compute/economic authority and agree on the rebate.
+//
+// batch_infer is not advertised (its authority does not bind). Ordinary
+// admission would refuse this submit; the regression is about settlement
+// recovery after a generative commit, not about the catalogue. Directed
+// routing freezes the lifecycle-present generation cell so the max_tokens
+// path stays covered without re-advertising an unbound receipt.
 func TestObservedOutputSettlementRecoverySnapshotPlannerAndApplyAgree(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openMoneyPathStore(t)
 	f := seedMoneyPathFixture(t, ctx, store, pool, moneyPathSeedOpts{TaskCount: 1})
 
-	sub, herr := normalizeAndValidateJobSubmit(jobSubmit{
+	const directedBatchCell = "candle-metal-llama1-infer"
+	sub := jobSubmit{
 		JobType: JobType{Type: "batch_infer", MaxTokens: 100},
 		Model:   ModelRef{Kind: "gguf", Ref: "llama-3.2-1b-instruct-q4"},
 		Constraints: JobConstraints{
 			MaxDurationSecs: 3600,
 		},
 		Tier: "batch",
-	})
-	if herr != nil {
-		t.Fatalf("normalize batch workload: %s", herr.msg)
 	}
-	workload, err := buildWorkloadDecision(sub, strings.Repeat("c", 64))
+	workload, err := buildWorkloadDecisionDirected(sub, strings.Repeat("c", 64), directedBatchCell)
 	if err != nil {
-		t.Fatalf("build workload decision: %v", err)
+		t.Fatalf("build directed batch workload: %v", err)
+	}
+	if workload.Binding.JobType.MaxTokens != 100 {
+		t.Fatalf("directed batch lost max_tokens: %+v", workload.Binding.JobType)
 	}
 	jobDepth := testInputDepthProfile(1)
 	jobDepthAccumulator := newInputDepthAccumulator()
