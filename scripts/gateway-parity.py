@@ -1,5 +1,25 @@
 #!/usr/bin/env python3
-"""Measure merc gateway overhead against the same engine spoken to directly.
+"""INVALIDATED harness — do not produce new parity claims with this script.
+
+Superseded by control/gateway_parity_harness.go (merc-gateway-parity-v2).
+Every receipt this script produced is INVALIDATED_PENDING_RERUN; see
+evidence/perf/gateway-parity.json superseded_by / superseded_reason for the
+exact defects (sub-floor n at c=32, FIFO join, c=1-only budget gate,
+Connection: close, top_p mismatch, double-counted TTFT-as-throughput, etc.).
+
+The authoritative replacement:
+  - control/gateway_parity_harness.go (+ tests in gateway_parity_harness_test.go)
+  - go test ./control -run TestGatewayParityHarnessSelfTest  # local stand-in
+  - scripts/gateway-parity-v2.go for a live dual-arm run (budgeted separately)
+
+This file remains only so historical invocations and the self_test() unit
+checks keep resolving. New measurements must not write over a v2 receipt
+without an explicit --i-know-this-is-invalidated flag.
+
+---
+Original docstring (historical):
+
+Measure merc gateway overhead against the same engine spoken to directly.
 
 Question answered with numbers, not slogans:
 
@@ -1044,10 +1064,22 @@ def main() -> int:
     ap.add_argument("--allow-incomparable", action="store_true",
                     help="write the receipt even when sides are not comparable "
                          "(comparison block will be null; exit 2)")
+    ap.add_argument("--i-know-this-is-invalidated", action="store_true",
+                    help="required to run a live measurement with this "
+                         "INVALIDATED harness; prefer scripts/gateway-parity-v2.go")
     args = ap.parse_args()
 
     if args.self_test:
         return self_test()
+
+    if not args.i_know_this_is_invalidated:
+        print(
+            "REFUSED: scripts/gateway-parity.py is INVALIDATED. "
+            "Use control/gateway_parity_harness.go / scripts/gateway-parity-v2.go. "
+            "Pass --i-know-this-is-invalidated only to reproduce historical defects.",
+            file=sys.stderr,
+        )
+        return 2
 
     if not args.merc_base_url or not args.direct_base_url:
         print("--merc-base-url and --direct-base-url are required "
