@@ -174,6 +174,20 @@ def one_stream(
         "messages": [{"role": "user", "content": PROMPT}],
         "max_tokens": max_tokens,
         "temperature": 0,
+        # top_p is sent EXPLICITLY, and its value is not arbitrary. The gateway
+        # fills in unset sampler fields from the runtime profile
+        # (control/realtime.go:326-328); vllm-llama-3.2-1b-instruct-bf16.json
+        # carries top_p 0.95. Omitting it here means the merc arm reaches the
+        # engine with top_p=0.95 while the direct arm reaches it with top_p
+        # unset — the two arms stop being the same request, which is the one
+        # thing this harness exists to hold constant, and the receipt's
+        # "same request corpus" claim becomes false.
+        #
+        # 1.0 is the greedy-equivalent value, so this pins both arms to the
+        # decoding the receipt already claims rather than to the profile's
+        # sampling default. Any sampler field the gateway defaults must be set
+        # here for the same reason.
+        "top_p": 1.0,
         "stream": True,
         "stream_options": {"include_usage": True},
     }).encode()
@@ -899,7 +913,7 @@ def self_test() -> int:
         max_tokens=32,
         temperature=0,
         stream=True,
-        top_p=None,
+        top_p=1.0,
         seed=None,
         prompt=PROMPT,
         concurrency_levels=[1, 8, 32],
@@ -1136,7 +1150,7 @@ def main() -> int:
         max_tokens=args.max_tokens,
         temperature=0,
         stream=True,
-        top_p=None,
+        top_p=1.0,
         seed=None,
         prompt=PROMPT,
         concurrency_levels=levels,
