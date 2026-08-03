@@ -32,7 +32,10 @@ from lib.evidence_binding import (  # noqa: E402
     BINDING_SUPERSEDED,
     BINDING_UNBOUND,
     BINDING_WITHDRAWN,
+    BINDING_META_KEYS,
+    binding_sidecar_path,
     incomplete_fields,
+    is_job_contract_payload,
     missing_fields_for_object,
     validate_git_object,
     EvidenceBindingError,
@@ -96,11 +99,27 @@ def iter_evidence_files() -> list[Path]:
     return out
 
 
+def _load_sidecar(path: Path, rel: str) -> dict[str, Any] | None:
+    side = binding_sidecar_path(path)
+    if not side.is_file():
+        return None
+    try:
+        binding = json.loads(side.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"{side.relative_to(ROOT)}: unreadable: {exc}")
+        return None
+    if not isinstance(binding, dict):
+        fail(f"{side.relative_to(ROOT)}: not a JSON object")
+        return None
+    return binding
+
+
 def load_binding_for(path: Path) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Return (object_or_none, binding_doc).
 
-    For JSON objects, binding fields live in the object.
-    For jsonl/other, binding lives in path.with_name(path.name + '.binding.json').
+    Receipts (measurement descriptions) carry binding fields in the object.
+    Job-result payloads and non-object evidence carry binding in
+    path + '.binding.json' so the payload schema stays closed.
     """
     rel = path.relative_to(ROOT).as_posix()
     if path.suffix == ".json":
@@ -110,34 +129,40 @@ def load_binding_for(path: Path) -> tuple[dict[str, Any] | None, dict[str, Any] 
             fail(f"{rel}: unreadable JSON: {exc}")
             return None, None
         if isinstance(data, dict):
+            if is_job_contract_payload(data):
+                # Payload bodies must stay free of binding meta. A prior bad
+                # stamp that left binding_status inside is a hard failure.
+                present = sorted(BINDING_META_KEYS.intersection(data.keys()))
+                if present:
+                    fail(
+                        f"{rel}: job-result payload carries in-object binding "
+                        f"fields {present}; move them to {path.name}.binding.json"
+                    )
+                    return data, None
+                binding = _load_sidecar(path, rel)
+                if binding is None:
+                    fail(
+                        f"{rel}: job-result payload without sidecar "
+                        f"{path.name}.binding.json"
+                    )
+                    return data, None
+                return data, binding
+            # Receipt: binding lives in the object.
             return data, data
         # JSON non-object (array etc.)
-        side = Path(str(path) + ".binding.json")
-        if not side.is_file():
-            fail(f"{rel}: non-object JSON without sidecar {side.name}")
-            return None, None
-        try:
-            binding = json.loads(side.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            fail(f"{side.relative_to(ROOT)}: unreadable: {exc}")
-            return None, None
-        if not isinstance(binding, dict):
-            fail(f"{side.relative_to(ROOT)}: not a JSON object")
+        binding = _load_sidecar(path, rel)
+        if binding is None:
+            fail(f"{rel}: non-object JSON without sidecar {path.name}.binding.json")
             return None, None
         return None, binding
 
     # jsonl / txt / other
-    side = Path(str(path) + ".binding.json")
-    if not side.is_file():
-        fail(f"{rel}: non-JSON-object evidence without sidecar {Path(str(path) + '.binding.json').name}")
-        return None, None
-    try:
-        binding = json.loads(side.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        fail(f"{side.relative_to(ROOT)}: unreadable: {exc}")
-        return None, None
-    if not isinstance(binding, dict):
-        fail(f"{side.relative_to(ROOT)}: not a JSON object")
+    binding = _load_sidecar(path, rel)
+    if binding is None:
+        fail(
+            f"{rel}: non-JSON-object evidence without sidecar "
+            f"{path.name}.binding.json"
+        )
         return None, None
     return None, binding
 
