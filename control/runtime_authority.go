@@ -217,14 +217,25 @@ func (c authorityCell) EffectiveLifecycle(profile authorityRuntimeProfile) strin
 
 // Routable reports whether this cell may take ORDINARY buyer work.
 //
-// REAL_RUNTIME_PROVEN is deliberately not routable. It means a real engine
-// executed real work through the complete Merc chain, which is the evidence a
-// promotion argument is built FROM, not the promotion itself. Reaching it
-// through explicit operator or test routing is how the next evidence gets
-// collected; reaching it through ordinary buyer traffic would be the promotion
-// happening by accident.
+// Two conditions, both required:
+//
+//  1. Lifecycle is CANARY or ACTIVE (REAL_RUNTIME_PROVEN is deliberately not:
+//     it is the evidence a promotion is built FROM, not the promotion itself).
+//  2. The cell's benchmark authority is bindable: the receipt resolves, every
+//     applicable identity field is present and valid (including merc_source_commit
+//     as a real git object), and the authority has not been INVALIDATED,
+//     WITHDRAWN or SUPERSEDED.
+//
+// Lifecycle alone used to be enough. That left three candle cells routable on
+// receipts that could not bind — a free-string source commit, a missing identity
+// block, a profile revision that no longer matches. A dead receipt must leave
+// the routable set automatically; see cellAuthorityBindable.
 func (c authorityCell) Routable(profile authorityRuntimeProfile) bool {
-	return runtimeLifecycleRoutable(c.EffectiveLifecycle(profile))
+	if !runtimeLifecycleRoutable(c.EffectiveLifecycle(profile)) {
+		return false
+	}
+	ok, _ := cellAuthorityBindable(profile, c)
+	return ok
 }
 
 // ReachableByDirectedRouting reports whether an operator or a test may force
@@ -650,7 +661,12 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 			if err := validateCellAuthority(profile, cell); err != nil {
 				return err
 			}
-			if !cell.Routable(profile) {
+			// Uniqueness and "every model is served" use lifecycle only. Bindable
+			// authority is a separate predicate on Routable(): a cell may stay
+			// CANARY/ACTIVE on a withdrawn receipt and leave the advertised set
+			// without becoming an unserved catalogue model. Calling Routable here
+			// would also create an initialization cycle with the models catalogue.
+			if !runtimeLifecycleRoutable(cell.EffectiveLifecycle(profile)) {
 				continue
 			}
 			if owner, taken := seenRoutableCell[cell.ID]; taken {
@@ -672,7 +688,7 @@ func validateRuntimeAuthorityDocument(authority runtimeAuthorityDocument) error 
 	for _, model := range authority.Models {
 		if !servedModels[model.ID] {
 			return fmt.Errorf(
-				"model %q is admitted but no routable runtime profile serves it", model.ID)
+				"model %q is admitted but no CANARY/ACTIVE runtime cell serves it", model.ID)
 		}
 	}
 	for _, profile := range authority.Runtimes {
@@ -944,6 +960,20 @@ type benchmarkReceiptSummary struct {
 	// Absent means this receipt carries no usable number, which is a different
 	// fact from "slow" and must not be resolved to one.
 	Throughput map[string]benchmarkThroughput `json:"throughput,omitempty"`
+
+	// Identity and validity fields used by cellAuthorityBindable. Mirrored from
+	// the receipt so a container that ships only the binary can still refuse a
+	// free-string commit, a withdrawn authority, or a stale profile revision.
+	// TestBenchmarkManifestIdentityMatchesTheReceipts keeps them honest.
+	//
+	// Validity empty or "VALID" means the receipt still stands. INVALIDATED,
+	// WITHDRAWN and SUPERSEDED (including spellings like INVALIDATED_PENDING_RERUN)
+	// demote every dependent cell from the routable set automatically.
+	Validity             string   `json:"validity,omitempty"`
+	MercSourceCommit     string   `json:"merc_source_commit,omitempty"`
+	ProfileRevision      string   `json:"profile_revision,omitempty"`
+	Harness              string   `json:"harness,omitempty"`
+	ModelArtifactSHA256s []string `json:"model_artifact_sha256s,omitempty"`
 }
 
 // benchmarkThroughput is one profile's measured rate inside one receipt.

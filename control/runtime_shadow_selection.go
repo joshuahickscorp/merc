@@ -10,19 +10,22 @@ import (
 // Shadow runtime selection: what a selector WOULD have chosen, recorded beside
 // what admission actually froze, changing nothing.
 //
-// This is narrower than a full RuntimeSelector and the narrowness is the finding,
-// not a shortcut. Two properties of this tree decide the shape:
+// Ordinary admission is a singleton today. Competing engines do not compete for
+// production traffic: runtimeCapabilityForBindingDirected freezes exactly one
+// advertised cell per (job type, model), and ClaimTasksTx requires
+// frozen->>'cell_id' = wac.cell_id. Multi-candidate selection is shadow-only —
+// this file. The engine tournament that would make multi-candidate production
+// routing real is a separate lane; do not read this scorer as if it already routes.
 //
-//   - Ordinary admission already requires exactly ONE eligible cell.
-//     runtimeCapabilityForBindingDirected filters advertisedRuntimeCapabilities()
-//     by job and model and refuses unless exactly one matches. Scoring over the
-//     routable set would record one candidate and one winner on every job, which
-//     measures nothing.
+// Two properties of this tree decide the shape:
 //
-//   - The routed cell is always the frozen cell. ClaimTasksTx requires
-//     frozen->>'cell_id' = wac.cell_id, so tasks.runtime_cell_id can only be what
-//     admission chose. Regret computed over ordinary traffic is identically zero
-//     by construction, however elaborate the estimator in front of it.
+//   - Ordinary admission already requires exactly ONE eligible cell. Scoring
+//     over the routable set would record one candidate and one winner on every
+//     job, which measures nothing.
+//
+//   - The routed cell is always the frozen cell. Regret computed over ordinary
+//     traffic is identically zero by construction, however elaborate the
+//     estimator in front of it.
 //
 // So the comparison is over the DIRECTED set — every cell an operator or an
 // experiment may name, which for embed includes llama.cpp's REAL_RUNTIME_PROVEN
