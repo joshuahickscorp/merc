@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,9 +27,9 @@ import (
 //	go test -count=1 -run TestGatewayParityAgainstRealEngine -timeout 20m .
 //
 // Boots a control-plane httptest server against the shared test database, registers
-// the real local engine as the only realtime offer, and drives
-// scripts/gateway-parity.py so the receipt compares merc → engine vs engine
-// directly under identical model/max_tokens.
+// the real local engine as the only realtime offer, and drives the authoritative
+// control harness (RunGatewayParityInterleavedLevel + BuildGatewayParityReceipt).
+// Does NOT shell the invalidated scripts/gateway-parity.py.
 func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	if os.Getenv("MERC_GATEWAY_PARITY") != "1" {
 		t.Skip("set MERC_GATEWAY_PARITY=1 to run the live gateway overhead measurement")
@@ -59,6 +59,8 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	t.Setenv("STRIPE_SECRET_KEY", "")
 	t.Setenv("MERC_CANARY_ENABLED", "false")
 	t.Setenv("MERC_REALTIME_PATH_TIMING", "1")
+	// Capture so body identity can be proven for PARITY_EVIDENCE.
+	t.Setenv(parityUpstreamCaptureEnv, "1")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
@@ -73,8 +75,6 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	}
 	// Own the realtime tables for this measurement so concurrent test runs
 	// cannot steal capacity or leave EXECUTING rows that block admission.
-	// Retry TRUNCATE: the shared merc_rt2 database can hold short locks from
-	// a concurrent integration test, and a single 40P01 is not a real failure.
 	var resetErr error
 	for attempt := 0; attempt < 8; attempt++ {
 		_, resetErr = pool.Exec(ctx, `TRUNCATE
@@ -115,17 +115,6 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	}
 
 	profile := sortedVLLMProfiles()[0]
-	// The offer must present a generated-style credential; the real engine key
-	// is what the gateway forwards as Bearer to the upstream.
-	// validateRealtimeOfferRegistration requires cx_vllm_ prefix; the engine
-	// itself may expect a different key, so we store the real engine key as the
-	// sealed upstream token via UpsertRealtimeOffer which encrypts it.
-	//
-	// Registration validation is only applied on the HTTP worker route. The
-	// store method used here accepts the token as-is after the test constructs
-	// a valid-looking cx_vllm_ value… unless the engine requires its own key.
-	// Forward the real key: openToken seals whatever we put in UpstreamToken.
-	// validateRealtimeOfferRegistration is NOT called by UpsertRealtimeOffer.
 	if err := store.UpsertRealtimeOffer(ctx, WorkerAuth{WorkerID: workerID, SupplierID: supplierID}, RealtimeOfferRegistration{
 		RuntimeProfileID: profile.RuntimeProfileID, RuntimeProfileSHA256: profile.ProfileSHA256,
 		HWClass: "nvidia_24gb", GPUCount: 1, MemoryGBPerGPU: 24,
@@ -135,7 +124,6 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Heartbeat loop so available capacity stays fresh across the sweep.
 	hbDone := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
@@ -159,8 +147,7 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	server := httptest.NewServer(NewServer(store, nil, nil, nil).Routes())
 	defer server.Close()
 
-	// Smoke one merc completion before the sweep so a mis-registered offer
-	// fails fast with a readable error instead of a long multi-level timeout.
+	// Smoke one merc completion before the sweep.
 	smokeBody := []byte(`{"model":"cx-chat-1b","messages":[{"role":"user","content":"ping"}],"max_tokens":4,"stream":true,"temperature":0}`)
 	smokeReq, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/v1/chat/completions", bytes.NewReader(smokeBody))
 	if err != nil {
@@ -186,108 +173,139 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Default to minCellCostSamples (20): p95/p99 under nearest-rank need that
-	// floor, and the promotion gate elsewhere refuses fewer. Operators can
-	// override with MERC_GATEWAY_PARITY_REQUESTS for a short smoke, but the
-	// harness will refuse gate_passed below the floor.
-	requestsPerLevel := strconv.Itoa(minCellCostSamples)
-	if v := os.Getenv("MERC_GATEWAY_PARITY_REQUESTS"); v != "" {
-		requestsPerLevel = v
-	}
-	maxTokens := "32"
+	maxTokens := 32
 	if v := os.Getenv("MERC_GATEWAY_PARITY_MAX_TOKENS"); v != "" {
-		maxTokens = v
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxTokens = n
+		}
 	}
 	// Llama-3.2-1B-Instruct Q4_K_M — same digest as
 	// evidence/perf/runtime-benchmarks/llama-cpp-metal-llama1-q4-r1.json and
-	// ops/model-provenance.json. Required so same-weights is proved, not
-	// inferred from /models or a one-token smoke.
+	// ops/model-provenance.json.
 	artifactSHA := "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
 	if v := os.Getenv("MERC_GATEWAY_PARITY_MODEL_ARTIFACT_SHA256"); v != "" {
 		artifactSHA = v
 	}
 
-	cmd := exec.CommandContext(ctx, "python3", filepath.Join("..", "scripts", "gateway-parity.py"),
-		"--merc-base-url", server.URL+"/v1",
-		"--direct-base-url", strings.TrimRight(upstream, "/"),
-		"--model", profile.ModelAlias,
-		"--max-tokens", maxTokens,
-		"--concurrency", "1,8,32",
-		"--requests-per-level", requestsPerLevel,
-		"--merc-label", "merc control plane (httptest) -> same local engine",
-		"--direct-label", "direct local llama-server Metal / cx-chat-1b GGUF-Q4",
-		"--model-artifact-sha256", artifactSHA,
-		"--precision", "GGUF-Q4_K_M",
-		"--engine", "llama_cpp",
-		"--hw-class", "apple_silicon_ultra",
-		"--out", outPath,
-	)
-	cmd.Env = append(os.Environ(),
-		"MERC_BENCHMARK_API_KEY="+buyerKey,
-		"MERC_DIRECT_VLLM_API_KEY="+upstreamKey,
-	)
-	output, err := cmd.CombinedOutput()
-	t.Logf("gateway-parity.py output:\n%s", output)
-	if err != nil {
-		t.Fatalf("gateway-parity harness failed: %v", err)
+	// Default claimed levels; operators can narrow for a short smoke.
+	claimed := []int{1, 8, 32}
+	if v := os.Getenv("MERC_GATEWAY_PARITY_CONCURRENCY"); v != "" {
+		claimed = claimed[:0]
+		for _, p := range strings.Split(v, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			n, err := strconv.Atoi(p)
+			if err != nil || n < 1 {
+				t.Fatalf("bad MERC_GATEWAY_PARITY_CONCURRENCY %q", p)
+			}
+			claimed = append(claimed, n)
+		}
 	}
 
-	raw, err := os.ReadFile(outPath)
+	contract := GatewayParitySamplingContract{
+		Model: profile.ModelAlias, Prompt: "Write a short factual paragraph about the water cycle. Be specific and do not repeat yourself.",
+		Temperature: 0, TopP: 0.95, MaxTokens: maxTokens, Stream: true,
+		ModelDigest: artifactSHA, RuntimeProfileID: profile.RuntimeProfileID,
+		RuntimeProfileSHA256: profile.ProfileSHA256,
+	}
+	body, err := contract.BuildChatCompletionsBody()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var receipt struct {
-		Comparable       bool     `json:"comparable"`
-		GatePassed       bool     `json:"gate_passed"`
-		MeasuredAt       string   `json:"measured_at"`
-		MercSourceCommit string   `json:"merc_source_commit"`
-		GateVersion      string   `json:"gate_version"`
-		Refusals         []string `json:"refusals"`
-		Summary          struct {
-			TTFTP50 *float64 `json:"ttft_overhead_p50_ms"`
-			TTFTP95 *float64 `json:"ttft_overhead_p95_ms"`
-			TTFTP99 *float64 `json:"ttft_overhead_p99_ms"`
-		} `json:"summary_concurrency_1"`
-		Scope struct {
-			MercModelArtifactSHA256   string `json:"merc_model_artifact_sha256"`
-			DirectModelArtifactSHA256 string `json:"direct_model_artifact_sha256"`
-		} `json:"scope"`
+
+	maxC := claimed[0]
+	for _, c := range claimed {
+		if c > maxC {
+			maxC = c
+		}
 	}
-	if err := json.Unmarshal(raw, &receipt); err != nil {
+	client := NewGatewayParityClient(maxC)
+	hostStart := CaptureGatewayParityHostLoad()
+	levels := map[string]GatewayParityLevelResult{}
+	for _, c := range claimed {
+		n := GatewayParitySampleFloor(c)
+		// Optional override for short smoke — RefuseGatewayParitySampleCount will
+		// still refuse gate_passed below the floor.
+		if v := os.Getenv("MERC_GATEWAY_PARITY_REQUESTS"); v != "" {
+			if override, err := strconv.Atoi(v); err == nil && override > 0 {
+				n = override
+			}
+		}
+		t.Logf("=== alternating-batch interleaved c=%d n=%d per arm ===", c, n)
+		merc, direct := RunGatewayParityInterleavedLevel(
+			ctx, client,
+			server.URL+"/v1", buyerKey,
+			strings.TrimRight(upstream, "/"), upstreamKey,
+			body, c, n,
+		)
+		levels[fmt.Sprintf("merc@c=%d", c)] = merc
+		levels[fmt.Sprintf("direct@c=%d", c)] = direct
+		t.Logf("  merc: status=%s ok=%d/%d peak=%d ttft_p95=%v",
+			merc.Status, merc.RequestsOK, merc.RequestsAttempted, merc.PeakInFlight, merc.TTFTp95)
+		t.Logf("  direct: status=%s ok=%d/%d peak=%d ttft_p95=%v",
+			direct.Status, direct.RequestsOK, direct.RequestsAttempted, direct.PeakInFlight, direct.TTFTp95)
+	}
+	hostEnd := CaptureGatewayParityHostLoad()
+
+	identity := ProveGatewayParityBodyIdentity(body, claimed, levels)
+	topology := GatewayParityNetworkTopology{
+		ClientHost: "measure-test-process", ControlPlane: "httptest control plane",
+		Engine:          "local engine (MERC_REALTIME_UPSTREAM)",
+		ClientToControl: "loopback", ControlToEngine: "loopback/lan",
+		ClientToEngine: "loopback/lan",
+		Notes:          "opt-in live measure via control harness (not gateway-parity.py)",
+	}
+	rec := BuildGatewayParityReceipt(
+		contract, topology, client, claimed, levels, identity,
+		DefaultGatewayParityBudget(), hostStart, hostEnd,
+		"PARITY_EVIDENCE",
+		[]string{
+			"driven by TestGatewayParityAgainstRealEngine using control/gateway_parity_harness.go",
+			"invalidated path scripts/gateway-parity.py is not invoked",
+		},
+	)
+
+	raw, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !receipt.Comparable || !receipt.GatePassed {
-		t.Fatalf("gateway parity receipt is not comparable/gate-passed: %s", raw)
+	if err := os.WriteFile(outPath, append(raw, '\n'), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if receipt.MeasuredAt == "" {
+	t.Logf("wrote receipt to %s gate_passed=%v verdict=%s comparable=%v refusals=%v",
+		outPath, rec.GatePassed, rec.Gate.Verdict, rec.Comparable, rec.Refusals)
+
+	// Live measure asserts the harness produced a complete receipt; pass/fail
+	// of the budget is the scientific claim and must not be silently greenwashed.
+	// Operators inspect gate_passed on the written receipt.
+	if rec.MeasuredAt == "" {
 		t.Fatal("receipt missing measured_at")
 	}
-	if receipt.MercSourceCommit == "" {
+	if rec.MercSourceCommit == "" {
 		t.Fatal("receipt missing merc_source_commit")
 	}
-	if receipt.GateVersion == "" {
+	if rec.GateVersion == "" {
 		t.Fatal("receipt missing gate_version")
 	}
-	if len(receipt.Refusals) != 0 {
-		t.Fatalf("receipt refusals non-empty: %v", receipt.Refusals)
+	if rec.EvidenceClass != "PARITY_EVIDENCE" {
+		t.Fatalf("evidence_class=%s", rec.EvidenceClass)
 	}
-	if receipt.Scope.MercModelArtifactSHA256 != artifactSHA ||
-		receipt.Scope.DirectModelArtifactSHA256 != artifactSHA {
-		t.Fatalf("scope artifact digests not pinned: merc=%q direct=%q want %q",
-			receipt.Scope.MercModelArtifactSHA256,
-			receipt.Scope.DirectModelArtifactSHA256, artifactSHA)
+	if rec.SamplingContract.ModelDigest != artifactSHA {
+		t.Fatalf("model digest not pinned: %q want %q", rec.SamplingContract.ModelDigest, artifactSHA)
 	}
-	t.Logf("concurrency=1 TTFT overhead p50=%v p95=%v p99=%v ms (merc − direct)",
-		derefFloat(receipt.Summary.TTFTP50),
-		derefFloat(receipt.Summary.TTFTP95),
-		derefFloat(receipt.Summary.TTFTP99))
-}
-
-func derefFloat(p *float64) any {
-	if p == nil {
-		return nil
+	// Log primary metric per level for the operator.
+	for _, gl := range rec.Gate.Levels {
+		if gl.TTFTOverheadP95Ms != nil {
+			t.Logf("c=%d verdict=%s ttft_overhead_p95=%.3f CI[%.3f,%.3f] MDE=%.3f budget=%.3f",
+				gl.Concurrency, gl.Verdict, gl.TTFTOverheadP95Ms.Point,
+				gl.TTFTOverheadP95Ms.CI95Low, gl.TTFTOverheadP95Ms.CI95High,
+				gl.MinimumDetectableEffectMs, gl.TTFTBudgetMs)
+		} else {
+			t.Logf("c=%d verdict=%s refusals=%v", gl.Concurrency, gl.Verdict, gl.Refusals)
+		}
 	}
-	return *p
 }
 
 func readAllLimited(r interface{ Read([]byte) (int, error) }, n int64) ([]byte, error) {

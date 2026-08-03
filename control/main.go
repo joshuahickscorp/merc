@@ -191,6 +191,13 @@ func main() {
 		os.Exit(runHealthcheck())
 	}
 
+	// Gateway parity live driver — same EvaluateGatewayParityGate /
+	// BuildGatewayParityReceipt path the unit tests exercise. Thin scripts
+	// re-exec this command; do not reimplement the gate in scripts/.
+	if len(os.Args) > 1 && os.Args[1] == "gateway-parity" {
+		os.Exit(runGatewayParityCLI(os.Args[2:]))
+	}
+
 	if len(os.Args) > 1 && os.Args[1] == "print-claim-sql" {
 		predicate := "t.claimed_by IS NULL"
 		if len(os.Args) > 2 && os.Args[2] == "--pinned" {
