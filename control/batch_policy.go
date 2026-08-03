@@ -17,25 +17,29 @@ import (
 // batch of 64 short prompts and a batch of 64 long ones do wildly different
 // amounts of prefill, and prefill is 76% of wall time at the operating point.
 //
-// Measured on the 8-bit authority (128-token prompts, 32 output, M3 Ultra):
+// Budget constants below came from a historical unbound 8-bit MLX suite
+// (128-token prompts, 32 output, M3 Ultra). That suite is not bound identity at
+// this commit and must not be labelled as today's physical tok/s. The knee
+// shape it suggested — past ~8,192 in-flight tokens, throughput flattens while
+// TTFT keeps rising — is retained only as the design rationale for these
+// constants, not as a live performance claim.
 //
-//	batch   physical t/s   TTFT ms   tokens
-//	   32          6,047       571    4,096
-//	   64          6,495     1,138    8,192
-//	  128          6,552     2,337   16,384
-//	  256          6,646     4,666   32,768
+//	batch   historical t/s (unbound)   TTFT ms   tokens
+//	   32                    6,047         571    4,096
+//	   64                    6,495       1,138    8,192
+//	  128                    6,552       2,337   16,384
+//	  256                    6,646       4,666   32,768
 //
-// Past 8,192 tokens the curve is flat and the latency is not: batch 256 buys
-// 2.3% more throughput for 310% more TTFT, i.e. ~134% latency per 1%
-// throughput. The knee is 8,192 tokens in flight, and it is a TOKEN budget, not
-// a request budget.
+// The knee is 8,192 tokens in flight, and it is a TOKEN budget, not a request
+// budget.
 const (
-	// maxBatchTokens is the measured knee. Above it, throughput is flat.
+	// maxBatchTokens is the design knee taken from the historical unbound suite
+	// above. Above it, that suite's throughput curve was flat.
 	maxBatchTokens = 8192
 
-	// interactiveBatchTokens bounds a latency-class batch. From the same
-	// measurement, 4,096 tokens holds TTFT near 570ms while retaining 93% of
-	// peak throughput -- the right trade when a human is waiting.
+	// interactiveBatchTokens bounds a latency-class batch. Same historical
+	// suite: 4,096 tokens kept TTFT nearer interactive budgets while retaining
+	// most of the flat-region throughput — the right trade when a human waits.
 	interactiveBatchTokens = 4096
 )
 
