@@ -34,15 +34,5 @@
   "ordering_verified": "cheaper_class_online ASC and cheaper_ask_online ASC sort ABOVE warm_prefix_depth DESC in the claim ORDER BY, so a warm expensive worker never displaces a cold cheap one. Warmth is order-only and never a WHERE predicate, so a cold job is never starved.",
   "not_demonstrated_live": "Preference BETWEEN workers needs two workers of the same cost class; only one worker was connected. Grok's wiring tests cover that case, and this run proves the state those tests depend on is actually produced by real traffic.",
   "not_wired": "batch_policy.go remains unwired. Workers claim one task per poll and intra-task batching lives in the Rust agent, so there is no control-plane call site. Reported rather than fake-wired.",
-  "note": "WITHDRAWN. Retained as historical harness observation only. Do not cite as a live economic or engine performance proof. Controlled prefix-affinity routing measurement (stand-in) lives under evidence/perf/prefix-affinity-routing.json when sealed with MERC_PREFIX_AFFINITY_PERF=1.",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "note": "WITHDRAWN. Retained as historical harness observation only. Do not cite as a live economic or engine performance proof. Controlled prefix-affinity routing measurement (stand-in) lives under evidence/perf/prefix-affinity-routing.json when sealed with MERC_PREFIX_AFFINITY_PERF=1."
 }

@@ -32,15 +32,5 @@
   },
   "reduction_factor": 125,
   "defect_found_and_fixed": "Before the floor, the reuse charge underflowed micro-USD to 0 on a small result. SubmitExactReuseBatchJob then correctly refused it ('must charge the buyer' -- reuse is cheaper, never free) and the caller silently fell back to executing live at FULL price. The cache was hit and the hit counter incremented while the buyer paid the undiscounted amount. The only trace was one log line.",
-  "note": "HISTORICAL ONLY. Retained as a defect record; do not credit reduction_factor from this artifact. The production-wired public-path proof is evidence/reuse/public-path-128-to-1.json (realtime exact reuse via POST /v1/chat/completions, tenant-scoped identity, integer nanos). batchExactReuseEnabled remains false.",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "model_artifact_digest",
-    "image_digest",
-    "harness_revision",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ]
+  "note": "HISTORICAL ONLY. Retained as a defect record; do not credit reduction_factor from this artifact. The production-wired public-path proof is evidence/reuse/public-path-128-to-1.json (realtime exact reuse via POST /v1/chat/completions, tenant-scoped identity, integer nanos). batchExactReuseEnabled remains false."
 }

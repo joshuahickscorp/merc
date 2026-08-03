@@ -1067,7 +1067,7 @@
   "benchmark_status": "PHYSICAL_THROUGHPUT_MEASURED",
   "notes": [
     "local host evidence (CPU --device none in sandbox; Metal on host with MERC_LLAMA_DEVICE=)",
-    "CUDA engines (sglang/tensorrt_llm/lmdeploy/vllm) remain DRAFT/unproven \u2014 no fabricated numbers",
+    "CUDA engines (sglang/tensorrt_llm/lmdeploy/vllm) remain DRAFT/unproven — no fabricated numbers",
     "llama.cpp batch_infer cell stays REJECTED_FOR_CONTRACT for byte_exact; this receipt measures physical throughput only",
     "finding: scripts/gateway-parity.py evaluate_budget only inspects concurrency=1; this harness evaluates every claimed level"
   ],
@@ -1083,14 +1083,6 @@
     "note": "local developer host; hw_class not attested; Metal unavailable in this environment so default is CPU (--device none)"
   },
   "binding_status": "SUPERSEDED",
-  "missing_identity_fields": [
-    "source_commit",
-    "build_digest",
-    "image_digest",
-    "corpus_digest",
-    "exact_config",
-    "raw_samples"
-  ],
   "validity": "SUPERSEDED",
   "superseded": true,
   "superseded_at": "2026-08-03",
