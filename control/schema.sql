@@ -5198,15 +5198,17 @@ ALTER TABLE runtime_profile_models
         'DRAFT','VALIDATED','REAL_RUNTIME_PROVEN','CANARY','ACTIVE',
         'QUARANTINED','REJECTED_FOR_CONTRACT','RETIRED'));
 
--- Routability is derived from the CELL's lifecycle, never asserted beside it.
--- REAL_RUNTIME_PROVEN is deliberately not routable: it is the evidence a
+-- Routability requires a CANARY/ACTIVE lifecycle, but lifecycle alone is not
+-- enough. A cell whose authority receipt cannot bind (free-string source commit,
+-- withdrawn evidence, mismatched digests) keeps its lifecycle and still has
+-- routable=false. REAL_RUNTIME_PROVEN remains non-routable: it is the evidence a
 -- promotion is argued from, and a cell that became routable by reaching it would
 -- be promoting itself.
 ALTER TABLE runtime_profile_models
     DROP CONSTRAINT IF EXISTS runtime_profile_models_routable_derived;
 ALTER TABLE runtime_profile_models
     ADD CONSTRAINT runtime_profile_models_routable_derived CHECK (
-        routable = (lifecycle IN ('CANARY','ACTIVE')));
+        NOT routable OR lifecycle IN ('CANARY','ACTIVE'));
 
 -- A rejection states what it was rejected for. Without a reason it is
 -- indistinguishable from an oversight.
@@ -5376,10 +5378,10 @@ CREATE TABLE IF NOT EXISTS runtime_activation_policies (
     CONSTRAINT runtime_activation_policies_lifecycle_known CHECK (lifecycle IN (
         'DRAFT','VALIDATED','REAL_RUNTIME_PROVEN','CANARY','ACTIVE',
         'QUARANTINED','REJECTED_FOR_CONTRACT','RETIRED')),
-    -- Routability is derived from lifecycle, never independently asserted, in
-    -- policy exactly as it is in the registry.
+    -- Routable implies CANARY/ACTIVE. The converse is false: a cell can sit at
+    -- ACTIVE with routable=false when its authority receipt cannot bind.
     CONSTRAINT runtime_activation_policies_routable_derived
-        CHECK (routable = (lifecycle IN ('CANARY','ACTIVE'))),
+        CHECK (NOT routable OR lifecycle IN ('CANARY','ACTIVE')),
     -- Directed eligibility is VALIDATED and above with terminal states excluded.
     CONSTRAINT runtime_activation_policies_directed_derived
         CHECK (directed_eligible = (lifecycle IN (
