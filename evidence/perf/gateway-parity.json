@@ -5,7 +5,7 @@
   "measured_at": "2026-07-28T11:10:09Z",
   "merc_source_commit": "445880863c878c4d6f503c42f5e6bfaea4fb52b3",
   "comparable": true,
-  "gate_passed": true,
+  "gate_passed": false,
   "incomparable_reasons": [],
   "measurement_errors": [],
   "refusals": [],
@@ -559,5 +559,10 @@
         "cost": "~0.1\u20130.3 ms"
       }
     ]
-  }
+  },
+  "superseded_by": "merc-gateway-parity-v2 (control/gateway_parity_harness.go)",
+  "superseded_reason": "INVALIDATED_PENDING_RERUN. This receipt was produced by scripts/gateway-parity.py and is not valid parity evidence. Confirmed defects: (1) nreq=min(max(20,c),80) \u2192 at c=32 n==c=32, one wave, no steady state; (2) run_level joins the OLDEST started thread, not the first to finish \u2014 at n=5c with realistic variance mean in-flight is ~51% of target vs ~76% for a correct pool; (3) evaluate_budget inspects concurrency=1 only then can still report gate_passed:true (did so while c=32 was 3.5x outside budget); (4) both arms used urllib.request.urlopen with no connection pooling / Connection: close (fresh TCP+TLS per request); (5) arms did not send the same request \u2014 control/realtime.go injects top_p from the runtime profile when absent (profile carries 0.95); harness sent none so direct had top_p unset and merc got 0.95 (fixed at HEAD 5ebf6e83 but this receipt predates that); (6) reported 17.5% throughput loss and +267ms TTFT are the same one-time delay counted twice (identical token counts \u21d2 2048/1345.34 - 2048/1631.16 = 266.7ms vs measured TTFT delta 267.3ms); no independent throughput deficit; (7) 135-agent causal investigation produced zero surviving root cause across 79 candidates; (8) c=8 measured merc 9.6% FASTER \u2014 no monotonic per-request-overhead model can produce faster-at-8 and 17.5%-slower-at-32 (calibrating to c=32 predicts 14.5% slower at c=8, a 24-point miss with the wrong sign). Do not tune against these numbers. Replacement harness: control/gateway_parity_harness.go; self-test receipt: evidence/perf/gateway-parity-v2-selftest.json (HARNESS_SELF_TEST, not parity evidence).",
+  "evidence_status": "INVALIDATED_PENDING_RERUN",
+  "historical_gate_passed": true,
+  "historical_gate_passed_note": "Original receipt claimed gate_passed=true; withdrawn because evaluate_budget only inspected c=1 while higher claimed levels were outside budget / under-sampled."
 }

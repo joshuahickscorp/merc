@@ -139,6 +139,10 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/chat/completions", s.authBuyer(http.HandlerFunc(s.handleChatCompletions)))
 	mux.Handle("POST /v1/images/generations", s.authBuyer(http.HandlerFunc(s.handleImageGenerations)))
 	mux.Handle("GET /v1/realtime/requests/{id}/receipt", s.authBuyer(http.HandlerFunc(s.handleRealtimeReceipt)))
+	// Parity upstream-body capture is mounted only when
+	// MERC_PARITY_CAPTURE_UPSTREAM=1. The handler is loopback-only and must
+	// never be enabled on a production control plane.
+	s.registerParityCaptureRoutes(mux)
 	mux.Handle("POST /v1/service-leases", s.authBuyer(http.HandlerFunc(s.handleCreateServiceLease)))
 	mux.Handle("POST /v1/service-leases/{id}/cancel", s.authBuyer(http.HandlerFunc(s.handleCancelServiceLease)))
 	mux.Handle("POST /v1/service-leases/{id}/chat/completions", s.authBuyer(http.HandlerFunc(s.handleServiceLeaseChatCompletions)))
