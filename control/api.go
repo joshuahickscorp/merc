@@ -56,10 +56,20 @@ func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout
 		signupLimiter:      newRateLimiter(signupsPerIPPerDay/86400.0, signupsPerIPPerDay),
 		canary:             loadCanaryPolicyFromEnv(),
 		realtimeHTTPClient: newRealtimeHTTPClient(),
-		// Arrival batching is on by default with class-derived join windows.
-		// Measurement harnesses may replace this with Enabled:false or a fixed
-		// JoinWindow. See traffic_class.go for how the windows are derived.
-		arrivalBatcher: NewArrivalBatcher(ArrivalBatchConfig{Enabled: true}),
+		// Arrival batching is OFF by default, deliberately. The join window
+		// delays every interactive request by up to its class window (2 ms
+		// today) against a c=1 TTFT overhead budget of 15 ms — so it spends
+		// real latency that the parity gate measures. The throughput it buys
+		// back is currently INCONCLUSIVE_NULL: the sweep in
+		// evidence/perf/arrival-batching.json ran against a stand-in, not a
+		// continuous-batching engine, and a stand-in cannot show that win.
+		//
+		// Turn this on when a real engine measurement shows the trade is
+		// positive, and record which measurement. Until then a capability that
+		// costs measured latency for an unmeasured gain should not be on the
+		// path by default. Everything under it — class derivation, the deadline
+		// gate, billing neutrality — is tested and stays wired.
+		arrivalBatcher: NewArrivalBatcher(ArrivalBatchConfig{Enabled: false}),
 	}
 }
 
