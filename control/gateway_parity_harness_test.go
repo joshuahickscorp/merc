@@ -301,36 +301,37 @@ func TestGatewayParityUnprovenBodyIdentityRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Full ladder so incomplete-ladder does not mask the identity refusal.
 	// Prove path with no upstream headers → unproven, Equal=false.
-	levels := map[string]GatewayParityLevelResult{
-		"merc@c=1": {
-			Arm: "merc", Concurrency: 1, RequestsAttempted: 20, RequestsOK: 20,
-			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
-			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 10, CI95High: 10, N: 20},
+	levels := map[string]GatewayParityLevelResult{}
+	tps := 100.0
+	for _, c := range []int{1, 8, 32} {
+		n := GatewayParitySampleFloor(c)
+		levels[fmt.Sprintf("merc@c=%d", c)] = GatewayParityLevelResult{
+			Arm: "merc", Concurrency: c, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: float64(c), PeakInFlight: c,
+			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 10, CI95High: 10, N: n},
 			RawSamples: []GatewayParityRawSample{
 				{Arm: "merc", TTFTMs: 10, FinishReason: "stop", CompletionTokens: 5},
 			},
-			TotalTokens: 100, MeanCompletionTok: 5,
-		},
-		"direct@c=1": {
-			Arm: "direct", Concurrency: 1, RequestsAttempted: 20, RequestsOK: 20,
-			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
-			TTFTp95:     &GatewayParityPointEstimate{Point: 10, CI95Low: 10, CI95High: 10, N: 20},
-			TotalTokens: 100, MeanCompletionTok: 5,
-		},
+			TotalTokens: n * 5, MeanCompletionTok: 5, AggregateTokPerSec: &tps,
+		}
+		levels[fmt.Sprintf("direct@c=%d", c)] = GatewayParityLevelResult{
+			Arm: "direct", Concurrency: c, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: float64(c), PeakInFlight: c,
+			TTFTp95:            &GatewayParityPointEstimate{Point: 10, CI95Low: 10, CI95High: 10, N: n},
+			TotalTokens:        n * 5,
+			MeanCompletionTok:  5,
+			AggregateTokPerSec: &tps,
+		}
 	}
-	tps := 100.0
-	for k, v := range levels {
-		v.AggregateTokPerSec = &tps
-		levels[k] = v
-	}
-	identity := ProveGatewayParityBodyIdentity(body, []int{1}, levels)
+	identity := ProveGatewayParityBodyIdentity(body, []int{1, 8, 32}, levels)
 	if identity.Equal || identity.Proven {
 		t.Fatalf("unproven identity must not set equal/proven: %+v", identity)
 	}
-	client := NewGatewayParityClient(1)
+	client := NewGatewayParityClient(32)
 	rec := BuildGatewayParityReceipt(
-		contract, GatewayParityNetworkTopology{}, client, []int{1}, levels, identity,
+		contract, GatewayParityNetworkTopology{}, client, []int{1, 8, 32}, levels, identity,
 		DefaultGatewayParityBudget(), CaptureGatewayParityHostLoad(), CaptureGatewayParityHostLoad(),
 		"PARITY_EVIDENCE", nil,
 	)
@@ -340,6 +341,240 @@ func TestGatewayParityUnprovenBodyIdentityRefuses(t *testing.T) {
 	joined := strings.Join(rec.Refusals, "; ")
 	if !strings.Contains(joined, "unproven") && !strings.Contains(joined, "not byte-identical") {
 		t.Fatalf("refusals must name unproven identity: %v", rec.Refusals)
+	}
+}
+
+// A bare-SHA stand-in (upstream SHA present, no X-Merc-Contract-ID) must not
+// prove identity and must refuse PARITY_EVIDENCE with an explicit stand-in reason.
+func TestGatewayParityBareSHAStandInRefuses(t *testing.T) {
+	contract := GatewayParitySamplingContract{
+		Model: "m", Prompt: "p", Temperature: 0, TopP: 0.95, MaxTokens: 16, Stream: true,
+		ModelDigest: strings.Repeat("ab", 32),
+	}
+	body, err := contract.BuildChatCompletionsBody()
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness := sha256Hex(body)
+	levels := map[string]GatewayParityLevelResult{}
+	tps := 100.0
+	claimed := []int{1, 8, 32}
+	for _, c := range claimed {
+		n := GatewayParitySampleFloor(c)
+		samples := make([]GatewayParityRawSample, n)
+		for i := range samples {
+			// Matching upstream SHA, no Contract-ID — the bare-SHA attack.
+			samples[i] = GatewayParityRawSample{
+				Arm: "merc", Index: i, TTFTMs: 10, FinishReason: "stop",
+				CompletionTokens: 5, UpstreamBodySHA: harness,
+			}
+		}
+		levels[fmt.Sprintf("merc@c=%d", c)] = GatewayParityLevelResult{
+			Arm: "merc", Concurrency: c, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: float64(c), PeakInFlight: c,
+			TTFTp95: &GatewayParityPointEstimate{Point: 11, CI95Low: 10.5, CI95High: 11.5, N: n},
+			RawSamples: samples, TotalTokens: n * 5, MeanCompletionTok: 5, AggregateTokPerSec: &tps,
+		}
+		levels[fmt.Sprintf("direct@c=%d", c)] = GatewayParityLevelResult{
+			Arm: "direct", Concurrency: c, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: float64(c), PeakInFlight: c,
+			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n},
+			TotalTokens: n * 5, MeanCompletionTok: 5, AggregateTokPerSec: &tps,
+		}
+	}
+	identity := ProveGatewayParityBodyIdentity(body, claimed, levels)
+	if identity.Proven {
+		t.Fatalf("bare-SHA stand-in must not prove: %+v", identity)
+	}
+	// Matching SHA may set Equal, but Proven stays false without Contract-ID.
+	if !identity.BareSHAStandIn {
+		t.Fatalf("expected BareSHAStandIn flag: %+v", identity)
+	}
+	if !strings.Contains(identity.Detail, "bare-SHA") && !strings.Contains(identity.Detail, "Contract-ID") {
+		t.Fatalf("detail must name bare-SHA / Contract-ID: %s", identity.Detail)
+	}
+	rec := BuildGatewayParityReceipt(
+		contract, GatewayParityNetworkTopology{}, NewGatewayParityClient(32), claimed, levels, identity,
+		DefaultGatewayParityBudget(), CaptureGatewayParityHostLoad(), CaptureGatewayParityHostLoad(),
+		"PARITY_EVIDENCE", nil,
+	)
+	if rec.GatePassed || rec.Comparable {
+		t.Fatal("bare-SHA stand-in must not yield gate_passed/comparable")
+	}
+	joined := strings.Join(rec.Refusals, "; ")
+	if !strings.Contains(joined, "bare-SHA") && !strings.Contains(joined, "stand-in") {
+		t.Fatalf("refusals must name bare-SHA stand-in: %v", rec.Refusals)
+	}
+}
+
+// Matching SHA + valid Contract-ID on every OK merc sample proves identity.
+func TestGatewayParityMercContractProofAccepts(t *testing.T) {
+	contract := GatewayParitySamplingContract{
+		Model: "m", Prompt: "p", Temperature: 0, TopP: 0.95, MaxTokens: 16, Stream: true,
+		ModelDigest: strings.Repeat("ab", 32),
+	}
+	body, err := contract.BuildChatCompletionsBody()
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness := sha256Hex(body)
+	levels := map[string]GatewayParityLevelResult{}
+	claimed := []int{1}
+	n := GatewayParitySampleFloor(1)
+	samples := make([]GatewayParityRawSample, n)
+	for i := range samples {
+		samples[i] = GatewayParityRawSample{
+			Arm: "merc", Index: i, TTFTMs: 10, FinishReason: "stop",
+			CompletionTokens: 5, UpstreamBodySHA: harness,
+			ContractID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+		}
+	}
+	// Distinct valid UUIDs per sample (Merc issues one contract per request).
+	for i := range samples {
+		samples[i].ContractID = fmt.Sprintf("a0eebc99-9c0b-4ef8-bb6d-6bb9bd38%04x", i)
+	}
+	levels["merc@c=1"] = GatewayParityLevelResult{
+		Arm: "merc", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+		Status: "MEASURED", RawSamples: samples,
+	}
+	identity := ProveGatewayParityBodyIdentity(body, claimed, levels)
+	if !identity.Proven || !identity.Equal {
+		t.Fatalf("want proven identity with SHA+Contract-ID: %+v", identity)
+	}
+	if identity.BareSHAStandIn {
+		t.Fatal("must not flag bare-SHA when Contract-ID present")
+	}
+	// Drop Contract-ID on one sample → unproven.
+	samples[0].ContractID = ""
+	levels["merc@c=1"] = GatewayParityLevelResult{
+		Arm: "merc", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+		Status: "MEASURED", RawSamples: samples,
+	}
+	identity = ProveGatewayParityBodyIdentity(body, claimed, levels)
+	if identity.Proven {
+		t.Fatal("one OK sample without Contract-ID must unprove")
+	}
+	if !identity.BareSHAStandIn {
+		t.Fatalf("partial bare-SHA must set flag: %+v", identity)
+	}
+}
+
+// MDE > TTFT budget forces INCONCLUSIVE even when the overhead CI sits entirely
+// at or below the budget (comfortable point estimate is not enough).
+func TestGatewayParityUnderpoweredMDEInconclusive(t *testing.T) {
+	n := 20
+	tps := 100.0
+	// ohLo=-28, ohHi=14 ≤ 15 budget → would have been PASS without power gate.
+	// MDE = (14-(-28))/2 = 21 > 15 → under-powered INCONCLUSIVE.
+	levels := map[string]GatewayParityLevelResult{
+		"merc@c=1": {
+			Arm: "merc", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95:            &GatewayParityPointEstimate{Point: 14, CI95Low: 0, CI95High: 28, N: n},
+			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
+		},
+		"direct@c=1": {
+			Arm: "direct", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95:            &GatewayParityPointEstimate{Point: 21, CI95Low: 14, CI95High: 28, N: n},
+			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
+		},
+	}
+	gate := EvaluateGatewayParityGate([]int{1}, levels, DefaultGatewayParityBudget())
+	if gate.Verdict != "INCONCLUSIVE" {
+		t.Fatalf("verdict=%s want INCONCLUSIVE (MDE > budget); levels=%+v", gate.Verdict, gate.Levels)
+	}
+	if gate.GatePassed {
+		t.Fatal("under-powered run must not set gate_passed")
+	}
+	if gate.Levels[0].MinimumDetectableEffectMs <= DefaultGatewayParityBudget().TTFTOverheadP95Ms {
+		t.Fatalf("test setup: MDE=%.3f should exceed budget 15", gate.Levels[0].MinimumDetectableEffectMs)
+	}
+	joined := strings.Join(gate.Levels[0].Refusals, "; ")
+	if !strings.Contains(joined, "under-powered") || !strings.Contains(joined, "MDE=") {
+		t.Fatalf("refusal must name under-powered MDE: %v", gate.Levels[0].Refusals)
+	}
+}
+
+// Error rate above the survival-bias cap refuses the level even when OK samples
+// still meet the floor.
+func TestGatewayParityErrorRateBudgetRefuses(t *testing.T) {
+	// 3 errors out of 23 attempted ≈ 13% > 5% budget; 20 OK still meets floor(1)=20.
+	if reason := RefuseGatewayParityErrorRate(23, 3); reason == "" {
+		t.Fatal("expected error-rate refusal for 3/23")
+	} else if !strings.Contains(reason, "error rate") {
+		t.Fatalf("refusal must name error rate: %s", reason)
+	}
+	if reason := RefuseGatewayParityErrorRate(24, 1); reason != "" {
+		// 1/24 ≈ 4.2% ≤ 5%
+		t.Fatalf("1/24 should clear 5%% budget, got %s", reason)
+	}
+	if reason := RefuseGatewayParityErrorRate(20, 0); reason != "" {
+		t.Fatalf("zero errors refused: %s", reason)
+	}
+
+	// finalize path: fabricate samples with high error rate.
+	samples := make([]GatewayParityRawSample, 23)
+	for i := 0; i < 20; i++ {
+		samples[i] = GatewayParityRawSample{Arm: "merc", TTFTMs: 10, FinishReason: "stop", CompletionTokens: 1}
+	}
+	for i := 20; i < 23; i++ {
+		samples[i] = GatewayParityRawSample{Arm: "merc", Err: "transport reset"}
+	}
+	got := finalizeGatewayParitySamples("merc", 1, 23, samples, 1.0, 1.0, 1, 20)
+	if got.Status != "REFUSED" {
+		t.Fatalf("status=%s want REFUSED for survival bias; reason=%s", got.Status, got.Reason)
+	}
+	if !strings.Contains(got.Reason, "error rate") {
+		t.Fatalf("reason=%q want error rate", got.Reason)
+	}
+}
+
+// -concurrency 1 alone cannot constitute PARITY_EVIDENCE.
+func TestGatewayParityIncompleteLadderRefuses(t *testing.T) {
+	contract := GatewayParitySamplingContract{
+		Model: "m", Prompt: "p", Temperature: 0, TopP: 0.95, MaxTokens: 16, Stream: true,
+		ModelDigest: strings.Repeat("ab", 32),
+	}
+	n := 20
+	tps := 100.0
+	levels := map[string]GatewayParityLevelResult{
+		"merc@c=1": {
+			Arm: "merc", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95: &GatewayParityPointEstimate{Point: 11, CI95Low: 10.5, CI95High: 11.5, N: n},
+			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
+		},
+		"direct@c=1": {
+			Arm: "direct", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n},
+			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
+		},
+	}
+	// Fabricate proven identity so only the ladder refuses.
+	identity := GatewayParityBodyIdentity{
+		Proven: true, Equal: true, Method: "test",
+		HarnessBodySHA256: "x", Detail: "test fixture",
+	}
+	rec := BuildGatewayParityReceipt(
+		contract, GatewayParityNetworkTopology{}, NewGatewayParityClient(1),
+		[]int{1}, levels, identity,
+		DefaultGatewayParityBudget(), CaptureGatewayParityHostLoad(), CaptureGatewayParityHostLoad(),
+		"PARITY_EVIDENCE", nil,
+	)
+	if rec.EvidenceClass != "INCOMPLETE_LADDER" {
+		t.Fatalf("evidence_class=%s want INCOMPLETE_LADDER", rec.EvidenceClass)
+	}
+	if rec.GatePassed || rec.Comparable {
+		t.Fatal("incomplete ladder must not pass/comparable")
+	}
+	if rec.Gate.GatePassed {
+		t.Fatal("nested gate.gate_passed must collapse with receipt refusal")
+	}
+	joined := strings.Join(rec.Refusals, "; ")
+	if !strings.Contains(joined, "incomplete concurrency ladder") {
+		t.Fatalf("refusals must name incomplete ladder: %v", rec.Refusals)
 	}
 }
 
@@ -620,14 +855,20 @@ func TestGatewayParityHarnessSelfTestReceipt(t *testing.T) {
 		"merc@c=1":   merc,
 		"direct@c=1": direct,
 	}
-	// Inject upstream body SHA into samples so Prove path is the same as live.
+	// Stand-in may echo a body SHA (bare-SHA path) but must NOT set
+	// X-Merc-Contract-ID. Identity proof must stay unsatisfied so a self-test
+	// cannot be re-labeled as PARITY_EVIDENCE.
 	for i := range merc.RawSamples {
 		merc.RawSamples[i].UpstreamBodySHA = sha256Hex(body)
+		merc.RawSamples[i].ContractID = "" // deliberate: no Merc contract
 	}
 	levels["merc@c=1"] = merc
 	identity := ProveGatewayParityBodyIdentity(body, claimed, levels)
-	if !identity.Proven || !identity.Equal {
-		t.Fatalf("self-test identity should prove via injected upstream sha: %+v", identity)
+	if identity.Proven {
+		t.Fatalf("self-test stand-in must not satisfy Merc-bound identity proof: %+v", identity)
+	}
+	if !identity.BareSHAStandIn {
+		t.Fatalf("self-test with bare SHA must flag bare-SHA stand-in: %+v", identity)
 	}
 	topology := GatewayParityNetworkTopology{
 		ClientHost: "local-test-process", ControlPlane: "none (self-test)",
@@ -647,8 +888,25 @@ func TestGatewayParityHarnessSelfTestReceipt(t *testing.T) {
 	if rec.EvidenceClass != "HARNESS_SELF_TEST" {
 		t.Fatalf("evidence_class=%s", rec.EvidenceClass)
 	}
-	if rec.GatePassed {
-		t.Fatal("self-test receipt must not set gate_passed (not parity evidence)")
+	if rec.GatePassed || rec.Comparable {
+		t.Fatal("self-test receipt must not set gate_passed/comparable (not parity evidence)")
+	}
+	if rec.Gate.GatePassed {
+		t.Fatal("nested gate.gate_passed must be false for self-test")
+	}
+	// Relabel attack: same samples as PARITY_EVIDENCE must still refuse.
+	attack := BuildGatewayParityReceipt(
+		contract, topology, client, claimed, levels, identity,
+		DefaultGatewayParityBudget(), hostStart, hostEnd,
+		"PARITY_EVIDENCE", nil,
+	)
+	if attack.GatePassed || attack.Comparable {
+		t.Fatal("relabeling self-test stand-in as PARITY_EVIDENCE must not pass")
+	}
+	attackJoined := strings.Join(attack.Refusals, "; ")
+	if !strings.Contains(attackJoined, "bare-SHA") && !strings.Contains(attackJoined, "stand-in") &&
+		!strings.Contains(attackJoined, "incomplete concurrency ladder") {
+		t.Fatalf("relabel attack must refuse bare-SHA and/or incomplete ladder: %v", attack.Refusals)
 	}
 	if merc.Status != "MEASURED" || direct.Status != "MEASURED" {
 		t.Fatalf("arms not measured: merc=%s (%s) direct=%s (%s)",
