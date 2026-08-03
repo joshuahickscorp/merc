@@ -203,8 +203,8 @@ func TestNormalizeAdvertisedRuntimeModelRefOwnsBuyerIngressKind(t *testing.T) {
 			Kind: "gguf",
 			Ref:  "all-minilm-l6-v2",
 		})
-		if err == nil || !strings.Contains(err.Error(), `requires model.kind="hf"`) {
-			t.Fatalf("mismatch error=%v, want generated-kind rejection", err)
+		if err == nil || !strings.Contains(err.Error(), `no advertised cell serving model.kind="gguf"`) {
+			t.Fatalf("mismatch error=%v, want unadvertised-kind rejection", err)
 		}
 	})
 }
