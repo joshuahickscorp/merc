@@ -19,8 +19,9 @@ import (
 //	sweepExpiredInflight      a DELETE with no ticker, so inflight_executions grew
 //	                          without bound
 //	EvictPrefixCacheToBudget  value-ranked eviction that never ran
-//	DeepestWarmPrefix         a second, dead definition of warm depth beside the
-//	                          scheduler's live inline SQL
+//	DeepestWarmPrefix         WAS a second dead definition of warm depth; now
+//	                          production via observeAndMarkPrefixForCommit so an
+//	                          engine-reported cache miss can invalidate belief
 //	preferenceForTier         WAS unwired (ClaimTaskSQL forced shapeNoPreference);
 //	                          now production via ClaimTaskSQL → shapeOrderSQL
 //	SelectBatch               the token-budget batcher (still deliberately unwired;
@@ -105,6 +106,17 @@ var productionReachability = []reachabilityClaim{
 		Consequence: "worker_prefix_state would be bounded only by age, not by its " +
 			"advisory per-worker residency budget; stale routing hints could crowd out " +
 			"the high-value warm prefixes that the scheduler is meant to prefer.",
+	},
+	{
+		From:   "Store.CompleteTaskTx",
+		Target: "Store.DeepestWarmPrefix",
+		Consequence: "engine-reported cached_prompt_tokens would be ignored and a stale " +
+			"warm belief would keep attracting work after the engine had already " +
+			"evicted the prefix. Observation correction (CorrectPrefixBeliefFromObservation) " +
+			"reads DeepestWarmPrefix to decide confirm vs invalidate; without this edge " +
+			"the index is a guess with a data structure around it. Claim ranking still " +
+			"uses its own inline SQL for warm_prefix_depth — this edge is the " +
+			"observation path, not a second placement authority.",
 	},
 	{
 		From:   "Server.handleChatCompletions",
@@ -498,8 +510,6 @@ func TestProductionEntryPointsReachTheMechanismsTheyClaim(t *testing.T) {
 // This is deliberately not a lint. A linter would report unused symbols; this
 // reports symbols someone described as working.
 var knownUnwired = map[string]string{
-	"Store.DeepestWarmPrefix": "a second definition of warm prefix depth. The scheduler " +
-		"uses its own inline SQL, so two definitions exist and only one is live.",
 	// SelectBatch / EstimatedTTFT / ValidateBatchBudget: deliberately refused for
 	// production wiring without a larger redesign. The realtime path authorizes
 	// one contract at a time (AuthorizeRealtimeContract → one worker offer); there
