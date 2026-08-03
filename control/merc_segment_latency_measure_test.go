@@ -665,10 +665,15 @@ func aggregateStageSamples(lines []pathTimingLine) map[string][]time.Duration {
 
 // mercAddedTTFTSamples sums Merc-owned stages on the TTFT path per path-timing line.
 func mercAddedTTFTSamples(lines []pathTimingLine) []time.Duration {
-	// Stages before (or gating) the buyer's first byte, excluding stub upstream.
+	// Stages before (or gating) the buyer's first byte, excluding engine-facing
+	// upstream_ttfb / upstream_connect / upstream_first_sse. auth_lookup,
+	// pre_upstream, and post_upstream close residual gaps named by the
+	// latency-gap accounting harness (evidence/perf/merc-latency-gap-accounting-*).
 	keys := []string{
+		"auth_lookup",
 		"read_body", "prepare_json", "intake_control", "exact_reuse", "coalesce",
-		"authorize_contract", "admission_event", "arrival_batch", "settlement_intent",
+		"authorize_contract", "admission_event", "arrival_batch",
+		"pre_upstream", "settlement_intent", "post_upstream",
 	}
 	out := make([]time.Duration, 0, len(lines))
 	for _, line := range lines {

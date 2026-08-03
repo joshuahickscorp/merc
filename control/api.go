@@ -327,6 +327,7 @@ func formatRequestLog(requestID, method, path string, status int, duration time.
 
 func (s *Server) authBuyer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authStart := time.Now()
 		key, ok := bearer(r)
 		if !ok {
 			writeErr(w, http.StatusUnauthorized, "missing or malformed Authorization bearer token")
@@ -360,7 +361,10 @@ func (s *Server) authBuyer(next http.Handler) http.Handler {
 			writeErr(w, http.StatusTooManyRequests, "rate limit exceeded")
 			return
 		}
+		authDur := time.Since(authStart)
 		ctx := context.WithValue(r.Context(), ctxBuyer, &auth)
+		// Always attach; path timing ignores it unless MERC_REALTIME_PATH_TIMING=1.
+		ctx = context.WithValue(ctx, ctxAuthLookupDuration{}, authDur)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
