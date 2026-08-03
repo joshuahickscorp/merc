@@ -1,0 +1,347 @@
+{
+  "binding_status": "UNBOUND_PROBE",
+  "can_prove": [
+    "envelope path authorize latency vs legacy at c=1,8,32",
+    "envelope + direct offer claim (lease stand-in) authorize latency",
+    "serial decomposition of the lease-stand-in durable statements"
+  ],
+  "cells": [
+    {
+      "path": "legacy_multi_aggregate",
+      "concurrency": 1,
+      "samples": 80,
+      "ok": 80,
+      "fail": 0,
+      "authorize_ms": {
+        "p50": 1.133333,
+        "p95": 1.445625,
+        "p99": 1.582,
+        "min": 0.776333,
+        "max": 1.582,
+        "mean": 1.1498546499999995,
+        "n": 80
+      },
+      "notes": [
+        "full evaluateRealtimeBuyerFunding under advisory lock + offer claim + contract insert"
+      ]
+    },
+    {
+      "path": "envelope_active",
+      "concurrency": 1,
+      "samples": 80,
+      "ok": 80,
+      "fail": 0,
+      "authorize_ms": {
+        "p50": 1.25225,
+        "p95": 1.61,
+        "p99": 2.32525,
+        "min": 1.014875,
+        "max": 2.32525,
+        "mean": 1.3047785999999995,
+        "n": 80
+      },
+      "notes": [
+        "reserveEnvelopeSpendTx (O(1) UPDATE) + full offer ranking claim + contract insert",
+        "no buyer funding advisory lock on admit"
+      ]
+    },
+    {
+      "path": "envelope_plus_direct_offer_claim",
+      "concurrency": 1,
+      "samples": 80,
+      "ok": 80,
+      "fail": 0,
+      "authorize_ms": {
+        "p50": 0.958583,
+        "p95": 1.329333,
+        "p99": 2.60825,
+        "min": 0.757583,
+        "max": 2.60825,
+        "mean": 1.0107619874999996,
+        "n": 80
+      },
+      "notes": [
+        "stand-in for envelope + capacity lease: O(1) envelope spend + O(1) offer UPDATE by worker PK + contract/event insert",
+        "skips ranking CTE; not production-wired; hierarchy preserved (buyer KEY SHARE before offer)"
+      ]
+    },
+    {
+      "path": "legacy_multi_aggregate",
+      "concurrency": 8,
+      "samples": 80,
+      "ok": 80,
+      "fail": 0,
+      "authorize_ms": {
+        "p50": 13.438208,
+        "p95": 38.817,
+        "p99": 57.62425,
+        "min": 1.056834,
+        "max": 57.62425,
+        "mean": 15.082557850000006,
+        "n": 80
+      },
+      "notes": [
+        "full evaluateRealtimeBuyerFunding under advisory lock + offer claim + contract insert"
+      ]
+    },
+    {
+      "path": "envelope_active",
+      "concurrency": 8,
+      "samples": 80,
+      "ok": 80,
+      "fail": 0,
+      "authorize_ms": {
+        "p50": 3.190459,
+        "p95": 5.122084,
+        "p99": 14.759958,
+        "min": 1.750125,
+        "max": 14.759958,
+        "mean": 3.664840712500001,
+        "n": 80
+      },
+      "notes": [
+        "reserveEnvelopeSpendTx (O(1) UPDATE) + full offer ranking claim + contract insert",
+        "no buyer funding advisory lock on admit"
+      ]
+    },
+    {
+      "path": "envelope_plus_direct_offer_claim",
+      "concurrency": 8,
+      "samples": 80,
+      "ok": 80,
+      "fail": 0,
+      "authorize_ms": {
+        "p50": 2.5055,
+        "p95": 5.712541,
+        "p99": 11.987875,
+        "min": 1.165167,
+        "max": 11.987875,
+        "mean": 2.8037707625000006,
+        "n": 80
+      },
+      "notes": [
+        "stand-in for envelope + capacity lease: O(1) envelope spend + O(1) offer UPDATE by worker PK + contract/event insert",
+        "skips ranking CTE; not production-wired; hierarchy preserved (buyer KEY SHARE before offer)"
+      ]
+    },
+    {
+      "path": "legacy_multi_aggregate",
+      "concurrency": 32,
+      "samples": 80,
+      "ok": 80,
+      "fail": 0,
+      "authorize_ms": {
+        "p50": 59.137084,
+        "p95": 117.260333,
+        "p99": 132.921708,
+        "min": 2.117667,
+        "max": 132.921708,
+        "mean": 65.01301617499999,
+        "n": 80
+      },
+      "notes": [
+        "full evaluateRealtimeBuyerFunding under advisory lock + offer claim + contract insert"
+      ]
+    },
+    {
+      "path": "envelope_active",
+      "concurrency": 32,
+      "samples": 80,
+      "ok": 80,
+      "fail": 0,
+      "authorize_ms": {
+        "p50": 3.210583,
+        "p95": 33.328833,
+        "p99": 40.302625,
+        "min": 1.653625,
+        "max": 40.302625,
+        "mean": 8.512437512500004,
+        "n": 80
+      },
+      "notes": [
+        "reserveEnvelopeSpendTx (O(1) UPDATE) + full offer ranking claim + contract insert",
+        "no buyer funding advisory lock on admit"
+      ]
+    },
+    {
+      "path": "envelope_plus_direct_offer_claim",
+      "concurrency": 32,
+      "samples": 80,
+      "ok": 80,
+      "fail": 0,
+      "authorize_ms": {
+        "p50": 2.881833,
+        "p95": 23.986583,
+        "p99": 34.911209,
+        "min": 1.41725,
+        "max": 34.911209,
+        "mean": 6.953312537500001,
+        "n": 80
+      },
+      "notes": [
+        "stand-in for envelope + capacity lease: O(1) envelope spend + O(1) offer UPDATE by worker PK + contract/event insert",
+        "skips ranking CTE; not production-wired; hierarchy preserved (buyer KEY SHARE before offer)"
+      ]
+    }
+  ],
+  "cpus": 28,
+  "design_doc": "docs/HOT_PATH_DURABLE_ADMISSION.md",
+  "direct_claim_decomp_c1": {
+    "begin_ms": {
+      "p50": 0.071,
+      "p95": 0.084458,
+      "p99": 0.09825,
+      "min": 0.058291,
+      "max": 0.09825,
+      "mean": 0.0714151125,
+      "n": 80
+    },
+    "envelope_spend_ms": {
+      "p50": 0.407917,
+      "p95": 0.56375,
+      "p99": 1.308708,
+      "min": 0.376167,
+      "max": 1.308708,
+      "mean": 0.4451818249999998,
+      "n": 80
+    },
+    "direct_offer_claim_ms": {
+      "p50": 0.217,
+      "p95": 0.271917,
+      "p99": 0.526375,
+      "min": 0.196708,
+      "max": 0.526375,
+      "mean": 0.22703018749999995,
+      "n": 80
+    },
+    "pricing_ms": {
+      "p50": 0.0065,
+      "p95": 0.012916,
+      "p99": 0.080708,
+      "min": 0.004375,
+      "max": 0.080708,
+      "mean": 0.00840675,
+      "n": 80
+    },
+    "contract_event_batch_ms": {
+      "p50": 0.391333,
+      "p95": 0.8015,
+      "p99": 1.790083,
+      "min": 0.327959,
+      "max": 1.790083,
+      "mean": 0.4541953249999998,
+      "n": 80
+    },
+    "commit_ms": {
+      "p50": 0.145709,
+      "p95": 0.168167,
+      "p99": 0.250583,
+      "min": 0.1255,
+      "max": 0.250583,
+      "mean": 0.14998072500000006,
+      "n": 80
+    },
+    "total_ms": {
+      "p50": 1.302584,
+      "p95": 1.750292,
+      "p99": 4.22625,
+      "min": 1.183417,
+      "max": 4.22625,
+      "mean": 1.4019167125000007,
+      "n": 80
+    }
+  },
+  "does_not_prove": [
+    "end-to-end Merc-added TTFT against a real Metal/CUDA engine",
+    "production capacity leases (not implemented; stand-in only)",
+    "safety of zero-durable-before-dispatch (disqualified by argument, not measured)",
+    "O(1) materialised committed-micros counter (named next step on short-reserve branch; not built here)"
+  ],
+  "hostname": "Mac-Studio",
+  "kind": "hot_path_free_admit_probe",
+  "load_average": [
+    8.43,
+    7.22,
+    6.69
+  ],
+  "load_n": 28,
+  "machine_quiet": true,
+  "measured_at": "2026-08-03T19:05:38.107085Z",
+  "profile_id": "vllm-llama-3.2-1b-instruct-bf16-tp1",
+  "samples_per_cell": 80,
+  "schema_version": 1,
+  "summary_table": {
+    "envelope_active": {
+      "c=1": {
+        "p50_ms": 1.25225,
+        "p95_ms": 1.61
+      },
+      "c=32": {
+        "p50_ms": 3.210583,
+        "p95_ms": 33.328833
+      },
+      "c=8": {
+        "p50_ms": 3.190459,
+        "p95_ms": 5.122084
+      }
+    },
+    "envelope_plus_direct_offer_claim": {
+      "c=1": {
+        "p50_ms": 0.958583,
+        "p95_ms": 1.329333
+      },
+      "c=32": {
+        "p50_ms": 2.881833,
+        "p95_ms": 23.986583
+      },
+      "c=8": {
+        "p50_ms": 2.5055,
+        "p95_ms": 5.712541
+      }
+    },
+    "legacy_multi_aggregate": {
+      "c=1": {
+        "p50_ms": 1.133333,
+        "p95_ms": 1.445625
+      },
+      "c=32": {
+        "p50_ms": 59.137084,
+        "p95_ms": 117.260333
+      },
+      "c=8": {
+        "p50_ms": 13.438208,
+        "p95_ms": 38.817
+      }
+    }
+  },
+  "verdict": {
+    "amortized_o1_durable_before_dispatch": {
+      "exposure_window": "none beyond today's EXECUTING hold — durable before dispatch",
+      "still_synchronous": true,
+      "survives": true,
+      "why": "envelope (or O(1) committed counter) + capacity lease make per-request durable work two UPDATEs + contract insert + commit; money holds are durable before dispatch"
+    },
+    "measured_authorize_p50_c1_ms": {
+      "direct_claim_decomp": 1.302584,
+      "envelope": 1.25225,
+      "envelope_plus_direct": 0.958583,
+      "legacy": 1.133333
+    },
+    "prior_context_ms": {
+      "authorize_share_metal": 2.6,
+      "legacy_floor_claimed": 1,
+      "merc_owned_metal_p50": 2.994
+    },
+    "question": "Can admission be durable without being synchronous on the first-token path?",
+    "strict_zero_durable_before_dispatch": {
+      "survives": false,
+      "why": "concurrent admits without a durable budget decrement overspend the buyer ceiling; crash without a durable intent breaks supplier liability or recreates the TTL-hold P0 shape"
+    },
+    "target_le_1ms_merc_added": {
+      "reachable_by_optimising_legacy_path": false,
+      "reachable_with_amortized_o1_sync": "borderline — authorize can drop below 1 ms, but merc-added includes intake/admission/proxy; Metal path was ~3 ms merc-owned. Renegotiate or prove e2e.",
+      "reachable_with_zero_durable_sync": false
+    }
+  },
+  "warmup": 10
+}
