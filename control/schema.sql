@@ -3217,6 +3217,12 @@ ALTER TABLE worker_prefix_state ADD COLUMN IF NOT EXISTS depth INT NOT NULL DEFA
 CREATE INDEX IF NOT EXISTS worker_prefix_state_depth_idx
     ON worker_prefix_state (prefix_id, depth DESC, last_seen_warm DESC);
 
+-- Runtime cell that last materialised this prefix on the worker. Advisory
+-- metadata on the belief row: claim ranking still keys by worker_id (the unit
+-- of placement). Empty string means "cell unknown" (legacy rows, or a complete
+-- path that predated cell freeze on the task).
+ALTER TABLE worker_prefix_state ADD COLUMN IF NOT EXISTS cell_id TEXT NOT NULL DEFAULT '';
+
 -- The chain of prefix ids a job can match at, deepest last.
 CREATE TABLE IF NOT EXISTS job_prefix_chain (
     job_id    UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,

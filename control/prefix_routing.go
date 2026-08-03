@@ -10,10 +10,26 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// Aggregate observation counters. Never labelled by prefix_id (that would be a
+// cross-tenant oracle); counts only, for the measurement arm.
+var (
+	prefixObsConfirmed   atomic.Int64 // believed warm, engine reported cached_tokens > 0
+	prefixObsInvalidated atomic.Int64 // believed warm, engine reported cached_tokens == 0
+	prefixObsNoSignal    atomic.Int64 // engine did not report the signal
+	prefixObsColdServe   atomic.Int64 // believed cold (or unknown); no correction applied
+)
+
+// PrefixObservationStats returns process-local observation counters since start.
+func PrefixObservationStats() (confirmed, invalidated, noSignal, coldServe int64) {
+	return prefixObsConfirmed.Load(), prefixObsInvalidated.Load(),
+		prefixObsNoSignal.Load(), prefixObsColdServe.Load()
+}
 
 // Prefix identity and cache-aware routing.
 //
@@ -26,6 +42,56 @@ import (
 // prefix_id is a ROUTING HINT and nothing else. It never selects a model, a
 // runtime, a price or an authorisation, so a forged or colliding value costs at
 // most a cache miss. That is why it can be accepted from a buyer at all.
+//
+// # Belief model (observed, never assumed)
+//
+// Merc does not own the engine's KV cache and cannot see inside it. The table
+// worker_prefix_state is therefore a *model* of residency, not a mirror of it.
+//
+// What the index believes
+//
+//	A (worker, prefix_id, depth) row with last_seen_warm within prefixWarmTTL
+//	means "this worker recently served a request that materialised this prefix,
+//	so its engine *probably* still holds the matching KV".
+//
+// How the belief is formed
+//
+//	On task completion Merc records every job_prefix_chain node for the serving
+//	worker (markWorkerWarmForJob). That is inference from "we just ran this
+//	prompt there", not a read of the engine.
+//
+// How the belief can be wrong
+//
+//   - Engine eviction under memory pressure, continuous batching, or a restart
+//     that Merc has not yet heard about.
+//   - Multi-cell workers: the row is keyed by worker_id (and cell_id when
+//     known); a cell that did not serve the prefix may still look warm if an
+//     earlier serve was attributed only to the worker.
+//   - Clock skew / delayed heartbeats: TTL expiry is the floor, not a
+//     guarantee that the engine still holds the block.
+//
+// How it learns it was wrong
+//
+//	When the engine reports an observed cache signal (OpenAI-shaped
+//	usage.prompt_tokens_details.cached_tokens; vLLM populates this),
+//	CorrectPrefixBeliefFromObservation prefers that signal over the model:
+//	believed-warm + observed cached_tokens == 0 invalidates the matching
+//	chain nodes immediately rather than waiting out the TTL. An index that
+//	is never corrected is a guess with a data structure around it; an index
+//	corrected by observation is defensible.
+//
+// What it does then
+//
+//	Invalidate drops the stale rows so the next claim ranks the worker cold
+//	for that chain. After the current request finishes, markWorkerWarmForJob
+//	re-records warmth from the serve that just ran (which *did* materialise
+//	the prefix). Concurrent claimants therefore stop piling onto a worker
+//	whose cache was already empty, while the post-serve mark keeps the model
+//	honest for the next request.
+//
+// Engines that expose no signal (llama.cpp / MLX / Candle on Metal typically
+// do not) leave the index on TTL + value-ranked eviction only. That limitation
+// is labelled in the measurement artifact; it is not silently papered over.
 
 const (
 	prefixIDPrefix = "pfx_"
@@ -400,4 +466,164 @@ func (s *Store) EnforcePrefixRoutingStateBudgets(ctx context.Context) (int64, er
 		evicted += n
 	}
 	return evicted, nil
+}
+
+// --------------------------------------------------------------------------
+// Observation correction.
+//
+// Prefers the engine's reported cache-hit signal over Merc's belief. See the
+// package comment above for the full belief model.
+
+// PrefixObservationAction names what CorrectPrefixBeliefFromObservation did.
+type PrefixObservationAction string
+
+const (
+	// PrefixObsConfirmed: index said warm and the engine reported cached tokens.
+	PrefixObsConfirmed PrefixObservationAction = "confirmed"
+	// PrefixObsInvalidated: index said warm but the engine reported a miss;
+	// matching chain nodes were dropped so the next claim ranks cold.
+	PrefixObsInvalidated PrefixObservationAction = "invalidated"
+	// PrefixObsNoSignal: caller had no engine signal; belief left untouched.
+	PrefixObsNoSignal PrefixObservationAction = "no_signal"
+	// PrefixObsColdServe: index already said cold; nothing to correct.
+	PrefixObsColdServe PrefixObservationAction = "cold_serve"
+)
+
+// PrefixObservationOutcome is the durable result of one correction attempt.
+type PrefixObservationOutcome struct {
+	Action          PrefixObservationAction `json:"action"`
+	BelievedDepth   int                     `json:"believed_depth"`
+	CachedTokens    int64                   `json:"cached_tokens"`
+	InvalidatedRows int64                   `json:"invalidated_rows,omitempty"`
+}
+
+// CorrectPrefixBeliefFromObservation reconciles worker_prefix_state for jobID
+// on workerID against an engine-reported cached token count.
+//
+// hasSignal must be true only when the engine actually exposed the field
+// (vLLM's usage.prompt_tokens_details.cached_tokens). A missing signal must
+// not be treated as a miss — that would thrash the index on every local-engine
+// completion.
+//
+// cachedTokens is the observed hit size. Zero with hasSignal means a true miss
+// against whatever the index believed; any positive value confirms.
+func (s *Store) CorrectPrefixBeliefFromObservation(
+	ctx context.Context, workerID, jobID uuid.UUID, hasSignal bool, cachedTokens int64,
+) (PrefixObservationOutcome, error) {
+	believed, err := s.DeepestWarmPrefix(ctx, workerID, jobID)
+	if err != nil {
+		return PrefixObservationOutcome{}, err
+	}
+	out := PrefixObservationOutcome{BelievedDepth: believed, CachedTokens: cachedTokens}
+
+	if !hasSignal {
+		out.Action = PrefixObsNoSignal
+		prefixObsNoSignal.Add(1)
+		return out, nil
+	}
+	if believed <= 0 {
+		out.Action = PrefixObsColdServe
+		prefixObsColdServe.Add(1)
+		return out, nil
+	}
+	if cachedTokens > 0 {
+		// Confirm: refresh last_seen_warm on matching nodes so a real hit
+		// extends the TTL rather than only the next mark-warm path doing so.
+		if err := s.confirmPrefixBelief(ctx, workerID, jobID); err != nil {
+			return out, err
+		}
+		out.Action = PrefixObsConfirmed
+		prefixObsConfirmed.Add(1)
+		return out, nil
+	}
+
+	// Observed miss against a warm belief: drop the chain nodes. Leaving them
+	// would keep routing later requests onto a worker that already proved empty.
+	n, err := s.invalidatePrefixBelief(ctx, workerID, jobID)
+	if err != nil {
+		return out, err
+	}
+	out.Action = PrefixObsInvalidated
+	out.InvalidatedRows = n
+	prefixObsInvalidated.Add(1)
+	return out, nil
+}
+
+// confirmPrefixBelief refreshes last_seen_warm for every chain node this worker
+// still holds for the job, without inventing nodes it never had.
+func (s *Store) confirmPrefixBelief(ctx context.Context, workerID, jobID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE worker_prefix_state w
+		   SET last_seen_warm = now(),
+		       hits = hits + 1
+		  FROM job_prefix_chain c
+		 WHERE w.worker_id = $1
+		   AND w.prefix_id = c.prefix_id
+		   AND c.job_id = $2
+		   AND w.last_seen_warm > now() - $3::interval`,
+		workerID, jobID, prefixWarmTTL.String())
+	return err
+}
+
+// invalidatePrefixBelief deletes every chain node for jobID on workerID.
+// Returns how many rows were removed.
+func (s *Store) invalidatePrefixBelief(ctx context.Context, workerID, jobID uuid.UUID) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM worker_prefix_state w
+		 WHERE w.worker_id = $1
+		   AND w.prefix_id IN (
+		     SELECT c.prefix_id FROM job_prefix_chain c WHERE c.job_id = $2
+		   )`, workerID, jobID)
+	if err != nil {
+		return 0, err
+	}
+	// Also drop a legacy shallow jobs.prefix_id row if present and not already
+	// covered by the chain delete.
+	var legacy *string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT prefix_id FROM jobs WHERE id = $1`, jobID,
+	).Scan(&legacy); err != nil {
+		return tag.RowsAffected(), err
+	}
+	if legacy != nil && ValidPrefixID(*legacy) {
+		extra, err := s.pool.Exec(ctx,
+			`DELETE FROM worker_prefix_state WHERE worker_id=$1 AND prefix_id=$2`,
+			workerID, *legacy)
+		if err != nil {
+			return tag.RowsAffected(), err
+		}
+		return tag.RowsAffected() + extra.RowsAffected(), nil
+	}
+	return tag.RowsAffected(), nil
+}
+
+// MarkPrefixChainWarmOnCell records warmth attributed to a specific runtime
+// cell. cellID may be empty when the completing task predates cell freeze; the
+// row remains worker-scoped in that case. cell_id is advisory metadata on the
+// belief row — claim ranking still keys by worker_id because the claiming
+// worker is the unit of placement, and a multi-cell worker that served on any
+// admitted cell is a better bet than a cold peer of the same cost class.
+func (s *Store) MarkPrefixChainWarmOnCell(ctx context.Context, workerID uuid.UUID, cellID string, chain []PrefixChainEntry) error {
+	if err := s.MarkPrefixChainWarm(ctx, workerID, chain); err != nil {
+		return err
+	}
+	if strings.TrimSpace(cellID) == "" {
+		return nil
+	}
+	for _, e := range chain {
+		if !ValidPrefixID(e.PrefixID) {
+			continue
+		}
+		if _, err := s.pool.Exec(ctx, `
+			UPDATE worker_prefix_state
+			   SET cell_id = $3
+			 WHERE worker_id = $1 AND prefix_id = $2`,
+			workerID, e.PrefixID, cellID); err != nil {
+			// cell_id column may not yet exist on a mid-migration store; the
+			// warmth row itself is already durable. Surface the error so a
+			// misapplied schema is visible in tests.
+			return fmt.Errorf("recording cell_id on prefix belief: %w", err)
+		}
+	}
+	return nil
 }
