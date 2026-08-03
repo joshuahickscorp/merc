@@ -170,8 +170,9 @@ func runGatewayParityStandinSelfTest(out string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	// Stand-in sets X-Merc-Upstream-Body-SHA256 so the prove path is exercised
-	// even though this is not a real merc control plane.
+	// Stand-in may echo X-Merc-Upstream-Body-SHA256 (exercises capture parsing)
+	// but deliberately omits X-Merc-Contract-ID. A bare-SHA stand-in must not
+	// be able to satisfy PARITY_EVIDENCE identity proof.
 	var bodySHA string
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
@@ -182,6 +183,8 @@ func runGatewayParityStandinSelfTest(out string) int {
 		time.Sleep(2 * time.Millisecond)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("X-Merc-Upstream-Body-SHA256", sha256Hex(reqBody))
+		// No X-Merc-Contract-ID: self-test must remain non-comparable and must
+		// not satisfy Merc-bound identity proof if re-labeled as PARITY_EVIDENCE.
 		flusher, _ := w.(http.Flusher)
 		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n")
 		if flusher != nil {
@@ -220,8 +223,12 @@ func runGatewayParityStandinSelfTest(out string) int {
 		levels[fmt.Sprintf("direct@c=%d", c)] = direct
 	}
 	hostEnd := CaptureGatewayParityHostLoad()
-	// Self-test: prove identity via stand-in header (same code path as live).
+	// Self-test: identity must stay unproven (bare-SHA, no Contract-ID).
 	identity := ProveGatewayParityBodyIdentity(body, claimed, levels)
+	if identity.Proven {
+		fmt.Fprintln(os.Stderr, "bug: self-test stand-in satisfied Merc identity proof")
+		return 1
+	}
 	topology := GatewayParityNetworkTopology{
 		ClientHost: "local-cli-process", ControlPlane: "none (self-test)",
 		Engine: "local stand-in", ClientToEngine: "loopback",
@@ -234,9 +241,14 @@ func runGatewayParityStandinSelfTest(out string) int {
 		[]string{
 			"stand-in token timing is artificial",
 			"NOT parity evidence; do not quote as gateway overhead",
+			"stand-in omits X-Merc-Contract-ID; body_identity cannot satisfy PARITY_EVIDENCE",
 			fmt.Sprintf("stand-in hits=%d", hits.Load()),
 		},
 	)
+	if rec.Comparable || rec.GatePassed {
+		fmt.Fprintln(os.Stderr, "bug: self-test receipt is comparable or gate_passed")
+		return 1
+	}
 
 	raw, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {

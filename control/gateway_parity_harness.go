@@ -61,7 +61,19 @@ const (
 	// Mean in-flight must reach this fraction of nominal concurrency or the
 	// level is refused as not having reached steady state.
 	gatewayParityMinInFlightFraction = 0.70
+
+	// Maximum per-level error rate. The CLI oversamples above the floor so a
+	// stray transport error does not refuse a good run; without a bound that
+	// same slack lets a run with a real error problem still hit the floor on
+	// survivors (survival bias). 5% is small enough that a systemic failure
+	// mode cannot launder survivors into PASS, and loose enough that a single
+	// transient at n≈24 (≈4%) still clears. Independent of oversample size.
+	gatewayParityMaxErrorRate = 0.05
 )
+
+// gatewayParityRequiredLadder is the concurrency set a PARITY_EVIDENCE claim
+// must measure. A single level (e.g. -concurrency 1) is not a parity claim.
+var gatewayParityRequiredLadder = []int{1, 8, 32}
 
 // GatewayParitySampleFloor is the minimum successful samples required at a
 // concurrency level. c=1 is held to the absolute floor of 20 (not 5); higher
@@ -88,6 +100,38 @@ func RefuseGatewayParitySampleCount(concurrency, n int) string {
 			n, concurrency, need)
 	}
 	return ""
+}
+
+// RefuseGatewayParityErrorRate returns a non-empty reason when the per-level
+// error rate exceeds gatewayParityMaxErrorRate. This is independent of the
+// sample floor and of oversample size: reaching RequestsOK ≥ floor on survivors
+// is not enough when the underlying error problem is large.
+func RefuseGatewayParityErrorRate(attempted, errors int) string {
+	if attempted <= 0 {
+		return ""
+	}
+	rate := float64(errors) / float64(attempted)
+	if rate > gatewayParityMaxErrorRate {
+		return fmt.Sprintf(
+			"refused: error rate %.1f%% (%d/%d attempted) exceeds budget %.0f%%; survival-bias cap is independent of oversample",
+			rate*100, errors, attempted, gatewayParityMaxErrorRate*100)
+	}
+	return ""
+}
+
+// GatewayParityLadderComplete reports whether claimed concurrency levels cover
+// the required PARITY_EVIDENCE ladder {1, 8, 32}.
+func GatewayParityLadderComplete(claimed []int) bool {
+	have := make(map[int]bool, len(claimed))
+	for _, c := range claimed {
+		have[c] = true
+	}
+	for _, need := range gatewayParityRequiredLadder {
+		if !have[need] {
+			return false
+		}
+	}
+	return true
 }
 
 // GatewayParitySamplingContract is the fully-bound decode/request contract.
@@ -259,8 +303,11 @@ type GatewayParityRawSample struct {
 	ResponseBytes    int       `json:"response_bytes"`
 	RequestBodySHA   string    `json:"request_body_sha256,omitempty"`
 	UpstreamBodySHA  string    `json:"upstream_body_sha256,omitempty"` // merc arm when capture on
-	ConnReused       bool      `json:"conn_reused"`
-	Err              string    `json:"error,omitempty"`
+	// ContractID is X-Merc-Contract-ID from the merc control plane. A bare-SHA
+	// stand-in that only echoes X-Merc-Upstream-Body-SHA256 does not set this.
+	ContractID string `json:"merc_contract_id,omitempty"`
+	ConnReused bool   `json:"conn_reused"`
+	Err        string `json:"error,omitempty"`
 }
 
 // GatewayParityPointEstimate is a point estimate with a 95% interval.
@@ -387,6 +434,8 @@ func DefaultGatewayParityBudget() GatewayParityBudget {
 		RequireMeasuredEveryLvl: true,
 		PrimaryMetric:           "ttft_overhead_p95_ms",
 		Basis: "primary=ttft_overhead_p95_ms interval decision at every claimed level; " +
+			"MDE (half-width of overhead CI) must not exceed TTFT budget or the level is INCONCLUSIVE; " +
+			"per-level error rate must not exceed 5% (survival-bias cap, independent of oversample); " +
 			"throughput_loss_fraction is secondary and is not dual-refused when primary already FAIL; " +
 			"verdict is PASS/FAIL/INCONCLUSIVE from bootstrap CIs (not point-estimate coin flips)",
 	}
@@ -515,7 +564,7 @@ type GatewayParityReceipt struct {
 }
 
 // GatewayParityBodyIdentity is the proof (or argument) that both arms sent the
-// same request.
+// same request through a real Merc control plane.
 type GatewayParityBodyIdentity struct {
 	Proven              bool   `json:"proven"`
 	Method              string `json:"method"`
@@ -524,6 +573,11 @@ type GatewayParityBodyIdentity struct {
 	DirectRequestSHA256 string `json:"direct_request_sha256,omitempty"`
 	Equal               bool   `json:"bodies_equal"`
 	Detail              string `json:"detail,omitempty"`
+	// Contract proof counters. Proven requires every OK merc sample to carry a
+	// valid X-Merc-Contract-ID as well as a matching upstream body SHA.
+	OKSamplesExamined   int  `json:"ok_samples_examined,omitempty"`
+	ContractIDsObserved int  `json:"contract_ids_observed,omitempty"`
+	BareSHAStandIn      bool `json:"bare_sha_standin_refused,omitempty"`
 }
 
 // CompleteOneStream runs one streaming completion with the shared client and
@@ -592,6 +646,11 @@ func (c *GatewayParityClient) CompleteOneStream(
 	c.noteConn(reused, conn)
 	if sha := resp.Header.Get("X-Merc-Upstream-Body-SHA256"); sha != "" {
 		sample.UpstreamBodySHA = sha
+	}
+	// Merc-only authorization header. Issued when the control plane creates an
+	// execution contract; a bare body-SHA echo stand-in does not possess it.
+	if cid := strings.TrimSpace(resp.Header.Get("X-Merc-Contract-ID")); cid != "" {
+		sample.ContractID = cid
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -756,6 +815,14 @@ func finalizeGatewayParitySamples(
 		return r
 	}
 	if reason := RefuseGatewayParitySampleCount(concurrency, ok); reason != "" {
+		r.Status = "REFUSED"
+		r.Reason = reason
+		return r
+	}
+	// Survival-bias cap: independent of the OK floor and of how far n sits
+	// above it. A run that burns most attempts on errors and keeps only the
+	// lucky survivors must not PASS.
+	if reason := RefuseGatewayParityErrorRate(n, r.Errors); reason != "" {
 		r.Status = "REFUSED"
 		r.Reason = reason
 		return r
@@ -1135,8 +1202,17 @@ func EvaluateGatewayParityGate(
 					oh.N = direct.TTFTp95.N
 				}
 				level.TTFTOverheadP95Ms = &oh
-				// MDE = half-width of the overhead CI.
+				// MDE = half-width of the overhead CI: the smallest true
+				// overhead this run can reliably distinguish from noise.
 				level.MinimumDetectableEffectMs = (ohHi - ohLo) / 2
+				// Statistical power is a hard gate, not decoration. If MDE
+				// exceeds the budget the run cannot detect a violation at the
+				// threshold it polices — so it must not PASS even when the
+				// point estimate looks comfortable. A clear FAIL (CI entirely
+				// above budget) still fails: under-power does not excuse a
+				// measured breach.
+				underpowered := budget.TTFTOverheadP95Ms > 0 &&
+					level.MinimumDetectableEffectMs > budget.TTFTOverheadP95Ms
 
 				switch {
 				case ohLo > budget.TTFTOverheadP95Ms:
@@ -1146,8 +1222,14 @@ func EvaluateGatewayParityGate(
 					refusals = append(refusals, fmt.Sprintf(
 						"concurrency %d: ttft overhead p95 CI [%.3f, %.3f] ms (point %.3f) entirely above budget %.3f ms (MDE=%.3f ms)",
 						c, ohLo, ohHi, ohPt, budget.TTFTOverheadP95Ms, level.MinimumDetectableEffectMs))
+				case underpowered:
+					// Cannot resolve the budget threshold → INCONCLUSIVE.
+					level.Verdict = "INCONCLUSIVE"
+					refusals = append(refusals, fmt.Sprintf(
+						"concurrency %d: under-powered: MDE=%.3f ms exceeds TTFT budget %.3f ms (overhead CI [%.3f, %.3f] ms, point %.3f); gate cannot detect a violation at the policed threshold",
+						c, level.MinimumDetectableEffectMs, budget.TTFTOverheadP95Ms, ohLo, ohHi, ohPt))
 				case ohHi <= budget.TTFTOverheadP95Ms:
-					// Entire CI at or below budget → PASS.
+					// Entire CI at or below budget AND MDE ≤ budget → PASS.
 					level.Verdict = "PASS"
 				default:
 					// CI straddles budget → honest INCONCLUSIVE.
@@ -1257,8 +1339,22 @@ func RefuseOutputContractDrift(merc, direct GatewayParityLevelResult) string {
 
 // ProveGatewayParityBodyIdentity derives body identity from merc samples.
 // Equal defaults to false and is raised only when evidence exists.
-// For a proven claim, at least one complete merc sample per claimed level must
-// carry X-Merc-Upstream-Body-SHA256 equal to the harness body SHA.
+//
+// For a proven claim, EVERY OK merc sample at every claimed level must carry:
+//
+//  1. X-Merc-Upstream-Body-SHA256 equal to the harness body SHA, and
+//  2. X-Merc-Contract-ID — a valid UUID that Merc sets only after authorizing
+//     an execution contract (buyer auth, funding, contract insert).
+//
+// A bare-SHA stand-in (echo server that hashes the request body and reflects
+// it as X-Merc-Upstream-Body-SHA256) is explicitly refused: matching SHA
+// without Contract-ID is not proof. Why Contract-ID is not free for an echo
+// server to possess honestly: Merc emits it only on the realtime authorization
+// path after a durable execution_contracts row exists. A pure body-echo
+// stand-in has no contract table and no authorized UUID; it can forge a random
+// UUID header only by impersonating Merc wholesale, which is a different
+// residual threat than the bare-SHA attack this closes. The self-test stand-in
+// deliberately omits Contract-ID so it cannot satisfy this proof.
 func ProveGatewayParityBodyIdentity(
 	body []byte,
 	claimed []int,
@@ -1266,51 +1362,110 @@ func ProveGatewayParityBodyIdentity(
 ) GatewayParityBodyIdentity {
 	harness := sha256Hex(body)
 	id := GatewayParityBodyIdentity{
-		Proven:              false,
-		Equal:               false, // never default true
-		Method:              "requires X-Merc-Upstream-Body-SHA256 on ≥1 complete merc sample per claimed level matching harness body sha256",
+		Proven: false,
+		Equal:  false, // never default true
+		Method: "requires X-Merc-Upstream-Body-SHA256 matching harness body sha256 " +
+			"AND valid X-Merc-Contract-ID on every OK merc sample at every claimed level",
 		HarnessBodySHA256:   harness,
 		DirectRequestSHA256: harness,
-		Detail:              "unproven: no matching upstream body sha observed",
+		Detail:              "unproven: no matching upstream body sha + contract id observed",
 	}
 	if len(claimed) == 0 {
 		id.Detail = "unproven: no claimed levels"
 		return id
 	}
-	allLevelsProven := true
+	var (
+		okExamined      int
+		withSHA         int
+		withContract    int
+		withBoth        int
+		sawBareSHA      bool
+		missingAnyLevel bool
+	)
 	for _, c := range claimed {
 		merc := levels[fmt.Sprintf("merc@c=%d", c)]
-		levelOK := false
+		levelOKCount := 0
+		levelProvenCount := 0
 		for _, s := range merc.RawSamples {
 			if s.Err != "" || s.TTFTMs <= 0 || s.FinishReason == "" {
 				continue
 			}
-			if s.UpstreamBodySHA == "" {
-				continue
+			okExamined++
+			levelOKCount++
+			shaOK := s.UpstreamBodySHA != ""
+			if shaOK {
+				withSHA++
+				id.MercUpstreamSHA256 = s.UpstreamBodySHA
+				if s.UpstreamBodySHA != harness {
+					id.Equal = false
+					id.Proven = false
+					id.OKSamplesExamined = okExamined
+					id.Detail = fmt.Sprintf(
+						"merc upstream sha %s != harness body sha %s at c=%d",
+						s.UpstreamBodySHA, harness, c)
+					return id
+				}
 			}
-			id.MercUpstreamSHA256 = s.UpstreamBodySHA
-			if s.UpstreamBodySHA != harness {
-				id.Equal = false
-				id.Proven = false
-				id.Detail = fmt.Sprintf(
-					"merc upstream sha %s != harness body sha %s at c=%d",
-					s.UpstreamBodySHA, harness, c)
-				return id
+			cid := strings.TrimSpace(s.ContractID)
+			contractOK := false
+			if cid != "" {
+				if _, err := uuid.Parse(cid); err == nil {
+					contractOK = true
+					withContract++
+				}
 			}
-			levelOK = true
+			if shaOK && !contractOK {
+				// Matching (or present) SHA without a Merc contract id: the
+				// bare-SHA stand-in path. Refuse explicitly.
+				sawBareSHA = true
+			}
+			if shaOK && contractOK {
+				withBoth++
+				levelProvenCount++
+			}
 		}
-		if !levelOK {
-			allLevelsProven = false
+		// Every OK sample at the level must be fully proven — not "at least one".
+		if levelOKCount == 0 || levelProvenCount < levelOKCount {
+			missingAnyLevel = true
 		}
 	}
-	if allLevelsProven {
+	id.OKSamplesExamined = okExamined
+	id.ContractIDsObserved = withContract
+	if okExamined == 0 {
+		id.Detail = "unproven: no OK merc samples to examine"
+		return id
+	}
+	if sawBareSHA && withContract == 0 {
+		// SHA may match (bodies equal) but a body-echo stand-in is not Merc.
+		id.BareSHAStandIn = true
+		id.Equal = withSHA == okExamined && withSHA > 0
+		id.Proven = false
+		id.Detail = "bare-SHA stand-in refused: X-Merc-Upstream-Body-SHA256 observed without X-Merc-Contract-ID; " +
+			"PARITY_EVIDENCE requires a Merc-authorized contract id on every OK merc sample, not a body-echo SHA alone"
+		return id
+	}
+	if sawBareSHA {
+		id.BareSHAStandIn = true
+		id.Equal = false // incomplete contract coverage cannot raise Equal
+		id.Proven = false
+		id.Detail = fmt.Sprintf(
+			"bare-SHA stand-in refused: %d OK merc sample(s) carry upstream SHA without a valid X-Merc-Contract-ID "+
+				"(examined=%d sha=%d contract=%d both=%d)",
+			withSHA-withBoth, okExamined, withSHA, withContract, withBoth)
+		return id
+	}
+	if !missingAnyLevel && withBoth == okExamined && okExamined > 0 {
 		id.Proven = true
 		id.Equal = true
-		id.Method = "X-Merc-Upstream-Body-SHA256 matches harness body sha256 on ≥1 OK merc sample at every claimed level"
-		id.Detail = "proven"
-	} else {
-		id.Detail = "unproven: missing X-Merc-Upstream-Body-SHA256 on OK merc samples at one or more claimed levels"
+		id.Method = "X-Merc-Upstream-Body-SHA256 matches harness body sha256 AND valid X-Merc-Contract-ID " +
+			"on every OK merc sample at every claimed level"
+		id.Detail = fmt.Sprintf("proven: %d/%d OK merc samples carry matching upstream SHA + contract id", withBoth, okExamined)
+		return id
 	}
+	id.Detail = fmt.Sprintf(
+		"unproven: missing matching upstream SHA and/or valid X-Merc-Contract-ID on OK merc samples "+
+			"(examined=%d sha=%d contract=%d both=%d); require both on every OK sample",
+		okExamined, withSHA, withContract, withBoth)
 	return id
 }
 
@@ -1365,6 +1520,18 @@ func BuildGatewayParityReceipt(
 	)
 
 	var refusals []string
+	// Claim ladder: PARITY_EVIDENCE requires {1,8,32}. A lone -concurrency 1
+	// is an incomplete measurement class, not a parity claim.
+	if evidenceClass == "PARITY_EVIDENCE" && !GatewayParityLadderComplete(claimed) {
+		rec.EvidenceClass = "INCOMPLETE_LADDER"
+		evidenceClass = rec.EvidenceClass
+		refusals = append(refusals, fmt.Sprintf(
+			"incomplete concurrency ladder: PARITY_EVIDENCE requires levels %v (got %v); "+
+				"a single-level run is not a parity claim",
+			gatewayParityRequiredLadder, claimed))
+		rec.Notes = append(rec.Notes,
+			"evidence_class=INCOMPLETE_LADDER: concurrency ladder incomplete; not a parity claim")
+	}
 	// Identity: Equal never defaults true; unproven is a hard refusal for
 	// PARITY_EVIDENCE. Equal=false without a detail still refuses.
 	if !bodyIdentity.Equal {
@@ -1377,9 +1544,14 @@ func BuildGatewayParityReceipt(
 	if !bodyIdentity.Proven && evidenceClass == "PARITY_EVIDENCE" {
 		detail := bodyIdentity.Detail
 		if detail == "" {
-			detail = "enable MERC_PARITY_CAPTURE_UPSTREAM=1 so merc returns X-Merc-Upstream-Body-SHA256"
+			detail = "enable MERC_PARITY_CAPTURE_UPSTREAM=1 so merc returns X-Merc-Upstream-Body-SHA256 " +
+				"and ensure responses carry X-Merc-Contract-ID from a real control plane"
 		}
-		refusals = append(refusals, "body identity unproven (PARITY_EVIDENCE requires proof): "+detail)
+		if bodyIdentity.BareSHAStandIn {
+			refusals = append(refusals, "bare-SHA stand-in refused (PARITY_EVIDENCE): "+detail)
+		} else {
+			refusals = append(refusals, "body identity unproven (PARITY_EVIDENCE requires Merc contract proof): "+detail)
+		}
 	}
 	for _, c := range claimed {
 		for _, arm := range []string{"merc", "direct"} {
@@ -1394,6 +1566,9 @@ func BuildGatewayParityReceipt(
 			}
 			if ok && lvl.Status == "MEASURED" {
 				if reason := RefuseGatewayParitySampleCount(c, lvl.RequestsOK); reason != "" {
+					refusals = append(refusals, fmt.Sprintf("%s: %s", key, reason))
+				}
+				if reason := RefuseGatewayParityErrorRate(lvl.RequestsAttempted, lvl.Errors); reason != "" {
 					refusals = append(refusals, fmt.Sprintf("%s: %s", key, reason))
 				}
 				if lvl.TTFTp95 == nil {
@@ -1434,9 +1609,9 @@ func BuildGatewayParityReceipt(
 	if !rec.GatePassed && len(uniq) > 0 {
 		rec.RefusalReason = uniq[0]
 	} else if !rec.GatePassed && rec.Gate.Verdict == "INCONCLUSIVE" {
-		rec.RefusalReason = "gate verdict INCONCLUSIVE: overhead CI straddles budget"
+		rec.RefusalReason = "gate verdict INCONCLUSIVE: under-powered (MDE > budget) or overhead CI straddles budget"
 	}
-	// Self-tests must never be mistaken for parity evidence.
+	// Self-tests and incomplete ladders must never be mistaken for parity evidence.
 	if evidenceClass == "HARNESS_SELF_TEST" {
 		rec.GatePassed = false
 		rec.Comparable = false
@@ -1455,7 +1630,20 @@ func BuildGatewayParityReceipt(
 			rec.Refusals = append(rec.Refusals, "HARNESS_SELF_TEST: not parity evidence")
 		}
 		rec.Notes = append(rec.Notes,
-			"evidence_class=HARNESS_SELF_TEST: this receipt proves the harness works; it is NOT a gateway-vs-engine parity claim")
+			"evidence_class=HARNESS_SELF_TEST: this receipt proves the harness works; it is NOT a gateway-vs-engine parity claim",
+			"self-test stand-in deliberately omits X-Merc-Contract-ID so body_identity cannot satisfy PARITY_EVIDENCE proof")
+	}
+	if evidenceClass == "INCOMPLETE_LADDER" {
+		rec.GatePassed = false
+		rec.Comparable = false
+		if rec.RefusalReason == "" {
+			rec.RefusalReason = "INCOMPLETE_LADDER: not a parity claim"
+		}
+	}
+	// Collapse dual pass flags: nested gate.gate_passed cannot read true while
+	// the receipt itself is refused, a self-test, or an incomplete ladder.
+	if !rec.GatePassed {
+		rec.Gate.GatePassed = false
 	}
 	return rec
 }
