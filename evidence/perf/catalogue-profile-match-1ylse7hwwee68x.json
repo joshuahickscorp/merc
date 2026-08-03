@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "kind": "catalogue_profile_match_assessment",
+  "measured_at": "2026-08-03T18:05:59.473188+00:00",
+  "pod_id": "1ylse7hwwee68x",
+  "parity_receipt": "evidence/perf/gateway-parity-v2-runpod-vllm-20260803T175830Z.json",
+  "catalogue_profile_id": "vllm-llama-3.2-1b-instruct-bf16-tp1",
+  "pins": {
+    "container_image": "vllm/vllm-openai@sha256:3a1e7f5904e1a1192a02aa0086ceaffc33985d7044c7bb25b3a43d61bdbe3ac0",
+    "engine_version_claimed": "0.23.0",
+    "dtype": "bfloat16",
+    "container_platform": "linux/amd64",
+    "model_repository": "unsloth/Llama-3.2-1B-Instruct",
+    "model_revision": "5a8abab4a5d6f164389b1079fb721cfab8d7126c",
+    "model_alias": "cx-chat-1b"
+  },
+  "evidence": {
+    "provisioner_used_profile_defaults": true,
+    "image_is_immutable_digest": true,
+    "image_matches_catalogue_profile_file": true,
+    "all_parity_requests_ok": true,
+    "served_model_alias_accepted": "cx-chat-1b",
+    "runtime_version_http_probe": "failed_with_urllib_403; not re-checked with curl before teardown"
+  },
+  "matches_advertised_catalogue_profile": true,
+  "evidence_class_justification": "PARITY_EVIDENCE is legitimate: both arms hit the same pod provisioned from the admitted catalogue profile (immutable vLLM 0.23.0 image digest, bf16, linux/amd64, pinned HF revision). Body identity proven (1308/1308). Do not relabel down solely because the optional /version HTTP probe failed in the drive script's urllib client.",
+  "topology_correction": "The measure-test topology fields say control_to_engine_hop=loopback; that is wrong for this run. Actual path: client(loopback)\u2192httptest merc\u2192HTTPS RunPod proxy\u2192vLLM on A40."
+}
