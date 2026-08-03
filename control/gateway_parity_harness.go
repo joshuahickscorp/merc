@@ -298,11 +298,16 @@ type GatewayParityRawSample struct {
 	ITLMs            []float64 `json:"itl_ms,omitempty"`
 	PromptTokens     int       `json:"prompt_tokens"`
 	CompletionTokens int       `json:"completion_tokens"`
-	FinishReason     string    `json:"finish_reason,omitempty"`
-	RequestBytes     int       `json:"request_bytes"`
-	ResponseBytes    int       `json:"response_bytes"`
-	RequestBodySHA   string    `json:"request_body_sha256,omitempty"`
-	UpstreamBodySHA  string    `json:"upstream_body_sha256,omitempty"` // merc arm when capture on
+	// CachedTokens is usage.prompt_tokens_details.cached_tokens when the engine
+	// reports it (vLLM OpenAI shape). Zero with CachedTokensReported=false means
+	// no signal — never treat a missing field as a hit or a miss.
+	CachedTokens         int  `json:"cached_tokens,omitempty"`
+	CachedTokensReported bool `json:"cached_tokens_reported,omitempty"`
+	FinishReason         string    `json:"finish_reason,omitempty"`
+	RequestBytes         int       `json:"request_bytes"`
+	ResponseBytes        int       `json:"response_bytes"`
+	RequestBodySHA       string    `json:"request_body_sha256,omitempty"`
+	UpstreamBodySHA      string    `json:"upstream_body_sha256,omitempty"` // merc arm when capture on
 	// ContractID is X-Merc-Contract-ID from the merc control plane. A bare-SHA
 	// stand-in that only echoes X-Merc-Upstream-Body-SHA256 does not set this.
 	ContractID string `json:"merc_contract_id,omitempty"`
@@ -546,15 +551,35 @@ type GatewayParityReceipt struct {
 	ConnStats        GatewayParityConnStats        `json:"connection_stats"`
 	HostLoadStart    GatewayParityHostLoad         `json:"host_load_start"`
 	HostLoadEnd      GatewayParityHostLoad         `json:"host_load_end"`
-	ColdWarmState    string                        `json:"cold_warm_state"`
+	// ColdWarmState is the legacy single-shape label. When Cells is non-empty,
+	// per-cell state lives on each cell's state_proof; this field is "per-cell"
+	// and must not be quoted as a blanket claim.
+	ColdWarmState string `json:"cold_warm_state"`
 
 	ClaimedLevels []int                               `json:"claimed_concurrency_levels"`
-	Levels        map[string]GatewayParityLevelResult `json:"levels"` // key: "merc@c=N" / "direct@c=N"
+	Levels        map[string]GatewayParityLevelResult `json:"levels"` // key: "merc@c=N" / "direct@c=N" (single-shape)
 	// BodyIdentity records what was proven about on-the-wire equality.
 	BodyIdentity GatewayParityBodyIdentity `json:"body_identity"`
 
+	// Matrix dimensions (prompt × output × state × concurrency). Empty Cells
+	// means legacy single-shape mode. When non-empty, each cell is gated and
+	// refused independently; a claim about one cell is not a claim about another.
+	FullAxes       *GatewayParityAxes        `json:"full_axes,omitempty"`
+	SelectedCells  []GatewayParityCellSpec   `json:"selected_cells,omitempty"`
+	DroppedAxes    []GatewayParityDroppedAxis `json:"dropped_axes,omitempty"`
+	DroppedSummary []string                  `json:"dropped_summary,omitempty"`
+	Cells          []GatewayParityCellResult `json:"cells,omitempty"`
+	// TrafficClassNote records why traffic class is not an axis of this harness.
+	TrafficClassNote string `json:"traffic_class_note,omitempty"`
+	// StateDefinitions are the precise operational meanings of cold/warm/prefix-hit.
+	StateDefinitions *GatewayParityStateDefinitions `json:"state_definitions,omitempty"`
+	// ShapeInsight is a measured (not assumed) summary of where fixed overhead
+	// is largest as a fraction of request cost across selected cells.
+	ShapeInsight *GatewayParityShapeInsight `json:"shape_insight,omitempty"`
+
 	// Gate evaluates every claimed level with an interval verdict so a claim
 	// that skips a level, exceeds budget, or is under-powered cannot pass.
+	// In matrix mode Gate aggregates per-cell verdicts (FAIL > INCONCLUSIVE > PASS).
 	Gate   GatewayParityGate   `json:"gate"`
 	Budget GatewayParityBudget `json:"budget"`
 
@@ -705,8 +730,11 @@ func (c *GatewayParityClient) CompleteOneStream(
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
 			Usage *struct {
-				CompletionTokens int `json:"completion_tokens"`
-				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens    int `json:"completion_tokens"`
+				PromptTokens        int `json:"prompt_tokens"`
+				PromptTokensDetails *struct {
+					CachedTokens *int `json:"cached_tokens"`
+				} `json:"prompt_tokens_details"`
 			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
@@ -731,6 +759,10 @@ func (c *GatewayParityClient) CompleteOneStream(
 			}
 			if chunk.Usage.PromptTokens > 0 {
 				promptTokens = chunk.Usage.PromptTokens
+			}
+			if chunk.Usage.PromptTokensDetails != nil && chunk.Usage.PromptTokensDetails.CachedTokens != nil {
+				sample.CachedTokens = *chunk.Usage.PromptTokensDetails.CachedTokens
+				sample.CachedTokensReported = true
 			}
 		}
 	}
