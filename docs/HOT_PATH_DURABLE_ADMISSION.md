@@ -85,7 +85,7 @@ Rails when ACTIVE:
 | --- | --- |
 | `evaluateRealtimeBuyerFunding` | Holds `(cap−spent)` on ACTIVE envelopes; EXECUTING under ACTIVE envelope excluded from realtimeReserved; when envelope leaves ACTIVE, in-flight RESERVED spends fall back to EXECUTING hold |
 | `prepaidOpenReservationMicros` | Same ACTIVE term + expired-envelope EXECUTING fallback |
-| `BuyerFreeCreditRemaining` | **Gap today**: only free credit − charges − open jobs − EXECUTING maxima. Does **not** hold ACTIVE envelope residual. Sibling-rail incompleteness, not introduced by this probe |
+| `BuyerFreeCreditRemaining` | Same ACTIVE `(cap−spent)` residual + ACTIVE-conditional EXECUTING exclusion as the other two rails. Used by job intake (not advisory-only) when free credit gates MaxUSD without a payment method |
 
 ### 2. Capacity leases (`docs/CAPACITY_LEASES.md`, not implemented)
 
@@ -169,7 +169,7 @@ hot path (still sync, still durable, O(1)+insert):
 | --- | --- |
 | Concurrent same-buyer overspend | Envelope `UPDATE … reserved+need ≤ cap` is atomic |
 | Concurrent capacity overbook | Lease/offer `UPDATE … remaining > 0` is atomic |
-| Envelope expiry mid-flight | Existing ACTIVE-conditional exclusion: in-flight falls back to EXECUTING hold on all complete rails (fix `BuyerFreeCreditRemaining` if used for cash) |
+| Envelope expiry mid-flight | Existing ACTIVE-conditional exclusion: in-flight falls back to EXECUTING hold on all three committed-money rails |
 | Kill after commit before stream | EXECUTING + RESERVED spend reconcilable; finalize/void paths exist |
 | Kill before commit | Rollback restores envelope residual and capacity |
 | Replay | Spend idempotency key + contract idempotency key |
@@ -182,7 +182,7 @@ hot path (still sync, still durable, O(1)+insert):
 | --- | --- | --- | --- | --- |
 | `evaluateRealtimeBuyerFunding` | ACTIVE `(cap−spent)` | must sum OPEN holds if short-reserve ships | sum maxima; exclude only if spend’s envelope still ACTIVE | hold via EXECUTING (exclusion off) |
 | `prepaidOpenReservationMicros` | same ACTIVE term | must include OPEN holds if shipped | expired-envelope RESERVED spend fallback | same |
-| `BuyerFreeCreditRemaining` | **must add ACTIVE residual** (gap today) | **must add OPEN holds** if shipped | EXECUTING maxima (present) | covered if EXECUTING still counted |
+| `BuyerFreeCreditRemaining` | ACTIVE `(cap−spent)` (fixed) | **must add OPEN holds** if shipped | sum maxima; exclude only if spend’s envelope still ACTIVE | hold via EXECUTING (exclusion off) |
 
 Any design that drops a term on one rail while another rail still spends is a
 P0. Envelopes already taught that lesson twice.
