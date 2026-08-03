@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "kind": "phase6_directive_economics",
+  "title": "Phase 6 physical economics: computed terms, structural refusals",
+  "categories": [
+    {
+      "name": "actual_duration",
+      "knowledge": "KNOWN",
+      "source": "evidence/perf/ioreport-gpu-energy-authority.json#load_window.window_s / workload.verified_outcomes",
+      "notes": "measured wall duration of the load window: 2.5734s for 512 verified outcomes (5.026172 ms/outcome); includes model load / Metal graph compile (cold-start dilution named in energy receipt error_notes)",
+      "non_money": 0.005026171875,
+      "non_money_unit": "seconds_per_verified_outcome"
+    },
+    {
+      "name": "utilization",
+      "knowledge": "UNKNOWN",
+      "would_require": "a production utilization signal on MeasuredCellCost (busy fraction of the placement over the billable window), not a default of 1.0",
+      "notes": "absent today — no production utilization meter on MeasuredCellCost or the energy harness"
+    },
+    {
+      "name": "provider_supplier_rate",
+      "knowledge": "NOT_APPLICABLE",
+      "source": "control/provider_cost_authority.go (owned/community supply)",
+      "notes": "cloud provider hourly rate is not applicable on owned Metal. Supplier catalogue entitlement is a separate money-path term (see supplier_contribution); it is not a cloud provider rate. No CUDA provider rate is invented on this host."
+    },
+    {
+      "name": "startup_and_residency",
+      "knowledge": "UNKNOWN",
+      "would_require": "separate cold-start amortization (model load, graph compile, warm-resident replica $/hr allocation) measured and attributed per verified outcome",
+      "notes": "energy load window includes cold start but no startup/residency money model is attributed"
+    },
+    {
+      "name": "verification",
+      "knowledge": "UNKNOWN",
+      "would_require": "Merc verification_outcome rollup (samples/fails) for the same unit of work; energy harness uses n_predict completion tokens as the outcome unit, not job verification passes",
+      "notes": "token count is not verification pass-rate; cannot scale cost by samples/passes on this path"
+    },
+    {
+      "name": "retries",
+      "knowledge": "UNKNOWN",
+      "would_require": "task.retry_count rollup on the same workload (RetryRate on MeasuredCellCost)",
+      "notes": "energy harness is a single llama-cli invocation; no retry observations"
+    },
+    {
+      "name": "storage_and_egress",
+      "knowledge": "UNKNOWN",
+      "would_require": "accepted/actual storage and egress bytes bound into a PricingDecision CostSchedule model for this unit of work",
+      "notes": "CostSchedule publishes defaulted AWS rates with provenance (control/cost_schedule.go) but this Metal energy path has no attributed bytes; rates without bytes are not a cost"
+    },
+    {
+      "name": "payment_allocation",
+      "knowledge": "UNKNOWN",
+      "would_require": "processor fee allocation from EconomicSchedule against a real buyer charge for this outcome",
+      "notes": "energy path has no buyer charge; money-path processor fee is modeled only when settlement runs"
+    },
+    {
+      "name": "energy",
+      "knowledge": "KNOWN",
+      "source": "evidence/perf/ioreport-gpu-energy-authority.json#joules_per_verified_outcome",
+      "notes": "BOUND GPU-domain energy: 0.121724572 J/verified_outcome (IOReport); dollar conversion uses defaulted $0.15/kWh (control/pricing.go) and is partial only",
+      "non_money": 0.121724572,
+      "non_money_unit": "joules_per_verified_outcome"
+    },
+    {
+      "name": "refund_risk",
+      "knowledge": "UNKNOWN",
+      "would_require": "measured refund/dispute cohort rate for the product surface, or an accrued risk-reserve settlement tied to this outcome with release/consume ledger proof",
+      "notes": "CostSchedule risk reserve is a 50 bps policy model (defaulted), not a measured loss rate; policy alone does not make refund risk KNOWN for Phase 6 physical cost"
+    }
+  ],
+  "joules_per_verified_outcome": {
+    "status": "known",
+    "value": 0.121724572,
+    "unit": "joules_per_verified_outcome",
+    "source": "evidence/perf/ioreport-gpu-energy-authority.json#joules_per_verified_outcome",
+    "basis": "IOReport GPU Energy channel (AGX on-chip domain only); BOUND measured_energy_authority; 512 completion_tokens over load_window; not package, not wall-plug",
+    "knowledge": "KNOWN"
+  },
+  "cost_per_verified_outcome": {
+    "status": "unavailable",
+    "kind": "cost_per_verified_outcome",
+    "reason": "full physical cost per verified outcome requires every directive category; only GPU-domain energy is measured on this path — see energy_usd_per_verified_outcome_partial for the partial dollar figure",
+    "blocking_categories": [
+      "utilization",
+      "startup_and_residency",
+      "verification",
+      "retries",
+      "storage_and_egress",
+      "payment_allocation",
+      "refund_risk"
+    ]
+  },
+  "energy_usd_per_verified_outcome_partial": {
+    "status": "known",
+    "value": 5.071857166666667e-09,
+    "unit": "usd_per_verified_outcome",
+    "source": "evidence/perf/ioreport-gpu-energy-authority.json + control/pricing.go:defaultElectricityUSDPerKWh",
+    "basis": "GPU-domain joules (0.121724572 J) × defaulted electricity $0.15/kWh; NOT full cost_per_verified_outcome; package/CPU/DRAM/ANE/startup/storage/payment/refund excluded",
+    "knowledge": "DEFAULTED"
+  },
+  "buyer_savings": {
+    "unavailable": {
+      "status": "unavailable",
+      "kind": "buyer_savings",
+      "reason": "buyer savings is a counterfactual (external price − Merc price); no bound external list price or measured alternative invoice exists in-repo; deriving savings from an unvalidated catalogue list price is refused",
+      "blocking_categories": [
+        "counterfactual_external_price"
+      ]
+    }
+  },
+  "supplier_contribution": {
+    "available": {
+      "status": "known",
+      "value": 20160,
+      "unit": "nanos_supplier_payable_total_over_cluster",
+      "source": "evidence/reuse/public-path-128-to-1.json#cluster.supplier_payable_nanos_total",
+      "basis": "exact supplier ledger credit for 128 deliveries / 1 physical execution(s); money conservation: buyer charge = supplier credit + platform row; not the supplier's physical cost stack",
+      "knowledge": "KNOWN"
+    },
+    "physical_cost_of_supplier": {
+      "status": "unavailable",
+      "kind": "supplier_physical_cost",
+      "reason": "Merc credits catalogue entitlement; supplier energy, depreciation, and residency are the supplier's cost and are not metered into Merc's books on community/owned supply",
+      "blocking_categories": [
+        "energy",
+        "startup_and_residency",
+        "depreciation"
+      ]
+    }
+  },
+  "merc_true_net_contribution": {
+    "unavailable": {
+      "status": "unavailable",
+      "kind": "merc_true_net_contribution",
+      "reason": "true net contribution remains structurally unavailable while any named directive cost category is UNKNOWN or ASSUMED rather than being presented as profit",
+      "blocking_categories": [
+        "utilization",
+        "startup_and_residency",
+        "verification",
+        "retries",
+        "storage_and_egress",
+        "payment_allocation",
+        "refund_risk"
+      ]
+    }
+  },
+  "gross_platform_ledger_row": {
+    "label": "gross_platform_ledger_row_not_true_net",
+    "nanos": 1473120,
+    "currency": "cad",
+    "source": "evidence/reuse/public-path-128-to-1.json#cluster.known_cost_contribution_nanos_total",
+    "basis": "buyer_charge_nanos_total − supplier_payable_nanos_total on the 128→1 reuse money path; equals KnownCostContributionNanos / ledger platform residual. Processor, storage, egress, energy, and refund risk are not fully attributed on this path — this is gross contribution, never true net.",
+    "not_true_net": "anti-gaming law: a gross platform ledger row must never be presented as Merc true net contribution"
+  },
+  "primary_system_metric": {
+    "name": "verified_successful_outcomes_per_dollar_per_joule_inside_sla",
+    "unavailable": {
+      "status": "unavailable",
+      "kind": "verified_successful_outcomes_per_dollar_per_joule_inside_sla",
+      "reason": "primary metric requires verified outcomes, full dollar cost per outcome, joules per outcome, and inside-SLA; dollar cost and SLA are incomplete today — refusing to quote a number that drops those terms",
+      "blocking_categories": [
+        "utilization",
+        "startup_and_residency",
+        "verification",
+        "retries",
+        "storage_and_egress",
+        "payment_allocation",
+        "refund_risk",
+        "full_dollar_cost_per_verified_outcome",
+        "inside_sla"
+      ]
+    },
+    "term_status": {
+      "verified_outcomes": "KNOWN count on energy path (512 completion_tokens) and money path (128 deliveries); unit differs by path",
+      "dollar_cost_per_outcome": "UNAVAILABLE — full cost_per_verified_outcome blocked by unknown directive categories (partial energy-only USD must not substitute)",
+      "joules_per_outcome": "KNOWN GPU-domain 0.121724572 J/outcome from evidence/perf/ioreport-gpu-energy-authority.json",
+      "inside_sla": "UNAVAILABLE — no SLA bound (MaxDurationMsPerUnit / contract SLA) evaluated on the energy harness"
+    }
+  },
+  "merc_true_net_computable_today": false,
+  "primary_metric_quotable_today": false,
+  "honest_summary": "Merc true net contribution is not computable today. Joules per verified outcome are BOUND for GPU-domain Metal (0.1217 J). Full cost per verified outcome is blocked by unknown categories. Buyer savings has no counterfactual price. Supplier contribution is known only as ledger entitlement on the money path. The primary metric (outcomes per dollar per joule inside SLA) is not quotable: dollar cost and SLA are incomplete. Gross platform ledger rows exist and must not be labeled true net.",
+  "scope": {
+    "placement": "local Apple M3 Ultra / llama.cpp Metal (owned supply); money path from public reuse conservation receipt",
+    "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only)",
+    "energy_excludes": [
+      "CPU cores/clusters",
+      "DRAM",
+      "ANE",
+      "display",
+      "package total",
+      "wall AC draw",
+      "PSU inefficiency",
+      "CUDA / NVIDIA (no device on this host)"
+    ],
+    "no_cuda_cost_invented": true,
+    "gross_platform_row_is_not_true_net": true,
+    "pricing_decision_true_net_distinction": "PricingDecision.FixedPoint.TrueNetContributionNanos is settlement-ledger contribution after modeled PricingDecision components only; it is not the Phase 6 directive physical true net and must not be quoted as such while directive categories remain UNKNOWN"
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "4e926f22c9337172b662641a83cc8e061261dcab"
+    },
+    "build_digest": {
+      "value": "9d37e234da6a53bd36ce117b2f4aeea6aaf5a4275902caaf58fae1ed9cdbfd65"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this economics computation"
+    },
+    "image_digest": {
+      "na": "no container image in this economics computation"
+    },
+    "harness_revision": {
+      "value": "control/directive_phase6_economics.go"
+    },
+    "corpus_digest": {
+      "na": "cites bound energy and money-conservation receipts only"
+    },
+    "exact_config": {
+      "value": "placement=metal_local_llama_cpp+money_path_128to1; energy=ioreport_gpu; no_cuda"
+    },
+    "raw_samples": {
+      "value": "categories=10; joules_pin=0.121724572; money_deliveries=128"
+    }
+  },
+  "binding_status": "BOUND"
+}
