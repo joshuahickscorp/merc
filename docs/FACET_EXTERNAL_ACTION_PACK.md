@@ -54,25 +54,36 @@ code path that raises it.
 
 `DOMAIN_RECEIPTS` in `scripts/validate-readiness.py` fixes each domain's
 `possible` total. Earned points are the sum of **wired** receipt rows that
-exist on disk and pass their content check. For every gap above, the remaining
-points are reserved in `possible` and documented by comments, but **no receipt
-row awards them yet**. That is deliberate: wiring a path before real evidence
-exists would invite empty-file gaming.
+exist on disk and pass their content check. The remaining 16 points each have
+a receipt row under `evidence/external/` with a content check as strict as
+`alert_delivery_proven`. Those files are absent today, so they contribute
+zero; inventing a `status: PASS` stub will not pass the check.
+
+| Domain | Pts | Wired path (absent until real work) |
+|---|---:|---|
+| `money_and_reconciliation` | 6 | `evidence/external/stripe-sandbox-matrix.json` |
+| `deployment_and_rollback` | 3 | `evidence/external/qualifying-soak-24h.json` (+ raw samples JSONL named in the receipt) |
+| `artifacts_and_storage` | 2 | `evidence/external/offsite-backup-verification.json` |
+| `database_and_recovery` | 1 | `evidence/external/offsite-independent-restore.json` |
+| `security` | 1 | `evidence/external/staging-attack-rehearsal.json` |
+| `privacy_and_data_governance` | 1 | `evidence/external/privacy-qualified-approval.json` |
+| `licensing_and_supply_chain` | 1 | `evidence/external/licensing-provenance-approval.json` |
+| `abuse_and_trust` | 1 | `evidence/external/staffed-abuse-route-or-tabletop.json` |
 
 So the operator loop for each gap is:
 
 1. Obtain the credential, host, approval, or rehearsal this pack names.
 2. Run the exact command or gate listed.
-3. Retain the real evidence artifact (never paste secrets into git or chat).
-4. Only after genuine evidence exists, a **separate** change may wire a
-   content-checked receipt into `DOMAIN_RECEIPTS` and update
-   `ops/go-no-go.json` `readiness_score` to the new derived total. That wiring
-   is not part of this pack and must not invent points.
+3. Retain the real evidence artifact at the wired path above (never paste
+   secrets into git or chat). Shape must satisfy the content check in
+   `scripts/validate-readiness.py`.
+4. After the score moves, update `ops/go-no-go.json` `readiness_score` to the
+   new derived total (the validator fails closed if they disagree).
 
-Until step 4 lands, `validate-readiness.py` will still print `84/100` even if
-the external gate itself passes. The P1 exit criteria in `ops/go-no-go.json`
-and `make release-doctor` still close on real evidence; the facet score moves
-only when a receipt is wired to that evidence.
+Until genuine evidence lands at those paths and passes the content checks,
+`validate-readiness.py` will still print `84/100`. The P1 exit criteria in
+`ops/go-no-go.json` and `make release-doctor` still close on real evidence;
+the facet score moves only when a content-checked external receipt is present.
 
 Never run live Stripe keys. Live mode is refused by contract and prohibited for
 Level C.
@@ -153,8 +164,9 @@ Related release gate: `P1-STRIPE-TEST` in `ops/go-no-go.json`.
 
 ### How to verify the facet moved
 
-After real matrix evidence exists **and** a content-checked receipt row for that
-evidence is wired into `DOMAIN_RECEIPTS` for `money_and_reconciliation`:
+After real matrix evidence is written to
+`evidence/external/stripe-sandbox-matrix.json` and passes
+`stripe_sandbox_matrix_proven`:
 
 ```bash
 python3 scripts/validate-readiness.py
@@ -162,8 +174,9 @@ python3 scripts/validate-readiness.py
 # expect: readiness: PASS (90/100 …)   # 84 + 6
 ```
 
-Until the receipt is wired, the matrix can still pass and close the payments
-P1 while the facet stays at 9/15. Do not hand-type `earned: 15`.
+Until that file lands with the full matrix shape, the matrix can still pass and
+close the payments P1 while the facet stays at 9/15. Do not hand-type
+`earned: 15`.
 
 ---
 
@@ -463,5 +476,6 @@ Hitting 95 on the facet is necessary but not sufficient while open P1s remain.
 
 ---
 
-*Generated as documentation only. No scoring schedule, receipt content check, or
-domain `possible` total was changed to produce this pack.*
+*Operator pack. External receipt rows are wired in `scripts/validate-readiness.py`
+so real artifacts can earn the reserved 16 points; domain `possible` totals and
+existing content checks are unchanged. Empty or fabricated files still score 0.*
