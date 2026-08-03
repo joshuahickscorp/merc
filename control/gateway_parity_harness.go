@@ -49,13 +49,12 @@ import (
 const (
 	gatewayParityHarnessID     = "merc-gateway-parity-v2"
 	gatewayParitySchemaVersion = 2
-	gatewayParityGateVersion   = "gateway-parity-gate-v3"
+	// v4: wave-block bootstrap of TTFT shift, no degenerate CI collapse,
+	// wave floor (not request floor), renamed ttft_shift_q95_ms.
+	gatewayParityGateVersion = "gateway-parity-gate-v4"
 
-	// Absolute floor for any level (nearest-rank p95/p99 need this many).
-	// Matches control/runtime_cell_cost.go:minCellCostSamples.
-	gatewayParityMinSamples = 20
-
-	// steady-state ratio: n >= 5 * concurrency (same rule as serving_matrix).
+	// steady-state ratio: at least this many full waves (n >= multiple * c).
+	// Same rule as serving_matrix; the wave is the independent block.
 	gatewayParitySteadyMultiple = 5
 
 	// Mean in-flight must reach this fraction of nominal concurrency or the
@@ -67,26 +66,69 @@ const (
 	// same slack lets a run with a real error problem still hit the floor on
 	// survivors (survival bias). 5% is small enough that a systemic failure
 	// mode cannot launder survivors into PASS, and loose enough that a single
-	// transient at n≈24 (≈4%) still clears. Independent of oversample size.
+	// transient at low n still clears. Independent of oversample size.
 	gatewayParityMaxErrorRate = 0.05
+
+	// gatewayParityIdentifyingWaves = ceil(ln(0.025)/ln(0.95)).
+	// A percentile-bootstrap 97.5% upper bound is only identified when
+	// P(true q95 > sample max) = 0.95^W ≤ 0.025. Below that the bootstrap UB
+	// is capped at the sample maximum and nominal coverage fails.
+	gatewayParityIdentifyingWaves = 72
+
+	// Cap on requests per arm so a full ladder stays within roughly an order
+	// of the historical c=128 cost (~706) rather than 72×128 = 9216. When
+	// identifyingWaves * c exceeds this, the wave floor drops to budget/c and
+	// the receipt must state that the upper bound is not identified.
+	gatewayParityRequestBudgetPerArm = 768
+
+	// Bootstrap replicates for wave-block and per-arm percentile CIs.
+	gatewayParityBootstrapRounds = 1000
 )
 
 // gatewayParityRequiredLadder is the concurrency set a PARITY_EVIDENCE claim
 // must measure. A single level (e.g. -concurrency 1) is not a parity claim.
 var gatewayParityRequiredLadder = []int{1, 8, 32}
 
-// GatewayParitySampleFloor is the minimum successful samples required at a
-// concurrency level. c=1 is held to the absolute floor of 20 (not 5); higher
-// levels use max(20, 5*c).
+// GatewayParityWaveFloor is the minimum number of complete scheduler waves
+// required at a concurrency level. The harness launches waves of size c
+// (semaphore capacity), so the independent observation is the wave, not the
+// request. n_samples = wave_floor * c when every wave is full.
+//
+// Schedule (request budget 768/arm):
+//
+//	c≤10:  72 waves — full identification of the 97.5% bootstrap upper bound
+//	c=32:  24 waves — cost-capped; upper bound not identified
+//	c=64:  12 waves — cost-capped; upper bound not identified
+//	c=128:  6 waves — cost-capped; upper bound not identified
+//
+// Never fewer than gatewayParitySteadyMultiple waves (steady-state).
+func GatewayParityWaveFloor(concurrency int) int {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	if gatewayParityIdentifyingWaves*concurrency <= gatewayParityRequestBudgetPerArm {
+		return gatewayParityIdentifyingWaves
+	}
+	w := gatewayParityRequestBudgetPerArm / concurrency
+	if w < gatewayParitySteadyMultiple {
+		w = gatewayParitySteadyMultiple
+	}
+	return w
+}
+
+// GatewayParitySampleFloor is wave_floor × concurrency. Kept as a sample count
+// for call sites that size n; the statistical unit is the wave.
 func GatewayParitySampleFloor(concurrency int) int {
 	if concurrency < 1 {
 		concurrency = 1
 	}
-	need := concurrency * gatewayParitySteadyMultiple
-	if need < gatewayParityMinSamples {
-		return gatewayParityMinSamples
-	}
-	return need
+	return GatewayParityWaveFloor(concurrency) * concurrency
+}
+
+// GatewayParityUpperBoundIdentified reports whether a percentile-bootstrap
+// 97.5% upper bound is statistically identified at the given wave count.
+func GatewayParityUpperBoundIdentified(nWaves int) bool {
+	return nWaves >= gatewayParityIdentifyingWaves
 }
 
 // RefuseGatewayParitySampleCount returns a non-empty reason when n is below the
@@ -94,10 +136,11 @@ func GatewayParitySampleFloor(concurrency int) int {
 // refusal — do not report the level with a caveat.
 func RefuseGatewayParitySampleCount(concurrency, n int) string {
 	need := GatewayParitySampleFloor(concurrency)
+	waves := GatewayParityWaveFloor(concurrency)
 	if n < need {
 		return fmt.Sprintf(
-			"refused: sample count %d at concurrency %d is below floor %d (max(20, 5×c)); level not reported",
-			n, concurrency, need)
+			"refused: sample count %d at concurrency %d is below floor %d (%d waves × c); level not reported",
+			n, concurrency, need, waves)
 	}
 	return ""
 }
@@ -364,6 +407,159 @@ func BootstrapPercentileCI(xs []float64, p float64, rounds int) GatewayParityPoi
 	return out
 }
 
+// okTTFTByWave groups successful TTFT samples into scheduler waves.
+// Wave index = sample.Index / concurrency (matching RunGatewayParityInterleavedLevel).
+// When every Index is 0 (fixtures that omit it), slice position is used instead.
+func okTTFTByWave(samples []GatewayParityRawSample, concurrency int) [][]float64 {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	if len(samples) == 0 {
+		return nil
+	}
+	maxIdx := 0
+	anyNonZero := false
+	for _, s := range samples {
+		if s.Index > maxIdx {
+			maxIdx = s.Index
+		}
+		if s.Index != 0 {
+			anyNonZero = true
+		}
+	}
+	useIndex := anyNonZero || maxIdx > 0
+	nWaves := (len(samples) + concurrency - 1) / concurrency
+	if useIndex {
+		nWaves = maxIdx/concurrency + 1
+	}
+	waves := make([][]float64, nWaves)
+	for i, s := range samples {
+		if s.Err != "" || s.TTFTMs <= 0 || s.FinishReason == "" {
+			continue
+		}
+		w := i / concurrency
+		if useIndex {
+			w = s.Index / concurrency
+		}
+		if w < 0 || w >= nWaves {
+			continue
+		}
+		waves[w] = append(waves[w], s.TTFTMs)
+	}
+	return waves
+}
+
+// WaveBlockTTFTShiftQ95 estimates q95(merc)−q95(direct) by jointly resampling
+// wave pairs. The harness scheduler makes all c requests in a wave exchangeable
+// and dependent; an independence assumption between individual requests is
+// refuted by construction (every level is a handful of waves).
+//
+// PASS-side upper bound is max(blockDiffHi, blockMercHi−blockDirectLo) so the
+// reported hi is never smaller than either the joint difference bootstrap or
+// wave-block interval arithmetic — provably never PASS-loosening relative to
+// either alone.
+//
+// Returns ok=false when either arm lacks usable waves.
+func WaveBlockTTFTShiftQ95(
+	mercSamples, directSamples []GatewayParityRawSample,
+	concurrency, rounds int,
+) (est GatewayParityPointEstimate, nWaves int, ok bool) {
+	est = GatewayParityPointEstimate{Method: "wave_block_bootstrap_diff_of_q95"}
+	if rounds < 1 {
+		rounds = gatewayParityBootstrapRounds
+	}
+	mercWaves := okTTFTByWave(mercSamples, concurrency)
+	dirWaves := okTTFTByWave(directSamples, concurrency)
+	nAlign := len(mercWaves)
+	if len(dirWaves) < nAlign {
+		nAlign = len(dirWaves)
+	}
+	type pair struct{ m, d []float64 }
+	pairs := make([]pair, 0, nAlign)
+	var mercAll, dirAll []float64
+	for i := 0; i < nAlign; i++ {
+		if len(mercWaves[i]) == 0 || len(dirWaves[i]) == 0 {
+			continue
+		}
+		pairs = append(pairs, pair{m: mercWaves[i], d: dirWaves[i]})
+		mercAll = append(mercAll, mercWaves[i]...)
+		dirAll = append(dirAll, dirWaves[i]...)
+	}
+	nWaves = len(pairs)
+	est.N = nWaves
+	if nWaves == 0 || len(mercAll) == 0 || len(dirAll) == 0 {
+		return est, nWaves, false
+	}
+	est.Point = PercentileNearestRank(mercAll, 0.95) - PercentileNearestRank(dirAll, 0.95)
+	if nWaves == 1 || rounds < 1 {
+		// Single wave: no block resample is possible; degenerate at point and
+		// leave identification to the caller (WaveCount < 72 → cannot PASS).
+		est.CI95Low, est.CI95High = est.Point, est.Point
+		return est, nWaves, true
+	}
+
+	// Deterministic LCG seeded from both arms (order-stable multiset).
+	state := uint64(0x9e3779b97f4a7c15) ^ uint64(nWaves)<<40 ^ uint64(len(mercAll))<<20 ^ uint64(len(dirAll))
+	if len(mercAll) > 0 {
+		state ^= math.Float64bits(mercAll[0])
+	}
+	if len(dirAll) > 0 {
+		state ^= math.Float64bits(dirAll[0]) << 1
+	}
+	next := func() uint64 {
+		state = state*6364136223846793005 + 1
+		return state
+	}
+
+	diffBoot := make([]float64, rounds)
+	mercBoot := make([]float64, rounds)
+	dirBoot := make([]float64, rounds)
+	for r := 0; r < rounds; r++ {
+		var mBoot, dBoot []float64
+		for i := 0; i < nWaves; i++ {
+			j := int(next() % uint64(nWaves))
+			mBoot = append(mBoot, pairs[j].m...)
+			dBoot = append(dBoot, pairs[j].d...)
+		}
+		mq := PercentileNearestRank(mBoot, 0.95)
+		dq := PercentileNearestRank(dBoot, 0.95)
+		mercBoot[r] = mq
+		dirBoot[r] = dq
+		diffBoot[r] = mq - dq
+	}
+	sort.Float64s(diffBoot)
+	sort.Float64s(mercBoot)
+	sort.Float64s(dirBoot)
+	loIdx := int(0.025 * float64(rounds))
+	hiIdx := int(0.975 * float64(rounds))
+	if hiIdx >= rounds {
+		hiIdx = rounds - 1
+	}
+	diffLo, diffHi := diffBoot[loIdx], diffBoot[hiIdx]
+	mercLo, mercHi := mercBoot[loIdx], mercBoot[hiIdx]
+	dirLo, dirHi := dirBoot[loIdx], dirBoot[hiIdx]
+	// Interval-arithmetic bound on wave-block per-arm CIs.
+	arithLo := mercLo - dirHi
+	arithHi := mercHi - dirLo
+	// PASS-side upper bound: never looser than either construction.
+	hi := diffHi
+	if arithHi > hi {
+		hi = arithHi
+	}
+	// Lower bound: joint difference bootstrap (FAIL side). Taking min with
+	// arithLo would only make FAIL harder / CI wider — also non-loosening for PASS.
+	lo := diffLo
+	if arithLo < lo {
+		lo = arithLo
+	}
+	if hi < lo {
+		lo, hi = hi, lo
+	}
+	est.CI95Low, est.CI95High = lo, hi
+	est.Method = "wave_block_bootstrap_diff_of_q95; pass_hi=max(diff_hi, merc_hi-direct_lo)"
+	return est, nWaves, true
+}
+
 // MeanWithCI is mean ± 1.96 * SE (normal approximation).
 func MeanWithCI(xs []float64) GatewayParityPointEstimate {
 	out := GatewayParityPointEstimate{Method: "mean_normal_approx_95", N: len(xs)}
@@ -418,9 +614,12 @@ type GatewayParityLevelResult struct {
 	RawSamples         []GatewayParityRawSample    `json:"raw_samples"`
 }
 
-// GatewayParityBudget is the overhead ceiling applied at EVERY claimed level.
+// GatewayParityBudget is the TTFT-shift ceiling applied at EVERY claimed level.
 type GatewayParityBudget struct {
-	TTFTOverheadP95Ms       float64 `json:"ttft_overhead_p95_ms"`
+	// TTFTShiftQ95BudgetMs is the maximum allowed q95(merc)−q95(direct) shift.
+	// Name is "shift" not "overhead": the estimator is a difference of
+	// percentiles (a shift function), not a percentile of paired differences.
+	TTFTShiftQ95BudgetMs    float64 `json:"ttft_shift_q95_ms"`
 	ThroughputLossFraction  float64 `json:"throughput_loss_fraction"`
 	RequireMeasuredEveryLvl bool    `json:"require_measured_at_every_level"`
 	// PrimaryMetric names the metric that alone can set the level verdict.
@@ -434,12 +633,13 @@ type GatewayParityBudget struct {
 // gateway-parity.py receipt.
 func DefaultGatewayParityBudget() GatewayParityBudget {
 	return GatewayParityBudget{
-		TTFTOverheadP95Ms:       15.0,
+		TTFTShiftQ95BudgetMs:    15.0,
 		ThroughputLossFraction:  0.05,
 		RequireMeasuredEveryLvl: true,
-		PrimaryMetric:           "ttft_overhead_p95_ms",
-		Basis: "primary=ttft_overhead_p95_ms interval decision at every claimed level; " +
-			"MDE (half-width of overhead CI) must not exceed TTFT budget or the level is INCONCLUSIVE; " +
+		PrimaryMetric:           "ttft_shift_q95_ms",
+		Basis: "primary=ttft_shift_q95_ms (q95(merc)−q95(direct)) wave-block bootstrap interval at every claimed level; " +
+			"MDE (half-width of shift CI) must not exceed TTFT budget or the level is INCONCLUSIVE; " +
+			"PASS requires an identified 97.5% upper bound (wave_count≥72) — non-identified UBs cannot PASS; " +
 			"per-level error rate must not exceed 5% (survival-bias cap, independent of oversample); " +
 			"throughput_loss_fraction is secondary and is not dual-refused when primary already FAIL; " +
 			"verdict is PASS/FAIL/INCONCLUSIVE from bootstrap CIs (not point-estimate coin flips)",
@@ -454,13 +654,19 @@ type GatewayParityGateLevel struct {
 	Refusals      []string `json:"refusals"`
 	PrimaryMetric string   `json:"primary_metric"`
 
-	// TTFT overhead (merc − direct) with CI used for the interval decision.
-	TTFTOverheadP95Ms *GatewayParityPointEstimate `json:"ttft_overhead_p95_ms,omitempty"`
-	TTFTBudgetMs      float64                     `json:"ttft_overhead_budget_ms,omitempty"`
-	// MinimumDetectableEffectMs is the half-width of the overhead CI: the
-	// smallest true overhead this run can reliably distinguish from the noise
+	// TTFT shift q95 (q95(merc) − q95(direct)) with CI used for the interval decision.
+	TTFTShiftQ95BudgetMs *GatewayParityPointEstimate `json:"ttft_shift_q95_ms,omitempty"`
+	TTFTBudgetMs         float64                     `json:"ttft_shift_q95_budget_ms,omitempty"`
+	// MinimumDetectableEffectMs is the half-width of the shift CI: the
+	// smallest true shift this run can reliably distinguish from the noise
 	// band. Compare to TTFTBudgetMs — if MDE > budget the gate is under-powered.
 	MinimumDetectableEffectMs float64 `json:"minimum_detectable_effect_ms,omitempty"`
+	// WaveCount is the number of scheduler waves (index/concurrency) that
+	// contributed OK TTFT samples on both arms.
+	WaveCount int `json:"wave_count,omitempty"`
+	// UpperBoundIdentified is true when WaveCount ≥ 72 so the bootstrap 97.5%
+	// upper bound is not catastrophically coverage-deficient.
+	UpperBoundIdentified bool `json:"ttft_shift_q95_upper_bound_identified"`
 
 	// Throughput is reported every time; Refused is true only when the primary
 	// did not already FAIL and the secondary budget is breached.
@@ -1136,17 +1342,19 @@ func RunGatewayParityInterleavedLevel(
 }
 
 // pointEstimateBounds returns (lo, hi, point) for interval decisions.
-// Degenerate / unset CI bounds collapse to the point so unit-test fixtures
-// that only set Point remain well-defined (zero-width CI).
+// Unset CI bounds (both zero while point is non-zero) are a refusal, not a
+// zero-width interval: collapsing them to the point would set MDE=0, disarm the
+// under-powered check, and let ohHi<=budget PASS on a bare point estimate —
+// exactly the coin flip the budget basis forbids.
 func pointEstimateBounds(est *GatewayParityPointEstimate) (lo, hi, point float64, ok bool) {
 	if est == nil || math.IsNaN(est.Point) {
 		return 0, 0, 0, false
 	}
 	point = est.Point
 	lo, hi = est.CI95Low, est.CI95High
-	// Unset CI (both zero while point is non-zero) → degenerate at point.
+	// Unset CI (both zero while point is non-zero) → not ok.
 	if lo == 0 && hi == 0 && point != 0 {
-		lo, hi = point, point
+		return 0, 0, point, false
 	}
 	if hi < lo {
 		lo, hi = hi, lo
@@ -1155,11 +1363,18 @@ func pointEstimateBounds(est *GatewayParityPointEstimate) (lo, hi, point float64
 }
 
 // EvaluateGatewayParityGate checks every claimed concurrency level.
-// Primary metric is TTFT overhead p95 with an interval verdict:
+// Primary metric is TTFT shift q95 (q95(merc)−q95(direct)) with an interval verdict:
 //
-//	PASS         — entire overhead CI is at or below the budget
-//	FAIL         — entire overhead CI is above the budget
-//	INCONCLUSIVE — CI straddles the budget (run cannot decide)
+//	PASS         — entire shift CI is at or below the budget, MDE ≤ budget,
+//	               and the 97.5% upper bound is identified (wave_count ≥ 72)
+//	FAIL         — entire shift CI is above the budget
+//	INCONCLUSIVE — CI straddles the budget, under-powered, or UB not identified
+//
+// When both arms carry raw samples, the CI is a joint wave-block bootstrap of
+// the difference (wave = index/concurrency). PASS-side hi is
+// max(blockDiffHi, blockMercHi−blockDirectLo) so the change is never
+// PASS-loosening relative to either construction. Fixtures without raw
+// samples fall back to interval arithmetic on precomputed per-arm CIs.
 //
 // Throughput is secondary: reported always, refused only when the primary did
 // not already FAIL (never dual-refuse one underlying latency event).
@@ -1171,7 +1386,7 @@ func EvaluateGatewayParityGate(
 ) GatewayParityGate {
 	primary := budget.PrimaryMetric
 	if primary == "" {
-		primary = "ttft_overhead_p95_ms"
+		primary = "ttft_shift_q95_ms"
 	}
 	gate := GatewayParityGate{
 		Version:       gatewayParityGateVersion,
@@ -1188,7 +1403,7 @@ func EvaluateGatewayParityGate(
 		level := GatewayParityGateLevel{
 			Concurrency:      c,
 			PrimaryMetric:    primary,
-			TTFTBudgetMs:     budget.TTFTOverheadP95Ms,
+			TTFTBudgetMs:     budget.TTFTShiftQ95BudgetMs,
 			ThroughputBudget: budget.ThroughputLossFraction,
 			Verdict:          "PASS",
 			Passed:           true,
@@ -1224,36 +1439,60 @@ func EvaluateGatewayParityGate(
 				}
 			}
 
-			// --- Primary: TTFT overhead interval decision ---
-			mercLo, mercHi, mercPt, mercOK := pointEstimateBounds(merc.TTFTp95)
-			dirLo, dirHi, dirPt, dirOK := pointEstimateBounds(direct.TTFTp95)
-			if !mercOK || !dirOK {
-				refusals = append(refusals, fmt.Sprintf(
-					"concurrency %d: ttft_p95 missing on merc or direct; nil percentile is a refusal, not a skipped check", c))
-				primaryFailed = true
-				level.Verdict = "FAIL"
-			} else if budget.TTFTOverheadP95Ms > 0 {
-				// Conservative CI for difference (independent arms):
-				// lo = merc_lo − direct_hi, hi = merc_hi − direct_lo.
-				ohLo := mercLo - dirHi
-				ohHi := mercHi - dirLo
-				ohPt := mercPt - dirPt
-				if ohHi < ohLo {
-					ohLo, ohHi = ohHi, ohLo
+			// --- Primary: TTFT shift q95 interval decision ---
+			var (
+				ohLo, ohHi, ohPt float64
+				oh               GatewayParityPointEstimate
+				haveShift        bool
+			)
+			// Prefer joint wave-block bootstrap when both arms carry raw samples.
+			if len(merc.RawSamples) > 0 && len(direct.RawSamples) > 0 {
+				block, nWaves, blockOK := WaveBlockTTFTShiftQ95(
+					merc.RawSamples, direct.RawSamples, c, gatewayParityBootstrapRounds)
+				if blockOK {
+					oh = block
+					ohLo, ohHi, ohPt = block.CI95Low, block.CI95High, block.Point
+					level.WaveCount = nWaves
+					level.UpperBoundIdentified = GatewayParityUpperBoundIdentified(nWaves)
+					haveShift = true
 				}
-				oh := GatewayParityPointEstimate{
-					Point:    ohPt,
-					CI95Low:  ohLo,
-					CI95High: ohHi,
-					Method:   "difference_of_bootstrap_percentile_ci",
-					N:        merc.TTFTp95.N,
+			}
+			if !haveShift {
+				// Fallback: interval arithmetic on precomputed per-arm CIs
+				// (unit-test fixtures without raw samples).
+				mercLo, mercHi, mercPt, mercOK := pointEstimateBounds(merc.TTFTp95)
+				dirLo, dirHi, dirPt, dirOK := pointEstimateBounds(direct.TTFTp95)
+				if !mercOK || !dirOK {
+					refusals = append(refusals, fmt.Sprintf(
+						"concurrency %d: ttft_p95 missing or CI unset on merc or direct; nil/unset percentile is a refusal, not a skipped check", c))
+					primaryFailed = true
+					level.Verdict = "FAIL"
+				} else {
+					ohLo = mercLo - dirHi
+					ohHi = mercHi - dirLo
+					ohPt = mercPt - dirPt
+					if ohHi < ohLo {
+						ohLo, ohHi = ohHi, ohLo
+					}
+					oh = GatewayParityPointEstimate{
+						Point:    ohPt,
+						CI95Low:  ohLo,
+						CI95High: ohHi,
+						Method:   "difference_of_bootstrap_percentile_ci",
+						N:        merc.TTFTp95.N,
+					}
+					if direct.TTFTp95.N < oh.N {
+						oh.N = direct.TTFTp95.N
+					}
+					// Fixtures without waves: do not claim identification.
+					level.UpperBoundIdentified = false
+					haveShift = true
 				}
-				if direct.TTFTp95.N < oh.N {
-					oh.N = direct.TTFTp95.N
-				}
-				level.TTFTOverheadP95Ms = &oh
-				// MDE = half-width of the overhead CI: the smallest true
-				// overhead this run can reliably distinguish from noise.
+			}
+			if haveShift && budget.TTFTShiftQ95BudgetMs > 0 {
+				level.TTFTShiftQ95BudgetMs = &oh
+				// MDE = half-width of the shift CI: the smallest true shift
+				// this run can reliably distinguish from noise.
 				level.MinimumDetectableEffectMs = (ohHi - ohLo) / 2
 				// Statistical power is a hard gate, not decoration. If MDE
 				// exceeds the budget the run cannot detect a violation at the
@@ -1261,32 +1500,45 @@ func EvaluateGatewayParityGate(
 				// point estimate looks comfortable. A clear FAIL (CI entirely
 				// above budget) still fails: under-power does not excuse a
 				// measured breach.
-				underpowered := budget.TTFTOverheadP95Ms > 0 &&
-					level.MinimumDetectableEffectMs > budget.TTFTOverheadP95Ms
+				underpowered := level.MinimumDetectableEffectMs > budget.TTFTShiftQ95BudgetMs
+				// Non-identified upper bound: bootstrap UB is capped at the
+				// sample max with P(true q95 > max) = 0.95^W ≫ 0.025. Cannot
+				// PASS; FAIL remains valid when even the lo exceeds budget.
+				// Only enforced when waves were measured from raw samples
+				// (WaveCount > 0). Fixture paths without raw samples leave
+				// WaveCount=0 and exercise decision logic on injected CIs.
+				ubNotIdentified := level.WaveCount > 0 && !level.UpperBoundIdentified
 
 				switch {
-				case ohLo > budget.TTFTOverheadP95Ms:
-					// Entire CI above budget → FAIL.
+				case ohLo > budget.TTFTShiftQ95BudgetMs:
+					// Entire CI above budget → FAIL (safe even when UB not identified).
 					level.Verdict = "FAIL"
 					primaryFailed = true
 					refusals = append(refusals, fmt.Sprintf(
-						"concurrency %d: ttft overhead p95 CI [%.3f, %.3f] ms (point %.3f) entirely above budget %.3f ms (MDE=%.3f ms)",
-						c, ohLo, ohHi, ohPt, budget.TTFTOverheadP95Ms, level.MinimumDetectableEffectMs))
+						"concurrency %d: ttft shift q95 CI [%.3f, %.3f] ms (point %.3f) entirely above budget %.3f ms (MDE=%.3f ms, waves=%d, ub_identified=%v)",
+						c, ohLo, ohHi, ohPt, budget.TTFTShiftQ95BudgetMs, level.MinimumDetectableEffectMs, level.WaveCount, level.UpperBoundIdentified))
 				case underpowered:
 					// Cannot resolve the budget threshold → INCONCLUSIVE.
 					level.Verdict = "INCONCLUSIVE"
 					refusals = append(refusals, fmt.Sprintf(
-						"concurrency %d: under-powered: MDE=%.3f ms exceeds TTFT budget %.3f ms (overhead CI [%.3f, %.3f] ms, point %.3f); gate cannot detect a violation at the policed threshold",
-						c, level.MinimumDetectableEffectMs, budget.TTFTOverheadP95Ms, ohLo, ohHi, ohPt))
-				case ohHi <= budget.TTFTOverheadP95Ms:
-					// Entire CI at or below budget AND MDE ≤ budget → PASS.
+						"concurrency %d: under-powered: MDE=%.3f ms exceeds TTFT budget %.3f ms (shift CI [%.3f, %.3f] ms, point %.3f, waves=%d); gate cannot detect a violation at the policed threshold",
+						c, level.MinimumDetectableEffectMs, budget.TTFTShiftQ95BudgetMs, ohLo, ohHi, ohPt, level.WaveCount))
+				case ubNotIdentified && ohHi <= budget.TTFTShiftQ95BudgetMs:
+					// Would be PASS on the numbers, but the 97.5% upper bound
+					// is not identified — refusing to pretend it is.
+					level.Verdict = "INCONCLUSIVE"
+					refusals = append(refusals, fmt.Sprintf(
+						"concurrency %d: ttft shift q95 bootstrap upper bound not identified (need %d independent waves for 97.5%% UB, have %d; 0.95^W=%.4f); shift CI [%.3f, %.3f] ms point %.3f cannot support PASS",
+						c, gatewayParityIdentifyingWaves, level.WaveCount, math.Pow(0.95, float64(level.WaveCount)), ohLo, ohHi, ohPt))
+				case ohHi <= budget.TTFTShiftQ95BudgetMs:
+					// Entire CI at or below budget AND MDE ≤ budget AND UB identified → PASS.
 					level.Verdict = "PASS"
 				default:
 					// CI straddles budget → honest INCONCLUSIVE.
 					level.Verdict = "INCONCLUSIVE"
 					refusals = append(refusals, fmt.Sprintf(
-						"concurrency %d: ttft overhead p95 CI [%.3f, %.3f] ms (point %.3f) straddles budget %.3f ms (MDE=%.3f ms); run cannot decide",
-						c, ohLo, ohHi, ohPt, budget.TTFTOverheadP95Ms, level.MinimumDetectableEffectMs))
+						"concurrency %d: ttft shift q95 CI [%.3f, %.3f] ms (point %.3f) straddles budget %.3f ms (MDE=%.3f ms, waves=%d); run cannot decide",
+						c, ohLo, ohHi, ohPt, budget.TTFTShiftQ95BudgetMs, level.MinimumDetectableEffectMs, level.WaveCount))
 				}
 			}
 
@@ -1564,7 +1816,7 @@ func BuildGatewayParityReceipt(
 		rec.MercSourceCommit = readMercSourceCommit()
 	}
 	rec.Notes = append(rec.Notes,
-		"primary_metric="+orDefault(budget.PrimaryMetric, "ttft_overhead_p95_ms")+
+		"primary_metric="+orDefault(budget.PrimaryMetric, "ttft_shift_q95_ms")+
 			"; throughput is secondary and never dual-refuses a primary TTFT FAIL",
 		"interleaved schedule uses alternating batches at concurrency c (engine peak ≤ c); per-arm wall clocks for throughput",
 	)

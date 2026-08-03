@@ -3,7 +3,7 @@
 
 Validates the authoritative v2 harness receipt shape produced by
 control/gateway_parity_harness.go (schema_version=2, gate_version=
-gateway-parity-gate-v3). The withdrawn v1 shape (scripts/gateway-parity.py)
+gateway-parity-gate-v4). The withdrawn v1 shape (scripts/gateway-parity.py)
 is refused as parity evidence — institutional green must not mean the old
 harness's verdict.
 
@@ -47,7 +47,7 @@ DEFAULT_RECEIPT = ROOT / "evidence" / "perf" / "gateway-parity.json"
 REVALIDATION_WINDOW = timedelta(days=180)
 
 REQUIRED_LADDER = (1, 8, 32)
-GATE_VERSION = "gateway-parity-gate-v3"
+GATE_VERSION = "gateway-parity-gate-v4"
 SCHEMA_VERSION = 2
 
 FAILURES: list[str] = []
@@ -92,10 +92,10 @@ def base_receipt(**overrides: Any) -> dict[str, Any]:
         "gate_passed": True,
         "refusals": [],
         "budget": {
-            "ttft_overhead_p95_ms": 15.0,
+            "ttft_shift_q95_ms": 15.0,
             "throughput_loss_fraction": 0.05,
             "require_measured_at_every_level": True,
-            "primary_metric": "ttft_overhead_p95_ms",
+            "primary_metric": "ttft_shift_q95_ms",
             "basis": "test",
         },
         "claimed_concurrency_levels": list(REQUIRED_LADDER),
@@ -113,7 +113,7 @@ def base_receipt(**overrides: Any) -> dict[str, Any]:
             "version": GATE_VERSION,
             "gate_passed": True,
             "verdict": "PASS",
-            "primary_metric": "ttft_overhead_p95_ms",
+            "primary_metric": "ttft_shift_q95_ms",
             "claimed_concurrency_levels": list(REQUIRED_LADDER),
             "levels": [
                 {
@@ -121,8 +121,10 @@ def base_receipt(**overrides: Any) -> dict[str, Any]:
                     "verdict": "PASS",
                     "passed": True,
                     "refusals": [],
-                    "ttft_overhead_budget_ms": 15.0,
+                    "ttft_shift_q95_budget_ms": 15.0,
                     "minimum_detectable_effect_ms": 5.0,
+                    "ttft_shift_q95_upper_bound_identified": True,
+                    "wave_count": 72,
                 }
                 for c in REQUIRED_LADDER
             ],
@@ -259,7 +261,7 @@ def validate_receipt(path: Path, *, now: datetime | None = None) -> list[str]:
         errors.append(f"{path}: budget block missing")
     else:
         for key in (
-            "ttft_overhead_p95_ms",
+            "ttft_shift_q95_ms",
             "throughput_loss_fraction",
             "basis",
             "primary_metric",
@@ -334,25 +336,42 @@ def validate_receipt(path: Path, *, now: datetime | None = None) -> list[str]:
         if not isinstance(levels, list) or not levels:
             errors.append(f"{path}: gate.levels missing or empty")
         else:
-            for lvl in levels:
+            for i, lvl in enumerate(levels):
                 if not isinstance(lvl, dict):
                     errors.append(f"{path}: gate.levels entry is not an object")
                     continue
                 c = lvl.get("concurrency")
-                verdict = lvl.get("verdict")
-                mde = lvl.get("minimum_detectable_effect_ms")
-                budget_ms = lvl.get("ttft_overhead_budget_ms")
+                path_lvl = f"{path}: gate.levels[{i}] (c={c})"
+                # Required keys — never .get-optional: a rename that drops a key
+                # must fail closed, not silently skip the under-powered check.
+                required_lvl_keys = (
+                    "verdict",
+                    "minimum_detectable_effect_ms",
+                    "ttft_shift_q95_budget_ms",
+                )
+                missing = [k for k in required_lvl_keys if k not in lvl]
+                if missing:
+                    errors.append(f"{path_lvl}: missing required keys {missing}")
+                    continue
+                verdict = lvl["verdict"]
+                mde = lvl["minimum_detectable_effect_ms"]
+                budget_ms = lvl["ttft_shift_q95_budget_ms"]
                 if verdict != "PASS":
                     errors.append(
                         f"{path}: gate level c={c} verdict={verdict!r} want PASS"
                     )
-                # Power gate: MDE must not exceed budget when present.
-                if (
-                    isinstance(mde, (int, float))
-                    and isinstance(budget_ms, (int, float))
-                    and budget_ms > 0
-                    and mde > budget_ms
-                ):
+                # Power gate: MDE must not exceed budget (required keys above).
+                if not isinstance(mde, (int, float)):
+                    errors.append(
+                        f"{path_lvl}: minimum_detectable_effect_ms must be numeric, "
+                        f"got {type(mde).__name__}"
+                    )
+                elif not isinstance(budget_ms, (int, float)):
+                    errors.append(
+                        f"{path_lvl}: ttft_shift_q95_budget_ms must be numeric, "
+                        f"got {type(budget_ms).__name__}"
+                    )
+                elif budget_ms > 0 and mde > budget_ms:
                     errors.append(
                         f"{path}: gate level c={c} under-powered: "
                         f"MDE={mde} > budget={budget_ms}"
@@ -486,7 +505,7 @@ def run_unit_tests() -> None:
                 "verdict": "PASS",
                 "passed": True,
                 "refusals": [],
-                "ttft_overhead_budget_ms": 15.0,
+                "ttft_shift_q95_budget_ms": 15.0,
                 "minimum_detectable_effect_ms": 21.0,
             }
         ]
@@ -495,6 +514,34 @@ def run_unit_tests() -> None:
         check(
             any("under-powered" in e or "MDE=" in e for e in errs),
             f"under-powered PASS level must fail validator, got {errs!r}",
+        )
+
+        # Renamed / required keys must fail closed — never .get-optional skip.
+        no_mde = base_receipt()
+        no_mde["gate"] = dict(no_mde["gate"])
+        levels_no_mde = []
+        for lvl in no_mde["gate"]["levels"]:
+            stripped = dict(lvl)
+            del stripped["minimum_detectable_effect_ms"]
+            levels_no_mde.append(stripped)
+        no_mde["gate"]["levels"] = levels_no_mde
+        errs = validate_receipt(write("no-mde.json", no_mde))
+        check(
+            any("minimum_detectable_effect_ms" in e for e in errs),
+            f"missing MDE key must fail closed, got {errs!r}",
+        )
+        no_budget_key = base_receipt()
+        no_budget_key["gate"] = dict(no_budget_key["gate"])
+        levels_no_b = []
+        for lvl in no_budget_key["gate"]["levels"]:
+            stripped = dict(lvl)
+            del stripped["ttft_shift_q95_budget_ms"]
+            levels_no_b.append(stripped)
+        no_budget_key["gate"]["levels"] = levels_no_b
+        errs = validate_receipt(write("no-shift-budget.json", no_budget_key))
+        check(
+            any("ttft_shift_q95_budget_ms" in e for e in errs),
+            f"missing ttft_shift_q95_budget_ms must fail closed, got {errs!r}",
         )
 
         clean = write("clean.json", base_receipt())
@@ -546,7 +593,7 @@ def main() -> int:
 
     print(
         "gateway-parity-receipt: PASS "
-        "(v2/gate-v3, dated, empty refusals, Merc-bound body_identity, "
+        "(v2/gate-v4, dated, empty refusals, Merc-bound body_identity, "
         "ladder {1,8,32}, nested gate_passed consistent, MDE ≤ budget)"
     )
     return 0

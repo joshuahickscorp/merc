@@ -386,10 +386,10 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	}
 	// Log primary metric per level for the operator.
 	for _, gl := range rec.Gate.Levels {
-		if gl.TTFTOverheadP95Ms != nil {
-			t.Logf("c=%d verdict=%s ttft_overhead_p95=%.3f CI[%.3f,%.3f] MDE=%.3f budget=%.3f",
-				gl.Concurrency, gl.Verdict, gl.TTFTOverheadP95Ms.Point,
-				gl.TTFTOverheadP95Ms.CI95Low, gl.TTFTOverheadP95Ms.CI95High,
+		if gl.TTFTShiftQ95BudgetMs != nil {
+			t.Logf("c=%d verdict=%s ttft_shift_q95=%.3f CI[%.3f,%.3f] MDE=%.3f budget=%.3f",
+				gl.Concurrency, gl.Verdict, gl.TTFTShiftQ95BudgetMs.Point,
+				gl.TTFTShiftQ95BudgetMs.CI95Low, gl.TTFTShiftQ95BudgetMs.CI95High,
 				gl.MinimumDetectableEffectMs, gl.TTFTBudgetMs)
 		} else {
 			t.Logf("c=%d verdict=%s refusals=%v", gl.Concurrency, gl.Verdict, gl.Refusals)
