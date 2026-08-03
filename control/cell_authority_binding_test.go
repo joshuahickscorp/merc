@@ -7,21 +7,22 @@ import (
 	"testing"
 )
 
-// Scoreboard before the bindable raise: four lifecycle-routable candle cells,
-// one of which actually bound at the merc_source_commit bar. After the BOUND
-// raise: only the cell whose authority is genuinely BOUND remains advertised.
+// Scoreboard after the BOUND raise and the llama1 re-measure: four lifecycle-
+// routable candle cells, two of which bind (embed + batch_infer). The media
+// cells remain demoted by their unbound receipts, not by lifecycle edits.
 
 func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 	// Reasons the audit named. Each demotion is a predicate result, not a
-	// hand-edited lifecycle field. The three still fail at the pre-BOUND checks;
-	// embed is the sole cell that reaches the BOUND bar.
+	// hand-edited lifecycle field. Media cells still fail pre-BOUND checks;
+	// embed and generation now reach the BOUND bar on sealed receipts.
 	wantDemoted := map[string]string{
 		"candle-metal-ffmpeg-transcode": "not a git object",
 		"candle-metal-scene-render":     "merc_source_commit is missing",
-		"candle-metal-llama1-infer":     "profile_revision",
 	}
-	// Embed is the sole BOUND ordinary cell at this commit.
-	const wantRoutable = "candle-metal-minilm-embed"
+	wantRoutable := map[string]bool{
+		"candle-metal-minilm-embed": true,
+		"candle-metal-llama1-infer": true,
+	}
 
 	var got []string
 	for _, profile := range runtimeAuthority.Runtimes {
@@ -35,21 +36,18 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 				if !ok {
 					t.Errorf("%s is Routable but bindable says no: %s", cell.ID, reason)
 				}
+				if !wantRoutable[cell.ID] {
+					t.Errorf("unexpected routable cell %s", cell.ID)
+				}
 				continue
 			}
 			// Lifecycle says CANARY/ACTIVE but Routable is false — must be one of
-			// the three demotions the audit named, with a matching reason.
+			// the demotions the audit named, with a matching reason.
 			if substr, named := wantDemoted[cell.ID]; named {
 				if ok {
 					t.Errorf("%s should not bind; got ok with reason %q", cell.ID, reason)
 				}
 				if !strings.Contains(reason, substr) {
-					// llama1 also fails digests; accept either refusal the audit named.
-					if cell.ID == "candle-metal-llama1-infer" &&
-						(strings.Contains(reason, "model artifact digest") ||
-							strings.Contains(reason, "profile_revision")) {
-						continue
-					}
 					if cell.ID == "candle-metal-scene-render" &&
 						(strings.Contains(reason, "merc_source_commit") ||
 							strings.Contains(reason, "harness")) {
@@ -63,14 +61,28 @@ func TestOnlyBindableAuthorityCellsAreRoutable(t *testing.T) {
 			t.Errorf("unexpected demotion of lifecycle-routable cell %s: %s", cell.ID, reason)
 		}
 	}
-	if len(got) != 1 || got[0] != wantRoutable {
-		t.Fatalf("routable cells = %v, want exactly [%s]", got, wantRoutable)
+	if len(got) != len(wantRoutable) {
+		t.Fatalf("routable cells = %v, want exactly the BOUND set %v", got, wantRoutable)
 	}
-	if n := len(advertisedRuntimeCapabilities()); n != 1 {
-		t.Fatalf("advertised projection has %d cells, want 1", n)
+	for id := range wantRoutable {
+		found := false
+		for _, g := range got {
+			if g == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected routable cell %s missing from %v", id, got)
+		}
 	}
-	if !advertisedRuntimeCell(wantRoutable) {
-		t.Fatal("the BOUND embed cell is not advertised")
+	if n := len(advertisedRuntimeCapabilities()); n != len(wantRoutable) {
+		t.Fatalf("advertised projection has %d cells, want %d", n, len(wantRoutable))
+	}
+	for id := range wantRoutable {
+		if !advertisedRuntimeCell(id) {
+			t.Errorf("BOUND cell %s is not advertised", id)
+		}
 	}
 	for id := range wantDemoted {
 		if advertisedRuntimeCell(id) {
@@ -219,15 +231,26 @@ func TestBenchmarkManifestIdentityMatchesTheReceipts(t *testing.T) {
 	}
 }
 
-func TestAdvertisedSurfaceIsTheBindableSingleton(t *testing.T) {
-	// Ordinary admission freezes one advertised cell per (job, model). Today the
-	// whole advertised surface is a single BOUND embed cell.
-	caps := advertisedRuntimeCapabilities()
-	if len(caps) != 1 {
-		t.Fatalf("advertised %d cells, want 1 BOUND cell", len(caps))
+func TestAdvertisedSurfaceIsTheBindableSet(t *testing.T) {
+	// Ordinary admission freezes one advertised cell per (job, model). After the
+	// llama1 re-measure the surface is embed + batch_infer; media stay out.
+	want := map[string]string{
+		"candle-metal-minilm-embed": "embed",
+		"candle-metal-llama1-infer": "batch_infer",
 	}
-	if caps[0].ID != "candle-metal-minilm-embed" || caps[0].Job != "embed" {
-		t.Fatalf("advertised %+v, want candle-metal-minilm-embed/embed", caps[0])
+	caps := advertisedRuntimeCapabilities()
+	if len(caps) != len(want) {
+		t.Fatalf("advertised %d cells, want %d BOUND cells", len(caps), len(want))
+	}
+	for _, cap := range caps {
+		job, ok := want[cap.ID]
+		if !ok {
+			t.Errorf("unexpected advertised cell %s/%s", cap.ID, cap.Job)
+			continue
+		}
+		if cap.Job != job {
+			t.Errorf("cell %s job=%s, want %s", cap.ID, cap.Job, job)
+		}
 	}
 }
 

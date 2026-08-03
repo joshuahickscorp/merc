@@ -207,11 +207,12 @@ func TestArtifactReplacementMovesTheDigestThatGatesTheCell(t *testing.T) {
 }
 
 // The advertised set is exactly the cells whose lifecycle is CANARY/ACTIVE and
-// whose authority binds. At this commit that is the candle embed cell alone —
-// three other candle cells are lifecycle-routable but stand on unbound authority.
+// whose authority binds. After re-sealing generation that is embed + batch_infer;
+// the two media cells remain lifecycle-routable but stand on unbound authority.
 func TestCellLifecyclesDidNotWidenTheAdvertisedSurface(t *testing.T) {
 	want := map[string]bool{
 		"candle-metal-minilm-embed": true,
+		"candle-metal-llama1-infer": true,
 	}
 	if len(advertisedRuntimeCapabilities()) != len(want) {
 		t.Fatalf("advertised %d cells, want %d",
