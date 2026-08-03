@@ -332,7 +332,8 @@ so the receipt cannot restate a number a previous report chose.
 | in-flight coalescing | PRODUCTION_WIRED |
 | execution overhead actuals | PRODUCTION_WIRED |
 | token-budget batching | IMPLEMENTED_UNWIRED |
-| prepared tools/schema identity cache | PRODUCTION_WIRED (tokenizer absent) |
+| prepared tools/schema identity cache | PRODUCTION_WIRED (control-plane tokenizer DOES_NOT_APPLY — see evidence/perf/five-cache-architecture-audit.json) |
+| media preprocessing cache | DOES_NOT_APPLY (no image-gen preprocess; media_rendering is full-result byte-exact work) |
 | RuntimeSelector | ABSENT |
 
 **The second runtime is REAL_RUNTIME_PROVEN, not ECONOMICALLY_PROVEN.** Real agent
@@ -385,7 +386,7 @@ wiring, and a caller census is the only thing that finds them.
 | 7 | llama.cpp embedding enters bounded CANARY or is honestly blocked | **honestly blocked** — blocked by 4-6, not by measurement |
 | 8 | 128 eligible requests produce one physical execution and one payable | **bound against a double upstream** — `evidence/reuse/public-path-coalescing-128-to-1.json` (commit `4ef1922a`); not a GPU performance measurement |
 | 9 | Coalesced buyer charges and Merc contribution reconcile | **bound on the public money path against a double upstream** — same receipts; not a live supplier-runtime claim |
-| 10 | Tokenization and schema caches with real callers | **partial** — prepared request identity cache is live and bounded; model tokenizer cache remains absent because the control plane never tokenizes |
+| 10 | Tokenization and schema caches with real callers | **partial, closed honestly** — prepared request identity cache is live and bounded; control-plane tokenization cache **DOES_NOT_APPLY** (no model tokenizer on the control plane). Bound audit: `evidence/perf/five-cache-architecture-audit.json` |
 | 11 | Token-budget policies measured per traffic class | **not done** |
 | 12 | Full suite green and every pushed checkpoint receipt-bound | **done** — and `make ci` is green for the first time on this branch |
 
@@ -404,7 +405,7 @@ rollback, and none of that was expressible before.
 | 6. Paired selector evidence | **not done** |
 | 7. Selector promotion gate | **not done** |
 | 8. Coalescing proved through real money | **bound money-path proofs against a double upstream** — `evidence/reuse/public-path-coalescing-128-to-1.json` (commit `4ef1922a`) shows 128 deliveries to 1 upstream call through the real public handler; it does not measure GPU performance or a live supplier runtime |
-| 9. Prepared tools/schema identity cache | **partial** — `realtime_identity_cache.go` has production callers, tenant/profile/policy invalidation, bounded LRU/TTL, and hit/miss metrics; token-ID caching remains unimplemented |
+| 9. Prepared tools/schema identity cache | **done for identity; tokenization DOES_NOT_APPLY** — `realtime_identity_cache.go` has production callers, tenant/profile/policy invalidation, bounded LRU/TTL, and hit/miss metrics; control-plane token-ID caching is not an unfinished item (architecture has no control-plane tokenizer). See `evidence/perf/five-cache-architecture-audit.json` |
 | 10. Token-budget batching sweep | **not done** |
 | 11. vLLM CUDA as a governed cell | **not done** |
 
