@@ -41,6 +41,13 @@ import (
 // MaxConns is crossed at production default (20) and abundant (64) so pool
 // starvation is separable from lock wait. Hierarchy (buyer funding before
 // offer capacity) is not altered by this probe.
+//
+// Reading the 1-offer multi-buyer cell: it isolates "one capacity row is one
+// capacity row" (docs/OFFER_MULTIPLICITY.md). That tail is a thin-book /
+// fixture number, not a standing production defect — seed leaves 0 realtime
+// offers, one local agent registers one, canary is two workers, and N-offer
+// cells already show SKIP LOCKED recovering multi-supplier books. Do not
+// re-architect available_sequences into slot rows because this cell is slow.
 func TestAuthorizeTailCharacterize(t *testing.T) {
 	if os.Getenv("MERC_AUTHORIZE_TAIL_PROBE") != "1" {
 		t.Skip("set MERC_AUTHORIZE_TAIL_PROBE=1 to run authorize/auth tail characterization")
