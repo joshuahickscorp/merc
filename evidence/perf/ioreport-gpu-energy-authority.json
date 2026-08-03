@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "kind": "measured_energy_authority",
+  "title": "First measured GPU energy authority (IOReport, unprivileged)",
+  "measured_at": "2026-08-03T15:41:18Z",
+  "host": {
+    "hardware": "Apple M3 Ultra / 96GB",
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "uid": 503,
+    "euid": 503
+  },
+  "measurement": {
+    "backend": "ioreport_gpu_energy",
+    "privilege": "none (uid-level IOReport subscription; no sudo)",
+    "channel": "Energy Model / GPU Energy",
+    "sampling_interval_ms": 200,
+    "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+    "boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+    "measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+    "excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+    "error_notes": [
+      "Sampling interval 200 ms; sub-interval power spikes are averaged into each sample.",
+      "Joules for the load window are the cumulative counter delta, not mean(watts)*time.",
+      "Idle and load windows are sequential, not simultaneous — ambient GPU work from other processes is included.",
+      "GPU-alone energy is a lower bound on package energy and is not comparable to wall-plug joules.",
+      "The load window covers the entire llama-cli process, including model load / Metal graph compile, not decode-only steady state. Mean watts is therefore diluted by cold-start; peak watts and raw samples show the under-load signal.",
+      "What this number excludes: CPU cores/clusters, DRAM, ANE, display, package total, wall AC, PSU inefficiency — typically a large fraction of machine draw under mixed load."
+    ]
+  },
+  "idle_window": {
+    "window_s": 5.0,
+    "energy_joules": 6.000431,
+    "mean_watts": 1.188,
+    "peak_watts": 1.586,
+    "samples": 23,
+    "raw_watts_samples": [
+      1.0892,
+      0.8289,
+      1.0551,
+      1.3055,
+      1.5496,
+      1.4295,
+      1.2361,
+      1.3084,
+      0.5531,
+      1.3439,
+      1.5858,
+      0.8283,
+      1.2122,
+      1.2412,
+      1.0863,
+      1.0306,
+      1.4393,
+      1.1799,
+      0.9811,
+      1.3474,
+      1.0383,
+      1.382,
+      1.2817
+    ]
+  },
+  "load_window": {
+    "window_s": 2.5734,
+    "energy_joules": 62.322981,
+    "mean_watts": 24.39,
+    "peak_watts": 42.353,
+    "samples": 12,
+    "raw_watts_samples": [
+      1.0037,
+      0.9281,
+      0.974,
+      10.275,
+      40.6141,
+      40.6432,
+      39.6641,
+      42.1509,
+      39.2619,
+      42.3535,
+      33.7289,
+      1.0814
+    ]
+  },
+  "workload": {
+    "kind": "llama-cli",
+    "runtime": "llama_cpp_metal",
+    "model": "/Users/scammermike/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct-GGUF/snapshots/b69aef112e9f895e6f98d7ae0949f72ff09aa401/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+    "verified_outcomes": 512,
+    "verified_outcome_unit": "completion_tokens",
+    "physical_tokens": 512,
+    "detail": {
+      "runtime": "llama_cpp_metal",
+      "model": "/Users/scammermike/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct-GGUF/snapshots/b69aef112e9f895e6f98d7ae0949f72ff09aa401/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+      "exit_code": 0,
+      "elapsed_s": 2.5734,
+      "verified_outcomes": 512,
+      "prompt_tokens": 0,
+      "n_predict_requested": 512,
+      "reported_generation_tps": 346.4,
+      "reported_prompt_tps": 2539.5,
+      "cmd": [
+        "/opt/homebrew/bin/llama-cli",
+        "-m",
+        "/Users/scammermike/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct-GGUF/snapshots/b69aef112e9f895e6f98d7ae0949f72ff09aa401/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        "-p",
+        "Write a detailed technical essay about measuring GPU energy on Apple Silicon using IOReport. Cover channels, units, sampling, and the difference between GPU-domain and wall-plug energy.\n\n",
+        "-n",
+        "512",
+        "-ngl",
+        "99",
+        "--temp",
+        "0",
+        "--single-turn",
+        "--simple-io",
+        "--ignore-eos",
+        "--perf"
+      ],
+      "outcome_count_basis": "n_predict_with_ignore_eos"
+    }
+  },
+  "joules_per_verified_outcome": 0.121724572,
+  "joules_per_physical_token": 0.121724572,
+  "signal_check": {
+    "idle_mean_watts": 1.188,
+    "load_mean_watts": 24.39,
+    "load_over_idle_ratio": 20.53,
+    "note": "ratio must move under load; a flat signal is not authority"
+  },
+  "not_production_pricing_truth": "This receipt is measured GPU-domain energy for one host and one workload. It does not replace sustainedWattsByHWClass and must not be written into control/pricing.go without a separate pricing lane.",
+  "vs_assumed_sustained_watts": {
+    "hw_class": "apple_silicon_ultra",
+    "assumed_watts": 65.0,
+    "assumed_kind": "ASSUMED",
+    "assumed_source": "control/pricing.go sustainedWattsByHWClass (not edited by this lane)",
+    "measured_load_mean_gpu_watts": 24.39,
+    "measured_idle_mean_gpu_watts": 1.188,
+    "delta_load_minus_assumed_watts": -40.61,
+    "ratio_load_over_assumed": 0.375,
+    "comparison_caveat": "The 65 W ASSUMED figure is whole-package sustained draw under inference-shaped load. This measurement is GPU-domain only, so a GPU-alone mean above 65 W already proves the package assumption understates reality; a GPU-alone mean below 65 W is not evidence the package assumption is high, because CPU/DRAM/ANE/package overhead are excluded here.",
+    "viability_gate_implication": "Supplier viability and contribution margins price energy cost from sustainedWattsByHWClass. Understating watts understates energy cost and can make an unprofitable cell look viable. This receipt is the bound GPU-energy authority; promoting it into the package table is a separate pricing-lane decision."
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "04295cfa9afe39ababcabc73fa99ca026bd436e4"
+    },
+    "build_digest": {
+      "value": "3d9d3ad09436bfe95a557cdf9b2322c0db89a5f72ac27e1a6a62a432d3d2901d"
+    },
+    "model_artifact_digest": {
+      "value": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/bench-harness.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus; synthetic/local prompt only"
+    },
+    "exact_config": {
+      "value": "workload=llama-cli interval_ms=200 idle_s=5.0 n_predict=512 backend=ioreport_gpu_energy"
+    },
+    "raw_samples": {
+      "value": "idle_samples=23 load_samples=12 verified_outcomes=512"
+    }
+  },
+  "binding_status": "BOUND"
+}
