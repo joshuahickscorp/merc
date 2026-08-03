@@ -35,6 +35,7 @@ func runGatewayParityCLI(args []string) int {
 	modelDigest := fs.String("model-digest", "", "sha256 of model artifact (required for PARITY_EVIDENCE)")
 	topologyNote := fs.String("topology-note", "", "where client / control plane / engine run")
 	selfTestStandin := fs.Bool("self-test-standin", false, "run against a local stand-in; forces HARNESS_SELF_TEST")
+	matrix := fs.Bool("matrix", false, "run the multi-dimensional matrix (prompt×output×state×concurrency); default defensible subset")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -59,6 +60,22 @@ func runGatewayParityCLI(args []string) int {
 		return 2
 	}
 
+	contract := GatewayParitySamplingContract{
+		Model: *model, Prompt: *prompt, Temperature: *temperature, TopP: *topP,
+		MaxTokens: *maxTokens, Stream: true, ModelDigest: *modelDigest,
+	}
+	if *seed >= 0 {
+		s := *seed
+		contract.Seed = &s
+	}
+
+	if *matrix {
+		return runGatewayParityMatrixLive(
+			*mercURL, mercKey, *directURL, directKey, contract,
+			*evidenceClass, *topologyNote, *out,
+		)
+	}
+
 	var claimed []int
 	for _, p := range strings.Split(*levelsFlag, ",") {
 		p = strings.TrimSpace(p)
@@ -78,14 +95,6 @@ func runGatewayParityCLI(args []string) int {
 	}
 	sort.Ints(claimed)
 
-	contract := GatewayParitySamplingContract{
-		Model: *model, Prompt: *prompt, Temperature: *temperature, TopP: *topP,
-		MaxTokens: *maxTokens, Stream: true, ModelDigest: *modelDigest,
-	}
-	if *seed >= 0 {
-		s := *seed
-		contract.Seed = &s
-	}
 	body, err := contract.BuildChatCompletionsBody()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -136,6 +145,7 @@ func runGatewayParityCLI(args []string) int {
 	notes := []string{
 		"Authoritative v2 harness (gate v3 interval decisions). scripts/gateway-parity.py is INVALIDATED.",
 		fmt.Sprintf("merc_base_url=%s direct_base_url=%s", *mercURL, *directURL),
+		"single-shape mode (legacy); pass -matrix for prompt×output×state dimensions",
 	}
 	rec := BuildGatewayParityReceipt(
 		contract, topology, client, claimed, levels, identity,
@@ -163,91 +173,193 @@ func runGatewayParityCLI(args []string) int {
 	return 0
 }
 
-func runGatewayParityStandinSelfTest(out string) int {
-	var hits atomic.Int64
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+// runGatewayParityMatrixLive drives the defensible multi-dimensional subset
+// against real merc + direct endpoints.
+func runGatewayParityMatrixLive(
+	mercURL, mercKey, directURL, directKey string,
+	contract GatewayParitySamplingContract,
+	evidenceClass, topologyNote, out string,
+) int {
+	selection := DefaultGatewayParityMatrixSelection()
+	fmt.Printf("=== matrix mode: %d cells (of 1440 full / 480 acting) ===\n", len(selection.Selected))
+	fmt.Println("rationale:", selection.Rationale)
+	hostStart := CaptureGatewayParityHostLoad()
+	cells := RunGatewayParityMatrix(
+		context.Background(), mercURL, mercKey, directURL, directKey, contract, selection,
+	)
+	hostEnd := CaptureGatewayParityHostLoad()
+	topology := GatewayParityNetworkTopology{
+		Notes:          topologyNote,
+		ClientToEngine: "see merc_base_url / direct_base_url",
+	}
+	notes := []string{
+		"Authoritative v2 matrix harness (gate v3 interval decisions per cell).",
+		"scripts/gateway-parity.py is INVALIDATED.",
+		fmt.Sprintf("merc_base_url=%s direct_base_url=%s", mercURL, directURL),
+		selection.Rationale,
+	}
+	rec := BuildGatewayParityMatrixReceipt(
+		contract, topology, selection, cells,
+		DefaultGatewayParityBudget(), hostStart, hostEnd,
+		evidenceClass, notes,
+	)
+	raw, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	// Stand-in may echo X-Merc-Upstream-Body-SHA256 (exercises capture parsing)
-	// but deliberately omits X-Merc-Contract-ID. A bare-SHA stand-in must not
-	// be able to satisfy PARITY_EVIDENCE identity proof.
-	var bodySHA string
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		reqBody, _ := io.ReadAll(r.Body)
-		if bodySHA == "" {
-			bodySHA = sha256Hex(reqBody)
+	if err := os.WriteFile(out, append(raw, '\n'), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("wrote", out)
+	fmt.Printf("cells=%d gate_passed=%v verdict=%s comparable=%v\n",
+		len(rec.Cells), rec.GatePassed, rec.Gate.Verdict, rec.Comparable)
+	if rec.ShapeInsight != nil && rec.ShapeInsight.Finding != "" {
+		fmt.Println("shape_insight:", rec.ShapeInsight.Finding)
+	}
+	for _, cell := range rec.Cells {
+		fmt.Printf("  cell %s status=%s gate=%s", cell.Spec.Key(), cell.Status, cell.Gate.Verdict)
+		if cell.RelativeOverhead != nil {
+			fmt.Printf(" rel=%.3f", *cell.RelativeOverhead)
 		}
-		time.Sleep(2 * time.Millisecond)
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("X-Merc-Upstream-Body-SHA256", sha256Hex(reqBody))
-		// No X-Merc-Contract-ID: self-test must remain non-comparable and must
-		// not satisfy Merc-bound identity proof if re-labeled as PARITY_EVIDENCE.
-		flusher, _ := w.(http.Flusher)
-		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n")
-		if flusher != nil {
-			flusher.Flush()
+		if cell.Reason != "" {
+			fmt.Printf(" reason=%s", cell.Reason)
 		}
-		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n")
-		_, _ = io.WriteString(w, "data: [DONE]\n\n")
-	})}
-	go srv.Serve(l)
-	defer srv.Close()
+		fmt.Println()
+	}
+	if !rec.GatePassed {
+		if rec.RefusalReason != "" {
+			fmt.Fprintln(os.Stderr, "refusal:", rec.RefusalReason)
+		}
+		return 1
+	}
+	return 0
+}
 
-	base := "http://" + l.Addr().String() + "/v1"
+func runGatewayParityStandinSelfTest(out string) int {
+	return runGatewayParityMatrixStandinSelfTest(out)
+}
+
+// runGatewayParityMatrixStandinSelfTest exercises prompt/output/state dimensions
+// against two local stand-ins (merc slower by a fixed delay so shape insight is
+// measurable). Always HARNESS_SELF_TEST — never comparable parity evidence.
+func runGatewayParityMatrixStandinSelfTest(out string) int {
+	var mercHits, directHits atomic.Int64
+
+	// merc stand-in: fixed +5ms delay (simulates constant gateway overhead).
+	// Injects cached_tokens when the body carries the shared-prefix marker so
+	// prefix-hit verification can succeed without assuming a hit.
+	mercLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	directLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+
+	makeHandler := func(hits *atomic.Int64, extraDelay time.Duration) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits.Add(1)
+			reqBody, _ := io.ReadAll(r.Body)
+			// Artificial engine cost scales with request body size so short vs
+			// long shapes are distinguishable. Fixed extraDelay on the merc arm
+			// is the constant "gateway" component under test.
+			engine := time.Duration(len(reqBody)/200) * time.Millisecond
+			if engine < 2*time.Millisecond {
+				engine = 2 * time.Millisecond
+			}
+			if engine > 40*time.Millisecond {
+				engine = 40 * time.Millisecond
+			}
+			time.Sleep(engine + extraDelay)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("X-Merc-Upstream-Body-SHA256", sha256Hex(reqBody))
+			// Deliberately omit X-Merc-Contract-ID so self-test cannot satisfy
+			// PARITY_EVIDENCE identity proof if re-labeled.
+			flusher, _ := w.(http.Flusher)
+			_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
+			// cached_tokens only when shared-prefix marker is present.
+			cached := 0
+			if strings.Contains(string(reqBody), gatewayParitySharedPrefixMarker) {
+				cached = 16
+			}
+			usage := fmt.Sprintf(
+				`{"prompt_tokens":32,"completion_tokens":1,"total_tokens":33,"prompt_tokens_details":{"cached_tokens":%d}}`,
+				cached,
+			)
+			if cached == 0 {
+				usage = `{"prompt_tokens":32,"completion_tokens":1,"total_tokens":33}`
+			}
+			_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":"+usage+"}\n\n")
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		})
+	}
+
+	mercSrv := &http.Server{Handler: makeHandler(&mercHits, 5*time.Millisecond)}
+	directSrv := &http.Server{Handler: makeHandler(&directHits, 0)}
+	go mercSrv.Serve(mercLn)
+	go directSrv.Serve(directLn)
+	defer mercSrv.Close()
+	defer directSrv.Close()
+
+	mercBase := "http://" + mercLn.Addr().String() + "/v1"
+	directBase := "http://" + directLn.Addr().String() + "/v1"
+
 	contract := GatewayParitySamplingContract{
 		Model: "stand-in", Prompt: "self-test", Temperature: 0, TopP: 1.0,
 		MaxTokens: 8, Stream: true, ModelDigest: strings.Repeat("11", 32),
 	}
-	body, err := contract.BuildChatCompletionsBody()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	// Exercise the concurrency machinery, not just c=1. A self-test that only
-	// runs one request at a time never touches the alternating-batch pool, the
-	// in-flight cap, or the peak-in-flight refusal — which is exactly where the
-	// dual-load defect lived.
-	claimed := []int{1, 8, 32}
-	client := NewGatewayParityClient(claimed[len(claimed)-1])
+	selection := SelfTestGatewayParityMatrixSelection()
 	hostStart := CaptureGatewayParityHostLoad()
-	levels := map[string]GatewayParityLevelResult{}
-	for _, c := range claimed {
-		floor := GatewayParitySampleFloor(c)
-		merc, direct := RunGatewayParityInterleavedLevel(
-			context.Background(), client, base, "k", base, "k", body, c, floor+floor/10+2,
-		)
-		levels[fmt.Sprintf("merc@c=%d", c)] = merc
-		levels[fmt.Sprintf("direct@c=%d", c)] = direct
-	}
+	cells := RunGatewayParityMatrix(
+		context.Background(),
+		mercBase, "k", directBase, "k",
+		contract, selection,
+	)
 	hostEnd := CaptureGatewayParityHostLoad()
-	// Self-test: identity must stay unproven (bare-SHA, no Contract-ID).
-	identity := ProveGatewayParityBodyIdentity(body, claimed, levels)
-	if identity.Proven {
-		fmt.Fprintln(os.Stderr, "bug: self-test stand-in satisfied Merc identity proof")
-		return 1
-	}
+
 	topology := GatewayParityNetworkTopology{
 		ClientHost: "local-cli-process", ControlPlane: "none (self-test)",
-		Engine: "local stand-in", ClientToEngine: "loopback",
-		Notes: "HARNESS_SELF_TEST only",
+		Engine: "local dual stand-in (merc=+5ms fixed delay)", ClientToEngine: "loopback",
+		Notes: "HARNESS_SELF_TEST matrix dimensions; NOT parity evidence",
 	}
-	rec := BuildGatewayParityReceipt(
-		contract, topology, client, claimed, levels, identity,
+	rec := BuildGatewayParityMatrixReceipt(
+		contract, topology, selection, cells,
 		DefaultGatewayParityBudget(), hostStart, hostEnd,
 		"HARNESS_SELF_TEST",
 		[]string{
-			"stand-in token timing is artificial",
+			"stand-in token timing is artificial; merc arm adds fixed +5ms",
 			"NOT parity evidence; do not quote as gateway overhead",
 			"stand-in omits X-Merc-Contract-ID; body_identity cannot satisfy PARITY_EVIDENCE",
-			fmt.Sprintf("stand-in hits=%d", hits.Load()),
+			fmt.Sprintf("stand-in hits merc=%d direct=%d", mercHits.Load(), directHits.Load()),
+			fmt.Sprintf("matrix cells=%d selection=%s", len(cells), selection.Rationale),
 		},
 	)
 	if rec.Comparable || rec.GatePassed {
-		fmt.Fprintln(os.Stderr, "bug: self-test receipt is comparable or gate_passed")
+		fmt.Fprintln(os.Stderr, "bug: matrix self-test receipt is comparable or gate_passed")
 		return 1
+	}
+	if len(rec.Cells) == 0 {
+		fmt.Fprintln(os.Stderr, "bug: matrix self-test produced no cells")
+		return 1
+	}
+	// Every state that was selected must appear.
+	seenState := map[string]bool{}
+	for _, c := range rec.Cells {
+		seenState[c.Spec.State] = true
+	}
+	for _, need := range []string{"cold", "warm", "prefix-hit"} {
+		if !seenState[need] {
+			fmt.Fprintf(os.Stderr, "bug: matrix self-test missing state %s\n", need)
+			return 1
+		}
 	}
 
 	raw, err := json.MarshalIndent(rec, "", "  ")
@@ -259,6 +371,21 @@ func runGatewayParityStandinSelfTest(out string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	fmt.Println("wrote", out, "(HARNESS_SELF_TEST)")
+	fmt.Println("wrote", out, "(HARNESS_SELF_TEST matrix)")
+	fmt.Printf("cells=%d gate_passed=%v comparable=%v verdict=%s\n",
+		len(rec.Cells), rec.GatePassed, rec.Comparable, rec.Gate.Verdict)
+	if rec.ShapeInsight != nil && rec.ShapeInsight.Finding != "" {
+		fmt.Println("shape_insight:", rec.ShapeInsight.Finding)
+	}
+	for _, cell := range rec.Cells {
+		fmt.Printf("  cell %s status=%s gate=%s", cell.Spec.Key(), cell.Status, cell.Gate.Verdict)
+		if cell.Reason != "" {
+			fmt.Printf(" reason=%s", cell.Reason)
+		}
+		if cell.RelativeOverhead != nil {
+			fmt.Printf(" rel=%.3f", *cell.RelativeOverhead)
+		}
+		fmt.Println()
+	}
 	return 0
 }
