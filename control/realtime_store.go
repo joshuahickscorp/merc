@@ -44,16 +44,15 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 	if needUSD < 0 {
 		return fmt.Errorf("realtime funding need must be non-negative")
 	}
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
-		"realtime-buyer-funding|"+buyerID.String()); err != nil {
-		return err
-	}
-	var (
-		freeCredit, spent, prepaidDebited, batchReserved, realtimeReserved float64
-		prepaidMicros, envelopeRemainingMicros                             int64
-		hasPaymentMethod                                                   bool
-	)
-	err := tx.QueryRow(ctx, `
+	// One network round-trip for lock + multi-aggregate funding snapshot.
+	// pg_advisory_xact_lock is held until this transaction ends; FOR UPDATE on
+	// the buyer row still serialises non-authorizer writers of that row. The
+	// batch is not a correctness change — only fewer client/server RTs inside
+	// the buyer-serialised window.
+	batch := &pgx.Batch{}
+	batch.Queue(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		"realtime-buyer-funding|"+buyerID.String())
+	batch.Queue(`
 		SELECT b.free_credit_usd::float8,
 		       EXISTS(SELECT 1 FROM billing_customers bc
 		               WHERE bc.buyer_id=b.id AND COALESCE(bc.default_payment_method,'')<>''),
@@ -90,9 +89,19 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		       COALESCE((SELECT SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000)
 		                   FROM execution_envelopes e
 		                  WHERE e.buyer_id=b.id AND e.state='ACTIVE'),0)::bigint
-		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID).
-		Scan(&freeCredit, &hasPaymentMethod, &prepaidMicros, &spent, &prepaidDebited,
-			&batchReserved, &realtimeReserved, &envelopeRemainingMicros)
+		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID)
+	br := tx.SendBatch(ctx, batch)
+	defer br.Close()
+	if _, err := br.Exec(); err != nil {
+		return err
+	}
+	var (
+		freeCredit, spent, prepaidDebited, batchReserved, realtimeReserved float64
+		prepaidMicros, envelopeRemainingMicros                             int64
+		hasPaymentMethod                                                   bool
+	)
+	err := br.QueryRow().Scan(&freeCredit, &hasPaymentMethod, &prepaidMicros, &spent, &prepaidDebited,
+		&batchReserved, &realtimeReserved, &envelopeRemainingMicros)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNotFound
 	}
@@ -680,10 +689,29 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			return RealtimeContract{}, false, err
 		}
 	}
-	// Funding: either spend a pre-authorized envelope (amortized path) or run
-	// the full buyer-funding critical section (legacy per-request path).
-	// Envelope spends are one atomic UPDATE on the envelope row; they do not
-	// take the buyer advisory funding lock and must not double-count as
+	// Funding + capacity + durable reservation are ordered to minimise the
+	// buyer-funding critical section without splitting the transaction.
+	//
+	// PostgreSQL holds row locks from UPDATE until COMMIT, so the offer
+	// capacity decrement and the buyer advisory funding lock both cover
+	// everything that follows them in this transaction. Taking the buyer
+	// funding lock *after* offer selection and PricingDecision construction
+	// keeps that lock's hold set to: funding multi-aggregate check, EXECUTING
+	// insert, RESERVED event, optional envelope bind, and commit. Offer
+	// selection and pricing no longer sit inside the buyer-serialised window.
+	//
+	// Money correctness is unchanged: evaluateRealtimeBuyerFunding still
+	// serialises check-and-reserve through the EXECUTING insert and commit,
+	// so concurrent same-buyer admits cannot each observe reserved=0 and
+	// overspend. Capacity correctness is unchanged: available_sequences>0 in
+	// the UPDATE WHERE clause still makes decrement-and-check atomic; a
+	// later funding failure rolls the whole transaction back and restores
+	// the sequence. Broke-buyer requests that fail funding after claiming a
+	// sequence briefly hold the offer row lock until rollback — authenticated
+	// noise, not a permanent capacity leak.
+	//
+	// Envelope path: spend is one atomic UPDATE on the envelope row; it does
+	// not take the buyer advisory funding lock and must not double-count as
 	// EXECUTING realtimeReserved (see evaluateRealtimeBuyerFunding).
 	var envelopeSpend *ExecutionEnvelopeSpend
 	if auth.EnvelopeID != uuid.Nil {
@@ -743,14 +771,6 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			}
 		}
 		envelopeSpend = &spend
-	} else {
-		// Serialize balance authorization on the buyer row. The execution contract
-		// and RESERVED event are the maximum-cost reservation, so concurrent
-		// requests cannot each spend the same free-credit/prepaid pool. A saved
-		// payment method is a top-up rail only — never admission funding.
-		if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, auth.MaximumPriceUSD); err != nil {
-			return RealtimeContract{}, false, err
-		}
 	}
 
 	var (
@@ -772,22 +792,18 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	// selection.
 	//
 	// This was a SELECT ... FOR UPDATE OF o SKIP LOCKED followed by a separate
-	// UPDATE, which held the offer row locked through both INSERTs and the
-	// COMMIT below.  Because there is one row per (worker, runtime profile),
-	// concurrent authorizations did not queue on that lock -- SKIP LOCKED made
-	// them step over the only candidate row, get pgx.ErrNoRows, and return
-	// errRealtimeNoSupply, which the handler surfaces as HTTP 503 "no
-	// compatible realtime capacity is currently available".  A worker
-	// advertising 128 free sequences would refuse most concurrent requests
-	// while sitting idle: measured at 50 concurrent authorizations against one
-	// offer, 40 succeeded and 10 were told there was no capacity.
+	// UPDATE, which under SKIP LOCKED made contenders step over the only
+	// candidate row and return errRealtimeNoSupply while capacity sat idle.
+	// One UPDATE ... RETURNING makes contending writers block and retry
+	// against the new value. available_sequences > 0 in the WHERE clause is
+	// what makes it safe: decrement and capacity check are one atomic
+	// operation, so the counter cannot go negative under any interleaving.
 	//
-	// Writing it as one UPDATE ... RETURNING serialises only on the row's own
-	// write lock for the duration of that statement, and contending writers
-	// block and retry against the new value instead of skipping the row.
-	// available_sequences > 0 in the WHERE clause is what makes it safe: the
-	// decrement and the capacity check are the same atomic operation, so the
-	// counter cannot go negative under any interleaving.
+	// Note on lock duration: PostgreSQL holds the offer row lock until this
+	// transaction commits or rolls back — not merely for the statement. The
+	// buyer funding advisory lock is deliberately acquired *after* this claim
+	// and the PricingDecision work below, so same-buyer admits no longer
+	// serialise offer ranking and pricing under the funding lock.
 	//
 	// Ranking is verified-outcome cost first (base ask adjusted by measured
 	// failure and refund rates when enough samples exist), then warmth only as
@@ -797,12 +813,9 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	//
 	// Reputation inputs come from realtime_supplier_outcome_stats, maintained
 	// incrementally by triggers when contracts reach VERIFIED/FAILED and when
-	// settlements/refunds are written. The previous per-request full-table
-	// aggregate over execution_contracts scaled with history and dominated
-	// admission latency under concurrency; a covering index did not help
-	// because a single-profile deployment selects every row. Reads are a PK
-	// lookup. Money (buyer charge / supplier payable) still comes only from
-	// the selected offer rates and PricingDecision — never from these counters.
+	// settlements/refunds are written. Money (buyer charge / supplier payable)
+	// still comes only from the selected offer rates and PricingDecision —
+	// never from these counters.
 	err = tx.QueryRow(ctx, realtimeAuthorizeSelectOfferSQL,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
 		auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens,
@@ -878,8 +891,21 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		return RealtimeContract{}, false, errors.New("realtime PricingDecision does not match legacy reserve projection")
 	}
 
+	// Buyer-funding critical section (legacy per-request path only). Envelope
+	// admits already held money at create time. A saved payment method is a
+	// top-up rail only — never admission funding.
+	if envelopeSpend == nil {
+		if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, auth.MaximumPriceUSD); err != nil {
+			return RealtimeContract{}, false, err
+		}
+	}
+
 	contractID := uuid.New()
-	_, err = tx.Exec(ctx, `
+	// Batch contract + RESERVED event (and optional envelope bind) into one
+	// client/server round-trip so the buyer-funding lock is not held across
+	// three sequential network waits after the check passes.
+	reserveBatch := &pgx.Batch{}
+	reserveBatch.Queue(`
 		INSERT INTO execution_contracts
 		 (id,request_id,buyer_id,workload_type,route,model_alias,runtime_profile_id,
 		  runtime_profile_sha256,input_commitment,request_sha256,
@@ -904,18 +930,38 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		SettlementCurrencyCode(), auth.MaximumPromptTokens, auth.MaximumCompletionTokens,
 		auth.EstimatedPromptTokens, auth.EstimatedCompletionTokens,
 		pricing.Realtime.BuyerDeclaredCeilingNanos, pricingJSON, pricingSHA256, marketJSON)
-	if err != nil {
+	reserveBatch.Queue(`
+		INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
+		VALUES ($1,'RESERVED',$2)`, contractID, auth.MaximumPriceUSD)
+	if envelopeSpend != nil {
+		reserveBatch.Queue(`
+			UPDATE execution_envelope_spends
+			   SET contract_id=$2
+			 WHERE id=$1 AND state='RESERVED' AND contract_id IS NULL`,
+			envelopeSpend.ID, contractID)
+	}
+	reserveBR := tx.SendBatch(ctx, reserveBatch)
+	if _, err = reserveBR.Exec(); err != nil {
+		_ = reserveBR.Close()
 		return RealtimeContract{}, false, err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
-		VALUES ($1,'RESERVED',$2)`, contractID, auth.MaximumPriceUSD); err != nil {
+	if _, err = reserveBR.Exec(); err != nil {
+		_ = reserveBR.Close()
 		return RealtimeContract{}, false, err
 	}
 	if envelopeSpend != nil {
-		if err := bindEnvelopeSpendContractTx(ctx, tx, envelopeSpend.ID, contractID); err != nil {
-			return RealtimeContract{}, false, err
+		ct, berr := reserveBR.Exec()
+		if berr != nil {
+			_ = reserveBR.Close()
+			return RealtimeContract{}, false, berr
 		}
+		if ct.RowsAffected() != 1 {
+			_ = reserveBR.Close()
+			return RealtimeContract{}, false, errors.New("envelope spend could not bind contract")
+		}
+	}
+	if err = reserveBR.Close(); err != nil {
+		return RealtimeContract{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return RealtimeContract{}, false, err
