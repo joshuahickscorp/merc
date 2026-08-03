@@ -14,8 +14,9 @@ import (
 // no hardware to run on. RunPod supply reverses that premise, so the CUDA
 // classes below are admitted and the lane is buildable again.
 //
-// Each class must also appear in sustainedWattsByHWClass, or supplier viability
-// silently falls back to a default wattage and the economics report lies.
+// Each class must also appear in sustainedWattsByHWClass with MEASURED or
+// ASSUMED provenance, or supplier viability silently falls back to a default
+// wattage and the economics report lies.
 var validHWClasses = map[string]bool{
 	"apple_silicon_base": true, "apple_silicon_pro": true,
 	"apple_silicon_max": true, "apple_silicon_ultra": true,
