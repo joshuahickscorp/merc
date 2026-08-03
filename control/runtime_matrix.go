@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -73,27 +74,71 @@ func validateAdvertisedRuntimeJobModel(jobType, modelRef string) error {
 
 func generatedRuntimeModelRef(jobType, modelRef string) ModelRef {
 	ref := ModelRef{Ref: modelRef}
-	for _, cap := range advertisedRuntimeCapabilities() {
-		if cap.Job == jobType && cap.Model == modelRef {
-			ref.Kind = cap.ModelKind
-			return ref
-		}
+	// Prefer a deterministic kind when exactly one is advertised. When several
+	// cells serve the same model under different wire kinds, leave Kind empty so
+	// callers do not treat the first advertised cell as the only addressable one.
+	kinds := advertisedRuntimeModelKinds(jobType, modelRef)
+	if len(kinds) == 1 {
+		ref.Kind = kinds[0]
 	}
 	return ref
+}
+
+// advertisedRuntimeModelKinds is the set of artifact formats advertised cells
+// actually load for a (job, model). Format belongs to the (runtime, model) pair,
+// not to the model alone — candle may serve MiniLM as hf while llama.cpp serves
+// the same logical model as gguf.
+func advertisedRuntimeModelKinds(jobType, modelRef string) []string {
+	if jobType == "" || modelRef == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var kinds []string
+	for _, cap := range advertisedRuntimeCapabilities() {
+		if cap.Job != jobType || cap.Model != modelRef || cap.ModelKind == "" {
+			continue
+		}
+		if seen[cap.ModelKind] {
+			continue
+		}
+		seen[cap.ModelKind] = true
+		kinds = append(kinds, cap.ModelKind)
+	}
+	sort.Strings(kinds)
+	return kinds
 }
 
 func normalizeAdvertisedRuntimeModelRef(jobType string, submitted ModelRef) (ModelRef, error) {
 	if err := validateAdvertisedRuntimeJobModel(jobType, submitted.Ref); err != nil {
 		return ModelRef{}, err
 	}
-	canonical := generatedRuntimeModelRef(jobType, submitted.Ref)
-	if submitted.Kind != "" && submitted.Kind != canonical.Kind {
+	allowed := advertisedRuntimeModelKinds(jobType, submitted.Ref)
+	if len(allowed) == 0 {
+		// The job/model pair is advertised but no cell declared a wire kind —
+		// refuse rather than invent one.
 		return ModelRef{}, fmt.Errorf(
-			"runtime matrix requires model.kind=%q for job_type=%q model=%q; got %q",
-			canonical.Kind, jobType, submitted.Ref, submitted.Kind,
+			"runtime matrix advertises job_type=%q model=%q with no wire kind",
+			jobType, submitted.Ref,
 		)
 	}
-	return canonical, nil
+	if submitted.Kind == "" {
+		// Single-kind catalogue: fill the kind so existing callers keep a
+		// concrete binding. Multi-kind: leave empty so admission can rank across
+		// cells rather than silently collapsing to the first advertised kind.
+		if len(allowed) == 1 {
+			return ModelRef{Kind: allowed[0], Ref: submitted.Ref}, nil
+		}
+		return ModelRef{Ref: submitted.Ref}, nil
+	}
+	for _, kind := range allowed {
+		if kind == submitted.Kind {
+			return ModelRef{Kind: submitted.Kind, Ref: submitted.Ref}, nil
+		}
+	}
+	return ModelRef{}, fmt.Errorf(
+		"runtime matrix has no advertised cell serving model.kind=%q for job_type=%q model=%q (allowed: %s)",
+		submitted.Kind, jobType, submitted.Ref, strings.Join(allowed, ", "),
+	)
 }
 
 func projectWorkerRuntimeCapabilities(cap WorkerCapability) ([]generatedRuntimeCapability, error) {

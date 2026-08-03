@@ -504,6 +504,27 @@ var productionReachability = []reachabilityClaim{
 			"or leaving a bad cell routable after a measured failure.",
 	},
 	{
+		From:   "Server.handleAdminSelectorActivation",
+		Target: "Store.ApplyActivationPolicy",
+		Consequence: "operators could evaluate a promotion and roll one back, but could not apply a " +
+			"reviewed activation-policy write through a production entry point — leaving promotion " +
+			"as a store-test-only or manual-database action after the gate receipt exists.",
+	},
+	{
+		From:   "Server.handleAdminDirectedJob",
+		Target: "buildWorkloadDecisionDirected",
+		Consequence: "directed routing would remain test-only, so a non-routable challenger cell " +
+			"could never accumulate primary-task samples through the money path, and " +
+			"regret.ScoredDecisions would stay structurally pinned at zero for every challenger.",
+	},
+	{
+		From:   "Server.handleAdminDirectedJob",
+		Target: "Server.createJob",
+		Consequence: "the directed entry point would freeze a cell without submitting through the " +
+			"ordinary money path, so challenger executions would not produce the paid primary " +
+			"tasks promotion and regret measurement require.",
+	},
+	{
 		From:   "Server.createJob",
 		Target: "Store.SubmitJobTx",
 		Consequence: "job submission stops persisting anything. Included as a control: if " +
@@ -564,9 +585,8 @@ var knownUnwired = map[string]string{
 	"TokenBudgetFor": "the two-way INTERACTIVE/BATCH token budget. Production packing " +
 		"uses PolicyForTrafficClass via ArrivalBatcher; this helper is kept for the " +
 		"batch_policy tests and is not itself a production entry point.",
-	"buildWorkloadDecisionDirected": "directed routing. Real and reachable only from " +
-		"tests; there is no operator entry point, so every second-runtime chain " +
-		"proof submits a test-constructed job row rather than going through the API.",
+	// buildWorkloadDecisionDirected is production via handleAdminDirectedJob →
+	// createJob → buildWorkloadDecisionForSubmit. It is deliberately absent here.
 	"TokenAccounting.ReuseRatio": "the guard against reporting reuse as a speed " +
 		"multiple, with no production caller. Its own comment says it is 'a cost " +
 		"ratio, never a speed multiple' — but nothing computes it on a live " +

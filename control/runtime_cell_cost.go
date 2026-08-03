@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -9,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Measured per-cell execution cost, and the regret of the cell admission chose.
@@ -508,6 +513,132 @@ func (s *Server) handleAdminSelectorPromotion(w http.ResponseWriter, r *http.Req
 type selectorRollbackRequest struct {
 	TargetPolicyRevision int64  `json:"target_policy_revision"`
 	Note                 string `json:"note"`
+}
+
+// selectorActivationRequest applies a reviewed activation-policy write. The
+// entries are the same shape ApplyActivationPolicy already validates: capability
+// digests, lifecycle rules, and the promotion-gate receipt for routable states.
+// This route is the production caller that was missing beside rollback.
+type selectorActivationRequest struct {
+	Entries []ActivationPolicyEntry `json:"entries"`
+	Note    string                  `json:"note"`
+}
+
+// handleAdminSelectorActivation is the production caller for
+// Store.ApplyActivationPolicy. Evaluation (GET promotion) remains separate and
+// never writes policy; this route is the governed apply step after review.
+func (s *Server) handleAdminSelectorActivation(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeErr(w, http.StatusInternalServerError, "selector activation unavailable")
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "reading selector activation request: "+err.Error())
+		return
+	}
+	if len(raw) > 64<<10 {
+		writeErr(w, http.StatusRequestEntityTooLarge, "selector activation request exceeds 65536 bytes")
+		return
+	}
+	var request selectorActivationRequest
+	if err := decodeStrictJSONObject(raw, &request); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid selector activation json: "+err.Error())
+		return
+	}
+	request.Note = strings.TrimSpace(request.Note)
+	if len(request.Entries) == 0 {
+		writeErr(w, http.StatusBadRequest, "entries must name at least one activation policy statement")
+		return
+	}
+	if request.Note == "" || len(request.Note) > 512 || strings.ContainsAny(request.Note, "\r\n\t") {
+		writeErr(w, http.StatusBadRequest, "note must be a non-empty single-line value no longer than 512 bytes")
+		return
+	}
+	revision, err := s.store.ApplyActivationPolicy(r.Context(), request.Entries, request.Note)
+	if err != nil {
+		writeErr(w, http.StatusConflict, "selector activation refused: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"activation_applied": true,
+		"policy_revision":    revision,
+	})
+}
+
+// adminDirectedJobRequest submits a job onto a named directed cell. The cell id
+// is never taken from the nested job body: a buyer cannot reach this route, and
+// the operator argument stays outside the buyer's request shape.
+type adminDirectedJobRequest struct {
+	BuyerID        string    `json:"buyer_id"`
+	DirectedCellID string    `json:"directed_cell_id"`
+	IdempotencyKey string    `json:"idempotency_key"`
+	Job            jobSubmit `json:"job"`
+}
+
+// handleAdminDirectedJob is the production entry point for directed routing.
+// It freezes the named cell via buildWorkloadDecisionDirected and submits
+// through the ordinary money path so challenger cells can accumulate the
+// primary-task samples promotion requires.
+func (s *Server) handleAdminDirectedJob(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeErr(w, http.StatusInternalServerError, "directed job submission unavailable")
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxJobSubmitBodyBytes+1))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "reading directed job request: "+err.Error())
+		return
+	}
+	if len(raw) > maxJobSubmitBodyBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("directed job request exceeds the %d byte submission limit", maxJobSubmitBodyBytes))
+		return
+	}
+	var request adminDirectedJobRequest
+	if err := decodeStrictJSONObject(raw, &request); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid directed job json: "+err.Error())
+		return
+	}
+	request.DirectedCellID = strings.TrimSpace(request.DirectedCellID)
+	if request.DirectedCellID == "" {
+		writeErr(w, http.StatusBadRequest, "directed_cell_id is required")
+		return
+	}
+	buyerID, err := uuid.Parse(strings.TrimSpace(request.BuyerID))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "buyer_id must be a UUID")
+		return
+	}
+	idempotencyKey := strings.TrimSpace(request.IdempotencyKey)
+	if !idempotencyKeyPattern.MatchString(idempotencyKey) {
+		writeErr(w, http.StatusBadRequest, "idempotency_key is required and must be 8-128 characters using letters, digits, '.', '_', ':', or '-'")
+		return
+	}
+	// Digest the nested job the way buyer submit digests its body, so idempotent
+	// replays of the same directed request collide correctly with each other.
+	jobBlob, err := json.Marshal(request.Job)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "encoding directed job body")
+		return
+	}
+	digest := sha256.Sum256(jobBlob)
+	sub := request.Job
+	sub.IdempotencyKey = idempotencyKey
+	sub.RequestSHA256 = hex.EncodeToString(digest[:])
+	sub.directedCellID = request.DirectedCellID
+	resp, herr := s.createJob(r.Context(), buyerID, sub)
+	if herr != nil {
+		writeErr(w, herr.status, herr.msg)
+		return
+	}
+	if resp.WebhookSecret != "" {
+		setSecretResponseHeaders(w)
+	}
+	if resp.IdempotentReplay {
+		w.Header().Set("Idempotent-Replayed", "true")
+	}
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 // handleAdminSelectorRollback is the production caller for the existing
