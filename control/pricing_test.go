@@ -237,25 +237,34 @@ func TestBuyerSettlementPriceAndWorkerUSDFloorStayDistinct(t *testing.T) {
 func TestCostFloorExceedsMarketBoard(t *testing.T) {
 	// Document the economic finding: laptop cost-plus at $2/hr cannot meet
 	// observed hyperscaler list prices for these model classes.
+	//
+	// Media rows (ffmpeg, svg) are intentionally unpriced until their
+	// throughput citations bind, so they no longer appear in this comparison.
 	gaps := CompareCostFloorToMarketBoard(0.97)
 	if len(gaps) == 0 {
 		t.Fatal("expected cost/market comparison rows")
 	}
 	for _, g := range gaps {
-		// Media transcode is a measured positive-contribution lane: public
-		// hyperscaler prices are above this fixed-contract laptop floor. The
-		// historical assertion below applies to the embedding/inference lanes,
-		// where the board finding is the opposite and must remain mutation-pinned.
 		if g.ModelID == "ffmpeg-transcode-v1" || g.ModelID == "svg-scene-render-v1" {
-			if g.GapRatio <= 0 {
-				t.Fatalf("%s: expected a positive market contribution gap (gap_ratio=%v cost=%v market=%v)",
-					g.ModelID, g.GapRatio, g.CostPlusPer1K, g.MarketBoardPer1K)
-			}
-			continue
+			t.Fatalf("%s must not contribute a market gap while its citation is unbindable",
+				g.ModelID)
 		}
 		if g.GapRatio <= 1 {
 			t.Fatalf("%s: expected cost-plus floor above market board (gap_ratio=%v cost=%v market=%v)",
 				g.ModelID, g.GapRatio, g.CostPlusPer1K, g.MarketBoardPer1K)
+		}
+	}
+}
+
+func TestPublishedCatalogueRefusesUnbindableMediaModels(t *testing.T) {
+	pinBoardClockForPublication(t)
+	results := PublishedCatalogueResults()
+	if len(results) == 0 {
+		t.Fatal("expected the bindable board-mapped models to still publish")
+	}
+	for _, r := range results {
+		if r.ModelID == "ffmpeg-transcode-v1" || r.ModelID == "svg-scene-render-v1" {
+			t.Fatalf("published catalogue still prices %s from an unbindable citation", r.ModelID)
 		}
 	}
 }

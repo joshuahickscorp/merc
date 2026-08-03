@@ -25,6 +25,19 @@ type measuredThroughput struct {
 	SourceCitation string
 }
 
+// repricingBenchmarks is the closed set of throughput rows that may set a
+// buyer-facing catalogue price. Every entry must pass
+// validateRepricingBenchmarkCitation at schedule construction: the citation
+// must resolve, and the artifact must be bindable for pricing. A row that
+// cites an unbindable artifact is refused rather than published.
+//
+// Media rows (ffmpeg-transcode-v1, svg-scene-render-v1) were removed from this
+// set because their cited receipts cannot bind: the ffmpeg receipt names
+// merc_source_commit "working-tree-before-media-authority" (not a git object),
+// and the rendering receipt has no source commit at all. Cell routability was
+// already quarantined for the same reason (fdc8eec1); catalogue pricing now
+// refuses them until a bindable re-measure exists. See
+// unpricedThroughputUntilBound.
 var repricingBenchmarks = []measuredThroughput{
 	{
 		ModelID:        "all-minilm-l6-v2",
@@ -40,6 +53,15 @@ var repricingBenchmarks = []measuredThroughput{
 		HWClass:        "apple_silicon_pro",
 		SourceCitation: "evidence/benchmarks/2026-07-01-m3-pro.json#batch_infer",
 	},
+}
+
+// unpricedThroughputUntilBound holds measured (model, job type) pairs that still
+// have throughput receipts in-tree but must not set a buyer price until the
+// cited artifact binds. They are deliberately not in repricingBenchmarks so
+// BuildCataloguePriceSchedule cannot publish them. Prefer a local re-measure
+// with a real merc_source_commit over inventing identity; until then refusal
+// is the honest state, not a soft skip.
+var unpricedThroughputUntilBound = []measuredThroughput{
 	{
 		ModelID:        "ffmpeg-transcode-v1",
 		JobType:        "media_transcode",
@@ -56,19 +78,141 @@ var repricingBenchmarks = []measuredThroughput{
 	},
 }
 
-var sustainedWattsByHWClass = map[string]float64{
-	"apple_silicon_base":  20.0,
-	"apple_silicon_pro":   30.0,
-	"apple_silicon_max":   45.0,
-	"apple_silicon_ultra": 65.0,
-	// CUDA sustained draw under inference load, board power. These are an order
-	// of magnitude above Apple Silicon, which is what makes the supplier
-	// break-even arithmetic completely different on CUDA supply.
-	"nvidia_24gb":  350.0,
-	"nvidia_48gb":  300.0,
-	"nvidia_80gb":  400.0,
-	"nvidia_180gb": 1000.0,
-	"cpu":          25.0,
+// wattAuthorityKind is whether a sustained-power figure is MEASURED from a
+// receipt or ASSUMED by a named author with a stated reason. An assumption
+// honestly labelled is acceptable; an assumption presented as physics is not.
+type wattAuthorityKind string
+
+const (
+	wattKindMeasured wattAuthorityKind = "MEASURED"
+	wattKindAssumed  wattAuthorityKind = "ASSUMED"
+)
+
+// governedSustainedWatts is one hardware class's sustained whole-package draw
+// under inference-shaped load. Fields are unexported so a bare float cannot be
+// inserted into the table: construction goes through wattsMeasured / wattsAssumed,
+// both of which require non-empty provenance. Startup rejects any entry that
+// somehow lacks kind or provenance.
+type governedSustainedWatts struct {
+	watts      float64
+	kind       wattAuthorityKind
+	provenance string
+}
+
+// Watts is the sustained draw in watts used by contribution margins and the
+// diagnostic cost floor.
+func (g governedSustainedWatts) Watts() float64 { return g.watts }
+
+// Kind is MEASURED or ASSUMED.
+func (g governedSustainedWatts) Kind() wattAuthorityKind { return g.kind }
+
+// Provenance names the receipt (MEASURED) or who assumed the figure and why
+// (ASSUMED). Required for every entry.
+func (g governedSustainedWatts) Provenance() string { return g.provenance }
+
+// wattsMeasured constructs a MEASURED sustained-power figure. provenance must
+// name the receipt that measured it. Panics on empty inputs so an unlabelled
+// constant cannot be added at the call site.
+func wattsMeasured(watts float64, provenance string) governedSustainedWatts {
+	provenance = strings.TrimSpace(provenance)
+	if watts <= 0 || provenance == "" {
+		panic("wattsMeasured requires positive watts and non-empty provenance naming the receipt")
+	}
+	return governedSustainedWatts{watts: watts, kind: wattKindMeasured, provenance: provenance}
+}
+
+// wattsAssumed constructs an ASSUMED sustained-power figure. provenance must
+// name who assumed it and why. Panics on empty inputs so an unlabelled constant
+// cannot be added at the call site. CUDA classes on hosts without NVIDIA
+// hardware must use this path — fabricating MEASURED would be the failure the
+// directive is trying to prevent.
+func wattsAssumed(watts float64, provenance string) governedSustainedWatts {
+	provenance = strings.TrimSpace(provenance)
+	if watts <= 0 || provenance == "" {
+		panic("wattsAssumed requires positive watts and non-empty provenance naming who assumed it and why")
+	}
+	return governedSustainedWatts{watts: watts, kind: wattKindAssumed, provenance: provenance}
+}
+
+// sustainedWattsByHWClass is the closed power table for contribution margins
+// and supplier-viability arithmetic. Every admitted hardware class must appear
+// here with MEASURED or ASSUMED provenance; validateSustainedWattsTable panics
+// at init if any entry is incomplete or any admitted class is missing.
+//
+// None of these values are currently MEASURED against a bound receipt. They
+// remain ASSUMED until a host-side power receipt exists. In particular
+// apple_silicon_ultra's 65 W whole-package assumption understates GPU-alone
+// prefill-shaped draw observed on this host (~131.69 W); that observation is
+// not yet a bound MEASURED receipt, so the constant stays ASSUMED and the
+// understatement is named in provenance rather than silently "corrected".
+// CUDA figures are board-power order-of-magnitude assumptions only — there is
+// no NVIDIA device on this host to measure.
+var sustainedWattsByHWClass = map[string]governedSustainedWatts{
+	"apple_silicon_base": wattsAssumed(20.0,
+		"ASSUMED by control/pricing.go: whole-package sustained draw for apple_silicon_base under inference-shaped load; no bound host power receipt"),
+	"apple_silicon_pro": wattsAssumed(30.0,
+		"ASSUMED by control/pricing.go: whole-package sustained draw for apple_silicon_pro under inference-shaped load; no bound host power receipt"),
+	"apple_silicon_max": wattsAssumed(45.0,
+		"ASSUMED by control/pricing.go: whole-package sustained draw for apple_silicon_max under inference-shaped load; no bound host power receipt"),
+	"apple_silicon_ultra": wattsAssumed(65.0,
+		"ASSUMED by control/pricing.go: whole-package sustained draw for apple_silicon_ultra under inference-shaped load. "+
+			"GPU-alone prefill-shaped work on this host was observed near 131.69 W (more than twice this constant) "+
+			"but is not a bound MEASURED receipt; the constant remains ASSUMED and known understated until remeasured"),
+	// CUDA: board-power order of magnitude under inference. Not measured here.
+	"nvidia_24gb": wattsAssumed(350.0,
+		"ASSUMED by control/pricing.go: ~350 W board-power class for 24GB CUDA cards under inference; no NVIDIA device on this host to measure"),
+	"nvidia_48gb": wattsAssumed(300.0,
+		"ASSUMED by control/pricing.go: ~300 W board-power class for 48GB CUDA cards under inference; no NVIDIA device on this host to measure"),
+	"nvidia_80gb": wattsAssumed(400.0,
+		"ASSUMED by control/pricing.go: ~400 W board-power class for 80GB CUDA cards under inference; no NVIDIA device on this host to measure"),
+	"nvidia_180gb": wattsAssumed(1000.0,
+		"ASSUMED by control/pricing.go: ~1000 W board-power class for 180GB multi-GPU / H-class nodes under inference; no NVIDIA device on this host to measure"),
+	"cpu": wattsAssumed(25.0,
+		"ASSUMED by control/pricing.go: ~25 W sustained for a CPU-only worker class; not an admitted registration class and not measured"),
+}
+
+// validateSustainedWattsTable is the startup gate that makes an unlabelled watt
+// constant impossible: every map entry must carry positive watts, a known kind,
+// and non-empty provenance, and every admitted hardware class must have an
+// entry. Called from init.
+func validateSustainedWattsTable() error {
+	for class, entry := range sustainedWattsByHWClass {
+		if entry.Watts() <= 0 {
+			return fmt.Errorf("sustainedWattsByHWClass[%q]: watts must be positive, got %v", class, entry.Watts())
+		}
+		switch entry.Kind() {
+		case wattKindMeasured, wattKindAssumed:
+		default:
+			return fmt.Errorf("sustainedWattsByHWClass[%q]: Kind must be MEASURED or ASSUMED, got %q",
+				class, entry.Kind())
+		}
+		if strings.TrimSpace(entry.Provenance()) == "" {
+			return fmt.Errorf("sustainedWattsByHWClass[%q]: Provenance is required (uncited watt constants are not production truth)",
+				class)
+		}
+	}
+	for class := range validHWClasses {
+		if _, ok := sustainedWattsByHWClass[class]; !ok {
+			return fmt.Errorf("admitted hardware class %q has no sustainedWattsByHWClass entry", class)
+		}
+	}
+	return nil
+}
+
+// sustainedWattsForClass returns the sustained draw for a hardware class, or a
+// conservative apple_silicon_pro-equivalent default when the class is unknown.
+// Callers that care about provenance must look the entry up themselves.
+func sustainedWattsForClass(hwClass string) float64 {
+	if entry, ok := sustainedWattsByHWClass[hwClass]; ok && entry.Watts() > 0 {
+		return entry.Watts()
+	}
+	return 30.0
+}
+
+func init() {
+	if err := validateSustainedWattsTable(); err != nil {
+		panic("sustainedWattsByHWClass: " + err.Error())
+	}
 }
 
 const defaultElectricityUSDPerKWh = 0.15
@@ -125,10 +269,7 @@ type CataloguePriceSchedule struct {
 // for unit tests and the market-gap report. It cannot publish or derive a live
 // catalogue price; BuildCataloguePriceSchedule is the sole price authority.
 func diagnosticCostFloorFromSupplierEconomics(b measuredThroughput, supplierShare, electricityUSDPerKWh float64) RepriceResult {
-	watts := sustainedWattsByHWClass[b.HWClass]
-	if watts <= 0 {
-		watts = 30.0 // conservative apple_silicon_pro-equivalent default, never zero
-	}
+	watts := sustainedWattsForClass(b.HWClass)
 	electricityUSDHr := watts / 1000.0 * electricityUSDPerKWh
 	unitsPerHr := b.UnitsPerSec * 3600.0
 
@@ -450,7 +591,14 @@ func validateCataloguePriceSchedule(schedule CataloguePriceSchedule) error {
 // the entire schedule; boot never applies a profitable subset and leaves the
 // rest on stale terms. Each result receives its own reviewed physical-workload
 // share; there is intentionally no process-wide take-rate input.
+//
+// Every repricingBenchmark citation is re-validated here so a price row that
+// cites an unbindable artifact cannot reach buyers even if a future edit
+// bypasses the unit test.
 func BuildCataloguePriceSchedule() (CataloguePriceSchedule, error) {
+	if err := validateAllRepricingBenchmarkCitations(); err != nil {
+		return CataloguePriceSchedule{}, err
+	}
 	loaded, err := loadPriceBoard()
 	if err != nil {
 		return CataloguePriceSchedule{}, err
@@ -619,10 +767,7 @@ func SupplierViabilityReport() []SupplierViabilityAtMarket {
 		if err != nil {
 			continue
 		}
-		watts := sustainedWattsByHWClass[b.HWClass]
-		if watts <= 0 {
-			watts = 30.0
-		}
+		watts := sustainedWattsForClass(b.HWClass)
 		elec := watts / 1000.0 * defaultElectricityUSDPerKWh
 		unitsPerHr := b.UnitsPerSec * 3600.0
 		gross := unitsPerHr / 1000.0 * mkt.PricePer1K * supplierShare
