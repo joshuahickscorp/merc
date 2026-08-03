@@ -574,6 +574,17 @@ func reservePrepaidForServiceLeaseTx(ctx context.Context, tx pgx.Tx, buyerID uui
 // terminal because its continuous settlement path has no per-task debit yet.
 // Terminal jobs and terminal leases release unused reserve by simply leaving
 // this query.
+//
+// Execution envelopes contribute two mutually exclusive terms. An ACTIVE
+// envelope holds (cap - spent). Envelope-funded EXECUTING contracts are
+// excluded from a second hold while that envelope is ACTIVE, matching
+// evaluateRealtimeBuyerFunding: counting both would double-hold. The moment
+// ReleaseExpiredExecutionEnvelopes flips the envelope off ACTIVE, the first
+// term drops to zero — so the second term must pick up any still-RESERVED
+// spend bound to a live EXECUTING contract. Without that fallback an admin
+// prepaid refund of "available" can drain the cash still backing in-flight
+// work, and settlement then fails to debit. The amount is ceil(reserved_nanos
+// / 1000) from execution_envelope_spends — integer micros, no float path.
 func prepaidOpenReservationMicros(ctx context.Context, db ledgerExec, buyerID uuid.UUID) (int64, error) {
 	var reserved int64
 	err := db.QueryRow(ctx, `
@@ -602,6 +613,21 @@ func prepaidOpenReservationMicros(ctx context.Context, db ledgerExec, buyerID uu
 		  SELECT COALESCE(SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000),0)::bigint
 		    FROM execution_envelopes e
 		   WHERE e.buyer_id=$1 AND e.state='ACTIVE'
+		) + (
+		  -- Sibling of evaluateRealtimeBuyerFunding's realtimeReserved fallback:
+		  -- EXECUTING contracts whose envelope is not ACTIVE are no longer
+		  -- covered by the ACTIVE-envelope term above. Hold their still-open
+		  -- envelope spend in integer micros so refund/admission cannot treat
+		  -- that cash as free while the supplier is still working.
+		  SELECT COALESCE(SUM(((s.reserved_nanos + 999) / 1000)),0)::bigint
+		    FROM execution_contracts c
+		    JOIN execution_envelope_spends s ON s.contract_id = c.id
+		   WHERE c.buyer_id=$1 AND c.state='EXECUTING' AND s.state='RESERVED'
+		     AND NOT EXISTS (
+		       SELECT 1 FROM execution_envelope_spends s2
+		         JOIN execution_envelopes e ON e.id = s2.envelope_id
+		        WHERE s2.contract_id=c.id AND e.state='ACTIVE'
+		     )
 		)`, buyerID).Scan(&reserved)
 	return reserved, err
 }
