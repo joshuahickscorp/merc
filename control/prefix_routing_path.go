@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 )
@@ -86,11 +87,16 @@ func (s *Store) LoadJobPrefixChain(ctx context.Context, jobID uuid.UUID) ([]Pref
 // markWorkerWarmForJob records every chain node this worker materialised by
 // serving jobID. Failures are returned to the caller so a best-effort path
 // can log and continue: warmth is advisory and must never fail a commit.
+//
+// When the most recent complete on this job frozen a runtime_cell_id onto a
+// task for this worker, that cell is attributed on the belief row (see
+// MarkPrefixChainWarmOnCell). Absence of a cell is not an error.
 func (s *Store) markWorkerWarmForJob(ctx context.Context, workerID, jobID uuid.UUID) error {
 	chain, err := s.LoadJobPrefixChain(ctx, jobID)
 	if err != nil {
 		return fmt.Errorf("loading prefix chain for job %s: %w", jobID, err)
 	}
+	cellID := s.latestTaskCellForWorkerJob(ctx, workerID, jobID)
 	if len(chain) == 0 {
 		// Legacy path: a job may carry only the shallow jobs.prefix_id
 		// without a trie chain. Still record that single node if present.
@@ -101,9 +107,63 @@ func (s *Store) markWorkerWarmForJob(ctx context.Context, workerID, jobID uuid.U
 			return err
 		}
 		if prefixID != nil && *prefixID != "" {
-			return s.MarkPrefixWarm(ctx, workerID, *prefixID)
+			if err := s.MarkPrefixWarm(ctx, workerID, *prefixID); err != nil {
+				return err
+			}
+			if cellID != "" {
+				_, _ = s.pool.Exec(ctx, `
+					UPDATE worker_prefix_state SET cell_id = $3
+					 WHERE worker_id = $1 AND prefix_id = $2`,
+					workerID, *prefixID, cellID)
+			}
+			return nil
 		}
 		return nil
 	}
-	return s.MarkPrefixChainWarm(ctx, workerID, chain)
+	return s.MarkPrefixChainWarmOnCell(ctx, workerID, cellID, chain)
+}
+
+// latestTaskCellForWorkerJob returns the runtime_cell_id frozen onto the most
+// recent task of jobID that this worker executed, or "" when unknown.
+func (s *Store) latestTaskCellForWorkerJob(ctx context.Context, workerID, jobID uuid.UUID) string {
+	var cell string
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(runtime_cell_id, '')
+		  FROM tasks
+		 WHERE job_id = $1
+		   AND (execution_worker_id = $2 OR worker_id = $2)
+		   AND COALESCE(runtime_cell_id, '') <> ''
+		 ORDER BY COALESCE(completed_at, claimed_at, created_at) DESC NULLS LAST
+		 LIMIT 1`, jobID, workerID).Scan(&cell)
+	if err != nil {
+		return ""
+	}
+	return cell
+}
+
+// observeAndMarkPrefixForCommit applies engine-reported cache observation
+// (when present) then records post-serve warmth. Order is load-bearing:
+//
+//  1. Correct against the *pre-serve* belief so a stale warm entry is dropped
+//     before concurrent claimants re-read it.
+//  2. Mark warm from this serve so the next request sees the materialisation
+//     that just happened (even when the prior belief was wrong).
+//
+// Observation is optional: agents and engines that do not report
+// cached_prompt_tokens leave the index on TTL + eviction only.
+func (s *Store) observeAndMarkPrefixForCommit(ctx context.Context, workerID, jobID uuid.UUID, cached *uint64) {
+	if cached != nil {
+		if _, err := s.CorrectPrefixBeliefFromObservation(ctx, workerID, jobID, true, int64(*cached)); err != nil {
+			log.Printf("prefix observation: worker %s job %s: %v", workerID, jobID, err)
+		}
+	} else {
+		// Explicit no-signal accounting so the measurement arm can separate
+		// "engine silent" from "engine said miss".
+		if _, err := s.CorrectPrefixBeliefFromObservation(ctx, workerID, jobID, false, 0); err != nil {
+			log.Printf("prefix observation (no signal): worker %s job %s: %v", workerID, jobID, err)
+		}
+	}
+	if err := s.markWorkerWarmForJob(ctx, workerID, jobID); err != nil {
+		log.Printf("prefix warmth: worker %s job %s: %v", workerID, jobID, err)
+	}
 }
