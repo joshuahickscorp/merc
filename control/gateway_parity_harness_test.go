@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -657,35 +658,12 @@ func TestGatewayParityHarnessSelfTestReceipt(t *testing.T) {
 		t.Fatalf("raw samples missing: merc=%d", len(merc.RawSamples))
 	}
 
-	// Write the receipt next to the invalidated one so a reader can see both.
-	// Bound write path: incomplete identity is refused rather than logged.
-	outDir := filepath.Join("..", "evidence", "perf")
-	outPath := filepath.Join(outDir, "gateway-parity-v2-selftest.json")
+	// Round-trip: a skeptic must re-derive percentiles from raw samples.
+	// Marshal once so the in-memory check does not depend on a disk write.
 	raw, err := json.Marshal(rec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
-	id, bin, err := DefaultBoundIdentity("..", "control/gateway_parity_harness.go#HARNESS_SELF_TEST",
-		"embedded sampling_contract + levels", "embedded levels.*.raw_samples")
-	if err != nil {
-		t.Fatal(err)
-	}
-	id.ModelArtifactDigest = IdentitySlotNA("self-test stand-in; no model weights")
-	id.ImageDigest = IdentitySlotNA("self-test; no container image")
-	id.CorpusDigest = IdentitySlotNA("self-test; no external corpus")
-	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
-		RepoRoot: "..", Path: outPath, Payload: payload,
-		Identity: id, BuildBinaryPath: bin,
-	}); err != nil {
-		t.Fatalf("bound evidence write refused: %v", err)
-	}
-	t.Logf("wrote harness self-test receipt to %s (hits=%d)", outPath, hits.Load())
-
-	// Round-trip: a skeptic must re-derive percentiles from raw samples.
 	var loaded GatewayParityReceipt
 	if err := json.Unmarshal(raw, &loaded); err != nil {
 		t.Fatal(err)
@@ -696,6 +674,33 @@ func TestGatewayParityHarnessSelfTestReceipt(t *testing.T) {
 	lvl := loaded.Levels["merc@c=1"]
 	if len(lvl.RawSamples) == 0 {
 		t.Fatal("loaded receipt lost raw samples")
+	}
+
+	// Opt-in write: a verification suite run must not dirty tracked evidence.
+	// Set MERC_GATEWAY_PARITY_SELFTEST=1 to seal evidence/perf/gateway-parity-v2-selftest.json.
+	if os.Getenv("MERC_GATEWAY_PARITY_SELFTEST") == "1" {
+		outPath := filepath.Join("..", "evidence", "perf", "gateway-parity-v2-selftest.json")
+		var payload map[string]any
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			t.Fatal(err)
+		}
+		id, bin, err := DefaultBoundIdentity("..", "control/gateway_parity_harness.go#HARNESS_SELF_TEST",
+			"embedded sampling_contract + levels", "embedded levels.*.raw_samples")
+		if err != nil {
+			t.Fatal(err)
+		}
+		id.ModelArtifactDigest = IdentitySlotNA("self-test stand-in; no model weights")
+		id.ImageDigest = IdentitySlotNA("self-test; no container image")
+		id.CorpusDigest = IdentitySlotNA("self-test; no external corpus")
+		if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+			RepoRoot: "..", Path: outPath, Payload: payload,
+			Identity: id, BuildBinaryPath: bin,
+		}); err != nil {
+			t.Fatalf("bound evidence write refused: %v", err)
+		}
+		t.Logf("wrote harness self-test receipt to %s (hits=%d)", outPath, hits.Load())
+	} else {
+		t.Logf("skipping evidence write (set MERC_GATEWAY_PARITY_SELFTEST=1 to seal); hits=%d", hits.Load())
 	}
 }
 
