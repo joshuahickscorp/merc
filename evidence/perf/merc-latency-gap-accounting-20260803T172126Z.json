@@ -1,0 +1,1252 @@
+{
+  "accounting_table": {
+    "c=1": {
+      "attribution": {
+        "engine_misattribution_verdict": "INCONCLUSIVE — engine_excess p50=0.20 p95=0.20; overhead p50=6.64 p95=6.64.",
+        "p50_ms": {
+          "direct_ttft": 6.622,
+          "engine_excess_vs_direct": 0.20199999999999996,
+          "engine_facing_on_merc": 6.824,
+          "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+          "merc_owned_named": 6.763,
+          "parity_overhead": 6.640000000000001,
+          "unexplained_after_split": -0.3249999999999993
+        },
+        "p95_ms": {
+          "direct_ttft": 6.622,
+          "engine_excess_vs_direct": 0.20199999999999996,
+          "engine_facing_on_merc": 6.824,
+          "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+          "merc_owned_named": 6.763,
+          "parity_overhead": 6.640000000000001,
+          "unexplained_after_split": -0.3249999999999993
+        }
+      },
+      "client_ttft": {
+        "max": 13.262,
+        "mean": 9.574550000000002,
+        "min": 7.737,
+        "n": 40,
+        "p50": 13.262,
+        "p95": 13.262,
+        "p99": 13.262
+      },
+      "direct_ttft": {
+        "max": 6.622,
+        "mean": 5.869550000000001,
+        "min": 5.509,
+        "n": 40,
+        "p50": 6.622,
+        "p95": 6.622,
+        "p99": 6.622
+      },
+      "engine_facing_sum": {
+        "max": 6.824,
+        "mean": 6.363575000000003,
+        "min": 5.841,
+        "n": 40,
+        "p50": 6.824,
+        "p95": 6.824,
+        "p99": 6.824
+      },
+      "handler_ttft": {
+        "max": 13.087,
+        "mean": 9.319950000000002,
+        "min": 7.576,
+        "n": 40,
+        "p50": 13.087,
+        "p95": 13.087,
+        "p99": 13.087
+      },
+      "marked_ttft_sum": {
+        "max": 12.942,
+        "mean": 9.26485,
+        "min": 7.532,
+        "n": 40,
+        "p50": 12.942,
+        "p95": 12.942,
+        "p99": 12.942
+      },
+      "merc_owned_sum": {
+        "max": 6.763,
+        "mean": 3.22335,
+        "min": 1.887,
+        "n": 40,
+        "p50": 6.763,
+        "p95": 6.763,
+        "p99": 6.763
+      },
+      "named_stages": {
+        "admission_event": {
+          "max": 0.006,
+          "mean": 0.002525000000000002,
+          "min": 0.002,
+          "n": 40,
+          "p50": 0.006,
+          "p95": 0.006,
+          "p99": 0.006
+        },
+        "arrival_batch": {
+          "max": 0.017,
+          "mean": 0.009750000000000005,
+          "min": 0.007,
+          "n": 40,
+          "p50": 0.017,
+          "p95": 0.017,
+          "p99": 0.017
+        },
+        "auth_lookup": {
+          "max": 0.575,
+          "mean": 0.09305000000000001,
+          "min": 0.001,
+          "n": 40,
+          "p50": 0.575,
+          "p95": 0.575,
+          "p99": 0.575
+        },
+        "authorize_contract": {
+          "max": 6.36,
+          "mean": 2.9267999999999996,
+          "min": 1.697,
+          "n": 40,
+          "p50": 6.36,
+          "p95": 6.36,
+          "p99": 6.36
+        },
+        "intake_control": {
+          "max": 0.296,
+          "mean": 0.15247499999999997,
+          "min": 0.091,
+          "n": 40,
+          "p50": 0.296,
+          "p95": 0.296,
+          "p99": 0.296
+        },
+        "post_upstream": {
+          "max": 0.012,
+          "mean": 0.004050000000000002,
+          "min": 0.003,
+          "n": 40,
+          "p50": 0.012,
+          "p95": 0.012,
+          "p99": 0.012
+        },
+        "pre_upstream": {
+          "max": 0.009,
+          "mean": 0.005400000000000003,
+          "min": 0.003,
+          "n": 40,
+          "p50": 0.009,
+          "p95": 0.009,
+          "p99": 0.009
+        },
+        "prepare_json": {
+          "max": 0.031,
+          "mean": 0.024475000000000018,
+          "min": 0.019,
+          "n": 40,
+          "p50": 0.031,
+          "p95": 0.031,
+          "p99": 0.031
+        },
+        "read_body": {
+          "max": 0.02,
+          "mean": 0.005050000000000003,
+          "min": 0.003,
+          "n": 40,
+          "p50": 0.02,
+          "p95": 0.02,
+          "p99": 0.02
+        },
+        "settlement_intent": {
+          "max": 0.001,
+          "mean": 0.00027500000000000007,
+          "min": 0,
+          "n": 40,
+          "p50": 0.001,
+          "p95": 0.001,
+          "p99": 0.001
+        },
+        "upstream_connect": {
+          "max": 0.394,
+          "mean": 0.22962500000000005,
+          "min": 0.164,
+          "n": 40,
+          "p50": 0.394,
+          "p95": 0.394,
+          "p99": 0.394
+        },
+        "upstream_first_sse": {
+          "max": 3.695,
+          "mean": 3.2456000000000005,
+          "min": 2.931,
+          "n": 40,
+          "p50": 3.695,
+          "p95": 3.695,
+          "p99": 3.695
+        },
+        "upstream_ttfb": {
+          "max": 3.124,
+          "mean": 2.8884750000000006,
+          "min": 2.661,
+          "n": 40,
+          "p50": 3.124,
+          "p95": 3.124,
+          "p99": 3.124
+        }
+      },
+      "parity_overhead": {
+        "mean": 3.704999999999999,
+        "method": "percentile_difference (merc_pX − direct_pX); same shape as gateway-parity",
+        "n_direct": 40,
+        "n_merc": 40,
+        "p50": 6.640000000000001,
+        "p95": 6.640000000000001,
+        "p99": 6.640000000000001
+      },
+      "unmarked_residual": {
+        "max": 0.145,
+        "mean": 0.05510000000000002,
+        "min": 0.037,
+        "n": 40,
+        "p50": 0.145,
+        "p95": 0.145,
+        "p99": 0.145
+      }
+    },
+    "c=32": {
+      "attribution": {
+        "engine_misattribution_verdict": "YES — engine_excess is ≥50% of parity overhead at p95 (excess=198.32 ms, overhead=298.35 ms, frac=0.66). Parity is over-attributing engine time to Merc.",
+        "p50_ms": {
+          "direct_ttft": 77.913,
+          "engine_excess_vs_direct": 198.31900000000002,
+          "engine_facing_on_merc": 276.232,
+          "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+          "merc_owned_named": 125.503,
+          "parity_overhead": 298.352,
+          "unexplained_after_split": -25.470000000000027
+        },
+        "p95_ms": {
+          "direct_ttft": 77.913,
+          "engine_excess_vs_direct": 198.31900000000002,
+          "engine_facing_on_merc": 276.232,
+          "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+          "merc_owned_named": 125.503,
+          "parity_overhead": 298.352,
+          "unexplained_after_split": -25.470000000000027
+        }
+      },
+      "client_ttft": {
+        "max": 376.265,
+        "mean": 126.94363541666667,
+        "min": 15.787,
+        "n": 96,
+        "p50": 376.265,
+        "p95": 376.265,
+        "p99": 376.265
+      },
+      "direct_ttft": {
+        "max": 77.913,
+        "mean": 41.8,
+        "min": 24.317,
+        "n": 75,
+        "p50": 77.913,
+        "p95": 77.913,
+        "p99": 77.913
+      },
+      "engine_facing_sum": {
+        "max": 276.232,
+        "mean": 101.62011458333335,
+        "min": 3.138,
+        "n": 96,
+        "p50": 276.232,
+        "p95": 276.232,
+        "p99": 276.232
+      },
+      "handler_ttft": {
+        "max": 340.613,
+        "mean": 117.05766666666665,
+        "min": 13.242,
+        "n": 96,
+        "p50": 340.613,
+        "p95": 340.613,
+        "p99": 340.613
+      },
+      "marked_ttft_sum": {
+        "max": 340.566,
+        "mean": 117.01438541666668,
+        "min": 13.193,
+        "n": 96,
+        "p50": 340.566,
+        "p95": 340.566,
+        "p99": 340.566
+      },
+      "merc_owned_sum": {
+        "max": 125.503,
+        "mean": 24.43026041666667,
+        "min": 1.679,
+        "n": 96,
+        "p50": 125.503,
+        "p95": 125.503,
+        "p99": 125.503
+      },
+      "named_stages": {
+        "admission_event": {
+          "max": 0.013,
+          "mean": 0.0023020833333333352,
+          "min": 0,
+          "n": 96,
+          "p50": 0.013,
+          "p95": 0.013,
+          "p99": 0.013
+        },
+        "arrival_batch": {
+          "max": 0.032,
+          "mean": 0.00902083333333334,
+          "min": 0.005,
+          "n": 96,
+          "p50": 0.032,
+          "p95": 0.032,
+          "p99": 0.032
+        },
+        "auth_lookup": {
+          "max": 52.987,
+          "mean": 8.843697916666665,
+          "min": 0.001,
+          "n": 96,
+          "p50": 52.987,
+          "p95": 52.987,
+          "p99": 52.987
+        },
+        "authorize_contract": {
+          "max": 72.472,
+          "mean": 14.535645833333332,
+          "min": 1.518,
+          "n": 96,
+          "p50": 72.472,
+          "p95": 72.472,
+          "p99": 72.472
+        },
+        "intake_control": {
+          "max": 32.327,
+          "mean": 0.94525,
+          "min": 0,
+          "n": 96,
+          "p50": 32.327,
+          "p95": 32.327,
+          "p99": 32.327
+        },
+        "post_upstream": {
+          "max": 0.046,
+          "mean": 0.003687500000000002,
+          "min": 0.001,
+          "n": 96,
+          "p50": 0.046,
+          "p95": 0.046,
+          "p99": 0.046
+        },
+        "pre_upstream": {
+          "max": 0.012,
+          "mean": 0.0052395833333333365,
+          "min": 0.002,
+          "n": 96,
+          "p50": 0.012,
+          "p95": 0.012,
+          "p99": 0.012
+        },
+        "prepare_json": {
+          "max": 0.726,
+          "mean": 0.030364583333333334,
+          "min": 0.01,
+          "n": 96,
+          "p50": 0.726,
+          "p95": 0.726,
+          "p99": 0.726
+        },
+        "read_body": {
+          "max": 0.012,
+          "mean": 0.003458333333333336,
+          "min": 0.001,
+          "n": 96,
+          "p50": 0.012,
+          "p95": 0.012,
+          "p99": 0.012
+        },
+        "settlement_intent": {
+          "max": 4.829,
+          "mean": 0.05195833333333333,
+          "min": 0,
+          "n": 96,
+          "p50": 4.829,
+          "p95": 4.829,
+          "p99": 4.829
+        },
+        "upstream_connect": {
+          "max": 0.292,
+          "mean": 0.1928229166666667,
+          "min": 0.098,
+          "n": 96,
+          "p50": 0.292,
+          "p95": 0.292,
+          "p99": 0.292
+        },
+        "upstream_first_sse": {
+          "max": 212.35,
+          "mean": 77.3030625,
+          "min": 0.019,
+          "n": 96,
+          "p50": 212.35,
+          "p95": 212.35,
+          "p99": 212.35
+        },
+        "upstream_ttfb": {
+          "max": 116.191,
+          "mean": 24.12436458333333,
+          "min": 2.846,
+          "n": 96,
+          "p50": 116.191,
+          "p95": 116.191,
+          "p99": 116.191
+        }
+      },
+      "parity_overhead": {
+        "mean": 85.1436354166666,
+        "method": "percentile_difference (merc_pX − direct_pX); same shape as gateway-parity",
+        "n_direct": 75,
+        "n_merc": 96,
+        "p50": 298.352,
+        "p95": 298.352,
+        "p99": 298.352
+      },
+      "unmarked_residual": {
+        "max": 0.195,
+        "mean": 0.043260416666666655,
+        "min": 0.022,
+        "n": 96,
+        "p50": 0.195,
+        "p95": 0.195,
+        "p99": 0.195
+      }
+    }
+  },
+  "binding_status": "BOUND",
+  "can_prove": [
+    "named attribution of merc-added TTFT at c=1 and c=32 against a real Metal engine",
+    "p50-to-p50 and p95-to-p95 comparison of parity overhead vs path-timing stages",
+    "whether the parity harness attributes engine queueing to Merc (engine_excess)",
+    "which named segment grows with concurrency"
+  ],
+  "cells": {
+    "c=1": {
+      "concurrency": 1,
+      "samples": 40,
+      "warmup": 8,
+      "merc_ok": 40,
+      "merc_fail": 0,
+      "direct_ok": 40,
+      "direct_fail": 0,
+      "path_timing_lines": 40,
+      "load_average_at_cell": [
+        18.58,
+        9.17,
+        7.69
+      ],
+      "quiet": false,
+      "client_ttft_ms": {
+        "max": 13.262,
+        "mean": 9.574550000000002,
+        "min": 7.737,
+        "n": 40,
+        "p50": 13.262,
+        "p95": 13.262,
+        "p99": 13.262
+      },
+      "direct_ttft_ms": {
+        "max": 6.622,
+        "mean": 5.869550000000001,
+        "min": 5.509,
+        "n": 40,
+        "p50": 6.622,
+        "p95": 6.622,
+        "p99": 6.622
+      },
+      "overhead_merc_minus_direct_ms": {
+        "mean": 3.704999999999999,
+        "method": "percentile_difference (merc_pX − direct_pX); same shape as gateway-parity",
+        "n_direct": 40,
+        "n_merc": 40,
+        "p50": 6.640000000000001,
+        "p95": 6.640000000000001,
+        "p99": 6.640000000000001
+      },
+      "stages_ms": {
+        "admission_event": {
+          "max": 0.006,
+          "mean": 0.002525000000000002,
+          "min": 0.002,
+          "n": 40,
+          "p50": 0.006,
+          "p95": 0.006,
+          "p99": 0.006
+        },
+        "arrival_batch": {
+          "max": 0.017,
+          "mean": 0.009750000000000005,
+          "min": 0.007,
+          "n": 40,
+          "p50": 0.017,
+          "p95": 0.017,
+          "p99": 0.017
+        },
+        "auth_lookup": {
+          "max": 0.575,
+          "mean": 0.09305000000000001,
+          "min": 0.001,
+          "n": 40,
+          "p50": 0.575,
+          "p95": 0.575,
+          "p99": 0.575
+        },
+        "authorize_contract": {
+          "max": 6.36,
+          "mean": 2.9267999999999996,
+          "min": 1.697,
+          "n": 40,
+          "p50": 6.36,
+          "p95": 6.36,
+          "p99": 6.36
+        },
+        "intake_control": {
+          "max": 0.296,
+          "mean": 0.15247499999999997,
+          "min": 0.091,
+          "n": 40,
+          "p50": 0.296,
+          "p95": 0.296,
+          "p99": 0.296
+        },
+        "post_upstream": {
+          "max": 0.012,
+          "mean": 0.004050000000000002,
+          "min": 0.003,
+          "n": 40,
+          "p50": 0.012,
+          "p95": 0.012,
+          "p99": 0.012
+        },
+        "pre_upstream": {
+          "max": 0.009,
+          "mean": 0.005400000000000003,
+          "min": 0.003,
+          "n": 40,
+          "p50": 0.009,
+          "p95": 0.009,
+          "p99": 0.009
+        },
+        "prepare_json": {
+          "max": 0.031,
+          "mean": 0.024475000000000018,
+          "min": 0.019,
+          "n": 40,
+          "p50": 0.031,
+          "p95": 0.031,
+          "p99": 0.031
+        },
+        "proxy_sse": {
+          "max": 94.95,
+          "mean": 93.232975,
+          "min": 92.029,
+          "n": 40,
+          "p50": 94.95,
+          "p95": 94.95,
+          "p99": 94.95
+        },
+        "read_body": {
+          "max": 0.02,
+          "mean": 0.005050000000000003,
+          "min": 0.003,
+          "n": 40,
+          "p50": 0.02,
+          "p95": 0.02,
+          "p99": 0.02
+        },
+        "settlement": {
+          "max": 8.151,
+          "mean": 5.0458,
+          "min": 3.19,
+          "n": 40,
+          "p50": 8.151,
+          "p95": 8.151,
+          "p99": 8.151
+        },
+        "settlement_intent": {
+          "max": 0.001,
+          "mean": 0.00027500000000000007,
+          "min": 0,
+          "n": 40,
+          "p50": 0.001,
+          "p95": 0.001,
+          "p99": 0.001
+        },
+        "upstream_connect": {
+          "max": 0.394,
+          "mean": 0.22962500000000005,
+          "min": 0.164,
+          "n": 40,
+          "p50": 0.394,
+          "p95": 0.394,
+          "p99": 0.394
+        },
+        "upstream_first_sse": {
+          "max": 3.695,
+          "mean": 3.2456000000000005,
+          "min": 2.931,
+          "n": 40,
+          "p50": 3.695,
+          "p95": 3.695,
+          "p99": 3.695
+        },
+        "upstream_ttfb": {
+          "max": 3.124,
+          "mean": 2.8884750000000006,
+          "min": 2.661,
+          "n": 40,
+          "p50": 3.124,
+          "p95": 3.124,
+          "p99": 3.124
+        }
+      },
+      "merc_owned_ttft_ms": {
+        "max": 6.763,
+        "mean": 3.22335,
+        "min": 1.887,
+        "n": 40,
+        "p50": 6.763,
+        "p95": 6.763,
+        "p99": 6.763
+      },
+      "engine_facing_ms": {
+        "max": 6.824,
+        "mean": 6.363575000000003,
+        "min": 5.841,
+        "n": 40,
+        "p50": 6.824,
+        "p95": 6.824,
+        "p99": 6.824
+      },
+      "handler_ttft_ms": {
+        "max": 13.087,
+        "mean": 9.319950000000002,
+        "min": 7.576,
+        "n": 40,
+        "p50": 13.087,
+        "p95": 13.087,
+        "p99": 13.087
+      },
+      "marked_ttft_sum_ms": {
+        "max": 12.942,
+        "mean": 9.26485,
+        "min": 7.532,
+        "n": 40,
+        "p50": 12.942,
+        "p95": 12.942,
+        "p99": 12.942
+      },
+      "unmarked_residual_ms": {
+        "max": 0.145,
+        "mean": 0.05510000000000002,
+        "min": 0.037,
+        "n": 40,
+        "p50": 0.145,
+        "p95": 0.145,
+        "p99": 0.145
+      },
+      "auth_lookup_ms": {
+        "max": 0.575,
+        "mean": 0.09305000000000001,
+        "min": 0.001,
+        "n": 40,
+        "p50": 0.575,
+        "p95": 0.575,
+        "p99": 0.575
+      },
+      "attribution": {
+        "engine_misattribution_verdict": "INCONCLUSIVE — engine_excess p50=0.20 p95=0.20; overhead p50=6.64 p95=6.64.",
+        "p50_ms": {
+          "direct_ttft": 6.622,
+          "engine_excess_vs_direct": 0.20199999999999996,
+          "engine_facing_on_merc": 6.824,
+          "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+          "merc_owned_named": 6.763,
+          "parity_overhead": 6.640000000000001,
+          "unexplained_after_split": -0.3249999999999993
+        },
+        "p95_ms": {
+          "direct_ttft": 6.622,
+          "engine_excess_vs_direct": 0.20199999999999996,
+          "engine_facing_on_merc": 6.824,
+          "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+          "merc_owned_named": 6.763,
+          "parity_overhead": 6.640000000000001,
+          "unexplained_after_split": -0.3249999999999993
+        }
+      },
+      "notes": [
+        "merc and direct waves run sequentially (engine peak ≤ c), matching gateway-parity interleaved policy",
+        "one prepaid buyer per in-flight slot on merc arm",
+        "path timing requires MERC_REALTIME_PATH_TIMING=1 (set by harness)"
+      ]
+    },
+    "c=32": {
+      "concurrency": 32,
+      "samples": 96,
+      "warmup": 8,
+      "merc_ok": 96,
+      "merc_fail": 0,
+      "direct_ok": 75,
+      "direct_fail": 21,
+      "path_timing_lines": 96,
+      "load_average_at_cell": [
+        16.65,
+        9.07,
+        7.67
+      ],
+      "quiet": false,
+      "client_ttft_ms": {
+        "max": 376.265,
+        "mean": 126.94363541666667,
+        "min": 15.787,
+        "n": 96,
+        "p50": 376.265,
+        "p95": 376.265,
+        "p99": 376.265
+      },
+      "direct_ttft_ms": {
+        "max": 77.913,
+        "mean": 41.8,
+        "min": 24.317,
+        "n": 75,
+        "p50": 77.913,
+        "p95": 77.913,
+        "p99": 77.913
+      },
+      "overhead_merc_minus_direct_ms": {
+        "mean": 85.1436354166666,
+        "method": "percentile_difference (merc_pX − direct_pX); same shape as gateway-parity",
+        "n_direct": 75,
+        "n_merc": 96,
+        "p50": 298.352,
+        "p95": 298.352,
+        "p99": 298.352
+      },
+      "stages_ms": {
+        "admission_event": {
+          "max": 0.013,
+          "mean": 0.0023020833333333352,
+          "min": 0,
+          "n": 96,
+          "p50": 0.013,
+          "p95": 0.013,
+          "p99": 0.013
+        },
+        "arrival_batch": {
+          "max": 0.032,
+          "mean": 0.00902083333333334,
+          "min": 0.005,
+          "n": 96,
+          "p50": 0.032,
+          "p95": 0.032,
+          "p99": 0.032
+        },
+        "auth_lookup": {
+          "max": 52.987,
+          "mean": 8.843697916666665,
+          "min": 0.001,
+          "n": 96,
+          "p50": 52.987,
+          "p95": 52.987,
+          "p99": 52.987
+        },
+        "authorize_contract": {
+          "max": 72.472,
+          "mean": 14.535645833333332,
+          "min": 1.518,
+          "n": 96,
+          "p50": 72.472,
+          "p95": 72.472,
+          "p99": 72.472
+        },
+        "intake_control": {
+          "max": 32.327,
+          "mean": 0.94525,
+          "min": 0,
+          "n": 96,
+          "p50": 32.327,
+          "p95": 32.327,
+          "p99": 32.327
+        },
+        "post_upstream": {
+          "max": 0.046,
+          "mean": 0.003687500000000002,
+          "min": 0.001,
+          "n": 96,
+          "p50": 0.046,
+          "p95": 0.046,
+          "p99": 0.046
+        },
+        "pre_upstream": {
+          "max": 0.012,
+          "mean": 0.0052395833333333365,
+          "min": 0.002,
+          "n": 96,
+          "p50": 0.012,
+          "p95": 0.012,
+          "p99": 0.012
+        },
+        "prepare_json": {
+          "max": 0.726,
+          "mean": 0.030364583333333334,
+          "min": 0.01,
+          "n": 96,
+          "p50": 0.726,
+          "p95": 0.726,
+          "p99": 0.726
+        },
+        "proxy_sse": {
+          "max": 1008.328,
+          "mean": 857.1567916666663,
+          "min": 767.991,
+          "n": 96,
+          "p50": 1008.328,
+          "p95": 1008.328,
+          "p99": 1008.328
+        },
+        "read_body": {
+          "max": 0.012,
+          "mean": 0.003458333333333336,
+          "min": 0.001,
+          "n": 96,
+          "p50": 0.012,
+          "p95": 0.012,
+          "p99": 0.012
+        },
+        "settlement": {
+          "max": 41.12,
+          "mean": 16.10460416666666,
+          "min": 3.971,
+          "n": 96,
+          "p50": 41.12,
+          "p95": 41.12,
+          "p99": 41.12
+        },
+        "settlement_intent": {
+          "max": 4.829,
+          "mean": 0.05195833333333333,
+          "min": 0,
+          "n": 96,
+          "p50": 4.829,
+          "p95": 4.829,
+          "p99": 4.829
+        },
+        "upstream_connect": {
+          "max": 0.292,
+          "mean": 0.1928229166666667,
+          "min": 0.098,
+          "n": 96,
+          "p50": 0.292,
+          "p95": 0.292,
+          "p99": 0.292
+        },
+        "upstream_first_sse": {
+          "max": 212.35,
+          "mean": 77.3030625,
+          "min": 0.019,
+          "n": 96,
+          "p50": 212.35,
+          "p95": 212.35,
+          "p99": 212.35
+        },
+        "upstream_ttfb": {
+          "max": 116.191,
+          "mean": 24.12436458333333,
+          "min": 2.846,
+          "n": 96,
+          "p50": 116.191,
+          "p95": 116.191,
+          "p99": 116.191
+        }
+      },
+      "merc_owned_ttft_ms": {
+        "max": 125.503,
+        "mean": 24.43026041666667,
+        "min": 1.679,
+        "n": 96,
+        "p50": 125.503,
+        "p95": 125.503,
+        "p99": 125.503
+      },
+      "engine_facing_ms": {
+        "max": 276.232,
+        "mean": 101.62011458333335,
+        "min": 3.138,
+        "n": 96,
+        "p50": 276.232,
+        "p95": 276.232,
+        "p99": 276.232
+      },
+      "handler_ttft_ms": {
+        "max": 340.613,
+        "mean": 117.05766666666665,
+        "min": 13.242,
+        "n": 96,
+        "p50": 340.613,
+        "p95": 340.613,
+        "p99": 340.613
+      },
+      "marked_ttft_sum_ms": {
+        "max": 340.566,
+        "mean": 117.01438541666668,
+        "min": 13.193,
+        "n": 96,
+        "p50": 340.566,
+        "p95": 340.566,
+        "p99": 340.566
+      },
+      "unmarked_residual_ms": {
+        "max": 0.195,
+        "mean": 0.043260416666666655,
+        "min": 0.022,
+        "n": 96,
+        "p50": 0.195,
+        "p95": 0.195,
+        "p99": 0.195
+      },
+      "auth_lookup_ms": {
+        "max": 52.987,
+        "mean": 8.843697916666665,
+        "min": 0.001,
+        "n": 96,
+        "p50": 52.987,
+        "p95": 52.987,
+        "p99": 52.987
+      },
+      "attribution": {
+        "engine_misattribution_verdict": "YES — engine_excess is ≥50% of parity overhead at p95 (excess=198.32 ms, overhead=298.35 ms, frac=0.66). Parity is over-attributing engine time to Merc.",
+        "p50_ms": {
+          "direct_ttft": 77.913,
+          "engine_excess_vs_direct": 198.31900000000002,
+          "engine_facing_on_merc": 276.232,
+          "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+          "merc_owned_named": 125.503,
+          "parity_overhead": 298.352,
+          "unexplained_after_split": -25.470000000000027
+        },
+        "p95_ms": {
+          "direct_ttft": 77.913,
+          "engine_excess_vs_direct": 198.31900000000002,
+          "engine_facing_on_merc": 276.232,
+          "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+          "merc_owned_named": 125.503,
+          "parity_overhead": 298.352,
+          "unexplained_after_split": -25.470000000000027
+        }
+      },
+      "notes": [
+        "merc and direct waves run sequentially (engine peak ≤ c), matching gateway-parity interleaved policy",
+        "one prepaid buyer per in-flight slot on merc arm",
+        "path timing requires MERC_REALTIME_PATH_TIMING=1 (set by harness)",
+        "direct failures: 21"
+      ]
+    }
+  },
+  "concurrency_growth": {
+    "authorize_p50_c1": 6.36,
+    "authorize_p50_c32": 72.472,
+    "authorize_p95_c1": 6.36,
+    "authorize_p95_c32": 72.472,
+    "engine_facing_p50_growth": 40.47948417350528,
+    "engine_facing_p95_growth": 40.47948417350528,
+    "merc_owned_p50_growth": 18.557297057518852,
+    "merc_owned_p95_growth": 18.557297057518852,
+    "overhead_p50_growth_factor": 44.93253012048192,
+    "overhead_p95_growth_factor": 44.93253012048192
+  },
+  "does_not_prove": [
+    "that optimisations have been applied (this lane measures only)",
+    "cross-host network RTT",
+    "vLLM continuous-batching behaviour",
+    "production multi-tenant load shape"
+  ],
+  "kind": "merc_latency_gap_accounting_receipt",
+  "measured_at": "2026-08-03T17:21:26Z",
+  "method": {
+    "control_plane": "httptest wrapping NewServer(store).Routes() on isolated Postgres",
+    "engine": {
+      "base_url": "http://127.0.0.1:8095/v1",
+      "note": "llama-server Metal Q4_K_M (llama.cpp b9430) alias=cx-chat-1b n_slots=128 same host loopback"
+    },
+    "machine": {
+      "goarch": "arm64",
+      "goos": "darwin",
+      "hostname": "Mac-Studio",
+      "load_average": [
+        18.58,
+        9.17,
+        7.69
+      ],
+      "load_n": 28,
+      "num_cpu": 28,
+      "quiet": false,
+      "quiet_reason": "1-min load 18.58 is not below half of 28 CPUs — machine was NOT quiet; treat tails as noisy"
+    },
+    "path_timing": "MERC_REALTIME_PATH_TIMING=1; stages include auth_lookup, pre_upstream, post_upstream, upstream_first_sse, unmarked residual",
+    "percentile_method": "nearest-rank: ceil(p*n)-1 on sorted samples",
+    "samples": {
+      "c1": 40,
+      "c32": 96,
+      "warmup_per_cell": 8
+    },
+    "segment_definitions": {
+      "admission_event": "recordRealtimeAdmissionEvent (async enqueue when configured)",
+      "arrival_batch": "arrival batcher join (no-op when disabled)",
+      "auth_lookup": "buyer middleware LookupAPIKey/session (before handler t0)",
+      "authorize_contract": "AuthorizeRealtimeContract transaction",
+      "engine_excess": "engine_facing_pX − direct_ttft_pX (positive ⇒ parity attributes engine time to Merc)",
+      "engine_facing": "upstream_ttfb + upstream_connect + upstream_first_sse",
+      "intake_control": "OperationalControlPaused DB read",
+      "merc_owned": "auth_lookup + read_body + prepare_json + intake_control + authorize + admission + arrival_batch + pre_upstream + settlement_intent + post_upstream",
+      "parity_overhead": "merc_client_ttft_pX − direct_client_ttft_pX",
+      "post_upstream": "content-type check + response header assembly (intent wait excluded)",
+      "pre_upstream": "construct upstream request + headers + client select",
+      "prepare_json": "prepareRealtimeRequest",
+      "read_body": "io.ReadAll of request body",
+      "settlement_intent": "residual wait for InsertRealtimeSettlementIntent before first buyer byte",
+      "unmarked_residual": "ttft_handler_ms − sum(named TTFT stages)",
+      "upstream_connect": "TCP connect via httptrace when a dial occurs",
+      "upstream_first_sse": "wait inside proxySSE for first complete upstream SSE event after headers",
+      "upstream_ttfb": "client.Do until response headers (includes dial + engine header delay)"
+    },
+    "what": "Close the accounting between client wall-clock TTFT (parity style) and named path-timing stages against a real llama.cpp/Metal engine at c=1 and c=32. Report p50-to-p50 and p95-to-p95. Name residual. Detect engine misattribution."
+  },
+  "p50_to_p50": {
+    "c1": {
+      "attribution": {
+        "direct_ttft": 6.622,
+        "engine_excess_vs_direct": 0.20199999999999996,
+        "engine_facing_on_merc": 6.824,
+        "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+        "merc_owned_named": 6.763,
+        "parity_overhead": 6.640000000000001,
+        "unexplained_after_split": -0.3249999999999993
+      },
+      "direct_ttft_p50_ms": 6.622,
+      "engine_facing_p50_ms": 6.824,
+      "merc_client_ttft_p50_ms": 13.262,
+      "merc_owned_p50_ms": 6.763,
+      "overhead_p50_ms": 6.640000000000001,
+      "unmarked_residual_p50_ms": 0.145
+    },
+    "c32": {
+      "attribution": {
+        "direct_ttft": 77.913,
+        "engine_excess_vs_direct": 198.31900000000002,
+        "engine_facing_on_merc": 276.232,
+        "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+        "merc_owned_named": 125.503,
+        "parity_overhead": 298.352,
+        "unexplained_after_split": -25.470000000000027
+      },
+      "direct_ttft_p50_ms": 77.913,
+      "engine_facing_p50_ms": 276.232,
+      "merc_client_ttft_p50_ms": 376.265,
+      "merc_owned_p50_ms": 125.503,
+      "overhead_p50_ms": 298.352,
+      "unmarked_residual_p50_ms": 0.195
+    }
+  },
+  "p95_to_p95": {
+    "c1": {
+      "attribution": {
+        "direct_ttft": 6.622,
+        "engine_excess_vs_direct": 0.20199999999999996,
+        "engine_facing_on_merc": 6.824,
+        "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+        "merc_owned_named": 6.763,
+        "parity_overhead": 6.640000000000001,
+        "unexplained_after_split": -0.3249999999999993
+      },
+      "direct_ttft_p95_ms": 6.622,
+      "engine_facing_p95_ms": 6.824,
+      "merc_client_ttft_p95_ms": 13.262,
+      "merc_owned_p95_ms": 6.763,
+      "overhead_p95_ms": 6.640000000000001,
+      "unmarked_residual_p95_ms": 0.145
+    },
+    "c32": {
+      "attribution": {
+        "direct_ttft": 77.913,
+        "engine_excess_vs_direct": 198.31900000000002,
+        "engine_facing_on_merc": 276.232,
+        "equation": "overhead ≟ merc_owned + (engine_facing − direct_ttft) + unexplained",
+        "merc_owned_named": 125.503,
+        "parity_overhead": 298.352,
+        "unexplained_after_split": -25.470000000000027
+      },
+      "direct_ttft_p95_ms": 77.913,
+      "engine_facing_p95_ms": 276.232,
+      "merc_client_ttft_p95_ms": 376.265,
+      "merc_owned_p95_ms": 125.503,
+      "overhead_p95_ms": 298.352,
+      "unmarked_residual_p95_ms": 0.195
+    }
+  },
+  "prior_receipts": {
+    "parity_metal": {
+      "c1_overhead_p50_ms": 3.909,
+      "c1_overhead_p95_ms": 12.534,
+      "c32_overhead_p50_ms": 33.668,
+      "c32_overhead_p95_ms": 262.242,
+      "source": "evidence/perf/gateway-parity-v2-local-metal.json"
+    },
+    "segment_stub": {
+      "c1_merc_added_p50_ms": 1.354,
+      "c32_merc_added_p50_ms": 20.86,
+      "note": "prior reported p50 only; p95 on last run c=1≈1.8–35, c=32≈97–127",
+      "source": "evidence/perf/merc-segment-latency-latest.json (stub upstream)"
+    }
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "2d31f092549a8236b078914556bced6e30085fed"
+    },
+    "build_digest": {
+      "value": "314360b6658f8ed9620d1ea0096975deb6e3ee3ffb31b1a4a049d354dac2a8a9"
+    },
+    "model_artifact_digest": {
+      "value": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "control/merc_latency_gap_accounting_test.go"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this measurement"
+    },
+    "exact_config": {
+      "value": "embedded method + cells + accounting_table"
+    },
+    "raw_samples": {
+      "value": "embedded cell summaries; raw durations not retained"
+    }
+  },
+  "ranked_attack_list": [
+    {
+      "attack_priority": 1198.319,
+      "c1_p50_ms": 0.20199999999999996,
+      "c1_p95_ms": 0.20199999999999996,
+      "c32_p50_ms": 198.31900000000002,
+      "c32_p95_ms": 198.31900000000002,
+      "class": "measurement_defect: engine_excess counted as Merc overhead by merc−direct TTFT",
+      "rank": 1,
+      "target": "parity_engine_misattribution"
+    },
+    {
+      "attack_priority": 212.35,
+      "c1_p50_ms": 3.695,
+      "c1_p95_ms": 3.695,
+      "c32_p50_ms": 212.35,
+      "c32_p95_ms": 212.35,
+      "class": "engine_facing",
+      "rank": 2,
+      "target": "upstream_first_sse"
+    },
+    {
+      "attack_priority": 116.191,
+      "c1_p50_ms": 3.124,
+      "c1_p95_ms": 3.124,
+      "c32_p50_ms": 116.191,
+      "c32_p95_ms": 116.191,
+      "class": "engine_facing",
+      "rank": 3,
+      "target": "upstream_ttfb"
+    },
+    {
+      "attack_priority": 72.472,
+      "c1_p50_ms": 6.36,
+      "c1_p95_ms": 6.36,
+      "c32_p50_ms": 72.472,
+      "c32_p95_ms": 72.472,
+      "class": "merc_owned",
+      "rank": 4,
+      "target": "authorize_contract"
+    },
+    {
+      "attack_priority": 52.987,
+      "c1_p50_ms": 0.575,
+      "c1_p95_ms": 0.575,
+      "c32_p50_ms": 52.987,
+      "c32_p95_ms": 52.987,
+      "class": "merc_owned",
+      "rank": 5,
+      "target": "auth_lookup"
+    },
+    {
+      "attack_priority": 32.327,
+      "c1_p50_ms": 0.296,
+      "c1_p95_ms": 0.296,
+      "c32_p50_ms": 32.327,
+      "c32_p95_ms": 32.327,
+      "class": "merc_owned",
+      "rank": 6,
+      "target": "intake_control"
+    },
+    {
+      "attack_priority": 4.829,
+      "c1_p50_ms": 0.001,
+      "c1_p95_ms": 0.001,
+      "c32_p50_ms": 4.829,
+      "c32_p95_ms": 4.829,
+      "class": "merc_owned",
+      "rank": 7,
+      "target": "settlement_intent"
+    },
+    {
+      "attack_priority": 0.046,
+      "c1_p50_ms": 0.012,
+      "c1_p95_ms": 0.012,
+      "c32_p50_ms": 0.046,
+      "c32_p95_ms": 0.046,
+      "class": "merc_owned",
+      "rank": 8,
+      "target": "post_upstream"
+    },
+    {
+      "attack_priority": 0.013,
+      "c1_p50_ms": 0.006,
+      "c1_p95_ms": 0.006,
+      "c32_p50_ms": 0.013,
+      "c32_p95_ms": 0.013,
+      "class": "merc_owned",
+      "rank": 9,
+      "target": "admission_event"
+    },
+    {
+      "attack_priority": 0.012,
+      "c1_p50_ms": 0.009,
+      "c1_p95_ms": 0.009,
+      "c32_p50_ms": 0.012,
+      "c32_p95_ms": 0.012,
+      "class": "merc_owned",
+      "rank": 10,
+      "target": "pre_upstream"
+    }
+  ],
+  "schema_version": 1,
+  "verdict": {
+    "c1_engine_misattribution": "INCONCLUSIVE — engine_excess p50=0.20 p95=0.20; overhead p50=6.64 p95=6.64.",
+    "c32_engine_misattribution": "YES — engine_excess is ≥50% of parity overhead at p95 (excess=198.32 ms, overhead=298.35 ms, frac=0.66). Parity is over-attributing engine time to Merc.",
+    "summary": "See accounting_table and ranked_attack_list. If engine_excess dominates parity overhead, do not optimise Merc control-plane for those milliseconds — fix the measurement or the engine saturation shape first."
+  }
+}

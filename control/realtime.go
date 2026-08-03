@@ -603,9 +603,27 @@ func (t *streamEvidenceTracker) evidence(executionID uuid.UUID, status int, dura
 }
 
 func proxySSE(w http.ResponseWriter, body io.Reader, tracker *streamEvidenceTracker) error {
+	return proxySSEWithHook(w, body, tracker, nil)
+}
+
+// proxySSEFirstHooks optional callbacks for path-timing residual close.
+// onUpstreamEvent fires once when the first complete SSE event has been
+// assembled from the upstream body (before buyer write) — waitForEvent is the
+// time spent blocked on the upstream after response headers.
+// onBuyerFlush fires once after that event has been written and flushed to the
+// buyer (first buyer byte on the wire).
+type proxySSEFirstHooks struct {
+	onUpstreamEvent func(waitForEvent time.Duration)
+	onBuyerFlush    func()
+}
+
+// proxySSEWithHook is proxySSE plus optional first-event hooks for path timing.
+func proxySSEWithHook(w http.ResponseWriter, body io.Reader, tracker *streamEvidenceTracker, hooks *proxySSEFirstHooks) error {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64<<10), maxSSELineBytes)
 	var event bytes.Buffer
+	first := true
+	proxyStart := time.Now()
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if event.Len()+len(line)+1 > maxSSEEventBytes {
@@ -620,11 +638,20 @@ func proxySSE(w http.ResponseWriter, body io.Reader, tracker *streamEvidenceTrac
 		if err := tracker.addEvent(payload); err != nil {
 			return err
 		}
+		if first && hooks != nil && hooks.onUpstreamEvent != nil {
+			hooks.onUpstreamEvent(time.Since(proxyStart))
+		}
 		if _, err := w.Write(payload); err != nil {
 			return err
 		}
 		if err := http.NewResponseController(w).Flush(); err != nil {
 			return err
+		}
+		if first {
+			first = false
+			if hooks != nil && hooks.onBuyerFlush != nil {
+				hooks.onBuyerFlush()
+			}
 		}
 		event.Reset()
 	}
@@ -702,17 +729,37 @@ func finalizeRealtimeFailure(store *Store, contractID, executionID uuid.UUID, st
 // realtimePathTiming is an opt-in stage clock for gateway overhead work.
 // Enabled with MERC_REALTIME_PATH_TIMING=1; emits one structured log line per
 // request. Never gates or alters the request path.
+//
+// Residual accounting: ttft_handler_ms is wall time from handler entry (t0) to
+// the first buyer SSE byte flush. marked_ttft_sum_ms is the sum of named stages
+// on that path (including upstream_ttfb). unmarked_residual_ms =
+// ttft_handler_ms − marked_ttft_sum_ms is work no stage mark covers — gaps
+// between marks, header assembly, and any unmarked interstitial. auth_lookup
+// is recorded when the buyer middleware timed it, but sits *before* t0 so it is
+// excluded from the residual equation (it is reported separately).
 type realtimePathTiming struct {
-	enabled bool
-	t0      time.Time
-	marks   map[string]time.Duration
+	enabled       bool
+	t0            time.Time
+	marks         map[string]time.Duration
+	firstBuyerAt  time.Time
+	firstBuyerSet bool
+}
+
+// Stages that sit on the client-TTFT path after handler entry. upstream_ttfb and
+// upstream_first_sse are engine-facing (included so residual closes against the
+// handler wall to first buyer byte); merc-added sums that exclude engine time
+// drop them at the aggregation layer.
+var realtimeTTFTPathStages = []string{
+	"read_body", "prepare_json", "intake_control", "exact_reuse", "coalesce",
+	"authorize_contract", "admission_event", "arrival_batch", "pre_upstream",
+	"upstream_ttfb", "settlement_intent", "post_upstream", "upstream_first_sse",
 }
 
 func newRealtimePathTiming() *realtimePathTiming {
 	if os.Getenv("MERC_REALTIME_PATH_TIMING") != "1" {
 		return &realtimePathTiming{}
 	}
-	return &realtimePathTiming{enabled: true, t0: time.Now(), marks: make(map[string]time.Duration, 12)}
+	return &realtimePathTiming{enabled: true, t0: time.Now(), marks: make(map[string]time.Duration, 16)}
 }
 
 func (p *realtimePathTiming) mark(stage string, since time.Time) {
@@ -730,12 +777,40 @@ func (p *realtimePathTiming) set(stage string, d time.Duration) {
 	p.marks[stage] = d
 }
 
+// markFirstBuyerByte records the first SSE payload flush to the buyer. Safe to
+// call multiple times; only the first call sticks.
+func (p *realtimePathTiming) markFirstBuyerByte() {
+	if p == nil || !p.enabled || p.firstBuyerSet {
+		return
+	}
+	p.firstBuyerAt = time.Now()
+	p.firstBuyerSet = true
+}
+
 func (p *realtimePathTiming) log(stream bool, contractID string) {
 	if p == nil || !p.enabled {
 		return
 	}
+	totalMS := float64(time.Since(p.t0).Microseconds()) / 1000.0
+	var ttftMS, markedSum, residual float64
+	ttftKnown := false
+	if p.firstBuyerSet {
+		ttftMS = float64(p.firstBuyerAt.Sub(p.t0).Microseconds()) / 1000.0
+		ttftKnown = true
+		for _, k := range realtimeTTFTPathStages {
+			if d, ok := p.marks[k]; ok {
+				markedSum += float64(d.Microseconds()) / 1000.0
+			}
+		}
+		residual = ttftMS - markedSum
+	}
+	if ttftKnown {
+		log.Printf("realtime_path_timing stream=%v contract=%s total_ms=%.3f ttft_handler_ms=%.3f marked_ttft_sum_ms=%.3f unmarked_residual_ms=%.3f stages_ms=%s",
+			stream, contractID, totalMS, ttftMS, markedSum, residual, formatRealtimePathMarks(p.marks))
+		return
+	}
 	log.Printf("realtime_path_timing stream=%v contract=%s total_ms=%.3f stages_ms=%s",
-		stream, contractID, float64(time.Since(p.t0).Microseconds())/1000.0, formatRealtimePathMarks(p.marks))
+		stream, contractID, totalMS, formatRealtimePathMarks(p.marks))
 }
 
 func formatRealtimePathMarks(marks map[string]time.Duration) string {
@@ -744,10 +819,15 @@ func formatRealtimePathMarks(marks map[string]time.Duration) string {
 	// previously invisible; a parity run without them cannot locate gateway
 	// overhead. coalesce and arrival_batch were marked but omitted from this
 	// list, so their cost never appeared in the structured log line.
+	// auth_lookup is middleware (before handler t0). pre_upstream / post_upstream
+	// close the construction and header-write gaps that residual previously
+	// swallowed unnamed.
 	order := []string{
+		"auth_lookup",
 		"read_body", "prepare_json", "intake_control", "exact_reuse", "coalesce",
-		"authorize_contract", "admission_event", "arrival_batch",
-		"upstream_connect", "upstream_ttfb", "settlement_intent",
+		"authorize_contract", "admission_event", "arrival_batch", "pre_upstream",
+		"upstream_connect", "upstream_ttfb", "settlement_intent", "post_upstream",
+		"upstream_first_sse",
 		"proxy_sse", "read_json_body", "usage_reconcile", "settlement",
 		"exact_cache_store",
 	}
@@ -760,8 +840,16 @@ func formatRealtimePathMarks(marks map[string]time.Duration) string {
 	return strings.Join(parts, ",")
 }
 
+// ctxAuthLookupDuration carries the buyer auth middleware wall time into the
+// handler so path timing can name it. Absent when timing is off or the route
+// did not pass through authBuyer.
+type ctxAuthLookupDuration struct{}
+
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	pathTiming := newRealtimePathTiming()
+	if d, ok := r.Context().Value(ctxAuthLookupDuration{}).(time.Duration); ok {
+		pathTiming.set("auth_lookup", d)
+	}
 	auth := r.Context().Value(ctxBuyer).(*AuthResult)
 	stage := time.Now()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxRealtimeRequestBytes+1))
@@ -1070,11 +1158,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	pathTiming.mark("arrival_batch", stage)
 
+	// pre_upstream: construct the outbound request, attach headers, and select
+	// the pooled client — work that previously sat unmarked between
+	// arrival_batch and the dial clock.
+	stage = time.Now()
 	requestContext, cancel := context.WithDeadline(r.Context(), contract.DeadlineAt)
 	defer cancel()
 	upstreamRequest, err := http.NewRequestWithContext(requestContext, http.MethodPost,
 		realtimeUpstreamURL(contract.UpstreamBaseURL), bytes.NewReader(prepared.Body))
 	if err != nil {
+		pathTiming.mark("pre_upstream", stage)
 		_ = drainIntent()
 		finalizeRealtimeFailure(s.store, contract.ID, executionID, 0, started, "upstream_request_invalid", err, false)
 		writeOpenAIError(w, http.StatusInternalServerError, "could not construct the upstream request", "server_error", "upstream_request_invalid")
@@ -1091,6 +1184,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if client == nil {
 		client = newRealtimeHTTPClient()
 	}
+	pathTiming.mark("pre_upstream", stage)
 
 	stage = time.Now()
 	var connectDur time.Duration
@@ -1129,7 +1223,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if prepared.Stream {
+		// post_upstream covers content-type check, intent drain residual, and
+		// response header assembly up to WriteHeader — everything between the
+		// upstream response arriving and the first buyer SSE write starting.
+		postStart := time.Now()
 		if !strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
+			pathTiming.mark("post_upstream", postStart)
 			_ = drainIntent()
 			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "invalid_upstream_content_type", errors.New("upstream did not return text/event-stream"), false)
 			writeOpenAIError(w, http.StatusBadGateway, "realtime worker returned an invalid stream", "server_error", "invalid_upstream_stream")
@@ -1137,11 +1236,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		// Wait for the overlapped intent. Must complete before the first buyer
 		// byte so a post-stream finalize crash cannot void delivered work.
+		// drainIntent itself records settlement_intent; we still fold its wall
+		// into post_upstream so residual closes (settlement_intent is a nested
+		// mark inside this window — residual equation uses both, so we subtract
+		// the nested mark from post_upstream after drain to avoid double count).
+		intentWaitStart := time.Now()
 		if err := drainIntent(); err != nil {
+			pathTiming.mark("post_upstream", postStart)
 			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "settlement_intent_failed", err, false)
 			writeOpenAIError(w, http.StatusInternalServerError, "could not arm durable stream settlement", "server_error", "settlement_intent_failed")
 			return
 		}
+		intentWait := time.Since(intentWaitStart)
 		if sha := parityUpstreamBodySHA(contract.RequestID); sha != "" {
 			w.Header().Set("X-Merc-Upstream-Body-SHA256", sha)
 		}
@@ -1149,9 +1255,25 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.WriteHeader(http.StatusOK)
+		// post_upstream = wall from response-ready to WriteHeader, minus the
+		// settlement_intent residual already named. Avoids double-counting in
+		// marked_ttft_sum while still naming header assembly cost.
+		postWall := time.Since(postStart)
+		if postWall > intentWait {
+			pathTiming.set("post_upstream", postWall-intentWait)
+		} else {
+			pathTiming.set("post_upstream", time.Duration(1)*time.Microsecond)
+		}
 		tracker := newStreamEvidenceTracker(started)
 		stage = time.Now()
-		if err := proxySSE(w, response.Body, tracker); err != nil {
+		hooks := &proxySSEFirstHooks{
+			onUpstreamEvent: func(waitForEvent time.Duration) {
+				pathTiming.set("upstream_first_sse", waitForEvent)
+			},
+			onBuyerFlush: pathTiming.markFirstBuyerByte,
+		}
+		if err := proxySSEWithHook(w, response.Body, tracker, hooks); err != nil {
+			// If we never flushed a buyer byte, still log stages we have.
 			pathTiming.mark("proxy_sse", stage)
 			cancelled := errors.Is(requestContext.Err(), context.Canceled)
 			code := "stream_interrupted"
