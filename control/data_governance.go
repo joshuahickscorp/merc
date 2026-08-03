@@ -515,6 +515,10 @@ func (s *Store) TombstoneBuyer(
 	if err := tx.Commit(ctx); err != nil {
 		return BuyerDeletionResult{}, err
 	}
+	// Keys were deleted in-transaction. Drop any process-local auth cache
+	// entries so same-process lookups fail closed immediately (multi-instance
+	// residual is apiKeyCacheTTL; see api_key_cache.go).
+	s.apiKeys.invalidateBuyer(buyerID)
 	return result, nil
 }
 
@@ -555,6 +559,9 @@ func (s *Store) ApplyBuyerTombstones(ctx context.Context) (int64, error) {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err
+	}
+	for _, item := range tombstones {
+		s.apiKeys.invalidateBuyer(item.buyerID)
 	}
 	return int64(len(tombstones)), nil
 }

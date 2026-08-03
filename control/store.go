@@ -23,6 +23,10 @@ import (
 type Store struct {
 	pool                  *pgxpool.Pool
 	verificationResources *verificationResourceBudget
+	// Process-local caches for hot first-token path reads. See api_key_cache.go
+	// and operational_control_cache.go for the revocation / kill-switch bounds.
+	apiKeys             apiKeyCache
+	operationalControls operationalControlCache
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {
@@ -263,6 +267,10 @@ type AuthResult struct {
 }
 
 func (s *Store) LookupAPIKey(ctx context.Context, rawKey string) (AuthResult, error) {
+	keyHash := hashKey(rawKey)
+	if cached, ok := s.apiKeys.get(keyHash); ok {
+		return cached, nil
+	}
 	var r AuthResult
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, buyer_id, is_admin,
@@ -271,12 +279,18 @@ func (s *Store) LookupAPIKey(ctx context.Context, rawKey string) (AuthResult, er
 		 WHERE key_hash = $1 AND revoked = false
 		   AND (is_admin OR EXISTS (
 		     SELECT 1 FROM buyers b WHERE b.id=api_keys.buyer_id AND b.deleted_at IS NULL))`,
-		hashKey(rawKey),
+		keyHash,
 	).Scan(&r.APIKeyID, &r.BuyerID, &r.IsAdmin, &r.APIKeyLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
+		// Never cache negatives: a re-minted or un-revoked key must not be
+		// blocked by a stale miss, and an attacker must not pin "denied".
 		return r, errNotFound
 	}
-	return r, err
+	if err != nil {
+		return r, err
+	}
+	s.apiKeys.put(keyHash, r)
+	return r, nil
 }
 
 type APIKeyRow struct {
@@ -349,6 +363,9 @@ func (s *Store) RevokeAPIKey(ctx context.Context, buyerID, id uuid.UUID) (bool, 
 	if err != nil {
 		return false, err
 	}
+	// Invalidate before returning success so same-process revoke is immediate.
+	// Multi-instance residual is bounded by apiKeyCacheTTL (see api_key_cache.go).
+	s.apiKeys.invalidateID(id)
 	return tag.RowsAffected() > 0, nil
 }
 
