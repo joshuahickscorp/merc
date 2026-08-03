@@ -13,17 +13,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// Tests below pin money invariants for the late buyer-funding lock order in
-// AuthorizeRealtimeContract: offer capacity is claimed before
-// evaluateRealtimeBuyerFunding, then EXECUTING insert happens under the
-// buyer advisory lock. If the funding gate is removed, reordered past the
-// insert, or the offer claim is committed without the funding check, these
-// fail.
+// Tests below pin money invariants for AuthorizeRealtimeContract under the
+// documented lock hierarchy: evaluateRealtimeBuyerFunding (buyer advisory +
+// buyers FOR UPDATE) before offer capacity claim, then EXECUTING insert under
+// both. The late-funding reorder (offer before buyer) was reverted after it
+// deadlocked with settlement; these tests still guard the money properties
+// that must hold either way — capacity restored on funding failure, free-
+// credit ceiling under concurrency, and idempotent replay.
 
 // TestAuthorizeLateLockFundingFailureRestoresCapacity is the capacity half of
-// the late-lock contract: a buyer who fails the funding check after the offer
-// UPDATE must not permanently consume a sequence. Without transaction-scoped
-// claim+check, this would leak capacity.
+// the funding contract: a buyer who fails the funding check must not permanently
+// consume a sequence. With funding before offer claim this is vacuously true
+// (no claim); if funding is ever moved after the claim again, this still guards
+// rollback.
 func TestAuthorizeLateLockFundingFailureRestoresCapacity(t *testing.T) {
 	installSettlementCurrencyForTest(t, "usd")
 	ctx, store, pool := openIsolatedTestStore(t)
