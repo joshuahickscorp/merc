@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -380,28 +381,33 @@ func TestPrefixAffinityControlledCorpusMeasurement(t *testing.T) {
 	art.ObservationCorrection.NoSignalDoesNotThrash = true
 	art.ObservationCorrection.CostClassNotPromotedByWarmth = true
 
-	// Write beside the other perf receipts via the bound path.
-	outPath := filepath.Join("..", "evidence", "perf", "prefix-affinity-routing.json")
-	raw, err := json.Marshal(art)
-	if err != nil {
-		t.Fatal(err)
+	// Opt-in write: a verification suite run must not dirty tracked evidence.
+	// Set MERC_PREFIX_AFFINITY_PERF=1 to seal evidence/perf/prefix-affinity-routing.json.
+	if os.Getenv("MERC_PREFIX_AFFINITY_PERF") == "1" {
+		outPath := filepath.Join("..", "evidence", "perf", "prefix-affinity-routing.json")
+		raw, err := json.Marshal(art)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			t.Fatal(err)
+		}
+		id, bin, err := DefaultBoundIdentity("..", "control/prefix_affinity_measure_test.go",
+			"embedded arms + setup", "embedded arm observations")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+			RepoRoot: "..", Path: outPath, Payload: payload,
+			Identity: id, BuildBinaryPath: bin,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s", outPath)
+	} else {
+		t.Logf("skipping evidence write (set MERC_PREFIX_AFFINITY_PERF=1 to seal)")
 	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
-	id, bin, err := DefaultBoundIdentity("..", "control/prefix_affinity_measure_test.go",
-		"embedded arms + setup", "embedded arm observations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
-		RepoRoot: "..", Path: outPath, Payload: payload,
-		Identity: id, BuildBinaryPath: bin,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("wrote %s", outPath)
 	t.Logf("control 0%%: observed_delta=%.4f overhead_ns=%.1f",
 		control.ObservedHitRateDelta, control.RankOverheadNsPerReq)
 	for _, a := range arms {
