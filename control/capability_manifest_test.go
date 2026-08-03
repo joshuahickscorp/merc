@@ -12,7 +12,7 @@ import (
 // than producing a wrong answer. agent/src/runtime_authority.rs pins the same
 // constant; a capability change is expected to move it, and to move it in BOTH
 // places in one commit.
-const pinnedCapabilityMatrixDigest = "ea94956011bda6dda99526729e28b6cf738c14229740d608e564513b3de94f85"
+const pinnedCapabilityMatrixDigest = "0814f833d415287f45502cd6d42455958c279ff8e43514adccf00169742f0b9c"
 
 func TestCapabilityMatrixDigestIsPinnedAcrossBothImplementations(t *testing.T) {
 	if generatedRuntimeMatrixSHA256 != pinnedCapabilityMatrixDigest {

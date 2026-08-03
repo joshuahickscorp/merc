@@ -55,13 +55,19 @@ func TestEngineAdmissionIsPairedToHardware(t *testing.T) {
 		{"candle", "apple_silicon_ultra", true},
 		{"vllm", "nvidia_80gb", true},
 		{"vllm", "nvidia_24gb", true},
+		{"sglang", "nvidia_80gb", true},
+		{"tensorrt_llm", "nvidia_48gb", true},
+		{"lmdeploy", "nvidia_24gb", true},
 
-		{"vllm", "apple_silicon_pro", false}, // no CUDA on Apple
-		{"candle", "nvidia_80gb", false},     // candle is not the CUDA path
-		{"vllm", "cpu", false},               // cpu is not an admitted class
-		{"tensorrt", "nvidia_80gb", false},   // engine not admitted
-		{"candle", "sun_sparc", false},       // hardware not admitted
-		{"", "", false},                      // empty admits nothing
+		{"vllm", "apple_silicon_pro", false},         // no CUDA on Apple
+		{"sglang", "apple_silicon_ultra", false},     // no CUDA on Apple
+		{"tensorrt_llm", "apple_silicon_pro", false}, // no CUDA on Apple
+		{"lmdeploy", "apple_silicon_max", false},     // no CUDA on Apple
+		{"candle", "nvidia_80gb", false},             // candle is not the CUDA path
+		{"vllm", "cpu", false},                       // cpu is not an admitted class
+		{"tensorrt", "nvidia_80gb", false},           // bare spelling not registered
+		{"candle", "sun_sparc", false},               // hardware not admitted
+		{"", "", false},                              // empty admits nothing
 		{"vllm", "'; DROP TABLE workers;", false},
 	}
 	for _, c := range cases {
