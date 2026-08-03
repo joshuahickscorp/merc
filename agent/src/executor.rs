@@ -569,11 +569,19 @@ impl LlamaBackend {
         self.generate_greedy(prompt, max_tokens)
     }
 
-    fn generate_greedy(
+    /// Greedy decode that invokes `on_token` after each decoded piece.
+    ///
+    /// Used by the OpenAI-HTTP shim so serving-matrix TTFT/ITL samples the real
+    /// token stream rather than a full-completion wall time.
+    pub fn generate_greedy_streaming<F>(
         &mut self,
         prompt: &str,
         max_tokens: u32,
-    ) -> Result<(String, usize), RunError> {
+        mut on_token: F,
+    ) -> Result<(String, usize), RunError>
+    where
+        F: FnMut(&str) -> Result<(), RunError>,
+    {
         let backend = "batch_infer";
         let wrapped = format!(
             "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|>\
@@ -619,6 +627,15 @@ impl LlamaBackend {
             }
             tokens.push(next);
             generated.push(next);
+            // Decode only the new id so the client sees incremental pieces
+            // (OpenAI SSE shape). Piece may be empty for multi-byte UTF-8 spans.
+            let piece = self
+                .tokenizer
+                .decode(&[next], true)
+                .map_err(infer_err(backend))?;
+            if !piece.is_empty() {
+                on_token(&piece)?;
+            }
         }
 
         let text = self
@@ -626,6 +643,14 @@ impl LlamaBackend {
             .decode(&generated, true)
             .map_err(infer_err(backend))?;
         Ok((text.trim().to_string(), generated.len()))
+    }
+
+    fn generate_greedy(
+        &mut self,
+        prompt: &str,
+        max_tokens: u32,
+    ) -> Result<(String, usize), RunError> {
+        self.generate_greedy_streaming(prompt, max_tokens, |_| Ok(()))
     }
 
     pub fn generate_batch(
