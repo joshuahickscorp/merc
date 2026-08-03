@@ -3,6 +3,12 @@
 Everything below needs a human, an account, paid infrastructure, or a decision
 that is not the code's to make. Nothing here can be closed by writing software.
 
+For the **readiness facet** specifically (current machine-derived **84/100**,
+which is the machine-reachable ceiling without staging/offsite/approvers), use
+the ordered operator checklist in `docs/FACET_EXTERNAL_ACTION_PACK.md`. This
+queue remains the broader external inventory for canary inputs and rename
+cutovers.
+
 Generated from measured probes, not from intent. Re-derive with:
 
 ```bash

@@ -153,8 +153,12 @@ no known open P0 defects and the whole customer path passes locally, but five
 proofs cannot be produced from a development workstation and none are done: an
 offsite backup upload and restore, a deployment to a real TLS staging host, a
 rollback rehearsal, the full Stripe test-mode money matrix, and a real alert page
-delivered to an on-call receiver. The decision is in
-[ops/go-no-go.json](ops/go-no-go.json), the detail in
+delivered to an on-call receiver. The machine-derived readiness facet is
+**84/100** — that is the **machine-reachable maximum** without staging, offsite
+storage, or human approvers, not a local shortfall. The remaining 16 points and
+the exact operator steps that close them are in
+[docs/FACET_EXTERNAL_ACTION_PACK.md](docs/FACET_EXTERNAL_ACTION_PACK.md). The
+decision is in [ops/go-no-go.json](ops/go-no-go.json), the detail in
 [RELEASE_READINESS.md](RELEASE_READINESS.md).
 
 What is and is not established:
