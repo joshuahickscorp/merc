@@ -1,6 +1,17 @@
 {
   "schema_version": 1,
   "kind": "exact_reuse_live_proof",
+  "binding_status": "SUPERSEDED",
+  "status": "superseded",
+  "superseded": true,
+  "superseded_by": "evidence/reuse/public-path-128-to-1.json",
+  "superseded_at": "2026-08-03",
+  "supersession_reasons": [
+    "batchExactReuseEnabled is compile-time false at control/exact_reuse_batch.go:21, so the batch path cannot settle a live cache hit in production",
+    "SubmitExactReuseBatchJob requires workload batch_infer (exact_reuse_batch.go:266) while this artifact described embed jobs",
+    "the historical batch identity build omitted TenantScope, which RequestIdentity.Compute refuses at control/exact_reuse.go:110-112, so the key is empty even if the flag were flipped",
+    "this artifact is not a current production receipt; the production-wired public-path proof is evidence/reuse/public-path-128-to-1.json"
+  ],
   "method": "two identical 2-record embed jobs submitted to a live merc, second after the first completed",
   "job_1": {
     "tasks": 2,
@@ -21,8 +32,7 @@
   },
   "reduction_factor": 125,
   "defect_found_and_fixed": "Before the floor, the reuse charge underflowed micro-USD to 0 on a small result. SubmitExactReuseBatchJob then correctly refused it ('must charge the buyer' -- reuse is cheaper, never free) and the caller silently fell back to executing live at FULL price. The cache was hit and the hit counter incremented while the buyer paid the undiscounted amount. The only trace was one log line.",
-  "note": "Verified end to end against a running control plane and a real Apple Silicon worker, not in a unit test. The ledger on the hit has no supplier_credit row at all: no supplier was scheduled and none was paid.",
-  "binding_status": "UNBOUND",
+  "note": "HISTORICAL ONLY. Retained as a defect record; do not credit reduction_factor from this artifact. The production-wired public-path proof is evidence/reuse/public-path-128-to-1.json (realtime exact reuse via POST /v1/chat/completions, tenant-scoped identity, integer nanos). batchExactReuseEnabled remains false.",
   "missing_identity_fields": [
     "source_commit",
     "build_digest",
