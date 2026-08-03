@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "kind": "heterogeneous_placement_principal",
+  "status": "REFUSED_STRUCTURAL",
+  "evidence_class": "REFUSAL",
+  "gate_passed": false,
+  "comparable": false,
+  "arms": {
+    "A": "fixed vLLM CUDA only — not runnable for catalogue embed/batch_infer on this tree",
+    "B": "fixed Metal only — catalogue embed+batch_infer only; no CUDA peer under same quality contract",
+    "C": "Merc Metal/CUDA per contract — ordinary admission has no multi-class choice to exercise"
+  },
+  "requested_mix": [
+    "latency-sensitive realtime",
+    "throughput batch inference",
+    "embeddings",
+    "one media/render workload if available"
+  ],
+  "intentional_duplicates": 0,
+  "blockers": [
+    {
+      "id": "ordinary_admission_is_singleton",
+      "detail": "runtimeCapabilityForBindingDirected freezes exactly one advertised cell per (job type, model). Competing engines (including every CUDA batch_infer cell) exist only as DRAFT or directed; the shadow selector scores them but does not route ordinary buyer traffic. Multi-candidate production selection requires the engine tournament and is not live on this tree.",
+      "refs": [
+        "control/workload_classification.go:runtimeCapabilityForBindingDirected",
+        "control/runtime_shadow_selection.go",
+        "docs/RUNTIME_MATRIX.md"
+      ]
+    },
+    {
+      "id": "no_routable_cuda_batch_or_embed_cell",
+      "detail": "vllm_cuda profile is DRAFT with cell lifecycle unset; sglang/tensorrt/lmdeploy batch_infer cells are DRAFT. No CUDA embed cell exists at all. Arm A cannot serve the catalogue embed or batch_infer contracts through ordinary Merc admission, and Arm C cannot place those contracts on CUDA.",
+      "vllm_cuda_cells": [
+        {
+          "runtime_id": "vllm_cuda",
+          "cell_id": "vllm-cuda-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "lifecycle": null,
+          "cloud_backed": true,
+          "engine": "vllm",
+          "device": "cuda"
+        }
+      ],
+      "cuda_batch_infer_cells": [
+        {
+          "runtime_id": "vllm_cuda",
+          "cell_id": "vllm-cuda-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "lifecycle": null,
+          "cloud_backed": true,
+          "engine": "vllm",
+          "device": "cuda"
+        },
+        {
+          "runtime_id": "sglang_cuda",
+          "cell_id": "sglang-cuda-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "lifecycle": "DRAFT",
+          "cloud_backed": true,
+          "engine": "sglang",
+          "device": "cuda"
+        },
+        {
+          "runtime_id": "tensorrt_llm_cuda",
+          "cell_id": "tensorrt-llm-cuda-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "lifecycle": "DRAFT",
+          "cloud_backed": true,
+          "engine": "tensorrt_llm",
+          "device": "cuda"
+        },
+        {
+          "runtime_id": "lmdeploy_cuda",
+          "cell_id": "lmdeploy-cuda-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "lifecycle": "DRAFT",
+          "cloud_backed": true,
+          "engine": "lmdeploy",
+          "device": "cuda"
+        }
+      ],
+      "cuda_embed_cells": []
+    },
+    {
+      "id": "advertised_surface_is_metal_only",
+      "detail": "The advertised/bindable surface is candle_metal only (embed + batch_infer after r3/r4 seal). Tests pin advertisedRuntimeCapabilities() == 2 and both on candle_metal. No Metal+CUDA choice is available to ordinary placement for any batch job.",
+      "active_candle_jobs": [
+        "batch_infer",
+        "embed"
+      ]
+    },
+    {
+      "id": "media_not_ordinary_routable",
+      "detail": "media_transcode and media_rendering cells are CANARY and fail the cell-authority bindable predicate (source commit / harness identity). Constraint forbids promotion. The optional media/render class of the mix is unavailable.",
+      "media_cells": [
+        {
+          "runtime_id": "candle_metal",
+          "cell_id": "candle-metal-ffmpeg-transcode",
+          "job": "media_transcode",
+          "model": "ffmpeg-transcode-v1",
+          "lifecycle": "CANARY",
+          "cloud_backed": false,
+          "engine": "candle",
+          "device": "metal"
+        },
+        {
+          "runtime_id": "candle_metal",
+          "cell_id": "candle-metal-scene-render",
+          "job": "media_rendering",
+          "model": "svg-scene-render-v1",
+          "lifecycle": "CANARY",
+          "cloud_backed": false,
+          "engine": "candle",
+          "device": "metal"
+        }
+      ]
+    },
+    {
+      "id": "shape_routing_off_and_unproven",
+      "detail": "MERC_SHAPE_AWARE_ROUTING defaults off. Comments state no bound matched-weight Metal-versus-CUDA crossover exists; enabling it would redirect money on a speculative heuristic. Even when on, shapeOrderSQL only reorders claim among workers already authorized for the frozen cell — it cannot route a candle_metal cell to a CUDA worker.",
+      "refs": [
+        "control/shape_routing.go",
+        "control/scheduler.go:ClaimTaskSQL"
+      ]
+    },
+    {
+      "id": "realtime_clearing_not_shape_aware",
+      "detail": "Realtime offer selection ranks verified-outcome cost first, then warmth as a tiebreak inside a cost class (realtime_store.go). It does not map interactive vs throughput request shape onto Metal vs CUDA. Dual realtime offers (local Metal engine + RunPod vLLM) would still not implement 'select Metal/CUDA per contract' for the stated mix, and Metal Q4 vs CUDA bf16 is a different quality contract.",
+      "refs": [
+        "control/realtime_store.go (authorize select offer SQL)",
+        "control/runtime-profiles/vllm-llama-3.2-1b-instruct-bf16.json"
+      ]
+    },
+    {
+      "id": "quality_contract_mismatch_metal_q4_vs_cuda_bf16",
+      "detail": "Catalogue Metal generation is llama-3.2-1b-instruct-q4 (GGUF Q4_K_M). Catalogue vLLM realtime profile is unsloth/Llama-3.2-1B-Instruct bf16. Claim standard forbids comparing across different quality contracts. historical routing-crossover.json is UNBOUND and compared dissimilar models/precisions by its own caveat."
+    }
+  ],
+  "measured_arms": null,
+  "aggregate": null,
+  "deadline_failures": null,
+  "verdict": {
+    "c_beats_a_and_b_across_mix": null,
+    "confidence": "n/a — experiment not run",
+    "blunt": "The heterogeneous placement thesis cannot be measured on this tree. Ordinary admission freezes a Metal-only singleton; CUDA generation is DRAFT; no CUDA embed exists; media is not routable; realtime clearing is not shape-aware; and Metal Q4 vs CUDA bf16 is not the same quality contract. This is a structural negative for shippability of the thesis, not a measured win or loss on the mix."
+  },
+  "money": {
+    "spent_usd_this_receipt": 0.0,
+    "spend_receipts": [],
+    "note": "No pod was created by this harness. Governed experiment was not entered."
+  },
+  "does_not_prove": [
+    "that Merc heterogeneous placement beats or loses to a fixed CUDA or fixed Metal deployment on a mixed workload",
+    "cost per verified outcome, throughput-inside-SLA, or energy per verified outcome for arms A/B/C",
+    "deadline failure rates under concurrent Metal+CUDA supply",
+    "that enabling MERC_SHAPE_AWARE_ROUTING would improve outcomes (flag remains off; no matched-weight authority)",
+    "anything about media/render placement (cells not ordinary-routable)",
+    "that the historical UNBOUND routing-crossover.json is a live placement authority"
+  ],
+  "limitations": [
+    "Refusal is derived from repository authority and code paths on this commit, not from a live multi-supply run.",
+    "A concurrent RunPod process owned by another lane may be billing; this receipt does not attribute that spend.",
+    "batch_infer is sellable on Metal after r3/r4, which is necessary but not sufficient for the three-arm mix."
+  ],
+  "what_would_unblock": [
+    "A BOUND, ordinary-routable CUDA cell for the same quality contract as Metal generation (or a directed multi-candidate production path that is not shadow-only).",
+    "A CUDA (or shared-quality) embed path under the same contract as candle-metal-minilm-embed, or an explicit decision to drop embed from the mix with a revised claim.",
+    "Realtime or batch selection that maps contract shape (latency vs throughput) onto hw_class, measured under matched weights/precision.",
+    "Media cells that clear the cell-authority bindable predicate if media remains in the mix.",
+    "Only then: governed runpod-vllm.sh experiment with Metal agent + CUDA supply concurrent, zero intentional duplicates, deadline contracts identical across arms."
+  ],
+  "producer_identity": {
+    "source_commit": {
+      "value": "629f87682eaf4bf7026420883a34a4a62c909892"
+    },
+    "build_digest": {
+      "value": "83b4b90d045dfb408881ef0c58796fe45198bf04fddd5ebd281136f896789e77"
+    },
+    "model_artifact_digest": {
+      "na": "no model weights in this refusal"
+    },
+    "image_digest": {
+      "na": "no container image in this refusal"
+    },
+    "harness_revision": {
+      "value": "scripts/heterogeneous-placement-drive.sh"
+    },
+    "corpus_digest": {
+      "na": "no external corpus in this refusal"
+    },
+    "exact_config": {
+      "value": "MERC_HETERO_PLACEMENT=1 mode=check structural precondition refusal; no pods created"
+    },
+    "raw_samples": {
+      "value": "none — experiment refused before measurement"
+    }
+  },
+  "binding_status": "BOUND"
+}
