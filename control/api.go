@@ -39,6 +39,11 @@ type Server struct {
 	signupLimiter      *rateLimiter
 	canary             CanaryPolicy
 	realtimeHTTPClient *http.Client
+	// arrivalBatcher groups compatible realtime admits before the upstream
+	// forward so a continuous-batching engine sees coherent arrivals. Nil or
+	// disabled is a pure bypass: every request forwards alone. Billing never
+	// consults it.
+	arrivalBatcher *ArrivalBatcher
 }
 
 func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout) *Server {
@@ -51,6 +56,10 @@ func NewServer(store *Store, storage *Storage, verifier *Verifier, payout Payout
 		signupLimiter:      newRateLimiter(signupsPerIPPerDay/86400.0, signupsPerIPPerDay),
 		canary:             loadCanaryPolicyFromEnv(),
 		realtimeHTTPClient: newRealtimeHTTPClient(),
+		// Arrival batching is on by default with class-derived join windows.
+		// Measurement harnesses may replace this with Enabled:false or a fixed
+		// JoinWindow. See traffic_class.go for how the windows are derived.
+		arrivalBatcher: NewArrivalBatcher(ArrivalBatchConfig{Enabled: true}),
 	}
 }
 
