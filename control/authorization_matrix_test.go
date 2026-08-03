@@ -119,7 +119,13 @@ func TestAuthorizationMatrixProtectedRoutesRejectAnonymousAndWrongCredentialName
 	// until someone ran SQL against production. The route resolves a terminal
 	// dispute and records who did it and on what basis; it cannot open one, and
 	// it cannot move money except by unblocking a payout the ledger already owed.
-	if checked != 99 {
-		t.Fatalf("checked %d protected routes, want 99", checked)
+	// 101 after the two buyer-owned execution-envelope routes entered the matrix.
+	// They were registered through authBuyer at api.go:151-152 and had been taking
+	// buyer traffic while absent from the reviewed inventory, so nobody had
+	// decided what each role may do with them. Listing them puts them under this
+	// exhaustive anonymous/wrong-namespace check like every other buyer route;
+	// neither can create or move money outside the envelope's own bounded cap.
+	if checked != 101 {
+		t.Fatalf("checked %d protected routes, want 101", checked)
 	}
 }
