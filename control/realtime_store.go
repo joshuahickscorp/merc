@@ -699,119 +699,16 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	// a tiebreak inside a cost class. Self-declared HOT cannot outrank a
 	// materially cheaper measured cost — the same discipline as batch claim
 	// (scheduler.go: cost rank wins; warmth breaks ties within a class).
-	err = tx.QueryRow(ctx, `
-		WITH supplier_outcomes AS (
-			SELECT supplier_id,
-			       count(*) FILTER (WHERE state IN ('VERIFIED','FAILED'))::int AS terminal_attempts,
-			       count(*) FILTER (WHERE state = 'FAILED')::int AS terminal_fails
-			  FROM execution_contracts
-			 WHERE runtime_profile_id = $1
-			 GROUP BY supplier_id
-		), supplier_refunds AS (
-			SELECT c.supplier_id,
-			       count(*)::int AS verified_settlements,
-			       count(r.id)::int AS refund_count
-			  FROM execution_contracts c
-			  JOIN realtime_settlements s ON s.contract_id = c.id
-			  LEFT JOIN realtime_refunds r ON r.contract_id = c.id
-			 WHERE c.runtime_profile_id = $1 AND c.state = 'VERIFIED'
-			 GROUP BY c.supplier_id
-		), candidates AS (
-			SELECT c.worker_id,c.runtime_profile_id,c.supplier_id,c.upstream_base_url,
-			       c.upstream_token_sealed,c.supplier_input_usd_per_million_tokens::float8 AS supplier_input,
-			       c.supplier_output_usd_per_million_tokens::float8 AS supplier_output,
-			       c.placement_plan,c.placement_plan_sha256,c.warmth,
-			       COALESCE(o.terminal_attempts,0)::int AS terminal_attempts,
-			       COALESCE(o.terminal_fails,0)::int AS terminal_fails,
-			       COALESCE(rf.verified_settlements,0)::int AS verified_settlements,
-			       COALESCE(rf.refund_count,0)::int AS refund_count,
-			       -- verified_outcome_cost: base ask, then divide by delivered and
-			       -- kept rates when measured (same arithmetic as
-			       -- ExpectedVerifiedOutcomeUSDPerUnit). Unmeasured rates leave the
-			       -- base ask unchanged rather than inventing a coefficient.
-			       (
-			         (c.supplier_input_usd_per_million_tokens + c.supplier_output_usd_per_million_tokens)
-			         * CASE
-			             WHEN COALESCE(o.terminal_attempts,0) >= $5
-			              AND COALESCE(o.terminal_fails,0) >= o.terminal_attempts
-			             THEN 1e12::numeric
-			             WHEN COALESCE(o.terminal_attempts,0) >= $5
-			              AND COALESCE(o.terminal_fails,0) < o.terminal_attempts
-			             THEN o.terminal_attempts::numeric
-			                  / (o.terminal_attempts - o.terminal_fails)::numeric
-			             ELSE 1::numeric
-			           END
-			         * CASE
-			             WHEN COALESCE(rf.verified_settlements,0) >= $5
-			              AND COALESCE(rf.refund_count,0) >= rf.verified_settlements
-			             THEN 1e12::numeric
-			             WHEN COALESCE(rf.verified_settlements,0) >= $5
-			              AND COALESCE(rf.refund_count,0) < rf.verified_settlements
-			             THEN rf.verified_settlements::numeric
-			                  / (rf.verified_settlements - rf.refund_count)::numeric
-			             ELSE 1::numeric
-			           END
-			       ) AS verified_outcome_cost,
-			       count(*) OVER ()::int AS candidate_count,
-			       row_number() OVER (ORDER BY
-			         (
-			           (c.supplier_input_usd_per_million_tokens + c.supplier_output_usd_per_million_tokens)
-			           * CASE
-			               WHEN COALESCE(o.terminal_attempts,0) >= $5
-			                AND COALESCE(o.terminal_fails,0) >= o.terminal_attempts
-			               THEN 1e12::numeric
-			               WHEN COALESCE(o.terminal_attempts,0) >= $5
-			                AND COALESCE(o.terminal_fails,0) < o.terminal_attempts
-			               THEN o.terminal_attempts::numeric
-			                    / (o.terminal_attempts - o.terminal_fails)::numeric
-			               ELSE 1::numeric
-			             END
-			           * CASE
-			               WHEN COALESCE(rf.verified_settlements,0) >= $5
-			                AND COALESCE(rf.refund_count,0) >= rf.verified_settlements
-			               THEN 1e12::numeric
-			               WHEN COALESCE(rf.verified_settlements,0) >= $5
-			                AND COALESCE(rf.refund_count,0) < rf.verified_settlements
-			               THEN rf.verified_settlements::numeric
-			                    / (rf.verified_settlements - rf.refund_count)::numeric
-			               ELSE 1::numeric
-			             END
-			         ) ASC,
-			         CASE c.warmth WHEN 'HOT' THEN 0 WHEN 'WARM' THEN 1 WHEN 'CACHED' THEN 2 ELSE 3 END,
-			         c.available_sequences DESC, c.last_seen_at DESC, c.worker_id ASC)::int AS selected_rank
-			  FROM realtime_worker_offers c
-			  JOIN suppliers s ON s.id = c.supplier_id
-			  LEFT JOIN supplier_outcomes o ON o.supplier_id = c.supplier_id
-			  LEFT JOIN supplier_refunds rf ON rf.supplier_id = c.supplier_id
-			 WHERE c.runtime_profile_id=$1 AND c.runtime_profile_sha256=$2
-			   AND c.status='ACTIVE' AND c.available_sequences > 0
-			   AND c.last_seen_at > now()-interval '45 seconds'
-			   AND s.status='active' AND s.quarantined_at IS NULL
-			   AND c.supplier_input_usd_per_million_tokens <= $3
-			   AND c.supplier_output_usd_per_million_tokens <= $4
-		), chosen AS (
-			SELECT * FROM candidates WHERE selected_rank=1
-		), updated AS (
-			UPDATE realtime_worker_offers o
-			   SET available_sequences = o.available_sequences - 1, updated_at = now()
-			  FROM chosen c
-			 WHERE o.worker_id = c.worker_id AND o.runtime_profile_id = c.runtime_profile_id
-			   AND o.available_sequences > 0
-			 RETURNING o.worker_id,o.supplier_id,o.upstream_base_url,o.upstream_token_sealed,
-			           o.supplier_input_usd_per_million_tokens::float8,
-			           o.supplier_output_usd_per_million_tokens::float8,
-			           o.placement_plan,o.placement_plan_sha256,o.warmth,
-			           c.candidate_count,c.selected_rank,
-			           c.terminal_attempts,c.terminal_fails,
-			           c.verified_settlements,c.refund_count
-		)
-		SELECT worker_id,supplier_id,upstream_base_url,upstream_token_sealed,
-		       supplier_input_usd_per_million_tokens::float8,
-		       supplier_output_usd_per_million_tokens::float8,
-		       placement_plan,placement_plan_sha256,warmth,
-		       candidate_count,selected_rank,
-		       terminal_attempts,terminal_fails,verified_settlements,refund_count
-		  FROM updated`,
+	//
+	// Reputation inputs come from realtime_supplier_outcome_stats, maintained
+	// incrementally by triggers when contracts reach VERIFIED/FAILED and when
+	// settlements/refunds are written. The previous per-request full-table
+	// aggregate over execution_contracts scaled with history and dominated
+	// admission latency under concurrency; a covering index did not help
+	// because a single-profile deployment selects every row. Reads are a PK
+	// lookup. Money (buyer charge / supplier payable) still comes only from
+	// the selected offer rates and PricingDecision — never from these counters.
+	err = tx.QueryRow(ctx, realtimeAuthorizeSelectOfferSQL,
 		auth.Profile.RuntimeProfileID, auth.Profile.ProfileSHA256,
 		auth.Profile.BuyerInputUSDPerMillionTokens, auth.Profile.BuyerOutputUSDPerMillionTokens,
 		minRealtimeOutcomeSamples).

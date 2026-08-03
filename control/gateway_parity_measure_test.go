@@ -79,7 +79,8 @@ func TestGatewayParityAgainstRealEngine(t *testing.T) {
 	for attempt := 0; attempt < 8; attempt++ {
 		_, resetErr = pool.Exec(ctx, `TRUNCATE
 			realtime_authorization_events, realtime_settlements, realtime_executions,
-			realtime_refunds, execution_contracts, realtime_worker_offers
+			realtime_refunds, execution_contracts, realtime_worker_offers,
+			realtime_supplier_outcome_stats
 			RESTART IDENTITY CASCADE`)
 		if resetErr == nil {
 			break
