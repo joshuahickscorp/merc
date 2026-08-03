@@ -30,7 +30,7 @@
     "merc_chain": "no task, verification, settlement or receipt path exercised",
     "quantization_sweep": "only F16 tested; Q4 and below may not clear 0.999"
   },
-  "binding_status": "UNBOUND",
+  "binding_status": "SUPERSEDED",
   "missing_identity_fields": [
     "build_digest",
     "model_artifact_digest",
@@ -39,5 +39,17 @@
     "corpus_digest",
     "exact_config",
     "raw_samples"
-  ]
+  ],
+  "validity": "SUPERSEDED",
+  "superseded": true,
+  "superseded_at": "2026-08-03",
+  "superseded_by": [
+    "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json (r2.quality re-measures cosine gate; BOUND)"
+  ],
+  "supersession_reasons": [
+    "UNBOUND: missing build_digest, model_artifact_digest, image_digest, harness_revision, corpus_digest, exact_config, raw_samples",
+    "cosine quality is re-measured and recorded under r2.quality (min_cosine>=0.999 passes)",
+    "retained as historical gate proof; not a binding authority for routing"
+  ],
+  "superseded_note": "HISTORICAL ONLY. Quality gate result is preserved inside r2.quality. Superseded by embed-cell-candle-vs-llama-cpp-r2.json."
 }
