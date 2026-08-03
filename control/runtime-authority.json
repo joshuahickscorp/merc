@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "matrix_version": "2026-08-02.11",
+  "matrix_version": "2026-08-02.12",
   "engines": [
     {
       "engine": "candle",
@@ -17,6 +17,18 @@
     {
       "engine": "vllm",
       "adapter": "merc-vllm"
+    },
+    {
+      "engine": "sglang",
+      "adapter": "merc-sglang"
+    },
+    {
+      "engine": "tensorrt_llm",
+      "adapter": "merc-tensorrt-llm"
+    },
+    {
+      "engine": "lmdeploy",
+      "adapter": "merc-lmdeploy"
     }
   ],
   "models": [
@@ -422,6 +434,165 @@
           "runner": "batch_infer",
           "min_memory_gb": 4,
           "verification": "byte_exact",
+          "cloud_backed": true
+        }
+      ]
+    },
+    {
+      "runtime_id": "sglang_cuda",
+      "revision": "r1",
+      "superseded_by": "",
+      "engine": "sglang",
+      "engine_revision": "",
+      "tokenizer_revision": "",
+      "chat_template_id": "llama-3.2-instruct",
+      "source_identity": "control/runtime-authority.json",
+      "adapter": "merc-sglang",
+      "lifecycle": "DRAFT",
+      "device": "cuda",
+      "hardware": {
+        "platforms": [
+          "nvidia_24gb",
+          "nvidia_48gb",
+          "nvidia_80gb"
+        ],
+        "device_count": {
+          "minimum": 1,
+          "maximum": 1
+        }
+      },
+      "parallelism": {
+        "continuous_batching": false,
+        "tensor_parallel": false,
+        "pipeline_parallel": false,
+        "data_parallel": false
+      },
+      "capabilities": {
+        "streaming": false,
+        "prefix_cache": false,
+        "speculation": false
+      },
+      "benchmark_authority": "",
+      "quality_tier": "UNPROVEN",
+      "evidence": [
+        "docs/EXECUTION_FRONTIER_LANE.md"
+      ],
+      "cells": [
+        {
+          "id": "sglang-cuda-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "runner": "batch_infer",
+          "min_memory_gb": 4,
+          "verification": "byte_exact",
+          "lifecycle": "DRAFT",
+          "quality_tier": "UNPROVEN",
+          "cloud_backed": true
+        }
+      ]
+    },
+    {
+      "runtime_id": "tensorrt_llm_cuda",
+      "revision": "r1",
+      "superseded_by": "",
+      "engine": "tensorrt_llm",
+      "engine_revision": "",
+      "tokenizer_revision": "",
+      "chat_template_id": "llama-3.2-instruct",
+      "source_identity": "control/runtime-authority.json",
+      "adapter": "merc-tensorrt-llm",
+      "lifecycle": "DRAFT",
+      "device": "cuda",
+      "hardware": {
+        "platforms": [
+          "nvidia_24gb",
+          "nvidia_48gb",
+          "nvidia_80gb"
+        ],
+        "device_count": {
+          "minimum": 1,
+          "maximum": 1
+        }
+      },
+      "parallelism": {
+        "continuous_batching": false,
+        "tensor_parallel": false,
+        "pipeline_parallel": false,
+        "data_parallel": false
+      },
+      "capabilities": {
+        "streaming": false,
+        "prefix_cache": false,
+        "speculation": false
+      },
+      "benchmark_authority": "",
+      "quality_tier": "UNPROVEN",
+      "evidence": [
+        "docs/EXECUTION_FRONTIER_LANE.md"
+      ],
+      "cells": [
+        {
+          "id": "tensorrt-llm-cuda-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "runner": "batch_infer",
+          "min_memory_gb": 4,
+          "verification": "byte_exact",
+          "lifecycle": "DRAFT",
+          "quality_tier": "UNPROVEN",
+          "cloud_backed": true
+        }
+      ]
+    },
+    {
+      "runtime_id": "lmdeploy_cuda",
+      "revision": "r1",
+      "superseded_by": "",
+      "engine": "lmdeploy",
+      "engine_revision": "",
+      "tokenizer_revision": "",
+      "chat_template_id": "llama-3.2-instruct",
+      "source_identity": "control/runtime-authority.json",
+      "adapter": "merc-lmdeploy",
+      "lifecycle": "DRAFT",
+      "device": "cuda",
+      "hardware": {
+        "platforms": [
+          "nvidia_24gb",
+          "nvidia_48gb",
+          "nvidia_80gb"
+        ],
+        "device_count": {
+          "minimum": 1,
+          "maximum": 1
+        }
+      },
+      "parallelism": {
+        "continuous_batching": false,
+        "tensor_parallel": false,
+        "pipeline_parallel": false,
+        "data_parallel": false
+      },
+      "capabilities": {
+        "streaming": false,
+        "prefix_cache": false,
+        "speculation": false
+      },
+      "benchmark_authority": "",
+      "quality_tier": "UNPROVEN",
+      "evidence": [
+        "docs/EXECUTION_FRONTIER_LANE.md"
+      ],
+      "cells": [
+        {
+          "id": "lmdeploy-cuda-llama1-infer",
+          "job": "batch_infer",
+          "model": "llama-3.2-1b-instruct-q4",
+          "runner": "batch_infer",
+          "min_memory_gb": 4,
+          "verification": "byte_exact",
+          "lifecycle": "DRAFT",
+          "quality_tier": "UNPROVEN",
           "cloud_backed": true
         }
       ]
