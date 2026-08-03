@@ -868,6 +868,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	envelopeID, err := parseEnvelopeIDHeader(r)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error", "invalid_envelope")
+		return
+	}
 	stage = time.Now()
 	contract, replay, err := s.store.AuthorizeRealtimeContract(r.Context(), RealtimeContractAuthorization{
 		RequestID: requestID, BuyerID: auth.BuyerID, Profile: prepared.Profile,
@@ -879,9 +884,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		EstimatedCompletionTokens: prepared.EstimatedCompletionTokens,
 		BuyerDeclaredCeilingUSD:   prepared.MaxPriceCeiling,
 		DeadlineAt:                time.Now().Add(defaultRealtimeTimeout), IdempotencyKey: idempotencyKey,
+		EnvelopeID: envelopeID,
 	})
 	pathTiming.mark("authorize_contract", stage)
-	if errors.Is(err, errRealtimeIdempotencyConflict) {
+	if errors.Is(err, errRealtimeIdempotencyConflict) || errors.Is(err, errEnvelopeIdempotencyConflict) {
 		writeOpenAIError(w, http.StatusConflict, err.Error(), "invalid_request_error", "idempotency_conflict")
 		return
 	}
@@ -891,10 +897,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusServiceUnavailable, "no compatible realtime capacity is currently available", "server_error", "no_capacity")
 		return
 	}
-	if errors.Is(err, errRealtimeInsufficientFunds) || errors.Is(err, errRealtimeTopupRequired) {
+	if errors.Is(err, errRealtimeInsufficientFunds) || errors.Is(err, errRealtimeTopupRequired) ||
+		errors.Is(err, errEnvelopeInsufficient) || errors.Is(err, errEnvelopeExpired) ||
+		errors.Is(err, errEnvelopeCeilingExceeded) {
 		s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
 			"", realtimeAdmissionInsufficient, uuid.Nil)
 		writeOpenAIError(w, http.StatusPaymentRequired, err.Error(), "insufficient_quota", "insufficient_quota")
+		return
+	}
+	if errors.Is(err, errEnvelopeScopeMismatch) || errors.Is(err, errEnvelopeNotFound) {
+		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error", "invalid_envelope")
 		return
 	}
 	if err != nil {

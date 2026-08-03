@@ -6312,3 +6312,85 @@ CREATE INDEX IF NOT EXISTS claim_independence_exclusions_job_idx
     ON claim_independence_exclusions (job_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS claim_independence_exclusions_supplier_idx
     ON claim_independence_exclusions (supplier_id, created_at DESC);
+
+-- ── execution envelopes (pre-authorized buyer spend grants) ──────────────────
+-- A bounded durable grant that amortizes the full buyer-funding transaction
+-- across many realtime requests. Cap is reserved against the buyer's available
+-- balance at create; concurrent spends are one atomic UPDATE on this row with
+-- no transaction-scoped lock held across the upstream call.
+CREATE TABLE IF NOT EXISTS execution_envelopes (
+    id                           UUID PRIMARY KEY,
+    buyer_id                     UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    currency                     TEXT NOT NULL,
+    cap_nanos                    BIGINT NOT NULL CHECK (cap_nanos > 0),
+    spent_nanos                  BIGINT NOT NULL DEFAULT 0 CHECK (spent_nanos >= 0),
+    reserved_nanos               BIGINT NOT NULL DEFAULT 0 CHECK (reserved_nanos >= 0),
+    max_requests                 BIGINT NOT NULL CHECK (max_requests > 0),
+    request_count                BIGINT NOT NULL DEFAULT 0 CHECK (request_count >= 0),
+    max_tokens                   BIGINT NOT NULL DEFAULT 0 CHECK (max_tokens >= 0),
+    token_count                  BIGINT NOT NULL DEFAULT 0 CHECK (token_count >= 0),
+    per_request_ceiling_nanos    BIGINT NOT NULL CHECK (per_request_ceiling_nanos > 0),
+    runtime_profile_id           TEXT NOT NULL,
+    runtime_profile_sha256       TEXT NOT NULL CHECK (runtime_profile_sha256 ~ '^[0-9a-f]{64}$'),
+    model_alias                  TEXT NOT NULL CHECK (btrim(model_alias) <> ''),
+    expires_at                   TIMESTAMPTZ NOT NULL,
+    state                        TEXT NOT NULL CHECK (state IN ('ACTIVE','EXPIRED','CLOSED')),
+    version                      BIGINT NOT NULL DEFAULT 0 CHECK (version >= 0),
+    authority                    JSONB NOT NULL,
+    authority_sha256             TEXT NOT NULL CHECK (authority_sha256 ~ '^[0-9a-f]{64}$'),
+    created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    closed_at                    TIMESTAMPTZ,
+    updated_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (spent_nanos + reserved_nanos <= cap_nanos),
+    CHECK (request_count <= max_requests),
+    CHECK (per_request_ceiling_nanos <= cap_nanos),
+    CHECK (max_tokens = 0 OR token_count <= max_tokens),
+    CHECK ((state = 'ACTIVE') = (closed_at IS NULL))
+);
+CREATE INDEX IF NOT EXISTS execution_envelopes_buyer_state_idx
+    ON execution_envelopes (buyer_id, state, expires_at);
+CREATE INDEX IF NOT EXISTS execution_envelopes_expiry_idx
+    ON execution_envelopes (expires_at)
+    WHERE state = 'ACTIVE';
+
+-- One spend attempt against an envelope. Idempotent on (envelope, key).
+-- RESERVED holds capacity through the upstream call; CAPTURED/RELEASED/VOIDED
+-- are terminal. Append-only transitions via UPDATE of state only.
+CREATE TABLE IF NOT EXISTS execution_envelope_spends (
+    id                  UUID PRIMARY KEY,
+    envelope_id         UUID NOT NULL REFERENCES execution_envelopes(id) ON DELETE RESTRICT,
+    buyer_id            UUID NOT NULL REFERENCES buyers(id) ON DELETE RESTRICT,
+    idempotency_key     TEXT NOT NULL CHECK (btrim(idempotency_key) <> ''),
+    request_id          TEXT NOT NULL DEFAULT '',
+    contract_id         UUID REFERENCES execution_contracts(id) ON DELETE RESTRICT,
+    state               TEXT NOT NULL CHECK (state IN ('RESERVED','CAPTURED','RELEASED','VOIDED')),
+    reserved_nanos      BIGINT NOT NULL CHECK (reserved_nanos > 0),
+    captured_nanos      BIGINT NOT NULL DEFAULT 0 CHECK (captured_nanos >= 0),
+    reserved_tokens     BIGINT NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+    captured_tokens     BIGINT NOT NULL DEFAULT 0 CHECK (captured_tokens >= 0),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finalized_at        TIMESTAMPTZ,
+    UNIQUE (envelope_id, idempotency_key),
+    CHECK (
+      (state = 'RESERVED' AND finalized_at IS NULL AND captured_nanos = 0) OR
+      (state = 'CAPTURED' AND finalized_at IS NOT NULL AND captured_nanos > 0 AND captured_nanos <= reserved_nanos) OR
+      (state IN ('RELEASED','VOIDED') AND finalized_at IS NOT NULL AND captured_nanos = 0)
+    )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS execution_envelope_spends_contract_uidx
+    ON execution_envelope_spends (contract_id)
+    WHERE contract_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS execution_envelope_spends_envelope_state_idx
+    ON execution_envelope_spends (envelope_id, state);
+
+CREATE TABLE IF NOT EXISTS execution_envelope_events (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    envelope_id  UUID NOT NULL REFERENCES execution_envelopes(id) ON DELETE RESTRICT,
+    kind         TEXT NOT NULL CHECK (kind IN (
+                    'CREATED','SPEND_RESERVED','SPEND_CAPTURED','SPEND_RELEASED',
+                    'SPEND_VOIDED','EXPIRED','CLOSED')),
+    detail       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS execution_envelope_events_envelope_idx
+    ON execution_envelope_events (envelope_id, created_at, id);

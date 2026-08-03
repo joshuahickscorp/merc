@@ -50,7 +50,7 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 	}
 	var (
 		freeCredit, spent, prepaidDebited, batchReserved, realtimeReserved float64
-		prepaidMicros                                                      int64
+		prepaidMicros, envelopeRemainingMicros                             int64
 		hasPaymentMethod                                                   bool
 	)
 	err := tx.QueryRow(ctx, `
@@ -66,10 +66,20 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 		                 WHERE le.buyer_id=b.id AND le.kind='prepaid_debit'),0)::float8,
 		       COALESCE((SELECT sum(j.estimated_usd) FROM jobs j
 		                 WHERE j.buyer_id=b.id AND j.status IN ('queued','running','verifying')),0)::float8,
+		       -- Envelope-funded EXECUTING contracts are already reserved on the
+		       -- envelope (cap - spent). Counting them again here would double-hold.
 		       COALESCE((SELECT sum(c.maximum_price_usd) FROM execution_contracts c
-		                 WHERE c.buyer_id=b.id AND c.state='EXECUTING'),0)::float8
+		                 WHERE c.buyer_id=b.id AND c.state='EXECUTING'
+		                   AND NOT EXISTS (
+		                     SELECT 1 FROM execution_envelope_spends s
+		                      WHERE s.contract_id=c.id
+		                   )),0)::float8,
+		       COALESCE((SELECT SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000)
+		                   FROM execution_envelopes e
+		                  WHERE e.buyer_id=b.id AND e.state='ACTIVE'),0)::bigint
 		  FROM buyers b WHERE b.id=$1 AND b.deleted_at IS NULL FOR UPDATE`, buyerID).
-		Scan(&freeCredit, &hasPaymentMethod, &prepaidMicros, &spent, &prepaidDebited, &batchReserved, &realtimeReserved)
+		Scan(&freeCredit, &hasPaymentMethod, &prepaidMicros, &spent, &prepaidDebited,
+			&batchReserved, &realtimeReserved, &envelopeRemainingMicros)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNotFound
 	}
@@ -84,7 +94,8 @@ func evaluateRealtimeBuyerFunding(ctx context.Context, tx pgx.Tx, buyerID uuid.U
 	}
 	availableMicros := usdToMicros(freeCredit) + prepaidMicros -
 		usdToMicros(spent) + usdToMicros(prepaidDebited) -
-		usdToMicros(batchReserved) - usdToMicros(realtimeReserved)
+		usdToMicros(batchReserved) - usdToMicros(realtimeReserved) -
+		envelopeRemainingMicros
 	if availableMicros >= needMicros {
 		return nil
 	}
@@ -201,6 +212,12 @@ type RealtimeContractAuthorization struct {
 	// makes the physical source of a zero-physical settlement durable and lets
 	// the receipt distinguish an avoided entitlement from true net contribution.
 	CoalescedLeaderContractID uuid.UUID
+	// EnvelopeID, when set, funds this authorization from a pre-reserved
+	// execution envelope instead of re-running evaluateRealtimeBuyerFunding.
+	// The envelope's cap was already reserved against the buyer at create; this
+	// path only atomically spends the envelope. Supplier selection and the
+	// per-request PricingDecision are unchanged.
+	EnvelopeID uuid.UUID
 }
 
 func (s *Store) UpsertRealtimeOffer(ctx context.Context, worker WorkerAuth, registration RealtimeOfferRegistration) error {
@@ -650,12 +667,77 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			return RealtimeContract{}, false, err
 		}
 	}
-	// Serialize balance authorization on the buyer row. The execution contract
-	// and RESERVED event are the maximum-cost reservation, so concurrent
-	// requests cannot each spend the same free-credit/prepaid pool. A saved
-	// payment method is a top-up rail only — never admission funding.
-	if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, auth.MaximumPriceUSD); err != nil {
-		return RealtimeContract{}, false, err
+	// Funding: either spend a pre-authorized envelope (amortized path) or run
+	// the full buyer-funding critical section (legacy per-request path).
+	// Envelope spends are one atomic UPDATE on the envelope row; they do not
+	// take the buyer advisory funding lock and must not double-count as
+	// EXECUTING realtimeReserved (see evaluateRealtimeBuyerFunding).
+	var envelopeSpend *ExecutionEnvelopeSpend
+	if auth.EnvelopeID != uuid.Nil {
+		needNanos, nerr := realtimeAuthNeedNanos(auth)
+		if nerr != nil {
+			return RealtimeContract{}, false, nerr
+		}
+		reserveTokens := auth.MaximumPromptTokens + auth.MaximumCompletionTokens
+		if reserveTokens < 0 {
+			reserveTokens = 0
+		}
+		// Envelope spends are always keyed. Prefer the client Idempotency-Key;
+		// fall back to request id so a header-less call cannot invent unbounded
+		// double-spends on retry of the same request id.
+		spendKey := strings.TrimSpace(auth.IdempotencyKey)
+		if spendKey == "" {
+			spendKey = "request:" + strings.TrimSpace(auth.RequestID)
+		}
+		if spendKey == "request:" {
+			return RealtimeContract{}, false, errors.New("envelope spend requires idempotency key or request id")
+		}
+		spend, serr := reserveEnvelopeSpendTx(ctx, tx, auth.EnvelopeID, auth.BuyerID,
+			needNanos, reserveTokens, spendKey, auth.RequestID, auth.Profile)
+		if serr != nil {
+			return RealtimeContract{}, false, serr
+		}
+		// Idempotent replay of a spend that already bound a contract: return it
+		// with the upstream credential opened, matching the non-envelope path.
+		if spend.ContractID != nil {
+			row := tx.QueryRow(ctx, `SELECT `+realtimeContractColumns+`
+				FROM execution_contracts WHERE id=$1 AND buyer_id=$2`,
+				*spend.ContractID, auth.BuyerID)
+			var sealedToken *string
+			// scanRealtimeContract does not open the sealed token; re-read sealed
+			// only when we may actually hit the upstream again.
+			contract, cerr := scanRealtimeContract(row)
+			if cerr == nil {
+				if contract.RequestSHA256 != auth.RequestSHA256 {
+					return RealtimeContract{}, false, errRealtimeIdempotencyConflict
+				}
+				if err := tx.QueryRow(ctx, `
+					SELECT upstream_token_sealed FROM execution_contracts WHERE id=$1`,
+					contract.ID).Scan(&sealedToken); err != nil {
+					return RealtimeContract{}, false, err
+				}
+				if sealedToken == nil || *sealedToken == "" {
+					return RealtimeContract{}, false, errors.New("vLLM upstream credential cannot be opened")
+				}
+				contract.UpstreamToken = openToken(*sealedToken)
+				if contract.UpstreamToken == "" {
+					return RealtimeContract{}, false, errors.New("vLLM upstream credential cannot be opened")
+				}
+				return contract, true, nil
+			}
+			if !errors.Is(cerr, pgx.ErrNoRows) {
+				return RealtimeContract{}, false, cerr
+			}
+		}
+		envelopeSpend = &spend
+	} else {
+		// Serialize balance authorization on the buyer row. The execution contract
+		// and RESERVED event are the maximum-cost reservation, so concurrent
+		// requests cannot each spend the same free-credit/prepaid pool. A saved
+		// payment method is a top-up rail only — never admission funding.
+		if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, auth.MaximumPriceUSD); err != nil {
+			return RealtimeContract{}, false, err
+		}
 	}
 
 	var (
@@ -920,6 +1002,11 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		VALUES ($1,'RESERVED',$2)`, contractID, auth.MaximumPriceUSD); err != nil {
 		return RealtimeContract{}, false, err
 	}
+	if envelopeSpend != nil {
+		if err := bindEnvelopeSpendContractTx(ctx, tx, envelopeSpend.ID, contractID); err != nil {
+			return RealtimeContract{}, false, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return RealtimeContract{}, false, err
 	}
@@ -948,6 +1035,26 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		Pricing:                   &pricing, PricingDecisionSHA256: pricingSHA256, MarketClearing: market,
 		Currency: currency.Code(),
 	}, false, nil
+}
+
+// realtimeAuthNeedNanos is the exact ceiling held against an envelope for one
+// request. Prefer the PricingDecision-shaped maximum once rates are known; at
+// reserve time only the legacy maximum projection is available, so convert via
+// the same micro boundary the contract stores.
+func realtimeAuthNeedNanos(auth RealtimeContractAuthorization) (int64, error) {
+	if auth.MaximumPriceUSD < 0 {
+		return 0, errors.New("realtime envelope spend maximum cannot be negative")
+	}
+	micros := usdToMicros(auth.MaximumPriceUSD)
+	if micros <= 0 {
+		return 0, errors.New("realtime envelope spend maximum must be positive")
+	}
+	// Micros are 1e-6 major units; nanos are 1e-9. Exact 1000× expansion.
+	nanos := micros * NanosPerMicro
+	if nanos/NanosPerMicro != micros {
+		return 0, errMoneyOverflow
+	}
+	return nanos, nil
 }
 
 func realtimeNullIfEmpty(value string) any {
@@ -1446,6 +1553,12 @@ func (s *Store) FinalizeRealtimeSuccess(ctx context.Context, contractID uuid.UUI
 	if err := maybeDebitPrepaidForRealtimeTx(ctx, tx, contract.BuyerID, contractID, buyerMicros); err != nil {
 		return RealtimeSettlement{}, err
 	}
+	// Envelope-funded contracts convert the RESERVED hold into captured spend
+	// for the exact buyer charge; the unused reservation returns to the envelope.
+	if err := captureEnvelopeSpendTx(ctx, tx, contractID, buyerExact.Nanos,
+		evidence.PromptTokens+evidence.CompletionTokens); err != nil {
+		return RealtimeSettlement{}, err
+	}
 	settlementID := uuid.New()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO realtime_settlements
@@ -1533,6 +1646,9 @@ func (s *Store) FinalizeRealtimeFailure(ctx context.Context, contractID uuid.UUI
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
 		SELECT id,'VOIDED',maximum_price_usd FROM execution_contracts WHERE id=$1`, contractID); err != nil {
+		return false, err
+	}
+	if err := releaseEnvelopeSpendForContractTx(ctx, tx, contractID); err != nil {
 		return false, err
 	}
 	if err := releaseRealtimeCapacity(ctx, tx, workerID, profileID); err != nil {
@@ -1779,6 +1895,9 @@ func (s *Store) RecoverStaleRealtimeContracts(ctx context.Context, grace time.Du
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO realtime_authorization_events (contract_id,kind,amount_usd)
 			SELECT id,'VOIDED',maximum_price_usd FROM execution_contracts WHERE id=$1`, item.id); err != nil {
+			return 0, err
+		}
+		if err := releaseEnvelopeSpendForContractTx(ctx, tx, item.id); err != nil {
 			return 0, err
 		}
 		if err := releaseRealtimeCapacity(ctx, tx, item.workerID, item.runtimeProfileID); err != nil {

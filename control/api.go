@@ -125,6 +125,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /v1/service-leases/{id}/chat/completions", s.authBuyer(http.HandlerFunc(s.handleServiceLeaseChatCompletions)))
 	mux.Handle("GET /v1/service-leases/{id}", s.authBuyer(http.HandlerFunc(s.handleServiceLeaseReceipt)))
 	mux.Handle("GET /v1/service-leases/{id}/receipt", s.authBuyer(http.HandlerFunc(s.handleServiceLeaseReceipt)))
+	mux.Handle("POST /v1/execution-envelopes", s.authBuyer(http.HandlerFunc(s.handleCreateExecutionEnvelope)))
+	mux.Handle("GET /v1/execution-envelopes/{id}", s.authBuyer(http.HandlerFunc(s.handleGetExecutionEnvelope)))
 	mux.Handle("GET /v1/models", s.authBuyer(http.HandlerFunc(s.handleModels)))
 	mux.Handle("GET /v1/price-estimate", s.authBuyer(http.HandlerFunc(s.handlePriceEstimate)))
 	mux.Handle("POST /v1/quote", s.authBuyer(http.HandlerFunc(s.handleQuote))) // Plane C: scan + price, no spend

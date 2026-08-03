@@ -596,6 +596,12 @@ func prepaidOpenReservationMicros(ctx context.Context, db ledgerExec, buyerID uu
 		    FROM service_leases l
 		   WHERE l.buyer_id=$1
 		     AND l.state IN ('ACTIVE','UPGRADING','FAILOVER_REQUIRED')
+		) + (
+		  -- Active execution envelopes hold (cap - spent) against prepaid, so a
+		  -- concurrent job or service lease cannot oversubscribe the same cash.
+		  SELECT COALESCE(SUM(((e.cap_nanos - e.spent_nanos) + 999) / 1000),0)::bigint
+		    FROM execution_envelopes e
+		   WHERE e.buyer_id=$1 AND e.state='ACTIVE'
 		)`, buyerID).Scan(&reserved)
 	return reserved, err
 }
