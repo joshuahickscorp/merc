@@ -134,6 +134,24 @@ def validate_receipt(path: Path, *, now: datetime | None = None) -> list[str]:
     if not isinstance(data, dict):
         return [f"parity receipt must be a JSON object: {path}"]
 
+    # A withdrawn receipt fails as withdrawn, and says so first. Without this the
+    # gate reports whichever incidental fields happen to be malformed, which reads
+    # like a fixable receipt rather than a retracted measurement — and someone
+    # eventually "fixes" the fields and reinstates a number that was never valid.
+    # The reasons live in the artifact so the retraction travels with it.
+    validity = str(data.get("validity", "")).strip()
+    if validity and validity != "VALID":
+        reasons = data.get("superseded_reason") or []
+        if isinstance(reasons, str):
+            reasons = [reasons]
+        detail = "".join(f"\n      * {r}" for r in reasons) or " (no reason recorded)"
+        return [
+            f"{path}: validity={validity}; this receipt is withdrawn and cannot "
+            f"clear the gate or be cited as parity or deficit evidence. "
+            f"A replacement requires a new measurement, not an edit to this file."
+            f"{detail}"
+        ]
+
     measured_at = parse_measured_at(data.get("measured_at"))
     if measured_at is None:
         errors.append(
@@ -276,6 +294,27 @@ def run_unit_tests() -> None:
             path = tmp_path / name
             path.write_text(json.dumps(payload), encoding="utf-8")
             return path
+
+        # A withdrawn receipt fails as withdrawn, and the withdrawal is the ONLY
+        # error reported — otherwise the output reads like a list of fixable
+        # fields and someone repairs them to make a retracted number pass.
+        withdrawn_payload = base_receipt()
+        withdrawn_payload["validity"] = "INVALIDATED_PENDING_RERUN"
+        withdrawn_payload["superseded_reason"] = ["one wave at c=32; n == c"]
+        withdrawn = write("withdrawn.json", withdrawn_payload)
+        errs = validate_receipt(withdrawn)
+        check(len(errs) == 1 and "withdrawn" in errs[0],
+              f"withdrawn receipt must fail as withdrawn and nothing else, got {errs!r}")
+        check("one wave at c=32" in errs[0],
+              f"withdrawal must carry its recorded reasons, got {errs!r}")
+
+        # An otherwise-identical receipt marked VALID is not short-circuited, so
+        # the withdrawal check cannot mask ordinary validation.
+        valid_payload = base_receipt()
+        valid_payload["validity"] = "VALID"
+        valid_marked = write("valid-marked.json", valid_payload)
+        check(not any("withdrawn" in e for e in validate_receipt(valid_marked)),
+              "validity=VALID must not trip the withdrawal refusal")
 
         # Receipt with no measured_at fails the gate.
         undated_payload = base_receipt()
