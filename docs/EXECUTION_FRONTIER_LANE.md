@@ -100,8 +100,9 @@ runtime paths exist.
 | in-flight coalescing | **WIRED** — `control/inflight_coalescing.go`, governed `inflight_executions` with lease, state machine, bounded re-election and expiry; called from the realtime lane after the exact-cache miss. The old unwired `ClaimInflightLeader`/`ReleaseInflight` and `inflight_requests` are deleted. |
 | tokenized prefix trie | `control/prefix_routing.go:173` — `ComputePrefixChain` over token ids, `DeepestWarmPrefix`, value-ranked eviction (`EvictPrefixCacheToBudget`) |
 | KV-hit-aware routing | prefix warmth feeds the scheduler; `prefixWarmTTL` is deliberately shorter than model warmth |
-| prepared tools/schema identity cache | **WIRED** — `control/realtime_identity_cache.go`; bounded tenant/profile/policy-scoped cache is called by exact reuse, coalescing, and cache population. It caches semantic request identity only; no tokenizer exists. |
-| image / audio preprocessing caches | image generation remains unavailable and the route returns 503; the separate deterministic `media_rendering` lane is governed as a byte-exact scene artifact and does not claim prompt-to-image or audio preprocessing |
+| prepared tools/schema identity cache | **WIRED_MEASURED** — `control/realtime_identity_cache.go`; bounded tenant/profile/policy-scoped cache is called by exact reuse, coalescing, and cache population. It caches semantic request identity only; no tokenizer exists. |
+| control-plane tokenization cache | **DOES_NOT_APPLY** — Merc does not tokenize on the control plane (byte heuristics for admission/pricing; engine owns settlement token counts). Building one would cache nothing. Bound audit: `evidence/perf/five-cache-architecture-audit.json`. |
+| image / audio preprocessing caches | **DOES_NOT_APPLY** — image generation returns 503 (no runtime); `media_rendering` is closed-scene byte-exact rasterisation, not preprocess; `media_transcode` probe is per-job validation. Exact full-result reuse is the correct elimination shape, not a preprocess tier. Same bound audit. |
 | deterministic JSON / tool scaffolding | absent |
 
 Coalescing proves the shape the milestone asks for: 128 concurrent callers elect
@@ -112,9 +113,11 @@ not grow with the followers. Cross-tenant sharing is deliberately not attempted 
 requests never meet.
 
 The control plane still has no model tokenizer, so token-ID caching remains absent by
-design. Prepared request identity now has a bounded production cache; the benchmark
-records the hit path separately from the measured canonicalisation baseline so this
-small optimisation cannot be mistaken for a tokenizer or pricing authority.
+design — and that absence is now recorded as **architecture non-applicability**, not
+an unfinished checklist item (`evidence/perf/five-cache-architecture-audit.json`).
+Prepared request identity has a bounded production cache; host microbench separates
+the hit path (~0.4µs) from the miss/canonicalisation path (~12µs) so this small
+optimisation cannot be mistaken for a tokenizer or pricing authority.
 
 Realtime demand now also leaves a receipt-bound market observation. The atomic
 offer reservation records candidate depth, selected rank, supplier ask in fixed
