@@ -532,6 +532,13 @@ var knownUnwired = map[string]string{
 	"buildWorkloadDecisionDirected": "directed routing. Real and reachable only from " +
 		"tests; there is no operator entry point, so every second-runtime chain " +
 		"proof submits a test-constructed job row rather than going through the API.",
+	"TokenAccounting.ReuseRatio": "the guard against reporting reuse as a speed " +
+		"multiple, with no production caller. Its own comment says it is 'a cost " +
+		"ratio, never a speed multiple' — but nothing computes it on a live " +
+		"delivery, so the refusal it encodes is not actually enforced anywhere. " +
+		"Until a settlement or metrics path calls it, the separation is held only " +
+		"by the split counters in metrics.go (see " +
+		"TestZeroWorkDeliveriesDoNotCountAsVerifiedExecutions), not by this.",
 }
 
 func TestKnownUnwiredMechanismsAreStillUnwired(t *testing.T) {

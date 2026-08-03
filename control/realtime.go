@@ -761,7 +761,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(reuseBody)
-			metrics.realtimeVerified.Add(1)
+			metrics.realtimeReuseDeliveries.Add(1)
 			pathTiming.log(false, reuseContract.ID.String())
 			return
 		} else {
@@ -801,7 +801,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(coalescedBody)
-			metrics.realtimeVerified.Add(1)
+			metrics.realtimeCoalescedDeliveries.Add(1)
 			pathTiming.log(false, coalescedContract.ID.String())
 			return
 		default:

@@ -72,6 +72,8 @@ type metricsState struct {
 	imageRequestsRefused          atomic.Int64
 	imageRequestsAuthorized       atomic.Int64
 	realtimeVerified              atomic.Int64
+	realtimeReuseDeliveries       atomic.Int64
+	realtimeCoalescedDeliveries   atomic.Int64
 	realtimeFailed                atomic.Int64
 	realtimeCancelled             atomic.Int64
 	realtimeRecovered             atomic.Int64
@@ -362,7 +364,14 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	// keep the thing it refused.
 	writeCounter(w, "merc_image_requests_refused_total", "Image requests refused by merc's generation policy.", metrics.imageRequestsRefused.Load())
 	writeCounter(w, "merc_image_requests_authorized_total", "Image requests that passed policy and reached a contract.", metrics.imageRequestsAuthorized.Load())
-	writeCounter(w, "merc_realtime_contracts_verified_total", "Realtime execution contracts finalized with V0 verification and settlement.", metrics.realtimeVerified.Load())
+	// Physical executions only. A delivery served from the exact-result cache or
+	// as a coalesced follower ran no model and credited no supplier, so it must
+	// not land in the same series as one that did — otherwise the only exported
+	// view of this lane cannot distinguish work done from work avoided, and any
+	// rate derived from it silently counts reuse as throughput.
+	writeCounter(w, "merc_realtime_contracts_verified_total", "Realtime execution contracts finalized with V0 verification and settlement, physical executions only.", metrics.realtimeVerified.Load())
+	writeCounter(w, "merc_realtime_deliveries_reused_total", "Realtime deliveries served from the exact-result cache: no model ran and no supplier was credited.", metrics.realtimeReuseDeliveries.Load())
+	writeCounter(w, "merc_realtime_deliveries_coalesced_total", "Realtime deliveries served as a follower of another caller's in-flight execution: no additional physical work.", metrics.realtimeCoalescedDeliveries.Load())
 	writeCounter(w, "merc_realtime_contracts_failed_total", "Realtime execution contracts finalized as failed, including crash recovery.", metrics.realtimeFailed.Load())
 	writeCounter(w, "merc_realtime_contracts_cancelled_total", "Realtime execution contracts cancelled by their client context.", metrics.realtimeCancelled.Load())
 	writeCounter(w, "merc_realtime_contracts_recovered_total", "Stale realtime contracts failed closed by the recovery sweep.", metrics.realtimeRecovered.Load())
