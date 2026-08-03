@@ -7,6 +7,15 @@
 # quietly eats the balance. So teardown is wired to EXIT before the pod is ever
 # created, and `--keep` is the only way to leave one running.
 #
+# Trap-based teardown cannot catch SIGKILL, host loss, or death between create
+# and trap arming. Defence in depth beside the trap:
+#   1. Intent marker written BEFORE create, bound with pod id the instant create
+#      returns — so a death still leaves a local trail.
+#   2. Entry reconcile before any create — live pods matched against intents,
+#      receipts, and .merc-runpod.env; unrecognised billing is reported loudly
+#      and the run refuses (never silent terminate by default).
+#   3. Standalone `reconcile` for operators/cron — exit non-zero on orphans.
+#
 # `experiment` is the governed form and the one a paid lane should use. `up` bounds
 # nothing but its own runtime; `experiment` converts a dollar cap into a lifetime
 # through scripts/runpod-spend-guard.py, refuses to start while any other pod is
@@ -20,11 +29,17 @@
 #   bash scripts/runpod-vllm.sh up            # provision, print endpoint, tear down on exit
 #   bash scripts/runpod-vllm.sh up --keep     # leave it running (prints the stop command)
 #   bash scripts/runpod-vllm.sh list          # what is running right now
+#   bash scripts/runpod-vllm.sh reconcile     # detect orphans (exit 1 if any); no terminate
+#   bash scripts/runpod-vllm.sh reconcile --terminate-orphans
+#                                             # loud terminate of orphans only (explicit)
 #   bash scripts/runpod-vllm.sh down <pod-id> # stop one
 #   bash scripts/runpod-vllm.sh down-all      # stop everything (the panic button)
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 # shellcheck disable=SC1091
 [ -f "$ROOT/.merc-credentials.env" ] && { set -a; . "$ROOT/.merc-credentials.env"; set +a; }
@@ -64,9 +79,10 @@ export MERC_VLLM_MAX_MODEL_LEN="$VLLM_MAX_MODEL_LEN"
 export MERC_VLLM_GPU_MEMORY_UTILIZATION="$VLLM_GPU_MEMORY_UTILIZATION"
 export MERC_VLLM_MAX_NUM_SEQS="$VLLM_MAX_NUM_SEQS"
 POD_NAME="merc-canary-vllm"
-
-say() { printf '%s\n' "$*"; }
-die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+INTENT_DIR="${MERC_RUNPOD_INTENT_DIR:-$ROOT/.merc-runpod/intent}"
+SPEND_GUARD="$ROOT/scripts/runpod-spend-guard.py"
+# Carries across the provision path so experiment can complete the same intent.
+REQUEST_ID=""
 
 gql() {
   printf 'header = "Authorization: Bearer %s"\n' "$RUNPOD_API_KEY" \
@@ -192,8 +208,211 @@ for p in pods: print(f\"  {p['id']}  {p['name']}  {p['desiredStatus']}  \${p.get
 "
 }
 
+live_pods_json() {
+  gql '{"query":"query { myself { pods { id name desiredStatus costPerHr } } }"}' \
+  | python3 -c "
+import json,sys
+d=json.load(sys.stdin); m=(d.get('data') or {}).get('myself') or {}
+print(json.dumps(m.get('pods') or []))
+"
+}
+
+active_pod_id_from_env() {
+  # Only the ready env is a living owner claim (operator --keep or a ready run).
+  # Do NOT treat .merc-runpod-pending.env as ownership: a SIGKILLed startup
+  # leaves that file behind, and counting it as owner would hide the orphan.
+  # Bound intent without completion is the hard "killed run" signal.
+  local envf="$ROOT/.merc-runpod.env"
+  [ -f "$envf" ] || return 0
+  # shellcheck disable=SC1090
+  (
+    set -a
+    # shellcheck disable=SC1091
+    . "$envf"
+    set +a
+    printf '%s' "${MERC_RUNPOD_POD_ID:-}"
+  )
+}
+
+# Fetch live pods, classify against local trails. Prints the human report on
+# stderr-via-stdout of the guard; returns the guard's exit code (1 = orphans).
+# Does NOT terminate anything.
+run_reconcile() {
+  local live active extra=()
+  live=$(live_pods_json) || die "could not list live pods for reconcile"
+  active=$(active_pod_id_from_env || true)
+  [ -n "${1:-}" ] && extra+=(--json)
+  python3 "$SPEND_GUARD" reconcile \
+    --live-pods-json "$live" \
+    --intent-dir "$INTENT_DIR" \
+    --receipts-dir "$ROOT/evidence/runpod" \
+    --active-pod-id "${active:-}" \
+    "${extra[@]+"${extra[@]}"}"
+}
+
+# Entry gate: before any create. Loud refuse on orphans or any pre-existing
+# billing unless the operator explicitly opts into terminating orphans only.
+# Never silent. Trap-based exit sweep remains armed separately.
+entry_reconcile_or_refuse() {
+  local live report_json orphan_ids preexisting
+  live=$(live_pods_json) || die "could not list live pods for entry reconcile"
+  report_json=$(python3 "$SPEND_GUARD" reconcile \
+    --live-pods-json "$live" \
+    --intent-dir "$INTENT_DIR" \
+    --receipts-dir "$ROOT/evidence/runpod" \
+    --active-pod-id "$(active_pod_id_from_env || true)" \
+    --json) || true
+  printf '%s' "$report_json" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+if not d.get('live'):
+    print('reconcile: no live pods')
+else:
+    print(f\"reconcile: {len(d['live'])} live pod(s)\")
+    for p in d['live']:
+        flag='ORPHAN' if p.get('orphan') else 'owned'
+        rate=p.get('cost_per_hr')
+        rate_s=f'\${rate}/hr' if rate is not None else '?/hr'
+        print(f\"  [{flag}] {p.get('pod_id')}  {p.get('name') or '-'}  {p.get('desired_status') or '-'}  {rate_s}  class={p.get('classification')}\")
+        print(f\"           owner: {p.get('owner')}\")
+        print(f\"           {p.get('detail')}\")
+if d.get('orphans'):
+    print(f\"reconcile: {len(d['orphans'])} ORPHAN pod(s) billing with no living owner\")
+    print('  refuse quiet success. Inspect with: bash scripts/runpod-vllm.sh reconcile')
+for s in d.get('stale_intents') or []:
+    print(f\"  stale intent: request={s.get('request_id')} pod={s.get('pod_id')}\")
+for u in d.get('unbound_intents') or []:
+    print(f\"  unbound intent: request={u.get('request_id')}\")
+"
+
+  orphan_ids=$(printf '%s' "$report_json" | python3 -c "
+import json,sys
+print(' '.join(json.load(sys.stdin).get('orphan_pod_ids') or []))
+" 2>/dev/null || true)
+  preexisting=$(printf '%s' "$live" | python3 -c "
+import json,sys
+print(' '.join(p.get('id','') for p in json.load(sys.stdin) if p.get('id')))
+" 2>/dev/null || true)
+
+  if [ -n "$orphan_ids" ]; then
+    say ""
+    say "!! ORPHAN POD(S) BILLING WITH NO LIVING OWNER: $orphan_ids"
+    say "!! A prior process likely died (SIGKILL/host loss) without trap teardown."
+    if [ "${MERC_RUNPOD_TERMINATE_ORPHANS:-0}" = "1" ]; then
+      say "!! MERC_RUNPOD_TERMINATE_ORPHANS=1 set — terminating orphans loudly"
+      local id
+      for id in $orphan_ids; do
+        say "!! terminating orphan $id"
+        terminate "$id" || die "failed to terminate orphan $id; refusing to create another pod"
+      done
+    else
+      die "refusing to create a pod while orphans are billing.
+       Inspect:  bash scripts/runpod-vllm.sh reconcile
+       Terminate orphans only (explicit):  MERC_RUNPOD_TERMINATE_ORPHANS=1 bash scripts/runpod-vllm.sh reconcile --terminate-orphans
+       Panic button:  bash scripts/runpod-vllm.sh down-all"
+    fi
+  fi
+
+  # Even owned / deliberate --keep pods mean something is already billing.
+  # Governed and casual creates both refuse rather than share the account.
+  if [ -n "$preexisting" ]; then
+    preexisting=$(live_pods_json | python3 -c "
+import json,sys
+print(' '.join(p.get('id','') for p in json.load(sys.stdin) if p.get('id')))
+" 2>/dev/null || true)
+  fi
+  if [ -n "$preexisting" ]; then
+    die "pods are already running and billing: $preexisting
+       Stop them first:  bash scripts/runpod-vllm.sh down-all
+       Or reconcile:     bash scripts/runpod-vllm.sh reconcile"
+  fi
+}
+
+write_create_intent() {
+  local purpose="$1"
+  REQUEST_ID="req-$(date +%s)-$(openssl rand -hex 6)"
+  python3 "$SPEND_GUARD" intent-write \
+    --request-id "$REQUEST_ID" \
+    --purpose "$purpose" \
+    --gpu "$GPU_TYPE" \
+    --name "$POD_NAME" \
+    --intent-dir "$INTENT_DIR" >/dev/null
+  # Persist request id for experiment's post-up receipt path.
+  mkdir -p "$ROOT/.merc-runpod"
+  printf '%s\n' "$REQUEST_ID" > "$ROOT/.merc-runpod/current-request-id"
+  chmod 600 "$ROOT/.merc-runpod/current-request-id"
+  say "  intent  $REQUEST_ID (recorded before create)"
+}
+
+bind_create_intent() {
+  local pod_id="$1"
+  [ -n "$REQUEST_ID" ] || REQUEST_ID=$(cat "$ROOT/.merc-runpod/current-request-id" 2>/dev/null || true)
+  [ -n "$REQUEST_ID" ] || die "no request id to bind for pod $pod_id"
+  python3 "$SPEND_GUARD" intent-bind \
+    --request-id "$REQUEST_ID" \
+    --pod-id "$pod_id" \
+    --intent-dir "$INTENT_DIR" >/dev/null
+  say "  intent  bound $REQUEST_ID -> $pod_id"
+}
+
+complete_create_intent() {
+  local rid="${1:-}"
+  [ -n "$rid" ] || rid=$(cat "$ROOT/.merc-runpod/current-request-id" 2>/dev/null || true)
+  [ -n "$rid" ] || return 0
+  python3 "$SPEND_GUARD" intent-complete \
+    --request-id "$rid" \
+    --intent-dir "$INTENT_DIR" >/dev/null 2>&1 || true
+}
+
 case "${1:-up}" in
 list) list_pods; exit 0 ;;
+reconcile)
+  TERMINATE_FLAG=0
+  [ "${2:-}" = "--terminate-orphans" ] && TERMINATE_FLAG=1
+  [ "${MERC_RUNPOD_TERMINATE_ORPHANS:-0}" = "1" ] && TERMINATE_FLAG=1
+  say "reconciling live pods against local intents, receipts, and active env"
+  live=$(live_pods_json) || die "could not list live pods"
+  active=$(active_pod_id_from_env || true)
+  # Human report first (exit ignored); then JSON for decisions.
+  python3 "$SPEND_GUARD" reconcile \
+    --live-pods-json "$live" \
+    --intent-dir "$INTENT_DIR" \
+    --receipts-dir "$ROOT/evidence/runpod" \
+    --active-pod-id "${active:-}" || true
+  report_json=$(python3 "$SPEND_GUARD" reconcile \
+    --live-pods-json "$live" \
+    --intent-dir "$INTENT_DIR" \
+    --receipts-dir "$ROOT/evidence/runpod" \
+    --active-pod-id "${active:-}" \
+    --json) || true
+  orphan_ids=$(printf '%s' "$report_json" | python3 -c "
+import json,sys
+print(' '.join(json.load(sys.stdin).get('orphan_pod_ids') or []))
+")
+  if [ -n "$orphan_ids" ] && [ "$TERMINATE_FLAG" -eq 1 ]; then
+    say ""
+    say "!! --terminate-orphans: stopping orphan pods only (not silent; you asked)"
+    for id in $orphan_ids; do
+      say "!! terminating orphan $id"
+      terminate "$id" || die "failed to terminate orphan $id"
+    done
+    list_pods
+    # Re-run after terminate to set exit code honestly.
+    live=$(live_pods_json)
+    python3 "$SPEND_GUARD" reconcile \
+      --live-pods-json "$live" \
+      --intent-dir "$INTENT_DIR" \
+      --receipts-dir "$ROOT/evidence/runpod" \
+      --active-pod-id "$(active_pod_id_from_env || true)"
+    exit $?
+  fi
+  if [ -n "$orphan_ids" ]; then
+    say ""
+    say "orphans detected; not terminating (pass --terminate-orphans to stop them)"
+    exit 1
+  fi
+  exit 0
+  ;;
 down)
   [ -n "${2:-}" ] || die "usage: runpod-vllm.sh down <pod-id>"
   terminate "$2"; list_pods; exit 0 ;;
@@ -219,7 +438,7 @@ experiment)
     || die "could not obtain RunPod's advertised secure-cloud hourly price before provisioning"
   require_exact_rate "$COST_PER_HR" "$ADVERTISED_COST_PER_HR" \
     || die "refusing a cap whose hourly rate does not match RunPod"
-  BUDGET_SECS=$(python3 "$ROOT/scripts/runpod-spend-guard.py" budget \
+  BUDGET_SECS=$(python3 "$SPEND_GUARD" budget \
                   --cost-per-hr "$COST_PER_HR" --cap-usd "$CAP_USD") \
     || die "the cap was refused by the spend guard"
   say "governed experiment"
@@ -227,20 +446,15 @@ experiment)
   say "  provider  observed secure-cloud rate \$$ADVERTISED_COST_PER_HR/hr"
   say "  lifetime  ${BUDGET_SECS}s (the rest of the cap is teardown headroom)"
 
-  # Pre-flight sweep. A pod that is already running is already billing, and
-  # attributing its cost to this experiment's receipt would be a lie in either
-  # direction — so the run refuses rather than guessing.
-  PREEXISTING=$(gql '{"query":"query { myself { pods { id } } }"}' \
-    | python3 -c "
-import json,sys
-d=json.load(sys.stdin); m=(d.get('data') or {}).get('myself') or {}
-print(','.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
-  [ -z "$PREEXISTING" ] || die "pods are already running and billing: $PREEXISTING
-       Stop them first:  bash scripts/runpod-vllm.sh down-all"
+  # Pre-flight: reconcile live pods against local ownership trails. Orphans from
+  # a prior SIGKILL are reported loudly; never create while anything bills.
+  say "entry reconcile (before any create)"
+  entry_reconcile_or_refuse
 
   # Armed before anything is created. `up --keep` deliberately leaves its pod
   # behind, so this is the only thing between a crash in the middle of the
-  # experiment and a pod that bills until someone notices.
+  # experiment and a pod that bills until someone notices. SIGKILL still
+  # bypasses this trap — that is why entry reconcile and intent markers exist.
   sweep_all() {
     local ids
     ids=$(gql '{"query":"query { myself { pods { id } } }"}' \
@@ -258,11 +472,12 @@ print(' '.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
   # 0600 and is removed before every governed experiment to rule out staleness.
   PENDING_ENV="$ROOT/.merc-runpod-pending.env"
   if [ -e "$PENDING_ENV" ]; then rm "$PENDING_ENV"; fi
+  if [ -e "$ROOT/.merc-runpod.env" ]; then rm "$ROOT/.merc-runpod.env"; fi
 
   emit_receipt() {
     local pod_id="$1" ready="$2" teardown_verified="$3" stopped_at="$4" orphans="$5"
     local receipt="evidence/runpod/spend-${pod_id}.json"
-    python3 "$ROOT/scripts/runpod-spend-guard.py" receipt \
+    python3 "$SPEND_GUARD" receipt \
       --pod-id "$pod_id" --gpu "$GPU_TYPE" --image "$IMAGE" --model "$MODEL" \
       --cost-per-hr "$COST_PER_HR" --cap-usd "$CAP_USD" \
       --started-at "$STARTED_AT" --stopped-at "$stopped_at" \
@@ -275,7 +490,10 @@ print(' '.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
 
   STARTED_AT=$(date +%s)
   UP_STATUS=0
-  MERC_RUNPOD_HOLD_SECS=0 bash "$0" up --keep || UP_STATUS=$?
+  # Parent already ran entry_reconcile_or_refuse; child must not re-list or refuse
+  # the pod it is about to create under a second gate.
+  MERC_RUNPOD_SKIP_ENTRY_RECONCILE=1 MERC_RUNPOD_HOLD_SECS=0 \
+    MERC_RUNPOD_PURPOSE=experiment bash "$0" up --keep || UP_STATUS=$?
   if [ "$UP_STATUS" -ne 0 ]; then
     if [ ! -f "$PENDING_ENV" ]; then
       die "provisioning failed before a pod identity was recorded; the exit sweep will run"
@@ -293,6 +511,11 @@ import json,sys
 d=json.load(sys.stdin); m=(d.get('data') or {}).get('myself') or {}
 print(','.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
     emit_receipt "$MERC_RUNPOD_POD_ID" false "$TEARDOWN_VERIFIED" "$STOPPED_AT" "$ORPHANS" || true
+    # Only complete the intent when teardown is verified; otherwise leave it bound
+    # so the next entry reconcile still classifies the pod as abandoned_intent.
+    if [ "$TEARDOWN_VERIFIED" = "true" ]; then
+      complete_create_intent
+    fi
     exit 1
   fi
   # shellcheck disable=SC1091
@@ -337,6 +560,9 @@ print(','.join(p['id'] for p in (m.get('pods') or [])))" 2>/dev/null)
 
   emit_receipt "$MERC_RUNPOD_POD_ID" "$READY" "$TEARDOWN_VERIFIED" "$STOPPED_AT" "$ORPHANS"
   GUARD=$?
+  if [ "$TEARDOWN_VERIFIED" = "true" ]; then
+    complete_create_intent
+  fi
   exit "$GUARD" ;;
 up) ;;
 *) die "unknown command ${1:-}" ;;
@@ -360,13 +586,25 @@ cleanup() {
   fi
 }
 # Armed BEFORE the pod exists, so an interrupt between creation and the next
-# line still tears it down.
+# line still tears it down. SIGKILL still bypasses this — intent + entry
+# reconcile cover that class of leak.
 trap cleanup EXIT INT TERM
+
+# Entry reconcile for casual `up` as well as experiment. Skip only when nested
+# under experiment (parent already reconciled) via MERC_RUNPOD_SKIP_ENTRY_RECONCILE.
+if [ "${MERC_RUNPOD_SKIP_ENTRY_RECONCILE:-0}" != "1" ]; then
+  say "entry reconcile (before any create)"
+  entry_reconcile_or_refuse
+fi
 
 say "provisioning"
 say "  gpu    $GPU_TYPE ($CLOUD)"
 say "  image  $IMAGE"
 say "  model  $MODEL"
+
+# Intent BEFORE create. If we die between create and bind, reconcile still sees
+# an unknown live pod; if we die after bind, it sees abandoned_intent.
+write_create_intent "${MERC_RUNPOD_PURPOSE:-up}"
 
 CREATE=$(python3 "$ROOT/scripts/runpod-create-payload.py" \
            "$GPU_TYPE" "$IMAGE" "$MODEL" "$VLLM_KEY" "$POD_NAME" "$CLOUD")
@@ -382,6 +620,9 @@ print(d.get('id') or '')
 [ -n "$POD_ID" ] || die "pod was not created. RunPod reported no capacity for $GPU_TYPE on $CLOUD.
        Nothing is billing. Try another GPU (MERC_RUNPOD_GPU=) or cloud (MERC_RUNPOD_CLOUD=)."
 say "  pod    $POD_ID"
+
+# Bind the intent immediately — the next most important line after create.
+bind_create_intent "$POD_ID"
 
 # REST creation can select a differently priced machine than the pre-flight
 # lowest-price query.  Fail closed and let the armed trap terminate it rather
@@ -402,6 +643,7 @@ PENDING_ENV="$ROOT/.merc-runpod-pending.env"
   printf 'export MERC_GPU_API_KEY=%q\n' "$VLLM_KEY"
   printf 'export MERC_RUNPOD_POD_ID=%q\n' "$POD_ID"
   printf 'export MERC_RUNPOD_COST_PER_HR=%q\n' "$ACTUAL_COST_PER_HR"
+  printf 'export MERC_RUNPOD_REQUEST_ID=%q\n' "$REQUEST_ID"
 } > "$PENDING_ENV"
 chmod 600 "$PENDING_ENV"
 
