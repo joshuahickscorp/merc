@@ -52,13 +52,28 @@ func derivedValidEngines() map[string]bool {
 	return out
 }
 
-// cudaHWClasses is the subset that may run the vllm engine. Keeping this
-// explicit stops an Apple worker from claiming vllm and a CUDA worker from
-// claiming candle, either of which would route work to a runtime that cannot
-// serve it.
+// cudaHWClasses is the subset that may run CUDA serving engines. Keeping this
+// explicit stops an Apple worker from claiming vllm/sglang/tensorrt_llm/lmdeploy
+// and a CUDA worker from claiming candle, either of which would route work to a
+// runtime that cannot serve it.
 var cudaHWClasses = map[string]bool{
 	"nvidia_24gb": true, "nvidia_48gb": true,
 	"nvidia_80gb": true, "nvidia_180gb": true,
+}
+
+// cudaServingEngines are the governed engines that require NVIDIA CUDA supply.
+//
+// Adding an engine to the authority registry alone is not enough for admission:
+// a CUDA engine on Apple Silicon (or candle on a CUDA host) fails at execution
+// rather than at registration. Keep this list in step with the registry entries
+// that declare device "cuda".
+func cudaServingEngine(engine string) bool {
+	switch engine {
+	case "vllm", "sglang", "tensorrt_llm", "lmdeploy":
+		return true
+	default:
+		return false
+	}
 }
 
 // EngineAdmissibleFor reports whether an engine may run on a hardware class.
@@ -66,10 +81,11 @@ func EngineAdmissibleFor(engine, hwClass string) bool {
 	if !validEngines[engine] || !validHWClasses[hwClass] {
 		return false
 	}
-	if engine == "vllm" {
+	if cudaServingEngine(engine) {
 		return cudaHWClasses[hwClass]
 	}
-	// candle is Apple Silicon only; CUDA hosts must use vllm.
+	// Non-CUDA engines (candle, mlx, llama_cpp) are Apple Silicon paths; CUDA
+	// hosts must use a CUDA serving engine.
 	return !cudaHWClasses[hwClass]
 }
 
