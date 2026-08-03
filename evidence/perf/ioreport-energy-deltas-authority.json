@@ -1,0 +1,828 @@
+{
+  "schema_version": 1,
+  "kind": "measured_energy_deltas_authority",
+  "title": "GPU-domain energy deltas: idle scale-to-zero curve and warm vs cold placement (IOReport, unprivileged)",
+  "measured_at": "2026-08-03T19:10:18Z",
+  "host": {
+    "hardware": "Apple M3 Ultra / 96GB",
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "uid": 503,
+    "euid": 503
+  },
+  "measurement": {
+    "backend": "ioreport_gpu_energy",
+    "privilege": "none (uid-level IOReport subscription; no sudo)",
+    "channel": "Energy Model / GPU Energy",
+    "sampling_interval_ms": 200,
+    "integration": "IOReport cumulative GPU Energy counter delta (mJ→J)",
+    "boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+    "measures": "AGX GPU Energy counter (integrated mJ over the sample window)",
+    "excludes": "CPU cores/clusters, DRAM, GPU SRAM, ANE, display, PCIe, package total, wall AC draw, power-supply inefficiency",
+    "error_notes": [
+      "Sampling interval 200 ms; sub-interval spikes averaged into each sample.",
+      "Joules are cumulative counter delta, not mean(watts)*time.",
+      "Windows are sequential, not simultaneous — ambient GPU work from other processes is included.",
+      "GPU-alone energy is a lower bound on package energy and is not comparable to wall-plug joules.",
+      "Cold placement window is stop→llama-server start→first /completion (model load + decode); load is included.",
+      "Warm window is a single /completion against an already-loaded llama-server (no model load).",
+      "Secondary cold_llama_cli window is process lifetime (load + decode) as a shape cross-check.",
+      "Both server paths use ignore_eos so verified_outcomes track n_predict.",
+      "Resident idle is llama-server holding weights with no in-flight requests after a short settle.",
+      "Scale-to-zero curve uses the same W_load for always-on and scale-to-zero; cold-start amortization is reported as warm-vs-cold, not folded into the duty curve.",
+      "No NVIDIA device on this host; CUDA numbers are not fabricated.",
+      "control/pricing.go ASSUMED apple_silicon_ultra 65 W is not edited and is package-boundary, not this receipt."
+    ]
+  },
+  "model": {
+    "path": "/Users/scammermike/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct-GGUF/snapshots/b69aef112e9f895e6f98d7ae0949f72ff09aa401/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+    "n_predict": 512,
+    "prompt_chars": 95
+  },
+  "windows": {
+    "unloaded_idle": {
+      "label": "unloaded_idle",
+      "window_s": 10.0,
+      "energy_joules": 15.164536,
+      "mean_watts": 1.515,
+      "peak_watts": 1.652,
+      "samples": 46,
+      "power_source": "ioreport_gpu_energy",
+      "raw_watts_samples": [
+        1.5166,
+        1.4981,
+        1.4891,
+        1.5137,
+        1.6133,
+        1.4606,
+        1.5136,
+        1.6519,
+        1.4453,
+        1.5976,
+        1.4872,
+        1.4919,
+        1.6426,
+        1.5494,
+        1.5839,
+        1.5577,
+        1.6357,
+        1.4465,
+        1.5643,
+        1.427,
+        1.5284,
+        1.4265,
+        1.5376,
+        1.4885,
+        1.6141,
+        1.5731,
+        1.3535,
+        1.4544,
+        1.5608,
+        1.42,
+        1.4857,
+        1.4973,
+        1.5986,
+        1.3711,
+        1.5201,
+        1.5036,
+        1.5306,
+        1.4452,
+        1.5491,
+        1.5007,
+        1.4553,
+        1.5785,
+        1.4486,
+        1.4599,
+        1.5461,
+        1.5431
+      ],
+      "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy."
+    },
+    "server_model_load": {
+      "label": "server_model_load",
+      "window_s": 0.7904,
+      "energy_joules": 1.361395,
+      "mean_watts": 1.787,
+      "peak_watts": 2.334,
+      "samples": 3,
+      "power_source": "ioreport_gpu_energy",
+      "raw_watts_samples": [
+        1.529,
+        1.4968,
+        2.334
+      ],
+      "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy.",
+      "detail": {
+        "elapsed_s": 0.7904,
+        "port": 49951,
+        "log_path": "/tmp/merc-energy-deltas-llama-server-49951.log",
+        "ready": true
+      }
+    },
+    "resident_idle": {
+      "label": "resident_idle",
+      "window_s": 10.0,
+      "energy_joules": 15.244919,
+      "mean_watts": 1.521,
+      "peak_watts": 3.051,
+      "samples": 46,
+      "power_source": "ioreport_gpu_energy",
+      "raw_watts_samples": [
+        1.3791,
+        1.5543,
+        1.4161,
+        1.5111,
+        1.527,
+        1.4903,
+        1.5169,
+        1.5665,
+        1.5483,
+        1.5773,
+        0.0,
+        3.0508,
+        1.4575,
+        1.5792,
+        1.5755,
+        1.5324,
+        1.5802,
+        1.452,
+        1.5349,
+        1.5262,
+        1.5278,
+        1.5782,
+        1.5681,
+        1.6087,
+        1.5217,
+        1.5004,
+        1.414,
+        1.4534,
+        1.5607,
+        1.6215,
+        1.5713,
+        1.4436,
+        1.4731,
+        1.436,
+        1.5519,
+        1.5184,
+        1.5125,
+        1.4957,
+        1.4372,
+        1.5514,
+        1.5362,
+        1.4652,
+        1.5386,
+        1.5766,
+        1.5162,
+        1.5979
+      ],
+      "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy."
+    },
+    "warm_runs": [
+      {
+        "energy": {
+          "label": "warm_request_0",
+          "window_s": 1.5287,
+          "energy_joules": 60.189505,
+          "mean_watts": 33.535,
+          "peak_watts": 81.072,
+          "samples": 7,
+          "power_source": "ioreport_gpu_energy",
+          "raw_watts_samples": [
+            35.3364,
+            39.3155,
+            39.4555,
+            39.5624,
+            0.0,
+            81.0718,
+            0.0
+          ],
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy."
+        },
+        "workload": {
+          "runtime": "llama_server_metal",
+          "endpoint": "http://127.0.0.1:49951/completion",
+          "exit_code": 0,
+          "elapsed_s": 1.5287,
+          "verified_outcomes": 512,
+          "prompt_tokens": 17,
+          "n_predict_requested": 512,
+          "status": 200,
+          "ignore_eos": true,
+          "stopped_eos": null,
+          "outcome_count_basis": "tokens_predicted_with_ignore_eos"
+        }
+      },
+      {
+        "energy": {
+          "label": "warm_request_1",
+          "window_s": 1.5149,
+          "energy_joules": 59.946521,
+          "mean_watts": 39.487,
+          "peak_watts": 40.172,
+          "samples": 7,
+          "power_source": "ioreport_gpu_energy",
+          "raw_watts_samples": [
+            37.7591,
+            39.0532,
+            39.6119,
+            39.9119,
+            39.9216,
+            39.9769,
+            40.1717
+          ],
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy."
+        },
+        "workload": {
+          "runtime": "llama_server_metal",
+          "endpoint": "http://127.0.0.1:49951/completion",
+          "exit_code": 0,
+          "elapsed_s": 1.5149,
+          "verified_outcomes": 512,
+          "prompt_tokens": 17,
+          "n_predict_requested": 512,
+          "status": 200,
+          "ignore_eos": true,
+          "stopped_eos": null,
+          "outcome_count_basis": "tokens_predicted_with_ignore_eos"
+        }
+      }
+    ],
+    "cold_placement_runs": [
+      {
+        "energy": {
+          "label": "cold_placement_0",
+          "window_s": 2.2766,
+          "energy_joules": 61.519843,
+          "mean_watts": 22.073,
+          "peak_watts": 40.404,
+          "samples": 10,
+          "power_source": "ioreport_gpu_energy",
+          "raw_watts_samples": [
+            1.5696,
+            1.5229,
+            2.4228,
+            15.2891,
+            39.4806,
+            39.589,
+            40.0626,
+            40.4044,
+            40.3852,
+            0.0
+          ],
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy."
+        },
+        "workload": {
+          "load_elapsed_s": 0.7727,
+          "load_log_path": "/tmp/merc-energy-deltas-llama-server-50019.log",
+          "port": 50019,
+          "request": {
+            "runtime": "llama_server_metal",
+            "endpoint": "http://127.0.0.1:50019/completion",
+            "exit_code": 0,
+            "elapsed_s": 1.5039,
+            "verified_outcomes": 512,
+            "prompt_tokens": 17,
+            "n_predict_requested": 512,
+            "status": 200,
+            "ignore_eos": true,
+            "stopped_eos": null,
+            "outcome_count_basis": "tokens_predicted_with_ignore_eos"
+          },
+          "elapsed_s": 2.2766,
+          "verified_outcomes": 512,
+          "prompt_tokens": 17,
+          "n_predict_requested": 512,
+          "runtime": "llama_server_metal_cold_placement",
+          "outcome_count_basis": "tokens_predicted_with_ignore_eos",
+          "ignore_eos": true
+        }
+      },
+      {
+        "energy": {
+          "label": "cold_placement_1",
+          "window_s": 2.0258,
+          "energy_joules": 61.187634,
+          "mean_watts": 29.425,
+          "peak_watts": 40.486,
+          "samples": 9,
+          "power_source": "ioreport_gpu_energy",
+          "raw_watts_samples": [
+            1.5486,
+            1.5548,
+            21.7586,
+            39.868,
+            40.3186,
+            40.4859,
+            38.9002,
+            40.078,
+            40.3128
+          ],
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy."
+        },
+        "workload": {
+          "load_elapsed_s": 0.5241,
+          "load_log_path": "/tmp/merc-energy-deltas-llama-server-50030.log",
+          "port": 50030,
+          "request": {
+            "runtime": "llama_server_metal",
+            "endpoint": "http://127.0.0.1:50030/completion",
+            "exit_code": 0,
+            "elapsed_s": 1.5017,
+            "verified_outcomes": 512,
+            "prompt_tokens": 17,
+            "n_predict_requested": 512,
+            "status": 200,
+            "ignore_eos": true,
+            "stopped_eos": null,
+            "outcome_count_basis": "tokens_predicted_with_ignore_eos"
+          },
+          "elapsed_s": 2.0258,
+          "verified_outcomes": 512,
+          "prompt_tokens": 17,
+          "n_predict_requested": 512,
+          "runtime": "llama_server_metal_cold_placement",
+          "outcome_count_basis": "tokens_predicted_with_ignore_eos",
+          "ignore_eos": true
+        }
+      }
+    ],
+    "cold_llama_cli_runs": [
+      {
+        "energy": {
+          "label": "cold_llama_cli_0",
+          "window_s": 1.5893,
+          "energy_joules": 20.066724,
+          "mean_watts": 13.199,
+          "peak_watts": 39.108,
+          "samples": 7,
+          "power_source": "ioreport_gpu_energy",
+          "raw_watts_samples": [
+            1.5081,
+            1.5555,
+            1.5842,
+            8.9092,
+            39.1077,
+            36.5022,
+            3.2228
+          ],
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy."
+        },
+        "workload": {
+          "runtime": "llama_cpp_metal",
+          "model": "/Users/scammermike/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct-GGUF/snapshots/b69aef112e9f895e6f98d7ae0949f72ff09aa401/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+          "exit_code": 0,
+          "elapsed_s": 1.5893,
+          "verified_outcomes": 512,
+          "prompt_tokens": 0,
+          "n_predict_requested": 512,
+          "reported_generation_tps": 343.2,
+          "reported_prompt_tps": 2501.5,
+          "cmd": [
+            "/opt/homebrew/bin/llama-cli",
+            "-m",
+            "/Users/scammermike/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct-GGUF/snapshots/b69aef112e9f895e6f98d7ae0949f72ff09aa401/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+            "-p",
+            "Write a short technical paragraph about measuring GPU energy on Apple Silicon using IOReport.\n\n",
+            "-n",
+            "512",
+            "-ngl",
+            "99",
+            "--temp",
+            "0",
+            "--single-turn",
+            "--simple-io",
+            "--ignore-eos",
+            "--perf"
+          ],
+          "outcome_count_basis": "n_predict_with_ignore_eos"
+        }
+      },
+      {
+        "energy": {
+          "label": "cold_llama_cli_1",
+          "window_s": 1.5844,
+          "energy_joules": 20.363913,
+          "mean_watts": 13.294,
+          "peak_watts": 40.021,
+          "samples": 7,
+          "power_source": "ioreport_gpu_energy",
+          "raw_watts_samples": [
+            2.3886,
+            1.587,
+            1.5472,
+            15.8827,
+            40.0209,
+            28.3754,
+            3.2549
+          ],
+          "energy_boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy."
+        },
+        "workload": {
+          "runtime": "llama_cpp_metal",
+          "model": "/Users/scammermike/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct-GGUF/snapshots/b69aef112e9f895e6f98d7ae0949f72ff09aa401/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+          "exit_code": 0,
+          "elapsed_s": 1.5844,
+          "verified_outcomes": 512,
+          "prompt_tokens": 0,
+          "n_predict_requested": 512,
+          "reported_generation_tps": 347.8,
+          "reported_prompt_tps": 2675.3,
+          "cmd": [
+            "/opt/homebrew/bin/llama-cli",
+            "-m",
+            "/Users/scammermike/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct-GGUF/snapshots/b69aef112e9f895e6f98d7ae0949f72ff09aa401/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+            "-p",
+            "Write a short technical paragraph about measuring GPU energy on Apple Silicon using IOReport.\n\n",
+            "-n",
+            "512",
+            "-ngl",
+            "99",
+            "--temp",
+            "0",
+            "--single-turn",
+            "--simple-io",
+            "--ignore-eos",
+            "--perf"
+          ],
+          "outcome_count_basis": "n_predict_with_ignore_eos"
+        }
+      }
+    ]
+  },
+  "idle_power_scale_to_zero": {
+    "unloaded_mean_watts": 1.515,
+    "resident_mean_watts": 1.521,
+    "idle_delta_watts": 0.006,
+    "idle_delta_noise_stderr_watts": 0.0492,
+    "idle_delta_within_2sigma_noise": true,
+    "idle_power_avoided_fraction_raw": 0.003945,
+    "idle_power_avoided_fraction": 0.0,
+    "idle_power_avoided_fraction_note": "When idle_delta_within_2sigma_noise is true, the resident and unloaded GPU means are indistinguishable; avoided fraction is reported as 0.0 (raw signed value kept in idle_power_avoided_fraction_raw).",
+    "load_mean_watts_for_curve": 36.511,
+    "load_mean_source": "warm_request_mean",
+    "formula": "total_energy_avoided(d) = (1-d)*(W_resident - W_unloaded) / (d*W_load + (1-d)*W_resident); idle_power_avoided = (W_resident - W_unloaded) / W_resident",
+    "duty_cycle_curve": [
+      {
+        "duty_cycle": 0.0,
+        "always_on_mean_watts": 1.518,
+        "scale_to_zero_mean_watts": 1.518,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      {
+        "duty_cycle": 0.01,
+        "always_on_mean_watts": 1.8679,
+        "scale_to_zero_mean_watts": 1.8679,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      {
+        "duty_cycle": 0.05,
+        "always_on_mean_watts": 3.2676,
+        "scale_to_zero_mean_watts": 3.2676,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      {
+        "duty_cycle": 0.1,
+        "always_on_mean_watts": 5.0173,
+        "scale_to_zero_mean_watts": 5.0173,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      {
+        "duty_cycle": 0.25,
+        "always_on_mean_watts": 10.2662,
+        "scale_to_zero_mean_watts": 10.2662,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      {
+        "duty_cycle": 0.5,
+        "always_on_mean_watts": 19.0145,
+        "scale_to_zero_mean_watts": 19.0145,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      {
+        "duty_cycle": 0.7,
+        "always_on_mean_watts": 26.0131,
+        "scale_to_zero_mean_watts": 26.0131,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      {
+        "duty_cycle": 0.9,
+        "always_on_mean_watts": 33.0117,
+        "scale_to_zero_mean_watts": 33.0117,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      {
+        "duty_cycle": 1.0,
+        "always_on_mean_watts": 36.511,
+        "scale_to_zero_mean_watts": 36.511,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      }
+    ],
+    "realistic_duty_cycle_anchors": {
+      "batch_overnight": {
+        "duty_cycle": 0.7,
+        "always_on_mean_watts": 26.0131,
+        "scale_to_zero_mean_watts": 26.0131,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      "interactive_business_hours": {
+        "duty_cycle": 0.25,
+        "always_on_mean_watts": 10.2662,
+        "scale_to_zero_mean_watts": 10.2662,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      "bursty_canary": {
+        "duty_cycle": 0.05,
+        "always_on_mean_watts": 3.2676,
+        "scale_to_zero_mean_watts": 3.2676,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      },
+      "sparse_dev": {
+        "duty_cycle": 0.01,
+        "always_on_mean_watts": 1.8679,
+        "scale_to_zero_mean_watts": 1.8679,
+        "saved_mean_watts": 0.0,
+        "total_energy_avoided_fraction": 0.0,
+        "idle_power_avoided_fraction": 0.0,
+        "note": "total_energy_avoided_fraction is vs always-resident at the same W_load; cold-start energy is not amortized here"
+      }
+    },
+    "interpretation": "The answer is the curve, not a single number. Read idle_power_avoided_fraction for the pure residency delta; read total_energy_avoided_fraction at each duty for share of always-on energy that scale-to-zero removes. Real traffic sits near the anchors (sparse_dev / bursty_canary / interactive_business_hours / batch_overnight)."
+  },
+  "warm_versus_cold": {
+    "definition": "cold_placement = energy of (model load + first request) when nothing was resident; warm = same request against already-loaded llama-server. Load is included in cold, not in warm. Both paths use ignore_eos so verified_outcomes match n_predict.",
+    "cold_mean_energy_joules": 61.353739,
+    "warm_mean_energy_joules": 60.068013,
+    "cold_mean_verified_outcomes": 512.0,
+    "warm_mean_verified_outcomes": 512.0,
+    "cold_joules_per_verified_outcome": 0.119831521,
+    "warm_joules_per_verified_outcome": 0.117320338,
+    "warm_minus_cold_over_cold": -0.020956,
+    "warm_energy_savings_fraction": 0.020956,
+    "warm_j_per_outcome_savings_fraction": 0.020956,
+    "load_included_in_cold": true,
+    "load_included_in_warm": false,
+    "server_model_load_only_joules": 1.361395,
+    "secondary_cold_llama_cli": {
+      "mean_energy_joules": 20.215319,
+      "mean_verified_outcomes": 512.0,
+      "joules_per_verified_outcome": 0.039483044,
+      "note": "llama-cli process lifetime (load+gen) as a process-shape cross-check; primary comparison is cold_placement vs warm.",
+      "consistency_warning": "llama-cli joules_per_verified_outcome diverges >2x from the warm server path and from evidence/perf/ioreport-gpu-energy-authority.json (~0.12 J/outcome). Treat as secondary only; do not use for the warm-vs-cold headline."
+    },
+    "target": "warm placement versus cold loading −50%+ energy",
+    "meets_target_on_total_joules": false,
+    "meets_target_on_j_per_outcome": false,
+    "fixed_load_joules_estimate": 1.285726,
+    "fixed_load_source": "cold_mean_joules - warm_mean_joules",
+    "n_predict_for_50pct_savings": 10.96,
+    "amortization_curve_vs_outcome_count": [
+      {
+        "verified_outcomes": 1,
+        "cold_joules_model": 1.403046,
+        "warm_joules_model": 0.11732,
+        "warm_energy_savings_fraction": 0.916382,
+        "meets_minus_50pct": true
+      },
+      {
+        "verified_outcomes": 4,
+        "cold_joules_model": 1.755007,
+        "warm_joules_model": 0.469281,
+        "warm_energy_savings_fraction": 0.732604,
+        "meets_minus_50pct": true
+      },
+      {
+        "verified_outcomes": 8,
+        "cold_joules_model": 2.224288,
+        "warm_joules_model": 0.938563,
+        "warm_energy_savings_fraction": 0.578039,
+        "meets_minus_50pct": true
+      },
+      {
+        "verified_outcomes": 16,
+        "cold_joules_model": 3.162851,
+        "warm_joules_model": 1.877125,
+        "warm_energy_savings_fraction": 0.406508,
+        "meets_minus_50pct": false
+      },
+      {
+        "verified_outcomes": 32,
+        "cold_joules_model": 5.039976,
+        "warm_joules_model": 3.754251,
+        "warm_energy_savings_fraction": 0.255105,
+        "meets_minus_50pct": false
+      },
+      {
+        "verified_outcomes": 64,
+        "cold_joules_model": 8.794227,
+        "warm_joules_model": 7.508502,
+        "warm_energy_savings_fraction": 0.146201,
+        "meets_minus_50pct": false
+      },
+      {
+        "verified_outcomes": 128,
+        "cold_joules_model": 16.302729,
+        "warm_joules_model": 15.017003,
+        "warm_energy_savings_fraction": 0.078866,
+        "meets_minus_50pct": false
+      },
+      {
+        "verified_outcomes": 256,
+        "cold_joules_model": 31.319732,
+        "warm_joules_model": 30.034006,
+        "warm_energy_savings_fraction": 0.041052,
+        "meets_minus_50pct": false
+      },
+      {
+        "verified_outcomes": 512,
+        "cold_joules_model": 61.353739,
+        "warm_joules_model": 60.068013,
+        "warm_energy_savings_fraction": 0.020956,
+        "meets_minus_50pct": false
+      },
+      {
+        "verified_outcomes": 1024,
+        "cold_joules_model": 121.421751,
+        "warm_joules_model": 120.136026,
+        "warm_energy_savings_fraction": 0.010589,
+        "meets_minus_50pct": false
+      },
+      {
+        "verified_outcomes": 2048,
+        "cold_joules_model": 241.557777,
+        "warm_joules_model": 240.272052,
+        "warm_energy_savings_fraction": 0.005323,
+        "meets_minus_50pct": false
+      }
+    ],
+    "amortization_note": "Model: E_cold(n)=E_load + n*J_warm_per_outcome, E_warm(n)=n*J_warm_per_outcome. The −50% target is a property of request size relative to fixed load cost on this model/host, not a single universal fraction. At n_predict=512 on Llama-3.2-1B-Q4 the fixed GPU-domain load is tiny vs decode."
+  },
+  "joules_per_verified_outcome_comparison": {
+    "target": "joules per verified outcome −20–40%",
+    "existing_level": {
+      "source": "evidence/perf/ioreport-gpu-energy-authority.json",
+      "joules_per_verified_outcome": 0.121724572,
+      "note": "a level, not a comparison; single point on one host"
+    },
+    "this_measurement": {
+      "cold_joules_per_verified_outcome": 0.119831521,
+      "warm_joules_per_verified_outcome": 0.117320338,
+      "boundary": "IOReport Energy Model channel 'GPU Energy' (AGX on-chip GPU domain only). Not package energy (CPU/DRAM/ANE excluded). Not wall-plug / PSU energy."
+    },
+    "required_baseline_for_delta_target": {
+      "named": "Same workload (model, prompt, n_predict, verified-outcome unit) on the same hardware, without Merc placement decisions — i.e. a direct always-on resident serving path vs Merc warm/locality-aware placement, or a non-Merc fixed-cloud baseline on identical silicon. The −20–40% is a *delta*, so two bound points are required.",
+      "fair_baseline_exists_on_this_host": false,
+      "why_not": "This host has one Metal path (llama.cpp). There is no second placement policy, no multi-node fabric under measurement, and no side-by-side non-Merc control on the same silicon in this lane. Warm-vs-cold is a *placement locality* delta (measured here) and must not be silently re-labeled as the programme −20–40% J/outcome target without naming that they are different comparisons.",
+      "what_would_make_it_known": "A bound pair: (A) always-on cold-or-random placement energy per verified outcome, (B) Merc placement with prefix/model locality, same model and outcome unit, same host class, same boundary."
+    },
+    "do_not_confuse_with": "warm_vs_cold energy savings measured in this receipt — that is the locality/placement energy argument, not the programme-level −20–40% against an external baseline."
+  },
+  "telemetry_coverage": {
+    "question": "What fraction of a routed request's energy is currently observable on this hardware?",
+    "host_has_nvidia": false,
+    "boundaries": {
+      "gpu_domain_ioreport": {
+        "observable_unprivileged": true,
+        "covers": "AGX on-chip GPU Energy for local Metal work",
+        "coverage_of_gpu_domain_when_runtime_is_metal_local": 1.0,
+        "coverage_of_package": "partial_lower_bound",
+        "coverage_of_wall_plug": 0.0,
+        "note": "Every local Metal-routed token's GPU-domain joules are measurable without sudo. That is not package energy and not wall energy."
+      },
+      "package_powermetrics": {
+        "observable_unprivileged": false,
+        "requires": "sudo / root",
+        "available_this_run": false,
+        "reason": "powermetrics package path requires root (sudo); not elevated here",
+        "coverage_if_elevated": "CPU+GPU+ANE Combined Power samples; still not wall-plug"
+      },
+      "cuda_nvml": {
+        "observable_on_this_host": false,
+        "reason": "no NVIDIA device / nvidia-smi on this host; CUDA figures are not fabricated",
+        "coverage": 0.0
+      },
+      "wall_plug": {
+        "observable_on_this_host": false,
+        "reason": "no external power meter instrumented in this lane",
+        "coverage": 0.0
+      }
+    },
+    "honest_ceiling_this_hardware": {
+      "gpu_domain_fraction_of_local_metal_volume": 1.0,
+      "package_fraction_without_sudo": 0.0,
+      "package_fraction_with_sudo": "measurable but not measured in this receipt; different boundary",
+      "wall_plug_fraction": 0.0,
+      "cuda_fraction": 0.0,
+      "target_gt_90pct_routed_volume_with_real_reading": {
+        "reachable_for_gpu_domain_on_metal_local_volume": true,
+        "reachable_for_package_without_privilege": false,
+        "reachable_for_wall_plug": false,
+        "reachable_for_cuda_volume_on_this_host": false,
+        "note": "The >90% target is reachable only if the reading's boundary is GPU-domain and the routed volume is local Metal. Expanding the claim to package or wall needs privilege or hardware Merc does not have in this lane."
+      }
+    }
+  },
+  "target_reachability": {
+    "idle_power_avoided_through_scale_to_zero_70_to_95pct": {
+      "measured_idle_avoided_fraction_gpu_domain": 0.0,
+      "target_band": [
+        0.7,
+        0.95
+      ],
+      "reachable_here": false,
+      "view": "On this Apple Silicon host the GPU-domain resident-vs-unloaded delta is the right measurement for the target *as stated in GPU terms*. If resident idle barely exceeds unloaded idle (weights sit in unified memory; GPU clocks drop), the 70–95% band is NOT reachable on the GPU domain — scale-to-zero's big idle win is a CUDA-card story (tens of watts idle with a model resident). Package or wall might show more residency cost (DRAM kept hot); those boundaries are not measured unprivileged here."
+    },
+    "warm_placement_vs_cold_loading_minus_50pct_plus_energy": {
+      "measured_warm_energy_savings_fraction_at_n_predict": 0.020956,
+      "n_predict": 512,
+      "n_predict_for_50pct_savings_model": 10.96,
+      "target": "≤ −50% energy for warm vs cold (load included in cold)",
+      "reachable_here_at_measured_n": false,
+      "reachable_here_for_short_requests": true,
+      "view": "Measurable on this host. At n_predict=512 on a 1B Q4 model the GPU-domain load is ~1 J vs ~60 J decode, so savings are ~2%, not 50%. The −50% band is reachable only for short requests (n ≲ E_load/J_per_outcome) or heavier models whose load cost is large relative to decode. Latency still favors warm; energy on the GPU domain does not automatically."
+    },
+    "joules_per_verified_outcome_minus_20_to_40pct": {
+      "reachable_here": false,
+      "view": "Not reachable as a *delta* without a named baseline. Warm-vs-cold must not be substituted. Needs a fair non-Merc or non-locality control on the same silicon, or an explicit programme decision that warm-vs-cold *is* the baseline comparison."
+    },
+    "energy_readings_with_actual_telemetry_gt_90pct_routed_volume": {
+      "reachable_here_gpu_domain_metal_local": true,
+      "reachable_here_package_or_wall": false,
+      "view": "GPU-domain: yes, for local Metal volume, unprivileged. Package: needs sudo. Wall: needs a meter. CUDA: no device. The >90% target is boundary-dependent; claim it only with the boundary attached."
+    }
+  },
+  "errors": [],
+  "not_production_pricing_truth": "GPU-domain energy deltas for one host and one model. Not package, not wall-plug. Does not replace sustainedWattsByHWClass. Must not be written into control/pricing.go without a separate pricing lane.",
+  "vs_assumed_sustained_watts": {
+    "hw_class": "apple_silicon_ultra",
+    "assumed_watts": 65.0,
+    "assumed_kind": "ASSUMED",
+    "assumed_source": "control/pricing.go sustainedWattsByHWClass (not edited)",
+    "comparison_caveat": "ASSUMED 65 W is whole-package. This receipt is GPU-domain only. A GPU mean below 65 W is not evidence the package assumption is high."
+  },
+  "related_authority": {
+    "level_not_delta": "evidence/perf/ioreport-gpu-energy-authority.json",
+    "note": "Prior receipt is one J/outcome level. This receipt supplies the deltas (idle curve, warm vs cold) that level could not."
+  },
+  "producer_identity": {
+    "source_commit": {
+      "value": "75ccb15aa80367d4df2a7edd74f39b1aa813f4ee"
+    },
+    "build_digest": {
+      "value": "0d2f9b3f2958de02af5c9427ab7543c6afd5bd93b405040ab98e6bc01a7ef9bc"
+    },
+    "model_artifact_digest": {
+      "value": "3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1"
+    },
+    "image_digest": {
+      "na": "no container image in this measurement"
+    },
+    "harness_revision": {
+      "value": "scripts/energy-deltas-measure.py"
+    },
+    "corpus_digest": {
+      "na": "no external corpus; synthetic/local prompt only"
+    },
+    "exact_config": {
+      "value": "n_predict=512 idle_s=10.0 resident_idle_s=10.0 interval_ms=200 warm_repeats=2 cold_repeats=2 backend=ioreport_gpu_energy"
+    },
+    "raw_samples": {
+      "value": "unloaded_samples=46 resident_samples=46 warm_runs=2 cold_placement_runs=2 cold_cli_runs=2"
+    }
+  },
+  "binding_status": "BOUND"
+}
