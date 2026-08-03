@@ -122,12 +122,12 @@ func TestGatewayParityRefusesMismatchedRequestBodies(t *testing.T) {
 		"merc@c=1": {
 			Arm: "merc", Concurrency: 1, RequestsAttempted: 20, RequestsOK: 20,
 			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
-			TTFTp95: &GatewayParityPointEstimate{Point: 10},
+			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 10, CI95High: 10, N: 20},
 		},
 		"direct@c=1": {
 			Arm: "direct", Concurrency: 1, RequestsAttempted: 20, RequestsOK: 20,
 			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
-			TTFTp95: &GatewayParityPointEstimate{Point: 10},
+			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 10, CI95High: 10, N: 20},
 		},
 	}
 	tps := 100.0
@@ -162,13 +162,13 @@ func TestGatewayParityGateFailsWhenClaimedLevelNotEvaluated(t *testing.T) {
 	levels := map[string]GatewayParityLevelResult{
 		"merc@c=1": {
 			Arm: "merc", Concurrency: 1, RequestsAttempted: 20, RequestsOK: 20,
-			Status: "MEASURED", MeanInFlight: 1,
-			TTFTp95: &GatewayParityPointEstimate{Point: 12},
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95: &GatewayParityPointEstimate{Point: 12, CI95Low: 11, CI95High: 13, N: 20},
 		},
 		"direct@c=1": {
 			Arm: "direct", Concurrency: 1, RequestsAttempted: 20, RequestsOK: 20,
-			Status: "MEASURED", MeanInFlight: 1,
-			TTFTp95: &GatewayParityPointEstimate{Point: 10},
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 9, CI95High: 11, N: 20},
 		},
 		// c=8 and c=32 claimed but absent.
 	}
@@ -203,23 +203,24 @@ func TestGatewayParityGateFailsWhenClaimedLevelNotEvaluated(t *testing.T) {
 
 	// Measuring every claimed level with matching tokens and budget-clearing
 	// overhead must clear the multi-level gate.
+	// Overhead CI must sit entirely below the 15 ms budget (point 2 ms, tight CI).
 	for _, c := range []int{8, 32} {
 		n := GatewayParitySampleFloor(c)
-		ttftMerc := &GatewayParityPointEstimate{Point: 12}
-		ttftDirect := &GatewayParityPointEstimate{Point: 10}
+		ttftMerc := &GatewayParityPointEstimate{Point: 12, CI95Low: 11.5, CI95High: 12.5, N: n}
+		ttftDirect := &GatewayParityPointEstimate{Point: 10, CI95Low: 9.5, CI95High: 10.5, N: n}
 		tpsM, tpsD := 100.0, 100.0
 		levels[fmt.Sprintf("merc@c=%d", c)] = GatewayParityLevelResult{
 			Arm: "merc", Concurrency: c, RequestsAttempted: n, RequestsOK: n,
-			Status: "MEASURED", MeanInFlight: float64(c), TTFTp95: ttftMerc,
+			Status: "MEASURED", MeanInFlight: float64(c), PeakInFlight: c, TTFTp95: ttftMerc,
 			AggregateTokPerSec: &tpsM, TotalTokens: n * 5, MeanCompletionTok: 5,
 		}
 		levels[fmt.Sprintf("direct@c=%d", c)] = GatewayParityLevelResult{
 			Arm: "direct", Concurrency: c, RequestsAttempted: n, RequestsOK: n,
-			Status: "MEASURED", MeanInFlight: float64(c), TTFTp95: ttftDirect,
+			Status: "MEASURED", MeanInFlight: float64(c), PeakInFlight: c, TTFTp95: ttftDirect,
 			AggregateTokPerSec: &tpsD, TotalTokens: n * 5, MeanCompletionTok: 5,
 		}
 	}
-	// Fix c=1 token totals to match.
+	// Fix c=1: tight CI so overhead hi = 13-9 = 4 ≤ 15.
 	for _, arm := range []string{"merc", "direct"} {
 		k := arm + "@c=1"
 		v := levels[k]
@@ -229,8 +230,204 @@ func TestGatewayParityGateFailsWhenClaimedLevelNotEvaluated(t *testing.T) {
 	}
 	gateOK := EvaluateGatewayParityGate([]int{1, 8, 32}, levels, budget)
 	if !gateOK.GatePassed {
-		t.Fatalf("gate failed with every level measured inside budget: %+v", gateOK)
+		t.Fatalf("gate failed with every level measured inside budget: verdict=%s levels=%+v", gateOK.Verdict, gateOK.Levels)
 	}
+}
+
+// +500 ms merc TTFT overhead must FAIL the interval gate (budget now bites).
+func TestGatewayParityGateRefusesLargeTTFTOverhead(t *testing.T) {
+	n := 20
+	tpsM, tpsD := 80.0, 100.0
+	levels := map[string]GatewayParityLevelResult{
+		"merc@c=1": {
+			Arm: "merc", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			// Point +500 ms over direct; CI entirely above 15 ms budget.
+			TTFTp95:            &GatewayParityPointEstimate{Point: 520, CI95Low: 500, CI95High: 540, N: n},
+			AggregateTokPerSec: &tpsM, TotalTokens: n * 5, MeanCompletionTok: 5,
+		},
+		"direct@c=1": {
+			Arm: "direct", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95:            &GatewayParityPointEstimate{Point: 20, CI95Low: 18, CI95High: 22, N: n},
+			AggregateTokPerSec: &tpsD, TotalTokens: n * 5, MeanCompletionTok: 5,
+		},
+	}
+	gate := EvaluateGatewayParityGate([]int{1}, levels, DefaultGatewayParityBudget())
+	if gate.GatePassed || gate.Verdict != "FAIL" {
+		t.Fatalf("want FAIL for +500 ms overhead, got passed=%v verdict=%s levels=%+v",
+			gate.GatePassed, gate.Verdict, gate.Levels)
+	}
+	if len(gate.Levels) != 1 || gate.Levels[0].TTFTOverheadP95Ms == nil {
+		t.Fatalf("missing overhead estimate: %+v", gate.Levels)
+	}
+	oh := gate.Levels[0].TTFTOverheadP95Ms
+	if oh.Point < 400 {
+		t.Fatalf("overhead point %.1f, want ~500", oh.Point)
+	}
+	// Primary FAIL must not dual-refuse throughput even if loss is large.
+	// Throughput secondary note should acknowledge non-dual-refuse when loss exceeds budget.
+	if gate.Levels[0].ThroughputSecondary == "" {
+		t.Fatal("expected throughput secondary annotation")
+	}
+	if !strings.Contains(gate.Levels[0].ThroughputSecondary, "not dual-refused") {
+		t.Fatalf("secondary should not dual-refuse: %s", gate.Levels[0].ThroughputSecondary)
+	}
+	// Exactly one primary TTFT refusal; no separate throughput refusal string.
+	ttftRefusals, thrRefusals := 0, 0
+	for _, r := range gate.Levels[0].Refusals {
+		if strings.Contains(r, "ttft overhead") {
+			ttftRefusals++
+		}
+		if strings.Contains(r, "throughput loss") {
+			thrRefusals++
+		}
+	}
+	if ttftRefusals == 0 {
+		t.Fatalf("missing TTFT refusal: %v", gate.Levels[0].Refusals)
+	}
+	if thrRefusals != 0 {
+		t.Fatalf("dual-refused on throughput: %v", gate.Levels[0].Refusals)
+	}
+}
+
+// Unproven body identity must refuse PARITY_EVIDENCE (Equal defaults false).
+func TestGatewayParityUnprovenBodyIdentityRefuses(t *testing.T) {
+	contract := GatewayParitySamplingContract{
+		Model: "m", Prompt: "p", Temperature: 0, TopP: 0.95, MaxTokens: 16, Stream: true,
+		ModelDigest: strings.Repeat("ab", 32),
+	}
+	body, err := contract.BuildChatCompletionsBody()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Prove path with no upstream headers → unproven, Equal=false.
+	levels := map[string]GatewayParityLevelResult{
+		"merc@c=1": {
+			Arm: "merc", Concurrency: 1, RequestsAttempted: 20, RequestsOK: 20,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95: &GatewayParityPointEstimate{Point: 10, CI95Low: 10, CI95High: 10, N: 20},
+			RawSamples: []GatewayParityRawSample{
+				{Arm: "merc", TTFTMs: 10, FinishReason: "stop", CompletionTokens: 5},
+			},
+			TotalTokens: 100, MeanCompletionTok: 5,
+		},
+		"direct@c=1": {
+			Arm: "direct", Concurrency: 1, RequestsAttempted: 20, RequestsOK: 20,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95:     &GatewayParityPointEstimate{Point: 10, CI95Low: 10, CI95High: 10, N: 20},
+			TotalTokens: 100, MeanCompletionTok: 5,
+		},
+	}
+	tps := 100.0
+	for k, v := range levels {
+		v.AggregateTokPerSec = &tps
+		levels[k] = v
+	}
+	identity := ProveGatewayParityBodyIdentity(body, []int{1}, levels)
+	if identity.Equal || identity.Proven {
+		t.Fatalf("unproven identity must not set equal/proven: %+v", identity)
+	}
+	client := NewGatewayParityClient(1)
+	rec := BuildGatewayParityReceipt(
+		contract, GatewayParityNetworkTopology{}, client, []int{1}, levels, identity,
+		DefaultGatewayParityBudget(), CaptureGatewayParityHostLoad(), CaptureGatewayParityHostLoad(),
+		"PARITY_EVIDENCE", nil,
+	)
+	if rec.GatePassed || rec.Comparable {
+		t.Fatal("PARITY_EVIDENCE with unproven identity must not pass/comparable")
+	}
+	joined := strings.Join(rec.Refusals, "; ")
+	if !strings.Contains(joined, "unproven") && !strings.Contains(joined, "not byte-identical") {
+		t.Fatalf("refusals must name unproven identity: %v", rec.Refusals)
+	}
+}
+
+// Interval gate returns INCONCLUSIVE when the overhead CI straddles the budget.
+func TestGatewayParityGateInconclusiveWhenCIStraddlesBudget(t *testing.T) {
+	n := 20
+	tps := 100.0
+	// Overhead point 15, CI [5, 25] straddles budget 15.
+	levels := map[string]GatewayParityLevelResult{
+		"merc@c=1": {
+			Arm: "merc", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95:            &GatewayParityPointEstimate{Point: 30, CI95Low: 20, CI95High: 40, N: n},
+			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
+		},
+		"direct@c=1": {
+			Arm: "direct", Concurrency: 1, RequestsAttempted: n, RequestsOK: n,
+			Status: "MEASURED", MeanInFlight: 1, PeakInFlight: 1,
+			TTFTp95:            &GatewayParityPointEstimate{Point: 15, CI95Low: 10, CI95High: 20, N: n},
+			AggregateTokPerSec: &tps, TotalTokens: n * 5, MeanCompletionTok: 5,
+		},
+	}
+	gate := EvaluateGatewayParityGate([]int{1}, levels, DefaultGatewayParityBudget())
+	if gate.Verdict != "INCONCLUSIVE" {
+		t.Fatalf("verdict=%s want INCONCLUSIVE; levels=%+v", gate.Verdict, gate.Levels)
+	}
+	if gate.GatePassed {
+		t.Fatal("INCONCLUSIVE must not set gate_passed")
+	}
+	if gate.Levels[0].MinimumDetectableEffectMs <= 0 {
+		t.Fatalf("MDE must be reported: %+v", gate.Levels[0])
+	}
+}
+
+// Interleaved schedule must not dual-load the engine (peak engine ≤ c).
+func TestGatewayParityInterleavedDoesNotDualLoad(t *testing.T) {
+	var engineInFlight atomic.Int64
+	var enginePeak atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cur := engineInFlight.Add(1)
+		for {
+			p := enginePeak.Load()
+			if cur <= p || enginePeak.CompareAndSwap(p, cur) {
+				break
+			}
+		}
+		time.Sleep(15 * time.Millisecond)
+		engineInFlight.Add(-1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("X-Merc-Upstream-Body-SHA256", sha256Hex(mustReadBody(r)))
+		flusher, _ := w.(http.Flusher)
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	client := NewGatewayParityClient(4)
+	body := []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],"max_tokens":1,"temperature":0,"top_p":1,"stream":true,"stream_options":{"include_usage":true}}`)
+	const c = 4
+	n := GatewayParitySampleFloor(c)
+	merc, direct := RunGatewayParityInterleavedLevel(
+		context.Background(), client,
+		srv.URL+"/v1", "k", srv.URL+"/v1", "k",
+		body, c, n,
+	)
+	if merc.Status != "MEASURED" || direct.Status != "MEASURED" {
+		t.Fatalf("arms not measured: merc=%s (%s) direct=%s (%s)",
+			merc.Status, merc.Reason, direct.Status, direct.Reason)
+	}
+	if merc.PeakInFlight > c || direct.PeakInFlight > c {
+		t.Fatalf("per-arm peak exceeded c=%d: merc=%d direct=%d", c, merc.PeakInFlight, direct.PeakInFlight)
+	}
+	if enginePeak.Load() > int64(c) {
+		t.Fatalf("engine peak in-flight %d > claimed c=%d (dual-load)", enginePeak.Load(), c)
+	}
+	// Per-arm walls must differ from a single shared wall: each arm has its own busy time.
+	if merc.WallSeconds <= 0 || direct.WallSeconds <= 0 {
+		t.Fatalf("per-arm walls missing: merc=%.4f direct=%.4f", merc.WallSeconds, direct.WallSeconds)
+	}
+}
+
+func mustReadBody(r *http.Request) []byte {
+	b, _ := io.ReadAll(r.Body)
+	return b
 }
 
 // Sampling contract must bind top_p (and friends) so merc cannot inject a
@@ -423,13 +620,14 @@ func TestGatewayParityHarnessSelfTestReceipt(t *testing.T) {
 		"merc@c=1":   merc,
 		"direct@c=1": direct,
 	}
-	identity := GatewayParityBodyIdentity{
-		Proven: true, Method: "self-test: both arms send identical harness body to stand-in",
-		HarnessBodySHA256:   sha256Hex(body),
-		MercUpstreamSHA256:  sha256Hex(body),
-		DirectRequestSHA256: sha256Hex(body),
-		Equal:               true,
-		Detail:              "stand-in self-test; merc upstream capture not required because both arms are the stand-in",
+	// Inject upstream body SHA into samples so Prove path is the same as live.
+	for i := range merc.RawSamples {
+		merc.RawSamples[i].UpstreamBodySHA = sha256Hex(body)
+	}
+	levels["merc@c=1"] = merc
+	identity := ProveGatewayParityBodyIdentity(body, claimed, levels)
+	if !identity.Proven || !identity.Equal {
+		t.Fatalf("self-test identity should prove via injected upstream sha: %+v", identity)
 	}
 	topology := GatewayParityNetworkTopology{
 		ClientHost: "local-test-process", ControlPlane: "none (self-test)",
