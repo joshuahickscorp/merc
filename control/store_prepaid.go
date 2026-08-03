@@ -653,6 +653,11 @@ func prepaidExecutionContractDebitRef(contractID uuid.UUID) string {
 // charge when free credit alone does not cover it. Free-credit sandbox charges
 // (grant fully covers the charge) stay ledger-only; prepaid top-ups are reduced
 // exactly like the task/service prepaid debit path, keyed by execution contract.
+//
+// Lock order: takes buyers FOR UPDATE (and possibly buyer_prepaid_balances)
+// before any offer capacity release. Callers must not hold an offer row lock
+// first — that inverts the realtime hierarchy documented on
+// evaluateRealtimeBuyerFunding and deadlocks under single-buyer concurrency.
 func maybeDebitPrepaidForRealtimeTx(ctx context.Context, tx pgx.Tx, buyerID, contractID uuid.UUID, chargeMicros int64) error {
 	if buyerID == uuid.Nil || contractID == uuid.Nil || chargeMicros <= 0 {
 		return fmt.Errorf("realtime prepaid debit requires buyer, contract, and positive micros")

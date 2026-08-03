@@ -27,6 +27,27 @@ var (
 	errRealtimeRefundNeedsReversal = errors.New("supplier payout crossed the internal transfer boundary; external reversal is required")
 )
 
+// Realtime money/capacity lock hierarchy (every path that touches more than
+// one of these must acquire in this order; reverse order is a deadlock):
+//
+//  1. Buyer funding: pg_advisory_xact_lock("realtime-buyer-funding|"+buyerID)
+//     then buyers.row FOR UPDATE (see evaluateRealtimeBuyerFunding).
+//  2. Offer capacity: UPDATE realtime_worker_offers (claim in authorize, or
+//     releaseRealtimeCapacity on settle/fail/recover).
+//
+// Contract rows (execution_contracts FOR UPDATE) are per-contract and may be
+// taken before or after (1)/(2) only when the transaction does not also need
+// the opposite resource in the reverse order. FinalizeRealtimeSuccess locks
+// the contract, then the buyer (maybeDebitPrepaidForRealtimeTx), then the
+// offer — buyer before offer, which matches this hierarchy.
+//
+// History: commit a8159ac7 took the buyer funding lock *after* the offer claim
+// to shorten the buyer-serialised window. Under single-buyer authorize+settle
+// concurrency that crossed the hierarchy against FinalizeRealtimeSuccess and
+// produced PostgreSQL 40P01 (buyers vs realtime_worker_offers). Hierarchy
+// restored: funding before offer claim. Batching of lock+funding snapshot and
+// contract+event insert stays — those only cut client/server RTs.
+//
 // evaluateRealtimeBuyerFunding locks the buyer row and requires already-settled
 // money (free-credit grant + materialised prepaid balance, net of charges,
 // prepaid debits, open batch estimates, and EXECUTING realtime ceilings) to
@@ -689,30 +710,26 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			return RealtimeContract{}, false, err
 		}
 	}
-	// Funding + capacity + durable reservation are ordered to minimise the
-	// buyer-funding critical section without splitting the transaction.
+	// Funding + capacity + durable reservation (see lock hierarchy on
+	// evaluateRealtimeBuyerFunding). Order is non-negotiable:
+	//   buyer funding → offer capacity claim → EXECUTING insert → commit.
+	// PostgreSQL holds row locks until COMMIT, so both locks cover the
+	// remainder of the transaction. Taking the offer before the buyer was
+	// tried (late funding lock) and deadlocked against settlement, which
+	// locks the buyer before releasing offer capacity.
 	//
-	// PostgreSQL holds row locks from UPDATE until COMMIT, so the offer
-	// capacity decrement and the buyer advisory funding lock both cover
-	// everything that follows them in this transaction. Taking the buyer
-	// funding lock *after* offer selection and PricingDecision construction
-	// keeps that lock's hold set to: funding multi-aggregate check, EXECUTING
-	// insert, RESERVED event, optional envelope bind, and commit. Offer
-	// selection and pricing no longer sit inside the buyer-serialised window.
-	//
-	// Money correctness is unchanged: evaluateRealtimeBuyerFunding still
-	// serialises check-and-reserve through the EXECUTING insert and commit,
-	// so concurrent same-buyer admits cannot each observe reserved=0 and
-	// overspend. Capacity correctness is unchanged: available_sequences>0 in
-	// the UPDATE WHERE clause still makes decrement-and-check atomic; a
-	// later funding failure rolls the whole transaction back and restores
-	// the sequence. Broke-buyer requests that fail funding after claiming a
-	// sequence briefly hold the offer row lock until rollback — authenticated
-	// noise, not a permanent capacity leak.
+	// Money correctness: evaluateRealtimeBuyerFunding serialises
+	// check-and-reserve through the EXECUTING insert and commit, so concurrent
+	// same-buyer admits cannot each observe reserved=0 and overspend.
+	// Capacity correctness: available_sequences>0 in the UPDATE WHERE clause
+	// still makes decrement-and-check atomic. Funding failure before the offer
+	// claim never touches capacity; after a claim (impossible on the legacy
+	// path now that funding is first) a rollback would still restore it.
 	//
 	// Envelope path: spend is one atomic UPDATE on the envelope row; it does
 	// not take the buyer advisory funding lock and must not double-count as
-	// EXECUTING realtimeReserved (see evaluateRealtimeBuyerFunding).
+	// EXECUTING realtimeReserved (see evaluateRealtimeBuyerFunding). Envelope
+	// create already held buyer funding; admit only claims offer capacity.
 	var envelopeSpend *ExecutionEnvelopeSpend
 	if auth.EnvelopeID != uuid.Nil {
 		needNanos, nerr := realtimeAuthNeedNanos(auth)
@@ -771,6 +788,12 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 			}
 		}
 		envelopeSpend = &spend
+	} else {
+		// Legacy per-request path: buyer funding *before* offer claim.
+		// A saved payment method is a top-up rail only — never admission funding.
+		if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, auth.MaximumPriceUSD); err != nil {
+			return RealtimeContract{}, false, err
+		}
 	}
 
 	var (
@@ -789,7 +812,7 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 		refundCount          int
 	)
 	// Reserve a sequence with a single atomic decrement that is also the
-	// selection.
+	// selection. Hierarchy step 2: offer capacity after buyer funding.
 	//
 	// This was a SELECT ... FOR UPDATE OF o SKIP LOCKED followed by a separate
 	// UPDATE, which under SKIP LOCKED made contenders step over the only
@@ -799,11 +822,10 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	// what makes it safe: decrement and capacity check are one atomic
 	// operation, so the counter cannot go negative under any interleaving.
 	//
-	// Note on lock duration: PostgreSQL holds the offer row lock until this
-	// transaction commits or rolls back — not merely for the statement. The
-	// buyer funding advisory lock is deliberately acquired *after* this claim
-	// and the PricingDecision work below, so same-buyer admits no longer
-	// serialise offer ranking and pricing under the funding lock.
+	// PostgreSQL holds the offer row lock until this transaction commits or
+	// rolls back — not merely for the statement. Same-buyer admits therefore
+	// serialise on the funding lock (already held) and then queue on the
+	// offer row for the remainder of the transaction.
 	//
 	// Ranking is verified-outcome cost first (base ask adjusted by measured
 	// failure and refund rates when enough samples exist), then warmth only as
@@ -889,15 +911,6 @@ func (s *Store) AuthorizeRealtimeContract(ctx context.Context, auth RealtimeCont
 	expectedProjection, maximumProjection, err := realtimePricingLegacyProjection(pricing)
 	if err != nil || expectedProjection != auth.EstimatedPriceUSD || maximumProjection != auth.MaximumPriceUSD {
 		return RealtimeContract{}, false, errors.New("realtime PricingDecision does not match legacy reserve projection")
-	}
-
-	// Buyer-funding critical section (legacy per-request path only). Envelope
-	// admits already held money at create time. A saved payment method is a
-	// top-up rail only — never admission funding.
-	if envelopeSpend == nil {
-		if err := evaluateRealtimeBuyerFunding(ctx, tx, auth.BuyerID, auth.MaximumPriceUSD); err != nil {
-			return RealtimeContract{}, false, err
-		}
 	}
 
 	contractID := uuid.New()
@@ -1100,6 +1113,11 @@ func supplierTokenCharge(prompt, completion int64, inputRate, outputRate float64
 	return microsToUSD(micros), nil
 }
 
+// releaseRealtimeCapacity returns one sequence to the offer. Callers that also
+// hold buyer funding locks must already have acquired them (hierarchy: buyer
+// funding before offer). FinalizeRealtimeSuccess does buyers FOR UPDATE in
+// maybeDebitPrepaidForRealtimeTx before this; FinalizeRealtimeFailure and
+// RecoverStaleRealtimeContracts touch only the contract then the offer.
 func releaseRealtimeCapacity(ctx context.Context, tx pgx.Tx, workerID uuid.UUID, profileID string) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE realtime_worker_offers
