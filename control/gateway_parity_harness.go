@@ -528,7 +528,10 @@ type GatewayParityReceipt struct {
 	MercSourceCommit string `json:"merc_source_commit,omitempty"`
 	ImageDigest      string `json:"image_digest,omitempty"`
 	EngineVersion    string `json:"engine_version,omitempty"`
-	EvidenceClass    string `json:"evidence_class"` // PARITY_EVIDENCE | HARNESS_SELF_TEST | INVALIDATED
+	// EvidenceClass: PARITY_EVIDENCE (catalogue vLLM claim), LOCAL_METAL_PARITY
+	// (gateway overhead vs llama.cpp/Metal only — not catalogue parity),
+	// HARNESS_SELF_TEST, INCOMPLETE_LADDER, INVALIDATED.
+	EvidenceClass string `json:"evidence_class"`
 
 	Comparable bool     `json:"comparable"`
 	GatePassed bool     `json:"gate_passed"`
@@ -560,7 +563,22 @@ type GatewayParityReceipt struct {
 	// top-level array is always present when the run measured anything.
 	RawSampleCount int `json:"raw_sample_count"`
 
+	// DoesNotProve lists claims this receipt must never be quoted as. Required
+	// for LOCAL_METAL_PARITY so a reader who quotes "Merc matches the engine"
+	// (catalogue vLLM) is wrong on the face of the artifact.
+	DoesNotProve []string `json:"does_not_prove,omitempty"`
+
 	Notes []string `json:"notes,omitempty"`
+}
+
+// localMetalParityDoesNotProve is the fixed non-claim list for Metal/llama.cpp
+// gateway-overhead receipts. Copied into every LOCAL_METAL_PARITY receipt.
+var localMetalParityDoesNotProve = []string{
+	"that Merc matches the advertised catalogue runtime profile (engine=vllm, dtype=bfloat16, container_platform=linux/amd64)",
+	"vLLM parity, vLLM overhead, or any NVIDIA/CUDA/linux-amd64 serving measurement",
+	"bf16 / full-precision weight parity with any published vLLM profile",
+	"production multi-tenant capacity, pricing correctness, or catalogue SLA",
+	"that a reader may re-label this receipt as evidence_class=PARITY_EVIDENCE",
 }
 
 // GatewayParityBodyIdentity is the proof (or argument) that both arms sent the
@@ -1520,20 +1538,33 @@ func BuildGatewayParityReceipt(
 	)
 
 	var refusals []string
-	// Claim ladder: PARITY_EVIDENCE requires {1,8,32}. A lone -concurrency 1
-	// is an incomplete measurement class, not a parity claim.
-	if evidenceClass == "PARITY_EVIDENCE" && !GatewayParityLadderComplete(claimed) {
+	// LOCAL_METAL_PARITY is a scoped measurement class: gateway overhead against
+	// a same-host llama.cpp/Metal arm. It is never catalogue PARITY_EVIDENCE.
+	if evidenceClass == "LOCAL_METAL_PARITY" {
+		rec.DoesNotProve = append([]string(nil), localMetalParityDoesNotProve...)
+		rec.Notes = append(rec.Notes,
+			"evidence_class=LOCAL_METAL_PARITY: measures Merc gateway overhead vs direct llama.cpp/Metal "+
+				"(same model digest, same host). NOT a measurement of the advertised vLLM/bf16/linux-amd64 profile.",
+			"comparable=true under LOCAL_METAL_PARITY means only: Merc-vs-llama.cpp/Metal TTFT overhead is within "+
+				"budget at every claimed level with proven body identity. It does NOT mean Merc matches vLLM.",
+			"do not re-label as PARITY_EVIDENCE; does_not_prove travels with every number in this receipt",
+		)
+	}
+	// Claim ladder: PARITY_EVIDENCE and LOCAL_METAL_PARITY require {1,8,32}.
+	// A lone -concurrency 1 is an incomplete measurement class, not a claim.
+	requiresLadder := evidenceClass == "PARITY_EVIDENCE" || evidenceClass == "LOCAL_METAL_PARITY"
+	if requiresLadder && !GatewayParityLadderComplete(claimed) {
 		rec.EvidenceClass = "INCOMPLETE_LADDER"
 		evidenceClass = rec.EvidenceClass
 		refusals = append(refusals, fmt.Sprintf(
-			"incomplete concurrency ladder: PARITY_EVIDENCE requires levels %v (got %v); "+
+			"incomplete concurrency ladder: claim class requires levels %v (got %v); "+
 				"a single-level run is not a parity claim",
 			gatewayParityRequiredLadder, claimed))
 		rec.Notes = append(rec.Notes,
 			"evidence_class=INCOMPLETE_LADDER: concurrency ladder incomplete; not a parity claim")
 	}
 	// Identity: Equal never defaults true; unproven is a hard refusal for
-	// PARITY_EVIDENCE. Equal=false without a detail still refuses.
+	// PARITY_EVIDENCE and LOCAL_METAL_PARITY. Equal=false without a detail still refuses.
 	if !bodyIdentity.Equal {
 		detail := bodyIdentity.Detail
 		if detail == "" {
@@ -1541,16 +1572,17 @@ func BuildGatewayParityReceipt(
 		}
 		refusals = append(refusals, "request bodies are not byte-identical: "+detail)
 	}
-	if !bodyIdentity.Proven && evidenceClass == "PARITY_EVIDENCE" {
+	requiresIdentity := evidenceClass == "PARITY_EVIDENCE" || evidenceClass == "LOCAL_METAL_PARITY"
+	if !bodyIdentity.Proven && requiresIdentity {
 		detail := bodyIdentity.Detail
 		if detail == "" {
 			detail = "enable MERC_PARITY_CAPTURE_UPSTREAM=1 so merc returns X-Merc-Upstream-Body-SHA256 " +
 				"and ensure responses carry X-Merc-Contract-ID from a real control plane"
 		}
 		if bodyIdentity.BareSHAStandIn {
-			refusals = append(refusals, "bare-SHA stand-in refused (PARITY_EVIDENCE): "+detail)
+			refusals = append(refusals, "bare-SHA stand-in refused ("+evidenceClass+"): "+detail)
 		} else {
-			refusals = append(refusals, "body identity unproven (PARITY_EVIDENCE requires Merc contract proof): "+detail)
+			refusals = append(refusals, "body identity unproven ("+evidenceClass+" requires Merc contract proof): "+detail)
 		}
 	}
 	for _, c := range claimed {
