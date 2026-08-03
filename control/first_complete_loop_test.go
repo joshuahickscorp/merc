@@ -377,7 +377,7 @@ func writeFirstLoopReceipt(t *testing.T, loop firstLoopReceipt) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("create receipt directory: %v", err)
 	}
-	body, err := json.MarshalIndent(map[string]any{
+	payload := map[string]any{
 		"schema_version":        1,
 		"kind":                  "first_complete_loop",
 		"harness":               "control/first_complete_loop_test.go",
@@ -391,12 +391,29 @@ func writeFirstLoopReceipt(t *testing.T, loop firstLoopReceipt) {
 			"The buyer is funded by the sandbox credit grant, so the Stripe rails are " +
 				"not exercised: no payment intent, no capture, no payout.",
 		},
-	}, "", "  ")
-	if err != nil {
-		t.Fatalf("render receipt: %v", err)
 	}
-	if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
-		t.Fatalf("write receipt: %v", err)
+	// Default path is outside evidence/; only enforce the bound writer when the
+	// destination is under evidence/ (operator-run path).
+	if strings.Contains(filepath.ToSlash(path), "/evidence/") || strings.HasPrefix(filepath.ToSlash(path), "evidence/") {
+		id, bin, err := DefaultBoundIdentity("..", "control/first_complete_loop_test.go",
+			"embedded loop receipt", "embedded loop events")
+		if err != nil {
+			t.Fatalf("identity: %v", err)
+		}
+		if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+			RepoRoot: "..", Path: path, Payload: payload,
+			Identity: id, BuildBinaryPath: bin,
+		}); err != nil {
+			t.Fatalf("write receipt: %v", err)
+		}
+	} else {
+		body, err := json.MarshalIndent(payload, "", "  ")
+		if err != nil {
+			t.Fatalf("render receipt: %v", err)
+		}
+		if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
+			t.Fatalf("write receipt: %v", err)
+		}
 	}
 	t.Logf("first-complete-loop receipt written to %s", path)
 }

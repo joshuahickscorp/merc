@@ -39,16 +39,18 @@
     "minimum_confidence": 0.5,
     "calibration_state": "STEP_QUOTES_NOT_PROJECT_OUTCOME_CALIBRATED",
     "quote_output_sha256": "c2e581965ac3375b945221299d8021f7f4f7d563eaf275480c15b81e19b497ab",
-    "steps": [{
-      "step_id": "embed",
-      "quote_id": "q_0790a5a3-2e5d-4ec0-8f91-7a6992327e5f",
-      "pricing_decision_sha256": "28f1ebeef572af24c775b820c5b97725604931aebcdcea5cbf61881e3e1c481e",
-      "expected_cost_nanos": 8000,
-      "maximum_cost_nanos": 12000,
-      "p50_secs": 45,
-      "p90_secs": 90,
-      "confidence": 0.5
-    }]
+    "steps": [
+      {
+        "step_id": "embed",
+        "quote_id": "q_0790a5a3-2e5d-4ec0-8f91-7a6992327e5f",
+        "pricing_decision_sha256": "28f1ebeef572af24c775b820c5b97725604931aebcdcea5cbf61881e3e1c481e",
+        "expected_cost_nanos": 8000,
+        "maximum_cost_nanos": 12000,
+        "p50_secs": 45,
+        "p90_secs": 90,
+        "confidence": 0.5
+      }
+    ]
   },
   "assertions": {
     "exact_ir_approval_rechecked": true,
@@ -61,5 +63,16 @@
     "buyer_ceiling_held": true,
     "dependency_critical_path_computed": true,
     "project_outcome_calibrated": false
-  }
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

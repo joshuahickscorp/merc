@@ -27,5 +27,16 @@
     "real_receiver_delivery": "NOT EXECUTED",
     "receiver_value_recorded": false,
     "attempts": {}
-  }
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

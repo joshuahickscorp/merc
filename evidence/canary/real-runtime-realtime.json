@@ -47,5 +47,15 @@
     "why_not": "scripts/realtime-parity-benchmark.py reports UNATTESTED_HARNESS_RUN: llama-server presents no runtime attestation header, so the figure is real but may not support a public performance claim."
   },
   "evidence_level": "REAL_RUNTIME_PROVEN",
-  "public_claim_allowed": false
+  "public_claim_allowed": false,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

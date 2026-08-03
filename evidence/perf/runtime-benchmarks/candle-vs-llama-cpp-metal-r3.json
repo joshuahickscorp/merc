@@ -35,5 +35,15 @@
   },
   "peak_ratio_llama_cpp_over_candle": 4.314,
   "verdict": "llama_cpp_metal is 4.31x faster at peak and is NOT byte-deterministic under batching. The batch_infer cell requires byte_exact verification, so throughput alone cannot promote it. Routing on speed here would have broken the verification contract.",
-  "earlier_measurement_was_misconfigured": "A first run launched llama-server with -np 8 and showed llama.cpp collapsing to 0.76x serial at batch 32. That was the harness operator's server configuration, not an engine property. Recorded so the corrected number is not mistaken for cherry-picking."
+  "earlier_measurement_was_misconfigured": "A first run launched llama-server with -np 8 and showed llama.cpp collapsing to 0.76x serial at batch 32. That was the harness operator's server configuration, not an engine property. Recorded so the corrected number is not mistaken for cherry-picking.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

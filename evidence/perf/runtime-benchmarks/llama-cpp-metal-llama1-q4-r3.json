@@ -49,5 +49,14 @@
     "satisfies_byte_exact_verification": false,
     "note": "Reproduced at 5 reps on the corrected harness. The only engine of four that fails to reproduce its own serial output under batching."
   },
-  "benchmark_status": "PHYSICAL_THROUGHPUT_MEASURED"
+  "benchmark_status": "PHYSICAL_THROUGHPUT_MEASURED",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

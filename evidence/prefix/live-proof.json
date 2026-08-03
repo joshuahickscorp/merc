@@ -23,5 +23,16 @@
   "meaning": "Three independent jobs converged on the same prefix ids at three depths, so the scheduler can route a later job to whichever supplier already holds that KV cache instead of paying prefill again. A centralized host does this inside its own fleet; this does it across independent suppliers.",
   "ordering_verified": "cheaper_class_online ASC and cheaper_ask_online ASC sort ABOVE warm_prefix_depth DESC in the claim ORDER BY, so a warm expensive worker never displaces a cold cheap one. Warmth is order-only and never a WHERE predicate, so a cold job is never starved.",
   "not_demonstrated_live": "Preference BETWEEN workers needs two workers of the same cost class; only one worker was connected. Grok's wiring tests cover that case, and this run proves the state those tests depend on is actually produced by real traffic.",
-  "not_wired": "batch_policy.go remains unwired. Workers claim one task per poll and intra-task batching lives in the Rust agent, so there is no control-plane call site. Reported rather than fake-wired."
+  "not_wired": "batch_policy.go remains unwired. Workers claim one task per poll and intra-task batching lives in the Rust agent, so there is no control-plane call site. Reported rather than fake-wired.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

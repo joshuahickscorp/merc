@@ -27,5 +27,15 @@
   "evidence_level": "WIRE_SURFACE_CONFORMANT",
   "real_runtime_attested": false,
   "public_claim_allowed": false,
-  "note": "Both official OpenAI clients drive merc's realtime surface end to end: completion, streaming, merc's receipt headers, credential rejection, model listing, tool-call and structured-output request shapes. The UPSTREAM in this run is an httptest fake, so this is evidence about the wire surface only -- it says nothing about latency, throughput or any GPU, and no performance claim may cite it."
+  "note": "Both official OpenAI clients drive merc's realtime surface end to end: completion, streaming, merc's receipt headers, credential rejection, model listing, tool-call and structured-output request shapes. The UPSTREAM in this run is an httptest fake, so this is evidence about the wire surface only -- it says nothing about latency, throughput or any GPU, and no performance claim may cite it.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

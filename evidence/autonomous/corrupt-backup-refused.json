@@ -17,5 +17,16 @@
     "checksum_mismatch": true,
     "restore_failed_closed": true,
     "no_full_database_from_corrupt": true
-  }
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

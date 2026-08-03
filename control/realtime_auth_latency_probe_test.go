@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -217,22 +216,28 @@ func TestRealtimeAuthLatencyProbe(t *testing.T) {
 			"cost scaled with table size; the new path's reputation term must not.",
 	}
 
-	payload, err := json.MarshalIndent(out, "", "  ")
+	dir := filepath.Join("..", "evidence", "perf")
+	name := fmt.Sprintf("realtime-auth-reputation-%s.json", time.Now().UTC().Format("20060102T150405Z"))
+	path := filepath.Join(dir, name)
+	id, bin, err := DefaultBoundIdentity("..", "control/realtime_auth_latency_probe_test.go",
+		"embedded scope + cells", "embedded cells[].samples")
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join("..", "evidence", "perf")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+		RepoRoot: "..", Path: path, Payload: out,
+		Identity: id, BuildBinaryPath: bin,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	name := fmt.Sprintf("realtime-auth-reputation-%s.json", time.Now().UTC().Format("20060102T150405Z"))
-	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, payload, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// Stable alias for the latest probe on this branch.
+	// Stable alias for the latest probe on this branch (also bound).
 	alias := filepath.Join(dir, "realtime-auth-reputation-latest.json")
-	_ = os.WriteFile(alias, payload, 0o644)
+	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+		RepoRoot: "..", Path: alias, Payload: out,
+		Identity: id, BuildBinaryPath: bin,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	t.Logf("wrote %s", path)
 }
 

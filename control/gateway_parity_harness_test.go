@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -659,17 +658,30 @@ func TestGatewayParityHarnessSelfTestReceipt(t *testing.T) {
 	}
 
 	// Write the receipt next to the invalidated one so a reader can see both.
+	// Bound write path: incomplete identity is refused rather than logged.
 	outDir := filepath.Join("..", "evidence", "perf")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	outPath := filepath.Join(outDir, "gateway-parity-v2-selftest.json")
-	raw, err := json.MarshalIndent(rec, "", "  ")
+	raw, err := json.Marshal(rec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(outPath, append(raw, '\n'), 0o644); err != nil {
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatal(err)
+	}
+	id, bin, err := DefaultBoundIdentity("..", "control/gateway_parity_harness.go#HARNESS_SELF_TEST",
+		"embedded sampling_contract + levels", "embedded levels.*.raw_samples")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id.ModelArtifactDigest = IdentitySlotNA("self-test stand-in; no model weights")
+	id.ImageDigest = IdentitySlotNA("self-test; no container image")
+	id.CorpusDigest = IdentitySlotNA("self-test; no external corpus")
+	if err := WriteBoundEvidenceJSON(EvidenceWriteRequest{
+		RepoRoot: "..", Path: outPath, Payload: payload,
+		Identity: id, BuildBinaryPath: bin,
+	}); err != nil {
+		t.Fatalf("bound evidence write refused: %v", err)
 	}
 	t.Logf("wrote harness self-test receipt to %s (hits=%d)", outPath, hits.Load())
 

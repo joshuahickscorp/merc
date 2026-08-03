@@ -37,5 +37,16 @@
     "still_scaling": true
   },
   "whose_cost": "The $0.27/hr is RENTED TEST CAPACITY. In merc's supply model the rig owner pays electricity and merc pays per accepted unit, so this figure is a proxy for supplier margin -- tokens per kilowatt-hour -- not merc's cost.",
-  "caveat": "Qwen2.5-1.5B fp16 on one A5000, uniform 128-token completions. Not a claim about larger models."
+  "caveat": "Qwen2.5-1.5B fp16 on one A5000, uniform 128-token completions. Not a claim about larger models.",
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

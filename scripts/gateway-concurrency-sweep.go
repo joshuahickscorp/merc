@@ -497,18 +497,42 @@ func main() {
 	}
 	receipt["summary"] = summary
 
-	raw, err := json.MarshalIndent(receipt, "", "  ")
+	raw, err := json.Marshal(receipt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := os.MkdirAll(dirOf(*outPath), 0o755); err != nil {
+	tmp, err := os.CreateTemp("", "merc-concurrency-payload-*.json")
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(*outPath, raw, 0o644); err != nil {
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(append(raw, '\n')); err != nil {
+		tmp.Close()
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	if err := tmp.Close(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	// Route through the single bound-evidence writer (identity + sticky withdrawal).
+	cmd := exec.Command("python3", "scripts/write-bound-evidence.py",
+		"--out", *outPath,
+		"--harness", "scripts/gateway-concurrency-sweep.go",
+		"--payload-file", tmpName,
+		"--build-binary", "scripts/gateway-concurrency-sweep.go",
+		"--exact-config", "embedded concurrency sweep config",
+		"--raw-samples", "embedded per-level samples",
+		"--model-na", "concurrency sweep; model digests not remeasured here",
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "bound evidence write refused:", err)
+		os.Exit(2)
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s\n", *outPath)
 }

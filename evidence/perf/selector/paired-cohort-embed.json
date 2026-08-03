@@ -178,5 +178,15 @@
     "max_regret_per_unit": 0,
     "mean_regret_per_unit": 0,
     "cheapest_measured_cell": ""
-  }
+  },
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }

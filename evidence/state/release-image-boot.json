@@ -19,5 +19,15 @@
   "limitations": [
     "Built from the working tree, not from a fresh clone of a pushed commit.",
     "Boots and serves; it does not exercise the database, object storage or any money path inside the container."
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }

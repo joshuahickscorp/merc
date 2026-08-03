@@ -92,5 +92,16 @@
     "The accepted job was deliberately cancelled before claim, so this is admission and retry evidence, not runtime, verification, settlement, or receipt evidence.",
     "Dependent project steps still refuse because artifact handoff is not implemented.",
     "No new Stripe test-mode charge or refund was created."
+  ],
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "harness_revision",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
   ]
 }

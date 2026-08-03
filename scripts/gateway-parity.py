@@ -61,9 +61,22 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
+# Evidence binding write path — refuse incomplete identity and sticky-withdrawal bypass.
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+from lib.evidence_binding import (  # noqa: E402
+    EvidenceBindingError,
+    default_bound_identity,
+    resolve_source_commit as bound_resolve_source_commit,
+    write_bound_evidence,
+)
+
 MERC_UA = "merc-gateway-parity/1.0"
+_REPO_ROOT = _SCRIPTS.parent
 
 # Same prompt as runtime-parity-sweep so a reader can put the two receipts
 # next to each other without wondering whether the workload changed.
@@ -540,19 +553,53 @@ def assert_comparable(
 
 
 def resolve_source_commit() -> str:
-    """Pin the merc tree that produced this receipt. Empty if not in a git tree."""
+    """Pin the merc tree that produced this receipt.
+
+    Free strings (including a forged MERC_SOURCE_COMMIT) are refused: the value
+    must resolve to a real git object in this repo. Empty is not returned — the
+    bound writer will refuse an incomplete identity instead of writing garbage.
+    """
     env = os.environ.get("MERC_SOURCE_COMMIT", "").strip()
     if env:
+        # Still require a real object — env is not a free-form label channel.
+        from lib.evidence_binding import validate_git_object
+
+        validate_git_object(_REPO_ROOT, env)
         return env
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        return out.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        return ""
+    return bound_resolve_source_commit(_REPO_ROOT)
+
+
+def write_parity_receipt(path: str, report: dict[str, Any], authority_id: str = "") -> None:
+    """Write via the single bound evidence path. Sticky withdrawal enforced."""
+    # Hash this harness file as build_digest — there is no separate binary for
+    # the Python harness; inventing a control-plane binary digest would be false.
+    harness_path = Path(__file__).resolve()
+    identity = default_bound_identity(
+        _REPO_ROOT,
+        harness_revision=f"scripts/gateway-parity.py#{GATE_VERSION}",
+        build_binary_path=harness_path,
+        exact_config="embedded config + scope blocks",
+        raw_samples="embedded levels.*.raw / sample counts",
+        model_na="model digests live in scope.*_model_artifact_sha256 when remeasured",
+        image_na="no container image in this harness",
+        corpus_na="fixed PROMPT string; no external corpus",
+    )
+    # Prefer the already-resolved merc_source_commit if the report carries one
+    # that is a real object (report field is legacy; producer_identity is authoritative).
+    sc = str(report.get("merc_source_commit") or "").strip()
+    if sc:
+        from lib.evidence_binding import slot_value, validate_git_object
+
+        validate_git_object(_REPO_ROOT, sc)
+        identity["source_commit"] = slot_value(sc)
+    write_bound_evidence(
+        path=path,
+        payload=report,
+        identity=identity,
+        repo_root=_REPO_ROOT,
+        build_binary_path=harness_path,
+        authority_id=authority_id,
+    )
 
 
 def build_scope(
@@ -1067,6 +1114,9 @@ def main() -> int:
     ap.add_argument("--i-know-this-is-invalidated", action="store_true",
                     help="required to run a live measurement with this "
                          "INVALIDATED harness; prefer scripts/gateway-parity-v2.go")
+    ap.add_argument("--authority-id", default="",
+                    help="required to overwrite a withdrawn receipt at --out "
+                         "with a non-withdrawn one (sticky withdrawal)")
     args = ap.parse_args()
 
     if args.self_test:
@@ -1257,10 +1307,11 @@ def main() -> int:
                 ),
             },
         )
-        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-        with open(args.out, "w") as fh:
-            json.dump(report, fh, indent=2)
-            fh.write("\n")
+        try:
+            write_parity_receipt(args.out, report, authority_id=args.authority_id)
+        except EvidenceBindingError as exc:
+            print(f"REFUSED evidence write: {exc}", file=sys.stderr)
+            return 2
         print("INCOMPARABLE:", "; ".join(incomparable), file=sys.stderr)
         print(f"wrote refusal receipt to {args.out}", file=sys.stderr)
         return 2
@@ -1381,10 +1432,11 @@ def main() -> int:
         artifact_digests_remeasured=artifact_digests_remeasured,
     )
 
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    with open(args.out, "w") as fh:
-        json.dump(report, fh, indent=2)
-        fh.write("\n")
+    try:
+        write_parity_receipt(args.out, report, authority_id=args.authority_id)
+    except EvidenceBindingError as exc:
+        print(f"REFUSED evidence write: {exc}", file=sys.stderr)
+        return 2
 
     print(f"\nwrote {args.out}")
     if summary:

@@ -29,5 +29,15 @@
     "verification_outcome": "pass"
   },
   "runtime_matrix_sha256": "ea158343b64ea0967b832757c97777b8b2c6f00e8ee27549888e1f25c7bbb2a4",
-  "schema_version": 1
+  "schema_version": 1,
+  "binding_status": "UNBOUND",
+  "missing_identity_fields": [
+    "source_commit",
+    "build_digest",
+    "model_artifact_digest",
+    "image_digest",
+    "corpus_digest",
+    "exact_config",
+    "raw_samples"
+  ]
 }
