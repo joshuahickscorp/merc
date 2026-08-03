@@ -128909,6 +128909,12 @@
     "interleaved schedule uses alternating batches at concurrency c (engine peak ≤ c); per-arm wall clocks for throughput",
     "evidence_class=LOCAL_METAL_PARITY: measures Merc gateway overhead vs direct llama.cpp/Metal (same model digest, same host). NOT a measurement of the advertised vLLM/bf16/linux-amd64 profile.",
     "comparable=true under LOCAL_METAL_PARITY means only: Merc-vs-llama.cpp/Metal TTFT overhead is within budget at every claimed level with proven body identity. It does NOT mean Merc matches vLLM.",
-    "do not re-label as PARITY_EVIDENCE; does_not_prove travels with every number in this receipt"
-  ]
+    "do not re-label as PARITY_EVIDENCE; does_not_prove travels with every number in this receipt",
+    "SUPERSEDED as host-load contaminated measurement: concurrent go test/mutation suites ran on the host during the first LOCAL_METAL_PARITY ladder. Kept on disk for audit. Quiet re-run: evidence/perf/gateway-parity-v2-local-metal-quiet.bound.json"
+  ],
+  "binding_status": "SUPERSEDED",
+  "superseded_by": "evidence/perf/gateway-parity-v2-local-metal-quiet.bound.json",
+  "superseded": true,
+  "superseded_reason": "host contaminated by concurrent go test / mutation-test workloads during measure; quiet re-run supersedes for load-sensitive claims",
+  "os_host_load_note": "OS loadavg was not captured by the harness at measure time. Operator declared concurrent go test ./... and other suites on host. Process-level host_load_start/end only (goroutines/mem). Quiet re-run records OS loadavg in notes/os_host_load_* fields."
 }
