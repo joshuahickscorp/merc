@@ -12,6 +12,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from lib.evidence_binding import EvidenceBindingError, emit_bound_json  # noqa: E402
+
 REQUIRED_TESTS = [
     "TestBuyerObjectDeletionQueueAndSweep",
     "TestDSARDeletionTombstoneAndRestoreReplay",
@@ -155,9 +159,22 @@ def main() -> int:
     go_exit = int(sys.argv[3])
     results = parse_results(events_path)
     receipt = build_receipt(results, go_exit, events_path)
-    temporary = evidence_path.with_suffix(evidence_path.suffix + ".tmp")
-    temporary.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(evidence_path)
+    try:
+        emit_bound_json(
+            evidence_path,
+            receipt,
+            harness="scripts/derive-technical-exercises-receipt.py",
+            repo_root=ROOT,
+            build_binary_path=Path(__file__).resolve(),
+            exact_config=f"go test -json events at {events_path.name}; exit={go_exit}",
+            raw_samples="embedded test_results from go test -json",
+            model_na="technical exercises do not load model weights",
+            image_na="no container image in this measurement",
+            corpus_na="no external corpus",
+        )
+    except EvidenceBindingError as exc:
+        print(f"derive-technical-exercises-receipt: REFUSED: {exc}", file=sys.stderr)
+        return 2
     summary = {
         "status": receipt["status"],
         "go_test_exit_code": go_exit,

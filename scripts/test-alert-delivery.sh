@@ -324,7 +324,15 @@ jq -n \
     ]
   }' >"$ART/evidence.json"
 
-cp "$ART/evidence.json" "$EVIDENCE_OUT"
+# shellcheck source=scripts/lib/write-bound-evidence.sh
+. "$ROOT/scripts/lib/write-bound-evidence.sh"
+merc_emit_bound_json "$EVIDENCE_OUT" "scripts/test-alert-delivery.sh" \
+  "$ART/evidence.json" \
+  --exact-config "alertmanager compose project=$PROJECT alertname=$ALERT_NAME" \
+  --raw-samples "embedded firing/resolved sink observations" \
+  --model-na "alert delivery drill does not load model weights" \
+  --image-na "observability compose images not bound as receipt identity" \
+  --corpus-na "no external corpus"
 log "status=$STATUS evidence=$EVIDENCE_OUT"
 [ "$STATUS" = "PASS" ] || die "derived status is $STATUS (sink did not prove fire+resolve)"
 log "PASS fire → receive → resolve observed at local sink"

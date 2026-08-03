@@ -1294,6 +1294,29 @@ def main() -> int:
             fh.write(line + "\n")
             fh.flush()
             print(line, flush=True)
+    # Refresh the sidecar after every append so re-runs do not leave a missing
+    # or stale UNBOUND stamp on a file whose rows just changed.
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from lib.evidence_binding import (  # noqa: E402
+        EvidenceBindingError,
+        write_bound_jsonl_sidecar,
+    )
+
+    try:
+        write_bound_jsonl_sidecar(
+            out,
+            harness="scripts/bench-harness.py",
+            repo_root=ROOT,
+            build_binary_path=Path(__file__).resolve(),
+            exact_config=f"sweep={args.sweep} model={args.model} power_backend={backend}",
+            raw_samples=f"JSONL rows appended at {out.as_posix()}",
+            model_na="model id recorded per JSONL row; no single artifact digest",
+            image_na="no container image in this measurement",
+            corpus_na="no external corpus",
+        )
+    except EvidenceBindingError as exc:
+        print(f"bench-harness: REFUSED binding sidecar: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 

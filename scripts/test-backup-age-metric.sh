@@ -147,7 +147,15 @@ jq -n \
     secret_values_recorded:false
   }' >"$ART/evidence.json"
 
-cp "$ART/evidence.json" "$EVIDENCE_OUT"
+# shellcheck source=scripts/lib/write-bound-evidence.sh
+. "$ROOT/scripts/lib/write-bound-evidence.sh"
+merc_emit_bound_json "$EVIDENCE_OUT" "scripts/test-backup-age-metric.sh" \
+  "$ART/evidence.json" \
+  --exact-config "backup-age metric observation; stale_threshold=$STALE_THRESHOLD" \
+  --raw-samples "embedded fresh/stale age observations" \
+  --model-na "backup-age metric drill does not load model weights" \
+  --image-na "no container image in this measurement" \
+  --corpus-na "no external corpus"
 log "status=$STATUS evidence=$EVIDENCE_OUT"
 [ "$STATUS" = "PASS" ] || die "derived status is $STATUS (metric did not move / did not go stale)"
 log "PASS backup age metric moved on backup signal and exceeded stale threshold without a fresh backup"

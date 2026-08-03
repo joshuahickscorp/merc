@@ -122,6 +122,7 @@ ci:
 	python3 scripts/test-bench-accounting.py
 	python3 scripts/test-gateway-parity-receipt.py
 	python3 scripts/validate-evidence-binding.py
+	python3 scripts/test-evidence-writer-bypass.py
 	bash scripts/test-readiness-gaming.sh
 	bash scripts/test-agent-review-gaming.sh
 	bash scripts/test-technical-exercises-fail-closed.sh
@@ -234,9 +235,20 @@ release-doctor:
 
 stripe-simulate:
 	mkdir -p evidence/autonomous
-	cd control && go run . release stripe-simulate --sequences 4096 > ../evidence/autonomous/payment-simulator.json.tmp
-	mv evidence/autonomous/payment-simulator.json.tmp evidence/autonomous/payment-simulator.json
-	jq -e '.status == "SIMULATED PASS" and .evidence_label == "SIMULATED" and .generated_sequences.count == 4096' evidence/autonomous/payment-simulator.json >/dev/null
+	@tmp="$$(mktemp $${TMPDIR:-/tmp}/merc-payment-sim.XXXXXX.json)"; \
+	  (cd control && go run . release stripe-simulate --sequences 4096) > "$$tmp"; \
+	  python3 scripts/write-bound-evidence.py \
+	    --out evidence/autonomous/payment-simulator.json \
+	    --harness 'control/stripe_simulator.go (release stripe-simulate)' \
+	    --payload-file "$$tmp" \
+	    --build-binary control/stripe_simulator.go \
+	    --exact-config 'deterministic stripe simulator; sequences=4096' \
+	    --raw-samples 'embedded generated_sequences and scenario outcomes' \
+	    --model-na 'payment simulator does not load model weights' \
+	    --image-na 'no container image in this measurement' \
+	    --corpus-na 'no external corpus'; \
+	  rm -f "$$tmp"
+	jq -e '.status == "SIMULATED PASS" and .evidence_label == "SIMULATED" and .generated_sequences.count == 4096 and .binding_status == "BOUND"' evidence/autonomous/payment-simulator.json >/dev/null
 
 stripe-check:
 	bash scripts/stripe-sandbox.sh check
