@@ -108,3 +108,60 @@ func TestEveryFrozenLatencyClassHasAPolicy(t *testing.T) {
 		}
 	}
 }
+
+// Class comes from the contract, not from a free caller hint. Realtime is
+// always INTERACTIVE; batch class tracks the paid tier and SLA premium.
+func TestTrafficClassDerivedFromContractNotCallerHint(t *testing.T) {
+	if got := TrafficClassForAdmittedWork(true, "background", 0); got != TrafficInteractive {
+		t.Fatalf("realtime product must be INTERACTIVE, got %s (caller latency spelling ignored)", got)
+	}
+	if got := TrafficClassForAdmittedWork(false, "priority_queue", 0); got != TrafficBatchPriority {
+		t.Fatalf("paid priority tier = %s, want BATCH_PRIORITY", got)
+	}
+	if got := TrafficClassForAdmittedWork(false, "standard_batch", 0); got != TrafficBatchStandard {
+		t.Fatalf("standard batch = %s, want BATCH_STANDARD", got)
+	}
+	if got := TrafficClassForAdmittedWork(false, "standard_batch", 1.25); got != TrafficBatchPriority {
+		t.Fatalf("SLA premium must upgrade standard_batch to BATCH_PRIORITY, got %s", got)
+	}
+	if got := TrafficClassForAdmittedWork(false, "background", 0); got != TrafficBackground {
+		t.Fatalf("background = %s", got)
+	}
+	// A free self-label does not upgrade: unknown spelling is standard, not interactive.
+	if got := TrafficClassForAdmittedWork(false, "INTERACTIVE", 0); got != TrafficBatchStandard {
+		t.Fatalf("unknown latency spelling must not become INTERACTIVE, got %s", got)
+	}
+}
+
+// WorkloadDecision.ResolvedTrafficClass combines the frozen latency class with
+// the SLA premium charged on the same admission.
+func TestWorkloadDecisionResolvesTrafficClassWithSLA(t *testing.T) {
+	d := WorkloadDecision{LatencyClass: "standard_batch"}
+	if got := d.ResolvedTrafficClass(0); got != TrafficBatchStandard {
+		t.Fatalf("no premium = %s", got)
+	}
+	if got := d.ResolvedTrafficClass(0.5); got != TrafficBatchPriority {
+		t.Fatalf("with premium = %s", got)
+	}
+}
+
+// Join windows are class-derived and deadline-clamped. Proven by test.
+func TestJoinWindowDerivedFromClassAndDeadline(t *testing.T) {
+	now := time.Now()
+	// Interactive default is near-zero (concurrent admits only).
+	if w := defaultJoinWindowForClass(TrafficInteractive); w != interactiveArrivalJoinWindow {
+		t.Fatalf("interactive default window = %v", w)
+	}
+	// Generous deadline keeps the class default.
+	if w := JoinWindowForArrival(TrafficBatchStandard, now.Add(time.Minute), now, 128, 0); w != batchStandardArrivalJoinWindow {
+		t.Fatalf("standard window = %v, want %v", w, batchStandardArrivalJoinWindow)
+	}
+	// Tight deadline collapses the window.
+	if w := JoinWindowForArrival(TrafficInteractive, now.Add(time.Millisecond), now, 4096, 50*time.Millisecond); w != 0 {
+		t.Fatalf("tight deadline must yield zero window, got %v", w)
+	}
+	// Configured override is still deadline-clamped.
+	if w := JoinWindowForArrival(TrafficBackground, now.Add(20*time.Millisecond), now, 100, time.Second); w >= time.Second {
+		t.Fatalf("configured window must be clamped by deadline, got %v", w)
+	}
+}

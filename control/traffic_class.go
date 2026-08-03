@@ -157,7 +157,51 @@ func TrafficClassForWorkload(latencyClass string, slaPremiumUSD float64) Traffic
 // TrafficClassForRealtime is the realtime lane's class. Stated as a function
 // rather than a constant so the one caller reads as a decision, and so a future
 // interruptible realtime tier has an obvious place to be added.
+//
+// The class is a property of the product the buyer entered — POST /v1/chat/
+// completions with a reserved realtime contract and a fixed short deadline —
+// not a request header. A free "X-Traffic-Class: INTERACTIVE" would let every
+// caller skip the queue.
 func TrafficClassForRealtime() TrafficClass { return TrafficInteractive }
+
+// TrafficClassForAdmittedWork resolves the class of one unit of admitted work
+// from the contract the buyer actually agreed to.
+//
+// Derivation (what stops free self-promotion):
+//
+//  1. Realtime product path → INTERACTIVE. The buyer is on the streaming/
+//     chat-completions product with a control-plane deadline (defaultRealtimeTimeout).
+//     No caller label is consulted.
+//  2. Frozen latency class from WorkloadDecision (server-derived from the paid
+//     tier on the quote/submit binding: priority / trusted / standard). Callers
+//     cannot set LatencyClass on the wire; buildWorkloadDecision freezes it.
+//  3. SLA premium dollars actually charged (or reserved on the firm quote). A
+//     positive premium upgrades standard_batch → BATCH_PRIORITY. Claiming
+//     "priority" without paying the premium does not.
+//  4. A price ceiling alone never upgrades a class. Cheap interactive work is
+//     still interactive because of the product path, not because of a ceiling.
+//  5. Unknown spellings fail toward BATCH_STANDARD, never toward INTERACTIVE.
+//
+// The three product shapes people mean by INTERACTIVE / THROUGHPUT / BACKGROUND
+// map onto the four declared classes without inventing a fifth:
+//
+//	INTERACTIVE  → TrafficInteractive
+//	THROUGHPUT   → TrafficBatchPriority | TrafficBatchStandard
+//	BACKGROUND   → TrafficBackground
+func TrafficClassForAdmittedWork(realtime bool, latencyClass string, slaPremiumUSD float64) TrafficClass {
+	if realtime {
+		return TrafficClassForRealtime()
+	}
+	return TrafficClassForWorkload(latencyClass, slaPremiumUSD)
+}
+
+// ResolvedTrafficClass is the traffic class of a frozen batch workload once the
+// SLA premium on the same admission is known. The decision freezes LatencyClass;
+// the premium is a separate money fact. Combining them here is what makes the
+// class a property of admitted work rather than a free label.
+func (d WorkloadDecision) ResolvedTrafficClass(slaPremiumUSD float64) TrafficClass {
+	return TrafficClassForWorkload(d.LatencyClass, slaPremiumUSD)
+}
 
 // TokenBudgetForTrafficClass is the batching budget for a class.
 func TokenBudgetForTrafficClass(class TrafficClass) (int, error) {
@@ -166,6 +210,122 @@ func TokenBudgetForTrafficClass(class TrafficClass) (int, error) {
 		return 0, err
 	}
 	return policy.TokenBudget, nil
+}
+
+// Arrival join windows.
+//
+// These are the starting constants when no measured inter-arrival feedback is
+// available. They should be derived from:
+//
+//	min(
+//	  class.MaxQueueWait - EstimatedTTFT(class.TokenBudget) - safety,
+//	  measured p50 inter-arrival gap of compatible work that still raised
+//	  engine output tok/s,
+//	  remaining_deadline - EstimatedTTFT(current_prefill) - safety,
+//	)
+//
+// until that loop is closed the constants below are named, configurable, and
+// deliberately short: the product is coherent arrival at the engine, not a
+// multi-second hold.
+const (
+	// interactiveArrivalJoinWindow is how long INTERACTIVE work may wait for
+	// sibling arrivals before forwarding. Near zero: "never delayed for
+	// batching" means we only capture concurrent admits, not manufacture a
+	// queue. Measured engine behaviour may widen this slightly if a 1–2 ms
+	// join still keeps EstimatedTTFT under the interactive budget.
+	interactiveArrivalJoinWindow = 2 * time.Millisecond
+
+	// batchPriorityArrivalJoinWindow is the starting join window for paid
+	// deadline batch work. Bounded well below MaxQueueWait (30s) so a window
+	// constant cannot silently become the queue.
+	batchPriorityArrivalJoinWindow = 25 * time.Millisecond
+
+	// batchStandardArrivalJoinWindow is the starting join window for ordinary
+	// throughput work. Longer than priority; still a small fraction of the
+	// 5-minute MaxQueueWait.
+	batchStandardArrivalJoinWindow = 50 * time.Millisecond
+
+	// backgroundArrivalJoinWindow is the starting join window for interruptible
+	// background work. The largest of the four, still far below MaxQueueWait.
+	backgroundArrivalJoinWindow = 100 * time.Millisecond
+
+	// arrivalDeadlineSafety is subtracted from remaining deadline when deciding
+	// whether a hold is still safe. Absorbs scheduler jitter and the cost of
+	// the dispatch itself so EstimatedTTFT is not the only budget.
+	arrivalDeadlineSafety = 5 * time.Millisecond
+)
+
+// defaultJoinWindowForClass returns the starting arrival-join window for a
+// class. Overridable via ArrivalBatchConfig.
+func defaultJoinWindowForClass(class TrafficClass) time.Duration {
+	switch class {
+	case TrafficInteractive:
+		return interactiveArrivalJoinWindow
+	case TrafficBatchPriority:
+		return batchPriorityArrivalJoinWindow
+	case TrafficBatchStandard:
+		return batchStandardArrivalJoinWindow
+	case TrafficBackground:
+		return backgroundArrivalJoinWindow
+	default:
+		return 0
+	}
+}
+
+// JoinWindowForArrival is how long one admitted request may sit in the arrival
+// batcher waiting for compatible siblings before it must forward.
+//
+// Non-negotiable: the window never exceeds what the remaining deadline can
+// absorb after EstimatedTTFT of the request's own prefill and a safety margin.
+// INTERACTIVE additionally never waits for a manufactured batch — its default
+// window is only long enough to catch concurrent admits.
+//
+// configured, when > 0, replaces the class default (measurement harnesses use
+// this to sweep). A zero configured value means "use the class default".
+func JoinWindowForArrival(
+	class TrafficClass,
+	deadline time.Time,
+	now time.Time,
+	prefillTokens int,
+	configured time.Duration,
+) time.Duration {
+	base := configured
+	if base <= 0 {
+		base = defaultJoinWindowForClass(class)
+	}
+	if base <= 0 {
+		return 0
+	}
+	// Interactive is never delayed for batching past its near-zero join.
+	// Still subject to the deadline clamp below.
+	if !deadline.IsZero() {
+		remaining := deadline.Sub(now)
+		// Budget left for waiting after the work itself and a safety margin.
+		// EstimatedTTFT is the measured prefill→TTFT projection from
+		// batch_policy.go — the same model ValidateBatchBudget uses to refuse
+		// a throughput budget that would breach a latency contract.
+		work := EstimatedTTFT(prefillTokens) + arrivalDeadlineSafety
+		if remaining <= work {
+			return 0
+		}
+		if maxHold := remaining - work; maxHold < base {
+			base = maxHold
+		}
+	}
+	return base
+}
+
+// HoldWouldMissDeadline reports whether holding for hold duration, then running
+// prefillTokens of work, would land first-token past deadline.
+//
+// This is the gate the arrival batcher must consult before keeping a request in
+// a window. Removing the check must fail TestInteractiveNeverHeldPastDeadline.
+func HoldWouldMissDeadline(deadline, now time.Time, hold time.Duration, prefillTokens int) bool {
+	if deadline.IsZero() {
+		return false
+	}
+	eta := now.Add(hold).Add(EstimatedTTFT(prefillTokens)).Add(arrivalDeadlineSafety)
+	return eta.After(deadline)
 }
 
 // ValidateTrafficClassPolicies checks the table's internal consistency.
