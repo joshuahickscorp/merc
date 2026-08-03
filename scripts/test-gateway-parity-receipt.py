@@ -15,10 +15,18 @@ refusals is empty:
   - non-empty limitations with empty refusals (those fields contradict)
 
 A limitations list is prose; the gate checks the explicit booleans and sample
-counts, never the text of a limitation string. The committed historical
-receipt is expected to fail until a live n>=min_samples_required interleaved
-run with measurement-time digest re-hashing is produced. That red is accurate;
-there is no env-var opt-out.
+counts, never the text of a limitation string.
+
+A receipt carrying validity != "VALID" is WITHDRAWN. That is a self-consistent
+state, not a broken one -- the honest answer to "is there valid parity
+evidence" is no -- so it reports NO VALID PARITY EVIDENCE and exits 0, printing
+every recorded reason. None of the ordinary field checks run on it; reporting
+them would read like a repairable receipt, and that repair path ends with a
+retracted number passing a gate.
+
+A withdrawal with an empty superseded_reason IS a failure. That asymmetry is
+the anti-gaming property: withdrawing a receipt must cost an explanation, or
+one line silences any failing gate.
 
 Also runs offline unit checks (undated, refusals, budget, under-sampled,
 limitations/refusals contradiction, sequential arms, synthetic pass). Those
@@ -48,6 +56,9 @@ DEFAULT_RECEIPT = ROOT / "evidence" / "perf" / "gateway-parity.json"
 REVALIDATION_WINDOW = timedelta(days=180)
 
 FAILURES: list[str] = []
+# Receipts explicitly withdrawn, with their recorded reasons. Not failures:
+# an honest "there is no valid parity evidence" is a passing state.
+WITHDRAWN: list[tuple] = []
 
 
 def fail(msg: str) -> None:
@@ -134,23 +145,35 @@ def validate_receipt(path: Path, *, now: datetime | None = None) -> list[str]:
     if not isinstance(data, dict):
         return [f"parity receipt must be a JSON object: {path}"]
 
-    # A withdrawn receipt fails as withdrawn, and says so first. Without this the
-    # gate reports whichever incidental fields happen to be malformed, which reads
-    # like a fixable receipt rather than a retracted measurement — and someone
-    # eventually "fixes" the fields and reinstates a number that was never valid.
-    # The reasons live in the artifact so the retraction travels with it.
+    # A withdrawn receipt is a self-consistent state, not a broken one: the
+    # honest answer to "is there valid parity evidence" is no, and a repository
+    # that says so is not failing. So a withdrawal with recorded reasons is NOT
+    # an error here — validate_receipt returns clean and main() reports
+    # NO VALID PARITY EVIDENCE loudly instead.
+    #
+    # A withdrawal WITHOUT reasons is an error, and that asymmetry is the whole
+    # anti-gaming property: marking a receipt withdrawn must cost you an
+    # explanation, or "validity: WITHDRAWN" becomes a one-line way to silence
+    # any failing gate.
+    #
+    # None of the ordinary field checks run on a withdrawn receipt. Reporting
+    # them would read like a repairable receipt, and that repair path ends with
+    # a retracted number passing a gate.
     validity = str(data.get("validity", "")).strip()
     if validity and validity != "VALID":
         reasons = data.get("superseded_reason") or []
         if isinstance(reasons, str):
             reasons = [reasons]
-        detail = "".join(f"\n      * {r}" for r in reasons) or " (no reason recorded)"
-        return [
-            f"{path}: validity={validity}; this receipt is withdrawn and cannot "
-            f"clear the gate or be cited as parity or deficit evidence. "
-            f"A replacement requires a new measurement, not an edit to this file."
-            f"{detail}"
-        ]
+        reasons = [r for r in reasons if str(r).strip()]
+        if not reasons:
+            return [
+                f"{path}: validity={validity} but superseded_reason is empty. "
+                f"A withdrawal without a recorded reason is not a withdrawal — it "
+                f"is a gate silenced in one line. State what was wrong with the "
+                f"measurement."
+            ]
+        WITHDRAWN.append((path, validity, reasons))
+        return []
 
     measured_at = parse_measured_at(data.get("measured_at"))
     if measured_at is None:
@@ -295,26 +318,50 @@ def run_unit_tests() -> None:
             path.write_text(json.dumps(payload), encoding="utf-8")
             return path
 
-        # A withdrawn receipt fails as withdrawn, and the withdrawal is the ONLY
-        # error reported — otherwise the output reads like a list of fixable
-        # fields and someone repairs them to make a retracted number pass.
+        # A withdrawal WITH reasons is not an error: it is the repository
+        # honestly reporting that no valid parity evidence exists. It is
+        # recorded so main() can announce it, and no field checks run on it.
+        before = len(WITHDRAWN)
         withdrawn_payload = base_receipt()
         withdrawn_payload["validity"] = "INVALIDATED_PENDING_RERUN"
         withdrawn_payload["superseded_reason"] = ["one wave at c=32; n == c"]
+        # Deliberately also broken in an ordinary way, to prove the field checks
+        # are skipped rather than merely passing.
+        del withdrawn_payload["measured_at"]
         withdrawn = write("withdrawn.json", withdrawn_payload)
         errs = validate_receipt(withdrawn)
-        check(len(errs) == 1 and "withdrawn" in errs[0],
-              f"withdrawn receipt must fail as withdrawn and nothing else, got {errs!r}")
-        check("one wave at c=32" in errs[0],
-              f"withdrawal must carry its recorded reasons, got {errs!r}")
+        check(errs == [],
+              f"withdrawn receipt with reasons must not error, got {errs!r}")
+        check(len(WITHDRAWN) == before + 1,
+              "withdrawn receipt must be recorded so main() can announce it")
+        check(WITHDRAWN[-1][2] == ["one wave at c=32; n == c"],
+              f"withdrawal must carry its recorded reasons, got {WITHDRAWN[-1]!r}")
+
+        # A withdrawal WITHOUT a reason is a failure. Otherwise one line
+        # silences any gate.
+        silent_payload = base_receipt()
+        silent_payload["validity"] = "WITHDRAWN"
+        silent = write("silent-withdrawal.json", silent_payload)
+        errs = validate_receipt(silent)
+        check(len(errs) == 1 and "superseded_reason is empty" in errs[0],
+              f"reasonless withdrawal must fail, got {errs!r}")
+
+        # Blank-string reasons do not count as reasons.
+        blank_payload = base_receipt()
+        blank_payload["validity"] = "WITHDRAWN"
+        blank_payload["superseded_reason"] = ["   ", ""]
+        blank = write("blank-withdrawal.json", blank_payload)
+        check(any("superseded_reason is empty" in e for e in validate_receipt(blank)),
+              "whitespace-only reasons must not satisfy the withdrawal requirement")
 
         # An otherwise-identical receipt marked VALID is not short-circuited, so
-        # the withdrawal check cannot mask ordinary validation.
+        # the withdrawal path cannot mask ordinary validation.
         valid_payload = base_receipt()
         valid_payload["validity"] = "VALID"
+        del valid_payload["measured_at"]
         valid_marked = write("valid-marked.json", valid_payload)
-        check(not any("withdrawn" in e for e in validate_receipt(valid_marked)),
-              "validity=VALID must not trip the withdrawal refusal")
+        check(any("measured_at" in e for e in validate_receipt(valid_marked)),
+              "validity=VALID must still run ordinary field validation")
 
         # Receipt with no measured_at fails the gate.
         undated_payload = base_receipt()
@@ -484,6 +531,9 @@ def main() -> int:
     args = ap.parse_args()
 
     run_unit_tests()
+    # Self-test fixtures record themselves; drop them so the announcement
+    # below names only receipts that actually live in this repository.
+    WITHDRAWN.clear()
 
     if not args.self_test_only:
         for err in validate_receipt(args.receipt):
@@ -494,6 +544,21 @@ def main() -> int:
         for f in FAILURES:
             print(f"  - {f}")
         return 1
+
+    if WITHDRAWN:
+        # Loud on purpose. This repository has no valid parity evidence, and the
+        # only thing worse than saying so is letting it read as a pass.
+        print("gateway-parity-receipt: NO VALID PARITY EVIDENCE")
+        for path, validity, reasons in WITHDRAWN:
+            print(f"  {path}: {validity}")
+            for r in reasons:
+                print(f"    * {r}")
+        print(
+            "  No parity or deficit claim may cite a withdrawn receipt. "
+            "A replacement requires a new measurement, not an edit to the file."
+        )
+        return 0
+
     print(
         "gateway-parity-receipt: PASS "
         "(dated, inside revalidation window, empty refusals, "
