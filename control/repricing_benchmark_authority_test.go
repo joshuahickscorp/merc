@@ -99,24 +99,6 @@ func receiptSectionKeys(m map[string]any) []string {
 	return out
 }
 
-// measuredUnitsPerSecond reads the throughput a receipt section reports, in the
-// unit the repricing constant is expressed in.
-//
-// The two lanes report different keys because they measure different things —
-// embeddings per second and tokens per second — and batch_infer additionally
-// reports both a serial and a batched figure. The BATCHED one is the constant's
-// basis, because that is the shape a supplier actually serves.
-func measuredUnitsPerSecond(section map[string]any) (float64, bool) {
-	for _, key := range []string{
-		"throughput_eps", "batch_32_tokens_per_second", "throughput_tps",
-	} {
-		if v, ok := section[key].(float64); ok {
-			return v, true
-		}
-	}
-	return 0, false
-}
-
 // The viability report must refuse to answer for a hardware class it has no
 // measurement for, rather than answering from another class's number.
 func TestSupplierViabilityOnlyReportsMeasuredHardware(t *testing.T) {
