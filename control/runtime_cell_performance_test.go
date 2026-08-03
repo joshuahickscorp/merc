@@ -14,7 +14,31 @@ import (
 // benchmarkNow is an instant inside the revalidation window for every receipt in
 // the tree, so "fresh" is a property of the fixture rather than of the day the
 // suite happens to run.
-var benchmarkNow = time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+//
+// It is derived from the newest receipt rather than typed as a constant. A typed
+// date silently stops meaning "inside the window for every receipt" the moment a
+// receipt is re-measured later than it: the staleness tests then resolve against
+// a receipt in their own future, never trip, and a degradation guard passes by
+// doing nothing. That is exactly what happened when the embed cell's authority
+// was re-sealed.
+var benchmarkNow = newestBenchmarkMeasuredAt()
+
+// newestBenchmarkMeasuredAt returns the latest MeasuredAt across every benchmark
+// receipt the runtime authority resolves, so the fixture clock is at or after all
+// of them by construction.
+func newestBenchmarkMeasuredAt() time.Time {
+	newest := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	for _, receipt := range benchmarkAuthorityManifest {
+		at, err := time.Parse(time.RFC3339, receipt.MeasuredAt)
+		if err != nil {
+			continue
+		}
+		if at.After(newest) {
+			newest = at
+		}
+	}
+	return newest
+}
 
 func boardReferencePrice(t *testing.T, modelID, jobType string) float64 {
 	t.Helper()
@@ -454,9 +478,14 @@ func TestUnprovenRoutableCellRefusesAdmissionRatherThanCollapsingIt(t *testing.T
 // one's rate and its supplier is underpaid for work it can actually do.
 func TestAdmissionPricesTheCellsTheJobCanReach(t *testing.T) {
 	doc := mutableRuntimeAuthority(t)
-	// llama.cpp's embed cell is measured faster than candle's at every batch in
-	// the same receipt, and is held back by lifecycle rather than by evidence.
-	// Promoting it here gives the model two routable cells that disagree.
+	// Promoting llama.cpp's embed cell gives the model two routable cells whose
+	// measured rates disagree, which is the situation this test is about.
+	//
+	// Which of the two is faster is deliberately NOT hardcoded. It used to be,
+	// on the strength of an unbound receipt claiming llama.cpp was the quicker
+	// embed engine; the re-sealed bound r2 measurement puts candle ahead. A test
+	// that pins the winner by name asserts a measurement rather than a property,
+	// and fails the moment the measurement is redone honestly.
 	for i := range doc.Runtimes {
 		if doc.Runtimes[i].RuntimeID == "llama_cpp_metal" {
 			doc.Runtimes[i].Lifecycle = runtimeLifecycleActive
@@ -469,12 +498,18 @@ func TestAdmissionPricesTheCellsTheJobCanReach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("catalogue-wide admission: %v", err)
 	}
+	// The property: admission prices a pinned job from the cell it can reach, not
+	// from the catalogue-wide slowest. Pin to whichever cell is not the slowest.
+	faster := "llama-cpp-metal-minilm-embed"
+	if slowCell.CellID == faster {
+		faster = "candle-metal-minilm-embed"
+	}
 	pinned, fastCell, err := admissionUnitsPerSec(
-		"embed", "all-minilm-l6-v2", []string{"llama-cpp-metal-minilm-embed"}, benchmarkNow)
+		"embed", "all-minilm-l6-v2", []string{faster}, benchmarkNow)
 	if err != nil {
 		t.Fatalf("pinned admission: %v", err)
 	}
-	if fastCell.CellID != "llama-cpp-metal-minilm-embed" {
+	if fastCell.CellID != faster {
 		t.Fatalf("pinning to one candidate resolved cell %q", fastCell.CellID)
 	}
 	if pinned <= catalogueWide {
