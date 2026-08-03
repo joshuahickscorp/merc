@@ -4,6 +4,14 @@
 Hand-typed `earned` fields in ops/readiness.json are advisory and ignored.
 Where a named receipt is missing or fails its content check, that receipt
 contributes zero points. Live money / public launch must stay NO_GO_PROHIBITED.
+
+Machine-reachable ceiling: with every currently wired receipt present and
+passing, the derived total is 84/100. The remaining 16 points are reserved in
+each domain's `possible` total for external work (staging, Stripe sandbox
+matrix, offsite backup/restore, qualified approvals, staffed tabletops) and
+have no receipt row yet — so local code cannot raise the score, and empty
+files cannot either. Operator steps for those points:
+docs/FACET_EXTERNAL_ACTION_PACK.md. Do not loosen content checks to "make room".
 """
 
 from __future__ import annotations
