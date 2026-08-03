@@ -12,13 +12,16 @@ import (
 )
 
 func TestCreateJobRejectsExplicitNoncanonicalModelKindBeforeSideEffects(t *testing.T) {
+	// Only candle's hf cell is advertised for MiniLM today. Naming gguf is still
+	// a 400 until a gguf cell is promoted into the advertised set — the wire-kind
+	// fix accepts any advertised kind, not any kind that exists in the document.
 	_, herr := (&Server{}).createJob(context.Background(), uuid.New(), jobSubmit{
 		JobType: JobType{Type: "embed"},
 		Model:   ModelRef{Kind: "gguf", Ref: "all-minilm-l6-v2"},
 	})
 	if herr == nil || herr.status != http.StatusBadRequest ||
-		!strings.Contains(herr.msg, `requires model.kind="hf"`) {
-		t.Fatalf("createJob mismatch result=%v, want early canonical-kind 400", herr)
+		!strings.Contains(herr.msg, `no advertised cell serving model.kind="gguf"`) {
+		t.Fatalf("createJob mismatch result=%v, want unadvertised-kind 400", herr)
 	}
 }
 
@@ -30,7 +33,8 @@ func TestQuoteRejectsExplicitNoncanonicalModelKindBeforeSideEffects(t *testing.T
 
 	(&Server{}).handleQuote(rec, req)
 
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `requires model.kind=\"hf\"`) {
-		t.Fatalf("quote mismatch status=%d body=%s, want early canonical-kind 400", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), `no advertised cell serving model.kind=\"gguf\"`) {
+		t.Fatalf("quote mismatch status=%d body=%s, want unadvertised-kind 400", rec.Code, rec.Body.String())
 	}
 }
