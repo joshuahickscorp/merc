@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "kind": "evidence_binding_census",
-  "head": "ce6422be4fe0c1ee44aeeb376a5139152623532f",
+  "head": "a8159ac787f3f785e303d402ec806da65452d0f5",
   "counts": {
-    "BOUND": 1,
-    "UNBOUND": 103,
-    "SUPERSEDED": 0,
-    "WITHDRAWN": 1
+    "BOUND": 3,
+    "UNBOUND": 101,
+    "SUPERSEDED": 1,
+    "WITHDRAWN": 2
   },
-  "total_artifacts": 105,
+  "total_artifacts": 107,
   "artifacts": [
     {
       "path": "evidence/autonomous/agent-restart-authority-r1.json",
@@ -1193,17 +1193,7 @@
     },
     {
       "path": "evidence/prefix/live-proof.json",
-      "binding_status": "UNBOUND",
-      "missing_identity_fields": [
-        "source_commit",
-        "build_digest",
-        "model_artifact_digest",
-        "image_digest",
-        "harness_revision",
-        "corpus_digest",
-        "exact_config",
-        "raw_samples"
-      ]
+      "binding_status": "WITHDRAWN"
     },
     {
       "path": "evidence/realtime/openai-sdk-conformance.json",
@@ -1232,17 +1222,15 @@
     },
     {
       "path": "evidence/reuse/live-proof.json",
-      "binding_status": "UNBOUND",
-      "missing_identity_fields": [
-        "source_commit",
-        "build_digest",
-        "model_artifact_digest",
-        "image_digest",
-        "harness_revision",
-        "corpus_digest",
-        "exact_config",
-        "raw_samples"
-      ]
+      "binding_status": "SUPERSEDED"
+    },
+    {
+      "path": "evidence/reuse/public-path-128-to-1.json",
+      "binding_status": "BOUND"
+    },
+    {
+      "path": "evidence/reuse/public-path-coalescing-128-to-1.json",
+      "binding_status": "BOUND"
     },
     {
       "path": "evidence/runpod/cuda-first-proof.json",
@@ -1405,10 +1393,10 @@
   "note": "Retrospective stamp only. UNBOUND means producer identity cannot be recovered for a historical run; digests were not invented. UNBOUND artifacts must not back programme claims. counts include this census (BOUND).",
   "producer_identity": {
     "source_commit": {
-      "value": "ce6422be4fe0c1ee44aeeb376a5139152623532f"
+      "value": "a8159ac787f3f785e303d402ec806da65452d0f5"
     },
     "build_digest": {
-      "value": "7230ba9aa36b81f4f70a70bdade64d4905599b97d78fba7981e04fc9dc5945d8"
+      "value": "f6d76fc99d14b1b126c3cce5b63aabe3b49ff4d016cea894edef8f036f62dc8f"
     },
     "model_artifact_digest": {
       "na": "census has no model weights"
@@ -1426,7 +1414,7 @@
       "value": "stamp of committed evidence tree at HEAD"
     },
     "raw_samples": {
-      "value": "artifact_count=105"
+      "value": "artifact_count=107"
     }
   },
   "binding_status": "BOUND"

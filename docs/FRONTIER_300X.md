@@ -1,17 +1,21 @@
 # Merc efficiency frontier
 
-> **The 145× physical-inference claim is RETIRED PERMANENTLY.** It counted a
-> shared prefix computed once as if inferred once per stream, inflating the
-> figure 3.43×. The finding, the corrected benchmark and the accounting
-> regression tests are preserved below and in `scripts/test-bench-accounting.py`,
-> which runs in `make ci`.
+> **The 145× claim remains retired.** It counted a shared prefix computed once
+> as if inferred once per stream, inflating the figure 3.43×. The finding, the
+> corrected benchmark and the accounting regression tests are preserved below
+> and in `scripts/test-bench-accounting.py`, which runs in `make ci`.
+>
+> **Current physical and delivered multiples are unknown under bound identity.**
+> Historical unbound MLX logs and the tables below must not be labelled as
+> today's numbers. They are retained as the audit trail of a measurement error
+> and its corrected accounting, not as a live performance claim at this commit.
 
 ## Three independent authorities
 
-| authority | measures | today | ceiling |
+| authority | measures | today (bound identity) | ceiling (historical dense bound) |
 |---|---|---:|---|
-| **PHYSICAL EXACT-MODEL** | newly executed model work only | **48×** (6,646 t/s, 8-bit) | ~116× dense roofline |
-| **DELIVERED-TOKEN** | logical buyer tokens, reuse labelled | 99× (13,749 t/s @ 2.29× reuse) | 300× target |
+| **PHYSICAL EXACT-MODEL** | newly executed model work only | **unknown** — no bound receipt | ~116× dense roofline (historical) |
+| **DELIVERED-TOKEN** | logical buyer tokens, reuse labelled | **unknown** — no bound receipt | 300× target (programme aspiration) |
 | **OUTCOME** | verified task completion | not yet measured | cascades, specialists |
 
 `300×` is retained only as `DELIVERED_EFFECTIVE_THROUGHPUT` on a fixed eligible
@@ -42,8 +46,10 @@ bf16 is, and any 8-bit claim must disclose the tier.
 The single-prompt probe that showed 8-bit at 100% agreement was one lucky
 prompt. It was not evidence.
 
-There is also no speed/quality tradeoff to argue about: 8-bit measures **6,646
-t/s** physical against 4-bit's 6,512. The approved model is the faster one.
+A historical unbound suite once reported 8-bit at **6,646 t/s** physical against
+4-bit's 6,512 on that same unattested run. Those figures are not bound at this
+commit and are not today's numbers; quality approval of 8-bit over 4-bit still
+stands on the outcome table above, not on a live speed claim.
 
 ## Original analysis
 

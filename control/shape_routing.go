@@ -2,51 +2,28 @@ package main
 
 import "os"
 
-// Shape-aware routing: send a task to the hardware whose measured strengths
-// match the task's shape, rather than only to the hardware with the lowest
-// hourly rate.
+// Shape-aware routing: send a task to the hardware whose strengths match the
+// task's shape, rather than only to the hardware with the lowest hourly rate.
+//
+// Shape-aware routing is off by default. No bound, matched-weight
+// Metal-versus-CUDA crossover exists at this commit. An unbound historical
+// artifact (evidence/perf/routing-crossover.json) once compared dissimilar
+// models and precisions; those numbers are not a live routing authority and
+// must not be taught as today's CUDA or Metal peaks.
 //
 // The claim ORDER BY currently prefers the cheapest sufficient class, where
-// "cheapest" means cost per HOUR. For batch work that is the wrong denominator.
-// Measured on this deployment (evidence/perf/routing-crossover.json):
-//
-//	                     concurrency 1        concurrency 16
-//	Metal M3 Ultra       TTFT   14.4 ms       211 tok/s, TTFT 5002 ms
-//	CUDA RTX A5000       TTFT  181.0 ms      1617 tok/s, TTFT  313 ms
-//
-// Metal answers first-token 12.6x faster because it is local with no network
-// hop, and then collapses under concurrency because llama.cpp has no continuous
-// batching. CUDA holds latency flat and scales 11.7x.
-//
-// # A NOTE ON WHOSE COST THIS IS
-//
-// merc does not rent the hardware in the production supply model. Suppliers own
-// their rigs and pay their own electricity; merc pays them per unit of accepted
-// work. The $0.27/hr A5000 used to take the measurement above was RENTED TEST
-// CAPACITY, not what merc's supply costs.
-//
-// So the hourly rate is the SUPPLIER's input, not merc's, and the quantity that
-// decides routing is throughput per unit of whatever the supplier is paid. A
-// class that sustains 1617 tok/s earns its owner far more per kilowatt-hour than
-// one that sustains 211, which is why the same hardware that looks expensive by
-// the hour can be the one both sides want for batch.
-//
-// The consequence for ordering is unchanged -- rank by fitness for the shape,
-// not by an hourly figure merc does not pay -- but the reasoning must not be
-// quoted as merc's own cost per token.
+// "cheapest" means cost per HOUR. For batch work that is often the wrong
+// denominator: fitness for the shape (latency-bound vs throughput-bound) can
+// dominate an hourly figure merc does not itself pay. merc does not rent the
+// hardware in the production supply model; suppliers own their rigs and merc
+// pays per unit of accepted work.
 //
 // # WHY THIS IS GATED OFF BY DEFAULT
 //
-// The crossover above is one measurement, taken on two DIFFERENT models at
-// different precision (3B Q4_K_M on Metal, 1.5B fp16 on CUDA) with a single
-// worker on each side. That is enough to establish the SHAPE of the difference,
-// which is an engine and locality property, and not enough to justify inverting
-// the cost ordering on a live money path. Turning this on changes which supplier
-// gets paid.
-//
-// The evidence that would justify enabling it is specific: two workers of
-// different classes connected simultaneously, serving identical weights at
-// identical precision, with per-accepted-token cost measured on both. Until that
+// Turning this on changes which supplier gets paid. The evidence that would
+// justify enabling it is specific: two workers of different classes connected
+// simultaneously, serving identical weights at identical precision, with
+// per-accepted-token cost measured on both under bound identity. Until that
 // exists, the mechanism ships and the behaviour does not.
 //
 //	MERC_SHAPE_AWARE_ROUTING=1
@@ -70,12 +47,13 @@ func shapeAwareRoutingEnabled() bool {
 	return os.Getenv("MERC_SHAPE_AWARE_ROUTING") == "1"
 }
 
-// preferenceForTier maps a job's service tier to the hardware shape that
-// measured better for it.
+// preferenceForTier maps a job's service tier to the hardware shape preferred
+// for that shape class. No bound, matched-weight Metal-versus-CUDA crossover
+// exists at this commit; these preferences are speculative heuristics held
+// behind MERC_SHAPE_AWARE_ROUTING and must not be read as measured peaks.
 //
-// 'batch' is throughput-bound: it has no interactive user waiting on first
-// token, and it is the shape where Metal collapsed to a 5 second TTFT while
-// CUDA held 313 ms. Everything else is treated as latency-bound, which is the
+// 'batch' is treated as throughput-bound (no interactive user waiting on first
+// token). Everything else is treated as latency-bound, which is the
 // conservative direction: mistakenly optimising a batch job for latency wastes
 // some throughput, while mistakenly optimising an interactive request for
 // throughput is visible to a user on every request.

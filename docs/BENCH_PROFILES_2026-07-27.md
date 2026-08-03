@@ -1,5 +1,12 @@
 # Benchmark profiles
 
+> **Historical planning snapshot — superseded.** These MLX profile tables rest
+> on the same unbound bench chain as the retired speed-lane logs. They are not
+> bound at this commit and must not be labelled as today's physical or delivered
+> multiples. Use `docs/SHIPPABILITY_STATUS.md` and bound receipts under
+> `evidence/` for current claims. This file is retained as an audit trail, not
+> an operator performance reference. (Banner pattern matches `docs/PATH_TO_TEN.md`.)
+
 - hardware: **Apple M3 Ultra / 96GB**
 - runtime: **mlx**
 - model: **mlx-community/Llama-3.2-1B-Instruct-4bit**
