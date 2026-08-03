@@ -541,7 +541,7 @@ func TestGatewayParityMatrixDoesNotRelaxSingleShapeGuards(t *testing.T) {
 	if GatewayParityLadderComplete([]int{1}) {
 		t.Fatal("ladder must still require {1,8,32}")
 	}
-	if DefaultGatewayParityBudget().TTFTOverheadP95Ms != 15.0 {
+	if DefaultGatewayParityBudget().TTFTShiftQ95BudgetMs != 15.0 {
 		t.Fatal("TTFT budget must not be relaxed")
 	}
 }
