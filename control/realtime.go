@@ -15,10 +15,12 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -720,6 +722,14 @@ func (p *realtimePathTiming) mark(stage string, since time.Time) {
 	p.marks[stage] = time.Since(since)
 }
 
+// set records an already-measured duration (e.g. from httptrace connect).
+func (p *realtimePathTiming) set(stage string, d time.Duration) {
+	if p == nil || !p.enabled || d <= 0 {
+		return
+	}
+	p.marks[stage] = d
+}
+
 func (p *realtimePathTiming) log(stream bool, contractID string) {
 	if p == nil || !p.enabled {
 		return
@@ -730,10 +740,16 @@ func (p *realtimePathTiming) log(stream bool, contractID string) {
 
 func formatRealtimePathMarks(marks map[string]time.Duration) string {
 	// Stable order so a human can scan logs without sorting in their head.
+	// admission_event and settlement_intent sit on the TTFT path and were
+	// previously invisible; a parity run without them cannot locate gateway
+	// overhead. coalesce and arrival_batch were marked but omitted from this
+	// list, so their cost never appeared in the structured log line.
 	order := []string{
-		"read_body", "prepare_json", "intake_control", "exact_reuse",
-		"authorize_contract", "upstream_ttfb", "proxy_sse", "read_json_body",
-		"usage_reconcile", "settlement", "exact_cache_store",
+		"read_body", "prepare_json", "intake_control", "exact_reuse", "coalesce",
+		"authorize_contract", "admission_event", "arrival_batch",
+		"upstream_connect", "upstream_ttfb", "settlement_intent",
+		"proxy_sse", "read_json_body", "usage_reconcile", "settlement",
+		"exact_cache_store",
 	}
 	parts := make([]string, 0, len(order))
 	for _, k := range order {
@@ -971,8 +987,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	metrics.realtimeAuthorized.Add(1)
+	// RecordRealtimeAdmissionEvent does two synchronous DB round-trips
+	// (placement verify + insert) before the upstream dial. That cost sits on
+	// TTFT and was previously uninstrumented — path timing without this mark
+	// cannot attribute gateway overhead correctly.
+	stage = time.Now()
 	s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
 		contract.PlacementPlan.HWClass, realtimeAdmissionAdmitted, contract.ID)
+	pathTiming.mark("admission_event", stage)
 
 	// Traffic class is a property of the product the buyer entered — realtime
 	// chat completions with a reserved contract — not a free caller label.
@@ -1025,13 +1047,28 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	upstreamRequest.Header.Set("Authorization", "Bearer "+contract.UpstreamToken)
 	upstreamRequest.Header.Set("Content-Type", "application/json")
 	upstreamRequest.Header.Set("X-Request-ID", contract.RequestID)
+	// Parity harness capture: record the exact body bytes put on the wire to
+	// the engine so a dual-arm run can prove request identity rather than
+	// assert it. No-op unless MERC_PARITY_CAPTURE_UPSTREAM=1.
+	captureParityUpstreamBody(contract.RequestID, prepared.Body)
 	client := s.realtimeHTTPClient
 	if client == nil {
 		client = newRealtimeHTTPClient()
 	}
 	stage = time.Now()
+	var connectDur time.Duration
+	var connectOnce sync.Once
+	upstreamRequest = upstreamRequest.WithContext(httptrace.WithClientTrace(upstreamRequest.Context(), &httptrace.ClientTrace{
+		ConnectDone: func(_, _ string, err error) {
+			if err != nil {
+				return
+			}
+			connectOnce.Do(func() { connectDur = time.Since(stage) })
+		},
+	}))
 	response, err := client.Do(upstreamRequest)
 	pathTiming.mark("upstream_ttfb", stage)
+	pathTiming.set("upstream_connect", connectDur)
 	if err != nil {
 		cancelled := errors.Is(requestContext.Err(), context.Canceled)
 		code := "upstream_unavailable"
@@ -1065,13 +1102,21 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		// upstream first-byte signal and cancel r.Context() before this insert
 		// runs. The intent is an obligation to settle delivered work and must
 		// still arm.
+		// Settlement-intent insert sits between the engine's first byte and the
+		// buyer's first byte. Without this mark, TTFT overhead attributed to
+		// "the gateway" cannot distinguish stream-forward cost from DB write.
 		intentCtx, intentCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		stage = time.Now()
 		err := s.store.InsertRealtimeSettlementIntent(intentCtx, contract.ID, executionID)
+		pathTiming.mark("settlement_intent", stage)
 		intentCancel()
 		if err != nil {
 			finalizeRealtimeFailure(s.store, contract.ID, executionID, response.StatusCode, started, "settlement_intent_failed", err, false)
 			writeOpenAIError(w, http.StatusInternalServerError, "could not arm durable stream settlement", "server_error", "settlement_intent_failed")
 			return
+		}
+		if sha := parityUpstreamBodySHA(contract.RequestID); sha != "" {
+			w.Header().Set("X-Merc-Upstream-Body-SHA256", sha)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -1201,6 +1246,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// must never gate the buyer: it does object storage + a DB insert, which
 	// used to sit on the critical path and add avoidable wall time after
 	// settlement had already succeeded.
+	if sha := parityUpstreamBodySHA(contract.RequestID); sha != "" {
+		w.Header().Set("X-Merc-Upstream-Body-SHA256", sha)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)

@@ -5,7 +5,7 @@
   "measured_at": "2026-07-28T11:10:09Z",
   "merc_source_commit": "445880863c878c4d6f503c42f5e6bfaea4fb52b3",
   "comparable": true,
-  "gate_passed": true,
+  "gate_passed": false,
   "incomparable_reasons": [],
   "measurement_errors": [],
   "refusals": [],
@@ -570,5 +570,6 @@
     "The two arms did not send the same request. control/realtime.go:326-328 fills unset sampler fields from the runtime profile, and the vLLM profile carries top_p 0.95, while the harness body set temperature only. The direct arm reached the engine with top_p unset and the merc arm with top_p 0.95. Fixed in commit 5ebf6e83, after this receipt was written.",
     "Any throughput-loss figure derived alongside a TTFT delta in this shape double-counts one defect: with identical token counts in both arms, the aggregate-throughput gap and the TTFT gap are the same quantity expressed twice."
   ],
-  "superseded_note": "Retained deliberately. This is the record of what was believed and why it was withdrawn; deleting it would erase the correction. It is not valid parity evidence and it is not valid deficit evidence. No parity or deficit claim may cite this file. A replacement measurement requires the rebuilt harness."
+  "superseded_note": "Retained deliberately. This is the record of what was believed and why it was withdrawn; deleting it would erase the correction. It is not valid parity evidence and it is not valid deficit evidence. No parity or deficit claim may cite this file. A replacement measurement requires the rebuilt harness.",
+  "superseded_by": "merc-gateway-parity-v2 (control/gateway_parity_harness.go)"
 }
