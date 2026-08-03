@@ -97,7 +97,7 @@ func TestCellBenchmarkAuthorityCannotBeReusedForAnotherModel(t *testing.T) {
 	doc := mutableAuthority(t)
 	profile, infer := cellIn(t, doc, "candle_metal", "candle-metal-llama1-infer")
 	doc.Runtimes[profile].Cells[infer].BenchmarkAuthority =
-		"evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json"
+		"evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json"
 
 	err := validateRuntimeAuthorityDocument(doc)
 	if err == nil {

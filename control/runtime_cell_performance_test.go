@@ -412,7 +412,7 @@ func mutableCell(t *testing.T, doc *runtimeAuthorityDocument, cellID string) *au
 // (no routable cell at all). This test strips throughput from the cell's own
 // bound receipt so Routable stays true and the unproven-rate refusal fires.
 func TestUnprovenRoutableCellRefusesAdmissionRatherThanCollapsingIt(t *testing.T) {
-	const path = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r1.json"
+	const path = "evidence/perf/runtime-benchmarks/embed-cell-candle-vs-llama-cpp-r2.json"
 	saved := benchmarkAuthorityManifest[path]
 	t.Cleanup(func() { benchmarkAuthorityManifest[path] = saved })
 	stripped := saved
