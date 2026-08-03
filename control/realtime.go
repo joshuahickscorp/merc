@@ -434,6 +434,28 @@ func prepareRealtimeRequest(raw []byte, headerCeiling string) (preparedRealtimeR
 	}, nil
 }
 
+// realtimeSamplingFingerprint extracts the decoding params that must match for
+// two realtime requests to share an arrival batch. Distinct from full request
+// identity: prompts differ inside a batch; sampling must not.
+func realtimeSamplingFingerprint(prepared preparedRealtimeRequest) string {
+	var payload map[string]any
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		// Unparseable body is already rejected at prepare time; fall back to a
+		// unique fingerprint so this request never joins a foreign batch.
+		return "unparsed:" + prepared.RequestSHA256
+	}
+	temp := jsonFloat(payload["temperature"], 0)
+	topP := jsonFloat(payload["top_p"], 1)
+	var seed *int64
+	if raw, ok := payload["seed"]; ok {
+		if n, valid := jsonInt(raw); valid {
+			seed = &n
+		}
+	}
+	maxTokens := prepared.MaximumCompletionTokens
+	return SamplingFingerprint(temp, topP, seed, maxTokens)
+}
+
 // boundCompletionTokens refuses a bill the observed output cannot support.
 //
 // Token counts always arrive in the upstream's own usage message, and the
@@ -914,6 +936,43 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	metrics.realtimeAuthorized.Add(1)
 	s.recordRealtimeAdmissionEvent(r.Context(), auth.BuyerID, prepared.Profile.RuntimeProfileID,
 		contract.PlacementPlan.HWClass, realtimeAdmissionAdmitted, contract.ID)
+
+	// Traffic class is a property of the product the buyer entered — realtime
+	// chat completions with a reserved contract — not a free caller label.
+	// Arrival batching joins compatible admits inside a deadline-safe window
+	// so the engine sees a coherent arrival. Each contract is still billed
+	// alone; the batcher only delays the forward.
+	trafficClass := TrafficClassForAdmittedWork(true, "", 0)
+	if trafficClass != TrafficClassForRealtime() {
+		// Defensive: realtime must never resolve to a throughput class.
+		trafficClass = TrafficClassForRealtime()
+	}
+	stage = time.Now()
+	if s.arrivalBatcher != nil {
+		// Sampling fingerprint from the prepared body so only compatible
+		// decoding params share a batch. WorkerID is in the lane key so we
+		// never re-route onto a different cost class after authorization.
+		laneKey := ArrivalLaneKey(
+			contract.ModelAlias,
+			contract.RuntimeProfileID,
+			contract.WorkerID.String(),
+			realtimeSamplingFingerprint(prepared),
+		)
+		ready := s.arrivalBatcher.Admit(r.Context(), ArrivalRequest{
+			ID:           contract.ID.String(),
+			LaneKey:      laneKey,
+			Class:        trafficClass,
+			Deadline:     contract.DeadlineAt,
+			PromptTokens: int(prepared.EstimatedPromptTokens),
+			OutputTokens: int(prepared.EstimatedCompletionTokens),
+		})
+		if !WaitArrival(r.Context(), ready) {
+			finalizeRealtimeFailure(s.store, contract.ID, uuid.New(), 0, time.Now(), "client_cancelled",
+				errors.New("client cancelled during arrival batch join"), true)
+			return
+		}
+	}
+	pathTiming.mark("arrival_batch", stage)
 
 	started := time.Now()
 	executionID := uuid.New()
