@@ -129,11 +129,12 @@ func TestWorkerRuntimeProjectionRejectsHostileTelemetryAndIdentity(t *testing.T)
 }
 
 func TestAdvertisedRuntimeJobModelIsExactNotCartesian(t *testing.T) {
-	// Only bindable-authority cells are advertised. At this commit that is the
-	// candle embed cell alone; batch_infer and media cells are lifecycle-routable
-	// but stand on unbound authority and must not pass ordinary admission.
+	// Only bindable-authority cells are advertised. After the llama1 re-measure
+	// that is embed + batch_infer; media cells remain lifecycle-routable but
+	// stand on unbound authority and must not pass ordinary admission.
 	allowed := [][2]string{
 		{"embed", "all-minilm-l6-v2"},
+		{"batch_infer", "llama-3.2-1b-instruct-q4"},
 	}
 	for _, pair := range allowed {
 		if err := validateAdvertisedRuntimeJobModel(pair[0], pair[1]); err != nil {
@@ -144,7 +145,6 @@ func TestAdvertisedRuntimeJobModelIsExactNotCartesian(t *testing.T) {
 	rejected := [][2]string{
 		{"embed", "llama-3.2-1b-instruct-q4"},
 		{"unsupported", "all-minilm-l6-v2"},
-		{"batch_infer", "llama-3.2-1b-instruct-q4"},
 		{"batch_infer", "unsupported-model"},
 		{"media_transcode", "ffmpeg-transcode-v1"},
 		{"media_rendering", "svg-scene-render-v1"},
@@ -163,9 +163,8 @@ func TestGeneratedRuntimeModelRefOwnsInternalWireKind(t *testing.T) {
 		job, model, kind string
 	}{
 		{"embed", "all-minilm-l6-v2", "hf"},
-		// batch_infer is not advertised while its authority is unbound, so the
-		// advertised-only lookup returns the model ref with an empty kind.
-		{"batch_infer", "llama-3.2-1b-instruct-q4", ""},
+		// batch_infer is BOUND and advertised; the generated kind is the GGUF pin.
+		{"batch_infer", "llama-3.2-1b-instruct-q4", "gguf"},
 		{"unknown", "unknown", ""},
 	} {
 		got := generatedRuntimeModelRef(tc.job, tc.model)
@@ -186,15 +185,16 @@ func TestNormalizeAdvertisedRuntimeModelRefOwnsBuyerIngressKind(t *testing.T) {
 		}
 	})
 
-	t.Run("unbound batch_infer is not advertised", func(t *testing.T) {
-		// Ordinary admission must refuse the unbound generation cell rather than
-		// canonicalizing it as if it still sold buyer work.
-		_, err := normalizeAdvertisedRuntimeModelRef("batch_infer", ModelRef{
+	t.Run("bound batch_infer is advertised", func(t *testing.T) {
+		got, err := normalizeAdvertisedRuntimeModelRef("batch_infer", ModelRef{
 			Kind: "gguf",
 			Ref:  "llama-3.2-1b-instruct-q4",
 		})
-		if err == nil {
-			t.Fatal("unbound batch_infer was admitted as an advertised runtime model")
+		if err != nil {
+			t.Fatalf("BOUND batch_infer refused: %v", err)
+		}
+		if got != (ModelRef{Kind: "gguf", Ref: "llama-3.2-1b-instruct-q4"}) {
+			t.Fatalf("normalized ref=%+v, want generated gguf kind", got)
 		}
 	})
 
@@ -313,15 +313,23 @@ func TestWorkerRegistrationProjectsBuiltinMediaCell(t *testing.T) {
 }
 
 func TestHeartbeatLoadedModelsStayInsideProductionProjection(t *testing.T) {
-	// Only models with a bindable advertised cell may be warm. Llama and media
-	// are lifecycle-present but unbound, so a heartbeat naming them is refused.
-	if err := validateHeartbeatRuntimeModels([]string{"all-minilm-l6-v2"}); err != nil {
-		t.Fatalf("production warm models rejected: %v", err)
+	// Only models with a bindable advertised cell may be warm. After the llama1
+	// re-measure both MiniLM and Llama generation are in the catalogue; media
+	// models remain unbound and a heartbeat naming them is refused.
+	for _, models := range [][]string{
+		{"all-minilm-l6-v2"},
+		{"llama-3.2-1b-instruct-q4"},
+		{"all-minilm-l6-v2", "llama-3.2-1b-instruct-q4"},
+	} {
+		if err := validateHeartbeatRuntimeModels(models); err != nil {
+			t.Fatalf("production warm models rejected: %v (%v)", err, models)
+		}
 	}
 	for _, models := range [][]string{
-		{"llama-3.2-1b-instruct-q4"},
 		{"unsupported-model"},
 		{"unknown"},
+		{"ffmpeg-transcode-v1"},
+		{"svg-scene-render-v1"},
 		{"all-minilm-l6-v2", "all-minilm-l6-v2"},
 	} {
 		if err := validateHeartbeatRuntimeModels(models); err == nil {
