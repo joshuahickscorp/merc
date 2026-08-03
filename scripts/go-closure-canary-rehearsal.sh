@@ -381,12 +381,24 @@ host_rehearsal() {
     umask 077
     [ "$(gc_sha256 "$MERC_CANARY_SCENARIO_DRIVER")" = "$MERC_CANARY_DRIVER_SHA256" ] \
       || gc_die "scenario driver bytes changed before $scenario"
-    if ! "$MERC_CANARY_SCENARIO_DRIVER" run "$scenario" "$minimum" > "$receipt"; then
-      rm -f -- "$receipt"
+    payload="$(mktemp "$GC_EVIDENCE_DIR/.scenario-$scenario.XXXXXX.json")"
+    if ! "$MERC_CANARY_SCENARIO_DRIVER" run "$scenario" "$minimum" > "$payload"; then
+      rm -f -- "$payload" "$receipt"
       gc_die "scenario driver failed for $scenario"
     fi
     [ "$(gc_sha256 "$MERC_CANARY_SCENARIO_DRIVER")" = "$MERC_CANARY_DRIVER_SHA256" ] \
       || gc_die "scenario driver bytes changed while running $scenario"
+    # shellcheck source=scripts/lib/write-bound-evidence.sh
+    ROOT="${ROOT:-$GC_ROOT}"
+    # shellcheck disable=SC1091
+    . "$GC_ROOT/scripts/lib/write-bound-evidence.sh"
+    merc_emit_bound_json "$receipt" "scripts/canary-scenario-driver.sh" "$payload" \
+      --exact-config "canary scenario=$scenario minimum=$minimum run_id=${MERC_CANARY_RUN_ID:-}" \
+      --raw-samples "embedded evidence[] observations" \
+      --model-na "canary scenario receipt does not load model weights" \
+      --image-na "control image digest lives in receipt.binding.control_image" \
+      --corpus-na "no external corpus"
+    rm -f -- "$payload"
     chmod 600 "$receipt"
     scenario_checked_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     validate_scenario_receipt \

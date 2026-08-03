@@ -342,5 +342,13 @@ jq -n --arg finished "$finished" --arg image "$CANDIDATE" --argjson version "$ve
    ledger:$ledger,
    external:{persistent_external_tls:"NOT EXECUTED",stripe_sandbox:"NOT EXECUTED",
      stripe_live:"PROHIBITED"}}' > "$temporary"
-mv "$temporary" "$EVIDENCE"
+# shellcheck source=scripts/lib/write-bound-evidence.sh
+. "$ROOT/scripts/lib/write-bound-evidence.sh"
+merc_emit_bound_json "$EVIDENCE" "scripts/local-production-rehearsal.sh" "$temporary" \
+  --exact-config "local production-shaped TLS; candidate_image=$CANDIDATE" \
+  --raw-samples "embedded ledger and version observations" \
+  --model-na "TLS rehearsal does not load model weights" \
+  --image-na "candidate_image is recorded in the receipt body; not a content digest" \
+  --corpus-na "no external corpus"
+rm -f "$temporary"
 printf 'PASS local production-shaped TLS receipt: %s\n' "$EVIDENCE"

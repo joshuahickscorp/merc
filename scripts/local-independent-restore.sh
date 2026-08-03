@@ -161,6 +161,7 @@ object_count="$(docker run --rm --network "$B_NET" --entrypoint /bin/sh "$MC_IMA
 
 mkdir -p "$ROOT/evidence/autonomous"
 receipt="$ROOT/evidence/autonomous/logical-independent-restore.json"
+payload="$(mktemp "${TMPDIR:-/tmp}/merc-logical-restore.XXXXXX.json")"
 jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg cipher "$expected" \
   --argjson semantic "$semantic" --argjson objects "$object_count" --argjson destroyed "$SOURCE_DESTROYED" \
   '{schema_version:1,kind:"logical_independent_restore",status:"PASS",completed_at:$at,
@@ -169,6 +170,15 @@ jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg cipher "$expected" \
     integrity:{ciphertext_sha256:$cipher,ciphertext_verified:true,corrupt_backup_rejected:true,
       payload_checksums_verified:true,database_semantics:$semantic,object_count:$objects,
       ledger_zero_sum:true,artifact_sentinels_verified:true},
-    external_offsite_restore:"NOT EXECUTED",secret_values_recorded:false}' > "$receipt"
+    external_offsite_restore:"NOT EXECUTED",secret_values_recorded:false}' > "$payload"
+# shellcheck source=scripts/lib/write-bound-evidence.sh
+. "$ROOT/scripts/lib/write-bound-evidence.sh"
+merc_emit_bound_json "$receipt" "scripts/local-independent-restore.sh" "$payload" \
+  --exact-config "logical independent restore; ciphertext_sha256=$expected" \
+  --raw-samples "embedded database_semantics and object_count" \
+  --model-na "restore drill does not load model weights" \
+  --image-na "drill uses ephemeral docker images; not programme image digests" \
+  --corpus-na "no external corpus; synthetic seed only"
+rm -f "$payload"
 echo "PASS logical independent restore; external offsite restore NOT EXECUTED"
 echo "$receipt"

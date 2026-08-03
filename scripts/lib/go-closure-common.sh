@@ -337,7 +337,21 @@ gc_atomic_json() {
   umask 077
   jq "$@" > "$temporary"
   chmod 600 "$temporary"
-  mv -f -- "$temporary" "$destination"
+  # Every go-closure receipt under evidence/go-closure/ must carry binding_status.
+  # Route through the bound writer rather than mv-ing unstamped JSON into the tree.
+  # shellcheck source=scripts/lib/write-bound-evidence.sh
+  ROOT="${ROOT:-$GC_ROOT}"
+  # shellcheck disable=SC1091
+  . "$GC_ROOT/scripts/lib/write-bound-evidence.sh"
+  merc_emit_bound_json "$destination" "scripts/lib/go-closure-common.sh:gc_atomic_json" \
+    "$temporary" \
+    --exact-config "go-closure receipt $(basename "$destination")" \
+    --raw-samples "embedded in receipt body" \
+    --model-na "go-closure receipt does not load model weights" \
+    --image-na "image digests recorded in receipt body when applicable" \
+    --corpus-na "no external corpus"
+  rm -f -- "$temporary"
+  chmod 600 "$destination" 2>/dev/null || true
 }
 
 gc_sha256() {

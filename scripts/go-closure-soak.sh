@@ -156,6 +156,26 @@ host_soak() {
     sleep "$sleep_seconds"
   done
   chmod 600 "$samples"
+  # JSONL samples live under evidence/go-closure/; stamp a BOUND sidecar so a
+  # re-run cannot leave the file without binding_status coverage.
+  python3 - "$samples" "$GC_ROOT" <<'PY'
+import sys
+from pathlib import Path
+root = Path(sys.argv[2])
+sys.path.insert(0, str(root / "scripts"))
+from lib.evidence_binding import write_bound_jsonl_sidecar
+write_bound_jsonl_sidecar(
+    sys.argv[1],
+    harness="scripts/go-closure-soak.sh",
+    repo_root=root,
+    build_binary_path=root / "scripts/go-closure-soak.sh",
+    exact_config="go-closure soak raw samples JSONL",
+    raw_samples=f"JSONL at {sys.argv[1]}",
+    model_na="soak samples do not load model weights",
+    image_na="image identity recorded in parent soak receipt",
+    corpus_na="no external corpus",
+)
+PY
 
   local finished_epoch actual_duration expected_samples minimum_samples rss_growth_bytes
   local disk_growth_kb writable_growth_bytes connection_growth qualifies samples_sha

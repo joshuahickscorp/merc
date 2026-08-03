@@ -22,6 +22,13 @@ import statistics
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from lib.evidence_binding import (  # noqa: E402
+    EvidenceBindingError,
+    write_bound_jsonl_sidecar,
+)
+
 REFERENCE = "mlx-community/Llama-3.2-1B-Instruct-bf16"
 CANDIDATES = [
     ("mlx-community/Llama-3.2-1B-Instruct-4bit", "4bit"),
@@ -165,6 +172,21 @@ def main() -> int:
     with out.open("w") as fh:
         for r in records:
             fh.write(json.dumps(r) + "\n")
+    try:
+        write_bound_jsonl_sidecar(
+            out,
+            harness="scripts/quality-suite.py",
+            repo_root=ROOT,
+            build_binary_path=Path(__file__).resolve(),
+            exact_config="quantization quality suite over PROMPTS",
+            raw_samples=f"JSONL rows at {out.as_posix()}",
+            model_na="model ids recorded per JSONL row; no single artifact digest",
+            image_na="no container image in this measurement",
+            corpus_na="prompt set is embedded in scripts/quality-suite.py",
+        )
+    except EvidenceBindingError as exc:
+        print(f"quality-suite: REFUSED binding sidecar: {exc}", file=sys.stderr)
+        return 2
 
     print(f"\n{'quant':>6} {'MODEL-EXACT':>12} {'exact/N':>9} {'1st div':>8} "
           f"{'OUTCOME':>9} {'vs ref':>8}")
