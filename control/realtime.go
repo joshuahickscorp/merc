@@ -617,9 +617,34 @@ func realtimeUpstreamURL(baseURL string) string {
 	return strings.TrimRight(baseURL, "/") + "/chat/completions"
 }
 
+// realtimeMaxIdleConnsPerHost is the idle keep-alive budget for one upstream
+// worker origin. It is the agent default for max_active_sequences (agent
+// vllm.example.toml and default_max_active_sequences in agent/src/vllm.rs):
+// that is how many concurrent streaming connections a single origin is
+// expected to sustain under admission. Above this value additional concurrent
+// streams still dial; idle keep-alives only amortize up to this many.
+//
+// Do not "clean up" this back to Go's default. DefaultMaxIdleConnsPerHost is 2,
+// which is correct for a browser talking to many hosts with few concurrent
+// connections each and wrong for a gateway that holds many concurrent
+// streaming connections to one worker origin. With the default, finished
+// streams leave only two idle connections; the next wave redials. Free at
+// c=1 (one connection reused); expensive at c=32 (≈30 cold dials per wave).
+// Measured in evidence/perf/gateway-concurrency-sweep.json.
+const realtimeMaxIdleConnsPerHost = 128
+
 func newRealtimeHTTPClient() *http.Client {
+	// Dedicated transport: never share http.DefaultTransport. The defaults on
+	// DefaultTransport (MaxIdleConnsPerHost=2, MaxIdleConns=100) are the
+	// concurrency-scaling gateway tax on the upstream path; see constant above.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConnsPerHost = realtimeMaxIdleConnsPerHost
+	// Default MaxIdleConns is 100, which is below MaxIdleConnsPerHost and would
+	// silently re-impose a lower global idle cap across origins. Size for a
+	// handful of concurrent worker origins at full sequence depth.
+	transport.MaxIdleConns = realtimeMaxIdleConnsPerHost * 4
 	return &http.Client{
-		Transport: http.DefaultTransport,
+		Transport: transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			// A registered worker origin must not redirect the gateway (or its
 			// bearer credential) to an origin that did not pass registration.

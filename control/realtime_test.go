@@ -2,11 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -115,6 +120,115 @@ func TestRealtimeHTTPClientDoesNotFollowWorkerRedirects(t *testing.T) {
 	if response.StatusCode != http.StatusFound {
 		t.Fatalf("worker redirect was followed: status=%d", response.StatusCode)
 	}
+}
+
+// TestRealtimeHTTPClientIdlePoolCoversOfferConcurrency guards the concurrency-
+// scaling gateway tax fixed in newRealtimeHTTPClient. Go's DefaultTransport
+// sets MaxIdleConnsPerHost=2 (DefaultMaxIdleConnsPerHost). Under concurrent
+// streaming to one worker origin that leaves finished connections closed, so
+// c=32 redials while c=1 reuses. The idle budget must cover the agent default
+// max_active_sequences (128), and MaxIdleConns must not silently re-cap below
+// that. Reverting to http.DefaultTransport fails this test.
+func TestRealtimeHTTPClientIdlePoolCoversOfferConcurrency(t *testing.T) {
+	client := newRealtimeHTTPClient()
+	if client.Transport == http.DefaultTransport {
+		t.Fatal("realtime client shares http.DefaultTransport; concurrent streaming would inherit MaxIdleConnsPerHost=2")
+	}
+	tr, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("realtime client transport type %T, want *http.Transport", client.Transport)
+	}
+	if tr.MaxIdleConnsPerHost < realtimeMaxIdleConnsPerHost {
+		t.Fatalf("MaxIdleConnsPerHost=%d, want >= %d (agent default max_active_sequences); DefaultMaxIdleConnsPerHost=2 is the concurrency tax",
+			tr.MaxIdleConnsPerHost, realtimeMaxIdleConnsPerHost)
+	}
+	if tr.MaxIdleConns < tr.MaxIdleConnsPerHost {
+		t.Fatalf("MaxIdleConns=%d < MaxIdleConnsPerHost=%d; global idle cap would re-impose the tax",
+			tr.MaxIdleConns, tr.MaxIdleConnsPerHost)
+	}
+	// Pin the derivation: the constant is the agent default, not a round guess.
+	if realtimeMaxIdleConnsPerHost != 128 {
+		t.Fatalf("realtimeMaxIdleConnsPerHost=%d, want 128 (agent default_max_active_sequences)", realtimeMaxIdleConnsPerHost)
+	}
+}
+
+// TestRealtimeHTTPClientReusesConnectionsUnderConcurrency is the behavioural
+// twin of TestRealtimeHTTPClientIdlePoolCoversOfferConcurrency: under a wave
+// of concurrent streaming requests to one origin, dials must stay near the
+// concurrency level (reuse), not near the request count (no reuse). With
+// MaxIdleConnsPerHost=2 almost every request after the first two dials cold.
+func TestRealtimeHTTPClientReusesConnectionsUnderConcurrency(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Hold the connection briefly so concurrent requests actually overlap
+		// and then return to the idle pool for reuse by the next wave.
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n"))
+		flusher.Flush()
+		time.Sleep(5 * time.Millisecond)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer upstream.Close()
+
+	client := newRealtimeHTTPClient()
+	tr, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type %T", client.Transport)
+	}
+	// Count dials without changing the idle-pool settings under test.
+	var dials atomic.Int64
+	prev := tr.DialContext
+	if prev == nil {
+		d := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+		prev = d.DialContext
+	}
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		dials.Add(1)
+		return prev(ctx, network, addr)
+	}
+
+	const concurrency = 16
+	const waves = 4
+	// waves * concurrency requests; with reuse, dials ≈ concurrency (one wave
+	// of connections reused). With DefaultMaxIdleConnsPerHost=2, dials ≈
+	// almost every request after idle slots fill.
+	total := concurrency * waves
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, concurrency)
+	for i := 0; i < total; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			req, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader(`{}`))
+			if err != nil {
+				t.Errorf("new request: %v", err)
+				return
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Errorf("do: %v", err)
+				return
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}()
+	}
+	wg.Wait()
+
+	got := dials.Load()
+	// Allow a small surplus for racing dials at wave boundaries, but refuse
+	// the default-transport failure mode (dials ≈ total).
+	if got > int64(concurrency*2) {
+		t.Fatalf("client dialed %d times for %d requests at concurrency %d; idle pool is not reusing (DefaultMaxIdleConnsPerHost=2 fails here with dials≈requests)",
+			got, total, concurrency)
+	}
+	if got < 1 {
+		t.Fatal("expected at least one dial")
+	}
+	t.Logf("dials=%d total_requests=%d concurrency=%d (reuse ok)", got, total, concurrency)
 }
 
 func TestProxySSEBuildsUsageBoundHashChain(t *testing.T) {
